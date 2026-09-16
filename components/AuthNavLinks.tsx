@@ -13,9 +13,9 @@ export default function AuthNavLinks() {
 
   if (!auth.configured) {
     return (
-      <span className="px-3 py-2 text-sm text-muted" title="Accounts aren't configured in this environment">
-        Accounts unavailable
-      </span>
+      <Link href="/login" className={linkClass} title="Accounts aren't configured in this environment yet">
+        Sign in
+      </Link>
     );
   }
 
