@@ -106,6 +106,10 @@ export default function EventBrowser({ events, categories }: EventBrowserProps) 
         )}
       </form>
 
+      <p aria-live="polite" className="text-sm text-muted">
+        Showing {filteredEvents.length} of {events.length} events
+      </p>
+
       {filteredEvents.length === 0 ? (
         <div className="rounded-lg border border-dashed border-surface-border p-10 text-center">
           <p className="font-heading text-2xl text-foreground">No events match your filters</p>
@@ -121,7 +125,7 @@ export default function EventBrowser({ events, categories }: EventBrowserProps) 
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
           {filteredEvents.map((event) => (
             <EventCard key={event.id} event={event} />
           ))}

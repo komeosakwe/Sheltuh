@@ -19,6 +19,25 @@ export const EVENT_CATEGORIES: { value: EventCategory; label: string }[] = [
  */
 export type FeePolicy = "buyer-pays" | "organiser-absorbs";
 
+/** Decorative pattern rendered by components/EventArt.tsx. */
+export type PosterPattern =
+  | "burst"
+  | "rings"
+  | "grid"
+  | "stripes"
+  | "waves"
+  | "confetti"
+  | "curtain"
+  | "halftone";
+
+/** Local CSS/SVG poster artwork for an event — no remote image dependency. */
+export interface EventPoster {
+  pattern: PosterPattern;
+  background: string;
+  primary: string;
+  secondary: string;
+}
+
 export interface TicketType {
   id: string;
   name: string;
@@ -42,7 +61,6 @@ export interface SheltuhEvent {
   startsAt: string;
   endsAt?: string;
   organiserName: string;
-  /** Two hex colours used to render a CSS gradient placeholder image. */
-  imageGradient: [string, string];
+  poster: EventPoster;
   ticketTypes: TicketType[];
 }

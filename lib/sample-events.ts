@@ -19,7 +19,7 @@ export const sampleEvents: SheltuhEvent[] = [
     startsAt: "2026-09-25T20:00:00",
     endsAt: "2026-09-26T00:00:00",
     organiserName: "Static Collective",
-    imageGradient: ["#1e3fe0", "#0a0a12"],
+    poster: { pattern: "burst", background: "#0a0a12", primary: "#1e3fe0", secondary: "#ff2f6e" },
     ticketTypes: [
       {
         id: "neon-static-ga",
@@ -51,7 +51,7 @@ export const sampleEvents: SheltuhEvent[] = [
     startsAt: "2026-10-03T10:00:00",
     endsAt: "2026-10-03T13:00:00",
     organiserName: "Paper Moon Studio",
-    imageGradient: ["#0047ab", "#141414"],
+    poster: { pattern: "rings", background: "#141414", primary: "#d98a3d", secondary: "#2f5bf6" },
     ticketTypes: [
       {
         id: "paper-moon-seat",
@@ -76,7 +76,7 @@ export const sampleEvents: SheltuhEvent[] = [
     startsAt: "2026-09-30T18:30:00",
     endsAt: "2026-09-30T21:00:00",
     organiserName: "Southbank Drawing Group",
-    imageGradient: ["#2451f5", "#050507"],
+    poster: { pattern: "grid", background: "#050507", primary: "#2451f5", secondary: "#f5f4f0" },
     ticketTypes: [
       {
         id: "sketch-salon-entry",
@@ -100,7 +100,7 @@ export const sampleEvents: SheltuhEvent[] = [
     startsAt: "2026-10-08T19:00:00",
     endsAt: "2026-10-08T23:00:00",
     organiserName: "Afterimage Projects",
-    imageGradient: ["#1633a8", "#000000"],
+    poster: { pattern: "stripes", background: "#000000", primary: "#1633a8", secondary: "#34e2c4" },
     ticketTypes: [
       {
         id: "laneway-projections-entry",
@@ -124,7 +124,7 @@ export const sampleEvents: SheltuhEvent[] = [
     startsAt: "2026-10-16T19:30:00",
     endsAt: "2026-10-16T22:30:00",
     organiserName: "Loose Tongue Collective",
-    imageGradient: ["#3b5bff", "#0b0b0f"],
+    poster: { pattern: "waves", background: "#0b0b0f", primary: "#3b5bff", secondary: "#ffcf4d" },
     ticketTypes: [
       {
         id: "fitzroy-poetry-entry",
@@ -148,7 +148,7 @@ export const sampleEvents: SheltuhEvent[] = [
     startsAt: "2026-09-27T11:00:00",
     endsAt: "2026-09-27T16:00:00",
     organiserName: "Small Press Melbourne",
-    imageGradient: ["#274bdb", "#111116"],
+    poster: { pattern: "confetti", background: "#111116", primary: "#274bdb", secondary: "#ff6b3d" },
     ticketTypes: [
       {
         id: "zine-fair-entry",
@@ -172,7 +172,7 @@ export const sampleEvents: SheltuhEvent[] = [
     startsAt: "2026-11-14T19:00:00",
     endsAt: "2026-11-14T20:30:00",
     organiserName: "Off-Kilter Theatre Co.",
-    imageGradient: ["#152e8a", "#08080c"],
+    poster: { pattern: "curtain", background: "#08080c", primary: "#152e8a", secondary: "#c81d4f" },
     ticketTypes: [
       {
         id: "off-kilter-full",
@@ -204,7 +204,7 @@ export const sampleEvents: SheltuhEvent[] = [
     startsAt: "2026-11-21T10:00:00",
     endsAt: "2026-11-22T16:00:00",
     organiserName: "Convent Print Studio",
-    imageGradient: ["#0c2fb0", "#101014"],
+    poster: { pattern: "halftone", background: "#101014", primary: "#0c2fb0", secondary: "#2fd0c8" },
     ticketTypes: [
       {
         id: "print-weekend-seat",

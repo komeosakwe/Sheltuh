@@ -19,11 +19,6 @@ export function getEventCategories(): { value: EventCategory; label: string }[] 
   return EVENT_CATEGORIES;
 }
 
-/** Cheapest ticket type for an event, used for card price display. */
-export function getFromPriceCents(event: SheltuhEvent): number {
-  return Math.min(...event.ticketTypes.map((ticket) => ticket.priceCents));
-}
-
 export function isFreeEvent(event: SheltuhEvent): boolean {
   return event.ticketTypes.every((ticket) => ticket.priceCents === 0);
 }

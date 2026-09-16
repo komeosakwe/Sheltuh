@@ -3,21 +3,24 @@
 import { useMemo, useState } from "react";
 import { calculateOrderSummary } from "@/lib/fees";
 import { formatAud } from "@/lib/format";
+import { formatTicketBreakdown, formatTicketHeadline } from "@/lib/pricing";
 import type { TicketType } from "@/lib/types";
 
 const MAX_QUANTITY_PER_TYPE = 8;
 
+const stepperButtonClass =
+  "flex h-11 w-11 shrink-0 items-center justify-center rounded border border-surface-border text-lg font-semibold text-foreground transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-surface-border disabled:hover:text-foreground";
+
 export default function TicketSelector({ ticketTypes }: { ticketTypes: TicketType[] }) {
   const [quantities, setQuantities] = useState<Record<string, number>>({});
 
-  function quantityFor(ticketId: string): number {
-    return quantities[ticketId] ?? 0;
+  function capFor(ticket: TicketType): number {
+    return Math.min(ticket.quantityAvailable, MAX_QUANTITY_PER_TYPE);
   }
 
-  function setQuantity(ticketId: string, value: number) {
-    const cap = ticketTypes.find((t) => t.id === ticketId)?.quantityAvailable ?? MAX_QUANTITY_PER_TYPE;
-    const clamped = Math.max(0, Math.min(value, Math.min(cap, MAX_QUANTITY_PER_TYPE)));
-    setQuantities((prev) => ({ ...prev, [ticketId]: clamped }));
+  function setQuantity(ticket: TicketType, value: number) {
+    const clamped = Math.max(0, Math.min(value, capFor(ticket)));
+    setQuantities((prev) => ({ ...prev, [ticket.id]: clamped }));
   }
 
   const lineSummaries = useMemo(
@@ -47,10 +50,9 @@ export default function TicketSelector({ ticketTypes }: { ticketTypes: TicketTyp
   return (
     <div className="flex flex-col gap-6">
       <ul className="flex flex-col gap-4">
-        {ticketTypes.map((ticket) => {
-          const isFree = ticket.priceCents === 0;
-          const quantity = quantityFor(ticket.id);
-          const cap = Math.min(ticket.quantityAvailable, MAX_QUANTITY_PER_TYPE);
+        {lineSummaries.map(({ ticket, quantity }) => {
+          const cap = capFor(ticket);
+          const breakdown = formatTicketBreakdown(ticket);
           return (
             <li
               key={ticket.id}
@@ -61,32 +63,40 @@ export default function TicketSelector({ ticketTypes }: { ticketTypes: TicketTyp
                 {ticket.description && (
                   <p className="text-sm text-muted">{ticket.description}</p>
                 )}
-                <p className="mt-1 text-sm text-foreground">
-                  {isFree ? "Free" : formatAud(ticket.priceCents)}
-                  {!isFree && ticket.feePolicy === "buyer-pays" && (
-                    <span className="text-muted"> + booking fee</span>
-                  )}
-                  {!isFree && ticket.feePolicy === "organiser-absorbs" && (
-                    <span className="text-muted"> · booking fee included</span>
-                  )}
-                </p>
+                <p className="mt-1 text-sm text-foreground">{formatTicketHeadline(ticket)}</p>
+                {quantity > 0 && breakdown && (
+                  <p className="mt-0.5 text-xs text-muted">{breakdown}</p>
+                )}
               </div>
-              <div className="flex items-center gap-2">
-                <label htmlFor={`qty-${ticket.id}`} className="text-sm text-muted">
-                  Quantity
-                </label>
-                <input
-                  id={`qty-${ticket.id}`}
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  max={cap}
-                  step={1}
-                  value={quantity}
-                  onChange={(event) => setQuantity(ticket.id, Number(event.target.value))}
-                  className="w-20 rounded border border-surface-border bg-background px-3 py-2 text-foreground"
-                  aria-label={`Quantity for ${ticket.name}`}
-                />
+              <div
+                role="group"
+                aria-label={`Quantity for ${ticket.name}`}
+                className="flex items-center gap-2"
+              >
+                <button
+                  type="button"
+                  onClick={() => setQuantity(ticket, quantity - 1)}
+                  disabled={quantity <= 0}
+                  aria-label={`Decrease quantity for ${ticket.name}`}
+                  className={stepperButtonClass}
+                >
+                  &minus;
+                </button>
+                <span
+                  aria-live="polite"
+                  className="w-8 text-center text-base font-medium tabular-nums text-foreground"
+                >
+                  {quantity}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setQuantity(ticket, quantity + 1)}
+                  disabled={quantity >= cap}
+                  aria-label={`Increase quantity for ${ticket.name}`}
+                  className={stepperButtonClass}
+                >
+                  +
+                </button>
               </div>
             </li>
           );

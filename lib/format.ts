@@ -18,12 +18,15 @@ function parseMelbourneNaive(isoLike: string): Date {
   return new Date(`${isoLike}Z`);
 }
 
-const dateFormatter = new Intl.DateTimeFormat("en-AU", {
+const weekdayFormatter = new Intl.DateTimeFormat("en-AU", {
   timeZone: "UTC",
   weekday: "short",
+});
+
+const dayMonthFormatter = new Intl.DateTimeFormat("en-AU", {
+  timeZone: "UTC",
   day: "numeric",
   month: "short",
-  year: "numeric",
 });
 
 const timeFormatter = new Intl.DateTimeFormat("en-AU", {
@@ -33,14 +36,30 @@ const timeFormatter = new Intl.DateTimeFormat("en-AU", {
   hour12: true,
 });
 
-export function formatEventDate(isoLike: string): string {
-  return dateFormatter.format(parseMelbourneNaive(isoLike));
+/** e.g. "Fri 25 Sep" — Australia/Melbourne, no year, no comma. */
+export function formatEventDateShort(isoLike: string): string {
+  const date = parseMelbourneNaive(isoLike);
+  return `${weekdayFormatter.format(date)} ${dayMonthFormatter.format(date)}`;
 }
 
+/** e.g. "8:00 pm" — Australia/Melbourne. */
 export function formatEventTime(isoLike: string): string {
   return timeFormatter.format(parseMelbourneNaive(isoLike)).toLowerCase();
 }
 
-export function formatEventDateTime(isoLike: string): string {
-  return `${formatEventDate(isoLike)}, ${formatEventTime(isoLike)}`;
+/**
+ * "Fri 25 Sep, 8:00 pm" for a single instant, or a range when `endIsoLike`
+ * is given: same-day events collapse to "Fri 25 Sep, 8:00 pm – 11:00 pm";
+ * events crossing midnight spell out the end date too, e.g.
+ * "Fri 25 Sep, 8:00 pm – Sat 26 Sep, 12:00 am".
+ */
+export function formatEventDateTimeRange(isoLike: string, endIsoLike?: string): string {
+  const startLabel = `${formatEventDateShort(isoLike)}, ${formatEventTime(isoLike)}`;
+  if (!endIsoLike) return startLabel;
+
+  const sameDay = isoLike.slice(0, 10) === endIsoLike.slice(0, 10);
+  if (sameDay) {
+    return `${startLabel} – ${formatEventTime(endIsoLike)}`;
+  }
+  return `${startLabel} – ${formatEventDateShort(endIsoLike)}, ${formatEventTime(endIsoLike)}`;
 }
