@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AuthNavLinks from "@/components/AuthNavLinks";
 
 export default function Nav() {
   return (
@@ -18,11 +19,12 @@ export default function Nav() {
             Discover
           </Link>
           <Link
-            href="/organisers/submit"
+            href="/organisers/apply"
             className="rounded bg-accent px-3 py-2 font-medium text-accent-foreground transition-colors hover:bg-accent-strong"
           >
-            Submit an event
+            Become an organiser
           </Link>
+          <AuthNavLinks />
         </nav>
       </div>
     </header>
