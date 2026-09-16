@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import EventCard from "@/components/EventCard";
 import { isFreeEvent } from "@/lib/data";
+import { formatEventDateKey } from "@/lib/format";
 import type { EventCategory, SheltuhEvent } from "@/lib/types";
 
 type PricingFilter = "all" | "free" | "paid";
@@ -25,7 +26,7 @@ export default function EventBrowser({ events, categories }: EventBrowserProps) 
         const free = isFreeEvent(event);
         return pricing === "free" ? free : !free;
       })
-      .filter((event) => onOrAfter === "" || event.startsAt.slice(0, 10) >= onOrAfter)
+      .filter((event) => onOrAfter === "" || formatEventDateKey(event.startsAt) >= onOrAfter)
       .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   }, [events, category, pricing, onOrAfter]);
 
