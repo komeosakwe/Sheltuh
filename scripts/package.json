@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "typecheck": "tsc --noEmit",
     "promote-admin": "tsx promote-admin.ts",
     "seed-dev-data": "tsx seed-dev-data.ts"
   },

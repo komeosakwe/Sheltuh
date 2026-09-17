@@ -14,6 +14,23 @@ This repo now spans two milestones:
 
 Payments and ticket issuance are out of scope for both milestones.
 
+## Project boundaries
+
+This repo has **three independent TypeScript projects**, each with its own
+`package.json`, `tsconfig.json` and dependencies — installing one's
+dependencies is never required to build or typecheck another:
+
+| Project | Root tsconfig | Install | Typecheck |
+|---|---|---|---|
+| Frontend (this Next.js app) | `tsconfig.json` (excludes `infra/`, `scripts/`) | `npm install` | `npm run build` |
+| Infrastructure | `infra/tsconfig.json` | `cd infra && npm install` | `cd infra && npx tsc --noEmit` |
+| Operational scripts | `scripts/tsconfig.json` | `cd scripts && npm install` | `cd scripts && npm run typecheck` |
+
+A fresh `npm install` at the repo root only installs the frontend's
+dependencies — it does not need to know `infra/` or `scripts/` exist. Any
+CI job for this repo should run all three checks separately, each after its
+own `npm install`, rather than one install+typecheck at the root.
+
 ## Stack
 
 - Next.js 16 (App Router) + TypeScript, Tailwind CSS v4
@@ -87,8 +104,8 @@ CDK app targeting `ap-southeast-2` (Sydney), dev-only, not deployed.
 ```bash
 cd infra
 npm install
-npx tsc --noEmit   # typecheck
-npm test           # 35 unit tests over the pure backend logic
+npx tsc --noEmit   # typecheck (this project's own boundary — see "Project boundaries" above)
+npm test           # unit tests over the pure backend logic
 npx cdk synth       # validate the stack locally, no AWS credentials needed
 ```
 
@@ -96,6 +113,12 @@ See `docs/architecture.md` for the data model and API surface, and
 `docs/aws-setup.md` before ever running `cdk deploy`.
 
 ## Operational scripts (`scripts/`)
+
+```bash
+cd scripts
+npm install
+npm run typecheck   # this project's own boundary — see "Project boundaries" above
+```
 
 - `promote-admin.ts` — the *only* way an account joins the `admins` Cognito
   group; takes a real email as a required argument, never hardcodes one.
