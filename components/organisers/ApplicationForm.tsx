@@ -1,11 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useState, type FormEvent } from "react";
+import InlineReauth from "@/components/auth/InlineReauth";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import { applyAsOrganiser, resubmitOrganiser, type OrganiserApplicationInput } from "@/lib/api/organisers";
 import type { OrganiserRecord } from "@/lib/api/types";
-import { SessionExpiredError } from "@/lib/auth/AuthContext";
+import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
 import { EVENT_CATEGORIES } from "@/lib/types";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -18,6 +18,12 @@ interface Props {
 }
 
 export default function ApplicationForm({ mode, getToken, initial, onSuccess }: Props) {
+  const auth = useAuth();
+  // Captured once at mount: the account filling out this application, so a
+  // session-expiry recovery only ever resumes as this same account —
+  // otherwise a signed-in-as-someone-else recovery would submit this
+  // organiser application under the wrong account entirely.
+  const [ownerEmail] = useState(() => auth.email);
   const [displayName, setDisplayName] = useState(initial?.displayName ?? "");
   const [contactEmail, setContactEmail] = useState(initial?.contactEmail ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
@@ -164,9 +170,13 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
       {submitError && sessionExpired && (
         <div role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-foreground">
           <p>{submitError}</p>
-          <Link href="/login" className="mt-2 inline-block text-accent underline underline-offset-2">
-            Sign in again
-          </Link>
+          <InlineReauth
+            expectedEmail={ownerEmail}
+            onSignedIn={() => {
+              setSessionExpired(false);
+              setSubmitError(null);
+            }}
+          />
         </div>
       )}
       {submitError && !sessionExpired && (
