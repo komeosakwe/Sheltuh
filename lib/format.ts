@@ -52,6 +52,36 @@ export function formatEventTime(isoLike: string): string {
   return timeFormatter.format(new Date(isoLike)).toLowerCase();
 }
 
+const dateTimeInputFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: MELBOURNE_TZ,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+/**
+ * Splits a UTC instant into the {date, time} shape needed for
+ * <input type="date">/<input type="time"> values, in Australia/Melbourne
+ * local time — never the browser's own timezone. This is the frontend
+ * counterpart of the backend's melbourneLocalToUtcIso: editing and
+ * re-saving an event unchanged must round-trip through the same timezone
+ * on both ends, or the stored instant silently shifts by the difference
+ * between the browser's offset and Melbourne's.
+ */
+export function toMelbourneDateTimeInputParts(isoLike: string): { date: string; time: string } {
+  const parts = Object.fromEntries(
+    dateTimeInputFormatter.formatToParts(new Date(isoLike)).map((p) => [p.type, p.value]),
+  );
+  const hour = parts.hour === "24" ? "00" : parts.hour; // some locales render midnight as "24" with hour12: false
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    time: `${hour}:${parts.minute}`,
+  };
+}
+
 /**
  * "Fri 25 Sep, 8:00 pm" for a single instant, or a range when `endIsoLike`
  * is given: same-day events collapse to "Fri 25 Sep, 8:00 pm – 11:00 pm";

@@ -1,14 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import InlineReauth from "@/components/auth/InlineReauth";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import { createEventDraft, submitEventForReview, updateEventDraft, type EventInput } from "@/lib/api/events";
 import type { EventRecord, TicketTypeInput } from "@/lib/api/types";
-import { SessionExpiredError } from "@/lib/auth/AuthContext";
+import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
 import { calculateOrderSummary } from "@/lib/fees";
-import { formatAud } from "@/lib/format";
+import { formatAud, toMelbourneDateTimeInputParts } from "@/lib/format";
 import { EVENT_CATEGORIES } from "@/lib/types";
 
 interface Props {
@@ -18,25 +18,9 @@ interface Props {
   onSaved: (record: EventRecord) => void;
 }
 
-function isoToDateTimeParts(iso: string): { date: string; time: string } {
-  // Best-effort split of a UTC instant back into date/time input values.
-  // The organiser is editing in their own browser, so this reads back
-  // whatever the browser's locale renders — good enough for a draft editor
-  // that's about to be re-validated (and re-converted from Melbourne local
-  // time) by the backend on save.
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return {
-    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
-  };
-}
-
-let ticketIdCounter = 0;
 function newTicketType(): TicketTypeInput {
-  ticketIdCounter += 1;
   return {
-    id: `new-${ticketIdCounter}`,
+    id: crypto.randomUUID(),
     name: "",
     priceCents: 0,
     feePolicy: "buyer-pays",
@@ -46,6 +30,11 @@ function newTicketType(): TicketTypeInput {
 
 export default function EventEditor({ getToken, organiserId, initial, onSaved }: Props) {
   const router = useRouter();
+  const auth = useAuth();
+  // Captured once at mount: the account this draft belongs to, so that if
+  // the session expires mid-edit, recovery only accepts signing back in as
+  // this same account — never a different one saving over it.
+  const [ownerEmail] = useState(() => auth.email);
   const locked = initial ? initial.status === "pending_review" || initial.status === "published" : false;
 
   const [title, setTitle] = useState(initial?.title ?? "");
@@ -54,8 +43,8 @@ export default function EventEditor({ getToken, organiserId, initial, onSaved }:
   const [venueName, setVenueName] = useState(initial?.venueName ?? "");
   const [venueAddress, setVenueAddress] = useState(initial?.venueAddress ?? "");
   const [suburb, setSuburb] = useState(initial?.suburb ?? "");
-  const [start, setStart] = useState(initial ? isoToDateTimeParts(initial.startsAt) : { date: "", time: "" });
-  const [end, setEnd] = useState(initial ? isoToDateTimeParts(initial.endsAt) : { date: "", time: "" });
+  const [start, setStart] = useState(initial ? toMelbourneDateTimeInputParts(initial.startsAt) : { date: "", time: "" });
+  const [end, setEnd] = useState(initial ? toMelbourneDateTimeInputParts(initial.endsAt) : { date: "", time: "" });
   const [ticketTypes, setTicketTypes] = useState<TicketTypeInput[]>(
     initial?.ticketTypes && initial.ticketTypes.length > 0 ? initial.ticketTypes : [newTicketType()],
   );
@@ -325,8 +314,11 @@ export default function EventEditor({ getToken, organiserId, initial, onSaved }:
             <div key={ticket.id} className="flex flex-col gap-3 rounded-lg border border-surface-border bg-surface p-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="flex flex-col gap-1">
-                  <label className="text-sm font-medium text-foreground">Name</label>
+                  <label htmlFor={`ticket-${index}-name`} className="text-sm font-medium text-foreground">
+                    Name
+                  </label>
                   <input
+                    id={`ticket-${index}-name`}
                     value={ticket.name}
                     onChange={(e) => updateTicket(index, { name: e.target.value })}
                     className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
@@ -336,8 +328,11 @@ export default function EventEditor({ getToken, organiserId, initial, onSaved }:
                   )}
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-sm font-medium text-foreground">Price (A$)</label>
+                  <label htmlFor={`ticket-${index}-price`} className="text-sm font-medium text-foreground">
+                    Price (A$)
+                  </label>
                   <input
+                    id={`ticket-${index}-price`}
                     type="number"
                     min={0}
                     step={0.5}
@@ -352,8 +347,11 @@ export default function EventEditor({ getToken, organiserId, initial, onSaved }:
                   )}
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-sm font-medium text-foreground">Who pays the booking fee?</label>
+                  <label htmlFor={`ticket-${index}-fee-policy`} className="text-sm font-medium text-foreground">
+                    Who pays the booking fee?
+                  </label>
                   <select
+                    id={`ticket-${index}-fee-policy`}
                     value={ticket.feePolicy}
                     onChange={(e) => updateTicket(index, { feePolicy: e.target.value as TicketTypeInput["feePolicy"] })}
                     className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
@@ -363,8 +361,11 @@ export default function EventEditor({ getToken, organiserId, initial, onSaved }:
                   </select>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-sm font-medium text-foreground">Quantity available</label>
+                  <label htmlFor={`ticket-${index}-qty`} className="text-sm font-medium text-foreground">
+                    Quantity available
+                  </label>
                   <input
+                    id={`ticket-${index}-qty`}
                     type="number"
                     min={1}
                     value={ticket.quantityAvailable}
@@ -400,9 +401,13 @@ export default function EventEditor({ getToken, organiserId, initial, onSaved }:
       {submitError && sessionExpired && (
         <div role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-foreground">
           <p>{submitError}</p>
-          <Link href="/login" className="mt-2 inline-block text-accent underline underline-offset-2">
-            Sign in again
-          </Link>
+          <InlineReauth
+            expectedEmail={ownerEmail}
+            onSignedIn={() => {
+              setSessionExpired(false);
+              setSubmitError(null);
+            }}
+          />
         </div>
       )}
       {submitError && !sessionExpired && (

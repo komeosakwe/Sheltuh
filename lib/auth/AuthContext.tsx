@@ -24,7 +24,7 @@ interface AuthState {
   groups: string[];
 }
 
-interface AuthContextValue extends AuthState {
+export interface AuthContextValue extends AuthState {
   configured: boolean;
   isAdmin: boolean;
   signIn: (email: string, password: string) => Promise<void>;
@@ -46,7 +46,10 @@ interface AuthContextValue extends AuthState {
   getValidIdToken: () => Promise<string>;
 }
 
-const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+// Exported (in addition to useAuth) so tests can render a component tree
+// under a fully-controlled fake auth value via `<AuthContext.Provider>`,
+// without going through a real Cognito user pool.
+export const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 function sessionToState(session: CognitoUserSession): AuthState {
   const idToken = session.getIdToken().getJwtToken();
