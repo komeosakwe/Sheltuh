@@ -153,6 +153,68 @@ describe("requireTicketTypes", () => {
     );
     expect(Object.keys(errors).some((k) => k.includes("feePolicy"))).toBe(true);
   });
+
+  it("rejects duplicate ticket IDs with a useful error naming the duplicate", () => {
+    const errors: Record<string, string> = {};
+    const result = requireTicketTypes(
+      [
+        { id: "dup-1", name: "GA", priceCents: 3000, feePolicy: "buyer-pays", quantityAvailable: 100 },
+        { id: "dup-1", name: "VIP", priceCents: 5500, feePolicy: "organiser-absorbs", quantityAvailable: 20 },
+      ],
+      "ticketTypes",
+      errors,
+    );
+    expect(result).toEqual([]);
+    expect(errors.ticketTypes).toBeDefined();
+    expect(errors.ticketTypes).toMatch(/dup-1/);
+  });
+
+  it("rejects three ticket types where only two collide", () => {
+    const errors: Record<string, string> = {};
+    requireTicketTypes(
+      [
+        { id: "a", name: "GA", priceCents: 3000, feePolicy: "buyer-pays", quantityAvailable: 100 },
+        { id: "b", name: "VIP", priceCents: 5500, feePolicy: "organiser-absorbs", quantityAvailable: 20 },
+        { id: "a", name: "Early bird", priceCents: 2000, feePolicy: "buyer-pays", quantityAvailable: 10 },
+      ],
+      "ticketTypes",
+      errors,
+    );
+    expect(errors.ticketTypes).toMatch(/^Ticket types must have unique IDs \(duplicated: a\)/);
+  });
+
+  it("preserves distinct, client-supplied IDs unchanged (stable across edits)", () => {
+    const errors: Record<string, string> = {};
+    const result = requireTicketTypes(
+      [
+        { id: "existing-ga", name: "GA", priceCents: 3000, feePolicy: "buyer-pays", quantityAvailable: 100 },
+        { id: "existing-vip", name: "VIP", priceCents: 5500, feePolicy: "organiser-absorbs", quantityAvailable: 20 },
+      ],
+      "ticketTypes",
+      errors,
+    );
+    expect(errors.ticketTypes).toBeUndefined();
+    expect(result.map((t) => t.id)).toEqual(["existing-ga", "existing-vip"]);
+    // Each ticket type's own fields stay independent of the other's.
+    expect(result[0].quantityAvailable).toBe(100);
+    expect(result[1].quantityAvailable).toBe(20);
+    expect(result[0].priceCents).toBe(3000);
+    expect(result[1].priceCents).toBe(5500);
+  });
+
+  it("mints distinct fresh IDs for multiple tickets that supply none", () => {
+    const errors: Record<string, string> = {};
+    const result = requireTicketTypes(
+      [
+        { name: "GA", priceCents: 3000, feePolicy: "buyer-pays", quantityAvailable: 100 },
+        { name: "VIP", priceCents: 5500, feePolicy: "organiser-absorbs", quantityAvailable: 20 },
+      ],
+      "ticketTypes",
+      errors,
+    );
+    expect(errors.ticketTypes).toBeUndefined();
+    expect(result[0].id).not.toBe(result[1].id);
+  });
 });
 
 describe("slugify", () => {

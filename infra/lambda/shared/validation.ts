@@ -103,6 +103,9 @@ export function requireTicketTypes(value: unknown, field: string, errors: Record
     return [];
   }
   const result: TicketTypeInput[] = [];
+  const seenIds = new Set<string>();
+  const duplicateIds = new Set<string>();
+
   value.forEach((raw, i) => {
     const prefix = `${field}[${i}]`;
     if (typeof raw !== "object" || raw === null) {
@@ -130,8 +133,17 @@ export function requireTicketTypes(value: unknown, field: string, errors: Record
 
     if (Object.keys(errors).some((k) => k.startsWith(prefix))) return;
 
+    // Preserve a client-supplied id (so editing a draft keeps the same
+    // ticket type stable across saves); mint a fresh one only when the
+    // ticket has none yet.
+    const id = typeof t.id === "string" && t.id ? t.id : crypto.randomUUID();
+    if (seenIds.has(id)) {
+      duplicateIds.add(id);
+    }
+    seenIds.add(id);
+
     result.push({
-      id: typeof t.id === "string" && t.id ? t.id : crypto.randomUUID(),
+      id,
       name,
       description: typeof t.description === "string" && t.description.trim() ? t.description.trim() : undefined,
       priceCents: priceCents as number,
@@ -139,6 +151,16 @@ export function requireTicketTypes(value: unknown, field: string, errors: Record
       quantityAvailable: quantityAvailable as number,
     });
   });
+
+  if (duplicateIds.size > 0) {
+    // The frontend keys per-ticket quantities and totals by this id
+    // (TicketSelector.tsx) — a duplicate would silently merge two distinct
+    // ticket types' quantities, so this is rejected outright rather than
+    // de-duplicated.
+    errors[field] = `Ticket types must have unique IDs (duplicated: ${Array.from(duplicateIds).join(", ")}).`;
+    return [];
+  }
+
   return result;
 }
 
