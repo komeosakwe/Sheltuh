@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // infra/ is a separate CDK/Lambda TypeScript project with its own
+    // tsconfig and its own generated output — not part of the Next.js app.
+    "infra/**",
   ]),
 ]);
 

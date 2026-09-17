@@ -42,3 +42,21 @@ export function calculateOrderSummary(
     totalCents: subtotalCents + buyerFeeCents,
   };
 }
+
+/**
+ * Combines each ticket type's own order summary into one order total.
+ * Callers (e.g. TicketSelector) key quantities per ticket type by its id —
+ * this stays correct only as long as every ticket type in the order has a
+ * distinct id, which the backend now enforces (see
+ * infra/lambda/shared/validation.ts's duplicate-id check).
+ */
+export function sumOrderSummaries(summaries: OrderSummary[]): OrderSummary {
+  return summaries.reduce(
+    (acc, s) => ({
+      subtotalCents: acc.subtotalCents + s.subtotalCents,
+      buyerFeeCents: acc.buyerFeeCents + s.buyerFeeCents,
+      totalCents: acc.totalCents + s.totalCents,
+    }),
+    { subtotalCents: 0, buyerFeeCents: 0, totalCents: 0 },
+  );
+}

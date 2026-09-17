@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { calculateOrderSummary } from "@/lib/fees";
+import { calculateOrderSummary, sumOrderSummaries } from "@/lib/fees";
 import { formatAud } from "@/lib/format";
 import { formatTicketBreakdown, formatTicketHeadline } from "@/lib/pricing";
 import type { TicketType } from "@/lib/types";
@@ -36,14 +36,7 @@ export default function TicketSelector({ ticketTypes }: { ticketTypes: TicketTyp
     [ticketTypes, quantities],
   );
 
-  const orderTotal = lineSummaries.reduce(
-    (acc, line) => ({
-      subtotalCents: acc.subtotalCents + line.summary.subtotalCents,
-      buyerFeeCents: acc.buyerFeeCents + line.summary.buyerFeeCents,
-      totalCents: acc.totalCents + line.summary.totalCents,
-    }),
-    { subtotalCents: 0, buyerFeeCents: 0, totalCents: 0 },
-  );
+  const orderTotal = sumOrderSummaries(lineSummaries.map((line) => line.summary));
 
   const hasAnyTickets = lineSummaries.some((line) => line.quantity > 0);
 
