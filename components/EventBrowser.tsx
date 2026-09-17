@@ -2,11 +2,10 @@
 
 import { useMemo, useState } from "react";
 import EventCard from "@/components/EventCard";
+import EventFilterBar, { type PricingFilter } from "@/components/EventFilterBar";
 import { isFreeEvent } from "@/lib/data";
 import { formatEventDateKey } from "@/lib/format";
 import type { EventCategory, SheltuhEvent } from "@/lib/types";
-
-type PricingFilter = "all" | "free" | "paid";
 
 interface EventBrowserProps {
   events: SheltuhEvent[];
@@ -40,72 +39,17 @@ export default function EventBrowser({ events, categories }: EventBrowserProps) 
 
   return (
     <div className="flex flex-col gap-6">
-      <form
-        aria-label="Filter events"
-        className="grid grid-cols-1 gap-4 rounded-lg border border-surface-border bg-surface p-4 sm:grid-cols-3 sm:items-end"
-        onSubmit={(event) => event.preventDefault()}
-      >
-        <div className="flex flex-col gap-1">
-          <label htmlFor="category-filter" className="text-sm font-medium text-muted">
-            Category
-          </label>
-          <select
-            id="category-filter"
-            value={category}
-            onChange={(event) => setCategory(event.target.value as EventCategory | "all")}
-            className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
-          >
-            <option value="all">All categories</option>
-            {categories.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label htmlFor="date-filter" className="text-sm font-medium text-muted">
-            On or after
-          </label>
-          <input
-            id="date-filter"
-            type="date"
-            value={onOrAfter}
-            onChange={(event) => setOnOrAfter(event.target.value)}
-            className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
-          />
-        </div>
-
-        <fieldset className="flex flex-col gap-1">
-          <legend className="text-sm font-medium text-muted">Price</legend>
-          <div className="flex gap-3 pt-1">
-            {(["all", "free", "paid"] as const).map((value) => (
-              <label key={value} className="flex items-center gap-1.5 text-sm text-foreground">
-                <input
-                  type="radio"
-                  name="pricing"
-                  value={value}
-                  checked={pricing === value}
-                  onChange={() => setPricing(value)}
-                  className="accent-accent"
-                />
-                {value === "all" ? "All" : value === "free" ? "Free" : "Paid"}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-
-        {hasActiveFilters && (
-          <button
-            type="button"
-            onClick={resetFilters}
-            className="rounded border border-surface-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:border-accent hover:text-accent sm:col-span-3 sm:w-fit"
-          >
-            Reset filters
-          </button>
-        )}
-      </form>
+      <EventFilterBar
+        categories={categories}
+        category={category}
+        onCategoryChange={setCategory}
+        pricing={pricing}
+        onPricingChange={setPricing}
+        onOrAfter={onOrAfter}
+        onOnOrAfterChange={setOnOrAfter}
+        hasActiveFilters={hasActiveFilters}
+        onReset={resetFilters}
+      />
 
       <p aria-live="polite" className="text-sm text-muted">
         Showing {filteredEvents.length} of {events.length} events
