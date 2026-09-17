@@ -16,7 +16,7 @@ const STATUS_LABEL: Record<EventStatus, string> = {
 
 export default function EventQueue() {
   const auth = useAuth();
-  const token = auth.idToken as string;
+  const getToken = auth.getValidIdToken;
 
   const [status, setStatus] = useState<EventStatus>("pending_review");
   const [items, setItems] = useState<EventRecord[]>([]);
@@ -33,7 +33,7 @@ export default function EventQueue() {
       setLoading(true);
       setError(null);
       try {
-        const page = await adminListEvents(nextStatus, token, append ? cursor : undefined);
+        const page = await adminListEvents(nextStatus, getToken, append ? cursor : undefined);
         setItems((prev) => (append ? [...prev, ...page.items] : page.items));
         setCursor(page.nextCursor);
       } catch (err) {
@@ -42,7 +42,7 @@ export default function EventQueue() {
         setLoading(false);
       }
     },
-    [token, cursor],
+    [getToken, cursor],
   );
 
   useEffect(() => {
@@ -64,7 +64,7 @@ export default function EventQueue() {
     setActionError(null);
     setBusyId(item.eventId);
     try {
-      await adminApproveEvent(item.organiserId, item.eventId, token);
+      await adminApproveEvent(item.organiserId, item.eventId, getToken);
       removeItem(item.eventId);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Couldn't approve this event.");
@@ -78,7 +78,7 @@ export default function EventQueue() {
     setActionError(null);
     setBusyId(item.eventId);
     try {
-      await adminRejectEvent(item.organiserId, item.eventId, reason.trim(), token);
+      await adminRejectEvent(item.organiserId, item.eventId, reason.trim(), getToken);
       removeItem(item.eventId);
       setRejectingId(null);
       setReason("");
@@ -93,7 +93,7 @@ export default function EventQueue() {
     setActionError(null);
     setBusyId(item.eventId);
     try {
-      await adminUnpublishEvent(item.organiserId, item.eventId, token);
+      await adminUnpublishEvent(item.organiserId, item.eventId, getToken);
       removeItem(item.eventId);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Couldn't unpublish this event.");

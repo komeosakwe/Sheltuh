@@ -1,5 +1,5 @@
 import type { EventCategory } from "@/lib/types";
-import { apiFetch } from "./client";
+import { apiFetch, type GetToken } from "./client";
 import type { EventRecord, Paginated, TicketTypeInput } from "./types";
 
 export interface EventInput {
@@ -14,23 +14,28 @@ export interface EventInput {
   ticketTypes: TicketTypeInput[];
 }
 
-export function createEventDraft(input: EventInput, token: string) {
+export async function createEventDraft(input: EventInput, getToken: GetToken) {
+  const token = await getToken();
   return apiFetch<EventRecord>("/events", { method: "POST", body: input, token });
 }
 
-export function updateEventDraft(organiserId: string, eventId: string, input: EventInput, token: string) {
+export async function updateEventDraft(organiserId: string, eventId: string, input: EventInput, getToken: GetToken) {
+  const token = await getToken();
   return apiFetch<EventRecord>(`/events/${organiserId}/${eventId}`, { method: "PATCH", body: input, token });
 }
 
-export function submitEventForReview(organiserId: string, eventId: string, token: string) {
+export async function submitEventForReview(organiserId: string, eventId: string, getToken: GetToken) {
+  const token = await getToken();
   return apiFetch<EventRecord>(`/events/${organiserId}/${eventId}/submit`, { method: "POST", token });
 }
 
-export function listMyEvents(token: string, cursor?: string) {
+export async function listMyEvents(getToken: GetToken, cursor?: string) {
+  const token = await getToken();
   const qs = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
   return apiFetch<Paginated<EventRecord>>(`/organisers/me/events${qs}`, { token });
 }
 
-export function getMyEvent(eventId: string, token: string) {
+export async function getMyEvent(eventId: string, getToken: GetToken) {
+  const token = await getToken();
   return apiFetch<EventRecord>(`/organisers/me/events/${eventId}`, { token });
 }

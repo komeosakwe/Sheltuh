@@ -1,21 +1,23 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type FormEvent } from "react";
-import { ApiError } from "@/lib/api/client";
+import { ApiError, type GetToken } from "@/lib/api/client";
 import { applyAsOrganiser, resubmitOrganiser, type OrganiserApplicationInput } from "@/lib/api/organisers";
 import type { OrganiserRecord } from "@/lib/api/types";
+import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { EVENT_CATEGORIES } from "@/lib/types";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface Props {
   mode: "apply" | "resubmit";
-  idToken: string;
+  getToken: GetToken;
   initial?: OrganiserRecord;
   onSuccess: (record: OrganiserRecord) => void;
 }
 
-export default function ApplicationForm({ mode, idToken, initial, onSuccess }: Props) {
+export default function ApplicationForm({ mode, getToken, initial, onSuccess }: Props) {
   const [displayName, setDisplayName] = useState(initial?.displayName ?? "");
   const [contactEmail, setContactEmail] = useState(initial?.contactEmail ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
@@ -23,6 +25,7 @@ export default function ApplicationForm({ mode, idToken, initial, onSuccess }: P
   const [websiteUrl, setWebsiteUrl] = useState(initial?.websiteUrl ?? "");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [loading, setLoading] = useState(false);
 
   function toggleCategory(value: string) {
@@ -49,6 +52,7 @@ export default function ApplicationForm({ mode, idToken, initial, onSuccess }: P
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitError(null);
+    setSessionExpired(false);
     const nextErrors = validate();
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
@@ -64,9 +68,16 @@ export default function ApplicationForm({ mode, idToken, initial, onSuccess }: P
     setLoading(true);
     try {
       const record =
-        mode === "apply" ? await applyAsOrganiser(input, idToken) : await resubmitOrganiser(input, idToken);
+        mode === "apply" ? await applyAsOrganiser(input, getToken) : await resubmitOrganiser(input, getToken);
       onSuccess(record);
     } catch (err) {
+      // None of the fields above are cleared here — a failed submission
+      // (including an expired session) leaves everything you typed in place.
+      if (err instanceof SessionExpiredError) {
+        setSessionExpired(true);
+        setSubmitError(err.message);
+        return;
+      }
       if (err instanceof ApiError && err.fieldErrors) setErrors(err.fieldErrors);
       setSubmitError(err instanceof Error ? err.message : "Couldn't submit your application.");
     } finally {
@@ -150,7 +161,15 @@ export default function ApplicationForm({ mode, idToken, initial, onSuccess }: P
         {errors.websiteUrl && <p className="text-sm text-danger">{errors.websiteUrl}</p>}
       </div>
 
-      {submitError && (
+      {submitError && sessionExpired && (
+        <div role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-foreground">
+          <p>{submitError}</p>
+          <Link href="/login" className="mt-2 inline-block text-accent underline underline-offset-2">
+            Sign in again
+          </Link>
+        </div>
+      )}
+      {submitError && !sessionExpired && (
         <p role="alert" className="text-sm text-danger">
           {submitError}
         </p>

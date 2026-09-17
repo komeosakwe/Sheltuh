@@ -1,16 +1,18 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ApiError } from "@/lib/api/client";
+import { ApiError, type GetToken } from "@/lib/api/client";
 import { createEventDraft, submitEventForReview, updateEventDraft, type EventInput } from "@/lib/api/events";
 import type { EventRecord, TicketTypeInput } from "@/lib/api/types";
+import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { calculateOrderSummary } from "@/lib/fees";
 import { formatAud } from "@/lib/format";
 import { EVENT_CATEGORIES } from "@/lib/types";
 
 interface Props {
-  idToken: string;
+  getToken: GetToken;
   organiserId: string;
   initial?: EventRecord;
   onSaved: (record: EventRecord) => void;
@@ -42,7 +44,7 @@ function newTicketType(): TicketTypeInput {
   };
 }
 
-export default function EventEditor({ idToken, organiserId, initial, onSaved }: Props) {
+export default function EventEditor({ getToken, organiserId, initial, onSaved }: Props) {
   const router = useRouter();
   const locked = initial ? initial.status === "pending_review" || initial.status === "published" : false;
 
@@ -60,8 +62,19 @@ export default function EventEditor({ idToken, organiserId, initial, onSaved }: 
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  function handleError(err: unknown, fallback: string) {
+    if (err instanceof SessionExpiredError) {
+      setSessionExpired(true);
+      setSubmitError(err.message);
+      return;
+    }
+    if (err instanceof ApiError && err.fieldErrors) setErrors((prev) => ({ ...prev, ...err.fieldErrors }));
+    setSubmitError(err instanceof Error ? err.message : fallback);
+  }
 
   function updateTicket(index: number, patch: Partial<TicketTypeInput>) {
     setTicketTypes((prev) => prev.map((t, i) => (i === index ? { ...t, ...patch } : t)));
@@ -106,22 +119,24 @@ export default function EventEditor({ idToken, organiserId, initial, onSaved }: 
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitError(null);
+    setSessionExpired(false);
     const input = buildInput();
     if (!input) return;
 
     setSaving(true);
     try {
       const record = initial
-        ? await updateEventDraft(organiserId, initial.eventId, input, idToken)
-        : await createEventDraft(input, idToken);
+        ? await updateEventDraft(organiserId, initial.eventId, input, getToken)
+        : await createEventDraft(input, getToken);
       if (!initial) {
         router.push(`/dashboard/${record.eventId}`);
         return;
       }
       onSaved(record);
     } catch (err) {
-      if (err instanceof ApiError && err.fieldErrors) setErrors((prev) => ({ ...prev, ...err.fieldErrors }));
-      setSubmitError(err instanceof Error ? err.message : "Couldn't save this event.");
+      // Never clears title/description/tickets/etc. above — a failed save
+      // (including an expired session) leaves the form exactly as typed.
+      handleError(err, "Couldn't save this event.");
     } finally {
       setSaving(false);
     }
@@ -130,12 +145,13 @@ export default function EventEditor({ idToken, organiserId, initial, onSaved }: 
   async function handleSubmitForReview() {
     if (!initial) return;
     setSubmitError(null);
+    setSessionExpired(false);
     setSubmitting(true);
     try {
-      const record = await submitEventForReview(organiserId, initial.eventId, idToken);
+      const record = await submitEventForReview(organiserId, initial.eventId, getToken);
       onSaved(record);
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : "Couldn't submit this event for review.");
+      handleError(err, "Couldn't submit this event for review.");
     } finally {
       setSubmitting(false);
     }
@@ -381,7 +397,15 @@ export default function EventEditor({ idToken, organiserId, initial, onSaved }: 
         })}
       </div>
 
-      {submitError && (
+      {submitError && sessionExpired && (
+        <div role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-foreground">
+          <p>{submitError}</p>
+          <Link href="/login" className="mt-2 inline-block text-accent underline underline-offset-2">
+            Sign in again
+          </Link>
+        </div>
+      )}
+      {submitError && !sessionExpired && (
         <p role="alert" className="text-sm text-danger">
           {submitError}
         </p>

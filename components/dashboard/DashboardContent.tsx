@@ -20,12 +20,13 @@ export default function DashboardContent() {
   const [events, setEvents] = useState<EventRecord[] | null>(null);
   const [eventsError, setEventsError] = useState<string | null>(null);
 
-  const canLoadEvents = auth.status === "signed-in" && Boolean(auth.idToken) && organiser?.status === "approved";
+  const canLoadEvents = auth.status === "signed-in" && organiser?.status === "approved";
+  const getToken = auth.getValidIdToken;
 
   useEffect(() => {
-    if (!canLoadEvents || !auth.idToken) return;
+    if (!canLoadEvents) return;
     let cancelled = false;
-    listMyEvents(auth.idToken)
+    listMyEvents(getToken)
       .then((page) => {
         if (!cancelled) setEvents(page.items);
       })
@@ -35,7 +36,7 @@ export default function DashboardContent() {
     return () => {
       cancelled = true;
     };
-  }, [canLoadEvents, auth.idToken]);
+  }, [canLoadEvents, getToken]);
 
   if (!auth.configured) {
     return (

@@ -1,5 +1,5 @@
 import type { EventCategory } from "@/lib/types";
-import { apiFetch } from "./client";
+import { apiFetch, type GetToken } from "./client";
 import type { OrganiserRecord } from "./types";
 
 export interface OrganiserApplicationInput {
@@ -10,14 +10,17 @@ export interface OrganiserApplicationInput {
   websiteUrl?: string;
 }
 
-export function applyAsOrganiser(input: OrganiserApplicationInput, token: string) {
+export async function applyAsOrganiser(input: OrganiserApplicationInput, getToken: GetToken) {
+  const token = await getToken();
   return apiFetch<OrganiserRecord>("/organisers/apply", { method: "POST", body: input, token });
 }
 
-export function getMyOrganiser(token: string) {
+export async function getMyOrganiser(getToken: GetToken) {
+  const token = await getToken();
   return apiFetch<OrganiserRecord>("/organisers/me", { token });
 }
 
-export function resubmitOrganiser(input: OrganiserApplicationInput, token: string) {
+export async function resubmitOrganiser(input: OrganiserApplicationInput, getToken: GetToken) {
+  const token = await getToken();
   return apiFetch<OrganiserRecord>("/organisers/me", { method: "PATCH", body: input, token });
 }

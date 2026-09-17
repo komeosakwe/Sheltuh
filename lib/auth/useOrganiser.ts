@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, isApiConfigured } from "@/lib/api/client";
+import { ApiError, isApiConfigured, type GetToken } from "@/lib/api/client";
 import { getMyOrganiser } from "@/lib/api/organisers";
 import type { OrganiserRecord } from "@/lib/api/types";
 import { useAuth } from "./AuthContext";
@@ -13,9 +13,9 @@ interface OrganiserQueryState {
   error: string | null;
 }
 
-async function fetchOrganiser(idToken: string): Promise<OrganiserQueryState> {
+async function fetchOrganiser(getToken: GetToken): Promise<OrganiserQueryState> {
   try {
-    const organiser = await getMyOrganiser(idToken);
+    const organiser = await getMyOrganiser(getToken);
     return { loading: false, organiser, error: null };
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) {
@@ -28,6 +28,7 @@ async function fetchOrganiser(idToken: string): Promise<OrganiserQueryState> {
 /** Loads (and lets callers refetch) the signed-in user's own organiser application. */
 export function useOrganiser() {
   const auth = useAuth();
+  const getToken = auth.getValidIdToken;
   const [state, setState] = useState<OrganiserQueryState>(() =>
     isApiConfigured
       ? { loading: true, organiser: null, error: null }
@@ -37,16 +38,16 @@ export function useOrganiser() {
   // Explicit re-fetch for use after a user action (submit, resubmit) —
   // never called directly from an effect body.
   const refetch = useCallback(async () => {
-    if (!isApiConfigured || auth.status !== "signed-in" || !auth.idToken) return;
+    if (!isApiConfigured || auth.status !== "signed-in") return;
     setState((s) => ({ ...s, loading: true }));
-    setState(await fetchOrganiser(auth.idToken));
-  }, [auth.status, auth.idToken]);
+    setState(await fetchOrganiser(getToken));
+  }, [auth.status, getToken]);
 
   useEffect(() => {
     if (!isApiConfigured || auth.status === "loading") return;
     let cancelled = false;
 
-    if (auth.status !== "signed-in" || !auth.idToken) {
+    if (auth.status !== "signed-in") {
       queueMicrotask(() => {
         if (!cancelled) setState({ loading: false, organiser: null, error: null });
       });
@@ -55,13 +56,13 @@ export function useOrganiser() {
       };
     }
 
-    fetchOrganiser(auth.idToken).then((result) => {
+    fetchOrganiser(getToken).then((result) => {
       if (!cancelled) setState(result);
     });
     return () => {
       cancelled = true;
     };
-  }, [auth.status, auth.idToken]);
+  }, [auth.status, getToken]);
 
   return { ...state, refetch, authStatus: auth.status };
 }

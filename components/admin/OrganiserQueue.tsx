@@ -9,7 +9,7 @@ const STATUSES: OrganiserStatus[] = ["pending", "approved", "rejected"];
 
 export default function OrganiserQueue() {
   const auth = useAuth();
-  const token = auth.idToken as string;
+  const getToken = auth.getValidIdToken;
 
   const [status, setStatus] = useState<OrganiserStatus>("pending");
   const [items, setItems] = useState<OrganiserRecord[]>([]);
@@ -26,7 +26,7 @@ export default function OrganiserQueue() {
       setLoading(true);
       setError(null);
       try {
-        const page = await adminListOrganisers(nextStatus, token, append ? cursor : undefined);
+        const page = await adminListOrganisers(nextStatus, getToken, append ? cursor : undefined);
         setItems((prev) => (append ? [...prev, ...page.items] : page.items));
         setCursor(page.nextCursor);
       } catch (err) {
@@ -35,7 +35,7 @@ export default function OrganiserQueue() {
         setLoading(false);
       }
     },
-    [token, cursor],
+    [getToken, cursor],
   );
 
   useEffect(() => {
@@ -57,7 +57,7 @@ export default function OrganiserQueue() {
     setActionError(null);
     setBusyId(item.ownerUserId);
     try {
-      await adminApproveOrganiser(item.ownerUserId, token);
+      await adminApproveOrganiser(item.ownerUserId, getToken);
       setItems((prev) => prev.filter((i) => i.ownerUserId !== item.ownerUserId));
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Couldn't approve this application.");
@@ -71,7 +71,7 @@ export default function OrganiserQueue() {
     setActionError(null);
     setBusyId(item.ownerUserId);
     try {
-      await adminRejectOrganiser(item.ownerUserId, reason.trim(), token);
+      await adminRejectOrganiser(item.ownerUserId, reason.trim(), getToken);
       setItems((prev) => prev.filter((i) => i.ownerUserId !== item.ownerUserId));
       setRejectingId(null);
       setReason("");

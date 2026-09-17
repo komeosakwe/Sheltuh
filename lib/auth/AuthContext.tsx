@@ -9,6 +9,11 @@ import {
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { getUserPool, isAuthConfigured } from "./cognito-config";
 import { decodeJwtPayload, getGroupsFromClaims } from "./jwt";
+import { createIdTokenResolver, SessionExpiredError } from "./session-token";
+
+// Re-exported so components can `import { SessionExpiredError } from
+// "@/lib/auth/AuthContext"` alongside `useAuth` without a second import.
+export { SessionExpiredError };
 
 type AuthStatus = "loading" | "signed-out" | "signed-in";
 
@@ -30,6 +35,15 @@ interface AuthContextValue extends AuthState {
   confirmForgotPassword: (email: string, code: string, newPassword: string) => Promise<void>;
   signOut: () => void;
   refresh: () => Promise<void>;
+  /**
+   * Resolves a currently-valid ID token, transparently refreshing it via
+   * Cognito's refresh token first if the cached one has expired (an ID
+   * token is valid for 1 hour). Call this immediately before every
+   * authenticated request rather than reading `idToken` from state, which
+   * can go stale for anyone who leaves a page open. Rejects with
+   * `SessionExpiredError` if there's no session left to refresh.
+   */
+  getValidIdToken: () => Promise<string>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -71,6 +85,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
     });
   }, []);
+
+  // Created once and reused for the component's lifetime so its in-flight
+  // de-dup (see createIdTokenResolver) actually de-dupes across renders.
+  const [resolveIdToken] = useState(() => createIdTokenResolver(() => getUserPool()?.getCurrentUser() ?? null));
+
+  const getValidIdToken = useCallback(async (): Promise<string> => {
+    const idToken = await resolveIdToken();
+    // Keep the display-facing state (email, admin status) in sync with
+    // whatever the token turned out to carry, in case it was just refreshed.
+    const claims = decodeJwtPayload<Record<string, unknown>>(idToken);
+    setState({
+      status: "signed-in",
+      idToken,
+      email: typeof claims?.email === "string" ? claims.email : undefined,
+      groups: getGroupsFromClaims(claims),
+    });
+    return idToken;
+  }, [resolveIdToken]);
 
   // Mount-time session check, written inline (rather than calling `refresh`)
   // so every setState here happens from the SDK's own async callback — the
@@ -192,8 +224,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       confirmForgotPassword,
       signOut,
       refresh,
+      getValidIdToken,
     }),
-    [state, signIn, signUp, confirmSignUp, resendConfirmationCode, forgotPassword, confirmForgotPassword, signOut, refresh],
+    [
+      state,
+      signIn,
+      signUp,
+      confirmSignUp,
+      resendConfirmationCode,
+      forgotPassword,
+      confirmForgotPassword,
+      signOut,
+      refresh,
+      getValidIdToken,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

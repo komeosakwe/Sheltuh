@@ -16,12 +16,13 @@ export default function EditEventPageContent() {
   const [event, setEvent] = useState<EventRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const ready = auth.status === "signed-in" && Boolean(auth.idToken) && organiser?.status === "approved";
+  const ready = auth.status === "signed-in" && organiser?.status === "approved";
+  const getToken = auth.getValidIdToken;
 
   useEffect(() => {
-    if (!ready || !auth.idToken) return;
+    if (!ready) return;
     let cancelled = false;
-    getMyEvent(params.eventId, auth.idToken)
+    getMyEvent(params.eventId, getToken)
       .then((record) => {
         if (!cancelled) setEvent(record);
       })
@@ -31,7 +32,7 @@ export default function EditEventPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [ready, auth.idToken, params.eventId]);
+  }, [ready, getToken, params.eventId]);
 
   if (!auth.configured) {
     return (
@@ -70,7 +71,7 @@ export default function EditEventPageContent() {
 
   return (
     <EventEditor
-      idToken={auth.idToken as string}
+      getToken={getToken}
       organiserId={organiser.organiserId}
       initial={event}
       onSaved={setEvent}

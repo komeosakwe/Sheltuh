@@ -1,6 +1,16 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL;
 export const isApiConfigured = Boolean(API_URL);
 
+/**
+ * Resolves a currently-valid Cognito ID token, refreshing it first if
+ * needed (see lib/auth/AuthContext.tsx's `getValidIdToken`). Every
+ * authenticated API wrapper takes one of these instead of a plain token
+ * string so it always fetches a fresh token right before the request,
+ * rather than trusting a value the caller captured earlier and that may
+ * have since expired.
+ */
+export type GetToken = () => Promise<string>;
+
 export class ApiError extends Error {
   constructor(
     public status: number,
