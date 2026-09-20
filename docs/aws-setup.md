@@ -27,11 +27,18 @@ radius (IAM, billing) is still worth double-checking.
 | Cognito User Pool | 1 | Email sign-in, self-signup, email verification required |
 | Cognito User Pool Client | 1 | Public SPA client, no secret |
 | Cognito User Pool Group | 1 | `admins` — empty until you run `scripts/promote-admin.ts` |
-| DynamoDB tables | 3 | `Organisers`, `Events`, `EventSlugs` — on-demand billing |
-| DynamoDB GSIs | 2 | one on `Organisers`, one on `Events` |
-| Lambda functions | 16 | Node.js 20, ARM64, 256MB, 10s timeout |
-| CloudWatch Log Groups | 16 | one per function, 2-week retention |
-| API Gateway HTTP API | 1 | ~15 routes, Cognito JWT authorizer on all but 2 public reads |
+| DynamoDB tables | 5 | `Organisers`, `Events`, `EventSlugs`, `Orders`, `TicketInventory` — on-demand billing |
+| DynamoDB GSIs | 3 | two on `Organisers` (status, organiserId), one on `Events` (status+startsAt) |
+| Secrets Manager secret | 1 | Stripe platform key + webhook secret — created as a placeholder, see the Stripe section below |
+| Lambda functions | 22 | Node.js 20, ARM64, 256MB, 10s timeout |
+| CloudWatch Log Groups | 22 | one per function, 2-week retention |
+| API Gateway HTTP API | 1 | ~22 routes, Cognito JWT authorizer on all but the public reads, checkout, webhook and order lookup |
+
+Payments add real money movement to what's otherwise a self-contained dev
+sandbox: this stack never holds card details itself (Stripe's own hosted
+Checkout page does), but it does create real Stripe Connect accounts and
+real charges once you fill in a real secret key — see "5. Set up Stripe"
+below before you send anyone a live payment link.
 
 **Expected charges:** at dev/testing volume (a handful of people clicking
 through the app), this is effectively **$0–$1/month**:
@@ -124,7 +131,83 @@ network calls. With all three set, `npm run dev` / `npm run build` talk to
 the real backend: real sign-up/sign-in, real organiser applications, a real
 (empty, until seeded or organisers start publishing) public feed.
 
-## 5. Provision the first admins (Kome and Dhruv)
+Nothing else is needed here for payments — the frontend never touches a
+Stripe key. Checkout redirects the browser to Stripe's own hosted page and
+back; only the Lambdas talk to Stripe's API, using the secret set up next.
+
+## 5. Set up Stripe
+
+Ticket sales use [Stripe Connect](https://stripe.com/connect) (Express
+accounts): a buyer pays Sheltüh, Sheltüh keeps the booking fee, and the rest
+transfers straight to the organiser's own connected account. This needs a
+real Stripe account of yours — none of this session's environments have
+one, and nothing here has ever called Stripe's API.
+
+**5a. Create a Stripe account** at <https://dashboard.stripe.com/register>
+if you don't have one, and turn on **Connect** for it (Stripe prompts for
+this the first time you touch anything Connect-related). Stay in **test
+mode** (the toggle in the dashboard's left sidebar) until you're ready for
+real money — every value below has a test-mode equivalent, and the whole
+flow (onboarding, checkout, payouts) works identically in test mode with
+Stripe's fake card numbers.
+
+**5b. Get your secret key**: Developers → API keys → **Secret key**
+(`sk_test_...` in test mode). Keep this out of chat, screenshots, and
+version control — treat it like a password.
+
+**5c. Fill in the placeholder secret this stack created.** `cdk deploy`
+(step 3) already made a Secrets Manager secret named `sheltuh-dev-stripe`
+holding placeholder text — nothing in the stack, and no Lambda, can update
+it (same principle as the `admins` Cognito group: a human with real
+credentials does this by hand). You need the webhook secret from 5d first,
+so come back to this after that step:
+```bash
+aws secretsmanager put-secret-value \
+  --secret-id sheltuh-dev-stripe \
+  --secret-string '{"secretKey":"sk_test_...","webhookSecret":"whsec_..."}' \
+  --profile sheltuh-dev
+```
+
+**5d. Register the webhook.** Stripe needs to tell your API when a payment
+actually succeeds — that's the only place an order becomes "paid" and
+tickets get issued (never at checkout time, so an abandoned Checkout
+Session never holds tickets hostage). In the Stripe dashboard: Developers →
+Webhooks → **Add endpoint**.
+- **Endpoint URL**: `<your ApiUrl from step 3>/webhooks/stripe`
+- **Events to send**: `checkout.session.completed`
+
+After creating it, click into the endpoint and reveal its **Signing
+secret** (`whsec_...`) — that's the `webhookSecret` value for 5c.
+
+**5e. Set the real frontend URL.** `orders/checkout.ts` and
+`organisers/connectOnboard.ts` both build Stripe redirect URLs
+(`success_url`, `cancel_url`, Connect's `return_url`/`refresh_url`) from
+`FRONTEND_URL`, which defaults to an obvious placeholder. Once the frontend
+has a real deployed URL (see the main README/handoff notes for hosting it
+— this stack only covers the backend), redeploy with it set:
+```bash
+cd infra
+npx cdk deploy -c frontendUrl=https://your-real-frontend-domain
+```
+
+**5f. Try it.** With all three above done: sign up an organiser account,
+get it approved as an admin, visit `/dashboard/payouts` and connect Stripe
+(Express onboarding in test mode accepts
+[Stripe's test data](https://docs.stripe.com/connect/testing) — no real
+identity or bank details needed). Submit and approve a paid event, then buy
+a ticket for it using [a test card number](https://docs.stripe.com/testing)
+like `4242 4242 4242 4242`. The webhook should fire within a second or two
+and the confirmation page should show a real ticket code.
+
+**Known gap — oversell refunds are manual.** If two buyers pay for the same
+last ticket in the same few seconds, the webhook accepts whichever payment
+lands first and marks the other order `oversold_refund_required` — but it
+does not issue the Stripe refund automatically. Watch CloudWatch Logs for
+`WebhookFn` (it logs the order id when this happens) and refund that
+PaymentIntent by hand from the Stripe dashboard until an automated version
+of this exists.
+
+## 7. Provision the first admins (Kome and Dhruv)
 
 Admin access is never self-service — see `scripts/promote-admin.ts` and
 `infra/lib/sheltuh-stack.ts`'s comment on the `admins` group. Steps:
@@ -143,7 +226,7 @@ Admin access is never self-service — see `scripts/promote-admin.ts` and
 3. They sign out and back in — `/admin` becomes available once their new
    ID token carries `cognito:groups: ["admins"]`.
 
-## 6. Seed sample events into the live feed (optional)
+## 8. Seed sample events into the live feed (optional)
 
 To see the public feed populated without waiting on a real organiser
 application → admin approval cycle:
@@ -160,7 +243,7 @@ synthetic `seed-` organiser ID so they're clearly not real organiser
 submissions. Re-running it is idempotent per event (same `eventId`/`slug`
 each time — it overwrites, doesn't duplicate).
 
-## 7. Tear down
+## 9. Tear down
 
 Every resource in this stack has `RemovalPolicy.DESTROY` — a clean, full
 teardown:
@@ -170,25 +253,41 @@ cd infra
 npx cdk destroy
 ```
 
-## 8. What this session actually verified vs. didn't
+This also deletes the Stripe secret from Secrets Manager. It does **not**
+touch anything on Stripe's own side — your Stripe account, its Connect
+accounts and its webhook registration all survive a teardown, so a
+re-deploy just needs steps 5c–5e redone against the same Stripe account.
 
-**Verified locally, without AWS:**
-- `npx tsc --noEmit` — the whole `infra/` project (stack + all 16 Lambda
+## 10. What this session actually verified vs. didn't
+
+**Verified locally, without AWS or Stripe access:**
+- `npx tsc --noEmit` — the whole `infra/` project (stack + all 22 Lambda
   handlers + shared modules) typechecks.
 - `npx cdk synth` — the stack synthesises to a valid CloudFormation
   template; every `NodejsFunction` bundles successfully with local esbuild.
-- `npm test` in `infra/` — 35 unit tests over the pure logic (Melbourne/UTC
-  conversion, validation, state-machine rules, pagination cursors).
-- The frontend's demo mode (no env vars set) was browser-tested end to end.
+- `npm test` in `infra/` — 102 unit tests over the pure logic (Melbourne/UTC
+  conversion, validation, state-machine rules, pagination cursors, atomic
+  ticket-inventory reservation via a mocked DynamoDB transaction, checkout
+  line-item pricing/validation, ticket-code issuance, and the booking-fee
+  math both this project and the frontend duplicate).
+- The frontend's demo mode (no env vars set) was browser-tested end to end,
+  including the "Checkout unavailable in this demo" ticket flow.
+- `npm run build` / `npm run lint` / `npm test` in the frontend project.
 
-**NOT verified (because there's no AWS access in this environment):**
+**NOT verified (because there's no AWS or Stripe access in this
+environment):**
 - The stack has never actually been deployed.
 - No Lambda has ever executed against a real DynamoDB table.
 - No Cognito sign-up/sign-in flow has ever run against a real user pool.
-- The frontend's "live mode" code paths (real API calls) have not been
-  exercised against a real backend — only their loading/error/not-found
-  states were checked in the absence of one.
+- No Stripe API call of any kind has ever been made — no Connect account
+  created, no Checkout Session created, no webhook received. The Stripe
+  integration is written and typechecks against the `stripe` package's own
+  types; it has not been exercised against Stripe's actual API.
+- The frontend's "live mode" code paths (real API calls, real checkout
+  redirect, real payout onboarding) have not been exercised against a real
+  backend — only their loading/error/not-found states were checked in the
+  absence of one.
 
 Do not take "the code is written and typechecks" as "AWS integration
-works" — they are not the same claim, and this document deliberately keeps
-them separate.
+works" (or "Stripe integration works") — those are not the same claim, and
+this document deliberately keeps them separate.

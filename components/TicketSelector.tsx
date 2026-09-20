@@ -1,18 +1,28 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { isApiConfigured } from "@/lib/api/client";
+import { createCheckoutSession } from "@/lib/api/orders";
 import { calculateOrderSummary, sumOrderSummaries } from "@/lib/fees";
 import { formatAud } from "@/lib/format";
 import { formatTicketBreakdown, formatTicketHeadline } from "@/lib/pricing";
-import type { TicketType } from "@/lib/types";
+import type { SheltuhEvent, TicketType } from "@/lib/types";
 
 const MAX_QUANTITY_PER_TYPE = 8;
 
 const stepperButtonClass =
   "flex h-11 w-11 shrink-0 items-center justify-center rounded border border-surface-border text-lg font-semibold text-foreground transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-surface-border disabled:hover:text-foreground";
 
-export default function TicketSelector({ ticketTypes }: { ticketTypes: TicketType[] }) {
+export default function TicketSelector({ event }: { event: SheltuhEvent }) {
+  const ticketTypes = event.ticketTypes;
   const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Live mode needs a real organiserId (the checkout route's composite
+  // key) — demo sample events never have one, since there's no backend to
+  // check out against.
+  const canCheckout = isApiConfigured && Boolean(event.organiserId);
 
   function capFor(ticket: TicketType): number {
     return Math.min(ticket.quantityAvailable, MAX_QUANTITY_PER_TYPE);
@@ -39,6 +49,24 @@ export default function TicketSelector({ ticketTypes }: { ticketTypes: TicketTyp
   const orderTotal = sumOrderSummaries(lineSummaries.map((line) => line.summary));
 
   const hasAnyTickets = lineSummaries.some((line) => line.quantity > 0);
+
+  async function handleCheckout() {
+    if (!event.organiserId) return;
+    setError(null);
+    setLoading(true);
+    try {
+      const lineItems = lineSummaries
+        .filter((line) => line.quantity > 0)
+        .map((line) => ({ ticketTypeId: line.ticket.id, quantity: line.quantity }));
+      const result = await createCheckoutSession(event.organiserId, event.id, lineItems);
+      window.location.href = result.url;
+      // Deliberately no setLoading(false) here — the page is navigating
+      // away, and re-enabling the button would just invite a double-click.
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't start checkout. Try again.");
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -113,18 +141,43 @@ export default function TicketSelector({ ticketTypes }: { ticketTypes: TicketTyp
           </div>
         </dl>
 
-        <button
-          type="button"
-          disabled
-          aria-disabled="true"
-          className="mt-4 w-full cursor-not-allowed rounded bg-surface-border px-4 py-3 font-medium text-muted"
-        >
-          Checkout unavailable in this demo
-        </button>
-        <p className="mt-2 text-xs text-muted">
-          This is a local prototype. No payment information is collected and no tickets are
-          issued{hasAnyTickets ? " — the total above is a preview only." : "."}
-        </p>
+        {canCheckout ? (
+          <>
+            <button
+              type="button"
+              onClick={handleCheckout}
+              disabled={!hasAnyTickets || loading}
+              className="mt-4 w-full rounded bg-accent px-4 py-3 font-medium text-accent-foreground transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loading ? "Redirecting to checkout…" : orderTotal.totalCents === 0 ? "Get free tickets" : "Checkout"}
+            </button>
+            {error && (
+              <p role="alert" className="mt-2 text-sm text-danger">
+                {error}
+              </p>
+            )}
+            <p className="mt-2 text-xs text-muted">
+              {orderTotal.totalCents === 0
+                ? "Free tickets are issued immediately, no payment step."
+                : "You'll pay securely on Stripe's own checkout page."}
+            </p>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              disabled
+              aria-disabled="true"
+              className="mt-4 w-full cursor-not-allowed rounded bg-surface-border px-4 py-3 font-medium text-muted"
+            >
+              Checkout unavailable in this demo
+            </button>
+            <p className="mt-2 text-xs text-muted">
+              This is a local prototype. No payment information is collected and no tickets are
+              issued{hasAnyTickets ? " — the total above is a preview only." : "."}
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

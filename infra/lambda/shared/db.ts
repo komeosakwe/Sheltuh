@@ -22,9 +22,16 @@ export const TABLES = {
   get eventSlugs() {
     return requireEnv("EVENT_SLUGS_TABLE_NAME");
   },
+  get orders() {
+    return requireEnv("ORDERS_TABLE_NAME");
+  },
+  get ticketInventory() {
+    return requireEnv("TICKET_INVENTORY_TABLE_NAME");
+  },
 };
 
 export const INDEXES = {
   organisersByStatus: "status-index",
+  organisersByOrganiserId: "organiserId-index",
   eventsByStatus: "status-startsAt-index",
 };

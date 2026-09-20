@@ -8,6 +8,7 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambdaNode from "aws-cdk-lib/aws-lambda-nodejs";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import type { Construct } from "constructs";
 import * as path from "path";
 
@@ -79,6 +80,12 @@ export class SheltuhDevStack extends cdk.Stack {
       partitionKey: { name: "status", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "updatedAt", type: dynamodb.AttributeType.STRING },
     });
+    // The checkout route only has an EventRecord's organiserId (the
+    // generated attribute, not this table's ownerUserId key) to start from.
+    organisersTable.addGlobalSecondaryIndex({
+      indexName: "organiserId-index",
+      partitionKey: { name: "organiserId", type: dynamodb.AttributeType.STRING },
+    });
 
     const eventsTable = new dynamodb.Table(this, "EventsTable", {
       tableName: "sheltuh-dev-events",
@@ -100,8 +107,54 @@ export class SheltuhDevStack extends cdk.Stack {
       removalPolicy: devRemovalPolicy,
     });
 
+    // orderId doubles as the Stripe Checkout Session id (or, for a free
+    // order, a synthetic equivalent minted in orders/checkout.ts) — see its
+    // comment for why that's also what makes the confirmation page's
+    // unauthenticated lookup safe.
+    const ordersTable = new dynamodb.Table(this, "OrdersTable", {
+      tableName: "sheltuh-dev-orders",
+      partitionKey: { name: "orderId", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: devRemovalPolicy,
+    });
+
+    // Separate from EventsTable so a purchase's inventory decrement is one
+    // atomic conditional update on a small item, not a nested-list update
+    // racing every other field an organiser might be editing on the event.
+    const ticketInventoryTable = new dynamodb.Table(this, "TicketInventoryTable", {
+      tableName: "sheltuh-dev-ticket-inventory",
+      partitionKey: { name: "eventId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "ticketTypeId", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: devRemovalPolicy,
+    });
+
     // ---------------------------------------------------------------------
-    // Lambda — shared defaults + a small factory to keep 16 handlers terse
+    // Stripe secret — CDK creates the shell; the real secretKey and
+    // webhookSecret get filled in by hand after both a Stripe account and
+    // this stack exist (see docs/aws-setup.md's Stripe section). Every
+    // Lambda that touches Stripe reads this at runtime — the key is never a
+    // plain environment variable, and never committed anywhere.
+    // ---------------------------------------------------------------------
+    const stripeSecret = new secretsmanager.Secret(this, "StripeSecret", {
+      secretName: "sheltuh-dev-stripe",
+      description:
+        "Stripe platform secret key + webhook signing secret for Sheltüh dev. Placeholder until filled in by hand — see docs/aws-setup.md.",
+      secretObjectValue: {
+        secretKey: cdk.SecretValue.unsafePlainText("REPLACE_ME_WITH_YOUR_STRIPE_SECRET_KEY"),
+        webhookSecret: cdk.SecretValue.unsafePlainText("REPLACE_ME_AFTER_REGISTERING_THE_WEBHOOK"),
+      },
+      removalPolicy: devRemovalPolicy,
+    });
+
+    // The frontend's real deployed URL — needed for Stripe redirect/return
+    // URLs. Passed via CDK context (`cdk deploy -c frontendUrl=https://...`)
+    // since it doesn't exist until the frontend itself is deployed;
+    // deliberately not defaulting to a real-looking domain.
+    const frontendUrl = this.node.tryGetContext("frontendUrl") ?? "https://REPLACE-WITH-YOUR-DEPLOYED-FRONTEND-URL";
+
+    // ---------------------------------------------------------------------
+    // Lambda — shared defaults + a small factory to keep handlers terse
     // ---------------------------------------------------------------------
     const lambdaEntry = (relativePath: string) => path.join(__dirname, "..", "lambda", relativePath);
 
@@ -208,6 +261,53 @@ export class SheltuhDevStack extends cdk.Stack {
     eventsTable.grantReadData(getEventBySlugFn);
     eventSlugsTable.grantReadData(getEventBySlugFn);
 
+    // -- payments: Stripe Connect onboarding --------------------------------
+    const connectEnv = { ORGANISERS_TABLE_NAME: organisersTable.tableName, FRONTEND_URL: frontendUrl };
+
+    const connectOnboardFn = makeFunction("ConnectOnboardFn", "organisers/connectOnboard.ts", connectEnv);
+    organisersTable.grantReadWriteData(connectOnboardFn);
+    stripeSecret.grantRead(connectOnboardFn);
+
+    const connectRefreshFn = makeFunction("ConnectRefreshFn", "organisers/connectRefresh.ts", {
+      ORGANISERS_TABLE_NAME: organisersTable.tableName,
+    });
+    organisersTable.grantReadWriteData(connectRefreshFn);
+    stripeSecret.grantRead(connectRefreshFn);
+
+    // -- payments: checkout, webhook, order lookup --------------------------
+    const ordersEnv = {
+      EVENTS_TABLE_NAME: eventsTable.tableName,
+      ORGANISERS_TABLE_NAME: organisersTable.tableName,
+      ORDERS_TABLE_NAME: ordersTable.tableName,
+      TICKET_INVENTORY_TABLE_NAME: ticketInventoryTable.tableName,
+      FRONTEND_URL: frontendUrl,
+    };
+
+    const checkoutFn = makeFunction("CheckoutFn", "orders/checkout.ts", ordersEnv);
+    eventsTable.grantReadData(checkoutFn);
+    // Least privilege beyond the table level: checkout only ever needs to
+    // resolve one organiser by id, via the GSI — never a full table scan.
+    checkoutFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query"],
+        resources: [`${organisersTable.tableArn}/index/organiserId-index`],
+      }),
+    );
+    ticketInventoryTable.grantReadData(checkoutFn);
+    ordersTable.grantWriteData(checkoutFn);
+    stripeSecret.grantRead(checkoutFn);
+
+    const webhookFn = makeFunction("WebhookFn", "orders/webhook.ts", ordersEnv);
+    eventsTable.grantReadData(webhookFn);
+    ordersTable.grantReadWriteData(webhookFn);
+    ticketInventoryTable.grantReadWriteData(webhookFn);
+    stripeSecret.grantRead(webhookFn);
+
+    const getOrderBySessionFn = makeFunction("GetOrderBySessionFn", "orders/getBySession.ts", {
+      ORDERS_TABLE_NAME: ordersTable.tableName,
+    });
+    ordersTable.grantReadData(getOrderBySessionFn);
+
     // ---------------------------------------------------------------------
     // API Gateway (HTTP API)
     // ---------------------------------------------------------------------
@@ -236,6 +336,16 @@ export class SheltuhDevStack extends cdk.Stack {
     // public
     addPublicRoute("/events", [HttpMethod.GET], listEventsFn);
     addPublicRoute("/events/{slug}", [HttpMethod.GET], getEventBySlugFn);
+
+    // public — payments. Guest checkout (see orders/checkout.ts) and the
+    // Stripe webhook both have no Cognito identity to authorize against.
+    addPublicRoute("/events/{organiserId}/{eventId}/checkout", [HttpMethod.POST], checkoutFn);
+    addPublicRoute("/webhooks/stripe", [HttpMethod.POST], webhookFn);
+    addPublicRoute("/orders/by-session/{sessionId}", [HttpMethod.GET], getOrderBySessionFn);
+
+    // authenticated — organiser payouts
+    addProtectedRoute("/organisers/me/connect/onboard", [HttpMethod.POST], connectOnboardFn);
+    addProtectedRoute("/organisers/me/connect/refresh", [HttpMethod.POST], connectRefreshFn);
 
     // authenticated — organiser applications
     addProtectedRoute("/organisers/apply", [HttpMethod.POST], applyFn);

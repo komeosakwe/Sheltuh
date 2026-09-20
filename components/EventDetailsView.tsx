@@ -80,7 +80,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
               carry a fee.
             </p>
           </div>
-          <TicketSelector ticketTypes={event.ticketTypes} />
+          <TicketSelector event={event} />
         </div>
       </div>
     </div>

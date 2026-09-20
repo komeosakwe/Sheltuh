@@ -148,12 +148,30 @@ export default function DashboardContent() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Link
-        href="/dashboard/new"
-        className="w-fit rounded bg-accent px-4 py-2 text-sm font-medium text-accent-foreground hover:bg-accent-strong"
-      >
-        New event
-      </Link>
+      <div className="flex flex-wrap items-center gap-3">
+        <Link
+          href="/dashboard/new"
+          className="w-fit rounded bg-accent px-4 py-2 text-sm font-medium text-accent-foreground hover:bg-accent-strong"
+        >
+          New event
+        </Link>
+        <Link
+          href="/dashboard/payouts"
+          className="w-fit rounded border border-surface-border px-4 py-2 text-sm font-medium text-foreground hover:border-accent hover:text-accent"
+        >
+          Payouts
+        </Link>
+      </div>
+
+      {!organiser.payoutsEnabled && (
+        <p className="rounded-md border border-surface-border bg-surface px-4 py-3 text-sm text-muted">
+          Free events don&rsquo;t need this, but{" "}
+          <Link href="/dashboard/payouts" className="text-accent underline underline-offset-2">
+            connect Stripe
+          </Link>{" "}
+          before selling paid tickets.
+        </p>
+      )}
 
       {eventsError && (
         <p role="alert" className="text-sm text-danger">

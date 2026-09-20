@@ -21,8 +21,10 @@
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.716.0",
+    "@aws-sdk/client-secrets-manager": "^3.716.0",
     "@aws-sdk/lib-dynamodb": "^3.716.0",
     "aws-cdk-lib": "^2.269.0",
-    "constructs": "^10.4.2"
+    "constructs": "^10.4.2",
+    "stripe": "^22.6.2"
   }
 }

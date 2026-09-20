@@ -16,6 +16,8 @@ export interface OrganiserRecord {
   reviewedAt?: string;
   createdAt: string;
   updatedAt: string;
+  stripeAccountId?: string;
+  payoutsEnabled?: boolean;
 }
 
 export type EventStatus = "draft" | "pending_review" | "published" | "rejected";
@@ -60,4 +62,39 @@ export interface EventRecord {
 export interface Paginated<T> {
   items: T[];
   nextCursor?: string;
+}
+
+export type OrderStatus = "pending" | "paid" | "failed" | "oversold_refund_required";
+
+export interface OrderLineItem {
+  ticketTypeId: string;
+  ticketTypeName: string;
+  unitPriceCents: number;
+  feePolicy: FeePolicy;
+  quantity: number;
+}
+
+export interface IssuedTicket {
+  ticketCode: string;
+  ticketTypeId: string;
+  ticketTypeName: string;
+}
+
+export interface OrderRecord {
+  orderId: string;
+  organiserId: string;
+  eventId: string;
+  eventTitle: string;
+  buyerEmail?: string;
+  lineItems: OrderLineItem[];
+  subtotalCents: number;
+  buyerFeeCents: number;
+  totalCents: number;
+  applicationFeeCents: number;
+  status: OrderStatus;
+  stripeCheckoutSessionId: string;
+  stripePaymentIntentId?: string;
+  tickets: IssuedTicket[];
+  createdAt: string;
+  updatedAt: string;
 }

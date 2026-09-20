@@ -3,6 +3,7 @@ import { apiFetch } from "./client";
 import type { Paginated, TicketTypeInput } from "./types";
 
 export interface PublicEvent {
+  organiserId: string;
   eventId: string;
   slug: string;
   title: string;

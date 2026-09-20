@@ -6,6 +6,7 @@ import { assignPoster } from "./assign-poster";
 export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
   return {
     id: event.eventId,
+    organiserId: event.organiserId,
     slug: event.slug,
     title: event.title,
     description: event.description,

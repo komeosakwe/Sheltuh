@@ -17,6 +17,7 @@ beforeEach(() => {
 
 function makeEvent(id: string, overrides: Partial<PublicEvent> = {}): PublicEvent {
   return {
+    organiserId: `org-${id}`,
     eventId: id,
     slug: id,
     title: `Event ${id}`,

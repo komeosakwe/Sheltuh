@@ -24,3 +24,15 @@ export async function resubmitOrganiser(input: OrganiserApplicationInput, getTok
   const token = await getToken();
   return apiFetch<OrganiserRecord>("/organisers/me", { method: "PATCH", body: input, token });
 }
+
+/** Starts (or resumes) Stripe Connect onboarding — returns the URL to send the organiser to. */
+export async function connectStripeOnboarding(getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<{ url: string }>("/organisers/me/connect/onboard", { method: "POST", token });
+}
+
+/** Re-syncs payoutsEnabled from Stripe's own account status. */
+export async function refreshStripeConnectStatus(getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<OrganiserRecord>("/organisers/me/connect/refresh", { method: "POST", token });
+}

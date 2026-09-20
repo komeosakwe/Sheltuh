@@ -67,9 +67,11 @@ describe("public getEventBySlug — draft/rejected/pending_review events stay pr
 
     expect(result.statusCode).toBe(200);
     expect(result.body).toContain("My Event");
-    // Never leaks internal-only fields (organiserId, moderationLog, status) via the public route.
+    // organiserId is deliberately public — the checkout route needs it
+    // (/events/{organiserId}/{eventId}/checkout) and it isn't sensitive on
+    // its own. moderationLog and status stay internal-only, though.
+    expect(result.body).toContain("org-1");
     expect(result.body).not.toContain("moderationLog");
-    expect(result.body).not.toContain("org-1");
   });
 
   it("returns 404 for a slug that never existed, without ever reading the events table", async () => {
