@@ -16,6 +16,12 @@ export default function Nav() {
             Discover
           </Link>
           <Link
+            href="/map"
+            className="rounded px-3 py-2 font-medium text-foreground transition-colors hover:bg-surface"
+          >
+            Map
+          </Link>
+          <Link
             href="/organisers/apply"
             className="rounded px-3 py-2 font-medium text-white transition-opacity hover:opacity-90"
             style={{ background: "#e15b27" }}

@@ -48,6 +48,12 @@ export interface TicketType {
   quantityAvailable: number;
 }
 
+/** Decimal degrees, WGS84. */
+export interface Coordinates {
+  lat: number;
+  lng: number;
+}
+
 export interface SheltuhEvent {
   id: string;
   slug: string;
@@ -57,6 +63,12 @@ export interface SheltuhEvent {
   suburb: string;
   venueName: string;
   venueAddress: string;
+  /**
+   * Approximate real-world position of the venue, when known. Not present
+   * for every event — see lib/geo.ts's suburb-centroid fallback for events
+   * (e.g. from the live API) that don't have a geocoded venue location yet.
+   */
+  coordinates?: Coordinates;
   /** ISO 8601 datetime, wall-clock time in Australia/Melbourne. */
   startsAt: string;
   endsAt?: string;
