@@ -75,4 +75,14 @@ export interface SheltuhEvent {
   organiserName: string;
   poster: EventPoster;
   ticketTypes: TicketType[];
+  /**
+   * Optional organiser-supplied context — shown on the details page only
+   * when present. Never inferred or invented: the live API doesn't collect
+   * these yet, so live events simply omit them rather than getting guessed
+   * text. See lib/sample-events.ts for how the demo data fills them in.
+   */
+  audience?: string;
+  whatToExpect?: string;
+  ageRestriction?: string;
+  accessibility?: string;
 }

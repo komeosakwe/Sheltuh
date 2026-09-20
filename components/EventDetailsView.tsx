@@ -37,6 +37,39 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
           )}
 
           <p className="leading-relaxed text-foreground">{event.description}</p>
+
+          {(event.audience || event.whatToExpect || event.ageRestriction || event.accessibility) && (
+            <div className="flex flex-col gap-3 rounded-lg border border-surface-border bg-surface p-4">
+              <h2 className="font-heading text-xl text-foreground">Good to know</h2>
+              <dl className="flex flex-col gap-2.5 text-sm">
+                {event.audience && (
+                  <div>
+                    <dt className="font-medium text-foreground">Who it&rsquo;s for</dt>
+                    <dd className="text-muted">{event.audience}</dd>
+                  </div>
+                )}
+                {event.whatToExpect && (
+                  <div>
+                    <dt className="font-medium text-foreground">What to expect</dt>
+                    <dd className="text-muted">{event.whatToExpect}</dd>
+                  </div>
+                )}
+                {event.ageRestriction && (
+                  <div>
+                    <dt className="font-medium text-foreground">Age restriction</dt>
+                    <dd className="text-muted">{event.ageRestriction}</dd>
+                  </div>
+                )}
+                {event.accessibility && (
+                  <div>
+                    <dt className="font-medium text-foreground">Accessibility</dt>
+                    <dd className="text-muted">{event.accessibility}</dd>
+                  </div>
+                )}
+              </dl>
+              <p className="text-xs text-muted">As provided by the organiser.</p>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-4 lg:sticky lg:top-24 lg:self-start">
