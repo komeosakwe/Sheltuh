@@ -1,103 +1,125 @@
 "use client";
 
 import Link from "next/link";
+import { Space_Grotesk } from "next/font/google";
 import { useState } from "react";
 
-type Intent = "discover" | "host" | "return";
+// This hero reproduces the "identity-led discovery" direction picked from
+// the earlier design exploration, which used Space Grotesk and an orange
+// accent distinct from the rest of the app's Bebas Neue / blue — both
+// scoped to this component only, not a site-wide rebrand.
+const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], weight: ["500", "600", "700"] });
 
-const INTENTS: { id: Intent; label: string; blurb: string }[] = [
-  {
-    id: "discover",
-    label: "I want to discover",
-    blurb: "See what's on tonight and this week.",
-  },
-  {
-    id: "host",
-    label: "I want to host",
-    blurb: "Submit your own fashion, music, art or third-space event.",
-  },
-  {
-    id: "return",
-    label: "I'm already in",
-    blurb: "Sign in to manage your events or application.",
-  },
+type Intent = "discover" | "connect" | "make";
+
+const INTENTS: { id: Intent; icon: string; label: string; blurb: string }[] = [
+  { id: "discover", icon: "◌", label: "I want to discover", blurb: "something new tonight" },
+  { id: "connect", icon: "✳", label: "I want to connect", blurb: "with creative people" },
+  { id: "make", icon: "▧", label: "I want to make", blurb: "or share an event" },
 ];
 
-/**
- * Intent-led homepage hero: the visitor picks what they're here for, and the
- * call to action below reflects it. Every option routes to something the app
- * actually does (the feed below, the real organiser-application flow, or
- * real sign-in) — no placeholder "connect with people" feature that doesn't
- * exist yet.
- */
+const ORANGE = "#e15b27";
+
 export default function IntentHero() {
   const [intent, setIntent] = useState<Intent>("discover");
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-3">
-        <p className="text-sm font-medium uppercase tracking-wide text-accent">Melbourne · Naarm</p>
-        <h1 className="font-heading text-4xl text-foreground sm:text-5xl">
+    <div className={`${spaceGrotesk.className} border border-surface-border bg-[#0c0b0a] p-6 sm:p-8`}>
+      <p className="text-xs font-medium uppercase tracking-[0.16em]" style={{ color: ORANGE }}>
+        Melbourne &middot; Naarm
+      </p>
+
+      <div className="mt-4 flex flex-col gap-6 border-b border-surface-border pb-7 sm:flex-row sm:items-end sm:justify-between">
+        <h1
+          className="max-w-2xl text-[42px] leading-[0.9] font-bold tracking-[-0.03em] text-foreground sm:text-6xl lg:text-7xl"
+          style={{ ...spaceGrotesk.style, textTransform: "none" }}
+        >
           Find your room.
           <br />
-          <span className="text-accent">Find your people.</span>
+          <span style={{ color: ORANGE }}>Find your people.</span>
         </h1>
-        <p className="max-w-2xl text-muted">
-          Melbourne&rsquo;s fashion, music, art and third-space nights don&rsquo;t trend &mdash; they get
-          shared in a group chat and forgotten by morning. Sheltüh is where they surface.
+        <p className="max-w-[290px] text-sm leading-relaxed text-muted">
+          Choose what you are looking for. Sheltüh surfaces the rooms, nights and events that fit.
         </p>
       </div>
 
       <div
         role="radiogroup"
         aria-label="What are you here for?"
-        className="grid grid-cols-1 gap-3 sm:grid-cols-3"
+        className="my-6 grid grid-cols-1 gap-2.5 sm:grid-cols-3"
       >
-        {INTENTS.map((option) => (
-          <button
-            key={option.id}
-            type="button"
-            role="radio"
-            aria-checked={intent === option.id}
-            onClick={() => setIntent(option.id)}
-            className={`flex flex-col gap-1 rounded-lg border p-4 text-left transition-colors ${
-              intent === option.id
-                ? "border-accent bg-accent/10"
-                : "border-surface-border bg-surface hover:border-accent/50"
-            }`}
-          >
-            <span className="font-medium text-foreground">{option.label}</span>
-            <span className="text-sm text-muted">{option.blurb}</span>
-          </button>
-        ))}
+        {INTENTS.map((option) => {
+          const selected = intent === option.id;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              onClick={() => setIntent(option.id)}
+              className="min-h-[115px] border px-5 py-5 text-left transition-colors"
+              style={{
+                background: selected ? "#281812" : "#151311",
+                borderColor: selected ? ORANGE : "#3d352e",
+                color: "#eee7dc",
+              }}
+            >
+              <span className="mb-5 block text-2xl">{option.icon}</span>
+              <span className="block text-sm font-semibold">{option.label}</span>
+              <span className="mt-1 block text-sm" style={{ color: "#898178" }}>
+                {option.blurb}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
-      <div>
-        {intent === "discover" && (
-          <a
-            href="#feed"
-            className="inline-block rounded bg-accent px-5 py-3 font-medium text-accent-foreground transition-colors hover:bg-accent-strong"
+      <p className="mb-3 text-xs font-medium uppercase tracking-[0.16em]" style={{ color: ORANGE }}>
+        Picked for the scene you chose
+      </p>
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+        <a
+          href="#feed"
+          className="flex min-h-[210px] flex-col justify-between p-5 transition-opacity hover:opacity-90"
+          style={{ background: "#efe9df", color: "#151210" }}
+        >
+          <div className="flex justify-between text-[11px] font-medium uppercase tracking-wide">
+            <span>Tonight &middot; Melbourne</span>
+            <span>Live</span>
+          </div>
+          <h3
+            className="mt-4 text-[26px] leading-[1] font-bold tracking-[-0.02em]"
+            style={{ ...spaceGrotesk.style, textTransform: "none" }}
           >
-            See what&rsquo;s on ↓
-          </a>
-        )}
-        {intent === "host" && (
-          <Link
-            href="/organisers/apply"
-            className="inline-block rounded bg-accent px-5 py-3 font-medium text-accent-foreground transition-colors hover:bg-accent-strong"
+            See what&rsquo;s on
+          </h3>
+          <p className="mt-3 text-[13px]">
+            Live music, art, workshops and pop-ups &mdash; updated as organisers publish.
+          </p>
+        </a>
+        <Link
+          href="/organisers/apply"
+          className="flex min-h-[210px] flex-col justify-between p-5 text-white transition-opacity hover:opacity-90"
+          style={{ background: ORANGE }}
+        >
+          <div className="flex justify-between text-[11px] font-medium uppercase tracking-wide">
+            <span>Organisers</span>
+            <span>Reviewed before it&rsquo;s live</span>
+          </div>
+          <h3
+            className="mt-4 text-[26px] leading-[1] font-bold tracking-[-0.02em]"
+            style={{ ...spaceGrotesk.style, textTransform: "none" }}
           >
-            Apply as an organiser
-          </Link>
-        )}
-        {intent === "return" && (
-          <Link
-            href="/login"
-            className="inline-block rounded bg-accent px-5 py-3 font-medium text-accent-foreground transition-colors hover:bg-accent-strong"
-          >
-            Sign in
-          </Link>
-        )}
+            Have something on?
+          </h3>
+          <p className="mt-3 text-[13px]">Submit your fashion, music, art or third-space event.</p>
+        </Link>
       </div>
+
+      <p className="mt-6 text-[13px]" style={{ color: "#8e877e" }}>
+        You don&rsquo;t need to know the right account to follow. You just need to know what kind of
+        room you want to walk into.
+      </p>
     </div>
   );
 }
