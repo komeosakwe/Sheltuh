@@ -2,12 +2,11 @@
   <rect width="64" height="64" rx="14" fill="#0b0b0e" />
   <text
     x="32"
-    y="45"
+    y="46"
     text-anchor="middle"
-    font-family="Georgia, 'Times New Roman', serif"
-    font-size="38"
+    font-family="'Arial Narrow', Oswald, Arial, sans-serif"
+    font-size="40"
     font-weight="700"
-    fill="#f5f2ea"
-  >S</text>
-  <circle cx="43" cy="14" r="5.5" fill="#e15b27" />
+    fill="#e15b27"
+  >&#252;</text>
 </svg>
