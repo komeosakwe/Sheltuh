@@ -341,9 +341,9 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
         style={{ height: "100%", width: "100%", background: "#0c0c0c" }}
       >
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-          url="https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          maxZoom={19}
+          attribution='&copy; <a href="https://www.esri.com">Esri</a> &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors, GIS community'
+          url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+          maxZoom={16}
           eventHandlers={{ tileload: handleTileLoad, tileerror: handleTileError }}
         />
         <TileWatcher status={status} retryKey={retryKey} />
