@@ -346,6 +346,11 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
           maxZoom={16}
           eventHandlers={{ tileload: handleTileLoad, tileerror: handleTileError }}
         />
+        <TileLayer
+          url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
+          maxZoom={16}
+          pane="shadowPane"
+        />
         <TileWatcher status={status} retryKey={retryKey} />
         <ResizeSync />
         <MapController markers={markers} selectedEventId={selectedEventId} programmaticMoveRef={programmaticMoveRef} />
