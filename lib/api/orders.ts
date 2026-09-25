@@ -6,21 +6,17 @@ export interface CheckoutLineItemInput {
   quantity: number;
 }
 
-/** Public — guest checkout, no Cognito token. Returns the URL to redirect the browser to. */
-export async function createCheckoutSession(
-  organiserId: string,
-  eventId: string,
-  lineItems: CheckoutLineItemInput[],
-) {
-  return apiFetch<{ url: string }>(`/events/${organiserId}/${eventId}/checkout`, {
+/** Public — guest checkout, no account needed. Returns the URL to redirect the browser to. */
+export async function createCheckoutSession(eventId: string, lineItems: CheckoutLineItemInput[]) {
+  return apiFetch<{ url: string }>(`/events/${eventId}/checkout`, {
     method: "POST",
     body: { lineItems },
   });
 }
 
 /**
- * Public — looked up by the Stripe Checkout Session id (or the free-order
- * equivalent) from the confirmation page's own URL, not by any account.
+ * Public — looked up by the unguessable order id in the confirmation page's
+ * own URL (its `session_id` query parameter), not by any account.
  * A still-pending order (webhook hasn't landed yet) comes back with only
  * `status` set — no tickets, no totals — never partial financial detail.
  */

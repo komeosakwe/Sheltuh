@@ -17,7 +17,7 @@ export default function EditEventPageContent() {
   const [error, setError] = useState<string | null>(null);
 
   const ready = auth.status === "signed-in" && organiser?.status === "approved";
-  const getToken = auth.getValidIdToken;
+  const getToken = auth.getAccessToken;
 
   useEffect(() => {
     if (!ready) return;
@@ -72,7 +72,6 @@ export default function EditEventPageContent() {
   return (
     <EventEditor
       getToken={getToken}
-      organiserId={organiser.organiserId}
       initial={event}
       onSaved={setEvent}
     />

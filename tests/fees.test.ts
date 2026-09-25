@@ -75,7 +75,7 @@ describe("sumOrderSummaries", () => {
   // (Record<string, number>) and computes one summary per ticket type before
   // combining them. Distinct ticket types must contribute independently —
   // this is exactly the invariant a duplicate ticket id would break (see
-  // infra/lambda/shared/validation.ts's duplicate-id rejection).
+  // lib/server/validation.ts's duplicate-id rejection).
   function orderForTicket(ticket: { priceCents: number; feePolicy: "buyer-pays" | "organiser-absorbs" }, quantitiesById: Record<string, number>, id: string) {
     return calculateOrderSummary(ticket.priceCents, quantitiesById[id] ?? 0, ticket.feePolicy);
   }

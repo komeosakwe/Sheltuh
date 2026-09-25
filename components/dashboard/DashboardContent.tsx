@@ -27,7 +27,7 @@ export default function DashboardContent() {
   const [loadingMore, setLoadingMore] = useState(false);
 
   const canLoadEvents = auth.status === "signed-in" && organiser?.status === "approved";
-  const getToken = auth.getValidIdToken;
+  const getToken = auth.getAccessToken;
 
   // Bumped on every fresh load so a page that resolves after this
   // organiser's events have already reloaded (e.g. a fast remount) is

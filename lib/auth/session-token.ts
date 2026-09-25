@@ -1,7 +1,7 @@
 /**
- * Framework-agnostic core of "get a currently-valid ID token", kept separate
- * from AuthContext.tsx so it can be unit-tested without React or a real
- * Cognito user pool — see tests/session-token.test.ts.
+ * Framework-agnostic core of "get a currently-valid access token", kept
+ * separate from AuthContext.tsx so it can be unit-tested without React or a
+ * real Supabase project — see tests/session-token.test.ts.
  */
 
 export class SessionExpiredError extends Error {
@@ -12,51 +12,37 @@ export class SessionExpiredError extends Error {
 }
 
 export interface SessionLike {
-  isValid(): boolean;
-  getIdToken(): { getJwtToken(): string };
-}
-
-export interface CognitoUserLike {
-  getSession(callback: (err: Error | null, session: SessionLike | null) => void): void;
+  access_token: string;
 }
 
 /**
- * Builds a `getValidIdToken`-style function that:
- *  - resolves the current CognitoUser's session, letting the SDK's own
- *    `getSession()` transparently exchange the stored refresh token for a
- *    new ID token when the cached one has expired (valid for 1 hour) —
- *    this is Cognito's actual session-refresh mechanism, not something
+ * Builds a `getAccessToken`-style function that:
+ *  - resolves the current session via `getSession` — for Supabase,
+ *    `auth.getSession()` itself swaps an expired access token (valid for an
+ *    hour) for a new one using the stored refresh token, so nothing is
  *    reimplemented here;
- *  - rejects with `SessionExpiredError` if there's no signed-in user, or
- *    the session/refresh has genuinely failed (e.g. the refresh token
- *    itself expired or was revoked);
+ *  - rejects with `SessionExpiredError` if there's no session, or the
+ *    refresh failed (e.g. the refresh token was revoked by signing out
+ *    elsewhere);
  *  - de-dupes concurrent callers into a single in-flight request, so a
- *    burst of calls around the same moment — or a failure — never turns
- *    into a stampede or a retry loop. Each call either returns the one
- *    shared in-flight promise or starts exactly one new request.
+ *    burst of calls — or a failure — never turns into a stampede or a retry
+ *    loop.
  */
-export function createIdTokenResolver(getCurrentUser: () => CognitoUserLike | null): () => Promise<string> {
+export function createAccessTokenResolver(getSession: () => Promise<SessionLike | null>): () => Promise<string> {
   let inFlight: Promise<string> | null = null;
 
-  return function getValidIdToken(): Promise<string> {
+  return function getAccessToken(): Promise<string> {
     if (inFlight) return inFlight;
 
-    const user = getCurrentUser();
-    if (!user) {
-      return Promise.reject(new SessionExpiredError());
-    }
-
-    const promise = new Promise<string>((resolve, reject) => {
-      user.getSession((err, session) => {
-        if (err || !session || !session.isValid()) {
-          reject(new SessionExpiredError());
-          return;
-        }
-        resolve(session.getIdToken().getJwtToken());
+    const promise = getSession()
+      .catch(() => null)
+      .then((session) => {
+        if (!session?.access_token) throw new SessionExpiredError();
+        return session.access_token;
+      })
+      .finally(() => {
+        inFlight = null;
       });
-    }).finally(() => {
-      inFlight = null;
-    });
 
     inFlight = promise;
     return promise;

@@ -1,15 +1,10 @@
 "use client";
 
-import {
-  AuthenticationDetails,
-  CognitoUser,
-  CognitoUserAttribute,
-  type CognitoUserSession,
-} from "amazon-cognito-identity-js";
+import type { Session } from "@supabase/supabase-js";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { getUserPool, isAuthConfigured } from "./cognito-config";
-import { decodeJwtPayload, getGroupsFromClaims } from "./jwt";
-import { createIdTokenResolver, SessionExpiredError } from "./session-token";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { createAccessTokenResolver, SessionExpiredError } from "./session-token";
 
 // Re-exported so components can `import { SessionExpiredError } from
 // "@/lib/auth/AuthContext"` alongside `useAuth` without a second import.
@@ -20,15 +15,16 @@ type AuthStatus = "loading" | "signed-out" | "signed-in";
 interface AuthState {
   status: AuthStatus;
   email?: string;
-  idToken?: string;
-  groups: string[];
+  accessToken?: string;
+  /** UI hint only (e.g. showing the admin nav link) — the API re-checks it on every request. */
+  isAdmin: boolean;
 }
 
 export interface AuthContextValue extends AuthState {
   configured: boolean;
-  isAdmin: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
+  /** Confirms a new account with the code from its confirmation email, which also signs it in. */
   confirmSignUp: (email: string, code: string) => Promise<void>;
   resendConfirmationCode: (email: string) => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
@@ -36,189 +32,121 @@ export interface AuthContextValue extends AuthState {
   signOut: () => void;
   refresh: () => Promise<void>;
   /**
-   * Resolves a currently-valid ID token, transparently refreshing it via
-   * Cognito's refresh token first if the cached one has expired (an ID
-   * token is valid for 1 hour). Call this immediately before every
-   * authenticated request rather than reading `idToken` from state, which
-   * can go stale for anyone who leaves a page open. Rejects with
+   * Resolves a currently-valid access token, refreshing it first if the
+   * cached one has expired. Call this immediately before every
+   * authenticated request rather than reading `accessToken` from state,
+   * which can go stale for anyone who leaves a page open. Rejects with
    * `SessionExpiredError` if there's no session left to refresh.
    */
-  getValidIdToken: () => Promise<string>;
+  getAccessToken: () => Promise<string>;
 }
 
 // Exported (in addition to useAuth) so tests can render a component tree
 // under a fully-controlled fake auth value via `<AuthContext.Provider>`,
-// without going through a real Cognito user pool.
+// without a real Supabase project.
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-function sessionToState(session: CognitoUserSession): AuthState {
-  const idToken = session.getIdToken().getJwtToken();
-  const claims = decodeJwtPayload<Record<string, unknown>>(idToken);
+const SIGNED_OUT: AuthState = { status: "signed-out", isAdmin: false };
+
+function sessionToState(session: Session | null): AuthState {
+  if (!session) return SIGNED_OUT;
   return {
     status: "signed-in",
-    email: typeof claims?.email === "string" ? claims.email : undefined,
-    idToken,
-    groups: getGroupsFromClaims(claims),
+    email: session.user.email,
+    accessToken: session.access_token,
+    isAdmin: session.user.app_metadata?.role === "admin",
   };
 }
 
+function requireClient() {
+  const client = getSupabaseBrowserClient();
+  if (!client) throw new Error("Accounts aren't configured in this environment.");
+  return client;
+}
+
+/** Supabase reports failures as `{ error }` rather than throwing. */
+function throwIfError(error: { message: string } | null) {
+  if (error) throw new Error(error.message);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AuthState>({
-    status: isAuthConfigured ? "loading" : "signed-out",
-    groups: [],
-  });
-
-  // Used to re-check the session after an explicit user action (sign in,
-  // sign out) — never called directly from an effect body, see below.
-  const refresh = useCallback(async () => {
-    const pool = getUserPool();
-    const cognitoUser = pool?.getCurrentUser();
-    if (!pool || !cognitoUser) {
-      setState({ status: "signed-out", groups: [] });
-      return;
-    }
-    await new Promise<void>((resolve) => {
-      cognitoUser.getSession((err: Error | null, session: CognitoUserSession | null) => {
-        if (err || !session || !session.isValid()) {
-          setState({ status: "signed-out", groups: [] });
-        } else {
-          setState(sessionToState(session));
-        }
-        resolve();
-      });
-    });
-  }, []);
-
-  // Created once and reused for the component's lifetime so its in-flight
-  // de-dup (see createIdTokenResolver) actually de-dupes across renders.
-  const [resolveIdToken] = useState(() => createIdTokenResolver(() => getUserPool()?.getCurrentUser() ?? null));
-
-  const getValidIdToken = useCallback(async (): Promise<string> => {
-    const idToken = await resolveIdToken();
-    // Keep the display-facing state (email, admin status) in sync with
-    // whatever the token turned out to carry, in case it was just refreshed.
-    const claims = decodeJwtPayload<Record<string, unknown>>(idToken);
-    setState({
-      status: "signed-in",
-      idToken,
-      email: typeof claims?.email === "string" ? claims.email : undefined,
-      groups: getGroupsFromClaims(claims),
-    });
-    return idToken;
-  }, [resolveIdToken]);
-
-  // Mount-time session check, written inline (rather than calling `refresh`)
-  // so every setState here happens from the SDK's own async callback — the
-  // "subscribe to an external system" pattern effects are meant for.
-  useEffect(() => {
-    if (!isAuthConfigured) return;
-    let cancelled = false;
-
-    const pool = getUserPool();
-    const cognitoUser = pool?.getCurrentUser();
-    if (!pool || !cognitoUser) {
-      queueMicrotask(() => {
-        if (!cancelled) setState({ status: "signed-out", groups: [] });
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    cognitoUser.getSession((err: Error | null, session: CognitoUserSession | null) => {
-      if (cancelled) return;
-      if (err || !session || !session.isValid()) {
-        setState({ status: "signed-out", groups: [] });
-      } else {
-        setState(sessionToState(session));
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const signIn = useCallback(
-    async (email: string, password: string) => {
-      const pool = getUserPool();
-      if (!pool) throw new Error("Sign-in isn't configured in this environment.");
-      await new Promise<void>((resolve, reject) => {
-        const cognitoUser = new CognitoUser({ Username: email, Pool: pool });
-        cognitoUser.authenticateUser(new AuthenticationDetails({ Username: email, Password: password }), {
-          onSuccess: () => resolve(),
-          onFailure: (err) => reject(err),
-        });
-      });
-      await refresh();
-    },
-    [refresh],
+  const [state, setState] = useState<AuthState>(
+    isSupabaseConfigured ? { status: "loading", isAdmin: false } : SIGNED_OUT,
   );
 
-  const signUp = useCallback(async (email: string, password: string) => {
-    const pool = getUserPool();
-    if (!pool) throw new Error("Sign-up isn't configured in this environment.");
-    await new Promise<void>((resolve, reject) => {
-      pool.signUp(email, password, [new CognitoUserAttribute({ Name: "email", Value: email })], [], (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
+  // Every sign-in, sign-out and token refresh — in this tab or another —
+  // arrives through this one subscription, including the initial session.
+  useEffect(() => {
+    const client = getSupabaseBrowserClient();
+    if (!client) return;
+    const { data } = client.auth.onAuthStateChange((_event, session) => {
+      setState(sessionToState(session));
     });
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  const refresh = useCallback(async () => {
+    const client = getSupabaseBrowserClient();
+    if (!client) return;
+    const { data } = await client.auth.getSession();
+    setState(sessionToState(data.session));
+  }, []);
+
+  // Created once so its in-flight de-dup works across renders.
+  const [getAccessToken] = useState(() =>
+    createAccessTokenResolver(async () => {
+      const client = getSupabaseBrowserClient();
+      if (!client) return null;
+      const { data } = await client.auth.getSession();
+      return data.session;
+    }),
+  );
+
+  const signIn = useCallback(async (email: string, password: string) => {
+    const { error } = await requireClient().auth.signInWithPassword({ email, password });
+    throwIfError(error);
+  }, []);
+
+  const signUp = useCallback(async (email: string, password: string) => {
+    const { error } = await requireClient().auth.signUp({ email, password });
+    throwIfError(error);
   }, []);
 
   const confirmSignUp = useCallback(async (email: string, code: string) => {
-    const pool = getUserPool();
-    if (!pool) throw new Error("Sign-up isn't configured in this environment.");
-    await new Promise<void>((resolve, reject) => {
-      const cognitoUser = new CognitoUser({ Username: email, Pool: pool });
-      cognitoUser.confirmRegistration(code, true, (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+    const { error } = await requireClient().auth.verifyOtp({ email, token: code.trim(), type: "signup" });
+    throwIfError(error);
   }, []);
 
   const resendConfirmationCode = useCallback(async (email: string) => {
-    const pool = getUserPool();
-    if (!pool) throw new Error("Sign-up isn't configured in this environment.");
-    await new Promise<void>((resolve, reject) => {
-      const cognitoUser = new CognitoUser({ Username: email, Pool: pool });
-      cognitoUser.resendConfirmationCode((err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+    const { error } = await requireClient().auth.resend({ type: "signup", email });
+    throwIfError(error);
   }, []);
 
   const forgotPassword = useCallback(async (email: string) => {
-    const pool = getUserPool();
-    if (!pool) throw new Error("Password reset isn't configured in this environment.");
-    await new Promise<void>((resolve, reject) => {
-      const cognitoUser = new CognitoUser({ Username: email, Pool: pool });
-      cognitoUser.forgotPassword({ onSuccess: () => resolve(), onFailure: (err) => reject(err) });
-    });
+    const { error } = await requireClient().auth.resetPasswordForEmail(email);
+    throwIfError(error);
   }, []);
 
+  // The recovery code signs the user in; the new password is then set on
+  // that session, which is ended so they sign in fresh with it.
   const confirmForgotPassword = useCallback(async (email: string, code: string, newPassword: string) => {
-    const pool = getUserPool();
-    if (!pool) throw new Error("Password reset isn't configured in this environment.");
-    await new Promise<void>((resolve, reject) => {
-      const cognitoUser = new CognitoUser({ Username: email, Pool: pool });
-      cognitoUser.confirmPassword(code, newPassword, { onSuccess: () => resolve(), onFailure: (err) => reject(err) });
-    });
+    const client = requireClient();
+    const verified = await client.auth.verifyOtp({ email, token: code.trim(), type: "recovery" });
+    throwIfError(verified.error);
+    const updated = await client.auth.updateUser({ password: newPassword });
+    throwIfError(updated.error);
+    await client.auth.signOut();
   }, []);
 
   const signOut = useCallback(() => {
-    const pool = getUserPool();
-    pool?.getCurrentUser()?.signOut();
-    setState({ status: "signed-out", groups: [] });
+    void getSupabaseBrowserClient()?.auth.signOut();
+    setState(SIGNED_OUT);
   }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       ...state,
-      configured: isAuthConfigured,
-      isAdmin: state.groups.includes("admins"),
+      configured: isSupabaseConfigured,
       signIn,
       signUp,
       confirmSignUp,
@@ -227,7 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       confirmForgotPassword,
       signOut,
       refresh,
-      getValidIdToken,
+      getAccessToken,
     }),
     [
       state,
@@ -239,7 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       confirmForgotPassword,
       signOut,
       refresh,
-      getValidIdToken,
+      getAccessToken,
     ],
   );
 

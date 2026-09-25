@@ -1,9 +1,16 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL;
-export const isApiConfigured = Boolean(API_URL);
+import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 /**
- * Resolves a currently-valid Cognito ID token, refreshing it first if
- * needed (see lib/auth/AuthContext.tsx's `getValidIdToken`). Every
+ * The live API is this app's own route handlers (app/api/**), backed by
+ * Supabase. Without Supabase configured the app runs in demo mode on local
+ * sample data and never calls it.
+ */
+export const isApiConfigured = isSupabaseConfigured;
+const API_BASE = "/api";
+
+/**
+ * Resolves a currently-valid Supabase access token, refreshing it first if
+ * needed (see lib/auth/AuthContext.tsx's `getAccessToken`). Every
  * authenticated API wrapper takes one of these instead of a plain token
  * string so it always fetches a fresh token right before the request,
  * rather than trusting a value the caller captured earlier and that may
@@ -25,18 +32,18 @@ export class ApiError extends Error {
 interface FetchOptions {
   method?: "GET" | "POST" | "PATCH";
   body?: unknown;
-  /** Cognito ID token. Omit for the two public read routes. */
+  /** Supabase access token. Omit for the public routes. */
   token?: string;
 }
 
 export async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T> {
-  if (!API_URL) {
-    throw new Error("The live API is not configured in this environment (NEXT_PUBLIC_API_URL is unset).");
+  if (!isApiConfigured) {
+    throw new Error("The live API is not configured in this environment (Supabase is unset).");
   }
 
   let res: Response;
   try {
-    res = await fetch(`${API_URL}${path}`, {
+    res = await fetch(`${API_BASE}${path}`, {
       method: options.method ?? "GET",
       headers: {
         "content-type": "application/json",

@@ -94,9 +94,9 @@ export default function LiveEventFeed({ categories }: Props) {
           const adapted = result.items.map(adaptPublicEvent);
           setEvents((prev) => {
             if (replace) return adapted;
-            // Defends against a duplicate item across adjacent pages (e.g. a
-            // page boundary landing mid-tie on the sort key) rather than
-            // assuming DynamoDB pagination is perfectly exclusive.
+            // Defends against a duplicate item across adjacent pages (e.g. an
+            // event published between two page loads shifting the offset)
+            // rather than assuming pagination is perfectly exclusive.
             const seenIds = new Set(prev.map((e) => e.id));
             return [...prev, ...adapted.filter((e) => !seenIds.has(e.id))];
           });

@@ -1,77 +1,76 @@
-#!/usr/bin/env node
 /**
- * Grants Sheltüh admin access to a real, already-registered user.
+ * Grants (or with --revoke, removes) Sheltüh admin access for an existing,
+ * already-verified account.
  *
- * This is the ONLY way an account becomes an admin: there is no API route,
- * no signup checkbox, and no Lambda in this project with permission to add
- * anyone to the "admins" Cognito group (see infra/lib/sheltuh-stack.ts and
- * docs/architecture.md). Admin privileges are assigned through this trusted,
- * manual, out-of-band process — deliberately, per the milestone's product
- * rules.
+ * This is the only way an account becomes an admin: there's no API route or
+ * sign-up option for it. It sets `app_metadata.role = "admin"`, which only a
+ * service-role key can write and which the API re-reads from Supabase Auth
+ * on every request (lib/server/deps.ts).
  *
- * Usage:
- *   npm install                    # once, inside scripts/
- *   npm run promote-admin -- \
- *     --user-pool-id ap-southeast-2_XXXXXXXXX \
- *     --email someone@example.com \
- *     [--region ap-southeast-2] [--group admins]
+ * Usage (needs NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY, e.g. in
+ * .env.local):
+ *   npm run promote-admin -- someone@example.com
+ *   npm run promote-admin -- someone@example.com --revoke
  *
- * Requirements:
- *   - The target user must already exist and have completed sign-up
- *     (verified their email) — run this AFTER they've signed up, not before.
- *   - You need AWS credentials for the target account with
- *     cognito-idp:AdminGetUser and cognito-idp:AdminAddUserToGroup
- *     permission. Use short-lived credentials (AWS SSO / assumed role) —
- *     see docs/aws-setup.md. Never a long-lived IAM user access key, and
- *     never root credentials.
- *
- * This script never invents or hardcodes an email or user pool ID — both
- * are required arguments you supply yourself.
+ * The admin must sign out and back in (or wait up to an hour for their
+ * session to refresh) before the admin screens appear; the API itself
+ * honours the change immediately.
  */
-import {
-  AdminAddUserToGroupCommand,
-  AdminGetUserCommand,
-  CognitoIdentityProviderClient,
-} from "@aws-sdk/client-cognito-identity-provider";
+import { createClient, type User } from "@supabase/supabase-js";
 
-function parseArgs() {
-  const args = process.argv.slice(2);
-  const get = (flag: string): string | undefined => {
-    const i = args.indexOf(flag);
-    return i === -1 ? undefined : args[i + 1];
-  };
-
-  const userPoolId = get("--user-pool-id");
-  const email = get("--email");
-  const region = get("--region") ?? "ap-southeast-2";
-  const groupName = get("--group") ?? "admins";
-
-  if (!userPoolId || !email) {
-    console.error(
-      "Usage: promote-admin.ts --user-pool-id <id> --email <email> [--region ap-southeast-2] [--group admins]",
-    );
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    console.error(`Missing ${name}. Add it to .env.local (see docs/supabase-setup.md).`);
     process.exit(1);
   }
+  return value;
+}
 
-  return { userPoolId, email, region, groupName };
+async function findUserByEmail(email: string, list: (page: number) => Promise<User[]>): Promise<User | undefined> {
+  for (let page = 1; ; page += 1) {
+    const users = await list(page);
+    const match = users.find((u) => u.email?.toLowerCase() === email.toLowerCase());
+    if (match || users.length === 0) return match;
+  }
 }
 
 async function main() {
-  const { userPoolId, email, region, groupName } = parseArgs();
-  const client = new CognitoIdentityProviderClient({ region });
+  const args = process.argv.slice(2);
+  const email = args.find((a) => !a.startsWith("--"));
+  const revoke = args.includes("--revoke");
+  if (!email) {
+    console.error("Usage: npm run promote-admin -- someone@example.com [--revoke]");
+    process.exit(1);
+  }
 
-  // Fail loudly if the user doesn't exist yet rather than silently no-op-ing.
-  await client.send(new AdminGetUserCommand({ UserPoolId: userPoolId, Username: email }));
+  const supabase = createClient(requireEnv("NEXT_PUBLIC_SUPABASE_URL"), requireEnv("SUPABASE_SECRET_KEY"), {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 
-  await client.send(
-    new AdminAddUserToGroupCommand({ UserPoolId: userPoolId, Username: email, GroupName: groupName }),
-  );
+  const user = await findUserByEmail(email, async (page) => {
+    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) throw error;
+    return data.users;
+  });
+  if (!user) {
+    console.error(`No account found for ${email}. They need to sign up (and verify their email) first.`);
+    process.exit(1);
+  }
+  if (!user.email_confirmed_at) {
+    console.error(`${email} hasn't verified their email yet.`);
+    process.exit(1);
+  }
 
-  console.log(`Added ${email} to the "${groupName}" group in user pool ${userPoolId} (${region}).`);
-  console.log("They need to sign out and back in for the new group membership to appear in their token.");
+  const appMetadata = { ...user.app_metadata };
+  if (revoke) delete appMetadata.role;
+  else appMetadata.role = "admin";
+  const { error } = await supabase.auth.admin.updateUserById(user.id, { app_metadata: appMetadata });
+  if (error) throw error;
+  console.log(revoke ? `Removed admin access from ${email}.` : `${email} is now an admin.`);
 }
 
 main().catch((err) => {
-  console.error("Failed to promote admin:", err instanceof Error ? err.message : err);
+  console.error(err instanceof Error ? err.message : err);
   process.exit(1);
 });

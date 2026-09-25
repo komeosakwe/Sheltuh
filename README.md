@@ -1,146 +1,93 @@
 # Sheltüh
 
-A Melbourne-first curated creative events discovery and ticketing marketplace.
+A Melbourne-first curated creative events discovery and ticketing
+marketplace.
 
-This repo now spans two milestones:
+- **Stack:**
+  - Next.js 16 (App Router) + TypeScript + Tailwind CSS v4, hosted on
+    Vercel.
+  - Supabase: Postgres for data, Auth for accounts.
+  - Stripe Connect Express for payments and organiser payouts.
+  - Leaflet with Esri tiles for the map.
+- **Status:** feature-complete for the MVP flows below and tested against
+  real Postgres, but **not deployed yet**. See
+  [`docs/supabase-setup.md`](docs/supabase-setup.md) for the go-live steps.
+- **More:**
+  - [`docs/architecture.md`](docs/architecture.md): data model, API and
+    payment flow.
+  - [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md): business, legal
+    and roadmap context.
 
-1. **Local prototype** — three screens (discovery, event details, organiser
-   submission) backed by typed sample data. Still fully functional with zero
-   configuration — see "Run it locally" below.
-2. **Accounts, organiser applications, event submissions, admin approval** —
-   a real AWS backend (Cognito + DynamoDB + Lambda + API Gateway) defined as
-   CDK infrastructure in `infra/`, plus the frontend screens that use it.
-   **Not deployed** — see `docs/aws-setup.md` for exactly what that takes.
+## What's built
 
-Payments and ticket issuance are out of scope for both milestones.
+**Public, no account needed:**
+- `/`: curated event feed with category, date and free/paid filters.
+- `/map`: Scene Map.
+- `/events/[slug]`: event details and guest checkout. Free tickets are
+  issued instantly; paid tickets go through Stripe Checkout.
+- `/checkout/success`: order confirmation with ticket codes.
 
-## Project boundaries
+**Accounts:** `/signup`, `/verify`, `/login`, `/forgot-password`.
 
-This repo has **three independent TypeScript projects**, each with its own
-`package.json`, `tsconfig.json` and dependencies — installing one's
-dependencies is never required to build or typecheck another:
+**Organisers** (need an admin-approved application):
+- `/organisers/apply`: apply, see your status, and edit and resubmit if
+  rejected.
+- `/dashboard`: event drafts, ticket types with a live fee preview, and
+  submitting for review.
+- `/dashboard/payouts`: Stripe Connect onboarding.
 
-| Project | Root tsconfig | Install | Typecheck |
-|---|---|---|---|
-| Frontend (this Next.js app) | `tsconfig.json` (excludes `infra/`, `scripts/`) | `npm install` | `npm run build` |
-| Infrastructure | `infra/tsconfig.json` | `cd infra && npm install` | `cd infra && npx tsc --noEmit` |
-| Operational scripts | `scripts/tsconfig.json` | `cd scripts && npm install` | `cd scripts && npm run typecheck` |
+**Admins:** `/admin/organisers` and `/admin/events` are review queues
+(approve, reject with a reason, unpublish).
 
-A fresh `npm install` at the repo root only installs the frontend's
-dependencies — it does not need to know `infra/` or `scripts/` exist. Any
-CI job for this repo should run all three checks separately, each after its
-own `npm install`, rather than one install+typecheck at the root.
+## Run it locally
 
-## Stack
-
-- Next.js 16 (App Router) + TypeScript, Tailwind CSS v4
-- Vitest for unit tests (frontend and `infra/` both)
-- AWS CDK (TypeScript) for infrastructure — Cognito, DynamoDB, Lambda,
-  API Gateway HTTP API — in `infra/`
-- `amazon-cognito-identity-js` for the frontend auth flows
-
-## Run it locally (demo mode — no AWS, no setup)
+**Demo mode** (no setup, sample data only):
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open http://localhost:3000. With no `NEXT_PUBLIC_*` env vars set, the app
-runs entirely on local sample data: the public feed, event details and the
-`/organisers/submit` demo form all work exactly as in the original
-prototype, clearly labelled "Demo — sample events".
+**Live mode:** copy `.env.example` to `.env.local` and fill it in from your
+Supabase project and Stripe test account (see `docs/supabase-setup.md`).
+With the Supabase variables set, the app uses the real API; without them,
+it falls back to demo mode.
 
-Other commands:
-
-```bash
-npm run lint    # eslint
-npm run build   # typecheck + production build
-npm run start   # serve the production build
-npm run test    # unit tests (vitest)
-```
-
-## Run it against a real backend (live mode)
-
-Requires the AWS stack in `infra/` to actually be deployed first — it isn't,
-in this environment. Once it is (see `docs/aws-setup.md`), set:
+## Commands
 
 ```bash
-NEXT_PUBLIC_API_URL=...
-NEXT_PUBLIC_COGNITO_USER_POOL_ID=...
-NEXT_PUBLIC_COGNITO_CLIENT_ID=...
+npm run dev            # dev server
+npm run build          # typecheck + production build
+npm run lint           # eslint
+npm test               # unit + API tests (API tests run against in-process Postgres)
+npm run test:e2e       # Playwright browser tests
+npm run promote-admin -- you@example.com   # grant admin (needs SUPABASE_SECRET_KEY)
+npm run seed-dev-data  # load sample events into a dev database
 ```
 
-and the app switches to the real API for sign-up/sign-in, organiser
-applications, event drafts/submissions, admin review, and the public feed —
-no code changes needed either way.
+`TEST_DATABASE_URL=postgres://user@host:port/db npm test` runs the API tests
+against a real Postgres server through the production driver instead of
+PGlite. Each test file creates its own throwaway database.
 
-## Screens
+## Layout
 
-**Public, no account needed:**
-- `/` — event discovery, filterable (category, date, free/paid)
-- `/events/[slug]` — event details, ticket quantity selection, a booking fee
-  preview (5% of face value + A$0.50 per paid ticket; free tickets never
-  carry a fee). Checkout is explicitly disabled — no payment info collected.
-- `/organisers/submit` — the original demo-only submission form (validates
-  locally, nothing sent/saved); kept for reference alongside the real flow.
-
-**Accounts:**
-- `/signup`, `/verify`, `/login`, `/forgot-password`
-
-**Organisers (need a signed-in, admin-approved account):**
-- `/organisers/apply` — apply, view status, edit-and-resubmit if rejected
-- `/dashboard`, `/dashboard/new`, `/dashboard/[eventId]` — create/edit event
-  drafts, ticket types with a live fee preview, submit for review
-
-**Admins (need the `admins` Cognito group — see `docs/aws-setup.md`):**
-- `/admin/organisers`, `/admin/events` — review queues: approve, reject with
-  a reason, unpublish
-
-## Infrastructure (`infra/`)
-
-CDK app targeting `ap-southeast-2` (Sydney), dev-only, not deployed.
-
-```bash
-cd infra
-npm install
-npx tsc --noEmit   # typecheck (this project's own boundary — see "Project boundaries" above)
-npm test           # unit tests over the pure backend logic
-npx cdk synth       # validate the stack locally, no AWS credentials needed
+```
+app/                 pages, plus app/api/** route handlers
+components/          UI
+lib/api/             browser client for the API
+lib/auth/            Supabase Auth in the browser
+lib/server/          API logic: handlers, validation, SQL, wiring
+supabase/migrations/ database schema — apply in filename order
+scripts/             admin promotion, dev seed data
+tests/, e2e/         vitest (incl. tests/server API tests), Playwright
 ```
 
-See `docs/architecture.md` for the data model and API surface, and
-`docs/aws-setup.md` before ever running `cdk deploy`.
+## Not built yet
 
-## Operational scripts (`scripts/`)
-
-```bash
-cd scripts
-npm install
-npm run typecheck   # this project's own boundary — see "Project boundaries" above
-```
-
-- `promote-admin.ts` — the *only* way an account joins the `admins` Cognito
-  group; takes a real email as a required argument, never hardcodes one.
-- `seed-dev-data.ts` — publishes the same fictional sample events into a
-  deployed dev backend, for demoing the live feed without waiting on a real
-  organiser review cycle.
-
-## What's mocked / not built yet
-
-- No real payments, ticket issuance/QR check-in, inventory reservation, or
-  "Who's Going" — all explicitly out of scope for this milestone.
-- No image uploads yet — both demo and live events use local CSS/SVG poster
-  art (live events get one deterministically assigned by slug).
-- The AWS backend is fully coded and locally verified (typecheck, `cdk
-  synth`, unit tests) but has never been deployed or exercised against real
-  AWS — see `docs/aws-setup.md` for exactly what remains and why.
-
-## Decisions needed / made along the way
-
-- Kome and Dhruv's real emails are required to actually grant them admin
-  access (`scripts/promote-admin.ts`) — intentionally not invented here.
-  See `docs/aws-setup.md`.
-- Real image/media handling for event listings is still a later milestone.
-- Confirm the 5% + A$0.50 booking-fee structure before wiring up real
-  payments.
+- Automatic refunds for the rare oversold order (they're flagged for a
+  manual refund).
+- Ticket emails and QR check-in.
+- Event images.
+- Venue coordinates.
+- "Who's Going".
+- Final booking fee: 5% + A$0.50 is modelled, against a 3–5% target.

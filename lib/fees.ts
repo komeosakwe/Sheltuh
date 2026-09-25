@@ -48,7 +48,7 @@ export function calculateOrderSummary(
  * Callers (e.g. TicketSelector) key quantities per ticket type by its id —
  * this stays correct only as long as every ticket type in the order has a
  * distinct id, which the backend now enforces (see
- * infra/lambda/shared/validation.ts's duplicate-id check).
+ * lib/server/validation.ts's duplicate-id check).
  */
 export function sumOrderSummaries(summaries: OrderSummary[]): OrderSummary {
   return summaries.reduce(

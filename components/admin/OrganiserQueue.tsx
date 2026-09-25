@@ -9,7 +9,7 @@ const STATUSES: OrganiserStatus[] = ["pending", "approved", "rejected"];
 
 export default function OrganiserQueue() {
   const auth = useAuth();
-  const getToken = auth.getValidIdToken;
+  const getToken = auth.getAccessToken;
 
   const [status, setStatus] = useState<OrganiserStatus>("pending");
   const [items, setItems] = useState<OrganiserRecord[]>([]);
@@ -55,10 +55,10 @@ export default function OrganiserQueue() {
 
   async function handleApprove(item: OrganiserRecord) {
     setActionError(null);
-    setBusyId(item.ownerUserId);
+    setBusyId(item.organiserId);
     try {
-      await adminApproveOrganiser(item.ownerUserId, getToken);
-      setItems((prev) => prev.filter((i) => i.ownerUserId !== item.ownerUserId));
+      await adminApproveOrganiser(item.organiserId, getToken);
+      setItems((prev) => prev.filter((i) => i.organiserId !== item.organiserId));
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Couldn't approve this application.");
     } finally {
@@ -69,10 +69,10 @@ export default function OrganiserQueue() {
   async function handleReject(item: OrganiserRecord) {
     if (!reason.trim()) return;
     setActionError(null);
-    setBusyId(item.ownerUserId);
+    setBusyId(item.organiserId);
     try {
-      await adminRejectOrganiser(item.ownerUserId, reason.trim(), getToken);
-      setItems((prev) => prev.filter((i) => i.ownerUserId !== item.ownerUserId));
+      await adminRejectOrganiser(item.organiserId, reason.trim(), getToken);
+      setItems((prev) => prev.filter((i) => i.organiserId !== item.organiserId));
       setRejectingId(null);
       setReason("");
     } catch (err) {
@@ -115,7 +115,7 @@ export default function OrganiserQueue() {
 
       <ul className="flex flex-col gap-3">
         {items.map((item) => (
-          <li key={item.ownerUserId} className="rounded-lg border border-surface-border bg-surface p-4">
+          <li key={item.organiserId} className="rounded-lg border border-surface-border bg-surface p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="font-medium text-foreground">{item.displayName}</p>
@@ -136,7 +136,7 @@ export default function OrganiserQueue() {
                   <button
                     type="button"
                     onClick={() => handleApprove(item)}
-                    disabled={busyId === item.ownerUserId}
+                    disabled={busyId === item.organiserId}
                     className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground disabled:opacity-60"
                   >
                     Approve
@@ -144,10 +144,10 @@ export default function OrganiserQueue() {
                   <button
                     type="button"
                     onClick={() => {
-                      setRejectingId(item.ownerUserId);
+                      setRejectingId(item.organiserId);
                       setReason("");
                     }}
-                    disabled={busyId === item.ownerUserId}
+                    disabled={busyId === item.organiserId}
                     className="rounded border border-danger/40 px-3 py-1.5 text-sm font-medium text-danger disabled:opacity-60"
                   >
                     Reject
@@ -156,13 +156,13 @@ export default function OrganiserQueue() {
               )}
             </div>
 
-            {rejectingId === item.ownerUserId && (
+            {rejectingId === item.organiserId && (
               <div className="mt-3 flex flex-col gap-2 border-t border-surface-border pt-3">
-                <label htmlFor={`reason-${item.ownerUserId}`} className="text-sm font-medium text-foreground">
+                <label htmlFor={`reason-${item.organiserId}`} className="text-sm font-medium text-foreground">
                   Reason (shown to the applicant)
                 </label>
                 <textarea
-                  id={`reason-${item.ownerUserId}`}
+                  id={`reason-${item.organiserId}`}
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   rows={2}
@@ -172,7 +172,7 @@ export default function OrganiserQueue() {
                   <button
                     type="button"
                     onClick={() => handleReject(item)}
-                    disabled={!reason.trim() || busyId === item.ownerUserId}
+                    disabled={!reason.trim() || busyId === item.organiserId}
                     className="rounded bg-danger px-3 py-1.5 text-sm font-medium text-danger-foreground disabled:opacity-60"
                   >
                     Confirm rejection

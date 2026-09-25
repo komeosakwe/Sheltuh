@@ -89,7 +89,7 @@ describe("toMelbourneDateTimeInputParts — ignores the runtime's own timezone",
   it("round-trips DST-adjacent dates (AEDT start, 2026-10-04 02:00 -> 03:00 local)", () => {
     // 2026-10-04T02:30:00Z is 1:30pm AEDT on Oct 4 (already past the 2am->3am
     // spring-forward, which happened at 2026-10-04T02:00:00Z in UTC-anchored
-    // terms — see infra/lambda/shared/melbourne-time.ts for the inverse).
+    // terms — see lib/server/melbourne-time.ts for the inverse).
     expect(toMelbourneDateTimeInputParts("2026-10-04T02:30:00.000Z")).toEqual({
       date: "2026-10-04",
       time: "13:30",

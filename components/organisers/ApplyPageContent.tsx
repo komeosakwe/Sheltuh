@@ -72,7 +72,7 @@ export default function ApplyPageContent() {
           Tell us about your organisation. An admin reviews every application before you can
           submit events.
         </p>
-        <ApplicationForm mode="apply" getToken={auth.getValidIdToken} onSuccess={setJustSubmitted} />
+        <ApplicationForm mode="apply" getToken={auth.getAccessToken} onSuccess={setJustSubmitted} />
       </div>
     );
   }
@@ -111,7 +111,7 @@ export default function ApplyPageContent() {
         )}
         <p className="mt-2 text-sm text-muted">Update the details below and resubmit.</p>
       </StatusCard>
-      <ApplicationForm mode="resubmit" getToken={auth.getValidIdToken} initial={current} onSuccess={setJustSubmitted} />
+      <ApplicationForm mode="resubmit" getToken={auth.getAccessToken} initial={current} onSuccess={setJustSubmitted} />
     </div>
   );
 }

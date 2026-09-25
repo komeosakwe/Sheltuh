@@ -1,96 +1,64 @@
-#!/usr/bin/env node
 /**
- * Populates the dev DynamoDB tables with the same fictional sample events
- * used by the frontend's local demo mode, published so they show up on the
- * live public feed. This is the "development seed process" referenced in
- * docs/architecture.md — sample data never ships silently mixed into
- * production; it only ever appears here, run explicitly, against a dev
- * environment.
+ * Loads the fictional sample events (lib/sample-events.ts) into a dev
+ * database as published events, so the live feed has something to show
+ * before any real organiser has been through review. Each sample organiser
+ * becomes a platform-managed organiser (no account). Safe to re-run: events
+ * whose slug already exists are skipped.
  *
- * Usage:
- *   npm install                # once, inside scripts/
- *   npm run seed-dev-data -- [--region ap-southeast-2] \
- *     [--events-table sheltuh-dev-events] \
- *     [--slugs-table sheltuh-dev-event-slugs]
+ * Never run this against production.
  *
- * Requires AWS credentials with write access to those two tables — see
- * docs/aws-setup.md for the recommended temporary-credential/SSO setup.
+ * Usage (needs DATABASE_URL, e.g. in .env.local):
+ *   npm run seed-dev-data
  */
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
+import postgres from "postgres";
 import { sampleEvents } from "../lib/sample-events";
 
-function parseArgs() {
-  const args = process.argv.slice(2);
-  const get = (flag: string, fallback: string): string => {
-    const i = args.indexOf(flag);
-    return i === -1 ? fallback : args[i + 1];
-  };
-  return {
-    region: get("--region", "ap-southeast-2"),
-    eventsTable: get("--events-table", "sheltuh-dev-events"),
-    slugsTable: get("--slugs-table", "sheltuh-dev-event-slugs"),
-  };
-}
-
-function organiserIdFor(organiserName: string): string {
-  return `seed-${organiserName
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")}`;
-}
-
 async function main() {
-  const { region, eventsTable, slugsTable } = parseArgs();
-  const client = new DynamoDBClient({ region });
-  const ddb = DynamoDBDocumentClient.from(client, { marshallOptions: { removeUndefinedValues: true } });
-
-  const now = new Date().toISOString();
-  let count = 0;
-
-  for (const event of sampleEvents) {
-    const organiserId = organiserIdFor(event.organiserName);
-
-    await ddb.send(
-      new PutCommand({
-        TableName: eventsTable,
-        Item: {
-          organiserId,
-          eventId: event.id,
-          slug: event.slug,
-          title: event.title,
-          description: event.description,
-          category: event.category,
-          venueName: event.venueName,
-          venueAddress: event.venueAddress,
-          suburb: event.suburb,
-          startsAt: event.startsAt,
-          endsAt: event.endsAt,
-          organiserName: event.organiserName,
-          ticketTypes: event.ticketTypes,
-          status: "published",
-          moderationLog: [{ action: "approved", by: "seed-script", at: now }],
-          createdAt: now,
-          updatedAt: now,
-        },
-      }),
-    );
-
-    await ddb.send(
-      new PutCommand({
-        TableName: slugsTable,
-        Item: { slug: event.slug, organiserId, eventId: event.id },
-      }),
-    );
-
-    count += 1;
-    console.log(`Seeded: ${event.title} (${event.slug})`);
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    console.error("Missing DATABASE_URL. Add it to .env.local (see docs/supabase-setup.md).");
+    process.exit(1);
   }
+  const sql = postgres(databaseUrl, { prepare: false, max: 1 });
 
-  console.log(`Done — seeded ${count} published events into ${eventsTable} / ${slugsTable} (${region}).`);
+  let created = 0;
+  try {
+    for (const event of sampleEvents) {
+      await sql.begin(async (tx) => {
+        const [organiser] = await tx`
+          select id from public.organisers where owner_user_id is null and display_name = ${event.organiserName}`;
+        const organiserId =
+          organiser?.id ??
+          (
+            await tx`
+              insert into public.organisers (display_name, contact_email, description, categories, status)
+              values (${event.organiserName}, 'hello@sheltuh.com.au', 'Sample organiser for development.',
+                      ${[event.category]}::public.event_category[], 'approved')
+              returning id`
+          )[0].id;
+
+        const [inserted] = await tx`
+          insert into public.events (organiser_id, slug, title, description, category, venue_name, venue_address,
+                                     suburb, starts_at, ends_at, status)
+          values (${organiserId}, ${event.slug}, ${event.title}, ${event.description}, ${event.category},
+                  ${event.venueName}, ${event.venueAddress}, ${event.suburb}, ${event.startsAt},
+                  ${event.endsAt ?? event.startsAt}, 'published')
+          on conflict (slug) do nothing
+          returning id`;
+        if (!inserted) return;
+
+        await tx`select private.replace_ticket_types(${inserted.id}, ${JSON.stringify(event.ticketTypes)}::text::jsonb)`;
+        await tx`insert into public.event_moderation_log (event_id, action) values (${inserted.id}, 'approved')`;
+        created += 1;
+      });
+    }
+  } finally {
+    await sql.end();
+  }
+  console.log(`Seeded ${created} new sample event(s); ${sampleEvents.length - created} already existed.`);
 }
 
 main().catch((err) => {
-  console.error("Seeding failed:", err instanceof Error ? err.message : err);
+  console.error(err instanceof Error ? err.message : err);
   process.exit(1);
 });

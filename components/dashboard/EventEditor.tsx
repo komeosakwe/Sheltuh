@@ -13,7 +13,6 @@ import { EVENT_CATEGORIES } from "@/lib/types";
 
 interface Props {
   getToken: GetToken;
-  organiserId: string;
   initial?: EventRecord;
   onSaved: (record: EventRecord) => void;
 }
@@ -28,7 +27,7 @@ function newTicketType(): TicketTypeInput {
   };
 }
 
-export default function EventEditor({ getToken, organiserId, initial, onSaved }: Props) {
+export default function EventEditor({ getToken, initial, onSaved }: Props) {
   const router = useRouter();
   const auth = useAuth();
   // Captured once at mount: the account this draft belongs to, so that if
@@ -115,7 +114,7 @@ export default function EventEditor({ getToken, organiserId, initial, onSaved }:
     setSaving(true);
     try {
       const record = initial
-        ? await updateEventDraft(organiserId, initial.eventId, input, getToken)
+        ? await updateEventDraft(initial.eventId, input, getToken)
         : await createEventDraft(input, getToken);
       if (!initial) {
         router.push(`/dashboard/${record.eventId}`);
@@ -137,7 +136,7 @@ export default function EventEditor({ getToken, organiserId, initial, onSaved }:
     setSessionExpired(false);
     setSubmitting(true);
     try {
-      const record = await submitEventForReview(organiserId, initial.eventId, getToken);
+      const record = await submitEventForReview(initial.eventId, getToken);
       onSaved(record);
     } catch (err) {
       handleError(err, "Couldn't submit this event for review.");

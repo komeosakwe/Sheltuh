@@ -1,13 +1,12 @@
 import { vi } from "vitest";
 import { AuthContext, type AuthContextValue } from "@/lib/auth/AuthContext";
 
-/** A fully-controllable signed-in auth value for mounting components without a real Cognito user pool. */
+/** A fully-controllable signed-in auth value for mounting components without a real Supabase project. */
 export function fakeAuthValue(overrides: Partial<AuthContextValue> = {}): AuthContextValue {
   return {
     status: "signed-in",
     email: "organiser@example.com",
-    idToken: "fake-id-token",
-    groups: [],
+    accessToken: "fake-access-token",
     configured: true,
     isAdmin: false,
     signIn: vi.fn().mockResolvedValue(undefined),
@@ -18,7 +17,7 @@ export function fakeAuthValue(overrides: Partial<AuthContextValue> = {}): AuthCo
     confirmForgotPassword: vi.fn().mockResolvedValue(undefined),
     signOut: vi.fn(),
     refresh: vi.fn().mockResolvedValue(undefined),
-    getValidIdToken: vi.fn().mockResolvedValue("fake-id-token"),
+    getAccessToken: vi.fn().mockResolvedValue("fake-access-token"),
     ...overrides,
   };
 }

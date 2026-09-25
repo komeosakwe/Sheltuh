@@ -19,14 +19,14 @@ export async function createEventDraft(input: EventInput, getToken: GetToken) {
   return apiFetch<EventRecord>("/events", { method: "POST", body: input, token });
 }
 
-export async function updateEventDraft(organiserId: string, eventId: string, input: EventInput, getToken: GetToken) {
+export async function updateEventDraft(eventId: string, input: EventInput, getToken: GetToken) {
   const token = await getToken();
-  return apiFetch<EventRecord>(`/events/${organiserId}/${eventId}`, { method: "PATCH", body: input, token });
+  return apiFetch<EventRecord>(`/events/${eventId}`, { method: "PATCH", body: input, token });
 }
 
-export async function submitEventForReview(organiserId: string, eventId: string, getToken: GetToken) {
+export async function submitEventForReview(eventId: string, getToken: GetToken) {
   const token = await getToken();
-  return apiFetch<EventRecord>(`/events/${organiserId}/${eventId}/submit`, { method: "POST", token });
+  return apiFetch<EventRecord>(`/events/${eventId}/submit`, { method: "POST", token });
 }
 
 export async function listMyEvents(getToken: GetToken, cursor?: string) {

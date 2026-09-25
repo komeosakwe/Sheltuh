@@ -57,9 +57,9 @@ export interface Coordinates {
 export interface SheltuhEvent {
   id: string;
   /**
-   * Only present for live events — the checkout route's composite key
-   * (/events/{organiserId}/{eventId}/checkout). Demo sample events have no
-   * real backend to check out against, so this stays undefined for them.
+   * Only present for live events. Demo sample events have no real backend
+   * to check out against, so this stays undefined for them — which is how
+   * the ticket selector tells the two apart.
    */
   organiserId?: string;
   slug: string;

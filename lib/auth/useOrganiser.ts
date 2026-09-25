@@ -28,7 +28,7 @@ async function fetchOrganiser(getToken: GetToken): Promise<OrganiserQueryState> 
 /** Loads (and lets callers refetch) the signed-in user's own organiser application. */
 export function useOrganiser() {
   const auth = useAuth();
-  const getToken = auth.getValidIdToken;
+  const getToken = auth.getAccessToken;
   const [state, setState] = useState<OrganiserQueryState>(() =>
     isApiConfigured
       ? { loading: true, organiser: null, error: null }

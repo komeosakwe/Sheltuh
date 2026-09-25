@@ -53,7 +53,7 @@ function renderEditor(overrides: Partial<EventRecord> = {}, onSaved = vi.fn()) {
   const getToken = vi.fn().mockResolvedValue("token");
   render(
     <FakeAuthProvider value={fakeAuthValue({ email: "owner@example.com" })}>
-      <EventEditor getToken={getToken} organiserId="org-1" initial={{ ...BASE_EVENT, ...overrides }} onSaved={onSaved} />
+      <EventEditor getToken={getToken} initial={{ ...BASE_EVENT, ...overrides }} onSaved={onSaved} />
     </FakeAuthProvider>,
   );
   return { onSaved };
@@ -73,7 +73,7 @@ describe("EventEditor — ticket id collisions after reopening a draft", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => expect(updateEventDraft).toHaveBeenCalledTimes(1));
-    const [, , input] = updateEventDraft.mock.calls[0];
+    const [, input] = updateEventDraft.mock.calls[0];
     const ids: string[] = input.ticketTypes.map((t: { id: string }) => t.id);
     expect(ids).toHaveLength(2);
     expect(new Set(ids).size).toBe(2); // no collision
@@ -110,7 +110,7 @@ describe("EventEditor — Melbourne-local date/time inputs, independent of the b
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => expect(updateEventDraft).toHaveBeenCalledTimes(1));
-    const [, , input] = updateEventDraft.mock.calls[0];
+    const [, input] = updateEventDraft.mock.calls[0];
     expect(input.start).toEqual({ date: "2026-09-25", time: "20:00" });
     expect(input.end).toEqual({ date: "2026-09-25", time: "23:00" });
   });
@@ -125,7 +125,7 @@ describe("EventEditor — session-expiry recovery preserves the form", () => {
 
     render(
       <FakeAuthProvider value={fakeAuthValue({ email: "owner@example.com", signIn })}>
-        <EventEditor getToken={vi.fn().mockResolvedValue("token")} organiserId="org-1" initial={BASE_EVENT} onSaved={onSaved} />
+        <EventEditor getToken={vi.fn().mockResolvedValue("token")} initial={BASE_EVENT} onSaved={onSaved} />
       </FakeAuthProvider>,
     );
 

@@ -36,8 +36,7 @@ export default function NewEventPageContent() {
 
   return (
     <EventEditor
-      getToken={auth.getValidIdToken}
-      organiserId={organiser.organiserId}
+      getToken={auth.getAccessToken}
       onSaved={(record) => router.push(`/dashboard/${record.eventId}`)}
     />
   );

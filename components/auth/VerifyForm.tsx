@@ -29,8 +29,9 @@ export default function VerifyForm() {
     setError(null);
     setLoading(true);
     try {
+      // Confirming also signs the new account in.
       await auth.confirmSignUp(email, code);
-      router.push("/login");
+      router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't verify that code.");
     } finally {

@@ -19,9 +19,9 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Live mode needs a real organiserId (the checkout route's composite
-  // key) — demo sample events never have one, since there's no backend to
-  // check out against.
+  // Only live events (which carry an organiserId) can be checked out —
+  // demo sample events never have one, since there's no backend to check
+  // out against.
   const canCheckout = isApiConfigured && Boolean(event.organiserId);
 
   function capFor(ticket: TicketType): number {
@@ -58,7 +58,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
       const lineItems = lineSummaries
         .filter((line) => line.quantity > 0)
         .map((line) => ({ ticketTypeId: line.ticket.id, quantity: line.quantity }));
-      const result = await createCheckoutSession(event.organiserId, event.id, lineItems);
+      const result = await createCheckoutSession(event.id, lineItems);
       window.location.href = result.url;
       // Deliberately no setLoading(false) here — the page is navigating
       // away, and re-enabling the button would just invite a double-click.

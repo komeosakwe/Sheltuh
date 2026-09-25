@@ -8,7 +8,7 @@ import { useOrganiser } from "@/lib/auth/useOrganiser";
 
 export default function PayoutsPanel() {
   const auth = useAuth();
-  const getToken = auth.getValidIdToken;
+  const getToken = auth.getAccessToken;
   const { loading, organiser, error, refetch } = useOrganiser();
   const searchParams = useSearchParams();
   const returnedFromStripe = searchParams.get("connected") === "1" || searchParams.get("refresh") === "1";

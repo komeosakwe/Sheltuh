@@ -16,7 +16,7 @@ const STATUS_LABEL: Record<EventStatus, string> = {
 
 export default function EventQueue() {
   const auth = useAuth();
-  const getToken = auth.getValidIdToken;
+  const getToken = auth.getAccessToken;
 
   const [status, setStatus] = useState<EventStatus>("pending_review");
   const [items, setItems] = useState<EventRecord[]>([]);
@@ -64,7 +64,7 @@ export default function EventQueue() {
     setActionError(null);
     setBusyId(item.eventId);
     try {
-      await adminApproveEvent(item.organiserId, item.eventId, getToken);
+      await adminApproveEvent(item.eventId, getToken);
       removeItem(item.eventId);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Couldn't approve this event.");
@@ -78,7 +78,7 @@ export default function EventQueue() {
     setActionError(null);
     setBusyId(item.eventId);
     try {
-      await adminRejectEvent(item.organiserId, item.eventId, reason.trim(), getToken);
+      await adminRejectEvent(item.eventId, reason.trim(), getToken);
       removeItem(item.eventId);
       setRejectingId(null);
       setReason("");
@@ -93,7 +93,7 @@ export default function EventQueue() {
     setActionError(null);
     setBusyId(item.eventId);
     try {
-      await adminUnpublishEvent(item.organiserId, item.eventId, getToken);
+      await adminUnpublishEvent(item.eventId, getToken);
       removeItem(item.eventId);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Couldn't unpublish this event.");

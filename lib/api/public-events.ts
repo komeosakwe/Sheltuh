@@ -36,5 +36,5 @@ export function listPublicEvents(params: ListPublicEventsParams = {}) {
 }
 
 export function getPublicEventBySlug(slug: string) {
-  return apiFetch<PublicEvent>(`/events/${encodeURIComponent(slug)}`);
+  return apiFetch<PublicEvent>(`/events/slug/${encodeURIComponent(slug)}`);
 }

@@ -3,7 +3,8 @@ import type { EventCategory, FeePolicy } from "@/lib/types";
 export type OrganiserStatus = "pending" | "approved" | "rejected";
 
 export interface OrganiserRecord {
-  ownerUserId: string;
+  /** Unset for a platform-managed organiser that has no account of its own. */
+  ownerUserId?: string;
   organiserId: string;
   displayName: string;
   contactEmail: string;
@@ -92,7 +93,8 @@ export interface OrderRecord {
   totalCents: number;
   applicationFeeCents: number;
   status: OrderStatus;
-  stripeCheckoutSessionId: string;
+  /** Unset for free orders, which never touch Stripe. */
+  stripeCheckoutSessionId?: string;
   stripePaymentIntentId?: string;
   tickets: IssuedTicket[];
   createdAt: string;

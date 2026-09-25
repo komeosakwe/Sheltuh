@@ -32,9 +32,9 @@ Pre-launch MVP. 15 Melbourne creative interviews done:
 | Promoted listings    | $50–150 / week          | ~Month 3   |
 | Brand partnerships   | $2K–20K / deal          | ~Month 6   |
 
-The prototype currently models the booking fee as 5% + A$0.50 per paid ticket
-(`lib/fees.ts`) — still to be confirmed against the 3–5% range before real
-payments.
+The app currently charges a booking fee of 5% + A$0.50 per paid ticket
+(`lib/fees.ts`, used by both the UI and the checkout API). Still to be
+confirmed against the 3–5% range before taking real payments.
 
 ## Legal / registration status
 
@@ -78,27 +78,31 @@ email needs consent + unsubscribe (Spam Act).
 - Workspace email-footer editor needs images from a public URL; the file
   picker doesn't embed.
 
-## Production stack (planned, not built)
+## Production stack (built, not yet deployed)
 
 | Concern     | Choice                  | Note |
 | ----------- | ----------------------- | ---- |
-| Frontend    | Next.js                 | This repo (Next 16, App Router) |
-| DB / Auth   | Supabase                | |
-| Payments    | **Stripe Connect**      | Connect specifically — needed for marketplace split payouts |
-| Maps        | Mapbox                  | |
-| Hosting     | Vercel                  | |
+| Frontend + API | Next.js 16 (App Router) | The API is this app's own route handlers (`app/api/`) |
+| DB / Auth   | Supabase                | Postgres (Sydney region) + Supabase Auth |
+| Payments    | **Stripe Connect** (Express) | Connect specifically, for marketplace split payouts |
+| Maps        | Leaflet + Esri tiles    | Already built and free; Mapbox only if custom styling is needed |
+| Hosting     | Vercel                  | Pro plan needed once selling tickets (Hobby is non-commercial) |
 
-AWS is explicitly ruled out for now (too complex/costly pre-traction);
-revisit post-traction.
+A first backend was built on AWS (Cognito/DynamoDB/Lambda/CDK) but never
+deployed. It was replaced with Supabase in Sept 2026: a simpler stack for a
+solo founder, a relational fit for "Who's Going" and map queries, and no
+data to migrate. AWS stays ruled out until well past traction.
+
+Go-live steps: `docs/supabase-setup.md`. Design: `docs/architecture.md`.
 
 ## MVP feature scope
 
-1. Curated event feed
-2. Organiser submission + **manual curation / review queue**
-3. Stripe Connect checkout with platform-fee logic
-4. Organiser dashboard
-5. Map view
-6. "Who's Going" social indicator
+1. Curated event feed — built
+2. Organiser submission + **manual curation / review queue** — built
+3. Stripe Connect checkout with platform-fee logic — built
+4. Organiser dashboard — built
+5. Map view — built (venue coordinates still to add)
+6. "Who's Going" social indicator — not started
 
 ## Outstanding action items
 
@@ -106,8 +110,10 @@ revisit post-traction.
 2. Confirm ASIC "Sheltuh" shows "Registered"
 3. File trademark with IP Australia (Classes 41, 42, 35)
 4. Draft Privacy Policy, ToS, Organiser Agreement, contractor NDAs
-5. Begin production MVP build on the stack above
-6. Plan sole trader → Pty Ltd transition timing
+5. Go live on the stack above: Supabase project, Stripe Connect (test →
+   live), Vercel deploy, promote admins (see `docs/supabase-setup.md`)
+6. Decide the final booking fee (currently 5% + A$0.50)
+7. Plan sole trader → Pty Ltd transition timing
 
 ## Working style
 

@@ -27,12 +27,13 @@ export default defineConfig({
     },
   ],
   webServer: {
-    // A same-origin, made-up API path: every request to it is intercepted by
-    // each test's own page.route() — nothing here ever hits a real network,
-    // let alone real AWS. Same-origin (rather than a fake cross-origin host)
-    // avoids a CORS preflight that page.route()'s plain JSON fulfil()
-    // wouldn't satisfy.
-    command: `NEXT_PUBLIC_API_URL=http://127.0.0.1:${PORT}/api-mock npx next dev -p ${PORT}`,
+    // Placeholder Supabase settings switch the app into live mode; every
+    // request to the app's own /api/* routes is then intercepted by each
+    // test's page.route(), so nothing here ever reaches a real Supabase
+    // project or database.
+    command:
+      `NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:${PORT}/supabase-mock ` +
+      `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=e2e-placeholder npx next dev -p ${PORT}`,
     url: `http://127.0.0.1:${PORT}`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
