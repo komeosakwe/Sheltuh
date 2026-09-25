@@ -2,7 +2,10 @@
 
 A Melbourne-first curated creative events discovery and ticketing marketplace.
 This is the **first local prototype**: three screens backed by typed sample
-data, no backend, no payments, no AWS.
+data, no backend, no payments.
+
+Business, legal, infrastructure and roadmap context lives in
+[`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md).
 
 ## Stack
 
@@ -46,14 +49,17 @@ npm run test    # fee calculation unit tests (vitest)
   `lib/sample-events.ts` — no database, no CMS.
 - No accounts, authentication, guest checkout, real payments, inventory
   reservation, ticket issuance/QR check-in, or "Who's Going".
-- No AWS integration and no Stripe integration — those are later milestones.
+- No Supabase or Stripe Connect integration yet — those are the next
+  milestones (production stack: Next.js + Supabase + Stripe Connect + Mapbox
+  on Vercel; AWS ruled out pre-traction).
 - Organiser submissions are validated in the browser only; there is no
-  backend to receive them, and no approval workflow has been decided.
+  backend to receive them yet.
 
 ## Decisions needed before the next milestone
 
-- Organiser submission approval policy (auto-publish, manual review, etc.) —
-  intentionally left undecided per current scope.
+- Organiser submission approval: **decided — manual curation/review queue**.
+  Still to design: queue states, reviewer tooling, organiser notifications.
 - Real image/media handling for event listings (currently CSS gradient
   placeholders).
-- Confirm booking fee structure (5% + A$0.50) before wiring up real payments.
+- Confirm booking fee structure: prototype uses 5% + A$0.50; business model
+  targets 3–5% per transaction. Settle before wiring up Stripe Connect.
