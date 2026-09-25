@@ -1,4 +1,7 @@
+import { existsSync } from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
+
+const PINNED_CHROMIUM = "/opt/pw-browsers/chromium";
 
 const PORT = 3177;
 
@@ -17,12 +20,11 @@ export default defineConfig({
       name: "chromium",
       use: {
         ...devices["Desktop Chrome"],
-        // This environment pins a pre-installed Chromium under
-        // PLAYWRIGHT_BROWSERS_PATH that doesn't always match the exact
-        // revision @playwright/test expects — launch it directly rather
-        // than the version-matched binary `npx playwright install` would
-        // otherwise try (and fail) to fetch.
-        launchOptions: { executablePath: "/opt/pw-browsers/chromium" },
+        // Claude Code's cloud environment pins a pre-installed Chromium
+        // that doesn't always match the revision @playwright/test expects,
+        // so launch it directly when it's there. Elsewhere (CI, laptops),
+        // use the browser `npx playwright install chromium` fetched.
+        launchOptions: existsSync(PINNED_CHROMIUM) ? { executablePath: PINNED_CHROMIUM } : {},
       },
     },
   ],
