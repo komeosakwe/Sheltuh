@@ -1,10 +1,18 @@
 -- Minimal stand-ins for what a real Supabase project already provides, so the
 -- migrations can be applied to a plain Postgres (tests use PGlite). Never run
 -- this against a real Supabase database.
+-- Roles are cluster-wide, and test files set up their databases in
+-- parallel, so tolerate another file creating them first.
 do $$
 begin
-  if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if;
-  if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated nologin; end if;
+  create role anon nologin;
+exception when duplicate_object or unique_violation then null;
+end
+$$;
+do $$
+begin
+  create role authenticated nologin;
+exception when duplicate_object or unique_violation then null;
 end
 $$;
 create schema if not exists auth;
