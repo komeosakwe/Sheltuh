@@ -25,7 +25,8 @@ marketplace.
 - `/map`: Scene Map.
 - `/events/[slug]`: event details and guest checkout. Free tickets are
   issued instantly; paid tickets go through Stripe Checkout.
-- `/checkout/success`: order confirmation with ticket codes.
+- `/checkout/success`: order confirmation with ticket codes, also emailed
+  to the buyer. An oversold order is refunded automatically.
 
 **Accounts:** `/signup`, `/verify`, `/login`, `/forgot-password`.
 
@@ -84,9 +85,7 @@ tests/, e2e/         vitest (incl. tests/server API tests), Playwright
 
 ## Not built yet
 
-- Automatic refunds for the rare oversold order (they're flagged for a
-  manual refund).
-- Ticket emails and QR check-in.
+- QR check-in.
 - Event images.
 - Venue coordinates.
 - "Who's Going".

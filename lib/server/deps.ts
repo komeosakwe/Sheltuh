@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import type { VerifyAccessToken } from "./auth";
 import { createPostgresDb, type Db } from "./db";
+import { createSmtpSender, type SendEmail } from "./email";
 
 /**
  * Everything a handler needs from the outside world. Route files get the
@@ -14,6 +15,8 @@ export interface Deps {
   stripeWebhookSecret(): string;
   /** Public origin of this app, for Stripe redirect URLs, e.g. https://sheltuh.com.au */
   siteUrl(): string;
+  /** Transactional email (ticket delivery). A no-op, with a warning, if SMTP isn't configured. */
+  sendEmail: SendEmail;
 }
 
 function requireEnv(name: string): string {
@@ -34,6 +37,7 @@ export function getDeps(): Deps {
     { auth: { persistSession: false, autoRefreshToken: false } },
   );
   let stripe: Stripe | undefined;
+  const smtp = createSmtpSender();
 
   cached = {
     db,
@@ -54,6 +58,11 @@ export function getDeps(): Deps {
     },
     stripeWebhookSecret: () => requireEnv("STRIPE_WEBHOOK_SECRET"),
     siteUrl: () => requireEnv("NEXT_PUBLIC_SITE_URL").replace(/\/+$/, ""),
+    sendEmail:
+      smtp ??
+      (async () => {
+        console.warn("SMTP isn't configured (SMTP_HOST etc.) — ticket email not sent.");
+      }),
   };
   return cached;
 }

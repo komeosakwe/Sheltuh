@@ -13,10 +13,11 @@ Stripe (payments) and Vercel (hosting).
 1. Create a project at supabase.com. Choose the **Sydney
    (ap-southeast-2)** region, which keeps data in Australia and close to
    Melbourne users. Save the database password somewhere safe.
-2. **Create the schema.** Open SQL Editor → New query, paste all of
-   `supabase/migrations/20260925000000_init.sql` and run it. (Or use the
-   CLI: `npx supabase link --project-ref <ref>` then `npx supabase db push`.)
-   Every later migration file goes in the same way, in filename order.
+2. **Create the schema.** Open SQL Editor → New query, and run each file in
+   `supabase/migrations/` in filename order, one query per file:
+   `20260925000000_init.sql`, then `20260926000000_refunds_and_emails.sql`.
+   (Or use the CLI: `npx supabase link --project-ref <ref>` then
+   `npx supabase db push`.) Any later migration file goes in the same way.
 3. **Collect the keys** (Project Settings → API Keys):
    - Publishable key (`sb_publishable_…`) → `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
    - Secret key (`sb_secret_…`) → `SUPABASE_SECRET_KEY`. Keep this on
@@ -90,18 +91,44 @@ against a dev project, never production.
 4. Repeat steps 2–3 in live mode when you're ready to take real money.
    Live mode uses different keys and a different webhook secret.
 
-**Known gap: refunds are manual.** If two buyers pay for the last ticket
-within seconds of each other, the database guarantees only one gets it. The
-other is charged, and their order is marked `oversold_refund_required`. You
-refund these from the Stripe dashboard. To find them, run this in the
-Supabase SQL editor:
+**Oversold orders are refunded automatically.** If two buyers pay for the
+last ticket within seconds of each other, the database guarantees only one
+gets it. The other buyer is refunded in full: their payment, Sheltüh's fee
+and the organiser's share. Their order is marked `refunded`. If Stripe
+rejects the refund, the order stays `oversold_refund_required` and Stripe's
+own webhook retries try again. To check for any that are stuck, run this in
+the Supabase SQL editor:
 
 ```sql
 select id, buyer_email, total_cents, stripe_payment_intent_id, created_at
 from orders where status = 'oversold_refund_required';
 ```
 
-## 3. Vercel
+## 3. Ticket emails
+
+After every paid or free order, the buyer gets an email with their ticket
+codes and a link back to the order. It's sent over SMTP from your existing
+Google Workspace, so there's no new vendor:
+
+1. Sign in to the mailbox you want to send from (e.g. `support@`). Turn on
+   2-Step Verification if it isn't already, then create an app password at
+   myaccount.google.com → Security → App passwords.
+2. Set `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_USER` (the mailbox
+   address), `SMTP_PASS` (the app password) and `EMAIL_FROM`, as in
+   `.env.example`. Google already sends for your domain under the existing
+   SPF record, so no DNS change is needed.
+
+Workspace allows about 2,000 messages a day, which is plenty for launch. If
+SMTP isn't set, orders still work and tickets still show on the confirmation
+page; the server logs that no email was sent. To find orders whose email
+failed:
+
+```sql
+select id, buyer_email, created_at from orders
+where status = 'paid' and buyer_email is not null and tickets_emailed_at is null;
+```
+
+## 4. Vercel
 
 1. Import the GitHub repo into Vercel. It detects Next.js with no extra
    config.
@@ -116,7 +143,7 @@ from orders where status = 'oversold_refund_required';
 `NEXT_PUBLIC_*` values are baked in at build time, so redeploy after
 changing them.
 
-## 4. Smoke test (test mode)
+## 5. Smoke test (test mode)
 
 1. Sign up, then verify with the emailed code.
 2. Apply as an organiser. As admin, approve the application at
@@ -126,7 +153,8 @@ changing them.
 4. Create an event with a free ticket and a paid ticket, and submit it.
    Approve it at `/admin/events`.
 5. Signed out, open the event:
-   - Get the free ticket. It's issued instantly.
+   - Get the free ticket (it asks for an email). It's issued instantly
+     and the ticket email arrives.
    - Buy the paid ticket with card `4242 4242 4242 4242`. The confirmation
      page shows ticket codes once Stripe's webhook arrives, usually within
      seconds.

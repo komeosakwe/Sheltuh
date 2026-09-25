@@ -65,7 +65,11 @@ export interface Paginated<T> {
   nextCursor?: string;
 }
 
-export type OrderStatus = "pending" | "paid" | "failed" | "oversold_refund_required";
+/**
+ * `oversold_refund_required`: paid, but the tickets sold out first — refund
+ * not yet confirmed. `refunded`: Stripe has accepted that refund.
+ */
+export type OrderStatus = "pending" | "paid" | "failed" | "oversold_refund_required" | "refunded";
 
 export interface OrderLineItem {
   ticketTypeId: string;

@@ -75,7 +75,7 @@ describe("free checkout", () => {
     const event = await publishedEvent(api, organiser, admin, { ticketTypes: FREE_TICKETS });
     const res = await api.call(createCheckout, {
       params: { eventId: event.eventId },
-      body: { lineItems: [{ ticketTypeId: "rsvp", quantity: 2 }] },
+      body: { lineItems: [{ ticketTypeId: "rsvp", quantity: 2 }], buyerEmail: "fan@example.com" },
     });
     expect(res.status).toBe(201);
     expect(res.body.url).toMatch(/^https:\/\/sheltuh\.test\/checkout\/success\?session_id=ord_/);
@@ -86,11 +86,45 @@ describe("free checkout", () => {
     expect(order.body.tickets).toHaveLength(2);
     expect(order.body.tickets[0].ticketCode).toMatch(/^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/);
     expect(await sold(event.eventId)).toEqual({ rsvp: 2 });
+
+    expect(api.sendEmail).toHaveBeenCalledTimes(1);
+    const email = api.sendEmail.mock.calls[0][0];
+    expect(email.to).toBe("fan@example.com");
+    expect(email.subject).toBe("Your tickets: Neon Static");
+    for (const ticket of order.body.tickets) expect(email.text).toContain(ticket.ticketCode);
+    expect(email.text).toContain(`https://sheltuh.test/checkout/success?session_id=${order.body.orderId}`);
+  });
+
+  it("needs an email address to send the tickets to", async () => {
+    const event = await publishedEvent(api, organiser, admin, { ticketTypes: FREE_TICKETS });
+    for (const buyerEmail of [undefined, "not-an-email"]) {
+      const res = await api.call(createCheckout, {
+        params: { eventId: event.eventId },
+        body: { lineItems: [{ ticketTypeId: "rsvp", quantity: 1 }], buyerEmail },
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.fieldErrors.buyerEmail).toBeTruthy();
+    }
+    expect(await sold(event.eventId)).toEqual({ rsvp: 0 });
+  });
+
+  it("still issues the tickets if the email can't be sent", async () => {
+    const event = await publishedEvent(api, organiser, admin, { ticketTypes: FREE_TICKETS });
+    api.sendEmail.mockRejectedValueOnce(new Error("SMTP down"));
+    const res = await api.call(createCheckout, {
+      params: { eventId: event.eventId },
+      body: { lineItems: [{ ticketTypeId: "rsvp", quantity: 1 }], buyerEmail: "fan@example.com" },
+    });
+    expect(res.status).toBe(201);
+    const [row] = await api.db.query<{ status: string; tickets_emailed_at: Date | null }>(
+      `select status::text, tickets_emailed_at from public.orders`,
+    );
+    expect(row).toEqual({ status: "paid", tickets_emailed_at: null });
   });
 
   it("says so when the tickets are gone, and leaves no order behind", async () => {
     const event = await publishedEvent(api, organiser, admin, { ticketTypes: FREE_TICKETS });
-    const body = { lineItems: [{ ticketTypeId: "rsvp", quantity: 2 }] };
+    const body = { lineItems: [{ ticketTypeId: "rsvp", quantity: 2 }], buyerEmail: "fan@example.com" };
     await api.call(createCheckout, { params: { eventId: event.eventId }, body });
 
     const res = await api.call(createCheckout, { params: { eventId: event.eventId }, body });
@@ -132,6 +166,7 @@ describe("paid checkout", () => {
       transfer_data: { destination: "acct_test_1" },
     });
     expect(params.success_url).toBe(`https://sheltuh.test/checkout/success?session_id=${orderId}`);
+    expect(params.customer_email).toBeUndefined(); // Stripe collects it unless the buyer already gave one
     expect(params.line_items.map((l: { price_data: { unit_amount: number } }) => l.price_data.unit_amount)).toEqual([
       3000, 200, 8000,
     ]);
@@ -217,6 +252,12 @@ describe("Stripe webhook", () => {
     });
     expect(order.body.tickets).toHaveLength(2);
     expect(await sold(event.eventId)).toEqual({ ga: 2, vip: 0 });
+
+    // Emailed to the address the buyer gave Stripe, exactly once.
+    expect(api.sendEmail).toHaveBeenCalledTimes(1);
+    expect(api.sendEmail.mock.calls[0][0].to).toBe("buyer@example.com");
+    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId)));
+    expect(api.sendEmail).toHaveBeenCalledTimes(1);
   });
 
   it("is idempotent — Stripe's redelivery doesn't take inventory or issue tickets twice", async () => {
@@ -238,8 +279,37 @@ describe("Stripe webhook", () => {
     await api.send(stripeWebhook, stripeWebhookRequest(completedSession(second, { payment_intent: "pi_test_2" })));
 
     const lost = await api.call(getOrderBySession, { params: { sessionId: second } });
-    expect(lost.body).toMatchObject({ status: "oversold_refund_required", stripePaymentIntentId: "pi_test_2" });
+    expect(lost.body).toMatchObject({ status: "refunded", stripePaymentIntentId: "pi_test_2" });
     expect(lost.body.tickets).toEqual([]);
+    expect(await sold(event.eventId)).toEqual({ ga: 2, vip: 0 });
+
+    // Refunded in full: the buyer's money, Sheltüh's fee and the organiser's transfer.
+    expect(api.stripe.refunds.create).toHaveBeenCalledTimes(1);
+    expect(api.stripe.refunds.create).toHaveBeenCalledWith(
+      expect.objectContaining({ payment_intent: "pi_test_2", reverse_transfer: true, refund_application_fee: true }),
+      { idempotencyKey: `oversold-refund-${second}` },
+    );
+    // Only the winner got a ticket email.
+    expect(api.sendEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a failed refund when Stripe redelivers the event", async () => {
+    const { event, orderId: first } = await pendingOrder(2);
+    await api.call(createCheckout, { params: { eventId: event.eventId }, body: { lineItems: [{ ticketTypeId: "ga", quantity: 2 }] } });
+    const second = api.stripe.checkout.sessions.create.mock.calls.at(-1)![0].client_reference_id as string;
+    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(first)));
+
+    api.stripe.refunds.create.mockRejectedValueOnce(new Error("Stripe is down"));
+    const failed = await api.send(stripeWebhook, stripeWebhookRequest(completedSession(second)));
+    expect(failed.status).toBe(500); // so Stripe retries
+    expect((await api.call(getOrderBySession, { params: { sessionId: second } })).body.status).toBe(
+      "oversold_refund_required",
+    );
+
+    const retried = await api.send(stripeWebhook, stripeWebhookRequest(completedSession(second)));
+    expect(retried.status).toBe(200);
+    expect((await api.call(getOrderBySession, { params: { sessionId: second } })).body.status).toBe("refunded");
+    expect(api.stripe.refunds.create).toHaveBeenCalledTimes(2);
     expect(await sold(event.eventId)).toEqual({ ga: 2, vip: 0 });
   });
 
@@ -259,9 +329,7 @@ describe("Stripe webhook", () => {
 
     // The VIP line failed, so the GA line in the same order wasn't taken either.
     expect(await sold(event.eventId)).toEqual({ ga: 0, vip: 1 });
-    expect((await api.call(getOrderBySession, { params: { sessionId: both } })).body.status).toBe(
-      "oversold_refund_required",
-    );
+    expect((await api.call(getOrderBySession, { params: { sessionId: both } })).body.status).toBe("refunded");
   });
 
   it("waits for delayed payment methods, and fails expired sessions", async () => {
@@ -291,7 +359,7 @@ describe("ticket types with sales", () => {
     const event = await publishedEvent(api, organiser, admin, { ticketTypes: FREE_TICKETS });
     await api.call(createCheckout, {
       params: { eventId: event.eventId },
-      body: { lineItems: [{ ticketTypeId: "rsvp", quantity: 2 }] },
+      body: { lineItems: [{ ticketTypeId: "rsvp", quantity: 2 }], buyerEmail: "fan@example.com" },
     });
     await api.call(adminUnpublishEvent, { token: admin.token, params: { eventId: event.eventId }, method: "POST" });
     return event;

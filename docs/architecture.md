@@ -49,7 +49,7 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected; unpublish returns it to draft. `is_free` is kept up to date for the feed's free/paid filter. |
 | `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. `quantity_sold` only ever changes in `fulfil_order`. |
 | `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished, by whom, and why. |
-| `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed / oversold_refund_required. |
+| `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed, or oversold_refund_required → refunded. `tickets_emailed_at` records the ticket email. |
 | `tickets` | `code` | One row per admitted person. This is the future home of check-in and "Who's Going". |
 
 Timestamps are `timestamptz`. Organisers enter Australia/Melbourne local
@@ -81,10 +81,19 @@ times, which are converted to instants honouring daylight saving
    - The signature is verified.
    - `checkout.session.completed` (when the session is paid) or
      `async_payment_succeeded` → `fulfil_order`.
+   - If `fulfil_order` finds the tickets sold out, the payment is refunded
+     straight away (`reverse_transfer` and `refund_application_fee`,
+     idempotency-keyed per order) and the order is marked `refunded`. A
+     failed refund returns 500, so Stripe redelivers and it's retried.
    - `expired` / `async_payment_failed` → the order is marked `failed`.
    - Inventory is only taken here, so an abandoned checkout never holds
      tickets.
-4. `/checkout/success?session_id=<order id>` polls
+4. Once an order is paid (free orders included), the buyer is emailed their
+   ticket codes over SMTP (`lib/server/email.ts`). This is best-effort: a
+   failed send is logged and leaves `orders.tickets_emailed_at` null. Free
+   orders require the buyer's email address at checkout; for paid orders,
+   Stripe collects it.
+5. `/checkout/success?session_id=<order id>` polls
    `GET /api/orders/by-session/<id>`. The unguessable order id is the
    credential. A pending order reveals only its status.
 
@@ -122,7 +131,7 @@ response). It's currently a row offset, fine at this scale.
 - `lib/server/records.ts`: the SQL that reads each record, and the
   row → API-shape mappers.
 - `lib/server/deps.ts`: the production wiring (postgres.js, Supabase Auth,
-  Stripe), read from env.
+  Stripe, SMTP), read from env.
 - `lib/api/*`: the browser-side client for the same routes.
 - `lib/auth/AuthContext.tsx`: Supabase Auth in the browser.
 - `tests/server/*`: API tests against a real Postgres. By default that's
@@ -131,8 +140,7 @@ response). It's currently a row offset, fine at this scale.
 
 ## Not built yet
 
-- Automatic refunds for oversold orders.
-- Ticket emails and QR check-in.
+- QR check-in.
 - Event images.
 - Venue coordinates (the map falls back to suburb centroids).
 - "Who's Going".

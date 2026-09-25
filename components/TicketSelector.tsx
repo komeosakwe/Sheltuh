@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { isApiConfigured } from "@/lib/api/client";
+import { ApiError, isApiConfigured } from "@/lib/api/client";
 import { createCheckoutSession } from "@/lib/api/orders";
 import { calculateOrderSummary, sumOrderSummaries } from "@/lib/fees";
 import { formatAud } from "@/lib/format";
@@ -9,6 +9,7 @@ import { formatTicketBreakdown, formatTicketHeadline } from "@/lib/pricing";
 import type { SheltuhEvent, TicketType } from "@/lib/types";
 
 const MAX_QUANTITY_PER_TYPE = 8;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const stepperButtonClass =
   "flex h-11 w-11 shrink-0 items-center justify-center rounded border border-surface-border text-lg font-semibold text-foreground transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-surface-border disabled:hover:text-foreground";
@@ -18,6 +19,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [buyerEmail, setBuyerEmail] = useState("");
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   // Only live events (which carry an organiserId) can be checked out —
   // demo sample events never have one, since there's no backend to check
@@ -49,21 +52,33 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const orderTotal = sumOrderSummaries(lineSummaries.map((line) => line.summary));
 
   const hasAnyTickets = lineSummaries.some((line) => line.quantity > 0);
+  // Paid orders give Stripe an email at checkout; free ones skip Stripe, so
+  // this is the only way their tickets can reach the buyer.
+  const needsEmail = canCheckout && hasAnyTickets && orderTotal.totalCents === 0;
 
   async function handleCheckout() {
     if (!event.organiserId) return;
     setError(null);
+    setEmailError(null);
+    if (needsEmail && !EMAIL_REGEX.test(buyerEmail.trim())) {
+      setEmailError("Enter the email address to send your tickets to.");
+      return;
+    }
     setLoading(true);
     try {
       const lineItems = lineSummaries
         .filter((line) => line.quantity > 0)
         .map((line) => ({ ticketTypeId: line.ticket.id, quantity: line.quantity }));
-      const result = await createCheckoutSession(event.id, lineItems);
+      const result = await createCheckoutSession(event.id, lineItems, needsEmail ? buyerEmail.trim() : undefined);
       window.location.href = result.url;
       // Deliberately no setLoading(false) here — the page is navigating
       // away, and re-enabling the button would just invite a double-click.
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't start checkout. Try again.");
+      if (err instanceof ApiError && err.fieldErrors?.buyerEmail) {
+        setEmailError(err.fieldErrors.buyerEmail);
+      } else {
+        setError(err instanceof Error ? err.message : "Couldn't start checkout. Try again.");
+      }
       setLoading(false);
     }
   }
@@ -143,6 +158,33 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
 
         {canCheckout ? (
           <>
+            {needsEmail && (
+              <div className="mt-4 flex flex-col gap-1">
+                <label htmlFor="buyer-email" className="text-sm font-medium text-foreground">
+                  Email for your tickets
+                </label>
+                <input
+                  id="buyer-email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={buyerEmail}
+                  onChange={(e) => setBuyerEmail(e.target.value)}
+                  aria-invalid={Boolean(emailError)}
+                  aria-describedby={emailError ? "buyer-email-error" : "buyer-email-hint"}
+                  className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+                />
+                {emailError ? (
+                  <p id="buyer-email-error" role="alert" className="text-sm text-danger">
+                    {emailError}
+                  </p>
+                ) : (
+                  <p id="buyer-email-hint" className="text-xs text-muted">
+                    We&rsquo;ll only use this to send your tickets.
+                  </p>
+                )}
+              </div>
+            )}
             <button
               type="button"
               onClick={handleCheckout}

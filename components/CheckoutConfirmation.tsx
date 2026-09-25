@@ -61,7 +61,7 @@ export default function CheckoutConfirmation() {
         const order = result as OrderRecord;
         if (order.status === "paid") {
           setState({ status: "ready", order });
-        } else if (order.status === "oversold_refund_required") {
+        } else if (order.status === "oversold_refund_required" || order.status === "refunded") {
           setState({ status: "oversold", order });
         } else {
           setState({ status: "error", message: "This order couldn't be completed." });

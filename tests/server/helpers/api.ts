@@ -3,6 +3,7 @@ import { vi } from "vitest";
 import type { Caller } from "@/lib/server/auth";
 import type { Db } from "@/lib/server/db";
 import type { Deps } from "@/lib/server/deps";
+import type { EmailMessage } from "@/lib/server/email";
 import { runHandler, type Handler } from "@/lib/server/route";
 
 export const WEBHOOK_SECRET = "whsec_test_secret";
@@ -23,6 +24,7 @@ export function createFakeStripe() {
         create: vi.fn().mockResolvedValue({ id: "cs_test_1", url: "https://checkout.stripe.test/cs_test_1" }),
       },
     },
+    refunds: { create: vi.fn().mockResolvedValue({ id: "re_test_1", status: "succeeded" }) },
     webhooks: realStripe.webhooks,
   };
 }
@@ -42,6 +44,8 @@ export function stripeWebhookRequest(event: { type: string; data: { object: unkn
 
 export class TestApi {
   readonly stripe = createFakeStripe();
+  /** Every email the API "sent". Make it throw to simulate an SMTP outage. */
+  readonly sendEmail = vi.fn<(message: EmailMessage) => Promise<void>>().mockResolvedValue(undefined);
   private readonly callers = new Map<string, Caller>();
 
   constructor(readonly db: Db) {}
@@ -53,6 +57,7 @@ export class TestApi {
       stripe: () => this.stripe as unknown as Stripe,
       stripeWebhookSecret: () => WEBHOOK_SECRET,
       siteUrl: () => SITE_URL,
+      sendEmail: this.sendEmail,
     };
   }
 
