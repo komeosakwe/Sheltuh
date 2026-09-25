@@ -1,9 +1,10 @@
 import type { SheltuhEvent } from "./types";
 
 /**
- * Fictional demo events. `startsAt` / `endsAt` are naive local wall-clock
- * timestamps (no UTC offset) that always represent Australia/Melbourne time —
- * see lib/format.ts for how they're rendered.
+ * Fictional demo events. `startsAt` / `endsAt` are real UTC instants (the
+ * same shape the live API returns) computed from each event's intended
+ * Australia/Melbourne wall-clock time, accounting for AEST/AEDT — see
+ * lib/format.ts for how they're rendered back to Melbourne local time.
  */
 export const sampleEvents: SheltuhEvent[] = [
   {
@@ -16,9 +17,14 @@ export const sampleEvents: SheltuhEvent[] = [
     suburb: "Collingwood",
     venueName: "Warehouse 9",
     venueAddress: "9 Rupert Street, Collingwood VIC 3066",
-    startsAt: "2026-09-25T20:00:00",
-    endsAt: "2026-09-26T00:00:00",
+    coordinates: { lat: -37.8025, lng: 144.988 },
+    startsAt: "2026-09-25T10:00:00.000Z",
+    endsAt: "2026-09-25T14:00:00.000Z",
     organiserName: "Static Collective",
+    audience: "Fans of loud, DIY live music. Mixed-age crowd, skews 20s–30s.",
+    whatToExpect: "Standing room only, no seating. Sound levels are loud — earplugs available for free at the door.",
+    ageRestriction: "18+. Bar on site, photo ID required.",
+    accessibility: "Step-free entry via the loading dock ramp. No accessible toilet on site.",
     poster: { pattern: "burst", background: "#0a0a12", primary: "#1e3fe0", secondary: "#ff2f6e" },
     ticketTypes: [
       {
@@ -48,9 +54,14 @@ export const sampleEvents: SheltuhEvent[] = [
     suburb: "Northcote",
     venueName: "The Kiln Room",
     venueAddress: "212 High Street, Northcote VIC 3070",
-    startsAt: "2026-10-03T10:00:00",
-    endsAt: "2026-10-03T13:00:00",
+    coordinates: { lat: -37.7715, lng: 144.9995 },
+    startsAt: "2026-10-03T00:00:00.000Z",
+    endsAt: "2026-10-03T03:00:00.000Z",
     organiserName: "Paper Moon Studio",
+    audience: "Complete beginners welcome — no experience needed.",
+    whatToExpect: "Seated at a shared table, hands-on the whole time. Wear clothes you don't mind getting clay on.",
+    ageRestriction: "All ages. Under-16s to be accompanied by an adult.",
+    accessibility: "Ground floor, step-free entry and an accessible toilet on site.",
     poster: { pattern: "rings", background: "#141414", primary: "#d98a3d", secondary: "#2f5bf6" },
     ticketTypes: [
       {
@@ -73,9 +84,14 @@ export const sampleEvents: SheltuhEvent[] = [
     suburb: "Southbank",
     venueName: "The Boyd Annex",
     venueAddress: "207 City Road, Southbank VIC 3006",
-    startsAt: "2026-09-30T18:30:00",
-    endsAt: "2026-09-30T21:00:00",
+    coordinates: { lat: -37.8267, lng: 144.9614 },
+    startsAt: "2026-09-30T08:30:00.000Z",
+    endsAt: "2026-09-30T11:00:00.000Z",
     organiserName: "Southbank Drawing Group",
+    audience: "Solo attendees are the norm here, not the exception — quiet, focused room.",
+    whatToExpect: "Untutored drawing session with a posed model. Bring your own paper/materials, or borrow a basic set at the door.",
+    ageRestriction: "18+ (the model poses nude for part of the session).",
+    accessibility: "Lift access to the studio. Please contact the organiser ahead if you need an accessible easel height.",
     poster: { pattern: "grid", background: "#050507", primary: "#2451f5", secondary: "#f5f4f0" },
     ticketTypes: [
       {
@@ -97,9 +113,14 @@ export const sampleEvents: SheltuhEvent[] = [
     suburb: "Melbourne CBD",
     venueName: "Hosier Lane Annex",
     venueAddress: "Hosier Lane, Melbourne VIC 3000",
-    startsAt: "2026-10-08T19:00:00",
-    endsAt: "2026-10-08T23:00:00",
+    coordinates: { lat: -37.8171, lng: 144.9705 },
+    startsAt: "2026-10-08T08:00:00.000Z",
+    endsAt: "2026-10-08T12:00:00.000Z",
     organiserName: "Afterimage Projects",
+    audience: "Anyone — open-air, drop-in, easy for solo visitors or families.",
+    whatToExpect: "Outdoors in a public laneway. Walk through at your own pace, no set start time or seating.",
+    ageRestriction: "All ages.",
+    accessibility: "Laneway is paved but narrow and uneven in places — wheelchair passable with care.",
     poster: { pattern: "stripes", background: "#000000", primary: "#1633a8", secondary: "#34e2c4" },
     ticketTypes: [
       {
@@ -121,9 +142,14 @@ export const sampleEvents: SheltuhEvent[] = [
     suburb: "Fitzroy",
     venueName: "The Tin Shed",
     venueAddress: "88 Brunswick Street, Fitzroy VIC 3065",
-    startsAt: "2026-10-16T19:30:00",
-    endsAt: "2026-10-16T22:30:00",
+    coordinates: { lat: -37.7986, lng: 144.9784 },
+    startsAt: "2026-10-16T08:30:00.000Z",
+    endsAt: "2026-10-16T11:30:00.000Z",
     organiserName: "Loose Tongue Collective",
+    audience: "First-timers welcome on the open mic list — this crowd is encouraging, not competitive.",
+    whatToExpect: "Small backroom bar, standing and limited seating. Noise sets can be loud in bursts.",
+    ageRestriction: "18+. Licensed venue.",
+    accessibility: "Two steps at the entrance, no ramp — contact the venue ahead if this is a barrier.",
     poster: { pattern: "waves", background: "#0b0b0f", primary: "#3b5bff", secondary: "#ffcf4d" },
     ticketTypes: [
       {
@@ -145,9 +171,14 @@ export const sampleEvents: SheltuhEvent[] = [
     suburb: "Brunswick",
     venueName: "Brunswick Mechanics Hall",
     venueAddress: "270 Sydney Road, Brunswick VIC 3056",
-    startsAt: "2026-09-27T11:00:00",
-    endsAt: "2026-09-27T16:00:00",
+    coordinates: { lat: -37.766, lng: 144.9598 },
+    startsAt: "2026-09-27T01:00:00.000Z",
+    endsAt: "2026-09-27T06:00:00.000Z",
     organiserName: "Small Press Melbourne",
+    audience: "Zine-makers, readers and the curious — browsing solo is completely normal.",
+    whatToExpect: "A busy hall of stalls. Casual, no schedule to follow — come and go as you like.",
+    ageRestriction: "All ages.",
+    accessibility: "Step-free entry and wide aisles between stalls. Accessible toilet on site.",
     poster: { pattern: "confetti", background: "#111116", primary: "#274bdb", secondary: "#ff6b3d" },
     ticketTypes: [
       {
@@ -169,9 +200,14 @@ export const sampleEvents: SheltuhEvent[] = [
     suburb: "St Kilda",
     venueName: "The Esplanade Studio",
     venueAddress: "14 Fitzroy Street, St Kilda VIC 3182",
-    startsAt: "2026-11-14T19:00:00",
-    endsAt: "2026-11-14T20:30:00",
+    coordinates: { lat: -37.8615, lng: 144.9793 },
+    startsAt: "2026-11-14T08:00:00.000Z",
+    endsAt: "2026-11-14T09:30:00.000Z",
     organiserName: "Off-Kilter Theatre Co.",
+    audience: "General theatre audience — contains coarse language.",
+    whatToExpect: "Fixed seating in the round, 75 minutes with no interval.",
+    ageRestriction: "Recommended 15+ for coarse language and mature themes.",
+    accessibility: "Lift access to the studio; one wheelchair-accessible seating position — book ahead via the organiser.",
     poster: { pattern: "curtain", background: "#08080c", primary: "#152e8a", secondary: "#c81d4f" },
     ticketTypes: [
       {
@@ -201,9 +237,14 @@ export const sampleEvents: SheltuhEvent[] = [
     suburb: "Abbotsford",
     venueName: "Convent Print Studio",
     venueAddress: "1 St Heliers Street, Abbotsford VIC 3067",
-    startsAt: "2026-11-21T10:00:00",
-    endsAt: "2026-11-22T16:00:00",
+    coordinates: { lat: -37.8046, lng: 145.0154 },
+    startsAt: "2026-11-20T23:00:00.000Z",
+    endsAt: "2026-11-22T05:00:00.000Z",
     organiserName: "Convent Print Studio",
+    audience: "Beginners and hobbyists — no prior screen printing experience assumed.",
+    whatToExpect: "Two full days, mostly on your feet at the print tables. Small group, hands-on the whole time.",
+    ageRestriction: "16+.",
+    accessibility: "Ground-floor studio, step-free entry, accessible toilet on site.",
     poster: { pattern: "halftone", background: "#101014", primary: "#0c2fb0", secondary: "#2fd0c8" },
     ticketTypes: [
       {

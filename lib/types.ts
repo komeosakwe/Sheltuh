@@ -48,8 +48,20 @@ export interface TicketType {
   quantityAvailable: number;
 }
 
+/** Decimal degrees, WGS84. */
+export interface Coordinates {
+  lat: number;
+  lng: number;
+}
+
 export interface SheltuhEvent {
   id: string;
+  /**
+   * Only present for live events — the checkout route's composite key
+   * (/events/{organiserId}/{eventId}/checkout). Demo sample events have no
+   * real backend to check out against, so this stays undefined for them.
+   */
+  organiserId?: string;
   slug: string;
   title: string;
   description: string;
@@ -57,10 +69,26 @@ export interface SheltuhEvent {
   suburb: string;
   venueName: string;
   venueAddress: string;
+  /**
+   * Approximate real-world position of the venue, when known. Not present
+   * for every event — see lib/geo.ts's suburb-centroid fallback for events
+   * (e.g. from the live API) that don't have a geocoded venue location yet.
+   */
+  coordinates?: Coordinates;
   /** ISO 8601 datetime, wall-clock time in Australia/Melbourne. */
   startsAt: string;
   endsAt?: string;
   organiserName: string;
   poster: EventPoster;
   ticketTypes: TicketType[];
+  /**
+   * Optional organiser-supplied context — shown on the details page only
+   * when present. Never inferred or invented: the live API doesn't collect
+   * these yet, so live events simply omit them rather than getting guessed
+   * text. See lib/sample-events.ts for how the demo data fills them in.
+   */
+  audience?: string;
+  whatToExpect?: string;
+  ageRestriction?: string;
+  accessibility?: string;
 }
