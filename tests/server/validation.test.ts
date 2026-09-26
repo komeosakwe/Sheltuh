@@ -126,7 +126,7 @@ describe("requireTicketTypes", () => {
     };
     expect(priced(0)).toBeUndefined();
     expect(priced(100)).toBeUndefined();
-    // A$0.50 would carry a A$0.53 organiser-absorbed fee — more than the payment.
+    // A$0.50 would carry a A$0.52 organiser-absorbed fee — more than the payment.
     expect(priced(50)).toMatch(/at least A\$1\.00/);
     expect(priced(99)).toMatch(/at least A\$1\.00/);
   });

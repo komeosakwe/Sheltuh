@@ -99,7 +99,7 @@ times, which are converted to instants honouring daylight saving
    `GET /api/orders/by-session/<id>`. The unguessable order id is the
    credential. A pending order reveals only its status.
 
-Booking fee: 5% of face value + A$0.50 per paid ticket (`lib/fees.ts`,
+Booking fee: 4% of face value + A$0.50 per paid ticket (`lib/fees.ts`,
 which the API and the UI both use). It's either buyer-paid or absorbed by
 the organiser, set per ticket type. Either way the platform keeps it.
 

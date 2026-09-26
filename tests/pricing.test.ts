@@ -20,10 +20,10 @@ describe("Neon Static (buyer-pays GA + organiser-absorbed VIP)", () => {
   const event = findEvent("neon-static");
   const [ga, vip] = event.ticketTypes;
 
-  it("A$30 buyer-pays GA reads 'A$32 incl. booking fee'", () => {
+  it("A$30 buyer-pays GA reads 'A$31.70 incl. booking fee'", () => {
     expect(ga.priceCents).toBe(3000);
-    expect(formatTicketHeadline(ga)).toBe("A$32 incl. booking fee");
-    expect(formatTicketBreakdown(ga)).toBe("A$30 ticket + A$2 booking fee");
+    expect(formatTicketHeadline(ga)).toBe("A$31.70 incl. booking fee");
+    expect(formatTicketBreakdown(ga)).toBe("A$30 ticket + A$1.70 booking fee");
   });
 
   it("A$55 organiser-absorbed VIP reads 'A$55 incl. booking fee'", () => {
@@ -32,9 +32,9 @@ describe("Neon Static (buyer-pays GA + organiser-absorbed VIP)", () => {
     expect(formatTicketBreakdown(vip)).toBe("A$55 ticket (booking fee included by organiser)");
   });
 
-  it("feed card shows the cheaper of the two as 'From A$32 incl. booking fee'", () => {
-    expect(getMinBuyerTotalCents(event)).toBe(3200);
-    expect(formatFeedPrice(event)).toBe("From A$32 incl. booking fee");
+  it("feed card shows the cheaper of the two as 'From A$31.70 incl. booking fee'", () => {
+    expect(getMinBuyerTotalCents(event)).toBe(3170);
+    expect(formatFeedPrice(event)).toBe("From A$31.70 incl. booking fee");
   });
 });
 
