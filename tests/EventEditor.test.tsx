@@ -150,3 +150,39 @@ describe("EventEditor — session-expiry recovery preserves the form", () => {
     expect(updateEventDraft).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("EventEditor — submitting for review", () => {
+  it("saves unsaved edits first, so reviewers see what's on screen", async () => {
+    updateEventDraft.mockResolvedValue({ ...BASE_EVENT, title: "Edited title" });
+    submitEventForReview.mockResolvedValue({ ...BASE_EVENT, title: "Edited title", status: "pending_review" });
+    const { onSaved } = renderEditor();
+
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Edited title" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
+
+    await waitFor(() => expect(submitEventForReview).toHaveBeenCalledTimes(1));
+    expect(updateEventDraft).toHaveBeenCalledTimes(1);
+    expect(updateEventDraft.mock.calls[0][1].title).toBe("Edited title");
+    expect(updateEventDraft.mock.invocationCallOrder[0]).toBeLessThan(submitEventForReview.mock.invocationCallOrder[0]);
+    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ status: "pending_review" }));
+  });
+
+  it("submits nothing while the form has errors", async () => {
+    renderEditor();
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
+
+    await waitFor(() => expect(screen.getByText("Enter an event title.")).toBeInTheDocument());
+    expect(updateEventDraft).not.toHaveBeenCalled();
+    expect(submitEventForReview).not.toHaveBeenCalled();
+  });
+
+  it("won't save a paid ticket under A$1.00", async () => {
+    renderEditor();
+    fireEvent.change(screen.getByLabelText("Price (A$)"), { target: { value: "0.5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => expect(screen.getByText(/at least A\$1/)).toBeInTheDocument());
+    expect(updateEventDraft).not.toHaveBeenCalled();
+  });
+});

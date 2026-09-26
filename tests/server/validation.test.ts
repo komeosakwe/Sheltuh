@@ -114,6 +114,23 @@ describe("requireMelbourneDateTime", () => {
 });
 
 describe("requireTicketTypes", () => {
+  it("allows free tickets and paid tickets from A$1.00, but nothing in between", () => {
+    const priced = (priceCents: number) => {
+      const errors: Record<string, string> = {};
+      requireTicketTypes(
+        [{ name: "GA", priceCents, feePolicy: "organiser-absorbs", quantityAvailable: 10 }],
+        "ticketTypes",
+        errors,
+      );
+      return errors["ticketTypes[0].priceCents"];
+    };
+    expect(priced(0)).toBeUndefined();
+    expect(priced(100)).toBeUndefined();
+    // A$0.50 would carry a A$0.53 organiser-absorbed fee — more than the payment.
+    expect(priced(50)).toMatch(/at least A\$1\.00/);
+    expect(priced(99)).toMatch(/at least A\$1\.00/);
+  });
+
   it("accepts a valid ticket type list", () => {
     const errors: Record<string, string> = {};
     const result = requireTicketTypes(

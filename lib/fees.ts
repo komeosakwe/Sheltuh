@@ -6,6 +6,15 @@ export const BOOKING_FEE_RATE = 0.05;
 export const BOOKING_FEE_FLAT_CENTS = 50;
 
 /**
+ * Smallest price a paid ticket can have. Below this the booking fee can
+ * exceed the ticket price when the organiser absorbs it (e.g. A$0.50 carries
+ * a A$0.53 fee), which Stripe rejects; A$0.50 is also Stripe's minimum AUD
+ * charge. Enforced by the API, the database (ticket_types_min_paid_price)
+ * and the event editor.
+ */
+export const MIN_PAID_TICKET_CENTS = 100;
+
+/**
  * Booking fee for a single paid ticket: 5% of face value + A$0.50.
  * Always A$0 for a free ticket (priceCents <= 0).
  */

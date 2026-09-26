@@ -63,7 +63,7 @@ times, which are converted to instants honouring daylight saving
 | `create_event_draft`, `update_event_draft` | Event row and ticket types saved together. Updates only succeed while the event is draft or rejected and owned by the caller's organiser. |
 | `replace_ticket_types` | Upserts by id and removes ticket types that were dropped. Refuses to remove one with sales, or to cut a quantity below what's already sold. |
 | `transition_event` | Changes status and writes the moderation log entry in one step. It only moves an event from an expected status, so two admins acting at once can't both succeed; the loser gets a 409. |
-| `fulfil_order` | Takes inventory for every line item, issues the tickets and marks the order paid. If any ticket type has sold out it takes nothing and marks the order `oversold_refund_required`. Rows are locked in a fixed order, so concurrent orders can't deadlock. It's idempotent, so Stripe's webhook redeliveries are harmless. |
+| `fulfil_order` | Takes inventory for every line item, issues the tickets and marks the order paid. If any ticket type has sold out, or the event is no longer published, it takes nothing and marks the order `oversold_refund_required`. Rows are locked in a fixed order, so concurrent orders can't deadlock. It's idempotent, so Stripe's webhook redeliveries are harmless. |
 
 ## Payment flow
 
@@ -81,10 +81,12 @@ times, which are converted to instants honouring daylight saving
    - The signature is verified.
    - `checkout.session.completed` (when the session is paid) or
      `async_payment_succeeded` → `fulfil_order`.
-   - If `fulfil_order` finds the tickets sold out, the payment is refunded
-     straight away (`reverse_transfer` and `refund_application_fee`,
-     idempotency-keyed per order) and the order is marked `refunded`. A
-     failed refund returns 500, so Stripe redelivers and it's retried.
+   - If `fulfil_order` finds the tickets sold out, or the event no longer
+     published, the payment is refunded straight away (`reverse_transfer`
+     and `refund_application_fee`, idempotency-keyed per order). The order
+     becomes `refunded` only when Stripe reports the refund succeeded;
+     `refund.updated` / `refund.failed` settle pending ones. A refund call
+     that errors returns 500, so Stripe redelivers and it's retried.
    - `expired` / `async_payment_failed` → the order is marked `failed`.
    - Inventory is only taken here, so an abandoned checkout never holds
      tickets.

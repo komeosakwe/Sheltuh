@@ -1,3 +1,4 @@
+import { MIN_PAID_TICKET_CENTS } from "@/lib/fees";
 import { HttpError } from "./http";
 import { melbourneLocalToUtcIso } from "./melbourne-time";
 import { EVENT_CATEGORIES, type EventCategory, type FeePolicy, type TicketTypeInput } from "./types";
@@ -120,6 +121,8 @@ export function requireTicketTypes(value: unknown, field: string, errors: Record
     const priceCents = t.priceCents;
     if (typeof priceCents !== "number" || !Number.isInteger(priceCents) || priceCents < 0) {
       errors[`${prefix}.priceCents`] = "Price must be a whole number of cents, 0 or more.";
+    } else if (priceCents > 0 && priceCents < MIN_PAID_TICKET_CENTS) {
+      errors[`${prefix}.priceCents`] = "A paid ticket must cost at least A$1.00 (or make it free).";
     }
 
     const feePolicy = t.feePolicy;

@@ -28,6 +28,7 @@ export function parseCheckoutLineItems(body: RawCheckoutBody, eventTicketTypes: 
 
   const byId = new Map(eventTicketTypes.map((t) => [t.id, t]));
   const result: OrderLineItem[] = [];
+  const seen = new Set<string>();
 
   (raw as unknown[]).forEach((entry, i) => {
     const prefix = `lineItems[${i}]`;
@@ -41,6 +42,13 @@ export function parseCheckoutLineItems(body: RawCheckoutBody, eventTicketTypes: 
       errors[`${prefix}.ticketTypeId`] = "Unknown ticket type — it may have changed since you loaded this page.";
       return;
     }
+    // One line per ticket type: repeated lines would each pass the
+    // availability and per-order checks separately while adding up past them.
+    if (seen.has(ticketTypeId)) {
+      errors[`${prefix}.ticketTypeId`] = "Each ticket type can only appear once per order.";
+      return;
+    }
+    seen.add(ticketTypeId);
     if (typeof quantity !== "number" || !Number.isInteger(quantity) || quantity < 1) {
       errors[`${prefix}.quantity`] = "Quantity must be a whole number of 1 or more.";
       return;

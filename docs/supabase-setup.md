@@ -15,7 +15,8 @@ Stripe (payments) and Vercel (hosting).
    Melbourne users. Save the database password somewhere safe.
 2. **Create the schema.** Open SQL Editor → New query, and run each file in
    `supabase/migrations/` in filename order, one query per file:
-   `20260925000000_init.sql`, then `20260926000000_refunds_and_emails.sql`.
+   `20260925000000_init.sql`, `20260926000000_refunds_and_emails.sql`, then
+   `20260927000000_review_fixes.sql`.
    (Or use the CLI: `npx supabase link --project-ref <ref>` then
    `npx supabase db push`.) Any later migration file goes in the same way.
 3. **Collect the keys** (Project Settings → API Keys):
@@ -83,7 +84,8 @@ against a dev project, never production.
    - URL: `https://<your-domain>/api/stripe/webhook`
    - Events: `checkout.session.completed`,
      `checkout.session.async_payment_succeeded`,
-     `checkout.session.async_payment_failed`, `checkout.session.expired`
+     `checkout.session.async_payment_failed`, `checkout.session.expired`,
+     `refund.updated`, `refund.failed`
    - Its signing secret (`whsec_…`) → `STRIPE_WEBHOOK_SECRET`
 
    For local testing: `stripe listen --forward-to localhost:3000/api/stripe/webhook`
@@ -91,13 +93,17 @@ against a dev project, never production.
 4. Repeat steps 2–3 in live mode when you're ready to take real money.
    Live mode uses different keys and a different webhook secret.
 
-**Oversold orders are refunded automatically.** If two buyers pay for the
-last ticket within seconds of each other, the database guarantees only one
-gets it. The other buyer is refunded in full: their payment, Sheltüh's fee
-and the organiser's share. Their order is marked `refunded`. If Stripe
-rejects the refund, the order stays `oversold_refund_required` and Stripe's
-own webhook retries try again. To check for any that are stuck, run this in
-the Supabase SQL editor:
+**Orders that can't be fulfilled are refunded automatically.** This covers
+two buyers paying for the last ticket within seconds of each other (the
+database guarantees only one gets it), or an admin unpublishing an event
+while a buyer is still on Stripe's checkout page. The buyer is refunded in
+full: their payment, Sheltüh's fee and the organiser's share. The order is
+marked `refunded` once Stripe confirms the refund succeeded; a pending
+refund is settled by the `refund.updated` webhook. If the refund call itself
+fails, Stripe's webhook retries try again. A refund Stripe reports as failed
+leaves the order `oversold_refund_required` for you to handle from the
+Stripe dashboard. To check for any that are stuck, run this in the Supabase
+SQL editor:
 
 ```sql
 select id, buyer_email, total_cents, stripe_payment_intent_id, created_at

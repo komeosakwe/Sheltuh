@@ -313,6 +313,70 @@ describe("Stripe webhook", () => {
     expect(await sold(event.eventId)).toEqual({ ga: 2, vip: 0 });
   });
 
+  it("refunds a payment for an event that was unpublished while the buyer was on Stripe", async () => {
+    const { event, orderId } = await pendingOrder(1);
+    await api.call(adminUnpublishEvent, { token: admin.token, params: { eventId: event.eventId }, method: "POST" });
+
+    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId)));
+
+    const order = await api.call(getOrderBySession, { params: { sessionId: orderId } });
+    expect(order.body).toMatchObject({ status: "refunded", tickets: [] });
+    expect(await sold(event.eventId)).toEqual({ ga: 0, vip: 0 });
+    expect(api.stripe.refunds.create).toHaveBeenCalledTimes(1);
+    expect(api.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("only marks an order refunded once Stripe confirms the refund", async () => {
+    const { event, orderId: first } = await pendingOrder(2);
+    await api.call(createCheckout, { params: { eventId: event.eventId }, body: { lineItems: [{ ticketTypeId: "ga", quantity: 2 }] } });
+    const second = api.stripe.checkout.sessions.create.mock.calls.at(-1)![0].client_reference_id as string;
+    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(first)));
+
+    api.stripe.refunds.create.mockResolvedValueOnce({ id: "re_pending", status: "pending" });
+    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(second)));
+    const status = async () => (await api.call(getOrderBySession, { params: { sessionId: second } })).body.status;
+    expect(await status()).toBe("oversold_refund_required");
+
+    const refundEvent = (type: string, refundStatus: string) =>
+      stripeWebhookRequest({
+        type,
+        data: { object: { id: "re_pending", object: "refund", status: refundStatus, metadata: { orderId: second } } },
+      });
+
+    // Still pending: no change.
+    await api.send(stripeWebhook, refundEvent("refund.updated", "pending"));
+    expect(await status()).toBe("oversold_refund_required");
+    // Settled: now it's refunded.
+    await api.send(stripeWebhook, refundEvent("refund.updated", "succeeded"));
+    expect(await status()).toBe("refunded");
+  });
+
+  it("leaves an order flagged for manual action when its refund fails", async () => {
+    const { event, orderId: first } = await pendingOrder(2);
+    await api.call(createCheckout, { params: { eventId: event.eventId }, body: { lineItems: [{ ticketTypeId: "ga", quantity: 2 }] } });
+    const second = api.stripe.checkout.sessions.create.mock.calls.at(-1)![0].client_reference_id as string;
+    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(first)));
+    api.stripe.refunds.create.mockResolvedValueOnce({ id: "re_x", status: "pending" });
+    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(second)));
+
+    const failed = await api.send(
+      stripeWebhook,
+      stripeWebhookRequest({
+        type: "refund.failed",
+        data: { object: { id: "re_x", object: "refund", status: "failed", metadata: { orderId: second } } },
+      }),
+    );
+    expect(failed.status).toBe(200);
+    expect((await api.call(getOrderBySession, { params: { sessionId: second } })).body.status).toBe(
+      "oversold_refund_required",
+    );
+    const [row] = await api.db.query<{ stripe_refund_id: string }>(
+      `select stripe_refund_id from public.orders where id = $1`,
+      [second],
+    );
+    expect(row.stripe_refund_id).toBe("re_x");
+  });
+
   it("reserves every line of an order or none of them", async () => {
     const event = await publishedEvent(api, organiser, admin, { ticketTypes: PAID_TICKETS });
     await enablePayouts(api, organiser.organiserId);
@@ -364,6 +428,13 @@ describe("ticket types with sales", () => {
     await api.call(adminUnpublishEvent, { token: admin.token, params: { eventId: event.eventId }, method: "POST" });
     return event;
   }
+
+  it("the database itself refuses a paid price under A$1.00", async () => {
+    const event = await publishedEvent(api, organiser, admin, { ticketTypes: PAID_TICKETS });
+    await expect(
+      api.db.query(`update public.ticket_types set price_cents = 50 where event_id = $1`, [event.eventId]),
+    ).rejects.toMatchObject({ code: "23514" });
+  });
 
   it("can't be removed from the event", async () => {
     const event = await soldEvent();

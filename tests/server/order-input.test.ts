@@ -73,4 +73,17 @@ describe("parseCheckoutLineItems", () => {
     expect(result).toHaveLength(2);
     expect(result[1].ticketTypeId).toBe("vip");
   });
+
+  it("rejects the same ticket type on two lines, so quantities can't be split to dodge the limits", () => {
+    const body = { lineItems: [{ ticketTypeId: "ga", quantity: 15 }, { ticketTypeId: "ga", quantity: 15 }] };
+    try {
+      parseCheckoutLineItems(body, TICKET_TYPES);
+      throw new Error("expected a validation error");
+    } catch (err) {
+      expect(err).toBeInstanceOf(HttpError);
+      expect((err as HttpError).fieldErrors).toEqual({
+        "lineItems[1].ticketTypeId": "Each ticket type can only appear once per order.",
+      });
+    }
+  });
 });

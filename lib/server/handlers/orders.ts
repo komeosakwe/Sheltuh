@@ -85,30 +85,47 @@ async function sendTicketEmail(deps: Deps, orderId: string): Promise<void> {
 }
 
 /**
- * Refunds a paid order whose tickets sold out before payment confirmed —
- * including Sheltüh's fee and the organiser's transfer. Stripe's idempotency
- * key makes a retry (e.g. Stripe redelivering the webhook after an earlier
- * attempt failed) refund at most once. Throws on failure so the webhook
- * returns 500 and Stripe tries again later.
+ * Records a refund's current state on its order. Only a refund Stripe says
+ * has succeeded marks the order `refunded`; a pending one is tracked until a
+ * refund.updated webhook settles it, and a failed or cancelled one leaves the
+ * order `oversold_refund_required` so it shows up for manual action.
+ */
+async function recordRefund(db: Db, orderId: string, refund: Pick<Stripe.Refund, "id" | "status">) {
+  await db.query(
+    `update public.orders
+     set stripe_refund_id = $2,
+         status = case when $3 = 'succeeded' then 'refunded'::public.order_status else status end
+     where id = $1 and status = 'oversold_refund_required'`,
+    [orderId, refund.id, refund.status],
+  );
+  if (refund.status === "failed" || refund.status === "canceled") {
+    console.error(`Refund ${refund.id} for order ${orderId} ${refund.status} — refund it manually.`);
+  }
+}
+
+/**
+ * Refunds a paid order that couldn't be fulfilled (sold out, or the event
+ * was unpublished, before payment confirmed) — including Sheltüh's fee and
+ * the organiser's transfer. Stripe's idempotency key makes a retry (e.g.
+ * Stripe redelivering the webhook after an earlier attempt failed) refund at
+ * most once. Throws on failure so the webhook returns 500 and Stripe tries
+ * again later.
  */
 async function refundOversoldOrder(deps: Deps, orderId: string, paymentIntentId: string | undefined) {
   if (!paymentIntentId) {
-    console.error(`Order ${orderId} oversold with no payment intent on record — refund it manually.`);
+    console.error(`Order ${orderId} couldn't be fulfilled and has no payment intent on record — refund it manually.`);
     return;
   }
-  await deps.stripe().refunds.create(
+  const refund = await deps.stripe().refunds.create(
     {
       payment_intent: paymentIntentId,
       reverse_transfer: true,
       refund_application_fee: true,
-      metadata: { orderId, reason: "sold_out_before_payment_confirmed" },
+      metadata: { orderId, reason: "could_not_fulfil_after_payment" },
     },
     { idempotencyKey: `oversold-refund-${orderId}` },
   );
-  await deps.db.query(
-    `update public.orders set status = 'refunded' where id = $1 and status = 'oversold_refund_required'`,
-    [orderId],
-  );
+  await recordRefund(deps.db, orderId, refund);
 }
 
 /** A buyer email is required for free orders (nothing else delivers the tickets) and optional otherwise. */
@@ -256,6 +273,15 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
   }
 
   const received = ok({ received: true });
+
+  // A refund we issued has settled (or failed) after we created it.
+  if (event.type === "refund.updated" || event.type === "refund.failed") {
+    const refund = event.data.object as Stripe.Refund;
+    const orderId = refund.metadata?.orderId;
+    if (orderId) await recordRefund(deps.db, orderId, refund);
+    return received;
+  }
+
   const isPaymentEvent =
     event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded";
   const isFailureEvent =

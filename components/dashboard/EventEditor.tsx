@@ -7,7 +7,7 @@ import { ApiError, type GetToken } from "@/lib/api/client";
 import { createEventDraft, submitEventForReview, updateEventDraft, type EventInput } from "@/lib/api/events";
 import type { EventRecord, TicketTypeInput } from "@/lib/api/types";
 import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
-import { calculateOrderSummary } from "@/lib/fees";
+import { calculateOrderSummary, MIN_PAID_TICKET_CENTS } from "@/lib/fees";
 import { formatAud, toMelbourneDateTimeInputParts } from "@/lib/format";
 import { EVENT_CATEGORIES } from "@/lib/types";
 
@@ -85,6 +85,8 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
     ticketTypes.forEach((t, i) => {
       if (!t.name.trim()) nextErrors[`ticket-${i}-name`] = "Enter a ticket name.";
       if (!Number.isInteger(t.priceCents) || t.priceCents < 0) nextErrors[`ticket-${i}-price`] = "Enter a valid price.";
+      else if (t.priceCents > 0 && t.priceCents < MIN_PAID_TICKET_CENTS)
+        nextErrors[`ticket-${i}-price`] = `A paid ticket must cost at least ${formatAud(MIN_PAID_TICKET_CENTS)} (or make it free).`;
       if (!Number.isInteger(t.quantityAvailable) || t.quantityAvailable < 1)
         nextErrors[`ticket-${i}-qty`] = "Enter how many are available.";
     });
@@ -134,8 +136,13 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
     if (!initial) return;
     setSubmitError(null);
     setSessionExpired(false);
+    // Submit what's on screen, not the last save: unsaved edits are saved
+    // first, and nothing is submitted if they don't validate.
+    const input = buildInput();
+    if (!input) return;
     setSubmitting(true);
     try {
+      await updateEventDraft(initial.eventId, input, getToken);
       const record = await submitEventForReview(initial.eventId, getToken);
       onSaved(record);
     } catch (err) {

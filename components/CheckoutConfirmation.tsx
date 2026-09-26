@@ -124,8 +124,8 @@ export default function CheckoutConfirmation() {
       <div className="flex flex-col items-center gap-3 py-16 text-center">
         <p className="font-heading text-2xl text-foreground">We couldn&rsquo;t reserve your tickets</p>
         <p className="max-w-md text-sm text-muted">
-          {state.order.eventTitle} sold out in the moments between your payment and confirming it. Your payment is
-          being refunded — no tickets were issued for this order.
+          {state.order.eventTitle} sold out or stopped taking bookings in the moments between your payment and
+          confirming it. Your payment is being refunded in full — no tickets were issued for this order.
         </p>
         <Link href="/" className="mt-2 text-accent underline underline-offset-2">
           Back to Sheltüh

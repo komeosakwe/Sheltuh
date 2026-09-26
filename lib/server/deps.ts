@@ -15,7 +15,7 @@ export interface Deps {
   stripeWebhookSecret(): string;
   /** Public origin of this app, for Stripe redirect URLs, e.g. https://sheltuh.com.au */
   siteUrl(): string;
-  /** Transactional email (ticket delivery). A no-op, with a warning, if SMTP isn't configured. */
+  /** Transactional email (ticket delivery). Throws if SMTP isn't configured. */
   sendEmail: SendEmail;
 }
 
@@ -58,10 +58,12 @@ export function getDeps(): Deps {
     },
     stripeWebhookSecret: () => requireEnv("STRIPE_WEBHOOK_SECRET"),
     siteUrl: () => requireEnv("NEXT_PUBLIC_SITE_URL").replace(/\/+$/, ""),
+    // Without SMTP, sending fails (and is logged) rather than silently
+    // succeeding, so the order's tickets_emailed_at stays null.
     sendEmail:
       smtp ??
       (async () => {
-        console.warn("SMTP isn't configured (SMTP_HOST etc.) — ticket email not sent.");
+        throw new Error("SMTP isn't configured (SMTP_HOST etc.)");
       }),
   };
   return cached;
