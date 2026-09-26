@@ -111,7 +111,7 @@ export default function OrganiserQueue() {
       )}
 
       {loading && items.length === 0 && <p className="text-sm text-muted">Loading…</p>}
-      {!loading && items.length === 0 && <p className="text-sm text-muted">No {status} applications.</p>}
+      {!loading && !error && items.length === 0 && <p className="text-sm text-muted">No {status} applications.</p>}
 
       <ul className="flex flex-col gap-3">
         {items.map((item) => (

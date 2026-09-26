@@ -131,7 +131,7 @@ export default function EventQueue() {
       )}
 
       {loading && items.length === 0 && <p className="text-sm text-muted">Loading…</p>}
-      {!loading && items.length === 0 && <p className="text-sm text-muted">No events with this status.</p>}
+      {!loading && !error && items.length === 0 && <p className="text-sm text-muted">No events with this status.</p>}
 
       <ul className="flex flex-col gap-3">
         {items.map((item) => (
