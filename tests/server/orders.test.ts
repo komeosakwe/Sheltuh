@@ -65,8 +65,8 @@ describe("fee maths", () => {
       { ticketTypeId: "ga", ticketTypeName: "GA", unitPriceCents: 3000, feePolicy: "buyer-pays", quantity: 2 },
       { ticketTypeId: "vip", ticketTypeName: "VIP", unitPriceCents: 8000, feePolicy: "organiser-absorbs", quantity: 1 },
     ]);
-    // GA fee: 5% of 3000 + 50 = 200 each. VIP fee: 400 + 50 = 450.
-    expect(totals).toEqual({ subtotalCents: 14000, buyerFeeCents: 400, totalCents: 14400, applicationFeeCents: 850 });
+    // GA fee: 4% of 3000 + 50 = 170 each. VIP fee: 320 + 50 = 370.
+    expect(totals).toEqual({ subtotalCents: 14000, buyerFeeCents: 340, totalCents: 14340, applicationFeeCents: 710 });
   });
 });
 
@@ -162,13 +162,13 @@ describe("paid checkout", () => {
     const orderId = params.client_reference_id;
     expect(orderId).toMatch(/^ord_[0-9a-f]{32}$/);
     expect(params.payment_intent_data).toEqual({
-      application_fee_amount: 850,
+      application_fee_amount: 710,
       transfer_data: { destination: "acct_test_1" },
     });
     expect(params.success_url).toBe(`https://sheltuh.test/checkout/success?session_id=${orderId}`);
     expect(params.customer_email).toBeUndefined(); // Stripe collects it unless the buyer already gave one
     expect(params.line_items.map((l: { price_data: { unit_amount: number } }) => l.price_data.unit_amount)).toEqual([
-      3000, 200, 8000,
+      3000, 170, 8000,
     ]);
 
     // Pending orders reveal nothing but their status, and hold no inventory.
@@ -247,8 +247,8 @@ describe("Stripe webhook", () => {
       buyerEmail: "buyer@example.com",
       stripeCheckoutSessionId: "cs_test_1",
       stripePaymentIntentId: "pi_test_1",
-      totalCents: 6400,
-      applicationFeeCents: 400,
+      totalCents: 6340,
+      applicationFeeCents: 340,
     });
     expect(order.body.tickets).toHaveLength(2);
     expect(await sold(event.eventId)).toEqual({ ga: 2, vip: 0 });

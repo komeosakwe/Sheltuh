@@ -8,9 +8,9 @@ import {
 } from "../lib/fees";
 
 describe("calculateBookingFeeCents", () => {
-  it("is 5% of face value plus A$0.50 for a paid ticket", () => {
-    // A$30 ticket: round(3000 * 0.05) + 50 = 150 + 50 = 200 cents = A$2.
-    expect(calculateBookingFeeCents(3000)).toBe(200);
+  it("is 4% of face value plus A$0.50 for a paid ticket", () => {
+    // A$30 ticket: round(3000 * 0.04) + 50 = 120 + 50 = 170 cents = A$1.70.
+    expect(calculateBookingFeeCents(3000)).toBe(170);
   });
 
   it("is A$0 for a free ticket", () => {
@@ -18,8 +18,8 @@ describe("calculateBookingFeeCents", () => {
   });
 
   it("rounds to the nearest cent", () => {
-    // 5% of 1999 = 99.95 -> rounds to 100, + 50 flat = 150.
-    expect(calculateBookingFeeCents(1999)).toBe(150);
+    // 4% of 1999 = 79.96 -> rounds to 80, + 50 flat = 130.
+    expect(calculateBookingFeeCents(1999)).toBe(130);
   });
 
   it("matches the rate and flat constants directly", () => {
@@ -30,11 +30,11 @@ describe("calculateBookingFeeCents", () => {
 });
 
 describe("calculateOrderSummary", () => {
-  it("A$30 ticket, buyer pays fee: A$2 fee, A$32 total", () => {
+  it("A$30 ticket, buyer pays fee: A$1.70 fee, A$31.70 total", () => {
     const summary = calculateOrderSummary(3000, 1, "buyer-pays");
     expect(summary.subtotalCents).toBe(3000);
-    expect(summary.buyerFeeCents).toBe(200);
-    expect(summary.totalCents).toBe(3200);
+    expect(summary.buyerFeeCents).toBe(170);
+    expect(summary.totalCents).toBe(3170);
   });
 
   it("A$30 ticket, organiser absorbs fee: A$30 buyer total, no buyer fee", () => {
@@ -60,8 +60,8 @@ describe("calculateOrderSummary", () => {
   it("scales linearly with quantity when the buyer pays the fee", () => {
     const summary = calculateOrderSummary(3000, 3, "buyer-pays");
     expect(summary.subtotalCents).toBe(9000);
-    expect(summary.buyerFeeCents).toBe(600);
-    expect(summary.totalCents).toBe(9600);
+    expect(summary.buyerFeeCents).toBe(510);
+    expect(summary.totalCents).toBe(9510);
   });
 
   it("returns zeroed totals for zero quantity", () => {
@@ -90,10 +90,10 @@ describe("sumOrderSummaries", () => {
       orderForTicket(vip, quantitiesById, vip.id),
     ]);
 
-    // GA: A$30 + A$2 fee = A$32. VIP: A$55, fee absorbed = A$55. Combined A$87.
+    // GA: A$30 + A$1.70 fee = A$31.70. VIP: A$55, fee absorbed = A$55. Combined A$86.70.
     expect(total.subtotalCents).toBe(8500);
-    expect(total.buyerFeeCents).toBe(200);
-    expect(total.totalCents).toBe(8700);
+    expect(total.buyerFeeCents).toBe(170);
+    expect(total.totalCents).toBe(8670);
   });
 
   it("changing one ticket type's quantity never affects another's contribution", () => {
@@ -109,8 +109,8 @@ describe("sumOrderSummaries", () => {
       orderForTicket(vip, { ga: 2, vip: 1 }, vip.id),
     ]);
 
-    // Only GA's contribution changes (+A$32); VIP's A$55 is unaffected.
-    expect(gaQuantityDoubled.totalCents - baseline.totalCents).toBe(3200);
+    // Only GA's contribution changes (+A$31.70); VIP's A$55 is unaffected.
+    expect(gaQuantityDoubled.totalCents - baseline.totalCents).toBe(3170);
   });
 
   it("sums to zero for an empty order", () => {

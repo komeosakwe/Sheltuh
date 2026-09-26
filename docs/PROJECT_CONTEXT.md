@@ -32,9 +32,11 @@ Pre-launch MVP. 15 Melbourne creative interviews done:
 | Promoted listings    | $50–150 / week          | ~Month 3   |
 | Brand partnerships   | $2K–20K / deal          | ~Month 6   |
 
-The app currently charges a booking fee of 5% + A$0.50 per paid ticket
-(`lib/fees.ts`, used by both the UI and the checkout API). Still to be
-confirmed against the 3–5% range before taking real payments.
+Booking fee (decided Sept 2026): **4% of the ticket price + A$0.50 per paid
+ticket**, in `lib/fees.ts` (used by both the UI and the checkout API). The
+A$0.50 keeps cheap tickets profitable, because Stripe's processing fee
+(roughly 1.7% + A$0.30 on Australian cards) comes out of the platform's
+share. Free tickets carry no fee, and paid tickets cost at least A$1.00.
 
 ## Legal / registration status
 
@@ -112,8 +114,7 @@ Go-live steps: `docs/supabase-setup.md`. Design: `docs/architecture.md`.
 4. Draft Privacy Policy, ToS, Organiser Agreement, contractor NDAs
 5. Go live on the stack above: Supabase project, Stripe Connect (test →
    live), Vercel deploy, promote admins (see `docs/supabase-setup.md`)
-6. Decide the final booking fee (currently 5% + A$0.50)
-7. Plan sole trader → Pty Ltd transition timing
+6. Plan sole trader → Pty Ltd transition timing
 
 ## Working style
 

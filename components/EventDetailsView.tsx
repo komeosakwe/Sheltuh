@@ -76,7 +76,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
           <div>
             <h2 className="font-heading text-2xl text-foreground">Tickets</h2>
             <p className="mt-1 text-sm text-muted">
-              Booking fee: 5% of ticket face value + A$0.50 per paid ticket. Free tickets never
+              Booking fee: 4% of ticket face value + A$0.50 per paid ticket. Free tickets never
               carry a fee.
             </p>
           </div>

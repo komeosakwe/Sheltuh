@@ -89,4 +89,3 @@ tests/, e2e/         vitest (incl. tests/server API tests), Playwright
 - Event images.
 - Venue coordinates.
 - "Who's Going".
-- Final booking fee: 5% + A$0.50 is modelled, against a 3–5% target.
