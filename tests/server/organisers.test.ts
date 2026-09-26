@@ -191,7 +191,16 @@ describe("Stripe Connect onboarding", () => {
 
     expect(api.stripe.accounts.create).toHaveBeenCalledTimes(1);
     expect(api.stripe.accounts.create).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "express", country: "AU", email: application.contactEmail }),
+      expect.objectContaining({
+        controller: {
+          stripe_dashboard: { type: "express" },
+          requirement_collection: "stripe",
+          fees: { payer: "application" },
+          losses: { payments: "application" },
+        },
+        country: "AU",
+        email: application.contactEmail,
+      }),
     );
     expect(api.stripe.accountLinks.create).toHaveBeenLastCalledWith(
       expect.objectContaining({ account: "acct_test_1", return_url: "https://sheltuh.test/dashboard/payouts?connected=1" }),

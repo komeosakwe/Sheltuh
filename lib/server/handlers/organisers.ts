@@ -99,7 +99,15 @@ export const connectOnboard: Handler = async (req, _params, deps) => {
   let stripeAccountId = record.stripeAccountId;
   if (!stripeAccountId) {
     const account = await stripe.accounts.create({
-      type: "express",
+      // Stripe's recommended way to describe an Express account: organisers
+      // get the Express dashboard, Stripe collects their details, and the
+      // platform pays Stripe's fees and covers losses (refunds, disputes).
+      controller: {
+        stripe_dashboard: { type: "express" },
+        requirement_collection: "stripe",
+        fees: { payer: "application" },
+        losses: { payments: "application" },
+      },
       country: "AU",
       email: record.contactEmail,
       capabilities: { card_payments: { requested: true }, transfers: { requested: true } },
