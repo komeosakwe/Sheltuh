@@ -4,6 +4,7 @@ import {
   BOOKING_FEE_RATE,
   calculateBookingFeeCents,
   calculateOrderSummary,
+  sumOrderSummaries,
 } from "../lib/fees";
 
 describe("calculateBookingFeeCents", () => {
@@ -66,5 +67,53 @@ describe("calculateOrderSummary", () => {
   it("returns zeroed totals for zero quantity", () => {
     const summary = calculateOrderSummary(3000, 0, "buyer-pays");
     expect(summary).toEqual({ subtotalCents: 0, buyerFeeCents: 0, totalCents: 0 });
+  });
+});
+
+describe("sumOrderSummaries", () => {
+  // Mirrors how TicketSelector keys per-ticket-type quantities by ticket id
+  // (Record<string, number>) and computes one summary per ticket type before
+  // combining them. Distinct ticket types must contribute independently —
+  // this is exactly the invariant a duplicate ticket id would break (see
+  // lib/server/validation.ts's duplicate-id rejection).
+  function orderForTicket(ticket: { priceCents: number; feePolicy: "buyer-pays" | "organiser-absorbs" }, quantitiesById: Record<string, number>, id: string) {
+    return calculateOrderSummary(ticket.priceCents, quantitiesById[id] ?? 0, ticket.feePolicy);
+  }
+
+  it("combines two distinct ticket types (one buyer-pays, one organiser-absorbs) independently", () => {
+    const ga = { id: "ga", priceCents: 3000, feePolicy: "buyer-pays" as const };
+    const vip = { id: "vip", priceCents: 5500, feePolicy: "organiser-absorbs" as const };
+    const quantitiesById = { ga: 1, vip: 1 };
+
+    const total = sumOrderSummaries([
+      orderForTicket(ga, quantitiesById, ga.id),
+      orderForTicket(vip, quantitiesById, vip.id),
+    ]);
+
+    // GA: A$30 + A$2 fee = A$32. VIP: A$55, fee absorbed = A$55. Combined A$87.
+    expect(total.subtotalCents).toBe(8500);
+    expect(total.buyerFeeCents).toBe(200);
+    expect(total.totalCents).toBe(8700);
+  });
+
+  it("changing one ticket type's quantity never affects another's contribution", () => {
+    const ga = { id: "ga", priceCents: 3000, feePolicy: "buyer-pays" as const };
+    const vip = { id: "vip", priceCents: 5500, feePolicy: "organiser-absorbs" as const };
+
+    const baseline = sumOrderSummaries([
+      orderForTicket(ga, { ga: 1, vip: 1 }, ga.id),
+      orderForTicket(vip, { ga: 1, vip: 1 }, vip.id),
+    ]);
+    const gaQuantityDoubled = sumOrderSummaries([
+      orderForTicket(ga, { ga: 2, vip: 1 }, ga.id),
+      orderForTicket(vip, { ga: 2, vip: 1 }, vip.id),
+    ]);
+
+    // Only GA's contribution changes (+A$32); VIP's A$55 is unaffected.
+    expect(gaQuantityDoubled.totalCents - baseline.totalCents).toBe(3200);
+  });
+
+  it("sums to zero for an empty order", () => {
+    expect(sumOrderSummaries([])).toEqual({ subtotalCents: 0, buyerFeeCents: 0, totalCents: 0 });
   });
 });
