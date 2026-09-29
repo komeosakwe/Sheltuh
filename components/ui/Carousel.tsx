@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 const SPEED_PX_PER_SEC = 60;
-const RESUME_AFTER_MS = 2500;
+const RESUME_AFTER_MS = 2500; // after touch, keyboard or sideways scrolling
+const POINTER_RESUME_MS = 600; // after the pointer leaves or focus moves away
 const PAGE_FRACTION = 0.8; // an arrow click scrolls by about a screen of cards
 
 function Arrow({ direction }: { direction: "prev" | "next" }) {
@@ -25,12 +26,13 @@ const arrowClass =
  * phones, where swiping works; still keyboard- and screen-reader-accessible
  * from sm up).
  *
- * With `autoScroll` it drifts on its own — cards slide left to right, then
- * turn around at the end (no duplicated cards, so every event exists once).
- * It pauses while the pointer or keyboard focus is on it or the person scrolls
- * by hand (resuming a moment later), stops entirely for people who prefer
- * reduced motion, and stops for good the first time it's clicked — including
- * clicking an arrow. It's always a normal scrollable region.
+ * With `autoScroll` it drifts on its own as soon as it is on screen — cards slide
+ * left to right until the row reaches its far end, then it stays there (no
+ * bouncing back, no duplicated cards). It pauses while the pointer is moving over
+ * it, it has focus, or the person scrolls it sideways or touches it (resuming a
+ * moment later); vertical page scrolling never pauses it. It stops entirely for
+ * people who prefer reduced motion, and for good the first time it's clicked —
+ * including clicking an arrow. It's always a normal scrollable region.
  */
 export default function Carousel({
   children,
@@ -86,11 +88,11 @@ export default function Carousel({
     let raf = 0;
     let last = 0;
     let pos = el.scrollLeft; // where the layout effect opened it
-    let direction = -1; // -1: cards move left → right (view travels toward the start)
-    let paused = false;
+    let paused = false; // touch, keyboard, focus or horizontal wheel
+    let hovering = false; // the pointer is genuinely moving over the rail
+    // The drift only runs while the rail is on screen, and starts the moment it is.
+    let visible = typeof IntersectionObserver === "undefined";
     let resumeTimer: ReturnType<typeof setTimeout> | undefined;
-
-    const maxScroll = () => el.scrollWidth - el.clientWidth;
 
     function setSnap(on: boolean) {
       if (el) el.style.scrollSnapType = on ? "" : "none";
@@ -102,51 +104,76 @@ export default function Carousel({
       setSnap(true);
     }
 
-    function resumeSoon() {
+    function resumeSoon(delay: number) {
       clearTimeout(resumeTimer);
       resumeTimer = setTimeout(() => {
-        if (!el || stoppedRef.current) return;
+        if (!el || stoppedRef.current || hovering) return;
         pos = el.scrollLeft;
         paused = false;
         setSnap(false);
-      }, RESUME_AFTER_MS);
+      }, delay);
     }
 
     function tick(now: number) {
       raf = requestAnimationFrame(tick);
-      const max = maxScroll();
-      if (max <= 0 || !el) {
-        last = now;
-        return;
-      }
       const dt = Math.min(now - last, 100) / 1000;
       last = now;
-      if (paused || stoppedRef.current) return;
-      pos += direction * SPEED_PX_PER_SEC * dt;
+      if (!visible || paused || stoppedRef.current || !el) return;
+      if (el.scrollWidth - el.clientWidth <= 0) return;
+      pos -= SPEED_PX_PER_SEC * dt; // cards slide left → right
       if (pos <= 0) {
-        pos = 0;
-        direction = 1;
-      } else if (pos >= max) {
-        pos = max;
-        direction = -1;
+        // Reached the far end: stay there for good — no bouncing back.
+        el.scrollLeft = 0;
+        stoppedRef.current = true;
+        setSnap(true);
+        return;
       }
       el.scrollLeft = pos;
     }
 
+    // Hover is judged by real pointer movement, not by "the pointer is inside the
+    // box": scrolling the page can slide the rail under a resting cursor, and that
+    // shouldn't count as hovering.
+    const onPointerMove = () => {
+      if (hovering) return;
+      hovering = true;
+      pause();
+    };
+    const onPointerLeave = () => {
+      hovering = false;
+      resumeSoon(POINTER_RESUME_MS);
+    };
     const interrupt = () => {
       pause();
-      resumeSoon();
+      resumeSoon(RESUME_AFTER_MS);
     };
-    const hold = () => pause();
-    const release = () => resumeSoon();
+    // Vertical wheel motion is just the page scrolling past — only a sideways one is
+    // the person scrolling the rail.
+    const onWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) interrupt();
+    };
+    const onFocusOut = () => resumeSoon(POINTER_RESUME_MS);
 
-    el.addEventListener("pointerenter", hold);
-    el.addEventListener("pointerleave", release);
-    el.addEventListener("focusin", hold);
-    el.addEventListener("focusout", release);
+    el.addEventListener("pointermove", onPointerMove);
+    el.addEventListener("pointerleave", onPointerLeave);
+    el.addEventListener("focusin", pause);
+    el.addEventListener("focusout", onFocusOut);
     el.addEventListener("touchstart", interrupt, { passive: true });
-    el.addEventListener("wheel", interrupt, { passive: true });
+    el.addEventListener("touchend", interrupt, { passive: true });
+    el.addEventListener("wheel", onWheel, { passive: true });
     el.addEventListener("keydown", interrupt);
+
+    const observer =
+      typeof IntersectionObserver === "undefined"
+        ? undefined
+        : new IntersectionObserver(
+            ([entry]) => {
+              visible = entry.isIntersecting;
+              if (visible) pos = el.scrollLeft;
+            },
+            { threshold: 0.2 },
+          );
+    observer?.observe(el);
 
     setSnap(false);
     raf = requestAnimationFrame((t) => {
@@ -157,12 +184,14 @@ export default function Carousel({
     return () => {
       cancelAnimationFrame(raf);
       clearTimeout(resumeTimer);
-      el.removeEventListener("pointerenter", hold);
-      el.removeEventListener("pointerleave", release);
-      el.removeEventListener("focusin", hold);
-      el.removeEventListener("focusout", release);
+      observer?.disconnect();
+      el.removeEventListener("pointermove", onPointerMove);
+      el.removeEventListener("pointerleave", onPointerLeave);
+      el.removeEventListener("focusin", pause);
+      el.removeEventListener("focusout", onFocusOut);
       el.removeEventListener("touchstart", interrupt);
-      el.removeEventListener("wheel", interrupt);
+      el.removeEventListener("touchend", interrupt);
+      el.removeEventListener("wheel", onWheel);
       el.removeEventListener("keydown", interrupt);
       el.style.scrollSnapType = "";
     };
