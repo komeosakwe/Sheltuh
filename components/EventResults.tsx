@@ -15,7 +15,7 @@ export default function EventResults({ events }: { events: SheltuhEvent[] }) {
 
   return (
     <div className="flex flex-col gap-14">
-      <Carousel label="Events">
+      <Carousel label="Events" autoScroll>
         {lead.map((event) => (
           <CarouselItem key={event.id}>
             <EventTile event={event} />
