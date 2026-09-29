@@ -33,7 +33,7 @@ export default function EventImageField({
   const [pickError, setPickError] = useState<string | null>(null);
   const [pendingPreview, setPendingPreview] = useState<string | null>(null);
   const [existingPreview, setExistingPreview] = useState<string | null>(null);
-  const [previewFailed, setPreviewFailed] = useState(false);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!pending) return;
@@ -62,7 +62,7 @@ export default function EventImageField({
       .catch(() => {
         if (!cancelled) {
           setExistingPreview(null);
-          setPreviewFailed(true);
+          setFailedUrl(existingUrl);
         }
       });
     return () => {
@@ -97,7 +97,7 @@ export default function EventImageField({
             // eslint-disable-next-line @next/next/no-img-element -- local object URL preview
             <img src={shown} alt="Event photo preview" className="h-full w-full object-cover" />
           ) : (
-            <span className="px-3 text-center">{hasImage ? (previewFailed ? "Couldn\u2019t load the preview" : "Loading\u2026") : "No photo yet"}</span>
+            <span className="px-3 text-center">{hasImage ? (failedUrl === existingUrl ? "Couldn\u2019t load the preview" : "Loading\u2026") : "No photo yet"}</span>
           )}
         </div>
         <div className="flex flex-col items-start gap-3">

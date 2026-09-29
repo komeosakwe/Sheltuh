@@ -126,29 +126,27 @@ describe("event images", () => {
     expect((await put(draft.eventId, PNG, other.token)).status).toBe(404);
   });
 
-  it("counts bytes as it reads, so a chunked upload with no Content-Length can't outgrow the limit", async () => {
+  it("counts bytes as it reads: an endless upload with no Content-Length is cut off, not buffered", async () => {
     const draft = await draftEvent(api, organiser);
     const chunk = new Uint8Array(512 * 1024);
     chunk.set(PNG);
-    let sent = 0;
+    // Never closes. Reading it to the end (as `await req.arrayBuffer()` would) never finishes.
     const body = new ReadableStream<Uint8Array>({
       pull(controller) {
-        if (sent >= 6) return controller.close(); // 3 MB in 512 KB chunks, no Content-Length
-        sent += 1;
         controller.enqueue(chunk);
       },
     });
-    const req = new Request(SITE, {
+    const init: RequestInit & { duplex: "half" } = {
       method: "PUT",
       headers: { authorization: `Bearer ${organiser.token}` },
       body,
-      // @ts-expect-error -- Node's fetch needs this for streamed request bodies
-      duplex: "half",
-    });
+      duplex: "half", // Node's fetch needs this for streamed request bodies
+    };
+    const req = new Request(SITE, init);
     expect(req.headers.get("content-length")).toBeNull();
     const res = await api.send(putEventImage, req, { eventId: draft.eventId });
     expect(res.status).toBe(413);
-  });
+  }, 10_000);
 
   it("refuses an upload that lands after the event was locked for review (no unreviewed image on a live event)", async () => {
     const draft = await draftEvent(api, organiser);
@@ -176,13 +174,5 @@ describe("event images", () => {
     expect(res.status).toBe(409);
     const [{ n }] = await api.db.query<{ n: string }>(`select count(*)::text as n from public.event_images`);
     expect(n).toBe("1");
-  });
-
-  it("keeps the image table closed to the Data API roles (no grants for anon/authenticated)", async () => {
-    const rows = await api.db.query(
-      `select grantee from information_schema.role_table_grants
-        where table_schema = 'public' and table_name = 'event_images' and grantee in ('anon', 'authenticated')`,
-    );
-    expect(rows).toEqual([]);
   });
 });

@@ -37,8 +37,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
-  // @ts-expect-error -- remove the stub so other tests see jsdom's real (absent) matchMedia
-  delete window.matchMedia;
+  // Remove the stub so other tests see jsdom's real (absent) matchMedia.
+  Reflect.deleteProperty(window, "matchMedia");
 });
 
 describe("Carousel arrows", () => {
@@ -121,5 +121,155 @@ describe("Carousel auto-drift controls", () => {
     stubMatchMedia(false);
     renderCarousel();
     expect(screen.queryByRole("button", { name: /automatic scrolling/i })).not.toBeInTheDocument();
+  });
+});
+
+
+describe("Carousel drift behaviour (animation frames stepped by hand)", () => {
+  let frames: FrameRequestCallback[] = [];
+  let clock = 0;
+  const runFrame = (ms = 16) => {
+    const pending = frames;
+    frames = [];
+    clock += ms;
+    // In act(): a frame can change React state (e.g. the button flips to Play at the end).
+    act(() => pending.forEach((cb) => cb(clock)));
+  };
+
+  class VisibleObserver {
+    constructor(private cb: (entries: { isIntersecting: boolean }[]) => void) {}
+    observe() {
+      this.cb([{ isIntersecting: true }]); // on screen as soon as it's watched
+    }
+    disconnect() {}
+  }
+
+  const proto = HTMLElement.prototype;
+  const original = {
+    scrollWidth: Object.getOwnPropertyDescriptor(proto, "scrollWidth"),
+    clientWidth: Object.getOwnPropertyDescriptor(proto, "clientWidth"),
+    offsetLeft: Object.getOwnPropertyDescriptor(proto, "offsetLeft"),
+  };
+
+  beforeEach(() => {
+    frames = [];
+    clock = 0;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => frames.push(cb));
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    window.IntersectionObserver = VisibleObserver as unknown as typeof IntersectionObserver;
+    // A 3000px-wide rail in a 1000px window (max scroll 2000); the middle card sits at 1500px.
+    Object.defineProperty(proto, "scrollWidth", { configurable: true, get: () => 3000 });
+    Object.defineProperty(proto, "clientWidth", { configurable: true, get: () => 1000 });
+    Object.defineProperty(proto, "offsetLeft", { configurable: true, get: () => 1500 });
+    stubMatchMedia(false);
+  });
+
+  afterEach(() => {
+    for (const [name, descriptor] of Object.entries(original)) {
+      if (descriptor) Object.defineProperty(proto, name, descriptor);
+      else Reflect.deleteProperty(proto, name);
+    }
+    Reflect.deleteProperty(window, "IntersectionObserver");
+  });
+
+  const rail = () => screen.getByRole("region", { name: "Events" });
+  const wrapper = () => rail().parentElement as HTMLElement;
+  const pauseButton = () => screen.getByRole("button", { name: /^pause automatic scrolling/i });
+  const playButton = () => screen.getByRole("button", { name: /^play automatic scrolling/i });
+
+  it("opens on a whole card part-way along, then slides toward the start once it is on screen", () => {
+    renderCarousel({ autoScroll: true });
+    expect(rail().scrollLeft).toBe(1500);
+    runFrame();
+    runFrame();
+    expect(rail().scrollLeft).toBeLessThan(1500);
+    expect(rail().scrollLeft).toBeGreaterThan(1490); // ~60px/s, one 16ms frame
+  });
+
+  it("Pause ends the animation loop instead of spinning at 60fps", () => {
+    renderCarousel({ autoScroll: true });
+    runFrame();
+    fireEvent.click(pauseButton());
+    const held = rail().scrollLeft;
+    runFrame();
+    expect(frames).toHaveLength(0); // nothing scheduled: the loop wound down
+    expect(rail().scrollLeft).toBe(held);
+  });
+
+  it("Play starts it moving again", () => {
+    renderCarousel({ autoScroll: true });
+    runFrame();
+    fireEvent.click(pauseButton());
+    runFrame();
+    const held = rail().scrollLeft;
+    fireEvent.click(playButton());
+    expect(frames.length).toBeGreaterThan(0);
+    runFrame();
+    runFrame();
+    expect(rail().scrollLeft).toBeLessThan(held);
+  });
+
+  it("stops at the far end for good, and the button flips to Play", () => {
+    renderCarousel({ autoScroll: true });
+    for (let i = 0; i < 400 && frames.length > 0; i += 1) runFrame(100);
+    expect(rail().scrollLeft).toBe(0);
+    expect(frames).toHaveLength(0);
+    expect(playButton()).toBeInTheDocument();
+  });
+
+  it("Play at the far end replays from the other end (it doesn't instantly stop again)", () => {
+    renderCarousel({ autoScroll: true });
+    for (let i = 0; i < 400 && frames.length > 0; i += 1) runFrame(100);
+    fireEvent.click(playButton());
+    expect(rail().scrollLeft).toBe(2000);
+    runFrame();
+    runFrame();
+    expect(rail().scrollLeft).toBeLessThan(2000);
+    expect(pauseButton()).toBeInTheDocument();
+  });
+
+  it("a mouse moving over it pauses the drift, but a touch does not", () => {
+    renderCarousel({ autoScroll: true });
+    runFrame();
+    const touch = new Event("pointermove", { bubbles: true });
+    Object.defineProperty(touch, "pointerType", { value: "touch" });
+    wrapper().dispatchEvent(touch);
+    runFrame();
+    expect(frames.length).toBeGreaterThan(0); // still drifting
+
+    const mouse = new Event("pointermove", { bubbles: true });
+    Object.defineProperty(mouse, "pointerType", { value: "mouse" });
+    wrapper().dispatchEvent(mouse);
+    runFrame();
+    expect(frames).toHaveLength(0); // paused
+  });
+
+  it("keyboard focus inside it pauses the drift", () => {
+    renderCarousel({ autoScroll: true });
+    runFrame();
+    vi.spyOn(rail(), "matches").mockImplementation((selector) => selector === ":focus-visible");
+    fireEvent.focusIn(rail());
+    runFrame();
+    expect(frames).toHaveLength(0);
+  });
+
+  it("but focus from a mouse click (not :focus-visible) doesn't leave it stuck", () => {
+    renderCarousel({ autoScroll: true });
+    runFrame();
+    vi.spyOn(rail(), "matches").mockReturnValue(false);
+    fireEvent.focusIn(rail());
+    runFrame();
+    expect(frames.length).toBeGreaterThan(0);
+  });
+
+  it("vertical page scrolling over it never pauses it (only a sideways wheel does)", () => {
+    renderCarousel({ autoScroll: true });
+    runFrame();
+    fireEvent.wheel(rail(), { deltaX: 0, deltaY: 120 });
+    runFrame();
+    expect(frames.length).toBeGreaterThan(0);
+    fireEvent.wheel(rail(), { deltaX: 120, deltaY: 0 });
+    runFrame();
+    expect(frames).toHaveLength(0);
   });
 });

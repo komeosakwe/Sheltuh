@@ -5,17 +5,17 @@ import type { ReactNode } from "react";
 import type { EventPoster } from "@/lib/types";
 
 /**
- * Deterministic local poster art: pure CSS/SVG shapes per pattern, no remote
- * images. Purely decorative — event titles are always rendered as real text
- * elsewhere, so this can be hidden from assistive tech.
- */
-/**
  * Trig results differ in their last digits between the server's Math.cos/sin and
  * the browser's, which React flags as a hydration mismatch on server-rendered
  * pages. Rounding to 2 decimals makes both sides emit identical attributes.
  */
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/**
+ * Deterministic local poster art: pure CSS/SVG shapes per pattern, no remote
+ * images. Purely decorative — event titles are always rendered as real text
+ * elsewhere, so this can be hidden from assistive tech.
+ */
 function renderPattern(poster: EventPoster) {
   const { pattern, primary, secondary } = poster;
 

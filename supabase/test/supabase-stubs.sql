@@ -17,3 +17,9 @@ end
 $$;
 create schema if not exists auth;
 create table if not exists auth.users (id uuid primary key, email text);
+
+-- Supabase grants anon/authenticated access to every new table in `public` by
+-- default; the migrations must revoke it (docs/architecture.md: "no client
+-- grants"). Mirror that here so tests/server/schema-grants.test.ts can catch a
+-- table that forgets to.
+alter default privileges in schema public grant all on tables to anon, authenticated;

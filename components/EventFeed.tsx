@@ -29,11 +29,12 @@ function DemoEventFeed({ query }: { query?: string }) {
         These are fictional sample listings for this local prototype — no real tickets are on
         sale.
       </DemoNotice>
-      {events === null ? (
-        <p role="status" className="text-sm text-muted">Loading events…</p>
-      ) : (
-        <EventBrowser events={events} categories={categories} query={query} />
-      )}
+      {/* Always mounted: screen readers announce text that changes inside a live region,
+          not one that appears already holding its text. */}
+      <p role="status" className={events === null ? "text-sm text-muted" : "sr-only"}>
+        {events === null ? "Loading events…" : ""}
+      </p>
+      {events !== null && <EventBrowser events={events} categories={categories} query={query} />}
     </div>
   );
 }

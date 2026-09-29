@@ -125,6 +125,7 @@ export default function Carousel({
     let paused = false; // touch, keyboard or sideways wheel (temporary)
     let hovering = false; // the pointer is genuinely moving over the carousel
     let focused = false; // keyboard focus is somewhere inside it
+    let ignoreHover = false; // set by an explicit Play, until the pointer leaves
     // The drift only runs while the rail is on screen, and starts the moment it is.
     let visible = typeof IntersectionObserver === "undefined";
     let resumeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -166,6 +167,7 @@ export default function Carousel({
         paused = false;
         hovering = false;
         focused = false;
+        ignoreHover = true;
       }
       if (running || !shouldRun()) return;
       running = true;
@@ -194,13 +196,19 @@ export default function Carousel({
     // Hover is judged by real pointer movement, not by "the pointer is inside the
     // box": scrolling the page can slide the rail under a resting cursor, and that
     // shouldn't count as hovering.
-    const onPointerMove = () => {
-      if (hovering) return;
+    // Only a mouse "hovers". Touch is handled by touchstart/touchend below: a touch
+    // pan makes the browser fire pointercancel/pointerleave while the finger is still
+    // down, which would otherwise cut the touch pause short and fight the swipe.
+    const onPointerMove = (event: PointerEvent) => {
+      if (event.pointerType && event.pointerType !== "mouse") return;
+      if (hovering || ignoreHover) return;
       hovering = true;
       pauseNow();
     };
-    const onPointerLeave = () => {
+    const onPointerLeave = (event: PointerEvent) => {
+      if (event.pointerType && event.pointerType !== "mouse") return;
       hovering = false;
+      ignoreHover = false;
       resumeSoon(POINTER_RESUME_MS);
     };
     // Only real keyboard focus pauses it: clicking a button also focuses it, and
@@ -277,7 +285,12 @@ export default function Carousel({
     setPlaying(on);
     // Snapping back on lets arrow scrolling land on a card; off while drifting.
     if (ref.current) ref.current.style.scrollSnapType = on ? "none" : "";
-    if (on) ensureLoopRef.current(true);
+    if (on) {
+      // Play at the far end would stop again on the first frame; replay from the other end.
+      const el = ref.current;
+      if (el && el.scrollLeft <= 4) el.scrollLeft = Math.max(0, el.scrollWidth - el.clientWidth);
+      ensureLoopRef.current(true);
+    }
   }
 
   /** Any click on the carousel (rail or arrows) ends the auto-drift until Play is pressed. */
@@ -303,7 +316,7 @@ export default function Carousel({
           onClick={() => setDrift(!playing)}
           // The name starts with the visible word ("Pause"/"Play") — WCAG 2.5.3.
           aria-label={`${playing ? "Pause" : "Play"} automatic scrolling of ${label}`}
-          className="btn btn-solid btn-sm absolute right-4 top-3 z-10"
+          className="btn btn-solid btn-sm absolute -top-10 right-4 z-10"
         >
           {playing ? "Pause" : "Play"}
         </button>
