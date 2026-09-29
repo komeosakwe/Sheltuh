@@ -19,9 +19,10 @@ const arrowClass =
   "absolute top-[140px] z-10 hidden h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-accent text-accent-foreground transition-opacity hover:bg-accent-strong disabled:pointer-events-none disabled:opacity-0 sm:flex";
 
 /**
- * Horizontal rail of fixed-width tiles. It runs full-bleed, wall to wall, with
- * no padding at either end — so at the start and the end of the row the cards
- * sit right against the edge of the screen, with no empty gap.
+ * Horizontal rail of fixed-width tiles. It runs full-bleed, wall to wall. From
+ * sm up there is no padding at either end, so the cards sit right against the
+ * screen edge with no empty gap; on phones a small 20px margin keeps card text
+ * off the edge, and the row rests on whole cards (scroll snapping).
  *
  * Arrow buttons on both sides scroll it by about a screen of cards (hidden on
  * phones, where swiping works; still keyboard- and screen-reader-accessible
@@ -71,14 +72,19 @@ export default function Carousel({
   }, [updateArrows]);
 
   // When it drifts, open part-way along the rail — not at either end — so the
-  // very first screen is completely filled with events. (Before paint, so
+  // very first screen is completely filled with events, starting on a whole card. (Before paint, so
   // there's no visible jump.) Without drift it stays at the start, aligned to
   // the page's content column.
   useLayoutEffect(() => {
     const el = ref.current;
     if (!autoScroll || !el || typeof window.matchMedia !== "function") return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    el.scrollLeft = Math.max(0, (el.scrollWidth - el.clientWidth) / 2);
+    const cards = Array.from(el.children) as HTMLElement[];
+    const middle = cards[Math.floor(cards.length / 2)];
+    if (!middle) return;
+    // Land on a whole card (its left edge at the rail's padding), never mid-card.
+    const paddingLeft = parseFloat(getComputedStyle(el).paddingLeft) || 0;
+    el.scrollLeft = Math.max(0, middle.offsetLeft - paddingLeft);
   }, [autoScroll]);
 
   useEffect(() => {
@@ -238,7 +244,7 @@ export default function Carousel({
         role="region"
         aria-label={label}
         tabIndex={0}
-        className="no-scrollbar flex w-full snap-x snap-mandatory gap-5 overflow-x-auto pb-2 sm:gap-6"
+        className="no-scrollbar flex w-full snap-x snap-mandatory gap-5 overflow-x-auto scroll-pl-5 pb-2 pl-5 pr-5 sm:scroll-pl-0 sm:gap-6 sm:pl-0 sm:pr-0"
       >
         {children}
       </div>
