@@ -48,3 +48,6 @@ next-env.d.ts
 # Supabase CLI local state
 supabase/.temp/
 
+
+# python
+__pycache__/
