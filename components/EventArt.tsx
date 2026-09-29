@@ -9,6 +9,13 @@ import type { EventPoster } from "@/lib/types";
  * images. Purely decorative — event titles are always rendered as real text
  * elsewhere, so this can be hidden from assistive tech.
  */
+/**
+ * Trig results differ in their last digits between the server's Math.cos/sin and
+ * the browser's, which React flags as a hydration mismatch on server-rendered
+ * pages. Rounding to 2 decimals makes both sides emit identical attributes.
+ */
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 function renderPattern(poster: EventPoster) {
   const { pattern, primary, secondary } = poster;
 
@@ -21,10 +28,10 @@ function renderPattern(poster: EventPoster) {
         return (
           <line
             key={i}
-            x1={50 + Math.cos(angle) * inner}
-            y1={50 + Math.sin(angle) * inner}
-            x2={50 + Math.cos(angle) * outer}
-            y2={50 + Math.sin(angle) * outer}
+            x1={round2(50 + Math.cos(angle) * inner)}
+            y1={round2(50 + Math.sin(angle) * inner)}
+            x2={round2(50 + Math.cos(angle) * outer)}
+            y2={round2(50 + Math.sin(angle) * outer)}
             stroke={i % 2 === 0 ? primary : secondary}
             strokeWidth={i % 2 === 0 ? 3 : 1.5}
             opacity={0.85}
@@ -150,7 +157,7 @@ function renderPattern(poster: EventPoster) {
           const cx = col * 16 + 10;
           const cy = row * 16 + 10;
           const dist = Math.hypot(cx - 50, cy - 50);
-          const r = Math.max(1.2, 7 - dist / 10);
+          const r = round2(Math.max(1.2, 7 - dist / 10));
           dots.push(
             <circle key={`${row}-${col}`} cx={cx} cy={cy} r={r} fill={col % 2 === 0 ? primary : secondary} opacity="0.85" />,
           );

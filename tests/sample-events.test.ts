@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { generatedSampleEvents } from "@/lib/sample-events-more";
 import { sampleEvents } from "@/lib/sample-events";
@@ -15,7 +17,8 @@ describe("demo sample events", () => {
   it("include the generated ones, in addition to the hand-written showcase events", () => {
     expect(generatedSampleEvents.length).toBeGreaterThan(0);
     expect(sampleEvents.length).toBeGreaterThan(generatedSampleEvents.length);
-    for (const generated of generatedSampleEvents) expect(sampleEvents).toContain(generated);
+    const slugs = new Set(sampleEvents.map((e) => e.slug));
+    for (const generated of generatedSampleEvents) expect(slugs.has(generated.slug)).toBe(true);
   });
 
   it("each end after they start, with a real price and quantity on every ticket type", () => {
@@ -55,6 +58,12 @@ describe("demo sample events", () => {
       );
       expect(hour).toBeGreaterThanOrEqual(9);
       expect(hour).toBeLessThanOrEqual(21);
+    }
+  });
+
+  it("never point at a photo file that doesn't exist (that would be a wasted 404 on every page load)", () => {
+    for (const event of sampleEvents) {
+      if (event.imageUrl) expect(existsSync(path.join(process.cwd(), "public", event.imageUrl))).toBe(true);
     }
   });
 });

@@ -32,4 +32,16 @@ describe("EventArt", () => {
     expect(container.firstElementChild).toHaveAttribute("aria-hidden", "true");
     expect(container.querySelector("img")).toHaveAttribute("alt", "");
   });
+
+  it("emits short, stable numbers for trig-based patterns, so server and browser render identical HTML (no hydration mismatch)", () => {
+    for (const pattern of ["burst", "halftone"] as const) {
+      const { container } = render(<EventArt poster={{ ...poster, pattern }} title="x" />);
+      const numbers = Array.from(container.querySelectorAll("line, circle"))
+        .flatMap((el) => ["x1", "y1", "x2", "y2", "cx", "cy", "r"].map((a) => el.getAttribute(a)))
+        .filter((v): v is string => v !== null);
+      expect(numbers.length).toBeGreaterThan(0);
+      for (const value of numbers) expect(value).toMatch(/^-?\d+(\.\d{1,2})?$/);
+      cleanup();
+    }
+  });
 });
