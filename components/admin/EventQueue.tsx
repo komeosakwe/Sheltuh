@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import PrivateEventImage from "@/components/admin/PrivateEventImage";
 import { adminApproveEvent, adminListEvents, adminRejectEvent, adminUnpublishEvent } from "@/lib/api/admin";
 import type { EventRecord, EventStatus } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -136,6 +137,7 @@ export default function EventQueue() {
       <ul className="flex flex-col gap-3">
         {items.map((item) => (
           <li key={item.eventId} className="bg-surface p-4">
+            {item.imageUrl && <PrivateEventImage imageUrl={item.imageUrl} getToken={getToken} />}
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="font-medium text-foreground">{item.title}</p>

@@ -15,6 +15,7 @@ export interface PublicEvent {
   startsAt: string;
   endsAt: string;
   organiserName: string;
+  imageUrl?: string;
   ticketTypes: TicketTypeInput[];
 }
 

@@ -4,7 +4,15 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import InlineReauth from "@/components/auth/InlineReauth";
 import { ApiError, type GetToken } from "@/lib/api/client";
-import { createEventDraft, submitEventForReview, updateEventDraft, type EventInput } from "@/lib/api/events";
+import EventImageField from "@/components/dashboard/EventImageField";
+import {
+  createEventDraft,
+  deleteEventImage,
+  submitEventForReview,
+  updateEventDraft,
+  uploadEventImage,
+  type EventInput,
+} from "@/lib/api/events";
 import type { EventRecord, TicketTypeInput } from "@/lib/api/types";
 import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
 import { calculateOrderSummary, MIN_PAID_TICKET_CENTS } from "@/lib/fees";
@@ -47,6 +55,12 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
   const [ticketTypes, setTicketTypes] = useState<TicketTypeInput[]>(
     initial?.ticketTypes && initial.ticketTypes.length > 0 ? initial.ticketTypes : [newTicketType()],
   );
+
+  const [imageFile, setImageFile] = useState<Blob | null>(null);
+  const [imageRemoved, setImageRemoved] = useState(false);
+  // Set once the draft exists, so a retry after a failed photo upload updates
+  // it instead of creating a duplicate.
+  const [createdId, setCreatedId] = useState<string | null>(null);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -106,6 +120,21 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
     };
   }
 
+  /** Applies a pending photo change to a saved event; returns the latest record. */
+  async function syncImage(record: EventRecord): Promise<EventRecord> {
+    if (imageFile) {
+      const updated = await uploadEventImage(record.eventId, imageFile, getToken);
+      setImageFile(null);
+      return updated;
+    }
+    if (imageRemoved && record.imageUrl) {
+      const updated = await deleteEventImage(record.eventId, getToken);
+      setImageRemoved(false);
+      return updated;
+    }
+    return record;
+  }
+
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitError(null);
@@ -115,9 +144,12 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
 
     setSaving(true);
     try {
-      const record = initial
-        ? await updateEventDraft(initial.eventId, input, getToken)
+      const existingId = initial?.eventId ?? createdId;
+      let record = existingId
+        ? await updateEventDraft(existingId, input, getToken)
         : await createEventDraft(input, getToken);
+      if (!existingId) setCreatedId(record.eventId);
+      record = await syncImage(record);
       if (!initial) {
         router.push(`/dashboard/${record.eventId}`);
         return;
@@ -142,7 +174,8 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
     if (!input) return;
     setSubmitting(true);
     try {
-      await updateEventDraft(initial.eventId, input, getToken);
+      const saved = await updateEventDraft(initial.eventId, input, getToken);
+      await syncImage(saved);
       const record = await submitEventForReview(initial.eventId, getToken);
       onSaved(record);
     } catch (err) {
@@ -300,6 +333,16 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
           </div>
         </fieldset>
       </div>
+
+      <EventImageField
+        getToken={getToken}
+        existingUrl={initial?.imageUrl}
+        pending={imageFile}
+        onPendingChange={setImageFile}
+        removed={imageRemoved}
+        onRemovedChange={setImageRemoved}
+        error={errors.image}
+      />
 
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">

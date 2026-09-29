@@ -18,6 +18,7 @@ export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
     endsAt: event.endsAt,
     organiserName: event.organiserName,
     poster: assignPoster(event.slug),
+    imageUrl: event.imageUrl,
     ticketTypes: event.ticketTypes,
   };
 }

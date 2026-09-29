@@ -52,6 +52,8 @@ export interface EventRecord {
   startsAt: string;
   endsAt: string;
   organiserName: string;
+  /** Same-origin path of the organiser's photo, if one was uploaded. Versioned (?v=) so it caches safely. */
+  imageUrl?: string;
   ticketTypes: TicketTypeInput[];
   status: EventStatus;
   rejectionReason?: string;

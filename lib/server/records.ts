@@ -70,6 +70,8 @@ export const EVENT_SELECT = `
          e.venue_name, e.venue_address, e.suburb, e.starts_at, e.ends_at,
          e.status::text as status, e.rejection_reason, e.created_at, e.updated_at,
          o.display_name as organiser_name,
+         (select '/api/events/' || e.id::text || '/image?v=' || floor(extract(epoch from i.updated_at))::bigint::text
+            from public.event_images i where i.event_id = e.id) as image_url,
          coalesce((
            select json_agg(json_strip_nulls(json_build_object(
                     'id', t.id, 'name', t.name, 'description', t.description,
@@ -101,6 +103,7 @@ export function toEvent(row: Row): EventRecord {
     startsAt: iso(row.starts_at),
     endsAt: iso(row.ends_at),
     organiserName: row.organiser_name as string,
+    imageUrl: opt(row.image_url),
     ticketTypes: row.ticket_types as TicketTypeInput[],
     status: row.status as EventRecord["status"],
     rejectionReason: opt(row.rejection_reason),
@@ -125,6 +128,7 @@ export function toPublicEvent(event: EventRecord): PublicEvent {
     startsAt: event.startsAt,
     endsAt: event.endsAt,
     organiserName: event.organiserName,
+    imageUrl: event.imageUrl,
     ticketTypes: event.ticketTypes,
   };
 }
