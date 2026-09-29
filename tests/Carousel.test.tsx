@@ -10,20 +10,40 @@ function setMetrics(el: HTMLElement, { scrollWidth, clientWidth, scrollLeft }: R
   el.scrollLeft = scrollLeft;
 }
 
+/** The fake device the matchMedia stub answers for. */
+const media = { reducedMotion: false, finePointer: true, wide: true };
+const mediaListeners = new Set<() => void>();
+
+function mediaMatches(query: string): boolean {
+  // "(min-width: 40rem)": sm and up, where the events are a rail (not a list).
+  if (query.includes("min-width")) return media.wide;
+  // The drift's combined query matches only with a fine pointer and no
+  // reduced-motion preference; the arrows ask about reduced motion on its own.
+  if (query.includes("pointer: fine")) return media.finePointer && !media.reducedMotion;
+  return media.reducedMotion && query.includes("prefers-reduced-motion");
+}
+
 /**
- * `finePointer` is a mouse-driven device (hover: hover, pointer: fine). The drift
- * asks one combined query, which matches only with a fine pointer and no
- * reduced-motion preference; the arrows ask about reduced motion on its own.
+ * `finePointer` is a mouse-driven device (hover: hover, pointer: fine); `wide`
+ * is a viewport at least sm (640px) wide.
  */
-function stubMatchMedia(reducedMotion: boolean, finePointer = true) {
+function stubMatchMedia(reducedMotion: boolean, finePointer = true, wide = true) {
+  Object.assign(media, { reducedMotion, finePointer, wide });
+  mediaListeners.clear();
   window.matchMedia = vi.fn().mockImplementation((query: string) => ({
-    matches: query.includes("pointer: fine")
-      ? finePointer && !reducedMotion
-      : reducedMotion && query.includes("prefers-reduced-motion"),
+    get matches() {
+      return mediaMatches(query);
+    },
     media: query,
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
+    addEventListener: (_type: string, listener: () => void) => mediaListeners.add(listener),
+    removeEventListener: (_type: string, listener: () => void) => mediaListeners.delete(listener),
   })) as unknown as typeof window.matchMedia;
+}
+
+/** Resize across the sm breakpoint: the media queries change and say so. */
+function resizeAcrossSm(wide: boolean) {
+  media.wide = wide;
+  act(() => mediaListeners.forEach((listener) => listener()));
 }
 
 function renderCarousel(props: { autoScroll?: boolean } = {}) {
@@ -130,6 +150,12 @@ describe("Carousel auto-drift controls", () => {
     expect(screen.queryByRole("button", { name: /automatic scrolling/i })).not.toBeInTheDocument();
   });
 
+  it("is a keyboard-scrollable region from sm up", () => {
+    stubMatchMedia(false);
+    renderCarousel({ autoScroll: true });
+    expect(screen.getByRole("region", { name: "Events" })).toHaveAttribute("tabindex", "0");
+  });
+
   it("has no Pause button when auto-scroll isn't requested", () => {
     stubMatchMedia(false);
     renderCarousel();
@@ -167,8 +193,20 @@ describe("Carousel drift behaviour (animation frames stepped by hand)", () => {
   beforeEach(() => {
     frames = [];
     clock = 0;
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => frames.push(cb));
-    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    // Like a browser: each frame has an id, and cancelling it drops the callback.
+    const byId = new Map<number, FrameRequestCallback>();
+    let nextId = 0;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      nextId += 1;
+      byId.set(nextId, cb);
+      frames.push(cb);
+      return nextId;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+      const cb = byId.get(id);
+      byId.delete(id);
+      frames = frames.filter((frame) => frame !== cb);
+    });
     window.IntersectionObserver = VisibleObserver as unknown as typeof IntersectionObserver;
     // A 3000px-wide rail in a 1000px window (max scroll 2000); the middle card sits at 1500px.
     Object.defineProperty(proto, "scrollWidth", { configurable: true, get: () => 3000 });
@@ -197,6 +235,32 @@ describe("Carousel drift behaviour (animation frames stepped by hand)", () => {
     runFrame();
     expect(rail().scrollLeft).toBeLessThan(1500);
     expect(rail().scrollLeft).toBeGreaterThan(1490); // ~60px/s, one 16ms frame
+  });
+
+  it("below sm it's a plain list: no arrows, no Pause, not a tab stop, no drift", () => {
+    stubMatchMedia(false, true, false);
+    renderCarousel({ autoScroll: true });
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(rail()).not.toHaveAttribute("tabindex");
+    expect(rail().scrollLeft).toBe(0); // no jump to a middle card
+    expect(frames).toHaveLength(0); // no drift loop, and no arrow-state work either
+  });
+
+  it("resizing to sm and up brings the rail back (arrows, Pause, drift), and back down removes it", () => {
+    stubMatchMedia(false, true, false);
+    renderCarousel({ autoScroll: true });
+    resizeAcrossSm(true);
+    expect(screen.getByRole("button", { name: "Next events" })).toBeInTheDocument();
+    expect(pauseButton()).toBeInTheDocument();
+    expect(rail().scrollLeft).toBe(1500); // opens part-way along, as on load
+    runFrame();
+    runFrame();
+    expect(rail().scrollLeft).toBeLessThan(1500);
+
+    resizeAcrossSm(false);
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    runFrame();
+    expect(frames).toHaveLength(0); // the loop wound down
   });
 
   it("on a touch screen it opens at the first (soonest) card and never animates", () => {

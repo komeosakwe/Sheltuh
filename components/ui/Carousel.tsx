@@ -1,16 +1,40 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 
 const SPEED_PX_PER_SEC = 60;
 const RESUME_AFTER_MS = 2500; // after touch, keyboard or sideways scrolling
 const POINTER_RESUME_MS = 600; // after the pointer leaves or focus moves away
 const PAGE_FRACTION = 0.8; // an arrow click scrolls by about a screen of cards
+/** Tailwind's `sm`: below it the events are a plain vertical list, from it a rail. */
+const RAIL_QUERY = "(min-width: 40rem)";
 /** Drift only where a mouse drives the page and motion is welcome — never on touch screens. */
 const DRIFT_QUERY = "(prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine)";
 
-function driftAllowed(): boolean {
-  return typeof window.matchMedia === "function" && window.matchMedia(DRIFT_QUERY).matches;
+/**
+ * Whether a media query matches, kept current as it changes (a phone rotating,
+ * a window resized across a breakpoint). `false` on the server and during
+ * hydration, so the server markup and the first client render agree.
+ */
+function useMediaQuery(query: string): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      if (typeof window.matchMedia !== "function") return () => {};
+      const list = window.matchMedia(query);
+      list.addEventListener("change", onChange);
+      return () => list.removeEventListener("change", onChange);
+    },
+    () => typeof window.matchMedia === "function" && window.matchMedia(query).matches,
+    () => false,
+  );
 }
 
 function Arrow({ direction }: { direction: "prev" | "next" }) {
@@ -36,14 +60,19 @@ const arrowClass =
   "absolute top-[140px] z-10 hidden h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-accent text-accent-foreground transition-opacity hover:bg-accent-strong aria-disabled:cursor-default aria-disabled:opacity-25 aria-disabled:hover:bg-accent sm:flex";
 
 /**
- * Horizontal rail of fixed-width tiles. It runs full-bleed, wall to wall. A small
- * buffer on the left (20px on phones, 24px from sm up) keeps card text off the
- * screen edge when the row rests on a card (scroll snapping); from sm up the
- * right end is flush to the edge so there's no empty gap after the last card.
+ * Below sm (phones) it's simply a vertical list: full-width tiles, 32px apart,
+ * inside the page's own gutters, scrolled with the page. Nothing below applies
+ * there — no arrows, no drift, no Pause button, no scroll tracking. The same DOM
+ * serves both layouts, so every event is in the page (and the accessibility
+ * tree) exactly once.
  *
- * Arrow buttons on both sides scroll it by about a screen of cards (hidden on
- * phones, where swiping works; still keyboard- and screen-reader-accessible
- * from sm up).
+ * From sm up it's a horizontal rail of fixed-width tiles. It runs full-bleed,
+ * wall to wall. A 24px buffer on the left keeps card text off the screen edge
+ * when the row rests on a card (scroll snapping); the right end is flush to the
+ * edge so there's no empty gap after the last card.
+ *
+ * Arrow buttons on both sides scroll it by about a screen of cards (keyboard-
+ * and screen-reader-accessible).
  *
  * With `autoScroll` it drifts on its own as soon as it is on screen — cards slide
  * left to right until the row reaches its far end, then it stays there (no
@@ -74,7 +103,11 @@ export default function Carousel({
   // Whether the drift is switched on (Pause/Play, or stopped by a click).
   const playingRef = useRef(true);
   const ensureLoopRef = useRef<(force?: boolean) => void>(() => {});
-  const [driftAvailable, setDriftAvailable] = useState(false);
+  const isRail = useMediaQuery(RAIL_QUERY);
+  const canDrift = useMediaQuery(DRIFT_QUERY);
+  // Touch screens, reduced-motion people and the phone list never get a drift
+  // (and so no Pause button either).
+  const driftAvailable = autoScroll && isRail && canDrift;
   const [playing, setPlaying] = useState(true);
   const [canPrev, setCanPrev] = useState(false);
   const [canNext, setCanNext] = useState(false);
@@ -88,7 +121,7 @@ export default function Carousel({
 
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
+    if (!el || !isRail) return; // the phone list has no arrows to update
     const raf = requestAnimationFrame(updateArrows);
     el.addEventListener("scroll", updateArrows, { passive: true });
     window.addEventListener("resize", updateArrows);
@@ -97,30 +130,24 @@ export default function Carousel({
       el.removeEventListener("scroll", updateArrows);
       window.removeEventListener("resize", updateArrows);
     };
-  }, [updateArrows]);
-
-  // Touch screens and reduced-motion people never get a drift (and so no Pause
-  // button either).
-  useEffect(() => {
-    if (!autoScroll || !driftAllowed()) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- reads a browser-only media query after mount
-    setDriftAvailable(true);
-  }, [autoScroll]);
+  }, [isRail, updateArrows]);
 
   // When it drifts, open part-way along the rail — not at either end — so the
   // very first screen is completely filled with events, starting on a whole card.
   // (Before paint, so there's no visible jump.) Without drift it stays at the
-  // start on the soonest event, aligned to the page's content column.
+  // start on the soonest event, aligned to the page's content column. Only from
+  // the start: becoming a rail again (a resize) never yanks it away from where
+  // the person left it.
   useLayoutEffect(() => {
     const el = ref.current;
-    if (!autoScroll || !el || !driftAllowed()) return;
+    if (!driftAvailable || !el || el.scrollLeft > 4) return;
     const cards = Array.from(el.children) as HTMLElement[];
     const middle = cards[Math.floor(cards.length / 2)];
     if (!middle) return;
     // Land on a whole card (its left edge at the rail's padding), never mid-card.
     const paddingLeft = parseFloat(getComputedStyle(el).paddingLeft) || 0;
     el.scrollLeft = Math.max(0, middle.offsetLeft - paddingLeft);
-  }, [autoScroll]);
+  }, [driftAvailable]);
 
   useEffect(() => {
     const el = ref.current;
@@ -317,7 +344,7 @@ export default function Carousel({
   }
 
   return (
-    <div ref={wrapperRef} className="relative ml-[calc(50%-50vw)] w-screen" onClick={stopDriftingOnClick}>
+    <div ref={wrapperRef} className="relative sm:ml-[calc(50%-50vw)] sm:w-screen" onClick={stopDriftingOnClick}>
       {driftAvailable && (
         <button
           type="button"
@@ -330,30 +357,36 @@ export default function Carousel({
           {playing ? "Pause" : "Play"}
         </button>
       )}
-      <button
-        type="button"
-        aria-label="Previous events"
-        aria-disabled={!canPrev}
-        onClick={() => scrollByPage(-1, canPrev)}
-        className={`${arrowClass} left-4`}
-      >
-        <Arrow direction="prev" />
-      </button>
-      <button
-        type="button"
-        aria-label="Next events"
-        aria-disabled={!canNext}
-        onClick={() => scrollByPage(1, canNext)}
-        className={`${arrowClass} right-4`}
-      >
-        <Arrow direction="next" />
-      </button>
+      {/* The phone list has no arrows at all (not merely hidden). */}
+      {isRail && (
+        <>
+          <button
+            type="button"
+            aria-label="Previous events"
+            aria-disabled={!canPrev}
+            onClick={() => scrollByPage(-1, canPrev)}
+            className={`${arrowClass} left-4`}
+          >
+            <Arrow direction="prev" />
+          </button>
+          <button
+            type="button"
+            aria-label="Next events"
+            aria-disabled={!canNext}
+            onClick={() => scrollByPage(1, canNext)}
+            className={`${arrowClass} right-4`}
+          >
+            <Arrow direction="next" />
+          </button>
+        </>
+      )}
       <div
         ref={ref}
         role="region"
         aria-label={label}
-        tabIndex={0}
-        className="no-scrollbar flex w-full snap-x snap-mandatory gap-4 overflow-x-auto scroll-pl-5 pb-2 pl-5 pr-5 sm:scroll-pl-6 sm:gap-6 sm:pl-6 sm:pr-0"
+        // Focusable only when it scrolls sideways (the rail), so keyboard users can scroll it.
+        tabIndex={isRail ? 0 : undefined}
+        className="no-scrollbar flex w-full flex-col gap-8 sm:snap-x sm:snap-mandatory sm:flex-row sm:gap-6 sm:overflow-x-auto sm:scroll-pl-6 sm:pb-2 sm:pl-6"
       >
         {children}
       </div>
@@ -362,5 +395,5 @@ export default function Carousel({
 }
 
 export function CarouselItem({ children }: { children: ReactNode }) {
-  return <div className="w-[70vw] max-w-[300px] shrink-0 snap-start sm:w-[280px]">{children}</div>;
+  return <div className="w-full shrink-0 sm:w-[280px] sm:snap-start">{children}</div>;
 }

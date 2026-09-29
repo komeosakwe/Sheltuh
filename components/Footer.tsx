@@ -56,11 +56,11 @@ export default function Footer() {
               )}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-8 text-sm sm:grid-cols-3 sm:gap-x-8">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-6 text-sm sm:grid-cols-3 sm:gap-x-8">
             {COLUMNS.map((column) => (
-              // gap-1 + py-1 links (28px targets) + pb-1 heading = the same 12px text rhythm as before.
+              // 28px link targets (py-1). From sm, the heading's pb-1 restores the original 12px rhythm.
               <nav key={column.heading} aria-label={column.heading} className="flex flex-col gap-1">
-                <p className="pb-1 font-semibold">{column.heading}</p>
+                <p className="font-semibold sm:pb-1">{column.heading}</p>
                 {column.links.map((link) => (
                   <Link key={link.href} href={link.href} className="py-1 text-background/70 hover:text-background">
                     {link.label}
@@ -71,7 +71,7 @@ export default function Footer() {
           </div>
         </div>
 
-        <div className="mt-10 flex flex-col gap-3 border-t border-background/20 pt-6 text-sm text-background/70 sm:mt-16 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="mt-8 flex flex-col gap-3 border-t border-background/20 pt-6 text-sm text-background/70 sm:mt-16 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <p>© {new Date().getFullYear()} Sheltüh</p>
           <nav aria-label="Legal" className="flex flex-wrap gap-x-6 gap-y-2">
             {LEGAL_LINKS.map((link) => (
