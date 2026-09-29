@@ -26,13 +26,13 @@ export default function IntentHero() {
     <>
       <section className="mx-auto grid max-w-6xl grid-cols-1 gap-4 px-5 pb-8 pt-6 sm:gap-10 sm:px-8 sm:pb-24 sm:pt-14 lg:grid-cols-12">
         <div className="flex flex-col justify-between gap-4 sm:gap-10 lg:col-span-7">
-          <p className="eyebrow text-muted">Melbourne &middot; Naarm</p>
-          <h1 className="display-xl">
+          <p className="eyebrow rise text-muted">Melbourne &middot; Naarm</p>
+          <h1 className="display-xl rise [--d:100ms]">
             Find your room.
             <br />
             Find your people.
           </h1>
-          <div className="flex flex-col gap-6">
+          <div className="rise flex flex-col gap-6 [--d:250ms]">
             {/* Phones: one sideways-scrolling row (the third pill peeks). The
                 -my/py pair leaves room for focus rings, which the scroll
                 container would otherwise clip. */}
@@ -63,9 +63,9 @@ export default function IntentHero() {
 
         {/* Asymmetric poster collage: tall lead image, offset supporting tiles. */}
         <div aria-hidden="true" className="relative hidden min-h-[520px] lg:col-span-5 lg:block">
-          <EventArt poster={HERO_POSTERS[0]} title="Sheltüh" className="absolute right-0 top-0 h-[430px] w-[78%]" />
-          <EventArt poster={HERO_POSTERS[1]} title="Sheltüh" className="absolute bottom-0 left-0 h-[220px] w-[46%]" />
-          <EventArt poster={HERO_POSTERS[2]} title="Sheltüh" className="absolute bottom-6 right-0 h-[150px] w-[38%]" />
+          <EventArt poster={HERO_POSTERS[0]} title="Sheltüh" className="float absolute right-0 top-0 h-[430px] w-[78%]" />
+          <EventArt poster={HERO_POSTERS[1]} title="Sheltüh" className="float absolute bottom-0 left-0 h-[220px] w-[46%] [--d:-2s]" />
+          <EventArt poster={HERO_POSTERS[2]} title="Sheltüh" className="float absolute bottom-6 right-0 h-[150px] w-[38%] [--d:-4s]" />
           <RoundBadge className="absolute left-2 top-16 h-28 w-28 text-foreground" />
           <Burst className="absolute right-[-8px] top-[-14px] h-10 w-10 text-foreground" />
         </div>

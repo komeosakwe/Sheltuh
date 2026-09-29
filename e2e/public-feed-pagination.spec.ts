@@ -72,7 +72,7 @@ test("loads more than 20 records across multiple 'Load more' clicks", async ({ p
   const all = Array.from({ length: 25 }, (_, i) => makeEvent(i + 1));
   await page.route("**/api/events*", (route) => mockEventsApi(route, all));
 
-  await page.goto("/");
+  await page.goto("/events");
   await expect(page.getByText("Event 1", { exact: true })).toBeVisible();
   await expect(page.getByText("Showing 10 events")).toBeVisible();
 
@@ -100,7 +100,7 @@ test("skips an empty filtered page that still has a cursor, reaching matches on 
   ];
   await page.route("**/api/events*", (route) => mockEventsApi(route, all));
 
-  await page.goto("/");
+  await page.goto("/events");
   await expect(page.getByText("Event 1", { exact: true })).toBeVisible();
 
   await page.getByLabel("Category").selectOption("art");
@@ -131,7 +131,7 @@ test("discards a stale response after the filter changes again before the first 
     await mockEventsApi(route, all);
   });
 
-  await page.goto("/");
+  await page.goto("/events");
   await page.getByLabel("Category").selectOption("live-music");
   await expect.poll(() => resolveSlowRequest !== undefined).toBe(true);
 

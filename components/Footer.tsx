@@ -19,6 +19,7 @@ const COLUMNS: { heading: string; links: { href: string; label: string }[] }[] =
   {
     heading: "Resources",
     links: [
+      { href: "/events", label: "All events" },
       { href: "/map", label: "Map" },
       { href: "/search", label: "Search" },
       { href: "/organisers/apply", label: "For organisers" },

@@ -24,10 +24,10 @@ export function WhatElse() {
         />
       </div>
       <div className="lg:col-span-6 lg:col-start-7">
-        <h2 id="what-else" className="display-md mb-8">
+        <h2 id="what-else" className="display-md reveal mb-8">
           What else?
         </h2>
-        <ul className="group/list flex flex-col gap-3">
+        <ul className="reveal group/list flex flex-col gap-3">
           {REASONS.map((reason) => (
             <li
               key={reason.label}
@@ -49,7 +49,7 @@ export function PartnerBand() {
     <section aria-labelledby="partners" className="bg-foreground text-background">
       <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-10 px-5 py-12 sm:px-8 sm:py-24 lg:grid-cols-12">
         <div className="lg:col-span-6">
-          <h2 id="partners" className="display-lg">
+          <h2 id="partners" className="display-lg reveal">
             A network of rooms and promoters
           </h2>
           <p className="mt-6 max-w-md text-base leading-relaxed text-background/70">
