@@ -9,7 +9,7 @@ import { getEventCategories, getEvents } from "@/lib/data";
 import type { SheltuhEvent } from "@/lib/types";
 
 /** The demo/sample-data feed — a small fixed list, so no pagination applies here. */
-function DemoEventFeed() {
+function DemoEventFeed({ query }: { query?: string }) {
   const categories = getEventCategories();
   const [events, setEvents] = useState<SheltuhEvent[] | null>(null);
 
@@ -32,16 +32,17 @@ function DemoEventFeed() {
       {events === null ? (
         <p className="text-sm text-muted">Loading events…</p>
       ) : (
-        <EventBrowser events={events} categories={categories} />
+        <EventBrowser events={events} categories={categories} query={query} />
       )}
     </div>
   );
 }
 
-export default function EventFeed() {
+/** `query` is the optional free-text search from /search; both the demo and live feeds honour it. */
+export default function EventFeed({ query }: { query?: string } = {}) {
   const categories = getEventCategories();
 
-  if (!isApiConfigured) return <DemoEventFeed />;
+  if (!isApiConfigured) return <DemoEventFeed query={query} />;
 
-  return <LiveEventFeed categories={categories} />;
+  return <LiveEventFeed categories={categories} query={query} />;
 }

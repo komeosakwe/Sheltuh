@@ -104,6 +104,18 @@ describe("public feed filters and paging", () => {
     expect(titles(await api.call(listPublicEvents))).toEqual(["Free life drawing", "Paid gig", "Later workshop"]);
   });
 
+  it("searches title, venue, suburb and organiser text, case-insensitively, treating wildcards literally", async () => {
+    expect(titles(await api.call(listPublicEvents, { query: { q: "DRAWING" } }))).toEqual(["Free life drawing"]);
+    // Every fixture event is at The Tote in Collingwood, by "Static Collective".
+    expect(await api.call(listPublicEvents, { query: { q: "collingwood" } })).toMatchObject({
+      body: { items: expect.arrayContaining([expect.objectContaining({ title: "Paid gig" })]) },
+    });
+    expect((await api.call(listPublicEvents, { query: { q: "static collective" } })).body.items).toHaveLength(3);
+    expect(titles(await api.call(listPublicEvents, { query: { q: "no such thing" } }))).toEqual([]);
+    expect(titles(await api.call(listPublicEvents, { query: { q: "%" } }))).toEqual([]);
+    expect(titles(await api.call(listPublicEvents, { query: { q: "draw_ng" } }))).toEqual([]);
+  });
+
   it("filters by category, price and start date", async () => {
     expect(titles(await api.call(listPublicEvents, { query: { category: "art" } }))).toEqual(["Free life drawing"]);
     expect(titles(await api.call(listPublicEvents, { query: { pricing: "free" } }))).toEqual(["Free life drawing"]);

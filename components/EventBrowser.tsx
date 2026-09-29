@@ -12,15 +12,26 @@ import type { EventCategory, SheltuhEvent } from "@/lib/types";
 interface EventBrowserProps {
   events: SheltuhEvent[];
   categories: { value: EventCategory; label: string }[];
+  /** Free-text search (from /search), matched the same way the live API does. */
+  query?: string;
 }
 
-export default function EventBrowser({ events, categories }: EventBrowserProps) {
+function matchesQuery(event: SheltuhEvent, query: string) {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  return [event.title, event.venueName, event.suburb, event.organiserName, event.description].some((field) =>
+    field?.toLowerCase().includes(needle),
+  );
+}
+
+export default function EventBrowser({ events, categories, query = "" }: EventBrowserProps) {
   const [category, setCategory] = useState<EventCategory | "all">("all");
   const [pricing, setPricing] = useState<PricingFilter>("all");
   const [onOrAfter, setOnOrAfter] = useState("");
 
   const filteredEvents = useMemo(() => {
     return events
+      .filter((event) => matchesQuery(event, query))
       .filter((event) => category === "all" || event.category === category)
       .filter((event) => {
         if (pricing === "all") return true;
@@ -29,7 +40,7 @@ export default function EventBrowser({ events, categories }: EventBrowserProps) 
       })
       .filter((event) => onOrAfter === "" || formatEventDateKey(event.startsAt) >= onOrAfter)
       .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
-  }, [events, category, pricing, onOrAfter]);
+  }, [events, query, category, pricing, onOrAfter]);
 
   const hasActiveFilters = category !== "all" || pricing !== "all" || onOrAfter !== "";
 

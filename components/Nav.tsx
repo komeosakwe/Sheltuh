@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import AuthNavLinks, { navLinkClass } from "@/components/AuthNavLinks";
+import SearchBar from "@/components/SearchBar";
 import { ButtonLink } from "@/components/ui/Button";
 
 export default function Nav() {
@@ -15,11 +16,15 @@ export default function Nav() {
 
   return (
     <header className="sticky top-0 z-20 bg-background/95">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-4 sm:px-8">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4 sm:px-8">
         <Link href="/" aria-label="Sheltüh home" className="font-heading text-4xl leading-none">
           Shelt<span aria-hidden="true">ü</span>h
         </Link>
-        <nav aria-label="Primary" className="flex flex-wrap items-center gap-x-1 gap-y-1 sm:gap-x-3">
+        {/* Search sits beside the logo on wide screens, on its own row on phones. */}
+        <div className="order-last w-full lg:order-none lg:max-w-sm lg:flex-1">
+          <SearchBar />
+        </div>
+        <nav aria-label="Primary" className="ml-auto flex flex-wrap items-center gap-x-1 gap-y-1 sm:gap-x-3">
           <Link href="/" className={linkClassName("/")}>
             Discover
           </Link>

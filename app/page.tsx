@@ -1,4 +1,5 @@
 import EventFeed from "@/components/EventFeed";
+import { PartnerBand, WhatElse } from "@/components/HomeSections";
 import IntentHero from "@/components/IntentHero";
 import { SectionHeader } from "@/components/ui/Section";
 
@@ -14,6 +15,9 @@ export default function DiscoverPage() {
         />
         <EventFeed />
       </div>
+
+      <WhatElse />
+      <PartnerBand />
     </>
   );
 }

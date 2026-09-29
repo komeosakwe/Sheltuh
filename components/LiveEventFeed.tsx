@@ -11,6 +11,8 @@ import type { EventCategory, SheltuhEvent } from "@/lib/types";
 
 interface Props {
   categories: { value: EventCategory; label: string }[];
+  /** Free-text search (from /search); sent to the API alongside the filters. */
+  query?: string;
 }
 
 type Status = "loading" | "loaded" | "error";
@@ -24,7 +26,7 @@ const MAX_EMPTY_PAGES_TO_SKIP = 10;
  * the API rather than filtering an already-fetched list, and paginates via
  * the API's opaque `nextCursor` instead of ever loading everything at once.
  */
-export default function LiveEventFeed({ categories }: Props) {
+export default function LiveEventFeed({ categories, query }: Props) {
   const [category, setCategory] = useState<EventCategory | "all">("all");
   const [pricing, setPricing] = useState<PricingFilter>("all");
   const [onOrAfter, setOnOrAfter] = useState("");
@@ -60,6 +62,7 @@ export default function LiveEventFeed({ categories }: Props) {
           category: category === "all" ? undefined : category,
           pricing: pricing === "all" ? undefined : pricing,
           onOrAfter: onOrAfter || undefined,
+          q: query || undefined,
           cursor: cur,
         });
         if (requestIdRef.current !== myRequestId) return "stale" as const;
@@ -70,7 +73,7 @@ export default function LiveEventFeed({ categories }: Props) {
       }
       return { items: [], nextCursor: cur };
     },
-    [category, pricing, onOrAfter],
+    [category, pricing, onOrAfter, query],
   );
 
   const load = useCallback(
@@ -137,7 +140,7 @@ export default function LiveEventFeed({ categories }: Props) {
     // those directly here, rather than on `load`, is what limits this effect
     // to firing on an actual filter change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category, pricing, onOrAfter]);
+  }, [category, pricing, onOrAfter, query]);
 
   function handleRetry() {
     requestIdRef.current += 1;
@@ -182,18 +185,22 @@ export default function LiveEventFeed({ categories }: Props) {
               number of events in the database — later pages may add more. */}
           <p aria-live="polite" className="text-sm text-muted">
             Showing {events.length} event{events.length === 1 ? "" : "s"}
-            {hasActiveFilters ? " matching your filters" : ""}
+            {hasActiveFilters || query ? " matching your search" : ""}
           </p>
 
           {events.length === 0 ? (
             <EmptyState
-              title={hasActiveFilters ? "No events match your filters" : "No events have been published yet"}
+              title={
+                hasActiveFilters || query
+                  ? "No events match your filters"
+                  : "No events have been published yet"
+              }
               action={
                 hasActiveFilters ? <Button onClick={resetFilters}>Reset filters</Button> : undefined
               }
             >
-              {hasActiveFilters
-                ? "Try a different category, an earlier date, or clearing the price filter."
+              {hasActiveFilters || query
+                ? "Try a different search, category, an earlier date, or clearing the price filter."
                 : "Check back soon."}
             </EmptyState>
           ) : (

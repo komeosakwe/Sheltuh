@@ -42,6 +42,18 @@ export const listPublicEvents: Handler = async (req, _params, { db }) => {
     where.push(`e.starts_at >= $${params.length}`);
   }
 
+  // Free-text search over title, venue, suburb, organiser and description.
+  // LIKE wildcards in the user's text are escaped so they match literally.
+  const q = qs.get("q")?.trim().slice(0, 100);
+  if (q) {
+    params.push(`%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+    const n = params.length;
+    where.push(
+      `(e.title ilike $${n} or e.venue_name ilike $${n} or e.suburb ilike $${n}
+        or o.display_name ilike $${n} or e.description ilike $${n})`,
+    );
+  }
+
   const limit = parseLimit(qs.get("limit"));
   const offset = decodeCursor(qs.get("cursor"));
   params.push(limit + 1, offset);
