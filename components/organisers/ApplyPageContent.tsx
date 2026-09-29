@@ -9,7 +9,7 @@ import type { OrganiserRecord } from "@/lib/api/types";
 
 function StatusCard({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-lg border border-surface-border bg-surface p-4 text-foreground">{children}</div>
+    <div className="bg-surface p-4 text-foreground">{children}</div>
   );
 }
 
@@ -20,7 +20,7 @@ export default function ApplyPageContent() {
 
   if (!auth.configured) {
     return (
-      <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-foreground">
+      <p role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
         Accounts aren&rsquo;t configured in this environment yet.
       </p>
     );
@@ -35,10 +35,10 @@ export default function ApplyPageContent() {
       <StatusCard>
         <p className="mb-3">Sign in or create an account to apply as an organiser.</p>
         <div className="flex gap-3">
-          <Link href="/login" className="rounded bg-accent px-4 py-2 text-sm font-medium text-accent-foreground">
+          <Link href="/login" className="btn btn-solid">
             Sign in
           </Link>
-          <Link href="/signup" className="rounded border border-surface-border px-4 py-2 text-sm font-medium">
+          <Link href="/signup" className="btn btn-outline">
             Sign up
           </Link>
         </div>
@@ -55,7 +55,7 @@ export default function ApplyPageContent() {
         <button
           type="button"
           onClick={() => refetch()}
-          className="rounded border border-surface-border px-4 py-2 text-sm font-medium"
+          className="btn btn-outline"
         >
           Try again
         </button>
@@ -94,7 +94,7 @@ export default function ApplyPageContent() {
       <StatusCard>
         <p className="font-heading text-2xl text-foreground">You&rsquo;re an approved organiser</p>
         <p className="mt-2 mb-3 text-sm text-muted">You can now create and submit events.</p>
-        <Link href="/dashboard" className="rounded bg-accent px-4 py-2 text-sm font-medium text-accent-foreground">
+        <Link href="/dashboard" className="btn btn-solid">
           Go to your dashboard
         </Link>
       </StatusCard>

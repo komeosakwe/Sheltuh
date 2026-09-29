@@ -47,7 +47,7 @@ export default function LiveEventDetails({ slug }: { slug: string }) {
   if (state.status === "error") {
     return (
       <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6">
-        <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-foreground">
+        <p role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
           {state.message}
         </p>
       </div>

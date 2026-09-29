@@ -2,40 +2,34 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import AuthNavLinks from "@/components/AuthNavLinks";
-
-const ORANGE = "#e15b27";
+import AuthNavLinks, { navLinkClass } from "@/components/AuthNavLinks";
+import { ButtonLink } from "@/components/ui/Button";
 
 export default function Nav() {
   const pathname = usePathname();
 
   function linkClassName(href: string) {
     const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
-    return `rounded px-3 py-2 font-medium transition-colors hover:bg-surface ${
-      active ? "underline decoration-2 underline-offset-8" : "text-foreground"
-    }`;
+    return `${navLinkClass} ${active ? "underline decoration-2 underline-offset-8" : ""}`;
   }
 
   return (
-    <header className="sticky top-0 z-20 border-b border-surface-border bg-background/95 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
-        <Link href="/" className="font-heading text-3xl tracking-wide text-foreground">
-          Shelt<span style={{ color: ORANGE }}>ü</span>h
+    <header className="sticky top-0 z-20 bg-background/95">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-4 sm:px-8">
+        <Link href="/" aria-label="Sheltüh home" className="font-heading text-4xl leading-none">
+          Shelt<span aria-hidden="true">ü</span>h
         </Link>
-        <nav aria-label="Primary" className="flex items-center gap-2 text-sm sm:gap-4">
-          <Link href="/" className={linkClassName("/")} style={pathname === "/" ? { color: ORANGE } : undefined}>
+        <nav aria-label="Primary" className="flex flex-wrap items-center gap-x-1 gap-y-1 sm:gap-x-3">
+          <Link href="/" className={linkClassName("/")}>
             Discover
           </Link>
-          <Link href="/map" className={linkClassName("/map")} style={pathname.startsWith("/map") ? { color: ORANGE } : undefined}>
+          <Link href="/map" className={linkClassName("/map")}>
             Map
           </Link>
-          <Link
-            href="/organisers/apply"
-            className="rounded px-3 py-2 font-medium text-foreground transition-colors hover:bg-surface"
-          >
-            For organisers
-          </Link>
           <AuthNavLinks />
+          <ButtonLink href="/organisers/apply" size="sm" className="ml-1">
+            For organisers
+          </ButtonLink>
         </nav>
       </div>
     </header>

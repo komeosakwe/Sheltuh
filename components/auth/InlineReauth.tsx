@@ -73,7 +73,7 @@ export default function InlineReauth({ expectedEmail, onSignedIn }: Props) {
           readOnly={Boolean(expectedEmail)}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="rounded border border-surface-border bg-background px-3 py-1.5 text-sm text-foreground read-only:opacity-70"
+          className="border border-foreground bg-transparent px-3 py-1.5 text-sm text-foreground read-only:opacity-70"
         />
       </div>
       <div className="flex flex-col gap-1">
@@ -88,7 +88,7 @@ export default function InlineReauth({ expectedEmail, onSignedIn }: Props) {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           onKeyDown={handlePasswordKeyDown}
-          className="rounded border border-surface-border bg-background px-3 py-1.5 text-sm text-foreground"
+          className="border border-foreground bg-transparent px-3 py-1.5 text-sm text-foreground"
         />
       </div>
       {error && (
@@ -100,7 +100,7 @@ export default function InlineReauth({ expectedEmail, onSignedIn }: Props) {
         type="button"
         onClick={handleSignIn}
         disabled={loading}
-        className="w-fit rounded bg-accent px-4 py-1.5 text-sm font-medium text-accent-foreground transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-60"
+        className="btn btn-solid w-fit"
       >
         {loading ? "Signing in…" : "Sign in"}
       </button>

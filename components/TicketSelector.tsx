@@ -12,7 +12,7 @@ const MAX_QUANTITY_PER_TYPE = 8;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const stepperButtonClass =
-  "flex h-11 w-11 shrink-0 items-center justify-center rounded border border-surface-border text-lg font-semibold text-foreground transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-surface-border disabled:hover:text-foreground";
+  "flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-foreground text-lg font-semibold text-foreground transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-surface-border disabled:hover:text-foreground";
 
 export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const ticketTypes = event.ticketTypes;
@@ -92,7 +92,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
           return (
             <li
               key={ticket.id}
-              className="flex flex-col gap-3 rounded-lg border border-surface-border bg-surface p-4 sm:flex-row sm:items-center sm:justify-between"
+              className="flex flex-col gap-3 bg-surface p-4 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="flex-1">
                 <p className="font-semibold text-foreground">{ticket.name}</p>
@@ -139,7 +139,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         })}
       </ul>
 
-      <div className="rounded-lg border border-surface-border bg-surface p-4">
+      <div className="bg-surface p-4">
         <h3 className="font-heading text-xl text-foreground">Order summary</h3>
         <dl className="mt-3 flex flex-col gap-2 text-sm">
           <div className="flex justify-between">
@@ -172,7 +172,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                   onChange={(e) => setBuyerEmail(e.target.value)}
                   aria-invalid={Boolean(emailError)}
                   aria-describedby={emailError ? "buyer-email-error" : "buyer-email-hint"}
-                  className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+                  className="border border-foreground bg-transparent px-3 py-2 text-foreground"
                 />
                 {emailError ? (
                   <p id="buyer-email-error" role="alert" className="text-sm text-danger">
@@ -189,7 +189,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
               type="button"
               onClick={handleCheckout}
               disabled={!hasAnyTickets || loading}
-              className="mt-4 w-full rounded bg-accent px-4 py-3 font-medium text-accent-foreground transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-50"
+              className="btn btn-solid mt-4 w-full"
             >
               {loading ? "Redirecting to checkout…" : orderTotal.totalCents === 0 ? "Get free tickets" : "Checkout"}
             </button>
@@ -210,7 +210,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
               type="button"
               disabled
               aria-disabled="true"
-              className="mt-4 w-full cursor-not-allowed rounded bg-surface-border px-4 py-3 font-medium text-muted"
+              className="mt-4 w-full cursor-not-allowed rounded-full bg-surface-border px-4 py-3 font-medium text-muted"
             >
               Checkout unavailable in this demo
             </button>

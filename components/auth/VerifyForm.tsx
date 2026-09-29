@@ -18,7 +18,7 @@ export default function VerifyForm() {
 
   if (!auth.configured) {
     return (
-      <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-foreground">
+      <p role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
         Accounts aren&rsquo;t configured in this environment yet.
       </p>
     );
@@ -66,7 +66,7 @@ export default function VerifyForm() {
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+          className="border border-foreground bg-transparent px-3 py-2 text-foreground"
         />
       </div>
       <div className="flex flex-col gap-1">
@@ -81,7 +81,7 @@ export default function VerifyForm() {
           required
           value={code}
           onChange={(e) => setCode(e.target.value)}
-          className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+          className="border border-foreground bg-transparent px-3 py-2 text-foreground"
         />
       </div>
 
@@ -100,7 +100,7 @@ export default function VerifyForm() {
         <button
           type="submit"
           disabled={loading}
-          className="w-fit rounded bg-accent px-5 py-3 font-medium text-accent-foreground transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-60"
+          className="btn btn-solid w-fit"
         >
           {loading ? "Verifying…" : "Verify email"}
         </button>

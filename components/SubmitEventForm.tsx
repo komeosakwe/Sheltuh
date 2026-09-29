@@ -94,7 +94,7 @@ function Field({
 }
 
 const inputClass =
-  "rounded border border-surface-border bg-background px-3 py-2 text-foreground";
+  "border border-foreground bg-transparent px-3 py-2 text-foreground";
 
 export default function SubmitEventForm() {
   const [form, setForm] = useState<FormState>(initialState);
@@ -267,7 +267,7 @@ export default function SubmitEventForm() {
       {submittedSuccessfully && (
         <div
           role="status"
-          className="rounded-md border border-accent/40 bg-accent/10 px-4 py-3 font-medium text-foreground"
+          className="border-l-2 border-foreground px-4 py-3 font-medium text-foreground"
         >
           Demo validation successful — nothing has been submitted.
         </div>
@@ -275,7 +275,7 @@ export default function SubmitEventForm() {
 
       <button
         type="submit"
-        className="w-fit rounded bg-accent px-5 py-3 font-medium text-accent-foreground transition-colors hover:bg-accent-strong"
+        className="btn btn-solid w-fit"
       >
         Validate submission
       </button>

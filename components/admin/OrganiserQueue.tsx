@@ -90,7 +90,7 @@ export default function OrganiserQueue() {
             key={s}
             type="button"
             onClick={() => setStatus(s)}
-            className={`rounded px-3 py-1.5 text-sm font-medium ${
+            className={` px-3 py-1.5 text-sm font-medium ${
               status === s ? "bg-accent text-accent-foreground" : "border border-surface-border text-foreground"
             }`}
           >
@@ -115,7 +115,7 @@ export default function OrganiserQueue() {
 
       <ul className="flex flex-col gap-3">
         {items.map((item) => (
-          <li key={item.organiserId} className="rounded-lg border border-surface-border bg-surface p-4">
+          <li key={item.organiserId} className="bg-surface p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="font-medium text-foreground">{item.displayName}</p>
@@ -137,7 +137,7 @@ export default function OrganiserQueue() {
                     type="button"
                     onClick={() => handleApprove(item)}
                     disabled={busyId === item.organiserId}
-                    className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground disabled:opacity-60"
+                    className="btn btn-solid"
                   >
                     Approve
                   </button>
@@ -148,7 +148,7 @@ export default function OrganiserQueue() {
                       setReason("");
                     }}
                     disabled={busyId === item.organiserId}
-                    className="rounded border border-danger/40 px-3 py-1.5 text-sm font-medium text-danger disabled:opacity-60"
+                    className="btn btn-danger"
                   >
                     Reject
                   </button>
@@ -166,21 +166,21 @@ export default function OrganiserQueue() {
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   rows={2}
-                  className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+                  className="border border-foreground bg-transparent px-3 py-2 text-foreground"
                 />
                 <div className="flex gap-2">
                   <button
                     type="button"
                     onClick={() => handleReject(item)}
                     disabled={!reason.trim() || busyId === item.organiserId}
-                    className="rounded bg-danger px-3 py-1.5 text-sm font-medium text-danger-foreground disabled:opacity-60"
+                    className="btn btn-danger"
                   >
                     Confirm rejection
                   </button>
                   <button
                     type="button"
                     onClick={() => setRejectingId(null)}
-                    className="rounded border border-surface-border px-3 py-1.5 text-sm font-medium text-foreground"
+                    className="btn btn-outline"
                   >
                     Cancel
                   </button>
@@ -196,7 +196,7 @@ export default function OrganiserQueue() {
           type="button"
           onClick={() => load(status, true)}
           disabled={loading}
-          className="w-fit rounded border border-surface-border px-4 py-2 text-sm font-medium disabled:opacity-60"
+          className="btn btn-outline w-fit"
         >
           {loading ? "Loading…" : "Load more"}
         </button>

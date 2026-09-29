@@ -100,7 +100,7 @@ export default function DashboardContent() {
 
   if (!auth.configured) {
     return (
-      <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-foreground">
+      <p role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
         Accounts aren&rsquo;t configured in this environment yet.
       </p>
     );
@@ -112,9 +112,9 @@ export default function DashboardContent() {
 
   if (auth.status === "signed-out") {
     return (
-      <div className="rounded-lg border border-surface-border bg-surface p-4">
+      <div className="bg-surface p-4">
         <p className="mb-3 text-foreground">Sign in to see your events.</p>
-        <Link href="/login" className="rounded bg-accent px-4 py-2 text-sm font-medium text-accent-foreground">
+        <Link href="/login" className="btn btn-solid">
           Sign in
         </Link>
       </div>
@@ -131,7 +131,7 @@ export default function DashboardContent() {
 
   if (!organiser || organiser.status !== "approved") {
     return (
-      <div className="rounded-lg border border-surface-border bg-surface p-4">
+      <div className="bg-surface p-4">
         <p className="mb-3 text-foreground">
           {organiser?.status === "pending"
             ? "Your organiser application is still pending review."
@@ -139,7 +139,7 @@ export default function DashboardContent() {
               ? "Your organiser application wasn't approved."
               : "You need an approved organiser application before you can create events."}
         </p>
-        <Link href="/organisers/apply" className="rounded bg-accent px-4 py-2 text-sm font-medium text-accent-foreground">
+        <Link href="/organisers/apply" className="btn btn-solid">
           {organiser ? "View application" : "Apply as an organiser"}
         </Link>
       </div>
@@ -151,20 +151,20 @@ export default function DashboardContent() {
       <div className="flex flex-wrap items-center gap-3">
         <Link
           href="/dashboard/new"
-          className="w-fit rounded bg-accent px-4 py-2 text-sm font-medium text-accent-foreground hover:bg-accent-strong"
+          className="btn btn-solid w-fit"
         >
           New event
         </Link>
         <Link
           href="/dashboard/payouts"
-          className="w-fit rounded border border-surface-border px-4 py-2 text-sm font-medium text-foreground hover:border-accent hover:text-accent"
+          className="btn btn-outline w-fit"
         >
           Payouts
         </Link>
       </div>
 
       {!organiser.payoutsEnabled && (
-        <p className="rounded-md border border-surface-border bg-surface px-4 py-3 text-sm text-muted">
+        <p className="bg-surface px-4 py-3 text-sm text-muted">
           Free events don&rsquo;t need this, but{" "}
           <Link href="/dashboard/payouts" className="text-accent underline underline-offset-2">
             connect Stripe
@@ -192,13 +192,13 @@ export default function DashboardContent() {
               <li key={event.eventId}>
                 <Link
                   href={`/dashboard/${event.eventId}`}
-                  className="flex items-center justify-between rounded-lg border border-surface-border bg-surface p-4 hover:border-accent"
+                  className="flex items-center justify-between bg-surface p-4 hover:border-accent"
                 >
                   <div>
                     <p className="font-medium text-foreground">{event.title || "Untitled event"}</p>
                     <p className="text-sm text-muted">{event.suburb}</p>
                   </div>
-                  <span className="rounded bg-background px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted">
+                  <span className="bg-background px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted">
                     {STATUS_LABEL[event.status]}
                   </span>
                 </Link>
@@ -210,7 +210,7 @@ export default function DashboardContent() {
               type="button"
               onClick={handleLoadMore}
               disabled={loadingMore}
-              className="w-fit self-center rounded border border-surface-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-60"
+              className="btn btn-outline w-fit self-center"
             >
               {loadingMore ? "Loading…" : "Load more"}
             </button>
