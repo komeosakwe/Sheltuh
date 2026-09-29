@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { ApiError, isApiConfigured } from "@/lib/api/client";
 import { createCheckoutSession } from "@/lib/api/orders";
+import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { calculateOrderSummary, sumOrderSummaries } from "@/lib/fees";
 import { formatAud } from "@/lib/format";
 import { formatTicketBreakdown, formatTicketHeadline } from "@/lib/pricing";
@@ -22,7 +23,13 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [buyerEmail, setBuyerEmail] = useState("");
+  // Signed in: the account's email is the default, since a ticket booked
+  // with it is also what lets them add themselves to Who's Going. Whatever
+  // they type replaces it. (Read optionally: this also renders without auth.)
+  const auth = useOptionalAuth();
+  const accountEmail = auth?.status === "signed-in" ? auth.email : undefined;
+  const [typedEmail, setTypedEmail] = useState<string | null>(null);
+  const buyerEmail = typedEmail ?? accountEmail ?? "";
   const [emailError, setEmailError] = useState<string | null>(null);
 
   // Only live events (which carry an organiserId) can be checked out —
@@ -175,7 +182,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                   autoComplete="email"
                   required
                   value={buyerEmail}
-                  onChange={(e) => setBuyerEmail(e.target.value)}
+                  onChange={(e) => setTypedEmail(e.target.value)}
                   aria-invalid={Boolean(emailError)}
                   aria-describedby={emailError ? "buyer-email-error" : "buyer-email-hint"}
                   // 16px text so iOS doesn't zoom on focus, and a 48px target.
@@ -187,7 +194,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                   </p>
                 ) : (
                   <p id="buyer-email-hint" className="text-xs text-muted">
-                    We&rsquo;ll only use this to send your tickets.
+                    We&rsquo;ll send your tickets here. Booking with your Sheltüh account email
+                    also lets you add yourself to Who&rsquo;s Going.
                   </p>
                 )}
               </div>
@@ -209,6 +217,9 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
               {orderTotal.totalCents === 0
                 ? "Free tickets are issued immediately, no payment step."
                 : "You'll pay securely on Stripe's own checkout page."}
+              {orderTotal.totalCents > 0 && accountEmail && (
+                <> Use {accountEmail} there to be able to add yourself to Who&rsquo;s Going.</>
+              )}
             </p>
           </>
         ) : (

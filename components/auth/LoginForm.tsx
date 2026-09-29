@@ -4,8 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { safeNextPath } from "@/lib/safe-next-path";
 
-export default function LoginForm() {
+/**
+ * `next` is the raw `?next=` value: where to go after signing in. Only a
+ * same-site relative path is honoured; anything else goes to the dashboard.
+ */
+export default function LoginForm({ next }: { next?: string } = {}) {
   const auth = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -27,7 +32,7 @@ export default function LoginForm() {
     setLoading(true);
     try {
       await auth.signIn(email, password);
-      router.push("/dashboard");
+      router.push(safeNextPath(next) ?? "/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't sign in.");
     } finally {

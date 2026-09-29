@@ -47,6 +47,9 @@ export default function AuthNavLinks({ className: linkClass = navLinkClass }: { 
       <Link href="/dashboard" className={linkClass}>
         My events
       </Link>
+      <Link href="/account" className={linkClass}>
+        Account
+      </Link>
       <button type="button" onClick={handleSignOut} className={linkClass}>
         Sign out
       </button>

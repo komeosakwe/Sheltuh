@@ -196,6 +196,15 @@ h4 {
   .spin-slow {
     animation: spin-slow 24s linear infinite;
   }
+  /* Rows that just appeared (Who's Going "Show more", your own row): opacity only, no movement. */
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  .fade-in {
+    animation: fade-in 0.15s ease-out both;
+  }
   /* Rises as it scrolls into view where the browser supports scroll timelines; otherwise it just shows. */
   @supports (animation-timeline: view()) {
     .reveal {

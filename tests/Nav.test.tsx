@@ -65,13 +65,14 @@ describe("Nav — phone menu", () => {
     expect(within(menu).getByRole("link", { name: "Sign in", hidden: true })).toHaveAttribute("href", "/login");
   });
 
-  it("offers Admin, My events and Sign out to a signed-in admin", () => {
+  it("offers Admin, My events, Account and Sign out to a signed-in admin", () => {
     const { menu } = renderNav(fakeAuthValue({ isAdmin: true }));
     expect(linkHrefs(menu)).toEqual([
       ["Discover", "/"],
       ["Map", "/map"],
       ["Admin", "/admin"],
       ["My events", "/dashboard"],
+      ["Account", "/account"],
       ["For organisers", "/organisers/apply"],
     ]);
     expect(within(menu).getByRole("button", { name: "Sign out", hidden: true })).toBeInTheDocument();

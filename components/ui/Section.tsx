@@ -77,14 +77,24 @@ export function Panel({
   children,
   className = "",
   title,
+  titleId,
 }: {
   children: ReactNode;
   className?: string;
   title?: string;
+  /** Names the section by its title, making it a labelled region landmark. */
+  titleId?: string;
 }) {
   return (
-    <section className={`border-t border-foreground pt-5 ${className}`.trim()}>
-      {title && <h2 className="display-md mb-4 !text-2xl">{title}</h2>}
+    <section
+      aria-labelledby={title && titleId ? titleId : undefined}
+      className={`border-t border-foreground pt-5 ${className}`.trim()}
+    >
+      {title && (
+        <h2 id={titleId} className="display-md mb-4 !text-2xl">
+          {title}
+        </h2>
+      )}
       {children}
     </section>
   );

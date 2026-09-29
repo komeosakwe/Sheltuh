@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import TicketSelector from "@/components/TicketSelector";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
+import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
 // Live mode: checkout is only offered when the API is configured.
 vi.mock("@/lib/api/client", async (importOriginal) => ({
@@ -58,6 +59,59 @@ describe("TicketSelector (live)", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Enter the email address to send your tickets to.");
     expect(email).toHaveAttribute("aria-invalid", "true");
     expect(createCheckoutSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("TicketSelector (live, signed in)", () => {
+  function renderSignedIn(slug: string) {
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ email: "mia@example.com" })}>
+        <TicketSelector event={live(slug)} />
+      </FakeAuthProvider>,
+    );
+  }
+
+  it("prefills a free order's email from the account and says why it matters for Who's Going", () => {
+    createCheckoutSession.mockReturnValue(new Promise(() => {}));
+    renderSignedIn("brunswick-zine-fair");
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
+    const email = screen.getByLabelText("Email for your tickets");
+    expect(email).toHaveValue("mia@example.com");
+    expect(email).toHaveAccessibleDescription(
+      "We’ll send your tickets here. Booking with your Sheltüh account email also lets you add yourself to Who’s Going.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
+    expect(createCheckoutSession).toHaveBeenCalledWith(
+      expect.any(String),
+      [{ ticketTypeId: expect.any(String), quantity: 1 }],
+      "mia@example.com",
+    );
+  });
+
+  it("lets the buyer replace the prefilled email, including clearing it", () => {
+    renderSignedIn("brunswick-zine-fair");
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
+    const email = screen.getByLabelText("Email for your tickets");
+    fireEvent.change(email, { target: { value: "" } });
+    expect(email).toHaveValue("");
+    fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter the email address to send your tickets to.");
+    expect(createCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("tells a signed-in buyer of paid tickets which email to use on Stripe", () => {
+    renderSignedIn("neon-static");
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    expect(screen.getByText(/Use mia@example\.com there to be able to add yourself to Who’s Going\./)).toBeInTheDocument();
+  });
+});
+
+describe("TicketSelector (live, no auth)", () => {
+  it("leaves the email empty and doesn't mention an account email", () => {
+    render(<TicketSelector event={live("brunswick-zine-fair")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
+    expect(screen.getByLabelText("Email for your tickets")).toHaveValue("");
+    expect(screen.queryByText(/Use .* there to be able/)).toBeNull();
   });
 });
 
