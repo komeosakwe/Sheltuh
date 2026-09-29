@@ -1,3 +1,4 @@
+import { generatedSampleEvents } from "./sample-events-more";
 import type { SheltuhEvent } from "./types";
 
 /**
@@ -6,7 +7,7 @@ import type { SheltuhEvent } from "./types";
  * Australia/Melbourne wall-clock time, accounting for AEST/AEDT — see
  * lib/format.ts for how they're rendered back to Melbourne local time.
  */
-export const sampleEvents: SheltuhEvent[] = [
+const coreSampleEvents: SheltuhEvent[] = [
   {
     id: "evt-neon-static",
     slug: "neon-static",
@@ -266,3 +267,6 @@ export const sampleEvents: SheltuhEvent[] = [
     ],
   },
 ];
+
+/** The hand-written showcase events followed by the compact, generated ones. */
+export const sampleEvents: SheltuhEvent[] = [...coreSampleEvents, ...generatedSampleEvents];

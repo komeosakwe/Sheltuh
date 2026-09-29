@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, type ReactNode } from "react";
 
-const SPEED_PX_PER_SEC = 36;
+const SPEED_PX_PER_SEC = 60;
 const RESUME_AFTER_MS = 2500;
 
 /**

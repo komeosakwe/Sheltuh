@@ -2,7 +2,7 @@ import EventTile from "@/components/ui/EventTile";
 import Carousel, { CarouselItem } from "@/components/ui/Carousel";
 import type { SheltuhEvent } from "@/lib/types";
 
-const CAROUSEL_COUNT = 10;
+const CAROUSEL_COUNT = 24;
 
 /**
  * Editorial results layout: the first few events lead in a horizontal

@@ -1,5 +1,6 @@
 "use client";
 
+import TicketStub from "@/components/tickets/TicketStub";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -145,15 +146,9 @@ export default function CheckoutConfirmation() {
 
       <div className="bg-surface p-4">
         <h2 className="font-heading text-xl text-foreground">Your tickets</h2>
-        <ul className="mt-3 flex flex-col gap-2">
+        <ul className="mt-3 flex flex-col gap-3">
           {order.tickets.map((ticket) => (
-            <li
-              key={ticket.ticketCode}
-              className="flex items-center justify-between border border-foreground bg-transparent px-3 py-2"
-            >
-              <span className="text-sm text-foreground">{ticket.ticketTypeName}</span>
-              <span className="font-mono text-sm tracking-wider text-accent">{ticket.ticketCode}</span>
-            </li>
+            <TicketStub key={ticket.ticketCode} code={ticket.ticketCode} typeName={ticket.ticketTypeName} />
           ))}
         </ul>
         <p className="mt-3 text-xs text-muted">Show this page or your email receipt at the door.</p>
