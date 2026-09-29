@@ -42,6 +42,8 @@
 
 html {
   color-scheme: light;
+  /* The sticky header (logo + search + nav) can be ~9rem tall on phones. */
+  scroll-padding-top: 9rem;
 }
 
 body {

@@ -166,7 +166,7 @@ export default function LiveEventFeed({ categories, query }: Props) {
         onReset={resetFilters}
       />
 
-      {status === "loading" && <p className="text-sm text-muted">Loading events…</p>}
+      {status === "loading" && <p role="status" className="text-sm text-muted">Loading events…</p>}
 
       {status === "error" && (
         <div className="flex flex-col items-start gap-4">

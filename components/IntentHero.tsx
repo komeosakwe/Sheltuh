@@ -33,15 +33,14 @@ export default function IntentHero() {
             Find your people.
           </h1>
           <div className="flex flex-col gap-6">
-            <div role="radiogroup" aria-label="What are you here for?" className="flex flex-wrap gap-2">
+            <div role="group" aria-label="What are you here for?" className="flex flex-wrap gap-2">
               {INTENTS.map((option) => {
                 const selected = intent === option.id;
                 return (
                   <button
                     key={option.id}
                     type="button"
-                    role="radio"
-                    aria-checked={selected}
+                    aria-pressed={selected}
                     onClick={() => setIntent(option.id)}
                     className={`rounded-full border border-foreground px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors ${
                       selected ? "bg-foreground text-background" : "hover:bg-foreground/10"

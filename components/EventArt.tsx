@@ -193,6 +193,11 @@ export default function EventArt({
           src={imageUrl}
           alt=""
           loading="lazy"
+          // On a server-rendered page the image can fail before React attaches
+          // onError; catch that here so the poster art still shows.
+          ref={(img) => {
+            if (img && img.complete && img.currentSrc && img.naturalWidth === 0) setFailedUrl(imageUrl ?? null);
+          }}
           onError={() => setFailedUrl(imageUrl ?? null)}
           className="absolute inset-0 h-full w-full object-cover"
         />

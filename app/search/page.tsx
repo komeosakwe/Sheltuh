@@ -21,7 +21,7 @@ export default async function SearchPage({
         intro="Search events, venues, suburbs and organisers."
       />
       <div className="mb-12 max-w-2xl">
-        <SearchBar defaultValue={query} size="lg" autoFocus={!query} />
+        <SearchBar defaultValue={query} size="lg" autoFocus={!query} label="Search events" />
       </div>
       {/* key: a new search starts a fresh feed with its own filters. */}
       <EventFeed key={query} query={query} />

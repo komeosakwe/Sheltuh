@@ -6,14 +6,17 @@ export default function SearchBar({
   defaultValue = "",
   size = "sm",
   autoFocus = false,
+  label = "Search",
 }: {
   defaultValue?: string;
   size?: "sm" | "lg";
   autoFocus?: boolean;
+  /** Names the search landmark — the nav and the search page each have one. */
+  label?: string;
 }) {
   const large = size === "lg";
   return (
-    <form action="/search" method="get" role="search" className="w-full">
+    <form action="/search" method="get" role="search" aria-label={label} className="w-full">
       <label htmlFor={`site-search-${size}`} className="sr-only">
         Search by event, venue or suburb
       </label>
@@ -41,7 +44,7 @@ export default function SearchBar({
           maxLength={100}
           placeholder="Search by event, venue or suburb"
           autoComplete="off"
-          className={`w-full rounded-full! border-transparent! bg-surface! text-foreground placeholder:text-muted focus-visible:border-foreground! ${
+          className={`w-full rounded-full! border-foreground! bg-surface! text-foreground placeholder:text-muted ${
             large ? "py-4 pl-13 pr-6 text-lg" : "py-2 pl-10 pr-4 text-sm"
           }`}
         />

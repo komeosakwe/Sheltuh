@@ -9,9 +9,10 @@ import { ButtonLink } from "@/components/ui/Button";
 export default function Nav() {
   const pathname = usePathname();
 
+  const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+
   function linkClassName(href: string) {
-    const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
-    return `${navLinkClass} ${active ? "underline decoration-2 underline-offset-8" : ""}`;
+    return `${navLinkClass} ${isActive(href) ? "underline decoration-2 underline-offset-8" : ""}`;
   }
 
   return (
@@ -22,13 +23,13 @@ export default function Nav() {
         </Link>
         {/* Search sits beside the logo on wide screens, on its own row on phones. */}
         <div className="order-last w-full lg:order-none lg:max-w-sm lg:flex-1">
-          <SearchBar />
+          <SearchBar label="Search the site" />
         </div>
         <nav aria-label="Primary" className="ml-auto flex flex-wrap items-center gap-x-1 gap-y-1 sm:gap-x-3">
-          <Link href="/" className={linkClassName("/")}>
+          <Link href="/" className={linkClassName("/")} aria-current={isActive("/") ? "page" : undefined}>
             Discover
           </Link>
-          <Link href="/map" className={linkClassName("/map")}>
+          <Link href="/map" className={linkClassName("/map")} aria-current={isActive("/map") ? "page" : undefined}>
             Map
           </Link>
           <AuthNavLinks />

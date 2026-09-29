@@ -15,7 +15,9 @@ export default function EventResults({ events }: { events: SheltuhEvent[] }) {
 
   return (
     <div className="flex flex-col gap-14">
-      <Carousel label="Events" autoScroll>
+      {/* key: a different set of events (a filter change) starts a fresh carousel, so its
+          arrows and drift position never refer to the previous set. */}
+      <Carousel key={lead.map((event) => event.id).join(",")} label="Events" autoScroll>
         {lead.map((event) => (
           <CarouselItem key={event.id}>
             <EventTile event={event} />

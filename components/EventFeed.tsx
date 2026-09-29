@@ -30,7 +30,7 @@ function DemoEventFeed({ query }: { query?: string }) {
         sale.
       </DemoNotice>
       {events === null ? (
-        <p className="text-sm text-muted">Loading events…</p>
+        <p role="status" className="text-sm text-muted">Loading events…</p>
       ) : (
         <EventBrowser events={events} categories={categories} query={query} />
       )}
