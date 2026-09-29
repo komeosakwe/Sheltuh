@@ -19,8 +19,9 @@ const arrowClass =
   "absolute top-[140px] z-10 hidden h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-accent text-accent-foreground transition-opacity hover:bg-accent-strong disabled:pointer-events-none disabled:opacity-0 sm:flex";
 
 /**
- * Horizontal rail of fixed-width tiles. It runs full-bleed to the edges of the
- * viewport, with padding that keeps the first card aligned to the page's content column.
+ * Horizontal rail of fixed-width tiles. It runs full-bleed, wall to wall, with
+ * no padding at either end — so at the start and the end of the row the cards
+ * sit right against the edge of the screen, with no empty gap.
  *
  * Arrow buttons on both sides scroll it by about a screen of cards (hidden on
  * phones, where swiping works; still keyboard- and screen-reader-accessible
@@ -237,7 +238,7 @@ export default function Carousel({
         role="region"
         aria-label={label}
         tabIndex={0}
-        className="no-scrollbar flex w-full snap-x snap-mandatory gap-5 overflow-x-auto scroll-pl-[var(--rail-gutter)] pb-2 pl-[var(--rail-gutter)] pr-[var(--rail-gutter)] [--rail-gutter:max(1.25rem,calc((100vw-72rem)/2+1.25rem))] sm:gap-6 sm:[--rail-gutter:max(2rem,calc((100vw-72rem)/2+2rem))]"
+        className="no-scrollbar flex w-full snap-x snap-mandatory gap-5 overflow-x-auto pb-2 sm:gap-6"
       >
         {children}
       </div>
