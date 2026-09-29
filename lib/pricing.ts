@@ -23,6 +23,30 @@ export function formatFeedPrice(event: SheltuhEvent): string {
   return `${prefix}${formatAud(minTotalCents)} incl. booking fee`;
 }
 
+export interface FeedPriceParts {
+  /** The all-inclusive headline, e.g. "Free", "A$55" or "From A$31.70". */
+  amount: string;
+  /** What the amount includes, e.g. "incl. booking fee" or "No booking fee". */
+  note: string;
+}
+
+/**
+ * The feed price split into a headline amount and a note, for layouts that set
+ * them on separate lines (the event page's buy bar). Same minimum buyer total
+ * as `formatFeedPrice`, so the number is all-inclusive by construction. `null`
+ * when the event has no ticket types, since there's no price to show.
+ */
+export function formatFeedPriceParts(event: SheltuhEvent): FeedPriceParts | null {
+  if (event.ticketTypes.length === 0) return null;
+  const minTotalCents = getMinBuyerTotalCents(event);
+  if (minTotalCents === 0) {
+    const hasPaid = event.ticketTypes.some((ticket) => ticket.priceCents > 0);
+    return { amount: "Free", note: hasPaid ? "Paid tickets incl. booking fee" : "No booking fee" };
+  }
+  const prefix = event.ticketTypes.length > 1 ? "From " : "";
+  return { amount: `${prefix}${formatAud(minTotalCents)}`, note: "incl. booking fee" };
+}
+
 /** Per-ticket headline price shown on the event details page. */
 export function formatTicketHeadline(ticket: TicketType): string {
   if (ticket.priceCents === 0) return "Free";

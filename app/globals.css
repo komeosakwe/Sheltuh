@@ -199,6 +199,7 @@ h4 {
   .btn-lg {
     padding: 0.875rem 1.75rem;
     font-size: 0.8125rem;
+    line-height: 1.125rem; /* 14 + 18 + 14 + 1px borders = 48px */
   }
   .btn-solid {
     background: var(--accent);
