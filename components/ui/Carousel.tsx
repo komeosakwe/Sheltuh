@@ -6,6 +6,12 @@ const SPEED_PX_PER_SEC = 60;
 const RESUME_AFTER_MS = 2500; // after touch, keyboard or sideways scrolling
 const POINTER_RESUME_MS = 600; // after the pointer leaves or focus moves away
 const PAGE_FRACTION = 0.8; // an arrow click scrolls by about a screen of cards
+/** Drift only where a mouse drives the page and motion is welcome — never on touch screens. */
+const DRIFT_QUERY = "(prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine)";
+
+function driftAllowed(): boolean {
+  return typeof window.matchMedia === "function" && window.matchMedia(DRIFT_QUERY).matches;
+}
 
 function Arrow({ direction }: { direction: "prev" | "next" }) {
   return (
@@ -44,11 +50,15 @@ const arrowClass =
  * bouncing back, no duplicated cards). A visible Pause/Play button controls it
  * (WCAG 2.2.2). It also pauses while the pointer is moving over it, it has
  * keyboard focus, or the person scrolls it sideways or touches it (resuming a
- * moment later); vertical page scrolling never pauses it. It doesn't run at all
- * for people who prefer reduced motion, and it stops for good the first time
- * it's clicked — including clicking an arrow — until Play is pressed. The
- * animation loop only runs while it's actually drifting on screen. It's always
- * a normal scrollable region.
+ * moment later); vertical page scrolling never pauses it. It stops for good the
+ * first time it's clicked — including clicking an arrow — until Play is pressed.
+ * The animation loop only runs while it's actually drifting on screen. It's
+ * always a normal scrollable region.
+ *
+ * The drift only exists on mouse-driven devices (`DRIFT_QUERY`). On phones and
+ * other touch screens a swipe is the control, so the rail stays put at the first
+ * (soonest) card and there's no Pause button to show. It never runs for people
+ * who prefer reduced motion.
  */
 export default function Carousel({
   children,
@@ -89,10 +99,10 @@ export default function Carousel({
     };
   }, [updateArrows]);
 
-  // Reduced-motion people never get a drift (and so no Pause button either).
+  // Touch screens and reduced-motion people never get a drift (and so no Pause
+  // button either).
   useEffect(() => {
-    if (!autoScroll || typeof window.matchMedia !== "function") return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (!autoScroll || !driftAllowed()) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reads a browser-only media query after mount
     setDriftAvailable(true);
   }, [autoScroll]);
@@ -100,11 +110,10 @@ export default function Carousel({
   // When it drifts, open part-way along the rail — not at either end — so the
   // very first screen is completely filled with events, starting on a whole card.
   // (Before paint, so there's no visible jump.) Without drift it stays at the
-  // start, aligned to the page's content column.
+  // start on the soonest event, aligned to the page's content column.
   useLayoutEffect(() => {
     const el = ref.current;
-    if (!autoScroll || !el || typeof window.matchMedia !== "function") return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (!autoScroll || !el || !driftAllowed()) return;
     const cards = Array.from(el.children) as HTMLElement[];
     const middle = cards[Math.floor(cards.length / 2)];
     if (!middle) return;
@@ -344,7 +353,7 @@ export default function Carousel({
         role="region"
         aria-label={label}
         tabIndex={0}
-        className="no-scrollbar flex w-full snap-x snap-mandatory gap-5 overflow-x-auto scroll-pl-5 pb-2 pl-5 pr-5 sm:scroll-pl-6 sm:gap-6 sm:pl-6 sm:pr-0"
+        className="no-scrollbar flex w-full snap-x snap-mandatory gap-4 overflow-x-auto scroll-pl-5 pb-2 pl-5 pr-5 sm:scroll-pl-6 sm:gap-6 sm:pl-6 sm:pr-0"
       >
         {children}
       </div>
@@ -353,5 +362,5 @@ export default function Carousel({
 }
 
 export function CarouselItem({ children }: { children: ReactNode }) {
-  return <div className="w-[68vw] max-w-[320px] shrink-0 snap-start sm:w-[280px]">{children}</div>;
+  return <div className="w-[70vw] max-w-[300px] shrink-0 snap-start sm:w-[280px]">{children}</div>;
 }

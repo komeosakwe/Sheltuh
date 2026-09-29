@@ -10,9 +10,16 @@ function setMetrics(el: HTMLElement, { scrollWidth, clientWidth, scrollLeft }: R
   el.scrollLeft = scrollLeft;
 }
 
-function stubMatchMedia(reducedMotion: boolean) {
+/**
+ * `finePointer` is a mouse-driven device (hover: hover, pointer: fine). The drift
+ * asks one combined query, which matches only with a fine pointer and no
+ * reduced-motion preference; the arrows ask about reduced motion on its own.
+ */
+function stubMatchMedia(reducedMotion: boolean, finePointer = true) {
   window.matchMedia = vi.fn().mockImplementation((query: string) => ({
-    matches: reducedMotion && query.includes("prefers-reduced-motion"),
+    matches: query.includes("pointer: fine")
+      ? finePointer && !reducedMotion
+      : reducedMotion && query.includes("prefers-reduced-motion"),
     media: query,
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
@@ -117,6 +124,12 @@ describe("Carousel auto-drift controls", () => {
     expect(screen.queryByRole("button", { name: /automatic scrolling/i })).not.toBeInTheDocument();
   });
 
+  it("has no drift and no Pause button on a coarse pointer (phones, touch screens)", () => {
+    stubMatchMedia(false, false);
+    renderCarousel({ autoScroll: true });
+    expect(screen.queryByRole("button", { name: /automatic scrolling/i })).not.toBeInTheDocument();
+  });
+
   it("has no Pause button when auto-scroll isn't requested", () => {
     stubMatchMedia(false);
     renderCarousel();
@@ -184,6 +197,16 @@ describe("Carousel drift behaviour (animation frames stepped by hand)", () => {
     runFrame();
     expect(rail().scrollLeft).toBeLessThan(1500);
     expect(rail().scrollLeft).toBeGreaterThan(1490); // ~60px/s, one 16ms frame
+  });
+
+  it("on a touch screen it opens at the first (soonest) card and never animates", () => {
+    stubMatchMedia(false, false);
+    renderCarousel({ autoScroll: true });
+    expect(rail().scrollLeft).toBe(0);
+    runFrame(); // only the one-off arrow-state frame is pending
+    runFrame();
+    expect(frames).toHaveLength(0);
+    expect(rail().scrollLeft).toBe(0);
   });
 
   it("Pause ends the animation loop instead of spinning at 60fps", () => {
