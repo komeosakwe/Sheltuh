@@ -16,7 +16,8 @@ Stripe (payments) and Vercel (hosting).
 2. **Create the schema.** Open SQL Editor → New query, and run each file in
    `supabase/migrations/` in filename order, one query per file:
    `20260925000000_init.sql`, `20260926000000_refunds_and_emails.sql`,
-   `20260927000000_review_fixes.sql`, then `20260929000000_event_images.sql`.
+   `20260927000000_review_fixes.sql`, `20260929000000_event_images.sql`, then
+   `20260930000000_event_images_lockdown.sql`.
    (Or use the CLI: `npx supabase link --project-ref <ref>` then
    `npx supabase db push`.) Any later migration file goes in the same way.
 3. **Collect the keys** (Project Settings → API Keys):
