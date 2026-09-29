@@ -111,7 +111,7 @@ application is approved.
 
 | Method & path | Who |
 |---|---|
-| `GET /events?category&pricing&onOrAfter&cursor&limit` | public (published only) |
+| `GET /events?q&category&pricing&onOrAfter&cursor&limit` | public (published only) |
 | `GET /events/slug/{slug}` | public (published only) |
 | `POST /events/{eventId}/checkout` | public |
 | `GET /orders/by-session/{orderId}` | public (id is the credential) |
@@ -120,6 +120,8 @@ application is approved.
 | `POST /organisers/me/connect/onboard` · `…/connect/refresh` | organiser |
 | `POST /events` · `PATCH /events/{id}` · `POST /events/{id}/submit` | organiser (own events) |
 | `GET /organisers/me/events` · `GET /organisers/me/events/{id}` | organiser (own events) |
+| `PUT /events/{id}/image` · `DELETE /events/{id}/image` | organiser (own events, while draft or rejected) |
+| `GET /events/{id}/image` | public once published; before that, the owning organiser or an admin |
 | `GET /admin/organisers?status` · `POST /admin/organisers/{id}/approve` · `…/reject` | admin |
 | `GET /admin/events?status` · `POST /admin/events/{id}/approve` · `…/reject` · `…/unpublish` | admin |
 
@@ -144,6 +146,5 @@ response). It's currently a row offset, fine at this scale.
 ## Not built yet
 
 - QR check-in.
-- Event images.
 - Venue coordinates (the map falls back to suburb centroids).
 - "Who's Going".

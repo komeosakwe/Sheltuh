@@ -33,8 +33,8 @@ marketplace.
 **Organisers** (need an admin-approved application):
 - `/organisers/apply`: apply, see your status, and edit and resubmit if
   rejected.
-- `/dashboard`: event drafts, ticket types with a live fee preview, and
-  submitting for review.
+- `/dashboard`: event drafts, an optional event photo, ticket types with
+  a live fee preview, and submitting for review.
 - `/dashboard/payouts`: Stripe Connect onboarding.
 
 **Admins:** `/admin/organisers` and `/admin/events` are review queues
@@ -86,6 +86,5 @@ tests/, e2e/         vitest (incl. tests/server API tests), Playwright
 ## Not built yet
 
 - QR check-in.
-- Event images.
 - Venue coordinates.
 - "Who's Going".
