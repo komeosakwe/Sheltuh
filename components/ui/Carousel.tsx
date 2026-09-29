@@ -19,10 +19,10 @@ const arrowClass =
   "absolute top-[140px] z-10 hidden h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-accent text-accent-foreground transition-opacity hover:bg-accent-strong disabled:pointer-events-none disabled:opacity-0 sm:flex";
 
 /**
- * Horizontal rail of fixed-width tiles. It runs full-bleed, wall to wall. From
- * sm up there is no padding at either end, so the cards sit right against the
- * screen edge with no empty gap; on phones a small 20px margin keeps card text
- * off the edge, and the row rests on whole cards (scroll snapping).
+ * Horizontal rail of fixed-width tiles. It runs full-bleed, wall to wall. A small
+ * buffer on the left (20px on phones, 24px from sm up) keeps card text off the
+ * screen edge when the row rests on a card (scroll snapping); from sm up the
+ * right end is flush to the edge so there's no empty gap after the last card.
  *
  * Arrow buttons on both sides scroll it by about a screen of cards (hidden on
  * phones, where swiping works; still keyboard- and screen-reader-accessible
@@ -244,7 +244,7 @@ export default function Carousel({
         role="region"
         aria-label={label}
         tabIndex={0}
-        className="no-scrollbar flex w-full snap-x snap-mandatory gap-5 overflow-x-auto scroll-pl-5 pb-2 pl-5 pr-5 sm:scroll-pl-0 sm:gap-6 sm:pl-0 sm:pr-0"
+        className="no-scrollbar flex w-full snap-x snap-mandatory gap-5 overflow-x-auto scroll-pl-5 pb-2 pl-5 pr-5 sm:scroll-pl-6 sm:gap-6 sm:pl-6 sm:pr-0"
       >
         {children}
       </div>
