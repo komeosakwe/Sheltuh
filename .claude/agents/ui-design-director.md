@@ -34,17 +34,20 @@ emoji icons, inconsistent spacing, and arbitrary one-off values.
 
 ## Know the current state first
 
-Before specifying anything, read:
-- `app/globals.css` for the tokens: currently a dark theme with a blue
-  accent.
-- `app/layout.tsx`, where Bebas Neue is used for uppercase headings.
-- The surfaces in scope: `EventCard`, `EventArt`, `EventFeed`,
+Before specifying anything, read what is actually in the repo now; don't
+rely on memory or on this file for the current look:
+- `app/globals.css` for the design tokens (colours, type utilities, button
+  classes) and `app/layout.tsx` for the fonts.
+- `docs/design-system.md`, if it exists, for the documented visual language
+  and the shared components in `components/ui/`.
+- The surfaces in scope, for example `EventCard`, `EventArt`, `EventFeed`,
   `IntentHero`, `EventDetailsView`, `Nav`, `SceneMap*`, `TicketSelector`,
   and the dashboard and admin components.
 
 Design within these constraints:
-- Event images aren't built yet (`EventArt` renders generated posters), so
-  specify the no-image fallback and flag the image pipeline as a backend
+- Not every event has a photo. Check whether events carry an `imageUrl`
+  (`lib/types.ts`) and always specify the no-image fallback (`EventArt`
+  renders generated poster art). Flag any image-pipeline need as a backend
   dependency.
 - Prices must show all-inclusive.
 - Demo mode exists.
