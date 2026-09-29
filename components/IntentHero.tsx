@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import EventArt from "@/components/EventArt";
-import { ButtonLink } from "@/components/ui/Button";
 import { Burst, Marquee, RoundBadge } from "@/components/ui/Sticker";
 
 type Intent = "discover" | "connect" | "make";
@@ -57,12 +56,6 @@ export default function IntentHero() {
             <p className="max-w-sm text-base leading-relaxed text-muted">
               {active.blurb} Sheltüh surfaces the rooms, nights and events that fit.
             </p>
-            <div className="flex flex-wrap gap-3">
-              <ButtonLink href="#feed">See what&rsquo;s on</ButtonLink>
-              <ButtonLink href="/organisers/apply" variant="outline">
-                Have something on?
-              </ButtonLink>
-            </div>
           </div>
         </div>
 
