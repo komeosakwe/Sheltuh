@@ -61,14 +61,24 @@ export class TestApi {
     };
   }
 
-  /** Creates an auth user and returns a bearer token for them. */
-  async signUp(options: { admin?: boolean; email?: string } = {}): Promise<{ token: string; userId: string }> {
+  /**
+   * Creates an auth user and returns a bearer token for them. Their email
+   * counts as verified unless `emailVerified: false`.
+   */
+  async signUp(
+    options: { admin?: boolean; email?: string; emailVerified?: boolean } = {},
+  ): Promise<{ token: string; userId: string; email: string }> {
     const userId = crypto.randomUUID();
     const email = options.email ?? `${userId.slice(0, 8)}@example.com`;
     await this.db.query(`insert into auth.users (id, email) values ($1, $2)`, [userId, email]);
     const token = `token-${userId}`;
-    this.callers.set(token, { userId, email, isAdmin: Boolean(options.admin) });
-    return { token, userId };
+    this.callers.set(token, {
+      userId,
+      email,
+      emailVerified: options.emailVerified ?? true,
+      isAdmin: Boolean(options.admin),
+    });
+    return { token, userId, email };
   }
 
   async call<P extends Record<string, string>>(

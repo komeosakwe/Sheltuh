@@ -5,10 +5,12 @@
  */
 import type {
   EventRecord,
+  GoingAttendee,
   IssuedTicket,
   ModerationLogEntry,
   OrderRecord,
   OrganiserRecord,
+  ProfileRecord,
   PublicEvent,
   TicketTypeInput,
 } from "./types";
@@ -168,5 +170,30 @@ export function toOrder(row: Row): OrderRecord {
     tickets: row.tickets as IssuedTicket[],
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Profiles and Who's Going
+// ---------------------------------------------------------------------------
+
+/** Unqualified so it works in both `select … from public.profiles` and `returning`. */
+export const PROFILE_COLUMNS = `display_name, social_suspended_at, created_at, updated_at`;
+
+export function toProfile(row: Row): ProfileRecord {
+  return {
+    displayName: row.display_name as string,
+    suspended: row.social_suspended_at !== null && row.social_suspended_at !== undefined,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+/** Only ever the opaque per-event id and the display name: never a user id, email or ticket. */
+export function toGoingAttendee(row: Row): GoingAttendee {
+  return {
+    attendeeId: row.id as string,
+    displayName: row.display_name as string,
+    isYou: row.is_you === true,
   };
 }

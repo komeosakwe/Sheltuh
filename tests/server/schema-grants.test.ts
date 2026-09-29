@@ -32,4 +32,20 @@ describe("Data API lock-out", () => {
     );
     expect(open).toEqual([]);
   });
+
+  it("no function in `private` is executable by anon, authenticated or PUBLIC", async () => {
+    // New functions are executable by PUBLIC by default, so each migration
+    // that adds one must revoke it (the schema's usage is revoked too, but
+    // this keeps a mistaken grant on the schema from exposing them).
+    const executable = await db.query(
+      `select p.oid::regprocedure::text as fn from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'private'
+          and (has_function_privilege('anon', p.oid, 'execute')
+            or has_function_privilege('authenticated', p.oid, 'execute')
+            or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                        where a.grantee = 0 and a.privilege_type = 'EXECUTE'))
+        order by 1`,
+    );
+    expect(executable).toEqual([]);
+  });
 });

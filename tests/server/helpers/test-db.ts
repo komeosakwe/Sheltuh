@@ -17,8 +17,8 @@ function setupSql(): string[] {
   ];
 }
 
-const RESET_SQL = `truncate public.tickets, public.orders, public.event_moderation_log, public.ticket_types,
-  public.events, public.organisers, auth.users cascade`;
+const RESET_SQL = `truncate public.event_attendees, public.profiles, public.tickets, public.orders,
+  public.event_moderation_log, public.ticket_types, public.events, public.organisers, auth.users cascade`;
 
 /**
  * A real Postgres with Supabase's auth stubs and every migration in

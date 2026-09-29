@@ -106,3 +106,53 @@ export interface OrderRecord {
   createdAt: string;
   updatedAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Who's Going
+// ---------------------------------------------------------------------------
+
+/** The caller's own social profile (GET/PUT /api/profiles/me). */
+export interface ProfileRecord {
+  /** 1–40 characters. Shown to other verified members on events you opt in to. */
+  displayName: string;
+  /** Suspended by Sheltüh: hidden from every Who's Going list and count, and can't opt in. */
+  suspended: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProfileInput {
+  displayName: string;
+  /** Required (true) when creating a profile; ignored when renaming one. */
+  adultConfirmed?: boolean;
+}
+
+/** Public: GET /api/events/{eventId}/going. */
+export interface GoingSummary {
+  /** Members who opted in. Always 0 when `closed`. */
+  count: number;
+  /** The event has ended, or Who's Going is switched off for it: show nothing. */
+  closed: boolean;
+}
+
+/** One entry in GET /api/events/{eventId}/going/attendees (verified members only). */
+export interface GoingAttendee {
+  /** Opaque, and different on every event for the same person. */
+  attendeeId: string;
+  displayName: string;
+  /** This entry is the caller. */
+  isYou: boolean;
+}
+
+/** GET/PUT/DELETE /api/events/{eventId}/going/me. */
+export interface MyGoingStatus {
+  /** The caller has opted in to being shown on this event. */
+  going: boolean;
+  /**
+   * The caller could opt in right now if they have a profile: email verified,
+   * a paid (or free) ticket bought with that email, not suspended, and the
+   * event still open.
+   */
+  eligible: boolean;
+  hasProfile: boolean;
+}

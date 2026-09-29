@@ -49,6 +49,7 @@ export function getDeps(): Deps {
       return {
         userId: data.user.id,
         email: data.user.email,
+        emailVerified: Boolean(data.user.email_confirmed_at),
         isAdmin: data.user.app_metadata?.role === "admin",
       };
     },

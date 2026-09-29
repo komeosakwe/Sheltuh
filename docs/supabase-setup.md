@@ -16,8 +16,9 @@ Stripe (payments) and Vercel (hosting).
 2. **Create the schema.** Open SQL Editor → New query, and run each file in
    `supabase/migrations/` in filename order, one query per file:
    `20260925000000_init.sql`, `20260926000000_refunds_and_emails.sql`,
-   `20260927000000_review_fixes.sql`, `20260929000000_event_images.sql`, then
-   `20260930000000_event_images_lockdown.sql`.
+   `20260927000000_review_fixes.sql`, `20260929000000_event_images.sql`,
+   `20260930000000_event_images_lockdown.sql`, then
+   `20261001000000_whos_going.sql`.
    (Or use the CLI: `npx supabase link --project-ref <ref>` then
    `npx supabase db push`.) Any later migration file goes in the same way.
 3. **Collect the keys** (Project Settings → API Keys):
@@ -74,6 +75,38 @@ npm run seed-dev-data   # needs DATABASE_URL in .env.local
 
 This loads the eight fictional sample events as published events. Only run it
 against a dev project, never production.
+
+### Who's Going moderation
+
+There's no admin screen for this yet. Run these in the Supabase SQL editor.
+
+Suspend a member from Who's Going. They disappear from every count and list
+straight away, and can't opt in again. Find them by the email on their
+account:
+
+```sql
+update profiles set social_suspended_at = now()
+where user_id = (select id from auth.users where email = 'person@example.com');
+```
+
+Lift the suspension by setting `social_suspended_at = null` the same way.
+Their earlier opt-ins reappear.
+
+Switch Who's Going off for one event. The count becomes 0, the list empties
+and nobody can opt in. Opt-ins are kept, so switching it back on restores
+them:
+
+```sql
+update events set whos_going_enabled = false where slug = 'the-event-slug';
+```
+
+To remove one person's opt-in from one event outright:
+
+```sql
+delete from event_attendees
+where event_id = (select id from events where slug = 'the-event-slug')
+  and user_id = (select id from auth.users where email = 'person@example.com');
+```
 
 ## 2. Stripe (Connect)
 

@@ -24,7 +24,9 @@ Stripe ──webhook──▶ /api/stripe/webhook
   authenticated roles have no grants. All access goes through
   `lib/server/`, which enforces authorisation in one place and is covered
   by tests. If a future feature needs direct client access (e.g. realtime
-  "Who's Going"), add narrow RLS policies for just that.
+  "Who's Going"), add narrow RLS policies for just that. New functions in
+  `private` also revoke `execute` explicitly (Postgres grants it to PUBLIC
+  by default); `tests/server/schema-grants.test.ts` checks all of this.
 - **The database enforces the rules that matter most.** Whatever the
   application code does:
   - Overselling is impossible: a `quantity_sold <= quantity_available` check
@@ -46,12 +48,14 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | Table | Key | Notes |
 |---|---|---|
 | `organisers` | `id` | `owner_user_id` is unique, one application per account. It's null for platform-managed organisers (events Sheltüh lists on someone's behalf, and seed data). `status`: pending → approved / rejected. Also holds the Stripe Connect account id and `payouts_enabled`. |
-| `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected; unpublish returns it to draft. `is_free` is kept up to date for the feed's free/paid filter. |
+| `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected; unpublish returns it to draft. `is_free` is kept up to date for the feed's free/paid filter. `whos_going_enabled` (default true) is an admin-only kill switch for that event's Who's Going, set in SQL (`docs/supabase-setup.md`). |
 | `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. `quantity_sold` only ever changes in `fulfil_order`. |
 | `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Public via `GET /api/events/[id]/image` once published (cached for a day, versioned URL); before that only the owner/admins with a token. Move to Storage/CDN if volume grows. |
 | `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished, by whom, and why. |
 | `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed, or oversold_refund_required → refunded. `tickets_emailed_at` records the ticket email. |
-| `tickets` | `code` | One row per admitted person. This is the future home of check-in and "Who's Going". |
+| `tickets` | `code` | One row per admitted person. This is the future home of check-in. |
+| `profiles` | `user_id` | A member's social identity: `display_name` (1–40 characters), `adult_confirmed_at` (required: no profile without an 18+ confirmation), `social_suspended_at` (admin-set, see `docs/supabase-setup.md`). Deleted with the Supabase account. |
+| `event_attendees` | `id` | One row per Who's Going opt-in, unique per `(event_id, user_id)`. `id` is the opaque `attendeeId` shown to members: a fresh one per event, so it can't be linked across events or to a user. Deleted with the profile or the event. |
 
 Timestamps are `timestamptz`. Organisers enter Australia/Melbourne local
 times, which are converted to instants honouring daylight saving
@@ -64,6 +68,7 @@ times, which are converted to instants honouring daylight saving
 | `create_event_draft`, `update_event_draft` | Event row and ticket types saved together. Updates only succeed while the event is draft or rejected and owned by the caller's organiser. |
 | `replace_ticket_types` | Upserts by id and removes ticket types that were dropped. Refuses to remove one with sales, or to cut a quantity below what's already sold. |
 | `transition_event` | Changes status and writes the moderation log entry in one step. It only moves an event from an expected status, so two admins acting at once can't both succeed; the loser gets a 409. |
+| `set_going` | Opts a member in to an event's Who's Going, checking everything in one step: the event is published, enabled and hasn't ended; the member has a profile that isn't suspended; and a `paid` order for the event has their verified email (case-insensitive). Share-locks the event, then the profile, so an unpublish, suspension or profile deletion can't interleave. Idempotent. Returns `going`, `event_unavailable`, `no_profile`, `suspended` or `not_eligible`. |
 | `fulfil_order` | Takes inventory for every line item, issues the tickets and marks the order paid. If any ticket type has sold out, or the event is no longer published, it takes nothing and marks the order `oversold_refund_required`. Rows are locked in a fixed order, so concurrent orders can't deadlock. It's idempotent, so Stripe's webhook redeliveries are harmless. |
 
 ## Payment flow
@@ -100,6 +105,32 @@ times, which are converted to instants honouring daylight saving
    `GET /api/orders/by-session/<id>`. The unguessable order id is the
    credential. A pending order reveals only its status.
 
+## Who's Going
+
+A member is shown as going to an event only when all of these hold:
+
+- They're signed in, and Supabase Auth has confirmed their email
+  (`Caller.emailVerified`, from `email_confirmed_at`; `requireVerifiedCaller`
+  returns 403 otherwise).
+- A `paid` order for the event (free tickets are A$0 paid orders) has a
+  `buyer_email` equal, ignoring case, to that verified email. Guest checkout
+  has no account, so the email is the only link between a ticket and a
+  member.
+- They've created a profile (display name plus an 18+ confirmation) that
+  isn't suspended.
+- They opted in for that event. It's off by default.
+
+Who sees what:
+
+- The public sees only a count (`{count, closed}`).
+- Verified members see display names, paginated (at most 50 a page), with
+  an opaque per-event `attendeeId`. Never an email, user id or ticket type.
+- Suspended profiles are left out of every count and list.
+- Once the event ends, or `whos_going_enabled` is off, it's `closed`: the
+  count is 0, the list is empty, and new opt-ins are refused.
+- Opting out (`DELETE …/going/me`) and deleting the profile always work,
+  whatever state the event is in, and need no verified email.
+
 Booking fee: 4% of face value + A$0.50 per paid ticket (`lib/fees.ts`,
 which the API and the UI both use). It's either buyer-paid or absorbed by
 the organiser, set per ticket type. Either way the platform keeps it.
@@ -122,6 +153,12 @@ application is approved.
 | `GET /organisers/me/events` · `GET /organisers/me/events/{id}` | organiser (own events) |
 | `PUT /events/{id}/image` · `DELETE /events/{id}/image` | organiser (own events, while draft or rejected) |
 | `GET /events/{id}/image` | public once published; before that, the owning organiser or an admin |
+| `GET /events/{id}/going` | public (published only): `{count, closed}` |
+| `GET /events/{id}/going/attendees?cursor` | verified email (published only) |
+| `GET /events/{id}/going/me` · `DELETE /events/{id}/going/me` | signed in (own opt-in) |
+| `PUT /events/{id}/going/me` | verified email, eligible ticket holder with a profile. 404 if Who's Going isn't open, 409 without a profile, 403 if not eligible or suspended |
+| `GET /profiles/me` · `DELETE /profiles/me` | signed in (own profile; DELETE also removes every opt-in) |
+| `PUT /profiles/me` | verified email. Creating needs `adultConfirmed: true`; display names are checked in `lib/server/profile-input.ts` (no control or zero-width characters, links, emails, @handles or reserved names) |
 | `GET /admin/organisers?status` · `POST /admin/organisers/{id}/approve` · `…/reject` | admin |
 | `GET /admin/events?status` · `POST /admin/events/{id}/approve` · `…/reject` · `…/unpublish` | admin |
 
@@ -147,4 +184,7 @@ response). It's currently a row offset, fine at this scale.
 
 - QR check-in.
 - Venue coordinates (the map falls back to suburb centroids).
-- "Who's Going".
+- Who's Going beyond increment 1: no admin UI for suspensions or the
+  per-event switch (SQL only, `docs/supabase-setup.md`), and an opt-in isn't
+  revisited if the member later changes their email or the order stops being
+  `paid`.

@@ -68,3 +68,24 @@ export async function enablePayouts(api: TestApi, organiserId: string) {
     [organiserId],
   );
 }
+
+/**
+ * Inserts an order straight into the database in any status, for tests that
+ * only care that "an order with this email and status exists" (e.g. Who's
+ * Going eligibility). Real checkouts go through createCheckout.
+ */
+export async function insertOrder(
+  api: TestApi,
+  event: { eventId: string; organiserId: string },
+  buyerEmail: string | null,
+  status: "pending" | "paid" | "failed" | "oversold_refund_required" | "refunded" = "paid",
+) {
+  const orderId = `ord_${crypto.randomUUID().replace(/-/g, "")}`;
+  await api.db.query(
+    `insert into public.orders (id, event_id, organiser_id, event_title, buyer_email, line_items,
+       subtotal_cents, buyer_fee_cents, total_cents, application_fee_cents, status)
+     values ($1, $2, $3, 'Test event', $4, '[]'::jsonb, 0, 0, 0, 0, $5::public.order_status)`,
+    [orderId, event.eventId, event.organiserId, buyerEmail, status],
+  );
+  return orderId;
+}

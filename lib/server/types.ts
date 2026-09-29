@@ -8,13 +8,18 @@ export type { EventCategory, FeePolicy } from "@/lib/types";
 export type {
   EventRecord,
   EventStatus,
+  GoingAttendee,
+  GoingSummary,
   IssuedTicket,
   ModerationLogEntry,
+  MyGoingStatus,
   OrderLineItem,
   OrderRecord,
   OrderStatus,
   OrganiserRecord,
   OrganiserStatus,
+  ProfileInput,
+  ProfileRecord,
   TicketTypeInput,
 } from "@/lib/api/types";
 export type { PublicEvent } from "@/lib/api/public-events";
