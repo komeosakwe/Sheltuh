@@ -30,7 +30,8 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
             <h1 className="display-lg">{event.title}</h1>
           </div>
 
-          <EventArt poster={event.poster} title={event.title} className="aspect-[4/3] w-full" />
+          <EventArt poster={event.poster}
+          imageUrl={event.imageUrl} title={event.title} className="aspect-[4/3] w-full" />
 
           {demo && (
             <DemoNotice>This listing is fictional sample data for this local prototype.</DemoNotice>

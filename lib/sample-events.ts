@@ -10,6 +10,7 @@ export const sampleEvents: SheltuhEvent[] = [
   {
     id: "evt-neon-static",
     slug: "neon-static",
+    imageUrl: "/events/neon-static.jpg",
     title: "Neon Static",
     description:
       "A night of fuzzed-out guitars and analog synths from three of Melbourne's loudest emerging acts. Warehouse 9 turns its loading dock into a makeshift stage for one night only, with local artists projecting live visuals behind the bands.",
@@ -47,6 +48,7 @@ export const sampleEvents: SheltuhEvent[] = [
   {
     id: "evt-paper-moon-ceramics",
     slug: "paper-moon-ceramics-lab",
+    imageUrl: "/events/paper-moon-ceramics-lab.jpg",
     title: "Paper Moon Ceramics Lab",
     description:
       "A relaxed, beginner-friendly hand-building workshop. Walk out with two greenware pieces (glazing and firing included, ready for pickup two weeks later). All materials, aprons and tea provided.",
@@ -77,6 +79,7 @@ export const sampleEvents: SheltuhEvent[] = [
   {
     id: "evt-southbank-sketch-salon",
     slug: "southbank-sketch-salon",
+    imageUrl: "/events/southbank-sketch-salon.jpg",
     title: "Southbank Sketch Salon",
     description:
       "A drop-in life drawing salon for all skill levels. Bring your own materials or borrow a set at the door. Professional models, moody lighting and quiet company — no instruction, just time to draw.",
@@ -106,6 +109,7 @@ export const sampleEvents: SheltuhEvent[] = [
   {
     id: "evt-laneway-projections",
     slug: "laneway-projections-after-dark",
+    imageUrl: "/events/laneway-projections-after-dark.jpg",
     title: "Laneway Projections: After Dark",
     description:
       "A free outdoor projection trail through a CBD laneway, featuring six looped works from Melbourne digital artists. Wander through any time across the evening — no ticket scanning, just show up.",
@@ -135,6 +139,7 @@ export const sampleEvents: SheltuhEvent[] = [
   {
     id: "evt-fitzroy-poetry-noise",
     slug: "fitzroy-poetry-and-noise",
+    imageUrl: "/events/fitzroy-poetry-and-noise.jpg",
     title: "Fitzroy Poetry & Noise",
     description:
       "Spoken word sets traded off with short noise and ambient performances in a tin-walled backroom bar. Open mic slots available on the night — put your name down at the door.",
@@ -164,6 +169,7 @@ export const sampleEvents: SheltuhEvent[] = [
   {
     id: "evt-brunswick-zine-fair",
     slug: "brunswick-zine-fair",
+    imageUrl: "/events/brunswick-zine-fair.jpg",
     title: "Brunswick Zine Fair",
     description:
       "Sixty-odd tables of self-published zines, risograph prints, comics and small-press books from across Victoria. Free entry, all ages, cash and card both welcome at stalls.",
@@ -193,6 +199,7 @@ export const sampleEvents: SheltuhEvent[] = [
   {
     id: "evt-off-kilter",
     slug: "off-kilter-a-new-play",
+    imageUrl: "/events/off-kilter-a-new-play.jpg",
     title: "Off-Kilter: A New Play",
     description:
       "A new 75-minute two-hander about two former housemates renegotiating a friendship, staged in the round in an intimate studio space. Written and directed by emerging Melbourne playwright R. Okafor-Lane.",
@@ -230,6 +237,7 @@ export const sampleEvents: SheltuhEvent[] = [
   {
     id: "evt-analog-print-weekend",
     slug: "analog-print-weekend",
+    imageUrl: "/events/analog-print-weekend.jpg",
     title: "Analog Print Weekend",
     description:
       "A two-day screen printing intensive covering exposure, registration and multi-colour printing. Leave with a finished run of prints on paper and tote bags. Small class size, all skill levels welcome.",

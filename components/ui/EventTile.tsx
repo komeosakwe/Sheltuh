@@ -24,6 +24,7 @@ export default function EventTile({
       <div className="relative overflow-hidden">
         <EventArt
           poster={event.poster}
+          imageUrl={event.imageUrl}
           title={event.title}
           className="aspect-square transition-transform duration-500 group-hover:scale-[1.03]"
         />
