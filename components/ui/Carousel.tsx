@@ -6,7 +6,8 @@ const SPEED_PX_PER_SEC = 36;
 const RESUME_AFTER_MS = 2500;
 
 /**
- * Horizontal rail of fixed-width tiles.
+ * Horizontal rail of fixed-width tiles. It runs full-bleed to the edges of the
+ * viewport, with padding that keeps the first card aligned to the page's content column.
  *
  * With `autoScroll` it drifts on its own — cards slide left to right, then
  * turn around at the end (no duplicated cards, so every event exists once).
@@ -127,7 +128,7 @@ export default function Carousel({
       role="region"
       aria-label={label}
       tabIndex={0}
-      className="no-scrollbar flex snap-x snap-mandatory gap-5 overflow-x-auto pb-2 sm:gap-6"
+      className="no-scrollbar ml-[calc(50%-50vw)] flex w-screen snap-x snap-mandatory gap-5 overflow-x-auto scroll-pl-[var(--rail-gutter)] pb-2 pl-[var(--rail-gutter)] pr-[var(--rail-gutter)] [--rail-gutter:max(1.25rem,calc((100vw-72rem)/2+1.25rem))] sm:gap-6 sm:[--rail-gutter:max(2rem,calc((100vw-72rem)/2+2rem))]"
     >
       {children}
     </div>
