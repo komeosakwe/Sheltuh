@@ -111,7 +111,7 @@ application is approved.
 
 | Method & path | Who |
 |---|---|
-| `GET /events?category&pricing&onOrAfter&cursor&limit` | public (published only) |
+| `GET /events?q&category&pricing&onOrAfter&cursor&limit` | public (published only) |
 | `GET /events/slug/{slug}` | public (published only) |
 | `POST /events/{eventId}/checkout` | public |
 | `GET /orders/by-session/{orderId}` | public (id is the credential) |
