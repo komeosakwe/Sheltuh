@@ -4,8 +4,8 @@ import type { CSSProperties } from "react";
 import type { EventCategory } from "@/lib/types";
 import type { ScenePricingFilter, TimeFilter } from "@/lib/scene-map-filters";
 
-const ORANGE = "#e15b27";
-const FIELD_STYLE = { background: "#0e0d0c", borderColor: "#484039", color: "#d5cec3" };
+const ORANGE = "#0b0b0b";
+const FIELD_STYLE = { background: "#f3f0e8", borderColor: "#0b0b0b", color: "#0b0b0b" };
 
 interface Props {
   search: string;
@@ -25,9 +25,7 @@ interface Props {
 }
 
 function pillStyle(active: boolean): CSSProperties {
-  // White text on this orange is only ~3.7:1 — short of WCAG's 4.5:1 for
-  // normal-size text — so active pills use dark text instead.
-  return active ? { background: ORANGE, borderColor: ORANGE, color: "#17140f", fontWeight: 600 } : FIELD_STYLE;
+  return active ? { background: ORANGE, borderColor: ORANGE, color: "#f3f0e8", fontWeight: 600 } : FIELD_STYLE;
 }
 
 /** Search + location, then time/category/price controls, for the Scene Map. */
@@ -60,7 +58,7 @@ export default function SceneMapFilterBar({
             value={search}
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder="Search events, venues or suburbs"
-            className="h-11 w-full rounded-lg border pl-9 pr-3 font-sans text-sm"
+            className="h-11 w-full rounded-none border pl-9 pr-3 font-sans text-sm"
             style={FIELD_STYLE}
           />
         </label>
@@ -73,7 +71,7 @@ export default function SceneMapFilterBar({
           <select
             value={suburb}
             onChange={(event) => onSuburbChange(event.target.value)}
-            className="h-11 w-full rounded-lg border py-2 pl-9 pr-3 font-sans text-sm sm:w-60"
+            className="h-11 w-full rounded-none border py-2 pl-9 pr-3 font-sans text-sm sm:w-60"
             style={FIELD_STYLE}
           >
             <option value="all">All of Melbourne</option>

@@ -36,7 +36,7 @@ export default function EditEventPageContent() {
 
   if (!auth.configured) {
     return (
-      <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-foreground">
+      <p role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
         Accounts aren&rsquo;t configured in this environment yet.
       </p>
     );
@@ -48,9 +48,9 @@ export default function EditEventPageContent() {
 
   if (auth.status !== "signed-in" || !organiser || organiser.status !== "approved") {
     return (
-      <div className="rounded-lg border border-surface-border bg-surface p-4">
+      <div className="bg-surface p-4">
         <p className="mb-3 text-foreground">You need an approved organiser application to manage events.</p>
-        <Link href="/organisers/apply" className="rounded bg-accent px-4 py-2 text-sm font-medium text-accent-foreground">
+        <Link href="/organisers/apply" className="btn btn-solid">
           Apply as an organiser
         </Link>
       </div>

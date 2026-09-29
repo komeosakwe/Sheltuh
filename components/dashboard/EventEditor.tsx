@@ -4,7 +4,15 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import InlineReauth from "@/components/auth/InlineReauth";
 import { ApiError, type GetToken } from "@/lib/api/client";
-import { createEventDraft, submitEventForReview, updateEventDraft, type EventInput } from "@/lib/api/events";
+import EventImageField from "@/components/dashboard/EventImageField";
+import {
+  createEventDraft,
+  deleteEventImage,
+  submitEventForReview,
+  updateEventDraft,
+  uploadEventImage,
+  type EventInput,
+} from "@/lib/api/events";
 import type { EventRecord, TicketTypeInput } from "@/lib/api/types";
 import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
 import { calculateOrderSummary, MIN_PAID_TICKET_CENTS } from "@/lib/fees";
@@ -47,6 +55,12 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
   const [ticketTypes, setTicketTypes] = useState<TicketTypeInput[]>(
     initial?.ticketTypes && initial.ticketTypes.length > 0 ? initial.ticketTypes : [newTicketType()],
   );
+
+  const [imageFile, setImageFile] = useState<Blob | null>(null);
+  const [imageRemoved, setImageRemoved] = useState(false);
+  // Set once the draft exists, so a retry after a failed photo upload updates
+  // it instead of creating a duplicate.
+  const [createdId, setCreatedId] = useState<string | null>(null);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -106,6 +120,21 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
     };
   }
 
+  /** Applies a pending photo change to a saved event; returns the latest record. */
+  async function syncImage(record: EventRecord): Promise<EventRecord> {
+    if (imageFile) {
+      const updated = await uploadEventImage(record.eventId, imageFile, getToken);
+      setImageFile(null);
+      return updated;
+    }
+    if (imageRemoved && record.imageUrl) {
+      const updated = await deleteEventImage(record.eventId, getToken);
+      setImageRemoved(false);
+      return updated;
+    }
+    return record;
+  }
+
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitError(null);
@@ -115,9 +144,12 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
 
     setSaving(true);
     try {
-      const record = initial
-        ? await updateEventDraft(initial.eventId, input, getToken)
+      const existingId = initial?.eventId ?? createdId;
+      let record = existingId
+        ? await updateEventDraft(existingId, input, getToken)
         : await createEventDraft(input, getToken);
+      if (!existingId) setCreatedId(record.eventId);
+      record = await syncImage(record);
       if (!initial) {
         router.push(`/dashboard/${record.eventId}`);
         return;
@@ -142,7 +174,8 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
     if (!input) return;
     setSubmitting(true);
     try {
-      await updateEventDraft(initial.eventId, input, getToken);
+      const saved = await updateEventDraft(initial.eventId, input, getToken);
+      await syncImage(saved);
       const record = await submitEventForReview(initial.eventId, getToken);
       onSaved(record);
     } catch (err) {
@@ -154,7 +187,7 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
 
   if (locked) {
     return (
-      <div className="rounded-lg border border-surface-border bg-surface p-4 text-foreground">
+      <div className="bg-surface p-4 text-foreground">
         <p className="font-heading text-xl">
           {initial?.status === "published" ? "Published" : "Pending review"}
         </p>
@@ -169,7 +202,7 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
   return (
     <form onSubmit={handleSave} className="flex flex-col gap-6" noValidate>
       {initial?.status === "rejected" && initial.rejectionReason && (
-        <div className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-foreground">
+        <div className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
           <p className="font-medium">Not approved — reviewer note:</p>
           <p className="mt-1 text-muted">{initial.rejectionReason}</p>
         </div>
@@ -183,7 +216,7 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
           id="title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+          className="border border-foreground bg-transparent px-3 py-2 text-foreground"
         />
         {errors.title && <p className="text-sm text-danger">{errors.title}</p>}
       </div>
@@ -197,7 +230,7 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
           rows={4}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+          className="border border-foreground bg-transparent px-3 py-2 text-foreground"
         />
         {errors.description && <p className="text-sm text-danger">{errors.description}</p>}
       </div>
@@ -210,7 +243,7 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
           id="category"
           value={category}
           onChange={(e) => setCategory(e.target.value as typeof category)}
-          className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+          className="border border-foreground bg-transparent px-3 py-2 text-foreground"
         >
           {EVENT_CATEGORIES.map((c) => (
             <option key={c.value} value={c.value}>
@@ -229,7 +262,7 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
             id="venueName"
             value={venueName}
             onChange={(e) => setVenueName(e.target.value)}
-            className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+            className="border border-foreground bg-transparent px-3 py-2 text-foreground"
           />
           {errors.venueName && <p className="text-sm text-danger">{errors.venueName}</p>}
         </div>
@@ -241,7 +274,7 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
             id="venueAddress"
             value={venueAddress}
             onChange={(e) => setVenueAddress(e.target.value)}
-            className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+            className="border border-foreground bg-transparent px-3 py-2 text-foreground"
           />
           {errors.venueAddress && <p className="text-sm text-danger">{errors.venueAddress}</p>}
         </div>
@@ -253,7 +286,7 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
             id="suburb"
             value={suburb}
             onChange={(e) => setSuburb(e.target.value)}
-            className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+            className="border border-foreground bg-transparent px-3 py-2 text-foreground"
           />
           {errors.suburb && <p className="text-sm text-danger">{errors.suburb}</p>}
         </div>
@@ -268,14 +301,14 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
               aria-label="Start date"
               value={start.date}
               onChange={(e) => setStart((s) => ({ ...s, date: e.target.value }))}
-              className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+              className="border border-foreground bg-transparent px-3 py-2 text-foreground"
             />
             <input
               type="time"
               aria-label="Start time"
               value={start.time}
               onChange={(e) => setStart((s) => ({ ...s, time: e.target.value }))}
-              className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+              className="border border-foreground bg-transparent px-3 py-2 text-foreground"
             />
           </div>
           {(errors.start || errors.end) && <p className="text-sm text-danger">{errors.start || errors.end}</p>}
@@ -288,18 +321,28 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
               aria-label="End date"
               value={end.date}
               onChange={(e) => setEnd((s) => ({ ...s, date: e.target.value }))}
-              className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+              className="border border-foreground bg-transparent px-3 py-2 text-foreground"
             />
             <input
               type="time"
               aria-label="End time"
               value={end.time}
               onChange={(e) => setEnd((s) => ({ ...s, time: e.target.value }))}
-              className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+              className="border border-foreground bg-transparent px-3 py-2 text-foreground"
             />
           </div>
         </fieldset>
       </div>
+
+      <EventImageField
+        getToken={getToken}
+        existingUrl={initial?.imageUrl}
+        pending={imageFile}
+        onPendingChange={setImageFile}
+        removed={imageRemoved}
+        onRemovedChange={setImageRemoved}
+        error={errors.image}
+      />
 
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
@@ -307,7 +350,7 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
           <button
             type="button"
             onClick={() => setTicketTypes((prev) => [...prev, newTicketType()])}
-            className="rounded border border-surface-border px-3 py-1.5 text-sm font-medium hover:border-accent hover:text-accent"
+            className="btn btn-outline"
           >
             Add ticket type
           </button>
@@ -317,7 +360,7 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
         {ticketTypes.map((ticket, index) => {
           const summary = calculateOrderSummary(ticket.priceCents, 1, ticket.feePolicy);
           return (
-            <div key={ticket.id} className="flex flex-col gap-3 rounded-lg border border-surface-border bg-surface p-4">
+            <div key={ticket.id} className="flex flex-col gap-3 bg-surface p-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="flex flex-col gap-1">
                   <label htmlFor={`ticket-${index}-name`} className="text-sm font-medium text-foreground">
@@ -327,7 +370,7 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
                     id={`ticket-${index}-name`}
                     value={ticket.name}
                     onChange={(e) => updateTicket(index, { name: e.target.value })}
-                    className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+                    className="border border-foreground bg-transparent px-3 py-2 text-foreground"
                   />
                   {errors[`ticket-${index}-name`] && (
                     <p className="text-sm text-danger">{errors[`ticket-${index}-name`]}</p>
@@ -346,7 +389,7 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
                     onChange={(e) =>
                       updateTicket(index, { priceCents: Math.round(Number(e.target.value) * 100) || 0 })
                     }
-                    className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+                    className="border border-foreground bg-transparent px-3 py-2 text-foreground"
                   />
                   {errors[`ticket-${index}-price`] && (
                     <p className="text-sm text-danger">{errors[`ticket-${index}-price`]}</p>
@@ -360,7 +403,7 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
                     id={`ticket-${index}-fee-policy`}
                     value={ticket.feePolicy}
                     onChange={(e) => updateTicket(index, { feePolicy: e.target.value as TicketTypeInput["feePolicy"] })}
-                    className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+                    className="border border-foreground bg-transparent px-3 py-2 text-foreground"
                   >
                     <option value="buyer-pays">Buyer pays</option>
                     <option value="organiser-absorbs">Organiser absorbs</option>
@@ -376,7 +419,7 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
                     min={1}
                     value={ticket.quantityAvailable}
                     onChange={(e) => updateTicket(index, { quantityAvailable: Number(e.target.value) || 0 })}
-                    className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+                    className="border border-foreground bg-transparent px-3 py-2 text-foreground"
                   />
                   {errors[`ticket-${index}-qty`] && (
                     <p className="text-sm text-danger">{errors[`ticket-${index}-qty`]}</p>
@@ -405,7 +448,7 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
       </div>
 
       {submitError && sessionExpired && (
-        <div role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-foreground">
+        <div role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
           <p>{submitError}</p>
           <InlineReauth
             expectedEmail={ownerEmail}
@@ -426,7 +469,7 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
         <button
           type="submit"
           disabled={saving}
-          className="w-fit rounded bg-accent px-5 py-3 font-medium text-accent-foreground transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-60"
+          className="btn btn-solid w-fit"
         >
           {saving ? "Saving…" : "Save draft"}
         </button>
@@ -435,7 +478,7 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
             type="button"
             onClick={handleSubmitForReview}
             disabled={submitting}
-            className="w-fit rounded border border-surface-border px-5 py-3 font-medium text-foreground hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-60"
+            className="btn btn-outline w-fit"
           >
             {submitting ? "Submitting…" : "Submit for review"}
           </button>

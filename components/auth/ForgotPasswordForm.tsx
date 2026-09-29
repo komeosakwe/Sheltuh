@@ -20,7 +20,7 @@ export default function ForgotPasswordForm() {
 
   if (!auth.configured) {
     return (
-      <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-foreground">
+      <p role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
         Accounts aren&rsquo;t configured in this environment yet.
       </p>
     );
@@ -73,7 +73,7 @@ export default function ForgotPasswordForm() {
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+            className="border border-foreground bg-transparent px-3 py-2 text-foreground"
           />
         </div>
         {error && (
@@ -84,7 +84,7 @@ export default function ForgotPasswordForm() {
         <button
           type="submit"
           disabled={loading}
-          className="w-fit rounded bg-accent px-5 py-3 font-medium text-accent-foreground transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-60"
+          className="btn btn-solid w-fit"
         >
           {loading ? "Sending…" : "Send reset code"}
         </button>
@@ -112,7 +112,7 @@ export default function ForgotPasswordForm() {
           required
           value={code}
           onChange={(e) => setCode(e.target.value)}
-          className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+          className="border border-foreground bg-transparent px-3 py-2 text-foreground"
         />
       </div>
       <div className="flex flex-col gap-1">
@@ -127,7 +127,7 @@ export default function ForgotPasswordForm() {
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
           aria-describedby="password-hint"
-          className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+          className="border border-foreground bg-transparent px-3 py-2 text-foreground"
         />
         <p id="password-hint" className="text-xs text-muted">
           {PASSWORD_HINT}
@@ -141,7 +141,7 @@ export default function ForgotPasswordForm() {
       <button
         type="submit"
         disabled={loading}
-        className="w-fit rounded bg-accent px-5 py-3 font-medium text-accent-foreground transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-60"
+        className="btn btn-solid w-fit"
       >
         {loading ? "Resetting…" : "Reset password"}
       </button>

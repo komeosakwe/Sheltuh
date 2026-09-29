@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import EventCard from "@/components/EventCard";
+import EventResults from "@/components/EventResults";
+import { Button } from "@/components/ui/Button";
+import { EmptyState, Notice } from "@/components/ui/Section";
 import EventFilterBar, { type PricingFilter } from "@/components/EventFilterBar";
 import { listPublicEvents } from "@/lib/api/public-events";
 import { adaptPublicEvent } from "@/lib/live/adapt";
@@ -9,6 +11,8 @@ import type { EventCategory, SheltuhEvent } from "@/lib/types";
 
 interface Props {
   categories: { value: EventCategory; label: string }[];
+  /** Free-text search (from /search); sent to the API alongside the filters. */
+  query?: string;
 }
 
 type Status = "loading" | "loaded" | "error";
@@ -22,7 +26,7 @@ const MAX_EMPTY_PAGES_TO_SKIP = 10;
  * the API rather than filtering an already-fetched list, and paginates via
  * the API's opaque `nextCursor` instead of ever loading everything at once.
  */
-export default function LiveEventFeed({ categories }: Props) {
+export default function LiveEventFeed({ categories, query }: Props) {
   const [category, setCategory] = useState<EventCategory | "all">("all");
   const [pricing, setPricing] = useState<PricingFilter>("all");
   const [onOrAfter, setOnOrAfter] = useState("");
@@ -58,6 +62,7 @@ export default function LiveEventFeed({ categories }: Props) {
           category: category === "all" ? undefined : category,
           pricing: pricing === "all" ? undefined : pricing,
           onOrAfter: onOrAfter || undefined,
+          q: query || undefined,
           cursor: cur,
         });
         if (requestIdRef.current !== myRequestId) return "stale" as const;
@@ -68,7 +73,7 @@ export default function LiveEventFeed({ categories }: Props) {
       }
       return { items: [], nextCursor: cur };
     },
-    [category, pricing, onOrAfter],
+    [category, pricing, onOrAfter, query],
   );
 
   const load = useCallback(
@@ -135,7 +140,7 @@ export default function LiveEventFeed({ categories }: Props) {
     // those directly here, rather than on `load`, is what limits this effect
     // to firing on an actual filter change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category, pricing, onOrAfter]);
+  }, [category, pricing, onOrAfter, query]);
 
   function handleRetry() {
     requestIdRef.current += 1;
@@ -164,17 +169,13 @@ export default function LiveEventFeed({ categories }: Props) {
       {status === "loading" && <p className="text-sm text-muted">Loading events…</p>}
 
       {status === "error" && (
-        <div className="rounded-lg border border-danger/40 bg-danger/10 p-4">
-          <p role="alert" className="text-sm text-foreground">
+        <div className="flex flex-col items-start gap-4">
+          <Notice tone="danger" role="alert">
             {error}
-          </p>
-          <button
-            type="button"
-            onClick={handleRetry}
-            className="mt-3 rounded border border-surface-border px-3 py-1.5 text-sm font-medium text-foreground hover:border-accent hover:text-accent"
-          >
+          </Notice>
+          <Button variant="outline" size="sm" onClick={handleRetry}>
             Try again
-          </button>
+          </Button>
         </div>
       )}
 
@@ -184,45 +185,36 @@ export default function LiveEventFeed({ categories }: Props) {
               number of events in the database — later pages may add more. */}
           <p aria-live="polite" className="text-sm text-muted">
             Showing {events.length} event{events.length === 1 ? "" : "s"}
-            {hasActiveFilters ? " matching your filters" : ""}
+            {hasActiveFilters || query ? " matching your search" : ""}
           </p>
 
           {events.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-surface-border p-10 text-center">
-              <p className="font-heading text-2xl text-foreground">
-                {hasActiveFilters ? "No events match your filters" : "No events have been published yet"}
-              </p>
-              <p className="mt-2 text-sm text-muted">
-                {hasActiveFilters
-                  ? "Try a different category, an earlier date, or clearing the price filter."
-                  : "Check back soon."}
-              </p>
-              {hasActiveFilters && (
-                <button
-                  type="button"
-                  onClick={resetFilters}
-                  className="mt-4 rounded bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-colors hover:bg-accent-strong"
-                >
-                  Reset filters
-                </button>
-              )}
-            </div>
+            <EmptyState
+              title={
+                hasActiveFilters || query
+                  ? "No events match your filters"
+                  : "No events have been published yet"
+              }
+              action={
+                hasActiveFilters ? <Button onClick={resetFilters}>Reset filters</Button> : undefined
+              }
+            >
+              {hasActiveFilters || query
+                ? "Try a different search, category, an earlier date, or clearing the price filter."
+                : "Check back soon."}
+            </EmptyState>
           ) : (
             <>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
-                {events.map((event) => (
-                  <EventCard key={event.id} event={event} />
-                ))}
-              </div>
+              <EventResults events={events} />
               {nextCursor && (
-                <button
-                  type="button"
+                <Button
+                  variant="outline"
                   onClick={handleLoadMore}
                   disabled={loadingMore}
-                  className="w-fit self-center rounded border border-surface-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-60"
+                  className="self-center"
                 >
                   {loadingMore ? "Loading…" : "Load more"}
-                </button>
+                </Button>
               )}
             </>
           )}

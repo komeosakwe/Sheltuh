@@ -1,5 +1,6 @@
 "use client";
 
+import TicketStub from "@/components/tickets/TicketStub";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -139,27 +140,21 @@ export default function CheckoutConfirmation() {
     <div className="flex flex-col gap-6 py-10">
       <div className="flex flex-col items-center gap-2 text-center">
         <p className="text-sm font-medium uppercase tracking-wide text-accent">Order confirmed</p>
-        <h1 className="font-heading text-3xl text-foreground sm:text-4xl">{order.eventTitle}</h1>
+        <h1 className="display-md">{order.eventTitle}</h1>
         {order.buyerEmail && <p className="text-sm text-muted">A receipt was sent to {order.buyerEmail}.</p>}
       </div>
 
-      <div className="rounded-lg border border-surface-border bg-surface p-4">
+      <div className="bg-surface p-4">
         <h2 className="font-heading text-xl text-foreground">Your tickets</h2>
-        <ul className="mt-3 flex flex-col gap-2">
+        <ul className="mt-3 flex flex-col gap-3">
           {order.tickets.map((ticket) => (
-            <li
-              key={ticket.ticketCode}
-              className="flex items-center justify-between rounded border border-surface-border bg-background px-3 py-2"
-            >
-              <span className="text-sm text-foreground">{ticket.ticketTypeName}</span>
-              <span className="font-mono text-sm tracking-wider text-accent">{ticket.ticketCode}</span>
-            </li>
+            <TicketStub key={ticket.ticketCode} code={ticket.ticketCode} typeName={ticket.ticketTypeName} />
           ))}
         </ul>
         <p className="mt-3 text-xs text-muted">Show this page or your email receipt at the door.</p>
       </div>
 
-      <div className="rounded-lg border border-surface-border bg-surface p-4">
+      <div className="bg-surface p-4">
         <dl className="flex flex-col gap-2 text-sm">
           <div className="flex justify-between">
             <dt className="text-muted">Ticket subtotal</dt>

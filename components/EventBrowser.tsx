@@ -1,7 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import EventCard from "@/components/EventCard";
+import EventResults from "@/components/EventResults";
+import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/Section";
 import EventFilterBar, { type PricingFilter } from "@/components/EventFilterBar";
 import { isFreeEvent } from "@/lib/data";
 import { formatEventDateKey } from "@/lib/format";
@@ -10,15 +12,26 @@ import type { EventCategory, SheltuhEvent } from "@/lib/types";
 interface EventBrowserProps {
   events: SheltuhEvent[];
   categories: { value: EventCategory; label: string }[];
+  /** Free-text search (from /search), matched the same way the live API does. */
+  query?: string;
 }
 
-export default function EventBrowser({ events, categories }: EventBrowserProps) {
+function matchesQuery(event: SheltuhEvent, query: string) {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  return [event.title, event.venueName, event.suburb, event.organiserName, event.description].some((field) =>
+    field?.toLowerCase().includes(needle),
+  );
+}
+
+export default function EventBrowser({ events, categories, query = "" }: EventBrowserProps) {
   const [category, setCategory] = useState<EventCategory | "all">("all");
   const [pricing, setPricing] = useState<PricingFilter>("all");
   const [onOrAfter, setOnOrAfter] = useState("");
 
   const filteredEvents = useMemo(() => {
     return events
+      .filter((event) => matchesQuery(event, query))
       .filter((event) => category === "all" || event.category === category)
       .filter((event) => {
         if (pricing === "all") return true;
@@ -27,7 +40,7 @@ export default function EventBrowser({ events, categories }: EventBrowserProps) 
       })
       .filter((event) => onOrAfter === "" || formatEventDateKey(event.startsAt) >= onOrAfter)
       .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
-  }, [events, category, pricing, onOrAfter]);
+  }, [events, query, category, pricing, onOrAfter]);
 
   const hasActiveFilters = category !== "all" || pricing !== "all" || onOrAfter !== "";
 
@@ -56,25 +69,14 @@ export default function EventBrowser({ events, categories }: EventBrowserProps) 
       </p>
 
       {filteredEvents.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-surface-border p-10 text-center">
-          <p className="font-heading text-2xl text-foreground">No events match your filters</p>
-          <p className="mt-2 text-sm text-muted">
-            Try a different category, an earlier date, or clearing the price filter.
-          </p>
-          <button
-            type="button"
-            onClick={resetFilters}
-            className="mt-4 rounded bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-colors hover:bg-accent-strong"
-          >
-            Reset filters
-          </button>
-        </div>
+        <EmptyState
+          title="No events match your filters"
+          action={<Button onClick={resetFilters}>Reset filters</Button>}
+        >
+          Try a different category, an earlier date, or clearing the price filter.
+        </EmptyState>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
-          {filteredEvents.map((event) => (
-            <EventCard key={event.id} event={event} />
-          ))}
-        </div>
+        <EventResults events={filteredEvents} />
       )}
     </div>
   );

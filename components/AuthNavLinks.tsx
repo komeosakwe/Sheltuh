@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth/AuthContext";
 
-const linkClass =
-  "rounded px-3 py-2 font-medium text-foreground transition-colors hover:bg-surface hover:text-accent";
+export const navLinkClass =
+  "px-2 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground transition-colors hover:underline hover:decoration-2 hover:underline-offset-8";
+const linkClass = navLinkClass;
 
 export default function AuthNavLinks() {
   const auth = useAuth();
@@ -20,7 +21,7 @@ export default function AuthNavLinks() {
   }
 
   if (auth.status === "loading") {
-    return <span className="px-3 py-2 text-sm text-muted">…</span>;
+    return <span className="px-2 py-2 text-sm text-muted">…</span>;
   }
 
   if (auth.status === "signed-out") {

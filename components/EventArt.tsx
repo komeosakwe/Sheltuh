@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import type { ReactNode } from "react";
 import type { EventPoster } from "@/lib/types";
 
@@ -164,20 +167,36 @@ function renderPattern(poster: EventPoster) {
 export default function EventArt({
   poster,
   title,
+  imageUrl,
   className,
   children,
 }: {
   poster: EventPoster;
   title: string;
+  /** When set (and loading), the photo replaces the generated artwork. */
+  imageUrl?: string;
   className?: string;
   children?: ReactNode;
 }) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const showImage = Boolean(imageUrl) && failedUrl !== imageUrl;
+
   return (
     <div
       aria-hidden="true"
       className={`relative overflow-hidden ${className ?? ""}`}
       style={{ backgroundColor: poster.background }}
     >
+      {showImage ? (
+        // eslint-disable-next-line @next/next/no-img-element -- remote/organiser-supplied URLs; sized by the parent
+        <img
+          src={imageUrl}
+          alt=""
+          loading="lazy"
+          onError={() => setFailedUrl(imageUrl ?? null)}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      ) : (
       <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" className="absolute inset-0 h-full w-full">
         <text
           x="50"
@@ -192,6 +211,7 @@ export default function EventArt({
         </text>
         {renderPattern(poster)}
       </svg>
+      )}
       {children && <div className="absolute inset-0 flex items-end p-3">{children}</div>}
     </div>
   );

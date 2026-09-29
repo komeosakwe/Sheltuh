@@ -9,7 +9,7 @@ export default function AdminGate({ children }: { children: ReactNode }) {
 
   if (!auth.configured) {
     return (
-      <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-foreground">
+      <p role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
         Accounts aren&rsquo;t configured in this environment yet.
       </p>
     );
@@ -21,9 +21,9 @@ export default function AdminGate({ children }: { children: ReactNode }) {
 
   if (auth.status === "signed-out") {
     return (
-      <div className="rounded-lg border border-surface-border bg-surface p-4">
+      <div className="bg-surface p-4">
         <p className="mb-3 text-foreground">Sign in with an admin account to continue.</p>
-        <Link href="/login" className="rounded bg-accent px-4 py-2 text-sm font-medium text-accent-foreground">
+        <Link href="/login" className="btn btn-solid">
           Sign in
         </Link>
       </div>
@@ -32,7 +32,7 @@ export default function AdminGate({ children }: { children: ReactNode }) {
 
   if (!auth.isAdmin) {
     return (
-      <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-foreground">
+      <p role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
         Your account doesn&rsquo;t have admin access.
       </p>
     );

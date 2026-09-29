@@ -101,7 +101,7 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
           id="displayName"
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
-          className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+          className="border border-foreground bg-transparent px-3 py-2 text-foreground"
         />
         {errors.displayName && <p className="text-sm text-danger">{errors.displayName}</p>}
       </div>
@@ -115,7 +115,7 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
           type="email"
           value={contactEmail}
           onChange={(e) => setContactEmail(e.target.value)}
-          className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+          className="border border-foreground bg-transparent px-3 py-2 text-foreground"
         />
         {errors.contactEmail && <p className="text-sm text-danger">{errors.contactEmail}</p>}
       </div>
@@ -129,7 +129,7 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
           rows={3}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+          className="border border-foreground bg-transparent px-3 py-2 text-foreground"
         />
         {errors.description && <p className="text-sm text-danger">{errors.description}</p>}
       </div>
@@ -162,13 +162,13 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
           value={websiteUrl}
           onChange={(e) => setWebsiteUrl(e.target.value)}
           placeholder="https://"
-          className="rounded border border-surface-border bg-background px-3 py-2 text-foreground"
+          className="border border-foreground bg-transparent px-3 py-2 text-foreground"
         />
         {errors.websiteUrl && <p className="text-sm text-danger">{errors.websiteUrl}</p>}
       </div>
 
       {submitError && sessionExpired && (
-        <div role="alert" className="rounded-md border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-foreground">
+        <div role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
           <p>{submitError}</p>
           <InlineReauth
             expectedEmail={ownerEmail}
@@ -188,7 +188,7 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
       <button
         type="submit"
         disabled={loading}
-        className="w-fit rounded bg-accent px-5 py-3 font-medium text-accent-foreground transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-60"
+        className="btn btn-solid w-fit"
       >
         {loading ? "Submitting…" : mode === "apply" ? "Submit application" : "Resubmit application"}
       </button>

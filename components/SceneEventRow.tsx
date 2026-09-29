@@ -5,7 +5,7 @@ import type { SheltuhEvent } from "@/lib/types";
 import { formatFeedPrice } from "@/lib/pricing";
 import { formatEventDateShort, formatEventTime } from "@/lib/format";
 
-const ORANGE = "#e15b27";
+const ORANGE = "#0b0b0b";
 
 interface SceneEventRowProps {
   event: SheltuhEvent;
@@ -29,14 +29,14 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
       className="grid grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-surface-border px-4 py-3 transition-colors last:border-b-0"
       style={
         selected
-          ? { background: "#24140e", boxShadow: `inset 2px 0 0 ${ORANGE}` }
+          ? { background: "#eae6db", boxShadow: `inset 2px 0 0 ${ORANGE}` }
           : { boxShadow: "inset 2px 0 0 transparent" }
       }
     >
       <EventArt
         poster={event.poster}
         title={event.title}
-        className="h-20 w-20 flex-shrink-0 rounded sm:h-24 sm:w-24"
+        className="h-20 w-20 flex-shrink-0  sm:h-24 sm:w-24"
       />
 
       <div className="min-w-0">
@@ -75,8 +75,8 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
         className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border font-sans text-base transition-colors disabled:cursor-not-allowed disabled:opacity-40"
         style={
           selected
-            ? { background: ORANGE, borderColor: ORANGE, color: "#17140f" }
-            : { background: "#151311", borderColor: "#3d352e", color: "#d5cec3" }
+            ? { background: ORANGE, borderColor: ORANGE, color: "#f3f0e8" }
+            : { background: "#f3f0e8", borderColor: "#0b0b0b", color: "#0b0b0b" }
         }
       >
         <span aria-hidden="true">&#8982;</span>

@@ -80,6 +80,8 @@ export interface SheltuhEvent {
   endsAt?: string;
   organiserName: string;
   poster: EventPoster;
+  /** Optional event photo/poster (path under /public or absolute URL). Falls back to `poster` art when absent or failing to load. */
+  imageUrl?: string;
   ticketTypes: TicketType[];
   /**
    * Optional organiser-supplied context — shown on the details page only

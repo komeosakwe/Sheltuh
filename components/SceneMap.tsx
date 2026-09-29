@@ -29,7 +29,7 @@ const SceneMapPanel = dynamic(() => import("@/components/SceneMapPanel"), {
   loading: () => <div className="flex h-full items-center justify-center text-sm text-muted">Loading map&hellip;</div>,
 });
 
-const ORANGE = "#e15b27";
+const ORANGE = "#0b0b0b";
 
 type MobileView = "map" | "list";
 type Status = "loading" | "loaded" | "error";
@@ -229,7 +229,7 @@ function SceneMapView({
         <p className="text-xs font-medium uppercase tracking-[0.16em]" style={{ color: ORANGE }}>
           Melbourne&rsquo;s creative scene
         </p>
-        <h1 className="max-w-2xl text-[34px] leading-[0.95] font-bold tracking-[-0.03em] text-foreground sm:text-5xl lg:text-6xl">
+        <h1 className="display-lg max-w-3xl">
           Find the room.
           <br />
           <span style={{ color: ORANGE }}>Find your people.</span>
@@ -268,7 +268,7 @@ function SceneMapView({
               type="button"
               onClick={chip.onRemove}
               className="flex h-8 items-center gap-1.5 rounded-full border px-3 font-sans text-xs font-medium text-foreground"
-              style={{ borderColor: "#3d352e", background: "#151311" }}
+              style={{ borderColor: "#0b0b0b", background: "#f3f0e8" }}
             >
               {chip.label}
               <span aria-hidden="true" className="text-muted">
@@ -291,7 +291,7 @@ function SceneMapView({
       {status === "loading" && <p className="text-sm text-muted">Loading events&hellip;</p>}
 
       {status === "error" && (
-        <div className="rounded-lg border border-danger/40 bg-danger/10 p-4">
+        <div className="border-l-2 border-danger p-4">
           <p role="alert" className="text-sm text-foreground">
             {error}
           </p>
@@ -299,7 +299,7 @@ function SceneMapView({
             <button
               type="button"
               onClick={onRetry}
-              className="mt-3 rounded border border-surface-border px-3 py-1.5 text-sm font-medium text-foreground hover:border-accent hover:text-accent"
+              className="btn btn-outline mt-3"
             >
               Try again
             </button>
@@ -316,7 +316,7 @@ function SceneMapView({
             </p>
             <label className="flex items-center gap-1.5 font-sans text-sm text-muted">
               Sort:
-              <select className="rounded border border-surface-border bg-background px-2 py-1 text-foreground" defaultValue="soonest">
+              <select className="border border-foreground bg-transparent px-2 py-1 text-foreground" defaultValue="soonest">
                 <option value="soonest">Soonest</option>
               </select>
             </label>
@@ -336,7 +336,7 @@ function SceneMapView({
                 aria-selected={mobileView === view}
                 onClick={() => setMobileView(view)}
                 className="min-h-[44px] rounded-full px-5 font-sans text-sm font-semibold capitalize transition-colors"
-                style={mobileView === view ? { background: ORANGE, color: "#17140f" } : { color: "#a3a3ad" }}
+                style={mobileView === view ? { background: ORANGE, color: "#f3f0e8" } : { color: "#6b675e" }}
               >
                 {view}
               </button>
@@ -344,7 +344,7 @@ function SceneMapView({
           </div>
 
           {filtered.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-surface-border p-10 text-center">
+            <div className="border-t border-foreground p-10 text-center">
               <p className="font-heading text-2xl text-foreground">No events match your filters</p>
               <p className="mt-2 font-sans text-sm text-muted">
                 Try a different neighbourhood, time window, category, or clearing the price filter.
@@ -352,15 +352,15 @@ function SceneMapView({
               <button
                 type="button"
                 onClick={resetFilters}
-                className="mt-4 rounded px-4 py-2 font-sans text-sm font-medium"
-                style={{ background: ORANGE, color: "#17140f" }}
+                className="mt-4  px-4 py-2 font-sans text-sm font-medium"
+                style={{ background: ORANGE, color: "#f3f0e8" }}
               >
                 Broaden search
               </button>
             </div>
           ) : (
             <>
-              <div className="grid overflow-hidden rounded-lg border border-surface-border lg:grid-cols-[55fr_45fr]">
+              <div className="grid overflow-hidden rounded-none border border-surface-border lg:grid-cols-[55fr_45fr]">
                 <div className={`h-[420px] lg:h-[600px] ${mobileView === "map" ? "block" : "hidden"} lg:block`}>
                   <SceneMapPanel
                     events={filtered}
@@ -376,7 +376,7 @@ function SceneMapView({
                   className={`h-[420px] overflow-y-auto border-t border-surface-border lg:h-[600px] lg:border-t-0 lg:border-l ${
                     mobileView === "list" ? "block" : "hidden"
                   } lg:block`}
-                  style={{ background: "#11100f" }}
+                  style={{ background: "#f3f0e8" }}
                 >
                   {filtered.map((event) => (
                     <div
@@ -410,7 +410,7 @@ function SceneMapView({
                   type="button"
                   onClick={onLoadMore}
                   disabled={loadingMore}
-                  className="w-fit self-center rounded border border-surface-border px-4 py-2 font-sans text-sm font-medium text-foreground transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-60"
+                  className="btn btn-outline w-fit self-center font-sans"
                 >
                   {loadingMore ? "Loading…" : "Load more events"}
                 </button>
@@ -421,8 +421,8 @@ function SceneMapView({
           {/* Mobile map tab only: a compact, dismissible summary for the selected event, since the highlighted list row isn't visible there. */}
           {selectedEvent && mobileView === "map" && (
             <div
-              className="fixed inset-x-3 bottom-3 z-[1200] flex items-center gap-3 rounded-lg border p-3 shadow-xl lg:hidden"
-              style={{ background: "#151311", borderColor: ORANGE }}
+              className="fixed inset-x-3 bottom-3 z-[1200] flex items-center gap-3 rounded-none border p-3 shadow-xl lg:hidden"
+              style={{ background: "#f3f0e8", borderColor: ORANGE }}
             >
               <div className="min-w-0 flex-1">
                 <p className="truncate font-sans text-sm font-semibold text-foreground">{selectedEvent.title}</p>
@@ -433,8 +433,8 @@ function SceneMapView({
               </div>
               <Link
                 href={`/events/${selectedEvent.slug}`}
-                className="flex h-11 items-center rounded px-3 font-sans text-sm font-medium"
-                style={{ background: ORANGE, color: "#17140f" }}
+                className="flex h-11 items-center  px-3 font-sans text-sm font-medium"
+                style={{ background: ORANGE, color: "#f3f0e8" }}
               >
                 View
               </Link>
@@ -539,7 +539,7 @@ function SceneMapLive({ categories }: { categories: { value: EventCategory; labe
 
 /**
  * The "Scene Map" discovery experience: a real (client-only, Leaflet +
- * CARTO dark tiles, no API key) map synced with a scrollable event list,
+ * Esri light-gray tiles, no API key) map synced with a scrollable event list,
  * backed by the same demo/live event data as the rest of the app.
  */
 export default function SceneMap() {

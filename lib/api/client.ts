@@ -30,7 +30,8 @@ export class ApiError extends Error {
 }
 
 interface FetchOptions {
-  method?: "GET" | "POST" | "PATCH";
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
+  /** A Blob is sent as-is (e.g. an image upload); anything else as JSON. */
   body?: unknown;
   /** Supabase access token. Omit for the public routes. */
   token?: string;
@@ -46,10 +47,15 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
     res = await fetch(`${API_BASE}${path}`, {
       method: options.method ?? "GET",
       headers: {
-        "content-type": "application/json",
+        "content-type": options.body instanceof Blob ? options.body.type : "application/json",
         ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
       },
-      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      body:
+        options.body === undefined
+          ? undefined
+          : options.body instanceof Blob
+            ? options.body
+            : JSON.stringify(options.body),
     });
   } catch {
     throw new ApiError(0, "Couldn't reach the server. Check your connection and try again.");

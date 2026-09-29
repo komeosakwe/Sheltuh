@@ -6,11 +6,11 @@ export const metadata: Metadata = { title: "New event — Sheltüh" };
 
 export default function NewEventPage() {
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-8 sm:px-6">
+    <div className="mx-auto flex max-w-2xl flex-col gap-8 px-5 py-12 sm:px-8 sm:py-20">
       <Link href="/dashboard" className="text-sm text-accent underline underline-offset-2">
         &larr; Back to your events
       </Link>
-      <h1 className="font-heading text-4xl text-foreground sm:text-5xl">New event</h1>
+      <h1 className="display-lg">New event</h1>
       <NewEventPageContent />
     </div>
   );

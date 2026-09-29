@@ -68,11 +68,11 @@ export default function PayoutsPanel() {
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-surface-border bg-surface p-4">
+    <div className="flex flex-col gap-3 bg-surface p-4">
       <div className="flex items-center justify-between gap-3">
         <h2 className="font-heading text-xl text-foreground">Payouts</h2>
         <span
-          className={`rounded px-2 py-1 text-xs font-medium uppercase tracking-wide ${
+          className={` px-2 py-1 text-xs font-medium uppercase tracking-wide ${
             enabled ? "bg-accent/15 text-accent" : "bg-background text-muted"
           }`}
         >
@@ -98,7 +98,7 @@ export default function PayoutsPanel() {
         type="button"
         onClick={handleConnect}
         disabled={connecting}
-        className="w-fit rounded bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-60"
+        className="btn btn-solid w-fit"
       >
         {connecting ? "Redirecting to Stripe…" : enabled ? "Update payout details" : "Connect with Stripe"}
       </button>

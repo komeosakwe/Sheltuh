@@ -8,7 +8,7 @@ import { MELBOURNE_DEFAULT_CENTER, MELBOURNE_DEFAULT_ZOOM, resolveEventCoordinat
 import type { Coordinates, EventCategory, SheltuhEvent } from "@/lib/types";
 
 const PIN_SIZE = 34;
-const ORANGE = "#e15b27";
+const ORANGE = "#0b0b0b";
 
 // Simple monoline glyphs instead of category codes like "WKS"/"THR" — paired
 // with a real aria-label (the event's title, not the category) on each
@@ -50,25 +50,25 @@ function PinStyles() {
     <style>{`
       .scene-pin { outline: none; }
       .scene-pin-inner {
-        width: 100%; height: 100%; border-radius: 10px; border: 2px solid #69422e;
-        background: linear-gradient(145deg,#8c4829,#201713);
+        width: 100%; height: 100%; border-radius: 50%; border: 2px solid #0b0b0b;
+        background: #f3f0e8;
         display: flex; align-items: center; justify-content: center;
-        color: #fff; font-size: 16px; line-height: 1;
+        color: #0b0b0b; font-size: 16px; line-height: 1;
         transition: background .15s, border-color .15s, box-shadow .15s;
       }
       .scene-pin.selected .scene-pin-inner {
-        background: ${ORANGE}; border-color: ${ORANGE}; box-shadow: 0 0 0 6px rgba(225,91,39,.28);
-        color: #17140f;
+        background: ${ORANGE}; border-color: ${ORANGE}; box-shadow: 0 0 0 6px rgba(11,11,11,.18);
+        color: #f3f0e8;
       }
-      .scene-pin:focus-visible .scene-pin-inner { outline: 2px solid #fff; outline-offset: 2px; }
+      .scene-pin:focus-visible .scene-pin-inner { outline: 2px solid #0b0b0b; outline-offset: 2px; }
       .leaflet-control-attribution {
-        background: rgba(8,8,8,.75) !important; color: #a3a3ad !important;
+        background: rgba(243,240,232,.85) !important; color: #6b675e !important;
       }
-      .leaflet-control-attribution a { color: #d5cec3 !important; }
+      .leaflet-control-attribution a { color: #0b0b0b !important; }
       .leaflet-control-zoom a {
-        background: #17171c !important; color: #f5f4f0 !important; border-color: #2a2a32 !important;
+        background: #f3f0e8 !important; color: #0b0b0b !important; border-color: #0b0b0b !important;
       }
-      .leaflet-control-zoom a:hover { background: #232228 !important; }
+      .leaflet-control-zoom a:hover { background: #eae6db !important; }
     `}</style>
   );
 }
@@ -156,8 +156,8 @@ function SearchThisAreaControl({
           onSearchArea(map.getBounds());
           setShowButton(false);
         }}
-        className="pointer-events-auto flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium text-white shadow-lg"
-        style={{ background: "#1a1917", border: `1px solid ${ORANGE}` }}
+        className="pointer-events-auto flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium text-white"
+        style={{ background: "#0b0b0b", border: `1px solid ${ORANGE}` }}
       >
         <span aria-hidden="true">⟳</span> Search this area
       </button>
@@ -273,8 +273,8 @@ interface SceneMapPanelProps {
 const TILE_LOAD_TIMEOUT_MS = 9000;
 
 /**
- * Client-only Leaflet map. Basemap is CARTO's free "Dark Matter" tiles (no
- * API key) so it actually reads as a dark map with streets and neighbourhood
+ * Client-only Leaflet map. Basemap is CARTO's free light-gray Esri tiles (no
+ * API key) so it actually reads as a light, quiet map with streets and neighbourhood
  * labels, matching the app's palette — plain default OpenStreetMap tiles are
  * a bright daytime style that wouldn't fit even when they load. CARTO's
  * usage terms are fine for this traffic level; a real launch should still
@@ -331,23 +331,23 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
   }
 
   return (
-    <div className="relative h-full w-full overflow-hidden rounded-lg border border-surface-border">
+    <div className="relative h-full w-full overflow-hidden rounded-none border border-surface-border">
       <PinStyles />
       <MapContainer
         key={retryKey}
         center={[center.lat, center.lng]}
         zoom={MELBOURNE_DEFAULT_ZOOM}
         scrollWheelZoom
-        style={{ height: "100%", width: "100%", background: "#0c0c0c" }}
+        style={{ height: "100%", width: "100%", background: "#f3f0e8" }}
       >
         <TileLayer
           attribution='&copy; <a href="https://www.esri.com">Esri</a> &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors, GIS community'
-          url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+          url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"
           maxZoom={16}
           eventHandlers={{ tileload: handleTileLoad, tileerror: handleTileError }}
         />
         <TileLayer
-          url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
+          url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
           maxZoom={16}
           pane="shadowPane"
         />
@@ -369,13 +369,13 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
       </MapContainer>
 
       {status === "loading" && (
-        <div className="pointer-events-none absolute inset-0 z-[1000] flex items-center justify-center bg-[#0c0c0c]/60">
+        <div className="pointer-events-none absolute inset-0 z-[1000] flex items-center justify-center bg-[#f3f0e8]/60">
           <p className="rounded-full bg-black/70 px-4 py-2 text-sm text-foreground">Loading map&hellip;</p>
         </div>
       )}
 
       {status === "failed" && (
-        <div className="absolute inset-0 z-[1000] flex flex-col items-center justify-center gap-3 bg-[#0c0c0c] px-6 text-center">
+        <div className="absolute inset-0 z-[1000] flex flex-col items-center justify-center gap-3 bg-[#f3f0e8] px-6 text-center">
           <p className="font-heading text-xl text-foreground">Map couldn&rsquo;t load</p>
           <p className="max-w-xs text-sm text-muted">
             The map tiles didn&rsquo;t come through &mdash; your connection or the tile provider may be
@@ -384,8 +384,8 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
           <button
             type="button"
             onClick={() => setRetryKey((k) => k + 1)}
-            className="rounded px-4 py-2 text-sm font-medium"
-            style={{ background: ORANGE, color: "#17140f" }}
+            className="px-4 py-2 text-sm font-medium"
+            style={{ background: ORANGE, color: "#f3f0e8" }}
           >
             Retry
           </button>
