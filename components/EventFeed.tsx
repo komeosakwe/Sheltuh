@@ -24,7 +24,7 @@ function DemoEventFeed({ query }: { query?: string }) {
   }, []);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4 sm:gap-6">
       <DemoNotice>
         These are fictional sample listings for this local prototype — no real tickets are on
         sale.

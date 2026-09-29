@@ -60,12 +60,12 @@ export function SectionHeader({
   id?: string;
 }) {
   return (
-    <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div className="mb-5 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-end sm:justify-between">
       <div className="max-w-xl">
         <h2 id={id} className="display-md">
           {title}
         </h2>
-        {intro && <p className="mt-3 text-sm leading-relaxed text-muted sm:text-base">{intro}</p>}
+        {intro && <p className="mt-2 text-sm leading-relaxed text-muted sm:mt-3 sm:text-base">{intro}</p>}
       </div>
       {action}
     </div>

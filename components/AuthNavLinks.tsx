@@ -6,9 +6,9 @@ import { useAuth } from "@/lib/auth/AuthContext";
 
 export const navLinkClass =
   "px-2 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground transition-colors hover:underline hover:decoration-2 hover:underline-offset-8";
-const linkClass = navLinkClass;
 
-export default function AuthNavLinks() {
+/** `className` styles every link/button; it defaults to the desktop nav style (the phone menu passes its own). */
+export default function AuthNavLinks({ className: linkClass = navLinkClass }: { className?: string } = {}) {
   const auth = useAuth();
   const router = useRouter();
 

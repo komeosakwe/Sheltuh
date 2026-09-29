@@ -28,7 +28,13 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${anton.variable} ${inter.variable} h-full`}>
+    // data-scroll-behavior: Next 16 turns the CSS smooth scroll off during route
+    // changes, so page navigations still jump to the top instantly.
+    <html
+      lang="en"
+      data-scroll-behavior="smooth"
+      className={`${anton.variable} ${inter.variable} h-full`}
+    >
       <body className="min-h-full flex flex-col bg-background text-foreground antialiased">
         <a
           href="#main"

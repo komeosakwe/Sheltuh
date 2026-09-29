@@ -2,7 +2,8 @@ import Link from "next/link";
 import type { ButtonHTMLAttributes, ComponentProps } from "react";
 
 export type ButtonVariant = "solid" | "outline" | "light" | "danger";
-export type ButtonSize = "sm" | "md";
+/** `lg` is the 48px pill for primary thumb actions on phones. */
+export type ButtonSize = "sm" | "md" | "lg";
 
 /** Small pill CTA — the only place fully rounded shapes appear in the UI. Styles live in globals.css (.btn). */
 export function buttonClass(
@@ -16,7 +17,8 @@ export function buttonClass(
     light: "btn-outline border-background text-background hover:!bg-background hover:!text-foreground",
     danger: "btn-danger",
   };
-  return `btn ${variants[variant]} ${size === "sm" ? "btn-sm" : ""} ${className}`.replace(/\s+/g, " ").trim();
+  const sizes: Record<ButtonSize, string> = { sm: "btn-sm", md: "", lg: "btn-lg" };
+  return `btn ${variants[variant]} ${sizes[size]} ${className}`.replace(/\s+/g, " ").trim();
 }
 
 interface StyleProps {

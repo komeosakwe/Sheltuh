@@ -13,9 +13,10 @@ export function WhatElse() {
   return (
     <section
       aria-labelledby="what-else"
-      className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-12 px-5 py-16 sm:px-8 sm:py-24 lg:grid-cols-12"
+      className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-8 px-5 py-12 sm:gap-12 sm:px-8 sm:py-24 lg:grid-cols-12"
     >
-      <div aria-hidden="true" className="lg:col-span-5">
+      {/* Decorative panel: desktop only, it cost a full phone screen before the list. */}
+      <div aria-hidden="true" className="hidden lg:col-span-5 lg:block">
         <EventArt
           poster={{ pattern: "rings", background: "#0b0b0b", primary: "#f3f0e8", secondary: "#e8ff3a" }}
           title="Sheltüh"
@@ -46,7 +47,7 @@ export function WhatElse() {
 export function PartnerBand() {
   return (
     <section aria-labelledby="partners" className="bg-foreground text-background">
-      <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-10 px-5 py-16 sm:px-8 sm:py-24 lg:grid-cols-12">
+      <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-10 px-5 py-12 sm:px-8 sm:py-24 lg:grid-cols-12">
         <div className="lg:col-span-6">
           <h2 id="partners" className="display-lg">
             A network of rooms and promoters
@@ -63,7 +64,7 @@ export function PartnerBand() {
         </div>
         <div
           aria-hidden="true"
-          className="display-md flex flex-wrap items-center gap-x-5 gap-y-3 text-background/90 lg:col-span-5 lg:col-start-8"
+          className="display-md hidden flex-wrap items-center gap-x-5 gap-y-3 text-background/90 lg:col-span-5 lg:col-start-8 lg:flex"
         >
           {["Live music", "Art", "Workshops", "Pop-ups", "Theatre"].map((word) => (
             <span key={word} className="flex items-center gap-5">

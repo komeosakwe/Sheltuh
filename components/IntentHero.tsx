@@ -24,8 +24,8 @@ export default function IntentHero() {
 
   return (
     <>
-      <section className="mx-auto grid max-w-6xl grid-cols-1 gap-10 px-5 pb-16 pt-8 sm:px-8 sm:pb-24 sm:pt-14 lg:grid-cols-12">
-        <div className="flex flex-col justify-between gap-10 lg:col-span-7">
+      <section className="mx-auto grid max-w-6xl grid-cols-1 gap-4 px-5 pb-8 pt-6 sm:gap-10 sm:px-8 sm:pb-24 sm:pt-14 lg:grid-cols-12">
+        <div className="flex flex-col justify-between gap-4 sm:gap-10 lg:col-span-7">
           <p className="eyebrow text-muted">Melbourne &middot; Naarm</p>
           <h1 className="display-xl">
             Find your room.
@@ -33,7 +33,14 @@ export default function IntentHero() {
             Find your people.
           </h1>
           <div className="flex flex-col gap-6">
-            <div role="group" aria-label="What are you here for?" className="flex flex-wrap gap-2">
+            {/* Phones: one sideways-scrolling row (the third pill peeks). The
+                -my/py pair leaves room for focus rings, which the scroll
+                container would otherwise clip. */}
+            <div
+              role="group"
+              aria-label="What are you here for?"
+              className="no-scrollbar -mx-5 -my-1.5 flex flex-nowrap gap-2 overflow-x-auto px-5 py-1.5 sm:mx-0 sm:my-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:py-0"
+            >
               {INTENTS.map((option) => {
                 const selected = intent === option.id;
                 return (
@@ -42,7 +49,7 @@ export default function IntentHero() {
                     type="button"
                     aria-pressed={selected}
                     onClick={() => setIntent(option.id)}
-                    className={`rounded-full border border-foreground px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors ${
+                    className={`h-11 shrink-0 rounded-full border border-foreground px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors sm:h-auto ${
                       selected ? "bg-foreground text-background" : "hover:bg-foreground/10"
                     }`}
                   >
@@ -64,7 +71,10 @@ export default function IntentHero() {
         </div>
       </section>
 
-      <Marquee items={["Live music", "Art", "Workshops", "Pop-ups", "Theatre", "Melbourne"]} />
+      {/* Hidden on phones: it costs a screen band before the feed and can't be paused. */}
+      <div className="hidden sm:block">
+        <Marquee items={["Live music", "Art", "Workshops", "Pop-ups", "Theatre", "Melbourne"]} />
+      </div>
     </>
   );
 }
