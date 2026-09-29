@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
-import { Anton, Inter } from "next/font/google";
+import { Bricolage_Grotesque, Inter } from "next/font/google";
 import Footer from "@/components/Footer";
 import Nav from "@/components/Nav";
 import { isApiConfigured } from "@/lib/api/client";
 import { AuthProvider } from "@/lib/auth/AuthContext";
 import "./globals.css";
 
-const anton = Anton({
+const display = Bricolage_Grotesque({
   variable: "--font-display",
-  weight: "400",
+  weight: "800",
   subsets: ["latin"],
   display: "swap",
 });
@@ -33,7 +33,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       data-scroll-behavior="smooth"
-      className={`${anton.variable} ${inter.variable} h-full`}
+      className={`${display.variable} ${inter.variable} h-full`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground antialiased">
         <a

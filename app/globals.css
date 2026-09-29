@@ -39,8 +39,8 @@
   --color-danger: var(--danger);
   --color-danger-foreground: var(--danger-foreground);
   --color-highlight: var(--highlight);
-  --font-display: var(--font-display), "Arial Narrow", Impact, sans-serif;
-  --font-heading: var(--font-display), "Arial Narrow", Impact, sans-serif;
+  --font-display: var(--font-display), "Arial Black", Arial, sans-serif;
+  --font-heading: var(--font-display), "Arial Black", Arial, sans-serif;
   --font-sans: var(--font-body), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
@@ -80,40 +80,40 @@ h1,
 h2,
 h3,
 h4 {
-  font-family: var(--font-display), "Arial Narrow", Impact, sans-serif;
-  font-weight: 400;
-  letter-spacing: 0;
+  font-family: var(--font-display), "Arial Black", Arial, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.01em;
   text-transform: uppercase;
   line-height: 0.95;
 }
 }
 
 @utility display-xl {
-  font-family: var(--font-display), "Arial Narrow", Impact, sans-serif;
-  font-size: clamp(3.25rem, 11vw, 7.5rem);
+  font-family: var(--font-display), "Arial Black", Arial, sans-serif;
+  font-size: clamp(2.75rem, 8.5vw, 6rem);
   line-height: 0.95;
   text-transform: uppercase;
   letter-spacing: -0.01em;
   /* Phones: 12vw keeps "Find your people." to one line from 320 to 430. */
   @media (width < 40rem) {
-    font-size: clamp(2.5rem, 12vw, 3.25rem);
+    font-size: clamp(2rem, 9.5vw, 2.75rem);
   }
 }
 
 @utility display-lg {
-  font-family: var(--font-display), "Arial Narrow", Impact, sans-serif;
-  font-size: clamp(2.75rem, 8vw, 6rem);
+  font-family: var(--font-display), "Arial Black", Arial, sans-serif;
+  font-size: clamp(2.25rem, 6.5vw, 4.75rem);
   line-height: 0.9;
   text-transform: uppercase;
   @media (width < 40rem) {
-    font-size: clamp(2.25rem, 10vw, 2.75rem);
+    font-size: clamp(1.875rem, 8.5vw, 2.25rem);
     line-height: 0.95;
   }
 }
 
 @utility display-md {
-  font-family: var(--font-display), "Arial Narrow", Impact, sans-serif;
-  font-size: clamp(1.75rem, 4vw, 2.75rem);
+  font-family: var(--font-display), "Arial Black", Arial, sans-serif;
+  font-size: clamp(1.5rem, 3.4vw, 2.25rem);
   line-height: 0.95;
   text-transform: uppercase;
 }
