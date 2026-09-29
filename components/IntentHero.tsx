@@ -21,7 +21,6 @@ const HERO_POSTERS = [
 
 export default function IntentHero() {
   const [intent, setIntent] = useState<Intent>("discover");
-  const active = INTENTS.find((option) => option.id === intent) ?? INTENTS[0];
 
   return (
     <>
@@ -53,9 +52,6 @@ export default function IntentHero() {
                 );
               })}
             </div>
-            <p className="max-w-sm text-base leading-relaxed text-muted">
-              {active.blurb} Sheltüh surfaces the rooms, nights and events that fit.
-            </p>
           </div>
         </div>
 
