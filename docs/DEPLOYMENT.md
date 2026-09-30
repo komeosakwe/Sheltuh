@@ -5,6 +5,21 @@ One page to work through before and on launch day. The detailed steps live in
 what to check. Nothing here has run against real Supabase, Stripe or Vercel
 yet: treat the first pass as **test mode**, and only then go live.
 
+## Status (as of the last push to the branch)
+
+- Built and reviewed: phone home redesign, photos, Who's Going, messaging
+  (backend and screens), moderation queue, security hardening. Code, security
+  and accessibility reviews were run and their findings fixed.
+- Local gates on the head commit: types, lint and 906 unit and API tests
+  pass. CI (production build, server tests on Postgres 16, browser tests)
+  passed on every push through `7ebb4c0`; check the run for the head commit.
+- **Not done, needs you:** legal sign-off, photo licences (see
+  `public/events/README.md`), Supabase/Stripe/Vercel setup below.
+- **Known gaps (deliberate):** no per-person "already talking" state on the
+  Who's Going list; no browser test for the messaging journey; blocking or
+  reporting straight from the Who's Going list; evidence vanishes when a
+  member deletes their profile before being reported (product decision).
+
 ## What is ready in the code
 
 - Branch `claude/wizardly-darwin-v2c9n2` holds everything since PR #6:
