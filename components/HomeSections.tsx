@@ -59,10 +59,14 @@ export function WhatElse() {
               onMouseEnter={() => setActive(index)}
               onClick={() => setActive(index)}
               className={`cursor-default transition-opacity duration-300 ${
-                index === active ? "opacity-100" : "opacity-35"
+                index === active ? "opacity-100" : "opacity-40"
               }`}
             >
-              <p className="font-heading text-3xl uppercase leading-[0.95] tracking-tight sm:text-4xl">
+              <p
+                className={`font-heading uppercase leading-[0.95] tracking-tight motion-safe:transition-[font-size] motion-safe:duration-300 ${
+                  index === active ? "text-4xl sm:text-5xl lg:text-6xl" : "text-lg sm:text-xl"
+                }`}
+              >
                 {reason.label}
               </p>
               <p className="mt-2 text-sm text-muted">{reason.note}</p>

@@ -19,7 +19,9 @@ describe("WhatElse", () => {
     fireEvent.mouseEnter(screen.getByText("The price you see is the price you pay").closest("li")!);
     expect(visibleLayerIndex(container)).toBe(1);
     expect(screen.getByText("The price you see is the price you pay").closest("li")).toHaveClass("opacity-100");
-    expect(screen.getByText("Every event reviewed by a person").closest("li")).toHaveClass("opacity-35");
+    expect(screen.getByText("Every event reviewed by a person").closest("li")).toHaveClass("opacity-40");
+    expect(screen.getByText("The price you see is the price you pay")).toHaveClass("text-4xl");
+    expect(screen.getByText("Every event reviewed by a person")).toHaveClass("text-lg");
 
     fireEvent.click(screen.getByText("Free events stay free").closest("li")!);
     expect(visibleLayerIndex(container)).toBe(2);
