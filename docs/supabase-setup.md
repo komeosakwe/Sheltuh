@@ -19,8 +19,9 @@ Stripe (payments) and Vercel (hosting).
    `20260927000000_review_fixes.sql`, `20260929000000_event_images.sql`,
    `20260930000000_event_images_lockdown.sql`,
    `20261001000000_whos_going.sql`,
-   `20261002000000_whos_going_hardening.sql`, then
-   `20261003000000_messages.sql`.
+   `20261002000000_whos_going_hardening.sql`,
+   `20261003000000_messages.sql`, then
+   `20261004000000_messaging_hardening.sql`.
    (Or use the CLI: `npx supabase link --project-ref <ref>` then
    `npx supabase db push`.) Any later migration file goes in the same way.
 3. **Collect the keys** (Project Settings → API Keys):
