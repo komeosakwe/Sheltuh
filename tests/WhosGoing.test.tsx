@@ -355,6 +355,10 @@ describe("Who's Going — signed in", () => {
       expect(consent).toHaveTextContent(
         "it’s the same on every event you join, so signed-in members can see which events you’ve joined",
       );
+      // Adding yourself also means people going can message you, request first.
+      expect(consent).toHaveTextContent(
+        "Others who’ve added themselves to this event can send you a message request: one message, and nothing more unless you reply. You can decline, block or report anyone.",
+      );
       expect(within(form).getByRole("link", { name: "How we handle your information" })).toHaveAttribute(
         "href",
         "/privacy#whos-going",
@@ -552,6 +556,58 @@ describe("Who's Going — signed in", () => {
     expect(names(region)).toHaveLength(3);
     expect(within(region).getByText("3").closest("p")).toHaveTextContent("3 going");
     expect(within(region).getByRole("button", { name: "Show me as going" })).toHaveFocus();
+  });
+
+  describe("messaging people on the list", () => {
+    const you: GoingAttendee = { attendeeId: "me", displayName: "Mia T.", isYou: true };
+
+    it("going: each other person has a Message button (not the You row), which opens a request form", async () => {
+      member({
+        count: 4,
+        attendees: [you, ...people(3)],
+        me: status({ going: true, eligible: true, hasProfile: true }),
+        profile: PROFILE,
+      });
+      renderEvent(LIVE_EVENT);
+      const region = await panel();
+      const buttons = within(region).getAllByRole("button", { name: /^Message / });
+      expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
+        "Message Person A.",
+        "Message Person B.",
+        "Message Person C.",
+      ]);
+      expect(names(region)[0]).not.toContain("Message");
+      fireEvent.click(buttons[1]);
+      expect(within(region).getByRole("form", { name: "Message Person B." })).toBeInTheDocument();
+      expect(region.closest("#whos-going")).toHaveAttribute("data-wg-expanded");
+      expect(within(region).getByRole("link", { name: "Your messages" })).toHaveAttribute("href", "/messages");
+    });
+
+    it("not going yourself: no Message buttons (you have to be on the list to message it)", async () => {
+      member({ count: 3, attendees: people(3), me: status({ eligible: true, hasProfile: true }), profile: PROFILE });
+      renderEvent(LIVE_EVENT);
+      const region = await panel();
+      expect(names(region)).toHaveLength(3);
+      expect(within(region).queryAllByRole("button", { name: /^Message / })).toHaveLength(0);
+    });
+
+    it("suspended: no Message buttons", async () => {
+      member({
+        count: 4,
+        attendees: [you, ...people(3)],
+        me: status({ going: true, eligible: true, hasProfile: true }),
+        profile: { ...PROFILE, suspended: true },
+      });
+      renderEvent(LIVE_EVENT);
+      const region = await panel();
+      expect(within(region).queryAllByRole("button", { name: /^Message / })).toHaveLength(0);
+    });
+
+    it("demo: no Message buttons on the sample names", async () => {
+      renderEvent(DEMO_EVENT, signedOut());
+      const region = await panel();
+      expect(within(region).queryAllByRole("button", { name: /^Message / })).toHaveLength(0);
+    });
   });
 
   it("shows a mutation error, re-enables the button and keeps focus on it", async () => {

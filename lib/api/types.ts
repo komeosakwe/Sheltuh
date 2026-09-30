@@ -244,7 +244,11 @@ export type BlockInput = { conversationId: string } | { attendeeId: string };
 export interface BlockRecord {
   /** Opaque; DELETE /api/blocks/{blockId} unblocks. */
   blockId: string;
-  /** Unset if the blocked member has since deleted their profile. */
+  /**
+   * The blocked member's display name when they were blocked (a snapshot:
+   * it doesn't follow later renames and survives their profile being
+   * deleted). Unset if they had no profile then.
+   */
   displayName?: string;
   createdAt: string;
 }

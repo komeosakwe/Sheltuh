@@ -65,12 +65,13 @@ describe("Nav — phone menu", () => {
     expect(within(menu).getByRole("link", { name: "Sign in", hidden: true })).toHaveAttribute("href", "/login");
   });
 
-  it("offers Admin, My events and Account to a signed-in admin (Sign out is on /account)", () => {
+  it("offers Admin, Messages, My events and Account to a signed-in admin (Sign out is on /account)", () => {
     const { menu } = renderNav(fakeAuthValue({ isAdmin: true }));
     expect(linkHrefs(menu)).toEqual([
       ["Discover", "/"],
       ["Map", "/map"],
       ["Admin", "/admin"],
+      ["Messages", "/messages"],
       ["My events", "/dashboard"],
       ["Account", "/account"],
       ["For organisers", "/organisers/apply"],
@@ -135,13 +136,14 @@ describe("Nav — phone menu", () => {
 });
 
 describe("Nav — desktop row", () => {
-  it("signed in: a single Account link (plus Admin), so the search keeps its width at 1024px", () => {
+  it("signed in: Messages and Account (plus Admin); My events is in the menu and on /account", () => {
     renderNav(fakeAuthValue({ isAdmin: true }));
     const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
     expect(linkHrefs(desktopNav)).toEqual([
       ["Discover", "/"],
       ["Map", "/map"],
       ["Admin", "/admin"],
+      ["Messages", "/messages"],
       ["Account", "/account"],
       ["For organisers", "/organisers/apply"],
     ]);

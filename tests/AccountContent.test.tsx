@@ -132,7 +132,7 @@ describe("AccountContent", () => {
     fireEvent.change(input, { target: { value: "Mia Thompson" } });
     fireEvent.click(screen.getByRole("button", { name: "Save name" }));
     const message = await screen.findByText(/You haven’t set up a profile yet\./);
-    expect(message.closest("[tabindex='-1']")).toHaveFocus();
+    await waitFor(() => expect(message.closest("[tabindex='-1']")).toHaveFocus());
     expect(screen.getByRole("form", { name: "Create your Who's Going profile" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete profile" })).toBeNull();
   });
@@ -201,8 +201,10 @@ describe("AccountContent", () => {
 
     deleteMyProfile.mockResolvedValueOnce(undefined);
     fireEvent.click(screen.getByRole("button", { name: "Yes, delete" }));
-    const done = await screen.findByText("Your profile is deleted. You’re no longer shown on any event.");
-    expect(done.closest("[tabindex='-1']")).toHaveFocus();
+    const done = await screen.findByText(
+      "Your profile is deleted. You’re no longer shown on any event, and your conversations are gone.",
+    );
+    await waitFor(() => expect(done.closest("[tabindex='-1']")).toHaveFocus());
     expect(screen.queryByLabelText("Display name")).toBeNull();
     expect(deleteMyProfile).toHaveBeenCalledTimes(2);
   });

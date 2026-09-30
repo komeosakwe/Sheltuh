@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  formatMessageTime,
   formatDateBadge,
   formatEventDateKey,
   formatEventDateShort,
@@ -134,5 +135,15 @@ describe("formatDateBadge (phone home date badge, Melbourne time)", () => {
       range: "30 OCT–2",
       month: "NOV",
     });
+  });
+});
+
+describe("formatMessageTime (Melbourne time)", () => {
+  it("shows just the time on the same Melbourne day, and the date too otherwise", () => {
+    // 9:05 am AEST on Sat 26 Sep; "now" later that Melbourne day (but a different UTC date).
+    const sent = "2026-09-25T23:05:00.000Z";
+    expect(formatMessageTime(sent, new Date("2026-09-26T10:00:00.000Z"))).toBe("9:05 am");
+    expect(formatMessageTime(sent, new Date("2026-09-26T15:00:00.000Z"))).toBe(`${formatEventDateShort(sent)}, 9:05 am`);
+    expect(formatEventDateShort(sent)).toMatch(/^Sat 26 Sept?$/);
   });
 });

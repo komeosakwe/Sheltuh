@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Bricolage_Grotesque, Inter } from "next/font/google";
 import Footer from "@/components/Footer";
+import { UnreadProvider } from "@/components/messages/UnreadProvider";
 import Nav from "@/components/Nav";
 import { isApiConfigured } from "@/lib/api/client";
 import { AuthProvider } from "@/lib/auth/AuthContext";
@@ -43,11 +44,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           Skip to main content
         </a>
         <AuthProvider>
-          <Nav />
-          <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
-            {children}
-          </main>
-          <Footer />
+          <UnreadProvider>
+            <Nav />
+            <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
+              {children}
+            </main>
+            <Footer />
+          </UnreadProvider>
         </AuthProvider>
       </body>
     </html>

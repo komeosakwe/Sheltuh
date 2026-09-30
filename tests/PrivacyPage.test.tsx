@@ -23,3 +23,23 @@ describe("/privacy — Who's Going", () => {
     );
   });
 });
+
+describe("/privacy — Messages", () => {
+  it("is linkable as #messages and states who can message you, silence of declines and blocks, and retention", () => {
+    render(<PrivacyPage />);
+    const section = screen.getByRole("heading", { name: "Messages" }).closest("section");
+    if (!section) throw new Error("Messages section not rendered");
+    expect(section).toHaveAttribute("id", "messages");
+    expect(section).toHaveTextContent("First contact is a single message request, without links.");
+    expect(section).toHaveTextContent("never your email address");
+    expect(section).toHaveTextContent("Declining a request and blocking someone are silent");
+    expect(section).toHaveTextContent("Conversations and their messages are deleted 12 months after the last message.");
+    expect(section).toHaveTextContent("Reports are kept for 2 years after they’re resolved, then deleted.");
+    expect(section).toHaveTextContent("Deleting your Who’s Going profile deletes your conversations straight away, for both of you.");
+    // The Who's Going section points here.
+    const whosGoing = screen.getByRole("heading", { name: "Who’s Going" }).closest("section");
+    if (!whosGoing) throw new Error("Who's Going section not rendered");
+    expect(within(whosGoing).getByRole("link", { name: "Messages" })).toHaveAttribute("href", "#messages");
+    expect(screen.getByRole("note")).toHaveTextContent("Draft");
+  });
+});

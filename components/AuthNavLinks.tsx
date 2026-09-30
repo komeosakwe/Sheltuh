@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { ReactNode } from "react";
+import { useUnread } from "@/components/messages/UnreadProvider";
 import { useAuth } from "@/lib/auth/AuthContext";
 
 export const navLinkClass =
@@ -23,8 +25,9 @@ export default function AuthNavLinks({
 }: { className?: string; compact?: boolean } = {}) {
   const auth = useAuth();
   const pathname = usePathname();
+  const unread = useUnread();
 
-  function accountLink(href: string, label: string) {
+  function accountLink(href: string, label: string, extra?: ReactNode) {
     const active = pathname === href || pathname.startsWith(`${href}/`);
     return (
       <Link
@@ -33,6 +36,7 @@ export default function AuthNavLinks({
         className={active && !compact ? `${linkClass} ${activeClass}` : linkClass}
       >
         {label}
+        {extra}
       </Link>
     );
   }
@@ -60,8 +64,31 @@ export default function AuthNavLinks({
   return (
     <>
       {auth.isAdmin && accountLink("/admin", "Admin")}
+      {accountLink("/messages", "Messages", <UnreadBadge count={unread?.count ?? null} />)}
       {!compact && accountLink("/dashboard", "My events")}
       {accountLink("/account", "Account")}
+    </>
+  );
+}
+
+/**
+ * The unread count beside "Messages". Not a live region: it changes in the
+ * background every minute, and announcing that would be noise. The count is
+ * part of the link's name instead ("Messages, 2 unread"), read when the link is.
+ */
+function UnreadBadge({ count }: { count: number | null }) {
+  if (!count) return null;
+  const shown = count > 99 ? "99+" : String(count);
+  return (
+    <>
+      <span
+        aria-hidden="true"
+        data-unread-badge=""
+        className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center bg-foreground px-1 align-middle text-xs leading-none font-semibold tracking-normal text-background tabular-nums normal-case"
+      >
+        {shown}
+      </span>
+      <span className="sr-only">, {count} unread</span>
     </>
   );
 }

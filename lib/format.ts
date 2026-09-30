@@ -52,6 +52,15 @@ export function formatEventTime(isoLike: string): string {
   return timeFormatter.format(new Date(isoLike)).toLowerCase();
 }
 
+/**
+ * A message's time, Australia/Melbourne: "8:05 pm" on the same Melbourne day
+ * as `now`, otherwise "Fri 25 Sep, 8:05 pm".
+ */
+export function formatMessageTime(isoLike: string, now: Date = new Date()): string {
+  const sameDay = dateKeyFormatter.format(new Date(isoLike)) === dateKeyFormatter.format(now);
+  return sameDay ? formatEventTime(isoLike) : `${formatEventDateShort(isoLike)}, ${formatEventTime(isoLike)}`;
+}
+
 const dateTimeInputFormatter = new Intl.DateTimeFormat("en-CA", {
   timeZone: MELBOURNE_TZ,
   year: "numeric",

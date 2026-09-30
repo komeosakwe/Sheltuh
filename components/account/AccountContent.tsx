@@ -147,7 +147,9 @@ function ProfileSections({
   if (deleted) {
     return (
       <div ref={deletedRef} tabIndex={-1} className="outline-offset-2">
-        <Notice role="status">Your profile is deleted. You&rsquo;re no longer shown on any event.</Notice>
+        <Notice role="status">
+          Your profile is deleted. You&rsquo;re no longer shown on any event, and your conversations are gone.
+        </Notice>
       </div>
     );
   }
@@ -199,6 +201,20 @@ function ProfileSections({
           }}
           getToken={getToken}
         />
+      </Panel>
+
+      <Panel title="Messages">
+        <p className="text-sm text-muted">
+          Conversations with people you&rsquo;ve met on Who&rsquo;s Going, and the people you&rsquo;ve blocked.
+        </p>
+        <p className="mt-2 flex flex-wrap gap-x-6 text-sm">
+          <Link href="/messages" className={`inline-flex min-h-11 items-center ${linkClass}`}>
+            Your messages
+          </Link>
+          <Link href="/messages/blocked" className={`inline-flex min-h-11 items-center ${linkClass}`}>
+            Blocked members
+          </Link>
+        </p>
       </Panel>
 
       <Panel title="Delete your profile">
@@ -384,8 +400,12 @@ function DeleteProfile({ getToken, onDeleted }: { getToken: () => Promise<string
 
   useEffect(() => {
     if (!pendingFocus.current) return;
-    document.getElementById(pendingFocus.current)?.focus();
+    // Consumed only once the target exists: the mount's effect can still be
+    // pending when the first click sets it, and would otherwise use it up.
+    const element = document.getElementById(pendingFocus.current);
+    if (!element) return;
     pendingFocus.current = null;
+    element.focus();
   }, [confirming]);
 
   async function confirmDelete() {
@@ -404,8 +424,9 @@ function DeleteProfile({ getToken, onDeleted }: { getToken: () => Promise<string
   return (
     <div className="flex flex-col items-start gap-4">
       <p className="text-sm">
-        Removes your display name and takes you off every event&rsquo;s Who&rsquo;s Going list. Your tickets
-        and account aren&rsquo;t affected.
+        Removes your display name, takes you off every event&rsquo;s Who&rsquo;s Going list and deletes your
+        conversations, for you and the people you were talking to. Your tickets and account aren&rsquo;t
+        affected.
       </p>
       {confirming ? (
         <div role="group" aria-labelledby="delete-confirm-text" className="flex w-full flex-col gap-3">

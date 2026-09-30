@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import DemoNotice from "@/components/DemoNotice";
+import { AttendeeMessageAction } from "@/components/messages/ComposeRequest";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Notice, Panel } from "@/components/ui/Section";
 import { ApiError } from "@/lib/api/client";
@@ -67,6 +68,8 @@ export default function WhosGoing() {
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [youIsNew, setYouIsNew] = useState(false);
+  /** The attendee whose "Message" form is open (one at a time). */
+  const [composeFor, setComposeFor] = useState<string | null>(null);
 
   const pendingFocus = useRef<PendingFocus | null>(null);
   const youRef = useRef<HTMLLIElement>(null);
@@ -97,7 +100,7 @@ export default function WhosGoing() {
   const data = state.status === "ready" ? state.data : null;
   const others = data?.attendees ?? null;
   const shown = others ? Math.min(visible, others.length) : 0;
-  const expanded = formOpen || shown > FIRST_PAGE_SIZE;
+  const expanded = formOpen || composeFor !== null || shown > FIRST_PAGE_SIZE;
 
   function joined(displayName: string) {
     setYouIsNew(true);
@@ -281,6 +284,10 @@ export default function WhosGoing() {
     const listShown = others !== null && (others.length > 0 || youName !== undefined);
     const nobody = signedIn !== null && others !== null && others.length === 0 && !going;
     const somethingAbove = countShown || others !== null || Boolean(signedIn?.namesRateLimited);
+    // Messaging needs the viewer to be on this list themselves (the API
+    // checks it too: 403 otherwise). Suspended members aren't on it.
+    const canMessage = mode === "live" && going && getToken !== undefined;
+    const returnTo = `/events/${event.slug}#whos-going`;
 
     return (
       <>
@@ -299,6 +306,19 @@ export default function WhosGoing() {
             youRef={youRef}
             newFrom={newFrom}
             listRef={listRef}
+            renderAction={
+              canMessage && getToken
+                ? (attendee) => (
+                    <AttendeeMessageAction
+                      attendee={attendee}
+                      getToken={getToken}
+                      returnTo={returnTo}
+                      open={composeFor === attendee.attendeeId}
+                      onOpenChange={(open) => setComposeFor(open ? attendee.attendeeId : null)}
+                    />
+                  )
+                : undefined
+            }
           />
         )}
 
@@ -398,9 +418,12 @@ export default function WhosGoing() {
           <Button variant="outline" size="lg" busy={busy !== null} onClick={leave} className={pillClass}>
             {busy === "leave" ? "Removing…" : "Stop showing me"}
           </Button>
-          <p className="text-xs text-muted">
+          <p className="flex flex-wrap gap-x-4 text-xs text-muted">
             <Link href="/account" className={tallInlineLinkClass}>
               Edit name
+            </Link>
+            <Link href="/messages" className={tallInlineLinkClass}>
+              Your messages
             </Link>
           </p>
           {report}
