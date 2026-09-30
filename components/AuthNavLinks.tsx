@@ -5,9 +5,9 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth/AuthContext";
 
 export const navLinkClass =
-  "px-2 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground transition-colors hover:underline hover:decoration-2 hover:underline-offset-8";
+  "px-2 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground border-t-2 border-transparent transition-colors hover:border-foreground";
 
-const activeClass = "underline decoration-2 underline-offset-8";
+const activeClass = "border-foreground";
 
 /**
  * The account links in the header. `className` styles every link; it

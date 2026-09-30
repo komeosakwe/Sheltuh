@@ -29,7 +29,7 @@ export default function Nav() {
 
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
 
-  // The desktop row underlines only what the pointer is on (navLinkClass); the
+  // The desktop row marks only what the pointer is on (navLinkClass) with a bar above the word; the
   // current page is still exposed to assistive tech through aria-current.
   function linkClassName() {
     return navLinkClass;
@@ -151,8 +151,8 @@ export default function Nav() {
                 <Link
                   href={link.href}
                   aria-current={isActive(link.href) ? "page" : undefined}
-                  className={`display-lg block py-2 ${
-                    isActive(link.href) ? "underline decoration-2 underline-offset-8" : ""
+                  className={`display-lg block border-t-4 py-2 ${
+                    isActive(link.href) ? "border-foreground" : "border-transparent"
                   }`}
                 >
                   {link.label}
