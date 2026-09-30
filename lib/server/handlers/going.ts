@@ -22,6 +22,14 @@ const OPEN = `(e.whos_going_enabled and e.ends_at > now())`;
 /** SQL: the event_attendees row aliased `a` belongs to a suspended member. */
 const SUSPENDED_ATTENDEE = `exists (select 1 from private.social_suspensions s where s.user_id = a.user_id)`;
 
+/**
+ * SQL: the event_attendees row aliased `a` and the viewer ($2) block one
+ * another (either way round). Blocked members are left out of each other's
+ * attendee lists; the public count still includes them.
+ */
+const BLOCKED_WITH_VIEWER = `exists (select 1 from public.user_blocks b
+  where (b.blocker_id = $2 and b.blocked_id = a.user_id) or (b.blocker_id = a.user_id and b.blocked_id = $2))`;
+
 /** Below this many members going, the public count is withheld: small numbers can identify people. */
 export const GOING_COUNT_THRESHOLD = 3;
 
@@ -57,7 +65,8 @@ export const getGoingSummary: Handler<{ eventId: string }> = async (_req, { even
  * GET /api/events/[eventId]/going/attendees?cursor — verified members with a
  * profile that isn't suspended (403 otherwise), rate-limited per member (429).
  * Display names and opaque per-event ids, oldest opt-in first, up to 50 a
- * page. An empty page once the event is closed.
+ * page. An empty page once the event is closed. Members who block the viewer,
+ * or whom the viewer blocks, are left out.
  */
 export const listGoingAttendees: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   const caller = await requireVerifiedCaller(req, verifyAccessToken);
@@ -88,7 +97,7 @@ export const listGoingAttendees: Handler<{ eventId: string }> = async (req, { ev
     `select a.id, p.display_name, a.user_id = $2 as is_you
        from public.event_attendees a
        join public.profiles p on p.user_id = a.user_id
-      where a.event_id = $1 and not ${SUSPENDED_ATTENDEE}
+      where a.event_id = $1 and not ${SUSPENDED_ATTENDEE} and not ${BLOCKED_WITH_VIEWER}
       order by a.created_at, a.id
       limit $3 offset $4`,
     [eventId, caller.userId, limit + 1, offset],

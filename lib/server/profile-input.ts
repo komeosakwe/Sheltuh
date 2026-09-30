@@ -74,7 +74,8 @@ const RESERVED_WORD_SKELETONS = new Set(RESERVED_WORDS.map(skeleton));
 
 const graphemes = new Intl.Segmenter("und", { granularity: "grapheme" });
 
-function tooManyMarks(name: string): boolean {
+/** Some user-perceived character carries more than MAX_MARKS_PER_GRAPHEME combining marks. */
+export function tooManyMarks(name: string): boolean {
   for (const { segment } of graphemes.segment(name)) {
     if ((segment.match(/\p{M}/gu)?.length ?? 0) > MAX_MARKS_PER_GRAPHEME) return true;
   }
@@ -88,6 +89,11 @@ function mixesScripts(name: string): boolean {
   return name
     .split(/[^\p{L}\p{M}\p{N}]+/u)
     .some((word) => SCRIPTS.filter((script) => script.test(word)).length > 1);
+}
+
+/** Contains a link: a URL scheme, "www.", or a domain-like "name.tld" (including "name[.]com"). */
+export function containsLink(value: string): boolean {
+  return LINK.test(value);
 }
 
 function isReserved(name: string): boolean {

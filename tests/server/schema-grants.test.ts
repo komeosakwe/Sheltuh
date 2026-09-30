@@ -33,6 +33,21 @@ describe("Data API lock-out", () => {
     expect(open).toEqual([]);
   });
 
+  it("the messaging tables exist in `public` with RLS on, no policies and no client grants", async () => {
+    const tables = ["conversations", "messages", "user_blocks"];
+    const rows = await db.query<{ table_name: string; rls: boolean; policies: number; grants: number }>(
+      `select c.relname as table_name, c.relrowsecurity as rls,
+              (select count(*)::int from pg_policy p where p.polrelid = c.oid) as policies,
+              (select count(*)::int from information_schema.role_table_grants g
+                where g.table_schema = 'public' and g.table_name = c.relname
+                  and g.grantee in ('anon', 'authenticated', 'PUBLIC')) as grants
+         from pg_class c join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public' and c.relname = any($1::text[]) order by 1`,
+      [tables],
+    );
+    expect(rows).toEqual(tables.map((table_name) => ({ table_name, rls: true, policies: 0, grants: 0 })));
+  });
+
   it("tables in `private` have RLS on and grant nothing to anon, authenticated or PUBLIC", async () => {
     const tables = await db.query<{ table_name: string; rls: boolean }>(
       `select c.relname as table_name, c.relrowsecurity as rls from pg_class c
@@ -42,6 +57,7 @@ describe("Data API lock-out", () => {
     expect(tables).toEqual([
       { table_name: "rate_limits", rls: true },
       { table_name: "social_suspensions", rls: true },
+      { table_name: "user_reports", rls: true },
     ]);
     const grants = await db.query(
       `select table_name, grantee, privilege_type from information_schema.role_table_grants

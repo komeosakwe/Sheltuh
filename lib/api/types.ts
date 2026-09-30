@@ -168,3 +168,135 @@ export interface MyGoingStatus {
   eligible: boolean;
   hasProfile: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Messages (Who's Going, increment 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * A conversation as the caller sees it:
+ * - `request_sent`: the caller's first message is waiting for a reply. They
+ *   can't send another until the other member replies. (A declined request
+ *   still looks like this to its sender: declining is silent.)
+ * - `request_received`: someone sent the caller a request. Replying accepts
+ *   it; declining hides it.
+ * - `active`: accepted; both can message.
+ */
+export type ConversationStatus = "request_sent" | "request_received" | "active";
+
+/** One entry in GET /api/conversations. Never carries a user id or email. */
+export interface ConversationSummary {
+  /** Opaque. The only handle on the conversation (and on the other member). */
+  conversationId: string;
+  /** The other member's current display name. */
+  otherDisplayName: string;
+  status: ConversationStatus;
+  /** The event both members were going to when the request was sent. Omitted once that event is unpublished or deleted. */
+  event?: { title: string; slug: string };
+  /** The newest message: up to 140 characters of it, and who sent it. */
+  lastMessage: { preview: string; sentAt: string; fromYou: boolean };
+  /** The other member has sent something the caller hasn't marked read. */
+  unread: boolean;
+}
+
+export interface MessageRecord {
+  /** Opaque, increasing within a conversation. Pass as `after` / `before` / `lastReadMessageId`. */
+  messageId: string;
+  /** Plain text: render as text, never as HTML. */
+  body: string;
+  sentAt: string;
+  fromYou: boolean;
+}
+
+/** GET /api/conversations/{conversationId}/messages. `items` are oldest first. */
+export interface MessagePage {
+  conversation: ConversationSummary;
+  items: MessageRecord[];
+  /**
+   * More messages exist beyond this page: newer ones when `after` was given,
+   * older ones otherwise (the default page is the newest 50).
+   */
+  hasMore: boolean;
+}
+
+/** POST /api/conversations. `attendeeId` comes from the Who's Going list. */
+export interface StartConversationInput {
+  attendeeId: string;
+  /** 1–1000 characters, plain text, no links. */
+  body: string;
+}
+
+/** POST /api/conversations/{conversationId}/messages. */
+export interface SendMessageInput {
+  /** 1–1000 characters, plain text. */
+  body: string;
+}
+
+/** GET /api/conversations/unread: conversations with something unread. */
+export interface UnreadCount {
+  count: number;
+}
+
+/** POST /api/blocks: exactly one of the two. */
+export type BlockInput = { conversationId: string } | { attendeeId: string };
+
+/** GET/POST /api/blocks. */
+export interface BlockRecord {
+  /** Opaque; DELETE /api/blocks/{blockId} unblocks. */
+  blockId: string;
+  /** Unset if the blocked member has since deleted their profile. */
+  displayName?: string;
+  createdAt: string;
+}
+
+export type ReportReason = "harassment" | "spam" | "inappropriate" | "impersonation" | "other";
+
+/**
+ * POST /api/reports: about a conversation (optionally one message in it,
+ * which must be from the other member), or about a member on a Who's Going
+ * list (by attendeeId). Exactly one of conversationId / attendeeId.
+ */
+export interface ReportInput {
+  conversationId?: string;
+  attendeeId?: string;
+  messageId?: string;
+  reason: ReportReason;
+  /** Optional, up to 1000 characters. */
+  details?: string;
+}
+
+export interface ReportReceipt {
+  reportId: string;
+  createdAt: string;
+}
+
+export type ReportStatus = "open" | "actioned" | "dismissed";
+
+/** GET /api/admin/reports. Display names only: never a user id or email. */
+export interface AdminReport {
+  reportId: string;
+  status: ReportStatus;
+  reason: ReportReason;
+  details?: string;
+  createdAt: string;
+  /** The reported member's display name when the report was made. */
+  reportedDisplayName?: string;
+  /** False once the reported member deleted their account. */
+  reportedAccountExists: boolean;
+  /** The reported member is currently suspended from social features. */
+  reportedSuspended: boolean;
+  eventTitle?: string;
+  /** Copy of the reported message, kept even after it's deleted. */
+  messageBody?: string;
+  /** Copies of the last messages in the conversation up to the report (oldest first). */
+  context: { from: "reporter" | "reported"; body: string; sentAt: string }[];
+  resolvedAt?: string;
+  resolutionNote?: string;
+}
+
+/** POST /api/admin/reports/{reportId}/resolve. `suspend` also suspends the reported member. */
+export interface ResolveReportInput {
+  action: "dismiss" | "suspend";
+  /** Optional, up to 1000 characters; admin-only. */
+  note?: string;
+}

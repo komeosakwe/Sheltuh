@@ -17,7 +17,8 @@ function setupSql(): string[] {
   ];
 }
 
-const RESET_SQL = `truncate private.rate_limits, private.social_suspensions, public.event_attendees, public.profiles,
+const RESET_SQL = `truncate private.user_reports, public.messages, public.conversations, public.user_blocks,
+  private.rate_limits, private.social_suspensions, public.event_attendees, public.profiles,
   public.tickets, public.orders, public.event_moderation_log, public.ticket_types, public.events, public.organisers,
   auth.users cascade`;
 
@@ -31,7 +32,12 @@ const RESET_SQL = `truncate private.rate_limits, private.social_suspensions, pub
  * the same suite through the production driver (postgres.js) instead; each
  * test file gets its own throwaway database.
  */
-export async function createTestDb(): Promise<{ db: Db; reset: () => Promise<void> }> {
+export async function createTestDb(): Promise<{
+  db: Db;
+  reset: () => Promise<void>;
+  /** The throwaway database's URL when running against a real server (TEST_DATABASE_URL), for tests that need their own connections. */
+  url?: string;
+}> {
   const serverUrl = process.env.TEST_DATABASE_URL;
   return serverUrl ? createServerTestDb(serverUrl) : createPgliteTestDb();
 }
@@ -60,5 +66,5 @@ async function createServerTestDb(serverUrl: string) {
   await setup.end();
 
   const db = createPostgresDb(url.toString());
-  return { db, reset: async () => void (await db.query(RESET_SQL)) };
+  return { db, reset: async () => void (await db.query(RESET_SQL)), url: url.toString() };
 }

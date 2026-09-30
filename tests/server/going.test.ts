@@ -600,7 +600,7 @@ describe("private.purge_social_data (retention)", () => {
     const purge = async () =>
       (
         await api.db.query<{ event_attendees_deleted: number; rate_limits_deleted: number }>(
-          `select * from private.purge_social_data()`,
+          `select event_attendees_deleted, rate_limits_deleted from private.purge_social_data()`,
         )
       )[0];
     expect(await purge()).toEqual({ event_attendees_deleted: 1, rate_limits_deleted: 1 });

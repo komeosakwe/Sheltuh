@@ -4,9 +4,13 @@
  * they drop out of JSON responses, matching the optional fields.
  */
 import type {
+  AdminReport,
+  BlockRecord,
+  ConversationSummary,
   EventRecord,
   GoingAttendee,
   IssuedTicket,
+  MessageRecord,
   ModerationLogEntry,
   OrderRecord,
   OrganiserRecord,
@@ -202,5 +206,117 @@ export function toGoingAttendee(row: Row): GoingAttendee {
     attendeeId: row.id as string,
     displayName: row.display_name as string,
     isYou: row.is_you === true,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Messages
+// ---------------------------------------------------------------------------
+
+/** SQL: the member of conversation `c` who isn't viewer `v` (a SQL parameter such as "$1"). */
+export const otherMember = (v: string) => `(case when c.user_low = ${v} then c.user_high else c.user_low end)`;
+
+/**
+ * SQL: viewer `v` can see conversation `c`. They're in it; they didn't
+ * decline it (declining hides it from the recipient only: the sender still
+ * sees their request as waiting); neither blocks the other; and the other
+ * member isn't suspended. private.send_message applies the same rules.
+ */
+export const conversationVisibleTo = (v: string) => `((c.user_low = ${v} or c.user_high = ${v})
+  and not (c.status = 'declined' and c.initiator_id <> ${v})
+  and not exists (select 1 from public.user_blocks b
+                   where (b.blocker_id = c.user_low and b.blocked_id = c.user_high)
+                      or (b.blocker_id = c.user_high and b.blocked_id = c.user_low))
+  and not exists (select 1 from private.social_suspensions s where s.user_id = ${otherMember(v)}))`;
+
+/** SQL: the viewer `v`'s last-read message id on conversation `c`. */
+const lastReadBy = (v: string) => `(case when c.user_low = ${v} then c.low_last_read_id else c.high_last_read_id end)`;
+
+/** SQL: conversation `c` has a message from the other member that viewer `v` hasn't read. */
+export const hasUnread = (v: string) => `exists (select 1 from public.messages u
+  where u.conversation_id = c.id and u.id > ${lastReadBy(v)} and u.sender_id <> ${v})`;
+
+/** Characters of the last message shown in the conversation list. */
+export const MESSAGE_PREVIEW_LENGTH = 140;
+
+/**
+ * Conversations as viewer `v` sees them; append `where ${conversationVisibleTo(v)} …`.
+ * One row per conversation: the other member's name, the event (while it's
+ * still published), the newest message and whether anything is unread.
+ */
+export const conversationSelect = (v: string) => `
+  select c.id, c.status, c.initiator_id = ${v} as started_by_you,
+         p.display_name as other_display_name,
+         e.title as event_title, e.slug as event_slug,
+         left(lm.body, ${MESSAGE_PREVIEW_LENGTH}) as last_preview, lm.created_at as last_sent_at,
+         lm.sender_id = ${v} as last_from_you,
+         ${hasUnread(v)} as unread
+    from public.conversations c
+    join public.profiles p on p.user_id = ${otherMember(v)}
+    left join public.events e on e.id = c.event_id and e.status = 'published'
+    join lateral (select m.body, m.created_at, m.sender_id from public.messages m
+                   where m.conversation_id = c.id order by m.id desc limit 1) lm on true`;
+
+/** Only the opaque conversation id and display names: never a user id or email. */
+export function toConversation(row: Row): ConversationSummary {
+  return {
+    conversationId: row.id as string,
+    otherDisplayName: row.other_display_name as string,
+    status: row.status === "accepted" ? "active" : row.started_by_you === true ? "request_sent" : "request_received",
+    event: row.event_slug ? { title: row.event_title as string, slug: row.event_slug as string } : undefined,
+    lastMessage: {
+      preview: row.last_preview as string,
+      sentAt: iso(row.last_sent_at),
+      fromYou: row.last_from_you === true,
+    },
+    unread: row.unread === true,
+  };
+}
+
+/** For `select … from public.messages m`, as viewer `v`. */
+export const messageColumns = (v: string) => `m.id::text as id, m.body, m.created_at, m.sender_id = ${v} as from_you`;
+
+export function toMessage(row: Row): MessageRecord {
+  return {
+    messageId: row.id as string,
+    body: row.body as string,
+    sentAt: iso(row.created_at),
+    fromYou: row.from_you === true,
+  };
+}
+
+export function toBlock(row: Row): BlockRecord {
+  return {
+    blockId: row.id as string,
+    displayName: opt(row.display_name),
+    createdAt: iso(row.created_at),
+  };
+}
+
+/** Admin view of a report: display names and copies of messages, never a user id or email. */
+export const ADMIN_REPORT_SELECT = `
+  select r.id, r.status, r.reason, r.details, r.created_at, r.reported_display_name,
+         r.reported_user_id is not null as reported_account_exists,
+         exists (select 1 from private.social_suspensions s where s.user_id = r.reported_user_id) as reported_suspended,
+         e.title as event_title, r.message_body, r.context, r.resolved_at, r.resolution_note
+    from private.user_reports r
+    left join public.events e on e.id = r.event_id`;
+
+export function toAdminReport(row: Row): AdminReport {
+  const context = row.context as { from: "reporter" | "reported"; body: string; sentAt: string }[];
+  return {
+    reportId: row.id as string,
+    status: row.status as AdminReport["status"],
+    reason: row.reason as AdminReport["reason"],
+    details: opt(row.details),
+    createdAt: iso(row.created_at),
+    reportedDisplayName: opt(row.reported_display_name),
+    reportedAccountExists: row.reported_account_exists === true,
+    reportedSuspended: row.reported_suspended === true,
+    eventTitle: opt(row.event_title),
+    messageBody: opt(row.message_body),
+    context: context.map((m) => ({ from: m.from, body: m.body, sentAt: iso(m.sentAt) })),
+    resolvedAt: row.resolved_at ? iso(row.resolved_at) : undefined,
+    resolutionNote: opt(row.resolution_note),
   };
 }

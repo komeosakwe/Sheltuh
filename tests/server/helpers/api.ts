@@ -81,6 +81,13 @@ export class TestApi {
     return { token, userId, email };
   }
 
+  /** Another bearer token for an existing user, e.g. to act as them once their email is no longer verified. */
+  tokenFor(caller: Caller): string {
+    const token = `token-${crypto.randomUUID()}`;
+    this.callers.set(token, caller);
+    return token;
+  }
+
   async call<P extends Record<string, string>>(
     handler: Handler<P>,
     options: { params?: P; token?: string; body?: unknown; query?: Record<string, string>; method?: string } = {},

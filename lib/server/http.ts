@@ -26,6 +26,7 @@ export const created = (body: unknown) => json(201, body);
 export const PRIVATE_NO_STORE = { "cache-control": "private, no-store" } as const;
 
 export const okPrivate = (body: unknown) => Response.json(body, { status: 200, headers: PRIVATE_NO_STORE });
+export const createdPrivate = (body: unknown) => Response.json(body, { status: 201, headers: PRIVATE_NO_STORE });
 export const noContentPrivate = () => new Response(null, { status: 204, headers: PRIVATE_NO_STORE });
 
 export async function readJson<T = Record<string, unknown>>(req: Request): Promise<Partial<T>> {
