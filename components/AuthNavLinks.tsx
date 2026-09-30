@@ -30,7 +30,7 @@ export default function AuthNavLinks({
       <Link
         href={href}
         aria-current={active ? "page" : undefined}
-        className={active ? `${linkClass} ${activeClass}` : linkClass}
+        className={active && !compact ? `${linkClass} ${activeClass}` : linkClass}
       >
         {label}
       </Link>

@@ -29,8 +29,10 @@ export default function Nav() {
 
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
 
-  function linkClassName(href: string) {
-    return `${navLinkClass} ${isActive(href) ? "underline decoration-2 underline-offset-8" : ""}`;
+  // The desktop row underlines only what the pointer is on (navLinkClass); the
+  // current page is still exposed to assistive tech through aria-current.
+  function linkClassName() {
+    return navLinkClass;
   }
 
   // Keep the button label in step with the popover, and move focus into the
@@ -117,7 +119,7 @@ export default function Nav() {
             <Link
               key={link.href}
               href={link.href}
-              className={linkClassName(link.href)}
+              className={linkClassName()}
               aria-current={isActive(link.href) ? "page" : undefined}
             >
               {link.label}

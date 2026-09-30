@@ -38,13 +38,11 @@ export default function IntentHero() {
               aria-label="What are you here for?"
               className="no-scrollbar -mx-5 -my-1.5 flex flex-nowrap gap-2 overflow-x-auto px-5 py-1.5 sm:mx-0 sm:my-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:py-0"
             >
-              {INTENTS.map((option, index) => (
+              {INTENTS.map((option) => (
                 <Link
                   key={option.label}
                   href={option.href}
-                  className={`inline-flex h-11 shrink-0 items-center rounded-full border border-foreground px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors sm:h-auto ${
-                    index === 0 ? "bg-foreground text-background" : "hover:bg-foreground hover:text-background"
-                  }`}
+                  className={`inline-flex h-11 shrink-0 items-center rounded-full border border-foreground px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors sm:h-auto hover:bg-foreground hover:text-background focus-visible:bg-foreground focus-visible:text-background`}
                 >
                   {option.label}
                 </Link>
