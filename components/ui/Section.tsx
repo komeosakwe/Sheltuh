@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 
 /** Standard page container: generous gutters and vertical rhythm. */
 export function Page({
@@ -105,14 +105,27 @@ export function EmptyState({
   title,
   children,
   action,
+  headingLevel,
+  titleRef,
 }: {
   title: string;
   children?: ReactNode;
   action?: ReactNode;
+  /** Make the title a heading (a page whose main state this is needs its h1). Default: a paragraph. */
+  headingLevel?: 1 | 2;
+  /** With `headingLevel`: the heading, focusable (tabIndex -1) so focus can be moved to it. */
+  titleRef?: Ref<HTMLHeadingElement>;
 }) {
+  const Title = headingLevel === 1 ? "h1" : headingLevel === 2 ? "h2" : null;
   return (
     <div className="border-t border-foreground py-12">
-      <p className="display-md">{title}</p>
+      {Title ? (
+        <Title ref={titleRef} tabIndex={titleRef ? -1 : undefined} className="display-md outline-offset-2">
+          {title}
+        </Title>
+      ) : (
+        <p className="display-md">{title}</p>
+      )}
       {children && <div className="mt-3 max-w-md text-sm text-muted">{children}</div>}
       {action && <div className="mt-6">{action}</div>}
     </div>

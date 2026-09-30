@@ -8,8 +8,8 @@ import type { GetToken } from "@/lib/api/client";
 import { listBlocks, unblockMember } from "@/lib/api/messages";
 import type { BlockRecord } from "@/lib/api/types";
 import { endSentence } from "@/lib/display-name";
-import { formatEventDateShort } from "@/lib/format";
-import { loadErrorMessage, messagingError } from "./shared";
+import { formatDayWithYear } from "@/lib/format";
+import { BLOCK_EFFECT, errorText, loadErrorMessage, messagingError } from "./shared";
 
 const RETURN_TO = "/messages/blocked";
 const LOAD_ERROR = "Couldn’t load the people you’ve blocked.";
@@ -89,7 +89,7 @@ export default function BlockedList({ getToken }: { getToken: GetToken }) {
       pendingFocus.current = next ? next.blockId : "heading";
     } catch (err) {
       const mapped = messagingError(err, { rateLimited: "Try again in a few minutes.", fallback: "Couldn’t unblock. Try again." });
-      setRowError({ blockId: block.blockId, message: "message" in mapped ? mapped.message : "Couldn’t unblock. Try again." });
+      setRowError({ blockId: block.blockId, message: errorText(mapped, "Couldn’t unblock. Try again.") });
     } finally {
       setBusyId(null);
     }
@@ -116,11 +116,10 @@ export default function BlockedList({ getToken }: { getToken: GetToken }) {
   return (
     <section aria-labelledby="blocked-title" aria-busy={state.status === "loading" ? true : undefined}>
       <h2 id="blocked-title" ref={headingRef} tabIndex={-1} className="display-md mb-3 !text-2xl outline-offset-2">
-        Blocked members
+        People you&rsquo;ve blocked
       </h2>
       <p className="mb-6 max-w-xl text-sm leading-5 text-muted">
-        People you&rsquo;ve blocked can&rsquo;t message you, you won&rsquo;t see each other on Who&rsquo;s Going
-        lists, and any conversation you had is hidden from both of you. They aren&rsquo;t told. Unblocking brings a
+        {BLOCK_EFFECT} You also won&rsquo;t see each other on Who&rsquo;s Going lists. Unblocking brings a
         conversation back if it&rsquo;s still there.
       </p>
 
@@ -140,7 +139,7 @@ export default function BlockedList({ getToken }: { getToken: GetToken }) {
       )}
 
       {state.status === "ready" && state.items.length > 0 && (
-        <ul aria-label="Blocked members" className="border-t border-foreground">
+        <ul aria-label="People you’ve blocked" className="border-t border-foreground">
           {state.items.map((block, index, items) => {
             const name = block.displayName ?? NO_NAME;
             return (
@@ -150,7 +149,7 @@ export default function BlockedList({ getToken }: { getToken: GetToken }) {
                     <span className={`truncate text-base ${block.displayName ? "" : "text-muted italic"}`.trim()}>
                       {name}
                     </span>
-                    <span className="text-xs text-muted">Blocked {formatEventDateShort(block.createdAt)}</span>
+                    <span className="text-xs text-muted">Blocked {formatDayWithYear(block.createdAt)}</span>
                   </div>
                   <Button
                     id={`unblock-${block.blockId}`}

@@ -6,6 +6,7 @@ import { AttendeeMessageAction } from "@/components/messages/ComposeRequest";
 import { ApiError } from "@/lib/api/client";
 import type { ConversationSummary, GoingAttendee } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/AuthContext";
+import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
 vi.mock("@/lib/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/client")>()),
@@ -41,8 +42,15 @@ function Harness() {
   );
 }
 
+let signIn = vi.fn();
+
 function openForm() {
-  render(<Harness />);
+  signIn = vi.fn().mockResolvedValue(undefined);
+  render(
+    <FakeAuthProvider value={fakeAuthValue({ email: "sam@example.com", signIn })}>
+      <Harness />
+    </FakeAuthProvider>,
+  );
   const button = screen.getByRole("button", { name: "Message Mia T." });
   expect(button).toHaveAttribute("aria-expanded", "false");
   fireEvent.click(button);
@@ -54,9 +62,12 @@ function box() {
   return screen.getByRole("textbox", { name: "Your message" });
 }
 
+/** Types, then clicks Send request as a pointer would (focus moves to the button). */
 function send(text: string) {
   fireEvent.change(box(), { target: { value: text } });
-  fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+  const button = screen.getByRole("button", { name: "Send request" });
+  button.focus();
+  fireEvent.click(button);
 }
 
 const SUMMARY: ConversationSummary = {
@@ -105,19 +116,20 @@ describe("Message someone on Who's Going", () => {
     startConversation.mockRejectedValue(new ApiError(409, "You already have a conversation with this member."));
     openForm();
     send("Hi again");
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("You already have a conversation with Mia T.");
-    expect(within(alert).getByRole("link", { name: "Go to your messages" })).toHaveAttribute("href", "/messages");
-    await waitFor(() => expect(alert.closest("[tabindex='-1']")).toHaveFocus());
+    const notice = (await screen.findByText(/You already have a conversation with Mia T\./)).closest("[tabindex='-1']");
+    expect(within(notice as HTMLElement).getByRole("link", { name: "Go to your messages" })).toHaveAttribute("href", "/messages");
+    await waitFor(() => expect(notice).toHaveFocus());
+    // Focused, so read once: not an alert as well.
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("404: one generic message, whatever the reason (blocked, declined, suspended, gone)", async () => {
     startConversation.mockRejectedValue(new ApiError(404, "This member isn't available to message."));
     openForm();
     send("Hi");
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(/^This person can’t be messaged\.$/);
-    await waitFor(() => expect(alert.closest("[tabindex='-1']")).toHaveFocus());
+    const notice = (await screen.findByText("This person can’t be messaged.")).closest("[tabindex='-1']");
+    expect(notice).toHaveTextContent(/^This person can’t be messaged\.$/);
+    await waitFor(() => expect(notice).toHaveFocus());
     expect(box()).toHaveValue("Hi");
   });
 
@@ -128,11 +140,36 @@ describe("Message someone on Who's Going", () => {
     [new ApiError(400, "You can't message yourself."), "You can't message yourself."],
     [new ApiError(502, "upstream"), "Couldn’t send that. Try again."],
     [new ApiError(413, "Request body too large."), "Couldn’t send that. Try again."],
-  ])("maps %s to an alert", async (error, expected) => {
+    // A field error that isn't about the message isn't the person's to fix.
+    [new ApiError(400, "Invalid", { attendeeId: "Choose who to message." }), "Couldn’t send that. Try again."],
+  ])("maps %s to a focused notice", async (error, expected) => {
     startConversation.mockRejectedValue(error);
     openForm();
     send("Hi");
-    expect(await screen.findByRole("alert")).toHaveTextContent(expected);
+    const notice = (await screen.findByText(expected)).closest("[tabindex='-1']");
+    await waitFor(() => expect(notice).toHaveFocus());
+    expect(box()).not.toHaveAttribute("aria-invalid");
+    expect(document.body.textContent).not.toContain("Choose who to message.");
+  });
+
+  it("a field error on the message (from Ctrl/Cmd+Enter, focus in the box) is announced", async () => {
+    startConversation.mockRejectedValue(
+      new ApiError(400, "Invalid", { attendeeId: "Invalid id.", body: "A first message can't include links." }),
+    );
+    openForm();
+    fireEvent.change(box(), { target: { value: "example.com" } });
+    box().focus();
+    fireEvent.keyDown(box(), { key: "Enter", metaKey: true });
+    expect(await screen.findByRole("alert")).toHaveTextContent("A first message can't include links.");
+    expect(box()).toHaveFocus();
+  });
+
+  it("links to how messages and reports are handled", () => {
+    const form = openForm();
+    expect(within(form).getByRole("link", { name: "How messages and reports are handled" })).toHaveAttribute(
+      "href",
+      "/privacy#messages",
+    );
   });
 
   it("shows the API's field error (a link in a first message) on the box", async () => {
@@ -148,15 +185,23 @@ describe("Message someone on Who's Going", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("session expired: Sign in comes back to the Who's Going panel", async () => {
-    startConversation.mockRejectedValue(new SessionExpiredError());
+  it.each([
+    ["session expired", new SessionExpiredError()],
+    ["a 401", new ApiError(401, "Sign in first.")],
+  ])("%s: sign in again in place, and the message is kept and can be sent", async (_label, error) => {
+    startConversation.mockRejectedValueOnce(error).mockResolvedValueOnce(SUMMARY);
     openForm();
-    send("Hi");
-    const alert = await screen.findByRole("alert");
-    expect(within(alert).getByRole("link", { name: "Sign in" })).toHaveAttribute(
-      "href",
-      "/login?next=%2Fevents%2Fneon-static%23whos-going",
-    );
+    send("Hi there");
+    const notice = (await screen.findByText(/Your session has expired/)).closest("[tabindex='-1']");
+    await waitFor(() => expect(notice).toHaveFocus());
+    expect(screen.queryByRole("link", { name: "Sign in" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "pw" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(signIn).toHaveBeenCalledWith("sam@example.com", "pw"));
+    await waitFor(() => expect(screen.queryByText(/Your session has expired/)).toBeNull());
+    expect(box()).toHaveValue("Hi there");
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    expect(await screen.findByText(/Request sent to Mia T\./)).toBeInTheDocument();
   });
 
   it("Cancel closes the form and returns focus to the Message button", async () => {

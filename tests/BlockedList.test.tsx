@@ -24,8 +24,8 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-function block(id: string, displayName?: string): BlockRecord {
-  return { blockId: id, displayName, createdAt: "2026-09-20T09:00:00.000Z" };
+function block(id: string, displayName?: string, createdAt = new Date().toISOString()): BlockRecord {
+  return { blockId: id, displayName, createdAt };
 }
 
 function renderBlocked(auth: AuthContextValue = fakeAuthValue()) {
@@ -41,7 +41,7 @@ describe("Blocked members", () => {
     listBlocks.mockResolvedValue({ items: [block("b1", "Sam K."), block("b2"), block("b3", "Leo")] });
     unblockMember.mockResolvedValue(undefined);
     renderBlocked();
-    const list = await screen.findByRole("list", { name: "Blocked members" });
+    const list = await screen.findByRole("list", { name: "People you’ve blocked" });
     expect(within(list).getAllByRole("listitem").map((li) => li.firstElementChild?.firstElementChild?.firstElementChild?.textContent)).toEqual([
       "Sam K.",
       "Member without a name",
@@ -61,7 +61,7 @@ describe("Blocked members", () => {
     renderBlocked();
     fireEvent.click(await screen.findByRole("button", { name: "Unblock Sam K." }));
     expect(await screen.findByText("You haven’t blocked anyone.")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Blocked members" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "People you’ve blocked" })).toHaveFocus());
   });
 
   it("a failed unblock is shown on its row and the row stays", async () => {
@@ -84,5 +84,13 @@ describe("Blocked members", () => {
     renderBlocked(fakeAuthValue({ configured: false, status: "signed-out" }));
     expect(screen.getByRole("note")).toHaveTextContent("Blocking isn’t available in this demo.");
     expect(listBlocks).not.toHaveBeenCalled();
+  });
+
+  it("says honestly what a block does, and dates older blocks with their year", async () => {
+    listBlocks.mockResolvedValue({ items: [block("b1", "Sam K.", "2024-03-05T02:00:00.000Z")] });
+    renderBlocked();
+    const list = await screen.findByRole("list", { name: "People you’ve blocked" });
+    expect(screen.getByText(/We won’t notify them, but they’ll no longer see your conversation or be able to message you\./)).toBeInTheDocument();
+    expect(within(list).getByText(/^Blocked .* 2024$/)).toBeInTheDocument();
   });
 });

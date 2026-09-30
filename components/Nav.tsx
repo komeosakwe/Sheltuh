@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import AuthNavLinks, { navLinkClass } from "@/components/AuthNavLinks";
 import SearchBar from "@/components/SearchBar";
+import { useUnread } from "@/components/messages/UnreadProvider";
 import { ButtonLink } from "@/components/ui/Button";
 
 const MENU_ID = "site-menu";
@@ -26,14 +27,10 @@ export default function Nav() {
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const unreadCount = useUnread()?.count ?? 0;
+  const inThread = /^\/messages\/(?!blocked$)[^/]+$/.test(pathname);
 
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
-
-  // The desktop row marks only what the pointer is on (navLinkClass) with a bar above the word; the
-  // current page is still exposed to assistive tech through aria-current.
-  function linkClassName() {
-    return navLinkClass;
-  }
 
   // Keep the button label in step with the popover, and move focus into the
   // menu when it opens (the browser moves it back to the button on close).
@@ -74,7 +71,11 @@ export default function Nav() {
   }
 
   return (
-    <header className="sticky top-0 z-30 bg-background lg:bg-background/95">
+    // In a conversation on phones the header scrolls away, leaving the screen
+    // (and what the keyboard leaves of it) to the messages and the composer.
+    <header
+      className={`${inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 bg-background lg:bg-background/95`}
+    >
       {/* Compact bar (phones and tablets). */}
       <div className="flex h-14 items-center justify-between border-b border-surface-border px-5 sm:px-8 lg:hidden">
         <Link href="/" aria-label="Sheltüh home" className="font-heading text-3xl leading-none">
@@ -100,8 +101,28 @@ export default function Nav() {
               <path d="m20 20-3.5-3.5" />
             </svg>
           </Link>
-          <button ref={menuButtonRef} type="button" popoverTarget={MENU_ID} className="eyebrow -mr-3 flex h-11 items-center px-3">
+          <button
+            ref={menuButtonRef}
+            type="button"
+            popoverTarget={MENU_ID}
+            className="eyebrow -mr-3 flex h-11 items-center gap-1.5 px-3"
+          >
             {menuOpen ? "Close" : "Menu"}
+            {/* The Messages count lives inside the menu; this says there's something in there. */}
+            {unreadCount > 0 && (
+              <>
+                <span
+                  aria-hidden="true"
+                  data-menu-unread=""
+                  className="inline-flex h-5 min-w-5 items-center justify-center bg-foreground px-1 text-xs leading-none font-semibold tracking-normal text-background tabular-nums"
+                >
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+                <span className="sr-only">
+                  , {unreadCount} unread {unreadCount === 1 ? "message" : "messages"}
+                </span>
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -112,14 +133,16 @@ export default function Nav() {
           Shelt<span aria-hidden="true">ü</span>h
         </Link>
         <div className="order-last w-full lg:order-none lg:max-w-sm lg:flex-1">
-          <SearchBar label="Search the site" />
+          <SearchBar label="Search the site" placeholder="Search events" />
         </div>
         <nav aria-label="Primary" className="ml-auto flex flex-wrap items-center gap-x-1 gap-y-1 sm:gap-x-3">
           {PRIMARY_LINKS.map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              className={linkClassName()}
+              // Marks only what the pointer is on, with a bar above the word; the
+              // current page is exposed to assistive tech through aria-current.
+              className={navLinkClass}
               aria-current={isActive(link.href) ? "page" : undefined}
             >
               {link.label}

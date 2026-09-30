@@ -73,7 +73,7 @@ Tokens, type and shapes are the existing ones (`docs/design-system.md`); nothing
   count (99+ cap) is part of the link's name ("Messages, 2 unread"), never a live region. It
   polls every 60s while visible; a 403 (unverified) hides it and stops polling; other failures
   keep the last count.
-- **Blocked members.** List with "Unblock {name}", using the name kept at block time
+- **Blocked members** (page h1 "Blocked members"). List with "Unblock {name}", using the name kept at block time
   ("Member without a name" if they had none);
   focus moves to the next row, or the heading after the last; announced.
 - **Admin reports.** Open / Suspended / Dismissed toggles (`aria-pressed`). Each report: reason
@@ -103,3 +103,38 @@ Tokens, type and shapes are the existing ones (`docs/design-system.md`); nothing
 - No block/report from the Who's Going list itself (the API supports `attendeeId`); the list
   keeps "Report a name (by email)".
 - Unverified members still see the Messages link; the page explains the 403.
+
+## Review round (Oct 2026)
+
+- **Ordering.** Block, decline, unblock and "gone" start a new generation in the thread: a
+  check for new or earlier messages that began before it is dropped when it lands (no view
+  swap, no "New message" announcement). A status the member changed locally (accepting by
+  replying, or a 409 correcting it) isn't undone by a check that started earlier.
+- **Block 404** shows the generic "This conversation isn't available" / "This person can't be
+  messaged any more…" state. It never claims a block exists (a 404 also covers being blocked,
+  suspension and deletion).
+- **After declining or blocking,** Report stays available, and Block too after declining.
+- **Expired sessions** (SessionExpiredError or any 401) in the composer, the first-message
+  form and the report dialog sign in again inline (`InlineReauth`, locked to the account) and
+  keep the draft. Load errors still offer the Sign in link.
+- **Announcements.** A field error is an alert only when focus is already in the box
+  (Ctrl/Cmd+Enter); otherwise focus moves to the box and the error is read as its
+  description. Errors that take focus aren't alerts as well. The counter is only part of the
+  description from 90% of the limit.
+- **Headings and framing.** Every thread state has an h1 (sr-only "Conversation" while loading
+  or on error; `EmptyState headingLevel={1}` for declined, blocked and signed out; "Messages" in
+  demo), and the gate's states sit in the usual page padding. The page title becomes
+  "{name} — Messages — Sheltüh".
+- **Phones.** Composer label "Message" / "Reply to accept" with the name for screen readers
+  only; one row that grows to 10rem, then scrolls. The site header isn't sticky below `lg` on
+  a conversation. The Menu button shows the unread count ("Menu, 3 unread messages").
+- **Copy.** Blocking everywhere: "We won't notify them, but they'll no longer see your
+  conversation or be able to message you." Declining: "we won't notify them, but they won't be
+  able to message you again." Report dialog and first-message form link to
+  `/privacy#messages` ("How messages and reports are handled").
+- **Dates** carry the year when it isn't the current one (`formatDayWithYear`,
+  `formatMessageTime`), in threads, the inbox, blocked members and the admin queue.
+- **Admin.** No Suspend for an already-suspended member or a deleted account (with a line
+  saying why); the transcript `<summary>` has a visible marker.
+- **Deferred:** per-attendee "you already have a conversation" state on the Who's Going list
+  (needs a backend change), and a Playwright messaging journey in `e2e/`.

@@ -86,10 +86,20 @@ describe("Inbox", () => {
     expect(listConversations).toHaveBeenCalledWith(expect.any(Function));
   });
 
+  it("a 401 on load is an expired session, with Sign in back to /messages", async () => {
+    listConversations.mockRejectedValue(new ApiError(401, "Sign in first."));
+    renderInbox();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Your session has expired.");
+    expect(within(alert).getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login?next=%2Fmessages");
+  });
+
   it("empty: explains where messages come from", async () => {
     listConversations.mockResolvedValue({ items: [] });
     renderInbox();
     expect(await screen.findByText("No messages yet")).toBeInTheDocument();
+    // The page has its h1; an empty state's title stays a paragraph by default.
+    expect(screen.queryByRole("heading", { name: "No messages yet" })).toBeNull();
     expect(screen.getByText(/added yourself to its Who’s Going list/)).toBeInTheDocument();
   });
 

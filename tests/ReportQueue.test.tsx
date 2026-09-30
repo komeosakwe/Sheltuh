@@ -139,4 +139,33 @@ describe("Admin: member reports", () => {
     expect(article).toHaveTextContent("Note: Fine");
     expect(within(article).queryByRole("button")).toBeNull();
   });
+
+  it("doesn't offer Suspend when there's nothing to suspend, and says why", async () => {
+    adminListReports.mockResolvedValue({
+      items: [
+        report("r1", { reportedSuspended: true }),
+        report("r2", { reportedAccountExists: false, reportedDisplayName: "Gone G." }),
+      ],
+    });
+    renderQueue();
+    const first = (await screen.findByRole("heading", { name: /Person r1/ })).closest("article") as HTMLElement;
+    const second = screen.getByRole("heading", { name: /Gone G\./ }).closest("article") as HTMLElement;
+    for (const article of [first, second]) {
+      expect(within(article).queryByRole("button", { name: "Suspend member" })).toBeNull();
+      expect(within(article).getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
+    }
+    expect(first).toHaveTextContent("They’re already suspended");
+    expect(second).toHaveTextContent("Suspending isn’t available: they’ve deleted their account.");
+  });
+
+  it("dates from another year carry the year; the transcript has a visible disclosure marker", async () => {
+    adminListReports.mockResolvedValue({
+      items: [report("r1", { createdAt: "2024-06-01T02:00:00.000Z", context: [{ from: "reported", body: "hi", sentAt: "2024-06-01T01:00:00.000Z" }] })],
+    });
+    renderQueue();
+    const article = (await screen.findByRole("heading", { name: /Person r1/ })).closest("article") as HTMLElement;
+    expect(article).toHaveTextContent(/Reported .* 2024, /);
+    const summary = article.querySelector("summary");
+    expect(summary?.querySelector("[aria-hidden='true']")).toHaveTextContent("▸");
+  });
 });

@@ -135,4 +135,22 @@ describe("Unread badge", () => {
     expect(screen.queryAllByRole("link", { name: /^Messages/, hidden: true })).toHaveLength(0);
     expect(getUnreadCount).not.toHaveBeenCalled();
   });
+
+  it("puts the count on the phone Menu button too, in its name", async () => {
+    getUnreadCount.mockResolvedValueOnce({ count: 3 }).mockResolvedValueOnce({ count: 1 });
+    renderNav();
+    await advance(0);
+    const menu = screen.getByRole("button", { name: "Menu, 3 unread messages" });
+    expect(menu.querySelector("[data-menu-unread]")).toHaveTextContent("3");
+    await advance(UNREAD_POLL_MS);
+    expect(screen.getByRole("button", { name: "Menu, 1 unread message" })).toBeInTheDocument();
+  });
+
+  it("no count, no Menu badge", async () => {
+    getUnreadCount.mockResolvedValue({ count: 0 });
+    renderNav();
+    await advance(0);
+    expect(screen.getByRole("button", { name: "Menu" })).toBeInTheDocument();
+    expect(document.querySelector("[data-menu-unread]")).toBeNull();
+  });
 });

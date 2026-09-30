@@ -53,12 +53,23 @@ export function formatEventTime(isoLike: string): string {
 }
 
 /**
- * A message's time, Australia/Melbourne: "8:05 pm" on the same Melbourne day
- * as `now`, otherwise "Fri 25 Sep, 8:05 pm".
+ * A day, Australia/Melbourne: "Sat 26 Sep", with the year when it isn't
+ * `now`'s Melbourne year ("Fri 25 Sep 2025").
+ */
+export function formatDayWithYear(isoLike: string, now: Date = new Date()): string {
+  const year = dateKeyFormatter.format(new Date(isoLike)).slice(0, 4);
+  const day = formatEventDateShort(isoLike);
+  return year === dateKeyFormatter.format(now).slice(0, 4) ? day : `${day} ${year}`;
+}
+
+/**
+ * A message's (or report's) time, Australia/Melbourne: "8:05 pm" on the same
+ * Melbourne day as `now`, otherwise "Fri 25 Sep, 8:05 pm", plus the year when
+ * it isn't this year ("Fri 25 Sep 2025, 8:05 pm").
  */
 export function formatMessageTime(isoLike: string, now: Date = new Date()): string {
   const sameDay = dateKeyFormatter.format(new Date(isoLike)) === dateKeyFormatter.format(now);
-  return sameDay ? formatEventTime(isoLike) : `${formatEventDateShort(isoLike)}, ${formatEventTime(isoLike)}`;
+  return sameDay ? formatEventTime(isoLike) : `${formatDayWithYear(isoLike, now)}, ${formatEventTime(isoLike)}`;
 }
 
 const dateTimeInputFormatter = new Intl.DateTimeFormat("en-CA", {

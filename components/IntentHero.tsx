@@ -42,7 +42,7 @@ export default function IntentHero() {
                 <Link
                   key={option.label}
                   href={option.href}
-                  className={`inline-flex h-11 shrink-0 items-center rounded-full border border-foreground px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors sm:h-auto hover:bg-foreground hover:text-background focus-visible:bg-foreground focus-visible:text-background`}
+                  className="inline-flex h-11 shrink-0 items-center rounded-full border border-foreground px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors sm:h-auto hover:bg-foreground hover:text-background focus-visible:bg-foreground focus-visible:text-background"
                 >
                   {option.label}
                 </Link>

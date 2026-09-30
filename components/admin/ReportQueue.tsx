@@ -9,7 +9,7 @@ import { adminListReports, adminResolveReport } from "@/lib/api/admin";
 import { ApiError } from "@/lib/api/client";
 import type { AdminReport, ReportStatus } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { formatEventDateTimeRange } from "@/lib/format";
+import { formatMessageTime } from "@/lib/format";
 import { validateMessage } from "@/lib/message-text";
 
 const STATUSES: { value: ReportStatus; label: string }[] = [
@@ -207,6 +207,7 @@ function ReportItem({
   const name = report.reportedDisplayName ?? "Unknown member";
   const open = report.status === "open";
   const noteId = `note-${report.reportId}`;
+  const canSuspend = report.reportedAccountExists && !report.reportedSuspended;
   // Opening the suspend confirm focuses its safe choice (Cancel); Cancel returns to "Suspend member".
   const pendingFocus = useRef<string | null>(null);
 
@@ -258,7 +259,7 @@ function ReportItem({
             {reportReasonLabel(report.reason)}: {name}
           </h3>
           <p className="text-xs text-muted">
-            Reported {formatEventDateTimeRange(report.createdAt)}
+            Reported {formatMessageTime(report.createdAt)}
             {report.eventTitle && <> · Met at {report.eventTitle}</>}
             {!report.reportedAccountExists && <> · Account deleted</>}
             {report.reportedSuspended && <> · Currently suspended</>}
@@ -280,15 +281,18 @@ function ReportItem({
         )}
 
         {report.context.length > 0 && (
-          <details className="text-sm">
-            <summary className="flex min-h-11 cursor-pointer items-center font-semibold">
+          <details className="group text-sm">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 font-semibold [&::-webkit-details-marker]:hidden">
+              <span aria-hidden="true" className="inline-block motion-safe:transition-transform group-open:rotate-90">
+                ▸
+              </span>
               Conversation before the report ({report.context.length})
             </summary>
             <ol className="mt-2 flex flex-col gap-2">
               {report.context.map((line, index) => (
                 <li key={index} className="flex flex-col gap-0.5">
                   <span className="text-xs text-muted">
-                    {line.from === "reported" ? name : "Reporter"} · {formatEventDateTimeRange(line.sentAt)}
+                    {line.from === "reported" ? name : "Reporter"} · {formatMessageTime(line.sentAt)}
                   </span>
                   <span className="break-words whitespace-pre-wrap">{line.body}</span>
                 </li>
@@ -300,7 +304,7 @@ function ReportItem({
         {!open && (
           <p className="text-xs text-muted">
             {report.status === "actioned" ? "Suspended" : "Dismissed"}
-            {report.resolvedAt && <> {formatEventDateTimeRange(report.resolvedAt)}</>}
+            {report.resolvedAt && <> {formatMessageTime(report.resolvedAt)}</>}
             {report.resolutionNote && (
               <>
                 {" "}
@@ -355,22 +359,31 @@ function ReportItem({
                 <Button variant="outline" size="sm" className="min-h-11" busy={busy !== null} onClick={() => resolve("dismiss")}>
                   {busy === "dismiss" ? "Dismissing…" : "Dismiss"}
                 </Button>
-                <Button
-                  id={`suspend-open-${report.reportId}`}
-                  variant="danger"
-                  size="sm"
-                  className="min-h-11"
-                  busy={busy !== null}
-                  disabled={!report.reportedAccountExists}
-                  onClick={() => {
-                    setError(null);
-                    pendingFocus.current = `suspend-cancel-${report.reportId}`;
-                    setConfirmSuspend(true);
-                  }}
-                >
-                  Suspend member
-                </Button>
+                {/* Nothing to suspend: the account is gone, or it's suspended already. */}
+                {canSuspend && (
+                  <Button
+                    id={`suspend-open-${report.reportId}`}
+                    variant="danger"
+                    size="sm"
+                    className="min-h-11"
+                    busy={busy !== null}
+                    onClick={() => {
+                      setError(null);
+                      pendingFocus.current = `suspend-cancel-${report.reportId}`;
+                      setConfirmSuspend(true);
+                    }}
+                  >
+                    Suspend member
+                  </Button>
+                )}
               </div>
+            )}
+            {!canSuspend && (
+              <p className="text-xs text-muted">
+                {!report.reportedAccountExists
+                  ? "Suspending isn’t available: they’ve deleted their account."
+                  : "They’re already suspended, so there’s nothing more to do than dismiss this."}
+              </p>
             )}
           </div>
         )}

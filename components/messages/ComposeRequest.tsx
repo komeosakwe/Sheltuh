@@ -10,11 +10,14 @@ import { startConversation } from "@/lib/api/messages";
 import type { ConversationSummary, GoingAttendee } from "@/lib/api/types";
 import { validateMessage } from "@/lib/message-text";
 import MessageField from "./MessageField";
+import SessionExpiredNotice from "./SessionExpiredNotice";
 import { inlineLinkClass, messagingError, tallInlineLinkClass, threadHref, UNAVAILABLE_PERSON } from "./shared";
 
 const REQUEST_RATE_LIMITED = "You’ve sent a lot of message requests today. Try again tomorrow.";
 
-type Failure = { kind: "message"; message: string } | { kind: "exists" };
+const GENERIC_SEND_ERROR = "Couldn’t send that. Try again.";
+
+type Failure = { kind: "message"; message: string } | { kind: "exists" } | { kind: "session" };
 
 /**
  * One row's "Message" action on a Who's Going list: a button that opens a
@@ -120,10 +123,10 @@ export function ComposeRequestForm({
 }) {
   const name = attendee.displayName;
   const [text, setText] = useState("");
-  const [fieldError, setFieldError] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<{ text: string; announced: boolean } | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [busy, setBusy] = useState(false);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const failureRef = useRef<HTMLDivElement>(null);
   const pendingFocus = useRef<"input" | "failure" | null>(null);
   const aboutId = `${id}-about`;
@@ -142,15 +145,27 @@ export function ComposeRequestForm({
     element.focus();
   });
 
+  /** Announced if focus is already in the box (Ctrl/Cmd+Enter); otherwise focus moves there and reads it. */
+  function showFieldError(message: string) {
+    const inBox = document.activeElement === inputRef.current;
+    setFieldError({ text: message, announced: inBox });
+    if (!inBox) pendingFocus.current = "input";
+  }
+
+  function fail(next: Failure) {
+    setFailure(next);
+    pendingFocus.current = "failure";
+  }
+
   async function send() {
     if (busy) return;
     setFailure(null);
     const invalid = validateMessage(text);
-    setFieldError(invalid);
     if (invalid) {
-      inputRef.current?.focus();
+      showFieldError(invalid);
       return;
     }
+    setFieldError(null);
     setBusy(true);
     try {
       const conversation = await startConversation({ attendeeId: attendee.attendeeId, body: text.trim() }, getToken);
@@ -158,17 +173,13 @@ export function ComposeRequestForm({
       return;
     } catch (err) {
       const mapped = messagingError(err, { rateLimited: REQUEST_RATE_LIMITED });
-      if (mapped.kind === "field") {
-        setFieldError(mapped.message);
-        pendingFocus.current = "input";
-      } else {
-        setFailure(
-          mapped.kind === "conflict"
-            ? { kind: "exists" }
-            : { kind: "message", message: mapped.kind === "unavailable" ? UNAVAILABLE_PERSON : mapped.message },
-        );
-        pendingFocus.current = "failure";
-      }
+      if (mapped.kind === "field" && mapped.fields.body) showFieldError(mapped.fields.body);
+      // A field error about anything but the message (the attendee id) isn't the person's to fix.
+      else if (mapped.kind === "field") fail({ kind: "message", message: GENERIC_SEND_ERROR });
+      else if (mapped.kind === "session") fail({ kind: "session" });
+      else if (mapped.kind === "conflict") fail({ kind: "exists" });
+      else if (mapped.kind === "unavailable") fail({ kind: "message", message: UNAVAILABLE_PERSON });
+      else fail({ kind: "message", message: mapped.message });
     }
     setBusy(false);
   }
@@ -187,6 +198,11 @@ export function ComposeRequestForm({
         This sends {name} a message request with your display name and this event. If they reply, you can keep
         chatting. Until then you can&rsquo;t send another, and they might not reply. No links in a first message.
       </p>
+      <p className="text-xs text-muted">
+        <Link href="/privacy#messages" className={tallInlineLinkClass}>
+          How messages and reports are handled
+        </Link>
+      </p>
       <MessageField
         id={`${id}-text`}
         label="Your message"
@@ -195,25 +211,38 @@ export function ComposeRequestForm({
           setText(value);
           if (fieldError) setFieldError(null);
         }}
-        error={fieldError}
+        error={fieldError?.text}
+        errorAnnounced={fieldError?.announced}
         describedBy={aboutId}
         rows={3}
         inputRef={inputRef}
         onSubmitShortcut={() => void send()}
       />
-      {failure && (
-        <div ref={failureRef} tabIndex={-1} className="outline-offset-2">
-          {failure.kind === "exists" ? (
-            <Notice tone="danger" role="alert">
-              You already have a conversation with {name}.{" "}
-              <Link href="/messages" className={inlineLinkClass}>
-                Go to your messages
-              </Link>
-            </Notice>
-          ) : (
-            <ActionErrorNotice message={failure.message} returnTo={returnTo} />
-          )}
-        </div>
+      {failure?.kind === "session" ? (
+        <SessionExpiredNotice
+          what="message"
+          noticeRef={failureRef}
+          onSignedIn={() => {
+            setFailure(null);
+            pendingFocus.current = "input";
+          }}
+        />
+      ) : (
+        failure && (
+          // Focused, so not an alert as well (it would be read twice).
+          <div ref={failureRef} tabIndex={-1} className="outline-offset-2">
+            {failure.kind === "exists" ? (
+              <Notice tone="danger">
+                You already have a conversation with {name}.{" "}
+                <Link href="/messages" className={inlineLinkClass}>
+                  Go to your messages
+                </Link>
+              </Notice>
+            ) : (
+              <ActionErrorNotice message={failure.message} returnTo={returnTo} announce={false} />
+            )}
+          </div>
+        )
       )}
       <div className="flex flex-col gap-3 sm:flex-row">
         <Button type="submit" variant="solid" size="lg" busy={busy} aria-describedby={aboutId} className="w-full sm:w-auto">

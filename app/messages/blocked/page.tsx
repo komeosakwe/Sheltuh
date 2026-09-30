@@ -13,7 +13,7 @@ export default function BlockedMembersPage() {
       >
         <span aria-hidden="true">&larr;&nbsp;</span>All messages
       </Link>
-      <h1 className="display-lg">Messages settings</h1>
+      <h1 className="display-lg">Blocked members</h1>
       <BlockedPageContent />
     </div>
   );

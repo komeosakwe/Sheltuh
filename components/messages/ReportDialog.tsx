@@ -1,17 +1,21 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
 import type { ReportReason } from "@/lib/api/types";
 import { validateMessage } from "@/lib/message-text";
 import MessageField from "./MessageField";
-import { REPORT_REASONS } from "./shared";
+import SessionExpiredNotice from "./SessionExpiredNotice";
+import { inlineLinkClass, REPORT_REASONS } from "./shared";
 
 export type ReportOutcome =
   | { ok: true }
   | { ok: false; fieldErrors: { reason?: string; details?: string } }
   | { ok: false; message: string }
+  /** Signed out underneath the page: sign in again in place, keeping the report. */
+  | { ok: false; session: true }
   /** The conversation has gone: the dialog closes and the thread says so. */
   | { ok: false; gone: true };
 
@@ -56,6 +60,8 @@ export default function ReportDialog({
   );
 }
 
+type Problem = { kind: "message"; message: string } | { kind: "session" };
+
 function ReportForm({
   otherName,
   onCancel,
@@ -70,13 +76,13 @@ function ReportForm({
   const [reason, setReason] = useState<ReportReason | null>(null);
   const [details, setDetails] = useState("");
   const [reasonError, setReasonError] = useState<string | null>(null);
-  const [detailsError, setDetailsError] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [detailsError, setDetailsError] = useState<{ text: string; announced: boolean } | null>(null);
+  const [problem, setProblem] = useState<Problem | null>(null);
   const [busy, setBusy] = useState(false);
   const firstReasonRef = useRef<HTMLInputElement>(null);
-  const detailsRef = useRef<HTMLTextAreaElement>(null);
-  const errorRef = useRef<HTMLDivElement>(null);
-  const pendingFocus = useRef<"reason" | "details" | "error" | null>(null);
+  const detailsRef = useRef<HTMLTextAreaElement | null>(null);
+  const problemRef = useRef<HTMLDivElement>(null);
+  const pendingFocus = useRef<"reason" | "details" | "problem" | null>(null);
 
   // Opening the dialog (a user action) starts at the first reason.
   useEffect(() => {
@@ -86,22 +92,33 @@ function ReportForm({
   useEffect(() => {
     const target = pendingFocus.current;
     if (!target) return;
-    const element = (target === "reason" ? firstReasonRef : target === "details" ? detailsRef : errorRef).current;
+    const element = (target === "reason" ? firstReasonRef : target === "details" ? detailsRef : problemRef).current;
     if (!element) return; // Not rendered yet: an earlier render's effects can run first.
     pendingFocus.current = null;
     element.focus();
   });
 
+  function showDetailsError(message: string) {
+    const inBox = document.activeElement === detailsRef.current;
+    setDetailsError({ text: message, announced: inBox });
+    if (!inBox) pendingFocus.current = "details";
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
-    setError(null);
+    setProblem(null);
     const nextReasonError = reason ? null : REASON_ERROR;
     const nextDetailsError = validateMessage(details, { label: "Details", optional: true });
     setReasonError(nextReasonError);
-    setDetailsError(nextDetailsError);
-    if (!reason || nextDetailsError) {
-      (nextReasonError ? firstReasonRef : detailsRef).current?.focus();
+    setDetailsError(null);
+    if (!reason) {
+      pendingFocus.current = "reason";
+      if (nextDetailsError) setDetailsError({ text: nextDetailsError, announced: false });
+      return;
+    }
+    if (nextDetailsError) {
+      showDetailsError(nextDetailsError);
       return;
     }
     setBusy(true);
@@ -110,11 +127,18 @@ function ReportForm({
     setBusy(false);
     if ("fieldErrors" in outcome) {
       setReasonError(outcome.fieldErrors.reason ?? null);
-      setDetailsError(outcome.fieldErrors.details ?? null);
-      pendingFocus.current = outcome.fieldErrors.reason ? "reason" : "details";
+      if (outcome.fieldErrors.reason) {
+        if (outcome.fieldErrors.details) setDetailsError({ text: outcome.fieldErrors.details, announced: false });
+        pendingFocus.current = "reason";
+      } else if (outcome.fieldErrors.details) {
+        showDetailsError(outcome.fieldErrors.details);
+      }
+    } else if ("session" in outcome) {
+      setProblem({ kind: "session" });
+      pendingFocus.current = "problem";
     } else {
-      setError(outcome.message);
-      pendingFocus.current = "error";
+      setProblem({ kind: "message", message: outcome.message });
+      pendingFocus.current = "problem";
     }
   }
 
@@ -126,7 +150,10 @@ function ReportForm({
       <p id="report-about" className="text-sm leading-5">
         We&rsquo;ll keep a copy of this conversation with your report so our team can review it, even if messages
         are deleted later. We won&rsquo;t tell {otherName} about your report. If someone is in danger right now,
-        call 000.
+        call 000.{" "}
+        <Link href="/privacy#messages" className={inlineLinkClass}>
+          How messages and reports are handled
+        </Link>
       </p>
 
       <fieldset
@@ -163,16 +190,30 @@ function ReportForm({
         id="report-details"
         label="Anything else we should know? (optional)"
         value={details}
-        onChange={setDetails}
-        error={detailsError}
+        onChange={(value) => {
+          setDetails(value);
+          if (detailsError) setDetailsError(null);
+        }}
+        error={detailsError?.text}
+        errorAnnounced={detailsError?.announced}
         rows={3}
         inputRef={detailsRef}
       />
 
-      {error && (
-        <div ref={errorRef} tabIndex={-1} className="outline-offset-2">
-          <ActionErrorNotice message={error} returnTo={returnTo} />
+      {problem?.kind === "message" && (
+        <div ref={problemRef} tabIndex={-1} className="outline-offset-2">
+          <ActionErrorNotice message={problem.message} returnTo={returnTo} announce={false} />
         </div>
+      )}
+      {problem?.kind === "session" && (
+        <SessionExpiredNotice
+          what="report"
+          noticeRef={problemRef}
+          onSignedIn={() => {
+            setProblem(null);
+            pendingFocus.current = "reason";
+          }}
+        />
       )}
 
       <div className="flex flex-col gap-3 sm:flex-row">

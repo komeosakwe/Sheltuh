@@ -11,6 +11,7 @@ export default function SearchBar({
   autoFocus = false,
   label = "Search",
   submit = false,
+  placeholder = "Search by event, venue or suburb",
 }: {
   defaultValue?: string;
   size?: "sm" | "lg";
@@ -19,6 +20,7 @@ export default function SearchBar({
   label?: string;
   /** Show a visible submit button (the form still submits on Enter either way). */
   submit?: boolean;
+  placeholder?: string;
 }) {
   const large = size === "lg";
   // Unique per instance: the page can hold more than one bar of the same size.
@@ -55,7 +57,7 @@ export default function SearchBar({
           defaultValue={defaultValue}
           autoFocus={autoFocus}
           maxLength={100}
-          placeholder="Search by event, venue or suburb"
+          placeholder={placeholder}
           autoComplete="off"
           className={`w-full rounded-full! border-foreground! bg-surface! text-foreground placeholder:text-muted ${inputSize}`}
         />

@@ -141,7 +141,7 @@ describe("Thread — loading and reading", () => {
     renderThread();
     const heading = await screen.findByRole("heading", { name: "This conversation isn’t available" });
     const text = heading.parentElement?.textContent ?? "";
-    expect(text).toContain("It may have been removed, or this person can’t be messaged.");
+    expect(text).toContain("This person can’t be messaged any more, or the conversation was removed.");
     expect(text).not.toMatch(/block|declin|suspend/i);
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.getByRole("link", { name: /All messages/ })).toHaveAttribute("href", "/messages");
@@ -255,26 +255,83 @@ describe("Thread — sending", () => {
     [new ApiError(0, "Couldn't reach the server. Check your connection and try again."), "Couldn't reach the server."],
     [new ApiError(500, "db exploded"), "Couldn’t send that. Try again."],
     [new ApiError(413, "Request body too large."), "Couldn’t send that. Try again."],
-  ])("maps %s to a focused alert and keeps the draft", async (error, expected) => {
+  ])("maps %s to a focused notice (read once: not an alert too) and keeps the draft", async (error, expected) => {
     api.sendMessage.mockRejectedValue(error);
     renderThread();
     await ready();
     await type("Still here");
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(expected);
-    await waitFor(() => expect(alert.closest("[tabindex='-1']")).toHaveFocus());
+    const notice = (await screen.findByText(expected, { exact: false })).closest("[tabindex='-1']");
+    await waitFor(() => expect(notice).toHaveFocus());
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(composer()).toHaveValue("Still here");
   });
 
-  it("a session that has expired offers Sign in back to this conversation", async () => {
-    api.sendMessage.mockRejectedValue(new SessionExpiredError());
+  it.each([
+    ["an expired session", new SessionExpiredError()],
+    ["a 401", new ApiError(401, "Sign in first.")],
+  ])("%s: sign in again right here, as the same account, and the draft is kept", async (_label, error) => {
+    const signIn = vi.fn().mockResolvedValue(undefined);
+    api.sendMessage.mockRejectedValueOnce(error).mockResolvedValueOnce(msg(9, true, "Hi again"));
+    renderThread(fakeAuthValue({ email: "mia@example.com", signIn }));
+    await ready();
+    await type("Hi again");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const notice = (await screen.findByText(/Your session has expired\. Sign in again to send your message/)).closest(
+      "[tabindex='-1']",
+    );
+    await waitFor(() => expect(notice).toHaveFocus());
+    // No link away from the page: the sign-in is inline, locked to this account.
+    expect(screen.queryByRole("link", { name: "Sign in" })).toBeNull();
+    expect(screen.getByLabelText("Email")).toHaveValue("mia@example.com");
+    expect(screen.getByLabelText("Email")).toHaveAttribute("readonly");
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(signIn).toHaveBeenCalledWith("mia@example.com", "hunter2"));
+    await waitFor(() => expect(screen.queryByText(/Your session has expired/)).toBeNull());
+    expect(composer()).toHaveValue("Hi again");
+    await waitFor(() => expect(composer()).toHaveFocus());
+  });
+
+  it("a field error from Ctrl/Cmd+Enter (focus already in the box) is announced; from the button, focus moves instead", async () => {
     renderThread();
     await ready();
-    await type("Hi");
+    composer().focus();
+    fireEvent.keyDown(composer(), { key: "Enter", ctrlKey: true });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Write a message.");
+    expect(composer()).toHaveFocus();
+
+    await type("x");
+    await type("");
+    screen.getByRole("button", { name: "Send" }).focus();
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    const alert = await screen.findByRole("alert");
-    expect(within(alert).getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login?next=%2Fmessages%2Fc1");
+    await waitFor(() => expect(composer()).toHaveFocus());
+    expect(composer()).toHaveAccessibleDescription(expect.stringContaining("Write a message."));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("an API field error about anything but the message isn't put on the box", async () => {
+    api.sendMessage.mockRejectedValue(new ApiError(400, "Invalid", { conversationId: "Invalid id." }));
+    renderThread();
+    await ready();
+    await type("Hello");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(await screen.findByText("Couldn’t send that. Try again.")).toBeInTheDocument();
+    expect(composer()).not.toHaveAttribute("aria-invalid");
+    expect(document.body.textContent).not.toContain("Invalid id.");
+  });
+
+  it("phones: a short visible label (the name is for screen readers), one row that grows, capped", async () => {
+    renderThread();
+    await ready();
+    const box = composer();
+    const label = document.querySelector<HTMLLabelElement>("label[for='composer-message']");
+    expect(label?.querySelector(".sr-only")).toHaveTextContent("Sam K.");
+    expect(label?.textContent?.replace(label.querySelector(".sr-only")?.textContent ?? "", "").trim()).toBe("Message");
+    expect(box).toHaveAttribute("rows", "1");
+    expect(box).toHaveClass("max-h-40", "overflow-y-auto", "sm:min-h-11!");
+    await type("line\nline\nline");
+    expect(box.style.height).not.toBe("");
   });
 
   it("409 (still waiting for a reply): says so and disables the composer", async () => {
@@ -283,7 +340,7 @@ describe("Thread — sending", () => {
     await ready();
     await type("One more thing");
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Wait for Sam K. to reply before sending another message.");
+    expect(await screen.findByText("Wait for Sam K. to reply before sending another message.")).toBeInTheDocument();
     expect(composer()).toBeDisabled();
   });
 
@@ -330,10 +387,48 @@ describe("Thread — requests", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Decline" }));
     fireEvent.click(screen.getByRole("button", { name: "Yes, decline" }));
-    const done = await screen.findByText("Request declined");
+    const done = await screen.findByRole("heading", { level: 1, name: "Request declined" });
     expect(api.declineConversation).toHaveBeenCalledWith("c1", expect.any(Function));
-    expect(done.closest("[tabindex='-1']")).toHaveTextContent("Sam K. won’t be told.");
-    await waitFor(() => expect(done.closest("[tabindex='-1']")).toHaveFocus());
+    expect(done.parentElement).toHaveTextContent("We won’t notify Sam K., but they won’t be able to message you again.");
+    await waitFor(() => expect(done).toHaveFocus());
+  });
+
+  it("received: explains that declining also stops them messaging you", async () => {
+    api.getMessages.mockResolvedValue(page([msg(1)], conversation({ status: "request_received" })));
+    renderThread();
+    await ready();
+    expect(screen.getByText(/Decline: we won’t notify them, but they won’t be able to message you again\./)).toBeInTheDocument();
+  });
+
+  it("declined: Report and Block are still offered, and work", async () => {
+    api.getMessages.mockResolvedValue(page([msg(1)], conversation({ status: "request_received" })));
+    api.declineConversation.mockResolvedValue(undefined);
+    api.reportMember.mockResolvedValue({ reportId: "r1", createdAt: "2026-09-26T10:00:00.000Z" });
+    api.blockMember.mockResolvedValue({ blockId: "b1", displayName: "Sam K.", createdAt: "2026-09-26T10:00:00.000Z" });
+    renderThread();
+    await ready();
+    fireEvent.click(screen.getByRole("button", { name: "Decline" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, decline" }));
+    await screen.findByRole("heading", { level: 1, name: "Request declined" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Report" }));
+    const dialog = await screen.findByRole("dialog", { name: "Report Sam K." });
+    fireEvent.click(within(dialog).getByLabelText("Harassment or bullying"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Send report" }));
+    await waitFor(() =>
+      expect(api.reportMember).toHaveBeenCalledWith(
+        { conversationId: "c1", reason: "harassment", details: undefined },
+        expect.any(Function),
+      ),
+    );
+    expect(await screen.findByText(/Your report has been sent/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Block" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, block" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "You blocked Sam K." })).toBeInTheDocument();
+    expect(api.blockMember).toHaveBeenCalledWith({ conversationId: "c1" }, expect.any(Function));
+    // Blocked: Report is still there.
+    expect(screen.getByRole("button", { name: "Report" })).toBeInTheDocument();
   });
 
   it("received: a failed decline is shown and can be retried", async () => {
@@ -374,13 +469,15 @@ describe("Thread — block and report", () => {
     await ready();
     fireEvent.click(screen.getByRole("button", { name: "Block" }));
     const group = screen.getByRole("group", { name: "Block Sam K.?" });
-    expect(group).toHaveTextContent("They won’t be told.");
+    expect(group).toHaveTextContent(
+      "We won’t notify them, but they’ll no longer see your conversation or be able to message you.",
+    );
     await waitFor(() => expect(within(group).getByRole("button", { name: "Cancel" })).toHaveFocus());
     fireEvent.click(within(group).getByRole("button", { name: "Yes, block" }));
 
-    const blocked = await screen.findByText("You blocked Sam K.");
+    const blocked = await screen.findByRole("heading", { level: 1, name: "You blocked Sam K." });
     expect(api.blockMember).toHaveBeenCalledWith({ conversationId: "c1" }, expect.any(Function));
-    await waitFor(() => expect(blocked.closest("[tabindex='-1']")).toHaveFocus());
+    await waitFor(() => expect(blocked).toHaveFocus());
     expect(screen.queryByRole("textbox")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Unblock" }));
@@ -391,18 +488,17 @@ describe("Thread — block and report", () => {
     expect(liveRegion()).toHaveTextContent("Unblocked Sam K.");
   });
 
-  it("Block when they're already blocked or gone (404): shown as blocked, not as an error", async () => {
+  it("Block 404 (they blocked you, suspended, gone, or already blocked): the generic state, never 'You blocked'", async () => {
     api.blockMember.mockRejectedValue(new ApiError(404, "Member not found."));
     renderThread();
     await ready();
     fireEvent.click(screen.getByRole("button", { name: "Block" }));
     fireEvent.click(screen.getByRole("button", { name: "Yes, block" }));
-    const blocked = await screen.findByText("You blocked Sam K.");
-    await waitFor(() => expect(blocked.closest("[tabindex='-1']")).toHaveFocus());
+    const heading = await screen.findByRole("heading", { level: 1, name: "This conversation isn’t available" });
+    await waitFor(() => expect(heading).toHaveFocus());
+    expect(heading.parentElement).toHaveTextContent("This person can’t be messaged any more");
+    expect(document.body.textContent).not.toMatch(/you blocked/i);
     expect(screen.queryByRole("alert")).toBeNull();
-    // No block id to undo here: that's done from the list.
-    expect(screen.queryByRole("button", { name: "Unblock" })).toBeNull();
-    expect(screen.getByRole("link", { name: "Blocked members" })).toHaveAttribute("href", "/messages/blocked");
   });
 
   it("Block rate-limited (429): a calm message, and nothing changes", async () => {
@@ -463,15 +559,37 @@ describe("Thread — block and report", () => {
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByLabelText("Harassment or bullying"));
     fireEvent.click(within(dialog).getByRole("button", { name: "Send report" }));
-    const alert = await within(dialog).findByRole("alert");
-    expect(alert).toHaveTextContent("You’ve sent a lot of reports today. If it’s urgent, email support@sheltuh.com.au.");
-    await waitFor(() => expect(alert.closest("[tabindex='-1']")).toHaveFocus());
+    const notice = (
+      await within(dialog).findByText("You’ve sent a lot of reports today. If it’s urgent, email support@sheltuh.com.au.")
+    ).closest("[tabindex='-1']");
+    await waitFor(() => expect(notice).toHaveFocus());
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+    expect(dialog).toHaveAttribute("open");
+  });
+
+  it("Report: links to how messages and reports are handled; an expired session signs in inline, keeping the report", async () => {
+    const signIn = vi.fn().mockResolvedValue(undefined);
+    api.reportMember.mockRejectedValueOnce(new ApiError(401, "Sign in first."));
+    renderThread(fakeAuthValue({ email: "mia@example.com", signIn }));
+    await ready();
+    fireEvent.click(screen.getByRole("button", { name: "Report" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("link", { name: "How messages and reports are handled" })).toHaveAttribute(
+      "href",
+      "/privacy#messages",
+    );
+    fireEvent.click(within(dialog).getByLabelText("Spam or a scam"));
+    fireEvent.change(within(dialog).getByLabelText("Anything else we should know? (optional)"), { target: { value: "Links" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Send report" }));
+    expect(await within(dialog).findByText(/Sign in again to send your report/)).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Spam or a scam")).toBeChecked();
+    expect(within(dialog).getByLabelText("Anything else we should know? (optional)")).toHaveValue("Links");
     expect(dialog).toHaveAttribute("open");
   });
 
   it("Report: the API's field error goes on the details field", async () => {
     api.reportMember.mockRejectedValue(
-      new ApiError(400, "Invalid", { details: "Details can't contain control or text-direction characters." }),
+      new ApiError(400, "Invalid", { details: "Details can't contain control, invisible or text-direction characters." }),
     );
     renderThread();
     await ready();
@@ -626,5 +744,127 @@ describe("Thread — checking for new messages", () => {
     expect(screen.getByRole("heading", { name: "This conversation isn’t available" })).not.toHaveFocus();
     expect(outside).toHaveFocus();
     outside.remove();
+  });
+});
+
+describe("Thread — ordering: work that lands after the view has moved on", () => {
+  function deferred<T>() {
+    let resolve: (value: T) => void = () => undefined;
+    let reject: (reason: unknown) => void = () => undefined;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  async function advance(ms: number) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+  });
+
+  it.each([
+    ["new messages", (d: ReturnType<typeof deferred<MessagePage>>) => d.resolve(page([msg(3, false, "Late one")]))],
+    ["a 404", (d: ReturnType<typeof deferred<MessagePage>>) => d.reject(new ApiError(404, "Conversation not found."))],
+  ])("a check still in flight when you block doesn't undo the confirmation (%s)", async (_label, settle) => {
+    const inFlight = deferred<MessagePage>();
+    api.getMessages.mockResolvedValueOnce(page([msg(1), msg(2, true)])).mockReturnValueOnce(inFlight.promise);
+    api.blockMember.mockResolvedValue({ blockId: "b1", displayName: "Sam K.", createdAt: "2026-09-26T10:00:00.000Z" });
+    renderThread();
+    await advance(0);
+    await advance(10_000); // the check starts, and waits
+    expect(api.getMessages).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "Block" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, block" }));
+    await advance(0);
+    expect(screen.getByRole("heading", { level: 1, name: "You blocked Sam K." })).toBeInTheDocument();
+
+    settle(inFlight);
+    await advance(0);
+    expect(screen.getByRole("heading", { level: 1, name: "You blocked Sam K." })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "This conversation isn’t available" })).toBeNull();
+    expect(liveRegion()).not.toHaveTextContent("New message");
+    expect(api.markConversationRead).not.toHaveBeenCalled();
+  });
+
+  it("earlier messages that land after declining are dropped", async () => {
+    const earlier = deferred<MessagePage>();
+    api.getMessages
+      .mockResolvedValueOnce(page([msg(3)], conversation({ status: "request_received" }), true))
+      .mockReturnValueOnce(earlier.promise);
+    api.declineConversation.mockResolvedValue(undefined);
+    renderThread();
+    await advance(0);
+    fireEvent.click(screen.getByRole("button", { name: "Load earlier messages" }));
+    fireEvent.click(screen.getByRole("button", { name: "Decline" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, decline" }));
+    await advance(0);
+    expect(screen.getByRole("heading", { level: 1, name: "Request declined" })).toBeInTheDocument();
+    earlier.resolve(page([msg(1), msg(2)], conversation({ status: "request_received" })));
+    await advance(0);
+    expect(screen.getByRole("heading", { level: 1, name: "Request declined" })).toBeInTheDocument();
+    expect(liveRegion()).not.toHaveTextContent("earlier");
+  });
+
+  it("a check that started before you accepted (by replying) doesn't turn it back into a request", async () => {
+    const inFlight = deferred<MessagePage>();
+    const request = conversation({ status: "request_received" });
+    api.getMessages.mockResolvedValueOnce(page([msg(1)], request)).mockReturnValueOnce(inFlight.promise).mockResolvedValue(page([], conversation()));
+    api.sendMessage.mockResolvedValue(msg(2, true, "Sure!"));
+    renderThread();
+    await advance(0);
+    await advance(10_000); // the check starts, and waits
+    await type("Sure!");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await advance(0);
+    expect(screen.getByRole("textbox", { name: "Message Sam K." })).toBeInTheDocument();
+
+    // It answers with the status from before the reply.
+    inFlight.resolve(page([], request));
+    await advance(0);
+    expect(screen.getByRole("textbox", { name: "Message Sam K." })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Decline" })).toBeNull();
+
+    // A check that starts afterwards takes the server's status as usual.
+    await advance(10_000);
+    expect(screen.getByRole("textbox", { name: "Message Sam K." })).toBeInTheDocument();
+  });
+});
+
+describe("Thread — every state has an h1, inside the page's padding", () => {
+  it("loading and load error", async () => {
+    let fail: (reason: unknown) => void = () => undefined;
+    api.getMessages.mockReturnValueOnce(new Promise((_resolve, reject) => (fail = reject)));
+    renderThread();
+    expect(screen.getByRole("heading", { level: 1, name: "Conversation" })).toBeInTheDocument();
+    await act(async () => fail(new ApiError(500, "boom")));
+    expect(await screen.findByText("Couldn’t load this conversation.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Conversation" })).toBeInTheDocument();
+  });
+
+  it("signed out, auth loading and demo, framed like other pages", () => {
+    const { unmount } = renderThread(fakeAuthValue({ status: "signed-out", email: undefined }));
+    const heading = screen.getByRole("heading", { level: 1, name: "Sign in to see your messages" });
+    expect(heading.closest("div.px-5")).not.toBeNull();
+    unmount();
+    const loading = renderThread(fakeAuthValue({ status: "loading" }));
+    expect(screen.getByRole("heading", { level: 1, name: "Conversation" }).closest("div.px-5")).not.toBeNull();
+    loading.unmount();
+    renderThread(fakeAuthValue({ configured: false, status: "signed-out" }));
+    expect(screen.getByRole("heading", { level: 1, name: "Messages" }).closest("div.px-5")).not.toBeNull();
+  });
+
+  it("names the page after the person once loaded", async () => {
+    api.getMessages.mockResolvedValue(page([msg(1)]));
+    renderThread();
+    await ready();
+    await waitFor(() => expect(document.title).toBe("Sam K. — Messages — Sheltüh"));
   });
 });

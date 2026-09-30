@@ -83,9 +83,10 @@ export default function PrivacyPage() {
             your email address.
           </li>
           <li>
-            Declining a request and blocking someone are silent: they aren&rsquo;t told. Blocking hides
-            your conversation from both of you and takes each of you off the other&rsquo;s Who&rsquo;s
-            Going lists. You can unblock people from your messages settings.
+            If you decline a request, we won&rsquo;t notify the sender, but they won&rsquo;t be able to
+            message you again. If you block someone, we won&rsquo;t notify them, but they&rsquo;ll no
+            longer see your conversation or be able to message you, and you won&rsquo;t see each other
+            on Who&rsquo;s Going lists. You can unblock people from your blocked members list.
           </li>
           <li>
             If you report someone, we keep a copy of the reported message, up to 20 messages from the

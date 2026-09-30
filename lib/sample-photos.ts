@@ -8,7 +8,6 @@ import type { SheltuhEvent } from "./types";
  * would fire a wasted 404 per event, so only list files that are really there.
  * Add more photos here as you get them (only use images you have the rights to).
  */
-/** Photos per category; a sample without an explicit choice picks one from its category's pool by slug. */
 const PHOTOS_BY_CATEGORY: Partial<Record<SheltuhEvent["category"], readonly string[]>> = {
   "live-music": [
     "/events/jazz-drummer.webp",

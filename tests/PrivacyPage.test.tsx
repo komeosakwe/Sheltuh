@@ -32,7 +32,12 @@ describe("/privacy — Messages", () => {
     expect(section).toHaveAttribute("id", "messages");
     expect(section).toHaveTextContent("First contact is a single message request, without links.");
     expect(section).toHaveTextContent("never your email address");
-    expect(section).toHaveTextContent("Declining a request and blocking someone are silent");
+    expect(section).toHaveTextContent(
+      "If you decline a request, we won’t notify the sender, but they won’t be able to message you again.",
+    );
+    expect(section).toHaveTextContent(
+      "If you block someone, we won’t notify them, but they’ll no longer see your conversation or be able to message you",
+    );
     expect(section).toHaveTextContent("Conversations and their messages are deleted 12 months after the last message.");
     expect(section).toHaveTextContent("Reports are kept for 2 years after they’re resolved, then deleted.");
     expect(section).toHaveTextContent("Deleting your Who’s Going profile deletes your conversations straight away, for both of you.");

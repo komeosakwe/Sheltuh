@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  formatDayWithYear,
   formatMessageTime,
   formatDateBadge,
   formatEventDateKey,
@@ -145,5 +146,14 @@ describe("formatMessageTime (Melbourne time)", () => {
     expect(formatMessageTime(sent, new Date("2026-09-26T10:00:00.000Z"))).toBe("9:05 am");
     expect(formatMessageTime(sent, new Date("2026-09-26T15:00:00.000Z"))).toBe(`${formatEventDateShort(sent)}, 9:05 am`);
     expect(formatEventDateShort(sent)).toMatch(/^Sat 26 Sept?$/);
+  });
+
+  it("adds the year only when it isn't the current Melbourne year", () => {
+    const lastYear = "2025-12-31T12:30:00.000Z"; // 11:30 pm AEDT on Wed 31 Dec 2025
+    const now = new Date("2026-01-01T02:00:00.000Z"); // 1 pm AEDT on 1 Jan 2026
+    expect(formatMessageTime(lastYear, now)).toBe(`${formatEventDateShort(lastYear)} 2025, 11:30 pm`);
+    expect(formatDayWithYear(lastYear, now)).toMatch(/^Wed 31 Dec 2025$/);
+    // Same instant seen from later that Melbourne year: no year.
+    expect(formatDayWithYear(lastYear, new Date("2025-12-31T05:00:00.000Z"))).toMatch(/^Wed 31 Dec$/);
   });
 });

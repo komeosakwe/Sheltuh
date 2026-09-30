@@ -172,3 +172,25 @@ describe("Nav — desktop row", () => {
     ]);
   });
 });
+
+describe("Nav — header", () => {
+  it("stays put (not sticky) on phones in a conversation, so the keyboard leaves room for the messages", () => {
+    pathname = "/messages/c1";
+    const { container } = renderNav(fakeAuthValue());
+    const header = container.querySelector("header");
+    expect(header).toHaveClass("relative", "lg:sticky");
+    expect(header).not.toHaveClass("sticky");
+    cleanup();
+    pathname = "/messages/blocked";
+    const other = renderNav(fakeAuthValue());
+    expect(other.container.querySelector("header")).toHaveClass("sticky");
+  });
+
+  it("gives the desktop search a short placeholder (the label is unchanged)", () => {
+    renderNav(fakeAuthValue());
+    const search = within(screen.getByRole("search", { name: "Search the site" })).getByRole("searchbox", {
+      name: "Search by event, venue or suburb",
+    });
+    expect(search).toHaveAttribute("placeholder", "Search events");
+  });
+});

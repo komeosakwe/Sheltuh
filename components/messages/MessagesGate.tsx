@@ -18,18 +18,33 @@ export default function MessagesGate({
   returnTo,
   demo,
   children,
+  frameClassName,
+  pageTitle,
 }: {
   returnTo: string;
   demo: ReactNode;
   children: (getToken: GetToken) => ReactNode;
+  /** Wraps the gate's own states (demo, loading, signed out) for a page that doesn't lay them out itself. */
+  frameClassName?: string;
+  /** For a page with no h1 of its own: its h1 in the gate's states ("sr-only" while loading). */
+  pageTitle?: string;
 }) {
   const auth = useOptionalAuth();
-  if (!isApiConfigured || !auth?.configured) return <>{demo}</>;
-  if (auth.status === "loading") return <p className="text-sm text-muted">Loading…</p>;
+  const frame = (node: ReactNode) => (frameClassName ? <div className={frameClassName}>{node}</div> : <>{node}</>);
+  if (!isApiConfigured || !auth?.configured) return frame(demo);
+  if (auth.status === "loading") {
+    return frame(
+      <>
+        {pageTitle && <h1 className="sr-only">{pageTitle}</h1>}
+        <p className="text-sm text-muted">Loading…</p>
+      </>,
+    );
+  }
   if (auth.status === "signed-out") {
-    return (
+    return frame(
       <EmptyState
         title="Sign in to see your messages"
+        headingLevel={pageTitle ? 1 : undefined}
         action={
           <ButtonLink size="lg" href={withNext("/login", returnTo)} className="w-full sm:w-auto">
             Sign in
@@ -38,7 +53,7 @@ export default function MessagesGate({
       >
         Members going to the same event can message each other, starting from the event&rsquo;s Who&rsquo;s
         Going list.
-      </EmptyState>
+      </EmptyState>,
     );
   }
   return <>{children(auth.getAccessToken)}</>;
