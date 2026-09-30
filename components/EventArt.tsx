@@ -177,6 +177,7 @@ export default function EventArt({
   imageUrl,
   className,
   children,
+  priority = false,
 }: {
   poster: EventPoster;
   title: string;
@@ -184,6 +185,8 @@ export default function EventArt({
   imageUrl?: string;
   className?: string;
   children?: ReactNode;
+  /** The page's largest above-the-fold image: load it eagerly at high priority instead of lazily. */
+  priority?: boolean;
 }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const showImage = Boolean(imageUrl) && failedUrl !== imageUrl;
@@ -199,7 +202,9 @@ export default function EventArt({
         <img
           src={imageUrl}
           alt=""
-          loading="lazy"
+          loading={priority ? "eager" : "lazy"}
+          fetchPriority={priority ? "high" : undefined}
+          decoding="async"
           // On a server-rendered page the image can fail before React attaches
           // onError; catch that here so the poster art still shows.
           ref={(img) => {

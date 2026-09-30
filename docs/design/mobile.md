@@ -19,6 +19,10 @@ References: DICE web captures supplied by the owner (event rail, full landing pa
 
 Note: the round "N" badge in every capture is the Next.js dev-mode indicator, not product UI.
 
+**Update (Sept 2026):**
+- **Font.** The display face is now **Bricolage Grotesque 800** (`app/layout.tsx`), not Anton. Read "Anton" below as `font-heading`; the type table's sizes still apply, but the px measurements were taken with Anton.
+- **Phone home.** The home page below 640px now follows `docs/design/mobile-home.md`. It overrides this spec's no-rounding and no-brand-colour exclusions (§1, §3.0 radii, §3.2 "no text on images") **on that page only** (`components/home/phone/`). Hearts/save stay excluded everywhere.
+
 ---
 
 ## 1. Principles
@@ -171,7 +175,7 @@ put the same rules in plain CSS below the utilities with `@media (width < 40rem)
 - Stack gaps inside a block are 16px (`gap-4`). Metadata lines use 2px (`gap-0.5`).
 
 **Radii:** 0 everywhere. `9999px` is only for pills and round stepper, icon and
-chip controls. No change.
+chip controls. No change. (Exception: the phone home, see `mobile-home.md` §2.)
 
 **Borders:** 1px `foreground` hairline for structural rules and 1px `surface-border`
 for secondary dividers (the header bottom, list rows).
@@ -213,7 +217,8 @@ Safari shows the buy bar under the home indicator, raise it as a follow-up (see 
 | Search/list row thumb | 1:1, 96px | `object-cover`, centre | `EventArt` |
 | Map list row thumb | 1:1, 80px (existing) | centre | `EventArt`. **Pass `imageUrl`**, since `SceneEventRow` currently omits it, so photos never show there. |
 | Event page hero | **1:1 on phones** (`aspect-square`), 4:3 from `sm` (unchanged desktop) | `object-cover`, centre | `EventArt` |
-| Home hero collage | desktop only (unchanged) | — | — |
+| Home hero collage | desktop only (unchanged, below 640px see next row) | — | — |
+| Phone home (hero, cards, guide) | fixed per slot, see `mobile-home.md` §4 | centre | `EventArt` |
 | WhatElse panel | **hidden below `lg`** | — | — |
 
 - **No text on images on phones**, except the existing category sticker on tiles

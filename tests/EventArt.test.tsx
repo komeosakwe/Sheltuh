@@ -44,4 +44,17 @@ describe("EventArt", () => {
       cleanup();
     }
   });
+
+  it("loads photos lazily by default, and eagerly at high priority when it's the page's lead image", () => {
+    const { container, rerender } = render(<EventArt poster={poster} title="x" imageUrl="/home/hero.jpg" />);
+    let img = container.querySelector("img");
+    expect(img).toHaveAttribute("loading", "lazy");
+    expect(img).not.toHaveAttribute("fetchpriority");
+    expect(img).toHaveAttribute("decoding", "async");
+
+    rerender(<EventArt poster={poster} title="x" imageUrl="/home/hero.jpg" priority />);
+    img = container.querySelector("img");
+    expect(img).toHaveAttribute("loading", "eager");
+    expect(img).toHaveAttribute("fetchpriority", "high");
+  });
 });

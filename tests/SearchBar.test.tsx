@@ -31,4 +31,29 @@ describe("SearchBar", () => {
     expect(screen.getByRole("search", { name: "Search the site" })).toBeInTheDocument();
     expect(screen.getByRole("search", { name: "Search events" })).toBeInTheDocument();
   });
+
+  it("gives each bar its own input id, even two of the same size", () => {
+    render(
+      <>
+        <SearchBar label="A" size="lg" />
+        <SearchBar label="B" size="lg" />
+      </>,
+    );
+    const [a, b] = screen.getAllByRole("searchbox", { name: "Search by event, venue or suburb" });
+    expect(a.id).not.toBe(b.id);
+  });
+
+  it("has no visible submit button by default", () => {
+    render(<SearchBar label="Search the site" />);
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("with submit: a named submit button inside the form, and 16px text so iOS doesn't zoom", () => {
+    render(<SearchBar label="Search events" size="lg" submit />);
+    const form = screen.getByRole("search", { name: "Search events" });
+    const button = screen.getByRole("button", { name: "Search" });
+    expect(button).toHaveAttribute("type", "submit");
+    expect(form).toContainElement(button);
+    expect(screen.getByRole("searchbox")).toHaveClass("text-base");
+  });
 });

@@ -17,6 +17,9 @@
   --danger: #b3261e;
   --danger-foreground: #ffffff;
   --highlight: #e8ff3a; /* single graphic sticker colour, use rarely */
+  /* Phone home only (components/home/phone/, enforced by tests/phone-home-tokens.test.ts): */
+  --pop: #ff4fb0; /* scribble, "Up next"/"Under A$20" fills, avatar discs; never text on paper */
+  --card: #fbfaf5; /* phone home card surface (lifted paper) */
   --header-h: 3.5rem; /* 56px compact header, < lg */
   --buybar-h: 4.5rem; /* 72px sticky event-page buy bar, < lg */
 }
@@ -39,9 +42,18 @@
   --color-danger: var(--danger);
   --color-danger-foreground: var(--danger-foreground);
   --color-highlight: var(--highlight);
+  --color-pop: var(--pop);
+  --color-card: var(--card);
   --font-display: var(--font-display), "Arial Black", Arial, sans-serif;
   --font-heading: var(--font-display), "Arial Black", Arial, sans-serif;
   --font-sans: var(--font-body), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Phone home only (see docs/design/mobile-home.md §2): everywhere else stays square and flat. */
+@theme {
+  --radius-card: 1rem;
+  --radius-badge: 0.5rem;
+  --shadow-card: 0 1px 2px rgb(11 11 11 / 0.06), 0 6px 16px -6px rgb(11 11 11 / 0.10);
 }
 
 * {

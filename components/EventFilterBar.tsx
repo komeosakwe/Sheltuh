@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { fieldClass } from "@/components/ui/Field";
+import type { PricingFilter } from "@/lib/event-filter-params";
 import type { EventCategory } from "@/lib/types";
 
-export type PricingFilter = "all" | "free" | "paid";
+export type { PricingFilter };
 
 interface Props {
   categories: { value: EventCategory; label: string }[];

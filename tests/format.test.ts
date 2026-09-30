@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  formatDateBadge,
   formatEventDateKey,
   formatEventDateShort,
   formatEventDateTimeRange,
@@ -102,6 +103,36 @@ describe("toMelbourneDateTimeInputParts — ignores the runtime's own timezone",
     expect(toMelbourneDateTimeInputParts("2026-04-04T16:00:00.000Z")).toEqual({
       date: "2026-04-05",
       time: "02:00",
+    });
+  });
+});
+
+describe("formatDateBadge (phone home date badge, Melbourne time)", () => {
+  it("shows a single day as its date and month", () => {
+    // 2026-10-03T00:00Z is 11:00 am on Sat 3 Oct in Melbourne (AEDT).
+    expect(formatDateBadge("2026-10-03T00:00:00.000Z")).toEqual({ range: "3", month: "OCT" });
+  });
+
+  it("counts an end on the same Melbourne date as one day", () => {
+    expect(formatDateBadge("2026-10-03T00:00:00.000Z", "2026-10-03T03:00:00.000Z")).toEqual({ range: "3", month: "OCT" });
+  });
+
+  it("uses the Melbourne date, not the UTC one", () => {
+    // 2026-10-02T14:00Z is 1:00 am on Sat 3 Oct in Melbourne, still 2 Oct in UTC.
+    expect(formatDateBadge("2026-10-02T14:00:00.000Z")).toEqual({ range: "3", month: "OCT" });
+  });
+
+  it("shows a span within a month as a day range", () => {
+    expect(formatDateBadge("2026-10-19T00:00:00.000Z", "2026-10-25T08:00:00.000Z")).toEqual({
+      range: "19–25",
+      month: "OCT",
+    });
+  });
+
+  it("names the start month when a span crosses into the next month", () => {
+    expect(formatDateBadge("2026-10-30T00:00:00.000Z", "2026-11-02T08:00:00.000Z")).toEqual({
+      range: "30 OCT–2",
+      month: "NOV",
     });
   });
 });

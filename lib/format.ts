@@ -99,3 +99,29 @@ export function formatEventDateTimeRange(isoLike: string, endIsoLike?: string): 
   }
   return `${startLabel} – ${formatEventDateShort(endIsoLike)}, ${formatEventTime(endIsoLike)}`;
 }
+
+const badgeMonthFormatter = new Intl.DateTimeFormat("en-AU", {
+  timeZone: MELBOURNE_TZ,
+  month: "short",
+});
+
+/**
+ * The phone home's date badge, in Melbourne local time: `{ range: "3", month: "OCT" }`
+ * for one day (an end on the same local date counts as one day),
+ * `{ range: "19–25", month: "OCT" }` for a span within a month, and
+ * `{ range: "30 OCT–2", month: "NOV" }` for a span across months.
+ */
+export function formatDateBadge(isoLike: string, endIsoLike?: string): { range: string; month: string } {
+  const start = new Date(isoLike);
+  const startKey = dateKeyFormatter.format(start);
+  const startDay = String(Number(startKey.slice(8, 10)));
+  const startMonth = badgeMonthFormatter.format(start).toUpperCase();
+  if (!endIsoLike) return { range: startDay, month: startMonth };
+
+  const end = new Date(endIsoLike);
+  const endKey = dateKeyFormatter.format(end);
+  if (endKey <= startKey) return { range: startDay, month: startMonth };
+  const endDay = String(Number(endKey.slice(8, 10)));
+  if (endKey.slice(0, 7) === startKey.slice(0, 7)) return { range: `${startDay}–${endDay}`, month: startMonth };
+  return { range: `${startDay} ${startMonth}–${endDay}`, month: badgeMonthFormatter.format(end).toUpperCase() };
+}

@@ -13,6 +13,9 @@ interface Props {
   categories: { value: EventCategory; label: string }[];
   /** Free-text search (from /search); sent to the API alongside the filters. */
   query?: string;
+  /** Starting filters (from /events?category=&pricing=); "Reset filters" still clears to all. */
+  initialCategory?: EventCategory | "all";
+  initialPricing?: PricingFilter;
 }
 
 type Status = "loading" | "loaded" | "error";
@@ -26,9 +29,9 @@ const MAX_EMPTY_PAGES_TO_SKIP = 10;
  * the API rather than filtering an already-fetched list, and paginates via
  * the API's opaque `nextCursor` instead of ever loading everything at once.
  */
-export default function LiveEventFeed({ categories, query }: Props) {
-  const [category, setCategory] = useState<EventCategory | "all">("all");
-  const [pricing, setPricing] = useState<PricingFilter>("all");
+export default function LiveEventFeed({ categories, query, initialCategory = "all", initialPricing = "all" }: Props) {
+  const [category, setCategory] = useState<EventCategory | "all">(initialCategory);
+  const [pricing, setPricing] = useState<PricingFilter>(initialPricing);
   const [onOrAfter, setOnOrAfter] = useState("");
 
   const [events, setEvents] = useState<SheltuhEvent[]>([]);
