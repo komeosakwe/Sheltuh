@@ -1,14 +1,24 @@
 import type { SheltuhEvent } from "./types";
 
 /**
- * Photos in `public/events/` that sample events may use. Only live-music
- * events get one for now (the rest keep the generated poster art), and each
- * live-music sample picks one deterministically from its slug so the server
- * and browser render the same thing. Pointing events at files that don't exist
+ * Photos in `public/events/` that sample events may use. Categories without a
+ * photo yet (workshop, theatre) keep the generated poster art, and a sample picks
+ * from its category's pool deterministically from its slug so the server and
+ * browser render the same thing. Pointing events at files that don't exist
  * would fire a wasted 404 per event, so only list files that are really there.
  * Add more photos here as you get them (only use images you have the rights to).
  */
-const LIVE_MUSIC_PHOTOS = ["/events/jazz-drummer.webp", "/events/horn-band.jpg"] as const;
+/** Photos per category; a sample without an explicit choice picks one from its category's pool by slug. */
+const PHOTOS_BY_CATEGORY: Partial<Record<SheltuhEvent["category"], readonly string[]>> = {
+  "live-music": [
+    "/events/jazz-drummer.webp",
+    "/events/horn-band.jpg",
+    "/events/record-shop-dj.jpg",
+    "/events/dj-crate-digging.jpg",
+  ],
+  art: ["/events/gallery-opening.jpg"],
+  "pop-up": ["/events/vintage-market-stall.jpg", "/events/street-market.jpg"],
+};
 
 /** Stable, tiny hash so the same slug always maps to the same photo. */
 function pick(slug: string): number {
@@ -17,15 +27,17 @@ function pick(slug: string): number {
   return h;
 }
 
-/** Explicit choices first; anything else live-music alternates. */
+/** Explicit choices first. */
 const PHOTO_BY_SLUG: Record<string, string> = {
   "neon-static": "/events/horn-band.jpg",
   "fitzroy-poetry-and-noise": "/events/jazz-drummer.webp",
+  "southbank-sketch-salon": "/events/gallery-opening.jpg",
+  "laneway-projections-after-dark": "/events/vintage-market-stall.jpg",
+  "brunswick-zine-fair": "/events/street-market.jpg",
 };
 
 export function withSamplePhoto(event: SheltuhEvent): SheltuhEvent {
-  const imageUrl =
-    PHOTO_BY_SLUG[event.slug] ??
-    (event.category === "live-music" ? LIVE_MUSIC_PHOTOS[pick(event.slug) % LIVE_MUSIC_PHOTOS.length] : undefined);
+  const pool = PHOTOS_BY_CATEGORY[event.category];
+  const imageUrl = PHOTO_BY_SLUG[event.slug] ?? (pool ? pool[pick(event.slug) % pool.length] : undefined);
   return imageUrl ? { ...event, imageUrl } : event;
 }

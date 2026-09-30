@@ -27,9 +27,11 @@ export const HOME_GUIDE: HomeArt & {
   title: "Melbourne after dark, mapped",
   body: "Laneway galleries, warehouse stages and back-room workshops. See what’s on near you.",
   cta: { label: "Open the map", href: "/map" },
+  imageUrl: "/events/street-market.jpg",
   poster: { pattern: "grid", background: "#0b0b0b", primary: "#f3f0e8", secondary: "#ff4fb0" },
 };
 
 export const HOME_CREATORS: HomeArt = {
+  imageUrl: "/events/record-shop-dj.jpg",
   poster: { pattern: "curtain", background: "#0b0b0b", primary: "#2b3cff", secondary: "#ff4fb0" },
 };
