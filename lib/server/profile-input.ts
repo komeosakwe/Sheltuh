@@ -3,10 +3,24 @@ import { fail } from "./validation";
 /** Mirrors the profiles.display_name check constraint (counted in code points, like char_length). */
 export const MAX_DISPLAY_NAME_LENGTH = 40;
 
+/**
+ * Combining marks allowed on one user-perceived character. Real names need a
+ * few (Devanagari conjuncts such as "स्त्री" carry 3, Thai vowel + tone 2,
+ * keycap emoji 2); "Zalgo" text stacks dozens to spill over neighbouring UI.
+ */
+export const MAX_MARKS_PER_GRAPHEME = 4;
+
 // Control and invisible "format" characters (zero-width spaces and joiners,
 // bidi overrides, BOM, soft hyphen...), plus line/paragraph separators. They
 // let a name impersonate another or render deceptively.
 const INVISIBLE_OR_CONTROL = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
+// Everything Unicode says renders as nothing (Hangul fillers, the combining
+// grapheme joiner, variation selectors, ...), plus the blank Braille pattern,
+// which renders as a space but isn't one. Text/emoji presentation selectors
+// (U+FE0E/U+FE0F) are allowed: they're part of ordinary emoji like "❤️".
+const INVISIBLE = /(?![︎️])\p{Default_Ignorable_Code_Point}|⠀/u;
+// A name has to have something readable in it: at least one letter or digit.
+const LETTER_OR_NUMBER = /[\p{L}\p{N}]/u;
 // Links: a scheme, "www.", or a domain-like "name.tld" with a common TLD,
 // including the "name[.]com" / "name (dot) com" obfuscations. A dot followed
 // by a space ("Mr. Me") isn't a domain.
@@ -14,13 +28,75 @@ const LINK =
   /(\b[a-z][a-z0-9+.-]*:\/\/|\bwww\s*\.|[\p{L}\p{N}-](?:\.|\s*(?:\[\.\]|\(\.\)|\[dot\]|\(dot\))\s*)(?:com|net|org|au|io|co|app|xyz|me|info|biz|link|ly|gg|tv|to|site|online|shop|store|dev|page|club|live)\b)/iu;
 // Emails and @handles are contact details, which a display name shouldn't carry.
 const AT_SIGN = /[@＠]/u;
-// Names only Sheltüh itself may appear as. Compared on a folded form (see fold()).
+// Names only Sheltüh itself may appear as. Compared on a confusable skeleton (see skeleton()).
 const RESERVED_SUBSTRINGS = ["sheltuh"];
-const RESERVED_WORDS = new Set(["admin", "administrator", "support", "moderator"]);
+const RESERVED_WORDS = ["admin", "administrator", "support", "moderator"];
 
-/** Lower-cased, accents stripped (so "Sheltüh" → "sheltuh"). */
-function fold(value: string): string {
-  return value.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
+/**
+ * Cyrillic and Greek letters that look like Latin ones, mapped to the Latin
+ * letter they imitate. Upper and lower case are listed separately because
+ * they can imitate different letters (Greek "Η" looks like H, "η" like n).
+ * A small hand-picked subset of Unicode's confusables (UTS #39), covering
+ * what's needed to spell the reserved names.
+ */
+const CONFUSABLES: Record<string, string> = {
+  // Cyrillic
+  А: "a", а: "a", В: "b", в: "b", Ь: "b", ь: "b", С: "c", с: "c", ԁ: "d", Е: "e", е: "e",
+  Һ: "h", һ: "h", Н: "h", н: "h", І: "i", і: "i", Ј: "j", ј: "j", К: "k", к: "k",
+  Ӏ: "l", ӏ: "l", М: "m", м: "m", О: "o", о: "o", Р: "p", р: "p", Ԛ: "q", ԛ: "q", Ѕ: "s", ѕ: "s",
+  Т: "t", т: "t", г: "r", п: "n", Ѵ: "v", ѵ: "v", Ԝ: "w", ԝ: "w", Х: "x", х: "x", У: "y", у: "y", Ү: "y", ү: "y",
+  // Greek
+  Α: "a", α: "a", Β: "b", β: "b", Ε: "e", ε: "e", Ζ: "z", Η: "h", η: "n", Ι: "i", ι: "i", Κ: "k", κ: "k",
+  Μ: "m", Ν: "n", ν: "v", Ο: "o", ο: "o", Ρ: "p", ρ: "p", Τ: "t", τ: "t", Υ: "y", υ: "u", Χ: "x", χ: "x",
+  γ: "y",
+};
+const CONFUSABLE_CHARS = new RegExp(`[${Object.keys(CONFUSABLES).join("")}]`, "gu");
+
+/**
+ * A lookalike-insensitive form for comparing against reserved names:
+ * compatibility-folded (fullwidth → ASCII), accents stripped (so "Sheltüh" →
+ * "sheltuh"), Cyrillic/Greek lookalikes mapped to Latin, lower-cased, and the
+ * classic Latin lookalikes merged: i/l/1/| → l, 0 → o, "rn" → "m".
+ */
+export function skeleton(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .replace(CONFUSABLE_CHARS, (c) => CONFUSABLES[c])
+    .toLowerCase()
+    .replace(/[il1|ı]/gu, "l")
+    .replace(/0/gu, "o")
+    .replace(/rn/gu, "m");
+}
+
+const RESERVED_SUBSTRING_SKELETONS = RESERVED_SUBSTRINGS.map(skeleton);
+const RESERVED_WORD_SKELETONS = new Set(RESERVED_WORDS.map(skeleton));
+
+const graphemes = new Intl.Segmenter("und", { granularity: "grapheme" });
+
+function tooManyMarks(name: string): boolean {
+  for (const { segment } of graphemes.segment(name)) {
+    if ((segment.match(/\p{M}/gu)?.length ?? 0) > MAX_MARKS_PER_GRAPHEME) return true;
+  }
+  return false;
+}
+
+const SCRIPTS = [/\p{Script=Latin}/u, /\p{Script=Cyrillic}/u, /\p{Script=Greek}/u];
+
+/** A single word mixing Latin, Cyrillic and Greek letters: the classic homoglyph disguise ("Аda" with a Cyrillic А). */
+function mixesScripts(name: string): boolean {
+  return name
+    .split(/[^\p{L}\p{M}\p{N}]+/u)
+    .some((word) => SCRIPTS.filter((script) => script.test(word)).length > 1);
+}
+
+function isReserved(name: string): boolean {
+  const skel = skeleton(name);
+  const compact = skel.replace(/[^\p{L}\p{N}]/gu, "");
+  const words = skel.split(/[^\p{L}\p{N}]+/u);
+  return (
+    RESERVED_SUBSTRING_SKELETONS.some((r) => compact.includes(r)) || words.some((w) => RESERVED_WORD_SKELETONS.has(w))
+  );
 }
 
 /**
@@ -32,7 +108,7 @@ export function parseDisplayName(value: unknown, field: string, errors: Record<s
     errors[field] = "Enter a display name.";
     return "";
   }
-  if (INVISIBLE_OR_CONTROL.test(value)) {
+  if (INVISIBLE_OR_CONTROL.test(value) || INVISIBLE.test(value)) {
     errors[field] = "Display names can't contain invisible or control characters.";
     return "";
   }
@@ -46,14 +122,23 @@ export function parseDisplayName(value: unknown, field: string, errors: Record<s
     errors[field] = `Must be ${MAX_DISPLAY_NAME_LENGTH} characters or fewer.`;
     return "";
   }
+  if (!LETTER_OR_NUMBER.test(name)) {
+    errors[field] = "Display names need at least one letter or number.";
+    return "";
+  }
+  if (tooManyMarks(name)) {
+    errors[field] = "Display names can't stack accents or other marks on one character.";
+    return "";
+  }
   if (AT_SIGN.test(name) || LINK.test(name)) {
     errors[field] = "Display names can't include links, email addresses or @handles.";
     return "";
   }
-  const folded = fold(name);
-  const compact = folded.replace(/[^\p{L}\p{N}]/gu, "");
-  const words = folded.split(/[^\p{L}\p{N}]+/u);
-  if (RESERVED_SUBSTRINGS.some((r) => compact.includes(r)) || words.some((w) => RESERVED_WORDS.has(w))) {
+  if (mixesScripts(name)) {
+    errors[field] = "Display names can't mix Latin, Cyrillic or Greek letters in one word.";
+    return "";
+  }
+  if (isReserved(name)) {
     errors[field] = "That name is reserved. Choose another.";
     return "";
   }

@@ -33,6 +33,23 @@ describe("Data API lock-out", () => {
     expect(open).toEqual([]);
   });
 
+  it("tables in `private` have RLS on and grant nothing to anon, authenticated or PUBLIC", async () => {
+    const tables = await db.query<{ table_name: string; rls: boolean }>(
+      `select c.relname as table_name, c.relrowsecurity as rls from pg_class c
+         join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'private' and c.relkind = 'r' order by 1`,
+    );
+    expect(tables).toEqual([
+      { table_name: "rate_limits", rls: true },
+      { table_name: "social_suspensions", rls: true },
+    ]);
+    const grants = await db.query(
+      `select table_name, grantee, privilege_type from information_schema.role_table_grants
+        where table_schema = 'private' and grantee in ('anon', 'authenticated', 'PUBLIC')`,
+    );
+    expect(grants).toEqual([]);
+  });
+
   it("no function in `private` is executable by anon, authenticated or PUBLIC", async () => {
     // New functions are executable by PUBLIC by default, so each migration
     // that adds one must revoke it (the schema's usage is revoked too, but

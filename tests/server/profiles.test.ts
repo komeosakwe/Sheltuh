@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { getGoingSummary, putMyGoing } from "@/lib/server/handlers/going";
+import { putMyGoing } from "@/lib/server/handlers/going";
 import { deleteMyProfile, getMyProfile, putMyProfile } from "@/lib/server/handlers/profiles";
 import { parseDisplayName } from "@/lib/server/profile-input";
 import { TestApi } from "./helpers/api";
@@ -25,6 +25,10 @@ const putProfile = (token: string | undefined, body: unknown) =>
 const getProfile = (token?: string) => api.call(getMyProfile, { token });
 const deleteProfile = (token?: string) => api.call(deleteMyProfile, { token, method: "DELETE" });
 
+async function suspend(userId: string) {
+  await api.db.query(`insert into private.social_suspensions (user_id) values ($1)`, [userId]);
+}
+
 async function profileRow(userId: string) {
   const [row] = await api.db.query<{ display_name: string; adult_confirmed_at: Date }>(
     `select display_name, adult_confirmed_at from public.profiles where user_id = $1`,
@@ -48,11 +52,9 @@ describe("profile lifecycle", () => {
   it("creating one needs the adult confirmation; renaming doesn't, and keeps it", async () => {
     const user = await api.signUp();
 
-    for (const adultConfirmed of [undefined, false]) {
-      const res = await putProfile(user.token, { displayName: "Ada", adultConfirmed });
-      expect(res.status).toBe(400);
-      expect(Object.keys(res.body.fieldErrors)).toEqual(["adultConfirmed"]);
-    }
+    const res = await putProfile(user.token, { displayName: "Ada", adultConfirmed: false });
+    expect(res.status).toBe(400);
+    expect(Object.keys(res.body.fieldErrors)).toEqual(["adultConfirmed"]);
     expect(await profileRow(user.userId)).toBeUndefined();
 
     const created = await putProfile(user.token, { displayName: "Ada", adultConfirmed: true });
@@ -90,11 +92,56 @@ describe("profile lifecycle", () => {
     expect(await profileRow(user.userId)).toBeUndefined();
   });
 
+  it("renaming a profile that no longer exists (deleted in another tab) is a 404", async () => {
+    const user = await api.signUp();
+    await putProfile(user.token, { displayName: "Ada", adultConfirmed: true });
+    expect((await deleteProfile(user.token)).status).toBe(204);
+
+    const res = await putProfile(user.token, { displayName: "Ada L." });
+    expect(res.status).toBe(404);
+    expect(res.body.fieldErrors).toBeUndefined();
+    expect(await profileRow(user.userId)).toBeUndefined();
+  });
+
   it("reports a suspension to its owner", async () => {
     const user = await api.signUp();
     await putProfile(user.token, { displayName: "Ada", adultConfirmed: true });
-    await api.db.query(`update public.profiles set social_suspended_at = now() where user_id = $1`, [user.userId]);
+    await suspend(user.userId);
     expect((await getProfile(user.token)).body.suspended).toBe(true);
+  });
+
+  it("a suspended member can't rename, or recreate after deleting (403)", async () => {
+    const user = await api.signUp();
+    await putProfile(user.token, { displayName: "Ada", adultConfirmed: true });
+    await suspend(user.userId);
+
+    for (const body of [{ displayName: "Renamed" }, { displayName: "Renamed", adultConfirmed: true }]) {
+      expect((await putProfile(user.token, body)).status).toBe(403);
+    }
+    expect((await profileRow(user.userId)).display_name).toBe("Ada");
+
+    // Deleting still works: removing your own data is never blocked.
+    expect((await deleteProfile(user.token)).status).toBe(204);
+    for (const body of [
+      { displayName: "Fresh", adultConfirmed: true },
+      { displayName: "Fresh" },
+      { displayName: "Fresh", adultConfirmed: false },
+    ]) {
+      expect((await putProfile(user.token, body)).status).toBe(403);
+    }
+    expect(await profileRow(user.userId)).toBeUndefined();
+  });
+
+  it("responses are never cached: cache-control private, no-store", async () => {
+    const user = await api.signUp();
+    const responses = [
+      await putProfile(user.token, { displayName: "Ada", adultConfirmed: true }),
+      await putProfile(user.token, { displayName: "Ada L." }),
+      await getProfile(user.token),
+      await deleteProfile(user.token),
+    ];
+    expect(responses.map((r) => r.status)).toEqual([200, 200, 200, 204]);
+    for (const res of responses) expect(res.headers.get("cache-control")).toBe("private, no-store");
   });
 
   it("only ever reads or writes the caller's own profile", async () => {
@@ -121,8 +168,13 @@ describe("deleting a profile", () => {
     expect((await api.call(putMyGoing, { token: user.token, params: { eventId: event.eventId }, method: "PUT" })).status).toBe(
       200,
     );
+    // Counted directly: the public count withholds numbers below 3.
     const count = async () =>
-      (await api.call(getGoingSummary, { params: { eventId: event.eventId } })).body.count as number;
+      (
+        await api.db.query<{ n: number }>(`select count(*)::int as n from public.event_attendees where event_id = $1`, [
+          event.eventId,
+        ])
+      )[0].n;
     expect(await count()).toBe(1);
     return { user, count };
   }
@@ -163,8 +215,22 @@ describe("display name validation", () => {
     ["J. Cole", "J. Cole"],
     ["Ｂｅａ", "Ｂｅａ"],
     ["x".repeat(40), "x".repeat(40)],
-    ["🎸".repeat(40), "🎸".repeat(40)],
+    ["A" + "🎸".repeat(39), "A" + "🎸".repeat(39)],
     ["Badminton Ben", "Badminton Ben"],
+    // Emoji presentation selector (U+FE0F) and a keycap: allowed.
+    ["Ada ❤️", "Ada ❤️"],
+    ["Ada" + "\u0335".repeat(4), "Ada" + "\u0335".repeat(4)],
+    ["DJ 1️⃣", "DJ 1️⃣"],
+    // Scripts with several marks per character.
+    ["स्त्री", "स्त्री"],
+    ["Lakshmi लक्ष्मी", "Lakshmi लक्ष्मी"],
+    ["กี่", "กี่"],
+    ["Nguyễn Thị", "Nguyễn Thị"],
+    // Different scripts in different words, or only one.
+    ["Ivan Иванов", "Ivan Иванов"],
+    ["Αλέξης", "Αλέξης"],
+    ["Админ", "Админ"],
+    ["7", "7"],
   ])("accepts %j as %j", (input, expected) => {
     expect(check(input)).toEqual({ name: expected, error: undefined });
   });
@@ -197,6 +263,34 @@ describe("display name validation", () => {
     ["reserved: support", "Sheltuh support"],
     ["reserved: support word", "Tech Support"],
     ["reserved: fullwidth", "ＡＤＭＩＮ"],
+    // Default-ignorable (renders as nothing) and blank-looking characters.
+    ["Hangul filler", "Ada\u3164"],
+    ["Hangul choseong filler", "\u115FAda"],
+    ["halfwidth Hangul filler", "Ada\uFFA0"],
+    ["combining grapheme joiner", "Ad\u034Fa"],
+    ["variation selector other than FE0E/FE0F", "Ada\uFE00"],
+    ["Braille blank", "Ada \u2800"],
+    ["only a Braille blank", "\u2800"],
+    // Nothing readable.
+    ["emoji only", "🎸🎸"],
+    ["punctuation only", "..."],
+    ["symbols only", "★ ☆ ★"],
+    // Stacked marks ("Zalgo").
+    ["5 marks on one character", "Ada" + "\u0335".repeat(5)],
+    ["dozens of marks", "Z" + "\u0336\u0337\u0338".repeat(10) + "algo"],
+    // Mixed scripts in one word (homoglyph disguise).
+    ["Cyrillic A in a Latin word", "\u0410da"],
+    ["Greek omicron in a Latin word", "B\u03BFb"],
+    // Reserved names spelled with lookalikes.
+    ["reserved: digit for i", "Adm1n"],
+    ["reserved: digit for l", "She1tuh"],
+    ["reserved: capital I for l", "SheItuh"],
+    ["reserved: rn for m", "adrnin"],
+    ["reserved: zero for o", "M0derator"],
+    ["reserved: Cyrillic word + Latin word", "\u0405\u04BB\u0435\u04CF tuh"],
+    ["reserved: all-Cyrillic admin", "\u0430\u0501\u043C\u0456\u043F"],
+    ["reserved: all-Cyrillic moderator", "\u041C\u043E\u0501\u0435\u0433\u0430\u0442\u043E\u0433"],
+    ["reserved: Latin word + Greek word", "Shel \u03A4\u03C5\u0397"],
   ])("rejects %s", async (_label, input) => {
     const { error } = check(input);
     expect(error).toBeDefined();

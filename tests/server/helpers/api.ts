@@ -85,7 +85,7 @@ export class TestApi {
     handler: Handler<P>,
     options: { params?: P; token?: string; body?: unknown; query?: Record<string, string>; method?: string } = {},
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- tests assert on arbitrary response JSON
-  ): Promise<{ status: number; body: any }> {
+  ): Promise<{ status: number; body: any; headers: Headers }> {
     const url = new URL(`${SITE_URL}/api/test`);
     for (const [k, v] of Object.entries(options.query ?? {})) url.searchParams.set(k, v);
     const req = new Request(url, {
@@ -102,6 +102,6 @@ export class TestApi {
   async send<P extends Record<string, string>>(handler: Handler<P>, req: Request, params?: P) {
     const res = await runHandler(handler, req, (params ?? {}) as P, this.deps);
     const text = await res.text();
-    return { status: res.status, body: text ? JSON.parse(text) : undefined };
+    return { status: res.status, body: text ? JSON.parse(text) : undefined, headers: res.headers };
   }
 }

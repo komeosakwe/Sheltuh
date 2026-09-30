@@ -6,7 +6,9 @@ import {
   getMyGoing,
   listGoingAttendees,
   putMyGoing,
+  ATTENDEE_LIST_RATE_LIMIT,
 } from "@/lib/server/handlers/going";
+import { deleteMyProfile, putMyProfile } from "@/lib/server/handlers/profiles";
 import { createCheckout, stripeWebhook } from "@/lib/server/handlers/orders";
 import type { EventRecord } from "@/lib/server/types";
 import { stripeWebhookRequest, TestApi } from "./helpers/api";
@@ -92,8 +94,8 @@ async function disableWhosGoing(e: EventRecord = event) {
   await api.db.query(`update public.events set whos_going_enabled = false where id = $1`, [e.eventId]);
 }
 
-async function suspend(m: Member) {
-  await api.db.query(`update public.profiles set social_suspended_at = now() where user_id = $1`, [m.userId]);
+async function suspend(m: { userId: string }) {
+  await api.db.query(`insert into private.social_suspensions (user_id, reason) values ($1, 'test')`, [m.userId]);
 }
 
 describe("opting in: who is eligible", () => {
@@ -132,7 +134,7 @@ describe("opting in: who is eligible", () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ going: true, eligible: true, hasProfile: true });
     expect(await attendeeRows()).toEqual([{ user_id: m.userId }]);
-    expect((await summary()).body).toEqual({ count: 1, closed: false });
+    expect((await summary()).body).toEqual({ count: 0, closed: false, countHidden: true });
   });
 
   it("a free ticket holder can opt in (free tickets are A$0 paid orders)", async () => {
@@ -311,29 +313,44 @@ describe("opting in and out: idempotency and races", () => {
 
 describe("public count", () => {
   it("counts opted-in members only, leaving out suspended ones", async () => {
-    expect((await summary()).body).toEqual({ count: 0, closed: false });
-    await goingMember();
-    const suspended = await goingMember();
+    const going = [await goingMember(), await goingMember(), await goingMember(), await goingMember()];
     // A ticket holder who hasn't opted in isn't counted.
     const quiet = await member();
     await insertOrder(api, event, quiet.email);
-    expect((await summary()).body).toEqual({ count: 2, closed: false });
+    expect((await summary()).body).toEqual({ count: 4, closed: false, countHidden: false });
 
-    await suspend(suspended);
+    await suspend(going[0]);
     const res = await summary();
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ count: 1, closed: false });
+    expect(res.body).toEqual({ count: 3, closed: false, countHidden: false });
+  });
+
+  it("withholds the number below 3, so nobody can tell 0, 1 or 2 apart", async () => {
+    const hidden = { count: 0, closed: false, countHidden: true };
+    expect((await summary()).body).toEqual(hidden);
+    await goingMember();
+    expect((await summary()).body).toEqual(hidden);
+    const second = await goingMember();
+    expect((await summary()).body).toEqual(hidden);
+    const third = await goingMember();
+    expect((await summary()).body).toEqual({ count: 3, closed: false, countHidden: false });
+
+    // Suspended members don't count towards the threshold either.
+    await suspend(third);
+    expect((await summary()).body).toEqual(hidden);
+    await del(second);
+    expect((await summary()).body).toEqual(hidden);
   });
 
   it("shows nothing once the event has ended or Who's Going is switched off", async () => {
-    await goingMember();
+    for (let i = 0; i < 3; i++) await goingMember();
     await disableWhosGoing();
-    expect((await summary()).body).toEqual({ count: 0, closed: true });
+    expect((await summary()).body).toEqual({ count: 0, closed: true, countHidden: false });
 
     await api.db.query(`update public.events set whos_going_enabled = true where id = $1`, [event.eventId]);
-    expect((await summary()).body).toEqual({ count: 1, closed: false });
+    expect((await summary()).body).toEqual({ count: 3, closed: false, countHidden: false });
     await endEvent();
-    expect((await summary()).body).toEqual({ count: 0, closed: true });
+    expect((await summary()).body).toEqual({ count: 0, closed: true, countHidden: false });
   });
 
   it("is a 404 unless the event is published", async () => {
@@ -350,6 +367,31 @@ describe("attendee list", () => {
     expect((await api.call(listGoingAttendees, { params: params() })).status).toBe(401);
     const unverified = await member({ emailVerified: false });
     expect((await attendees(unverified)).status).toBe(403);
+  });
+
+  it("needs the viewer to have a profile that isn't suspended (403)", async () => {
+    await goingMember();
+    const noProfile = await member({ profile: false });
+    const res = await attendees(noProfile);
+    expect(res.status).toBe(403);
+    expect(res.body.items).toBeUndefined();
+
+    const suspended = await goingMember();
+    expect((await attendees(suspended)).status).toBe(200);
+    await suspend(suspended);
+    expect((await attendees(suspended)).status).toBe(403);
+    // Deleting the profile doesn't get around it either.
+    await api.db.query(`delete from public.profiles where user_id = $1`, [suspended.userId]);
+    expect((await attendees(suspended)).status).toBe(403);
+  });
+
+  it("is never cached: cache-control private, no-store", async () => {
+    const m = await goingMember();
+    const res = await attendees(m);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    await disableWhosGoing();
+    expect((await attendees(m)).headers.get("cache-control")).toBe("private, no-store");
   });
 
   it("is a 404 unless the event is published", async () => {
@@ -434,7 +476,160 @@ describe("attendee list", () => {
   });
 });
 
+describe("attendee list rate limit", () => {
+  const { hits } = ATTENDEE_LIST_RATE_LIMIT;
+
+  it(`allows ${ATTENDEE_LIST_RATE_LIMIT.hits} requests per window per member, then 429`, async () => {
+    const m = await goingMember();
+    const other = await goingMember();
+    for (let i = 0; i < hits; i++) expect((await attendees(m)).status).toBe(200);
+    const limited = await attendees(m);
+    expect(limited.status).toBe(429);
+    expect(limited.body.items).toBeUndefined();
+    // Per member: someone else isn't affected.
+    expect((await attendees(other)).status).toBe(200);
+
+    // Once the window has passed, a new one starts.
+    await api.db.query(
+      `update private.rate_limits set window_started_at = window_started_at - $2::interval where user_id = $1`,
+      [m.userId, ATTENDEE_LIST_RATE_LIMIT.window],
+    );
+    expect((await attendees(m)).status).toBe(200);
+  });
+
+  it("concurrent requests can't take more than the limit", async () => {
+    const m = await goingMember();
+    const results = await Promise.all(Array.from({ length: hits + 5 }, () => attendees(m)));
+    expect(results.filter((r) => r.status === 200)).toHaveLength(hits);
+    expect(results.filter((r) => r.status === 429)).toHaveLength(5);
+  });
+
+  it("private.take_rate_limit counts hits in a fixed window, per user and bucket", async () => {
+    const m = await member();
+    const take = async (bucket = "b") =>
+      (
+        await api.db.query<{ ok: boolean }>(`select private.take_rate_limit($1, $2, 2, '1 minute') as ok`, [
+          m.userId,
+          bucket,
+        ])
+      )[0].ok;
+    expect([await take(), await take(), await take(), await take()]).toEqual([true, true, false, false]);
+    expect(await take("other")).toBe(true);
+    const [{ hits: stored }] = await api.db.query<{ hits: number }>(
+      `select hits from private.rate_limits where user_id = $1 and bucket = 'b'`,
+      [m.userId],
+    );
+    expect(stored).toBe(3); // capped at limit + 1
+    await api.db.query(`update private.rate_limits set window_started_at = now() - interval '61 seconds'`);
+    expect(await take()).toBe(true);
+  });
+});
+
+describe("cache-control on the caller's own status", () => {
+  it("GET, PUT and DELETE /going/me are private, no-store", async () => {
+    const m = await member();
+    await insertOrder(api, event, m.email);
+    for (const res of [await mine(m), await put(m), await del(m)]) {
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toBe("private, no-store");
+    }
+  });
+});
+
+describe("suspensions outlive the profile", () => {
+  it("suspend, delete the profile, recreate it, opt in: 403 throughout, count unchanged", async () => {
+    for (let i = 0; i < 3; i++) await goingMember();
+    const m = await goingMember(event, { displayName: "Suspended" });
+    expect((await summary()).body.count).toBe(4);
+
+    await suspend(m);
+    expect((await summary()).body.count).toBe(3);
+
+    expect((await api.call(deleteMyProfile, { token: m.token, method: "DELETE" })).status).toBe(204);
+    const recreate = await api.call(putMyProfile, {
+      token: m.token,
+      method: "PUT",
+      body: { displayName: "Fresh start", adultConfirmed: true },
+    });
+    expect(recreate.status).toBe(403);
+    expect(await api.db.query(`select 1 from public.profiles where user_id = $1`, [m.userId])).toEqual([]);
+    expect((await put(m)).status).toBe(403);
+    expect(await api.db.query(`select 1 from public.event_attendees where user_id = $1`, [m.userId])).toEqual([]);
+    expect((await summary()).body.count).toBe(3);
+    expect((await mine(m)).body).toEqual({ going: false, eligible: false, hasProfile: false });
+  });
+
+  it("is lifted by deleting the suspension, and removed with the account", async () => {
+    const m = await goingMember();
+    await suspend(m);
+    expect((await put(m)).status).toBe(403);
+    await api.db.query(`delete from private.social_suspensions where user_id = $1`, [m.userId]);
+    expect((await put(m)).status).toBe(200);
+
+    await suspend(m);
+    await api.db.query(`delete from auth.users where id = $1`, [m.userId]);
+    expect(await api.db.query(`select 1 from private.social_suspensions where user_id = $1`, [m.userId])).toEqual([]);
+  });
+});
+
+describe("private.purge_social_data (retention)", () => {
+  async function endedDaysAgo(e: EventRecord, days: number) {
+    await api.db.query(
+      `update public.events set starts_at = now() - make_interval(days => $2) - interval '3 hours',
+                                ends_at = now() - make_interval(days => $2) where id = $1`,
+      [e.eventId, days],
+    );
+  }
+
+  it("deletes opt-ins 30 days after their event ended, and nothing else", async () => {
+    const old = await publishedEvent(api, organiser, admin, { title: "Old" });
+    const recent = await publishedEvent(api, organiser, admin, { title: "Recent" });
+    const m = await goingMember(event);
+    for (const e of [old, recent]) {
+      await insertOrder(api, e, m.email);
+      expect((await put(m, e)).status).toBe(200);
+    }
+    await endedDaysAgo(old, 31);
+    await endedDaysAgo(recent, 29);
+    await api.db.query(
+      `insert into private.rate_limits (user_id, bucket, window_started_at, hits)
+       values ($1, 'stale', now() - interval '2 days', 1), ($1, 'fresh', now(), 1)`,
+      [m.userId],
+    );
+
+    const purge = async () =>
+      (
+        await api.db.query<{ event_attendees_deleted: number; rate_limits_deleted: number }>(
+          `select * from private.purge_social_data()`,
+        )
+      )[0];
+    expect(await purge()).toEqual({ event_attendees_deleted: 1, rate_limits_deleted: 1 });
+    expect(await attendeeRows(old.eventId)).toEqual([]);
+    expect(await attendeeRows(recent.eventId)).toEqual([{ user_id: m.userId }]);
+    expect(await attendeeRows(event.eventId)).toEqual([{ user_id: m.userId }]);
+    expect(await api.db.query(`select bucket from private.rate_limits`)).toEqual([{ bucket: "fresh" }]);
+    // The profile, orders and events themselves are kept.
+    expect(await api.db.query(`select 1 from public.profiles where user_id = $1`, [m.userId])).toHaveLength(1);
+    expect(await api.db.query(`select 1 from public.events where id = $1`, [old.eventId])).toHaveLength(1);
+
+    // Idempotent.
+    expect(await purge()).toEqual({ event_attendees_deleted: 0, rate_limits_deleted: 0 });
+  });
+});
+
 describe("private.set_going (database function)", () => {
+  it("reports a suspension even when the member has no profile", async () => {
+    const m = await member({ profile: false });
+    await insertOrder(api, event, m.email);
+    await suspend(m);
+    const [{ r }] = await api.db.query<{ r: string }>(`select private.set_going($1, $2, $3) as r`, [
+      event.eventId,
+      m.userId,
+      m.email,
+    ]);
+    expect(r).toBe("suspended");
+  });
+
   it("returns each outcome directly", async () => {
     const m = await member({ profile: false });
     const call = async (eventId: string, email: string | null = m.email) =>

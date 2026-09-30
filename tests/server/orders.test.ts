@@ -82,7 +82,13 @@ describe("free checkout", () => {
     expect(api.stripe.checkout.sessions.create).not.toHaveBeenCalled();
 
     const order = await api.call(getOrderBySession, { params: { sessionId: orderIdFromUrl(res.body.url) } });
-    expect(order.body).toMatchObject({ status: "paid", totalCents: 0, eventTitle: "Neon Static" });
+    expect(order.body).toMatchObject({
+      status: "paid",
+      totalCents: 0,
+      eventTitle: "Neon Static",
+      // So the confirmation page can link back to the event (and its Who's Going).
+      eventSlug: event.slug,
+    });
     expect(order.body.tickets).toHaveLength(2);
     expect(order.body.tickets[0].ticketCode).toMatch(/^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/);
     expect(await sold(event.eventId)).toEqual({ rsvp: 2 });
@@ -412,7 +418,7 @@ describe("Stripe webhook", () => {
 
   it("acknowledges events it doesn't act on, and unknown orders", async () => {
     const ignored = await api.send(stripeWebhook, stripeWebhookRequest({ type: "charge.refunded", data: { object: {} } }));
-    expect(ignored).toEqual({ status: 200, body: { received: true } });
+    expect({ status: ignored.status, body: ignored.body }).toEqual({ status: 200, body: { received: true } });
     const unknown = await api.send(stripeWebhook, stripeWebhookRequest(completedSession("ord_unknown")));
     expect(unknown.status).toBe(200);
   });

@@ -91,7 +91,10 @@ export interface OrderRecord {
   orderId: string;
   organiserId: string;
   eventId: string;
+  /** The event's title when the order was placed. */
   eventTitle: string;
+  /** The event's current slug, for linking back to /events/{eventSlug}. */
+  eventSlug: string;
   buyerEmail?: string;
   lineItems: OrderLineItem[];
   subtotalCents: number;
@@ -115,7 +118,10 @@ export interface OrderRecord {
 export interface ProfileRecord {
   /** 1–40 characters. Shown to other verified members on events you opt in to. */
   displayName: string;
-  /** Suspended by Sheltüh: hidden from every Who's Going list and count, and can't opt in. */
+  /**
+   * Suspended by Sheltüh: hidden from every Who's Going list and count, can't
+   * opt in, see names, or change (or recreate) the profile.
+   */
   suspended: boolean;
   createdAt: string;
   updatedAt: string;
@@ -129,10 +135,16 @@ export interface ProfileInput {
 
 /** Public: GET /api/events/{eventId}/going. */
 export interface GoingSummary {
-  /** Members who opted in. Always 0 when `closed`. */
+  /**
+   * Members who opted in. 0 when `closed`, and 0 when `countHidden`: below 3
+   * (GOING_COUNT_THRESHOLD in lib/server/handlers/going.ts) the real number
+   * (0, 1 or 2) isn't revealed.
+   */
   count: number;
   /** The event has ended, or Who's Going is switched off for it: show nothing. */
   closed: boolean;
+  /** Fewer than 3 are going, so `count` is withheld (sent as 0). Always false when `closed`. */
+  countHidden: boolean;
 }
 
 /** One entry in GET /api/events/{eventId}/going/attendees (verified members only). */

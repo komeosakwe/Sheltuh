@@ -54,8 +54,10 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished, by whom, and why. |
 | `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed, or oversold_refund_required → refunded. `tickets_emailed_at` records the ticket email. |
 | `tickets` | `code` | One row per admitted person. This is the future home of check-in. |
-| `profiles` | `user_id` | A member's social identity: `display_name` (1–40 characters), `adult_confirmed_at` (required: no profile without an 18+ confirmation), `social_suspended_at` (admin-set, see `docs/supabase-setup.md`). Deleted with the Supabase account. |
-| `event_attendees` | `id` | One row per Who's Going opt-in, unique per `(event_id, user_id)`. `id` is the opaque `attendeeId` shown to members: a fresh one per event, so it can't be linked across events or to a user. Deleted with the profile or the event. |
+| `profiles` | `user_id` | A member's social identity: `display_name` (1–40 characters), `adult_confirmed_at` (required: no profile without an 18+ confirmation). Deleted with the Supabase account. `social_suspended_at` is deprecated and ignored (see `private.social_suspensions`). |
+| `event_attendees` | `id` | One row per Who's Going opt-in, unique per `(event_id, user_id)`. `id` is the opaque `attendeeId` shown to members: a fresh one per event, so it can't be linked across events or to a user. Deleted with the profile or the event, and by `purge_social_data` 30 days after the event ends. |
+| `private.social_suspensions` | `user_id` | Admin-set Who's Going suspensions (SQL only, `docs/supabase-setup.md`). Keyed on the auth user, not the profile, so a member can't clear one by deleting and recreating their profile. Deleted with the Supabase account. |
+| `private.rate_limits` | `(user_id, bucket)` | Fixed-window per-member request counters (`take_rate_limit`). Deleted with the account; stale rows purged daily. |
 
 Timestamps are `timestamptz`. Organisers enter Australia/Melbourne local
 times, which are converted to instants honouring daylight saving
@@ -68,7 +70,9 @@ times, which are converted to instants honouring daylight saving
 | `create_event_draft`, `update_event_draft` | Event row and ticket types saved together. Updates only succeed while the event is draft or rejected and owned by the caller's organiser. |
 | `replace_ticket_types` | Upserts by id and removes ticket types that were dropped. Refuses to remove one with sales, or to cut a quantity below what's already sold. |
 | `transition_event` | Changes status and writes the moderation log entry in one step. It only moves an event from an expected status, so two admins acting at once can't both succeed; the loser gets a 409. |
-| `set_going` | Opts a member in to an event's Who's Going, checking everything in one step: the event is published, enabled and hasn't ended; the member has a profile that isn't suspended; and a `paid` order for the event has their verified email (case-insensitive). Share-locks the event, then the profile, so an unpublish, suspension or profile deletion can't interleave. Idempotent. Returns `going`, `event_unavailable`, `no_profile`, `suspended` or `not_eligible`. |
+| `set_going` | Opts a member in to an event's Who's Going, checking everything in one step: the event is published, enabled and hasn't ended; the member isn't suspended (checked before the profile, so a suspended member without one still gets `suspended`); they have a profile; and a `paid` order for the event has their verified email (case-insensitive). Share-locks the event, then the profile, so an unpublish or profile deletion can't interleave. A suspension recorded mid-call can't be locked in advance, but every count and list filters suspensions at read time. Idempotent. Returns `going`, `event_unavailable`, `suspended`, `no_profile` or `not_eligible`. |
+| `take_rate_limit` | Records one hit on a member's `(user, bucket)` counter and says whether it's within the limit for the window. One upsert, so concurrent requests can't both take the last slot. |
+| `purge_social_data` | Retention: deletes Who's Going opt-ins 30 days after their event ended, and rate-limit rows idle for a day. Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`), not by a migration. |
 | `fulfil_order` | Takes inventory for every line item, issues the tickets and marks the order paid. If any ticket type has sold out, or the event is no longer published, it takes nothing and marks the order `oversold_refund_required`. Rows are locked in a fixed order, so concurrent orders can't deadlock. It's idempotent, so Stripe's webhook redeliveries are harmless. |
 
 ## Payment flow
@@ -122,10 +126,20 @@ A member is shown as going to an event only when all of these hold:
 
 Who sees what:
 
-- The public sees only a count (`{count, closed}`).
-- Verified members see display names, paginated (at most 50 a page), with
-  an opaque per-event `attendeeId`. Never an email, user id or ticket type.
-- Suspended profiles are left out of every count and list.
+- The public sees only a count (`{count, closed, countHidden}`), and not even
+  that below 3 people: `count` is then 0 with `countHidden: true`, so 0, 1
+  and 2 look the same.
+- Verified members with a profile that isn't suspended see display names,
+  paginated (at most 50 a page), with an opaque per-event `attendeeId`.
+  Never an email, user id or ticket type. The list is rate-limited per
+  member (30 requests per 10 minutes, then 429).
+- Suspended members (`private.social_suspensions`) are left out of every
+  count and list, can't see names, and can't create, rename or recreate a
+  profile. Deleting their profile doesn't lift the suspension.
+- Responses about the caller (`/going/me`, `/going/attendees`,
+  `/profiles/me`) are sent `cache-control: private, no-store`.
+- Retention: opt-ins are deleted 30 days after the event ends
+  (`purge_social_data`, run daily by Supabase Cron).
 - Once the event ends, or `whos_going_enabled` is off, it's `closed`: the
   count is 0, the list is empty, and new opt-ins are refused.
 - Opting out (`DELETE …/going/me`) and deleting the profile always work,
@@ -145,7 +159,7 @@ application is approved.
 | `GET /events?q&category&pricing&onOrAfter&cursor&limit` | public (published only) |
 | `GET /events/slug/{slug}` | public (published only) |
 | `POST /events/{eventId}/checkout` | public |
-| `GET /orders/by-session/{orderId}` | public (id is the credential) |
+| `GET /orders/by-session/{orderId}` | public (id is the credential). Includes `eventTitle` and `eventSlug` for linking back to the event |
 | `POST /stripe/webhook` | Stripe (signature-verified) |
 | `POST /organisers/apply` · `GET /organisers/me` · `PATCH /organisers/me` | signed in |
 | `POST /organisers/me/connect/onboard` · `…/connect/refresh` | organiser |
@@ -153,12 +167,12 @@ application is approved.
 | `GET /organisers/me/events` · `GET /organisers/me/events/{id}` | organiser (own events) |
 | `PUT /events/{id}/image` · `DELETE /events/{id}/image` | organiser (own events, while draft or rejected) |
 | `GET /events/{id}/image` | public once published; before that, the owning organiser or an admin |
-| `GET /events/{id}/going` | public (published only): `{count, closed}` |
-| `GET /events/{id}/going/attendees?cursor` | verified email (published only) |
+| `GET /events/{id}/going` | public (published only): `{count, closed, countHidden}` |
+| `GET /events/{id}/going/attendees?cursor` | verified email with a profile that isn't suspended (403 otherwise); published only; 429 when rate-limited |
 | `GET /events/{id}/going/me` · `DELETE /events/{id}/going/me` | signed in (own opt-in) |
 | `PUT /events/{id}/going/me` | verified email, eligible ticket holder with a profile. 404 if Who's Going isn't open, 409 without a profile, 403 if not eligible or suspended |
 | `GET /profiles/me` · `DELETE /profiles/me` | signed in (own profile; DELETE also removes every opt-in) |
-| `PUT /profiles/me` | verified email. Creating needs `adultConfirmed: true`; display names are checked in `lib/server/profile-input.ts` (no control or zero-width characters, links, emails, @handles or reserved names) |
+| `PUT /profiles/me` | verified email, not suspended (403). Creating needs `adultConfirmed: true` (an explicit `false` is a 400); a rename (no `adultConfirmed`) with no profile is a 404. Display names are checked in `lib/server/profile-input.ts`: no control, invisible or default-ignorable characters (U+FE0E/FE0F allowed), at least one letter or digit, at most 4 combining marks per character, no links, emails or @handles, no Latin/Cyrillic/Greek mix within a word, and no reserved names, compared on a lookalike skeleton |
 | `GET /admin/organisers?status` · `POST /admin/organisers/{id}/approve` · `…/reject` | admin |
 | `GET /admin/events?status` · `POST /admin/events/{id}/approve` · `…/reject` · `…/unpublish` | admin |
 

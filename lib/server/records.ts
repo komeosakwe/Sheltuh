@@ -144,6 +144,7 @@ export const ORDER_SELECT = `
          o.subtotal_cents, o.buyer_fee_cents, o.total_cents, o.application_fee_cents,
          o.status::text as status, o.stripe_checkout_session_id, o.stripe_payment_intent_id,
          o.created_at, o.updated_at,
+         (select e.slug from public.events e where e.id = o.event_id) as event_slug,
          coalesce((
            select json_agg(json_build_object(
                     'ticketCode', t.code, 'ticketTypeId', t.ticket_type_id,
@@ -158,6 +159,7 @@ export function toOrder(row: Row): OrderRecord {
     organiserId: row.organiser_id as string,
     eventId: row.event_id as string,
     eventTitle: row.event_title as string,
+    eventSlug: row.event_slug as string,
     buyerEmail: opt(row.buyer_email),
     lineItems: row.line_items as OrderRecord["lineItems"],
     subtotalCents: row.subtotal_cents as number,
@@ -177,13 +179,18 @@ export function toOrder(row: Row): OrderRecord {
 // Profiles and Who's Going
 // ---------------------------------------------------------------------------
 
-/** Unqualified so it works in both `select … from public.profiles` and `returning`. */
-export const PROFILE_COLUMNS = `display_name, social_suspended_at, created_at, updated_at`;
+/**
+ * For `select … from public.profiles` (unaliased) and `insert/update
+ * public.profiles … returning`. Suspension lives in private.social_suspensions
+ * (profiles.social_suspended_at is deprecated and ignored).
+ */
+export const PROFILE_COLUMNS = `display_name, created_at, updated_at,
+  exists (select 1 from private.social_suspensions s where s.user_id = profiles.user_id) as suspended`;
 
 export function toProfile(row: Row): ProfileRecord {
   return {
     displayName: row.display_name as string,
-    suspended: row.social_suspended_at !== null && row.social_suspended_at !== undefined,
+    suspended: row.suspended === true,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };
