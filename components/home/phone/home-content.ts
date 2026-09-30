@@ -10,8 +10,9 @@ export interface HomeArt {
   imageUrl?: string;
 }
 
-/** Later: `imageUrl: "/home/hero.jpg"`. */
+/** Photo shown in the hero box (public/home/hero.jpg). */
 export const HOME_HERO: HomeArt = {
+  imageUrl: "/home/hero.jpg",
   poster: { pattern: "burst", background: "#0b0b0b", primary: "#ff4fb0", secondary: "#f3f0e8" },
 };
 
