@@ -151,8 +151,8 @@ export default function Nav() {
                 <Link
                   href={link.href}
                   aria-current={isActive(link.href) ? "page" : undefined}
-                  className={`display-lg block border-t-4 py-2 ${
-                    isActive(link.href) ? "border-foreground" : "border-transparent"
+                  className={`display-lg relative block py-2 before:absolute before:inset-x-0 before:top-0 before:h-1 before:origin-left before:bg-foreground before:content-[''] motion-safe:before:transition-transform motion-safe:before:duration-200 ${
+                    isActive(link.href) ? "before:scale-x-100" : "before:scale-x-0"
                   }`}
                 >
                   {link.label}
