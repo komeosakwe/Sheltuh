@@ -65,7 +65,7 @@ describe("Nav — phone menu", () => {
     expect(within(menu).getByRole("link", { name: "Sign in", hidden: true })).toHaveAttribute("href", "/login");
   });
 
-  it("offers Admin, My events, Account and Sign out to a signed-in admin", () => {
+  it("offers Admin, My events and Account to a signed-in admin (Sign out is on /account)", () => {
     const { menu } = renderNav(fakeAuthValue({ isAdmin: true }));
     expect(linkHrefs(menu)).toEqual([
       ["Discover", "/"],
@@ -75,7 +75,7 @@ describe("Nav — phone menu", () => {
       ["Account", "/account"],
       ["For organisers", "/organisers/apply"],
     ]);
-    expect(within(menu).getByRole("button", { name: "Sign out", hidden: true })).toBeInTheDocument();
+    expect(within(menu).queryByRole("button", { name: "Sign out", hidden: true })).toBeNull();
   });
 
   it("hides Admin from a signed-in organiser", () => {
@@ -107,12 +107,13 @@ describe("Nav — phone menu", () => {
   });
 
   it("closes after an action inside the menu", () => {
-    const signOut = vi.fn();
-    const { menu } = renderNav(fakeAuthValue({ signOut }));
+    const { menu } = renderNav(fakeAuthValue());
     const hidePopover = vi.fn();
     menu.hidePopover = hidePopover;
-    fireEvent.click(within(menu).getByRole("button", { name: "Sign out", hidden: true }));
-    expect(signOut).toHaveBeenCalled();
+    const account = within(menu).getByRole("link", { name: "Account", hidden: true });
+    // Keep jsdom from attempting the navigation; the click still bubbles to the menu.
+    account.addEventListener("click", (event) => event.preventDefault());
+    fireEvent.click(account);
     expect(hidePopover).toHaveBeenCalled();
   });
 
@@ -134,6 +135,28 @@ describe("Nav — phone menu", () => {
 });
 
 describe("Nav — desktop row", () => {
+  it("signed in: a single Account link (plus Admin), so the search keeps its width at 1024px", () => {
+    renderNav(fakeAuthValue({ isAdmin: true }));
+    const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
+    expect(linkHrefs(desktopNav)).toEqual([
+      ["Discover", "/"],
+      ["Map", "/map"],
+      ["Admin", "/admin"],
+      ["Account", "/account"],
+      ["For organisers", "/organisers/apply"],
+    ]);
+    expect(within(desktopNav).queryByRole("button", { name: "Sign out" })).toBeNull();
+  });
+
+  it("marks Account as the current page on /account (desktop and menu)", () => {
+    pathname = "/account";
+    renderNav(fakeAuthValue());
+    const accountLinks = screen.getAllByRole("link", { name: "Account", hidden: true });
+    expect(accountLinks).toHaveLength(2);
+    for (const link of accountLinks) expect(link).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "My events", hidden: true })).not.toHaveAttribute("aria-current");
+  });
+
   it("keeps the inline site search and the same destinations", () => {
     renderNav(fakeAuthValue({ status: "signed-out" }));
     expect(screen.getByRole("search", { name: "Search the site" })).toBeInTheDocument();

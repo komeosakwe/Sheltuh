@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import ContentPage, { ContentSection } from "@/components/ContentPage";
+import { SUPPORT_EMAIL } from "@/lib/contact";
 
 export const metadata: Metadata = { title: "Privacy Policy — Sheltüh" };
 
@@ -31,7 +32,7 @@ export default function PrivacyPage() {
         </ul>
         <p>We only collect what we need to run the service.</p>
       </ContentSection>
-      <ContentSection title="Who’s Going">
+      <ContentSection title="Who’s Going" id="whos-going">
         <p>
           Who&rsquo;s Going is off unless you turn it on, one event at a time. You can add yourself to
           an event when you&rsquo;re signed in with a verified email address and hold a ticket for it
@@ -45,17 +46,18 @@ export default function PrivacyPage() {
           </li>
           <li>People who aren&rsquo;t signed in only see how many people are going.</li>
           <li>
-            We never show your email address, which ticket you hold, or the other events you&rsquo;ve
-            added yourself to.
+            Your display name is saved with your account, so you can add yourself to other events in
+            one tap. It&rsquo;s the same on every event you add yourself to, so people signed in to
+            Sheltüh can see which of those events you&rsquo;ve joined.
           </li>
+          <li>We never show your email address or which ticket you hold.</li>
           <li>Nothing is shown once an event has ended.</li>
         </ul>
         <p>
-          You can remove yourself from an event at any time on its page, change your display name or
-          delete your Who&rsquo;s Going profile on your{" "}
-          <Link href="/account">account page</Link>. Deleting the profile takes you off every event.
-          To report a display name that shouldn&rsquo;t be there, email{" "}
-          <a href="mailto:support@sheltuh.com.au">support@sheltuh.com.au</a>.
+          You can remove yourself from an event at any time on its page. You can change your display
+          name, or delete your Who&rsquo;s Going profile to leave every event at once, on your{" "}
+          <Link href="/account">account page</Link>. To report a display name that shouldn&rsquo;t be
+          there, email <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>.
         </p>
       </ContentSection>
       <ContentSection title="Payments">
@@ -81,7 +83,7 @@ export default function PrivacyPage() {
         <p>
           You can ask to access or correct the personal information we hold about you, or to delete
           your account, by emailing{" "}
-          <a href="mailto:support@sheltuh.com.au">support@sheltuh.com.au</a>. We handle personal
+          <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>. We handle personal
           information in line with the Privacy Act 1988 (Cth) and the Australian Privacy Principles.
         </p>
       </ContentSection>

@@ -79,7 +79,11 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
       const lineItems = lineSummaries
         .filter((line) => line.quantity > 0)
         .map((line) => ({ ticketTypeId: line.ticket.id, quantity: line.quantity }));
-      const result = await createCheckoutSession(event.id, lineItems, needsEmail ? buyerEmail.trim() : undefined);
+      // Free orders send the email typed (or prefilled) above. Paid orders
+      // send the account email when signed in, so Stripe prefills it and the
+      // tickets are booked with the email that Who's Going matches on.
+      const email = needsEmail ? buyerEmail.trim() : accountEmail;
+      const result = await createCheckoutSession(event.id, lineItems, email);
       window.location.href = result.url;
       // Deliberately no setLoading(false) here — the page is navigating
       // away, and re-enabling the button would just invite a double-click.
@@ -200,6 +204,11 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                 )}
               </div>
             )}
+            {orderTotal.totalCents > 0 && accountEmail && (
+              <p className="mt-4 text-xs text-muted">
+                Booking as {accountEmail}, your account email, so you can add yourself to Who&rsquo;s Going.
+              </p>
+            )}
             <button
               type="button"
               onClick={handleCheckout}
@@ -217,9 +226,6 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
               {orderTotal.totalCents === 0
                 ? "Free tickets are issued immediately, no payment step."
                 : "You'll pay securely on Stripe's own checkout page."}
-              {orderTotal.totalCents > 0 && accountEmail && (
-                <> Use {accountEmail} there to be able to add yourself to Who&rsquo;s Going.</>
-              )}
             </p>
           </>
         ) : (

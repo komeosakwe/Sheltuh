@@ -1,16 +1,41 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth/AuthContext";
 
 export const navLinkClass =
   "px-2 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground transition-colors hover:underline hover:decoration-2 hover:underline-offset-8";
 
-/** `className` styles every link/button; it defaults to the desktop nav style (the phone menu passes its own). */
-export default function AuthNavLinks({ className: linkClass = navLinkClass }: { className?: string } = {}) {
+const activeClass = "underline decoration-2 underline-offset-8";
+
+/**
+ * The account links in the header. `className` styles every link; it
+ * defaults to the desktop nav style (the phone menu passes its own).
+ *
+ * `compact` (the desktop row): just Account (and Admin for admins), so the
+ * search field keeps its full width at 1024px. My events and Sign out are on
+ * /account. The phone menu has room and also lists My events.
+ */
+export default function AuthNavLinks({
+  className: linkClass = navLinkClass,
+  compact = false,
+}: { className?: string; compact?: boolean } = {}) {
   const auth = useAuth();
-  const router = useRouter();
+  const pathname = usePathname();
+
+  function accountLink(href: string, label: string) {
+    const active = pathname === href || pathname.startsWith(`${href}/`);
+    return (
+      <Link
+        href={href}
+        aria-current={active ? "page" : undefined}
+        className={active ? `${linkClass} ${activeClass}` : linkClass}
+      >
+        {label}
+      </Link>
+    );
+  }
 
   if (!auth.configured) {
     return (
@@ -32,27 +57,11 @@ export default function AuthNavLinks({ className: linkClass = navLinkClass }: { 
     );
   }
 
-  function handleSignOut() {
-    auth.signOut();
-    router.push("/");
-  }
-
   return (
     <>
-      {auth.isAdmin && (
-        <Link href="/admin" className={linkClass}>
-          Admin
-        </Link>
-      )}
-      <Link href="/dashboard" className={linkClass}>
-        My events
-      </Link>
-      <Link href="/account" className={linkClass}>
-        Account
-      </Link>
-      <button type="button" onClick={handleSignOut} className={linkClass}>
-        Sign out
-      </button>
+      {auth.isAdmin && accountLink("/admin", "Admin")}
+      {!compact && accountLink("/dashboard", "My events")}
+      {accountLink("/account", "Account")}
     </>
   );
 }

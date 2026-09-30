@@ -123,7 +123,7 @@ export default function Nav() {
               {link.label}
             </Link>
           ))}
-          <AuthNavLinks />
+          <AuthNavLinks compact />
           <ButtonLink href="/organisers/apply" size="sm" className="ml-1">
             For organisers
           </ButtonLink>

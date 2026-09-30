@@ -18,8 +18,14 @@ export type GoingViewer =
       email?: string;
       me: MyGoingStatus;
       profile: ProfileRecord | null;
-      /** The API won't show this member names (403: e.g. their email isn't verified). */
+      /**
+       * The API won't show this member names (403): they have no profile yet,
+       * their email isn't verified, or they're suspended. Which one is read
+       * from `profile` (null = no profile; suspended; otherwise unverified).
+       */
       namesDenied: boolean;
+      /** Names are rate-limited just now (429): try again in a few minutes. */
+      namesRateLimited: boolean;
       /** The viewer's own entry from the list, if they're going. */
       self?: GoingAttendee;
     };
@@ -27,8 +33,10 @@ export type GoingViewer =
 export interface GoingData {
   /** Ended, or switched off for this event: nothing is shown. */
   closed: boolean;
-  /** Everyone opted in, the viewer included. */
+  /** Everyone opted in, the viewer included. 0 when `countHidden`. */
   count: number;
+  /** Fewer than three are going (0, 1 or 2): the API withholds the number, so none is shown. */
+  countHidden: boolean;
   /** Other people going, loaded so far (the viewer's own entry is kept in `viewer.self`). null = no names for this viewer. */
   attendees: GoingAttendee[] | null;
   nextCursor?: string;
@@ -70,7 +78,13 @@ export function splitSelf(items: GoingAttendee[]) {
 async function loadGoing(eventId: string, getToken: GetToken | undefined, email: string | undefined): Promise<GoingData> {
   if (!getToken) {
     const summary = await getGoingSummary(eventId);
-    return { closed: summary.closed, count: summary.count, attendees: null, viewer: { kind: "signed-out" } };
+    return {
+      closed: summary.closed,
+      count: summary.count,
+      countHidden: summary.countHidden,
+      attendees: null,
+      viewer: { kind: "signed-out" },
+    };
   }
 
   const [summary, me, page, profile] = await Promise.allSettled([
@@ -81,7 +95,7 @@ async function loadGoing(eventId: string, getToken: GetToken | undefined, email:
   ]);
   if (summary.status === "rejected") throw summary.reason;
   if (summary.value.closed) {
-    return { closed: true, count: 0, attendees: null, viewer: { kind: "signed-out" } };
+    return { closed: true, count: 0, countHidden: false, attendees: null, viewer: { kind: "signed-out" } };
   }
   if (profile.status === "rejected") throw profile.reason;
 
@@ -93,6 +107,7 @@ async function loadGoing(eventId: string, getToken: GetToken | undefined, email:
   else throw me.reason;
 
   let namesDenied = false;
+  let namesRateLimited = false;
   let attendees: GoingAttendee[] | null = null;
   let self: GoingAttendee | undefined;
   let nextCursor: string | undefined;
@@ -103,6 +118,8 @@ async function loadGoing(eventId: string, getToken: GetToken | undefined, email:
     nextCursor = page.value.nextCursor;
   } else if (isStatus(page.reason, 403)) {
     namesDenied = true;
+  } else if (isStatus(page.reason, 429)) {
+    namesRateLimited = true;
   } else {
     throw page.reason;
   }
@@ -110,9 +127,10 @@ async function loadGoing(eventId: string, getToken: GetToken | undefined, email:
   return {
     closed: false,
     count: summary.value.count,
+    countHidden: summary.value.countHidden,
     attendees,
     nextCursor,
-    viewer: { kind: "signed-in", email, me: status, profile: profile.value, namesDenied, self },
+    viewer: { kind: "signed-in", email, me: status, profile: profile.value, namesDenied, namesRateLimited, self },
   };
 }
 
@@ -161,7 +179,13 @@ export function WhosGoingProvider({
     const sample = getSampleGoing(event.id);
     return {
       status: "ready",
-      data: { closed: false, count: sample.count, attendees: sample.attendees, viewer: { kind: "signed-out" } },
+      data: {
+        closed: false,
+        count: sample.count,
+        countHidden: sample.count < COUNT_THRESHOLD,
+        attendees: sample.attendees,
+        viewer: { kind: "signed-out" },
+      },
     };
   }, [event.id]);
 

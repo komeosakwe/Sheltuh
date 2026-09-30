@@ -38,6 +38,10 @@ describe("safeNextPath", () => {
     "https://evil.example",
     "javascript:alert(1)",
     " /events/x",
+    "/.//evil.example", // dot segments resolve to "//evil.example"
+    "/a/..//evil.example",
+    "/%2e//evil.example",
+    "/%2E%2E//evil.example",
     "/\t/evil.example",
     "/\n/evil.example",
     "/events/x\u0000",
@@ -71,7 +75,15 @@ describe("LoginForm return path", () => {
     expect(await signInWith(undefined)).toBe("/dashboard");
   });
 
-  it.each(["//evil.example", "https://evil.example/x", "/\\evil.example", "javascript:alert(1)"])(
+  it.each([
+    "//evil.example",
+    "https://evil.example/x",
+    "/\\evil.example",
+    "javascript:alert(1)",
+    "/.//evil.example",
+    "/a/..//evil.example",
+    "/%2e//evil.example",
+  ])(
     "ignores an unsafe ?next= (%j) and goes to the dashboard",
     async (next) => {
       expect(await signInWith(next)).toBe("/dashboard");

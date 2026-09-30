@@ -4,12 +4,15 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { safeNextPath, withNext } from "@/lib/safe-next-path";
 
 export default function VerifyForm() {
   const auth = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState(searchParams.get("email") ?? "");
+  // Where to go once verified (and signed in): a safe ?next= path, or the dashboard.
+  const next = searchParams.get("next") ?? undefined;
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
@@ -31,7 +34,7 @@ export default function VerifyForm() {
     try {
       // Confirming also signs the new account in.
       await auth.confirmSignUp(email, code);
-      router.push("/dashboard");
+      router.push(safeNextPath(next) ?? "/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't verify that code.");
     } finally {
@@ -115,7 +118,7 @@ export default function VerifyForm() {
       </div>
 
       <p className="text-sm text-muted">
-        <Link href="/login" className="text-accent underline underline-offset-2">
+        <Link href={withNext("/login", next)} className="text-accent underline underline-offset-2">
           Back to sign in
         </Link>
       </p>

@@ -24,6 +24,24 @@ export function safeNextPath(raw: unknown): string | null {
   }
   if (url.origin !== PLACEHOLDER_ORIGIN) return null;
   // Re-serialised from the parsed URL, so what's navigated to is exactly
-  // what was checked.
-  return `${url.pathname}${url.search}${url.hash}`;
+  // what was checked. Dot segments are resolved while parsing, so
+  // "/.//evil.example", "/a/..//evil.example" and "/%2e//evil.example" all
+  // come out as "//evil.example": a protocol-relative URL to another site.
+  // The result is checked again, not just the input.
+  const path = `${url.pathname}${url.search}${url.hash}`;
+  if (!path.startsWith("/") || path.startsWith("//") || path.startsWith("/\\")) return null;
+  return path;
+}
+
+/**
+ * `path` with the return path carried along as `?next=`, so it survives the
+ * hops between sign in, sign up, verify and password reset. An unsafe or
+ * missing `next` is dropped. `params` are any other query parameters.
+ */
+export function withNext(path: string, next: unknown, params: Record<string, string> = {}): string {
+  const query = new URLSearchParams(params);
+  const safe = safeNextPath(next);
+  if (safe) query.set("next", safe);
+  const search = query.toString();
+  return search ? `${path}?${search}` : path;
 }

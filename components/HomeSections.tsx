@@ -49,7 +49,7 @@ export function WhatElse() {
         ))}
       </div>
       <div className="lg:col-span-6 lg:col-start-7">
-        <h2 id="what-else" className="display-md reveal mb-8">
+        <h2 id="what-else" className="display-lg reveal mb-8 sm:mb-10">
           What else?
         </h2>
         <ul className="reveal flex flex-col gap-6">
@@ -63,8 +63,8 @@ export function WhatElse() {
               }`}
             >
               <p
-                className={`font-heading uppercase leading-[0.95] tracking-tight motion-safe:transition-[font-size] motion-safe:duration-300 ${
-                  index === active ? "text-4xl sm:text-5xl lg:text-6xl" : "text-lg sm:text-xl"
+                className={`font-heading uppercase leading-[0.95] tracking-tight ${
+                  "text-xl sm:text-2xl"
                 }`}
               >
                 {reason.label}

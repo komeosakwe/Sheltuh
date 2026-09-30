@@ -9,7 +9,7 @@ import { COUNT_THRESHOLD, useWhosGoing } from "./WhosGoingProvider";
  */
 export default function WhosGoingSummaryLink() {
   const { state } = useWhosGoing();
-  if (state.status !== "ready" || state.data.closed || state.data.count < COUNT_THRESHOLD) return null;
+  if (state.status !== "ready" || state.data.closed || state.data.countHidden || state.data.count < COUNT_THRESHOLD) return null;
   return (
     <a
       href="#whos-going"

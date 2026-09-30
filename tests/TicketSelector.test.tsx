@@ -99,10 +99,22 @@ describe("TicketSelector (live, signed in)", () => {
     expect(createCheckoutSession).not.toHaveBeenCalled();
   });
 
-  it("tells a signed-in buyer of paid tickets which email to use on Stripe", () => {
+  it("books paid tickets with the account email, and says so before Checkout", () => {
+    createCheckoutSession.mockReturnValue(new Promise(() => {}));
     renderSignedIn("neon-static");
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
-    expect(screen.getByText(/Use mia@example\.com there to be able to add yourself to Who’s Going\./)).toBeInTheDocument();
+    const hint = screen.getByText(
+      "Booking as mia@example.com, your account email, so you can add yourself to Who’s Going.",
+    );
+    const checkout = screen.getByRole("button", { name: "Checkout" });
+    // The hint is read before the button, not after it.
+    expect(hint.compareDocumentPosition(checkout) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(checkout);
+    expect(createCheckoutSession).toHaveBeenCalledWith(
+      expect.any(String),
+      [{ ticketTypeId: expect.any(String), quantity: 1 }],
+      "mia@example.com",
+    );
   });
 });
 
@@ -111,7 +123,16 @@ describe("TicketSelector (live, no auth)", () => {
     render(<TicketSelector event={live("brunswick-zine-fair")} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
     expect(screen.getByLabelText("Email for your tickets")).toHaveValue("");
-    expect(screen.queryByText(/Use .* there to be able/)).toBeNull();
+    expect(screen.queryByText(/Booking as/)).toBeNull();
+  });
+
+  it("sends no email with a signed-out paid order (Stripe collects it)", () => {
+    createCheckoutSession.mockReturnValue(new Promise(() => {}));
+    render(<TicketSelector event={live("neon-static")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    expect(screen.queryByText(/Booking as/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(createCheckoutSession).toHaveBeenCalledWith(expect.any(String), expect.any(Array), undefined);
   });
 });
 

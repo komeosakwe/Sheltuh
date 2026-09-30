@@ -2,13 +2,12 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
-import { Notice } from "@/components/ui/Section";
 import { validateDisplayName } from "@/lib/display-name";
+import ActionErrorNotice from "./ActionErrorNotice";
+import AdultCheckbox, { ADULT_ERROR } from "./AdultCheckbox";
 import ConsentCopy from "./ConsentCopy";
 import DisplayNameField from "./DisplayNameField";
 import { GENERIC_MUTATION_ERROR, pillClass } from "./shared";
-
-const ADULT_ERROR = "Confirm you're 18 or older to be shown.";
 
 /** What the parent reports back after trying to save; null = done (the form is about to close). */
 export type OptInResult = { fieldErrors?: Record<string, string>; message?: string } | null;
@@ -20,9 +19,12 @@ export type OptInResult = { fieldErrors?: Record<string, string>; message?: stri
 export default function OptInForm({
   onSubmit,
   onCancel,
+  returnTo,
 }: {
   onSubmit: (displayName: string) => Promise<OptInResult>;
   onCancel: () => void;
+  /** Where "Sign in" comes back to if the session has expired. */
+  returnTo: string;
 }) {
   const [name, setName] = useState("");
   const [adult, setAdult] = useState(false);
@@ -40,6 +42,7 @@ export default function OptInForm({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (busy) return;
     setMessage(null);
     const nextNameError = validateDisplayName(name);
     const nextAdultError = adult ? null : ADULT_ERROR;
@@ -78,41 +81,18 @@ export default function OptInForm({
 
       <DisplayNameField id="wg-name" value={name} onChange={setName} error={nameError} inputRef={nameRef} />
 
-      <div className="flex flex-col gap-1">
-        <label className="flex min-h-11 items-center gap-3 text-sm">
-          <input
-            ref={adultRef}
-            type="checkbox"
-            name="adultConfirmed"
-            className="size-5 shrink-0"
-            checked={adult}
-            onChange={(e) => setAdult(e.target.checked)}
-            required
-            aria-invalid={adultError ? true : undefined}
-            aria-describedby={adultError ? "wg-adult-error" : undefined}
-          />
-          I&rsquo;m 18 or older
-        </label>
-        {adultError && (
-          <p id="wg-adult-error" className="text-sm text-danger">
-            {adultError}
-          </p>
-        )}
-      </div>
+      <AdultCheckbox id="wg-adult" checked={adult} onChange={setAdult} error={adultError} inputRef={adultRef} />
 
       <ConsentCopy id="wg-consent" />
 
-      {message && (
-        <Notice tone="danger" role="alert">
-          {message}
-        </Notice>
-      )}
+      {message && <ActionErrorNotice message={message} returnTo={returnTo} />}
 
       <div className="flex flex-col gap-3 sm:flex-row">
-        <Button type="submit" variant="solid" size="lg" disabled={busy} aria-describedby="wg-consent" className={pillClass}>
+        {/* busy, not disabled, so focus stays put and a failure can be retried from here. */}
+        <Button type="submit" variant="solid" size="lg" busy={busy} aria-describedby="wg-consent" className={pillClass}>
           {busy ? "Adding you…" : "Show me as going"}
         </Button>
-        <Button variant="outline" size="lg" disabled={busy} onClick={onCancel} className={pillClass}>
+        <Button variant="outline" size="lg" busy={busy} onClick={onCancel} className={pillClass}>
           Cancel
         </Button>
       </div>

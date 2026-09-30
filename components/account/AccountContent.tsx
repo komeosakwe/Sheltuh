@@ -1,32 +1,45 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import DemoNotice from "@/components/DemoNotice";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { EmptyState, Notice, Panel } from "@/components/ui/Section";
+import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
+import AdultCheckbox, { ADULT_ERROR } from "@/components/whos-going/AdultCheckbox";
 import DisplayNameField from "@/components/whos-going/DisplayNameField";
+import { SESSION_EXPIRED_MESSAGE } from "@/components/whos-going/shared";
+import SuspendedNotice from "@/components/whos-going/SuspendedNotice";
 import { ApiError } from "@/lib/api/client";
 import { deleteMyProfile, saveMyProfile } from "@/lib/api/profiles";
 import type { ProfileRecord } from "@/lib/api/types";
 import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
 import { useProfile } from "@/lib/auth/useProfile";
-import { validateDisplayName } from "@/lib/display-name";
+import { endSentence, validateDisplayName } from "@/lib/display-name";
+import { withNext } from "@/lib/safe-next-path";
 
 const pillClass = "w-full sm:w-auto";
 const linkClass = "underline underline-offset-4 hover:decoration-2";
 const PROFILE_INTRO = "This is the name people see when you add yourself to an event's guest list.";
+const RETURN_TO = "/account";
 
 function errorMessage(err: unknown, fallback: string) {
-  if (err instanceof SessionExpiredError) return "Your session has expired. Sign in again to continue.";
+  if (err instanceof SessionExpiredError) return SESSION_EXPIRED_MESSAGE;
   if (err instanceof ApiError && err.status >= 400 && err.status < 500) return err.message;
   return fallback;
 }
 
-/** /account: the signed-in email, the Who's Going display name, and deleting that profile. */
+/** /account: the signed-in email (and signing out), the Who's Going display name, and deleting that profile. */
 export default function AccountContent() {
   const auth = useAuth();
+  const router = useRouter();
   const { state, setProfile, reload } = useProfile();
+
+  function handleSignOut() {
+    auth.signOut();
+    router.push("/");
+  }
 
   if (!auth.configured) return <DemoAccount />;
   if (auth.status === "loading") return <p className="text-sm text-muted">Loading your account…</p>;
@@ -35,7 +48,7 @@ export default function AccountContent() {
       <EmptyState
         title="Sign in to manage your account"
         action={
-          <ButtonLink size="lg" href="/login?next=%2Faccount">
+          <ButtonLink size="lg" href={withNext("/login", RETURN_TO)}>
             Sign in
           </ButtonLink>
         }
@@ -46,7 +59,20 @@ export default function AccountContent() {
   return (
     <div className="flex flex-col gap-10">
       <Panel title="Signed in as">
-        <p className="text-base break-words">{auth.email}</p>
+        <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-col gap-1">
+            <p className="text-base break-words">{auth.email}</p>
+            <p className="text-sm text-muted">
+              Organising?{" "}
+              <Link href="/dashboard" className={linkClass}>
+                My events
+              </Link>
+            </p>
+          </div>
+          <Button variant="outline" size="lg" onClick={handleSignOut} className={`${pillClass} shrink-0`}>
+            Sign out
+          </Button>
+        </div>
       </Panel>
 
       {state.status === "loading" && (
@@ -92,6 +118,8 @@ function DemoAccount() {
   );
 }
 
+type ProfileNotice = { kind: "created"; name: string } | { kind: "missing" };
+
 function ProfileSections({
   profile,
   onSaved,
@@ -103,11 +131,18 @@ function ProfileSections({
 }) {
   const [deleted, setDeleted] = useState(false);
   const deletedRef = useRef<HTMLDivElement>(null);
+  // Creating a profile, or finding it gone mid-rename (deleted in another
+  // tab), swaps the form out from under the person, so focus goes to the
+  // message that explains the new state.
+  const [notice, setNotice] = useState<ProfileNotice | null>(null);
+  const noticeRef = useRef<HTMLDivElement>(null);
 
-  // Deleting replaces both sections, so focus goes to the confirmation.
   useEffect(() => {
     if (deleted) deletedRef.current?.focus();
   }, [deleted]);
+  useEffect(() => {
+    if (notice) noticeRef.current?.focus();
+  }, [notice]);
 
   if (deleted) {
     return (
@@ -121,9 +156,20 @@ function ProfileSections({
     return (
       <Panel title="Who's Going profile">
         <p className="text-sm text-muted">{PROFILE_INTRO}</p>
-        <p className="mt-3 text-sm">
-          You haven&rsquo;t added yourself to an event yet. Your profile is created the first time you do.
-        </p>
+        <div ref={notice?.kind === "missing" ? noticeRef : undefined} tabIndex={-1} className="mt-3 outline-offset-2">
+          <p className="text-sm">
+            You haven&rsquo;t set up a profile yet. Create one here, or when you first add yourself to an event.
+          </p>
+        </div>
+        <div className="mt-5">
+          <CreateProfileForm
+            getToken={getToken}
+            onCreated={(created) => {
+              onSaved(created);
+              setNotice({ kind: "created", name: created.displayName });
+            }}
+          />
+        </div>
       </Panel>
     );
   }
@@ -132,18 +178,27 @@ function ProfileSections({
     <>
       <Panel title="Who's Going profile">
         <p className="mb-5 text-sm text-muted">{PROFILE_INTRO}</p>
+        {notice?.kind === "created" && (
+          <div ref={noticeRef} tabIndex={-1} className="mb-5 outline-offset-2">
+            <Notice role="status">Your profile is set up. You&rsquo;ll be shown as {endSentence(notice.name)}</Notice>
+          </div>
+        )}
         {profile.suspended && (
           <div className="mb-5">
             <Notice>
-              Your display name is hidden from Who&rsquo;s Going. If you think that&rsquo;s a mistake, email{" "}
-              <a href="mailto:support@sheltuh.com.au" className={linkClass}>
-                support@sheltuh.com.au
-              </a>
-              .
+              <SuspendedNotice />
             </Notice>
           </div>
         )}
-        <RenameForm profile={profile} onSaved={onSaved} getToken={getToken} />
+        <RenameForm
+          profile={profile}
+          onSaved={onSaved}
+          onMissing={() => {
+            onSaved(null);
+            setNotice({ kind: "missing" });
+          }}
+          getToken={getToken}
+        />
       </Panel>
 
       <Panel title="Delete your profile">
@@ -166,13 +221,95 @@ function ProfileSections({
   );
 }
 
+/** First-time setup from /account: a display name and the 18+ confirmation. Joins no event. */
+function CreateProfileForm({
+  getToken,
+  onCreated,
+}: {
+  getToken: () => Promise<string>;
+  onCreated: (profile: ProfileRecord) => void;
+}) {
+  const [name, setName] = useState("");
+  const [adult, setAdult] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [adultError, setAdultError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const adultRef = useRef<HTMLInputElement>(null);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (saving) return;
+    setError(null);
+    const nextNameError = validateDisplayName(name);
+    const nextAdultError = adult ? null : ADULT_ERROR;
+    setNameError(nextNameError);
+    setAdultError(nextAdultError);
+    if (nextNameError || nextAdultError) {
+      (nextNameError ? nameRef : adultRef).current?.focus();
+      return;
+    }
+    setSaving(true);
+    try {
+      onCreated(await saveMyProfile({ displayName: name.trim(), adultConfirmed: true }, getToken));
+    } catch (err) {
+      const fieldErrors = err instanceof ApiError ? err.fieldErrors : undefined;
+      if (fieldErrors?.displayName || fieldErrors?.adultConfirmed) {
+        setNameError(fieldErrors.displayName ?? null);
+        setAdultError(fieldErrors.adultConfirmed ? ADULT_ERROR : null);
+        (fieldErrors.displayName ? nameRef : adultRef).current?.focus();
+      } else {
+        setError(errorMessage(err, "Couldn't create your profile. Try again."));
+      }
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form
+      noValidate
+      aria-label="Create your Who's Going profile"
+      aria-busy={saving}
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-5"
+    >
+      <DisplayNameField id="account-name" value={name} onChange={setName} error={nameError} inputRef={nameRef} />
+      <AdultCheckbox id="account-adult" checked={adult} onChange={setAdult} error={adultError} inputRef={adultRef} />
+      <p id="account-create-consent" className="text-sm leading-5">
+        Your name is only shown on events you add yourself to, to people signed in to Sheltüh, and it&rsquo;s the
+        same on each of them.{" "}
+        <Link href="/privacy#whos-going" className={linkClass}>
+          How we handle your information
+        </Link>
+      </p>
+      <div className="flex flex-col items-start gap-3">
+        <Button
+          type="submit"
+          variant="solid"
+          size="lg"
+          busy={saving}
+          aria-describedby="account-create-consent"
+          className={pillClass}
+        >
+          {saving ? "Creating…" : "Create profile"}
+        </Button>
+        {error && <ActionErrorNotice message={error} returnTo={RETURN_TO} />}
+      </div>
+    </form>
+  );
+}
+
 function RenameForm({
   profile,
   onSaved,
+  onMissing,
   getToken,
 }: {
   profile: ProfileRecord;
   onSaved: (profile: ProfileRecord) => void;
+  /** The profile has gone (404, e.g. deleted in another tab). */
+  onMissing: () => void;
   getToken: () => Promise<string>;
 }) {
   const [name, setName] = useState(profile.displayName);
@@ -189,6 +326,7 @@ function RenameForm({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (saving) return;
     setError(null);
     setSaved(null);
     const invalid = validateDisplayName(name);
@@ -207,6 +345,9 @@ function RenameForm({
       if (err instanceof ApiError && err.fieldErrors?.displayName) {
         setFieldError(err.fieldErrors.displayName);
         inputRef.current?.focus();
+      } else if (err instanceof ApiError && err.status === 404) {
+        onMissing();
+        return;
       } else {
         setError(errorMessage(err, "Couldn't save your name. Try again."));
       }
@@ -219,16 +360,15 @@ function RenameForm({
     <form noValidate aria-label="Who's Going profile" aria-busy={saving} onSubmit={handleSubmit} className="flex flex-col gap-5">
       <DisplayNameField id="account-name" value={name} onChange={change} error={fieldError} inputRef={inputRef} />
       <div className="flex flex-col items-start gap-3">
-        <Button type="submit" variant="solid" size="lg" disabled={saving} className={pillClass}>
+        {/* busy, not disabled: focus stays on the button through the save. */}
+        <Button type="submit" variant="solid" size="lg" busy={saving} className={pillClass}>
           {saving ? "Saving…" : "Save name"}
         </Button>
-        {error && (
-          <Notice tone="danger" role="alert">
-            {error}
-          </Notice>
-        )}
+        {error && <ActionErrorNotice message={error} returnTo={RETURN_TO} />}
         {/* Always mounted so the confirmation is announced when it appears. */}
-        <div role="status">{saved && <Notice>Saved. Events you&rsquo;ve joined now show {saved}.</Notice>}</div>
+        <div role="status">
+          {saved && <Notice>Saved. Events you&rsquo;ve joined now show {endSentence(saved)}</Notice>}
+        </div>
       </div>
     </form>
   );
@@ -249,6 +389,7 @@ function DeleteProfile({ getToken, onDeleted }: { getToken: () => Promise<string
   }, [confirming]);
 
   async function confirmDelete() {
+    if (deleting) return;
     setError(null);
     setDeleting(true);
     try {
@@ -272,14 +413,15 @@ function DeleteProfile({ getToken, onDeleted }: { getToken: () => Promise<string
             Delete your Who&rsquo;s Going profile?
           </p>
           <div className="flex flex-col gap-3 sm:flex-row">
-            <Button variant="danger" size="lg" disabled={deleting} onClick={confirmDelete} className={pillClass}>
+            {/* busy, not disabled: after a failure focus is still here to retry. */}
+            <Button variant="danger" size="lg" busy={deleting} onClick={confirmDelete} className={pillClass}>
               {deleting ? "Deleting…" : "Yes, delete"}
             </Button>
             <Button
               id="delete-profile-cancel"
               variant="outline"
               size="lg"
-              disabled={deleting}
+              busy={deleting}
               onClick={() => {
                 setConfirming(false);
                 setError(null);
@@ -305,11 +447,7 @@ function DeleteProfile({ getToken, onDeleted }: { getToken: () => Promise<string
           Delete profile
         </Button>
       )}
-      {error && (
-        <Notice tone="danger" role="alert">
-          {error}
-        </Notice>
-      )}
+      {error && <ActionErrorNotice message={error} returnTo={RETURN_TO} />}
     </div>
   );
 }

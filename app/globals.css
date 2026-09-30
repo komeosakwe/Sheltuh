@@ -240,7 +240,9 @@ h4 {
     text-transform: uppercase;
     transition: background-color 0.15s, color 0.15s, border-color 0.15s;
   }
-  .btn:disabled {
+  /* aria-disabled: busy buttons that keep focus (ui/Button `busy`). */
+  .btn:disabled,
+  .btn[aria-disabled="true"] {
     cursor: not-allowed;
     opacity: 0.5;
   }
@@ -259,7 +261,7 @@ h4 {
     border-color: var(--accent);
     color: var(--accent-foreground);
   }
-  .btn-solid:hover:not(:disabled) {
+  .btn-solid:hover:not(:disabled, [aria-disabled="true"]) {
     background: var(--accent-strong);
     border-color: var(--accent-strong);
   }
@@ -267,7 +269,7 @@ h4 {
     background: transparent;
     color: var(--foreground);
   }
-  .btn-outline:hover:not(:disabled) {
+  .btn-outline:hover:not(:disabled, [aria-disabled="true"]) {
     background: var(--foreground);
     color: var(--background);
   }
@@ -276,7 +278,7 @@ h4 {
     border-color: var(--danger);
     color: var(--danger);
   }
-  .btn-danger:hover:not(:disabled) {
+  .btn-danger:hover:not(:disabled, [aria-disabled="true"]) {
     background: var(--danger);
     color: var(--danger-foreground);
   }

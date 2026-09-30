@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventDetailsView from "@/components/EventDetailsView";
 import { ApiError } from "@/lib/api/client";
 import type { GoingAttendee, MyGoingStatus, Paginated, ProfileRecord } from "@/lib/api/types";
-import type { AuthContextValue } from "@/lib/auth/AuthContext";
+import { SessionExpiredError, type AuthContextValue } from "@/lib/auth/AuthContext";
 import { getSampleGoing } from "@/lib/sample-going";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
@@ -72,6 +72,12 @@ function people(n: number, prefix = "Person"): GoingAttendee[] {
   }));
 }
 
+/** The public summary as the API sends it: under three, the count is withheld (sent as 0). */
+function summary(count: number) {
+  const countHidden = count < 3;
+  return { count: countHidden ? 0 : count, closed: false, countHidden };
+}
+
 function status(overrides: Partial<MyGoingStatus> = {}): MyGoingStatus {
   return { going: false, eligible: false, hasProfile: false, ...overrides };
 }
@@ -90,7 +96,7 @@ function member({
   me?: MyGoingStatus;
   profile?: ProfileRecord | null;
 } = {}) {
-  api.getGoingSummary.mockResolvedValue({ count, closed: false });
+  api.getGoingSummary.mockResolvedValue(summary(count));
   api.getMyGoingStatus.mockResolvedValue(me);
   api.listGoingAttendees.mockResolvedValue({ items: attendees, nextCursor } satisfies Paginated<GoingAttendee>);
   if (profile) api.getMyProfile.mockResolvedValue(profile);
@@ -174,7 +180,7 @@ describe("Who's Going — loading and errors", () => {
     expect(liveRegion(region)).toHaveTextContent("Couldn't load who's going.");
     expect(summaryLink()).toBeNull();
 
-    api.getGoingSummary.mockResolvedValueOnce({ count: 4, closed: false });
+    api.getGoingSummary.mockResolvedValueOnce(summary(4));
     fireEvent.click(within(region).getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(within(region).getByText("4").closest("p")).toHaveTextContent("4 going"));
     expect(api.getGoingSummary).toHaveBeenCalledTimes(2);
@@ -182,7 +188,7 @@ describe("Who's Going — loading and errors", () => {
   });
 
   it("isn't shown at all once closed (ended or switched off)", async () => {
-    api.getGoingSummary.mockResolvedValue({ count: 0, closed: true });
+    api.getGoingSummary.mockResolvedValue({ count: 0, closed: true, countHidden: false });
     renderEvent(LIVE_EVENT, signedOut());
     await waitFor(() => expect(api.getGoingSummary).toHaveBeenCalled());
     await waitFor(() => expect(document.getElementById("whos-going")).toBeNull());
@@ -194,7 +200,7 @@ describe("Who's Going — loading and errors", () => {
 
 describe("Who's Going — signed out", () => {
   it("shows the count only (no names are requested) and a sign-in link back to this event", async () => {
-    api.getGoingSummary.mockResolvedValue({ count: 14, closed: false });
+    api.getGoingSummary.mockResolvedValue(summary(14));
     renderEvent(LIVE_EVENT, signedOut());
     const region = await panel();
 
@@ -210,22 +216,22 @@ describe("Who's Going — signed out", () => {
     expect(api.getMyGoingStatus).not.toHaveBeenCalled();
   });
 
-  it("shows no number anywhere below three people", async () => {
-    api.getGoingSummary.mockResolvedValue({ count: 2, closed: false });
+  it("shows no number anywhere when the API withholds it (under three), and invites people to be first", async () => {
+    api.getGoingSummary.mockResolvedValue(summary(2));
     renderEvent(LIVE_EVENT, signedOut());
     const region = await panel();
-    expect(within(region).queryByText("2")).toBeNull();
-    expect(region).not.toHaveTextContent(/\bgoing\b.*\d|\d+ going/);
+    expect(region).not.toHaveTextContent(/\d/);
     expect(summaryLink()).toBeNull();
     expect(within(region).getByText("Be one of the first to add yourself.")).toBeInTheDocument();
+    expect(within(region).getByRole("link", { name: "Sign in to see who’s going" })).toBeInTheDocument();
   });
 
-  it("with nobody going, only offers sign in", async () => {
-    api.getGoingSummary.mockResolvedValue({ count: 0, closed: false });
+  it("with a shown count, doesn't say be one of the first", async () => {
+    api.getGoingSummary.mockResolvedValue(summary(3));
     renderEvent(LIVE_EVENT, signedOut());
     const region = await panel();
+    expect(within(region).getByText("3").closest("p")).toHaveTextContent("3 going");
     expect(within(region).queryByText("Be one of the first to add yourself.")).toBeNull();
-    expect(within(region).getByRole("link", { name: "Sign in to see who’s going" })).toBeInTheDocument();
   });
 });
 
@@ -239,7 +245,7 @@ describe("Who's Going — signed in", () => {
     expect(within(region).getByRole("link", { name: "Get a ticket" })).toHaveAttribute("href", "#tickets");
     expect(region).toHaveTextContent("Tickets count when they’re booked with mia@example.com.");
     expect(within(region).queryByRole("button", { name: "Add yourself" })).toBeNull();
-    const report = within(region).getByRole("link", { name: "Report a name" });
+    const report = within(region).getByRole("link", { name: "Report a name (by email)" });
     expect(report.getAttribute("href")).toMatch(/^mailto:support@sheltuh\.com\.au\?subject=/);
     expect(api.getMyGoingStatus).toHaveBeenCalledWith(LIVE_EVENT.id, expect.any(Function));
   });
@@ -260,14 +266,44 @@ describe("Who's Going — signed in", () => {
     expect(within(region).queryByRole("list")).toBeNull();
   });
 
-  it("explains that names need a verified email when the API refuses them (403)", async () => {
-    member({ count: 4 });
+  it("explains that names need a verified email when the API refuses them (403) and there is a profile", async () => {
+    member({ count: 4, profile: PROFILE });
     api.listGoingAttendees.mockReset().mockRejectedValue(new ApiError(403, "Verify your email address first."));
     renderEvent(LIVE_EVENT);
     const region = await panel();
     expect(within(region).queryByRole("list")).toBeNull();
     expect(region).toHaveTextContent("Verify your email address to see who’s going and add yourself.");
     expect(within(region).getByText("4").closest("p")).toHaveTextContent("4 going");
+  });
+
+  it("without a profile or a ticket (403 on names): points to setting up a profile", async () => {
+    member({ count: 4 });
+    api.listGoingAttendees.mockReset().mockRejectedValue(new ApiError(403, "Create a profile to see who's going."));
+    renderEvent(LIVE_EVENT);
+    const region = await panel();
+    expect(within(region).queryByRole("list")).toBeNull();
+    expect(within(region).getByText("4").closest("p")).toHaveTextContent("4 going");
+    expect(region).toHaveTextContent("Names are shown to members with a Who’s Going profile.");
+    expect(within(region).getByRole("link", { name: "Set up your profile" })).toHaveAttribute("href", "/account");
+    expect(within(region).getByRole("link", { name: "Get a ticket" })).toBeInTheDocument();
+    expect(region).not.toHaveTextContent("Verify your email");
+  });
+
+  it("rate-limited names (429): a calm try-later message, not the error state", async () => {
+    member({ count: 4, profile: PROFILE, me: status({ eligible: true, hasProfile: true }) });
+    api.listGoingAttendees.mockReset().mockRejectedValueOnce(new ApiError(429, "Too many requests."));
+    renderEvent(LIVE_EVENT);
+    const region = await panel();
+    expect(region).toHaveTextContent("Lots of people are looking right now. Try again in a few minutes.");
+    expect(region).not.toHaveTextContent("Couldn't load who's going.");
+    expect(within(region).queryByRole("alert")).toBeNull();
+    // Opting in still works meanwhile.
+    expect(within(region).getByRole("button", { name: "Show me as going" })).toBeInTheDocument();
+
+    api.listGoingAttendees.mockResolvedValue({ items: people(4) });
+    fireEvent.click(within(region).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(names(region)).toHaveLength(4));
+    expect(region).not.toHaveTextContent("Lots of people are looking");
   });
 
   describe("eligible, first time (the opt-in form)", () => {
@@ -289,7 +325,8 @@ describe("Who's Going — signed in", () => {
       const { form } = await openForm();
       const nameInput = within(form).getByLabelText("Display name");
       expect(nameInput).toHaveFocus();
-      expect(nameInput).toHaveAttribute("maxlength", "40");
+      // No maxlength: it counts UTF-16 units, not the code points the API counts.
+      expect(nameInput).not.toHaveAttribute("maxlength");
       expect(nameInput.getAttribute("aria-describedby")).toContain("wg-name-hint");
       const adult = within(form).getByRole("checkbox", { name: "I’m 18 or older" });
       const submit = within(form).getByRole("button", { name: "Show me as going" });
@@ -298,7 +335,7 @@ describe("Who's Going — signed in", () => {
       expect(document.getElementById("wg-consent")).toHaveTextContent("We never show your email or ticket details.");
       expect(within(form).getByRole("link", { name: "How we handle your information" })).toHaveAttribute(
         "href",
-        "/privacy",
+        "/privacy#whos-going",
       );
       for (const control of [nameInput, adult, submit, within(form).getByRole("button", { name: "Cancel" })]) {
         expect(control).toBeEnabled();
@@ -307,6 +344,91 @@ describe("Who's Going — signed in", () => {
 
       fireEvent.change(nameInput, { target: { value: "Mia" } });
       expect(within(form).getByText("3/40")).toBeInTheDocument();
+    });
+
+    it("says honestly what's shown: removal here or everywhere, one-tap reuse, the same name on every event", async () => {
+      const { form } = await openForm();
+      const consent = document.getElementById("wg-consent");
+      expect(consent).toHaveTextContent("You can remove yourself from this event at any time on this page");
+      expect(consent).toHaveTextContent("delete your profile from your account to leave every event");
+      expect(consent).toHaveTextContent("saved so you can add yourself to other events in one tap");
+      expect(consent).toHaveTextContent(
+        "it’s the same on every event you join, so signed-in members can see which events you’ve joined",
+      );
+      expect(within(form).getByRole("link", { name: "How we handle your information" })).toHaveAttribute(
+        "href",
+        "/privacy#whos-going",
+      );
+    });
+
+    it("counts the name in code points, not UTF-16 units (an emoji is one of the 40)", async () => {
+      api.saveMyProfile.mockReturnValue(new Promise(() => {}));
+      const { form } = await openForm();
+      const nameInput = within(form).getByLabelText("Display name");
+      fireEvent.click(within(form).getByRole("checkbox", { name: "I’m 18 or older" }));
+
+      fireEvent.change(nameInput, { target: { value: `Mia${"🎉".repeat(38)}` } }); // 41 code points, 79 UTF-16 units
+      expect(within(form).getByText("41/40")).toHaveClass("text-danger");
+      fireEvent.submit(form);
+      expect(nameInput).toHaveAccessibleDescription(expect.stringContaining("Keep it to 40 characters or fewer."));
+      expect(api.saveMyProfile).not.toHaveBeenCalled();
+
+      fireEvent.change(nameInput, { target: { value: `Mia${"🎉".repeat(37)}` } }); // 40 code points, 77 UTF-16 units
+      expect(within(form).getByText("40/40")).toHaveClass("text-muted");
+      fireEvent.submit(form);
+      expect(api.saveMyProfile).toHaveBeenCalledWith(
+        { displayName: `Mia${"🎉".repeat(37)}`, adultConfirmed: true },
+        expect.any(Function),
+      );
+    });
+
+    it("keeps focus on the submit button through a failed save (busy, not disabled)", async () => {
+      let reject: (err: unknown) => void = () => {};
+      api.saveMyProfile.mockReturnValue(new Promise((_, rj) => (reject = rj)));
+      const { form } = await openForm();
+      fireEvent.change(within(form).getByLabelText("Display name"), { target: { value: "Mia T." } });
+      fireEvent.click(within(form).getByRole("checkbox", { name: "I’m 18 or older" }));
+      const submit = within(form).getByRole("button", { name: "Show me as going" });
+      submit.focus();
+      fireEvent.submit(form);
+
+      const busy = within(form).getByRole("button", { name: "Adding you…" });
+      expect(busy).not.toBeDisabled();
+      expect(busy).toHaveAttribute("aria-disabled", "true");
+      expect(within(form).getByRole("button", { name: "Cancel" })).toHaveAttribute("aria-disabled", "true");
+      fireEvent.submit(form); // a second submit while busy is ignored
+      expect(api.saveMyProfile).toHaveBeenCalledTimes(1);
+
+      await act(async () => reject(new ApiError(500, "boom")));
+      expect(within(form).getByRole("alert")).toHaveTextContent("Couldn't update that. Try again.");
+      expect(within(form).getByRole("button", { name: "Show me as going" })).toHaveFocus();
+    });
+
+    it("catches the cheap server rules before saving: a letter or number, no invisible characters", async () => {
+      const { form } = await openForm();
+      const nameInput = within(form).getByLabelText("Display name");
+      fireEvent.click(within(form).getByRole("checkbox", { name: "I’m 18 or older" }));
+      fireEvent.change(nameInput, { target: { value: "🎉🎉" } });
+      fireEvent.submit(form);
+      expect(nameInput).toHaveAccessibleDescription(
+        expect.stringContaining("Display names need at least one letter or number."),
+      );
+      fireEvent.change(nameInput, { target: { value: "Mia\u200BT." } });
+      fireEvent.submit(form);
+      expect(nameInput).toHaveAccessibleDescription(
+        expect.stringContaining("Display names can't contain invisible or control characters."),
+      );
+      expect(api.saveMyProfile).not.toHaveBeenCalled();
+    });
+
+    it("names are shown only with a profile (403): says adding yourself shows them", async () => {
+      api.listGoingAttendees.mockReset().mockRejectedValue(new ApiError(403, "Create a profile to see who's going."));
+      renderEvent(LIVE_EVENT);
+      const region = await panel();
+      expect(within(region).queryByRole("list")).toBeNull();
+      expect(region).toHaveTextContent("Want people to know you’re going? Add yourself to see who else is.");
+      expect(within(region).getByRole("button", { name: "Add yourself" })).toBeInTheDocument();
+      expect(region).not.toHaveTextContent("Verify your email");
     });
 
     it("announces field errors, focuses the first invalid control and doesn't save", async () => {
@@ -387,13 +509,22 @@ describe("Who's Going — signed in", () => {
     renderEvent(LIVE_EVENT);
     const region = await panel();
 
-    expect(region).toHaveTextContent("Show up as Mia T.");
+    expect(region).toHaveTextContent("Show up as Mia T. Edit name");
+    expect(region).not.toHaveTextContent("Mia T..");
     expect(within(region).getByRole("link", { name: "Edit name" })).toHaveAttribute("href", "/account");
-    fireEvent.click(within(region).getByRole("button", { name: "Show me as going" }));
-    expect(within(region).getByRole("button", { name: "Adding you…" })).toBeDisabled();
+    const button = within(region).getByRole("button", { name: "Show me as going" });
+    button.focus();
+    fireEvent.click(button);
+    const busy = within(region).getByRole("button", { name: "Adding you…" });
+    expect(busy).not.toBeDisabled(); // `disabled` would drop focus to the page
+    expect(busy).toHaveAttribute("aria-disabled", "true");
+    expect(busy).toHaveFocus();
+    fireEvent.click(busy); // ignored while busy
+    expect(api.setGoing).toHaveBeenCalledTimes(1);
 
     await act(async () => resolve(status({ going: true, eligible: true, hasProfile: true })));
-    expect(liveRegion(region)).toHaveTextContent("You're now shown as going as Mia T.");
+    // No doubled full stop after a name that ends in one.
+    expect(liveRegion(region)).toHaveTextContent(/^You're now shown as going as Mia T\.$/);
     expect(names(region)[0]).toContain("You");
     expect(api.saveMyProfile).not.toHaveBeenCalled();
   });
@@ -423,14 +554,82 @@ describe("Who's Going — signed in", () => {
     expect(within(region).getByRole("button", { name: "Show me as going" })).toHaveFocus();
   });
 
-  it("shows a mutation error and re-enables the button", async () => {
+  it("shows a mutation error, re-enables the button and keeps focus on it", async () => {
     member({ count: 3, attendees: people(3), me: status({ eligible: true, hasProfile: true }), profile: PROFILE });
     api.setGoing.mockRejectedValue(new ApiError(500, "Internal error"));
     renderEvent(LIVE_EVENT);
     const region = await panel();
     fireEvent.click(within(region).getByRole("button", { name: "Show me as going" }));
     expect(await within(region).findByRole("alert")).toHaveTextContent("Couldn't update that. Try again.");
-    expect(within(region).getByRole("button", { name: "Show me as going" })).toBeEnabled();
+    const button = within(region).getByRole("button", { name: "Show me as going" });
+    expect(button).toBeEnabled();
+    expect(button).not.toHaveAttribute("aria-disabled");
+    expect(button).toHaveFocus();
+  });
+
+  it("when the profile has gone (409), moves focus to Add yourself rather than losing it", async () => {
+    member({ count: 3, attendees: people(3), me: status({ eligible: true, hasProfile: true }), profile: PROFILE });
+    api.setGoing.mockRejectedValue(new ApiError(409, "Set up your Who's Going profile first."));
+    renderEvent(LIVE_EVENT);
+    const region = await panel();
+    fireEvent.click(within(region).getByRole("button", { name: "Show me as going" }));
+    expect(await within(region).findByRole("alert")).toHaveTextContent("Set up your Who's Going profile first.");
+    expect(within(region).getByRole("button", { name: "Add yourself" })).toHaveFocus();
+  });
+
+  it("keeps focus on Stop showing me when opting out fails", async () => {
+    const you: GoingAttendee = { attendeeId: "me", displayName: "Mia T.", isYou: true };
+    member({
+      count: 4,
+      attendees: [you, ...people(3)],
+      me: status({ going: true, eligible: true, hasProfile: true }),
+      profile: PROFILE,
+    });
+    api.unsetGoing.mockRejectedValue(new ApiError(500, "Internal error"));
+    renderEvent(LIVE_EVENT);
+    const region = await panel();
+    fireEvent.click(within(region).getByRole("button", { name: "Stop showing me" }));
+    expect(await within(region).findByRole("alert")).toHaveTextContent("Couldn't update that. Try again.");
+    expect(within(region).getByRole("button", { name: "Stop showing me" })).toHaveFocus();
+    expect(within(region).getByText("4").closest("p")).toHaveTextContent("4 going");
+  });
+
+  it("offers Sign in, back to this panel, when the session has expired", async () => {
+    member({ count: 3, attendees: people(3), me: status({ eligible: true, hasProfile: true }), profile: PROFILE });
+    api.setGoing.mockRejectedValue(new SessionExpiredError());
+    renderEvent(LIVE_EVENT);
+    const region = await panel();
+    fireEvent.click(within(region).getByRole("button", { name: "Show me as going" }));
+    const alert = await within(region).findByRole("alert");
+    expect(alert).toHaveTextContent("Your session has expired. Sign in again to continue.");
+    expect(within(alert).getByRole("link", { name: "Sign in" })).toHaveAttribute(
+      "href",
+      `/login?next=${encodeURIComponent(`/events/${LIVE_EVENT.slug}#whos-going`)}`,
+    );
+  });
+
+  it("a suspended member who was going sees the notice, not You or Stop showing me", async () => {
+    member({
+      count: 3,
+      attendees: people(3), // the API leaves suspended members out of the list
+      me: status({ going: true, eligible: true, hasProfile: true }),
+      profile: { ...PROFILE, suspended: true },
+    });
+    renderEvent(LIVE_EVENT);
+    const region = await panel();
+    expect(region).toHaveTextContent("Your display name is hidden from Who’s Going.");
+    expect(names(region).join()).not.toContain("You");
+    expect(within(region).queryByRole("button", { name: "Stop showing me" })).toBeNull();
+    expect(within(region).getByText("3").closest("p")).toHaveTextContent("3 going");
+  });
+
+  it("clips initials to their square", async () => {
+    member({ count: 3, attendees: [{ attendeeId: "w", displayName: "Wwwwwww Wwwwww", isYou: false }] });
+    renderEvent(LIVE_EVENT);
+    const region = await panel();
+    const avatar = within(region).getByText("WW");
+    expect(avatar).toHaveAttribute("aria-hidden", "true");
+    expect(avatar).toHaveClass("size-8", "overflow-hidden");
   });
 
   it("Show more reveals loaded names first, then fetches the next page; a failure is shown", async () => {
@@ -452,6 +651,18 @@ describe("Who's Going — signed in", () => {
     expect(liveRegion(region)).toHaveTextContent("2 more names shown. That's everyone.");
     expect(within(region).queryByRole("button", { name: "Show more" })).toBeNull();
     expect(api.listGoingAttendees).toHaveBeenCalledTimes(2);
+  });
+
+  it("says to try later when Show more is rate-limited (429)", async () => {
+    member({ count: 30, attendees: people(6), nextCursor: "c2" });
+    renderEvent(LIVE_EVENT);
+    const region = await panel();
+    api.listGoingAttendees.mockRejectedValueOnce(new ApiError(429, "Too many requests."));
+    fireEvent.click(within(region).getByRole("button", { name: "Show more" }));
+    expect(
+      await within(region).findByText("Lots of people are looking right now. Try again in a few minutes."),
+    ).toBeInTheDocument();
+    expect(names(region)).toHaveLength(6);
   });
 
   it("keeps Show more and says so when the next page fails", async () => {

@@ -4,11 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { withNext } from "@/lib/safe-next-path";
 
 const PASSWORD_HINT = "At least 8 characters, with an uppercase letter, a lowercase letter and a number.";
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
 
-export default function SignupForm() {
+/** `next` is the raw `?next=` return path, carried on to /verify (and back to sign in). */
+export default function SignupForm({ next }: { next?: string } = {}) {
   const auth = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -41,7 +43,7 @@ export default function SignupForm() {
     setLoading(true);
     try {
       await auth.signUp(email, password);
-      router.push(`/verify?email=${encodeURIComponent(email)}`);
+      router.push(withNext("/verify", next, { email }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't sign up.");
     } finally {
@@ -114,7 +116,7 @@ export default function SignupForm() {
 
       <p className="text-sm text-muted">
         Already have an account?{" "}
-        <Link href="/login" className="text-accent underline underline-offset-2">
+        <Link href={withNext("/login", next)} className="text-accent underline underline-offset-2">
           Sign in
         </Link>
       </p>

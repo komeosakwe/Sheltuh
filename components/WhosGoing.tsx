@@ -9,18 +9,23 @@ import { ApiError } from "@/lib/api/client";
 import { listGoingAttendees, setGoing, unsetGoing } from "@/lib/api/going";
 import { saveMyProfile } from "@/lib/api/profiles";
 import type { MyGoingStatus } from "@/lib/api/types";
+import { SUPPORT_EMAIL } from "@/lib/contact";
+import { endSentence } from "@/lib/display-name";
+import { withNext } from "@/lib/safe-next-path";
+import ActionErrorNotice from "./whos-going/ActionErrorNotice";
 import ConsentCopy from "./whos-going/ConsentCopy";
 import NameList from "./whos-going/NameList";
 import OptInForm, { type OptInResult } from "./whos-going/OptInForm";
 import { COUNT_THRESHOLD, splitSelf, useWhosGoing, type GoingData } from "./whos-going/WhosGoingProvider";
+import SuspendedNotice from "./whos-going/SuspendedNotice";
 import { mutationErrorMessage, pillClass } from "./whos-going/shared";
 
 /** Three rows of two: keeps the collapsed panel short beside the tickets. */
 export const FIRST_PAGE_SIZE = 6;
 export const MORE_PAGE_SIZE = 12;
 
-const SUPPORT_EMAIL = "support@sheltuh.com.au";
 const LOAD_ERROR = "Couldn't load who's going.";
+const RATE_LIMITED = "Lots of people are looking right now. Try again in a few minutes.";
 const inlineLinkClass = "underline underline-offset-4 hover:decoration-2";
 const tallInlineLinkClass = `inline-flex min-h-11 items-center ${inlineLinkClass}`;
 
@@ -35,7 +40,11 @@ function reportHref(eventTitle: string, slug: string) {
 function withStatus(data: GoingData, next: MyGoingStatus): GoingData {
   if (data.viewer.kind !== "signed-in") return data;
   const was = data.viewer.me.going;
-  const delta = next.going === was ? 0 : next.going ? 1 : -1;
+  // A suspended member is never in the count, whatever their own status says;
+  // and a withheld count (under three) isn't known, so it stays withheld
+  // until the next load rather than being guessed at.
+  const delta =
+    data.countHidden || data.viewer.profile?.suspended || next.going === was ? 0 : next.going ? 1 : -1;
   return {
     ...data,
     count: Math.max(0, data.count + delta),
@@ -52,7 +61,7 @@ export default function WhosGoing() {
   const [visible, setVisible] = useState(FIRST_PAGE_SIZE);
   const [newFrom, setNewFrom] = useState<number | undefined>(undefined);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [loadMoreError, setLoadMoreError] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [busy, setBusy] = useState<"join" | "leave" | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
@@ -92,12 +101,12 @@ export default function WhosGoing() {
 
   function joined(displayName: string) {
     setYouIsNew(true);
-    setAnnouncement(`You're now shown as going as ${displayName}.`);
+    setAnnouncement(displayName ? `You're now shown as going as ${endSentence(displayName)}` : "You're now shown as going.");
     pendingFocus.current = { kind: "you" };
   }
 
   async function join() {
-    if (!getToken) return;
+    if (!getToken || busy) return;
     setBusy("join");
     setMutationError(null);
     try {
@@ -115,13 +124,16 @@ export default function WhosGoing() {
         );
       }
       setMutationError(mutationErrorMessage(err));
+      // The button may have been replaced (a 409 swaps in "Add yourself"):
+      // keep focus on the action row rather than losing it to the page.
+      pendingFocus.current = { kind: "action" };
     } finally {
       setBusy(null);
     }
   }
 
   async function leave() {
-    if (!getToken) return;
+    if (!getToken || busy) return;
     setBusy("leave");
     setMutationError(null);
     try {
@@ -132,6 +144,7 @@ export default function WhosGoing() {
       pendingFocus.current = { kind: "action" };
     } catch (err) {
       setMutationError(mutationErrorMessage(err));
+      pendingFocus.current = { kind: "action" };
     } finally {
       setBusy(null);
     }
@@ -183,12 +196,12 @@ export default function WhosGoing() {
   }
 
   async function showMore() {
-    if (!data || !others) return;
+    if (!data || !others || loadingMore) return;
     const from = shown;
     const target = from + MORE_PAGE_SIZE;
     let total = others.length;
     let cursor = data.nextCursor;
-    setLoadMoreError(false);
+    setLoadMoreError(null);
 
     // Names already loaded are revealed first; the next page is only
     // fetched once they run out.
@@ -201,8 +214,10 @@ export default function WhosGoing() {
         update((d) => ({ ...d, attendees: [...(d.attendees ?? []), ...fresh], nextCursor: page.nextCursor }));
         total += fresh.length;
         cursor = page.nextCursor;
-      } catch {
-        setLoadMoreError(true);
+      } catch (err) {
+        setLoadMoreError(
+          err instanceof ApiError && err.status === 429 ? RATE_LIMITED : "Couldn’t load more names.",
+        );
         return;
       } finally {
         setLoadingMore(false);
@@ -257,13 +272,15 @@ export default function WhosGoing() {
   function renderReady(d: GoingData) {
     const viewer = d.viewer;
     const signedIn = viewer.kind === "signed-in" ? viewer : null;
-    const going = signedIn?.me.going ?? false;
+    // A suspended member is hidden from every list and count, so they're
+    // never shown as going here either (no "You" row).
+    const going = !signedIn?.profile?.suspended && (signedIn?.me.going ?? false);
     const youName = going ? (signedIn?.profile?.displayName ?? signedIn?.self?.displayName ?? "") : undefined;
-    const countShown = d.count >= COUNT_THRESHOLD;
+    const countShown = !d.countHidden && d.count >= COUNT_THRESHOLD;
     const hasMore = others !== null && (shown < others.length || Boolean(d.nextCursor));
     const listShown = others !== null && (others.length > 0 || youName !== undefined);
     const nobody = signedIn !== null && others !== null && others.length === 0 && !going;
-    const somethingAbove = countShown || others !== null;
+    const somethingAbove = countShown || others !== null || Boolean(signedIn?.namesRateLimited);
 
     return (
       <>
@@ -287,10 +304,19 @@ export default function WhosGoing() {
 
         {nobody && <p className="text-sm text-muted">No one&rsquo;s added themselves yet.</p>}
 
+        {signedIn?.namesRateLimited && (
+          <div className="flex flex-col items-start gap-3">
+            <p className="text-sm">{RATE_LIMITED}</p>
+            <Button variant="outline" size="sm" className="min-h-11" onClick={tryAgain}>
+              Try again
+            </Button>
+          </div>
+        )}
+
         {hasMore && (
           <div className="mt-4 flex flex-col items-start gap-3">
-            {loadMoreError && <Notice tone="danger">Couldn&rsquo;t load more names.</Notice>}
-            <Button variant="outline" disabled={loadingMore} onClick={showMore} className="min-h-11 w-full sm:w-auto">
+            {loadMoreError && <Notice tone="danger">{loadMoreError}</Notice>}
+            <Button variant="outline" busy={loadingMore} onClick={showMore} className="min-h-11 w-full sm:w-auto">
               {loadingMore ? "Loading…" : "Show more"}
             </Button>
           </div>
@@ -326,13 +352,13 @@ export default function WhosGoing() {
   }
 
   function renderSignedOutActions(d: GoingData) {
-    const next = encodeURIComponent(`/events/${event.slug}`);
     return (
       <>
-        {d.count > 0 && d.count < COUNT_THRESHOLD && (
+        {/* The API withholds counts under three (including none), so this can't tell 0 from 1–2. */}
+        {d.countHidden && (
           <p className="text-sm">Be one of the first to add yourself.</p>
         )}
-        <ButtonLink variant="outline" size="lg" href={`/login?next=${next}`} className={pillClass}>
+        <ButtonLink variant="outline" size="lg" href={withNext("/login", `/events/${event.slug}`)} className={pillClass}>
           Sign in to see who&rsquo;s going
         </ButtonLink>
       </>
@@ -342,23 +368,34 @@ export default function WhosGoing() {
   function renderMemberActions(d: GoingData, viewer: Extract<GoingData["viewer"], { kind: "signed-in" }>) {
     const { me, profile } = viewer;
     const errorNotice = mutationError && (
-      <Notice tone="danger" role="alert">
-        {mutationError}
-      </Notice>
+      <ActionErrorNotice message={mutationError} returnTo={`/events/${event.slug}#whos-going`} />
     );
     const report = d.attendees && d.attendees.length > 0 && (
       <p className="text-xs text-muted">
         <a href={reportHref(event.title, event.slug)} className={tallInlineLinkClass}>
-          Report a name
+          Report a name (by email)
         </a>
       </p>
     );
+
+    // Checked before `me.going`: a suspended member isn't shown, so they
+    // don't get "You" or "Stop showing me".
+    if (profile?.suspended) {
+      return (
+        <>
+          <p className="text-sm">
+            <SuspendedNotice />
+          </p>
+          {report}
+        </>
+      );
+    }
 
     if (me.going) {
       return (
         <>
           {errorNotice}
-          <Button variant="outline" size="lg" disabled={busy !== null} onClick={leave} className={pillClass}>
+          <Button variant="outline" size="lg" busy={busy !== null} onClick={leave} className={pillClass}>
             {busy === "leave" ? "Removing…" : "Stop showing me"}
           </Button>
           <p className="text-xs text-muted">
@@ -371,36 +408,24 @@ export default function WhosGoing() {
       );
     }
 
-    if (profile?.suspended) {
-      return (
-        <>
-          <p className="text-sm">
-            Your display name is hidden from Who&rsquo;s Going. If you think that&rsquo;s a mistake, email{" "}
-            <a href={`mailto:${SUPPORT_EMAIL}`} className={inlineLinkClass}>
-              {SUPPORT_EMAIL}
-            </a>
-            .
-          </p>
-          {report}
-        </>
-      );
-    }
-
-    if (viewer.namesDenied) {
+    // Names are refused (403) with a profile: the email isn't verified.
+    // Without one, it's the missing profile, handled with the states below.
+    if (viewer.namesDenied && profile) {
       return <p className="text-sm">Verify your email address to see who&rsquo;s going and add yourself.</p>;
     }
+    const namesNeedProfile = viewer.namesDenied && !profile;
 
     if (me.eligible && me.hasProfile && profile) {
       return (
         <>
           <p className="text-sm">
-            Show up as {profile.displayName}.{" "}
+            Show up as {endSentence(profile.displayName)}{" "}
             <Link href="/account" className={inlineLinkClass}>
               Edit name
             </Link>
           </p>
           {errorNotice}
-          <Button variant="outline" size="lg" disabled={busy !== null} onClick={join} className={pillClass}>
+          <Button variant="outline" size="lg" busy={busy !== null} onClick={join} className={pillClass}>
             {busy === "join" ? "Adding you…" : "Show me as going"}
           </Button>
           <ConsentCopy className="text-xs leading-4 text-muted" />
@@ -412,7 +437,10 @@ export default function WhosGoing() {
     if (me.eligible) {
       return (
         <>
-          <p className="text-sm">You&rsquo;ve got a ticket. Want people to know you&rsquo;re going?</p>
+          <p className="text-sm">
+            You&rsquo;ve got a ticket. Want people to know you&rsquo;re going?
+            {namesNeedProfile && <> Add yourself to see who else is.</>}
+          </p>
           {errorNotice}
           <Button
             id="wg-add"
@@ -427,7 +455,11 @@ export default function WhosGoing() {
           </Button>
           {formOpen && (
             <div className="w-full">
-              <OptInForm onSubmit={createProfileAndJoin} onCancel={cancelForm} />
+              <OptInForm
+                onSubmit={createProfileAndJoin}
+                onCancel={cancelForm}
+                returnTo={`/events/${event.slug}#whos-going`}
+              />
             </div>
           )}
           {report}
@@ -445,6 +477,14 @@ export default function WhosGoing() {
         </p>
         {viewer.email && (
           <p className="text-xs text-muted">Tickets count when they&rsquo;re booked with {viewer.email}.</p>
+        )}
+        {namesNeedProfile && (
+          <p className="text-sm">
+            Names are shown to members with a Who&rsquo;s Going profile.{" "}
+            <Link href="/account" className={tallInlineLinkClass}>
+              Set up your profile
+            </Link>
+          </p>
         )}
         {report}
       </>

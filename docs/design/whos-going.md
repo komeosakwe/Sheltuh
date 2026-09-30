@@ -1,8 +1,93 @@
 # Who's Going: design spec
 
-Status: proposed · Owner: ui-design-director · Scope: the "Who's Going" panel on the event
-page (`components/EventDetailsView.tsx` aside, above Tickets) and a new `/account` page
-(edit display name, delete social profile). Desktop and phone. No other surface changes.
+Status: built (Sept 2026); consent and /privacy copy still need product/legal sign-off ·
+Owner: ui-design-director · Scope: the "Who's Going" panel on the event page
+(`components/EventDetailsView.tsx` aside, above Tickets), a new `/account` page (edit display
+name, delete social profile, sign out), and the small knock-on changes listed in §0.
+Desktop and phone.
+
+## 0. As built: decisions that differ from, or add to, the spec below
+
+Where this section and the rest of the document disagree, this section is what shipped.
+
+- **Code.** Panel `components/WhosGoing.tsx`; data `components/whos-going/WhosGoingProvider.tsx`
+  (one load per page, shared with `WhosGoingSummaryLink`); pieces in `components/whos-going/`
+  (`NameList`, `OptInForm`, `DisplayNameField`, `ConsentCopy`, `ActionErrorNotice`,
+  `SuspendedNotice`); `/account` is `components/account/AccountContent.tsx`. Demo names come
+  from `lib/sample-going.ts` (8–22 per event, seeded by event id).
+- **API as built** (`lib/api/going.ts`, `lib/api/profiles.ts`): `GET /api/events/{id}/going`
+  → `{ count, closed, countHidden }` (public); `GET …/going/attendees?cursor` (verified members
+  only, 403 otherwise; the viewer's own row has `isYou`); `GET|PUT|DELETE …/going/me`;
+  `GET|PUT|DELETE /api/profiles/me`. The panel reveals 6 names, then 12 more per "Show more",
+  fetching the next API page only when the loaded names run out.
+- **Small numbers.** The API withholds counts under three (`countHidden`, `count` sent as 0),
+  including zero. So no number shows anywhere, and signed-out visitors see "Be one of the first
+  to add yourself." whenever the count is withheld (the panel can't tell 0 from 1–2). After the
+  viewer opts in or out, a withheld count stays withheld until the next load.
+- **Closed** (event ended, or switched off): the whole panel and the phone summary link are
+  hidden. There is no "Who went" state, and Tickets are unaffected.
+- **Names need a profile.** The attendee list is only for verified members with a profile
+  that isn't suspended (403 otherwise). The panel works out which case applies from the
+  profile it loaded:
+  - *No profile, has a ticket:* the usual "Add yourself" flow, with "Add yourself to see who
+    else is."
+  - *No profile, no ticket:* "Names are shown to members with a Who's Going profile. Set up
+    your profile" (links to `/account`), plus the Get a ticket line.
+  - *Has a profile:* "Verify your email address to see who's going and add yourself."
+  - *Suspended:* checked before "going", so a suspended member sees only the notice (name
+    hidden, email support@), never "You" or "Stop showing me", and the count isn't adjusted
+    for them.
+
+  An unverified member with no profile is told about the profile, not verification; that's
+  rare, because sign-up verifies the email before signing in.
+- **Rate limit (429)** on names: a calm "Lots of people are looking right now. Try again in a
+  few minutes." with Try again, instead of the error state. Opting in still works. On Show
+  more, the same message replaces "Couldn't load more names."
+- **Report.** Signed-in members see "Report a name (by email)", a `mailto:` to support@ with the
+  event prefilled.
+- **Busy controls keep focus.** Join, leave, Show more, the opt-in submit/Cancel, Save name and
+  Yes, delete/Cancel use `Button busy` (`aria-disabled`, clicks ignored), not `disabled`, so
+  focus never drops to the page. After a failed join or leave, focus goes back to the action
+  row's button (or "Add yourself" if a 409 says the profile has gone). A session-expired error
+  has a "Sign in" link that comes back to the panel (`#whos-going`) or `/account`.
+- **Display name length** is counted in code points (as the API does), after NFC and
+  collapsing runs of spaces, so there's no `maxLength` (which counts UTF-16 units). The
+  counter turns `text-danger` over 40, and validation blocks the save. The client also
+  catches the API's cheap rules (at least one letter or number, no invisible or control
+  characters). The API's `fieldErrors.displayName` is always shown on the field, covering
+  the rest: links, handles, stacked marks, mixed scripts and lookalike reserved names.
+- **`/account` with no profile** offers to create one: display name, the 18+ checkbox, a
+  short line on what's shown, and "Create profile". Creating one joins no event. Afterwards
+  focus goes to "Your profile is set up. You'll be shown as {name}." If a rename gets a 404
+  (the profile was deleted in another tab), the page switches to this state and focus goes
+  to "You haven't set up a profile yet." A suspended member's create or rename 403 is shown
+  as an alert. Sentences that end with a name don't double its full stop
+  ("Show up as Mia T.").
+- **Avatars** are `overflow-hidden`, so wide initials can't spill out of the square.
+- **Consent copy (§5.2), as built:** "People signed in to Sheltüh will see your display name
+  and initials on this event's page. People who aren't signed in only see how many are going.
+  We never show your email or ticket details. Your display name is saved so you can add
+  yourself to other events in one tap, and it's the same on every event you join, so
+  signed-in members can see which events you've joined. You can remove yourself from this
+  event at any time on this page, or delete your profile from your account to leave every
+  event. [How we handle your information](/privacy#whos-going)". The `/privacy` Who's Going
+  section (`id="whos-going"`) says the same. It no longer claims your other events are never
+  shown.
+- **Navigation.** At 1024px the desktop row's search measured 171px wide signed in, against
+  384px signed out. The desktop row now shows only **Account** (and Admin for admins), which
+  measured 372px. The phone menu keeps My events. **Sign out** and a **My events** link moved
+  to `/account` ("Signed in as"). Account, My events and Admin carry `aria-current="page"`.
+- **Return path.** `?next=` goes through `safeNextPath` (same-site paths only, re-checked
+  after dot segments are resolved, so `/.//evil.example` is rejected). `withNext` carries it
+  through Sign up → /verify, Forgot password → Sign in, and the Back to sign in links.
+  `/verify` lands on `safeNextPath(next) ?? "/dashboard"`.
+- **Getting a ticket that counts.** Signed-in buyers book with their account email: free
+  orders prefill the email field, and paid orders send it to Stripe as the prefilled email.
+  The Tickets panel says "Booking as {email}, your account email, so you can add yourself to
+  Who's Going." above Checkout. The order confirmation links to "Add yourself to Who's Going"
+  (`/events/{slug}#whos-going`) and "Back to the event".
+- **Deferred:** keyset (not offset) pagination of the attendee list, and collapsing the
+  panel's first load (summary, status, attendees, profile) into one GET.
 
 Code read: `docs/design-system.md`, `docs/design/mobile.md`, `app/globals.css`,
 `components/EventDetailsView.tsx`, `TicketSelector.tsx`, `LiveEventDetails.tsx`,
@@ -133,11 +218,11 @@ collapsed desktop panel ≤ 300px.
 | **Going** | Shown if ≥3 (includes viewer) | "You" row first | `Button variant="outline" size="lg"` **"Stop showing me"**, busy label "Removing…". Below: `text-xs text-muted` "[Edit name](/account)". |
 | **Count hidden** (<3 opted in) | Omitted | Signed in: shown (1–2 rows) | Per the viewer state; no number anywhere, including the phone social line. |
 | **Empty** (0 opted in) | Omitted | List omitted | Signed in: `text-sm text-muted` "No one's added themselves yet." then the viewer's action row. Signed out: only the sign-in prompt. |
-| **Closed** (after the event) | "went" | Shown | No opt-in, no ticket prompt. If going: "Stop showing me" remains (withdrawal is always possible). Signed out: "Sign in to see who went." |
+| **Closed** (after the event, or switched off) | — | — | As built: the panel isn't rendered at all (§0). Withdrawal stays available via `/account` (delete profile). |
 | **Mutation error** | — | — | `Notice tone="danger" role="alert"` above the action button: "Couldn't update that. Try again." Button re-enabled. |
 
 Rules:
-- Show more loading: button `disabled`, label "Loading…". On error, it stays and a
+- Show more loading: button busy (`aria-disabled`, keeps focus), label "Loading…". On error, it stays and a
   `Notice tone="danger"` "Couldn't load more names." appears above it.
 - Button pills are `btn-lg` (48px) below `lg`; at `lg` use md size with `min-h-11` (44px).
 - Hover: pills per `.btn-outline`. Links underline 2px on hover (`hover:decoration-2`).
@@ -153,13 +238,14 @@ display name input. `<form id="wg-form" aria-labelledby="wg-form-title" noValida
 
 1. `<p id="wg-form-title" className="text-sm font-semibold">Add yourself to who's going</p>`
 2. `Field label="Display name" htmlFor="wg-name" hint="1–40 characters. A first name and initial works well, like Mia T."`
-   `<input id="wg-name" className={fieldClass} maxLength={40} autoComplete="nickname" required aria-describedby="wg-name-hint wg-name-count">`.
+   `<input id="wg-name" className={fieldClass} autoComplete="nickname" required aria-describedby="wg-name-hint wg-name-count">`
+   (no `maxLength`: length is counted in code points, see §0).
    Counter `<p id="wg-name-count" className="text-xs text-muted tabular-nums">{n}/40</p>`
    right-aligned under the input (not a live region).
 3. Age checkbox: `<label className="flex min-h-11 items-center gap-3 text-sm">` wrapping
    `<input type="checkbox" className="size-5 shrink-0" required>` + "I'm 18 or older".
 4. Consent paragraph `text-sm leading-5` (id `wg-consent`, referenced by the submit's
-   `aria-describedby`), copy (proposed; needs product/legal sign-off):
+   `aria-describedby`). Superseded: see the as-built copy in §0. Original proposal:
    > People signed in to Sheltüh will see your display name and initials on this event's
    > page. People who aren't signed in only see how many are going. We never show your
    > email or ticket details. You can remove yourself at any time, here or from your
@@ -219,12 +305,13 @@ States:
 | Signed out | `EmptyState title="Sign in to manage your account"` with `ButtonLink size="lg" href="/login?next=/account"` "Sign in". |
 | Loading profile | "Loading your profile…" under section 2 heading. |
 | Load error | `Notice tone="danger" role="alert"` "Couldn't load your profile." + outline "Try again". |
-| No profile yet | Section 2 intro + `text-sm` "You haven't added yourself to an event yet. Your profile is created the first time you do." No form, no delete section. |
+| No profile yet | As built: section 2 intro + "You haven't set up a profile yet. Create one here, or when you first add yourself to an event." + the create form (§0). No delete section. |
 | Has profile | Sections 2 and 3 as above. |
 | Save / delete error | `Notice tone="danger" role="alert"` under the relevant button; control re-enabled. |
 
-Entry points: an "Account" link in `AuthNavLinks` (signed-in, between "My events" and
-"Sign out", same `linkClass`) and the "Edit name" links in the panel.
+Entry points: an "Account" link in `AuthNavLinks` and the "Edit name" links in the panel.
+As built, the desktop row shows only Account (plus Admin), and Sign out and My events live
+in the "Signed in as" panel here (§0).
 
 ## 6. Motion
 

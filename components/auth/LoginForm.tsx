@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { safeNextPath } from "@/lib/safe-next-path";
+import { safeNextPath, withNext } from "@/lib/safe-next-path";
 
 /**
  * `next` is the raw `?next=` value: where to go after signing in. Only a
@@ -61,7 +61,7 @@ export default function LoginForm({ next }: { next?: string } = {}) {
           <label htmlFor="password" className="text-sm font-medium text-foreground">
             Password
           </label>
-          <Link href="/forgot-password" className="text-xs text-accent underline underline-offset-2">
+          <Link href={withNext("/forgot-password", next)} className="text-xs text-accent underline underline-offset-2">
             Forgot password?
           </Link>
         </div>
@@ -92,7 +92,7 @@ export default function LoginForm({ next }: { next?: string } = {}) {
 
       <p className="text-sm text-muted">
         No account yet?{" "}
-        <Link href="/signup" className="text-accent underline underline-offset-2">
+        <Link href={withNext("/signup", next)} className="text-accent underline underline-offset-2">
           Sign up
         </Link>
       </p>

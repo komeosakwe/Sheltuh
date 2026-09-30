@@ -4,11 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { withNext } from "@/lib/safe-next-path";
 
 const PASSWORD_HINT = "At least 8 characters, with an uppercase letter, a lowercase letter and a number.";
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
 
-export default function ForgotPasswordForm() {
+/** `next` is the raw `?next=` return path, carried back to sign in. */
+export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
   const auth = useAuth();
   const router = useRouter();
   const [step, setStep] = useState<"request" | "confirm">("request");
@@ -50,7 +52,7 @@ export default function ForgotPasswordForm() {
     setLoading(true);
     try {
       await auth.confirmForgotPassword(email, code, newPassword);
-      router.push("/login");
+      router.push(withNext("/login", next));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't reset your password.");
     } finally {
@@ -89,7 +91,7 @@ export default function ForgotPasswordForm() {
           {loading ? "Sending…" : "Send reset code"}
         </button>
         <p className="text-sm text-muted">
-          <Link href="/login" className="text-accent underline underline-offset-2">
+          <Link href={withNext("/login", next)} className="text-accent underline underline-offset-2">
             Back to sign in
           </Link>
         </p>
