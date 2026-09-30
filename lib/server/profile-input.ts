@@ -22,10 +22,29 @@ const INVISIBLE = /(?![︎️])\p{Default_Ignorable_Code_Point}|⠀/u;
 // A name has to have something readable in it: at least one letter or digit.
 const LETTER_OR_NUMBER = /[\p{L}\p{N}]/u;
 // Links: a scheme, "www.", or a domain-like "name.tld" with a common TLD,
-// including the "name[.]com" / "name (dot) com" obfuscations. A dot followed
-// by a space ("Mr. Me") isn't a domain.
-const LINK =
-  /(\b[a-z][a-z0-9+.-]*:\/\/|\bwww\s*\.|[\p{L}\p{N}-](?:\.|\s*(?:\[\.\]|\(\.\)|\[dot\]|\(dot\))\s*)(?:com|net|org|au|io|co|app|xyz|me|info|biz|link|ly|gg|tv|to|site|online|shop|store|dev|page|club|live)\b)/iu;
+// including the obfuscations "name . com" (a space *before* the dot),
+// "name[.]com", "name (dot) com" and "name dot com". A dot followed by a
+// space but not preceded by one ("Mr. Me", "Fine. Me too") isn't a domain.
+// Run on foldForLinks() output. Linear: every repetition that could backtrack
+// starts after a letter or digit, so each whitespace run is scanned from one
+// starting point.
+const DOT = String.raw`(?:\.|\s+\.\s*|\s*(?:\[\s*(?:\.|dot)\s*\]|\(\s*(?:\.|dot)\s*\)|\{\s*(?:\.|dot)\s*\}|<\s*(?:\.|dot)\s*>)\s*|\s+dot\s+)`;
+const TLD = "(?:com|net|org|au|io|co|app|xyz|me|info|biz|link|ly|gg|tv|to|site|online|shop|store|dev|page|club|live)";
+const LINK = new RegExp(String.raw`(\b[a-z][a-z0-9+.-]*:\/\/|\bwww(?:\s*\.|\s+dot\s)|[\p{L}\p{N}-]${DOT}${TLD}\b)`, "iu");
+// Invisible characters (zero-width joiners, variation selectors, tags, ...),
+// removed before looking for links so "exa‍mple.com" is still a link.
+const DEFAULT_IGNORABLE = /\p{Default_Ignorable_Code_Point}/gu;
+// Full stops that NFKC doesn't turn into "." (ideographic, halfwidth, vertical).
+const OTHER_FULL_STOPS = /[。｡︒]/gu;
+
+/**
+ * The form links are looked for in: compatibility-folded (fullwidth
+ * "ｅｘａｍｐｌｅ．ｃｏｍ" → "example.com"), invisible characters removed,
+ * other full stops turned into ".". Only ever used for checking, never stored.
+ */
+export function foldForLinks(value: string): string {
+  return value.normalize("NFKC").replace(DEFAULT_IGNORABLE, "").replace(OTHER_FULL_STOPS, ".");
+}
 // Emails and @handles are contact details, which a display name shouldn't carry.
 const AT_SIGN = /[@＠]/u;
 // Names only Sheltüh itself may appear as. Compared on a confusable skeleton (see skeleton()).
@@ -91,9 +110,9 @@ function mixesScripts(name: string): boolean {
     .some((word) => SCRIPTS.filter((script) => script.test(word)).length > 1);
 }
 
-/** Contains a link: a URL scheme, "www.", or a domain-like "name.tld" (including "name[.]com"). */
+/** Contains a link: a URL scheme, "www.", or a domain-like "name.tld" (including obfuscations, see LINK), after foldForLinks. */
 export function containsLink(value: string): boolean {
-  return LINK.test(value);
+  return LINK.test(foldForLinks(value));
 }
 
 function isReserved(name: string): boolean {
@@ -136,7 +155,7 @@ export function parseDisplayName(value: unknown, field: string, errors: Record<s
     errors[field] = "Display names can't stack accents or other marks on one character.";
     return "";
   }
-  if (AT_SIGN.test(name) || LINK.test(name)) {
+  if (AT_SIGN.test(name) || containsLink(name)) {
     errors[field] = "Display names can't include links, email addresses or @handles.";
     return "";
   }

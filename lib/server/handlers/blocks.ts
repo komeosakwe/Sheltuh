@@ -11,12 +11,17 @@ import { fail } from "../validation";
  * told. While either blocks the other, their conversation is hidden from both
  * and neither can message the other, and each is left out of the other's
  * Who's Going list. Keyed on the accounts, so deleting and recreating a
- * profile doesn't lift one. The caller only ever sees their own blocks.
+ * profile doesn't lift one. The caller only ever sees their own blocks, each
+ * with the blocked member's display name as it was when they blocked them.
  */
+
+/** Blocks per member per window: far more than anyone needs, too few to probe handles with. */
+export const BLOCK_RATE_LIMIT = { hits: 30, window: "24 hours" } as const;
 
 const NOT_FOUND = "Member not found.";
 
-const BLOCK_COLUMNS = `b.id, b.created_at, (select p.display_name from public.profiles p where p.user_id = b.blocked_id) as display_name`;
+/** The snapshot taken at block time: never the live profile, which would reveal renames and deletions. */
+const BLOCK_COLUMNS = `b.id, b.created_at, b.blocked_display_name as display_name`;
 
 /** GET /api/blocks?cursor — the caller's blocks, newest first. */
 export const listBlocks: Handler = async (req, _params, { db, verifyAccessToken }) => {
@@ -34,9 +39,15 @@ export const listBlocks: Handler = async (req, _params, { db, verifyAccessToken 
 
 /**
  * POST /api/blocks {conversationId} | {attendeeId} — blocks the other member
- * of one of the caller's conversations (whatever its state), or the member
- * behind a Who's Going attendeeId. Idempotent: 201 when created, 200 when
- * already blocked. Signed in is enough: protecting yourself is never gated.
+ * of a conversation the caller can currently see (or a request they
+ * declined), or the member behind an attendeeId on a Who's Going list they
+ * may currently view. Anything else is a 404, including a member already
+ * blocked either way (they're hidden from the caller already), so blocking
+ * can't be used to tell whether two attendeeIds are the same person. Always
+ * 201 with the block when it succeeds, including when the caller already had
+ * it (e.g. a double submit). Rate-limited (429). Signed in is enough:
+ * protecting yourself is never gated on verification. Atomic in
+ * private.create_block.
  */
 export const createBlock: Handler = async (req, _params, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
@@ -44,32 +55,35 @@ export const createBlock: Handler = async (req, _params, { db, verifyAccessToken
   const target = parseTarget(await readJson(req), NOT_FOUND, errors);
   if (Object.keys(errors).length > 0) fail(errors);
 
-  const [found] = target.conversationId
-    ? await db.query<{ user_id: string }>(
-        `select case when c.user_low = $2 then c.user_high else c.user_low end as user_id
-           from public.conversations c where c.id = $1 and (c.user_low = $2 or c.user_high = $2)`,
-        [target.conversationId, caller.userId],
-      )
-    : await db.query<{ user_id: string }>(`select a.user_id from public.event_attendees a where a.id = $1`, [
-        target.attendeeId,
-      ]);
-  if (!found) throw new HttpError(404, NOT_FOUND);
-  if (found.user_id === caller.userId) throw new HttpError(400, "You can't block yourself.");
-
-  const [inserted] = await db.query(
-    `insert into public.user_blocks as b (blocker_id, blocked_id) values ($1, $2)
-     on conflict (blocker_id, blocked_id) do nothing
-     returning ${BLOCK_COLUMNS}`,
-    [caller.userId, found.user_id],
-  );
-  if (inserted) return createdPrivate(toBlock(inserted));
-  const [existing] = await db.query(
-    `select ${BLOCK_COLUMNS} from public.user_blocks b where b.blocker_id = $1 and b.blocked_id = $2`,
-    [caller.userId, found.user_id],
-  );
-  // Unblocked again in between: nothing to return, and nothing blocked.
-  if (!existing) throw new HttpError(409, "That block changed while you were saving it. Try again.");
-  return okPrivate(toBlock(existing));
+  const [row] = await db.query<{
+    result: string;
+    block_id: string | null;
+    block_name: string | null;
+    block_created_at: string | Date | null;
+  }>(`select * from private.create_block($1, $2, $3, $4, $5::interval)`, [
+    caller.userId,
+    target.conversationId ?? null,
+    target.attendeeId ?? null,
+    BLOCK_RATE_LIMIT.hits,
+    BLOCK_RATE_LIMIT.window,
+  ]);
+  switch (row.result) {
+    case "blocked":
+      return createdPrivate(
+        toBlock({ id: row.block_id, display_name: row.block_name, created_at: row.block_created_at }),
+      );
+    case "not_found":
+      throw new HttpError(404, NOT_FOUND);
+    case "self":
+      throw new HttpError(400, "You can't block yourself.");
+    case "rate_limited":
+      throw new HttpError(
+        429,
+        "You've blocked a lot of members today. Try again tomorrow, or email support@sheltuh.com.au if someone is bothering you.",
+      );
+    default:
+      throw new Error(`Unexpected create_block result: ${row.result}`);
+  }
 };
 
 /** DELETE /api/blocks/[blockId] — unblocks. Idempotent; someone else's block id is a no-op too. */

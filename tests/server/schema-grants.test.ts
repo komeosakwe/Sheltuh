@@ -48,6 +48,25 @@ describe("Data API lock-out", () => {
     expect(rows).toEqual(tables.map((table_name) => ({ table_name, rls: true, policies: 0, grants: 0 })));
   });
 
+  it("no sequence in `public` or `private` grants anything to anon, authenticated or PUBLIC", async () => {
+    // Supabase grants new sequences (identity columns' included) to anon and
+    // authenticated by default, like tables (mirrored in supabase-stubs.sql).
+    const sequences = await db.query<{ seq: string }>(
+      `select n.nspname || '.' || c.relname as seq from pg_class c join pg_namespace n on n.oid = c.relnamespace
+        where c.relkind = 'S' and n.nspname in ('public', 'private') order by 1`,
+    );
+    expect(sequences.length).toBeGreaterThan(0);
+    const granted = await db.query(
+      `select n.nspname || '.' || c.relname as seq, a.grantee::regrole::text as grantee, a.privilege_type
+         from pg_class c join pg_namespace n on n.oid = c.relnamespace,
+              aclexplode(coalesce(c.relacl, acldefault('s', c.relowner))) a
+        where c.relkind = 'S' and n.nspname in ('public', 'private')
+          and (a.grantee = 0 or a.grantee in ('anon'::regrole, 'authenticated'::regrole))
+        order by 1, 2, 3`,
+    );
+    expect(granted).toEqual([]);
+  });
+
   it("tables in `private` have RLS on and grant nothing to anon, authenticated or PUBLIC", async () => {
     const tables = await db.query<{ table_name: string; rls: boolean }>(
       `select c.relname as table_name, c.relrowsecurity as rls from pg_class c
@@ -55,6 +74,7 @@ describe("Data API lock-out", () => {
         where n.nspname = 'private' and c.relkind = 'r' order by 1`,
     );
     expect(tables).toEqual([
+      { table_name: "conversation_pairs", rls: true },
       { table_name: "rate_limits", rls: true },
       { table_name: "social_suspensions", rls: true },
       { table_name: "user_reports", rls: true },

@@ -27,6 +27,12 @@ import type { ConversationSummary, MessagePage, UnreadCount } from "../types";
 export const MESSAGE_RATE_LIMIT = { hits: 60, window: "1 hour" } as const;
 /** New conversation requests per sender per window. */
 export const REQUEST_RATE_LIMIT = { hits: 10, window: "24 hours" } as const;
+/**
+ * New conversation requests one member can receive per window, from anyone
+ * (against many throwaway accounts each sending their own allowance). Over it,
+ * a request looks like any other unavailable member (404).
+ */
+export const INCOMING_REQUEST_LIMIT = { hits: 20, window: "24 hours" } as const;
 /** Messages per page. */
 export const MESSAGE_PAGE_SIZE = 50;
 
@@ -73,7 +79,7 @@ export const startConversation: Handler = async (req, _params, { db, verifyAcces
   const [{ result, new_conversation_id: conversationId }] = await db.query<{
     result: string;
     new_conversation_id: string | null;
-  }>(`select * from private.request_conversation($1, $2, $3, $4, $5::interval, $6, $7::interval)`, [
+  }>(`select * from private.request_conversation($1, $2, $3, $4, $5::interval, $6, $7::interval, $8, $9::interval)`, [
     caller.userId,
     input.attendeeId,
     input.body,
@@ -81,6 +87,8 @@ export const startConversation: Handler = async (req, _params, { db, verifyAcces
     REQUEST_RATE_LIMIT.window,
     MESSAGE_RATE_LIMIT.hits,
     MESSAGE_RATE_LIMIT.window,
+    INCOMING_REQUEST_LIMIT.hits,
+    INCOMING_REQUEST_LIMIT.window,
   ]);
   switch (result) {
     case "sent":

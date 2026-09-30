@@ -6,6 +6,7 @@ import {
   declineConversation,
   getMessages,
   getUnreadCount,
+  INCOMING_REQUEST_LIMIT,
   listConversations,
   markConversationRead,
   MESSAGE_PAGE_SIZE,
@@ -15,7 +16,7 @@ import {
   startConversation,
 } from "@/lib/server/handlers/messages";
 import type { EventRecord } from "@/lib/server/types";
-import { TestApi } from "./helpers/api";
+import { SITE_URL, TestApi } from "./helpers/api";
 import { approvedOrganiser, insertOrder, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { goingMember, member, optIn, suspend, type GoingMember, type Member } from "./helpers/members";
 import { createTestDb } from "./helpers/test-db";
@@ -263,7 +264,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("mutual requests, forced interle
     const first = postgres(serverUrl as string, { max: 1, onnotice: () => {} });
     const second = postgres(serverUrl as string, { max: 1, onnotice: () => {} });
     const call = (sql: postgres.Sql, from: Member, attendeeId: string) =>
-      sql.unsafe(`select result from private.request_conversation($1, $2, 'hi', 10, '1 day', 60, '1 hour')`, [
+      sql.unsafe(`select result from private.request_conversation($1, $2, 'hi', 10, '1 day', 60, '1 hour', 20, '1 day')`, [
         from.userId,
         attendeeId,
       ]);
@@ -293,8 +294,15 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("mutual requests, forced interle
     }
     expect(await conversationRows()).toHaveLength(1);
     expect(await messageCount()).toBe(1);
+    // None of B's own hits were kept, and B's request didn't count against A's
+    // incoming requests (only A's request counted against B's).
     expect(
-      await api.db.query(`select bucket from private.rate_limits where user_id = $1`, [b.userId]),
+      await api.db.query(`select bucket, hits from private.rate_limits where user_id = $1 order by 1`, [b.userId]),
+    ).toEqual([{ bucket: "incoming_requests", hits: 1 }]);
+    expect(
+      await api.db.query(`select bucket from private.rate_limits where user_id = $1 and bucket = 'incoming_requests'`, [
+        a.userId,
+      ]),
     ).toEqual([]);
   });
 
@@ -311,12 +319,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("mutual requests, forced interle
     try {
       await first.unsafe("begin");
       const [held] = await first.unsafe(
-        `select result from private.request_conversation($1, $2, 'hi', 10, '1 day', 60, '1 hour')`,
+        `select result from private.request_conversation($1, $2, 'hi', 10, '1 day', 60, '1 hour', 20, '1 day')`,
         [a.userId, c.attendeeId],
       );
       expect(held.result).toBe("sent");
       const pending = second
-        .unsafe(`select result from private.request_conversation($1, $2, 'hi', 10, '1 day', 60, '1 hour')`, [
+        .unsafe(`select result from private.request_conversation($1, $2, 'hi', 10, '1 day', 60, '1 hour', 20, '1 day')`, [
           b.userId,
           a.attendeeId,
         ])
@@ -360,7 +368,26 @@ describe("message text", () => {
     expect(await conversationRows()).toEqual([]);
   });
 
-  it.each(["see https://example.com", "www.example.org", "my site: example.com.au", "example[.]com"])(
+  it.each([
+    "see https://example.com",
+    "www.example.org",
+    "my site: example.com.au",
+    "example[.]com",
+    // Obfuscations: spaced dot, fullwidth dot and letters, ideographic stop,
+    // "dot", and domains split by invisible characters that are allowed in
+    // text (joiners, variation selectors) and stripped before checking.
+    "find me at example . com",
+    "example .com",
+    "example\uFF0Ecom",
+    "\uFF45\uFF58\uFF41\uFF4D\uFF50\uFF4C\uFF45\uFF0E\uFF43\uFF4F\uFF4D",
+    "example\u3002com",
+    "example dot com",
+    "example (dot) com",
+    "exa\u200Dmple.c\u200Com",
+    "example.c\uFE0Eom",
+    "example\u034F.com",
+    "me@example.com",
+  ])(
     "a first message can't contain links: %s",
     async (body) => {
       const res = await start(a, b.attendeeId, body);
@@ -369,6 +396,71 @@ describe("message text", () => {
       expect(await conversationRows()).toEqual([]);
     },
   );
+
+  it.each(["Fine. Me too", "See you there. To be honest I'm nervous", "Great show. Live music!", "Doors at 7.30"])(
+    "ordinary sentences aren't mistaken for links: %s",
+    async (body) => {
+      expect((await start(a, b.attendeeId, body)).status).toBe(201);
+    },
+  );
+
+  it.each([
+    ["a zero-width space", "hi\u200Bthere"],
+    ["a soft hyphen", "hi\u00ADthere"],
+    ["a left-to-right mark", "hi\u200Ethere"],
+    ["a byte order mark", "\uFEFFhi"],
+    ["a word joiner", "hi\u2060there"],
+    ["a stray tag character", "hi\u{E0067}there"],
+    ["an interlinear annotation", "hi\uFFF9there"],
+  ])("rejects invisible format characters: %s (400)", async (_label, body) => {
+    const res = await start(a, b.attendeeId, body);
+    expect(res.status).toBe(400);
+    expect(res.body.fieldErrors.body).toMatch(/invisible/);
+    expect(await conversationRows()).toEqual([]);
+  });
+
+  it("keeps the joiners and selectors that emoji and scripts need", async () => {
+    const body = "\u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F} \u2764\uFE0F 👨‍👩‍👧 \u0645\u06CC\u200C\u062E\u0648\u0627\u0645";
+    const res = await start(a, b.attendeeId, body);
+    expect(res.status).toBe(201);
+    expect(res.body.lastMessage.preview).toBe(body.normalize("NFC"));
+  });
+
+  it("refuses a huge whitespace run fast (400), before any cleaning: no quadratic regex", async () => {
+    // 200,000 spaces then a letter. The old cleaning (/[ \t]+\n/g) backtracked
+    // quadratically on this: tens of seconds of blocked CPU per request.
+    const huge = `${" ".repeat(200_000)}x`;
+    const id = await requested(a, b);
+    for (const call of [() => start(a, b.attendeeId, huge), () => send(b, id, huge), () => send(b, "not-a-uuid", huge)]) {
+      const started = performance.now();
+      const res = await call();
+      expect(performance.now() - started).toBeLessThan(2000);
+      expect(res.status).toBe(400);
+      expect(res.body.fieldErrors.body).toBe("Must be 1000 characters or fewer.");
+    }
+    // Long runs of spaces inside an acceptable message are still cleaned (linearly).
+    const res = await send(b, id, `ok${" ".repeat(900)}\nthere${"\t ".repeat(400)}`);
+    expect(res.status).toBe(201);
+    expect(res.body.body).toBe("ok\nthere");
+    expect(await messageCount()).toBe(2);
+  });
+
+  it("refuses a request body over 256 KB (413), without parsing it", async () => {
+    const big = JSON.stringify({ attendeeId: b.attendeeId, body: "x".repeat(300_000) });
+    const req = (headers: Record<string, string>) =>
+      new Request(`${SITE_URL}/api/conversations`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${a.token}`, ...headers },
+        body: big,
+      });
+    // Whether or not Content-Length is declared (it can lie or be absent with chunked bodies).
+    for (const r of [req({}), req({ "content-length": String(big.length) })]) {
+      const res = await api.send(startConversation, r);
+      expect(res.status).toBe(413);
+      expect(res.headers.get("cache-control")).toBe("private, no-store");
+    }
+    expect(await conversationRows()).toEqual([]);
+  });
 
   it("replies may contain links", async () => {
     const id = await requested(a, b);
@@ -532,6 +624,21 @@ describe("only participants: everyone else gets 404", () => {
     }
     expect((await list(stranger)).body.items).toEqual([]);
     expect(await messageCount()).toBe(2);
+  });
+
+  it("error responses are private, no-store too (401, 400, 404, 409)", async () => {
+    const a = await going();
+    const b = await going();
+    const id = await requested(a, b);
+    for (const res of [
+      await api.call(listConversations, {}),
+      await thread(a, id, { after: "abc" }),
+      await thread(a, crypto.randomUUID()),
+      await send(a, id),
+    ]) {
+      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(res.headers.get("cache-control")).toBe("private, no-store");
+    }
   });
 
   it("needs a signed-in, verified member for listing, reading, sending and the unread count", async () => {
@@ -877,6 +984,158 @@ describe("deletion and retention", () => {
   });
 });
 
+describe("one conversation per pair survives deleting and recreating a profile", () => {
+  /** Deletes m's profile through the API, then gives them a new one and opts them back in. */
+  async function recreate(m: Member) {
+    expect((await api.call(deleteMyProfile, { token: m.token, method: "DELETE" })).status).toBe(204);
+    await api.db.query(
+      `insert into public.profiles (user_id, display_name, adult_confirmed_at) values ($1, 'Fresh start', now())`,
+      [m.userId],
+    );
+    return { ...m, attendeeId: await optIn(api, m, event) };
+  }
+
+  it("a declined request can't be sent again by recreating the profile: the same 404 as an unknown member", async () => {
+    const a = await going();
+    const b = await going();
+    const id = await requested(a, b);
+    expect((await decline(b, id)).status).toBe(204);
+
+    const again = await recreate(a);
+    expect(await conversationRows()).toEqual([]);
+    const hits = () =>
+      api.db.query(`select user_id, bucket, hits from private.rate_limits where bucket <> 'going_attendees' order by 1, 2`);
+    const hitsBefore = await hits();
+    const unknown = await start(again, crypto.randomUUID());
+    for (const [from, to] of [
+      [again, b],
+      [b, again],
+    ] as const) {
+      const res = await start(from, to.attendeeId);
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual(unknown.body);
+    }
+    expect(await conversationRows()).toEqual([]);
+    // Refused requests use none of anyone's allowance.
+    expect(await hits()).toEqual(hitsBefore);
+  });
+
+  it("the same after an accepted conversation, whichever member deleted their profile", async () => {
+    const a = await going();
+    const b = await going();
+    await accepted(a, b);
+    const again = await recreate(b);
+    expect((await start(a, again.attendeeId)).status).toBe(404);
+    expect((await start(again, a.attendeeId)).status).toBe(404);
+    // Other pairs are unaffected.
+    expect((await start(again, (await going()).attendeeId)).status).toBe(201);
+  });
+
+  it("the pair record holds no content, and goes with either account", async () => {
+    const a = await going();
+    const b = await going();
+    await requested(a, b);
+    const cols = await api.db.query<{ column_name: string }>(
+      `select column_name from information_schema.columns
+        where table_schema = 'private' and table_name = 'conversation_pairs' order by ordinal_position`,
+    );
+    expect(cols.map((c) => c.column_name)).toEqual(["user_low", "user_high", "created_at"]);
+    await api.call(deleteMyProfile, { token: a.token, method: "DELETE" });
+    expect(await api.db.query(`select 1 from private.conversation_pairs`)).toHaveLength(1);
+    await api.db.query(`delete from auth.users where id = $1`, [a.userId]);
+    expect(await api.db.query(`select 1 from private.conversation_pairs`)).toEqual([]);
+  });
+
+  it("private.purge_social_data deletes pair records with no conversation 12 months after the first request", async () => {
+    const [a, b, c, d] = [await going(), await going(), await going(), await going()];
+    await requested(a, b); // conversation deleted below, pair old: purged
+    await requested(a, c); // conversation deleted below, pair recent: kept
+    await accepted(a, d); // conversation kept, pair old: kept
+    await api.db.query(`delete from public.conversations where user_low in ($1, $2) and user_high in ($1, $2)`, [
+      a.userId,
+      b.userId,
+    ]);
+    await api.db.query(`delete from public.conversations where user_low in ($1, $2) and user_high in ($1, $2)`, [
+      a.userId,
+      c.userId,
+    ]);
+    const pairOf = (x: Member, y: Member) => [x.userId, y.userId].sort();
+    const age = (x: Member, y: Member, interval: string) =>
+      api.db.query(
+        `update private.conversation_pairs set created_at = now() - $3::interval where user_low = $1 and user_high = $2`,
+        [...pairOf(x, y), interval],
+      );
+    await age(a, b, "12 months 1 day");
+    await age(a, c, "11 months 29 days");
+    await age(a, d, "2 years");
+    const purge = async () =>
+      (
+        await api.db.query<{ conversation_pairs_deleted: number }>(
+          `select conversation_pairs_deleted from private.purge_social_data()`,
+        )
+      )[0].conversation_pairs_deleted;
+    expect(await purge()).toBe(1);
+    const left = await api.db.query<{ user_low: string; user_high: string }>(
+      `select user_low, user_high from private.conversation_pairs`,
+    );
+    expect(left.map((r) => [r.user_low, r.user_high]).sort()).toEqual([pairOf(a, c), pairOf(a, d)].sort());
+    expect(await purge()).toBe(0);
+  });
+
+  it("a conversation purged for age takes its pair record with it, in the same run", async () => {
+    const a = await going();
+    const b = await going();
+    await accepted(a, b);
+    await api.db.query(`update public.conversations set last_message_at = now() - interval '13 months'`);
+    await api.db.query(`update private.conversation_pairs set created_at = now() - interval '14 months'`);
+    const [row] = await api.db.query<{ conversations_deleted: number; conversation_pairs_deleted: number }>(
+      `select conversations_deleted, conversation_pairs_deleted from private.purge_social_data()`,
+    );
+    expect(row).toEqual({ conversations_deleted: 1, conversation_pairs_deleted: 1 });
+  });
+});
+
+describe(`at most ${INCOMING_REQUEST_LIMIT.hits} requests received per ${INCOMING_REQUEST_LIMIT.window}`, () => {
+  it("over the cap, a request is the same 404 as an unknown member, and costs the sender nothing", async () => {
+    const target = await going();
+    for (let i = 0; i < INCOMING_REQUEST_LIMIT.hits; i++) {
+      expect((await start(await going(), target.attendeeId)).status).toBe(201);
+    }
+    const late = await going();
+    const unknown = await start(late, crypto.randomUUID());
+    const res = await start(late, target.attendeeId);
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual(unknown.body);
+    expect(await conversationRows()).toHaveLength(INCOMING_REQUEST_LIMIT.hits);
+    expect(await api.db.query(`select 1 from private.rate_limits where user_id = $1 and bucket <> 'going_attendees'`, [late.userId])).toEqual(
+      [],
+    );
+
+    // The target can still send requests, and others can still receive them.
+    expect((await start(target, late.attendeeId)).status).toBe(201);
+
+    // A new window.
+    await api.db.query(
+      `update private.rate_limits set window_started_at = window_started_at - $2::interval
+        where user_id = $1 and bucket = 'incoming_requests'`,
+      [target.userId, INCOMING_REQUEST_LIMIT.window],
+    );
+    expect((await start(await going(), target.attendeeId)).status).toBe(201);
+  });
+
+  it("refused requests (409, 404) don't count against the recipient", async () => {
+    const a = await going();
+    const b = await going();
+    await requested(a, b);
+    for (let i = 0; i < INCOMING_REQUEST_LIMIT.hits + 2; i++) expect((await start(a, b.attendeeId)).status).toBe(409);
+    const [{ hits }] = await api.db.query<{ hits: number }>(
+      `select hits from private.rate_limits where user_id = $1 and bucket = 'incoming_requests'`,
+      [b.userId],
+    );
+    expect(hits).toBe(1);
+  });
+});
+
 describe("private.send_message and private.request_conversation (database functions)", () => {
   it("return each outcome directly", async () => {
     const a = await going();
@@ -884,7 +1143,7 @@ describe("private.send_message and private.request_conversation (database functi
     const request = async (from: Member, attendeeId: string) =>
       (
         await api.db.query<{ result: string }>(
-          `select result from private.request_conversation($1, $2, 'hi', 10, '1 day', 60, '1 hour')`,
+          `select result from private.request_conversation($1, $2, 'hi', 10, '1 day', 60, '1 hour', 20, '1 day')`,
           [from.userId, attendeeId],
         )
       )[0].result;

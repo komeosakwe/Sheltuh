@@ -7,18 +7,52 @@ import { fail } from "./validation";
 /** Mirrors the messages.body check constraint (counted in code points, like char_length). */
 export const MAX_MESSAGE_LENGTH = 1000;
 
+/**
+ * Longer raw input than this (UTF-16 code units, before any cleaning) is
+ * refused before any regex or normalisation runs on it. Generous: 1000
+ * emoji are 2000 units, and whitespace that cleaning would strip still fits.
+ */
+export const MAX_RAW_MESSAGE_LENGTH = MAX_MESSAGE_LENGTH * 4;
+
 export const REPORT_REASONS: ReportReason[] = ["harassment", "spam", "inappropriate", "impersonation", "other"];
 
-// Control characters other than line breaks and tab, and the bidi overrides and
-// isolates that can make text display in a different order from how it's
-// stored (a classic spoofing trick). Zero-width joiners stay: emoji use them.
-const DISALLOWED = /(?![\n\r\t])\p{Cc}|[\u202A-\u202E\u2066-\u2069\u2028\u2029]/u;
+// Control characters other than line breaks and tab; every invisible "format"
+// character (\p{Cf}: zero-width spaces, bidi overrides, isolates and marks,
+// soft hyphens, BOM, ...), which can hide or reorder text, except the
+// zero-width (non-)joiners that emoji and several scripts need; and the
+// line/paragraph separators. (VS16, U+FE0F, isn't \p{Cf}, so "\u2764\uFE0F" is fine.)
+const DISALLOWED = /(?![\n\r\t])\p{Cc}|(?![\u200C\u200D])\p{Cf}|[\u2028\u2029]/u;
+// The one legitimate use of \p{Cf} tag characters: emoji tag sequences (the
+// flags of England, Scotland and Wales). Removed before the check above.
+const EMOJI_TAG_SEQUENCE = /\u{1F3F4}[\u{E0030}-\u{E0039}\u{E0061}-\u{E007A}]{1,8}\u{E007F}/gu;
 // Something visible: a letter, number, punctuation mark or symbol (emoji are symbols).
 const VISIBLE = /[\p{L}\p{N}\p{P}\p{S}]/u;
 
+/** `line` without trailing spaces and tabs. A loop, not /[ \t]+$/, which backtracks quadratically on long runs. */
+function trimTrailingSpaces(line: string): string {
+  let end = line.length;
+  while (end > 0 && (line[end - 1] === " " || line[end - 1] === "\t")) end--;
+  return end === line.length ? line : line.slice(0, end);
+}
+
 /**
- * Cleans and checks a plain-text message: Unicode NFC, line endings
- * normalised to \n, at most one blank line in a row, trimmed. Records an
+ * Unicode NFC, line endings normalised to \n, trailing spaces and tabs
+ * stripped from each line, at most one blank line in a row, trimmed. Every
+ * step is linear in the length of `value`.
+ */
+function normaliseText(value: string): string {
+  return value
+    .normalize("NFC")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map(trimTrailingSpaces)
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
+ * Cleans and checks a plain-text message (see normaliseText). Records an
  * error under `field` and returns "" if it isn't acceptable.
  */
 export function parseMessageText(
@@ -29,26 +63,27 @@ export function parseMessageText(
 ): string {
   const label = options.label ?? "Messages";
   const empty = options.label ? "This can't be blank." : "Write a message.";
+  const tooLong = `Must be ${MAX_MESSAGE_LENGTH} characters or fewer.`;
   if (typeof value !== "string") {
     errors[field] = empty;
     return "";
   }
-  if (DISALLOWED.test(value)) {
-    errors[field] = `${label} can't contain control or text-direction characters.`;
+  // Before anything else looks at it.
+  if (value.length > MAX_RAW_MESSAGE_LENGTH) {
+    errors[field] = tooLong;
     return "";
   }
-  const text = value
-    .normalize("NFC")
-    .replace(/\r\n?/g, "\n")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  if (DISALLOWED.test(value.replace(EMOJI_TAG_SEQUENCE, ""))) {
+    errors[field] = `${label} can't contain control, invisible or text-direction characters.`;
+    return "";
+  }
+  const text = normaliseText(value);
   if (!text || !VISIBLE.test(text)) {
     errors[field] = empty;
     return "";
   }
   if (Array.from(text).length > MAX_MESSAGE_LENGTH) {
-    errors[field] = `Must be ${MAX_MESSAGE_LENGTH} characters or fewer.`;
+    errors[field] = tooLong;
     return "";
   }
   if (tooManyMarks(text)) {

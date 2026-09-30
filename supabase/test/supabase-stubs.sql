@@ -23,3 +23,5 @@ create table if not exists auth.users (id uuid primary key, email text);
 -- grants"). Mirror that here so tests/server/schema-grants.test.ts can catch a
 -- table that forgets to.
 alter default privileges in schema public grant all on tables to anon, authenticated;
+-- Sequences too (identity columns' sequences included).
+alter default privileges in schema public grant all on sequences to anon, authenticated;

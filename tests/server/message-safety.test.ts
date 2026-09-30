@@ -1,7 +1,9 @@
+import postgres from "postgres";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createBlock, deleteBlock, listBlocks } from "@/lib/server/handlers/blocks";
+import { BLOCK_RATE_LIMIT, createBlock, deleteBlock, listBlocks } from "@/lib/server/handlers/blocks";
 import { listGoingAttendees } from "@/lib/server/handlers/going";
 import {
+  declineConversation,
   getMessages,
   getUnreadCount,
   listConversations,
@@ -13,11 +15,12 @@ import { adminListReports, adminResolveReport, createReport, REPORT_RATE_LIMIT }
 import type { EventRecord } from "@/lib/server/types";
 import { TestApi } from "./helpers/api";
 import { approvedOrganiser, publishedEvent, signUpAdmin } from "./helpers/fixtures";
-import { goingMember, member, optIn, type GoingMember } from "./helpers/members";
+import { goingMember, member, optIn, suspend, type GoingMember } from "./helpers/members";
 import { createTestDb } from "./helpers/test-db";
 
 let api: TestApi;
 let reset: () => Promise<void>;
+let serverUrl: string | undefined;
 let admin: { token: string; userId: string; email: string };
 let organiser: { token: string; userId: string; organiserId: string };
 let event: EventRecord;
@@ -25,6 +28,7 @@ let event: EventRecord;
 beforeAll(async () => {
   const testDb = await createTestDb();
   reset = testDb.reset;
+  serverUrl = testDb.url;
   api = new TestApi(testDb.db);
 });
 
@@ -38,7 +42,7 @@ beforeEach(async () => {
 
 type Token = { token: string };
 
-const going = (displayName?: string) => goingMember(api, event, { displayName });
+const going = (displayName?: string, e: EventRecord = event) => goingMember(api, e, { displayName });
 const start = (from: Token, attendeeId: string, body = "Hi! Keen for the show?") =>
   api.call(startConversation, { token: from.token, body: { attendeeId, body } });
 const send = (from: Token, conversationId: string, body = "Hello") =>
@@ -51,6 +55,8 @@ const block = (m: Token, body: unknown) => api.call(createBlock, { token: m.toke
 const unblock = (m: Token, blockId: string) =>
   api.call(deleteBlock, { token: m.token, params: { blockId }, method: "DELETE" });
 const blocks = (m: Token) => api.call(listBlocks, { token: m.token });
+const decline = (m: Token, conversationId: string) =>
+  api.call(declineConversation, { token: m.token, params: { conversationId }, method: "POST" });
 const report = (m: Token, body: unknown) => api.call(createReport, { token: m.token, body });
 const attendeeNames = async (m: Token) =>
   (await api.call(listGoingAttendees, { token: m.token, params: { eventId: event.eventId } })).body.items.map(
@@ -118,10 +124,15 @@ describe("blocking", () => {
       expect(again.body).toEqual(unknown.body);
     }
 
-    // Idempotent.
-    const repeat = await block(b, { conversationId: id });
-    expect(repeat.status).toBe(200);
-    expect(repeat.body.blockId).toBe(res.body.blockId);
+    // The conversation is now hidden from both, so blocking by it again is the
+    // same 404 as an unknown conversation, for either member: it doesn't say
+    // who blocked whom. Nothing changes.
+    const unknownConversation = await block(b, { conversationId: crypto.randomUUID() });
+    for (const m of [a, b]) {
+      const repeat = await block(m, { conversationId: id });
+      expect(repeat.status).toBe(404);
+      expect(repeat.body).toEqual(unknownConversation.body);
+    }
     expect(await blockRows()).toHaveLength(1);
 
     const mine = await blocks(b);
@@ -157,12 +168,122 @@ describe("blocking", () => {
     expect((await start(c, a.attendeeId)).status).toBe(201);
   });
 
-  it("works on a request in any state, including one the blocker declined", async () => {
-    const a = await going();
+  it("works on a request the blocker declined; repeating it returns the same block (201, idempotent)", async () => {
+    const a = await going("Ada");
     const b = await going();
     const id = await conversation(a, b, false);
-    await api.db.query(`update public.conversations set status = 'declined'`);
+    expect((await decline(b, id)).status).toBe(204);
+    const first = await block(b, { conversationId: id });
+    expect(first.status).toBe(201);
+    await api.db.query(`update public.profiles set display_name = 'Renamed' where user_id = $1`, [a.userId]);
+    const repeat = await block(b, { conversationId: id });
+    expect(repeat.status).toBe(201);
+    expect(repeat.body).toEqual(first.body);
+    expect(repeat.body.displayName).toBe("Ada");
+    expect(await blockRows()).toHaveLength(1);
+    // Even if A had blocked B first: the same 201, so B learns nothing from it.
+    await unblock(b, first.body.blockId);
+    await api.db.query(`insert into public.user_blocks (blocker_id, blocked_id) values ($1, $2)`, [a.userId, b.userId]);
     expect((await block(b, { conversationId: id })).status).toBe(201);
+    // The sender still sees their declined request (declining is silent), but
+    // with a block either way it's hidden from them: 404.
+    expect((await block(a, { conversationId: id })).status).toBe(404);
+  });
+
+  it("only what the caller can currently see: hidden conversations and unlistable attendees are 404", async () => {
+    const a = await going();
+    const b = await going();
+    const c = await going();
+    const ab = await conversation(a, b);
+    const unknown = await block(a, { attendeeId: crypto.randomUUID() });
+    const expectHidden = async (m: Token, body: unknown) => {
+      const res = await block(m, body);
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual(unknown.body);
+    };
+
+    // The other member of a conversation is suspended: it's hidden, so 404.
+    await suspend(api, b);
+    await expectHidden(a, { conversationId: ab });
+    // A suspended attendee isn't on anyone's list.
+    await expectHidden(c, { attendeeId: b.attendeeId });
+    // A suspended caller can't view lists.
+    await expectHidden(b, { attendeeId: c.attendeeId });
+    await api.db.query(`delete from private.social_suspensions`);
+
+    // No profile: can't view lists.
+    const noProfile = await member(api, { profile: false });
+    await expectHidden(noProfile, { attendeeId: c.attendeeId });
+
+    // Who's Going switched off, then the event over: nothing is listed.
+    await api.db.query(`update public.events set whos_going_enabled = false`);
+    await expectHidden(a, { attendeeId: c.attendeeId });
+    await api.db.query(`update public.events set whos_going_enabled = true, starts_at = now() - interval '3 hours', ends_at = now() - interval '1 minute'`);
+    await expectHidden(a, { attendeeId: c.attendeeId });
+    expect(await blockRows()).toEqual([]);
+    // The conversation still works (accepted conversations outlive the event).
+    expect((await block(a, { conversationId: ab })).status).toBe(201);
+  });
+
+  it("can't tell whether two attendeeIds are the same person (no 'already blocked' answer)", async () => {
+    // A blocks B on the first event, having kept B's attendeeId from a second
+    // event's list. Blocking by that id is the same 404 as an unknown id, not
+    // a distinct "already blocked" answer; a different member's id is a plain 201.
+    const second = await publishedEvent(api, organiser, admin, { title: "Second" });
+    const a = await going("Ada");
+    const b = await going("Grace");
+    await optIn(api, a, second);
+    const bOnSecond = await optIn(api, b, second);
+    const c = await going("Hedy", second);
+    expect((await block(a, { attendeeId: b.attendeeId })).status).toBe(201);
+
+    const unknown = await block(a, { attendeeId: crypto.randomUUID() });
+    const sameb = await block(a, { attendeeId: bOnSecond });
+    expect(sameb.status).toBe(404);
+    expect(sameb.body).toEqual(unknown.body);
+    // The same id again: also 404 (B isn't on A's list any more).
+    expect((await block(a, { attendeeId: b.attendeeId })).body).toEqual(unknown.body);
+    // Nor whether someone blocked you: B blocked by A tries A's id.
+    expect((await block(b, { attendeeId: a.attendeeId })).body).toEqual(unknown.body);
+
+    const fresh = await block(a, { attendeeId: c.attendeeId });
+    expect(fresh.status).toBe(201);
+    expect(Object.keys(fresh.body).sort()).toEqual(["blockId", "createdAt", "displayName"]);
+    expect(await blockRows()).toHaveLength(2);
+  });
+
+  it("the blocks list shows the name as it was when blocked, whatever the member does after", async () => {
+    const a = await going();
+    const b = await going("Grace");
+    const res = await block(a, { attendeeId: b.attendeeId });
+    expect(res.body.displayName).toBe("Grace");
+    const shown = async () => (await blocks(a)).body.items.map((i: { displayName?: string }) => i.displayName);
+
+    await api.db.query(`update public.profiles set display_name = 'Renamed' where user_id = $1`, [b.userId]);
+    expect(await shown()).toEqual(["Grace"]);
+    await api.call(deleteMyProfile, { token: b.token, method: "DELETE" });
+    expect(await shown()).toEqual(["Grace"]);
+    await api.db.query(
+      `insert into public.profiles (user_id, display_name, adult_confirmed_at) values ($1, 'Someone else', now())`,
+      [b.userId],
+    );
+    expect(await shown()).toEqual(["Grace"]);
+    expect((await blocks(a)).body.items[0]).toEqual(res.body);
+  });
+
+  it(`is rate-limited to ${BLOCK_RATE_LIMIT.hits} per ${BLOCK_RATE_LIMIT.window}; refused attempts don't count`, async () => {
+    const a = await going();
+    for (let i = 0; i < 3; i++) expect((await block(a, { attendeeId: crypto.randomUUID() })).status).toBe(404);
+    expect((await block(a, { attendeeId: a.attendeeId })).status).toBe(400);
+    const others = [];
+    for (let i = 0; i <= BLOCK_RATE_LIMIT.hits; i++) others.push(await going());
+    for (const o of others.slice(0, BLOCK_RATE_LIMIT.hits)) {
+      expect((await block(a, { attendeeId: o.attendeeId })).status).toBe(201);
+    }
+    const limited = await block(a, { attendeeId: others[BLOCK_RATE_LIMIT.hits].attendeeId });
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("cache-control")).toBe("private, no-store");
+    expect(await blockRows()).toHaveLength(BLOCK_RATE_LIMIT.hits);
   });
 
   it("validates its target: exactly one id, not yourself, and only your own conversations", async () => {
@@ -198,8 +319,8 @@ describe("blocking", () => {
     await block(a, { attendeeId: b.attendeeId });
     await api.call(deleteMyProfile, { token: b.token, method: "DELETE" });
     expect(await blockRows()).toHaveLength(1);
-    // The blocked member's name is gone with their profile.
-    expect((await blocks(a)).body.items[0].displayName).toBeUndefined();
+    // The blocker keeps the name they blocked (a snapshot, not the live profile).
+    expect((await blocks(a)).body.items[0].displayName).toBe(b.displayName);
 
     // They come back with a new profile and opt in again: still blocked.
     await api.db.query(
@@ -325,6 +446,17 @@ describe("reporting", () => {
     expect(await reportRows()).toEqual([]);
   });
 
+  it("refuses huge details fast (400), before any cleaning", async () => {
+    const a = await going();
+    const b = await going();
+    const started = performance.now();
+    const res = await report(b, { attendeeId: a.attendeeId, reason: "spam", details: `${" ".repeat(200_000)}x` });
+    expect(performance.now() - started).toBeLessThan(2000);
+    expect(res.status).toBe(400);
+    expect(res.body.fieldErrors.details).toBe("Must be 1000 characters or fewer.");
+    expect(await reportRows()).toEqual([]);
+  });
+
   it(`is rate-limited to ${REPORT_RATE_LIMIT.hits} per ${REPORT_RATE_LIMIT.window}`, async () => {
     const a = await going();
     const b = await going();
@@ -361,6 +493,91 @@ describe("reporting", () => {
 
     const [queued] = (await api.call(adminListReports, { token: admin.token })).body.items;
     expect(queued).toMatchObject({ reportedAccountExists: false, messageBody: "Evidence", reportedDisplayName: "Ada" });
+  });
+});
+
+// Two sessions at once, which only a real server has (PGlite is one
+// connection). Run with TEST_DATABASE_URL (see CLAUDE.md, "Quality gates").
+describe.skipIf(!process.env.TEST_DATABASE_URL)("reports racing a deletion (real Postgres only)", () => {
+  const fileReport = (sql: postgres.Sql, reporter: GoingMember, target: { conversationId?: string; attendeeId?: string; messageId?: string }) =>
+    sql.unsafe(`select result from private.file_report($1, $2, $3, $4::bigint, 'harassment', null, 20, '1 day')`, [
+      reporter.userId,
+      target.conversationId ?? null,
+      target.attendeeId ?? null,
+      target.messageId ?? null,
+    ]);
+
+  /** Runs `deletion` in its own transaction, starts the report while it's uncommitted, waits until the report is blocked, commits. */
+  async function reportDuringDeletion(deletion: string, params: unknown[], start: (sql: postgres.Sql) => ReturnType<typeof fileReport>) {
+    const deleter = postgres(serverUrl as string, { max: 1, onnotice: () => {} });
+    const reporter = postgres(serverUrl as string, { max: 1, onnotice: () => {} });
+    try {
+      await deleter.unsafe("begin");
+      await deleter.unsafe(deletion, params as postgres.ParameterOrJSON<never>[]);
+      const [{ pid }] = await reporter.unsafe("select pg_backend_pid() as pid");
+      const pending = start(reporter).execute();
+      for (let i = 0; ; i++) {
+        const [row] = await api.db.query<{ wait_event_type: string | null }>(
+          `select wait_event_type from pg_stat_activity where pid = $1`,
+          [pid],
+        );
+        if (row?.wait_event_type === "Lock") break;
+        if (i > 200) throw new Error("the report never waited for the deletion");
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      await deleter.unsafe("commit");
+      return (await pending)[0].result as string;
+    } finally {
+      await deleter.end();
+      await reporter.end();
+    }
+  }
+
+  it("the reported member deleting their profile mid-report: a clean not_found (404), not a foreign-key 500", async () => {
+    const a = await going();
+    const b = await going();
+    const id = await conversation(a, b);
+    const [fromA] = await messageIds(id);
+    const result = await reportDuringDeletion(`delete from public.profiles where user_id = $1`, [a.userId], (sql) =>
+      fileReport(sql, b, { conversationId: id, messageId: fromA }),
+    );
+    expect(result).toBe("not_found");
+    expect(await reportRows()).toEqual([]);
+    expect(await api.db.query(`select 1 from private.rate_limits where user_id = $1 and bucket = 'user_reports'`, [b.userId])).toEqual([]);
+  });
+
+  it("the reported member deleting their account mid-report (by attendeeId): not_found, no hit kept", async () => {
+    const a = await going();
+    const b = await going();
+    const result = await reportDuringDeletion(`delete from auth.users where id = $1`, [a.userId], (sql) =>
+      fileReport(sql, b, { attendeeId: a.attendeeId }),
+    );
+    expect(result).toBe("not_found");
+    expect(await reportRows()).toEqual([]);
+    expect(await api.db.query(`select 1 from private.rate_limits where user_id = $1 and bucket = 'user_reports'`, [b.userId])).toEqual([]);
+  });
+
+  it("a report in progress holds off the deletion; the evidence is kept once it lands", async () => {
+    const a = await going();
+    const b = await going();
+    const id = await conversation(a, b);
+    const [fromA] = await messageIds(id);
+    const reporter = postgres(serverUrl as string, { max: 1, onnotice: () => {} });
+    const deleter = postgres(serverUrl as string, { max: 1, onnotice: () => {} });
+    try {
+      await reporter.unsafe("begin");
+      expect((await fileReport(reporter, b, { conversationId: id, messageId: fromA }))[0].result).toBe("filed");
+      const deleting = deleter.unsafe(`delete from public.profiles where user_id = $1`, [a.userId]).execute();
+      const early = await Promise.race([deleting.then(() => "deleted"), new Promise((r) => setTimeout(() => r("waiting"), 300))]);
+      expect(early).toBe("waiting");
+      await reporter.unsafe("commit");
+      await deleting;
+    } finally {
+      await reporter.end();
+      await deleter.end();
+    }
+    const [row] = await reportRows();
+    expect(row).toMatchObject({ conversation_id: null, message_id: null, message_body: "Hi! Keen for the show?" });
   });
 });
 
@@ -477,6 +694,17 @@ describe("admin report queue", () => {
     expect((await resolve(admin.token, crypto.randomUUID(), { action: "dismiss" })).status).toBe(404);
     expect((await resolve(admin.token, "nope", { action: "dismiss" })).status).toBe(404);
     expect((await listReports(admin.token)).body.items).toHaveLength(1);
+  });
+
+  it("refuses a huge note fast (400), before any cleaning", async () => {
+    const a = await going();
+    const b = await going();
+    const id = await filed(b, a);
+    const started = performance.now();
+    const res = await resolve(admin.token, id, { action: "dismiss", note: `${" ".repeat(200_000)}x` });
+    expect(performance.now() - started).toBeLessThan(2000);
+    expect(res.status).toBe(400);
+    expect(res.body.fieldErrors.note).toBe("Must be 1000 characters or fewer.");
   });
 
   it("private.resolve_report refuses an unknown action", async () => {
