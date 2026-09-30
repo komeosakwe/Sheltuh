@@ -12,7 +12,6 @@ import type { SheltuhEvent } from "./types";
 const PHOTOS_BY_CATEGORY: Partial<Record<SheltuhEvent["category"], readonly string[]>> = {
   "live-music": [
     "/events/jazz-drummer.webp",
-    "/events/horn-band.jpg",
     "/events/record-shop-dj.jpg",
     "/events/dj-crate-digging.jpg",
   ],
@@ -29,7 +28,7 @@ function pick(slug: string): number {
 
 /** Explicit choices first. */
 const PHOTO_BY_SLUG: Record<string, string> = {
-  "neon-static": "/events/horn-band.jpg",
+  "neon-static": "/events/record-shop-dj.jpg",
   "fitzroy-poetry-and-noise": "/events/jazz-drummer.webp",
   "southbank-sketch-salon": "/events/gallery-opening.jpg",
   "laneway-projections-after-dark": "/events/vintage-market-stall.jpg",
