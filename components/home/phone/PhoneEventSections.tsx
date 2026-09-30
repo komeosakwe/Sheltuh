@@ -63,7 +63,7 @@ export default function PhoneEventSections({ guide }: { guide?: ReactNode }) {
         </div>
       )}
 
-      <section aria-labelledby="home-next" className="mt-6">
+      <section aria-labelledby="home-next" className="reveal mt-6">
         <h2 id="home-next" className="sr-only">
           Up next
         </h2>
@@ -85,7 +85,7 @@ export default function PhoneEventSections({ guide }: { guide?: ReactNode }) {
       </section>
 
       {(loading || (sections && sections.comingUp.length > 0)) && (
-        <section aria-labelledby="home-coming" className="mt-8">
+        <section aria-labelledby="home-coming" className="reveal mt-8">
           <SectionHead
             id="home-coming"
             title="Coming up in Melbourne"
@@ -112,7 +112,7 @@ export default function PhoneEventSections({ guide }: { guide?: ReactNode }) {
       )}
 
       {sections && sections.month.items.length > 0 && (
-        <section aria-labelledby="home-month" className="mt-8">
+        <section aria-labelledby="home-month" className="reveal mt-8">
           <SectionHead id="home-month" title={sections.month.title} seeAll={{ href: "/events", srLabel: "events" }} />
           {phone && (
             <PhoneRail labelledBy="home-month">
@@ -129,7 +129,7 @@ export default function PhoneEventSections({ guide }: { guide?: ReactNode }) {
       {guide}
 
       {sections && sections.lowCost.length > 0 && (
-        <section aria-labelledby="home-free" className="mt-8">
+        <section aria-labelledby="home-free" className="reveal mt-8">
           <SectionHead
             id="home-free"
             title="Free & low-cost"

@@ -15,13 +15,13 @@ export default function PhoneHome({ className = "" }: { className?: string }) {
   return (
     <div className={`mx-auto px-5 pt-6 pb-12 ${className}`.trim()}>
       <PhoneHero />
-      <div className="mt-6">
+      <div className="rise mt-6 [--d:500ms]">
         <SearchBar size="lg" submit label="Search events" />
       </div>
-      <CategoryRow className="mt-6" />
-      <PhoneEventSections guide={<GuideCard className="mt-8" />} />
-      <CommunitySection className="mt-8" />
-      <CreatorsCard className="mt-8" />
+      <CategoryRow className="rise mt-6 [--d:600ms]" />
+      <PhoneEventSections guide={<GuideCard className="reveal mt-8" />} />
+      <CommunitySection className="reveal mt-8" />
+      <CreatorsCard className="reveal mt-8" />
     </div>
   );
 }

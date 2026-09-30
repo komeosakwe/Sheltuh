@@ -22,9 +22,13 @@ describe("PhoneHero", () => {
     expect(screen.getByRole("link", { name: "Join the community" })).toHaveAttribute("href", "#find-your-people");
   });
 
-  it("doesn't animate the headline (it's the largest paint on the page)", () => {
+  // Reversed from the spec's "no entrance animation on the LCP element" at the owner's request:
+  // the phone page must animate in like the desktop one (.rise is reduced-motion safe).
+  it("rises in on load, staggered, like the desktop hero", () => {
     render(<PhoneHero />);
-    expect(screen.getByRole("heading", { level: 1 }).className).not.toMatch(/\b(rise|reveal)\b/);
+    expect(screen.getByRole("heading", { level: 1 }).className).toMatch(/\brise\b/);
+    expect(screen.getByText("Melbourne · Naarm").className).toMatch(/\brise\b/);
+    expect(screen.getByRole("link", { name: "Explore events" }).parentElement?.className).toMatch(/\brise\b/);
   });
 });
 
