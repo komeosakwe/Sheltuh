@@ -1,16 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
 import EventArt from "@/components/EventArt";
 import { Burst, Marquee, RoundBadge } from "@/components/ui/Sticker";
 
-type Intent = "discover" | "connect" | "make";
-
-const INTENTS: { id: Intent; label: string; blurb: string }[] = [
-  { id: "discover", label: "I want to discover", blurb: "Something new tonight." },
-  { id: "connect", label: "I want to connect", blurb: "With creative people." },
-  { id: "make", label: "I want to make", blurb: "Or share an event." },
-];
+/** Each intent goes somewhere real: the feed below, the full list, or the organiser sign-up. */
+const INTENTS = [
+  { label: "I want to discover", href: "#feed" },
+  { label: "I want to connect", href: "/events" },
+  { label: "I want to make", href: "/organisers/apply" },
+] as const;
 
 // Decorative hero artwork, drawn with the same local poster renderer as events.
 const HERO_POSTERS = [
@@ -20,8 +19,6 @@ const HERO_POSTERS = [
 ] as const;
 
 export default function IntentHero() {
-  const [intent, setIntent] = useState<Intent>("discover");
-
   return (
     <>
       <section className="mx-auto grid max-w-6xl grid-cols-1 gap-4 px-5 pb-8 pt-6 sm:gap-10 sm:px-8 sm:pb-24 sm:pt-14 lg:grid-cols-12">
@@ -41,22 +38,17 @@ export default function IntentHero() {
               aria-label="What are you here for?"
               className="no-scrollbar -mx-5 -my-1.5 flex flex-nowrap gap-2 overflow-x-auto px-5 py-1.5 sm:mx-0 sm:my-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:py-0"
             >
-              {INTENTS.map((option) => {
-                const selected = intent === option.id;
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    aria-pressed={selected}
-                    onClick={() => setIntent(option.id)}
-                    className={`h-11 shrink-0 rounded-full border border-foreground px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors sm:h-auto ${
-                      selected ? "bg-foreground text-background" : "hover:bg-foreground/10"
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
+              {INTENTS.map((option, index) => (
+                <Link
+                  key={option.label}
+                  href={option.href}
+                  className={`inline-flex h-11 shrink-0 items-center rounded-full border border-foreground px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition-colors sm:h-auto ${
+                    index === 0 ? "bg-foreground text-background" : "hover:bg-foreground hover:text-background"
+                  }`}
+                >
+                  {option.label}
+                </Link>
+              ))}
             </div>
           </div>
         </div>
