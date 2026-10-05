@@ -298,7 +298,6 @@ const SEEDS: Seed[] = [
 export const generatedSampleEvents: SheltuhEvent[] = SEEDS.map((seed) => ({
   id: `evt-${seed.slug}`,
   slug: seed.slug,
-  imageUrl: `/events/${seed.slug}.jpg`,
   title: seed.title,
   description: seed.description,
   category: seed.category,

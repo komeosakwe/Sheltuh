@@ -16,7 +16,12 @@ Stripe (payments) and Vercel (hosting).
 2. **Create the schema.** Open SQL Editor → New query, and run each file in
    `supabase/migrations/` in filename order, one query per file:
    `20260925000000_init.sql`, `20260926000000_refunds_and_emails.sql`,
-   `20260927000000_review_fixes.sql`, then `20260929000000_event_images.sql`.
+   `20260927000000_review_fixes.sql`, `20260929000000_event_images.sql`,
+   `20260930000000_event_images_lockdown.sql`,
+   `20261001000000_whos_going.sql`,
+   `20261002000000_whos_going_hardening.sql`,
+   `20261003000000_messages.sql`, then
+   `20261004000000_messaging_hardening.sql`.
    (Or use the CLI: `npx supabase link --project-ref <ref>` then
    `npx supabase db push`.) Any later migration file goes in the same way.
 3. **Collect the keys** (Project Settings → API Keys):
@@ -73,6 +78,134 @@ npm run seed-dev-data   # needs DATABASE_URL in .env.local
 
 This loads the eight fictional sample events as published events. Only run it
 against a dev project, never production.
+
+### Who's Going moderation
+
+There's no admin screen for this yet. Run these in the Supabase SQL editor.
+
+Suspend a member from Who's Going. They disappear from every count and list
+straight away, and can't opt in, see names, or change their profile. The
+suspension is kept on their account, not their profile, so deleting and
+recreating the profile doesn't lift it (only deleting the whole account
+removes it). Find them by the email on their account:
+
+```sql
+insert into private.social_suspensions (user_id, reason)
+select id, 'short note for your own records' from auth.users where email = 'person@example.com'
+on conflict (user_id) do nothing;
+```
+
+Lift the suspension. Their earlier opt-ins reappear:
+
+```sql
+delete from private.social_suspensions
+where user_id = (select id from auth.users where email = 'person@example.com');
+```
+
+List current suspensions:
+
+```sql
+select u.email, s.suspended_at, s.reason
+from private.social_suspensions s join auth.users u on u.id = s.user_id
+order by s.suspended_at desc;
+```
+
+(`profiles.social_suspended_at` is no longer used: setting it does nothing.)
+
+Switch Who's Going off for one event. The count becomes 0, the list empties
+and nobody can opt in. Opt-ins are kept, so switching it back on restores
+them:
+
+```sql
+update events set whos_going_enabled = false where slug = 'the-event-slug';
+```
+
+A suspension also stops them sending messages, and hides their conversations
+from everyone else. Lifting it brings those conversations back.
+
+To remove one person's opt-in from one event outright:
+
+```sql
+delete from event_attendees
+where event_id = (select id from events where slug = 'the-event-slug')
+  and user_id = (select id from auth.users where email = 'person@example.com');
+```
+
+### Message reports and moderation
+
+Members can report a conversation, a message or a name on a Who's Going list.
+Reports are stored in `private.user_reports` with copies of the messages, so
+they survive the messages being deleted. Work the queue through the admin
+API (`GET /api/admin/reports`, `POST /api/admin/reports/{id}/resolve` with
+`{"action": "dismiss"}` or `{"action": "suspend"}`), or in the SQL editor:
+
+Open reports, oldest first:
+
+```sql
+select r.id, r.created_at, r.reason, r.details, r.reported_display_name, r.message_body, r.context,
+       u.email as reported_email
+from private.user_reports r left join auth.users u on u.id = r.reported_user_id
+where r.status = 'open'
+order by r.created_at;
+```
+
+Suspend the reported member and close the report in one step (the same
+function the admin API uses; replace both ids):
+
+```sql
+select private.resolve_report('<report id>', '<your auth user id>', 'suspend', 'short note');
+```
+
+Or dismiss it: the same with `'dismiss'`. Either returns `not_open` if
+someone already resolved it.
+
+Everything one member has reported, or been reported for:
+
+```sql
+select r.created_at, r.reason, r.status, r.message_body
+from private.user_reports r
+where r.reported_user_id = (select id from auth.users where email = 'person@example.com')
+order by r.created_at desc;
+```
+
+Remove a block (members can do this themselves; this is for support):
+
+```sql
+delete from user_blocks
+where blocker_id = (select id from auth.users where email = 'blocker@example.com')
+  and blocked_id = (select id from auth.users where email = 'blocked@example.com');
+```
+
+Messages are private between the two members. Only read them in response to
+a report, through the copies in the report.
+
+### Who's Going and messages retention (daily job)
+
+Opt-ins are deleted 30 days after their event ends, conversations (with
+their messages) 12 months after their last message, and resolved reports 2
+years after they were resolved, by `private.purge_social_data()`, which also
+clears stale rate-limit counters. Open reports are never deleted. Nothing
+runs it automatically until you schedule it once:
+
+1. Integrations → **Cron** → enable it (this installs the `pg_cron`
+   extension).
+2. Create a job: name `purge-social-data`, schedule `17 3 * * *` (daily at
+   03:17 UTC), type "SQL snippet", with the command
+   `select private.purge_social_data();`
+
+Or in the SQL editor, once Cron is enabled:
+
+```sql
+select cron.schedule('purge-social-data', '17 3 * * *', $$select private.purge_social_data()$$);
+```
+
+Check it's running under Integrations → Cron → the job's history (or
+`select * from cron.job_run_details order by start_time desc limit 5;`). It's
+safe to run by hand at any time; it returns how many rows it deleted
+(`event_attendees_deleted`, `rate_limits_deleted`, `conversations_deleted`,
+`user_reports_deleted`). If you scheduled it before
+`20261003000000_messages.sql`, the existing job keeps working unchanged: the
+function keeps its name and still takes no arguments.
 
 ## 2. Stripe (Connect)
 

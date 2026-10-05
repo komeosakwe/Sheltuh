@@ -4,8 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { safeNextPath, withNext } from "@/lib/safe-next-path";
 
-export default function LoginForm() {
+/**
+ * `next` is the raw `?next=` value: where to go after signing in. Only a
+ * same-site relative path is honoured; anything else goes to the dashboard.
+ */
+export default function LoginForm({ next }: { next?: string } = {}) {
   const auth = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -27,7 +32,7 @@ export default function LoginForm() {
     setLoading(true);
     try {
       await auth.signIn(email, password);
-      router.push("/dashboard");
+      router.push(safeNextPath(next) ?? "/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't sign in.");
     } finally {
@@ -56,7 +61,7 @@ export default function LoginForm() {
           <label htmlFor="password" className="text-sm font-medium text-foreground">
             Password
           </label>
-          <Link href="/forgot-password" className="text-xs text-accent underline underline-offset-2">
+          <Link href={withNext("/forgot-password", next)} className="text-xs text-accent underline underline-offset-2">
             Forgot password?
           </Link>
         </div>
@@ -87,7 +92,7 @@ export default function LoginForm() {
 
       <p className="text-sm text-muted">
         No account yet?{" "}
-        <Link href="/signup" className="text-accent underline underline-offset-2">
+        <Link href={withNext("/signup", next)} className="text-accent underline underline-offset-2">
           Sign up
         </Link>
       </p>

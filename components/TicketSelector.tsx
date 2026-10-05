@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { ApiError, isApiConfigured } from "@/lib/api/client";
 import { createCheckoutSession } from "@/lib/api/orders";
+import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { calculateOrderSummary, sumOrderSummaries } from "@/lib/fees";
 import { formatAud } from "@/lib/format";
 import { formatTicketBreakdown, formatTicketHeadline } from "@/lib/pricing";
@@ -10,6 +11,9 @@ import type { SheltuhEvent, TicketType } from "@/lib/types";
 
 const MAX_QUANTITY_PER_TYPE = 8;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Phone and tablet sizing comes first in each class list below; the `lg:` classes
+// put desktop back exactly as it was (the mobile spec leaves desktop unchanged).
 
 const stepperButtonClass =
   "flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-foreground text-lg font-semibold text-foreground transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-surface-border disabled:hover:text-foreground";
@@ -19,7 +23,13 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [buyerEmail, setBuyerEmail] = useState("");
+  // Signed in: the account's email is the default, since a ticket booked
+  // with it is also what lets them add themselves to Who's Going. Whatever
+  // they type replaces it. (Read optionally: this also renders without auth.)
+  const auth = useOptionalAuth();
+  const accountEmail = auth?.status === "signed-in" ? auth.email : undefined;
+  const [typedEmail, setTypedEmail] = useState<string | null>(null);
+  const buyerEmail = typedEmail ?? accountEmail ?? "";
   const [emailError, setEmailError] = useState<string | null>(null);
 
   // Only live events (which carry an organiserId) can be checked out —
@@ -69,7 +79,11 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
       const lineItems = lineSummaries
         .filter((line) => line.quantity > 0)
         .map((line) => ({ ticketTypeId: line.ticket.id, quantity: line.quantity }));
-      const result = await createCheckoutSession(event.id, lineItems, needsEmail ? buyerEmail.trim() : undefined);
+      // Free orders send the email typed (or prefilled) above. Paid orders
+      // send the account email when signed in, so Stripe prefills it and the
+      // tickets are booked with the email that Who's Going matches on.
+      const email = needsEmail ? buyerEmail.trim() : accountEmail;
+      const result = await createCheckoutSession(event.id, lineItems, email);
       window.location.href = result.url;
       // Deliberately no setLoading(false) here — the page is navigating
       // away, and re-enabling the button would just invite a double-click.
@@ -92,14 +106,17 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
           return (
             <li
               key={ticket.id}
-              className="flex flex-col gap-3 bg-surface p-4 sm:flex-row sm:items-center sm:justify-between"
+              className="flex flex-col gap-4 bg-surface p-4 sm:flex-row sm:items-center sm:justify-between lg:gap-3"
             >
               <div className="flex-1">
-                <p className="font-semibold text-foreground">{ticket.name}</p>
+                <p className="text-base font-semibold text-foreground">{ticket.name}</p>
                 {ticket.description && (
                   <p className="text-sm text-muted">{ticket.description}</p>
                 )}
-                <p className="mt-1 text-sm text-foreground">{formatTicketHeadline(ticket)}</p>
+                {/* The all-inclusive price: the loudest thing in the row on phones. */}
+                <p className="mt-1 text-base font-semibold tabular-nums text-foreground lg:text-sm lg:font-normal lg:normal-nums">
+                  {formatTicketHeadline(ticket)}
+                </p>
                 {quantity > 0 && breakdown && (
                   <p className="mt-0.5 text-xs text-muted">{breakdown}</p>
                 )}
@@ -120,7 +137,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                 </button>
                 <span
                   aria-live="polite"
-                  className="w-8 text-center text-base font-medium tabular-nums text-foreground"
+                  className="w-10 text-center text-lg font-medium tabular-nums text-foreground lg:w-8 lg:text-base"
                 >
                   {quantity}
                 </span>
@@ -150,7 +167,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
             <dt className="text-muted">Booking fees (you pay)</dt>
             <dd className="text-foreground">{formatAud(orderTotal.buyerFeeCents)}</dd>
           </div>
-          <div className="flex justify-between border-t border-surface-border pt-2 font-semibold">
+          <div className="flex justify-between border-t border-surface-border pt-2 text-base font-semibold lg:text-sm">
             <dt className="text-foreground">Total</dt>
             <dd className="text-foreground">{formatAud(orderTotal.totalCents)}</dd>
           </div>
@@ -169,10 +186,11 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                   autoComplete="email"
                   required
                   value={buyerEmail}
-                  onChange={(e) => setBuyerEmail(e.target.value)}
+                  onChange={(e) => setTypedEmail(e.target.value)}
                   aria-invalid={Boolean(emailError)}
                   aria-describedby={emailError ? "buyer-email-error" : "buyer-email-hint"}
-                  className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+                  // 16px text so iOS doesn't zoom on focus, and a 48px target.
+                  className="min-h-12 border border-foreground bg-transparent px-3 py-2 text-base text-foreground lg:min-h-0"
                 />
                 {emailError ? (
                   <p id="buyer-email-error" role="alert" className="text-sm text-danger">
@@ -180,16 +198,22 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                   </p>
                 ) : (
                   <p id="buyer-email-hint" className="text-xs text-muted">
-                    We&rsquo;ll only use this to send your tickets.
+                    We&rsquo;ll send your tickets here. Booking with your Sheltüh account email
+                    also lets you add yourself to Who&rsquo;s Going.
                   </p>
                 )}
               </div>
+            )}
+            {orderTotal.totalCents > 0 && accountEmail && (
+              <p className="mt-4 text-xs text-muted">
+                Booking as {accountEmail}, your account email, so you can add yourself to Who&rsquo;s Going.
+              </p>
             )}
             <button
               type="button"
               onClick={handleCheckout}
               disabled={!hasAnyTickets || loading}
-              className="btn btn-solid mt-4 w-full"
+              className="btn btn-solid btn-lg mt-4 w-full lg:px-6 lg:py-2.5 lg:text-xs/4.5"
             >
               {loading ? "Redirecting to checkout…" : orderTotal.totalCents === 0 ? "Get free tickets" : "Checkout"}
             </button>

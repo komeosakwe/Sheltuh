@@ -1,5 +1,14 @@
 import { apiFetch, type GetToken } from "./client";
-import type { EventRecord, EventStatus, OrganiserRecord, OrganiserStatus, Paginated } from "./types";
+import type {
+  AdminReport,
+  EventRecord,
+  EventStatus,
+  OrganiserRecord,
+  OrganiserStatus,
+  Paginated,
+  ReportStatus,
+  ResolveReportInput,
+} from "./types";
 
 export async function adminListOrganisers(status: OrganiserStatus, getToken: GetToken, cursor?: string) {
   const token = await getToken();
@@ -44,4 +53,21 @@ export async function adminRejectEvent(eventId: string, reason: string, getToken
 export async function adminUnpublishEvent(eventId: string, getToken: GetToken) {
   const token = await getToken();
   return apiFetch<EventRecord>(`/admin/events/${eventId}/unpublish`, { method: "POST", token });
+}
+
+/** Member reports, oldest first for `open`, most recently resolved first otherwise. */
+export async function adminListReports(status: ReportStatus, getToken: GetToken, cursor?: string) {
+  const token = await getToken();
+  const qs = new URLSearchParams({ status, ...(cursor ? { cursor } : {}) });
+  return apiFetch<Paginated<AdminReport>>(`/admin/reports?${qs}`, { token });
+}
+
+/** Dismisses a report, or suspends the reported member. ApiError 409 if it's already been resolved. */
+export async function adminResolveReport(reportId: string, input: ResolveReportInput, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminReport>(`/admin/reports/${encodeURIComponent(reportId)}/resolve`, {
+    method: "POST",
+    body: input,
+    token,
+  });
 }

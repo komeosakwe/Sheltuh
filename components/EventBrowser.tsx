@@ -14,6 +14,9 @@ interface EventBrowserProps {
   categories: { value: EventCategory; label: string }[];
   /** Free-text search (from /search), matched the same way the live API does. */
   query?: string;
+  /** Starting filters (from /events?category=&pricing=); "Reset filters" still clears to all. */
+  initialCategory?: EventCategory | "all";
+  initialPricing?: PricingFilter;
 }
 
 function matchesQuery(event: SheltuhEvent, query: string) {
@@ -24,9 +27,15 @@ function matchesQuery(event: SheltuhEvent, query: string) {
   );
 }
 
-export default function EventBrowser({ events, categories, query = "" }: EventBrowserProps) {
-  const [category, setCategory] = useState<EventCategory | "all">("all");
-  const [pricing, setPricing] = useState<PricingFilter>("all");
+export default function EventBrowser({
+  events,
+  categories,
+  query = "",
+  initialCategory = "all",
+  initialPricing = "all",
+}: EventBrowserProps) {
+  const [category, setCategory] = useState<EventCategory | "all">(initialCategory);
+  const [pricing, setPricing] = useState<PricingFilter>(initialPricing);
   const [onOrAfter, setOnOrAfter] = useState("");
 
   const filteredEvents = useMemo(() => {
@@ -51,7 +60,7 @@ export default function EventBrowser({ events, categories, query = "" }: EventBr
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4 sm:gap-6">
       <EventFilterBar
         categories={categories}
         category={category}

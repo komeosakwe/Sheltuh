@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
-import { Anton, Inter } from "next/font/google";
+import { Bricolage_Grotesque, Inter } from "next/font/google";
 import Footer from "@/components/Footer";
+import { UnreadProvider } from "@/components/messages/UnreadProvider";
 import Nav from "@/components/Nav";
 import { isApiConfigured } from "@/lib/api/client";
 import { AuthProvider } from "@/lib/auth/AuthContext";
 import "./globals.css";
 
-const anton = Anton({
+const display = Bricolage_Grotesque({
   variable: "--font-display",
-  weight: "400",
+  weight: "800",
   subsets: ["latin"],
   display: "swap",
 });
@@ -28,12 +29,28 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${anton.variable} ${inter.variable} h-full`}>
+    // data-scroll-behavior: Next 16 turns the CSS smooth scroll off during route
+    // changes, so page navigations still jump to the top instantly.
+    <html
+      lang="en"
+      data-scroll-behavior="smooth"
+      className={`${display.variable} ${inter.variable} h-full`}
+    >
       <body className="min-h-full flex flex-col bg-background text-foreground antialiased">
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:bg-foreground focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-background"
+        >
+          Skip to main content
+        </a>
         <AuthProvider>
-          <Nav />
-          <main className="flex-1">{children}</main>
-          <Footer />
+          <UnreadProvider>
+            <Nav />
+            <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
+              {children}
+            </main>
+            <Footer />
+          </UnreadProvider>
         </AuthProvider>
       </body>
     </html>

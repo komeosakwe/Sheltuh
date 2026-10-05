@@ -1,8 +1,11 @@
 import type { ReactNode } from "react";
 
-/** Shared class for text-like controls (inputs, selects, textareas). */
+/**
+ * Shared class for text-like controls (inputs, selects, textareas). 16px and
+ * 48px tall on phones (iOS Safari zooms the page when a field under 16px takes focus).
+ */
 export const fieldClass =
-  "w-full px-3 py-2.5 text-sm text-foreground placeholder:text-muted focus-visible:outline-offset-0";
+  "w-full min-h-12 px-3 py-2.5 text-base text-foreground placeholder:text-muted focus-visible:outline-offset-0 sm:min-h-0 sm:text-sm";
 
 /** Labelled field wrapper: small caps label above, optional hint below. */
 export function Field({

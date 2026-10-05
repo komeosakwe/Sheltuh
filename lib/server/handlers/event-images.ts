@@ -26,33 +26,72 @@ export function sniffImageType(bytes: Uint8Array): ImageType | null {
   return null;
 }
 
+const EDIT_LOCKED_MESSAGE = "This event can't be edited while it's pending review or published.";
+
+/** Reads a request body, returning null as soon as it exceeds `max` bytes. */
+async function readCapped(req: Request, max: number): Promise<Uint8Array | null> {
+  if (!req.body) return new Uint8Array(0);
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > max) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
+}
+
 /** PUT /api/events/[eventId]/image — raw image bytes; only while the event is a draft or rejected. */
 export const putEventImage: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
   const organiser = await requireApprovedOrganiser(db, caller);
   const event = await requireOwnEvent(db, organiser.organiserId, eventId);
   if (event.status !== "draft" && event.status !== "rejected") {
-    throw new HttpError(409, "This event can't be edited while it's pending review or published.");
+    throw new HttpError(409, EDIT_LOCKED_MESSAGE);
   }
 
   const tooLarge = () =>
     new HttpError(413, "That image is too large.", { image: "Use an image under 2 MB." });
   const declared = Number(req.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > MAX_EVENT_IMAGE_BYTES) throw tooLarge();
-  const bytes = new Uint8Array(await req.arrayBuffer());
-  if (bytes.length > MAX_EVENT_IMAGE_BYTES) throw tooLarge();
+  // Read as a stream and stop at the cap, so a request with no Content-Length
+  // (chunked) can't make the server buffer an arbitrarily large body first.
+  const bytes = await readCapped(req, MAX_EVENT_IMAGE_BYTES);
+  if (!bytes) throw tooLarge();
 
   const contentType = sniffImageType(bytes);
   if (!contentType) {
     throw new HttpError(400, "That file isn't a supported image.", { image: "Upload a JPEG, PNG or WebP image." });
   }
 
-  await db.query(
-    `insert into public.event_images (event_id, content_type, data) values ($1, $2, $3)
+  // Ownership and "still a draft/rejected" are re-checked inside the write
+  // itself (with the event row share-locked), not just before the body was
+  // read: otherwise a slow upload could land after the event was submitted and
+  // approved, putting an unreviewed image on a published event.
+  const written = await db.query(
+    `insert into public.event_images (event_id, content_type, data)
+     select e.id, $2::text, $3::bytea
+       from public.events e
+      where e.id = $1 and e.organiser_id = $4 and e.status in ('draft', 'rejected')
+        for share of e
      on conflict (event_id) do update set content_type = excluded.content_type,
-       data = excluded.data, updated_at = now()`,
-    [eventId, contentType, bytes],
+       data = excluded.data, updated_at = now()
+     returning event_id`,
+    [eventId, contentType, bytes, organiser.organiserId],
   );
+  if (written.length === 0) throw new HttpError(409, EDIT_LOCKED_MESSAGE);
   return ok(await requireEvent(db, eventId));
 };
 
@@ -62,15 +101,25 @@ export const deleteEventImage: Handler<{ eventId: string }> = async (req, { even
   const organiser = await requireApprovedOrganiser(db, caller);
   const event = await requireOwnEvent(db, organiser.organiserId, eventId);
   if (event.status !== "draft" && event.status !== "rejected") {
-    throw new HttpError(409, "This event can't be edited while it's pending review or published.");
+    throw new HttpError(409, EDIT_LOCKED_MESSAGE);
   }
-  await db.query(`delete from public.event_images where event_id = $1`, [eventId]);
+  const deleted = await db.query(
+    `delete from public.event_images i using public.events e
+      where i.event_id = e.id and e.id = $1 and e.organiser_id = $2 and e.status in ('draft', 'rejected')
+      returning i.event_id`,
+    [eventId, organiser.organiserId],
+  );
+  // Nothing deleted is fine (no image), unless the event was locked meanwhile.
+  if (deleted.length === 0) {
+    const current = await requireEvent(db, eventId);
+    if (current.status !== "draft" && current.status !== "rejected") throw new HttpError(409, EDIT_LOCKED_MESSAGE);
+  }
   return ok(await requireEvent(db, eventId));
 };
 
 /**
- * GET /api/events/[eventId]/image — public for published events (long-cached;
- * the URL is versioned). For anything else only the owning organiser or an
+ * GET /api/events/[eventId]/image — public for published events (cached for a
+ * day; the URL is versioned). For anything else only the owning organiser or an
  * admin may read it, via a bearer token, and it's never cached.
  */
 export const getEventImage: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
@@ -90,7 +139,15 @@ export const getEventImage: Handler<{ eventId: string }> = async (req, { eventId
 
   const published = row.status === "published";
   if (!published) {
-    const caller = await requireCaller(req, verifyAccessToken);
+    // Same 404 whether the event doesn't exist or you just aren't allowed to
+    // see it — an anonymous caller mustn't learn that an unpublished image exists.
+    let caller;
+    try {
+      caller = await requireCaller(req, verifyAccessToken);
+    } catch (err) {
+      if (err instanceof HttpError && err.statusCode === 401) throw new HttpError(404, "Image not found.");
+      throw err;
+    }
     const organiser = caller.isAdmin ? undefined : await findOrganiserByOwner(db, caller.userId);
     if (!caller.isAdmin && organiser?.organiserId !== row.organiser_id) throw new HttpError(404, "Image not found.");
   }
@@ -99,7 +156,8 @@ export const getEventImage: Handler<{ eventId: string }> = async (req, { eventId
     headers: {
       "content-type": row.content_type,
       "x-content-type-options": "nosniff",
-      "cache-control": published ? "public, max-age=31536000, immutable" : "private, no-store",
+      // Not `immutable`: a takedown (unpublish) should stop being served within a day.
+      "cache-control": published ? "public, max-age=86400" : "private, no-store",
     },
   });
 };

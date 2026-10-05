@@ -5,6 +5,13 @@ import type { ReactNode } from "react";
 import type { EventPoster } from "@/lib/types";
 
 /**
+ * Trig results differ in their last digits between the server's Math.cos/sin and
+ * the browser's, which React flags as a hydration mismatch on server-rendered
+ * pages. Rounding to 2 decimals makes both sides emit identical attributes.
+ */
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
  * Deterministic local poster art: pure CSS/SVG shapes per pattern, no remote
  * images. Purely decorative — event titles are always rendered as real text
  * elsewhere, so this can be hidden from assistive tech.
@@ -21,10 +28,10 @@ function renderPattern(poster: EventPoster) {
         return (
           <line
             key={i}
-            x1={50 + Math.cos(angle) * inner}
-            y1={50 + Math.sin(angle) * inner}
-            x2={50 + Math.cos(angle) * outer}
-            y2={50 + Math.sin(angle) * outer}
+            x1={round2(50 + Math.cos(angle) * inner)}
+            y1={round2(50 + Math.sin(angle) * inner)}
+            x2={round2(50 + Math.cos(angle) * outer)}
+            y2={round2(50 + Math.sin(angle) * outer)}
             stroke={i % 2 === 0 ? primary : secondary}
             strokeWidth={i % 2 === 0 ? 3 : 1.5}
             opacity={0.85}
@@ -150,7 +157,7 @@ function renderPattern(poster: EventPoster) {
           const cx = col * 16 + 10;
           const cy = row * 16 + 10;
           const dist = Math.hypot(cx - 50, cy - 50);
-          const r = Math.max(1.2, 7 - dist / 10);
+          const r = round2(Math.max(1.2, 7 - dist / 10));
           dots.push(
             <circle key={`${row}-${col}`} cx={cx} cy={cy} r={r} fill={col % 2 === 0 ? primary : secondary} opacity="0.85" />,
           );
@@ -170,6 +177,7 @@ export default function EventArt({
   imageUrl,
   className,
   children,
+  priority = false,
 }: {
   poster: EventPoster;
   title: string;
@@ -177,6 +185,8 @@ export default function EventArt({
   imageUrl?: string;
   className?: string;
   children?: ReactNode;
+  /** The page's largest above-the-fold image: load it eagerly at high priority instead of lazily. */
+  priority?: boolean;
 }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const showImage = Boolean(imageUrl) && failedUrl !== imageUrl;
@@ -192,7 +202,14 @@ export default function EventArt({
         <img
           src={imageUrl}
           alt=""
-          loading="lazy"
+          loading={priority ? "eager" : "lazy"}
+          fetchPriority={priority ? "high" : undefined}
+          decoding="async"
+          // On a server-rendered page the image can fail before React attaches
+          // onError; catch that here so the poster art still shows.
+          ref={(img) => {
+            if (img && img.complete && img.currentSrc && img.naturalWidth === 0) setFailedUrl(imageUrl ?? null);
+          }}
           onError={() => setFailedUrl(imageUrl ?? null)}
           className="absolute inset-0 h-full w-full object-cover"
         />

@@ -52,6 +52,26 @@ export function formatEventTime(isoLike: string): string {
   return timeFormatter.format(new Date(isoLike)).toLowerCase();
 }
 
+/**
+ * A day, Australia/Melbourne: "Sat 26 Sep", with the year when it isn't
+ * `now`'s Melbourne year ("Fri 25 Sep 2025").
+ */
+export function formatDayWithYear(isoLike: string, now: Date = new Date()): string {
+  const year = dateKeyFormatter.format(new Date(isoLike)).slice(0, 4);
+  const day = formatEventDateShort(isoLike);
+  return year === dateKeyFormatter.format(now).slice(0, 4) ? day : `${day} ${year}`;
+}
+
+/**
+ * A message's (or report's) time, Australia/Melbourne: "8:05 pm" on the same
+ * Melbourne day as `now`, otherwise "Fri 25 Sep, 8:05 pm", plus the year when
+ * it isn't this year ("Fri 25 Sep 2025, 8:05 pm").
+ */
+export function formatMessageTime(isoLike: string, now: Date = new Date()): string {
+  const sameDay = dateKeyFormatter.format(new Date(isoLike)) === dateKeyFormatter.format(now);
+  return sameDay ? formatEventTime(isoLike) : `${formatDayWithYear(isoLike, now)}, ${formatEventTime(isoLike)}`;
+}
+
 const dateTimeInputFormatter = new Intl.DateTimeFormat("en-CA", {
   timeZone: MELBOURNE_TZ,
   year: "numeric",
@@ -98,4 +118,30 @@ export function formatEventDateTimeRange(isoLike: string, endIsoLike?: string): 
     return `${startLabel} – ${formatEventTime(endIsoLike)}`;
   }
   return `${startLabel} – ${formatEventDateShort(endIsoLike)}, ${formatEventTime(endIsoLike)}`;
+}
+
+const badgeMonthFormatter = new Intl.DateTimeFormat("en-AU", {
+  timeZone: MELBOURNE_TZ,
+  month: "short",
+});
+
+/**
+ * The phone home's date badge, in Melbourne local time: `{ range: "3", month: "OCT" }`
+ * for one day (an end on the same local date counts as one day),
+ * `{ range: "19–25", month: "OCT" }` for a span within a month, and
+ * `{ range: "30 OCT–2", month: "NOV" }` for a span across months.
+ */
+export function formatDateBadge(isoLike: string, endIsoLike?: string): { range: string; month: string } {
+  const start = new Date(isoLike);
+  const startKey = dateKeyFormatter.format(start);
+  const startDay = String(Number(startKey.slice(8, 10)));
+  const startMonth = badgeMonthFormatter.format(start).toUpperCase();
+  if (!endIsoLike) return { range: startDay, month: startMonth };
+
+  const end = new Date(endIsoLike);
+  const endKey = dateKeyFormatter.format(end);
+  if (endKey <= startKey) return { range: startDay, month: startMonth };
+  const endDay = String(Number(endKey.slice(8, 10)));
+  if (endKey.slice(0, 7) === startKey.slice(0, 7)) return { range: `${startDay}–${endDay}`, month: startMonth };
+  return { range: `${startDay} ${startMonth}–${endDay}`, month: badgeMonthFormatter.format(end).toUpperCase() };
 }

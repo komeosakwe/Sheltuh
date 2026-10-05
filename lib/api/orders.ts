@@ -9,7 +9,8 @@ export interface CheckoutLineItemInput {
 /** Public — guest checkout, no account needed. Returns the URL to redirect the browser to. */
 /**
  * `buyerEmail` is required when the order is free (it's the only way the
- * tickets reach the buyer); for paid orders Stripe collects it instead.
+ * tickets reach the buyer). For paid orders it's optional: Stripe collects
+ * the email, prefilled with this one when it's given.
  */
 export async function createCheckoutSession(eventId: string, lineItems: CheckoutLineItemInput[], buyerEmail?: string) {
   return apiFetch<{ url: string }>(`/events/${eventId}/checkout`, {

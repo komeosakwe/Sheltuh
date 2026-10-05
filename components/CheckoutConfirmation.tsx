@@ -1,6 +1,7 @@
 "use client";
 
 import TicketStub from "@/components/tickets/TicketStub";
+import { ButtonLink } from "@/components/ui/Button";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -136,6 +137,7 @@ export default function CheckoutConfirmation() {
   }
 
   const { order } = state;
+  const eventPath = order.eventSlug ? `/events/${encodeURIComponent(order.eventSlug)}` : null;
   return (
     <div className="flex flex-col gap-6 py-10">
       <div className="flex flex-col items-center gap-2 text-center">
@@ -171,9 +173,26 @@ export default function CheckoutConfirmation() {
         </dl>
       </div>
 
-      <Link href="/" className="self-center text-accent underline underline-offset-2">
-        Back to Sheltüh
-      </Link>
+      {eventPath ? (
+        <div className="flex flex-col items-center gap-3 text-center">
+          <p className="text-sm text-muted">Want people to know you&rsquo;re going?</p>
+          <ButtonLink variant="outline" size="lg" href={`${eventPath}#whos-going`} className="w-full sm:w-auto">
+            Add yourself to Who&rsquo;s Going
+          </ButtonLink>
+          <p className="flex flex-wrap justify-center gap-x-6 text-sm">
+            <Link href={eventPath} className="inline-flex min-h-11 items-center text-accent underline underline-offset-2">
+              Back to the event
+            </Link>
+            <Link href="/" className="inline-flex min-h-11 items-center text-accent underline underline-offset-2">
+              Back to Sheltüh
+            </Link>
+          </p>
+        </div>
+      ) : (
+        <Link href="/" className="self-center text-accent underline underline-offset-2">
+          Back to Sheltüh
+        </Link>
+      )}
     </div>
   );
 }

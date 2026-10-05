@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  formatDayWithYear,
+  formatMessageTime,
+  formatDateBadge,
   formatEventDateKey,
   formatEventDateShort,
   formatEventDateTimeRange,
@@ -103,5 +106,54 @@ describe("toMelbourneDateTimeInputParts — ignores the runtime's own timezone",
       date: "2026-04-05",
       time: "02:00",
     });
+  });
+});
+
+describe("formatDateBadge (phone home date badge, Melbourne time)", () => {
+  it("shows a single day as its date and month", () => {
+    // 2026-10-03T00:00Z is 11:00 am on Sat 3 Oct in Melbourne (AEDT).
+    expect(formatDateBadge("2026-10-03T00:00:00.000Z")).toEqual({ range: "3", month: "OCT" });
+  });
+
+  it("counts an end on the same Melbourne date as one day", () => {
+    expect(formatDateBadge("2026-10-03T00:00:00.000Z", "2026-10-03T03:00:00.000Z")).toEqual({ range: "3", month: "OCT" });
+  });
+
+  it("uses the Melbourne date, not the UTC one", () => {
+    // 2026-10-02T14:00Z is 1:00 am on Sat 3 Oct in Melbourne, still 2 Oct in UTC.
+    expect(formatDateBadge("2026-10-02T14:00:00.000Z")).toEqual({ range: "3", month: "OCT" });
+  });
+
+  it("shows a span within a month as a day range", () => {
+    expect(formatDateBadge("2026-10-19T00:00:00.000Z", "2026-10-25T08:00:00.000Z")).toEqual({
+      range: "19–25",
+      month: "OCT",
+    });
+  });
+
+  it("names the start month when a span crosses into the next month", () => {
+    expect(formatDateBadge("2026-10-30T00:00:00.000Z", "2026-11-02T08:00:00.000Z")).toEqual({
+      range: "30 OCT–2",
+      month: "NOV",
+    });
+  });
+});
+
+describe("formatMessageTime (Melbourne time)", () => {
+  it("shows just the time on the same Melbourne day, and the date too otherwise", () => {
+    // 9:05 am AEST on Sat 26 Sep; "now" later that Melbourne day (but a different UTC date).
+    const sent = "2026-09-25T23:05:00.000Z";
+    expect(formatMessageTime(sent, new Date("2026-09-26T10:00:00.000Z"))).toBe("9:05 am");
+    expect(formatMessageTime(sent, new Date("2026-09-26T15:00:00.000Z"))).toBe(`${formatEventDateShort(sent)}, 9:05 am`);
+    expect(formatEventDateShort(sent)).toMatch(/^Sat 26 Sept?$/);
+  });
+
+  it("adds the year only when it isn't the current Melbourne year", () => {
+    const lastYear = "2025-12-31T12:30:00.000Z"; // 11:30 pm AEDT on Wed 31 Dec 2025
+    const now = new Date("2026-01-01T02:00:00.000Z"); // 1 pm AEDT on 1 Jan 2026
+    expect(formatMessageTime(lastYear, now)).toBe(`${formatEventDateShort(lastYear)} 2025, 11:30 pm`);
+    expect(formatDayWithYear(lastYear, now)).toMatch(/^Wed 31 Dec 2025$/);
+    // Same instant seen from later that Melbourne year: no year.
+    expect(formatDayWithYear(lastYear, new Date("2025-12-31T05:00:00.000Z"))).toMatch(/^Wed 31 Dec$/);
   });
 });

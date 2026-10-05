@@ -7,15 +7,19 @@ const CAROUSEL_COUNT = 24;
 /**
  * Editorial results layout: the first few events lead in a horizontal
  * carousel; anything beyond that (later pages, "load more") flows into a
- * roomy grid beneath. Every event renders exactly once.
+ * roomy grid beneath. On phones both are one plain vertical list (the carousel
+ * lays itself out as a list below sm, and the grid is one column). Every event
+ * renders exactly once.
  */
 export default function EventResults({ events }: { events: SheltuhEvent[] }) {
   const lead = events.slice(0, CAROUSEL_COUNT);
   const rest = events.slice(CAROUSEL_COUNT);
 
   return (
-    <div className="flex flex-col gap-14">
-      <Carousel label="Events" autoScroll>
+    <div className="flex flex-col gap-8 sm:gap-14">
+      {/* key: a different set of events (a filter change) starts a fresh carousel, so its
+          arrows and drift position never refer to the previous set. */}
+      <Carousel key={lead.map((event) => event.id).join(",")} label="Events" autoScroll>
         {lead.map((event) => (
           <CarouselItem key={event.id}>
             <EventTile event={event} />
@@ -23,7 +27,7 @@ export default function EventResults({ events }: { events: SheltuhEvent[] }) {
         ))}
       </Carousel>
       {rest.length > 0 && (
-        <div className="grid grid-cols-2 gap-x-5 gap-y-10 sm:gap-x-6 md:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-y-8 sm:grid-cols-2 sm:gap-x-6 sm:gap-y-10 md:grid-cols-3 lg:grid-cols-4">
           {rest.map((event) => (
             <EventTile key={event.id} event={event} />
           ))}

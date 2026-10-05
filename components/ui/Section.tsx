@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 
 /** Standard page container: generous gutters and vertical rhythm. */
 export function Page({
@@ -60,12 +60,12 @@ export function SectionHeader({
   id?: string;
 }) {
   return (
-    <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div className="mb-5 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-end sm:justify-between">
       <div className="max-w-xl">
         <h2 id={id} className="display-md">
           {title}
         </h2>
-        {intro && <p className="mt-3 text-sm leading-relaxed text-muted sm:text-base">{intro}</p>}
+        {intro && <p className="mt-2 text-sm leading-relaxed text-muted sm:mt-3 sm:text-base">{intro}</p>}
       </div>
       {action}
     </div>
@@ -77,14 +77,24 @@ export function Panel({
   children,
   className = "",
   title,
+  titleId,
 }: {
   children: ReactNode;
   className?: string;
   title?: string;
+  /** Names the section by its title, making it a labelled region landmark. */
+  titleId?: string;
 }) {
   return (
-    <section className={`border-t border-foreground pt-5 ${className}`.trim()}>
-      {title && <h2 className="display-md mb-4 !text-2xl">{title}</h2>}
+    <section
+      aria-labelledby={title && titleId ? titleId : undefined}
+      className={`border-t border-foreground pt-5 ${className}`.trim()}
+    >
+      {title && (
+        <h2 id={titleId} className="display-md mb-4 !text-2xl">
+          {title}
+        </h2>
+      )}
       {children}
     </section>
   );
@@ -95,14 +105,27 @@ export function EmptyState({
   title,
   children,
   action,
+  headingLevel,
+  titleRef,
 }: {
   title: string;
   children?: ReactNode;
   action?: ReactNode;
+  /** Make the title a heading (a page whose main state this is needs its h1). Default: a paragraph. */
+  headingLevel?: 1 | 2;
+  /** With `headingLevel`: the heading, focusable (tabIndex -1) so focus can be moved to it. */
+  titleRef?: Ref<HTMLHeadingElement>;
 }) {
+  const Title = headingLevel === 1 ? "h1" : headingLevel === 2 ? "h2" : null;
   return (
     <div className="border-t border-foreground py-12">
-      <p className="display-md">{title}</p>
+      {Title ? (
+        <Title ref={titleRef} tabIndex={titleRef ? -1 : undefined} className="display-md outline-offset-2">
+          {title}
+        </Title>
+      ) : (
+        <p className="display-md">{title}</p>
+      )}
       {children && <div className="mt-3 max-w-md text-sm text-muted">{children}</div>}
       {action && <div className="mt-6">{action}</div>}
     </div>

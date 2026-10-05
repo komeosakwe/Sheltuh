@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { calculateOrderSummary } from "../lib/fees";
 import {
   formatFeedPrice,
+  formatFeedPriceParts,
   formatTicketBreakdown,
   formatTicketHeadline,
   getMinBuyerTotalCents,
@@ -78,5 +79,55 @@ describe("feed price stays consistent with the checkout total for every sample e
       expect(getTicketBuyerTotalCents(ticket)).toBe(checkoutTotal);
       expect(getTicketBuyerTotalCents(ticket)).toBeGreaterThanOrEqual(minTotal);
     }
+  });
+});
+
+describe("formatFeedPriceParts (the event page's buy bar)", () => {
+  it("multi-price event: 'From' the cheapest all-inclusive total", () => {
+    expect(formatFeedPriceParts(findEvent("neon-static"))).toEqual({
+      amount: "From A$31.70",
+      note: "incl. booking fee",
+    });
+  });
+
+  it("single buyer-pays price: A$20 face value + A$1.30 fee, no 'From'", () => {
+    expect(formatFeedPriceParts(findEvent("fitzroy-poetry-and-noise"))).toEqual({
+      amount: "A$21.30",
+      note: "incl. booking fee",
+    });
+  });
+
+  it("single organiser-absorbs price: the face value is already the total", () => {
+    expect(formatFeedPriceParts(findEvent("analog-print-weekend"))).toEqual({
+      amount: "A$120",
+      note: "incl. booking fee",
+    });
+  });
+
+  it("free event: 'Free', with no booking fee", () => {
+    expect(formatFeedPriceParts(findEvent("brunswick-zine-fair"))).toEqual({
+      amount: "Free",
+      note: "No booking fee",
+    });
+  });
+
+  it("free and paid tickets together: 'Free', noting the paid ones carry a fee", () => {
+    const base = findEvent("neon-static");
+    const event: SheltuhEvent = {
+      ...base,
+      ticketTypes: [{ ...base.ticketTypes[0], id: "free", priceCents: 0 }, base.ticketTypes[0]],
+    };
+    expect(formatFeedPriceParts(event)).toEqual({ amount: "Free", note: "Paid tickets incl. booking fee" });
+  });
+
+  it("no ticket types: nothing to show (never 'A$Infinity')", () => {
+    expect(formatFeedPriceParts({ ...findEvent("neon-static"), ticketTypes: [] })).toBeNull();
+  });
+
+  it.each(sampleEvents)("matches the feed price for $title", (event) => {
+    const parts = formatFeedPriceParts(event);
+    expect(parts).not.toBeNull();
+    const joined = parts?.amount === "Free" ? "Free" : `${parts?.amount} ${parts?.note}`;
+    expect(joined).toBe(formatFeedPrice(event));
   });
 });

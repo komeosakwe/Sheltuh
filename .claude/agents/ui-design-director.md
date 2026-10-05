@@ -40,7 +40,7 @@ rely on memory or on this file for the current look:
   classes) and `app/layout.tsx` for the fonts.
 - `docs/design-system.md`, if it exists, for the documented visual language
   and the shared components in `components/ui/`.
-- The surfaces in scope, for example `EventCard`, `EventArt`, `EventFeed`,
+- The surfaces in scope, for example `EventTile`, `EventArt`, `EventFeed`,
   `IntentHero`, `EventDetailsView`, `Nav`, `SceneMap*`, `TicketSelector`,
   and the dashboard and admin components.
 

@@ -61,21 +61,38 @@ export class TestApi {
     };
   }
 
-  /** Creates an auth user and returns a bearer token for them. */
-  async signUp(options: { admin?: boolean; email?: string } = {}): Promise<{ token: string; userId: string }> {
+  /**
+   * Creates an auth user and returns a bearer token for them. Their email
+   * counts as verified unless `emailVerified: false`.
+   */
+  async signUp(
+    options: { admin?: boolean; email?: string; emailVerified?: boolean } = {},
+  ): Promise<{ token: string; userId: string; email: string }> {
     const userId = crypto.randomUUID();
     const email = options.email ?? `${userId.slice(0, 8)}@example.com`;
     await this.db.query(`insert into auth.users (id, email) values ($1, $2)`, [userId, email]);
     const token = `token-${userId}`;
-    this.callers.set(token, { userId, email, isAdmin: Boolean(options.admin) });
-    return { token, userId };
+    this.callers.set(token, {
+      userId,
+      email,
+      emailVerified: options.emailVerified ?? true,
+      isAdmin: Boolean(options.admin),
+    });
+    return { token, userId, email };
+  }
+
+  /** Another bearer token for an existing user, e.g. to act as them once their email is no longer verified. */
+  tokenFor(caller: Caller): string {
+    const token = `token-${crypto.randomUUID()}`;
+    this.callers.set(token, caller);
+    return token;
   }
 
   async call<P extends Record<string, string>>(
     handler: Handler<P>,
     options: { params?: P; token?: string; body?: unknown; query?: Record<string, string>; method?: string } = {},
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- tests assert on arbitrary response JSON
-  ): Promise<{ status: number; body: any }> {
+  ): Promise<{ status: number; body: any; headers: Headers }> {
     const url = new URL(`${SITE_URL}/api/test`);
     for (const [k, v] of Object.entries(options.query ?? {})) url.searchParams.set(k, v);
     const req = new Request(url, {
@@ -92,6 +109,6 @@ export class TestApi {
   async send<P extends Record<string, string>>(handler: Handler<P>, req: Request, params?: P) {
     const res = await runHandler(handler, req, (params ?? {}) as P, this.deps);
     const text = await res.text();
-    return { status: res.status, body: text ? JSON.parse(text) : undefined };
+    return { status: res.status, body: text ? JSON.parse(text) : undefined, headers: res.headers };
   }
 }

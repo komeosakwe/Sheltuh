@@ -42,6 +42,32 @@ export function Burst({ className = "" }: { className?: string }) {
   );
 }
 
+/**
+ * A loose hand-drawn loop around whatever it's laid over (the phone home's
+ * hero photo). Static: no draw-on animation. Stretches to its box, with the
+ * stroke width kept constant.
+ */
+export function Scribble({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 100 100"
+      preserveAspectRatio="none"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path
+        vectorEffect="non-scaling-stroke"
+        d="M10 12 C32 1 76 -1 95 9 C101 30 99 71 93 93 C70 101 27 100 6 91 C-1 67 1 33 9 13 C14 5 24 3 34 6"
+      />
+    </svg>
+  );
+}
+
 /** Slow horizontal ticker used as a section divider. */
 export function Marquee({ items }: { items: string[] }) {
   const row = (
