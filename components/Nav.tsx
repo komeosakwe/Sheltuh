@@ -73,8 +73,10 @@ export default function Nav() {
   return (
     // In a conversation on phones the header scrolls away, leaving the screen
     // (and what the keyboard leaves of it) to the messages and the composer.
+    // The top padding keeps it below a status bar or notch (viewport-fit=cover);
+    // it's 0 on desktop and in iOS's default status-bar style.
     <header
-      className={`${inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 bg-background lg:bg-background/95`}
+      className={`${inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 bg-background pt-[env(safe-area-inset-top)] lg:bg-background/95`}
     >
       {/* Compact bar (phones and tablets). */}
       <div className="flex h-14 items-center justify-between border-b border-surface-border px-5 sm:px-8 lg:hidden">
@@ -156,12 +158,14 @@ export default function Nav() {
       </div>
 
       {/* Phone menu. No display class on this root: it would override the
-          popover's closed `display: none` and the menu could never close. */}
+          popover's closed `display: none` and the menu could never close.
+          It's fixed to the viewport, so it clears the top inset and a
+          landscape notch itself (all 0 unless the device has them). */}
       <div
         id={MENU_ID}
         ref={menuRef}
         popover="auto"
-        className="inset-x-0 top-(--header-h) bottom-auto m-0 h-[calc(100dvh-var(--header-h))] w-full max-w-none overflow-y-auto overscroll-contain border-0 border-t border-foreground bg-background p-0 text-foreground lg:hidden"
+        className="inset-x-0 top-[calc(var(--header-h)+env(safe-area-inset-top))] bottom-auto m-0 h-[calc(100dvh-var(--header-h)-env(safe-area-inset-top))] w-full max-w-none overflow-y-auto overscroll-contain border-0 border-t border-foreground bg-background py-0 pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] text-foreground lg:hidden"
       >
         <nav
           aria-label="Primary"

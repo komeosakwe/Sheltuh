@@ -27,6 +27,20 @@ export default defineConfig({
         launchOptions: existsSync(PINNED_CHROMIUM) ? { executablePath: PINNED_CHROMIUM } : {},
       },
     },
+    {
+      // A 375px touch phone in Chromium, for the specs written for it. It is
+      // not Safari or a real device: see docs/pwa.md.
+      name: "phone-375",
+      testMatch: /pwa\.spec\.ts/,
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 375, height: 667 },
+        deviceScaleFactor: 2,
+        isMobile: true,
+        hasTouch: true,
+        launchOptions: existsSync(PINNED_CHROMIUM) ? { executablePath: PINNED_CHROMIUM } : {},
+      },
+    },
   ],
   webServer: {
     // Placeholder Supabase settings switch the app into live mode; every
