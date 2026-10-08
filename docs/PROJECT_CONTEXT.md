@@ -104,7 +104,7 @@ Go-live steps: `docs/supabase-setup.md`. Design: `docs/architecture.md`.
 3. Stripe Connect checkout with platform-fee logic — built
 4. Organiser dashboard — built
 5. Map view — built (venue coordinates still to add)
-6. "Who's Going" social indicator — not started
+6. "Who's Going" social indicator — built (opt-in per ticket holder), with member messaging, blocking and reporting
 
 ## Outstanding action items
 

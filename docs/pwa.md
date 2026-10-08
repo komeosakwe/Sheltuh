@@ -16,6 +16,11 @@ and how to switch it off. **Read the caching design before you change
 | iOS / theme metadata | `app/layout.tsx` (`metadata.appleWebApp`, `viewport`) | `theme-color` #f3f0e8, `viewport-fit=cover`, status bar `default`. |
 | Safe areas | `app/globals.css`, `components/Nav.tsx`, `components/Footer.tsx`, `components/SceneMap.tsx` (+ the buy bar, composer and menu bottom, which already had them) | Every `env(safe-area-inset-*)` is 0 on desktop, so desktop is unchanged. |
 
+| Service worker | `public/sw.js` | Hand-written, no library. |
+| Registration + kill switch | `lib/pwa/service-worker.ts`, `components/pwa/ServiceWorkerRegistration.tsx` | Production builds on HTTPS only. |
+| Offline page | `public/offline.html` | Self-contained static HTML with inline CSS, so it renders without any JS or CSS bundle. |
+| Install affordance | `components/pwa/InstallPrompt.tsx`, `lib/pwa/install.ts` | In the footer, on browsing pages only. |
+
 `viewport-fit=cover` supersedes the "don't add it in this pass" note in
 `docs/design/mobile.md` §3.0 and §5. Its concern (landscape notch gutters on
 every page) is handled once: the body pads with
@@ -23,10 +28,6 @@ every page) is handled once: the body pads with
 did before, and the viewport-fixed menu and map card pad themselves. The
 header pads with the top inset, the footer and the existing sticky bars with
 the bottom inset.
-| Service worker | `public/sw.js` | Hand-written, no library. |
-| Registration + kill switch | `lib/pwa/service-worker.ts`, `components/pwa/ServiceWorkerRegistration.tsx` | Production builds on HTTPS only. |
-| Offline page | `public/offline.html` | Self-contained static HTML with inline CSS, so it renders without any JS or CSS bundle. |
-| Install affordance | `components/pwa/InstallPrompt.tsx`, `lib/pwa/install.ts` | In the footer, on browsing pages only. |
 
 ## Caching design
 
