@@ -421,7 +421,7 @@ function SceneMapView({
           {/* Mobile map tab only: a compact, dismissible summary for the selected event, since the highlighted list row isn't visible there. */}
           {selectedEvent && mobileView === "map" && (
             <div
-              className="fixed inset-x-3 bottom-3 z-[1200] flex items-center gap-3 rounded-none border p-3 shadow-xl lg:hidden"
+              className="fixed right-[calc(0.75rem+env(safe-area-inset-right))] bottom-[calc(0.75rem+env(safe-area-inset-bottom))] left-[calc(0.75rem+env(safe-area-inset-left))] z-[1200] flex items-center gap-3 rounded-none border p-3 shadow-xl lg:hidden"
               style={{ background: "#f3f0e8", borderColor: ORANGE }}
             >
               <div className="min-w-0 flex-1">

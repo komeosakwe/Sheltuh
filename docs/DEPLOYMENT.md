@@ -10,9 +10,17 @@ yet: treat the first pass as **test mode**, and only then go live.
 - Built and reviewed: phone home redesign, photos, Who's Going, messaging
   (backend and screens), moderation queue, security hardening. Code, security
   and accessibility reviews were run and their findings fixed.
-- Local gates on the head commit: types, lint and 906 unit and API tests
-  pass. CI (production build, server tests on Postgres 16, browser tests)
-  passed on every push through `7ebb4c0`; check the run for the head commit.
+- Also built: an installable web app (PWA) with a bounded service worker and
+  a kill switch (see `docs/pwa.md`). Merged to `main`: everything through
+  PR #7 (it is live on `app.sheltuh.com.au`). The PWA is on the branch until
+  its PR is merged.
+- Local gates on the PWA commit: types, lint and 1045 unit and API tests
+  pass, plus the build and 11 browser tests. CI (production build, server
+  tests on Postgres 16, browser tests) was green on that exact commit;
+  re-check the run for whatever commit you merge.
+- The owner ran migrations 20261001 to 20261004 in the Supabase SQL editor
+  and saw "Success" for each; the first five were already present. Retention
+  cron is scheduled (job id 1).
 - **Not done, needs you:** legal sign-off, photo licences (see
   `public/events/README.md`), Supabase/Stripe/Vercel setup below.
 - **Known gaps (deliberate):** no per-person "already talking" state on the
@@ -65,6 +73,8 @@ yet: treat the first pass as **test mode**, and only then go live.
        `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
        `NEXT_PUBLIC_SITE_URL`, `DATABASE_URL` (transaction pooler, port 6543),
        `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SMTP_*`, `EMAIL_FROM`.
+       Optional: `NEXT_PUBLIC_DISABLE_SERVICE_WORKER=1` turns the offline
+       service worker off (needs a fresh build; see `docs/pwa.md`).
        **Never** add `SUPABASE_SECRET_KEY` (local script only).
 2. [ ] Pro plan once you sell tickets (Hobby is non-commercial).
 3. [ ] Domain: attach `sheltuh.com.au` (see PROJECT_CONTEXT for the Cloudflare

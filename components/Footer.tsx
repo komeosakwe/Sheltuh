@@ -1,4 +1,5 @@
 import Link from "next/link";
+import InstallPrompt from "@/components/pwa/InstallPrompt";
 import { isApiConfigured } from "@/lib/api/client";
 
 const COLUMNS: { heading: string; links: { href: string; label: string }[] }[] = [
@@ -36,7 +37,9 @@ const LEGAL_LINKS = [
 export default function Footer() {
   return (
     <footer className="bg-foreground text-background">
-      <div className="mx-auto max-w-6xl px-5 pt-12 pb-8 sm:px-8 sm:pt-24">
+      {/* The bottom padding clears the home indicator in an installed iPhone app; it's 0 elsewhere. */}
+      <div className="mx-auto max-w-6xl px-5 pt-12 pb-[calc(2rem+env(safe-area-inset-bottom))] sm:px-8 sm:pt-24">
+        <InstallPrompt />
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-12">
           <div className="flex flex-col justify-between gap-4 sm:gap-8">
             {/* 40px on phones; the display-xl scale from sm up. */}
