@@ -207,6 +207,27 @@ safe to run by hand at any time; it returns how many rows it deleted
 `20261003000000_messages.sql`, the existing job keeps working unchanged: the
 function keeps its name and still takes no arguments.
 
+### Analytics retention (daily job)
+
+Organiser page-view counters are deleted 25 months after the day they
+counted, and per-event view rate-limit counters once idle for a day, by
+`private.purge_analytics()`. Nothing about visitors is stored in the first
+place (no cookie, IP address or user id), so this only bounds how long the
+aggregate numbers are kept. Schedule it alongside the job above:
+
+```sql
+select cron.schedule('purge-analytics', '27 3 * * *', $$select private.purge_analytics()$$);
+```
+
+It's safe to run by hand at any time and returns how many rows it deleted
+(`event_view_counts_deleted`, `event_rate_limits_deleted`). Orders, and the
+tracking code recorded on them, are financial records and aren't purged.
+
+View counting starts the day `20261006000000_event_analytics.sql` is applied
+(`private.analytics_settings.views_tracked_since`); reports show earlier days
+as "not counted". Don't change that date by hand: it's what keeps a report
+from showing 0 views for days nobody counted.
+
 ## 2. Stripe (Connect)
 
 1. In the Stripe dashboard, stay in **test mode** and enable **Connect**. Use

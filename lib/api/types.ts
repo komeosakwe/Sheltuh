@@ -1,4 +1,5 @@
 import type { EventCategory, FeePolicy } from "@/lib/types";
+import type { PublicEvent } from "./public-events";
 
 export type OrganiserStatus = "pending" | "approved" | "rejected";
 
@@ -304,3 +305,240 @@ export interface ResolveReportInput {
   /** Optional, up to 1000 characters; admin-only. */
   note?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Favourites
+// ---------------------------------------------------------------------------
+
+/** Most events one account can favourite (PUT …/favourite is a 409 beyond it). */
+export const MAX_FAVOURITES = 500;
+
+/**
+ * One entry in GET /api/favourites: the feed's public event shape, plus when
+ * the caller favourited it. Only published events are listed (a favourite of
+ * an event that's since been unpublished is kept, but hidden until it's
+ * published again). Past events stay listed.
+ */
+export type FavouriteEvent = PublicEvent & {
+  /** When the caller favourited it (the list is newest favourite first). */
+  favouritedAt: string;
+};
+
+/** GET /api/favourites/ids: ids of the caller's favourited published events, newest favourite first (at most 500). */
+export interface FavouriteIds {
+  eventIds: string[];
+}
+
+/** PUT/DELETE /api/events/{eventId}/favourite. */
+export interface FavouriteState {
+  eventId: string;
+  favourited: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Organiser analytics (stages A and B)
+// ---------------------------------------------------------------------------
+
+/**
+ * Where a page view came from, as bucketed by the browser before it's sent.
+ * Nothing finer is stored (no referrer URL, no IP, no cookie, no visitor id).
+ * `tracking` is set by the server when the view carried one of the event's
+ * own tracking-link codes.
+ */
+export type ViewSource =
+  | "direct"
+  | "search"
+  | "instagram"
+  | "facebook"
+  | "x"
+  | "tiktok"
+  | "email"
+  | "eventbrite"
+  | "other"
+  | "tracking";
+
+export const VIEW_SOURCES: readonly ViewSource[] = [
+  "direct",
+  "search",
+  "instagram",
+  "facebook",
+  "x",
+  "tiktok",
+  "email",
+  "eventbrite",
+  "other",
+  "tracking",
+];
+
+/** POST /api/events/{eventId}/view (public). Both optional; anything unrecognised is ignored. */
+export interface RecordViewInput {
+  source?: ViewSource;
+  /** A tracking-link code from the page URL (`?ref=`). Unknown codes are ignored. */
+  code?: string;
+}
+
+/** Inclusive Australia/Melbourne calendar dates, YYYY-MM-DD. */
+export interface DateRange {
+  from: string;
+  to: string;
+}
+
+/** Money in integer cents. `netCents` = `grossCents` − `feesCents`. */
+export interface MoneyTotals {
+  /** What buyers paid, booking fees they paid included. */
+  grossCents: number;
+  /** Sheltüh's booking fees (lib/fees.ts), whether the buyer paid them or the organiser absorbed them. */
+  feesCents: number;
+  /** The organiser's share: what Stripe pays out to them. */
+  netCents: number;
+}
+
+/**
+ * Counts and money for a period. Only `paid` orders count (free orders are
+ * A$0 paid orders); pending, failed, refunded and refund-pending ones don't.
+ * An order counts on the Melbourne day it was placed.
+ */
+export interface AnalyticsTotals extends MoneyTotals {
+  /** Page views counted in the period (views before `viewsTrackedSince` weren't counted). */
+  views: number;
+  orders: number;
+  ticketsSold: number;
+  /**
+   * orders ÷ views, unrounded. Null when there were no views, or when part of
+   * the period is before views were counted (the ratio would be misleading).
+   * Can exceed 1: views are capped per minute and bots/blocked beacons aren't counted.
+   */
+  conversionRate: number | null;
+}
+
+/** One Melbourne day. `views` is null for days before view counting began. */
+export interface AnalyticsDay extends MoneyTotals {
+  date: string;
+  views: number | null;
+  orders: number;
+  ticketsSold: number;
+}
+
+export interface SourceViews {
+  source: ViewSource;
+  views: number;
+}
+
+export interface TicketTypeSales extends MoneyTotals {
+  ticketTypeId: string;
+  name: string;
+  /** Current price, fee policy and capacity. Unset for a ticket type that no longer exists. */
+  priceCents?: number;
+  feePolicy?: FeePolicy;
+  quantityAvailable?: number;
+  /** Tickets of this type in paid orders in the period. */
+  ticketsSold: number;
+  /** Ticket face value × quantity, before any booking fee. */
+  faceValueCents: number;
+}
+
+/**
+ * One tracking code's numbers. `linkId`/`label` are unset for a code whose
+ * link has since been deleted (its counted views and orders are kept).
+ */
+export interface TrackingLinkStats extends MoneyTotals {
+  code: string;
+  linkId?: string;
+  label?: string;
+  views: number;
+  orders: number;
+  ticketsSold: number;
+  /** orders ÷ views; null when views is 0. */
+  conversionRate: number | null;
+}
+
+export interface AnalyticsEventSummary {
+  eventId: string;
+  title: string;
+  slug: string;
+  status: EventStatus;
+  startsAt: string;
+  endsAt: string;
+  venueName: string;
+  /** It's been approved at least once (it may since have been unpublished). */
+  everPublished: boolean;
+}
+
+/** GET /api/organisers/me/events/{eventId}/analytics?from&to&compare. */
+export interface EventAnalytics {
+  event: AnalyticsEventSummary;
+  range: DateRange;
+  /** First Melbourne day page views were counted (platform-wide), or null if never. */
+  viewsTrackedSince: string | null;
+  totals: AnalyticsTotals;
+  /** Every day in the range, oldest first, zero-filled. */
+  byDay: AnalyticsDay[];
+  /** Every source bucket, in VIEW_SOURCES order, zero-filled. */
+  bySource: SourceViews[];
+  /** Current ticket types in event order (zero-filled), then any that no longer exist but sold in the period. */
+  byTicketType: TicketTypeSales[];
+  /** Current tracking links (newest first, zero-filled), then codes of deleted links with activity. */
+  trackingLinks: TrackingLinkStats[];
+  /** With `compare=prevPeriod`: the period of the same length ending the day before `range.from`. */
+  previous?: { range: DateRange; totals: AnalyticsTotals; byDay: AnalyticsDay[] };
+}
+
+export interface AnalyticsOverviewEvent {
+  eventId: string;
+  title: string;
+  slug: string;
+  status: EventStatus;
+  startsAt: string;
+  totals: AnalyticsTotals;
+  /** With `compare=prevPeriod`. */
+  previous?: AnalyticsTotals;
+}
+
+/** GET /api/organisers/me/analytics/overview?from&to&compare. */
+export interface AnalyticsOverview {
+  range: DateRange;
+  viewsTrackedSince: string | null;
+  totals: AnalyticsTotals;
+  byDay: AnalyticsDay[];
+  /**
+   * Every one of the organiser's events (any status, activity or not):
+   * upcoming soonest first, then past most recent first. At most 500.
+   */
+  events: AnalyticsOverviewEvent[];
+  /** More than 500 events: the rest aren't listed (they're still in `totals`). */
+  eventsTruncated: boolean;
+  previous?: { range: DateRange; totals: AnalyticsTotals; byDay: AnalyticsDay[] };
+}
+
+/** Optional query for the analytics routes. Defaults: an event's whole life (capped), or the last 30 days. */
+export interface AnalyticsQuery {
+  from?: string;
+  to?: string;
+  /** Also return the previous period of the same length. */
+  compare?: "prevPeriod";
+}
+
+/** A shareable link that attributes views and orders to where it was posted. */
+export interface TrackingLink {
+  linkId: string;
+  /** 8 characters from [2-9a-hjkmnp-z]; goes in the event URL as `?ref=`. */
+  code: string;
+  /** 1–40 characters, unique per event. */
+  label: string;
+  /** The event page URL carrying the code: `{site}/events/{slug}?ref={code}`. */
+  url: string;
+  createdAt: string;
+  /** All-time numbers for this code (since the link was created). */
+  views: number;
+  orders: number;
+  ticketsSold: number;
+  grossCents: number;
+}
+
+/** POST /api/organisers/me/events/{eventId}/tracking-links. */
+export interface CreateTrackingLinkInput {
+  label: string;
+}
+
+/** Most tracking links per event. */
+export const MAX_TRACKING_LINKS_PER_EVENT = 20;

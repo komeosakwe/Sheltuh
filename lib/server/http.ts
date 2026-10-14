@@ -70,12 +70,15 @@ async function readCapped(req: Request, limit: number): Promise<string> {
 
 /**
  * The request's JSON object, or {} if the body is missing, not JSON or not an
- * object. 413 if it's over MAX_JSON_BODY_BYTES.
+ * object. 413 if it's over `maxBytes` (default MAX_JSON_BODY_BYTES).
  */
-export async function readJson<T = Record<string, unknown>>(req: Request): Promise<Partial<T>> {
+export async function readJson<T = Record<string, unknown>>(
+  req: Request,
+  maxBytes: number = MAX_JSON_BODY_BYTES,
+): Promise<Partial<T>> {
   let text: string;
   try {
-    text = await readCapped(req, MAX_JSON_BODY_BYTES);
+    text = await readCapped(req, maxBytes);
   } catch (err) {
     if (err instanceof HttpError) throw err;
     return {};

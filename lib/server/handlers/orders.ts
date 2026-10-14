@@ -8,6 +8,7 @@ import { ORDER_SELECT, toOrder } from "../records";
 import type { Handler } from "../route";
 import { buildTicketEmail } from "../ticket-email";
 import { issueTickets } from "../ticket-issuance";
+import { parseTrackingCode } from "../tracking-codes";
 import type { OrderLineItem, OrderRecord, OrderStatus } from "../types";
 import { fail, requireEmail } from "../validation";
 import { findEventById } from "./event-queries";
@@ -153,13 +154,16 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   const totals = orderTotals(lineItems);
   const buyerEmail = parseBuyerEmail(body, totals.totalCents === 0);
   await assertAvailable(db, eventId, lineItems);
+  // Attribution only (never affects price or status): kept if it's one of the event's tracking codes, else null.
+  const trackingCode = parseTrackingCode(body.trackingCode);
   const orderId = `ord_${crypto.randomUUID().replace(/-/g, "")}`;
 
   const insertOrder = () =>
     db.query(
       `insert into public.orders (id, event_id, organiser_id, event_title, line_items, subtotal_cents,
-         buyer_fee_cents, total_cents, application_fee_cents, buyer_email)
-       values ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10)`,
+         buyer_fee_cents, total_cents, application_fee_cents, buyer_email, tracking_code)
+       values ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10,
+         (select l.code from public.event_tracking_links l where l.event_id = $2 and l.code = $11))`,
       [
         orderId,
         eventId,
@@ -171,6 +175,7 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
         totals.totalCents,
         totals.applicationFeeCents,
         buyerEmail,
+        trackingCode,
       ],
     );
 

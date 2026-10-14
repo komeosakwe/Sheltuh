@@ -33,8 +33,15 @@ describe("Data API lock-out", () => {
     expect(open).toEqual([]);
   });
 
-  it("the messaging tables exist in `public` with RLS on, no policies and no client grants", async () => {
-    const tables = ["conversations", "messages", "user_blocks"];
+  it("the messaging, favourites and analytics tables exist in `public` with RLS on, no policies and no client grants", async () => {
+    const tables = [
+      "conversations",
+      "event_favourites",
+      "event_tracking_links",
+      "event_view_counts",
+      "messages",
+      "user_blocks",
+    ];
     const rows = await db.query<{ table_name: string; rls: boolean; policies: number; grants: number }>(
       `select c.relname as table_name, c.relrowsecurity as rls,
               (select count(*)::int from pg_policy p where p.polrelid = c.oid) as policies,
@@ -74,7 +81,9 @@ describe("Data API lock-out", () => {
         where n.nspname = 'private' and c.relkind = 'r' order by 1`,
     );
     expect(tables).toEqual([
+      { table_name: "analytics_settings", rls: true },
       { table_name: "conversation_pairs", rls: true },
+      { table_name: "event_rate_limits", rls: true },
       { table_name: "rate_limits", rls: true },
       { table_name: "social_suspensions", rls: true },
       { table_name: "user_reports", rls: true },
@@ -100,5 +109,25 @@ describe("Data API lock-out", () => {
         order by 1`,
     );
     expect(executable).toEqual([]);
+  });
+
+  it("every `private` function pins its search_path, apart from the five that predate the rule", async () => {
+    // A function without a pinned search_path resolves names through the
+    // caller's. New ones must set it (`set search_path = ''`); these five
+    // (init migration, and fulfil_order's rewrite in review_fixes) predate the
+    // rule and schema-qualify every name instead.
+    const unpinned = await db.query<{ fn: string }>(
+      `select p.proname as fn from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'private'
+          and not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c like 'search_path=%')
+        order by 1`,
+    );
+    expect(unpinned.map((r) => r.fn)).toEqual([
+      "create_event_draft",
+      "fulfil_order",
+      "replace_ticket_types",
+      "transition_event",
+      "update_event_draft",
+    ]);
   });
 });

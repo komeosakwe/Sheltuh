@@ -52,7 +52,7 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. `quantity_sold` only ever changes in `fulfil_order`. |
 | `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Public via `GET /api/events/[id]/image` once published (cached for a day, versioned URL); before that only the owner/admins with a token. Move to Storage/CDN if volume grows. |
 | `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished, by whom, and why. |
-| `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed, or oversold_refund_required → refunded. `tickets_emailed_at` records the ticket email. |
+| `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed, or oversold_refund_required → refunded. `tickets_emailed_at` records the ticket email. `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). |
 | `tickets` | `code` | One row per admitted person. This is the future home of check-in. |
 | `profiles` | `user_id` | A member's social identity: `display_name` (1–40 characters), `adult_confirmed_at` (required: no profile without an 18+ confirmation). Deleted with the Supabase account. `social_suspended_at` is deprecated and ignored (see `private.social_suspensions`). |
 | `event_attendees` | `id` | One row per Who's Going opt-in, unique per `(event_id, user_id)`. `id` is the opaque `attendeeId` shown to members: a fresh one per event, so it can't be linked across events or to a user. Deleted with the profile or the event, and by `purge_social_data` 30 days after the event ends. |
@@ -62,6 +62,11 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | `messages` | `id` (identity) | Plain text, 1–1000 characters (check constraint). The id is the opaque, increasing `messageId` (keyset cursor). Deleted with the conversation or the sender's profile. |
 | `user_blocks` | `id` | `(blocker_id, blocked_id)` unique, keyed on the accounts (not profiles), so recreating a profile doesn't lift a block. `id` is the opaque `blockId`, shown only to the blocker. `blocked_display_name` is a snapshot of the blocked member's name taken when the block was made, never refreshed (the live name would tell the blocker about renames and deletions). It's kept, like the block, until either account is deleted or the block is lifted. |
 | `private.conversation_pairs` | `(user_low, user_high)` | Content-free record that two accounts have had a conversation: the pair and when the first request was sent. References `auth.users` only (not profiles), so deleting and recreating a profile, which deletes the conversation, doesn't reset "one conversation per pair" or undo a decline. Deleted with either account, and by `purge_social_data` once no conversation remains and it's over 12 months old. |
+| `event_favourites` | `(user_id, event_id)` | A member's favourites (account, not profile). At most 500 per account (`add_favourite`). Kept when the event is unpublished, but hidden until it's published again. Deleted with the account or the event. Never counted or shown to anyone else. |
+| `event_tracking_links` | `id` | Up to 20 per event (`create_tracking_link`): a server-made `code` (8 characters, `[2-9a-hjkmnp-z]`, unique per event) and an organiser `label` (1–40 characters, unique per event ignoring case). Deleted with the event. |
+| `event_view_counts` | `(event_id, day, source, coalesce(link_code, ''))` (unique index) | Aggregate page-view counters, one row per event, Melbourne day, source bucket and tracking code: no visitor data of any kind. `link_code` is a plain copy of the code (no foreign key), so a deleted link's counts are kept. Deleted with the event, and by `purge_analytics` after 25 months. |
+| `private.event_rate_limits` | `(event_id, bucket)` | Fixed-window counters keyed on an event, never a person (`take_event_rate_limit`): caps the views counted per event per minute. Deleted with the event; idle rows purged daily. |
+| `private.analytics_settings` | single row | `views_tracked_since`: the Melbourne day view counting started (when its migration ran), so reports show earlier days as "not counted" rather than 0. |
 | `private.user_reports` | `id` | A member's report: copies of the reported message, up to 20 messages of context and the reported display name. Every reference is `on delete set null`, so the evidence survives the messages and both accounts. `status`: open → actioned (suspended) / dismissed. Resolved reports are deleted 2 years after resolution. |
 
 Timestamps are `timestamptz`. Organisers enter Australia/Melbourne local
@@ -83,12 +88,21 @@ times, which are converted to instants honouring daylight saving
 | `file_report` | Checks the reporter is in the conversation (and the message is the other member's), takes the rate limit and copies the evidence into the report in one step. Key-share-locks the conversation, then the message, when it finds them, so a profile deletion or retention purge waits for the report; one already under way means the report finds nothing (`not_found`, 404). The reported account deleted mid-call (a foreign-key failure) or a deadlock with an account deletion is also `not_found`, never a 500. |
 | `create_block` | Blocks, in one step, only a member the blocker can currently see: the other member of a conversation visible to them, or of a request they declined; or an `attendeeId` on a Who's Going list they may view right now (event published, enabled and not ended; blocker has a profile and isn't suspended; attendee isn't suspended; neither blocks the other). Anything else is `not_found`. Snapshots the display name, takes the rate limit, and inserts; a block the blocker already has comes back unchanged with the same result. Returns `blocked`, `not_found`, `self` or `rate_limited`. |
 | `resolve_report` | Closes an open report only (a second admin gets 409); `suspend` also records the suspension in the same step. |
+| `add_favourite` | Favourites a published event, idempotently, within the per-account cap. A transaction-scoped advisory lock on the account serialises one member's adds, so concurrent requests can't both take the last slot. Returns `added`, `exists`, `not_found` or `limit`. |
+| `take_event_rate_limit` | `take_rate_limit`'s fixed-window counter, keyed on an event instead of a member. |
+| `record_view` | Counts one view: the event must be published; the source is bucketed (unknown → `other`); a code that's one of the event's tracking codes makes it `tracking` under that code (any other code is ignored); then the event's per-minute cap; then one upsert increment. No row lock on the event and no exception block, to keep the hot path to two small upserts. Returns `recorded`, `not_found` or `rate_limited`. |
+| `create_tracking_link` | Adds a link to an event the organiser owns, under an advisory lock on the event (so the 20-link cap holds under concurrency, without locking the events row that checkouts share-lock). Returns `created`, `not_found`, `limit`, `label_taken`, or `code_taken` (the API retries with a fresh code). |
+| `purge_analytics` | Retention: deletes view counters for days over 25 months ago and per-event rate-limit rows idle for a day. Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`). |
 | `fulfil_order` | Takes inventory for every line item, issues the tickets and marks the order paid. If any ticket type has sold out, or the event is no longer published, it takes nothing and marks the order `oversold_refund_required`. Rows are locked in a fixed order, so concurrent orders can't deadlock. It's idempotent, so Stripe's webhook redeliveries are harmless. |
 
 ## Payment flow
 
 1. `POST /api/events/[eventId]/checkout` (guest, no account):
    - Prices come from the database, never the client.
+   - An optional `trackingCode` is stored on the order only if it's one of
+     the event's tracking codes (anything else is silently ignored). It's
+     attribution only: it never changes the price, the status, or what's
+     sent to Stripe.
    - The order is inserted as `pending` *before* Stripe is called, so a
      payment can never arrive without an order to attach it to.
    - A Checkout Session is created as a destination charge to the
@@ -241,6 +255,89 @@ Direct messages between members who met on a Who's Going list
   and a per-conversation ordinal would mean a counter per conversation on
   every send.
 
+## Favourites
+
+A signed-in member's private list (`lib/server/handlers/favourites.ts`).
+No verified email is needed: nothing here involves anyone else.
+
+- Only a published event can be favourited (404 otherwise). Unpublishing
+  keeps the row but hides it from the list and the ids; publishing again
+  brings it back. Past events stay listed.
+- At most 500 per account, hidden ones included (409, which on this route
+  means only that). `PUT` and `DELETE` are idempotent. `DELETE` always
+  removes an existing favourite, whatever state its event is in; without
+  one, it's a 404 unless the event is published, so it can't be used to
+  probe for unpublished events.
+- Nobody else sees favourites, and there's no public count. Every response
+  is `private, no-store`. Deleting the account or the event deletes them.
+
+## Organiser analytics
+
+Stages A (page views and sales) and B (tracking links), in
+`lib/server/handlers/analytics.ts`, `event-views.ts` and `tracking-links.ts`.
+
+**Privacy first.** Page views are aggregate daily counters
+(`event_view_counts`): event, Melbourne day, a source bucket and, for
+tracking links, the code. No cookie, IP address, user id, email, user agent
+or referrer URL is stored, so there are no unique-visitor counts. The browser
+buckets the referrer itself and sends only `{source, code}`.
+
+**Counting a view** (`POST /api/events/{id}/view`, public): 204 whether or
+not it was counted, 404 only for an event that isn't published. Not counted:
+obvious bots, link previews, HTTP libraries and prefetches (user agent and
+`Sec-Purpose`/`Purpose` headers, checked and never stored), bodies over
+1 KB, and anything past the event's cap of 300 views a minute
+(`take_event_rate_limit`, keyed on the event, not on anyone). The cap bounds
+how fast anyone can inflate an event's views; it doesn't stop a determined
+faker below it (accepted: numbers are indicative, and nothing is paid on
+them). Sources: `direct`, `search`, `instagram`, `facebook`, `x`, `tiktok`,
+`email`, `eventbrite`, `other`, and `tracking` (set by the server, only for
+one of the event's codes).
+
+**Tracking links**: up to 20 per event, each a server-made code shared as
+`/events/{slug}?ref={code}`. A view or checkout carrying the code is counted
+under it. Deleting a link keeps its numbers (shown without a label); the URL
+still opens the event, but nothing more is counted under it.
+
+**Sales** come from `paid` orders only (free orders are A$0 paid orders;
+pending, failed, refunded and refund-pending ones are left out), counted on
+the Melbourne day the order was placed. Money is integer cents from the
+orders' own snapshots: gross is `total_cents` (what buyers paid), fees is
+`application_fee_cents` (the platform's booking fee, whoever paid it), net
+is gross − fees (what Stripe pays the organiser; Stripe's processing fee is
+the platform's). Only the per-ticket-type split is re-derived, with
+`lib/fees.ts`, and then reconciled to the snapshots so the rows always add
+up to the totals, even if the fee rules change. Conversion is orders ÷ views
+(null with no views, or when part of the range is before views were counted).
+
+**Access**: approved organisers, own events only. Another organiser's event
+is a 404; admins get nothing extra (no organiser of their own is a 403).
+Every response, CSVs included, is `private, no-store`.
+
+**Ranges**: inclusive Melbourne dates, at most 731 days (400 otherwise).
+Defaults: an event's whole life (from its creation, capped), or the last 30
+days for the overview. `compare=prevPeriod` adds the period of the same
+length just before.
+
+**CSV exports** contain no buyer data. Every cell is quoted; text starting
+with `= + - @`, a tab or a carriage return (after any leading whitespace) gets
+a leading `'` so spreadsheets don't run it as a formula; money is decimal
+dollars; the file starts with a UTF-8 BOM for Excel.
+
+**Retention**: view counters are deleted after 25 months (`purge_analytics`),
+and reports never claim views from before then were counted. Orders (and so
+their `tracking_code`) are kept as financial records.
+
+**Later stages (not built):**
+
+- Check-ins and attendance: needs a door-scanning feature first (`tickets`
+  is its future home).
+- Attendee registrations with geography: needs a privacy review; at most a
+  suburb or postcode, from Stripe Checkout.
+- Unique visitors: deliberately impossible under the no-cookie, no-IP model.
+- Orders by referrer source: orders only carry a tracking code, not the
+  view's source bucket.
+
 Booking fee: 4% of face value + A$0.50 per paid ticket (`lib/fees.ts`,
 which the API and the UI both use). It's either buyer-paid or absorbed by
 the organiser, set per ticket type. Either way the platform keeps it.
@@ -278,6 +375,13 @@ application is approved.
 | `GET /blocks?cursor` · `POST /blocks` `{conversationId}\|{attendeeId}` · `DELETE /blocks/{blockId}` | signed in (own blocks). POST 201 (new, or one the caller already has), 400 self, 404 not something the caller can currently see (including already blocked either way), 429 (30 per 24 hours); DELETE 204, idempotent |
 | `POST /reports` `{conversationId, messageId?}\|{attendeeId}, reason, details?` | signed in. 201; 404 not yours; 429 |
 | `GET /admin/reports?status` · `POST /admin/reports/{id}/resolve` `{action, note?}` | admin. 409 if already resolved |
+| `GET /favourites?cursor&limit` | signed in: own favourited published events, newest favourite first, in the feed's public shape plus `favouritedAt` |
+| `GET /favourites/ids` | signed in: `{eventIds}` (at most 500) |
+| `PUT /events/{id}/favourite` · `DELETE /events/{id}/favourite` | signed in (no verified email needed). `{eventId, favourited}`. PUT: 404 not published, 409 at 500. DELETE: idempotent; 404 only with no favourite and the event not published |
+| `POST /events/{id}/view` `{source?, code?}` | public. 204 (counted or not); 404 not published |
+| `GET /organisers/me/events/{id}/tracking-links` · `POST …` `{label}` · `DELETE …/tracking-links/{linkId}` | organiser (own events). POST 201; 400 label; 409 label taken or 20 links. DELETE 204, idempotent |
+| `GET /organisers/me/events/{id}/analytics?from&to&compare` · `…/analytics.csv` | organiser (own events). 400 bad range |
+| `GET /organisers/me/analytics/overview?from&to&compare` · `…/overview.csv` | organiser: all own events. 400 bad range |
 | `GET /admin/organisers?status` · `POST /admin/organisers/{id}/approve` · `…/reject` | admin |
 | `GET /admin/events?status` · `POST /admin/events/{id}/approve` · `…/reject` · `…/unpublish` | admin |
 
@@ -304,7 +408,8 @@ is `cache-control: private, no-store`.
 
 ## Not built yet
 
-- QR check-in.
+- QR check-in (and with it, attendance analytics).
+- Analytics beyond stages A and B (see "Organiser analytics").
 - Venue coordinates (the map falls back to suburb centroids).
 - Who's Going beyond increment 2: no admin UI for suspensions or the
   per-event switch (SQL only, `docs/supabase-setup.md`), and an opt-in isn't
