@@ -178,6 +178,7 @@ export default function EventArt({
   className,
   children,
   priority = false,
+  motion = false,
 }: {
   poster: EventPoster;
   title: string;
@@ -187,6 +188,8 @@ export default function EventArt({
   children?: ReactNode;
   /** The page's largest above-the-fold image: load it eagerly at high priority instead of lazily. */
   priority?: boolean;
+  /** Slowly pushes the photo in and back (reduced-motion safe). For hero and feature images only. */
+  motion?: boolean;
 }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const showImage = Boolean(imageUrl) && failedUrl !== imageUrl;
@@ -211,7 +214,7 @@ export default function EventArt({
             if (img && img.complete && img.currentSrc && img.naturalWidth === 0) setFailedUrl(imageUrl ?? null);
           }}
           onError={() => setFailedUrl(imageUrl ?? null)}
-          className="absolute inset-0 h-full w-full object-cover"
+          className={`absolute inset-0 h-full w-full object-cover ${motion ? "ken-burns" : ""}`.trim()}
         />
       ) : (
       <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" className="absolute inset-0 h-full w-full">

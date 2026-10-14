@@ -54,9 +54,9 @@ export default function IntentHero() {
 
         {/* Asymmetric poster collage: tall lead image, offset supporting tiles. */}
         <div aria-hidden="true" className="relative hidden min-h-[520px] lg:col-span-5 lg:block">
-          <EventArt poster={HERO_POSTERS[0]} imageUrl={HERO_POSTERS[0].imageUrl} title="Sheltüh" priority className="float absolute right-0 top-0 h-[430px] w-[78%]" />
-          <EventArt poster={HERO_POSTERS[1]} imageUrl={HERO_POSTERS[1].imageUrl} title="Sheltüh" className="float absolute bottom-0 left-0 h-[220px] w-[46%] [--d:-2s]" />
-          <EventArt poster={HERO_POSTERS[2]} imageUrl={HERO_POSTERS[2].imageUrl} title="Sheltüh" className="float absolute bottom-6 right-0 h-[150px] w-[38%] [--d:-4s]" />
+          <EventArt poster={HERO_POSTERS[0]} imageUrl={HERO_POSTERS[0].imageUrl} motion title="Sheltüh" priority className="float absolute right-0 top-0 h-[430px] w-[78%]" />
+          <EventArt poster={HERO_POSTERS[1]} imageUrl={HERO_POSTERS[1].imageUrl} motion title="Sheltüh" className="float absolute bottom-0 left-0 h-[220px] w-[46%] [--d:-2s]" />
+          <EventArt poster={HERO_POSTERS[2]} imageUrl={HERO_POSTERS[2].imageUrl} motion title="Sheltüh" className="float absolute bottom-6 right-0 h-[150px] w-[38%] [--d:-4s]" />
           <RoundBadge text="Curated · Melbourne · Naarm · " className="absolute left-2 top-16 h-28 w-28 rounded-full bg-highlight text-foreground" />
           <Burst className="absolute right-[-8px] top-[-14px] h-10 w-10 text-foreground" />
         </div>
