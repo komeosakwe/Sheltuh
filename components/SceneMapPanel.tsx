@@ -3,74 +3,66 @@
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { MapContainer, Marker, TileLayer, Tooltip, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, useMap } from "react-leaflet";
+import EventMarkerLayer, { type MarkerDatum, type OpenSpot } from "@/components/map/EventMarkerLayer";
+import MapSpotList from "@/components/map/MapSpotList";
+import { runQuietly, stopQuietly } from "@/components/map/quiet-map";
+import { buttonClass } from "@/components/ui/Button";
 import { MELBOURNE_DEFAULT_CENTER, MELBOURNE_DEFAULT_ZOOM, resolveEventCoordinates } from "@/lib/geo";
-import type { Coordinates, EventCategory, SheltuhEvent } from "@/lib/types";
-
-const PIN_SIZE = 34;
-const ORANGE = "#0b0b0b";
-
-// Simple monoline glyphs instead of category codes like "WKS"/"THR" — paired
-// with a real aria-label (the event's title, not the category) on each
-// marker element, since the glyph and even the category are decorative.
-const CATEGORY_GLYPH: Record<EventCategory, string> = {
-  "live-music": "♪",
-  art: "◐",
-  workshop: "▧",
-  "pop-up": "✳",
-  theatre: "▲",
-};
-
-interface MarkerDatum {
-  event: SheltuhEvent;
-  lat: number;
-  lng: number;
-}
-
-// A stable icon per category — selection state is toggled after the fact
-// via a CSS class (see PinStyles below), not by recreating the icon, so a
-// marker's DOM element (and any listener attached to it) survives selection
-// changes instead of being torn down and rebuilt on every click.
-function pinIcon(category: EventCategory) {
-  return L.divIcon({
-    html: `<div class="scene-pin-inner" aria-hidden="true">${CATEGORY_GLYPH[category]}</div>`,
-    className: "scene-pin",
-    iconSize: [PIN_SIZE, PIN_SIZE],
-    iconAnchor: [PIN_SIZE / 2, PIN_SIZE],
-  });
-}
+import type { Coordinates, SheltuhEvent } from "@/lib/types";
+import { usePrefersReducedMotion } from "@/lib/use-reduced-motion";
 
 /**
- * Leaflet markers are focusable (tabIndex, role="button") but — despite the
- * option being named `keyboard` — Leaflet itself never translates an Enter
- * or Space keypress into a click; that's left to the app. This supplies it.
+ * Leaflet chrome restyled to the app's tokens, plus reduced-motion handling
+ * for Leaflet's CSS zoom/fade transitions (it falls back to a timer, so
+ * removing the transition is safe). Marker styling lives in components/map/.
  */
-function PinStyles() {
+function MapStyles() {
   return (
     <style>{`
-      .scene-pin { outline: none; }
-      .scene-pin-inner {
-        width: 100%; height: 100%; border-radius: 50%; border: 2px solid #0b0b0b;
-        background: #f3f0e8;
-        display: flex; align-items: center; justify-content: center;
-        color: #0b0b0b; font-size: 16px; line-height: 1;
-        transition: background .15s, border-color .15s, box-shadow .15s;
-      }
-      .scene-pin.selected .scene-pin-inner {
-        background: ${ORANGE}; border-color: ${ORANGE}; box-shadow: 0 0 0 6px rgba(11,11,11,.18);
-        color: #f3f0e8;
-      }
-      .scene-pin:focus-visible .scene-pin-inner { outline: 2px solid #0b0b0b; outline-offset: 2px; }
+      .scene-marker { background: none; border: 0; }
       .leaflet-control-attribution {
-        background: rgba(243,240,232,.85) !important; color: #6b675e !important;
+        background: color-mix(in srgb, var(--background) 85%, transparent) !important; color: var(--muted) !important;
       }
-      .leaflet-control-attribution a { color: #0b0b0b !important; }
+      .leaflet-control-attribution a { color: var(--foreground) !important; }
       .leaflet-control-zoom a {
-        background: #f3f0e8 !important; color: #0b0b0b !important; border-color: #0b0b0b !important;
+        background: var(--background) !important; color: var(--foreground) !important; border-color: var(--foreground) !important;
       }
-      .leaflet-control-zoom a:hover { background: #eae6db !important; }
+      .leaflet-control-zoom a:hover { background: var(--surface) !important; }
+      @media (prefers-reduced-motion: reduce) {
+        .leaflet-zoom-anim .leaflet-zoom-animated, .leaflet-fade-anim .leaflet-tile, .leaflet-fade-anim .leaflet-popup {
+          transition: none !important;
+        }
+      }
     `}</style>
   );
+}
+
+function hasSize(map: L.Map): boolean {
+  const size = map.getSize();
+  return size.x > 0 && size.y > 0;
+}
+
+/** Centres on the selected event if there is one, otherwise fits every marker. */
+function frameMarkers(
+  map: L.Map,
+  markers: MarkerDatum[],
+  selectedEventId: string | null,
+  reducedMotion: boolean,
+  programmaticMoveRef: RefObject<boolean>,
+) {
+  const selected = selectedEventId ? markers.find((m) => m.event.id === selectedEventId) : undefined;
+  if (selected) {
+    programmaticMoveRef.current = true;
+    const zoom = Math.max(map.getZoom(), 14);
+    if (reducedMotion) map.setView([selected.lat, selected.lng], zoom, { animate: false });
+    else map.flyTo([selected.lat, selected.lng], zoom, { duration: 0.6 });
+    return;
+  }
+  if (markers.length === 0) return;
+  programmaticMoveRef.current = true;
+  const bounds = L.latLngBounds(markers.map((m) => [m.lat, m.lng]));
+  map.fitBounds(bounds, { padding: [48, 48], maxZoom: 15, animate: !reducedMotion });
 }
 
 /** Recentres/zooms the map when the selected event changes, and fits all markers on first load. */
@@ -78,12 +70,19 @@ function MapController({
   markers,
   selectedEventId,
   programmaticMoveRef,
+  reducedMotion,
 }: {
   markers: MarkerDatum[];
   selectedEventId: string | null;
   programmaticMoveRef: RefObject<boolean>;
+  reducedMotion: boolean;
 }) {
   const map = useMap();
+  // Latest props for the resize listener below, which is registered once.
+  const latest = useRef({ markers, selectedEventId, reducedMotion });
+  useEffect(() => {
+    latest.current = { markers, selectedEventId, reducedMotion };
+  });
 
   // Re-fits whenever the visible marker set actually changes (e.g. a
   // filter narrows it) — `markers` only gets a new reference when the
@@ -96,27 +95,53 @@ function MapController({
     // ("Cannot read properties of undefined (reading '_leaflet_pos')").
     // Cancelling any in-flight animation before the marker set changes
     // avoids that race entirely.
-    map.stop();
+    stopQuietly(map, programmaticMoveRef);
     if (markers.length === 0) return;
     // Synchronous, same-tick safeguard: if this container was just
     // revealed (e.g. the mobile list→map tab switch) in this very render,
     // the async ResizeObserver in ResizeSync hasn't caught up yet — so
     // re-measure right here too, before projecting any coordinates against it.
-    map.invalidateSize();
+    runQuietly(programmaticMoveRef, () => map.invalidateSize());
+    // Hidden (the phone's list tab): fitting a 0×0 map snaps to max zoom
+    // around the centre. Wait for the resize listener below instead.
+    if (!hasSize(map)) return;
     programmaticMoveRef.current = true;
     const bounds = L.latLngBounds(markers.map((m) => [m.lat, m.lng]));
-    map.fitBounds(bounds, { padding: [48, 48], maxZoom: 15 });
-  }, [map, markers, programmaticMoveRef]);
+    map.fitBounds(bounds, { padding: [48, 48], maxZoom: 15, animate: !reducedMotion });
+  }, [map, markers, programmaticMoveRef, reducedMotion]);
 
   useEffect(() => {
     if (!selectedEventId) return;
     const marker = markers.find((m) => m.event.id === selectedEventId);
     if (!marker) return;
-    map.stop();
-    map.invalidateSize();
-    programmaticMoveRef.current = true;
-    map.flyTo([marker.lat, marker.lng], Math.max(map.getZoom(), 14), { duration: 0.6 });
-  }, [map, markers, selectedEventId, programmaticMoveRef]);
+    stopQuietly(map, programmaticMoveRef);
+    runQuietly(programmaticMoveRef, () => map.invalidateSize());
+    if (!hasSize(map)) return;
+    frameMarkers(map, markers, selectedEventId, reducedMotion, programmaticMoveRef);
+  }, [map, markers, selectedEventId, programmaticMoveRef, reducedMotion]);
+
+  // The first time a hidden map gets a real size (the phone's Map tab), frame it then.
+  // Deferred a frame: `resize` fires from inside invalidateSize(), and framing
+  // must start after that call (and its own moveend) has finished.
+  useEffect(() => {
+    let frame: number | null = null;
+    function handleResize(resize: L.ResizeEvent) {
+      const wasHidden = resize.oldSize.x === 0 || resize.oldSize.y === 0;
+      if (!wasHidden || resize.newSize.x === 0 || resize.newSize.y === 0) return;
+      if (frame !== null) L.Util.cancelAnimFrame(frame);
+      frame = L.Util.requestAnimFrame(() => {
+        frame = null;
+        const current = latest.current;
+        stopQuietly(map, programmaticMoveRef);
+        frameMarkers(map, current.markers, current.selectedEventId, current.reducedMotion, programmaticMoveRef);
+      });
+    }
+    map.on("resize", handleResize);
+    return () => {
+      map.off("resize", handleResize);
+      if (frame !== null) L.Util.cancelAnimFrame(frame);
+    };
+  }, [map, programmaticMoveRef]);
 
   return null;
 }
@@ -156,8 +181,7 @@ function SearchThisAreaControl({
           onSearchArea(map.getBounds());
           setShowButton(false);
         }}
-        className="pointer-events-auto flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium text-white"
-        style={{ background: "#0b0b0b", border: `1px solid ${ORANGE}` }}
+        className="pointer-events-auto flex min-h-11 items-center gap-1.5 rounded-full border border-foreground bg-foreground px-4 py-2 text-sm font-medium text-background"
       >
         <span aria-hidden="true">⟳</span> Search this area
       </button>
@@ -165,81 +189,25 @@ function SearchThisAreaControl({
   );
 }
 
-/**
- * Renders the markers and keeps their selected styling in sync — via a CSS
- * class toggled imperatively on each marker's persistent DOM element, not
- * by recreating the icon — and gives each marker real Enter/Space keyboard
- * activation (see PinStyles' comment above for why that's needed at all)
- * plus a real accessible name (the event's title, not its category code).
- */
-function MarkerLayer({
-  markers,
-  selectedEventId,
-  onSelect,
-}: {
-  markers: MarkerDatum[];
-  selectedEventId: string | null;
-  onSelect: (eventId: string) => void;
-}) {
-  const markerRefs = useRef(new Map<string, L.Marker>());
-
-  // A ref callback fires (via useImperativeHandle) before react-leaflet's
-  // own effect has called map.addLayer() on the marker, so its icon DOM
-  // element doesn't exist yet at that point — getElement() would be null.
-  // Doing the DOM wiring here instead, in a regular effect that runs after
-  // child effects have committed, is what makes getElement() reliable.
-  useEffect(() => {
-    markerRefs.current.forEach((marker, id) => {
-      const el = marker.getElement();
-      if (!el) return;
-      const event = markers.find((m) => m.event.id === id)?.event;
-      el.classList.toggle("selected", id === selectedEventId);
-      if (event) el.setAttribute("aria-label", event.title);
-      el.onkeydown = (domEvent) => {
-        if (domEvent.key === "Enter" || domEvent.key === " " || domEvent.key === "Spacebar") {
-          domEvent.preventDefault();
-          onSelect(id);
-        }
-      };
-    });
-  }, [selectedEventId, markers, onSelect]);
-
-  return (
-    <>
-      {markers.map(({ event, lat, lng }) => (
-        <Marker
-          key={event.id}
-          position={[lat, lng]}
-          icon={pinIcon(event.category)}
-          eventHandlers={{ click: () => onSelect(event.id) }}
-          ref={(marker) => {
-            if (!marker) {
-              markerRefs.current.delete(event.id);
-              return;
-            }
-            markerRefs.current.set(event.id, marker);
-          }}
-        >
-          <Tooltip direction="top" offset={[0, -8]}>
-            {event.title}
-          </Tooltip>
-        </Marker>
-      ))}
-    </>
-  );
-}
-
 type TileStatus = "loading" | "loaded" | "failed";
 
 /** Tracks whether the basemap's tiles actually rendered, for the loading/failure UI in the parent. */
-function TileWatcher({ status, retryKey }: { status: TileStatus; retryKey: number }) {
+function TileWatcher({
+  status,
+  retryKey,
+  programmaticMoveRef,
+}: {
+  status: TileStatus;
+  retryKey: number;
+  programmaticMoveRef: RefObject<boolean>;
+}) {
   const map = useMap();
   useEffect(() => {
     // A retry (new retryKey) or filter-driven refit shouldn't get stuck
     // showing a stale failure banner once tiles are actually loading again.
     void retryKey;
-    map.invalidateSize();
-  }, [map, retryKey, status]);
+    runQuietly(programmaticMoveRef, () => map.invalidateSize());
+  }, [map, retryKey, status, programmaticMoveRef]);
   return null;
 }
 
@@ -252,14 +220,14 @@ function TileWatcher({ status, retryKey }: { status: TileStatus; retryKey: numbe
  * page. A ResizeObserver on the map's own container is what notices the
  * hidden→visible flip (or any other resize) and re-measures.
  */
-function ResizeSync() {
+function ResizeSync({ programmaticMoveRef }: { programmaticMoveRef: RefObject<boolean> }) {
   const map = useMap();
   useEffect(() => {
     const container = map.getContainer();
-    const observer = new ResizeObserver(() => map.invalidateSize());
+    const observer = new ResizeObserver(() => runQuietly(programmaticMoveRef, () => map.invalidateSize()));
     observer.observe(container);
     return () => observer.disconnect();
-  }, [map]);
+  }, [map, programmaticMoveRef]);
   return null;
 }
 
@@ -286,6 +254,10 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
   const loadedCount = useRef(0);
   const errorCount = useRef(0);
   const programmaticMoveRef = useRef(false);
+  const mapRef = useRef<L.Map | null>(null);
+  const reducedMotion = usePrefersReducedMotion();
+  const [openSpot, setOpenSpot] = useState<OpenSpot | null>(null);
+  const [announcement, setAnnouncement] = useState("");
 
   const markers = useMemo<MarkerDatum[]>(() => {
     return events.flatMap((event) => {
@@ -295,6 +267,19 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
   }, [events]);
 
   const center: Coordinates = markers[0] ?? MELBOURNE_DEFAULT_CENTER;
+
+  // Derived, not synced: when filters drop some of a spot's events the list
+  // shrinks, and when none are left it is simply closed.
+  const spotEvents = openSpot
+    ? openSpot.ids.flatMap((id) => markers.find((marker) => marker.event.id === id)?.event ?? [])
+    : [];
+
+  function closeSpot() {
+    const target = openSpot?.returnFocus;
+    setOpenSpot(null);
+    if (target?.isConnected) target.focus({ preventScroll: true });
+    else mapRef.current?.getContainer().focus({ preventScroll: true });
+  }
 
   useEffect(() => {
     loadedCount.current = 0;
@@ -331,14 +316,19 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
   }
 
   return (
-    <div className="relative h-full w-full overflow-hidden rounded-none border border-surface-border">
-      <PinStyles />
+    // `isolate` keeps Leaflet's pane z-indexes (400–1000) below the sticky header.
+    <div className="relative isolate h-full w-full overflow-hidden rounded-none border border-surface-border">
+      <MapStyles />
       <MapContainer
         key={retryKey}
+        ref={mapRef}
+        zoomAnimation={!reducedMotion}
+        markerZoomAnimation={!reducedMotion}
+        fadeAnimation={!reducedMotion}
         center={[center.lat, center.lng]}
         zoom={MELBOURNE_DEFAULT_ZOOM}
         scrollWheelZoom
-        style={{ height: "100%", width: "100%", background: "#f3f0e8" }}
+        className="h-full w-full bg-background"
       >
         <TileLayer
           attribution='&copy; <a href="https://www.esri.com">Esri</a> &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors, GIS community'
@@ -351,10 +341,24 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
           maxZoom={16}
           pane="shadowPane"
         />
-        <TileWatcher status={status} retryKey={retryKey} />
-        <ResizeSync />
-        <MapController markers={markers} selectedEventId={selectedEventId} programmaticMoveRef={programmaticMoveRef} />
-        <MarkerLayer markers={markers} selectedEventId={selectedEventId} onSelect={onSelect} />
+        <TileWatcher status={status} retryKey={retryKey} programmaticMoveRef={programmaticMoveRef} />
+        <ResizeSync programmaticMoveRef={programmaticMoveRef} />
+        <MapController
+          markers={markers}
+          selectedEventId={selectedEventId}
+          programmaticMoveRef={programmaticMoveRef}
+          reducedMotion={reducedMotion}
+        />
+        <EventMarkerLayer
+          markers={markers}
+          selectedEventId={selectedEventId}
+          onSelect={onSelect}
+          openSpotLeadId={spotEvents.length > 0 ? (openSpot?.ids[0] ?? null) : null}
+          onOpenSpot={setOpenSpot}
+          onAnnounce={setAnnouncement}
+          reducedMotion={reducedMotion}
+          programmaticMoveRef={programmaticMoveRef}
+        />
         <SearchThisAreaControl
           programmaticMoveRef={programmaticMoveRef}
           onSearchArea={(bounds) =>
@@ -368,14 +372,32 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
         />
       </MapContainer>
 
+      {/* Outside the Leaflet container so its wheel/drag handling doesn't capture the list's scrolling. */}
+      {spotEvents.length > 0 && (
+        <div className="pointer-events-none absolute inset-3 z-[1100] flex items-start justify-end">
+          <MapSpotList
+            events={spotEvents}
+            onChoose={(eventId) => {
+              setOpenSpot(null);
+              onSelect(eventId);
+            }}
+            onClose={closeSpot}
+          />
+        </div>
+      )}
+
+      <p className="sr-only" aria-live="polite">
+        {announcement}
+      </p>
+
       {status === "loading" && (
-        <div className="pointer-events-none absolute inset-0 z-[1000] flex items-center justify-center bg-[#f3f0e8]/60">
-          <p className="rounded-full bg-black/70 px-4 py-2 text-sm text-foreground">Loading map&hellip;</p>
+        <div className="pointer-events-none absolute inset-0 z-[1000] flex items-center justify-center bg-background/60">
+          <p className="rounded-full bg-foreground px-4 py-2 text-sm text-background">Loading map&hellip;</p>
         </div>
       )}
 
       {status === "failed" && (
-        <div className="absolute inset-0 z-[1000] flex flex-col items-center justify-center gap-3 bg-[#f3f0e8] px-6 text-center">
+        <div className="absolute inset-0 z-[1000] flex flex-col items-center justify-center gap-3 bg-background px-6 text-center">
           <p className="font-heading text-xl text-foreground">Map couldn&rsquo;t load</p>
           <p className="max-w-xs text-sm text-muted">
             The map tiles didn&rsquo;t come through &mdash; your connection or the tile provider may be
@@ -384,8 +406,7 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
           <button
             type="button"
             onClick={() => setRetryKey((k) => k + 1)}
-            className="px-4 py-2 text-sm font-medium"
-            style={{ background: ORANGE, color: "#f3f0e8" }}
+            className={buttonClass("solid")}
           >
             Retry
           </button>

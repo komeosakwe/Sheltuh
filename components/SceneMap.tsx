@@ -1,17 +1,17 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import DemoNotice from "@/components/DemoNotice";
 import SceneEventRow from "@/components/SceneEventRow";
 import SceneMapFilterBar from "@/components/SceneMapFilterBar";
+import SceneMapEventCard from "@/components/map/SceneMapEventCard";
 import { isApiConfigured } from "@/lib/api/client";
 import { listPublicEvents } from "@/lib/api/public-events";
 import { adaptPublicEvent } from "@/lib/live/adapt";
 import { getEventCategories, getEvents } from "@/lib/data";
-import { formatEventDateShort } from "@/lib/format";
+import { formatEventDateShort, formatEventTime } from "@/lib/format";
 import { resolveEventCoordinates } from "@/lib/geo";
 import { formatFeedPrice } from "@/lib/pricing";
 import {
@@ -361,7 +361,7 @@ function SceneMapView({
           ) : (
             <>
               <div className="grid overflow-hidden rounded-none border border-surface-border lg:grid-cols-[55fr_45fr]">
-                <div className={`h-[420px] lg:h-[600px] ${mobileView === "map" ? "block" : "hidden"} lg:block`}>
+                <div className={`relative h-[420px] lg:h-[600px] ${mobileView === "map" ? "block" : "hidden"} lg:block`}>
                   <SceneMapPanel
                     events={filtered}
                     selectedEventId={selectedEventId}
@@ -371,6 +371,16 @@ function SceneMapView({
                     }}
                     onSearchArea={setAreaBounds}
                   />
+                  {/* Desktop: the selected event over the map's lower-left corner (phones get the bottom card below). */}
+                  {selectedEvent && (
+                    <SceneMapEventCard
+                      variant="overlay"
+                      event={selectedEvent}
+                      detailsHref={`/events/${selectedEvent.slug}`}
+                      onDismiss={() => setSelectedEventId(null)}
+                      className="absolute bottom-3 left-3 z-10 hidden w-64 lg:block"
+                    />
+                  )}
                 </div>
                 <div
                   className={`h-[420px] overflow-y-auto border-t border-surface-border lg:h-[600px] lg:border-t-0 lg:border-l ${
@@ -420,34 +430,20 @@ function SceneMapView({
 
           {/* Mobile map tab only: a compact, dismissible summary for the selected event, since the highlighted list row isn't visible there. */}
           {selectedEvent && mobileView === "map" && (
-            <div
-              className="fixed right-[calc(0.75rem+env(safe-area-inset-right))] bottom-[calc(0.75rem+env(safe-area-inset-bottom))] left-[calc(0.75rem+env(safe-area-inset-left))] z-[1200] flex items-center gap-3 rounded-none border p-3 shadow-xl lg:hidden"
-              style={{ background: "#f3f0e8", borderColor: ORANGE }}
-            >
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-sans text-sm font-semibold text-foreground">{selectedEvent.title}</p>
-                <p className="truncate font-sans text-xs text-muted">
-                  {formatEventDateShort(selectedEvent.startsAt)} &middot; {selectedEvent.suburb} &middot;{" "}
-                  {formatFeedPrice(selectedEvent)}
-                </p>
-              </div>
-              <Link
-                href={`/events/${selectedEvent.slug}`}
-                className="flex h-11 items-center  px-3 font-sans text-sm font-medium"
-                style={{ background: ORANGE, color: "#f3f0e8" }}
-              >
-                View
-              </Link>
-              <button
-                type="button"
-                onClick={() => setSelectedEventId(null)}
-                aria-label="Dismiss selected event"
-                className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-surface-border font-sans text-lg text-muted"
-              >
-                &times;
-              </button>
-            </div>
+            <SceneMapEventCard
+              variant="sheet"
+              event={selectedEvent}
+              detailsHref={`/events/${selectedEvent.slug}`}
+              onDismiss={() => setSelectedEventId(null)}
+              className="fixed right-[calc(0.75rem+env(safe-area-inset-right))] bottom-[calc(0.75rem+env(safe-area-inset-bottom))] left-[calc(0.75rem+env(safe-area-inset-left))] z-[1200] lg:hidden"
+            />
           )}
+
+          <p className="sr-only" aria-live="polite">
+            {selectedEvent
+              ? `Selected ${selectedEvent.title}, ${formatEventDateShort(selectedEvent.startsAt)} ${formatEventTime(selectedEvent.startsAt)}, ${selectedEvent.venueName}, ${formatFeedPrice(selectedEvent)}.`
+              : ""}
+          </p>
         </>
       )}
     </div>
