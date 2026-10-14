@@ -48,3 +48,10 @@ next-env.d.ts
 # Supabase CLI local state
 supabase/.temp/
 
+
+# Local load-testing harness output and state (docs/loadtest.md)
+/loadtest/results/
+/loadtest/.state/
+
+# Local ticket-email previews (scripts/preview-ticket-email.ts)
+/email-previews/
