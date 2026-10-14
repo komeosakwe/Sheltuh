@@ -93,7 +93,7 @@ describe("buildTicketEmail", () => {
     expect(html).toContain('src="https://x/icons/icon-192.png"');
     expect(html).not.toMatch(/qr code|barcode|qrcode/i);
     const withoutImages = html.replace(/<img[^>]*>/g, "");
-    for (const needle of ["Paint &#38; &#60;Sip&#62;", "Studio 5", "5 Smith St, Fitzroy", "ABCD-EFGH", "JKLM-NPQR", "A$64", "#ORD_ABC"]) {
+    for (const needle of ["Paint &#38; &#60;Sip&#62;", "Studio 5", "5 Smith St, Fitzroy", "ABCD-EFGH", "JKLM-NPQR", "A$64", "#ABC"]) {
       expect(withoutImages).toContain(needle);
     }
   });
@@ -159,6 +159,8 @@ describe("buildTicketEmail", () => {
 
   it("shows an order reference derived from the order id, and a Free total without fees note", () => {
     expect(orderReference("7c1f2e0a-5b3d-4f6e-9a18-2d4c6b8e0f13")).toBe("#7C1F2E0A");
+    // Real ids are `ord_` + 32 hex: the prefix must not eat the reference.
+    expect(orderReference("ord_9f86d081884c7d659a2feaa0c55ad015")).toBe("#9F86D081");
     const free = buildTicketEmail({ ...order, totalCents: 0 }, event, "https://x").html;
     expect(free).toContain("Total paid");
     expect(free).not.toContain("incl. booking fees");

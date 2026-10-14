@@ -80,9 +80,13 @@ export function formatTicketTime(startIso: string, endIso?: string): string {
   return `${time(startIso)} (${shortWeekday.format(start)}) – ${time(endIso)} (${shortWeekday.format(end)}) ${zone(endIso) === tz ? tz : `${tz} / ${zone(endIso)}`}`;
 }
 
-/** A short reference for support: the first characters of the order id. */
+/**
+ * A short reference for support: the first 8 characters of the order id's
+ * random part (real ids look like `ord_<32 hex>`; the prefix and any dashes
+ * are dropped first so the reference is 8 useful characters).
+ */
 export function orderReference(orderId: string): string {
-  return `#${orderId.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
+  return `#${orderId.replace(/^ord_/, "").replace(/-/g, "").slice(0, 8).toUpperCase()}`;
 }
 
 // --- HTML pieces ---
