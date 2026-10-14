@@ -24,6 +24,7 @@ export default function PhoneHero() {
             imageUrl={HOME_HERO.imageUrl}
             title="Sheltüh"
             priority
+            motion
             className="h-full w-full rounded-card"
           />
           <Scribble className="pointer-events-none absolute -inset-2 -rotate-2 text-pop" />

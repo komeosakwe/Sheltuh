@@ -11,11 +11,12 @@ const INTENTS = [
   { label: "I want to make", href: "/organisers/apply" },
 ] as const;
 
-// Decorative hero artwork, drawn with the same local poster renderer as events.
+// Decorative hero collage: real photos (see public/events/README.md for their sources),
+// each with its poster art underneath as the fallback if a photo fails to load.
 const HERO_POSTERS = [
-  { pattern: "burst", background: "#0b0b0b", primary: "#ff3d2e", secondary: "#f3f0e8" },
-  { pattern: "halftone", background: "#e8ff3a", primary: "#0b0b0b", secondary: "#0b0b0b" },
-  { pattern: "waves", background: "#2b3cff", primary: "#f3f0e8", secondary: "#ffb3d1" },
+  { pattern: "burst", background: "#0b0b0b", primary: "#ff3d2e", secondary: "#f3f0e8", imageUrl: "/events/vintage-market-stall.jpg" },
+  { pattern: "halftone", background: "#e8ff3a", primary: "#0b0b0b", secondary: "#0b0b0b", imageUrl: "/events/record-shop-dj.jpg" },
+  { pattern: "waves", background: "#2b3cff", primary: "#f3f0e8", secondary: "#ffb3d1", imageUrl: "/events/gallery-opening.jpg" },
 ] as const;
 
 export default function IntentHero() {
@@ -53,10 +54,10 @@ export default function IntentHero() {
 
         {/* Asymmetric poster collage: tall lead image, offset supporting tiles. */}
         <div aria-hidden="true" className="relative hidden min-h-[520px] lg:col-span-5 lg:block">
-          <EventArt poster={HERO_POSTERS[0]} title="Sheltüh" className="float absolute right-0 top-0 h-[430px] w-[78%]" />
-          <EventArt poster={HERO_POSTERS[1]} title="Sheltüh" className="float absolute bottom-0 left-0 h-[220px] w-[46%] [--d:-2s]" />
-          <EventArt poster={HERO_POSTERS[2]} title="Sheltüh" className="float absolute bottom-6 right-0 h-[150px] w-[38%] [--d:-4s]" />
-          <RoundBadge className="absolute left-2 top-16 h-28 w-28 text-foreground" />
+          <EventArt poster={HERO_POSTERS[0]} imageUrl={HERO_POSTERS[0].imageUrl} motion title="Sheltüh" priority className="float absolute right-0 top-0 h-[430px] w-[78%]" />
+          <EventArt poster={HERO_POSTERS[1]} imageUrl={HERO_POSTERS[1].imageUrl} motion title="Sheltüh" className="float absolute bottom-0 left-0 h-[220px] w-[46%] [--d:-2s]" />
+          <EventArt poster={HERO_POSTERS[2]} imageUrl={HERO_POSTERS[2].imageUrl} motion title="Sheltüh" className="float absolute bottom-6 right-0 h-[150px] w-[38%] [--d:-4s]" />
+          <RoundBadge text="Curated · Melbourne · Naarm · " className="absolute left-2 top-16 h-28 w-28 rounded-full bg-highlight text-foreground" />
           <Burst className="absolute right-[-8px] top-[-14px] h-10 w-10 text-foreground" />
         </div>
       </section>

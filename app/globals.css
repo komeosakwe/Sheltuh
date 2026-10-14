@@ -210,6 +210,20 @@ h4 {
     animation: float 7s ease-in-out infinite;
     animation-delay: var(--d, 0ms);
   }
+  /* Slow push-in on a photo (the container clips it); alternates so it never snaps back. */
+  @keyframes ken-burns {
+    from {
+      transform: scale(1);
+    }
+    to {
+      transform: scale(1.12) translate(-1.5%, -1%);
+    }
+  }
+  .ken-burns {
+    animation: ken-burns 16s ease-in-out infinite alternate;
+    animation-delay: var(--d, 0ms);
+    will-change: transform;
+  }
   .spin-slow {
     animation: spin-slow 24s linear infinite;
   }

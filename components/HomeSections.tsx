@@ -10,16 +10,19 @@ const REASONS = [
     label: "Every event reviewed by a person",
     note: "Curated, not scraped.",
     poster: { pattern: "rings", background: "#0b0b0b", primary: "#f3f0e8", secondary: "#e8ff3a" },
+    imageUrl: "/events/gallery-opening.jpg",
   },
   {
     label: "The price you see is the price you pay",
     note: "Booking fees shown up front.",
     poster: { pattern: "halftone", background: "#e8ff3a", primary: "#0b0b0b", secondary: "#0b0b0b" },
+    imageUrl: "/events/street-market.jpg",
   },
   {
     label: "Free events stay free",
     note: "No fee on free tickets.",
     poster: { pattern: "waves", background: "#2b3cff", primary: "#f3f0e8", secondary: "#ffb3d1" },
+    imageUrl: "/events/jazz-drummer.webp",
   },
 ] as const;
 
@@ -44,7 +47,7 @@ export function WhatElse() {
               index === active ? "opacity-100" : "opacity-0"
             }`}
           >
-            <EventArt poster={reason.poster} title="Sheltüh" className="h-full w-full" />
+            <EventArt poster={reason.poster} imageUrl={reason.imageUrl} title="Sheltüh" motion className="h-full w-full" />
           </div>
         ))}
       </div>

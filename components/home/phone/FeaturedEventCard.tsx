@@ -56,7 +56,7 @@ export default function FeaturedEventCard({ event, mode }: { event: SheltuhEvent
       className="group relative block aspect-[4/5] overflow-hidden rounded-card bg-foreground text-background shadow-card motion-safe:transition-transform motion-safe:duration-150 motion-safe:active:scale-[0.99] min-[375px]:aspect-square"
     >
       <div className="absolute inset-0">
-        <EventArt poster={event.poster} imageUrl={event.imageUrl} title={event.title} className="h-full w-full" />
+        <EventArt poster={event.poster} imageUrl={event.imageUrl} title={event.title} motion className="h-full w-full" />
       </div>
       {/* Functional scrim: at least 85% black wherever text sits, so the text stays readable over any photo. */}
       <div

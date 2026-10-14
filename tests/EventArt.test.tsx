@@ -57,4 +57,11 @@ describe("EventArt", () => {
     expect(img).toHaveAttribute("loading", "eager");
     expect(img).toHaveAttribute("fetchpriority", "high");
   });
+
+  it("only animates the photo when asked to (hero and feature images)", () => {
+    const { container, rerender } = render(<EventArt poster={poster} title="x" imageUrl="/home/hero.jpg" />);
+    expect(container.querySelector("img")?.className).not.toMatch(/ken-burns/);
+    rerender(<EventArt poster={poster} title="x" imageUrl="/home/hero.jpg" motion />);
+    expect(container.querySelector("img")?.className).toMatch(/ken-burns/);
+  });
 });
