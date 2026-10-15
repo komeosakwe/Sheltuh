@@ -8,7 +8,14 @@ import EventMarkerLayer, { type MarkerDatum, type OpenSpot } from "@/components/
 import MapSpotList from "@/components/map/MapSpotList";
 import { runQuietly, stopQuietly } from "@/components/map/quiet-map";
 import { buttonClass } from "@/components/ui/Button";
-import { MELBOURNE_DEFAULT_CENTER, MELBOURNE_DEFAULT_ZOOM, resolveEventCoordinates } from "@/lib/geo";
+import {
+  MELBOURNE_DEFAULT_CENTER,
+  MELBOURNE_DEFAULT_ZOOM,
+  MELBOURNE_METRO_BOUNDS,
+  MELBOURNE_MIN_ZOOM,
+  isInMelbourneMetro,
+  resolveEventCoordinates,
+} from "@/lib/geo";
 import type { Coordinates, SheltuhEvent } from "@/lib/types";
 import { usePrefersReducedMotion } from "@/lib/use-reduced-motion";
 
@@ -262,11 +269,13 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
   const markers = useMemo<MarkerDatum[]>(() => {
     return events.flatMap((event) => {
       const coords = resolveEventCoordinates(event);
-      return coords ? [{ event, lat: coords.lat, lng: coords.lng }] : [];
+      // Outside Greater Melbourne = not pinned (the map is Melbourne-only).
+      return coords && isInMelbourneMetro(coords) ? [{ event, lat: coords.lat, lng: coords.lng }] : [];
     });
   }, [events]);
 
-  const center: Coordinates = markers[0] ?? MELBOURNE_DEFAULT_CENTER;
+  // Always start on Melbourne; the controller then fits the events within it.
+  const center: Coordinates = MELBOURNE_DEFAULT_CENTER;
 
   // Derived, not synced: when filters drop some of a spot's events the list
   // shrinks, and when none are left it is simply closed.
@@ -327,6 +336,12 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
         fadeAnimation={!reducedMotion}
         center={[center.lat, center.lng]}
         zoom={MELBOURNE_DEFAULT_ZOOM}
+        minZoom={MELBOURNE_MIN_ZOOM}
+        maxBounds={[
+          [MELBOURNE_METRO_BOUNDS.south, MELBOURNE_METRO_BOUNDS.west],
+          [MELBOURNE_METRO_BOUNDS.north, MELBOURNE_METRO_BOUNDS.east],
+        ]}
+        maxBoundsViscosity={1}
         scrollWheelZoom
         className="h-full w-full bg-background"
       >

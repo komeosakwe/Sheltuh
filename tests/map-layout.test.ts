@@ -89,3 +89,23 @@ describe("isSinglePoint", () => {
     expect(isSinglePoint([{ lat: -37.8, lng: 144.9 }, { lat: -37.801, lng: 144.9 }])).toBe(false);
   });
 });
+
+import { isInMelbourneMetro, MELBOURNE_DEFAULT_CENTER, MELBOURNE_METRO_BOUNDS } from "@/lib/geo";
+
+describe("Melbourne focus", () => {
+  it("treats Greater Melbourne as in and other cities as out", () => {
+    expect(isInMelbourneMetro(MELBOURNE_DEFAULT_CENTER)).toBe(true);
+    expect(isInMelbourneMetro({ lat: -37.7, lng: 145.1 })).toBe(true); // Eltham
+    expect(isInMelbourneMetro({ lat: -33.87, lng: 151.21 })).toBe(false); // Sydney
+    expect(isInMelbourneMetro({ lat: 51.5, lng: -0.12 })).toBe(false); // London
+    expect(isInMelbourneMetro({ lat: 0, lng: 0 })).toBe(false);
+  });
+
+  it("keeps the default centre well inside the bounds", () => {
+    const b = MELBOURNE_METRO_BOUNDS;
+    expect(MELBOURNE_DEFAULT_CENTER.lat).toBeGreaterThan(b.south);
+    expect(MELBOURNE_DEFAULT_CENTER.lat).toBeLessThan(b.north);
+    expect(MELBOURNE_DEFAULT_CENTER.lng).toBeGreaterThan(b.west);
+    expect(MELBOURNE_DEFAULT_CENTER.lng).toBeLessThan(b.east);
+  });
+});
