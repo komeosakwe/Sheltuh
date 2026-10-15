@@ -7,6 +7,7 @@ import type { EmailMessage } from "@/lib/server/email";
 import { runHandler, type Handler } from "@/lib/server/route";
 
 export const WEBHOOK_SECRET = "whsec_test_secret";
+export const CRON_SECRET = "cron-test-secret";
 export const SITE_URL = "https://sheltuh.test";
 
 /** Stripe's own offline signing/verification, for realistic webhook tests. */
@@ -46,6 +47,10 @@ export class TestApi {
   readonly stripe = createFakeStripe();
   /** Every email the API "sent". Make it throw to simulate an SMTP outage. */
   readonly sendEmail = vi.fn<(message: EmailMessage) => Promise<void>>().mockResolvedValue(undefined);
+  /** Work handlers deferred until after the response (Deps.defer). Run with runDeferred(). */
+  readonly deferred: (() => Promise<void>)[] = [];
+  /** The cron secret this API is configured with; undefined to simulate CRON_SECRET being unset. */
+  cronSecret: string | undefined = CRON_SECRET;
   private readonly callers = new Map<string, Caller>();
 
   constructor(readonly db: Db) {}
@@ -58,7 +63,16 @@ export class TestApi {
       stripeWebhookSecret: () => WEBHOOK_SECRET,
       siteUrl: () => SITE_URL,
       sendEmail: this.sendEmail,
+      defer: (task) => {
+        this.deferred.push(task);
+      },
+      cronSecret: () => this.cronSecret,
     };
+  }
+
+  /** Runs everything deferred so far (and anything that defers in turn), as Next's after() would once the response is sent. */
+  async runDeferred(): Promise<void> {
+    while (this.deferred.length > 0) await this.deferred.shift()!();
   }
 
   /**

@@ -4,9 +4,11 @@
  * they drop out of JSON responses, matching the optional fields.
  */
 import type {
+  AdminEmailJob,
   AdminReport,
   BlockRecord,
   ConversationSummary,
+  CustomerOrder,
   EventRecord,
   GoingAttendee,
   IssuedTicket,
@@ -18,6 +20,8 @@ import type {
   PublicEvent,
   TicketTypeInput,
 } from "./types";
+import { maskEmail } from "./email-address";
+import { orderReference } from "./order-reference";
 
 type Row = Record<string, unknown>;
 
@@ -176,6 +180,64 @@ export function toOrder(row: Row): OrderRecord {
     tickets: row.tickets as IssuedTicket[],
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
+  };
+}
+
+/**
+ * The buyer's confirmation-page view of an order (`where o.id = $1`). Only the
+ * columns CustomerOrder needs: no ids, fee split, Stripe ids or timestamps.
+ */
+export const CUSTOMER_ORDER_SELECT = `
+  select o.id, o.status::text as status, o.event_title, o.buyer_email,
+         o.subtotal_cents, o.buyer_fee_cents, o.total_cents,
+         (select e.slug from public.events e where e.id = o.event_id) as event_slug,
+         coalesce((
+           select json_agg(json_build_object('ticketCode', t.code, 'ticketTypeName', t.ticket_type_name)
+                           order by t.ticket_type_id, t.code)
+           from public.tickets t where t.order_id = o.id
+         ), '[]'::json) as tickets
+  from public.orders o`;
+
+export function toCustomerOrder(row: Row): CustomerOrder {
+  const email = opt<string>(row.buyer_email);
+  return {
+    status: row.status as CustomerOrder["status"],
+    reference: orderReference(row.id as string),
+    eventTitle: row.event_title as string,
+    eventSlug: opt(row.event_slug),
+    maskedEmail: email ? maskEmail(email) : undefined,
+    subtotalCents: row.subtotal_cents as number,
+    buyerFeeCents: row.buyer_fee_cents as number,
+    totalCents: row.total_cents as number,
+    tickets: row.tickets as CustomerOrder["tickets"],
+  };
+}
+
+/** Admin view of a ticket-email job; append `where …`. Reads the order only for its reference, title and masked email. */
+export const ADMIN_EMAIL_JOB_SELECT = `
+  select j.id::text as id, j.kind, j.status, j.attempts, j.next_attempt_at, j.last_error,
+         j.created_at, j.sent_at, j.last_resend_at,
+         o.id as order_id, o.status::text as order_status, o.event_title, o.buyer_email
+    from private.email_outbox j
+    join public.orders o on o.id = j.order_id`;
+
+export function toAdminEmailJob(row: Row): AdminEmailJob {
+  const email = opt<string>(row.buyer_email);
+  const status = row.status as AdminEmailJob["status"];
+  return {
+    jobId: row.id as string,
+    kind: row.kind as AdminEmailJob["kind"],
+    status,
+    attempts: row.attempts as number,
+    nextAttemptAt: status === "pending" ? iso(row.next_attempt_at) : undefined,
+    lastError: opt(row.last_error),
+    createdAt: iso(row.created_at),
+    sentAt: row.sent_at ? iso(row.sent_at) : undefined,
+    lastResendAt: row.last_resend_at ? iso(row.last_resend_at) : undefined,
+    orderReference: orderReference(row.order_id as string),
+    orderStatus: row.order_status as AdminEmailJob["orderStatus"],
+    eventTitle: row.event_title as string,
+    maskedEmail: email ? maskEmail(email) : undefined,
   };
 }
 

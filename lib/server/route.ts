@@ -1,4 +1,5 @@
 import { getDeps, type Deps } from "./deps";
+import { redactForLog } from "./email-address";
 import { errorJson, HttpError } from "./http";
 
 type Params = Record<string, string>;
@@ -23,7 +24,7 @@ export async function runHandler<P extends Params>(
       return errorJson(err.statusCode, { error: err.message, fieldErrors: err.fieldErrors });
     }
     // Never log request bodies or tokens — they carry personal data.
-    console.error("Unhandled API error:", err instanceof Error ? err.message : "unknown error");
+    console.error("Unhandled API error:", redactForLog(err instanceof Error ? err.message : "unknown error"));
     return errorJson(500, { error: "Something went wrong." });
   }
 }

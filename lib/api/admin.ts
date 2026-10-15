@@ -1,6 +1,8 @@
 import { apiFetch, type GetToken } from "./client";
 import type {
+  AdminEmailJob,
   AdminReport,
+  EmailJobStatus,
   EventRecord,
   EventStatus,
   OrganiserRecord,
@@ -70,4 +72,20 @@ export async function adminResolveReport(reportId: string, input: ResolveReportI
     body: input,
     token,
   });
+}
+
+/** Ticket emails in one status, newest first (default view: `failed`). */
+export async function adminListEmailJobs(status: EmailJobStatus, getToken: GetToken, cursor?: string) {
+  const token = await getToken();
+  const qs = new URLSearchParams({ status, ...(cursor ? { cursor } : {}) });
+  return apiFetch<Paginated<AdminEmailJob>>(`/admin/emails?${qs}`, { token });
+}
+
+/**
+ * Sends a ticket email again now. ApiError 409 while it's being sent; 429 if
+ * it was resent in the last 5 minutes or the admin has resent 20 this hour.
+ */
+export async function adminResendEmailJob(jobId: string, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminEmailJob>(`/admin/emails/${encodeURIComponent(jobId)}/resend`, { method: "POST", token });
 }

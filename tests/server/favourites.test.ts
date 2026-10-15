@@ -86,7 +86,7 @@ describe("favouriting", () => {
     expect(await rows(m.userId)).toEqual([]);
   });
 
-  it(`caps each account at ${MAX_FAVOURITES}, counting hidden (unpublished) favourites too`, async () => {
+  it(`caps each account at ${MAX_FAVOURITES} visible favourites; hidden (unpublished) ones don't count`, async () => {
     const m = await api.signUp();
     // MAX_FAVOURITES published events, the shared `event` among them.
     await api.db.query(
@@ -116,12 +116,15 @@ describe("favouriting", () => {
     expect((await put(m.token, { eventId: spare })).status).toBe(200);
     expect(await rows(m.userId)).toHaveLength(MAX_FAVOURITES);
 
-    // A favourite whose event is unpublished still counts (rows are kept)...
+    // A favourite whose event is unpublished is kept but hidden, and the
+    // member can't see it to remove it, so it doesn't count towards the cap.
     await api.db.query(`update public.events set status = 'draft' where id = $1`, [spare]);
-    expect((await put(m.token, { eventId: another })).status).toBe(409);
-    // ...until it's removed.
-    expect((await del(m.token, { eventId: spare })).status).toBe(200);
     expect((await put(m.token, { eventId: another })).status).toBe(200);
+    expect(await rows(m.userId)).toHaveLength(MAX_FAVOURITES + 1);
+    expect((await ids(m.token)).body.eventIds).toHaveLength(MAX_FAVOURITES);
+    // Visible ones are still capped.
+    const third = await publishedEvent(api, organiser, admin);
+    expect((await put(m.token, { eventId: third.eventId })).status).toBe(409);
   });
 
   it("concurrent adds can't pass the cap (real Postgres serialises them; PGlite runs them one by one)", async () => {

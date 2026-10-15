@@ -144,6 +144,7 @@ describe("opting in: who is eligible", () => {
     });
     const m = await member({ email: "free@example.com" });
     const checkout = await api.call(createCheckout, {
+      token: m.token,
       params: params(free),
       body: { lineItems: [{ ticketTypeId: "rsvp", quantity: 1 }], buyerEmail: "free@example.com" },
     });

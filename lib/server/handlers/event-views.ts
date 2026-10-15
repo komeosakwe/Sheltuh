@@ -10,9 +10,9 @@ import { parseTrackingCode } from "../tracking-codes";
  * cookie, IP, user id or token; the user agent is only checked for bots and
  * never kept). The view lands in a daily aggregate counter.
  *
- * Quiet by design: 204 whether it was counted or not (bot, prefetch, body
- * too large, over the event's per-minute cap, a database error); 404 only
- * for an event that isn't published.
+ * Quiet by design: 204 whether it was counted or not (bot, prefetch, not a
+ * same-origin JSON request, body too large, over the event's per-minute cap,
+ * a database error); 404 only for an event that isn't published.
  */
 
 /**
@@ -41,6 +41,21 @@ export function isLikelyBot(req: Request): boolean {
   return /prefetch|prerender|preview/i.test(purpose);
 }
 
+/**
+ * Only the app's own beacon counts: a same-origin `fetch` with a JSON body
+ * (lib/api/analytics.ts). Anything else, such as a cross-site form post or
+ * `navigator.sendBeacon` (text/plain), is ignored. Browsers always send
+ * Content-Type and, on fetches, Sec-Fetch-Site, which pages can't forge; a
+ * missing Sec-Fetch-Site (older browsers, non-browser clients) is let
+ * through, since the per-event cap bounds those anyway.
+ */
+export function isOwnBeacon(req: Request): boolean {
+  const type = req.headers.get("content-type") ?? "";
+  if (!/^application\/json\s*(;|$)/i.test(type)) return false;
+  const site = req.headers.get("sec-fetch-site");
+  return site === null || site === "same-origin";
+}
+
 /** The body's source bucket: missing means a direct visit; anything not on the list is "other". */
 function parseSource(raw: unknown): ViewSource {
   if (raw === undefined || raw === null || raw === "") return "direct";
@@ -48,7 +63,7 @@ function parseSource(raw: unknown): ViewSource {
 }
 
 export const recordEventView: Handler<{ eventId: string }> = async (req, { eventId }, { db }) => {
-  if (isLikelyBot(req)) return noContentPrivate();
+  if (isLikelyBot(req) || !isOwnBeacon(req)) return noContentPrivate();
   if (!isUuid(eventId)) throw new HttpError(404, "Event not found.");
 
   let body: Record<string, unknown>;

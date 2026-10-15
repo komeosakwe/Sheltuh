@@ -24,6 +24,11 @@ export function createSmtpSender(env: NodeJS.ProcessEnv = process.env): SendEmai
     port,
     secure: port === 465,
     auth: { user: SMTP_USER, pass: SMTP_PASS },
+    // Well inside the email outbox's 2-minute lease (lib/server/email-outbox.ts),
+    // so a hung server fails the attempt rather than outliving it and sending twice.
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 30_000,
   });
 
   return async (message) => {

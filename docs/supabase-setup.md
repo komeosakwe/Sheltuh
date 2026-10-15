@@ -228,6 +228,25 @@ View counting starts the day `20261006000000_event_analytics.sql` is applied
 as "not counted". Don't change that date by hand: it's what keeps a report
 from showing 0 views for days nobody counted.
 
+### Free-ticket and email outbox retention (daily job)
+
+Guest free orders that were never confirmed are deleted a week after their
+link expired, along with idle platform counters, free-booking refusal counts
+older than 13 months, and ticket-email jobs (sent ones after 90 days, failed
+ones after a year), by `private.purge_operational_data()`:
+
+```sql
+select cron.schedule('purge-operational-data', '37 3 * * *', $$select private.purge_operational_data()$$);
+```
+
+It's safe to run by hand and returns how many rows it deleted. Paid orders
+are financial records and are never purged. To see how often free bookings
+are refused (no personal data is kept):
+
+```sql
+select day, reason, refusals from private.free_order_refusals order by day desc, reason;
+```
+
 ## 2. Stripe (Connect)
 
 1. In the Stripe dashboard, stay in **test mode** and enable **Connect**. Use
@@ -278,14 +297,34 @@ Google Workspace, so there's no new vendor:
    `.env.example`. Google already sends for your domain under the existing
    SPF record, so no DNS change is needed.
 
-Workspace allows about 2,000 messages a day, which is plenty for launch. If
-SMTP isn't set, orders still work and tickets still show on the confirmation
-page; the server logs that no email was sent. To find orders whose email
-failed:
+Workspace allows about 2,000 messages a day, which is plenty for launch (it's
+shared with free-ticket confirmation emails). If SMTP isn't set, orders still
+work and tickets still show on the confirmation page; each ticket email is
+retried on the schedule below and then shows as failed.
+
+**Retries.** Every ticket email goes through an outbox: it's tried straight
+after the order is paid, then by a cron job every 5 minutes (1 min, 5 min,
+30 min, 2 h and 6 h after each failure; after the 6th it's marked failed).
+Set it up once:
+
+1. Generate a secret (`openssl rand -hex 32`) and add it to Vercel as
+   `CRON_SECRET` (Production). Without it the cron route refuses every
+   request and nothing is retried.
+2. `vercel.json` already schedules `GET /api/cron/email-outbox` every 5
+   minutes; Vercel sends the secret as a bearer token. Every-5-minute crons
+   need the **Pro** plan (Hobby runs crons at most daily). On Hobby, use
+   Supabase Cron with `pg_net` to call the URL with the header instead.
+3. Check it under Vercel → Project → Settings → Cron Jobs (each run returns
+   counts: `claimed`, `sent`, `retrying`, `failed`).
+
+Failed emails are listed at `/admin/emails`, by order reference and masked
+address, with a **Resend now** button. Delivery is at-least-once, so a buyer
+can occasionally get the same email twice. From SQL:
 
 ```sql
-select id, buyer_email, created_at from orders
-where status = 'paid' and buyer_email is not null and tickets_emailed_at is null;
+select j.id, j.status, j.attempts, j.last_error, j.next_attempt_at, o.event_title
+from private.email_outbox j join orders o on o.id = j.order_id
+where j.status in ('failed', 'pending') order by j.created_at desc;
 ```
 
 ## 4. Vercel
@@ -313,8 +352,10 @@ changing them.
 4. Create an event with a free ticket and a paid ticket, and submit it.
    Approve it at `/admin/events`.
 5. Signed out, open the event:
-   - Get the free ticket (it asks for an email). It's issued instantly
-     and the ticket email arrives.
+   - Get the free ticket (it asks for an email). Signed out, a "confirm your
+     free tickets" email arrives; open its link, press Confirm, and the
+     tickets are issued and the ticket email arrives. Signed in with the
+     same email, the tickets are issued straight away.
    - Buy the paid ticket with card `4242 4242 4242 4242`. The confirmation
      page shows ticket codes once Stripe's webhook arrives, usually within
      seconds.

@@ -41,24 +41,36 @@ export function conversionRate(orders: number, views: number): number | null {
 
 /**
  * `viewsComplete` is false when part of the period is before view counting
- * began (or before retention), and then there's no conversion rate.
+ * began (or before retention), and `viewsUnreliable` true when the view cap
+ * was reached on some day of it; either way there's no conversion rate.
  */
-export function totals(sums: OrderSums, views: number, viewsComplete: boolean): AnalyticsTotals {
+export function totals(
+  sums: OrderSums,
+  views: number,
+  viewsComplete: boolean,
+  viewsUnreliable = false,
+): AnalyticsTotals {
   return {
     views,
     orders: sums.orders,
     ticketsSold: sums.ticketsSold,
     ...money(sums.grossCents, sums.feesCents),
-    conversionRate: viewsComplete ? conversionRate(sums.orders, views) : null,
+    conversionRate: viewsComplete && !viewsUnreliable ? conversionRate(sums.orders, views) : null,
+    viewsUnreliable,
   };
 }
 
-/** Every day in `range`, zero-filled; views are null for days before `viewsTrackedSince` (or all, if never). */
+/**
+ * Every day in `range`, zero-filled; views are null for days before
+ * `viewsTrackedSince` (or all, if never). Days in `capDays` (the view cap was
+ * reached) are flagged `viewsUnreliable`.
+ */
 export function dailySeries(
   range: DateRange,
   views: Map<string, number>,
   orders: Map<string, OrderSums>,
   viewsTrackedSince: string | null,
+  capDays: ReadonlySet<string> = new Set(),
 ): AnalyticsDay[] {
   return eachDay(range).map((date) => {
     const o = orders.get(date) ?? NO_ORDERS;
@@ -66,6 +78,7 @@ export function dailySeries(
     return {
       date,
       views: counted ? (views.get(date) ?? 0) : null,
+      viewsUnreliable: capDays.has(date),
       orders: o.orders,
       ticketsSold: o.ticketsSold,
       ...money(o.grossCents, o.feesCents),
@@ -185,6 +198,12 @@ function eventHeader(event: AnalyticsEventSummary, range: DateRange, viewsTracke
 }
 
 const MONEY_HEADERS = ["Gross (AUD)", "Fees (AUD)", "Net (AUD)"];
+
+/** A row naming the days whose views hit the cap (lower bounds), if there are any. */
+function unreliableNote(days: AnalyticsDay[]): CsvCell[][] {
+  const capped = days.filter((d) => d.viewsUnreliable).map((d) => d.date);
+  return capped.length > 0 ? [["Views incomplete (view cap reached) on", capped.join(" ")]] : [];
+}
 const moneyCells = (m: MoneyTotals): CsvCell[] => [{ cents: m.grossCents }, { cents: m.feesCents }, { cents: m.netCents }];
 
 export function eventAnalyticsCsv(a: EventAnalytics): CsvCell[][] {
@@ -194,6 +213,7 @@ export function eventAnalyticsCsv(a: EventAnalytics): CsvCell[][] {
   for (const d of a.byDay) rows.push([d.date, d.views, d.orders, d.ticketsSold, ...moneyCells(d)]);
   rows.push(["Total", a.totals.views, a.totals.orders, a.totals.ticketsSold, ...moneyCells(a.totals)]);
   rows.push(["Conversion (%)", pct(a.totals.conversionRate)]);
+  rows.push(...unreliableNote(a.byDay));
   rows.push([]);
 
   rows.push(["Source", "Views"]);
@@ -245,6 +265,7 @@ export function overviewCsv(o: AnalyticsOverview): CsvCell[][] {
     rows.push([e.title, e.startsAt, e.status, ...line(e.totals), ...(compare && e.previous ? line(e.previous) : [])]);
   }
   rows.push(["Total", null, null, ...line(o.totals), ...(o.previous ? line(o.previous.totals) : [])]);
+  rows.push(...unreliableNote(o.byDay));
   if (o.eventsTruncated) rows.push(["Only the first 500 events are listed; the total covers them all."]);
   return rows;
 }

@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import CheckoutConfirmation from "@/components/CheckoutConfirmation";
-import type { OrderRecord } from "@/lib/api/types";
+import type { CustomerOrder } from "@/lib/api/types";
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams({ session_id: "cs_test_1" }),
@@ -17,22 +17,16 @@ afterEach(() => {
   getOrderBySession.mockReset();
 });
 
-const ORDER: OrderRecord = {
-  orderId: "ord-1",
-  organiserId: "org-1",
-  eventId: "evt-1",
+const ORDER: CustomerOrder = {
+  status: "paid",
+  reference: "#7C1F2E0A",
   eventTitle: "Neon Static",
   eventSlug: "neon-static",
-  buyerEmail: "mia@example.com",
-  lineItems: [],
+  maskedEmail: "m***@example.com",
   subtotalCents: 3000,
   buyerFeeCents: 170,
   totalCents: 3170,
-  applicationFeeCents: 170,
-  status: "paid",
-  tickets: [{ ticketCode: "ABC123", ticketTypeId: "tt-1", ticketTypeName: "General admission" }],
-  createdAt: "2026-09-30T00:00:00.000Z",
-  updatedAt: "2026-09-30T00:00:00.000Z",
+  tickets: [{ ticketCode: "ABC123", ticketTypeName: "General admission" }],
 };
 
 describe("CheckoutConfirmation", () => {
@@ -48,8 +42,17 @@ describe("CheckoutConfirmation", () => {
     expect(getOrderBySession).toHaveBeenCalledWith("cs_test_1");
   });
 
+  it("shows the masked email and the order reference, never a full address", async () => {
+    getOrderBySession.mockResolvedValue(ORDER);
+    render(<CheckoutConfirmation />);
+    expect(await screen.findByText("We’re emailing your tickets to m***@example.com.")).toBeInTheDocument();
+    expect(screen.getByText("Order reference #7C1F2E0A")).toBeInTheDocument();
+    expect(screen.getByText("ABC123")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/mia@/);
+  });
+
   it("without an event slug (an older API), only links home", async () => {
-    getOrderBySession.mockResolvedValue({ ...ORDER, eventSlug: "" });
+    getOrderBySession.mockResolvedValue({ ...ORDER, eventSlug: undefined });
     render(<CheckoutConfirmation />);
     expect(await screen.findByRole("link", { name: "Back to Sheltüh" })).toHaveAttribute("href", "/");
     expect(screen.queryByRole("link", { name: "Back to the event" })).toBeNull();

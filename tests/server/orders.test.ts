@@ -1,7 +1,8 @@
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { adminUnpublishEvent } from "@/lib/server/handlers/admin";
 import { updateEventDraft } from "@/lib/server/handlers/events";
 import { createCheckout, getOrderBySession, orderTotals, stripeWebhook } from "@/lib/server/handlers/orders";
+import { orderReference } from "@/lib/server/order-reference";
 import { stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, eventInput, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
@@ -38,6 +39,17 @@ async function sold(eventId: string) {
   return Object.fromEntries(rows.map((r) => [r.id, r.quantity_sold]));
 }
 
+/** The order's internal fields, read straight from the database (the by-session API never exposes them). */
+async function internal(orderId: string) {
+  const [row] = await api.db.query(
+    `select status::text as status, buyer_email, stripe_checkout_session_id, stripe_payment_intent_id,
+            total_cents, application_fee_cents
+       from public.orders where id = $1`,
+    [orderId],
+  );
+  return row;
+}
+
 function orderIdFromUrl(url: string) {
   return new URL(url).searchParams.get("session_id")!;
 }
@@ -70,10 +82,18 @@ describe("fee maths", () => {
   });
 });
 
-describe("free checkout", () => {
+// Free orders by a signed-in member booking with their own verified email:
+// issued straight away. Guests confirm by email first (free-orders.test.ts).
+describe("free checkout (member, own verified email)", () => {
+  async function fan() {
+    return api.signUp({ email: "fan@example.com" });
+  }
+
   it("issues tickets immediately without touching Stripe", async () => {
     const event = await publishedEvent(api, organiser, admin, { ticketTypes: FREE_TICKETS });
+    const { token } = await fan();
     const res = await api.call(createCheckout, {
+      token,
       params: { eventId: event.eventId },
       body: { lineItems: [{ ticketTypeId: "rsvp", quantity: 2 }], buyerEmail: "fan@example.com" },
     });
@@ -81,7 +101,8 @@ describe("free checkout", () => {
     expect(res.body.url).toMatch(/^https:\/\/sheltuh\.test\/checkout\/success\?session_id=ord_/);
     expect(api.stripe.checkout.sessions.create).not.toHaveBeenCalled();
 
-    const order = await api.call(getOrderBySession, { params: { sessionId: orderIdFromUrl(res.body.url) } });
+    const orderId = orderIdFromUrl(res.body.url);
+    const order = await api.call(getOrderBySession, { params: { sessionId: orderId } });
     expect(order.body).toMatchObject({
       status: "paid",
       totalCents: 0,
@@ -93,12 +114,15 @@ describe("free checkout", () => {
     expect(order.body.tickets[0].ticketCode).toMatch(/^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/);
     expect(await sold(event.eventId)).toEqual({ rsvp: 2 });
 
+    // Sent once the response has gone (Next's after()).
+    expect(api.sendEmail).not.toHaveBeenCalled();
+    await api.runDeferred();
     expect(api.sendEmail).toHaveBeenCalledTimes(1);
     const email = api.sendEmail.mock.calls[0][0];
     expect(email.to).toBe("fan@example.com");
     expect(email.subject).toBe("Your tickets: Neon Static");
     for (const ticket of order.body.tickets) expect(email.text).toContain(ticket.ticketCode);
-    expect(email.text).toContain(`https://sheltuh.test/checkout/success?session_id=${order.body.orderId}`);
+    expect(email.text).toContain(`https://sheltuh.test/checkout/success?session_id=${orderId}`);
   });
 
   it("needs an email address to send the tickets to", async () => {
@@ -115,25 +139,38 @@ describe("free checkout", () => {
   });
 
   it("still issues the tickets if the email can't be sent", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
     const event = await publishedEvent(api, organiser, admin, { ticketTypes: FREE_TICKETS });
+    const { token } = await fan();
     api.sendEmail.mockRejectedValueOnce(new Error("SMTP down"));
     const res = await api.call(createCheckout, {
+      token,
       params: { eventId: event.eventId },
       body: { lineItems: [{ ticketTypeId: "rsvp", quantity: 1 }], buyerEmail: "fan@example.com" },
     });
     expect(res.status).toBe(201);
+    await api.runDeferred();
     const [row] = await api.db.query<{ status: string; tickets_emailed_at: Date | null }>(
       `select status::text, tickets_emailed_at from public.orders`,
     );
     expect(row).toEqual({ status: "paid", tickets_emailed_at: null });
+    // ...and the email is queued to be tried again.
+    const [job] = await api.db.query(`select status, attempts from private.email_outbox`);
+    expect(job).toEqual({ status: "pending", attempts: 1 });
   });
 
   it("says so when the tickets are gone, and leaves no order behind", async () => {
     const event = await publishedEvent(api, organiser, admin, { ticketTypes: FREE_TICKETS });
+    const { token } = await fan();
     const body = { lineItems: [{ ticketTypeId: "rsvp", quantity: 2 }], buyerEmail: "fan@example.com" };
-    await api.call(createCheckout, { params: { eventId: event.eventId }, body });
+    await api.call(createCheckout, { token, params: { eventId: event.eventId }, body });
 
-    const res = await api.call(createCheckout, { params: { eventId: event.eventId }, body });
+    const other = await api.signUp({ email: "other@example.com" });
+    const res = await api.call(createCheckout, {
+      token: other.token,
+      params: { eventId: event.eventId },
+      body: { ...body, buyerEmail: "other@example.com" },
+    });
     expect(res.status).toBe(409);
     expect(res.body.error).toMatch(/sold out/);
     const [{ count }] = await api.db.query<{ count: number }>(`select count(*)::int as count from public.orders`);
@@ -247,22 +284,24 @@ describe("Stripe webhook", () => {
     const res = await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId)));
     expect(res.status).toBe(200);
 
-    const order = await api.call(getOrderBySession, { params: { sessionId: orderId } });
-    expect(order.body).toMatchObject({
+    expect(await internal(orderId)).toEqual({
       status: "paid",
-      buyerEmail: "buyer@example.com",
-      stripeCheckoutSessionId: "cs_test_1",
-      stripePaymentIntentId: "pi_test_1",
-      totalCents: 6340,
-      applicationFeeCents: 340,
+      buyer_email: "buyer@example.com",
+      stripe_checkout_session_id: "cs_test_1",
+      stripe_payment_intent_id: "pi_test_1",
+      total_cents: 6340,
+      application_fee_cents: 340,
     });
+    const order = await api.call(getOrderBySession, { params: { sessionId: orderId } });
     expect(order.body.tickets).toHaveLength(2);
     expect(await sold(event.eventId)).toEqual({ ga: 2, vip: 0 });
 
     // Emailed to the address the buyer gave Stripe, exactly once.
+    await api.runDeferred();
     expect(api.sendEmail).toHaveBeenCalledTimes(1);
     expect(api.sendEmail.mock.calls[0][0].to).toBe("buyer@example.com");
     await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId)));
+    await api.runDeferred();
     expect(api.sendEmail).toHaveBeenCalledTimes(1);
   });
 
@@ -285,8 +324,8 @@ describe("Stripe webhook", () => {
     await api.send(stripeWebhook, stripeWebhookRequest(completedSession(second, { payment_intent: "pi_test_2" })));
 
     const lost = await api.call(getOrderBySession, { params: { sessionId: second } });
-    expect(lost.body).toMatchObject({ status: "refunded", stripePaymentIntentId: "pi_test_2" });
-    expect(lost.body.tickets).toEqual([]);
+    expect(lost.body).toMatchObject({ status: "refunded", tickets: [] });
+    expect(await internal(second)).toMatchObject({ status: "refunded", stripe_payment_intent_id: "pi_test_2" });
     expect(await sold(event.eventId)).toEqual({ ga: 2, vip: 0 });
 
     // Refunded in full: the buyer's money, Sheltüh's fee and the organiser's transfer.
@@ -296,6 +335,7 @@ describe("Stripe webhook", () => {
       { idempotencyKey: `oversold-refund-${second}` },
     );
     // Only the winner got a ticket email.
+    await api.runDeferred();
     expect(api.sendEmail).toHaveBeenCalledTimes(1);
   });
 
@@ -329,6 +369,7 @@ describe("Stripe webhook", () => {
     expect(order.body).toMatchObject({ status: "refunded", tickets: [] });
     expect(await sold(event.eventId)).toEqual({ ga: 0, vip: 0 });
     expect(api.stripe.refunds.create).toHaveBeenCalledTimes(1);
+    await api.runDeferred();
     expect(api.sendEmail).not.toHaveBeenCalled();
   });
 
@@ -424,10 +465,100 @@ describe("Stripe webhook", () => {
   });
 });
 
+describe("guest order lookup (GET /api/orders/by-session/{orderId})", () => {
+  async function paidOrderId() {
+    const event = await publishedEvent(api, organiser, admin, { ticketTypes: PAID_TICKETS });
+    await enablePayouts(api, organiser.organiserId);
+    await api.call(createCheckout, { params: { eventId: event.eventId }, body: { lineItems: [{ ticketTypeId: "ga", quantity: 2 }] } });
+    const orderId = api.stripe.checkout.sessions.create.mock.calls.at(-1)![0].client_reference_id as string;
+    return { event, orderId };
+  }
+
+  it("returns only what the confirmation page shows: no ids, fee split, Stripe ids, line items, timestamps or full email", async () => {
+    const { event, orderId } = await paidOrderId();
+    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId, { customer_details: { email: "mia@example.com" } })));
+
+    const res = await api.call(getOrderBySession, { params: { sessionId: orderId } });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    const codes = await api.db.query<{ code: string }>(`select code from public.tickets where order_id = $1 order by code`, [orderId]);
+    expect(res.body).toEqual({
+      status: "paid",
+      reference: orderReference(orderId),
+      eventTitle: "Neon Static",
+      eventSlug: event.slug,
+      maskedEmail: "m***@example.com",
+      subtotalCents: 6000,
+      buyerFeeCents: 340,
+      totalCents: 6340,
+      tickets: codes.map((c) => ({ ticketCode: c.code, ticketTypeName: "GA" })),
+    });
+    const raw = JSON.stringify(res.body);
+    for (const secret of [orderId, organiser.organiserId, event.eventId, "mia@example.com", "cs_test_1", "pi_test_1"]) {
+      expect(raw).not.toContain(secret);
+    }
+  });
+
+  it("reveals nothing but the status of a pending order, uncached", async () => {
+    const { orderId } = await paidOrderId();
+    const res = await api.call(getOrderBySession, { params: { sessionId: orderId } });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ status: "pending" });
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+  });
+
+  it("a malformed id is a 404 without touching the database; an unknown one is a 404 too", async () => {
+    const query = vi.spyOn(api.db, "query");
+    try {
+      for (const sessionId of ["cs_test_1", "ord_", "ord_XYZ", `ord_${"a".repeat(31)}`, `ord_${"A".repeat(32)}`, "' or 1=1 --", ""]) {
+        const res = await api.call(getOrderBySession, { params: { sessionId } });
+        expect(res.status).toBe(404);
+        expect(res.headers.get("cache-control")).toBe("private, no-store");
+      }
+      expect(query).not.toHaveBeenCalled();
+
+      const unknown = await api.call(getOrderBySession, { params: { sessionId: `ord_${"0".repeat(32)}` } });
+      expect(unknown.status).toBe(404);
+      expect(unknown.body).toEqual({ error: "Order not found." });
+      expect(query).toHaveBeenCalledTimes(1);
+    } finally {
+      query.mockRestore();
+    }
+  });
+});
+
+describe("log hygiene", () => {
+  it("a failed refund is logged by order reference, never by order id (the page's credential)", async () => {
+    const event = await publishedEvent(api, organiser, admin, { ticketTypes: PAID_TICKETS });
+    await enablePayouts(api, organiser.organiserId);
+    const checkout = () =>
+      api.call(createCheckout, { params: { eventId: event.eventId }, body: { lineItems: [{ ticketTypeId: "vip", quantity: 1 }] } });
+    await checkout();
+    const first = api.stripe.checkout.sessions.create.mock.calls.at(-1)![0].client_reference_id as string;
+    await checkout();
+    const second = api.stripe.checkout.sessions.create.mock.calls.at(-1)![0].client_reference_id as string;
+    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(first)));
+    api.stripe.refunds.create.mockResolvedValueOnce({ id: "re_x", status: "failed" });
+
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await api.send(stripeWebhook, stripeWebhookRequest(completedSession(second)));
+      const logged = error.mock.calls.flat().map(String).join("\n");
+      expect(logged).toContain(orderReference(second));
+      expect(logged).not.toContain(second);
+      expect(logged).not.toContain("buyer@example.com");
+    } finally {
+      error.mockRestore();
+    }
+  });
+});
+
 describe("ticket types with sales", () => {
   async function soldEvent() {
     const event = await publishedEvent(api, organiser, admin, { ticketTypes: FREE_TICKETS });
+    const { token } = await api.signUp({ email: "fan@example.com" });
     await api.call(createCheckout, {
+      token,
       params: { eventId: event.eventId },
       body: { lineItems: [{ ticketTypeId: "rsvp", quantity: 2 }], buyerEmail: "fan@example.com" },
     });

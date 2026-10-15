@@ -8,13 +8,13 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError } from "@/lib/api/client";
 import { getOrderBySession } from "@/lib/api/orders";
 import { formatAud } from "@/lib/format";
-import type { OrderRecord } from "@/lib/api/types";
+import type { CustomerOrder } from "@/lib/api/types";
 
 type LoadState =
   | { status: "loading" }
   | { status: "confirming" } // paid on Stripe's side, waiting on our webhook to land
-  | { status: "ready"; order: OrderRecord }
-  | { status: "oversold"; order: OrderRecord }
+  | { status: "ready"; order: CustomerOrder }
+  | { status: "oversold"; order: CustomerOrder }
   | { status: "not-found" }
   | { status: "error"; message: string };
 
@@ -60,7 +60,7 @@ export default function CheckoutConfirmation() {
           return;
         }
 
-        const order = result as OrderRecord;
+        const order = result;
         if (order.status === "paid") {
           setState({ status: "ready", order });
         } else if (order.status === "oversold_refund_required" || order.status === "refunded") {
@@ -143,7 +143,9 @@ export default function CheckoutConfirmation() {
       <div className="flex flex-col items-center gap-2 text-center">
         <p className="text-sm font-medium uppercase tracking-wide text-accent">Order confirmed</p>
         <h1 className="display-md">{order.eventTitle}</h1>
-        {order.buyerEmail && <p className="text-sm text-muted">A receipt was sent to {order.buyerEmail}.</p>}
+        {order.maskedEmail && (
+          <p className="text-sm text-muted">We&rsquo;re emailing your tickets to {order.maskedEmail}.</p>
+        )}
       </div>
 
       <div className="bg-surface p-4">
@@ -153,7 +155,8 @@ export default function CheckoutConfirmation() {
             <TicketStub key={ticket.ticketCode} code={ticket.ticketCode} typeName={ticket.ticketTypeName} />
           ))}
         </ul>
-        <p className="mt-3 text-xs text-muted">Show this page or your email receipt at the door.</p>
+        <p className="mt-3 text-xs text-muted">Show this page or your ticket email at the door.</p>
+        <p className="mt-1 text-xs text-muted">Order reference {order.reference}</p>
       </div>
 
       <div className="bg-surface p-4">

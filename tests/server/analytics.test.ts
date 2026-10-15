@@ -551,7 +551,8 @@ describe("checkout attribution", () => {
         body: { lineItems: [{ ticketTypeId: "rsvp", quantity: 1 }], buyerEmail: "fan@example.com", trackingCode },
       });
     const first = await checkout(link.code);
-    expect(first.status).toBe(201);
+    // A guest: recorded as pending until the emailed link is confirmed, with the code already on it.
+    expect(first.status).toBe(202);
     await deleteLink(organiser.token, link.linkId, free.eventId);
     await checkout(link.code);
     const rows = await api.db.query<{ tracking_code: string | null }>(
@@ -621,9 +622,19 @@ describe("event analytics", () => {
       feesCents,
       netCents: grossCents - feesCents,
       conversionRate: 2 / 6,
+      viewsUnreliable: false,
     });
     expect(body.byDay).toEqual([
-      { date: today(), views: 6, orders: 2, ticketsSold: 4, grossCents, feesCents, netCents: grossCents - feesCents },
+      {
+        date: today(),
+        views: 6,
+        viewsUnreliable: false,
+        orders: 2,
+        ticketsSold: 4,
+        grossCents,
+        feesCents,
+        netCents: grossCents - feesCents,
+      },
     ]);
     expect(body.bySource).toEqual(
       VIEW_SOURCES.map((source) => ({
@@ -713,6 +724,7 @@ describe("event analytics", () => {
     expect(byDay[4]).toEqual({
       date: "2026-10-05",
       views: 0,
+      viewsUnreliable: false,
       orders: 0,
       ticketsSold: 0,
       grossCents: 0,
@@ -792,6 +804,7 @@ describe("event analytics", () => {
       feesCents: 0,
       netCents: 0,
       conversionRate: null,
+      viewsUnreliable: false,
     });
     expect(res.body.byTicketType).toEqual([expect.objectContaining({ ticketTypeId: "ga", ticketsSold: 0, grossCents: 0 })]);
     expect(res.body.trackingLinks).toEqual([expect.objectContaining({ label: "Ready for launch", views: 0, conversionRate: null })]);

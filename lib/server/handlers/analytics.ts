@@ -95,6 +95,8 @@ async function requireOrganiserCaller(req: Request, deps: Deps) {
 // ---------------------------------------------------------------------------
 
 interface EventPeriod {
+  /** Days the event's view cap was reached (views are a lower bound). */
+  capDays: Set<string>;
   viewsTotal: number;
   viewsByDay: Map<string, number>;
   viewsBySource: Map<string, number>;
@@ -105,7 +107,7 @@ interface EventPeriod {
 }
 
 async function eventPeriod(db: Db, eventId: string, range: DateRange): Promise<EventPeriod> {
-  const [views, orders] = await Promise.all([
+  const [views, orders, capped] = await Promise.all([
     db.query(
       `select v.day::text as day, v.source, v.link_code, sum(v.views)::bigint as views,
               grouping(v.day) as g_day, grouping(v.source) as g_source
@@ -124,9 +126,15 @@ async function eventPeriod(db: Db, eventId: string, range: DateRange): Promise<E
         group by grouping sets ((), (x.day), (x.tracking_code))`,
       [eventId, range.from, range.to],
     ),
+    db.query<{ day: string }>(
+      `select c.day::text as day from private.event_view_cap_days c
+        where c.event_id = $1 and c.day between $2::date and $3::date`,
+      [eventId, range.from, range.to],
+    ),
   ]);
 
   const period: EventPeriod = {
+    capDays: new Set(capped.map((r) => r.day)),
     viewsTotal: 0,
     viewsByDay: new Map(),
     viewsBySource: new Map(),
@@ -171,10 +179,12 @@ async function ticketLineGroups(db: Db, eventId: string, range: DateRange): Prom
   }));
 }
 
+/** `viewsUnreliable`: the event's view cap was reached in the period, so no link gets a conversion rate either. */
 function trackingLinkStats(
   links: { id: string; code: string; label: string }[],
   views: Map<string, number>,
   orders: Map<string, OrderSums>,
+  viewsUnreliable: boolean,
 ): TrackingLinkStats[] {
   const stats = (code: string, link?: { id: string; label: string }): TrackingLinkStats => {
     const o = orders.get(code) ?? NO_ORDERS;
@@ -187,7 +197,7 @@ function trackingLinkStats(
       orders: o.orders,
       ticketsSold: o.ticketsSold,
       ...money(o.grossCents, o.feesCents),
-      conversionRate: conversionRate(o.orders, v),
+      conversionRate: viewsUnreliable ? null : conversionRate(o.orders, v),
     };
   };
   const current = new Set(links.map((l) => l.code));
@@ -196,7 +206,7 @@ function trackingLinkStats(
 }
 
 function periodTotals(p: EventPeriod, range: DateRange, since: string | null): AnalyticsTotals {
-  return totals(p.ordersTotal, p.viewsTotal, viewsComplete(range, since));
+  return totals(p.ordersTotal, p.viewsTotal, viewsComplete(range, since), p.capDays.size > 0);
 }
 
 async function buildEventAnalytics(db: Db, event: EventRecord, qs: URLSearchParams): Promise<EventAnalytics> {
@@ -231,16 +241,16 @@ async function buildEventAnalytics(db: Db, event: EventRecord, qs: URLSearchPara
     range,
     viewsTrackedSince: since,
     totals: periodTotals(period, range, since),
-    byDay: dailySeries(range, period.viewsByDay, period.ordersByDay, since),
+    byDay: dailySeries(range, period.viewsByDay, period.ordersByDay, since, period.capDays),
     bySource,
     byTicketType: ticketTypeSales(event.ticketTypes, groups, period.ordersTotal),
-    trackingLinks: trackingLinkStats(links, period.viewsByCode, period.ordersByCode),
+    trackingLinks: trackingLinkStats(links, period.viewsByCode, period.ordersByCode, period.capDays.size > 0),
     ...(previous && previousRange
       ? {
           previous: {
             range: previousRange,
             totals: periodTotals(previous, previousRange, since),
-            byDay: dailySeries(previousRange, previous.viewsByDay, previous.ordersByDay, since),
+            byDay: dailySeries(previousRange, previous.viewsByDay, previous.ordersByDay, since, previous.capDays),
           },
         }
       : {}),
@@ -271,6 +281,9 @@ export const getEventAnalyticsCsv: Handler<{ eventId: string }> = async (req, { 
 // ---------------------------------------------------------------------------
 
 interface OrganiserPeriod {
+  /** Days any of the organiser's events reached its view cap, and the days per event. */
+  capDays: Set<string>;
+  capDaysByEvent: Map<string, Set<string>>;
   viewsTotal: number;
   viewsByEvent: Map<string, number>;
   viewsByDay: Map<string, number>;
@@ -280,7 +293,7 @@ interface OrganiserPeriod {
 }
 
 async function organiserPeriod(db: Db, organiserId: string, range: DateRange): Promise<OrganiserPeriod> {
-  const [views, orders] = await Promise.all([
+  const [views, orders, capped] = await Promise.all([
     db.query(
       `select v.event_id, v.day::text as day, sum(v.views)::bigint as views,
               grouping(v.event_id) as g_event, grouping(v.day) as g_day
@@ -300,9 +313,18 @@ async function organiserPeriod(db: Db, organiserId: string, range: DateRange): P
         group by grouping sets ((), (x.event_id), (x.day))`,
       [organiserId, range.from, range.to],
     ),
+    db.query<{ event_id: string; day: string }>(
+      `select c.event_id, c.day::text as day
+         from private.event_view_cap_days c
+         join public.events e on e.id = c.event_id
+        where e.organiser_id = $1 and c.day between $2::date and $3::date`,
+      [organiserId, range.from, range.to],
+    ),
   ]);
 
   const period: OrganiserPeriod = {
+    capDays: new Set(capped.map((r) => r.day)),
+    capDaysByEvent: new Map(),
     viewsTotal: 0,
     viewsByEvent: new Map(),
     viewsByDay: new Map(),
@@ -310,6 +332,11 @@ async function organiserPeriod(db: Db, organiserId: string, range: DateRange): P
     ordersByEvent: new Map(),
     ordersByDay: new Map(),
   };
+  for (const r of capped) {
+    const days = period.capDaysByEvent.get(r.event_id) ?? new Set<string>();
+    days.add(r.day);
+    period.capDaysByEvent.set(r.event_id, days);
+  }
   for (const r of views) {
     if (n(r.g_event) === 0) period.viewsByEvent.set(r.event_id as string, n(r.views));
     else if (n(r.g_day) === 0) period.viewsByDay.set(r.day as string, n(r.views));
@@ -326,8 +353,8 @@ async function organiserPeriod(db: Db, organiserId: string, range: DateRange): P
 function overviewPeriod(p: OrganiserPeriod, range: DateRange, since: string | null) {
   return {
     range,
-    totals: totals(p.ordersTotal, p.viewsTotal, viewsComplete(range, since)),
-    byDay: dailySeries(range, p.viewsByDay, p.ordersByDay, since) as AnalyticsDay[],
+    totals: totals(p.ordersTotal, p.viewsTotal, viewsComplete(range, since), p.capDays.size > 0),
+    byDay: dailySeries(range, p.viewsByDay, p.ordersByDay, since, p.capDays) as AnalyticsDay[],
   };
 }
 
@@ -359,9 +386,21 @@ async function buildOverview(db: Db, organiserId: string, qs: URLSearchParams): 
     slug: e.slug,
     status: e.status,
     startsAt: new Date(e.starts_at).toISOString(),
-    totals: totals(period.ordersByEvent.get(e.id) ?? NO_ORDERS, period.viewsByEvent.get(e.id) ?? 0, complete),
+    totals: totals(
+      period.ordersByEvent.get(e.id) ?? NO_ORDERS,
+      period.viewsByEvent.get(e.id) ?? 0,
+      complete,
+      period.capDaysByEvent.has(e.id),
+    ),
     ...(previous
-      ? { previous: totals(previous.ordersByEvent.get(e.id) ?? NO_ORDERS, previous.viewsByEvent.get(e.id) ?? 0, previousComplete) }
+      ? {
+          previous: totals(
+            previous.ordersByEvent.get(e.id) ?? NO_ORDERS,
+            previous.viewsByEvent.get(e.id) ?? 0,
+            previousComplete,
+            previous.capDaysByEvent.has(e.id),
+          ),
+        }
       : {}),
   }));
 

@@ -6,10 +6,16 @@ import type { EventCategory } from "@/lib/types";
 
 export type { EventCategory, FeePolicy } from "@/lib/types";
 export type {
+  AdminEmailJob,
   AdminReport,
+  EmailJobStatus,
   BlockRecord,
+  CheckoutResult,
+  ConfirmFreeOrderResult,
   ConversationStatus,
   ConversationSummary,
+  CustomerOrder,
+  CustomerOrderLookup,
   EventRecord,
   EventStatus,
   GoingAttendee,

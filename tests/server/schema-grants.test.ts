@@ -83,7 +83,11 @@ describe("Data API lock-out", () => {
     expect(tables).toEqual([
       { table_name: "analytics_settings", rls: true },
       { table_name: "conversation_pairs", rls: true },
+      { table_name: "email_outbox", rls: true },
       { table_name: "event_rate_limits", rls: true },
+      { table_name: "event_view_cap_days", rls: true },
+      { table_name: "free_order_refusals", rls: true },
+      { table_name: "platform_rate_limits", rls: true },
       { table_name: "rate_limits", rls: true },
       { table_name: "social_suspensions", rls: true },
       { table_name: "user_reports", rls: true },
@@ -111,11 +115,11 @@ describe("Data API lock-out", () => {
     expect(executable).toEqual([]);
   });
 
-  it("every `private` function pins its search_path, apart from the five that predate the rule", async () => {
+  it("every `private` function pins its search_path, apart from the four that predate the rule", async () => {
     // A function without a pinned search_path resolves names through the
-    // caller's. New ones must set it (`set search_path = ''`); these five
-    // (init migration, and fulfil_order's rewrite in review_fixes) predate the
-    // rule and schema-qualify every name instead.
+    // caller's. New ones must set it (`set search_path = ''`); these four
+    // (init migration) predate the rule and schema-qualify every name instead.
+    // fulfil_order was pinned when the email outbox redefined it.
     const unpinned = await db.query<{ fn: string }>(
       `select p.proname as fn from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'private'
@@ -124,7 +128,6 @@ describe("Data API lock-out", () => {
     );
     expect(unpinned.map((r) => r.fn)).toEqual([
       "create_event_draft",
-      "fulfil_order",
       "replace_ticket_types",
       "transition_event",
       "update_event_draft",

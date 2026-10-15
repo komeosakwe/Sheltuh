@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TicketSelector from "@/components/TicketSelector";
+import { ApiError } from "@/lib/api/client";
 import { sampleEvents } from "@/lib/sample-events";
+import { setTrackingRef } from "@/lib/tracking-ref";
 import type { SheltuhEvent } from "@/lib/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
@@ -19,6 +21,7 @@ vi.mock("@/lib/api/orders", () => ({
 afterEach(() => {
   cleanup();
   createCheckoutSession.mockReset();
+  window.sessionStorage.clear();
 });
 
 function findEvent(slug: string): SheltuhEvent {
@@ -81,10 +84,14 @@ describe("TicketSelector (live, signed in)", () => {
       "We’ll send your tickets here. Booking with your Sheltüh account email also lets you add yourself to Who’s Going.",
     );
     fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
+    // Signed in: a free order carries the account's token, so booking with
+    // the account's own email issues the tickets straight away.
     expect(createCheckoutSession).toHaveBeenCalledWith(
       expect.any(String),
       [{ ticketTypeId: expect.any(String), quantity: 1 }],
       "mia@example.com",
+      undefined,
+      expect.any(Function),
     );
   });
 
@@ -114,6 +121,8 @@ describe("TicketSelector (live, signed in)", () => {
       expect.any(String),
       [{ ticketTypeId: expect.any(String), quantity: 1 }],
       "mia@example.com",
+      undefined,
+      undefined,
     );
   });
 });
@@ -132,7 +141,81 @@ describe("TicketSelector (live, no auth)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
     expect(screen.queryByText(/Booking as/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
-    expect(createCheckoutSession).toHaveBeenCalledWith(expect.any(String), expect.any(Array), undefined);
+    expect(createCheckoutSession).toHaveBeenCalledWith(expect.any(String), expect.any(Array), undefined, undefined, undefined);
+  });
+});
+
+describe("TicketSelector (free tickets)", () => {
+  /** A live event with two free ticket types, plenty of each. */
+  function freeEvent(): SheltuhEvent {
+    const base = live("brunswick-zine-fair");
+    return {
+      ...base,
+      ticketTypes: [
+        { ...base.ticketTypes[0], id: "free-a", name: "Free entry", priceCents: 0, quantityAvailable: 50 },
+        { ...base.ticketTypes[0], id: "free-b", name: "Kids", priceCents: 0, quantityAvailable: 50 },
+      ],
+    };
+  }
+
+  it("caps free tickets at 4 per booking, across free ticket types", () => {
+    render(<TicketSelector event={freeEvent()} />);
+    const moreA = screen.getByRole("button", { name: "Increase quantity for Free entry" });
+    const moreB = screen.getByRole("button", { name: "Increase quantity for Kids" });
+    for (let i = 0; i < 3; i++) fireEvent.click(moreA);
+    expect(moreA).toBeEnabled();
+    fireEvent.click(moreB);
+    expect(moreA).toBeDisabled();
+    expect(moreB).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Decrease quantity for Free entry" }));
+    expect(moreB).toBeEnabled();
+  });
+
+  it("explains how free tickets are issued", () => {
+    render(<TicketSelector event={freeEvent()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
+    expect(screen.getByText(/we'll email you a link to confirm them first/)).toBeInTheDocument();
+    expect(screen.getByText(/Up to 4 free tickets per booking/)).toBeInTheDocument();
+    expect(screen.queryByText(/issued immediately/)).toBeNull();
+  });
+
+  it("after a guest booking, says to check the inbox (focused, announced) and can start over", async () => {
+    createCheckoutSession.mockResolvedValue({ status: "confirmation_sent", expiresInHours: 24 });
+    render(<TicketSelector event={freeEvent()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
+    fireEvent.change(screen.getByLabelText("Email for your tickets"), { target: { value: "fan@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
+
+    const heading = await screen.findByRole("heading", { name: "Check your inbox" });
+    await waitFor(() => expect(heading).toHaveFocus());
+    expect(screen.getByRole("status")).toHaveTextContent("We’ve emailed a link to fan@example.com.");
+    expect(screen.queryByRole("button", { name: "Get free tickets" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Use a different email" }));
+    expect(screen.getByRole("button", { name: "Get free tickets" })).toBeEnabled();
+    expect(screen.queryByRole("heading", { name: "Check your inbox" })).toBeNull();
+  });
+
+  it("shows the server's reason when a free booking is refused", async () => {
+    createCheckoutSession.mockRejectedValue(new ApiError(409, "This email address already has them."));
+    render(<TicketSelector event={freeEvent()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
+    fireEvent.change(screen.getByLabelText("Email for your tickets"), { target: { value: "fan@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("This email address already has them.");
+  });
+});
+
+describe("TicketSelector (tracking-link attribution)", () => {
+  it("sends the tracking code remembered for this event, and only this event's", () => {
+    createCheckoutSession.mockReturnValue(new Promise(() => {}));
+    const event = live("neon-static");
+    setTrackingRef(event.id, "abcd2345");
+    setTrackingRef("some-other-event", "zzzz9999");
+    render(<TicketSelector event={event} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(createCheckoutSession).toHaveBeenCalledWith(event.id, expect.any(Array), undefined, "abcd2345", undefined);
   });
 });
 

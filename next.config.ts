@@ -18,6 +18,18 @@ const nextConfig: NextConfig = {
           { key: "Content-Security-Policy", value: "default-src 'self'; script-src 'self'" },
         ],
       },
+      // Checkout pages carry a credential in the URL: the order id
+      // (/checkout/success?session_id=…) or a confirmation token (in the
+      // fragment of /checkout/confirm, which browsers never send, but belt and
+      // braces). Never send the URL on as a Referer, and keep the pages out of
+      // search indexes.
+      {
+        source: "/checkout/:path*",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
     ];
   },
 };

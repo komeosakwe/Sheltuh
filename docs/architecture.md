@@ -54,6 +54,9 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished, by whom, and why. |
 | `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed, or oversold_refund_required → refunded. `tickets_emailed_at` records the ticket email. `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). |
 | `tickets` | `code` | One row per admitted person. This is the future home of check-in. |
+| `private.platform_rate_limits` | `bucket` | Platform-wide fixed-window counters (`take_platform_rate_limit`): the hourly confirmation-email cap. Idle rows purged daily. |
+| `private.free_order_refusals` | `(day, reason)` | Counts of refused free bookings per Melbourne day and reason. No personal data. Deleted after 13 months. |
+| `private.email_outbox` | `id` | One ticket-email job per paid order (`(order_id, kind)` unique): status, attempts, next attempt, lease, redacted last error. No address or content (read from the order at send time). Deleted with the order. |
 | `profiles` | `user_id` | A member's social identity: `display_name` (1–40 characters), `adult_confirmed_at` (required: no profile without an 18+ confirmation). Deleted with the Supabase account. `social_suspended_at` is deprecated and ignored (see `private.social_suspensions`). |
 | `event_attendees` | `id` | One row per Who's Going opt-in, unique per `(event_id, user_id)`. `id` is the opaque `attendeeId` shown to members: a fresh one per event, so it can't be linked across events or to a user. Deleted with the profile or the event, and by `purge_social_data` 30 days after the event ends. |
 | `private.social_suspensions` | `user_id` | Admin-set Who's Going suspensions (SQL only, `docs/supabase-setup.md`). Keyed on the auth user, not the profile, so a member can't clear one by deleting and recreating their profile. Deleted with the Supabase account. |
@@ -66,6 +69,7 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | `event_tracking_links` | `id` | Up to 20 per event (`create_tracking_link`): a server-made `code` (8 characters, `[2-9a-hjkmnp-z]`, unique per event) and an organiser `label` (1–40 characters, unique per event ignoring case). Deleted with the event. |
 | `event_view_counts` | `(event_id, day, source, coalesce(link_code, ''))` (unique index) | Aggregate page-view counters, one row per event, Melbourne day, source bucket and tracking code: no visitor data of any kind. `link_code` is a plain copy of the code (no foreign key), so a deleted link's counts are kept. Deleted with the event, and by `purge_analytics` after 25 months. |
 | `private.event_rate_limits` | `(event_id, bucket)` | Fixed-window counters keyed on an event, never a person (`take_event_rate_limit`): caps the views counted per event per minute. Deleted with the event; idle rows purged daily. |
+| `private.event_view_cap_days` | `(event_id, day)` | A marker that the event's view cap was reached on that Melbourne day, so reports can flag the day's views as a lower bound. No visitor data. Deleted with the event, and by `purge_analytics` after 25 months. |
 | `private.analytics_settings` | single row | `views_tracked_since`: the Melbourne day view counting started (when its migration ran), so reports show earlier days as "not counted" rather than 0. |
 | `private.user_reports` | `id` | A member's report: copies of the reported message, up to 20 messages of context and the reported display name. Every reference is `on delete set null`, so the evidence survives the messages and both accounts. `status`: open → actioned (suspended) / dismissed. Resolved reports are deleted 2 years after resolution. |
 
@@ -88,12 +92,17 @@ times, which are converted to instants honouring daylight saving
 | `file_report` | Checks the reporter is in the conversation (and the message is the other member's), takes the rate limit and copies the evidence into the report in one step. Key-share-locks the conversation, then the message, when it finds them, so a profile deletion or retention purge waits for the report; one already under way means the report finds nothing (`not_found`, 404). The reported account deleted mid-call (a foreign-key failure) or a deadlock with an account deletion is also `not_found`, never a 500. |
 | `create_block` | Blocks, in one step, only a member the blocker can currently see: the other member of a conversation visible to them, or of a request they declined; or an `attendeeId` on a Who's Going list they may view right now (event published, enabled and not ended; blocker has a profile and isn't suspended; attendee isn't suspended; neither blocks the other). Anything else is `not_found`. Snapshots the display name, takes the rate limit, and inserts; a block the blocker already has comes back unchanged with the same result. Returns `blocked`, `not_found`, `self` or `rate_limited`. |
 | `resolve_report` | Closes an open report only (a second admin gets 409); `suspend` also records the suspension in the same step. |
-| `add_favourite` | Favourites a published event, idempotently, within the per-account cap. A transaction-scoped advisory lock on the account serialises one member's adds, so concurrent requests can't both take the last slot. Returns `added`, `exists`, `not_found` or `limit`. |
-| `take_event_rate_limit` | `take_rate_limit`'s fixed-window counter, keyed on an event instead of a member. |
-| `record_view` | Counts one view: the event must be published; the source is bucketed (unknown → `other`); a code that's one of the event's tracking codes makes it `tracking` under that code (any other code is ignored); then the event's per-minute cap; then one upsert increment. No row lock on the event and no exception block, to keep the hot path to two small upserts. Returns `recorded`, `not_found` or `rate_limited`. |
+| `add_favourite` | Favourites a published event, idempotently, within the per-account cap (favourites of published events only: hidden ones don't count). A transaction-scoped advisory lock on the account serialises one member's adds, so concurrent requests can't both take the last slot. Returns `added`, `exists`, `not_found` or `limit`. |
+| `take_event_rate_limit` | `take_rate_limit`'s fixed-window counter, keyed on an event instead of a member. Once a live window is over the limit it refuses with a plain read and writes nothing, so a flood isn't a write per request. |
+| `record_view` | Counts one view: the event must be published; the source is bucketed (unknown → `other`); a code that's one of the event's tracking codes makes it `tracking` under that code (any other code is ignored); then the event's per-minute cap (a refused view records the day in `event_view_cap_days`; after the first, that's a no-op); then one upsert increment. No row lock on the event and no exception block, to keep the hot path to two small upserts. Returns `recorded`, `not_found` or `rate_limited`. |
 | `create_tracking_link` | Adds a link to an event the organiser owns, under an advisory lock on the event (so the 20-link cap holds under concurrency, without locking the events row that checkouts share-lock). Returns `created`, `not_found`, `limit`, `label_taken`, or `code_taken` (the API retries with a fresh code). |
 | `purge_analytics` | Retention: deletes view counters for days over 25 months ago and per-event rate-limit rows idle for a day. Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`). |
-| `fulfil_order` | Takes inventory for every line item, issues the tickets and marks the order paid. If any ticket type has sold out, or the event is no longer published, it takes nothing and marks the order `oversold_refund_required`. Rows are locked in a fixed order, so concurrent orders can't deadlock. It's idempotent, so Stripe's webhook redeliveries are harmless. |
+| `place_free_order` | A member's free order, created and fulfilled in one step under an advisory lock on (event, person): the per-person cap, then the daily allowance, then `fulfil_order`. A refusal or sell-out writes nothing (beyond a refusal count). Returns `paid`, `person_event_limit`, `member_daily_limit` or `sold_out`. |
+| `request_free_order` | A guest's pending free order, under an advisory lock on the address: the hourly link limit, then the platform cap. Returns `requested`, `address_limited` or `platform_limited`. |
+| `confirm_free_order` | Confirms by token hash: locks the order, then (event, person), then `fulfil_order`'s locks. Idempotent. Returns `confirmed`, `already_confirmed`, `not_found`, `expired`, `unavailable`, `person_event_limit` or `sold_out` (the last two mark the order `failed`). |
+| `purge_operational_data` | Retention for free-ticket and outbox data (see "Free tickets" and "Payment flow"); sent outbox jobs after 90 days, failed ones after a year. Idempotent; Supabase Cron daily. |
+| `claim_email_jobs`, `finish_email_job`, `resend_email_job` | The ticket-email outbox: lease due jobs with `skip locked` (an expired lease is taken again; one that expired on the 6th attempt fails), record an outcome only for the current lease holder, and an admin resend (not while leased, not twice in 5 minutes). |
+| `fulfil_order` | Queues the ticket email in the same step (see "Payment flow"). Takes inventory for every line item, issues the tickets and marks the order paid. If any ticket type has sold out, or the event is no longer published, it takes nothing and marks the order `oversold_refund_required`. Rows are locked in a fixed order, so concurrent orders can't deadlock. It's idempotent, so Stripe's webhook redeliveries are harmless. |
 
 ## Payment flow
 
@@ -108,7 +117,7 @@ times, which are converted to instants honouring daylight saving
    - A Checkout Session is created as a destination charge to the
      organiser's Express account, with `application_fee_amount` set to the
      booking fee.
-   - Free orders skip Stripe and are fulfilled immediately.
+   - Free orders skip Stripe: see "Free tickets" below.
 2. The buyer pays on Stripe's hosted page. Card details never touch
    Sheltüh.
 3. `POST /api/stripe/webhook`:
@@ -125,13 +134,87 @@ times, which are converted to instants honouring daylight saving
    - Inventory is only taken here, so an abandoned checkout never holds
      tickets.
 4. Once an order is paid (free orders included), the buyer is emailed their
-   ticket codes over SMTP (`lib/server/email.ts`). This is best-effort: a
-   failed send is logged and leaves `orders.tickets_emailed_at` null. Free
-   orders require the buyer's email address at checkout; for paid orders,
-   Stripe collects it.
+   ticket codes over SMTP (`lib/server/email.ts`) through a durable outbox
+   (`private.email_outbox`, `lib/server/email-outbox.ts`):
+   - `fulfil_order` queues the job in the same transaction that marks the
+     order paid, so it can't be lost; a redelivered webhook never reaches
+     that point again, and `(order_id, kind)` is unique.
+   - The first attempt runs straight after the response (`Deps.defer`, Next's
+     `after()`), for that order only. `GET /api/cron/email-outbox` (Vercel
+     Cron every 5 minutes, `vercel.json`, bearer `CRON_SECRET` compared in
+     constant time) sends everything else that's due.
+   - Workers lease one job at a time (`claim_email_jobs`, `for update skip
+     locked`, 2-minute lease), so concurrent workers never take the same job;
+     only the lease holder can record the outcome (`finish_email_job`). A
+     worker that dies leaves a lease that expires and is retried.
+   - Retries after 1 min, 5 min, 30 min, 2 h and 6 h (±20% jitter); the 6th
+     failed attempt is final (`failed`). An order that's no longer paid, or
+     has no address, fails at once.
+   - Delivery is at-least-once: a crash between SMTP accepting the message
+     and recording it means it's sent again.
+   - A mail failure never touches the order. `tickets_emailed_at` is set when
+     a send succeeds.
+   - Admins see jobs at `/admin/emails` (order reference and masked address
+     only) and can resend one (20 per admin per hour, once per job per 5
+     minutes).
+   - Errors are stored and logged with addresses redacted, and logs name an
+     order by its short reference (`#7C1F2E0A`), never its id.
+   Free orders require the buyer's email address at checkout; for paid
+   orders, Stripe collects it.
 5. `/checkout/success?session_id=<order id>` polls
    `GET /api/orders/by-session/<id>`. The unguessable order id is the
-   credential. A pending order reveals only its status.
+   credential, so the response is only what that page shows: status, short
+   reference, event title and slug, a masked email (`m***@example.com`),
+   subtotal, buyer fee, total, and ticket codes with type names. Never the
+   order, event or organiser ids, fee split, Stripe ids, line items or
+   timestamps. Every response is `private, no-store`, an id that isn't shaped
+   like one (`ord_` + 32 hex) is a 404 without a query, and a pending order
+   reveals only its status. `/checkout/*` pages send `Referrer-Policy:
+   no-referrer` and `X-Robots-Tag: noindex, nofollow` (`next.config.ts`).
+
+## Free tickets
+
+Free tickets are rate-limited without IP addresses (forwarded headers are
+only trustworthy when Vercel is the first hop, and shared Wi-Fi puts many
+people behind one address) and without a CAPTCHA
+(`lib/server/handlers/free-orders.ts`,
+`supabase/migrations/20261014000100_free_order_protection.sql`):
+
+- **A signed-in member booking with their own verified email** (the request
+  carries their token, and the buyer email matches the account's, ignoring
+  case) gets the tickets straight away: `201 {url}` (`place_free_order`). At
+  most 10 free orders per account per 24 hours (429). Refused or sold-out
+  attempts don't use the allowance.
+- **Anyone else** gets `202 {status: "confirmation_sent", expiresInHours: 24}`.
+  The order is recorded as `pending` with only a SHA-256 hash of a 256-bit
+  token, holding no inventory, so a flood of requests can't drain an event.
+  The token is emailed as `/checkout/confirm#token=…` (the fragment is never
+  sent to a server). That page has a Confirm button that POSTs
+  `/api/orders/confirm {token}`, so a mail scanner opening the link can't
+  confirm it. Confirmation issues the tickets (`confirm_free_order`) and
+  returns the success page's URL; confirming again returns the same URL.
+  Expired after 24 hours (410).
+- **Caps**: 4 free tickets per order (400); 4 per person per event across all
+  their free orders (409), counted on a normalised address
+  (`private.email_key`: lower case, no `+tag`, no dots for Gmail,
+  googlemail.com folded into gmail.com) under an advisory lock on (event,
+  person); 3 unconfirmed links per address per hour; 300 confirmation emails
+  per hour platform-wide (503).
+- **No enumeration**: a guest is never told anything about an address's
+  history. Over the hourly link limit, the response is the same 202 and no
+  email is sent (the owner already has 3 links). The per-person cap is only
+  reported at confirmation, to whoever holds the emailed link.
+- If the confirmation email can't be sent, the pending order is deleted and
+  the response is 503.
+- A ticket code that clashes with an existing one (40 random bits) is retried
+  once with fresh codes, on every fulfilment path.
+- **Refusal counts** (`private.free_order_refusals`): per Melbourne day and
+  reason only (`order_too_large`, `member_daily_limit`, `person_event_limit`,
+  `address_hourly_limit`, `platform_hourly_limit`). No address, account,
+  event or IP.
+- **Retention** (`purge_operational_data`, daily): unconfirmed or refused
+  guest orders a week after their link expired; refusal counts after 13
+  months.
 
 ## Who's Going
 
@@ -263,8 +346,12 @@ No verified email is needed: nothing here involves anyone else.
 - Only a published event can be favourited (404 otherwise). Unpublishing
   keeps the row but hides it from the list and the ids; publishing again
   brings it back. Past events stay listed.
-- At most 500 per account, hidden ones included (409, which on this route
-  means only that). `PUT` and `DELETE` are idempotent. `DELETE` always
+- At most 500 visible favourites per account (409, which on this route means
+  only that). Favourites of unpublished events are hidden and don't count:
+  the member can't see them to remove them. If hidden ones are published
+  again, an account can briefly hold more than 500; `GET /favourites/ids`
+  returns the newest 500, and further adds are refused until it's back
+  under. `PUT` and `DELETE` are idempotent. `DELETE` always
   removes an existing favourite, whatever state its event is in; without
   one, it's a 404 unless the event is published, so it can't be used to
   probe for unpublished events.
@@ -285,9 +372,17 @@ buckets the referrer itself and sends only `{source, code}`.
 **Counting a view** (`POST /api/events/{id}/view`, public): 204 whether or
 not it was counted, 404 only for an event that isn't published. Not counted:
 obvious bots, link previews, HTTP libraries and prefetches (user agent and
-`Sec-Purpose`/`Purpose` headers, checked and never stored), bodies over
+`Sec-Purpose`/`Purpose` headers, checked and never stored), anything but a
+JSON body (`Content-Type: application/json`, so a cross-site form post or
+`navigator.sendBeacon`'s `text/plain` never counts), a `Sec-Fetch-Site`
+other than `same-origin` when the browser sends one (the app's own beacon is
+a same-origin `fetch` with `keepalive`, `lib/api/analytics.ts`), bodies over
 1 KB, and anything past the event's cap of 300 views a minute
-(`take_event_rate_limit`, keyed on the event, not on anyone). The cap bounds
+(`take_event_rate_limit`, keyed on the event, not on anyone). A day on which
+the cap was reached is flagged `viewsUnreliable` in reports (on the day, the
+range's totals, and in the overview the event and the organiser's totals),
+with no conversion rate for the range or its tracking links, and the CSV
+names those days. The cap bounds
 how fast anyone can inflate an event's views; it doesn't stop a determined
 faker below it (accepted: numbers are indicative, and nothing is paid on
 them). Sources: `direct`, `search`, `instagram`, `facebook`, `x`, `tiktok`,
@@ -324,9 +419,23 @@ with `= + - @`, a tab or a carriage return (after any leading whitespace) gets
 a leading `'` so spreadsheets don't run it as a formula; money is decimal
 dollars; the file starts with a UTF-8 BOM for Excel.
 
-**Retention**: view counters are deleted after 25 months (`purge_analytics`),
+**Retention**: view counters and cap markers are deleted after 25 months (`purge_analytics`),
 and reports never claim views from before then were counted. Orders (and so
 their `tracking_code`) are kept as financial records.
+
+### Accepted risks (analytics)
+
+- **A flood can still cost an event its view counts.** The per-event cap is
+  shared by everyone viewing that event, so a client sending more than 300
+  views a minute uses it up and real views in that minute aren't counted.
+  This is now visible (the day is flagged `viewsUnreliable` and has no
+  conversion rate) but not prevented: preventing it would mean telling
+  visitors apart (IP addresses or cookies), which the no-identifier design
+  rules out. Nothing is paid on view numbers. Revisit if organisers rely on
+  them commercially (e.g. promoted listings priced on views).
+- `Sec-Fetch-Site` and `Content-Type` stop other websites making visitors'
+  browsers count views. They don't stop a script outside a browser, which
+  can send any headers: the cap bounds that.
 
 **Later stages (not built):**
 
@@ -351,8 +460,11 @@ application is approved.
 |---|---|
 | `GET /events?q&category&pricing&onOrAfter&cursor&limit` | public (published only) |
 | `GET /events/slug/{slug}` | public (published only) |
-| `POST /events/{eventId}/checkout` | public |
-| `GET /orders/by-session/{orderId}` | public (id is the credential). Includes `eventTitle` and `eventSlug` for linking back to the event |
+| `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). 201 `{url}`; 202 free order waiting on its emailed link; 400; 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance; 503 free bookings busy or the confirmation email failed |
+| `POST /orders/confirm` `{token}` | public (the emailed token is the credential). 200 `{url}` (also when already confirmed); 400 malformed; 404 unknown; 410 expired; 409 sold out or allowance used |
+| `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store` |
+| `GET /cron/email-outbox` | Vercel Cron (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due ticket emails, returns counts |
+| `GET /admin/emails?status&cursor` · `POST /admin/emails/{jobId}/resend` | admin. Status `failed` (default), `pending`, `sending`, `sent`. Resend: 404 unknown, 409 being sent, 429 resent in the last 5 minutes or over 20 an hour |
 | `POST /stripe/webhook` | Stripe (signature-verified) |
 | `POST /organisers/apply` · `GET /organisers/me` · `PATCH /organisers/me` | signed in |
 | `POST /organisers/me/connect/onboard` · `…/connect/refresh` | organiser |

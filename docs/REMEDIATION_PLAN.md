@@ -10,6 +10,7 @@ retried.
 ## Phase 1, in this order (all three edit `lib/server/handlers/orders.ts`)
 
 ### Fix 4: guest order data
+Status: built 15 Oct 2026 (see docs/architecture.md, "Payment flow").
 `GET /api/orders/by-session/{id}` returns only what the confirmation page needs
 (status, short order reference, event title and slug, masked email, amounts,
 ticket codes and type names). No order id, organiser id, event id, fee split,
@@ -19,6 +20,7 @@ malformed ids get a 404 without a database query; `/checkout/*` pages send
 the order id (which is the page's bearer credential).
 
 ### Fix 2: reliable ticket email
+Status: built 15 Oct 2026 (`20261014000000_email_outbox.sql`). Needs `CRON_SECRET` in Vercel.
 Durable `private.email_outbox` (transactional only): jobs are queued inside
 `fulfil_order` when an order becomes paid, sent right after the response, and
 retried by a cron route every 5 minutes (1 min, 5 min, 30 min, 2 h, 6 h, then
@@ -29,6 +31,9 @@ at-least-once, so an occasional duplicate email is possible. Admin list of jobs
 `/admin/emails`. New env var: `CRON_SECRET`.
 
 ### Fix 1: free-ticket abuse protection
+Status: built 15 Oct 2026 (`20261014000100_free_order_protection.sql`; docs/architecture.md, "Free tickets").
+Over the hourly link limit a guest gets the same 202 with no email sent, so
+responses never reveal anything about an address.
 No IP addresses (forwarded headers are only trustworthy when Vercel is the first
 hop, and shared Wi-Fi puts many people behind one address). Instead:
 - Signed-in member with a verified email matching the buyer: tickets immediately,

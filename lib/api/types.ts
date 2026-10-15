@@ -111,6 +111,90 @@ export interface OrderRecord {
   updatedAt: string;
 }
 
+/** Most tickets one free order can have (POST …/checkout is a 400 beyond it). */
+export const MAX_FREE_TICKETS_PER_ORDER = 4;
+
+/**
+ * POST /api/events/{eventId}/checkout.
+ * - 201 `{url}`: go there. Stripe's checkout for a paid order; the
+ *   confirmation page for a free order by a signed-in member booking with
+ *   their own (verified) account email.
+ * - 202 `{status: "confirmation_sent"}`: a free order by anyone else. A link
+ *   to confirm it has been emailed to the address given (valid for
+ *   `expiresInHours`); nothing is issued or held until it's confirmed.
+ */
+export type CheckoutResult = { url: string } | { status: "confirmation_sent"; expiresInHours: number };
+
+/** POST /api/orders/confirm `{token}` (from the emailed link's fragment): 200 with the confirmation page's URL. */
+export interface ConfirmFreeOrderResult {
+  url: string;
+}
+
+/**
+ * GET /api/orders/by-session/{orderId}: what the buyer's confirmation page
+ * needs, and nothing more. The order id in the URL is the only credential, so
+ * this never carries the order, event or organiser ids, the fee split, Stripe
+ * ids, line items, timestamps or the full email address. A pending order is
+ * `{ status: "pending" }` only.
+ */
+export interface CustomerOrder {
+  status: Exclude<OrderStatus, "pending">;
+  /** Short reference for support, e.g. "#7C1F2E0A" (the same one as in the ticket email). */
+  reference: string;
+  /** The event's title when the order was placed. */
+  eventTitle: string;
+  /** The event's current slug, for linking back to /events/{eventSlug}. Unset if the event is gone. */
+  eventSlug?: string;
+  /** The buyer's address, masked: "m***@example.com". Unset if none is on record. */
+  maskedEmail?: string;
+  subtotalCents: number;
+  /** Booking fees the buyer paid (not any the organiser absorbed). */
+  buyerFeeCents: number;
+  totalCents: number;
+  tickets: { ticketCode: string; ticketTypeName: string }[];
+}
+
+export type CustomerOrderLookup = CustomerOrder | { status: "pending" };
+
+// ---------------------------------------------------------------------------
+// Ticket email outbox (admin)
+// ---------------------------------------------------------------------------
+
+/**
+ * `pending`: waiting for its next attempt. `sending`: a worker has it now.
+ * `sent`: delivered to the mail server. `failed`: gave up after 6 attempts
+ * (or the order can't be emailed); an admin can resend it.
+ */
+export type EmailJobStatus = "pending" | "sending" | "sent" | "failed";
+
+export const EMAIL_JOB_STATUSES: readonly EmailJobStatus[] = ["failed", "pending", "sending", "sent"];
+
+/**
+ * GET /api/admin/emails. One ticket email. Never carries the buyer's full
+ * address or the order id (the order page's credential): the order is shown
+ * by its short reference only.
+ */
+export interface AdminEmailJob {
+  /** Opaque. POST /api/admin/emails/{jobId}/resend. */
+  jobId: string;
+  kind: "ticket_email";
+  status: EmailJobStatus;
+  /** Attempts made since it was queued (or last resent). */
+  attempts: number;
+  /** When the next attempt is due (pending only). */
+  nextAttemptAt?: string;
+  /** Why the last attempt failed, with any address removed. */
+  lastError?: string;
+  createdAt: string;
+  sentAt?: string;
+  lastResendAt?: string;
+  orderReference: string;
+  orderStatus: OrderStatus;
+  eventTitle: string;
+  /** "m***@example.com". */
+  maskedEmail?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Who's Going
 // ---------------------------------------------------------------------------
@@ -404,17 +488,27 @@ export interface AnalyticsTotals extends MoneyTotals {
   orders: number;
   ticketsSold: number;
   /**
-   * orders ÷ views, unrounded. Null when there were no views, or when part of
-   * the period is before views were counted (the ratio would be misleading).
-   * Can exceed 1: views are capped per minute and bots/blocked beacons aren't counted.
+   * orders ÷ views, unrounded. Null when there were no views, when part of
+   * the period is before views were counted, or when `viewsUnreliable` (the
+   * ratio would be misleading). Can exceed 1: views are capped per minute and
+   * bots/blocked beacons aren't counted.
    */
   conversionRate: number | null;
+  /**
+   * On at least one day in the period the per-minute view cap was reached (a
+   * burst of traffic, or someone flooding the counter), so some real views
+   * may not have been counted: `views` is a lower bound. Always sent by the
+   * API; optional so older clients and fixtures without it stay valid.
+   */
+  viewsUnreliable?: boolean;
 }
 
 /** One Melbourne day. `views` is null for days before view counting began. */
 export interface AnalyticsDay extends MoneyTotals {
   date: string;
   views: number | null;
+  /** The per-minute view cap was reached that day (by any of the organiser's events, in the overview): views are a lower bound. Always sent by the API. */
+  viewsUnreliable?: boolean;
   orders: number;
   ticketsSold: number;
 }
