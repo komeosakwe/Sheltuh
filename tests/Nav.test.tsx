@@ -38,7 +38,7 @@ function fireToggle(menu: HTMLElement, newState: "open" | "closed") {
 function linkHrefs(container: HTMLElement) {
   return within(container)
     .getAllByRole("link", { hidden: true })
-    .map((link) => [link.textContent, link.getAttribute("href")]);
+    .map((link) => [link.getAttribute("aria-label") ?? link.textContent, link.getAttribute("href")]);
 }
 
 describe("Nav — phone menu", () => {
@@ -55,6 +55,7 @@ describe("Nav — phone menu", () => {
     expect(linkHrefs(menu)).toEqual([
       ["Discover", "/"],
       ["Map", "/map"],
+      ["Saved", "/saved"],
       ["Sign in", "/login"],
       ["For organisers", "/organisers/apply"],
     ]);
@@ -70,6 +71,7 @@ describe("Nav — phone menu", () => {
     expect(linkHrefs(menu)).toEqual([
       ["Discover", "/"],
       ["Map", "/map"],
+      ["Saved", "/saved"],
       ["Admin", "/admin"],
       ["Messages", "/messages"],
       ["My events", "/dashboard"],
@@ -142,6 +144,7 @@ describe("Nav — desktop row", () => {
     expect(linkHrefs(desktopNav)).toEqual([
       ["Discover", "/"],
       ["Map", "/map"],
+      ["Saved", "/saved"],
       ["Admin", "/admin"],
       ["Messages", "/messages"],
       ["Account", "/account"],
@@ -167,9 +170,47 @@ describe("Nav — desktop row", () => {
     expect(linkHrefs(desktopNav)).toEqual([
       ["Discover", "/"],
       ["Map", "/map"],
+      ["Saved", "/saved"],
       ["Sign in", "/login"],
       ["For organisers", "/organisers/apply"],
     ]);
+  });
+});
+
+describe("Nav — Saved", () => {
+  it("puts a Saved heart in the compact bar, between Search and Menu, in every auth state", () => {
+    for (const auth of [fakeAuthValue({ status: "signed-out" }), fakeAuthValue(), fakeAuthValue({ configured: false, status: "signed-out" })]) {
+      const { container } = renderNav(auth);
+      const bar = container.querySelector<HTMLElement>("header > div.lg\\:hidden");
+      if (!bar) throw new Error("compact bar not rendered");
+      const controls = Array.from(bar.querySelectorAll("a[href], button")).map(
+        (el) => el.getAttribute("aria-label") ?? el.textContent,
+      );
+      expect(controls).toEqual(["Sheltüh home", "Search", "Saved", "Menu"]);
+      cleanup();
+    }
+  });
+
+  it("marks Saved as the current page on /saved and fills its heart", () => {
+    pathname = "/saved";
+    renderNav(fakeAuthValue());
+    const links = screen.getAllByRole("link", { name: "Saved", hidden: true });
+    // Compact bar, desktop row and the phone menu.
+    expect(links).toHaveLength(3);
+    for (const link of links) expect(link).toHaveAttribute("aria-current", "page");
+    const hearts = links.map((link) => link.querySelector("svg")).filter((svg) => svg !== null);
+    expect(hearts.length).toBe(2);
+    for (const svg of hearts) expect(svg).toHaveAttribute("fill", "currentColor");
+  });
+
+  it("leaves the heart unfilled and not current elsewhere", () => {
+    pathname = "/map";
+    renderNav(fakeAuthValue());
+    for (const link of screen.getAllByRole("link", { name: "Saved", hidden: true })) {
+      expect(link).not.toHaveAttribute("aria-current");
+      const svg = link.querySelector("svg");
+      if (svg) expect(svg).toHaveAttribute("fill", "none");
+    }
   });
 });
 

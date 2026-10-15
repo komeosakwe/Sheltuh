@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import AuthNavLinks, { navLinkClass } from "@/components/AuthNavLinks";
 import SearchBar from "@/components/SearchBar";
+import SavedNavLink from "@/components/favourites/SavedNavLink";
 import { useUnread } from "@/components/messages/UnreadProvider";
 import { ButtonLink } from "@/components/ui/Button";
 
@@ -14,6 +15,9 @@ const PRIMARY_LINKS = [
   { href: "/", label: "Discover" },
   { href: "/map", label: "Map" },
 ] as const;
+
+/** The phone menu's own primary list: the desktop links plus Saved (an icon link on desktop). */
+const MENU_PRIMARY_LINKS = [...PRIMARY_LINKS, { href: "/saved", label: "Saved" }] as const;
 
 const menuAccountLinkClass = "flex min-h-11 items-center text-base font-semibold";
 
@@ -103,6 +107,7 @@ export default function Nav() {
               <path d="m20 20-3.5-3.5" />
             </svg>
           </Link>
+          <SavedNavLink size="compact" />
           <button
             ref={menuButtonRef}
             type="button"
@@ -150,6 +155,7 @@ export default function Nav() {
               {link.label}
             </Link>
           ))}
+          <SavedNavLink size="desktop" />
           <AuthNavLinks compact />
           <ButtonLink href="/organisers/apply" size="sm" className="ml-1">
             For organisers
@@ -173,7 +179,7 @@ export default function Nav() {
           className="flex min-h-full flex-col px-5 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-6 sm:px-8"
         >
           <ul className="flex flex-col">
-            {PRIMARY_LINKS.map((link) => (
+            {MENU_PRIMARY_LINKS.map((link) => (
               <li key={link.href}>
                 <Link
                   href={link.href}

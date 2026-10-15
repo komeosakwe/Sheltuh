@@ -21,7 +21,7 @@ Note: the round "N" badge in every capture is the Next.js dev-mode indicator, no
 
 **Update (Sept 2026):**
 - **Font.** The display face is now **Bricolage Grotesque 800** (`app/layout.tsx`), not Anton. Read "Anton" below as `font-heading`; the type table's sizes still apply, but the px measurements were taken with Anton.
-- **Phone home.** The home page below 640px now follows `docs/design/mobile-home.md`. It overrides this spec's no-rounding and no-brand-colour exclusions (§1, §3.0 radii, §3.2 "no text on images") **on that page only** (`components/home/phone/`). Hearts/save stay excluded everywhere.
+- **Phone home.** The home page below 640px now follows `docs/design/mobile-home.md`. It overrides this spec's no-rounding and no-brand-colour exclusions (§1, §3.0 radii, §3.2 "no text on images") **on that page only** (`components/home/phone/`). Hearts/save were later added by `docs/design/favourites-analytics.md` (ink, never pink).
 
 ---
 

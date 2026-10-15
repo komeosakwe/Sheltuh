@@ -1,6 +1,6 @@
 # Favourites and organiser analytics: design spec
 
-Status: proposed · Owner: ui-design-director · Scope: Part 1 the heart, its placements, `/saved` and the
+Status: built (see §8 for where the build differs) · Owner: ui-design-director · Scope: Part 1 the heart, its placements, `/saved` and the
 nav entry. Part 2 `/dashboard/analytics` and `/dashboard/events/[id]/analytics`, including tracking links.
 Desktop and phone (320+).
 
@@ -494,3 +494,66 @@ sections slot in above it at full width.
 **Docs after the build:**
 - `design-system.md`: SaveButton, the FavouritesNotice band, DataTable, StatGrid and the chart rules.
 - `mobile.md` and `mobile-home.md`: hearts are no longer excluded.
+
+## 8. As built: deviations from this spec
+
+The UI follows the **built** API (`lib/api/favourites.ts`, `lib/api/analytics.ts`, `lib/api/types.ts`,
+`docs/architecture.md` "Favourites" and "Organiser analytics"). Where this spec and the API differ, the API wins:
+
+**Favourites**
+- Routes: `PUT`/`DELETE /api/events/{id}/favourite` (not `/api/favourites/{id}`); `GET /api/favourites/ids`;
+  `GET /api/favourites?cursor&limit` (max 50; the page asks for 48).
+- 409 on `PUT` means only the 500 cap, so no `code` field is needed. `DELETE` 404 (nothing saved and the event
+  isn't published) is treated as already removed, with no error.
+- Heart naming: the spec's choice is kept, a fixed name "Save {title}" with `aria-pressed`, never a changing name as
+  well. Signed out (live) it's a link named "Sign in to save {title}". **For the accessibility reviewer.**
+- `/saved` lists in the API's order, **newest save first** (not soonest first), split client-side into "Coming up"
+  (tiles) and **"Past events"** (rows with Remove; the date shows the year when it isn't this year). The API only lists
+  published events, so the "no longer listed" rows, their copy and their ordering are dropped. After the last past row
+  is removed the section stays, saying "No past events saved.", so focus can land on its heading.
+- Removing a past row doesn't use the feedback bar: the row shows its own inline error.
+- The "first save ever" bar is dropped (the API has no per-account flag), so the nav heart carries discovery.
+- Failed removals get their own words: "Couldn't remove {title} from saved. …". When the ids fail to load, a heart
+  tap shows "Couldn't load your saved events. …" with Try again (the heart isn't silently dead).
+- Without a `FavouritesProvider` (isolated tests, previews) `SaveButton` renders nothing.
+- Demo storage: `localStorage["sheltuh:saved:v1"]` (`lib/saved-storage.ts`), per browser (demo has no accounts).
+
+**View counting** (`components/analytics/EventViewBeacon.tsx`)
+- One `POST /api/events/{id}/view` per event per browser session (sessionStorage `sheltuh:viewed:v1`; once per page
+  load if storage is blocked), via `recordEventView`: a same-origin `fetch` with `Content-Type: application/json`,
+  `keepalive` and `credentials: "omit"`, never `navigator.sendBeacon`. Live only; waits out `document.prerendering`;
+  every error ignored.
+- Source buckets are the API's ten. `lib/view-source.ts` maps `utm_source`/`utm_medium` first, then the referrer's
+  hostname; this site itself and no referrer are `direct`; the client never sends `tracking` (the server sets it).
+  In-app navigation keeps the referrer the visit began with, so a view counts under where the visit started.
+- `?ref=` codes (validated like the server's) are sent with the view and kept per event in sessionStorage
+  `sheltuh:ref:v1` (`lib/tracking-ref.ts`, `getTrackingRef(eventId)`) for checkout to pass on.
+
+**Analytics**
+- Routes: `/organisers/me/analytics/overview` and `/organisers/me/events/{id}/tracking-links`; `compare=prevPeriod`.
+- CSV export downloads the API's own files (`…/overview.csv`, `…/analytics.csv`), not a client-built CSV.
+- Overview has no All time option (the API defaults to 30 days and caps ranges at 731 days); the event page's
+  All time sends no dates (the API's default is the event's whole life).
+- Views: `null` days render "—" / "No data". When views weren't counted for any of the range, Views and Conversion
+  show "—". When counting began part-way (`viewsTrackedSince` inside the range) the views **count is shown** with a
+  footnote, and Conversion is "—" (the API returns `conversionRate: null`), rather than hiding both.
+- An optional `viewsUnreliable` flag (days, or the whole range, where the per-minute cap was hit) is read defensively
+  and adds "Some views may be missing on these days: …". Absent means reliable.
+- Traffic sources show **views only** (the API can't split orders by source): Your tracking links; Social
+  (Instagram, Facebook, TikTok, X) as a row group with a subtotal; Search engines; Email and newsletters; Eventbrite;
+  Other websites; Direct or unknown. No "Sheltüh" bucket exists. Footnote: "Sales can't be split by source, only by
+  tracking link."
+- New panel **"Tracking links in this period"** (the API's `trackingLinks`): the only per-source sales split,
+  including deleted links' codes ("Deleted link (code)"). The manager table below keeps all-time numbers.
+- By ticket type: "42 of 100" and its bar only for All time (sales in a shorter period against total capacity would
+  mislead); otherwise just the count. A type that no longer exists shows "No longer offered".
+- Tracking-link delete copy follows the API: the link still opens the event, nothing more is counted, and what it
+  counted stays (without its label). Delete sits in a "Manage" column; the confirm is inline below the table.
+- The page's charts use `useIsPhone` for the weekly switch; hover readouts are `aria-hidden` (the table is the path).
+- Range changes show the new choice at once while the URL updates (no snap-back of the select or checkbox).
+- Entry points: "Analytics" on the dashboard (button and per-row sibling link) and above the event editor.
+
+**Open items**
+- Desktop nav at 1024px signed in: the search field goes from ~266px to ~218px with the heart (spec estimated
+  more room; measured on the live layout). Still usable; revisit if the nav grows again.
+- Checkout passing `getTrackingRef(eventId)` is wired by the checkout pass (`TicketSelector`), not here.

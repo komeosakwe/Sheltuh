@@ -1,6 +1,10 @@
 import Link from "next/link";
+import { Suspense } from "react";
+import EventViewBeacon from "@/components/analytics/EventViewBeacon";
 import DemoNotice from "@/components/DemoNotice";
 import EventArt from "@/components/EventArt";
+import SaveButton from "@/components/favourites/SaveButton";
+import SaveOnReturn from "@/components/favourites/SaveOnReturn";
 import TicketSelector from "@/components/TicketSelector";
 import WhosGoing from "@/components/WhosGoing";
 import { WhosGoingProvider } from "@/components/whos-going/WhosGoingProvider";
@@ -22,6 +26,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
   ].filter((item) => item.value);
 
   const price = formatFeedPriceParts(event);
+  const saveTarget = { id: event.id, title: event.title, slug: event.slug };
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 pt-2 pb-12 sm:gap-10 sm:px-8 sm:py-14">
@@ -33,6 +38,13 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
         &larr; Back to all events
       </Link>
 
+      {/* Live only: one cookie-free view count per session, and finishing a save
+          started before signing in. Neither renders anything. */}
+      {!demo && <EventViewBeacon eventId={event.id} />}
+      <Suspense fallback={null}>
+        <SaveOnReturn event={saveTarget} />
+      </Suspense>
+
       {/* One Who's Going load, shared by the phone summary link and the panel. */}
       <WhosGoingProvider
         event={{ id: event.id, slug: event.slug, title: event.title, organiserId: event.organiserId }}
@@ -40,7 +52,10 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-14">
           <div className="flex flex-col gap-6 sm:gap-10 lg:col-span-7">
             <div className="flex flex-col gap-5">
-              <p className="eyebrow text-muted">{categoryLabel}</p>
+              <div className="flex min-h-11 items-center justify-between gap-4">
+                <p className="eyebrow text-muted">{categoryLabel}</p>
+                <SaveButton event={saveTarget} variant="pill" />
+              </div>
               <h1 className="display-lg">{event.title}</h1>
               {/* Below lg the When/Where aside comes much later, so the key facts sit
                   under the title (desktop shows them in the aside beside it). */}
@@ -98,12 +113,16 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                 <p className="text-base leading-5 font-semibold tabular-nums">{price.amount}</p>
                 <p className="text-xs leading-4 text-background/70">{price.note}</p>
               </div>
-              <a
-                href="#tickets"
-                className="btn btn-lg shrink-0 border-background bg-background px-5 text-foreground focus-visible:outline-background sm:px-7"
-              >
-                {demo ? "See tickets" : "Get tickets"}
-              </a>
+              {/* At 320 the price, heart and CTA don't fit: the heart by the title stays. */}
+              <div className="flex shrink-0 items-center gap-2">
+                <SaveButton event={saveTarget} variant="onDark" className="hidden min-[375px]:flex" />
+                <a
+                  href="#tickets"
+                  className="btn btn-lg shrink-0 border-background bg-background px-5 text-foreground focus-visible:outline-background sm:px-7"
+                >
+                  {demo ? "See tickets" : "Get tickets"}
+                </a>
+              </div>
             </div>
           )}
 

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import EventArt from "@/components/EventArt";
+import SaveButton from "@/components/favourites/SaveButton";
 import { COUNT_THRESHOLD } from "@/components/whos-going/WhosGoingProvider";
 import { getGoingSummary } from "@/lib/api/going";
 import type { GoingSummary } from "@/lib/api/types";
@@ -51,39 +52,46 @@ export default function FeaturedEventCard({ event, mode }: { event: SheltuhEvent
     mode === "demo" ? demoGoing(event.id) : liveCount === null ? null : { count: liveCount };
 
   return (
-    <Link
-      href={`/events/${event.slug}`}
-      className="group relative block aspect-[4/5] overflow-hidden rounded-card bg-foreground text-background shadow-card motion-safe:transition-transform motion-safe:duration-150 motion-safe:active:scale-[0.99] min-[375px]:aspect-square"
-    >
-      <div className="absolute inset-0">
-        <EventArt poster={event.poster} imageUrl={event.imageUrl} title={event.title} motion className="h-full w-full" />
-      </div>
-      {/* Functional scrim: at least 85% black wherever text sits, so the text stays readable over any photo. */}
-      <div
-        aria-hidden="true"
-        className="absolute inset-0 bg-linear-to-t from-foreground from-35% via-foreground/85 via-65% to-foreground/10"
-      />
-      <div className="absolute inset-x-0 bottom-0 flex flex-col p-5 pr-16">
-        <span className="eyebrow self-start rounded-full bg-pop px-3 py-1 text-foreground">Up next</span>
-        <h3 className="mt-2 line-clamp-2 text-[clamp(1.75rem,8vw,2rem)] leading-[0.95] underline-offset-4 group-hover:underline">
-          {event.title}
-        </h3>
-        <div className="mt-2 text-sm leading-5">
-          <p>{formatEventDateTimeRange(event.startsAt, event.endsAt)}</p>
-          <p className="truncate text-background/80">
-            {[event.venueName, event.suburb].filter(Boolean).join(" · ")}
-          </p>
-          <p className="font-semibold">{formatFeedPrice(event)}</p>
-        </div>
-        {going && <GoingStack tone="dark" count={going.count} initials={going.initials} className="mt-2" />}
-      </div>
-      <span
-        aria-hidden="true"
-        className="absolute bottom-5 right-5 flex size-11 items-center justify-center rounded-full bg-background text-foreground"
+    <div className="relative">
+      <Link
+        href={`/events/${event.slug}`}
+        className="group relative block aspect-[4/5] overflow-hidden rounded-card bg-foreground text-background shadow-card motion-safe:transition-transform motion-safe:duration-150 motion-safe:active:scale-[0.99] min-[375px]:aspect-square"
       >
-        <ChevronRightIcon />
-      </span>
-    </Link>
+        <div className="absolute inset-0">
+          <EventArt poster={event.poster} imageUrl={event.imageUrl} title={event.title} motion className="h-full w-full" />
+        </div>
+        {/* Functional scrim: at least 85% black wherever text sits, so the text stays readable over any photo. */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 bg-linear-to-t from-foreground from-35% via-foreground/85 via-65% to-foreground/10"
+        />
+        <div className="absolute inset-x-0 bottom-0 flex flex-col p-5 pr-16">
+          <span className="eyebrow self-start rounded-full bg-pop px-3 py-1 text-foreground">Up next</span>
+          <h3 className="mt-2 line-clamp-2 text-[clamp(1.75rem,8vw,2rem)] leading-[0.95] underline-offset-4 group-hover:underline">
+            {event.title}
+          </h3>
+          <div className="mt-2 text-sm leading-5">
+            <p>{formatEventDateTimeRange(event.startsAt, event.endsAt)}</p>
+            <p className="truncate text-background/80">
+              {[event.venueName, event.suburb].filter(Boolean).join(" · ")}
+            </p>
+            <p className="font-semibold">{formatFeedPrice(event)}</p>
+          </div>
+          {going && <GoingStack tone="dark" count={going.count} initials={going.initials} className="mt-2" />}
+        </div>
+        <span
+          aria-hidden="true"
+          className="absolute bottom-5 right-5 flex size-11 items-center justify-center rounded-full bg-background text-foreground"
+        >
+          <ChevronRightIcon />
+        </span>
+      </Link>
+      <SaveButton
+        event={{ id: event.id, title: event.title, slug: event.slug }}
+        variant="overlay"
+        className="absolute right-3 top-3"
+      />
+    </div>
   );
 }
 

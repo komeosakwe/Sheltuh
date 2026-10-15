@@ -47,4 +47,14 @@ arrows, drift or listeners), `HomeEventCard` (`standard`/`wide`/`compact`),
 for both home trees), `lib/home-sections.ts`.
 
 `components/EventResults.tsx` lays out feed results (the first 24 in a carousel, later
-pages in a grid). Map uses Esri light-gray tiles.
+pages in a grid; `layout="grid"` puts everything in the grid, as on `/saved`). Map uses Esri light-gray tiles.
+
+Favourites (`components/favourites/`, spec `docs/design/favourites-analytics.md`): `SaveButton` (variants
+`overlay` over art, `plain` on phone compact cards, `onDark` in the buy bar, `pill` by the event title; a toggle with a
+fixed name and `aria-pressed`, a sign-in link when signed out), `HeartIcon`, `SavedNavLink`, and the
+`FavouritesNotice` band (a black bar across the bottom, never a toast). The heart is ink, never pink.
+
+Analytics (`components/analytics/`): `StatGrid` (Bricolage numerals on a hairline, change in words), `DataTable`
+(a table from `sm`, definition lists on phones; optional row groups), `TimeSeriesChart` (inline SVG ink bars, dashed
+previous period, HTML axis text, always followed by a table), and `ValueOrNoData` ("—" shown, "No data" read).
+Formatting lives in `lib/analytics-format.ts`: money always with cents, counts never abbreviated.

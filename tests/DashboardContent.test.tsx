@@ -100,3 +100,17 @@ describe("DashboardContent — pagination over the organiser's own events", () =
     expect(screen.getAllByText("Event b")).toHaveLength(1);
   });
 });
+
+describe("DashboardContent — analytics entry points", () => {
+  it("links to the analytics overview, and to each event's analytics beside (not inside) its edit link", async () => {
+    listMyEvents.mockResolvedValueOnce({ items: [makeRecord("a", { title: "Night Market" })], nextCursor: undefined });
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText("Night Market")).toBeInTheDocument());
+    expect(screen.getByRole("link", { name: "Analytics" })).toHaveAttribute("href", "/dashboard/analytics");
+    const perEvent = screen.getByRole("link", { name: "Analytics for Night Market" });
+    expect(perEvent).toHaveAttribute("href", "/dashboard/events/a/analytics");
+    const edit = screen.getByRole("link", { name: /^Night Market/ });
+    expect(edit).toHaveAttribute("href", "/dashboard/a");
+    expect(edit.contains(perEvent)).toBe(false);
+  });
+});

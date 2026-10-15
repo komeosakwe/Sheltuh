@@ -161,6 +161,9 @@ export default function DashboardContent() {
         >
           Payouts
         </Link>
+        <Link href="/dashboard/analytics" className="btn btn-outline w-fit">
+          Analytics
+        </Link>
       </div>
 
       {!organiser.payoutsEnabled && (
@@ -189,18 +192,24 @@ export default function DashboardContent() {
         <>
           <ul className="flex flex-col gap-3">
             {events.map((event) => (
-              <li key={event.eventId}>
+              <li key={event.eventId} className="flex items-stretch bg-surface">
                 <Link
                   href={`/dashboard/${event.eventId}`}
-                  className="flex items-center justify-between bg-surface p-4 hover:border-accent"
+                  className="flex min-w-0 flex-1 items-center justify-between gap-3 p-4 hover:border-accent"
                 >
-                  <div>
+                  <div className="min-w-0">
                     <p className="font-medium text-foreground">{event.title || "Untitled event"}</p>
                     <p className="text-sm text-muted">{event.suburb}</p>
                   </div>
                   <span className="bg-background px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted">
                     {STATUS_LABEL[event.status]}
                   </span>
+                </Link>
+                <Link
+                  href={`/dashboard/events/${encodeURIComponent(event.eventId)}/analytics`}
+                  className="eyebrow inline-flex min-h-11 items-center border-l border-background px-4 underline underline-offset-4"
+                >
+                  Analytics <span className="sr-only">for {event.title || "Untitled event"}</span>
                 </Link>
               </li>
             ))}

@@ -361,7 +361,7 @@ Wide-card copy is `description` up to its first `". "`, clamped by CSS.
 - **Community size ("+3K").** Omitted, because there's no such number.
 - **Hero art:** `HOME_HERO.poster = { pattern: "burst", background: "#0b0b0b", primary: "#ff4fb0", secondary: "#f3f0e8" }`.
 - **Creators art:** `HOME_CREATORS.poster = { pattern: "curtain", background: "#0b0b0b", primary: "#2b3cff", secondary: "#ff4fb0" }`.
-- **Hearts and saved events.** Omitted until a real `/saved` exists.
+- **Hearts and saved events.** Omitted until a real `/saved` existed; now added by `docs/design/favourites-analytics.md` (§5.5).
 
 ## 7. Motion and accessibility
 

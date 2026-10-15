@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import EventEditor from "@/components/dashboard/EventEditor";
+import { ButtonLink } from "@/components/ui/Button";
 import { getMyEvent } from "@/lib/api/events";
 import type { EventRecord } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -70,10 +71,16 @@ export default function EditEventPageContent() {
   }
 
   return (
-    <EventEditor
-      getToken={getToken}
-      initial={event}
-      onSaved={setEvent}
-    />
+    <>
+      <ButtonLink
+        variant="outline"
+        size="sm"
+        className="min-h-11 w-fit"
+        href={`/dashboard/events/${encodeURIComponent(event.eventId)}/analytics`}
+      >
+        Analytics
+      </ButtonLink>
+      <EventEditor getToken={getToken} initial={event} onSaved={setEvent} />
+    </>
   );
 }
