@@ -1,6 +1,7 @@
 import postgres from "postgres";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  DRAIN_BUDGET_MS,
   drainEmailOutbox,
   EMAIL_RETRY_DELAYS_SECONDS,
   MAX_EMAIL_ATTEMPTS,
@@ -421,5 +422,64 @@ describe("admin", () => {
     );
     expect((await resend(jobId, admin.token)).status).toBe(429);
     expect(await jobs()).toMatchObject([{ status: "failed" }]);
+  });
+
+  it("only resends that are queued use the allowance: unknown, in-progress and too-soon ones don't", async () => {
+    const { jobId } = await failedJob();
+    const hits = async () =>
+      (await api.db.query<{ hits: number }>(
+        `select hits from private.rate_limits where user_id = $1 and bucket = 'email_resends'`,
+        [admin.userId],
+      ))[0]?.hits;
+    await api.db.query(
+      `insert into private.rate_limits (user_id, bucket, window_started_at, hits) values ($1, 'email_resends', now(), 19)`,
+      [admin.userId],
+    );
+    expect((await resend("999999", admin.token)).status).toBe(404);
+    await api.db.query(
+      `update private.email_outbox set status = 'sending', lease_token = gen_random_uuid(), lease_expires_at = now() + interval '1 minute'`,
+    );
+    expect((await resend(jobId, admin.token)).status).toBe(409);
+    await api.db.query(
+      `update private.email_outbox set status = 'failed', lease_token = null, lease_expires_at = null, last_resend_at = now()`,
+    );
+    expect((await resend(jobId, admin.token)).status).toBe(429);
+    expect(await hits()).toBe(19);
+
+    // The 20th real resend still goes through; the 21st is refused and changes nothing.
+    await api.db.query(`update private.email_outbox set last_resend_at = now() - interval '6 minutes'`);
+    expect((await resend(jobId, admin.token)).status).toBe(200);
+    expect(await hits()).toBe(20);
+    await api.runDeferred();
+    await api.db.query(`update private.email_outbox set status = 'failed', last_resend_at = now() - interval '6 minutes'`);
+    const over = await resend(jobId, admin.token);
+    expect(over.status).toBe(429);
+    expect(over.body.error).toMatch(/a lot of resends/);
+    expect(await jobs()).toMatchObject([{ status: "failed" }]);
+  });
+
+  it("an admin over the allowance still gets 404 for an unknown job", async () => {
+    await api.db.query(
+      `insert into private.rate_limits (user_id, bucket, window_started_at, hits) values ($1, 'email_resends', now(), 21)`,
+      [admin.userId],
+    );
+    expect((await resend("999999", admin.token)).status).toBe(404);
+  });
+});
+
+describe("drain budget", () => {
+  it("stops claiming after 30 seconds, so the last send fits in the cron route's 60", async () => {
+    expect(DRAIN_BUDGET_MS).toBe(30_000);
+    await paidOrder("a@example.com");
+    await paidOrder("b@example.com");
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    // Each send takes 20 s: after the first, 20 s have passed (claim the next), after the second 40 s (stop).
+    api.sendEmail.mockImplementation(async () => {
+      now += 20_000;
+    });
+    await paidOrder("c@example.com");
+    expect(await drainEmailOutbox(api.deps)).toEqual({ claimed: 2, sent: 2, retrying: 0, failed: 0 });
+    expect(await drainEmailOutbox(api.deps)).toMatchObject({ claimed: 1 });
   });
 });

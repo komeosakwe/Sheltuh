@@ -70,25 +70,23 @@ export const adminListEmailJobs: Handler = async (req, _params, { db, verifyAcce
 /**
  * POST /api/admin/emails/[jobId]/resend — sends the ticket email again, now,
  * with a fresh set of attempts. 404 unknown job; 409 while it's being sent;
- * 429 if it was resent in the last 5 minutes, or the admin is over 20 an hour.
+ * 429 if it was resent in the last 5 minutes, or the admin is over 20 an hour
+ * (only resends that were queued count towards that).
  */
 export const adminResendEmailJob: Handler<{ jobId: string }> = async (req, { jobId }, deps) => {
   const admin = await requireAdmin(req, deps.verifyAccessToken);
   if (!JOB_ID.test(jobId)) throw new HttpError(404, JOB_NOT_FOUND);
 
-  const [{ allowed }] = await deps.db.query<{ allowed: boolean }>(
-    `select private.take_rate_limit($1, 'email_resends', $2, $3::interval) as allowed`,
-    [admin.userId, RESEND_RATE_LIMIT.hits, RESEND_RATE_LIMIT.window],
-  );
-  if (!allowed) throw new HttpError(429, "That's a lot of resends for one hour. Try again later.");
-
+  // Only a resend that's actually queued uses the admin's allowance (one transaction).
   const [row] = await deps.db.query<{ result: string; order_id: string | null }>(
-    `select * from private.resend_email_job($1::bigint, $2::interval)`,
-    [jobId, RESEND_MIN_INTERVAL],
+    `select * from private.admin_resend_email_job($1, $2::bigint, $3::interval, $4, $5::interval)`,
+    [admin.userId, jobId, RESEND_MIN_INTERVAL, RESEND_RATE_LIMIT.hits, RESEND_RATE_LIMIT.window],
   );
   switch (row.result) {
     case "queued":
       break;
+    case "rate_limited":
+      throw new HttpError(429, "That's a lot of resends for one hour. Try again later.");
     case "not_found":
       throw new HttpError(404, JOB_NOT_FOUND);
     case "in_progress":

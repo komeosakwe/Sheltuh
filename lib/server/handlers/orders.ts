@@ -12,7 +12,7 @@ import { parseTrackingCode } from "../tracking-codes";
 import type { CustomerOrderLookup, OrderLineItem, OrderRecord, OrderStatus } from "../types";
 import { fail, requireEmail } from "../validation";
 import { findEventById } from "./event-queries";
-import { createFreeOrder, withTicketCodes } from "./free-orders";
+import { assertFreeTicketsPerOrder, createFreeOrder, withTicketCodes } from "./free-orders";
 import { findOrganiserById } from "./organiser-guard";
 
 /**
@@ -117,6 +117,8 @@ async function refundOversoldOrder(deps: Deps, orderId: string, paymentIntentId:
 }
 
 /** A buyer email is required for free orders (nothing else delivers the tickets) and optional otherwise. */
+function parseBuyerEmail(body: Record<string, unknown>, required: true): string;
+function parseBuyerEmail(body: Record<string, unknown>, required: false): string | null;
 function parseBuyerEmail(body: Record<string, unknown>, required: boolean): string | null {
   if (!required && (body.buyerEmail === undefined || body.buyerEmail === null || body.buyerEmail === "")) return null;
   const errors: Record<string, string> = {};
@@ -131,7 +133,8 @@ function parseBuyerEmail(body: Record<string, unknown>, required: boolean): stri
  * account, fulfilled by the webhook: 201 with its URL. A wholly free order
  * never touches Stripe (./free-orders.ts): 201 with the confirmation page's
  * URL for a member's own verified email, otherwise 202 once a confirmation
- * link has been emailed.
+ * link has been emailed. Any order, paid or free, holds at most 4 free
+ * tickets (400, fieldErrors.lineItems).
  */
 export const createCheckout: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const { db } = deps;
@@ -141,7 +144,19 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   const body = await readJson(req);
   const lineItems = parseCheckoutLineItems(body, event.ticketTypes);
   const totals = orderTotals(lineItems);
-  const buyerEmail = parseBuyerEmail(body, totals.totalCents === 0);
+  const isFree = totals.totalCents === 0;
+  // Free: tickets straight away for a member's own verified email, an emailed confirmation link for anyone else.
+  if (isFree) {
+    const buyerEmail = parseBuyerEmail(body, true);
+    await assertFreeTicketsPerOrder(deps, lineItems);
+    await assertAvailable(db, eventId, lineItems);
+    return createFreeOrder(req, deps, { event, lineItems, buyerEmail, trackingCode: parseTrackingCode(body.trackingCode) });
+  }
+
+  const buyerEmail = parseBuyerEmail(body, false);
+  // Free lines in a paid order: the same per-order cap. The Stripe payment identifies the buyer, so there's
+  // no emailed confirmation or per-person allowance (those count wholly free orders only).
+  await assertFreeTicketsPerOrder(deps, lineItems);
   await assertAvailable(db, eventId, lineItems);
   // Attribution only (never affects price or status): kept if it's one of the event's tracking codes, else null.
   const trackingCode = parseTrackingCode(body.trackingCode);
@@ -167,9 +182,6 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
         trackingCode,
       ],
     );
-
-  // Free: tickets straight away for a member's own verified email, an emailed confirmation link for anyone else.
-  if (totals.totalCents === 0) return createFreeOrder(req, deps, { event, lineItems, buyerEmail: buyerEmail!, trackingCode });
 
   const organiser = await findOrganiserById(db, event.organiserId);
   if (!organiser?.stripeAccountId || !organiser.payoutsEnabled) {

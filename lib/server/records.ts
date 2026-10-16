@@ -18,10 +18,12 @@ import type {
   OrganiserRecord,
   ProfileRecord,
   PublicEvent,
+  PublicOrganiserProfile,
   TicketTypeInput,
 } from "./types";
 import { maskEmail } from "./email-address";
 import { orderReference } from "./order-reference";
+import { socialLinks } from "./organiser-input";
 
 type Row = Record<string, unknown>;
 
@@ -39,7 +41,8 @@ function opt<T>(value: unknown): T | undefined {
 
 export const ORGANISER_SELECT = `
   select o.id, o.owner_user_id, o.display_name, o.contact_email, o.description,
-         o.categories::text[] as categories, o.website_url, o.status::text as status,
+         o.categories::text[] as categories, o.website_url,
+         o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle, o.status::text as status,
          o.rejection_reason, o.reviewed_by, o.reviewed_at, o.stripe_account_id,
          o.payouts_enabled, o.created_at, o.updated_at
   from public.organisers o`;
@@ -53,6 +56,10 @@ export function toOrganiser(row: Row): OrganiserRecord {
     description: row.description as string,
     categories: row.categories as OrganiserRecord["categories"],
     websiteUrl: opt(row.website_url),
+    instagramHandle: opt(row.instagram_handle),
+    tiktokHandle: opt(row.tiktok_handle),
+    facebookPage: opt(row.facebook_page),
+    xHandle: opt(row.x_handle),
     status: row.status as OrganiserRecord["status"],
     rejectionReason: opt(row.rejection_reason),
     reviewedBy: opt(row.reviewed_by),
@@ -69,6 +76,40 @@ export function toOwnOrganiserView(record: OrganiserRecord): OrganiserRecord {
   const view = { ...record };
   delete view.reviewedBy;
   return view;
+}
+
+/**
+ * An organiser's public profile (`where o.id = $1 and o.status = 'approved'`).
+ * Only the columns the public may see: no contact email, owner, Stripe,
+ * payout or review columns are even read.
+ */
+export const PUBLIC_ORGANISER_SELECT = `
+  select o.id, o.display_name, o.description, o.categories::text[] as categories, o.website_url,
+         o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle,
+         to_char(o.created_at at time zone 'Australia/Melbourne', 'YYYY-MM') as member_since
+  from public.organisers o`;
+
+export function toPublicOrganiserProfile(
+  row: Row,
+  upcomingEvents: PublicEvent[],
+  recentEvents: PublicEvent[],
+): PublicOrganiserProfile {
+  return {
+    organiserId: row.id as string,
+    displayName: row.display_name as string,
+    description: row.description as string,
+    categories: row.categories as PublicOrganiserProfile["categories"],
+    websiteUrl: opt(row.website_url),
+    socialLinks: socialLinks({
+      instagramHandle: opt(row.instagram_handle),
+      tiktokHandle: opt(row.tiktok_handle),
+      facebookPage: opt(row.facebook_page),
+      xHandle: opt(row.x_handle),
+    }),
+    memberSince: row.member_since as string,
+    upcomingEvents,
+    recentEvents,
+  };
 }
 
 // ---------------------------------------------------------------------------

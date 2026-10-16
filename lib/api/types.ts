@@ -12,6 +12,12 @@ export interface OrganiserRecord {
   description: string;
   categories: EventCategory[];
   websiteUrl?: string;
+  /** Social handles, stored without a leading '@'. Public as links on the organiser's profile. */
+  instagramHandle?: string;
+  tiktokHandle?: string;
+  /** The page's username, as in facebook.com/<page>. */
+  facebookPage?: string;
+  xHandle?: string;
   status: OrganiserStatus;
   rejectionReason?: string;
   reviewedBy?: string;
@@ -20,6 +26,33 @@ export interface OrganiserRecord {
   updatedAt: string;
   stripeAccountId?: string;
   payoutsEnabled?: boolean;
+}
+
+/** https URLs the server builds from an organiser's handles; only the ones they've set. */
+export interface OrganiserSocialLinks {
+  instagram?: string;
+  tiktok?: string;
+  facebook?: string;
+  x?: string;
+}
+
+/**
+ * GET /api/organisers/{organiserId}/profile: an approved organiser's public
+ * profile. Never their contact email, account, Stripe or review details.
+ */
+export interface PublicOrganiserProfile {
+  organiserId: string;
+  displayName: string;
+  description: string;
+  categories: EventCategory[];
+  websiteUrl?: string;
+  socialLinks: OrganiserSocialLinks;
+  /** "YYYY-MM" (Melbourne): the month the organiser joined. */
+  memberSince: string;
+  /** Published events that haven't ended, soonest first. */
+  upcomingEvents: PublicEvent[];
+  /** Published events that have ended, most recent first. Together with upcomingEvents, at most 24. */
+  recentEvents: PublicEvent[];
 }
 
 export type EventStatus = "draft" | "pending_review" | "published" | "rejected";

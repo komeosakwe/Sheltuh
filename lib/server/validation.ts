@@ -1,9 +1,9 @@
 import { MIN_PAID_TICKET_CENTS } from "@/lib/fees";
+import { isPlainEmailAddress, MAX_EMAIL_LENGTH } from "./email-address";
 import { HttpError } from "./http";
 import { melbourneLocalToUtcIso } from "./melbourne-time";
 import { EVENT_CATEGORIES, type EventCategory, type FeePolicy, type TicketTypeInput } from "./types";
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_REGEX = /^\d{2}:\d{2}$/;
 
@@ -23,9 +23,13 @@ export function requireString(value: unknown, field: string, errors: Record<stri
   return value.trim();
 }
 
+/**
+ * A single plain address (isPlainEmailAddress): no display names, comments,
+ * quoted local parts or lists, so a stored value can only ever be one recipient.
+ */
 export function requireEmail(value: unknown, field: string, errors: Record<string, string>): string {
-  const email = requireString(value, field, errors, 320);
-  if (email && !EMAIL_REGEX.test(email)) {
+  const email = requireString(value, field, errors, MAX_EMAIL_LENGTH);
+  if (email && !errors[field] && !isPlainEmailAddress(email)) {
     errors[field] = "Enter a valid email address.";
   }
   return email;
@@ -52,16 +56,31 @@ export function requireCategory(value: unknown, field: string, errors: Record<st
   return value as EventCategory;
 }
 
+/** Longest URL accepted (matches the organisers.website_url check constraint). */
+export const MAX_URL_LENGTH = 2048;
+
+/**
+ * An optional http(s) URL, trimmed. It must start with `http://` or `https://`
+ * as typed (the database checks the same), so the stored text is always safe
+ * to use as a link's href, whatever the URL parser would have normalised.
+ */
 export function optionalUrl(value: unknown, field: string, errors: Record<string, string>): string | undefined {
-  if (value === undefined || value === null || value === "") return undefined;
+  if (value === undefined || value === null) return undefined;
   if (typeof value !== "string") {
     errors[field] = "Enter a valid URL.";
     return undefined;
   }
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.length > MAX_URL_LENGTH) {
+    errors[field] = `Must be ${MAX_URL_LENGTH} characters or fewer.`;
+    return undefined;
+  }
   try {
-    const url = new URL(value);
+    if (!/^https?:\/\//i.test(trimmed)) throw new Error("bad protocol");
+    const url = new URL(trimmed);
     if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("bad protocol");
-    return value;
+    return trimmed;
   } catch {
     errors[field] = "Enter a valid URL, including https://";
     return undefined;

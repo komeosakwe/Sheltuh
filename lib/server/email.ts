@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import type Mail from "nodemailer/lib/mailer";
 
 export interface EmailMessage {
   to: string;
@@ -8,6 +9,23 @@ export interface EmailMessage {
 }
 
 export type SendEmail = (message: EmailMessage) => Promise<void>;
+
+/**
+ * Nodemailer's options for one message. The recipient goes in as an address
+ * object, which nodemailer uses as a single address: a string would be parsed
+ * as an address list, so a stored value like "a@x.com, b@y.com" or
+ * "name <b@y.com>" could reach someone other than the buyer. (The API only
+ * stores plain addresses: lib/server/email-address.ts.)
+ */
+export function mailOptions(from: string, message: EmailMessage): Mail.Options {
+  return {
+    from,
+    to: { name: "", address: message.to },
+    subject: message.subject,
+    text: message.text,
+    html: message.html,
+  };
+}
 
 /**
  * SMTP sender from env, or null when SMTP isn't configured. Any SMTP server
@@ -32,6 +50,6 @@ export function createSmtpSender(env: NodeJS.ProcessEnv = process.env): SendEmai
   });
 
   return async (message) => {
-    await transport.sendMail({ from: EMAIL_FROM, ...message });
+    await transport.sendMail(mailOptions(EMAIL_FROM, message));
   };
 }

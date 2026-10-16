@@ -24,7 +24,15 @@ export const FREE_LIMITS = {
   perPersonPerEvent: 4,
   memberDaily: { hits: 10, window: "24 hours" },
   addressHourly: { hits: 3, window: "1 hour" },
-  platformHourly: { hits: 300, window: "1 hour" },
+  /**
+   * Guest confirmation emails, platform-wide. They share the Workspace SMTP
+   * quota (about 2,000 a day) with ticket emails, so these keep most of it for
+   * those (docs/architecture.md, "Accepted risks (free tickets)"). Change the
+   * daily one together with the delegating request_free_order in
+   * supabase/migrations/20261017000000_free_order_caps.sql.
+   */
+  platformHourly: { hits: 60, window: "1 hour" },
+  platformDaily: { hits: 400, window: "24 hours" },
   confirmHours: 24,
 } as const;
 
@@ -61,6 +69,22 @@ async function optionalCaller(req: Request, deps: Deps): Promise<Caller | null> 
   return token ? deps.verifyAccessToken(token) : null;
 }
 
+export const FREE_PER_ORDER_LIMIT = `You can book up to ${FREE_LIMITS.perOrder} free tickets at a time.`;
+
+/**
+ * At most FREE_LIMITS.perOrder free (A$0) tickets in any order, paid or free:
+ * 400 with fieldErrors.lineItems otherwise. Paid orders are bound by their
+ * Stripe payment, so this is their only free-ticket limit; the per-person
+ * allowance and the emailed confirmation are for wholly free orders.
+ */
+export async function assertFreeTicketsPerOrder(deps: Deps, lineItems: OrderLineItem[]): Promise<void> {
+  const free = lineItems.reduce((n, l) => (l.unitPriceCents === 0 ? n + l.quantity : n), 0);
+  if (free > FREE_LIMITS.perOrder) {
+    await recordRefusal(deps, "order_too_large");
+    fail({ lineItems: FREE_PER_ORDER_LIMIT });
+  }
+}
+
 const SOLD_OUT = "Those tickets just ran out.";
 const LINK_NOT_FOUND = "This link isn't valid. Check it's the whole link from your email.";
 const PERSON_LIMIT = `You can have up to ${FREE_LIMITS.perPersonPerEvent} free tickets for this event, and this email address already has them.`;
@@ -74,15 +98,11 @@ interface FreeOrderInput {
 
 /**
  * The free branch of POST /api/events/[eventId]/checkout, after the line
- * items, the email and availability have been checked.
+ * items (including assertFreeTicketsPerOrder), the email and availability
+ * have been checked.
  */
 export async function createFreeOrder(req: Request, deps: Deps, input: FreeOrderInput): Promise<Response> {
   const { event, lineItems, buyerEmail, trackingCode } = input;
-  const quantity = lineItems.reduce((n, l) => n + l.quantity, 0);
-  if (quantity > FREE_LIMITS.perOrder) {
-    await recordRefusal(deps, "order_too_large");
-    fail({ lineItems: `You can book up to ${FREE_LIMITS.perOrder} free tickets at a time.` });
-  }
   const orderId = `ord_${crypto.randomUUID().replace(/-/g, "")}`;
   const caller = await optionalCaller(req, deps);
   const isOwnVerifiedEmail =
@@ -126,7 +146,8 @@ export async function createFreeOrder(req: Request, deps: Deps, input: FreeOrder
 
   const token = randomBytes(32).toString("base64url");
   const [{ result }] = await deps.db.query<{ result: string }>(
-    `select private.request_free_order($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9::interval, $10, $11::interval, $12, $13::interval) as result`,
+    `select private.request_free_order($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9::interval, $10, $11::interval,
+       $12, $13::interval, $14, $15::interval) as result`,
     [
       orderId,
       event.eventId,
@@ -141,6 +162,8 @@ export async function createFreeOrder(req: Request, deps: Deps, input: FreeOrder
       FREE_LIMITS.addressHourly.window,
       FREE_LIMITS.platformHourly.hits,
       FREE_LIMITS.platformHourly.window,
+      FREE_LIMITS.platformDaily.hits,
+      FREE_LIMITS.platformDaily.window,
     ],
   );
   const sent: CheckoutResult = { status: "confirmation_sent", expiresInHours: FREE_LIMITS.confirmHours };
@@ -152,6 +175,7 @@ export async function createFreeOrder(req: Request, deps: Deps, input: FreeOrder
     case "address_limited":
       return Response.json(sent, { status: 202, headers: PRIVATE_NO_STORE });
     case "platform_limited":
+    case "platform_daily_limited":
       throw new HttpError(503, "Free bookings are busy right now. Try again in a few minutes.");
     default:
       throw new Error(`Unexpected request_free_order result: ${result}`);
@@ -176,8 +200,9 @@ export async function createFreeOrder(req: Request, deps: Deps, input: FreeOrder
  * POST /api/orders/confirm {token} — public. The token from a guest's
  * emailed link (its URL fragment). Issues the tickets and returns the
  * confirmation page's URL; a second confirmation returns the same URL.
- * 400 malformed token; 404 unknown; 410 expired; 409 sold out, or the
- * address already has its free tickets for the event.
+ * 400 malformed token; 404 unknown; 410 expired (confirmed or not); 409 sold
+ * out, the address already has its free tickets for the event, or a ticket
+ * type is no longer free.
  */
 export const confirmFreeOrder: Handler = async (req, _params, deps) => {
   const body = await readJson(req);
@@ -208,10 +233,14 @@ export const confirmFreeOrder: Handler = async (req, _params, deps) => {
       throw new HttpError(404, LINK_NOT_FOUND);
     case "expired":
       throw new HttpError(410, "This link has expired. Book again to get a new one.");
+    case "expired_confirmed":
+      throw new HttpError(410, "This link has expired. Your tickets were emailed to you when you confirmed it.");
     case "person_event_limit":
       throw new HttpError(409, PERSON_LIMIT);
     case "sold_out":
       throw new HttpError(409, SOLD_OUT);
+    case "no_longer_free":
+      throw new HttpError(409, "These tickets aren't free any more. Book again from the event page.");
     case "unavailable":
       throw new HttpError(409, "This booking couldn't be completed. Book again from the event page.");
     default:

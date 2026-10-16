@@ -243,6 +243,50 @@ describe("paid checkout", () => {
     expect((await api.call(createCheckout, { params: { eventId: "nope" }, body: {} })).status).toBe(404);
   });
 
+  describe("free lines in a paid order", () => {
+    const MIXED = [
+      { id: "ga", name: "GA", priceCents: 3000, feePolicy: "buyer-pays", quantityAvailable: 20 },
+      { id: "rsvp", name: "RSVP", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 20 },
+      { id: "kids", name: "Kids", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 20 },
+    ];
+    const checkout = (eventId: string, lineItems: { ticketTypeId: string; quantity: number }[]) =>
+      api.call(createCheckout, { params: { eventId }, body: { lineItems } });
+
+    it("are capped at 4 free tickets per order across free types: 400, no order, no Stripe", async () => {
+      const event = await publishedEvent(api, organiser, admin, { ticketTypes: MIXED });
+      await enablePayouts(api, organiser.organiserId);
+      for (const lineItems of [
+        [{ ticketTypeId: "ga", quantity: 1 }, { ticketTypeId: "rsvp", quantity: 5 }],
+        [{ ticketTypeId: "ga", quantity: 1 }, { ticketTypeId: "rsvp", quantity: 3 }, { ticketTypeId: "kids", quantity: 2 }],
+      ]) {
+        const res = await checkout(event.eventId, lineItems);
+        expect(res.status).toBe(400);
+        expect(res.body.fieldErrors).toEqual({ lineItems: "You can book up to 4 free tickets at a time." });
+      }
+      expect(api.stripe.checkout.sessions.create).not.toHaveBeenCalled();
+      expect(await api.db.query(`select id from public.orders`)).toEqual([]);
+      const refusals = await api.db.query(`select reason, refusals from private.free_order_refusals`);
+      expect(refusals).toEqual([{ reason: "order_too_large", refusals: 2 }]);
+    });
+
+    it("4 free tickets with paid ones go to Stripe as usual, with no email confirmation", async () => {
+      const event = await publishedEvent(api, organiser, admin, { ticketTypes: MIXED });
+      await enablePayouts(api, organiser.organiserId);
+      const res = await checkout(event.eventId, [
+        { ticketTypeId: "ga", quantity: 6 },
+        { ticketTypeId: "rsvp", quantity: 2 },
+        { ticketTypeId: "kids", quantity: 2 },
+      ]);
+      expect(res.status).toBe(201);
+      expect(res.body.url).toBe("https://checkout.stripe.test/cs_test_1");
+      expect(api.sendEmail).not.toHaveBeenCalled();
+      const [order] = await api.db.query(
+        `select status::text as status, total_cents, buyer_email_key, confirmation_token_hash from public.orders`,
+      );
+      expect(order).toEqual({ status: "pending", total_cents: 6 * 3170, buyer_email_key: null, confirmation_token_hash: null });
+    });
+  });
+
   it("marks the order failed if Stripe itself errors", async () => {
     const event = await publishedEvent(api, organiser, admin, { ticketTypes: PAID_TICKETS });
     await enablePayouts(api, organiser.organiserId);

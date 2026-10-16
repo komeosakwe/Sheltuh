@@ -26,7 +26,7 @@ export interface CheckoutLineItemInput {
  * simply left off (the order goes the guest way).
  *
  * ApiError: 400 (fieldErrors `buyerEmail` / `lineItems`, e.g. over 4 free
- * tickets), 404 event not on sale, 409 sold out or this email already has its
+ * tickets in any order, paid or free), 404 event not on sale, 409 sold out or this email already has its
  * free tickets for the event, 429 too many free bookings today (members),
  * 503 free bookings busy or the confirmation email couldn't be sent.
  */
@@ -55,9 +55,10 @@ export async function createCheckoutSession(
 /**
  * Public — confirms a guest's free order with the token from the emailed
  * link (its `#token=` fragment). Resolves to the confirmation page's URL,
- * also when it was already confirmed. ApiError 400 malformed link, 404
- * unknown, 410 expired, 409 sold out or this email already has its free
- * tickets for the event.
+ * also when it was already confirmed (within the link's 24 hours). ApiError
+ * 400 malformed link, 404 unknown, 410 expired (confirmed or not: the message
+ * says which), 409 sold out, this email already has its free tickets for the
+ * event, or a ticket type is no longer free.
  */
 export async function confirmFreeOrder(token: string) {
   return apiFetch<ConfirmFreeOrderResult>(`/orders/confirm`, { method: "POST", body: { token } });

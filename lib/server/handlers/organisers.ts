@@ -1,11 +1,16 @@
 import { requireCaller } from "../auth";
-import { PG_UNIQUE_VIOLATION, pgErrorCode } from "../db";
+import { PG_UNIQUE_VIOLATION, pgErrorCode, type Db } from "../db";
 import { created, HttpError, ok, readJson } from "../http";
+import { parseSocialHandles, SOCIAL_RULES } from "../organiser-input";
 import { ORGANISER_SELECT, toOrganiser, toOwnOrganiserView } from "../records";
 import type { Handler } from "../route";
-import { canApplyAsOrganiser, canResubmitOrganiser } from "../state";
+import { canApplyAsOrganiser, canEditApprovedOrganiser, canResubmitOrganiser } from "../state";
+import type { OrganiserRecord } from "../types";
 import { fail, optionalUrl, requireCategories, requireEmail, requireString } from "../validation";
 import { findOrganiserByOwner, requireApprovedOrganiser } from "./organiser-guard";
+
+/** A column assignment for an organisers update. Column names only ever come from this file and SOCIAL_RULES. */
+type Assignment = [column: string, value: unknown];
 
 function parseApplication(body: Record<string, unknown>) {
   const errors: Record<string, string> = {};
@@ -14,8 +19,61 @@ function parseApplication(body: Record<string, unknown>) {
   const description = requireString(body.description, "description", errors, 2000);
   const categories = requireCategories(body.categories, "categories", errors);
   const websiteUrl = optionalUrl(body.websiteUrl, "websiteUrl", errors);
+  const handles = parseSocialHandles(body, errors);
   if (Object.keys(errors).length > 0) fail(errors);
-  return { displayName, contactEmail, description, categories, websiteUrl: websiteUrl ?? null };
+  return { displayName, contactEmail, description, categories, websiteUrl: websiteUrl ?? null, handles };
+}
+
+/** The social-handle columns a request sets (absent fields are left as they are). */
+function handleAssignments(handles: ReturnType<typeof parseSocialHandles>): Assignment[] {
+  return SOCIAL_RULES.filter((rule) => handles[rule.field] !== undefined).map((rule) => [
+    rule.column,
+    handles[rule.field],
+  ]);
+}
+
+/** Fields fixed once an organiser is approved: changing them needs a fresh review. */
+const REVIEWED_FIELDS = ["displayName", "contactEmail", "categories"] as const;
+
+/**
+ * An approved organiser's profile edit. Every field is optional: absent means
+ * unchanged; null or blank clears websiteUrl or a handle. displayName,
+ * contactEmail and categories may be sent back unchanged (so a client can
+ * send the whole record) but not changed.
+ */
+function parseProfileEdit(body: Record<string, unknown>, current: OrganiserRecord): Assignment[] {
+  const errors: Record<string, string> = {};
+  const assignments: Assignment[] = [];
+
+  for (const field of REVIEWED_FIELDS) {
+    const value = body[field];
+    if (value === undefined) continue;
+    const unchanged =
+      field === "categories"
+        ? Array.isArray(value) &&
+          JSON.stringify([...value].sort()) === JSON.stringify([...current.categories].sort())
+        : typeof value === "string" && value.trim() === current[field];
+    if (!unchanged) errors[field] = "This can't be changed once you're approved. Contact us to change it.";
+  }
+
+  if (body.description !== undefined) {
+    assignments.push(["description", requireString(body.description, "description", errors, 2000)]);
+  }
+  if (body.websiteUrl !== undefined) {
+    assignments.push(["website_url", optionalUrl(body.websiteUrl, "websiteUrl", errors) ?? null]);
+  }
+  assignments.push(...handleAssignments(parseSocialHandles(body, errors)));
+
+  if (Object.keys(errors).length > 0) fail(errors);
+  return assignments;
+}
+
+/** The `set` items and their parameters, numbered from `$firstParam`. */
+function setClause(assignments: Assignment[], firstParam: number): { items: string[]; params: unknown[] } {
+  return {
+    items: assignments.map(([column], i) => `${column} = $${firstParam + i}`),
+    params: assignments.map(([, value]) => value),
+  };
 }
 
 /** POST /api/organisers/apply */
@@ -35,10 +93,23 @@ export const applyAsOrganiser: Handler = async (req, _params, { db, verifyAccess
   const input = parseApplication(await readJson(req));
   try {
     const [row] = await db.query<{ id: string }>(
-      `insert into public.organisers (owner_user_id, display_name, contact_email, description, categories, website_url)
-       values ($1, $2, $3, $4, array(select jsonb_array_elements_text($5::text::jsonb))::public.event_category[], $6)
+      `insert into public.organisers (owner_user_id, display_name, contact_email, description, categories, website_url,
+                                      instagram_handle, tiktok_handle, facebook_page, x_handle)
+       values ($1, $2, $3, $4, array(select jsonb_array_elements_text($5::text::jsonb))::public.event_category[], $6,
+               $7, $8, $9, $10)
        returning id`,
-      [caller.userId, input.displayName, input.contactEmail, input.description, JSON.stringify(input.categories), input.websiteUrl],
+      [
+        caller.userId,
+        input.displayName,
+        input.contactEmail,
+        input.description,
+        JSON.stringify(input.categories),
+        input.websiteUrl,
+        input.handles.instagramHandle ?? null,
+        input.handles.tiktokHandle ?? null,
+        input.handles.facebookPage ?? null,
+        input.handles.xHandle ?? null,
+      ],
     );
     const [record] = await db.query(`${ORGANISER_SELECT} where o.id = $1`, [row.id]);
     return created(toOwnOrganiserView(toOrganiser(record)));
@@ -59,30 +130,71 @@ export const getMyOrganiser: Handler = async (req, _params, { db, verifyAccessTo
   return ok(toOwnOrganiserView(record));
 };
 
-/** PATCH /api/organisers/me — edit and resubmit a rejected application. */
+/**
+ * PATCH /api/organisers/me. What it does depends on the application's status:
+ * - rejected: edit and resubmit the whole application (back to pending).
+ *   Social handles are optional; ones not sent are kept.
+ * - approved: edit the public profile (description, websiteUrl, social
+ *   handles) without a new review; the status doesn't change.
+ * - pending: 409.
+ */
 export const resubmitOrganiser: Handler = async (req, _params, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
 
   const existing = await findOrganiserByOwner(db, caller.userId);
   if (!existing) throw new HttpError(404, "No organiser application found.");
+  if (canEditApprovedOrganiser(existing.status)) return editApprovedProfile(db, caller.userId, existing, req);
   if (!canResubmitOrganiser(existing.status)) {
-    throw new HttpError(409, "Only a rejected application can be edited and resubmitted.");
+    throw new HttpError(
+      409,
+      "Your application is being reviewed. You can edit it if it's rejected, or your profile once it's approved.",
+    );
   }
 
   const input = parseApplication(await readJson(req));
+  const handles = setClause(handleAssignments(input.handles), 7);
   const rows = await db.query<{ id: string }>(
     `update public.organisers
      set display_name = $2, contact_email = $3, description = $4, categories = array(select jsonb_array_elements_text($5::text::jsonb))::public.event_category[],
-         website_url = $6, status = 'pending', rejection_reason = null, reviewed_by = null, reviewed_at = null
+         website_url = $6, ${handles.items.map((item) => `${item}, `).join("")}
+         status = 'pending', rejection_reason = null, reviewed_by = null, reviewed_at = null
      where owner_user_id = $1 and status = 'rejected'
      returning id`,
-    [caller.userId, input.displayName, input.contactEmail, input.description, JSON.stringify(input.categories), input.websiteUrl],
+    [
+      caller.userId,
+      input.displayName,
+      input.contactEmail,
+      input.description,
+      JSON.stringify(input.categories),
+      input.websiteUrl,
+      ...handles.params,
+    ],
   );
   if (rows.length === 0) throw new HttpError(409, "Your application status changed — refresh and try again.");
 
   const record = await findOrganiserByOwner(db, caller.userId);
   return ok(toOwnOrganiserView(record!));
 };
+
+/**
+ * Only the fields sent are written, each in one conditional update, so two
+ * edits of different fields at once can't undo each other.
+ */
+async function editApprovedProfile(db: Db,userId: string, existing: OrganiserRecord, req: Request) {
+  const assignments = parseProfileEdit(await readJson(req), existing);
+  if (assignments.length > 0) {
+    const set = setClause(assignments, 2);
+    const rows = await db.query<{ id: string }>(
+      `update public.organisers set ${set.items.join(", ")}
+       where owner_user_id = $1 and status = 'approved'
+       returning id`,
+      [userId, ...set.params],
+    );
+    if (rows.length === 0) throw new HttpError(409, "Your organiser status changed — refresh and try again.");
+  }
+  const record = await findOrganiserByOwner(db, userId);
+  return ok(toOwnOrganiserView(record!));
+}
 
 /**
  * POST /api/organisers/me/connect/onboard — creates (or reuses) the

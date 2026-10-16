@@ -17,6 +17,11 @@ export function canResubmitOrganiser(status: OrganiserStatus): boolean {
   return RESUBMITTABLE_ORGANISER_STATUSES.includes(status);
 }
 
+/** An approved organiser can edit their public profile (not the reviewed fields) without a new review. */
+export function canEditApprovedOrganiser(status: OrganiserStatus): boolean {
+  return status === "approved";
+}
+
 export function canApplyAsOrganiser(existing: OrganiserStatus | undefined): boolean {
   // No existing application, or a rejected one being turned into a fresh
   // application, are both fine. A pending or approved application blocks a

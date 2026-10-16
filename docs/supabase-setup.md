@@ -247,6 +247,23 @@ are refused (no personal data is kept):
 select day, reason, refusals from private.free_order_refusals order by day desc, reason;
 ```
 
+Any `platform_hourly_limit` or `platform_daily_limit` rows mean guest free
+bookings were refused for everyone for a while (the platform-wide caps on
+confirmation emails). A few are fine; a steady stream suggests someone is
+flooding the free path (docs/architecture.md, "Accepted risks (free
+tickets)"). Each count stops at 10,000 a day.
+
+**Malformed addresses from before stricter checking.** Buyer and organiser
+emails are now checked as one plain address (no names, comments, quotes or
+lists). Once, after applying `20261017000000_free_order_caps.sql`, check for
+rows stored earlier that wouldn't pass (mail now always goes to them as a
+single address, but they're worth a look):
+
+```sql
+select id, status, created_at from public.orders where buyer_email ~ '[,;<>()":\[\]\\[:space:]]';
+select id, status, created_at from public.organisers where contact_email ~ '[,;<>()":\[\]\\[:space:]]';
+```
+
 ## 2. Stripe (Connect)
 
 1. In the Stripe dashboard, stay in **test mode** and enable **Connect**. Use
@@ -298,9 +315,14 @@ Google Workspace, so there's no new vendor:
    SPF record, so no DNS change is needed.
 
 Workspace allows about 2,000 messages a day, which is plenty for launch (it's
-shared with free-ticket confirmation emails). If SMTP isn't set, orders still
-work and tickets still show on the confirmation page; each ticket email is
-retried on the schedule below and then shows as failed.
+shared with free-ticket confirmation emails, which are capped at 60 an hour
+and 400 a day so most of it stays for ticket emails). If SMTP isn't set, paid
+orders still work and tickets still show on the confirmation page; each
+ticket email is retried on the schedule below and then shows as failed. But
+guests can't book free tickets without SMTP: the confirmation link can't be
+sent, so every guest free booking is refused with a 503 ("We couldn't send
+the confirmation email just now"). Members booking with their own verified
+email still get theirs.
 
 **Retries.** Every ticket email goes through an outbox: it's tried straight
 after the order is paid, then by a cron job every 5 minutes (1 min, 5 min,

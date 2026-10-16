@@ -27,6 +27,14 @@ export const EMAIL_LEASE = "2 minutes";
  * second worker never takes over a job that's still being sent.
  */
 const CLAIM_BATCH = 1;
+/**
+ * A drain stops claiming jobs after this long. The cron route's maxDuration
+ * is 60 s, and a job claimed just before the deadline still has to be sent:
+ * usually a second or two, and at worst SMTP's connection (10 s) and greeting
+ * (10 s) timeouts. An invocation cut off anyway leaves its lease to expire and
+ * the job is sent again (at-least-once).
+ */
+export const DRAIN_BUDGET_MS = 30_000;
 
 /**
  * Seconds to wait before the next attempt, after `attempts` attempts have
@@ -107,7 +115,7 @@ export async function drainEmailOutbox(
   deps: Deps,
   options: { orderId?: string; maxJobs?: number; budgetMs?: number; random?: () => number } = {},
 ): Promise<DrainSummary> {
-  const { orderId, maxJobs = 100, budgetMs = 45_000, random = Math.random } = options;
+  const { orderId, maxJobs = 100, budgetMs = DRAIN_BUDGET_MS, random = Math.random } = options;
   const deadline = Date.now() + budgetMs;
   const summary: DrainSummary = { claimed: 0, sent: 0, retrying: 0, failed: 0 };
   while (summary.claimed < maxJobs && Date.now() < deadline) {

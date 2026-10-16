@@ -85,6 +85,13 @@ async function refusals() {
   return Object.fromEntries(rows.map((r) => [r.reason, r.refusals]));
 }
 
+async function buckets() {
+  const rows = await api.db.query<{ bucket: string; hits: number }>(
+    `select bucket, hits from private.platform_rate_limits order by bucket`,
+  );
+  return Object.fromEntries(rows.map((r) => [r.bucket, r.hits]));
+}
+
 async function bookAndConfirm(email: string, quantity = 1, ticketTypeId = "rsvp") {
   const res = await book(email, quantity, { ticketTypeId });
   expect(res.status).toBe(202);
@@ -179,7 +186,24 @@ describe("guest: book, then confirm by email", () => {
   });
 
   it("an invalid email is a 400 that records nothing and sends nothing", async () => {
-    for (const buyerEmail of ["", "nope", "a@b", "two@@example.com", " @example.com", `${"x".repeat(320)}@example.com`]) {
+    for (const buyerEmail of [
+      "",
+      "nope",
+      "a@b",
+      "two@@example.com",
+      " @example.com",
+      `${"x".repeat(320)}@example.com`,
+      // Address-list syntax that mail software would read as other recipients.
+      "victim+,attacker.x@gmail.com",
+      "n1<me@gmail.com>",
+      "(n1)me@gmail.com",
+      '"quoted"@example.com',
+      '"a,b"@example.com',
+      "a@example.com; b@example.com",
+      "a:b@example.com",
+      "x@[127.0.0.1]",
+      "back\\slash@example.com",
+    ]) {
       expect((await book(buyerEmail)).status).toBe(400);
     }
     expect(await orders()).toEqual([]);
@@ -379,7 +403,8 @@ describe("caps", () => {
     expect(api.sendEmail).toHaveBeenCalledTimes(6);
   });
 
-  it("at most 300 confirmation emails an hour platform-wide: then 503, nothing recorded", async () => {
+  it("at most 60 confirmation emails an hour platform-wide: then 503, nothing recorded", async () => {
+    expect(FREE_LIMITS.platformHourly.hits).toBe(60);
     await api.db.query(
       `insert into private.platform_rate_limits (bucket, window_started_at, hits) values ('free_order_confirmations', now(), $1)`,
       [FREE_LIMITS.platformHourly.hits],
@@ -392,6 +417,96 @@ describe("caps", () => {
     const member = await api.signUp({ email: "mia@example.com" });
     expect((await book("mia@example.com", 1, { token: member.token })).status).toBe(201);
     expect(await refusals()).toEqual({ platform_hourly_limit: 1 });
+  });
+
+  it("at most 400 confirmation emails per 24 hours platform-wide: then 503, nothing recorded", async () => {
+    expect(FREE_LIMITS.platformDaily).toEqual({ hits: 400, window: "24 hours" });
+    // One link takes a hit on each bucket.
+    expect((await book("first@example.com")).status).toBe(202);
+    expect(await buckets()).toEqual({ free_order_confirmations: 1, free_order_confirmations_daily: 1 });
+
+    await api.db.query(
+      `update private.platform_rate_limits set hits = $1 where bucket = 'free_order_confirmations_daily'`,
+      [FREE_LIMITS.platformDaily.hits],
+    );
+    const res = await book("fan@example.com");
+    expect(res.status).toBe(503);
+    expect(res.body.error).toBe("Free bookings are busy right now. Try again in a few minutes.");
+    expect(await orders()).toHaveLength(1);
+    expect(api.sendEmail).toHaveBeenCalledTimes(1);
+    expect(await refusals()).toEqual({ platform_daily_limit: 1 });
+    // The hourly bucket isn't spent on a refusal.
+    expect((await buckets()).free_order_confirmations).toBe(1);
+    // Members aren't affected.
+    const member = await api.signUp({ email: "mia@example.com" });
+    expect((await book("mia@example.com", 1, { token: member.token })).status).toBe(201);
+
+    // A day later, links are allowed again.
+    await api.db.query(`update private.platform_rate_limits set window_started_at = now() - interval '24 hours 1 minute'`);
+    expect((await book("fan@example.com")).status).toBe(202);
+  });
+
+  it("the platform caps are checked before the address: the same 503 whichever address asks", async () => {
+    for (const variant of ["fan@example.com", "fan+1@example.com", "fan+2@example.com"]) await book(variant);
+    // That address is at its hourly limit: its 4th looks sent, and takes nothing from the platform.
+    expect((await book("fan+3@example.com")).status).toBe(202);
+    expect(await buckets()).toEqual({ free_order_confirmations: 3, free_order_confirmations_daily: 3 });
+
+    for (const bucket of ["free_order_confirmations", "free_order_confirmations_daily"]) {
+      const saved = await buckets();
+      await api.db.query(`update private.platform_rate_limits set hits = 1000 where bucket = $1`, [bucket]);
+      expect((await book("fan+4@example.com")).status).toBe(503);
+      expect((await book("new@example.com")).status).toBe(503);
+      await api.db.query(`update private.platform_rate_limits set hits = $2 where bucket = $1`, [bucket, saved[bucket]]);
+    }
+    expect(await refusals()).toEqual({ address_hourly_limit: 1, platform_daily_limit: 2, platform_hourly_limit: 2 });
+  });
+
+  it("the previous request_free_order signature (for a deploy in progress) still applies the daily cap", async () => {
+    await api.db.query(
+      `insert into private.platform_rate_limits (bucket, window_started_at, hits) values ('free_order_confirmations_daily', now(), 400)`,
+    );
+    const [row] = await api.db.query<{ r: string }>(
+      `select private.request_free_order($1, $2, $3, 'Neon Static', '[]'::jsonb, 'fan@example.com', null, $4,
+              '24 hours', 3, '1 hour', 300, '1 hour') as r`,
+      [`ord_${"a".repeat(32)}`, event.eventId, event.organiserId, "a".repeat(64)],
+    );
+    expect(row.r).toBe("platform_daily_limited");
+    expect(await orders()).toEqual([]);
+  });
+
+  it("a counter that's already over its cap refuses without writing", async () => {
+    await api.db.query(
+      `insert into private.platform_rate_limits (bucket, window_started_at, hits) values ('b', now(), 3)`,
+    );
+    const take = async () =>
+      (await api.db.query<{ ok: boolean }>(`select private.take_platform_rate_limit('b', 2, '1 hour') as ok`))[0].ok;
+    const version = async () =>
+      (await api.db.query<{ v: string }>(`select xmin::text as v from private.platform_rate_limits where bucket = 'b'`))[0].v;
+    const before = await version();
+    expect(await take()).toBe(false);
+    expect(await version()).toBe(before);
+    // At the limit (not yet over), one more hit is still recorded, and refused.
+    await api.db.query(`update private.platform_rate_limits set hits = 2 where bucket = 'b'`);
+    expect(await take()).toBe(false);
+    expect((await api.db.query(`select hits from private.platform_rate_limits where bucket = 'b'`))[0]).toEqual({ hits: 3 });
+    // A new window starts over.
+    await api.db.query(`update private.platform_rate_limits set window_started_at = now() - interval '61 minutes'`);
+    expect(await take()).toBe(true);
+  });
+
+  it("refusal counts stop at 10,000 a day per reason, without writing", async () => {
+    const record = () => api.db.query(`select private.record_free_order_refusal('order_too_large')`);
+    await record();
+    expect(await refusals()).toEqual({ order_too_large: 1 });
+    await api.db.query(`update private.free_order_refusals set refusals = 9999`);
+    await record();
+    expect(await refusals()).toEqual({ order_too_large: 10000 });
+    const [{ v: before }] = await api.db.query<{ v: string }>(`select xmin::text as v from private.free_order_refusals`);
+    await record();
+    const [{ v: after }] = await api.db.query<{ v: string }>(`select xmin::text as v from private.free_order_refusals`);
+    expect(after).toBe(before);
+    expect(await refusals()).toEqual({ order_too_large: 10000 });
   });
 
   it("refusal counts hold no personal data: a day, a reason and a number", async () => {
@@ -419,9 +534,62 @@ describe("email key", () => {
     ["fan@googlemail.com", "fan@gmail.com"],
     ["fan+a+b@example.com", "fan@example.com"],
     ["we\"ird@sub.example.com", "we\"ird@sub.example.com"],
+    // Nothing before the '+' (or only dots, for Gmail): the whole local part.
+    ["+promo@gmail.com", "+promo@gmail.com"],
+    ["+Promo@Example.com", "+promo@example.com"],
+    ["+@example.com", "+@example.com"],
+    ["..+x@googlemail.com", "..+x@gmail.com"],
+    ["f.an+@gmail.com", "fan@gmail.com"],
   ])("%s → %s", async (email, key) => {
     const [row] = await api.db.query<{ key: string }>(`select private.email_key($1) as key`, [email]);
     expect(row.key).toBe(key);
+  });
+});
+
+describe("email key: addresses with nothing before the '+'", () => {
+  it("each gets its own allowance", async () => {
+    expect((await bookAndConfirm("+a@example.com", 4)).status).toBe(200);
+    expect((await bookAndConfirm("+b@example.com", 4)).status).toBe(200);
+    expect((await bookAndConfirm("+A@Example.com", 1)).status).toBe(409);
+    expect((await orders()).map((o) => o.buyer_email_key)).toEqual(["+a@example.com", "+b@example.com", "+a@example.com"]);
+  });
+});
+
+describe("confirmation re-checks", () => {
+  it("an expired link is refused even after it was confirmed; within its 24 hours it still answers", async () => {
+    await book("fan@example.com");
+    const token = tokenFromEmail();
+    expect((await confirm(token)).status).toBe(200);
+    expect((await confirm(token)).status).toBe(200);
+    await api.db.query(`update public.orders set confirmation_expires_at = now() - interval '1 second'`);
+    const late = await confirm(token);
+    expect(late.status).toBe(410);
+    expect(late.body.error).toBe("This link has expired. Your tickets were emailed to you when you confirmed it.");
+    expect(late.body.url).toBeUndefined();
+    // Nothing changed.
+    expect((await orders())[0]).toMatchObject({ status: "paid", tickets: 1 });
+  });
+
+  it("a ticket type that's no longer free issues nothing: 409, and the order is failed", async () => {
+    await book("fan@example.com", 2);
+    const token = tokenFromEmail();
+    // The organiser unpublished, priced it, and it was published again.
+    await api.db.query(`update public.ticket_types set price_cents = 1500 where event_id = $1 and id = 'rsvp'`, [event.eventId]);
+    const res = await confirm(token);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("These tickets aren't free any more. Book again from the event page.");
+    expect(await sold()).toEqual({ kids: 0, rsvp: 0 });
+    expect((await orders())[0]).toMatchObject({ status: "failed", tickets: 0 });
+    expect((await confirm(token)).status).toBe(409);
+  });
+
+  it("so is a ticket type that no longer exists", async () => {
+    await book("fan@example.com", 1, { ticketTypeId: "kids" });
+    await api.db.query(`delete from public.ticket_types where event_id = $1 and id = 'kids'`, [event.eventId]);
+    const res = await confirm(tokenFromEmail());
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("These tickets aren't free any more. Book again from the event page.");
+    expect((await orders())[0]).toMatchObject({ status: "failed", tickets: 0 });
   });
 });
 
@@ -548,7 +716,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
     const [one, two] = await connections();
     const call = (conn: postgres.Sql, n: string) =>
       conn.unsafe(
-        `select private.request_free_order($1, $2, $3, 'Neon Static', '[]'::jsonb, 'fan+x@example.com', null, $4, '24 hours', 3, '1 hour', 300, '1 hour') as r`,
+        `select private.request_free_order($1, $2, $3, 'Neon Static', '[]'::jsonb, 'fan+x@example.com', null, $4, '24 hours', 3, '1 hour', 60, '1 hour', 400, '24 hours') as r`,
         [`ord_${n.repeat(32)}`, event.eventId, event.organiserId, n.repeat(64)],
       );
     try {
@@ -563,5 +731,30 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
       await one.end();
       await two.end();
     }
+  });
+
+  it("two link requests for the platform's last hourly slot: the second passes the read-only check, then waits and is refused", async () => {
+    await api.db.query(
+      `insert into private.platform_rate_limits (bucket, window_started_at, hits) values ('free_order_confirmations', now(), 59)`,
+    );
+    const [one, two] = await connections();
+    const call = (conn: postgres.Sql, n: string) =>
+      conn.unsafe(
+        `select private.request_free_order($1, $2, $3, 'Neon Static', '[]'::jsonb, $4, null, $5, '24 hours', 3, '1 hour', 60, '1 hour', 400, '24 hours') as r`,
+        [`ord_${n.repeat(32)}`, event.eventId, event.organiserId, `${n}@example.com`, n.repeat(64)],
+      );
+    try {
+      await one.unsafe("begin");
+      expect((await call(one, "a"))[0].r).toBe("requested");
+      const blocked = await waitUntilBlocked(two);
+      const pending = call(two, "b").execute();
+      await blocked();
+      await one.unsafe("commit");
+      expect((await pending)[0].r).toBe("platform_limited");
+    } finally {
+      await one.end();
+      await two.end();
+    }
+    expect((await orders()).map((o) => o.buyer_email)).toEqual(["a@example.com"]);
   });
 });

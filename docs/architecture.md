@@ -47,14 +47,14 @@ Stripe ──webhook──▶ /api/stripe/webhook
 
 | Table | Key | Notes |
 |---|---|---|
-| `organisers` | `id` | `owner_user_id` is unique, one application per account. It's null for platform-managed organisers (events Sheltüh lists on someone's behalf, and seed data). `status`: pending → approved / rejected. Also holds the Stripe Connect account id and `payouts_enabled`. |
+| `organisers` | `id` | `owner_user_id` is unique, one application per account. It's null for platform-managed organisers (events Sheltüh lists on someone's behalf, and seed data). `status`: pending → approved / rejected. Also holds the Stripe Connect account id and `payouts_enabled`. Optional social handles (`instagram_handle`, `tiktok_handle`, `facebook_page`, `x_handle`), stored without `@` and pattern-checked by the database; `website_url` must be http(s), at most 2048 characters (check constraint). |
 | `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected; unpublish returns it to draft. `is_free` is kept up to date for the feed's free/paid filter. `whos_going_enabled` (default true) is an admin-only kill switch for that event's Who's Going, set in SQL (`docs/supabase-setup.md`). |
 | `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. `quantity_sold` only ever changes in `fulfil_order`. |
 | `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Public via `GET /api/events/[id]/image` once published (cached for a day, versioned URL); before that only the owner/admins with a token. Move to Storage/CDN if volume grows. |
 | `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished, by whom, and why. |
 | `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed, or oversold_refund_required → refunded. `tickets_emailed_at` records the ticket email. `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). |
 | `tickets` | `code` | One row per admitted person. This is the future home of check-in. |
-| `private.platform_rate_limits` | `bucket` | Platform-wide fixed-window counters (`take_platform_rate_limit`): the hourly confirmation-email cap. Idle rows purged daily. |
+| `private.platform_rate_limits` | `bucket` | Platform-wide fixed-window counters (`take_platform_rate_limit`): the hourly and 24-hour confirmation-email caps. Idle rows purged daily. |
 | `private.free_order_refusals` | `(day, reason)` | Counts of refused free bookings per Melbourne day and reason. No personal data. Deleted after 13 months. |
 | `private.email_outbox` | `id` | One ticket-email job per paid order (`(order_id, kind)` unique): status, attempts, next attempt, lease, redacted last error. No address or content (read from the order at send time). Deleted with the order. |
 | `profiles` | `user_id` | A member's social identity: `display_name` (1–40 characters), `adult_confirmed_at` (required: no profile without an 18+ confirmation). Deleted with the Supabase account. `social_suspended_at` is deprecated and ignored (see `private.social_suspensions`). |
@@ -98,10 +98,10 @@ times, which are converted to instants honouring daylight saving
 | `create_tracking_link` | Adds a link to an event the organiser owns, under an advisory lock on the event (so the 20-link cap holds under concurrency, without locking the events row that checkouts share-lock). Returns `created`, `not_found`, `limit`, `label_taken`, or `code_taken` (the API retries with a fresh code). |
 | `purge_analytics` | Retention: deletes view counters for days over 25 months ago and per-event rate-limit rows idle for a day. Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`). |
 | `place_free_order` | A member's free order, created and fulfilled in one step under an advisory lock on (event, person): the per-person cap, then the daily allowance, then `fulfil_order`. A refusal or sell-out writes nothing (beyond a refusal count). Returns `paid`, `person_event_limit`, `member_daily_limit` or `sold_out`. |
-| `request_free_order` | A guest's pending free order, under an advisory lock on the address: the hourly link limit, then the platform cap. Returns `requested`, `address_limited` or `platform_limited`. |
-| `confirm_free_order` | Confirms by token hash: locks the order, then (event, person), then `fulfil_order`'s locks. Idempotent. Returns `confirmed`, `already_confirmed`, `not_found`, `expired`, `unavailable`, `person_event_limit` or `sold_out` (the last two mark the order `failed`). |
+| `request_free_order` | A guest's pending free order: the platform's hourly and 24-hour caps (read-only), then, under an advisory lock on the address, the hourly link limit, then a hit on each platform cap. Returns `requested`, `address_limited`, `platform_limited` or `platform_daily_limited`. (The previous 13-argument form delegates to it with the same daily cap, for the deploy window; the app doesn't call it.) |
+| `confirm_free_order` | Confirms by token hash: locks the order, then (event, person), then the event (share) to check every ticket type is still free, then `fulfil_order`'s locks. Idempotent within the link's 24 hours. Returns `confirmed`, `already_confirmed`, `expired_confirmed`, `not_found`, `expired`, `unavailable`, `person_event_limit`, `no_longer_free` or `sold_out` (the last three mark the order `failed`). |
 | `purge_operational_data` | Retention for free-ticket and outbox data (see "Free tickets" and "Payment flow"); sent outbox jobs after 90 days, failed ones after a year. Idempotent; Supabase Cron daily. |
-| `claim_email_jobs`, `finish_email_job`, `resend_email_job` | The ticket-email outbox: lease due jobs with `skip locked` (an expired lease is taken again; one that expired on the 6th attempt fails), record an outcome only for the current lease holder, and an admin resend (not while leased, not twice in 5 minutes). |
+| `claim_email_jobs`, `finish_email_job`, `resend_email_job`, `admin_resend_email_job` | The ticket-email outbox: lease due jobs with `skip locked` (an expired lease is taken again; one that expired on the 6th attempt fails), record an outcome only for the current lease holder, and an admin resend (not while leased, not twice in 5 minutes). `admin_resend_email_job` takes a hit on the admin's hourly allowance only when the resend is queued, in the same transaction (over it: `rate_limited`, nothing changed). |
 | `fulfil_order` | Queues the ticket email in the same step (see "Payment flow"). Takes inventory for every line item, issues the tickets and marks the order paid. If any ticket type has sold out, or the event is no longer published, it takes nothing and marks the order `oversold_refund_required`. Rows are locked in a fixed order, so concurrent orders can't deadlock. It's idempotent, so Stripe's webhook redeliveries are harmless. |
 
 ## Payment flow
@@ -142,7 +142,9 @@ times, which are converted to instants honouring daylight saving
    - The first attempt runs straight after the response (`Deps.defer`, Next's
      `after()`), for that order only. `GET /api/cron/email-outbox` (Vercel
      Cron every 5 minutes, `vercel.json`, bearer `CRON_SECRET` compared in
-     constant time) sends everything else that's due.
+     constant time) sends everything else that's due. A run stops claiming
+     jobs after 30 seconds, so the last one claimed can still be sent within
+     the route's 60-second `maxDuration`.
    - Workers lease one job at a time (`claim_email_jobs`, `for update skip
      locked`, 2-minute lease), so concurrent workers never take the same job;
      only the lease holder can record the outcome (`finish_email_job`). A
@@ -156,7 +158,8 @@ times, which are converted to instants honouring daylight saving
      a send succeeds.
    - Admins see jobs at `/admin/emails` (order reference and masked address
      only) and can resend one (20 per admin per hour, once per job per 5
-     minutes).
+     minutes). A resend refused for the job (unknown, being sent, too soon)
+     doesn't count towards the 20.
    - Errors are stored and logged with addresses redacted, and logs name an
      order by its short reference (`#7C1F2E0A`), never its id.
    Free orders require the buyer's email address at checkout; for paid
@@ -178,7 +181,8 @@ Free tickets are rate-limited without IP addresses (forwarded headers are
 only trustworthy when Vercel is the first hop, and shared Wi-Fi puts many
 people behind one address) and without a CAPTCHA
 (`lib/server/handlers/free-orders.ts`,
-`supabase/migrations/20261014000100_free_order_protection.sql`):
+`supabase/migrations/20261014000100_free_order_protection.sql`,
+`supabase/migrations/20261017000000_free_order_caps.sql`):
 
 - **A signed-in member booking with their own verified email** (the request
   carries their token, and the buyer email matches the account's, ignoring
@@ -187,19 +191,34 @@ people behind one address) and without a CAPTCHA
   attempts don't use the allowance.
 - **Anyone else** gets `202 {status: "confirmation_sent", expiresInHours: 24}`.
   The order is recorded as `pending` with only a SHA-256 hash of a 256-bit
-  token, holding no inventory, so a flood of requests can't drain an event.
+  token, holding no inventory: requesting links takes nothing, and only a
+  confirmed link issues tickets. That bounds, but doesn't prevent, a
+  determined guest draining an event's free tickets with inboxes they
+  control: see "Accepted risks (free tickets)".
   The token is emailed as `/checkout/confirm#token=…` (the fragment is never
   sent to a server). That page has a Confirm button that POSTs
   `/api/orders/confirm {token}`, so a mail scanner opening the link can't
   confirm it. Confirmation issues the tickets (`confirm_free_order`) and
-  returns the success page's URL; confirming again returns the same URL.
-  Expired after 24 hours (410).
-- **Caps**: 4 free tickets per order (400); 4 per person per event across all
-  their free orders (409), counted on a normalised address
+  returns the success page's URL; confirming again within the 24 hours
+  returns the same URL. Expired after 24 hours (410), confirmed or not.
+  Confirmation re-checks that every ticket type is still free (price 0) and
+  still exists; if not, nothing is issued, the order is marked failed and
+  the answer is 409.
+- **Caps**: 4 free tickets per order (400, `fieldErrors.lineItems`), in any
+  order: a paid order with free lines is held to it too. A paid order is
+  identified by its Stripe payment, so it gets no emailed confirmation and
+  its free tickets don't count towards (or against) the per-person
+  allowance, which counts wholly free orders only. 4 per person per event
+  across all their free orders (409), counted on a normalised address
   (`private.email_key`: lower case, no `+tag`, no dots for Gmail,
-  googlemail.com folded into gmail.com) under an advisory lock on (event,
-  person); 3 unconfirmed links per address per hour; 300 confirmation emails
-  per hour platform-wide (503).
+  googlemail.com folded into gmail.com; if that leaves nothing before the
+  `@`, as for `+promo@…`, the whole local part is kept) under an advisory
+  lock on (event, person); 3 unconfirmed links per address per hour; 60
+  confirmation emails per hour and 400 per 24 hours platform-wide (503
+  either way; `FREE_LIMITS` in `free-orders.ts`). The platform caps are
+  checked (read-only) before anything about the address, so their 503 is
+  the same whichever address asks, and they're only taken for a link that's
+  about to be sent.
 - **No enumeration**: a guest is never told anything about an address's
   history. Over the hourly link limit, the response is the same 202 and no
   email is sent (the owner already has 3 links). The per-person cap is only
@@ -210,11 +229,62 @@ people behind one address) and without a CAPTCHA
   once with fresh codes, on every fulfilment path.
 - **Refusal counts** (`private.free_order_refusals`): per Melbourne day and
   reason only (`order_too_large`, `member_daily_limit`, `person_event_limit`,
-  `address_hourly_limit`, `platform_hourly_limit`). No address, account,
-  event or IP.
+  `address_hourly_limit`, `platform_hourly_limit`, `platform_daily_limit`).
+  No address, account, event or IP. Each count stops at 10,000 a day (read
+  first, then no write), and the platform counters refuse with a read once
+  over, so a flood isn't a write per request.
+- **Addresses** (`lib/server/email-address.ts`, `isPlainEmailAddress`): buyer
+  and organiser contact emails must be one plain address: an unquoted local
+  part of `[A-Za-z0-9._%+-]` (at most 64), DNS-label domain, at most 254 in
+  all. Display names, comments, quoted local parts, groups and lists
+  (`, ; < > ( ) " : [ ] \` and spaces) are a 400. Mail is sent with the
+  recipient as a nodemailer address object (`mailOptions` in
+  `lib/server/email.ts`), so even a malformed stored value is one recipient,
+  never a list.
 - **Retention** (`purge_operational_data`, daily): unconfirmed or refused
   guest orders a week after their link expired; refusal counts after 13
   months.
+- Live mode without SMTP configured can't send a confirmation link, so every
+  guest free booking is a 503 (members booking with their own verified
+  email are unaffected).
+
+### Accepted risks (free tickets)
+
+- **Guests share the mail quota with ticket emails.** Confirmation emails go
+  out over the same Google Workspace SMTP account as ticket emails (about
+  2,000 messages a day). Mitigated: at most 60 an hour and 400 per 24-hour
+  window platform-wide (503 beyond that, nothing recorded). The windows are
+  fixed, not rolling, so across a window boundary up to 800 can go out in
+  24 hours, and each confirmed link adds one ticket email. Even then about
+  400 a day are left for paid orders' ticket emails, and normally far more.
+  Accepted: a flood can make guest free bookings unavailable (503) for the
+  rest of the window, without an IP address or CAPTCHA to tell people
+  apart. Members booking with their own verified email aren't affected.
+  Supabase Auth's emails (sign-up confirmation, password reset) use the same
+  mailbox if it's set as Supabase's custom SMTP, and aren't counted here.
+  Move to a transactional email provider before volume approaches the quota.
+- **Disposable or catch-all inboxes can still claim free tickets.** Someone
+  who controls many addresses (a catch-all domain, a disposable-inbox
+  service) can request and confirm links for each. Bounded: 4 tickets per
+  address per event, 4 per link, and at most 60 links an hour and 400 per 24
+  hours platform-wide, so at most 240 free tickets an hour and 1,600 a
+  window across all events (twice that across a window boundary), and an
+  event never loses more than its free stock. Not prevented: there's no bot
+  check. **Recommended later step, not built and needing the owner's
+  approval:** a bot check (e.g. Cloudflare Turnstile) on the guest free
+  path only.
+- **Alerting is manual.** A burst of `platform_hourly_limit` or
+  `platform_daily_limit` refusals means guest free bookings are being
+  refused for everyone. Watch `private.free_order_refusals`
+  (`docs/supabase-setup.md`); an automated alert on those two reasons is
+  advised but not built.
+- **Timing.** The platform-cap 503 doesn't depend on the address, but the
+  other outcomes can still differ slightly in response time (an
+  address-limited request skips the platform write, the insert and the SMTP
+  send, so its 202 comes back faster than a real one). Accepted: telling
+  that an address has 3 unconfirmed links in the last hour needs repeated
+  timing measurements and reveals little; sending in the background instead
+  would lose the 503 when a link can't be sent.
 
 ## Who's Going
 
@@ -451,6 +521,35 @@ Booking fee: 4% of face value + A$0.50 per paid ticket (`lib/fees.ts`,
 which the API and the UI both use). It's either buyer-paid or absorbed by
 the organiser, set per ticket type. Either way the platform keeps it.
 
+## Organiser profiles
+
+"Who posted this event" (`lib/server/handlers/public-organisers.ts`,
+`lib/server/organiser-input.ts`).
+
+- **Social links are handles, never URLs.** Instagram and TikTok
+  `[A-Za-z0-9._]{1,30}`, Facebook page `[A-Za-z0-9.]{5,50}`, X
+  `[A-Za-z0-9_]{1,15}`, each with at least one letter or digit. The API trims
+  them and strips one leading `@` (anything else invalid is a 400); the same
+  patterns are check constraints. The public profile builds the `https://`
+  URLs itself, so a link can only point at the network it names. The website
+  is the one free URL: http(s) only, as typed (API and check constraint).
+- **Editing**: `PATCH /organisers/me` by an approved organiser changes only
+  the fields sent (`description`, `websiteUrl`, the handles; null or blank
+  clears one) with no new review and no status change. `displayName`,
+  `contactEmail` and `categories` were reviewed, so they may be sent back
+  unchanged but not changed (400). A rejected applicant's PATCH is still the
+  full resubmission; handles it doesn't send are kept.
+- **Public profile** (`GET /organisers/{id}/profile`): only approved
+  organisers. Only `organiserId`, `displayName`, `description`,
+  `categories`, `websiteUrl`, `socialLinks`, `memberSince` (Melbourne
+  `YYYY-MM` of the application) and their published events in the feed's
+  public shape: `upcomingEvents` (not yet ended, soonest first), then
+  `recentEvents` (ended, most recent first), 24 in all. The organiser query
+  reads no private column (contact email, owner, Stripe, payouts, review). Not
+  personalised, so it's sent without `private, no-store`, like the event feed.
+  Like the other public reads, it isn't rate-limited (no IPs or cookies):
+  each request is three indexed queries and a bounded response.
+
 ## API
 
 All routes are JSON under `/api`. "Organiser" means a signed-in user whose
@@ -460,13 +559,14 @@ application is approved.
 |---|---|
 | `GET /events?q&category&pricing&onOrAfter&cursor&limit` | public (published only) |
 | `GET /events/slug/{slug}` | public (published only) |
-| `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). 201 `{url}`; 202 free order waiting on its emailed link; 400; 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance; 503 free bookings busy or the confirmation email failed |
-| `POST /orders/confirm` `{token}` | public (the emailed token is the credential). 200 `{url}` (also when already confirmed); 400 malformed; 404 unknown; 410 expired; 409 sold out or allowance used |
+| `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). 201 `{url}`; 202 free order waiting on its emailed link; 400 (incl. over 4 free tickets in any order, paid or free); 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance; 503 free bookings busy or the confirmation email failed |
+| `POST /orders/confirm` `{token}` | public (the emailed token is the credential). 200 `{url}` (also when already confirmed, within 24 hours); 400 malformed; 404 unknown; 410 expired (confirmed or not); 409 sold out, allowance used, or a ticket type no longer free |
 | `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store` |
 | `GET /cron/email-outbox` | Vercel Cron (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due ticket emails, returns counts |
 | `GET /admin/emails?status&cursor` · `POST /admin/emails/{jobId}/resend` | admin. Status `failed` (default), `pending`, `sending`, `sent`. Resend: 404 unknown, 409 being sent, 429 resent in the last 5 minutes or over 20 an hour |
 | `POST /stripe/webhook` | Stripe (signature-verified) |
-| `POST /organisers/apply` · `GET /organisers/me` · `PATCH /organisers/me` | signed in |
+| `POST /organisers/apply` · `GET /organisers/me` · `PATCH /organisers/me` | signed in. PATCH: a rejected application is resubmitted in full (back to pending); an approved organiser edits their profile (see "Organiser profiles"); pending is a 409 |
+| `GET /organisers/{organiserId}/profile` | public (approved organisers only; anything else, or a non-uuid id, is a 404) |
 | `POST /organisers/me/connect/onboard` · `…/connect/refresh` | organiser |
 | `POST /events` · `PATCH /events/{id}` · `POST /events/{id}/submit` | organiser (own events) |
 | `GET /organisers/me/events` · `GET /organisers/me/events/{id}` | organiser (own events) |
