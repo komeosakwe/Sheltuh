@@ -82,6 +82,13 @@ describe("FreeOrderConfirm", () => {
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
+  it("shows the server's own wording for an expired link", async () => {
+    confirmFreeOrder.mockRejectedValue(new ApiError(410, "This link has expired. Your tickets were emailed to you when you confirmed it."));
+    render(<FreeOrderConfirm />);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
+    expect(await screen.findByText(/tickets were emailed to you when you confirmed it/)).toBeInTheDocument();
+  });
+
   it("offers a retry after a network error", async () => {
     confirmFreeOrder.mockRejectedValueOnce(new ApiError(0, "offline")).mockResolvedValueOnce({ url: "/checkout/success?session_id=x" });
     render(<FreeOrderConfirm />);

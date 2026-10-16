@@ -22,7 +22,7 @@ function tokenFromHash(hash: string): string | null {
 function errorState(err: unknown, token: string): State {
   if (err instanceof ApiError) {
     if (err.status === 410) {
-      return { status: "error", title: "This link has expired", message: "Book again from the event page to get a new one." };
+      return { status: "error", title: "This link has expired", message: err.message || "Book again from the event page to get a new one." };
     }
     if (err.status === 404 || err.status === 400) {
       return {
