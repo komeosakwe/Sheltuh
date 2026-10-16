@@ -68,3 +68,20 @@ describe("EventDetailsView key facts under the title", () => {
     expect(venue.closest("p")).toHaveClass("lg:hidden");
   });
 });
+
+describe("EventDetailsView organiser", () => {
+  it("links 'Organised by' to the organiser's profile for a live event", () => {
+    const event = { ...findEvent("neon-static"), organiserId: "org 1", organiserName: "Northside Noise" };
+    render(<EventDetailsView event={event} demo={false} />);
+    const link = screen.getByRole("link", { name: "Northside Noise" });
+    expect(link).toHaveAttribute("href", "/organisers/org%201");
+    expect(link.closest("dd")).toHaveTextContent("Organised by Northside Noise");
+  });
+
+  it("keeps the organiser as plain text when there's no organiserId (demo events)", () => {
+    const event = findEvent("neon-static");
+    render(<EventDetailsView event={event} demo />);
+    expect(screen.getByText(`Organised by ${event.organiserName}`).tagName).toBe("DD");
+    expect(screen.queryByRole("link", { name: event.organiserName })).not.toBeInTheDocument();
+  });
+});

@@ -164,6 +164,9 @@ export default function DashboardContent() {
         <Link href="/dashboard/analytics" className="btn btn-outline w-fit">
           Analytics
         </Link>
+        <Link href="/dashboard/profile" className="btn btn-outline w-fit">
+          Public profile
+        </Link>
       </div>
 
       {!organiser.payoutsEnabled && (

@@ -2,10 +2,12 @@
 
 import { useState, type FormEvent } from "react";
 import InlineReauth from "@/components/auth/InlineReauth";
+import SocialHandleFields from "@/components/organisers/SocialHandleFields";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import { applyAsOrganiser, resubmitOrganiser, type OrganiserApplicationInput } from "@/lib/api/organisers";
 import type { OrganiserRecord } from "@/lib/api/types";
 import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
+import { socialHandlesForRequest, type SocialHandleField, type SocialHandleValues } from "@/lib/organiser-profile";
 import { EVENT_CATEGORIES } from "@/lib/types";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -29,6 +31,12 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
   const [description, setDescription] = useState(initial?.description ?? "");
   const [categories, setCategories] = useState<string[]>(initial?.categories ?? []);
   const [websiteUrl, setWebsiteUrl] = useState(initial?.websiteUrl ?? "");
+  const [handles, setHandles] = useState<SocialHandleValues>({
+    instagramHandle: initial?.instagramHandle ?? "",
+    tiktokHandle: initial?.tiktokHandle ?? "",
+    facebookPage: initial?.facebookPage ?? "",
+    xHandle: initial?.xHandle ?? "",
+  });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -36,6 +44,10 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
 
   function toggleCategory(value: string) {
     setCategories((prev) => (prev.includes(value) ? prev.filter((c) => c !== value) : [...prev, value]));
+  }
+
+  function setHandle(field: SocialHandleField, value: string) {
+    setHandles((prev) => ({ ...prev, [field]: value }));
   }
 
   function validate(): Record<string, string> {
@@ -69,6 +81,9 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
       description: description.trim(),
       categories: categories as OrganiserApplicationInput["categories"],
       websiteUrl: websiteUrl.trim() || undefined,
+      // Blank is sent as null: on a resubmit that clears a handle (one left
+      // out would be kept). The server validates them and drops any '@'.
+      ...socialHandlesForRequest(handles),
     };
 
     setLoading(true);
@@ -154,7 +169,7 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
 
       <div className="flex flex-col gap-1">
         <label htmlFor="websiteUrl" className="text-sm font-medium text-foreground">
-          Website or social link (optional)
+          Website (optional)
         </label>
         <input
           id="websiteUrl"
@@ -166,6 +181,20 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
         />
         {errors.websiteUrl && <p className="text-sm text-danger">{errors.websiteUrl}</p>}
       </div>
+
+      <fieldset className="flex flex-col gap-4" aria-describedby="application-social-note">
+        <legend className="text-sm font-medium text-foreground">Optional: social profiles</legend>
+        <p id="application-social-note" className="text-sm text-muted">
+          Shown publicly on your organiser profile once approved.
+        </p>
+        <SocialHandleFields
+          idPrefix="application"
+          values={handles}
+          errors={errors}
+          onChange={setHandle}
+          inputClassName="border border-foreground bg-transparent px-3 py-2 text-foreground"
+        />
+      </fieldset>
 
       {submitError && sessionExpired && (
         <div role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">

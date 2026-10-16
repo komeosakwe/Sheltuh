@@ -1,0 +1,202 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import PublicProfileForm from "@/components/dashboard/PublicProfileForm";
+import PublicProfilePanel from "@/components/dashboard/PublicProfilePanel";
+import { ApiError } from "@/lib/api/client";
+import type { OrganiserRecord } from "@/lib/api/types";
+import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+
+const updateOrganiserProfile = vi.fn();
+vi.mock("@/lib/api/organisers", () => ({
+  updateOrganiserProfile: (...args: unknown[]) => updateOrganiserProfile(...args),
+}));
+
+let organiserState: { loading: boolean; organiser: OrganiserRecord | null; error: string | null };
+vi.mock("@/lib/auth/useOrganiser", () => ({
+  useOrganiser: () => ({ ...organiserState, refetch: vi.fn() }),
+}));
+
+const RECORD: OrganiserRecord = {
+  ownerUserId: "user-1",
+  organiserId: "org-1",
+  displayName: "Northside Noise",
+  contactEmail: "org@example.com",
+  description: "Loud nights in small rooms.",
+  categories: ["live-music"],
+  websiteUrl: "https://northside.example",
+  instagramHandle: "northside.noise",
+  tiktokHandle: "northside_noise",
+  status: "approved",
+  createdAt: "2026-03-01T00:00:00.000Z",
+  updatedAt: "2026-03-01T00:00:00.000Z",
+};
+
+afterEach(cleanup);
+beforeEach(() => {
+  updateOrganiserProfile.mockReset();
+  organiserState = { loading: false, organiser: RECORD, error: null };
+});
+
+const getToken = vi.fn().mockResolvedValue("token");
+
+function renderForm(record: OrganiserRecord = RECORD) {
+  render(
+    <FakeAuthProvider value={fakeAuthValue()}>
+      <PublicProfileForm organiser={record} getToken={getToken} />
+    </FakeAuthProvider>,
+  );
+}
+
+function save() {
+  fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+}
+
+function describedBy(element: HTMLElement): string {
+  const ids = element.getAttribute("aria-describedby")?.split(" ") ?? [];
+  return ids.map((id) => document.getElementById(id)?.textContent ?? "").join(" | ");
+}
+
+describe("PublicProfileForm", () => {
+  it("starts from the saved profile", () => {
+    renderForm();
+    expect(screen.getByLabelText("Bio")).toHaveValue("Loud nights in small rooms.");
+    expect(screen.getByLabelText("Website (optional)")).toHaveValue("https://northside.example");
+    expect(screen.getByLabelText("Instagram username")).toHaveValue("northside.noise");
+    expect(screen.getByLabelText("TikTok username")).toHaveValue("northside_noise");
+    expect(screen.getByLabelText("Facebook page")).toHaveValue("");
+    expect(screen.getByLabelText("X username")).toHaveValue("");
+    expect(describedBy(screen.getByLabelText("X username"))).toContain("without the @");
+    expect(describedBy(screen.getByLabelText("Bio"))).toContain("1,973 characters left");
+  });
+
+  it("flags an empty bio and a website without https://, focusing the first, without saving", async () => {
+    renderForm();
+    fireEvent.change(screen.getByLabelText("Bio"), { target: { value: "   " } });
+    fireEvent.change(screen.getByLabelText("Website (optional)"), { target: { value: "northside.example" } });
+    save();
+
+    const bio = screen.getByLabelText("Bio");
+    await waitFor(() => expect(bio).toHaveFocus());
+    expect(bio).toHaveAttribute("aria-invalid", "true");
+    expect(describedBy(bio)).toContain("Enter a bio.");
+    const website = screen.getByLabelText("Website (optional)");
+    expect(website).toHaveAttribute("aria-invalid", "true");
+    expect(describedBy(website)).toContain("Enter a valid URL, including https://");
+    expect(screen.getByRole("alert")).toHaveTextContent("Please fix the highlighted fields.");
+    expect(updateOrganiserProfile).not.toHaveBeenCalled();
+  });
+
+  it("counts the bio down and refuses one over 2,000 characters", () => {
+    renderForm();
+    const bio = screen.getByLabelText("Bio");
+    fireEvent.change(bio, { target: { value: "a".repeat(2001) } });
+    expect(describedBy(bio)).toContain("1 character too many");
+    save();
+    expect(describedBy(bio)).toContain("Your bio must be 2,000 characters or fewer.");
+    expect(updateOrganiserProfile).not.toHaveBeenCalled();
+  });
+
+  it("sends only what changed, shows the stored values and announces success", async () => {
+    let resolve: (record: OrganiserRecord) => void = () => {};
+    updateOrganiserProfile.mockReturnValue(new Promise<OrganiserRecord>((r) => (resolve = r)));
+    renderForm();
+
+    fireEvent.change(screen.getByLabelText("Bio"), { target: { value: "  New bio.  " } });
+    fireEvent.change(screen.getByLabelText("X username"), { target: { value: " @nsnoise " } });
+    save();
+
+    expect(updateOrganiserProfile).toHaveBeenCalledTimes(1);
+    expect(updateOrganiserProfile.mock.calls[0][0]).toEqual({ description: "New bio.", xHandle: "@nsnoise" });
+    expect(updateOrganiserProfile.mock.calls[0][1]).toBe(getToken);
+    const busy = screen.getByRole("button", { name: "Saving…" });
+    expect(busy).toHaveAttribute("aria-disabled", "true");
+
+    resolve({ ...RECORD, description: "New bio.", xHandle: "nsnoise" });
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Profile saved."));
+    expect(screen.getByLabelText("X username")).toHaveValue("nsnoise");
+    expect(screen.getByRole("button", { name: "Save profile" })).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("clears a website and handles that are emptied (sent as null)", async () => {
+    updateOrganiserProfile.mockResolvedValue({ ...RECORD, websiteUrl: undefined, tiktokHandle: undefined });
+    renderForm();
+
+    fireEvent.change(screen.getByLabelText("Website (optional)"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("TikTok username"), { target: { value: "  " } });
+    save();
+
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Profile saved."));
+    expect(updateOrganiserProfile.mock.calls[0][0]).toEqual({ websiteUrl: null, tiktokHandle: null });
+    expect(screen.getByLabelText("TikTok username")).toHaveValue("");
+  });
+
+  it("doesn't call the API when nothing changed", () => {
+    renderForm();
+    save();
+    expect(screen.getByRole("status")).toHaveTextContent("No changes to save.");
+    expect(updateOrganiserProfile).not.toHaveBeenCalled();
+  });
+
+  it("shows the server's field errors on their fields and keeps what was typed", async () => {
+    updateOrganiserProfile.mockRejectedValue(
+      new ApiError(400, "Please fix the highlighted fields.", {
+        instagramHandle: "Enter just your Instagram username.",
+      }),
+    );
+    renderForm();
+    const instagram = screen.getByLabelText("Instagram username");
+    fireEvent.change(instagram, { target: { value: "https://instagram.com/x" } });
+    save();
+
+    await waitFor(() => expect(instagram).toHaveFocus());
+    expect(instagram).toHaveAttribute("aria-invalid", "true");
+    expect(describedBy(instagram)).toContain("Enter just your Instagram username.");
+    expect(instagram).toHaveValue("https://instagram.com/x");
+    expect(screen.getByRole("alert")).toHaveTextContent("Please fix the highlighted fields.");
+    expect(screen.getByLabelText("Bio")).not.toHaveAttribute("aria-invalid");
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  });
+
+  it("shows other failures", async () => {
+    updateOrganiserProfile.mockRejectedValue(new ApiError(409, "Your organiser status changed — refresh and try again."));
+    renderForm();
+    fireEvent.change(screen.getByLabelText("Bio"), { target: { value: "Changed." } });
+    save();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Your organiser status changed");
+  });
+});
+
+describe("PublicProfilePanel", () => {
+  function renderPanel() {
+    render(
+      <FakeAuthProvider value={fakeAuthValue()}>
+        <PublicProfilePanel />
+      </FakeAuthProvider>,
+    );
+  }
+
+  it("links an approved organiser to their public profile, above the form", () => {
+    renderPanel();
+    expect(screen.getByRole("link", { name: "View public profile" })).toHaveAttribute("href", "/organisers/org-1");
+    expect(screen.getByLabelText("Bio")).toBeInTheDocument();
+  });
+
+  it("has no form until the organiser is approved", () => {
+    organiserState = { loading: false, organiser: { ...RECORD, status: "pending" }, error: null };
+    renderPanel();
+    expect(screen.getByText(/goes live once your organiser application is approved/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Bio")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "View public profile" })).not.toBeInTheDocument();
+  });
+
+  it("shows loading and error states", () => {
+    organiserState = { loading: true, organiser: null, error: null };
+    renderPanel();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading");
+    cleanup();
+    organiserState = { loading: false, organiser: null, error: "Couldn't load your organiser status." };
+    renderPanel();
+    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load your organiser status.");
+  });
+});

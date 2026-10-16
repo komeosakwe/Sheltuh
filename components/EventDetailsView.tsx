@@ -142,7 +142,20 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
               </div>
               <div>
                 <dt className="eyebrow text-muted">Organiser</dt>
-                <dd className="mt-1 text-base">Organised by {event.organiserName}</dd>
+                <dd className="mt-1 text-base">
+                  Organised by{" "}
+                  {/* Only live events have an organiser (and so a profile) to link to. */}
+                  {event.organiserId ? (
+                    <Link
+                      href={`/organisers/${encodeURIComponent(event.organiserId)}`}
+                      className="underline underline-offset-4"
+                    >
+                      {event.organiserName}
+                    </Link>
+                  ) : (
+                    event.organiserName
+                  )}
+                </dd>
               </div>
             </dl>
 
