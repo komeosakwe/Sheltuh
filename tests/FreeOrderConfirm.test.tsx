@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import FreeOrderConfirm from "@/components/FreeOrderConfirm";
 import { ApiError } from "@/lib/api/client";
@@ -15,8 +16,6 @@ const assign = vi.fn();
 beforeEach(() => {
   confirmFreeOrder.mockReset();
   assign.mockReset();
-  vi.stubGlobal("location", { ...window.location, assign, hash: `#token=${TOKEN}`, pathname: "/checkout/confirm", search: "" });
-  vi.spyOn(window.history, "replaceState").mockImplementation(() => {});
 });
 afterEach(() => {
   cleanup();
@@ -24,7 +23,31 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("FreeOrderConfirm (real URL, StrictMode)", () => {
+  afterEach(() => window.history.replaceState(null, "", "/"));
+
+  it("reads the token once, even though StrictMode runs the effect twice, and clears it from the URL", async () => {
+    // No stubs: jsdom's own location and history, as in `next dev` and e2e.
+    window.history.replaceState(null, "", `/checkout/confirm?from=email#token=${TOKEN}`);
+    expect(window.location.hash).toBe(`#token=${TOKEN}`);
+    render(
+      <StrictMode>
+        <FreeOrderConfirm />
+      </StrictMode>,
+    );
+    expect(await screen.findByRole("button", { name: "Confirm" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "This link is incomplete" })).toBeNull();
+    expect(window.location.hash).toBe("");
+    expect(window.location.pathname + window.location.search).toBe("/checkout/confirm?from=email");
+  });
+});
+
 describe("FreeOrderConfirm", () => {
+  beforeEach(() => {
+    vi.stubGlobal("location", { ...window.location, assign, hash: `#token=${TOKEN}`, pathname: "/checkout/confirm", search: "" });
+    vi.spyOn(window.history, "replaceState").mockImplementation(() => {});
+  });
+
   it("confirms only when the button is pressed, then goes to the tickets", async () => {
     confirmFreeOrder.mockResolvedValue({ url: "https://sheltuh.test/checkout/success?session_id=ord_1" });
     render(<FreeOrderConfirm />);

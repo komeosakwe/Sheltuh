@@ -158,25 +158,96 @@ describe("TicketSelector (free tickets)", () => {
     };
   }
 
-  it("caps free tickets at 4 per booking, across free ticket types", () => {
+  /** A live event with a paid type and two free types. */
+  function mixedEvent(): SheltuhEvent {
+    const base = freeEvent();
+    return {
+      ...base,
+      ticketTypes: [
+        { ...base.ticketTypes[0], id: "paid", name: "Supporter", priceCents: 2000, quantityAvailable: 50 },
+        ...base.ticketTypes,
+      ],
+    };
+  }
+
+  it("caps free tickets at 4 per booking in total, across free ticket types, and says so", () => {
     render(<TicketSelector event={freeEvent()} />);
     const moreA = screen.getByRole("button", { name: "Increase quantity for Free entry" });
     const moreB = screen.getByRole("button", { name: "Increase quantity for Kids" });
+    expect(moreA).toHaveAccessibleDescription("Up to 4 free tickets per booking, in total across the free ticket types.");
     for (let i = 0; i < 3; i++) fireEvent.click(moreA);
     expect(moreA).toBeEnabled();
     fireEvent.click(moreB);
     expect(moreA).toBeDisabled();
     expect(moreB).toBeDisabled();
+    expect(moreB).toHaveAccessibleDescription(
+      "That's the most free tickets one booking can have (4 in total, across the free ticket types).",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Decrease quantity for Free entry" }));
     expect(moreB).toBeEnabled();
   });
 
-  it("explains how free tickets are issued", () => {
+  it("applies the same free-ticket cap when paid tickets are in the booking too", () => {
+    render(<TicketSelector event={mixedEvent()} />);
+    const morePaid = screen.getByRole("button", { name: "Increase quantity for Supporter" });
+    const moreA = screen.getByRole("button", { name: "Increase quantity for Free entry" });
+    const moreB = screen.getByRole("button", { name: "Increase quantity for Kids" });
+    // The paid type isn't limited by the free cap, and isn't described by it.
+    expect(morePaid).not.toHaveAccessibleDescription();
+    for (let i = 0; i < 6; i++) fireEvent.click(morePaid);
+    fireEvent.click(moreA);
+    fireEvent.click(moreA);
+    fireEvent.click(moreB);
+    fireEvent.click(moreB);
+    expect(moreA).toBeDisabled();
+    expect(moreB).toBeDisabled();
+    expect(morePaid).toBeEnabled();
+    // Checkout (a paid order) still shows the free-ticket limit.
+    expect(screen.getByRole("button", { name: "Checkout" })).toBeEnabled();
+    expect(screen.getByText(/That's the most free tickets one booking can have/)).toBeInTheDocument();
+  });
+
+  it("shows no free-ticket limit for an event without free tickets", () => {
+    render(<TicketSelector event={live("neon-static")} />);
+    expect(screen.queryByText(/free tickets per booking/)).toBeNull();
+  });
+
+  it("explains how free tickets are issued, without promising they're instant", () => {
     render(<TicketSelector event={freeEvent()} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
-    expect(screen.getByText(/we'll email you a link to confirm them first/)).toBeInTheDocument();
-    expect(screen.getByText(/Up to 4 free tickets per booking/)).toBeInTheDocument();
-    expect(screen.queryByText(/issued immediately/)).toBeNull();
+    expect(screen.getByText(/We'll email you a link to confirm your tickets before they're issued/)).toBeInTheDocument();
+    expect(screen.getByText(/your account's verified email\? That step is usually skipped/)).toBeInTheDocument();
+    expect(screen.queryByText(/issued straight away|issued immediately/)).toBeNull();
+  });
+
+  it("says the server's reason in full when a booking has too many free tickets", async () => {
+    createCheckoutSession.mockRejectedValue(
+      new ApiError(400, "Please fix the highlighted fields.", { lineItems: "You can book up to 4 free tickets at a time." }),
+    );
+    render(<TicketSelector event={mixedEvent()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Supporter" }));
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("You can book up to 4 free tickets at a time.");
+    expect(alert).not.toHaveTextContent("highlighted");
+    // Changing the selection clears the stale refusal.
+    fireEvent.click(screen.getByRole("button", { name: "Decrease quantity for Free entry" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("puts an email refusal on the email field", async () => {
+    createCheckoutSession.mockRejectedValue(
+      new ApiError(400, "Please fix the highlighted fields.", { buyerEmail: "That email can't receive tickets." }),
+    );
+    render(<TicketSelector event={freeEvent()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
+    const email = screen.getByLabelText("Email for your tickets");
+    fireEvent.change(email, { target: { value: "fan@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Get free tickets" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("That email can't receive tickets.");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(email).toHaveAttribute("aria-invalid", "true");
   });
 
   it("after a guest booking, says to check the inbox (focused, announced) and can start over", async () => {

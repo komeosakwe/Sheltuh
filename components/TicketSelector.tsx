@@ -46,8 +46,12 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   // out against.
   const canCheckout = isApiConfigured && Boolean(event.organiserId);
 
-  // Free tickets: at most MAX_FREE_TICKETS_PER_ORDER per booking, across all free types.
+  // Free tickets: at most MAX_FREE_TICKETS_PER_ORDER in total per booking,
+  // across every free type, whether or not paid tickets are in it too (the
+  // checkout API refuses anything more with a 400).
+  const freeTypeCount = ticketTypes.filter((t) => t.priceCents === 0).length;
   const freeChosen = ticketTypes.reduce((n, t) => n + (t.priceCents === 0 ? (quantities[t.id] ?? 0) : 0), 0);
+  const freeLimitReached = freeChosen >= MAX_FREE_TICKETS_PER_ORDER;
 
   function capFor(ticket: TicketType): number {
     const cap = Math.min(ticket.quantityAvailable, MAX_QUANTITY_PER_TYPE);
@@ -58,6 +62,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   function setQuantity(ticket: TicketType, value: number) {
     const clamped = Math.max(0, Math.min(value, capFor(ticket)));
     setQuantities((prev) => ({ ...prev, [ticket.id]: clamped }));
+    // A refusal was about the old selection.
+    setError(null);
   }
 
   const lineSummaries = useMemo(
@@ -99,7 +105,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
       const email = needsEmail ? buyerEmail.trim() : accountEmail;
       // The tracking link they arrived through, if any (attribution only).
       // A free order sends the account's token when signed in: booked with
-      // the account's own email, the tickets are issued straight away.
+      // the account's own verified email, the API can issue the tickets
+      // without a confirmation link (it decides; we handle both outcomes).
       const result = await createCheckoutSession(
         event.id,
         lineItems,
@@ -116,8 +123,14 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
       setSentTo(email ?? "");
       setLoading(false);
     } catch (err) {
-      if (err instanceof ApiError && err.fieldErrors?.buyerEmail) {
-        setEmailError(err.fieldErrors.buyerEmail);
+      if (err instanceof ApiError && err.fieldErrors) {
+        // The email has its own field; anything else (such as too many free
+        // tickets in `lineItems`) has no field to highlight, so it's said in
+        // full rather than as "fix the highlighted fields".
+        const { buyerEmail: emailMessage, ...others } = err.fieldErrors;
+        if (emailMessage) setEmailError(emailMessage);
+        const otherMessages = Object.values(others).filter(Boolean).join(" ");
+        if (otherMessages || !emailMessage) setError(otherMessages || err.message);
       } else {
         setError(err instanceof Error ? err.message : "Couldn't start checkout. Try again.");
       }
@@ -174,6 +187,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                   onClick={() => setQuantity(ticket, quantity + 1)}
                   disabled={quantity >= cap}
                   aria-label={`Increase quantity for ${ticket.name}`}
+                  aria-describedby={ticket.priceCents === 0 ? "free-ticket-limit" : undefined}
                   className={stepperButtonClass}
                 >
                   +
@@ -183,6 +197,14 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
           );
         })}
       </ul>
+
+      {freeTypeCount > 0 && (
+        <p id="free-ticket-limit" aria-live="polite" className="text-xs text-muted">
+          {freeLimitReached
+            ? `That's the most free tickets one booking can have (${MAX_FREE_TICKETS_PER_ORDER}${freeTypeCount > 1 ? " in total, across the free ticket types" : ""}).`
+            : `Up to ${MAX_FREE_TICKETS_PER_ORDER} free tickets per booking${freeTypeCount > 1 ? ", in total across the free ticket types" : ""}.`}
+        </p>
+      )}
 
       <div className="bg-surface p-4">
         <h3 className="font-heading text-xl text-foreground">Order summary</h3>
@@ -279,7 +301,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
             )}
             <p className="mt-2 text-xs text-muted">
               {orderTotal.totalCents === 0
-                ? `No payment step. Signed in and booking with your account email? Your tickets are issued straight away. Otherwise we'll email you a link to confirm them first. Up to ${MAX_FREE_TICKETS_PER_ORDER} free tickets per booking.`
+                ? "No payment step. We'll email you a link to confirm your tickets before they're issued. Signed in and booking with your account's verified email? That step is usually skipped."
                 : "You'll pay securely on Stripe's own checkout page."}
             </p>
           </>

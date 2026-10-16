@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState, Notice } from "@/components/ui/Section";
 import { adminListEmailJobs, adminResendEmailJob } from "@/lib/api/admin";
@@ -40,6 +40,17 @@ export default function EmailOutbox() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  // Where focus goes once a resent email has left the list (its button,
+  // which had focus, is gone): an element id, applied after the re-render.
+  const focusAfterRemoval = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!focusAfterRemoval.current) return;
+    const element = document.getElementById(focusAfterRemoval.current);
+    if (!element) return; // Not rendered yet: an earlier render's effects can run first.
+    focusAfterRemoval.current = null;
+    element.focus();
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -56,15 +67,37 @@ export default function EmailOutbox() {
     };
   }, [status, getToken, key]);
 
-  function replace(job: AdminEmailJob) {
+  /**
+   * After a resend: a job still in this view is updated in place; one whose
+   * new status belongs to another view (a failed email is now retrying)
+   * leaves the list, and focus moves to the next email (or the previous one,
+   * or the list heading when none are left).
+   */
+  function resent(job: AdminEmailJob) {
+    const label = STATUSES.find((s) => s.value === job.status)?.label ?? job.status;
+    if (job.status === status) {
+      setResult((current) =>
+        current && current.key === key && current.state.status === "ready"
+          ? {
+              key,
+              state: { ...current.state, items: current.state.items.map((j) => (j.jobId === job.jobId ? job : j)) },
+            }
+          : current,
+      );
+      setAnnouncement(`Resending the email for order ${job.orderReference}.`);
+      return;
+    }
+    if (state.status === "ready") {
+      const index = state.items.findIndex((j) => j.jobId === job.jobId);
+      const neighbour = state.items[index + 1] ?? state.items[index - 1];
+      focusAfterRemoval.current = neighbour && neighbour.jobId !== job.jobId ? jobHeadingId(neighbour) : "emails-heading";
+    }
     setResult((current) =>
       current && current.key === key && current.state.status === "ready"
-        ? {
-            key,
-            state: { ...current.state, items: current.state.items.map((j) => (j.jobId === job.jobId ? job : j)) },
-          }
+        ? { key, state: { ...current.state, items: current.state.items.filter((j) => j.jobId !== job.jobId) } }
         : current,
     );
+    setAnnouncement(`Resending the email for order ${job.orderReference}. It’s moved to ${label}.`);
   }
 
   async function loadMore() {
@@ -112,7 +145,7 @@ export default function EmailOutbox() {
       </div>
 
       <section aria-labelledby="emails-heading" aria-busy={state.status === "loading" ? true : undefined}>
-        <h2 id="emails-heading" className="display-md mb-4 !text-2xl">
+        <h2 id="emails-heading" tabIndex={-1} className="display-md mb-4 !text-2xl outline-offset-2">
           {current} ticket emails
         </h2>
 
@@ -140,10 +173,7 @@ export default function EmailOutbox() {
                 key={job.jobId}
                 job={job}
                 getToken={getToken}
-                onResent={(updated) => {
-                  replace(updated);
-                  setAnnouncement(`Resending the email for order ${updated.orderReference}.`);
-                }}
+                onResent={resent}
               />
             ))}
           </ul>
@@ -166,6 +196,10 @@ export default function EmailOutbox() {
   );
 }
 
+function jobHeadingId(job: AdminEmailJob) {
+  return `email-${job.jobId}`;
+}
+
 function EmailJobItem({
   job,
   getToken,
@@ -177,7 +211,7 @@ function EmailJobItem({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const headingId = `email-${job.jobId}`;
+  const headingId = jobHeadingId(job);
 
   async function resend() {
     if (busy) return;
@@ -195,7 +229,7 @@ function EmailJobItem({
   return (
     <li className="border-t border-foreground pt-4">
       <article aria-labelledby={headingId} className="flex flex-col gap-2">
-        <h3 id={headingId} className="font-sans text-base font-semibold normal-case tracking-normal break-words">
+        <h3 id={headingId} tabIndex={-1} className="outline-offset-2 font-sans text-base font-semibold normal-case tracking-normal break-words">
           Order {job.orderReference}: {job.eventTitle}
         </h3>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">

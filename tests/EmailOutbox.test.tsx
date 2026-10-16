@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EmailOutbox from "@/components/admin/EmailOutbox";
 import { ApiError } from "@/lib/api/client";
@@ -59,9 +59,41 @@ describe("EmailOutbox", () => {
     expect(adminListEmailJobs).toHaveBeenCalledWith("failed", expect.any(Function));
 
     fireEvent.click(within(item).getByRole("button", { name: "Resend now" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("Resending the email for order #7C1F2E0A.");
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Resending the email for order #7C1F2E0A. It’s moved to Retrying.",
+    );
     expect(adminResendEmailJob).toHaveBeenCalledWith("7", expect.any(Function));
-    expect(within(item).queryByText("421 Service not available")).toBeNull();
+    // It's no longer failed, so it leaves the Failed list rather than sitting there as "Retrying".
+    expect(screen.queryByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).toBeNull();
+    expect(screen.getByText("Nothing has failed")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Failed ticket emails" })).toHaveFocus());
+  });
+
+  it("moves focus to the next email when a resent one leaves the list", async () => {
+    adminListEmailJobs.mockResolvedValue({
+      items: [job(), job({ jobId: "8", orderReference: "#8D2A3B1C" }), job({ jobId: "9", orderReference: "#9E3B4C2D" })],
+    });
+    adminResendEmailJob.mockResolvedValue(job({ jobId: "8", orderReference: "#8D2A3B1C", status: "pending", attempts: 0 }));
+    renderOutbox();
+    const middle = (await screen.findByRole("heading", { name: "Order #8D2A3B1C: Neon Static" })).closest("article")!;
+    fireEvent.click(within(middle).getByRole("button", { name: "Resend now" }));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Order #8D2A3B1C: Neon Static" })).toBeNull());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Order #9E3B4C2D: Neon Static" })).toHaveFocus());
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+  });
+
+  it("updates a resent email in place when it stays in the same view", async () => {
+    adminListEmailJobs.mockResolvedValue({ items: [job({ status: "pending", lastError: "timeout" })] });
+    adminResendEmailJob.mockResolvedValue(job({ status: "pending", attempts: 0, lastError: undefined }));
+    renderOutbox();
+    // Switch to the Retrying view, then resend from it.
+    fireEvent.click(await screen.findByRole("button", { name: "Retrying" }));
+    const item = (await screen.findByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).closest("article")!;
+    expect(within(item).getByText("timeout")).toBeInTheDocument();
+    fireEvent.click(within(item).getByRole("button", { name: "Resend now" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Resending the email for order #7C1F2E0A.");
+    expect(screen.getByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).toBeInTheDocument();
+    expect(within(item).queryByText("timeout")).toBeNull();
   });
 
   it("shows why a resend was refused", async () => {

@@ -51,12 +51,21 @@ function errorState(err: unknown, token: string): State {
 export default function FreeOrderConfirm() {
   const [state, setState] = useState<State>({ status: "loading" });
   const headingRef = useRef<HTMLHeadingElement>(null);
+  // The token, once read (null: there wasn't a valid one). Kept in a ref so
+  // the read happens once per mount: StrictMode re-runs this effect after the
+  // fragment has already been removed, and a second read would find nothing.
+  // (Read in an effect, not a useState initialiser, so the server render and
+  // hydration agree.)
+  const capturedToken = useRef<{ token: string | null } | null>(null);
 
   useEffect(() => {
-    const token = tokenFromHash(window.location.hash);
-    if (window.location.hash) {
-      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    if (!capturedToken.current) {
+      capturedToken.current = { token: tokenFromHash(window.location.hash) };
+      if (window.location.hash) {
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      }
     }
+    const { token } = capturedToken.current;
     // Deferred so the effect body itself never calls setState.
     queueMicrotask(() => setState(token ? { status: "ready", token } : { status: "missing" }));
   }, []);

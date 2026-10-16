@@ -9,7 +9,7 @@ export default function AdminHomePage() {
     <div className="mx-auto flex max-w-2xl flex-col gap-8 px-5 py-12 sm:px-8 sm:py-20">
       <h1 className="display-lg">Admin</h1>
       <AdminGate>
-        <div className="flex flex-col gap-4 sm:flex-row">
+        <div className="grid gap-4 sm:grid-cols-2">
           <Link
             href="/admin/organisers"
             className="flex-1 bg-surface p-4 hover:border-accent"
@@ -30,6 +30,13 @@ export default function AdminHomePage() {
           >
             <p className="font-heading text-2xl text-foreground">Member reports</p>
             <p className="mt-1 text-sm text-muted">Review reports, then dismiss or suspend.</p>
+          </Link>
+          <Link
+            href="/admin/emails"
+            className="flex-1 bg-surface p-4 hover:border-accent"
+          >
+            <p className="font-heading text-2xl text-foreground">Ticket emails</p>
+            <p className="mt-1 text-sm text-muted">See failed ticket emails and resend them.</p>
           </Link>
         </div>
       </AdminGate>
