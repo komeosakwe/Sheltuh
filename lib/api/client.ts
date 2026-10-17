@@ -35,6 +35,12 @@ interface FetchOptions {
   body?: unknown;
   /** Supabase access token. Omit for the public routes. */
   token?: string;
+  /**
+   * Cancels the request. Once it's aborted, the abort error is thrown (an
+   * AbortError DOMException, or the signal's reason), never an ApiError, even
+   * if the response had already arrived.
+   */
+  signal?: AbortSignal;
 }
 
 export async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T> {
@@ -56,13 +62,17 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
           : options.body instanceof Blob
             ? options.body
             : JSON.stringify(options.body),
+      ...(options.signal ? { signal: options.signal } : {}),
     });
-  } catch {
+  } catch (err) {
+    if (options.signal?.aborted) throw err;
     throw new ApiError(0, "Couldn't reach the server. Check your connection and try again.");
   }
 
   const contentType = res.headers.get("content-type") ?? "";
   const data = contentType.includes("application/json") ? await res.json().catch(() => undefined) : undefined;
+  // Aborted while the body was being read: never hand back a missing body as a result.
+  options.signal?.throwIfAborted();
 
   if (!res.ok) {
     const message = (data && typeof data.error === "string" && data.error) || `Request failed (${res.status}).`;

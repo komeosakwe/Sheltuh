@@ -48,6 +48,9 @@ hop, and shared Wi-Fi puts many people behind one address). Instead:
 - Refusal counts are stored without any email or IP. No CAPTCHA for now.
 
 ## Phase 2: ticket check-in (Fix 3)
+Status: step B1 (check-in data and API) built 17 Oct 2026
+(`20261021000000_ticket_check_in.sql`; docs/architecture.md, "Check-in"). QR
+images and the scanner page are still to come.
 
 - The QR encodes the existing ticket code as `SH1:XXXX-XXXX`. Codes are 40-bit
   random (about 1.1 x 10^12 values); the only way to test a code is check-in,

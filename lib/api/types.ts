@@ -667,6 +667,22 @@ export interface EventAnalytics {
   trackingLinks: TrackingLinkStats[];
   /** With `compare=prevPeriod`: the period of the same length ending the day before `range.from`. */
   previous?: { range: DateRange; totals: AnalyticsTotals; byDay: AnalyticsDay[] };
+  /**
+   * Door check-ins against tickets sold, all-time (not limited to `range`):
+   * tickets in `paid` orders, and how many of them have been checked in.
+   * Null when no tickets have been sold. Always sent by the API; optional so
+   * older fixtures stay valid. Check-in times are cleared 25 months after the
+   * event ends, after which `checkedIn` is 0.
+   */
+  attendance?: EventAttendance | null;
+}
+
+/** EventAnalytics.attendance. */
+export interface EventAttendance {
+  checkedIn: number;
+  ticketsSold: number;
+  /** Every current ticket type, in event order, zero-filled. */
+  byTicketType: { ticketTypeId: string; name: string; checkedIn: number; ticketsSold: number }[];
 }
 
 export interface AnalyticsOverviewEvent {
@@ -728,3 +744,104 @@ export interface CreateTrackingLinkInput {
 
 /** Most tracking links per event. */
 export const MAX_TRACKING_LINKS_PER_EVENT = 20;
+
+// ---------------------------------------------------------------------------
+// Check-in at the door (docs/architecture.md, "Check-in")
+// ---------------------------------------------------------------------------
+
+/**
+ * What a scan means for the person at the door:
+ * - `admitted`: let them in (the ticket is now checked in).
+ * - `already_checked_in`: this ticket was checked in before, at `checkedInAt`. Re-entry is refused.
+ * - `not_admissible`: the ticket is void (its order isn't paid, e.g. refunded).
+ * - `other_event`: a ticket for another of the organiser's events (`otherEventTitle`).
+ * - `invalid`: not a ticket for any of the organiser's events (or not a ticket code at all).
+ */
+export type CheckInOutcome = "admitted" | "already_checked_in" | "invalid" | "not_admissible" | "other_event";
+
+/** POST /api/organisers/me/events/{eventId}/check-ins. */
+export interface CheckInInput {
+  /** What was scanned or typed: `XXXX-XXXX` or `SH1:XXXX-XXXX`, any case, surrounding whitespace ignored. */
+  code: string;
+  /** A fresh uuid per scan, reused for retries of that scan: a retry gets the original result back. */
+  requestId: string;
+}
+
+/** About the scanned ticket. Never the buyer's name or email, or the order. */
+export interface CheckInTicket {
+  ticketTypeName: string;
+  /** Its place in its order ("ticket 2 of 3"), in the same order as the ticket email. */
+  ticketNumber: number;
+  ticketCount: number;
+  /** The code's last four characters. */
+  codeLast4: string;
+}
+
+/**
+ * The outcome of a scan (always HTTP 200: any HTTP error means the ticket
+ * couldn't be verified, and nothing was marked). An `invalid` result carries
+ * nothing else: `{"outcome":"invalid"}`.
+ */
+export interface CheckInResult {
+  outcome: CheckInOutcome;
+  /** `admitted` only: the check-in to pass to undo. */
+  checkInId?: string;
+  /** Every outcome but `invalid`. */
+  ticket?: CheckInTicket;
+  /** `admitted`: now. `already_checked_in`: when it was first checked in. ISO 8601. */
+  checkedInAt?: string;
+  /** `other_event` only. */
+  otherEventTitle?: string;
+}
+
+/** POST /api/organisers/me/events/{eventId}/check-ins/{checkInId}/undo. */
+export interface UndoCheckInInput {
+  /** Why (3–200 characters). Kept in the check-in log. */
+  reason: string;
+}
+
+/**
+ * - `undone`: the ticket is no longer checked in.
+ * - `not_checked_in`: it already wasn't (undone before).
+ * - `superseded`: it was undone and checked in again since; undo the newer check-in instead.
+ */
+export type UndoCheckInOutcome = "undone" | "not_checked_in" | "superseded";
+
+export interface UndoCheckInResult {
+  outcome: UndoCheckInOutcome;
+  /** `undone` only: the log entry recording the undo. */
+  checkInId?: string;
+  ticket: { ticketTypeName: string; codeLast4: string };
+}
+
+/** One entry in the check-in log, newest first. */
+export interface CheckInLogEntry {
+  checkInId: string;
+  result: CheckInOutcome | "undone";
+  /** ISO 8601. */
+  at: string;
+  /** Null for `invalid` (the scanned text is never stored). */
+  codeLast4: string | null;
+  ticketTypeName: string | null;
+  /** `other_event` only. */
+  otherEventTitle?: string;
+  /** `undone` only. */
+  reason?: string;
+  /** An `admitted` entry that is the ticket's current check-in, so it can be undone. */
+  undoable: boolean;
+}
+
+/** GET /api/organisers/me/events/{eventId}/check-ins. */
+export interface CheckInSummary {
+  event: { eventId: string; title: string; startsAt: string; endsAt: string };
+  /** Tickets of paid orders checked in. */
+  checkedIn: number;
+  /** Tickets in paid orders. */
+  ticketsSold: number;
+  /** Sum of the ticket types' quantities on sale. */
+  capacity: number;
+  /** Every current ticket type, in event order. */
+  byTicketType: { ticketTypeId: string; name: string; checkedIn: number; ticketsSold: number; capacity: number }[];
+  /** The newest 20 log entries. */
+  recent: CheckInLogEntry[];
+}

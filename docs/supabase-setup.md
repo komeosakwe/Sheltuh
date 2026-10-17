@@ -262,8 +262,9 @@ function keeps its name and still takes no arguments.
 ### Analytics retention (daily job)
 
 Organiser page-view counters are deleted 25 months after the day they
-counted, and per-event view rate-limit counters once idle for a day, by
-`private.purge_analytics()`. Nothing about visitors is stored in the first
+counted, per-event view rate-limit counters once idle for a day, and the
+door check-in log and tickets' check-in times 25 months after their event
+ends, by `private.purge_analytics()`. Nothing about visitors is stored in the first
 place (no cookie, IP address or user id), so this only bounds how long the
 aggregate numbers are kept. Schedule it alongside the job above:
 
@@ -272,13 +273,33 @@ select cron.schedule('purge-analytics', '27 3 * * *', $$select private.purge_ana
 ```
 
 It's safe to run by hand at any time and returns how many rows it deleted
-(`event_view_counts_deleted`, `event_rate_limits_deleted`). Orders, and the
-tracking code recorded on them, are financial records and aren't purged.
+(`event_view_counts_deleted`, `event_rate_limits_deleted`; check-in rows
+aren't counted in the result, which keeps an existing job working unchanged).
+Orders, tickets, and the tracking code recorded on orders, are financial
+records and aren't purged.
 
 View counting starts the day `20261006000000_event_analytics.sql` is applied
 (`private.analytics_settings.views_tracked_since`); reports show earlier days
 as "not counted". Don't change that date by hand: it's what keeps a report
 from showing 0 views for days nobody counted.
+
+### Ticket check-in
+
+`20261021000000_ticket_check_in.sql` adds `tickets.checked_in_at`, the
+`ticket_check_ins` log and the check-in functions. It's additive (no existing
+row changes) and also redefines `private.purge_analytics()` with the same
+result columns, so the analytics job above needs no change. Check-in is done
+by the event's organiser, signed in on the door device; admins can't, and
+events of platform-managed organisers (no owner account) can't be checked in
+yet (docs/architecture.md, "Check-in"). An event's check-ins (no buyer data):
+
+```sql
+select c.id, c.result, right(c.ticket_code, 4) as code_last4, c.reason, c.created_at
+from ticket_check_ins c where c.event_id = '<event id>' order by c.id desc limit 50;
+```
+
+Mistaken admissions are undone from the app (with a reason, logged), not in
+SQL: an `update tickets set checked_in_at = null` would leave no record.
 
 ### Free-ticket and email outbox retention (daily job)
 

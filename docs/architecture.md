@@ -54,7 +54,8 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Public via `GET /api/events/[id]/image` once published (cached for a day, versioned URL); before that only the owner/admins with a token. Move to Storage/CDN if volume grows. |
 | `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished, by whom, and why. |
 | `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed / oversold_refund_required; oversold_refund_required → refunded (our automatic refund); paid → refunded (refunded in full in Stripe, see "Refunds made in Stripe"). `amount_refunded_cents` (≥ 0, default 0) is Stripe's cumulative refunded amount, recorded only for paid orders (a partial refund leaves the order paid). Indexed on `stripe_payment_intent_id` (partial, not null) for the refund webhook. `tickets_emailed_at` records the ticket email. `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). |
-| `tickets` | `code` | One row per admitted person. This is the future home of check-in. Rows are kept when their order is refunded, but only a `paid` order's tickets are valid: check-in must check the order's status. |
+| `tickets` | `code` | One row per admitted person. Rows are kept when their order is refunded, but only a `paid` order's tickets are valid: check-in checks the order's status. `checked_in_at`: when the ticket was admitted at the door (null until then, and again after an undo; cleared 25 months after the event ends). Indexed on `(event_id, ticket_type_id)` for the check-in counts. |
+| `ticket_check_ins` | `id` (identity) | The check-in log (see "Check-in"): one row per scan or undo, with the event scanned for, the ticket `code` (null for an `invalid` scan: what was scanned is never stored), the acting account, the client's `request_id` (unique per event: the idempotency key), the `result` and, for an undo only, its `reason` (3–200 characters). Check constraints tie `invalid` to a null code and `undone` to a reason. Deleted with the event or the ticket, and by `purge_analytics` 25 months after the event ends. No buyer data. |
 | `private.platform_rate_limits` | `bucket` | Platform-wide fixed-window counters (`take_platform_rate_limit`): the hourly and 24-hour confirmation-email caps. Idle rows purged daily. |
 | `private.free_order_refusals` | `(day, reason)` | Counts of refused free bookings per Melbourne day and reason. No personal data. Deleted after 13 months. |
 | `private.email_outbox` | `id` | One ticket-email job per paid order (`(order_id, kind)` unique): status, attempts, next attempt, lease, redacted last error. No address or content (read from the order at send time). Deleted with the order. |
@@ -97,7 +98,9 @@ times, which are converted to instants honouring daylight saving
 | `take_event_rate_limit` | `take_rate_limit`'s fixed-window counter, keyed on an event instead of a member. Once a live window is over the limit it refuses with a plain read and writes nothing, so a flood isn't a write per request. |
 | `record_view` | Counts one view: the event must be published; the source is bucketed (unknown → `other`); a code that's one of the event's tracking codes makes it `tracking` under that code (any other code is ignored); then the event's per-minute cap (a refused view records the day in `event_view_cap_days`; after the first, that's a no-op); then one upsert increment. No row lock on the event and no exception block, to keep the hot path to two small upserts. Returns `recorded`, `not_found` or `rate_limited`. |
 | `create_tracking_link` | Adds a link to an event the organiser owns, under an advisory lock on the event (so the 20-link cap holds under concurrency, without locking the events row that checkouts share-lock). Returns `created`, `not_found`, `limit`, `label_taken`, or `code_taken` (the API retries with a fresh code). |
-| `purge_analytics` | Retention: deletes view counters for days over 25 months ago and per-event rate-limit rows idle for a day. Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`). |
+| `purge_analytics` | Retention: deletes view counters for days over 25 months ago and per-event rate-limit rows idle for a day, and, for events that ended over 25 months ago, the check-in log and the tickets' `checked_in_at`. Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`). |
+| `check_in_ticket` | One scan, in one step (see "Check-in"): the event must be the organiser's (`not_found`); a hit on the account's `check_in` allowance (`rate_limited`, nothing logged); then, under an advisory lock on (event, request id), a request id already logged returns its original result unchanged. Otherwise: a code that isn't one of the organiser's tickets is `invalid`; another of their events' tickets is `other_event`; else it share-locks the order, then locks the ticket (`for update`), and decides `not_admissible` (order not `paid`), `already_checked_in` (with the first time) or `admitted` (sets `checked_in_at`). Every result but `not_found` and `rate_limited` logs exactly one row. |
+| `undo_check_in` | Reverses an admission (an `admitted` log row of the event) with a reason: same ownership check, allowance and locks as `check_in_ticket`. Returns `undone` (clears `checked_in_at`, logs an `undone` row with the reason), `not_found`, `not_checked_in` (already undone), `superseded` (admitted again since: undo the newer one) or `rate_limited`. Only `undone` logs a row. |
 | `place_free_order` | A member's free order, created and fulfilled in one step under an advisory lock on (event, person): the per-person cap, then the daily allowance, then `fulfil_order`. A refusal or sell-out writes nothing (beyond a refusal count). Returns `paid`, `person_event_limit`, `member_daily_limit` or `sold_out`. |
 | `request_free_order` | A guest's pending free order: the platform's hourly and 24-hour caps (read-only), then, under an advisory lock on the address, the hourly link limit, then a hit on each platform cap. Returns `requested`, `address_limited`, `platform_limited` or `platform_daily_limited`. (The previous 13-argument form delegates to it with the same daily cap, for the deploy window; the app doesn't call it.) |
 | `confirm_free_order` | Confirms by token hash: locks the order, then (event, person), then the event (share) to check every ticket type is still free, then `fulfil_order`'s locks. Idempotent within the link's 24 hours. Returns `confirmed`, `already_confirmed`, `expired_confirmed`, `not_found`, `expired`, `unavailable`, `person_event_limit`, `no_longer_free` or `sold_out` (the last three mark the order `failed`). |
@@ -560,9 +563,15 @@ with `= + - @`, a tab or a carriage return (after any leading whitespace) gets
 a leading `'` so spreadsheets don't run it as a formula; money is decimal
 dollars; the file starts with a UTF-8 BOM for Excel.
 
+**Attendance**: the event report's `attendance` compares tickets checked in
+at the door with tickets sold (tickets of `paid` orders, all-time rather than
+for the range, per ticket type). It's null until a ticket is sold. A ticket
+whose order is refunded after it was checked in drops out of both counts.
+
 **Retention**: view counters and cap markers are deleted after 25 months (`purge_analytics`),
-and reports never claim views from before then were counted. Orders (and so
-their `tracking_code`) are kept as financial records.
+and reports never claim views from before then were counted. Check-in times
+and the check-in log go 25 months after the event ends (so attendance then
+reads 0). Orders (and so their `tracking_code`) are kept as financial records.
 
 ### Accepted risks (analytics)
 
@@ -580,8 +589,6 @@ their `tracking_code`) are kept as financial records.
 
 **Later stages (not built):**
 
-- Check-ins and attendance: needs a door-scanning feature first (`tickets`
-  is its future home).
 - Attendee registrations with geography: needs a privacy review; at most a
   suburb or postcode, from Stripe Checkout.
 - Unique visitors: deliberately impossible under the no-cookie, no-IP model.
@@ -591,6 +598,89 @@ their `tracking_code`) are kept as financial records.
 Booking fee: 4% of face value + A$0.50 per paid ticket (`lib/fees.ts`,
 which the API and the UI both use). It's either buyer-paid or absorbed by
 the organiser, set per ticket type. Either way the platform keeps it.
+
+## Check-in
+
+Door check-in for an organiser's own events (`lib/server/handlers/check-ins.ts`,
+`supabase/migrations/20261021000000_ticket_check_in.sql`, `lib/ticket-code.ts`).
+
+- **The code is the ticket.** A ticket code is 8 characters from a 32-letter
+  alphabet without 0/O/1/I, split 4-4 (`7KQM-2HXD`): 40 random bits. The QR
+  carries `SH1:` plus the code. Check-in accepts either form, in any case,
+  with surrounding whitespace (`parseTicketCode`); anything else is an
+  `invalid` scan, not an error. No separate token: the only way to test a
+  code is check-in, which needs the organiser's login, only ever covers their
+  own event, and is rate-limited.
+- **Who.** The approved organiser who owns the event (`requireApprovedOrganiser`;
+  ownership is checked again inside `check_in_ticket`). Anyone else's event is
+  a 404; an admin with no organiser of their own a 403; signed out a 401.
+  Admins can't check people in. Platform-managed organisers (no owner
+  account) can't be checked in by anyone for now: a per-event staff table
+  (scanner or supervisor) is the planned way to add door staff.
+- **Outcomes** (`POST …/check-ins {code, requestId}`, always 200):
+  `admitted` (the ticket is now checked in; carries the `checkInId` to undo),
+  `already_checked_in` (with the first check-in time; re-entry is refused),
+  `not_admissible` (its order isn't `paid`, e.g. refunded in Stripe: the
+  ticket is void), `other_event` (one of the organiser's other events, named)
+  and `invalid` (malformed, unknown, or another organiser's ticket). Every
+  outcome but `invalid` also returns the ticket type, "ticket n of N" in the
+  ticket email's order (ticket type id, then code) and the code's last four
+  characters.
+- **Errors mean "couldn't verify".** 400 (`code` not a string, `requestId` not
+  a uuid), 404, 413 (body over 1 KB), 429 or a network failure: nothing was
+  marked, and the scanner must say verification is unavailable, never that
+  someone is in.
+- **Retries are safe.** The client sends a fresh uuid per scan and reuses it
+  for that scan's retries. A request id already logged for the event returns
+  the original result unchanged, with no new row: a retry after a lost
+  response says `admitted`, not `already_checked_in`.
+- **Atomic and race-free.** One transaction: event (key share), the caller's
+  rate-limit row, an advisory lock on (event, request id), the order (share),
+  the ticket (update). Two scans of one ticket at once: exactly one is
+  admitted. `fulfil_order` and `record_payment_refund` lock the order first
+  and never lock tickets, so a refund and a check-in can't deadlock: whichever
+  commits first wins, and a refund that wins makes the scan `not_admissible`.
+- **Undo** (`POST …/check-ins/{checkInId}/undo {reason}`): reverses an
+  admission, with a required reason (3–200 characters, cleaned like a
+  message). Returns `undone`, `not_checked_in` (undone already) or
+  `superseded` (admitted again since); 404 if it isn't an admission of this
+  event. Logged with the reason.
+- **Rate limit**: 600 check-ins and undos per account per 5 minutes
+  (`take_rate_limit`, bucket `check_in`; `CHECK_IN_LIMIT`), then 429 with
+  nothing logged. Retries count.
+- **Summary** (`GET …/check-ins`): checked in and sold (tickets of `paid`
+  orders) per ticket type with capacity, and the newest 20 log entries
+  (result, time, ticket type, last four characters of the code, an undo's
+  reason, and whether an admission can still be undone).
+- **Privacy.** A scan shows no buyer identity: no name, email or order id,
+  anywhere in check-in. The log stores the event, ticket code (never the
+  text of an invalid scan), acting account, result, an undo's reason and the
+  time, and responses show only codes' last four characters. Every response
+  is `private, no-store`. Deleted 25 months after the event ends
+  (`purge_analytics`).
+
+### Accepted limits (check-in)
+
+- **One shared organiser login.** Everyone on the door signs in as the
+  organiser, so the log can't tell door staff apart, and they share one
+  rate limit (600 per 5 minutes, roughly 2 a second sustained; enough for a
+  few doors, not for a large venue's opening rush). Per-event staff accounts
+  are the planned fix.
+- **No offline mode.** Every scan needs the server; without a connection
+  the scanner can only say verification is unavailable.
+- **A screenshot of a QR admits whoever arrives first.** The code is a
+  bearer credential: a copied ticket gets in once, and the real holder then
+  sees `already_checked_in` (with the time, so staff can judge). Undo plus a
+  manual decision is the remedy.
+- **Only paid orders admit.** A refunded order's tickets are refused; a
+  partial refund leaves them valid (see "Refunds made in Stripe"); a
+  disputed order stays `paid` and admits.
+- **Timing.** An unknown code and another organiser's ticket return the
+  same bytes, but the second does one more lookup's work; telling them
+  apart by response time would need many precise measurements against a
+  rate-limited endpoint, by an organiser.
+- **A retried undo** whose response was lost says `not_checked_in` rather
+  than `undone` (undo has no request id): the ticket's state is the same.
 
 ## Organiser profiles
 
@@ -705,6 +795,7 @@ application is approved.
 | `POST /events/{id}/view` `{source?, code?}` | public. 204 (counted or not); 404 not published |
 | `GET /organisers/me/events/{id}/tracking-links` · `POST …` `{label}` · `DELETE …/tracking-links/{linkId}` | organiser (own events). POST 201; 400 label; 409 label taken or 20 links. DELETE 204, idempotent |
 | `GET /organisers/me/events/{id}/analytics?from&to&compare` · `…/analytics.csv` | organiser (own events). 400 bad range |
+| `POST /organisers/me/events/{id}/check-ins` `{code, requestId}` · `GET …/check-ins` · `POST …/check-ins/{checkInId}/undo` `{reason}` | organiser (own events; see "Check-in"). Every ticket outcome is 200; 400 bad body, 404, 413, 429 |
 | `GET /organisers/me/analytics/overview?from&to&compare` · `…/overview.csv` | organiser: all own events. 400 bad range |
 | `GET /admin/organisers?status` · `POST /admin/organisers/{id}/approve` · `…/reject` | admin. Items (and the decision responses) are `AdminOrganiserRecord`: the full record plus `recentEdits` (newest 20 log entries). Approve/reject: 409 unless pending |
 | `POST /admin/organisers/{id}/suspend` `{reason}` | admin. Takedown of an approved organiser (see "Organiser profiles"). 200 `{organiser, eventsUnpublished, submissionsRejected}`; 400 reason missing, over 500 characters or with control/invisible characters; 404 unknown; 409 not approved |
@@ -733,7 +824,8 @@ is `cache-control: private, no-store`.
 
 ## Not built yet
 
-- QR check-in (and with it, attendance analytics).
+- Check-in's scanner page and QR images (the check-in API and log are built:
+  see "Check-in"). No per-event door staff accounts.
 - Analytics beyond stages A and B (see "Organiser analytics").
 - Venue coordinates (the map falls back to suburb centroids).
 - Who's Going beyond increment 2: no admin UI for suspensions or the

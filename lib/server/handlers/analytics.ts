@@ -32,6 +32,7 @@ import type { Deps } from "../deps";
 import { okPrivate } from "../http";
 import type { Handler } from "../route";
 import type { EventRecord } from "../types";
+import { eventAttendance } from "./check-ins";
 import { requireOwnEvent } from "./event-queries";
 import { requireApprovedOrganiser } from "./organiser-guard";
 
@@ -214,7 +215,7 @@ async function buildEventAnalytics(db: Db, event: EventRecord, qs: URLSearchPara
   const { range, compare } = parseAnalyticsQuery(qs, { from: melbourneDateOf(event.createdAt), today });
   const previousRange = compare ? previousPeriod(range) : undefined;
 
-  const [since, period, previous, groups, links] = await Promise.all([
+  const [since, period, previous, groups, links, attendance] = await Promise.all([
     viewsTrackedSince(db),
     eventPeriod(db, event.eventId, range),
     previousRange ? eventPeriod(db, event.eventId, previousRange) : undefined,
@@ -223,6 +224,7 @@ async function buildEventAnalytics(db: Db, event: EventRecord, qs: URLSearchPara
       `select l.id, l.code, l.label from public.event_tracking_links l where l.event_id = $1 order by l.created_at desc, l.id`,
       [event.eventId],
     ),
+    eventAttendance(db, event.eventId),
   ]);
 
   const bySource: SourceViews[] = VIEW_SOURCES.map((source) => ({ source, views: period.viewsBySource.get(source) ?? 0 }));
@@ -245,6 +247,7 @@ async function buildEventAnalytics(db: Db, event: EventRecord, qs: URLSearchPara
     bySource,
     byTicketType: ticketTypeSales(event.ticketTypes, groups, period.ordersTotal),
     trackingLinks: trackingLinkStats(links, period.viewsByCode, period.ordersByCode, period.capDays.size > 0),
+    attendance,
     ...(previous && previousRange
       ? {
           previous: {

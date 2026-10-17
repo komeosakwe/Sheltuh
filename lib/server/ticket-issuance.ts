@@ -1,7 +1,8 @@
+import { TICKET_CODE_ALPHABET as CODE_ALPHABET } from "@/lib/ticket-code";
 import type { IssuedTicket, OrderLineItem } from "./types";
 
-/** Short, unambiguous (no 0/O/1/I) code — good enough to read aloud or show on a door list. */
-const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+// Short, unambiguous (no 0/O/1/I) codes, good enough to read aloud or show on
+// a door list. The format is defined in lib/ticket-code.ts.
 
 /** Cryptographically random — a ticket code is what gets someone through the door. */
 function generateTicketCode(): string {

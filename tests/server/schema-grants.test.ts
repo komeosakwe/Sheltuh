@@ -58,13 +58,14 @@ describe("Data API lock-out", () => {
     expect(open).toEqual([]);
   });
 
-  it("the messaging, favourites and analytics tables exist in `public` with RLS on, no policies and no client grants", async () => {
+  it("the messaging, favourites, analytics and check-in tables exist in `public` with RLS on, no policies and no client grants", async () => {
     const tables = [
       "conversations",
       "event_favourites",
       "event_tracking_links",
       "event_view_counts",
       "messages",
+      "ticket_check_ins",
       "user_blocks",
     ];
     const rows = await db.query<{ table_name: string; rls: boolean; policies: number; grants: number }>(
