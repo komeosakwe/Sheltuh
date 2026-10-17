@@ -53,23 +53,28 @@ function normaliseText(value: string): string {
 
 /**
  * Cleans and checks a plain-text message (see normaliseText). Records an
- * error under `field` and returns "" if it isn't acceptable.
+ * error under `field` and returns "" if it isn't acceptable. Also used for
+ * other plain text people write for others to read (an organiser's bio, an
+ * admin's takedown reason), with their own `maxLength` (code points, like
+ * char_length; default MAX_MESSAGE_LENGTH). Raw input over 4 × maxLength
+ * UTF-16 units is refused before any cleaning runs.
  */
 export function parseMessageText(
   value: unknown,
   field: string,
   errors: Record<string, string>,
-  options: { allowLinks: boolean; label?: string },
+  options: { allowLinks: boolean; label?: string; maxLength?: number },
 ): string {
   const label = options.label ?? "Messages";
+  const maxLength = options.maxLength ?? MAX_MESSAGE_LENGTH;
   const empty = options.label ? "This can't be blank." : "Write a message.";
-  const tooLong = `Must be ${MAX_MESSAGE_LENGTH} characters or fewer.`;
+  const tooLong = `Must be ${maxLength} characters or fewer.`;
   if (typeof value !== "string") {
     errors[field] = empty;
     return "";
   }
   // Before anything else looks at it.
-  if (value.length > MAX_RAW_MESSAGE_LENGTH) {
+  if (value.length > maxLength * 4) {
     errors[field] = tooLong;
     return "";
   }
@@ -82,7 +87,7 @@ export function parseMessageText(
     errors[field] = empty;
     return "";
   }
-  if (Array.from(text).length > MAX_MESSAGE_LENGTH) {
+  if (Array.from(text).length > maxLength) {
     errors[field] = tooLong;
     return "";
   }

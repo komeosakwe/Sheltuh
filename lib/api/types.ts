@@ -28,6 +28,51 @@ export interface OrganiserRecord {
   payoutsEnabled?: boolean;
 }
 
+/** A field an organiser-log entry can record a change to (`status` only for a takedown). */
+export type OrganiserEditField =
+  | "description"
+  | "websiteUrl"
+  | "instagramHandle"
+  | "tiktokHandle"
+  | "facebookPage"
+  | "xHandle"
+  | "status";
+
+/** One field's value before and after; null means it was (or became) unset. */
+export interface OrganiserEditChange {
+  old: string | null;
+  new: string | null;
+}
+
+/**
+ * One entry of an organiser's append-only change log (admin only).
+ * `profile_edit`: the approved organiser changed their public profile
+ * (no review). `suspended`: an admin took them down, with `reason`.
+ */
+export interface OrganiserEditEntry {
+  kind: "profile_edit" | "suspended";
+  at: string;
+  /** Only the fields that changed. */
+  changes: Partial<Record<OrganiserEditField, OrganiserEditChange>>;
+  /** The admin's reason, for `suspended` only. */
+  reason?: string;
+}
+
+/** The admin queue's view of an organiser: the full record plus its newest log entries. */
+export interface AdminOrganiserRecord extends OrganiserRecord {
+  /** Newest first, at most 20. */
+  recentEdits: OrganiserEditEntry[];
+}
+
+/** POST /api/admin/organisers/{id}/suspend. */
+export interface SuspendOrganiserResult {
+  organiser: AdminOrganiserRecord;
+  /** Published events moved back to draft (no longer visible or bookable). */
+  eventsUnpublished: number;
+  /** Events that were waiting for review, now rejected. */
+  submissionsRejected: number;
+}
+
 /** https URLs the server builds from an organiser's handles; only the ones they've set. */
 export interface OrganiserSocialLinks {
   instagram?: string;

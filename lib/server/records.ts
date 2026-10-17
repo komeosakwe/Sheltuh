@@ -3,8 +3,10 @@
  * the camelCase API shapes in lib/api/types.ts. Nulls become undefined so
  * they drop out of JSON responses, matching the optional fields.
  */
+import type { Db } from "./db";
 import type {
   AdminEmailJob,
+  AdminOrganiserRecord,
   AdminReport,
   BlockRecord,
   ConversationSummary,
@@ -15,6 +17,8 @@ import type {
   MessageRecord,
   ModerationLogEntry,
   OrderRecord,
+  OrganiserEditEntry,
+  OrganiserEditField,
   OrganiserRecord,
   ProfileRecord,
   PublicEvent,
@@ -39,13 +43,72 @@ function opt<T>(value: unknown): T | undefined {
 // Organisers
 // ---------------------------------------------------------------------------
 
-export const ORGANISER_SELECT = `
-  select o.id, o.owner_user_id, o.display_name, o.contact_email, o.description,
+const ORGANISER_COLUMNS = `o.id, o.owner_user_id, o.display_name, o.contact_email, o.description,
          o.categories::text[] as categories, o.website_url,
          o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle, o.status::text as status,
          o.rejection_reason, o.reviewed_by, o.reviewed_at, o.stripe_account_id,
-         o.payouts_enabled, o.created_at, o.updated_at
+         o.payouts_enabled, o.created_at, o.updated_at`;
+
+export const ORGANISER_SELECT = `
+  select ${ORGANISER_COLUMNS}
   from public.organisers o`;
+
+/** Log entries shown per organiser in the admin queue. */
+export const ADMIN_ORGANISER_EDIT_LIMIT = 20;
+
+/**
+ * The admin queue's organiser: every column plus the newest
+ * ADMIN_ORGANISER_EDIT_LIMIT entries of private.organiser_profile_edits, in
+ * the same query (organiser_profile_edits_organiser_idx), so a page is one
+ * query, not one per organiser. Admin only.
+ */
+export const ADMIN_ORGANISER_SELECT = `
+  select ${ORGANISER_COLUMNS},
+         coalesce((
+           select json_agg(json_build_object('kind', x.kind, 'at', x.edited_at, 'changes', x.changed_fields,
+                                             'reason', x.reason) order by x.id desc)
+           from (select pe.id, pe.kind, pe.edited_at, pe.changed_fields, pe.reason
+                   from private.organiser_profile_edits pe
+                  where pe.organiser_id = o.id
+                  order by pe.id desc
+                  limit ${ADMIN_ORGANISER_EDIT_LIMIT}) x
+         ), '[]'::json) as recent_edits
+  from public.organisers o`;
+
+/** organisers column → API field, for the log's changed_fields keys. */
+const EDIT_FIELDS: Record<string, OrganiserEditField> = {
+  description: "description",
+  website_url: "websiteUrl",
+  instagram_handle: "instagramHandle",
+  tiktok_handle: "tiktokHandle",
+  facebook_page: "facebookPage",
+  x_handle: "xHandle",
+  status: "status",
+};
+
+function toEditValue(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function toOrganiserEdit(entry: {
+  kind: OrganiserEditEntry["kind"];
+  at: string;
+  changes: Record<string, { old?: unknown; new?: unknown }>;
+  reason: string | null;
+}): OrganiserEditEntry {
+  const changes: OrganiserEditEntry["changes"] = {};
+  for (const [column, change] of Object.entries(entry.changes)) {
+    const field = EDIT_FIELDS[column];
+    if (field) changes[field] = { old: toEditValue(change.old), new: toEditValue(change.new) };
+  }
+  return { kind: entry.kind, at: iso(entry.at), changes, reason: opt(entry.reason) };
+}
+
+/** For rows of ADMIN_ORGANISER_SELECT. */
+export function toAdminOrganiser(row: Row): AdminOrganiserRecord {
+  const edits = row.recent_edits as Parameters<typeof toOrganiserEdit>[0][];
+  return { ...toOrganiser(row), recentEdits: edits.map(toOrganiserEdit) };
+}
 
 export function toOrganiser(row: Row): OrganiserRecord {
   return {
@@ -79,15 +142,22 @@ export function toOwnOrganiserView(record: OrganiserRecord): OrganiserRecord {
 }
 
 /**
- * An organiser's public profile (`where o.id = $1 and o.status = 'approved'`).
- * Only the columns the public may see: no contact email, owner, Stripe,
- * payout or review columns are even read.
+ * An organiser's public profile. Only the columns the public may see: no
+ * contact email, owner, Stripe, payout or review columns are even read. Not
+ * exported: the only way to use it is findPublicOrganiserRow, which always
+ * adds the approved-only filter.
  */
-export const PUBLIC_ORGANISER_SELECT = `
+const PUBLIC_ORGANISER_SELECT = `
   select o.id, o.display_name, o.description, o.categories::text[] as categories, o.website_url,
          o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle,
          to_char(o.created_at at time zone 'Australia/Melbourne', 'YYYY-MM') as member_since
   from public.organisers o`;
+
+/** The public columns of an approved organiser (for toPublicOrganiserProfile); undefined for anything else. */
+export async function findPublicOrganiserRow(db: Db, organiserId: string): Promise<Row | undefined> {
+  const [row] = await db.query(`${PUBLIC_ORGANISER_SELECT} where o.id = $1 and o.status = 'approved'`, [organiserId]);
+  return row;
+}
 
 export function toPublicOrganiserProfile(
   row: Row,

@@ -1,6 +1,7 @@
 import { requireCaller } from "../auth";
 import { PG_UNIQUE_VIOLATION, pgErrorCode, type Db } from "../db";
 import { created, HttpError, ok, readJson } from "../http";
+import { parseMessageText } from "../message-input";
 import { parseSocialHandles, SOCIAL_RULES } from "../organiser-input";
 import { ORGANISER_SELECT, toOrganiser, toOwnOrganiserView } from "../records";
 import type { Handler } from "../route";
@@ -12,13 +13,31 @@ import { findOrganiserByOwner, requireApprovedOrganiser } from "./organiser-guar
 /** A column assignment for an organisers update. Column names only ever come from this file and SOCIAL_RULES. */
 type Assignment = [column: string, value: unknown];
 
-function parseApplication(body: Record<string, unknown>) {
+/** Mirrors the organisers.description check constraint (code points, like char_length). */
+const MAX_DESCRIPTION_LENGTH = 2000;
+
+/**
+ * The organiser's bio: public once they're approved, so it gets the same
+ * cleaning as messages (parseMessageText): no control, invisible or
+ * text-direction characters (NUL included: a 400, not a database error),
+ * line breaks normalised, no stacked marks. Links are fine in a bio.
+ */
+function parseDescription(value: unknown, errors: Record<string, string>): string {
+  return parseMessageText(value, "description", errors, {
+    allowLinks: true,
+    label: "Descriptions",
+    maxLength: MAX_DESCRIPTION_LENGTH,
+  });
+}
+
+/** `existing`: the rejected application being resubmitted, if any (its stored website is kept as it is). */
+function parseApplication(body: Record<string, unknown>, existing?: OrganiserRecord) {
   const errors: Record<string, string> = {};
   const displayName = requireString(body.displayName, "displayName", errors, 120);
   const contactEmail = requireEmail(body.contactEmail, "contactEmail", errors);
-  const description = requireString(body.description, "description", errors, 2000);
+  const description = parseDescription(body.description, errors);
   const categories = requireCategories(body.categories, "categories", errors);
-  const websiteUrl = optionalUrl(body.websiteUrl, "websiteUrl", errors);
+  const websiteUrl = optionalUrl(body.websiteUrl, "websiteUrl", errors, { current: existing?.websiteUrl });
   const handles = parseSocialHandles(body, errors);
   if (Object.keys(errors).length > 0) fail(errors);
   return { displayName, contactEmail, description, categories, websiteUrl: websiteUrl ?? null, handles };
@@ -57,10 +76,13 @@ function parseProfileEdit(body: Record<string, unknown>, current: OrganiserRecor
   }
 
   if (body.description !== undefined) {
-    assignments.push(["description", requireString(body.description, "description", errors, 2000)]);
+    assignments.push(["description", parseDescription(body.description, errors)]);
   }
   if (body.websiteUrl !== undefined) {
-    assignments.push(["website_url", optionalUrl(body.websiteUrl, "websiteUrl", errors) ?? null]);
+    assignments.push([
+      "website_url",
+      optionalUrl(body.websiteUrl, "websiteUrl", errors, { current: current.websiteUrl }) ?? null,
+    ]);
   }
   assignments.push(...handleAssignments(parseSocialHandles(body, errors)));
 
@@ -151,7 +173,7 @@ export const resubmitOrganiser: Handler = async (req, _params, { db, verifyAcces
     );
   }
 
-  const input = parseApplication(await readJson(req));
+  const input = parseApplication(await readJson(req), existing);
   const handles = setClause(handleAssignments(input.handles), 7);
   const rows = await db.query<{ id: string }>(
     `update public.organisers
@@ -177,20 +199,23 @@ export const resubmitOrganiser: Handler = async (req, _params, { db, verifyAcces
 };
 
 /**
- * Only the fields sent are written, each in one conditional update, so two
- * edits of different fields at once can't undo each other.
+ * private.edit_organiser_profile, in one step: locks the row, checks it's
+ * still approved, writes only the fields sent whose value really changes (so
+ * two edits of different fields at once can't undo each other), and appends
+ * the old and new values to private.organiser_profile_edits, which admins
+ * see on the organiser queue. A no-op edit writes nothing.
  */
-async function editApprovedProfile(db: Db,userId: string, existing: OrganiserRecord, req: Request) {
+async function editApprovedProfile(db: Db, userId: string, existing: OrganiserRecord, req: Request) {
   const assignments = parseProfileEdit(await readJson(req), existing);
   if (assignments.length > 0) {
-    const set = setClause(assignments, 2);
-    const rows = await db.query<{ id: string }>(
-      `update public.organisers set ${set.items.join(", ")}
-       where owner_user_id = $1 and status = 'approved'
-       returning id`,
-      [userId, ...set.params],
+    const [row] = await db.query<{ result: "updated" | "unchanged" | "not_approved" | "not_found" }>(
+      `select private.edit_organiser_profile($1, $2::text::jsonb) as result`,
+      [userId, JSON.stringify(Object.fromEntries(assignments))],
     );
-    if (rows.length === 0) throw new HttpError(409, "Your organiser status changed — refresh and try again.");
+    if (row.result === "not_found") throw new HttpError(404, "No organiser application found.");
+    if (row.result === "not_approved") {
+      throw new HttpError(409, "Your organiser status changed — refresh and try again.");
+    }
   }
   const record = await findOrganiserByOwner(db, userId);
   return ok(toOwnOrganiserView(record!));

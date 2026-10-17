@@ -179,6 +179,58 @@ where blocker_id = (select id from auth.users where email = 'blocker@example.com
 Messages are private between the two members. Only read them in response to
 a report, through the copies in the report.
 
+### Organiser takedown and profile edit log
+
+Approved organisers can change their bio, website and social handles without
+a new review. Every change is logged with its old and new values in
+`private.organiser_profile_edits`, which the admin organiser queue shows
+(newest 20 per organiser). If an organiser's profile or events turn out to be
+abusive, take them down from the queue (Suspend), through the admin API
+(`POST /api/admin/organisers/{id}/suspend` with `{"reason": "…"}`), or in the
+SQL editor with the same function the API uses:
+
+```sql
+-- Find the organiser.
+select id, display_name, status, website_url from public.organisers where display_name ilike '%name%';
+
+-- Take them down (replace both ids; the reason, 1–500 characters, is shown to the organiser).
+select * from private.suspend_organiser('<organiser id>', '<your auth user id>', 'short reason');
+```
+
+It returns `suspended` with how many events it unpublished
+(`events_unpublished`) and how many waiting submissions it rejected
+(`submissions_rejected`), or `not_approved` / `not_found` and changes nothing.
+In one transaction it sets the organiser `rejected`, unpublishes their
+published events (back to draft), rejects events waiting for review, and logs
+everything (the event moderation log and the organiser's log). Nothing is
+deleted, and paid tickets stay valid: refunding them is a separate decision,
+made in the Stripe dashboard. Don't take an organiser down by updating
+`organisers.status` by hand: that leaves their events published and bookable.
+
+To reinstate them, they reapply from their dashboard (their application goes
+back to pending) and an admin approves it. Their unpublished events stay drafts
+until they resubmit them and an admin approves each one.
+
+Recent profile changes across all organisers, newest first:
+
+```sql
+select o.display_name, e.kind, e.edited_at, e.changed_fields, e.reason
+from private.organiser_profile_edits e join public.organisers o on o.id = e.organiser_id
+order by e.id desc
+limit 50;
+```
+
+One organiser's full history:
+
+```sql
+select e.kind, e.edited_at, e.changed_fields, e.reason, u.email as actor_email
+from private.organiser_profile_edits e left join auth.users u on u.id = e.actor_id
+where e.organiser_id = '<organiser id>'
+order by e.id;
+```
+
+The log is append-only: the database refuses updates to it.
+
 ### Who's Going and messages retention (daily job)
 
 Opt-ins are deleted 30 days after their event ends, conversations (with
@@ -262,6 +314,24 @@ single address, but they're worth a look):
 ```sql
 select id, status, created_at from public.orders where buyer_email ~ '[,;<>()":\[\]\\[:space:]]';
 select id, status, created_at from public.organisers where contact_email ~ '[,;<>()":\[\]\\[:space:]]';
+```
+
+**Organiser websites (pre-deploy check).** Before deploying the organiser
+profile release, and again after applying
+`20261016000000_organiser_public_profile.sql` (whose check constraint would
+fail on these rows), this should return no rows:
+
+```sql
+select id from public.organisers where website_url !~* '^https?://' or char_length(website_url) > 2048;
+```
+
+The API now only takes new `https://` addresses without a username or
+password. Older `http://` ones keep working until the organiser changes them.
+To review them (optional):
+
+```sql
+select id, display_name, website_url from public.organisers
+where website_url ~* '^http://' or website_url ~ '^[A-Za-z]+://[^/?#]*@';
 ```
 
 ## 2. Stripe (Connect)

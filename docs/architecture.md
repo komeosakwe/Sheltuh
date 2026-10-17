@@ -47,7 +47,8 @@ Stripe ──webhook──▶ /api/stripe/webhook
 
 | Table | Key | Notes |
 |---|---|---|
-| `organisers` | `id` | `owner_user_id` is unique, one application per account. It's null for platform-managed organisers (events Sheltüh lists on someone's behalf, and seed data). `status`: pending → approved / rejected. Also holds the Stripe Connect account id and `payouts_enabled`. Optional social handles (`instagram_handle`, `tiktok_handle`, `facebook_page`, `x_handle`), stored without `@` and pattern-checked by the database; `website_url` must be http(s), at most 2048 characters (check constraint). |
+| `organisers` | `id` | `owner_user_id` is unique, one application per account. It's null for platform-managed organisers (events Sheltüh lists on someone's behalf, and seed data). `status`: pending → approved / rejected. Also holds the Stripe Connect account id and `payouts_enabled`. Optional social handles (`instagram_handle`, `tiktok_handle`, `facebook_page`, `x_handle`), stored without `@` and pattern-checked by the database; `website_url` must be http(s), at most 2048 characters (check constraint; the API only takes new `https://` addresses, see "Organiser profiles"). An admin takedown sets `rejected` (see "Organiser profiles"). |
+| `private.organiser_profile_edits` | `id` (identity) | Append-only log per organiser: each profile edit made without review (`profile_edit`: old and new value of each changed field, by the owner) and each admin takedown (`suspended`, with the admin and reason). A trigger refuses updates (except the `actor_id` foreign key's own set-null when that account is deleted). Admins see the newest 20 per organiser. Kept while the organiser exists; deleted with it. |
 | `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected; unpublish returns it to draft. `is_free` is kept up to date for the feed's free/paid filter. `whos_going_enabled` (default true) is an admin-only kill switch for that event's Who's Going, set in SQL (`docs/supabase-setup.md`). |
 | `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. `quantity_sold` only ever changes in `fulfil_order`. |
 | `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Public via `GET /api/events/[id]/image` once published (cached for a day, versioned URL); before that only the owner/admins with a token. Move to Storage/CDN if volume grows. |
@@ -102,6 +103,8 @@ times, which are converted to instants honouring daylight saving
 | `confirm_free_order` | Confirms by token hash: locks the order, then (event, person), then the event (share) to check every ticket type is still free, then `fulfil_order`'s locks. Idempotent within the link's 24 hours. Returns `confirmed`, `already_confirmed`, `expired_confirmed`, `not_found`, `expired`, `unavailable`, `person_event_limit`, `no_longer_free` or `sold_out` (the last three mark the order `failed`). |
 | `purge_operational_data` | Retention for free-ticket and outbox data (see "Free tickets" and "Payment flow"); sent outbox jobs after 90 days, failed ones after a year. Idempotent; Supabase Cron daily. |
 | `claim_email_jobs`, `finish_email_job`, `resend_email_job`, `admin_resend_email_job` | The ticket-email outbox: lease due jobs with `skip locked` (an expired lease is taken again; one that expired on the 6th attempt fails), record an outcome only for the current lease holder, and an admin resend (not while leased, not twice in 5 minutes). `admin_resend_email_job` takes a hit on the admin's hourly allowance only when the resend is queued, in the same transaction (over it: `rate_limited`, nothing changed). |
+| `edit_organiser_profile` | An approved organiser's profile edit (`PATCH /organisers/me`): locks the organiser row, checks it's still approved (`not_approved` → 409), writes only the fields sent whose value really changes, and appends their old and new values to `organiser_profile_edits`, in one step. A no-op edit writes nothing. Returns `updated`, `unchanged`, `not_approved` or `not_found`. |
+| `suspend_organiser` | An admin takedown, only from `approved` (a second admin gets 409): locks the organiser row, then its published and pending-review events in id order; sets the organiser `rejected` with the reason and reviewer; moves each published event to draft (`unpublished`) and each pending one to `rejected`, through `transition_event`, so the event moderation log records each with the admin and reason; logs the takedown. Deletes nothing. Returns the result and how many events moved. |
 | `fulfil_order` | Queues the ticket email in the same step (see "Payment flow"). Takes inventory for every line item, issues the tickets and marks the order paid. If any ticket type has sold out, or the event is no longer published, it takes nothing and marks the order `oversold_refund_required`. Rows are locked in a fixed order, so concurrent orders can't deadlock. It's idempotent, so Stripe's webhook redeliveries are harmless. |
 
 ## Payment flow
@@ -532,13 +535,54 @@ the organiser, set per ticket type. Either way the platform keeps it.
   them and strips one leading `@` (anything else invalid is a 400); the same
   patterns are check constraints. The public profile builds the `https://`
   URLs itself, so a link can only point at the network it names. The website
-  is the one free URL: http(s) only, as typed (API and check constraint).
+  is the one free URL, stored as typed. A new value must start with
+  `https://` and can't carry a username or password (`https://bank.example@evil.example`),
+  whitespace, control or invisible characters (NUL included) or backslashes
+  (400). An `http://` address stored before this rule is kept when it's sent
+  back unchanged, so a client sending the whole record doesn't fail; changing
+  it needs `https://`. The database still allows http(s) (check constraint).
+- **Bio** (`description`, at most 2000 characters, counted like the
+  database): cleaned like a message (`parseMessageText`): control, invisible
+  and text-direction characters are a 400 (never a database error), line
+  endings, trailing spaces and runs of blank lines are normalised, and stacked
+  combining marks are refused. Links are allowed.
 - **Editing**: `PATCH /organisers/me` by an approved organiser changes only
   the fields sent (`description`, `websiteUrl`, the handles; null or blank
   clears one) with no new review and no status change. `displayName`,
   `contactEmail` and `categories` were reviewed, so they may be sent back
   unchanged but not changed (400). A rejected applicant's PATCH is still the
   full resubmission; handles it doesn't send are kept.
+- **Compensating controls for unreviewed edits.** Every edit that changes
+  something is appended, with old and new values, to
+  `private.organiser_profile_edits` in the same transaction
+  (`edit_organiser_profile`), and the admin organiser queue shows each
+  organiser's newest 20 entries with their social handles. An admin who finds
+  something wrong takes the organiser down:
+  `POST /admin/organisers/{id}/suspend {reason}` (`suspend_organiser`).
+- **Takedown.** The organiser becomes `rejected` with the reason, which they
+  see as a reviewer note, like a rejection. Their public profile is a 404, and
+  they lose every organiser route (events, payouts, analytics). Their
+  **published events are unpublished** (back to draft), so they leave the
+  feed, their pages and Who's Going are 404, and checkout refuses them. Events
+  **waiting for review are rejected** with the reason, and approving an event
+  now also requires its organiser to be approved (409 otherwise). The
+  organiser row is share-locked before the event, so an approval racing a
+  takedown can't publish an event for a suspended organiser. Drafts, earlier
+  rejected events, orders and tickets are untouched: **nothing is deleted**,
+  and paid tickets stay valid. Refunding them is a separate, manual decision
+  in Stripe. A payment already under way for an unpublished event is refused
+  and refunded by `fulfil_order`, as for any unpublished event, and a pending
+  free-ticket link fails at confirmation. Events stay where they are when the
+  organiser is reinstated (they reapply, and an admin approves them). Each
+  event goes through review again. The takedown stays on the organiser's log,
+  so the admin reviewing that reapplication sees it.
+- **Privacy.** Once approved, the bio, website and social handles are public
+  (the profile page and the event pages that link to it), and the edit log
+  keeps earlier versions for admins. The Privacy Policy and Organiser
+  Agreement must say so before launch.
+- **Recommended future work, not built:** email the organiser when their
+  profile changes (so a hijacked account's edits are noticed), and an alert
+  to admins on edits to recently approved organisers.
 - **Public profile** (`GET /organisers/{id}/profile`): only approved
   organisers. Only `organiserId`, `displayName`, `description`,
   `categories`, `websiteUrl`, `socialLinks`, `memberSince` (Melbourne
@@ -594,8 +638,9 @@ application is approved.
 | `GET /organisers/me/events/{id}/tracking-links` · `POST …` `{label}` · `DELETE …/tracking-links/{linkId}` | organiser (own events). POST 201; 400 label; 409 label taken or 20 links. DELETE 204, idempotent |
 | `GET /organisers/me/events/{id}/analytics?from&to&compare` · `…/analytics.csv` | organiser (own events). 400 bad range |
 | `GET /organisers/me/analytics/overview?from&to&compare` · `…/overview.csv` | organiser: all own events. 400 bad range |
-| `GET /admin/organisers?status` · `POST /admin/organisers/{id}/approve` · `…/reject` | admin |
-| `GET /admin/events?status` · `POST /admin/events/{id}/approve` · `…/reject` · `…/unpublish` | admin |
+| `GET /admin/organisers?status` · `POST /admin/organisers/{id}/approve` · `…/reject` | admin. Items (and the decision responses) are `AdminOrganiserRecord`: the full record plus `recentEdits` (newest 20 log entries). Approve/reject: 409 unless pending |
+| `POST /admin/organisers/{id}/suspend` `{reason}` | admin. Takedown of an approved organiser (see "Organiser profiles"). 200 `{organiser, eventsUnpublished, submissionsRejected}`; 400 reason missing, over 500 characters or with control/invisible characters; 404 unknown; 409 not approved |
+| `GET /admin/events?status` · `POST /admin/events/{id}/approve` · `…/reject` · `…/unpublish` | admin. Approve: 409 if the event's organiser isn't approved |
 
 Lists are paginated with an opaque `cursor` (`nextCursor` in the
 response). It's currently a row offset, fine at this scale.

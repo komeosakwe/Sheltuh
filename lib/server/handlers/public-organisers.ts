@@ -1,6 +1,6 @@
 import { HttpError, ok } from "../http";
 import { isUuid } from "../pagination";
-import { EVENT_SELECT, PUBLIC_ORGANISER_SELECT, toEvent, toPublicEvent, toPublicOrganiserProfile } from "../records";
+import { EVENT_SELECT, findPublicOrganiserRow, toEvent, toPublicEvent, toPublicOrganiserProfile } from "../records";
 import type { Handler } from "../route";
 
 /** Most events a profile lists: upcoming ones first, then the most recent past ones. */
@@ -12,14 +12,14 @@ const NOT_FOUND = "Organiser not found.";
  * GET /api/organisers/[organiserId]/profile — public, unauthenticated. Only an
  * approved organiser has a profile; anything else (pending, rejected, unknown,
  * or not a uuid) is the same 404. Only public columns are read
- * (PUBLIC_ORGANISER_SELECT), events are published ones in the public event
+ * (findPublicOrganiserRow), events are published ones in the public event
  * shape, and nothing depends on who's asking, so it's cacheable like the
  * public event routes.
  */
 export const getPublicOrganiserProfile: Handler<{ organiserId: string }> = async (_req, { organiserId }, { db }) => {
   if (!isUuid(organiserId)) throw new HttpError(404, NOT_FOUND);
 
-  const [row] = await db.query(`${PUBLIC_ORGANISER_SELECT} where o.id = $1 and o.status = 'approved'`, [organiserId]);
+  const row = await findPublicOrganiserRow(db, organiserId);
   if (!row) throw new HttpError(404, NOT_FOUND);
 
   // One instant for both queries, so an event ending between them can't be

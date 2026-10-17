@@ -7,6 +7,11 @@ import type { EventCategory } from "@/lib/types";
 export type { EventCategory, FeePolicy } from "@/lib/types";
 export type {
   AdminEmailJob,
+  AdminOrganiserRecord,
+  OrganiserEditChange,
+  OrganiserEditEntry,
+  OrganiserEditField,
+  SuspendOrganiserResult,
   AdminReport,
   EmailJobStatus,
   BlockRecord,

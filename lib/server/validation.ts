@@ -59,12 +59,29 @@ export function requireCategory(value: unknown, field: string, errors: Record<st
 /** Longest URL accepted (matches the organisers.website_url check constraint). */
 export const MAX_URL_LENGTH = 2048;
 
+// Control, invisible-format, separator and whitespace characters (NUL
+// included, which Postgres text can't store), and backslashes, which URL
+// parsers read as "/" (so "https://a.example\@b.example" goes to
+// a.example while reading like b.example). None belong in a URL as typed.
+const URL_DISALLOWED = /[\p{Cc}\p{Cf}\p{Z}\s\\]/u;
+
 /**
- * An optional http(s) URL, trimmed. It must start with `http://` or `https://`
- * as typed (the database checks the same), so the stored text is always safe
- * to use as a link's href, whatever the URL parser would have normalised.
+ * An optional URL, trimmed. A new value must start with `https://` as typed
+ * (the database checks http(s)), so the stored text is always safe to use as
+ * a link's href, whatever the URL parser would have normalised. It can't
+ * carry a username or password ("https://bank.example@evil.example" reads as
+ * one site and goes to another), or any of URL_DISALLOWED.
+ *
+ * `current` is the value already stored: sent back exactly as it is, it's
+ * kept even if it predates these rules (an `http://` site), so a client that
+ * sends the whole record back doesn't fail on a field nobody changed.
  */
-export function optionalUrl(value: unknown, field: string, errors: Record<string, string>): string | undefined {
+export function optionalUrl(
+  value: unknown,
+  field: string,
+  errors: Record<string, string>,
+  options: { current?: string } = {},
+): string | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== "string") {
     errors[field] = "Enter a valid URL.";
@@ -72,19 +89,31 @@ export function optionalUrl(value: unknown, field: string, errors: Record<string
   }
   const trimmed = value.trim();
   if (!trimmed) return undefined;
+  if (options.current !== undefined && trimmed === options.current) return trimmed;
   if (trimmed.length > MAX_URL_LENGTH) {
     errors[field] = `Must be ${MAX_URL_LENGTH} characters or fewer.`;
     return undefined;
   }
+  if (/^http:\/\//i.test(trimmed)) {
+    errors[field] = "Use your site's secure address, starting with https://";
+    return undefined;
+  }
+  let url: URL;
   try {
-    if (!/^https?:\/\//i.test(trimmed)) throw new Error("bad protocol");
-    const url = new URL(trimmed);
-    if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("bad protocol");
-    return trimmed;
+    if (!/^https:\/\//i.test(trimmed) || URL_DISALLOWED.test(trimmed)) throw new Error("not a plain https URL");
+    url = new URL(trimmed);
+    if (url.protocol !== "https:") throw new Error("not https");
   } catch {
     errors[field] = "Enter a valid URL, including https://";
     return undefined;
   }
+  // The authority as typed (up to the first / ? or #), as well as the parser's view.
+  const authority = trimmed.slice("https://".length).split(/[/?#]/, 1)[0];
+  if (authority.includes("@") || url.username || url.password) {
+    errors[field] = "Enter the address without a username or password.";
+    return undefined;
+  }
+  return trimmed;
 }
 
 /**

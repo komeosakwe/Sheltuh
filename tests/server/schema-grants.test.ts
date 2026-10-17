@@ -25,6 +25,31 @@ describe("Data API lock-out", () => {
     expect(grants).toEqual([]);
   });
 
+  it("no column of any table in `public` or `private` is granted to anon, authenticated or PUBLIC", async () => {
+    // A column-level grant (`grant select (display_name) on public.organisers
+    // to anon`) doesn't show in role_table_grants, but exposes the column
+    // through the Data API all the same.
+    const viaInformationSchema = await db.query(
+      `select table_schema, table_name, column_name, grantee, privilege_type from information_schema.role_column_grants
+        where table_schema in ('public', 'private') and grantee in ('anon', 'authenticated', 'PUBLIC')
+        order by 1, 2, 3, 4, 5`,
+    );
+    expect(viaInformationSchema).toEqual([]);
+    // The same from the catalogue, which doesn't depend on which roles the
+    // test connection is a member of.
+    const viaCatalogue = await db.query(
+      `select n.nspname as schema, c.relname as table_name, a.attname as column_name, x.privilege_type
+         from pg_attribute a
+         join pg_class c on c.oid = a.attrelid
+         join pg_namespace n on n.oid = c.relnamespace,
+              aclexplode(a.attacl) x
+        where n.nspname in ('public', 'private') and a.attacl is not null
+          and (x.grantee = 0 or x.grantee in ('anon'::regrole, 'authenticated'::regrole))
+        order by 1, 2, 3, 4`,
+    );
+    expect(viaCatalogue).toEqual([]);
+  });
+
   it("row-level security is on for every table in `public`", async () => {
     const open = await db.query(
       `select c.relname as table_name from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -87,6 +112,7 @@ describe("Data API lock-out", () => {
       { table_name: "event_rate_limits", rls: true },
       { table_name: "event_view_cap_days", rls: true },
       { table_name: "free_order_refusals", rls: true },
+      { table_name: "organiser_profile_edits", rls: true },
       { table_name: "platform_rate_limits", rls: true },
       { table_name: "rate_limits", rls: true },
       { table_name: "social_suspensions", rls: true },
