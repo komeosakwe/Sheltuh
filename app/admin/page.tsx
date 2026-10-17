@@ -14,8 +14,8 @@ export default function AdminHomePage() {
             href="/admin/organisers"
             className="flex-1 bg-surface p-4 hover:border-accent"
           >
-            <p className="font-heading text-2xl text-foreground">Organiser applications</p>
-            <p className="mt-1 text-sm text-muted">Review, approve or reject applications.</p>
+            <p className="font-heading text-2xl text-foreground">Organisers</p>
+            <p className="mt-1 text-sm text-muted">Review applications, and suspend approved organisers.</p>
           </Link>
           <Link
             href="/admin/events"

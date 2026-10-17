@@ -3,7 +3,7 @@ import Link from "next/link";
 import AdminGate from "@/components/admin/AdminGate";
 import OrganiserQueue from "@/components/admin/OrganiserQueue";
 
-export const metadata: Metadata = { title: "Organiser applications — Sheltüh admin" };
+export const metadata: Metadata = { title: "Organisers — Sheltüh admin" };
 
 export default function AdminOrganisersPage() {
   return (
@@ -11,7 +11,7 @@ export default function AdminOrganisersPage() {
       <Link href="/admin" className="text-sm text-accent underline underline-offset-2">
         &larr; Admin
       </Link>
-      <h1 className="display-lg">Organiser applications</h1>
+      <h1 className="display-lg">Organisers</h1>
       <AdminGate>
         <OrganiserQueue />
       </AdminGate>

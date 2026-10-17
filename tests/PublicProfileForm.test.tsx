@@ -217,6 +217,67 @@ describe("PublicProfileForm", () => {
   });
 });
 
+describe("PublicProfileForm — website rule", () => {
+  const SECURE = "Use your site's secure address, starting with https://";
+
+  it.each([
+    ["http://northside.example/new", SECURE],
+    ["https://bank.example@evil.example", "Enter the address without a username or password."],
+  ])("refuses a new website %s, focusing it, without saving", async (value, message) => {
+    renderForm();
+    const website = screen.getByLabelText("Website (optional)");
+    fireEvent.change(website, { target: { value } });
+    save();
+    await waitFor(() => expect(website).toHaveFocus());
+    expect(website).toHaveAttribute("aria-invalid", "true");
+    expect(website).toHaveAccessibleDescription(message);
+    expect(updateOrganiserProfile).not.toHaveBeenCalled();
+  });
+
+  it("leaves a stored http:// website alone when it isn't changed, saving the rest", async () => {
+    updateOrganiserProfile.mockResolvedValue({ ...RECORD, websiteUrl: "http://old.example", description: "New." });
+    renderForm({ ...RECORD, websiteUrl: "http://old.example" });
+    fireEvent.change(screen.getByLabelText("Bio (required)"), { target: { value: "New." } });
+    save();
+    await waitFor(() => expect(updateOrganiserProfile).toHaveBeenCalledTimes(1));
+    expect(updateOrganiserProfile.mock.calls[0][0]).toEqual({ description: "New." });
+    expect(screen.getByLabelText("Website (optional)")).not.toHaveAttribute("aria-invalid");
+  });
+
+  it("refuses a stored http:// website once it's edited (still http://)", async () => {
+    renderForm({ ...RECORD, websiteUrl: "http://old.example" });
+    const website = screen.getByLabelText("Website (optional)");
+    fireEvent.change(website, { target: { value: "http://old.example/about" } });
+    save();
+    await waitFor(() => expect(website).toHaveFocus());
+    expect(website).toHaveAccessibleDescription(SECURE);
+    expect(updateOrganiserProfile).not.toHaveBeenCalled();
+  });
+
+  it("accepts the https:// version of a stored http:// website", async () => {
+    updateOrganiserProfile.mockResolvedValue({ ...RECORD, websiteUrl: "https://old.example" });
+    renderForm({ ...RECORD, websiteUrl: "http://old.example" });
+    fireEvent.change(screen.getByLabelText("Website (optional)"), { target: { value: "https://old.example" } });
+    save();
+    await waitFor(() => expect(updateOrganiserProfile).toHaveBeenCalledTimes(1));
+    expect(updateOrganiserProfile.mock.calls[0][0]).toEqual({ websiteUrl: "https://old.example" });
+  });
+
+  it("shows the server's website error on the field", async () => {
+    updateOrganiserProfile.mockRejectedValue(
+      new ApiError(400, "Please fix the highlighted fields.", { websiteUrl: SECURE }),
+    );
+    renderForm();
+    const website = screen.getByLabelText("Website (optional)");
+    fireEvent.change(website, { target: { value: "https://northside.example/new" } });
+    save();
+    await waitFor(() => expect(website).toHaveFocus());
+    expect(website).toHaveAttribute("aria-invalid", "true");
+    expect(website).toHaveAccessibleDescription(SECURE);
+    expect(website).toHaveValue("https://northside.example/new");
+  });
+});
+
 describe("PublicProfilePanel", () => {
   function renderPanel() {
     render(

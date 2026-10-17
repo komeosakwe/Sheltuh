@@ -1,206 +1,254 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { adminApproveOrganiser, adminListOrganisers, adminRejectOrganiser } from "@/lib/api/admin";
-import type { OrganiserRecord, OrganiserStatus } from "@/lib/api/types";
+import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/Button";
+import { EmptyState, Notice } from "@/components/ui/Section";
+import { adminListOrganisers, adminSuspendOrganiser } from "@/lib/api/admin";
+import { ApiError } from "@/lib/api/client";
+import type { AdminOrganiserRecord, OrganiserStatus, SuspendOrganiserResult } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
+import OrganiserItem, { actionErrorText, organiserHeadingId, suspendButtonId } from "./OrganiserItem";
+import SuspendOrganiserDialog, { type SuspendOutcome } from "./SuspendOrganiserDialog";
 
-const STATUSES: OrganiserStatus[] = ["pending", "approved", "rejected"];
+const STATUSES: { value: OrganiserStatus; label: string; heading: string; empty: string; intro?: string }[] = [
+  { value: "pending", label: "Pending", heading: "Pending applications", empty: "Nothing to review" },
+  {
+    value: "approved",
+    label: "Approved",
+    heading: "Approved organisers",
+    empty: "No approved organisers",
+    intro: "Live on Sheltüh now. Suspend one to take their profile and events down.",
+  },
+  {
+    value: "rejected",
+    label: "Rejected",
+    heading: "Rejected and suspended",
+    empty: "None yet",
+    intro: "Rejected applications, and organisers who were suspended.",
+  },
+];
 
+type LoadState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "ready"; items: AdminOrganiserRecord[]; nextCursor?: string };
+
+function count(n: number, one: string, many: string) {
+  return `${n.toLocaleString("en-AU")} ${n === 1 ? one : many}`;
+}
+
+/** What's announced after a takedown: "Suspended X. 3 events unpublished." (plus any rejected submissions). */
+export function suspendedMessage(name: string, result: SuspendOrganiserResult): string {
+  const rejected =
+    result.submissionsRejected > 0
+      ? ` ${count(result.submissionsRejected, "submission", "submissions")} rejected.`
+      : "";
+  return `Suspended ${name}. ${count(result.eventsUnpublished, "event", "events")} unpublished.${rejected}`;
+}
+
+/**
+ * /admin/organisers: organisers by status. Pending applications can be
+ * approved or rejected; approved organisers suspended (a dialog asks for the
+ * reason first); rejected and suspended ones are listed for reference. Each
+ * shows its website and social handles and its recent profile changes.
+ */
 export default function OrganiserQueue() {
   const auth = useAuth();
   const getToken = auth.getAccessToken;
-
   const [status, setStatus] = useState<OrganiserStatus>("pending");
-  const [items, setItems] = useState<OrganiserRecord[]>([]);
-  const [cursor, setCursor] = useState<string | undefined>();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [rejectingId, setRejectingId] = useState<string | null>(null);
-  const [reason, setReason] = useState("");
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
-
-  const load = useCallback(
-    async (nextStatus: OrganiserStatus, append: boolean) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const page = await adminListOrganisers(nextStatus, getToken, append ? cursor : undefined);
-        setItems((prev) => (append ? [...prev, ...page.items] : page.items));
-        setCursor(page.nextCursor);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Couldn't load applications.");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [getToken, cursor],
-  );
+  const [attempt, setAttempt] = useState(0);
+  const key = `${status}#${attempt}`;
+  const [result, setResult] = useState<{ key: string; state: LoadState } | null>(null);
+  const state: LoadState = result?.key === key ? result.state : { status: "loading" };
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState<string | null>(null);
+  const [announcement, setAnnouncement] = useState("");
+  const [suspending, setSuspending] = useState<AdminOrganiserRecord | null>(null);
+  /** Set when a suspend found nothing to suspend (409/404): closing the dialog drops them from the list. */
+  const suspendGone = useRef<string | null>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  /** An element id, or the list heading. */
+  const pendingFocus = useRef<string | "heading" | null>(null);
 
   useEffect(() => {
-    // Deferred so the fetch (and its setState calls) run after this effect
-    // has committed, not synchronously as part of it. Reloading on status
-    // change only — `load` itself changes identity as `cursor` updates,
-    // which must not re-trigger this effect.
     let cancelled = false;
-    queueMicrotask(() => {
-      if (!cancelled) load(status, false);
-    });
+    adminListOrganisers(status, getToken).then(
+      (page) => {
+        if (!cancelled) setResult({ key, state: { status: "ready", items: page.items, nextCursor: page.nextCursor } });
+      },
+      (err: unknown) => {
+        if (!cancelled) {
+          setResult({ key, state: { status: "error", message: actionErrorText(err, "Couldn’t load organisers.") } });
+        }
+      },
+    );
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status]);
+  }, [status, getToken, key]);
 
-  async function handleApprove(item: OrganiserRecord) {
-    setActionError(null);
-    setBusyId(item.organiserId);
+  useEffect(() => {
+    const target = pendingFocus.current;
+    if (!target) return;
+    const element = target === "heading" ? headingRef.current : document.getElementById(target);
+    if (!element) return; // Not rendered yet: an earlier render's effects can run first.
+    pendingFocus.current = null;
+    element.focus();
+  });
+
+  function setItems(change: (items: AdminOrganiserRecord[]) => AdminOrganiserRecord[], nextCursor?: string | null) {
+    setResult((current) =>
+      current && current.key === key && current.state.status === "ready"
+        ? {
+            key,
+            state: {
+              status: "ready",
+              items: change(current.state.items),
+              nextCursor: nextCursor === undefined ? current.state.nextCursor : (nextCursor ?? undefined),
+            },
+          }
+        : current,
+    );
+  }
+
+  /** An organiser left this list: announce why and focus the next one (or the heading). */
+  function removed(item: AdminOrganiserRecord, message: string) {
+    const items = state.status === "ready" ? state.items : [];
+    const index = items.findIndex((i) => i.organiserId === item.organiserId);
+    const next = index === -1 ? undefined : (items[index + 1] ?? items[index - 1]);
+    setItems((current) => current.filter((i) => i.organiserId !== item.organiserId));
+    setAnnouncement(message);
+    pendingFocus.current = next ? organiserHeadingId(next.organiserId) : "heading";
+  }
+
+  async function suspend(item: AdminOrganiserRecord, reason: string): Promise<SuspendOutcome> {
     try {
-      await adminApproveOrganiser(item.organiserId, getToken);
-      setItems((prev) => prev.filter((i) => i.organiserId !== item.organiserId));
+      const outcome = await adminSuspendOrganiser(item.organiserId, reason, getToken);
+      removed(item, suspendedMessage(item.displayName, outcome));
+      setSuspending(null);
+      return { ok: true };
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Couldn't approve this application.");
-    } finally {
-      setBusyId(null);
+      if (err instanceof ApiError && err.fieldErrors?.reason) return { ok: false, reasonError: err.fieldErrors.reason };
+      if (err instanceof ApiError && (err.status === 409 || err.status === 404)) {
+        suspendGone.current = item.organiserId;
+        return { ok: false, message: err.message, gone: true };
+      }
+      return { ok: false, message: actionErrorText(err, "Couldn’t suspend them. Try again.") };
     }
   }
 
-  async function handleReject(item: OrganiserRecord) {
-    if (!reason.trim()) return;
-    setActionError(null);
-    setBusyId(item.organiserId);
-    try {
-      await adminRejectOrganiser(item.organiserId, reason.trim(), getToken);
-      setItems((prev) => prev.filter((i) => i.organiserId !== item.organiserId));
-      setRejectingId(null);
-      setReason("");
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Couldn't reject this application.");
-    } finally {
-      setBusyId(null);
+  /** The dialog closed (Cancel, Escape or Close); after a success `suspending` is already null. */
+  function suspendClosed() {
+    const item = suspending;
+    if (!item) return;
+    setSuspending(null);
+    if (suspendGone.current === item.organiserId) {
+      suspendGone.current = null;
+      removed(item, `${item.displayName} is no longer approved, so they’ve been taken off this list.`);
+    } else {
+      pendingFocus.current = suspendButtonId(item.organiserId);
     }
   }
+
+  async function loadMore() {
+    if (state.status !== "ready" || !state.nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    setMoreError(null);
+    try {
+      const page = await adminListOrganisers(status, getToken, state.nextCursor);
+      const known = new Set(state.items.map((i) => i.organiserId));
+      const fresh = page.items.filter((i) => !known.has(i.organiserId));
+      setItems((current) => [...current, ...fresh], page.nextCursor ?? null);
+      if (fresh[0]) pendingFocus.current = organiserHeadingId(fresh[0].organiserId);
+    } catch (err) {
+      setMoreError(actionErrorText(err, "Couldn’t load more organisers."));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  const current = STATUSES.find((s) => s.value === status) ?? STATUSES[0];
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex gap-2">
+    <div className="flex flex-col gap-6">
+      <div role="group" aria-label="Show organisers" className="flex flex-wrap gap-2">
         {STATUSES.map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => setStatus(s)}
-            className={` px-3 py-1.5 text-sm font-medium ${
-              status === s ? "bg-accent text-accent-foreground" : "border border-surface-border text-foreground"
-            }`}
+          <Button
+            key={s.value}
+            variant={status === s.value ? "solid" : "outline"}
+            size="sm"
+            className="min-h-11"
+            aria-pressed={status === s.value}
+            onClick={() => {
+              setStatus(s.value);
+              setAnnouncement("");
+              setMoreError(null);
+            }}
           >
-            {s[0].toUpperCase() + s.slice(1)}
-          </button>
+            {s.label}
+          </Button>
         ))}
       </div>
 
-      {error && (
-        <p role="alert" className="text-sm text-danger">
-          {error}
-        </p>
-      )}
-      {actionError && (
-        <p role="alert" className="text-sm text-danger">
-          {actionError}
-        </p>
-      )}
+      {/* Always rendered so each result is announced; empty, it takes no space. */}
+      <p role="status" className="border-l-2 border-foreground py-1 pl-4 text-sm empty:sr-only">
+        {announcement}
+      </p>
 
-      {loading && items.length === 0 && <p className="text-sm text-muted">Loading…</p>}
-      {!loading && items.length === 0 && <p className="text-sm text-muted">No {status} applications.</p>}
+      <section aria-labelledby="organisers-heading" aria-busy={state.status === "loading" ? true : undefined}>
+        <h2 id="organisers-heading" ref={headingRef} tabIndex={-1} className="display-md !text-2xl outline-offset-2">
+          {current.heading}
+        </h2>
+        {current.intro && <p className="mt-2 text-sm text-muted">{current.intro}</p>}
 
-      <ul className="flex flex-col gap-3">
-        {items.map((item) => (
-          <li key={item.organiserId} className="bg-surface p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="font-medium text-foreground">{item.displayName}</p>
-                <p className="text-sm text-muted">{item.contactEmail}</p>
-                <p className="mt-1 text-sm text-foreground">{item.description}</p>
-                <p className="mt-1 text-xs text-muted">Categories: {item.categories.join(", ")}</p>
-                {item.websiteUrl && (
-                  <a href={item.websiteUrl} className="text-xs text-accent underline underline-offset-2">
-                    {item.websiteUrl}
-                  </a>
-                )}
-                {item.rejectionReason && (
-                  <p className="mt-1 text-xs text-muted">Rejection reason: {item.rejectionReason}</p>
-                )}
-              </div>
-              {status === "pending" && (
-                <div className="flex shrink-0 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleApprove(item)}
-                    disabled={busyId === item.organiserId}
-                    className="btn btn-solid"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRejectingId(item.organiserId);
-                      setReason("");
-                    }}
-                    disabled={busyId === item.organiserId}
-                    className="btn btn-danger"
-                  >
-                    Reject
-                  </button>
-                </div>
-              )}
+        <div className="mt-4">
+          {state.status === "loading" && <p className="text-sm text-muted">Loading…</p>}
+
+          {state.status === "error" && (
+            <div className="flex flex-col items-start gap-3">
+              <Notice tone="danger" role="alert">
+                {state.message}
+              </Notice>
+              <Button variant="outline" size="sm" className="min-h-11" onClick={() => setAttempt((n) => n + 1)}>
+                Try again
+              </Button>
             </div>
+          )}
 
-            {rejectingId === item.organiserId && (
-              <div className="mt-3 flex flex-col gap-2 border-t border-surface-border pt-3">
-                <label htmlFor={`reason-${item.organiserId}`} className="text-sm font-medium text-foreground">
-                  Reason (shown to the applicant)
-                </label>
-                <textarea
-                  id={`reason-${item.organiserId}`}
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  rows={2}
-                  className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+          {state.status === "ready" && state.items.length === 0 && <EmptyState title={current.empty} />}
+
+          {state.status === "ready" && state.items.length > 0 && (
+            <ul className="flex flex-col gap-6">
+              {state.items.map((item) => (
+                <OrganiserItem
+                  key={item.organiserId}
+                  item={item}
+                  getToken={getToken}
+                  onRemoved={removed}
+                  onSuspend={setSuspending}
                 />
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleReject(item)}
-                    disabled={!reason.trim() || busyId === item.organiserId}
-                    className="btn btn-danger"
-                  >
-                    Confirm rejection
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRejectingId(null)}
-                    className="btn btn-outline"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-          </li>
-        ))}
-      </ul>
+              ))}
+            </ul>
+          )}
 
-      {cursor && (
-        <button
-          type="button"
-          onClick={() => load(status, true)}
-          disabled={loading}
-          className="btn btn-outline w-fit"
-        >
-          {loading ? "Loading…" : "Load more"}
-        </button>
-      )}
+          {state.status === "ready" && state.nextCursor && (
+            <div className="mt-6 flex flex-col items-start gap-3">
+              {moreError && <Notice tone="danger">{moreError}</Notice>}
+              <Button variant="outline" busy={loadingMore} onClick={loadMore} className="min-h-11">
+                {loadingMore ? "Loading…" : "Load more"}
+              </Button>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <SuspendOrganiserDialog
+        organiserName={suspending?.displayName ?? null}
+        onClose={suspendClosed}
+        onSubmit={async (reason): Promise<SuspendOutcome> =>
+          suspending ? suspend(suspending, reason) : { ok: false, message: "Nobody to suspend.", gone: true }
+        }
+      />
     </div>
   );
 }

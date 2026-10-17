@@ -10,10 +10,10 @@ import { updateOrganiserProfile, type OrganiserProfileInput } from "@/lib/api/or
 import type { OrganiserRecord } from "@/lib/api/types";
 import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
 import {
-  isHttpUrl,
   MAX_BIO_LENGTH,
   SOCIAL_HANDLE_FIELDS,
   socialHandlesForRequest,
+  websiteUrlError,
   type SocialHandleField,
   type SocialHandleValues,
 } from "@/lib/organiser-profile";
@@ -114,8 +114,9 @@ export default function PublicProfileForm({ organiser, getToken, onSaved }: Prop
     else if (description.length > MAX_BIO_LENGTH) {
       next.description = `Your bio must be ${countFormatter.format(MAX_BIO_LENGTH)} characters or fewer.`;
     }
-    const url = websiteUrl.trim();
-    if (url && !isHttpUrl(url)) next.websiteUrl = "Enter a valid URL, including https://";
+    // The saved website, left as it is, is fine even from before the https rule.
+    const websiteError = websiteUrlError(websiteUrl, saved.websiteUrl);
+    if (websiteError) next.websiteUrl = websiteError;
     return next;
   }
 

@@ -25,6 +25,17 @@ describe("message text", () => {
     expect(validateMessage("   ", { label: "Details", optional: true })).toBeNull();
   });
 
+  it("takes a field's own limit and blank message (the suspend reason: 500, 'Enter a reason.')", () => {
+    const opts = { label: "Reasons", max: 500, empty: "Enter a reason." };
+    expect(validateMessage(" \n ", opts)).toBe("Enter a reason.");
+    expect(validateMessage("x".repeat(500), opts)).toBeNull();
+    expect(validateMessage(` ${"x".repeat(500)} `, opts)).toBeNull();
+    expect(validateMessage("x".repeat(501), opts)).toBe("Keep it to 500 characters or fewer.");
+    expect(validateMessage("😀".repeat(500), opts)).toBeNull();
+    expect(validateMessage(" ".repeat(2001), opts)).toBe("Keep it to 500 characters or fewer.");
+    expect(validateMessage(`a${String.fromCodePoint(0x202e)}`, opts)).toMatch(/^Reasons can't contain/);
+  });
+
   it("refuses invisible format characters like the API, but keeps emoji joiners and flag tag sequences", () => {
     const invisible = "Messages can't contain control, invisible or text-direction characters.";
     for (const cp of [0x200b, 0x200e, 0x200f, 0x00ad, 0xfeff, 0x2060, 0x2028]) {

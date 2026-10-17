@@ -7,6 +7,7 @@ import {
   socialHandleFromUrl,
   socialHandlesForRequest,
   websiteHostname,
+  websiteUrlError,
 } from "@/lib/organiser-profile";
 
 describe("formatMemberSince", () => {
@@ -96,5 +97,55 @@ describe("socialHandlesForRequest", () => {
     expect(
       socialHandlesForRequest({ instagramHandle: " @a ", tiktokHandle: "", facebookPage: "  ", xHandle: "b" }),
     ).toEqual({ instagramHandle: "@a", tiktokHandle: null, facebookPage: null, xHandle: "b" });
+  });
+});
+
+describe("websiteUrlError (the API's website rule, client side)", () => {
+  const SECURE = "Use your site's secure address, starting with https://";
+  const INVALID = "Enter a valid URL, including https://";
+  const CREDENTIALS = "Enter the address without a username or password.";
+
+  it("accepts blank and plain https:// addresses", () => {
+    expect(websiteUrlError("")).toBeNull();
+    expect(websiteUrlError("   ")).toBeNull();
+    expect(websiteUrlError("https://northside.example")).toBeNull();
+    expect(websiteUrlError(" HTTPS://northside.example/a/@b?c=d@e#f@g ")).toBeNull();
+  });
+
+  it("asks for https:// instead of http://", () => {
+    expect(websiteUrlError("http://northside.example")).toBe(SECURE);
+    expect(websiteUrlError("HTTP://northside.example")).toBe(SECURE);
+  });
+
+  it("refuses anything that isn't a plain https:// URL as typed", () => {
+    for (const value of [
+      "northside.example",
+      "//northside.example",
+      "javascript:alert(1)",
+      "ftp://northside.example",
+      "https://",
+      "https://north side.example",
+      "https://a.example\\@b.example",
+      `https://a.example${String.fromCodePoint(0x200b)}`,
+    ]) {
+      expect(websiteUrlError(value), value).toBe(INVALID);
+    }
+  });
+
+  it("refuses a username or password in the address", () => {
+    expect(websiteUrlError("https://bank.example@evil.example")).toBe(CREDENTIALS);
+    expect(websiteUrlError("https://user:pass@northside.example/")).toBe(CREDENTIALS);
+    expect(websiteUrlError("https://@northside.example")).toBe(CREDENTIALS);
+  });
+
+  it("refuses an address over 2,048 characters", () => {
+    expect(websiteUrlError(`https://n.example/${"a".repeat(2048)}`)).toBe("Must be 2048 characters or fewer.");
+  });
+
+  it("keeps the stored value when it's left exactly as it is, even http://", () => {
+    expect(websiteUrlError("http://old.example", "http://old.example")).toBeNull();
+    expect(websiteUrlError(" http://old.example ", "http://old.example")).toBeNull();
+    expect(websiteUrlError("http://old.example/x", "http://old.example")).toBe(SECURE);
+    expect(websiteUrlError("http://old.example", undefined)).toBe(SECURE);
   });
 });

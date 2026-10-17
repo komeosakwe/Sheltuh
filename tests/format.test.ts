@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   formatDayWithYear,
+  formatDayTime,
   formatMessageTime,
   formatDateBadge,
   formatEventDateKey,
@@ -155,5 +156,17 @@ describe("formatMessageTime (Melbourne time)", () => {
     expect(formatDayWithYear(lastYear, now)).toMatch(/^Wed 31 Dec 2025$/);
     // Same instant seen from later that Melbourne year: no year.
     expect(formatDayWithYear(lastYear, new Date("2025-12-31T05:00:00.000Z"))).toMatch(/^Wed 31 Dec$/);
+  });
+});
+
+describe("formatDayTime (Melbourne time, always with the day)", () => {
+  it("keeps the day even on the same day, and adds the year when it's not this year", () => {
+    const now = new Date("2026-09-26T10:00:00.000Z");
+    // The month's abbreviation depends on the ICU data ("Sep" / "Sept").
+    const sameDay = "2026-09-25T23:05:00.000Z";
+    expect(formatDayTime(sameDay, now)).toBe(`${formatEventDateShort(sameDay)}, 9:05 am`);
+    expect(formatDayTime(sameDay, now)).toMatch(/^Sat 26 Sept?, 9:05 am$/);
+    const lastYear = "2025-09-25T13:30:00.000Z";
+    expect(formatDayTime(lastYear, now)).toBe(`${formatEventDateShort(lastYear)} 2025, 11:30 pm`);
   });
 });

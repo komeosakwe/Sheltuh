@@ -173,6 +173,50 @@ export function isHttpUrl(value: string): boolean {
   }
 }
 
+/** Longest website URL the API accepts (organisers.website_url). */
+export const MAX_WEBSITE_URL_LENGTH = 2048;
+
+/** The error for a new website that isn't an https:// address (as the API words it). */
+export const WEBSITE_NOT_HTTPS_ERROR = "Use your site's secure address, starting with https://";
+
+// As the API refuses (lib/server/validation.ts): control, invisible-format,
+// separator and whitespace characters, and backslashes (which URL parsers
+// read as "/").
+const URL_DISALLOWED = /[\p{Cc}\p{Cf}\p{Z}\s\\]/u;
+
+/**
+ * The client-side copy of the API's website rule (optionalUrl in
+ * lib/server/validation.ts), with the same messages, checked before a round
+ * trip. The API is the source of truth and its field error is always shown.
+ *
+ * Blank is fine (no website). `current` is the value already stored: left
+ * exactly as it is, it's accepted even if it predates these rules (an
+ * `http://` site). A new value must start with `https://` as typed, and
+ * can't carry a username or password ("https://bank.example@evil.example"
+ * reads as one site and goes to another).
+ */
+export function websiteUrlError(value: string, current?: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (current !== undefined && trimmed === current) return null;
+  if (trimmed.length > MAX_WEBSITE_URL_LENGTH) return `Must be ${MAX_WEBSITE_URL_LENGTH} characters or fewer.`;
+  if (/^http:\/\//i.test(trimmed)) return WEBSITE_NOT_HTTPS_ERROR;
+  let url: URL;
+  try {
+    if (!/^https:\/\//i.test(trimmed) || URL_DISALLOWED.test(trimmed)) throw new Error("not a plain https URL");
+    url = new URL(trimmed);
+    if (url.protocol !== "https:") throw new Error("not https");
+  } catch {
+    return "Enter a valid URL, including https://";
+  }
+  // The authority as typed (up to the first / ? or #), as well as the parser's view.
+  const authority = trimmed.slice("https://".length).split(/[/?#]/, 1)[0];
+  if (authority.includes("@") || url.username || url.password) {
+    return "Enter the address without a username or password.";
+  }
+  return null;
+}
+
 /**
  * The handle in a server-built profile URL (instagram.com/name/,
  * tiktok.com/@name, facebook.com/name, x.com/name), without any '@', or null

@@ -77,6 +77,8 @@ describe("ApplicationForm — session-expiry recovery preserves the form (organi
   });
 });
 
+const PUBLIC_NOTE = "Shown publicly on your organiser profile once approved.";
+
 function describedBy(element: HTMLElement): string {
   const ids = element.getAttribute("aria-describedby")?.split(" ") ?? [];
   return ids.map((id) => document.getElementById(id)?.textContent ?? "").join(" | ");
@@ -99,11 +101,12 @@ describe("ApplicationForm — validation errors are announced and focused", () =
     const name = screen.getByLabelText("Organiser name");
     await waitFor(() => expect(name).toHaveFocus());
     expect(screen.getByRole("alert")).toHaveTextContent("Please fix the highlighted fields.");
+    // The error first, then (for the public fields) the note that they're public.
     const expected: [string, string][] = [
       ["Organiser name", "Enter an organiser name."],
       ["Contact email", "Enter a contact email."],
-      ["Short description", "Enter a short description."],
-      ["Website (optional)", "Enter a valid URL, including https://"],
+      ["Short description", `Enter a short description. ${PUBLIC_NOTE}`],
+      ["Website (optional)", `Enter a valid URL, including https:// ${PUBLIC_NOTE}`],
     ];
     for (const [label, message] of expected) {
       const field = screen.getByLabelText(label);
@@ -153,7 +156,7 @@ describe("ApplicationForm — validation errors are announced and focused", () =
     expect(email).toHaveAttribute("aria-invalid", "true");
     expect(email).toHaveAccessibleDescription("Enter a valid email address.");
     expect(screen.getByLabelText("Short description")).toHaveAccessibleDescription(
-      "Keep your description under 2,000 characters.",
+      `Keep your description under 2,000 characters. ${PUBLIC_NOTE}`,
     );
     expect(screen.getByRole("alert")).toHaveTextContent("Please fix the highlighted fields.");
     // What was typed stays.
@@ -263,5 +266,94 @@ describe("ApplicationForm — optional social profiles", () => {
 
     await waitFor(() => expect(resubmitOrganiser).toHaveBeenCalledTimes(1));
     expect(resubmitOrganiser.mock.calls[0][0]).toMatchObject({ instagramHandle: "my.org", tiktokHandle: null });
+  });
+});
+
+describe("ApplicationForm — website rule and public-profile notes", () => {
+  function renderForm(mode: "apply" | "resubmit" = "apply", initial?: OrganiserRecord) {
+    render(
+      <FakeAuthProvider value={fakeAuthValue()}>
+        <ApplicationForm mode={mode} getToken={vi.fn().mockResolvedValue("token")} initial={initial} onSuccess={vi.fn()} />
+      </FakeAuthProvider>,
+    );
+  }
+
+  function submit(mode: "apply" | "resubmit" = "apply") {
+    fireEvent.click(screen.getByRole("button", { name: mode === "apply" ? "Submit application" : "Resubmit application" }));
+  }
+
+  it("says the description and website are shown publicly once approved", () => {
+    renderForm();
+    expect(screen.getByLabelText("Short description")).toHaveAccessibleDescription(PUBLIC_NOTE);
+    expect(screen.getByLabelText("Website (optional)")).toHaveAccessibleDescription(PUBLIC_NOTE);
+    expect(screen.getByRole("group", { name: "Optional: social profiles" })).toHaveAccessibleDescription(PUBLIC_NOTE);
+  });
+
+  it.each([
+    ["http://my.example", "Use your site's secure address, starting with https://"],
+    ["HTTP://my.example", "Use your site's secure address, starting with https://"],
+    ["my.example", "Enter a valid URL, including https://"],
+    ["https://bank.example@evil.example", "Enter the address without a username or password."],
+    ["https://user:pw@my.example/path", "Enter the address without a username or password."],
+  ])("refuses %s before sending, focusing the field", async (value, message) => {
+    renderForm();
+    fillRequiredFields();
+    const website = screen.getByLabelText("Website (optional)");
+    fireEvent.change(website, { target: { value } });
+    submit();
+    await waitFor(() => expect(website).toHaveFocus());
+    expect(website).toHaveAttribute("aria-invalid", "true");
+    expect(website).toHaveAccessibleDescription(`${message} ${PUBLIC_NOTE}`);
+    expect(applyAsOrganiser).not.toHaveBeenCalled();
+  });
+
+  it("sends an https:// website (with an @ only in the path)", async () => {
+    applyAsOrganiser.mockResolvedValue(APPROVED_RECORD);
+    renderForm();
+    fillRequiredFields();
+    fireEvent.change(screen.getByLabelText("Website (optional)"), {
+      target: { value: " https://my.example/@me " },
+    });
+    submit();
+    await waitFor(() => expect(applyAsOrganiser).toHaveBeenCalledTimes(1));
+    expect(applyAsOrganiser.mock.calls[0][0]).toMatchObject({ websiteUrl: "https://my.example/@me" });
+  });
+
+  it("on a resubmit, keeps an http:// website already on the application if it's left as it is", async () => {
+    resubmitOrganiser.mockResolvedValue(APPROVED_RECORD);
+    renderForm("resubmit", { ...APPROVED_RECORD, status: "rejected", websiteUrl: "http://old.example" });
+    submit("resubmit");
+    await waitFor(() => expect(resubmitOrganiser).toHaveBeenCalledTimes(1));
+    expect(resubmitOrganiser.mock.calls[0][0]).toMatchObject({ websiteUrl: "http://old.example" });
+  });
+
+  it("on a resubmit, refuses a changed http:// website", async () => {
+    renderForm("resubmit", { ...APPROVED_RECORD, status: "rejected", websiteUrl: "http://old.example" });
+    const website = screen.getByLabelText("Website (optional)");
+    fireEvent.change(website, { target: { value: "http://new.example" } });
+    submit("resubmit");
+    await waitFor(() => expect(website).toHaveFocus());
+    expect(website).toHaveAccessibleDescription(
+      `Use your site's secure address, starting with https:// ${PUBLIC_NOTE}`,
+    );
+    expect(resubmitOrganiser).not.toHaveBeenCalled();
+  });
+
+  it("shows the server's website error on the field", async () => {
+    applyAsOrganiser.mockRejectedValue(
+      new ApiError(400, "Please fix the highlighted fields.", {
+        websiteUrl: "Use your site's secure address, starting with https://",
+      }),
+    );
+    renderForm();
+    fillRequiredFields();
+    fireEvent.change(screen.getByLabelText("Website (optional)"), { target: { value: "https://ok.example" } });
+    submit();
+    const website = screen.getByLabelText("Website (optional)");
+    await waitFor(() => expect(website).toHaveFocus());
+    expect(website).toHaveAttribute("aria-invalid", "true");
+    expect(website).toHaveAccessibleDescription(
+      `Use your site's secure address, starting with https:// ${PUBLIC_NOTE}`,
+    );
   });
 });

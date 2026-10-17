@@ -10,6 +10,7 @@ import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
 import {
   SOCIAL_HANDLE_FIELDS,
   socialHandlesForRequest,
+  websiteUrlError,
   type SocialHandleField,
   type SocialHandleValues,
 } from "@/lib/organiser-profile";
@@ -41,13 +42,20 @@ function categoryId(value: string): string {
   return `${ID_PREFIX}-category-${value}`;
 }
 
-/** aria-invalid / aria-describedby for a control with a possible error line `${id}-error`. */
-function errorProps(id: string, error: string | undefined) {
+/**
+ * aria-invalid / aria-describedby for a control with a possible error line
+ * `${id}-error`, read before any always-present `notes` (other element ids).
+ */
+function errorProps(id: string, error: string | undefined, notes: readonly string[] = []) {
+  const describedBy = [error ? `${id}-error` : null, ...notes].filter(Boolean).join(" ");
   return {
     "aria-invalid": error ? true : undefined,
-    "aria-describedby": error ? `${id}-error` : undefined,
+    "aria-describedby": describedBy || undefined,
   } as const;
 }
+
+/** Said under the fields that appear on the public profile (the social group says it too). */
+const PUBLIC_NOTE = "Shown publicly on your organiser profile once approved.";
 
 interface Props {
   mode: "apply" | "resubmit";
@@ -105,13 +113,10 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
     else if (!EMAIL_REGEX.test(contactEmail.trim())) next.contactEmail = "Enter a valid email address.";
     if (!description.trim()) next.description = "Enter a short description.";
     if (categories.length === 0) next.categories = "Choose at least one category.";
-    if (websiteUrl.trim()) {
-      try {
-        new URL(websiteUrl.trim());
-      } catch {
-        next.websiteUrl = "Enter a valid URL, including https://";
-      }
-    }
+    // On a resubmit, the website already on the application, left as it is,
+    // is fine even from before the https rule (as the API allows).
+    const websiteError = websiteUrlError(websiteUrl, initial?.websiteUrl);
+    if (websiteError) next.websiteUrl = websiteError;
     return next;
   }
 
@@ -209,9 +214,12 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
           rows={3}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          {...errorProps("description", errors.description)}
+          {...errorProps("description", errors.description, ["description-note"])}
           className="border border-foreground bg-transparent px-3 py-2 text-foreground"
         />
+        <p id="description-note" className="text-sm text-muted">
+          {PUBLIC_NOTE}
+        </p>
         {errors.description && (
           <p id="description-error" className="text-sm text-danger">
             {errors.description}
@@ -258,9 +266,12 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
           value={websiteUrl}
           onChange={(e) => setWebsiteUrl(e.target.value)}
           placeholder="https://"
-          {...errorProps("websiteUrl", errors.websiteUrl)}
+          {...errorProps("websiteUrl", errors.websiteUrl, ["websiteUrl-note"])}
           className="border border-foreground bg-transparent px-3 py-2 text-foreground"
         />
+        <p id="websiteUrl-note" className="text-sm text-muted">
+          {PUBLIC_NOTE}
+        </p>
         {errors.websiteUrl && (
           <p id="websiteUrl-error" className="text-sm text-danger">
             {errors.websiteUrl}
@@ -271,7 +282,7 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
       <fieldset className="flex flex-col gap-4" aria-describedby="application-social-note">
         <legend className="text-sm font-medium text-foreground">Optional: social profiles</legend>
         <p id="application-social-note" className="text-sm text-muted">
-          Shown publicly on your organiser profile once approved.
+          {PUBLIC_NOTE}
         </p>
         <SocialHandleFields
           idPrefix={ID_PREFIX}
