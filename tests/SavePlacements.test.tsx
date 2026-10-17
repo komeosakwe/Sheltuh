@@ -55,7 +55,7 @@ function withHearts(children: ReactNode) {
 const heartFor = (event: SheltuhEvent) => screen.getByRole("button", { name: `Save ${event.title}` });
 
 describe("heart placements", () => {
-  it("EventTile: a sibling of the link (never inside it), after the title in tab order", () => {
+  it("EventTile: a sibling of the link (never inside it), right after it in tab order", () => {
     const { container } = withHearts(<EventTile event={EVENT} />);
     const link = screen.getByRole("link");
     const heart = heartFor(EVENT);

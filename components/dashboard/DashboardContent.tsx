@@ -151,20 +151,20 @@ export default function DashboardContent() {
       <div className="flex flex-wrap items-center gap-3">
         <Link
           href="/dashboard/new"
-          className="btn btn-solid w-fit"
+          className="btn btn-solid min-h-11 w-fit"
         >
           New event
         </Link>
         <Link
           href="/dashboard/payouts"
-          className="btn btn-outline w-fit"
+          className="btn btn-outline min-h-11 w-fit"
         >
           Payouts
         </Link>
-        <Link href="/dashboard/analytics" className="btn btn-outline w-fit">
+        <Link href="/dashboard/analytics" className="btn btn-outline min-h-11 w-fit">
           Analytics
         </Link>
-        <Link href="/dashboard/profile" className="btn btn-outline w-fit">
+        <Link href="/dashboard/profile" className="btn btn-outline min-h-11 w-fit">
           Public profile
         </Link>
       </div>

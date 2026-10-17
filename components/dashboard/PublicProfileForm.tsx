@@ -37,6 +37,8 @@ function handlesOf(record: OrganiserRecord): SocialHandleValues {
 }
 
 const countFormatter = new Intl.NumberFormat("en-AU");
+/** How long the status line stays empty before a repeated message, so it's announced again. */
+const REANNOUNCE_DELAY_MS = 100;
 
 /** "1 character", "1,995 characters". */
 function characters(count: number) {
@@ -70,6 +72,12 @@ export default function PublicProfileForm({ organiser, getToken, onSaved }: Prop
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const focusFirstError = useRef(false);
+  const statusTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => {
+    const timer = statusTimer;
+    return () => clearTimeout(timer.current);
+  }, []);
 
   // After a failed save, once the error messages are rendered (and wired to
   // their fields), move focus to the first field that has one.
@@ -80,8 +88,24 @@ export default function PublicProfileForm({ organiser, getToken, onSaved }: Prop
     if (first) document.getElementById(fieldId(first))?.focus();
   }, [errors]);
 
+  /** Sets the status line, cancelling any message still waiting to be shown. */
+  function showStatus(message: string | null) {
+    clearTimeout(statusTimer.current);
+    setStatus(message);
+  }
+
+  /**
+   * Empties the status line, then fills it a moment later: a live region only
+   * speaks when its text changes, so "No changes to save." twice in a row
+   * would otherwise be heard once.
+   */
+  function announce(message: string) {
+    showStatus(null);
+    statusTimer.current = setTimeout(() => setStatus(message), REANNOUNCE_DELAY_MS);
+  }
+
   function edited() {
-    setStatus(null);
+    showStatus(null);
   }
 
   function validate(): Record<string, string> {
@@ -111,7 +135,7 @@ export default function PublicProfileForm({ organiser, getToken, onSaved }: Prop
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setStatus(null);
+    showStatus(null);
     setSubmitError(null);
     setSessionExpired(false);
 
@@ -125,7 +149,7 @@ export default function PublicProfileForm({ organiser, getToken, onSaved }: Prop
 
     const input = changes();
     if (Object.keys(input).length === 0) {
-      setStatus("No changes to save.");
+      announce("No changes to save.");
       return;
     }
 
@@ -137,7 +161,7 @@ export default function PublicProfileForm({ organiser, getToken, onSaved }: Prop
       setDescription(record.description);
       setWebsiteUrl(record.websiteUrl ?? "");
       setHandles(handlesOf(record));
-      setStatus("Profile saved. It's live on your public profile now.");
+      showStatus("Profile saved. It's live on your public profile now.");
       onSaved?.(record);
     } catch (err) {
       // Nothing typed is cleared on a failure.
@@ -164,7 +188,7 @@ export default function PublicProfileForm({ organiser, getToken, onSaved }: Prop
     <form onSubmit={handleSubmit} className="flex flex-col gap-6" noValidate>
       <div className="flex flex-col gap-1">
         <label htmlFor={fieldId("description")} className="text-sm font-medium text-foreground">
-          Bio
+          Bio <span className="font-normal text-muted">(required)</span>
         </label>
         <textarea
           id={fieldId("description")}
@@ -256,8 +280,10 @@ export default function PublicProfileForm({ organiser, getToken, onSaved }: Prop
         </p>
       )}
 
-      {/* Always rendered, so the result of a save is announced when it changes. */}
-      <p role="status" className="text-sm text-foreground empty:hidden">
+      {/* Always rendered (and never display:none, which would take it out of the
+          accessibility tree), so the result of a save is announced when it
+          changes. Empty, it's collapsed to nothing visually. */}
+      <p role="status" className="text-sm text-foreground empty:sr-only">
         {status}
       </p>
 

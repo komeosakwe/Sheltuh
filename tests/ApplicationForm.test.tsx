@@ -77,6 +77,90 @@ describe("ApplicationForm — session-expiry recovery preserves the form (organi
   });
 });
 
+function describedBy(element: HTMLElement): string {
+  const ids = element.getAttribute("aria-describedby")?.split(" ") ?? [];
+  return ids.map((id) => document.getElementById(id)?.textContent ?? "").join(" | ");
+}
+
+describe("ApplicationForm — validation errors are announced and focused", () => {
+  function renderForm() {
+    render(
+      <FakeAuthProvider value={fakeAuthValue()}>
+        <ApplicationForm mode="apply" getToken={vi.fn().mockResolvedValue("token")} onSuccess={vi.fn()} />
+      </FakeAuthProvider>,
+    );
+  }
+
+  it("flags every missing field, says so in an alert and focuses the first, without submitting", async () => {
+    renderForm();
+    fireEvent.change(screen.getByLabelText("Website (optional)"), { target: { value: "not a url" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit application" }));
+
+    const name = screen.getByLabelText("Organiser name");
+    await waitFor(() => expect(name).toHaveFocus());
+    expect(screen.getByRole("alert")).toHaveTextContent("Please fix the highlighted fields.");
+    const expected: [string, string][] = [
+      ["Organiser name", "Enter an organiser name."],
+      ["Contact email", "Enter a contact email."],
+      ["Short description", "Enter a short description."],
+      ["Website (optional)", "Enter a valid URL, including https://"],
+    ];
+    for (const [label, message] of expected) {
+      const field = screen.getByLabelText(label);
+      expect(field).toHaveAttribute("aria-invalid", "true");
+      expect(field).toHaveAccessibleDescription(message);
+    }
+    // Categories: the group is described by the error; each box is invalid.
+    const group = screen.getByRole("group", { name: "Event categories" });
+    expect(group).toHaveAccessibleDescription("Choose at least one category.");
+    expect(screen.getByLabelText("Live music")).toHaveAttribute("aria-invalid", "true");
+    expect(applyAsOrganiser).not.toHaveBeenCalled();
+  });
+
+  it("moves focus to the first field still wrong (a bad email), then to the categories", async () => {
+    renderForm();
+    fireEvent.change(screen.getByLabelText("Organiser name"), { target: { value: "My Org" } });
+    fireEvent.change(screen.getByLabelText("Contact email"), { target: { value: "not-an-email" } });
+    fireEvent.change(screen.getByLabelText("Short description"), { target: { value: "We run events." } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit application" }));
+
+    const email = screen.getByLabelText("Contact email");
+    await waitFor(() => expect(email).toHaveFocus());
+    expect(email).toHaveAccessibleDescription("Enter a valid email address.");
+    expect(screen.getByLabelText("Organiser name")).not.toHaveAttribute("aria-invalid");
+    expect(screen.getByLabelText("Organiser name")).not.toHaveAttribute("aria-describedby");
+
+    fireEvent.change(email, { target: { value: "contact@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit application" }));
+    // The first category box: the group's error is read as focus enters it.
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Live music" })).toHaveFocus());
+    expect(screen.getAllByRole("checkbox")[0]).toBe(screen.getByRole("checkbox", { name: "Live music" }));
+  });
+
+  it("focuses the first field the server refused, with the server's message as the alert", async () => {
+    applyAsOrganiser.mockRejectedValue(
+      new ApiError(400, "Please fix the highlighted fields.", {
+        contactEmail: "Enter a valid email address.",
+        description: "Keep your description under 2,000 characters.",
+      }),
+    );
+    renderForm();
+    fillRequiredFields();
+    fireEvent.click(screen.getByRole("button", { name: "Submit application" }));
+
+    const email = screen.getByLabelText("Contact email");
+    await waitFor(() => expect(email).toHaveFocus());
+    expect(email).toHaveAttribute("aria-invalid", "true");
+    expect(email).toHaveAccessibleDescription("Enter a valid email address.");
+    expect(screen.getByLabelText("Short description")).toHaveAccessibleDescription(
+      "Keep your description under 2,000 characters.",
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Please fix the highlighted fields.");
+    // What was typed stays.
+    expect(email).toHaveValue("contact@example.com");
+  });
+});
+
 describe("ApplicationForm — optional social profiles", () => {
   function renderForm(mode: "apply" | "resubmit", initial?: OrganiserRecord) {
     render(
@@ -129,8 +213,40 @@ describe("ApplicationForm — optional social profiles", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submit application" }));
 
     const x = screen.getByLabelText("X username");
-    await waitFor(() => expect(x).toHaveAttribute("aria-invalid", "true"));
+    await waitFor(() => expect(x).toHaveFocus());
+    expect(x).toHaveAttribute("aria-invalid", "true");
     expect(x).toHaveAccessibleDescription(expect.stringContaining("Enter just your X username"));
+    expect(describedBy(x)).toContain("up to 15");
+  });
+
+  it("cuts a pasted profile URL down to the handle, and leaves other pastes alone", () => {
+    renderForm("apply");
+    const instagram = screen.getByLabelText("Instagram username");
+    fireEvent.paste(instagram, { clipboardData: { getData: () => "https://www.instagram.com/northside.noise/" } });
+    expect(instagram).toHaveValue("northside.noise");
+
+    // A post link isn't a profile: the paste goes ahead as normal (the
+    // browser inserts it; nothing here changes the value).
+    const tiktok = screen.getByLabelText("TikTok username");
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.assign(event, { clipboardData: { getData: () => "https://www.tiktok.com/@a/video/123" } });
+    tiktok.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(tiktok).toHaveValue("");
+  });
+
+  it("cuts a typed profile URL down to the handle when leaving the field", () => {
+    renderForm("apply");
+    const x = screen.getByLabelText("X username");
+    fireEvent.change(x, { target: { value: "twitter.com/nsnoise" } });
+    expect(x).toHaveValue("twitter.com/nsnoise");
+    fireEvent.blur(x);
+    expect(x).toHaveValue("nsnoise");
+
+    const facebook = screen.getByLabelText("Facebook page");
+    fireEvent.change(facebook, { target: { value: "https://www.facebook.com/groups/abc" } });
+    fireEvent.blur(facebook);
+    expect(facebook).toHaveValue("https://www.facebook.com/groups/abc");
   });
 
   it("prefills a resubmission's handles, and clearing one sends null", async () => {

@@ -17,8 +17,10 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Phone and tablet sizing comes first in each class list below; the `lg:` classes
 // put desktop back exactly as it was (the mobile spec leaves desktop unchanged).
 
+// The steppers use aria-disabled, not `disabled`: reaching 0 or the cap must
+// leave focus on the button rather than dropping it to <body>.
 const stepperButtonClass =
-  "flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-foreground text-lg font-semibold text-foreground transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-surface-border disabled:hover:text-foreground";
+  "flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-foreground text-lg font-semibold text-foreground transition-colors hover:border-accent hover:text-accent aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:hover:border-surface-border aria-disabled:hover:text-foreground";
 
 export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const ticketTypes = event.ticketTypes;
@@ -36,9 +38,17 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   // A free order waiting on its emailed confirmation link: the address it went to.
   const [sentTo, setSentTo] = useState<string | null>(null);
   const sentHeadingRef = useRef<HTMLHeadingElement>(null);
+  const emailInputRef = useRef<HTMLInputElement>(null);
+  // Set by "Use a different email": once the email field is back, focus it.
+  const focusEmailField = useRef(false);
 
   useEffect(() => {
-    if (sentTo) sentHeadingRef.current?.focus();
+    if (sentTo) {
+      sentHeadingRef.current?.focus();
+    } else if (focusEmailField.current) {
+      focusEmailField.current = false;
+      emailInputRef.current?.focus();
+    }
   }, [sentTo]);
 
   // Only live events (which carry an organiserId) can be checked out —
@@ -61,6 +71,9 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
 
   function setQuantity(ticket: TicketType, value: number) {
     const clamped = Math.max(0, Math.min(value, capFor(ticket)));
+    // A press on a stepper that's at its limit (aria-disabled, so still
+    // clickable) changes nothing, and keeps any message on screen.
+    if (clamped === (quantities[ticket.id] ?? 0)) return;
     setQuantities((prev) => ({ ...prev, [ticket.id]: clamped }));
     // A refusal was about the old selection.
     setError(null);
@@ -140,6 +153,15 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Before the tickets, so the limit is known before choosing. */}
+      {freeTypeCount > 0 && (
+        <p id="free-ticket-limit" aria-live="polite" className="text-xs text-muted">
+          {freeLimitReached
+            ? `That's the most free tickets one booking can have (${MAX_FREE_TICKETS_PER_ORDER}${freeTypeCount > 1 ? " in total, across the free ticket types" : ""}).`
+            : `Up to ${MAX_FREE_TICKETS_PER_ORDER} free tickets per booking${freeTypeCount > 1 ? ", in total across the free ticket types" : ""}.`}
+        </p>
+      )}
+
       <ul className="flex flex-col gap-4">
         {lineSummaries.map(({ ticket, quantity }) => {
           const cap = capFor(ticket);
@@ -170,7 +192,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                 <button
                   type="button"
                   onClick={() => setQuantity(ticket, quantity - 1)}
-                  disabled={quantity <= 0}
+                  aria-disabled={quantity <= 0}
                   aria-label={`Decrease quantity for ${ticket.name}`}
                   className={stepperButtonClass}
                 >
@@ -185,7 +207,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                 <button
                   type="button"
                   onClick={() => setQuantity(ticket, quantity + 1)}
-                  disabled={quantity >= cap}
+                  aria-disabled={quantity >= cap}
                   aria-label={`Increase quantity for ${ticket.name}`}
                   aria-describedby={ticket.priceCents === 0 ? "free-ticket-limit" : undefined}
                   className={stepperButtonClass}
@@ -197,14 +219,6 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
           );
         })}
       </ul>
-
-      {freeTypeCount > 0 && (
-        <p id="free-ticket-limit" aria-live="polite" className="text-xs text-muted">
-          {freeLimitReached
-            ? `That's the most free tickets one booking can have (${MAX_FREE_TICKETS_PER_ORDER}${freeTypeCount > 1 ? " in total, across the free ticket types" : ""}).`
-            : `Up to ${MAX_FREE_TICKETS_PER_ORDER} free tickets per booking${freeTypeCount > 1 ? ", in total across the free ticket types" : ""}.`}
-        </p>
-      )}
 
       <div className="bg-surface p-4">
         <h3 className="font-heading text-xl text-foreground">Order summary</h3>
@@ -238,7 +252,10 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
             </p>
             <button
               type="button"
-              onClick={() => setSentTo(null)}
+              onClick={() => {
+                focusEmailField.current = true;
+                setSentTo(null);
+              }}
               className="btn btn-outline mt-2 min-h-11 w-full lg:w-auto"
             >
               Use a different email
@@ -252,25 +269,25 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                   Email for your tickets
                 </label>
                 <input
+                  ref={emailInputRef}
                   id="buyer-email"
                   type="email"
                   autoComplete="email"
                   required
                   value={buyerEmail}
                   onChange={(e) => setTypedEmail(e.target.value)}
-                  aria-invalid={Boolean(emailError)}
-                  aria-describedby={emailError ? "buyer-email-error" : "buyer-email-hint"}
+                  aria-invalid={emailError ? true : undefined}
+                  aria-describedby={emailError ? "buyer-email-hint buyer-email-error" : "buyer-email-hint"}
                   // 16px text so iOS doesn't zoom on focus, and a 48px target.
                   className="min-h-12 border border-foreground bg-transparent px-3 py-2 text-base text-foreground lg:min-h-0"
                 />
-                {emailError ? (
+                <p id="buyer-email-hint" className="text-xs text-muted">
+                  We&rsquo;ll send your tickets here. Booking with your Sheltüh account email
+                  also lets you add yourself to Who&rsquo;s Going.
+                </p>
+                {emailError && (
                   <p id="buyer-email-error" role="alert" className="text-sm text-danger">
                     {emailError}
-                  </p>
-                ) : (
-                  <p id="buyer-email-hint" className="text-xs text-muted">
-                    We&rsquo;ll send your tickets here. Booking with your Sheltüh account email
-                    also lets you add yourself to Who&rsquo;s Going.
                   </p>
                 )}
               </div>

@@ -1,10 +1,17 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import type { ReactNode } from "react";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
 import EventTile from "@/components/ui/EventTile";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
+import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
+beforeEach(() => {
+  sessionStorage.clear();
+  localStorage.clear();
+});
 afterEach(cleanup);
 
 const liveEvent: SheltuhEvent = {
@@ -12,6 +19,15 @@ const liveEvent: SheltuhEvent = {
   organiserId: "org-1",
   organiserName: "Northside Noise",
 };
+
+/** Demo favourites (accounts not configured): the heart renders without any API. */
+function withHearts(children: ReactNode) {
+  return render(
+    <FakeAuthProvider value={fakeAuthValue({ configured: false, status: "signed-out" })}>
+      <FavouritesProvider>{children}</FavouritesProvider>
+    </FakeAuthProvider>,
+  );
+}
 
 describe("EventTile organiser link", () => {
   it("links a live event's organiser to their profile, beside (never inside) the tile's link", () => {
@@ -24,6 +40,24 @@ describe("EventTile organiser link", () => {
       "href",
       `/events/${liveEvent.slug}`,
     );
+  });
+
+  it("reads and tabs: the tile's link, then the heart, then 'By organiser'", () => {
+    withHearts(<EventTile event={liveEvent} />);
+    const tile = screen.getByRole("link", { name: new RegExp(liveEvent.title) });
+    const heart = screen.getByRole("button", { name: `Save ${liveEvent.title}` });
+    const organiser = screen.getByRole("link", { name: "By Northside Noise" });
+    const focusable = Array.from(document.querySelectorAll<HTMLElement>("a[href], button"));
+    expect(focusable).toEqual([tile, heart, organiser]);
+    // Still drawn over the art's corner, wherever it sits in the DOM.
+    expect(heart).toHaveClass("absolute", "right-1", "top-1");
+  });
+
+  it("wraps a long organiser name to two lines rather than cutting it to one", () => {
+    render(<EventTile event={{ ...liveEvent, organiserName: "The Very Long Name Collective of Northside" }} />);
+    const name = screen.getByText("By The Very Long Name Collective of Northside");
+    expect(name).toHaveClass("line-clamp-2");
+    expect(name).not.toHaveClass("truncate");
   });
 
   it("has no organiser link for a demo event (no organiserId) or with showOrganiser={false}", () => {

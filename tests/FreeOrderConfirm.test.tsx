@@ -51,6 +51,8 @@ describe("FreeOrderConfirm", () => {
   it("confirms only when the button is pressed, then goes to the tickets", async () => {
     confirmFreeOrder.mockResolvedValue({ url: "https://sheltuh.test/checkout/success?session_id=ord_1" });
     render(<FreeOrderConfirm />);
+    // Loading is announced politely until the token has been read.
+    expect(screen.getByRole("status")).toHaveTextContent("Loading");
     const button = await screen.findByRole("button", { name: "Confirm" });
     // The token is read, then removed from the address bar.
     expect(window.history.replaceState).toHaveBeenCalledWith(null, "", "/checkout/confirm");
@@ -80,6 +82,10 @@ describe("FreeOrderConfirm", () => {
     const heading = await screen.findByRole("heading", { name: title });
     await waitFor(() => expect(heading).toHaveFocus());
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    // Focus on the heading reads the explanation with it; no second, competing alert.
+    expect(heading.getAttribute("aria-describedby")).toBeTruthy();
+    expect(heading).toHaveAccessibleDescription(/\S/);
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("shows the server's own wording for an expired link", async () => {

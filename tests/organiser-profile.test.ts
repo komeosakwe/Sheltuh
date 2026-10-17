@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   displayHandle,
   formatMemberSince,
+  handleFromProfileUrl,
   isHttpUrl,
   socialHandleFromUrl,
   socialHandlesForRequest,
@@ -57,6 +58,36 @@ describe("socialHandleFromUrl / displayHandle", () => {
     expect(displayHandle("instagram", "a")).toBe("@a");
     expect(displayHandle("x", "a")).toBe("@a");
     expect(displayHandle("facebook", "a")).toBe("a");
+  });
+});
+
+describe("handleFromProfileUrl", () => {
+  it("reduces each network's own profile URL to the handle", () => {
+    expect(handleFromProfileUrl("instagramHandle", "https://www.instagram.com/northside.noise/")).toBe("northside.noise");
+    expect(handleFromProfileUrl("instagramHandle", "instagram.com/northside.noise?igsh=abc")).toBe("northside.noise");
+    expect(handleFromProfileUrl("tiktokHandle", " https://www.tiktok.com/@northside_noise ")).toBe("northside_noise");
+    expect(handleFromProfileUrl("facebookPage", "https://m.facebook.com/northsidenoise")).toBe("northsidenoise");
+    expect(handleFromProfileUrl("facebookPage", "fb.com/northsidenoise")).toBe("northsidenoise");
+    expect(handleFromProfileUrl("xHandle", "https://twitter.com/nsnoise")).toBe("nsnoise");
+    expect(handleFromProfileUrl("xHandle", "https://x.com/nsnoise#top")).toBe("nsnoise");
+  });
+
+  it("leaves anything ambiguous alone", () => {
+    // Plain handles, with or without '@'.
+    expect(handleFromProfileUrl("instagramHandle", "northside.noise")).toBeNull();
+    expect(handleFromProfileUrl("xHandle", "@nsnoise")).toBeNull();
+    // Another network's URL, or a look-alike host.
+    expect(handleFromProfileUrl("xHandle", "https://www.instagram.com/northside.noise/")).toBeNull();
+    expect(handleFromProfileUrl("instagramHandle", "https://instagram.com.evil.example/northside")).toBeNull();
+    expect(handleFromProfileUrl("instagramHandle", "https://instagram.com@evil.example/northside")).toBeNull();
+    // Not a profile: a post, a site page, a deeper path, no path.
+    expect(handleFromProfileUrl("instagramHandle", "https://www.instagram.com/p/C1234/")).toBeNull();
+    expect(handleFromProfileUrl("instagramHandle", "https://www.instagram.com/explore")).toBeNull();
+    expect(handleFromProfileUrl("facebookPage", "https://www.facebook.com/profile.php?id=123")).toBeNull();
+    expect(handleFromProfileUrl("xHandle", "https://x.com/")).toBeNull();
+    // TikTok profiles are always /@name.
+    expect(handleFromProfileUrl("tiktokHandle", "https://www.tiktok.com/northside_noise")).toBeNull();
+    expect(handleFromProfileUrl("instagramHandle", "javascript:alert(1)//instagram.com/x")).toBeNull();
   });
 });
 

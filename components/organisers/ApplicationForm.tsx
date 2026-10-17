@@ -1,16 +1,53 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import InlineReauth from "@/components/auth/InlineReauth";
 import SocialHandleFields from "@/components/organisers/SocialHandleFields";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import { applyAsOrganiser, resubmitOrganiser, type OrganiserApplicationInput } from "@/lib/api/organisers";
 import type { OrganiserRecord } from "@/lib/api/types";
 import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
-import { socialHandlesForRequest, type SocialHandleField, type SocialHandleValues } from "@/lib/organiser-profile";
+import {
+  SOCIAL_HANDLE_FIELDS,
+  socialHandlesForRequest,
+  type SocialHandleField,
+  type SocialHandleValues,
+} from "@/lib/organiser-profile";
 import { EVENT_CATEGORIES } from "@/lib/types";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ID_PREFIX = "application";
+const FIX_FIELDS_MESSAGE = "Please fix the highlighted fields.";
+
+type ApplicationField = "displayName" | "contactEmail" | "description" | "categories" | "websiteUrl" | SocialHandleField;
+/** Form order, for moving focus to the first field with an error. */
+const FIELD_ORDER: readonly ApplicationField[] = [
+  "displayName",
+  "contactEmail",
+  "description",
+  "categories",
+  "websiteUrl",
+  ...SOCIAL_HANDLE_FIELDS.map((f) => f.field),
+];
+
+/** The id of the control focus moves to for a field's error (categories: the first checkbox). */
+function focusTargetId(field: ApplicationField): string {
+  if (field === "categories") return categoryId(EVENT_CATEGORIES[0].value);
+  if (SOCIAL_HANDLE_FIELDS.some((f) => f.field === field)) return `${ID_PREFIX}-${field}`;
+  return field;
+}
+
+function categoryId(value: string): string {
+  return `${ID_PREFIX}-category-${value}`;
+}
+
+/** aria-invalid / aria-describedby for a control with a possible error line `${id}-error`. */
+function errorProps(id: string, error: string | undefined) {
+  return {
+    "aria-invalid": error ? true : undefined,
+    "aria-describedby": error ? `${id}-error` : undefined,
+  } as const;
+}
 
 interface Props {
   mode: "apply" | "resubmit";
@@ -41,6 +78,17 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [loading, setLoading] = useState(false);
+  const focusFirstError = useRef(false);
+
+  // After a failed submit (client checks or the server's field errors), once
+  // the messages are rendered and wired to their fields, move focus to the
+  // first field that has one.
+  useEffect(() => {
+    if (!focusFirstError.current) return;
+    focusFirstError.current = false;
+    const first = FIELD_ORDER.find((field) => errors[field]);
+    if (first) document.getElementById(focusTargetId(first))?.focus();
+  }, [errors]);
 
   function toggleCategory(value: string) {
     setCategories((prev) => (prev.includes(value) ? prev.filter((c) => c !== value) : [...prev, value]));
@@ -73,7 +121,11 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
     setSessionExpired(false);
     const nextErrors = validate();
     setErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0) return;
+    if (Object.keys(nextErrors).length > 0) {
+      focusFirstError.current = true;
+      setSubmitError(FIX_FIELDS_MESSAGE);
+      return;
+    }
 
     const input: OrganiserApplicationInput = {
       displayName: displayName.trim(),
@@ -99,7 +151,10 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
         setSubmitError(err.message);
         return;
       }
-      if (err instanceof ApiError && err.fieldErrors) setErrors(err.fieldErrors);
+      if (err instanceof ApiError && err.fieldErrors) {
+        focusFirstError.current = true;
+        setErrors(err.fieldErrors);
+      }
       setSubmitError(err instanceof Error ? err.message : "Couldn't submit your application.");
     } finally {
       setLoading(false);
@@ -116,9 +171,14 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
           id="displayName"
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
+          {...errorProps("displayName", errors.displayName)}
           className="border border-foreground bg-transparent px-3 py-2 text-foreground"
         />
-        {errors.displayName && <p className="text-sm text-danger">{errors.displayName}</p>}
+        {errors.displayName && (
+          <p id="displayName-error" className="text-sm text-danger">
+            {errors.displayName}
+          </p>
+        )}
       </div>
 
       <div className="flex flex-col gap-1">
@@ -130,9 +190,14 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
           type="email"
           value={contactEmail}
           onChange={(e) => setContactEmail(e.target.value)}
+          {...errorProps("contactEmail", errors.contactEmail)}
           className="border border-foreground bg-transparent px-3 py-2 text-foreground"
         />
-        {errors.contactEmail && <p className="text-sm text-danger">{errors.contactEmail}</p>}
+        {errors.contactEmail && (
+          <p id="contactEmail-error" className="text-sm text-danger">
+            {errors.contactEmail}
+          </p>
+        )}
       </div>
 
       <div className="flex flex-col gap-1">
@@ -144,27 +209,43 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
           rows={3}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
+          {...errorProps("description", errors.description)}
           className="border border-foreground bg-transparent px-3 py-2 text-foreground"
         />
-        {errors.description && <p className="text-sm text-danger">{errors.description}</p>}
+        {errors.description && (
+          <p id="description-error" className="text-sm text-danger">
+            {errors.description}
+          </p>
+        )}
       </div>
 
-      <fieldset className="flex flex-col gap-2">
+      {/* The error describes the whole group (announced as focus enters it);
+          each checkbox carries aria-invalid, which a fieldset can't. */}
+      <fieldset
+        className="flex flex-col gap-2"
+        aria-describedby={errors.categories ? `${ID_PREFIX}-categories-error` : undefined}
+      >
         <legend className="text-sm font-medium text-foreground">Event categories</legend>
         <div className="flex flex-wrap gap-3">
           {EVENT_CATEGORIES.map((c) => (
             <label key={c.value} className="flex items-center gap-1.5 text-sm text-foreground">
               <input
+                id={categoryId(c.value)}
                 type="checkbox"
                 checked={categories.includes(c.value)}
                 onChange={() => toggleCategory(c.value)}
+                aria-invalid={errors.categories ? true : undefined}
                 className="accent-accent"
               />
               {c.label}
             </label>
           ))}
         </div>
-        {errors.categories && <p className="text-sm text-danger">{errors.categories}</p>}
+        {errors.categories && (
+          <p id={`${ID_PREFIX}-categories-error`} className="text-sm text-danger">
+            {errors.categories}
+          </p>
+        )}
       </fieldset>
 
       <div className="flex flex-col gap-1">
@@ -177,9 +258,14 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
           value={websiteUrl}
           onChange={(e) => setWebsiteUrl(e.target.value)}
           placeholder="https://"
+          {...errorProps("websiteUrl", errors.websiteUrl)}
           className="border border-foreground bg-transparent px-3 py-2 text-foreground"
         />
-        {errors.websiteUrl && <p className="text-sm text-danger">{errors.websiteUrl}</p>}
+        {errors.websiteUrl && (
+          <p id="websiteUrl-error" className="text-sm text-danger">
+            {errors.websiteUrl}
+          </p>
+        )}
       </div>
 
       <fieldset className="flex flex-col gap-4" aria-describedby="application-social-note">
@@ -188,7 +274,7 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
           Shown publicly on your organiser profile once approved.
         </p>
         <SocialHandleFields
-          idPrefix="application"
+          idPrefix={ID_PREFIX}
           values={handles}
           errors={errors}
           onChange={setHandle}

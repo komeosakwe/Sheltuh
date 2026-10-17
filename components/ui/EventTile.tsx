@@ -7,12 +7,15 @@ import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 
 /**
  * Poster-first event tile: square artwork, then metadata set as plain text
- * beneath (title, date, venue, price). Used by carousels and grids. The save
- * heart sits over the art's top-right corner as a sibling of the link (a
- * button can't go inside a link), after the title in reading and tab order.
- * Live events (they carry an organiserId) end with an "By {organiser}" link to
- * the organiser's profile, also a sibling of the tile's link, never inside it.
- * `showOrganiser={false}` drops it where the organiser is already the page.
+ * beneath (title, date, venue, price). Used by carousels and grids.
+ *
+ * Reading and tab order: the tile's link, then the save heart, then (live
+ * events, which carry an organiserId) a "By {organiser}" link to the
+ * organiser's profile. The heart and the organiser link are siblings of the
+ * tile's link, never inside it (no buttons or links within a link). The heart
+ * is absolutely positioned over the art's top-right corner, so its place in
+ * the DOM doesn't move it on screen. `showOrganiser={false}` drops the
+ * organiser link where the organiser is already the page.
  */
 export default function EventTile({
   event,
@@ -54,20 +57,21 @@ export default function EventTile({
           <p className="text-sm font-semibold">{formatFeedPrice(event)}</p>
         </div>
       </Link>
-      {showOrganiser && event.organiserId && (
-        <Link
-          href={`/organisers/${encodeURIComponent(event.organiserId)}`}
-          className="inline-flex min-h-11 max-w-full items-center text-sm text-muted underline underline-offset-4 hover:text-foreground"
-        >
-          <span className="min-w-0 truncate">By {event.organiserName}</span>
-        </Link>
-      )}
       {showSave && (
         <SaveButton
           event={{ id: event.id, title: event.title, slug: event.slug }}
           variant="overlay"
           className="absolute right-1 top-1"
         />
+      )}
+      {showOrganiser && event.organiserId && (
+        <Link
+          href={`/organisers/${encodeURIComponent(event.organiserId)}`}
+          className="inline-flex min-h-11 max-w-full items-center text-sm text-muted underline underline-offset-4 hover:text-foreground"
+        >
+          {/* A long name wraps to a second line, then is cut short. */}
+          <span className="line-clamp-2 min-w-0 break-words">By {event.organiserName}</span>
+        </Link>
       )}
     </div>
   );

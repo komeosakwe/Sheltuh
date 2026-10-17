@@ -13,40 +13,118 @@ export const SOCIAL_NETWORKS: readonly { network: SocialNetwork; label: string }
   { network: "x", label: "X" },
 ];
 
+/** The organiser profile page's title before (or without) the organiser's name. */
+export const ORGANISER_PAGE_TITLE = "Organiser — Sheltüh";
+/** The title while the profile can't be shown (unknown or not public). */
+export const ORGANISER_UNAVAILABLE_TITLE = "Organiser not available — Sheltüh";
+
+/** "Northside Noise — Sheltüh". */
+export function organiserPageTitle(displayName: string): string {
+  return `${displayName} — Sheltüh`;
+}
+
 /**
  * The social-handle fields an organiser types into, in display order. The
  * server validates them (lib/server/organiser-input.ts) and strips a leading
- * '@'; the client only shapes the request.
+ * '@'; the client only shapes the request. The hints spell out the server's
+ * limits so they're known before a save is refused.
  */
 export const SOCIAL_HANDLE_FIELDS = [
   {
     field: "instagramHandle",
     label: "Instagram username",
     prefix: "@",
-    hint: "Just your username, without the @.",
+    hint: "Just your username, without the @. Letters, numbers, . and _, up to 30.",
   },
   {
     field: "tiktokHandle",
     label: "TikTok username",
     prefix: "@",
-    hint: "Just your username, without the @.",
+    hint: "Just your username, without the @. Letters, numbers, . and _, up to 30.",
   },
   {
     field: "facebookPage",
     label: "Facebook page",
     prefix: "facebook.com/",
-    hint: "Your page's username, as in facebook.com/yourpage.",
+    hint: "Your page's username, as in facebook.com/yourpage. Letters, numbers and ., 5 to 50.",
   },
   {
     field: "xHandle",
     label: "X username",
     prefix: "@",
-    hint: "Just your username, without the @.",
+    hint: "Just your username, without the @. Letters, numbers and _, up to 15.",
   },
 ] as const;
 
 export type SocialHandleField = (typeof SOCIAL_HANDLE_FIELDS)[number]["field"];
 export type SocialHandleValues = Record<SocialHandleField, string>;
+
+/** The sites each handle's profile URL can be on ("www.", "m." and the like are dropped first). */
+const PROFILE_HOSTS: Record<SocialHandleField, readonly string[]> = {
+  instagramHandle: ["instagram.com"],
+  tiktokHandle: ["tiktok.com"],
+  facebookPage: ["facebook.com", "fb.com"],
+  xHandle: ["x.com", "twitter.com"],
+};
+
+/** One-segment paths on those sites that are pages of the site itself, not someone's profile. */
+const NOT_PROFILES = new Set([
+  "accounts",
+  "events",
+  "explore",
+  "groups",
+  "hashtag",
+  "home",
+  "i",
+  "login",
+  "messages",
+  "notifications",
+  "p",
+  "pages",
+  "profile.php",
+  "reel",
+  "reels",
+  "search",
+  "settings",
+  "share",
+  "stories",
+  "watch",
+]);
+
+/**
+ * The handle in a pasted profile URL for that field's network, when it's
+ * unambiguous: instagram.com/name, tiktok.com/@name, facebook.com/name,
+ * x.com/name (or twitter.com/name), with or without https:// and "www.",
+ * and exactly one path segment. Anything else (a plain handle, another site,
+ * a post or other deeper link) is null, and left for the server to judge.
+ */
+export function handleFromProfileUrl(field: SocialHandleField, value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed.includes("/")) return null;
+  let url: URL;
+  try {
+    url = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  const host = url.hostname.toLowerCase().replace(/^(?:www|m|mobile|web)\./, "");
+  if (!PROFILE_HOSTS[field].includes(host)) return null;
+  const segments = url.pathname.split("/").filter(Boolean);
+  if (segments.length !== 1) return null;
+  let segment: string;
+  try {
+    segment = decodeURIComponent(segments[0]);
+  } catch {
+    return null;
+  }
+  if (field === "tiktokHandle") {
+    if (!segment.startsWith("@")) return null;
+    segment = segment.slice(1);
+  }
+  if (!segment || /[\s@/]/.test(segment) || NOT_PROFILES.has(segment.toLowerCase())) return null;
+  return segment;
+}
 
 /** Handles as typed: trimmed, with "" meaning "clear it" (sent as null). */
 export function socialHandlesForRequest(values: SocialHandleValues): Record<SocialHandleField, string | null> {

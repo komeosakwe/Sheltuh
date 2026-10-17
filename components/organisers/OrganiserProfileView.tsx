@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Ref } from "react";
 import OrganiserLinks from "@/components/organisers/OrganiserLinks";
 import EventTile from "@/components/ui/EventTile";
 import { SectionHeader } from "@/components/ui/Section";
@@ -8,8 +9,18 @@ import { adaptPublicEvent } from "@/lib/live/adapt";
 import { formatMemberSince } from "@/lib/organiser-profile";
 import { EVENT_CATEGORIES } from "@/lib/types";
 
-/** An approved organiser's public profile: who they are, their links, then their events. */
-export default function OrganiserProfileView({ profile }: { profile: PublicOrganiserProfile }) {
+/**
+ * An approved organiser's public profile: who they are, their links, then
+ * their events. `headingRef` makes the h1 focusable from script (tabIndex
+ * -1), for a caller that moves focus to it.
+ */
+export default function OrganiserProfileView({
+  profile,
+  headingRef,
+}: {
+  profile: PublicOrganiserProfile;
+  headingRef?: Ref<HTMLHeadingElement>;
+}) {
   const categoryLabels = profile.categories.map(
     (value) => EVENT_CATEGORIES.find((category) => category.value === value)?.label ?? value,
   );
@@ -29,7 +40,13 @@ export default function OrganiserProfileView({ profile }: { profile: PublicOrgan
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-14">
         <header className="flex flex-col gap-5 lg:col-span-7">
           <p className="eyebrow text-muted">Organiser</p>
-          <h1 className="display-lg break-words">{profile.displayName}</h1>
+          <h1
+            ref={headingRef}
+            tabIndex={headingRef ? -1 : undefined}
+            className="display-lg break-words outline-offset-2"
+          >
+            {profile.displayName}
+          </h1>
           <p className="text-sm text-muted">Member since {formatMemberSince(profile.memberSince)}</p>
           {categoryLabels.length > 0 && (
             <ul aria-label="Categories" className="flex flex-wrap gap-2">

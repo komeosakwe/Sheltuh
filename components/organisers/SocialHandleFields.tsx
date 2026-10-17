@@ -1,4 +1,9 @@
-import { SOCIAL_HANDLE_FIELDS, type SocialHandleField, type SocialHandleValues } from "@/lib/organiser-profile";
+import {
+  handleFromProfileUrl,
+  SOCIAL_HANDLE_FIELDS,
+  type SocialHandleField,
+  type SocialHandleValues,
+} from "@/lib/organiser-profile";
 
 /**
  * The four optional social-handle inputs (Instagram, TikTok, Facebook page,
@@ -6,6 +11,10 @@ import { SOCIAL_HANDLE_FIELDS, type SocialHandleField, type SocialHandleValues }
  * wired up with aria-invalid / aria-describedby. Used by the organiser
  * application form and the dashboard's public profile form. The caller
  * supplies the surrounding <fieldset> and legend.
+ *
+ * A profile URL for the field's own network (pasted over the whole value, or
+ * left there on blur) is cut down to the handle when that's unambiguous;
+ * anything else is kept exactly as typed for the server to judge.
  */
 export default function SocialHandleFields({
   values,
@@ -45,6 +54,19 @@ export default function SocialHandleFields({
                 name={field}
                 value={values[field]}
                 onChange={(e) => onChange(field, e.target.value)}
+                onPaste={(e) => {
+                  const input = e.currentTarget;
+                  // Only a paste that replaces the whole value: never splice into what's there.
+                  if (input.selectionStart !== 0 || input.selectionEnd !== input.value.length) return;
+                  const handle = handleFromProfileUrl(field, e.clipboardData.getData("text"));
+                  if (handle === null) return;
+                  e.preventDefault();
+                  onChange(field, handle);
+                }}
+                onBlur={(e) => {
+                  const handle = handleFromProfileUrl(field, e.currentTarget.value);
+                  if (handle !== null) onChange(field, handle);
+                }}
                 autoComplete="off"
                 autoCapitalize="none"
                 autoCorrect="off"

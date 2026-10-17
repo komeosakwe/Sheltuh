@@ -85,7 +85,11 @@ export default function FreeOrderConfirm() {
   }
 
   if (state.status === "loading") {
-    return <p className="py-16 text-center text-sm text-muted">Loading&hellip;</p>;
+    return (
+      <p role="status" className="py-16 text-center text-sm text-muted">
+        Loading&hellip;
+      </p>
+    );
   }
 
   if (state.status === "missing" || state.status === "error") {
@@ -97,10 +101,17 @@ export default function FreeOrderConfirm() {
     const retryToken = state.status === "error" ? state.token : undefined;
     return (
       <div className="flex flex-col items-center gap-3 py-16 text-center">
-        <h1 ref={headingRef} tabIndex={-1} className="font-heading text-2xl text-foreground outline-offset-2">
+        {/* No role="alert" on the message: focus moves to the heading, which
+            it describes, so it's read with the heading rather than twice. */}
+        <h1
+          ref={headingRef}
+          tabIndex={-1}
+          aria-describedby="free-order-message"
+          className="font-heading text-2xl text-foreground outline-offset-2"
+        >
           {title}
         </h1>
-        <p role="alert" className="max-w-md text-sm text-muted">
+        <p id="free-order-message" className="max-w-md text-sm text-muted">
           {message}
         </p>
         {retryToken && (

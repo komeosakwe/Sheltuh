@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import OrganiserProfilePage from "@/app/organisers/[organiserId]/page";
 import { ApiError } from "@/lib/api/client";
@@ -174,17 +174,95 @@ describe("/organisers/[organiserId] (live)", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("shows other errors, and loads again on 'Try again'", async () => {
+  it("shows other errors, and loads again on 'Try again', focusing the loaded profile's heading", async () => {
     getOrganiserProfile
-      .mockRejectedValueOnce(new ApiError(500, "Something went wrong."))
+      .mockRejectedValueOnce(new ApiError(429, "Too many requests. Try again shortly."))
       .mockResolvedValueOnce(profile());
     await renderPage();
 
     expect(screen.getByRole("status")).toHaveTextContent("Loading organiser");
-    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Too many requests. Try again shortly.");
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByRole("heading", { level: 1, name: "Northside Noise" })).toBeInTheDocument();
+    const heading = await screen.findByRole("heading", { level: 1, name: "Northside Noise" });
+    // The button is gone: focus goes to the new heading, not <body>.
+    await waitFor(() => expect(heading).toHaveFocus());
+    expect(heading).toHaveAttribute("tabindex", "-1");
     expect(getOrganiserProfile).toHaveBeenCalledTimes(2);
+  });
+
+  it("focuses the 'isn't available' heading when a retry finds no organiser", async () => {
+    getOrganiserProfile
+      .mockRejectedValueOnce(new ApiError(0, "Couldn't reach the server. Check your connection and try again."))
+      .mockRejectedValueOnce(new ApiError(404, "Organiser not found."));
+    await renderPage();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach the server.");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    const heading = await screen.findByRole("heading", { level: 1, name: "This organiser isn’t available" });
+    await waitFor(() => expect(heading).toHaveFocus());
+  });
+
+  it("focuses the error heading again when a retry fails too", async () => {
+    getOrganiserProfile.mockRejectedValue(new ApiError(0, "Couldn't reach the server."));
+    await renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(getOrganiserProfile).toHaveBeenCalledTimes(2));
+    const heading = await screen.findByRole("heading", { level: 1, name: "Couldn’t load this organiser" });
+    await waitFor(() => expect(heading).toHaveFocus());
+  });
+
+  it("doesn't move focus on the first load (only after 'Try again')", async () => {
+    getOrganiserProfile.mockResolvedValue(profile());
+    await renderPage();
+    const heading = await screen.findByRole("heading", { level: 1, name: "Northside Noise" });
+    expect(heading).not.toHaveFocus();
+  });
+
+  it.each([
+    ["a 5xx with the server's message", new ApiError(500, "Internal error: relation does not exist")],
+    ["a response with no JSON message", new ApiError(502, "Request failed (502).")],
+    ["a non-JSON 4xx", new ApiError(403, "Request failed (403).")],
+    ["something that isn't an API error", new TypeError("Cannot read properties of undefined")],
+  ])("says something friendly for %s", async (_, error) => {
+    getOrganiserProfile.mockRejectedValue(error);
+    await renderPage();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Something went wrong on our side. Try again in a moment.");
+    expect(alert).not.toHaveTextContent(/\d{3}|relation|undefined/);
+  });
+
+  it("titles the page with the organiser's name once loaded", async () => {
+    document.title = "Organiser — Sheltüh";
+    getOrganiserProfile.mockResolvedValue(profile());
+    await renderPage();
+    await screen.findByRole("heading", { level: 1, name: "Northside Noise" });
+    await waitFor(() => expect(document.title).toBe("Northside Noise — Sheltüh"));
+  });
+
+  it("titles a missing organiser as unavailable, and an error with the plain page title", async () => {
+    document.title = "Someone Else — Sheltüh";
+    getOrganiserProfile.mockRejectedValue(new ApiError(404, "Organiser not found."));
+    await renderPage();
+    await screen.findByRole("heading", { level: 1, name: "This organiser isn’t available" });
+    await waitFor(() => expect(document.title).toBe("Organiser not available — Sheltüh"));
+
+    cleanup();
+    document.title = "Someone Else — Sheltüh";
+    getOrganiserProfile.mockRejectedValue(new ApiError(500, "boom"));
+    await renderPage();
+    await screen.findByRole("alert");
+    expect(document.title).toBe("Organiser — Sheltüh");
+  });
+
+  it("marks each new-tab link with a visible (decorative) arrow", async () => {
+    getOrganiserProfile.mockResolvedValue(profile());
+    await renderPage();
+    const link = await screen.findByRole("link", { name: "X: @nsnoise (opens in a new tab)" });
+    const icons = link.querySelectorAll("svg");
+    // The network's mark and the new-tab arrow, both hidden from the accessibility tree.
+    expect(icons).toHaveLength(2);
+    for (const icon of icons) expect(icon).toHaveAttribute("aria-hidden", "true");
   });
 });
 

@@ -5,6 +5,10 @@ import PublicProfileForm from "@/components/dashboard/PublicProfileForm";
 import { ButtonLink } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
+import { withNext } from "@/lib/safe-next-path";
+
+/** Where signing in from here comes back to. */
+const RETURN_TO = "/dashboard/profile";
 
 /** The dashboard's public profile editor: available once the organiser is approved. */
 export default function PublicProfilePanel() {
@@ -31,7 +35,7 @@ export default function PublicProfilePanel() {
     return (
       <div className="bg-surface p-4">
         <p className="mb-3 text-foreground">Sign in to edit your organiser profile.</p>
-        <Link href="/login" className="btn btn-solid">
+        <Link href={withNext("/login", RETURN_TO)} className="btn btn-solid min-h-11">
           Sign in
         </Link>
       </div>
@@ -44,7 +48,7 @@ export default function PublicProfilePanel() {
         <p role="alert" className="text-sm text-danger">
           {error}
         </p>
-        <button type="button" onClick={() => refetch()} className="btn btn-outline">
+        <button type="button" onClick={() => refetch()} className="btn btn-outline min-h-11">
           Try again
         </button>
       </div>
@@ -57,7 +61,7 @@ export default function PublicProfilePanel() {
         <p className="mb-3 text-foreground">
           Your public profile goes live once your organiser application is approved.
         </p>
-        <Link href="/organisers/apply" className="btn btn-solid">
+        <Link href="/organisers/apply" className="btn btn-solid min-h-11">
           {organiser ? "View application" : "Apply as an organiser"}
         </Link>
       </div>

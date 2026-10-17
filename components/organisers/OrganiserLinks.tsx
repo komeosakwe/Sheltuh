@@ -18,7 +18,8 @@ interface LinkItem {
 
 /**
  * The organiser's website and social profiles, each a new-tab link with a
- * text label ("Instagram: @name"). The website is organiser-supplied, so it's
+ * text label ("Instagram: @name") and a visible new-tab arrow, which the
+ * aria-label also says in words. The website is organiser-supplied, so it's
  * nofollow ugc; social URLs are built by the server from validated handles.
  * Renders nothing when there are no links.
  */
@@ -74,6 +75,19 @@ export default function OrganiserLinks({
               </span>
               {item.detail && <span className="min-w-0 break-all text-muted">{item.detail}</span>}
             </span>
+            {/* Seen, not read: the aria-label already says it opens in a new tab. */}
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="size-3.5 shrink-0 text-muted"
+            >
+              <path d="M7 17 17 7M9 7h8v8" />
+            </svg>
           </a>
         </li>
       ))}

@@ -107,6 +107,11 @@ describe("DashboardContent — analytics entry points", () => {
     renderDashboard();
     await waitFor(() => expect(screen.getByText("Night Market")).toBeInTheDocument());
     expect(screen.getByRole("link", { name: "Analytics" })).toHaveAttribute("href", "/dashboard/analytics");
+    // The dashboard's actions are 44px targets, Public profile included.
+    for (const name of ["New event", "Payouts", "Analytics", "Public profile"]) {
+      expect(screen.getByRole("link", { name })).toHaveClass("min-h-11");
+    }
+    expect(screen.getByRole("link", { name: "Public profile" })).toHaveAttribute("href", "/dashboard/profile");
     const perEvent = screen.getByRole("link", { name: "Analytics for Night Market" });
     expect(perEvent).toHaveAttribute("href", "/dashboard/events/a/analytics");
     const edit = screen.getByRole("link", { name: /^Night Market/ });
