@@ -1,7 +1,9 @@
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { formatAud } from "@/lib/format";
-import type { EmailMessage } from "./email";
+import { QR_QUIET_ZONE_MODULES, ticketQrLabel, ticketQrMatrix } from "@/lib/ticket-qr";
+import type { EmailMessage, InlineImage } from "./email";
 import { orderReference } from "./order-reference";
+import { encodePng } from "./png";
 import type { EventRecord, OrderRecord } from "./types";
 
 /**
@@ -9,9 +11,15 @@ import type { EventRecord, OrderRecord } from "./types";
  *
  * Table-based markup with inline styles so it holds up in Gmail, Apple Mail and
  * Outlook. Everything essential (event, when, where, every ticket code, the
- * total) is real text, so it reads the same with images blocked. The only image
- * is the logo mark, with alt text; there is no event artwork, QR code or
- * barcode (the check-in system doesn't scan them yet).
+ * total) is real text, so it reads the same with images blocked.
+ *
+ * Images: the logo mark (remote, decorative) and, for each ticket whose code
+ * is a real one (`TICKET_CODE_PATTERN`), its QR code (lib/ticket-qr.ts) as an
+ * inline PNG attachment (`cid:`), so it shows even where remote images are
+ * blocked. The code stays printed beneath it for the door to type in. The
+ * PNGs are made here, each time the email is built: the outbox rebuilds the
+ * whole message from the order on every attempt (lib/server/email-outbox.ts),
+ * so nothing is stored. No event artwork, no barcode.
  */
 
 // Palette. The blue is the electric blue used across the site's poster art.
@@ -26,6 +34,14 @@ const SANS = `'Helvetica Neue', Helvetica, Arial, sans-serif`;
 const MONO = `'SFMono-Regular', Menlo, Consolas, 'Courier New', monospace`;
 
 const MELBOURNE_TZ = "Australia/Melbourne";
+
+/**
+ * QR size: 21 modules plus a 4-module quiet zone each side = 29 modules,
+ * shown 6 px a module (174 px). The PNG has 12 px a module, so it stays sharp
+ * on high-density screens, and halving it lands on whole pixels everywhere else.
+ */
+const QR_DISPLAY_PX_PER_MODULE = 6;
+const QR_PNG_PX_PER_MODULE = 12;
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -92,11 +108,38 @@ function detailRow(label: string, value: string): string {
   );
 }
 
-function ticketCard(code: string, typeName: string, index: number, total: number): string {
+interface TicketQr {
+  image: InlineImage;
+  /** Shown width and height, in CSS pixels. */
+  px: number;
+  alt: string;
+}
+
+/** The ticket's QR as an inline PNG, or null when the code isn't a real one. */
+function ticketQr(code: string, index: number): TicketQr | null {
+  const matrix = ticketQrMatrix(code);
+  if (!matrix) return null;
+  return {
+    image: {
+      cid: `ticket-qr-${index + 1}@sheltuh.com.au`,
+      contentType: "image/png",
+      content: encodePng(matrix, QR_PNG_PX_PER_MODULE, QR_QUIET_ZONE_MODULES),
+      filename: `ticket-${code}-qr.png`,
+    },
+    px: (matrix.length + QR_QUIET_ZONE_MODULES * 2) * QR_DISPLAY_PX_PER_MODULE,
+    alt: ticketQrLabel(code),
+  };
+}
+
+function ticketCard(code: string, typeName: string, index: number, total: number, qr: TicketQr | null): string {
   const label = total > 1 ? `Ticket ${index + 1} of ${total}` : "Your ticket";
+  // The PNG carries its own white quiet zone, so the card behind it needn't be white.
+  const qrRow = qr
+    ? `<tr><td align="center" style="padding:4px 18px 10px 18px"><img src="cid:${escapeHtml(qr.image.cid)}" width="${qr.px}" height="${qr.px}" alt="${escapeHtml(qr.alt)}" style="display:block;border:0;width:${qr.px}px;height:${qr.px}px;image-rendering:pixelated;-ms-interpolation-mode:nearest-neighbor"></td></tr>\n`
+    : "";
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:2px solid ${INK};border-radius:10px;margin:0 0 14px 0">
 <tr><td style="padding:16px 18px 6px 18px;font-family:${SANS};font-size:12px;line-height:18px;letter-spacing:1.2px;text-transform:uppercase;font-weight:bold;color:${MUTED}">${escapeHtml(label)}${typeName ? ` &middot; ${escapeHtml(typeName)}` : ""}</td></tr>
-<tr><td style="padding:0 18px 16px 18px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td class="code" bgcolor="${CREAM}" align="center" style="background-color:${CREAM};border-radius:8px;padding:14px 8px;font-family:${MONO};font-size:28px;line-height:34px;font-weight:bold;letter-spacing:3px;color:${INK};word-break:break-all">${escapeHtml(code)}</td></tr></table></td></tr>
+${qrRow}<tr><td style="padding:0 18px 16px 18px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td class="code" bgcolor="${CREAM}" align="center" style="background-color:${CREAM};border-radius:8px;padding:14px 8px;font-family:${MONO};font-size:28px;line-height:34px;font-weight:bold;letter-spacing:3px;color:${INK};word-break:break-all">${escapeHtml(code)}</td></tr></table></td></tr>
 </table>`;
 }
 
@@ -112,6 +155,9 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
   const reference = orderReference(order.orderId);
   const total = order.totalCents === 0 ? "Free" : `${formatAud(order.totalCents)} (incl. booking fees)`;
   const logoUrl = `${siteUrl}/icons/icon-192.png`;
+  const qrs = order.tickets.map((t, i) => ticketQr(t.ticketCode, i));
+  const anyQr = qrs.some((qr) => qr !== null);
+  const one = order.tickets.length === 1;
 
   // --- Plain text ---
   const text = [
@@ -123,7 +169,13 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
     ...(venue ? [`Venue: ${venue}`] : []),
     ...(address ? [`Address: ${address}`] : []),
     "",
-    "YOUR TICKETS (show these codes at the door)",
+    ...(anyQr
+      ? [
+          one ? "YOUR TICKET" : "YOUR TICKETS",
+          `Show the QR ${one ? "code" : "codes"} in this email at the door, with your screen brightness up. ` +
+            `If ${one ? "it" : "one"} won't scan, door staff can type in the entry code.`,
+        ]
+      : ["YOUR TICKETS (show these codes at the door)"]),
     ...order.tickets.flatMap((t, i) => [
       "",
       `${order.tickets.length > 1 ? `Ticket ${i + 1} of ${order.tickets.length}` : "Your ticket"}${t.ticketTypeName ? ` - ${t.ticketTypeName}` : ""}`,
@@ -142,8 +194,11 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
   // --- HTML ---
   const details =
     detailRow("Date", date) + detailRow("Time", when) + (venue ? detailRow("Venue", venue) : "") + (address ? detailRow("Address", address) : "");
-  const tickets = order.tickets.map((t, i) => ticketCard(t.ticketCode, t.ticketTypeName, i, order.tickets.length)).join("\n");
-  const preheader = `Your ${order.tickets.length === 1 ? "ticket" : "tickets"} for ${event.title}. Show your entry code at the door.`;
+  const tickets = order.tickets.map((t, i) => ticketCard(t.ticketCode, t.ticketTypeName, i, order.tickets.length, qrs[i])).join("\n");
+  const preheader = `Your ${one ? "ticket" : "tickets"} for ${event.title}. Show your ${anyQr ? "QR code" : "entry code"} at the door.`;
+  const instructions = anyQr
+    ? `Show ${one ? "this QR code" : "these QR codes"} at the door. Turn your screen brightness up. If ${one ? "it" : "one"} won&rsquo;t scan, door staff can type in ${one ? "the" : "its"} code.`
+    : `Show ${one ? "this code" : "these codes"} at the door.`;
 
   const html = `<!DOCTYPE html>
 <html lang="en-AU" xmlns="http://www.w3.org/1999/xhtml">
@@ -179,7 +234,7 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
     <p style="margin:0 0 24px 0;font-family:${SANS};font-size:22px;line-height:28px;font-weight:bold;color:${BLUE}">${escapeHtml(event.title)}</p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid ${LINE};border-bottom:1px solid ${LINE};margin:0 0 28px 0">${details}</table>
     <p style="margin:0 0 6px 0;font-family:${SANS};font-size:18px;line-height:26px;font-weight:bold;color:${INK}">Your ${order.tickets.length === 1 ? "ticket" : "tickets"}</p>
-    <p style="margin:0 0 16px 0;font-family:${SANS};font-size:16px;line-height:24px;color:${INK}">Show ${order.tickets.length === 1 ? "this code" : "these codes"} at the door.</p>
+    <p style="margin:0 0 16px 0;font-family:${SANS};font-size:16px;line-height:24px;color:${INK}">${instructions}</p>
 ${tickets}
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:14px 0 28px 0"><tr>
       <td bgcolor="${BLUE}" align="center" style="background-color:${BLUE};border-radius:10px"><a href="${escapeHtml(link)}" style="display:block;padding:14px 30px;min-height:20px;font-family:${SANS};font-size:16px;line-height:20px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:10px">${escapeHtml(buttonLabel)}</a></td>
@@ -200,5 +255,12 @@ ${tickets}
 </body>
 </html>`;
 
-  return { to: order.buyerEmail ?? "", subject: `Your tickets: ${event.title}`, text, html };
+  const inlineImages = qrs.flatMap((qr) => (qr ? [qr.image] : []));
+  return {
+    to: order.buyerEmail ?? "",
+    subject: `Your tickets: ${event.title}`,
+    text,
+    html,
+    ...(inlineImages.length > 0 ? { inlineImages } : {}),
+  };
 }

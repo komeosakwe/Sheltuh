@@ -1,6 +1,10 @@
+import nodemailer from "nodemailer";
 import { describe, expect, it } from "vitest";
+import { mailOptions } from "@/lib/server/email";
+import { encodePng } from "@/lib/server/png";
 import { buildTicketEmail, formatTicketDate, formatTicketTime, orderReference } from "@/lib/server/ticket-email";
 import type { EventRecord, OrderRecord } from "@/lib/server/types";
+import { ticketQrMatrix } from "@/lib/ticket-qr";
 
 const event = {
   title: "Paint & <Sip>",
@@ -87,11 +91,15 @@ describe("buildTicketEmail", () => {
     expect(html).toMatch(/font-size:28px[^"]*letter-spacing:3px/); // large readable code
   });
 
-  it("keeps the essentials as real text (no image, QR or barcode carries any information)", () => {
+  // Updated deliberately for QR check-in: each ticket now has a QR image, but
+  // it encodes only the code printed beneath it, so the rule still holds that
+  // nothing is carried by an image alone (and there's still no barcode).
+  it("keeps the essentials as real text (the only images are the logo and a QR per ticket)", () => {
     const { html } = buildTicketEmail(order, event, "https://x");
-    expect(html.match(/<img /g)).toHaveLength(1); // the logo mark only
+    expect(html.match(/<img /g)).toHaveLength(1 + order.tickets.length);
+    expect(html.match(/<img src="cid:/g)).toHaveLength(order.tickets.length);
     expect(html).toContain('src="https://x/icons/icon-192.png"');
-    expect(html).not.toMatch(/qr code|barcode|qrcode/i);
+    expect(html).not.toMatch(/barcode/i);
     const withoutImages = html.replace(/<img[^>]*>/g, "");
     for (const needle of ["Paint &#38; &#60;Sip&#62;", "Studio 5", "5 Smith St, Fitzroy", "ABCD-EFGH", "JKLM-NPQR", "A$64", "#ABC"]) {
       expect(withoutImages).toContain(needle);
@@ -177,5 +185,109 @@ describe("buildTicketEmail", () => {
     expect(html.toLowerCase()).not.toContain("just reply");
     expect(html).toContain("display:none"); // preheader
     expect(html).toContain('lang="en-AU"');
+  });
+
+  // --- QR codes ---
+
+  it("gives each real ticket code a ~180px QR, attached inline under a matching cid, with the code as alt text", () => {
+    const email = buildTicketEmail(order, event, "https://x");
+    const images = email.inlineImages ?? [];
+    expect(images.map((i) => i.cid)).toEqual(["ticket-qr-1@sheltuh.com.au", "ticket-qr-2@sheltuh.com.au"]);
+    const tags = [...email.html.matchAll(/<img src="cid:([^"]+)"[^>]*>/g)];
+    expect(tags.map((t) => t[1])).toEqual(images.map((i) => i.cid));
+    for (const [i, code] of ["ABCD-EFGH", "JKLM-NPQR"].entries()) {
+      const tag = tags[i][0];
+      expect(tag).toContain(`alt="QR code for ticket ${code}"`);
+      expect(tag).toContain('width="174" height="174"');
+      expect(images[i].contentType).toBe("image/png");
+      expect(images[i].filename).toBe(`ticket-${code}-qr.png`);
+      // The PNG is this ticket's own QR (encodePng's pixels are tested in png.test.ts).
+      expect(images[i].content.equals(encodePng(ticketQrMatrix(code)!, 12, 4))).toBe(true);
+      expect(images[i].content.length).toBeLessThan(1024);
+    }
+  });
+
+  it("keeps each code as text beneath its QR, inside the same card", () => {
+    const { html } = buildTicketEmail(order, event, "https://x");
+    const cards = html.split("border:2px solid #0b0b0b").slice(1);
+    expect(cards).toHaveLength(2);
+    for (const [i, code] of ["ABCD-EFGH", "JKLM-NPQR"].entries()) {
+      const qrAt = cards[i].indexOf(`cid:ticket-qr-${i + 1}@`);
+      expect(qrAt).toBeGreaterThan(-1);
+      expect(cards[i].indexOf(`>${code}</td>`)).toBeGreaterThan(qrAt);
+    }
+  });
+
+  it("tells the buyer how to use the QR, in the HTML and the plain text", () => {
+    const one = buildTicketEmail({ ...order, tickets: [order.tickets[0]] }, event, "https://x");
+    expect(one.html).toContain("Show this QR code at the door. Turn your screen brightness up.");
+    expect(one.html).toContain("Show your QR code at the door."); // preheader
+    expect(one.text).toContain("Show the QR code in this email at the door, with your screen brightness up.");
+    expect(one.text).toContain("Entry code: ABCD-EFGH");
+    const many = buildTicketEmail(order, event, "https://x");
+    expect(many.html).toContain("Show these QR codes at the door. Turn your screen brightness up.");
+    expect(many.text).toContain("YOUR TICKETS\nShow the QR codes in this email at the door");
+  });
+
+  it("gives a malformed code no QR, no attachment and the old wording", () => {
+    const bad = { ...order, tickets: [{ ticketCode: "abcd-efgh", ticketTypeId: "t", ticketTypeName: "GA" }] } as OrderRecord;
+    const email = buildTicketEmail(bad, event, "https://x");
+    expect(email.inlineImages).toBeUndefined();
+    expect(email.html).not.toContain("cid:");
+    expect(email.html).not.toMatch(/qr code/i);
+    expect(email.html).toContain("Show this code at the door.");
+    expect(email.text).toContain("YOUR TICKETS (show these codes at the door)");
+    expect(email.html).toContain("abcd-efgh");
+  });
+
+  it("only gives QR codes to the real codes in a mixed order", () => {
+    const mixed = {
+      ...order,
+      tickets: [
+        { ticketCode: "AAAA-1111", ticketTypeId: "t", ticketTypeName: "GA" }, // 1 isn't in the alphabet
+        { ticketCode: "BBBB-2222", ticketTypeId: "t", ticketTypeName: "GA" },
+      ],
+    } as OrderRecord;
+    const email = buildTicketEmail(mixed, event, "https://x");
+    expect(email.inlineImages?.map((i) => i.cid)).toEqual(["ticket-qr-2@sheltuh.com.au"]);
+    expect(email.html).not.toContain("QR code for ticket AAAA-1111");
+    expect(email.html).toContain('alt="QR code for ticket BBBB-2222"');
+  });
+
+  it("an escaped hostile code still gets no QR (only real codes are encoded)", () => {
+    const email = buildTicketEmail(
+      { ...order, tickets: [{ ticketCode: 'A<B>"1"&', ticketTypeId: "t", ticketTypeName: "GA" }] } as OrderRecord,
+      event,
+      "https://x",
+    );
+    expect(email.inlineImages).toBeUndefined();
+    expect(email.html).not.toContain('A<B>"1"&');
+    expect(email.html).toContain("A&#60;B&#62;&#34;1&#34;&#38;");
+  });
+
+  it("builds identical images every time, so an outbox retry (which rebuilds the email) sends the same QR", () => {
+    const first = buildTicketEmail(order, event, "https://x");
+    const second = buildTicketEmail(order, event, "https://x");
+    expect(second.html).toBe(first.html);
+    expect(second.inlineImages).toEqual(first.inlineImages);
+  });
+
+  it("sends the QR codes as inline parts of a multipart/related message", async () => {
+    const transport = nodemailer.createTransport({ streamTransport: true, buffer: true, newline: "\n" });
+    const email = buildTicketEmail(order, event, "https://x");
+    const info = await transport.sendMail(mailOptions("tickets@sheltuh.com.au", email));
+    const raw = (info.message as Buffer).toString("utf8");
+    expect(raw).toMatch(/Content-Type: multipart\/related/);
+    for (const image of email.inlineImages ?? []) {
+      expect(raw).toContain(`Content-ID: <${image.cid}>`);
+      expect(raw).toContain(image.content.toString("base64").slice(0, 60));
+    }
+    expect(raw.match(/Content-Disposition: inline/g)?.length).toBe(2);
+    expect(raw).not.toMatch(/Content-Disposition: attachment/);
+  });
+
+  it("a message without inline images has no attachments (other emails are unchanged)", () => {
+    const options = mailOptions("tickets@sheltuh.com.au", { to: "a@example.com", subject: "s", text: "t", html: "<p>h</p>" });
+    expect(options.attachments).toBeUndefined();
   });
 });

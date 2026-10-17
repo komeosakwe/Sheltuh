@@ -5,12 +5,18 @@
  *   node --import tsx scripts/preview-ticket-email.ts [siteUrl]
  *
  * Output: email-previews/*.html and *.txt (git-ignored). The logo is loaded
- * from `siteUrl` (default http://127.0.0.1:3111, the local dev server).
+ * from `siteUrl` (default http://127.0.0.1:3111, the local dev server). The
+ * real email shows each ticket's QR as an inline attachment (`cid:`), which a
+ * browser can't resolve, so the preview swaps each `cid:` for a data URI of
+ * the same PNG. qr-svg.html shows the SVG version (lib/ticket-qr.ts
+ * `ticketQrSvgPath`, as the ticket page draws it) beside the PNG.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import type { EmailMessage } from "../lib/server/email";
 import { buildTicketEmail } from "../lib/server/ticket-email";
 import type { EventRecord, OrderRecord } from "../lib/server/types";
+import { ticketQrLabel, ticketQrMatrix, ticketQrSvgPath } from "../lib/ticket-qr";
 
 const siteUrl = process.argv[2] ?? "http://127.0.0.1:3111";
 const outDir = path.join(process.cwd(), "email-previews");
@@ -60,10 +66,39 @@ const scenarios: Record<string, { order: OrderRecord; event: EventRecord }> = {
   },
 };
 
+/** The email's HTML with every `cid:` image inlined as a data URI. */
+function withDataUris(email: EmailMessage): string {
+  let html = email.html;
+  for (const image of email.inlineImages ?? []) {
+    html = html.replaceAll(`cid:${image.cid}`, `data:${image.contentType};base64,${image.content.toString("base64")}`);
+  }
+  return html;
+}
+
+/** The SVG QR next to the email's PNG, for comparing the two renderings. */
+function qrSvgPage(code: string, email: EmailMessage): string {
+  const matrix = ticketQrMatrix(code);
+  if (!matrix) throw new Error(`${code} isn't a ticket code`);
+  const { d, size } = ticketQrSvgPath(matrix);
+  const png = email.inlineImages?.[0];
+  const pngTag = png ? `<img src="data:${png.contentType};base64,${png.content.toString("base64")}" width="174" height="174" alt="PNG">` : "";
+  return `<!DOCTYPE html><html lang="en-AU"><head><meta charset="utf-8"><title>QR ${code}</title></head>
+<body style="font-family:sans-serif;background:#f3f0e8;padding:24px">
+<p>SVG (ticketQrSvgPath) and the email's PNG for ${code}</p>
+<svg role="img" aria-label="${ticketQrLabel(code)}" viewBox="0 0 ${size} ${size}" width="174" height="174" shape-rendering="crispEdges"><rect width="${size}" height="${size}" fill="#fff"/><path d="${d}" fill="#000"/></svg>
+${pngTag}
+</body></html>`;
+}
+
 mkdirSync(outDir, { recursive: true });
+let written = 0;
 for (const [name, { order, event }] of Object.entries(scenarios)) {
   const email = buildTicketEmail(order, event, siteUrl);
-  writeFileSync(path.join(outDir, `${name}.html`), email.html);
+  writeFileSync(path.join(outDir, `${name}.html`), withDataUris(email));
   writeFileSync(path.join(outDir, `${name}.txt`), email.text);
+  written += 2;
 }
-console.log(`Wrote ${Object.keys(scenarios).length * 2} files to ${outDir}`);
+const sample = scenarios["1-one-ticket"];
+writeFileSync(path.join(outDir, "qr-svg.html"), qrSvgPage("K7QM-2XPD", buildTicketEmail(sample.order, sample.event, siteUrl)));
+written += 1;
+console.log(`Wrote ${written} files to ${outDir}`);

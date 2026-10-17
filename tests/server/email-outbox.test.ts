@@ -216,6 +216,21 @@ describe("SMTP failures", () => {
     expect(await jobs(orderId)).toMatchObject([{ status: "sent", attempts: 2, last_error: null }]);
   });
 
+  it("a retry rebuilds the email with the ticket's QR image (nothing is stored in the outbox)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    api.sendEmail.mockRejectedValueOnce(new Error("timeout"));
+    await paidOrder("fan@example.com", { runDeferred: true });
+    await makeDue();
+    await drainEmailOutbox(api.deps);
+    const [first, retry] = api.sendEmail.mock.calls.map(([m]) => m);
+    expect(retry.inlineImages).toHaveLength(1);
+    expect(retry.inlineImages![0].contentType).toBe("image/png");
+    expect(retry.html).toContain(`src="cid:${retry.inlineImages![0].cid}"`);
+    expect(retry.inlineImages![0].content.equals(first.inlineImages![0].content)).toBe(true);
+    const [code] = await api.db.query<{ code: string }>(`select code from public.tickets`);
+    expect(retry.html).toContain(`alt="QR code for ticket ${code.code}"`);
+  });
+
   it("are logged and stored without the address or the order id", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     api.sendEmail.mockRejectedValue(new Error("550 5.1.1 <Mia.Secret@example.com>: Recipient address rejected"));

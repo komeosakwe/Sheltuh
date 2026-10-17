@@ -172,6 +172,22 @@ times, which are converted to instants honouring daylight saving
      doesn't count towards the 20.
    - Errors are stored and logged with addresses redacted, and logs name an
      order by its short reference (`#7C1F2E0A`), never its id.
+   - The email (`lib/server/ticket-email.ts`) is rebuilt from the order on
+     every attempt, images included, so the outbox stores no content. Each
+     ticket whose code matches `TICKET_CODE_PATTERN` gets a QR code
+     (`SH1:` + code, level Q, version 1: `lib/ticket-qr.ts` over the vendored
+     encoder `lib/qr/qrcodegen.ts`) as a 1-bit PNG (`lib/server/png.ts`, about
+     300 bytes, 348 px shown at 174 px) attached inline (`cid:`, a
+     multipart/related part, `EmailMessage.inlineImages`), so it shows even
+     where remote images are blocked. Alt text names the ticket, the code is
+     printed beneath it, and the plain-text part lists every code. A code
+     that doesn't match the pattern gets no QR. Emails sent before QR codes
+     (and the plain-text part) rely on the door typing in the code, which
+     check-in accepts the same way. The encoder was verified by decoding
+     over a thousand codes, as matrices, PNGs and rendered email, with two
+     independent decoders (jsQR, ZXing) outside the repo; the tests check the
+     symbol's structure against the standard and pin a decoder-verified
+     matrix. Email clients themselves aren't tested.
    Free orders require the buyer's email address at checkout; for paid
    orders, Stripe collects it.
 5. `/checkout/success?session_id=<order id>` polls
@@ -824,8 +840,11 @@ is `cache-control: private, no-store`.
 
 ## Not built yet
 
-- Check-in's scanner page and QR images (the check-in API and log are built:
-  see "Check-in"). No per-event door staff accounts.
+- Check-in's scanner page, and the QR on the ticket page (the check-in API,
+  log and the ticket email's QR codes are built: see "Check-in" and "Payment
+  flow"). `/checkout/success` still shows a Code 128 barcode, which is to be
+  replaced by the same QR (`ticketQrMatrix` / `ticketQrSvgPath`). No
+  per-event door staff accounts.
 - Analytics beyond stages A and B (see "Organiser analytics").
 - Venue coordinates (the map falls back to suburb centroids).
 - Who's Going beyond increment 2: no admin UI for suspensions or the

@@ -1,11 +1,27 @@
 import nodemailer from "nodemailer";
 import type Mail from "nodemailer/lib/mailer";
 
+/**
+ * An image embedded in the message and shown by the HTML as
+ * `<img src="cid:{cid}">` (e.g. a ticket's QR code). Sent as an inline
+ * attachment in a multipart/related part, so it shows even when a client
+ * blocks remote images.
+ */
+export interface InlineImage {
+  /** Unique within the message; the HTML refers to it as `cid:{cid}`. */
+  cid: string;
+  contentType: "image/png";
+  content: Buffer;
+  /** Shown if a client lists the image as an attachment. */
+  filename?: string;
+}
+
 export interface EmailMessage {
   to: string;
   subject: string;
   text: string;
   html: string;
+  inlineImages?: InlineImage[];
 }
 
 export type SendEmail = (message: EmailMessage) => Promise<void>;
@@ -24,6 +40,17 @@ export function mailOptions(from: string, message: EmailMessage): Mail.Options {
     subject: message.subject,
     text: message.text,
     html: message.html,
+    ...(message.inlineImages?.length
+      ? {
+          attachments: message.inlineImages.map((image) => ({
+            cid: image.cid,
+            contentType: image.contentType,
+            content: image.content,
+            contentDisposition: "inline" as const,
+            ...(image.filename ? { filename: image.filename } : {}),
+          })),
+        }
+      : {}),
   };
 }
 
