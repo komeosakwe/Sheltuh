@@ -30,7 +30,7 @@ Stripe ──webhook──▶ /api/stripe/webhook
 - **The database enforces the rules that matter most.** Whatever the
   application code does:
   - Overselling is impossible: a `quantity_sold <= quantity_available` check
-    on `ticket_types`.
+    on `ticket_types` (and `quantity_sold >= 0`).
   - Slugs are unique.
   - There's one organiser application per account.
   - A ticket type that has sold tickets can't be deleted.
@@ -50,11 +50,11 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | `organisers` | `id` | `owner_user_id` is unique, one application per account. It's null for platform-managed organisers (events Sheltüh lists on someone's behalf, and seed data). `status`: pending → approved / rejected. Also holds the Stripe Connect account id and `payouts_enabled`. Optional social handles (`instagram_handle`, `tiktok_handle`, `facebook_page`, `x_handle`), stored without `@` and pattern-checked by the database; `website_url` must be http(s), at most 2048 characters (check constraint; the API only takes new `https://` addresses, see "Organiser profiles"). An admin takedown sets `rejected` (see "Organiser profiles"). |
 | `private.organiser_profile_edits` | `id` (identity) | Append-only log per organiser: each profile edit made without review (`profile_edit`: old and new value of each changed field, by the owner) and each admin takedown (`suspended`, with the admin and reason). A trigger refuses updates (except the `actor_id` foreign key's own set-null when that account is deleted). Admins see the newest 20 per organiser. Kept while the organiser exists; deleted with it. |
 | `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected; unpublish returns it to draft. `is_free` is kept up to date for the feed's free/paid filter. `whos_going_enabled` (default true) is an admin-only kill switch for that event's Who's Going, set in SQL (`docs/supabase-setup.md`). |
-| `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. `quantity_sold` only ever changes in `fulfil_order`. |
+| `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. `quantity_sold` only ever goes up in `fulfil_order`, and down only in `record_payment_refund` (a paid order refunded in full). |
 | `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Public via `GET /api/events/[id]/image` once published (cached for a day, versioned URL); before that only the owner/admins with a token. Move to Storage/CDN if volume grows. |
 | `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished, by whom, and why. |
-| `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed, or oversold_refund_required → refunded. `tickets_emailed_at` records the ticket email. `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). |
-| `tickets` | `code` | One row per admitted person. This is the future home of check-in. |
+| `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed / oversold_refund_required; oversold_refund_required → refunded (our automatic refund); paid → refunded (refunded in full in Stripe, see "Refunds made in Stripe"). `amount_refunded_cents` (≥ 0, default 0) is Stripe's cumulative refunded amount, recorded only for paid orders (a partial refund leaves the order paid). Indexed on `stripe_payment_intent_id` (partial, not null) for the refund webhook. `tickets_emailed_at` records the ticket email. `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). |
+| `tickets` | `code` | One row per admitted person. This is the future home of check-in. Rows are kept when their order is refunded, but only a `paid` order's tickets are valid: check-in must check the order's status. |
 | `private.platform_rate_limits` | `bucket` | Platform-wide fixed-window counters (`take_platform_rate_limit`): the hourly and 24-hour confirmation-email caps. Idle rows purged daily. |
 | `private.free_order_refusals` | `(day, reason)` | Counts of refused free bookings per Melbourne day and reason. No personal data. Deleted after 13 months. |
 | `private.email_outbox` | `id` | One ticket-email job per paid order (`(order_id, kind)` unique): status, attempts, next attempt, lease, redacted last error. No address or content (read from the order at send time). Deleted with the order. |
@@ -105,6 +105,7 @@ times, which are converted to instants honouring daylight saving
 | `claim_email_jobs`, `finish_email_job`, `resend_email_job`, `admin_resend_email_job` | The ticket-email outbox: lease due jobs with `skip locked` (an expired lease is taken again; one that expired on the 6th attempt fails), record an outcome only for the current lease holder, and an admin resend (not while leased, not twice in 5 minutes). `admin_resend_email_job` takes a hit on the admin's hourly allowance only when the resend is queued, in the same transaction (over it: `rate_limited`, nothing changed). |
 | `edit_organiser_profile` | An approved organiser's profile edit (`PATCH /organisers/me`): locks the organiser row, checks it's still approved (`not_approved` → 409), writes only the fields sent whose value really changes, and appends their old and new values to `organiser_profile_edits`, in one step. A no-op edit writes nothing. Returns `updated`, `unchanged`, `not_approved` or `not_found`. |
 | `suspend_organiser` | An admin takedown, only from `approved` (a second admin gets 409): locks the organiser row, then its published and pending-review events in id order; sets the organiser `rejected` with the reason and reviewer; moves each published event to draft (`unpublished`) and each pending one to `rejected`, through `transition_event`, so the event moderation log records each with the admin and reason; logs the takedown. Deletes nothing. Returns the result and how many events moved. |
+| `record_payment_refund` | Records a `charge.refunded` by payment intent (see "Refunds made in Stripe"). Locks the order (`for update`), and acts only on a `paid` one. Full refund: `refunded`, the amount recorded, and each line item's quantity taken off its ticket type's `quantity_sold` (never below 0), updating ticket types in `ticketTypeId` order like `fulfil_order`, so the two can't deadlock. Partial: only `amount_refunded_cents`, which only grows. A redelivery (already refunded, or no larger amount) changes nothing, so inventory is released exactly once. Returns `refunded`, `partial`, `unchanged` or `not_found`, with the order id when found (logged by short reference only). |
 | `fulfil_order` | Queues the ticket email in the same step (see "Payment flow"). Takes inventory for every line item, issues the tickets and marks the order paid. If any ticket type has sold out, or the event is no longer published, it takes nothing and marks the order `oversold_refund_required`. Rows are locked in a fixed order, so concurrent orders can't deadlock. It's idempotent, so Stripe's webhook redeliveries are harmless. |
 
 ## Payment flow
@@ -134,6 +135,9 @@ times, which are converted to instants honouring daylight saving
      `refund.updated` / `refund.failed` settle pending ones. A refund call
      that errors returns 500, so Stripe redelivers and it's retried.
    - `expired` / `async_payment_failed` → the order is marked `failed`.
+   - `charge.refunded` → `record_payment_refund` (see "Refunds made in
+     Stripe").
+   - Any other event type is acknowledged (200) and ignored.
    - Inventory is only taken here, so an abandoned checkout never holds
      tickets.
 4. Once an order is paid (free orders included), the buyer is emailed their
@@ -171,12 +175,76 @@ times, which are converted to instants honouring daylight saving
    `GET /api/orders/by-session/<id>`. The unguessable order id is the
    credential, so the response is only what that page shows: status, short
    reference, event title and slug, a masked email (`m***@example.com`),
-   subtotal, buyer fee, total, and ticket codes with type names. Never the
+   subtotal, buyer fee, total, ticket codes with type names (only while the
+   order is `paid`), and, for a refunded or refund-pending order,
+   `refundReason`: `oversold` (no tickets were ever issued) or `refunded`
+   (paid, then refunded in full; its tickets are void). Never the
    order, event or organiser ids, fee split, Stripe ids, line items or
    timestamps. Every response is `private, no-store`, an id that isn't shaped
    like one (`ord_` + 32 hex) is a 404 without a query, and a pending order
    reveals only its status. `/checkout/*` pages send `Referrer-Policy:
    no-referrer` and `X-Robots-Tag: noindex, nofollow` (`next.config.ts`).
+
+## Refunds made in Stripe
+
+Refunds of paid orders are made in the Stripe dashboard (there's no refund
+button in the app). Stripe tells us with `charge.refunded`, whose charge
+carries its payment intent, its cumulative `amount_refunded`, and `refunded`
+(true once the whole charge is refunded). The webhook passes those to
+`private.record_payment_refund` (`supabase/migrations/20261020000000_payment_refunds.sql`):
+
+- **Order states.** `pending` → `paid` (fulfilled) → `refunded` (refunded in
+  full). The automatic path for orders that couldn't be fulfilled is
+  separate and unchanged: `oversold_refund_required` → `refunded`, settled by
+  `refund.updated` / `refund.failed` by refund id. `charge.refunded` only
+  ever changes a `paid` order.
+- **Full refund** of a paid order: it becomes `refunded`, the amount is
+  recorded, and its inventory is released (each line item's quantity off its
+  ticket type's `quantity_sold`), so the tickets can be sold again. Its ticket
+  rows are kept but void: `GET /orders/by-session` no longer returns their
+  codes (`refundReason: "refunded"`), the ticket email refuses an order that
+  isn't paid, and check-in must accept `paid` orders only.
+- **Partial refund**: `amount_refunded_cents` is recorded and the order stays
+  `paid` with valid tickets. It's logged (`console.error`, by short order
+  reference) for someone to decide what to do, e.g. refund the rest.
+- **Idempotent.** Stripe redelivers: a delivery for an order already
+  `refunded`, or a partial one that doesn't raise the recorded amount, is
+  `unchanged`. Two deliveries at once serialise on the order row, so
+  inventory is released exactly once.
+- **Not ours.** A payment intent no order has (another integration's
+  payment, or a malformed event) is acknowledged with 200 and logged by
+  Stripe's event id, never a 500, so Stripe doesn't retry it for days.
+- Logs name an order only by its short reference (`#7C1F2E0A`): never its id,
+  the buyer, or the payment intent.
+
+### Accepted limits (refunds)
+
+- **Disputes (chargebacks) aren't handled.** `charge.dispute.*` is ignored: a
+  disputed order stays `paid`. Handle disputes in the Stripe dashboard; if
+  one is lost, refund-and-void isn't automatic.
+- **Partial refunds don't void anything.** No ticket is cancelled and no
+  inventory released for a partial refund, since we can't know which tickets
+  it was for. Refunding the remainder (so the charge is fully refunded) voids
+  the whole order.
+- **Who's Going opt-ins survive a refund.** An opt-in isn't revisited when
+  its order stops being `paid` (as for a changed email; see "Not built yet").
+  The member can't opt in again to an event they hold no paid order for.
+- **A refund that arrives before the payment is recorded is lost.** The
+  payment intent is stored by `fulfil_order`, so a `charge.refunded`
+  processed before the order's own payment webhook commits (only possible if
+  that webhook failed and is awaiting Stripe's retry when the dashboard
+  refund is made) finds no order and is acknowledged; the order then becomes
+  `paid` with valid tickets. The log line (Stripe event id) is the signal to
+  reconcile by hand.
+- **A manual refund of an `oversold_refund_required` order** (its automatic
+  refund failed) doesn't change it: `charge.refunded` only acts on `paid`
+  orders, and a dashboard refund carries no order id for `refund.updated`.
+  After refunding it in Stripe, set it `refunded` in SQL
+  (`docs/supabase-setup.md`).
+- **The money side is Stripe's.** For a destination charge, a dashboard
+  refund only reverses the organiser's transfer and refunds Sheltüh's
+  application fee if those options are chosen in Stripe. We record only the
+  amount refunded to the buyer.
 
 ## Free tickets
 

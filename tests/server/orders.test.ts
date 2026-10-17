@@ -502,7 +502,11 @@ describe("Stripe webhook", () => {
   });
 
   it("acknowledges events it doesn't act on, and unknown orders", async () => {
-    const ignored = await api.send(stripeWebhook, stripeWebhookRequest({ type: "charge.refunded", data: { object: {} } }));
+    // Disputes aren't handled (docs/architecture.md, "Refunds made in Stripe"). charge.refunded is: payment-refunds.test.ts.
+    const ignored = await api.send(
+      stripeWebhook,
+      stripeWebhookRequest({ type: "charge.dispute.created", data: { object: { id: "dp_test_1", object: "dispute" } } }),
+    );
     expect({ status: ignored.status, body: ignored.body }).toEqual({ status: 200, body: { received: true } });
     const unknown = await api.send(stripeWebhook, stripeWebhookRequest(completedSession("ord_unknown")));
     expect(unknown.status).toBe(200);

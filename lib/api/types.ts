@@ -147,8 +147,11 @@ export interface Paginated<T> {
 }
 
 /**
- * `oversold_refund_required`: paid, but the tickets sold out first — refund
- * not yet confirmed. `refunded`: Stripe has accepted that refund.
+ * `oversold_refund_required`: paid, but the tickets sold out first (or the
+ * event was unpublished) — refund not yet confirmed. `refunded`: Stripe has
+ * accepted that refund, or a paid order was refunded in full afterwards (e.g.
+ * from the Stripe dashboard), voiding its tickets. A partial refund leaves an
+ * order `paid`.
  */
 export type OrderStatus = "pending" | "paid" | "failed" | "oversold_refund_required" | "refunded";
 
@@ -217,6 +220,16 @@ export interface ConfirmFreeOrderResult {
  */
 export interface CustomerOrder {
   status: Exclude<OrderStatus, "pending">;
+  /**
+   * Set only when `status` is `oversold_refund_required` or `refunded`:
+   * - `"oversold"`: the payment arrived after the tickets sold out or the
+   *   event was unpublished, so no tickets were ever issued; it's refunded
+   *   (or being refunded) in full.
+   * - `"refunded"`: the order was paid and its tickets issued, then refunded
+   *   in full (e.g. by the organiser or Sheltüh from Stripe). Its tickets are
+   *   void and no longer returned.
+   */
+  refundReason?: "oversold" | "refunded";
   /** Short reference for support, e.g. "#7C1F2E0A" (the same one as in the ticket email). */
   reference: string;
   /** The event's title when the order was placed. */
@@ -229,6 +242,7 @@ export interface CustomerOrder {
   /** Booking fees the buyer paid (not any the organiser absorbed). */
   buyerFeeCents: number;
   totalCents: number;
+  /** Only for a `paid` order; empty for every other status (a refunded order's tickets are void). */
   tickets: { ticketCode: string; ticketTypeName: string }[];
 }
 

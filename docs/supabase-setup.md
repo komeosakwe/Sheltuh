@@ -345,13 +345,51 @@ where website_url ~* '^http://' or website_url ~ '^[A-Za-z]+://[^/?#]*@';
    - Events: `checkout.session.completed`,
      `checkout.session.async_payment_succeeded`,
      `checkout.session.async_payment_failed`, `checkout.session.expired`,
-     `refund.updated`, `refund.failed`
+     `refund.updated`, `refund.failed`, `charge.refunded`
    - Its signing secret (`whsec_…`) → `STRIPE_WEBHOOK_SECRET`
 
    For local testing: `stripe listen --forward-to localhost:3000/api/stripe/webhook`
    prints a temporary signing secret to use instead.
 4. Repeat steps 2–3 in live mode when you're ready to take real money.
    Live mode uses different keys and a different webhook secret.
+
+**`charge.refunded` is required in both test and live mode.** Test-mode and
+live-mode endpoints are configured separately, so check the event list on
+each. An endpoint created before this event was handled must have it added
+(Developers → Webhooks → the endpoint → Update details → Select events).
+Without it, a refund made in the Stripe dashboard leaves the order `paid`
+and its tickets valid.
+
+**Refunding a paid order.** Refund it from the Stripe dashboard (Payments →
+the payment → Refund). For a destination charge, choose whether to reverse
+the organiser's transfer and refund Sheltüh's application fee there; the app
+doesn't decide. A **full** refund marks the order `refunded`: its tickets are
+void (the confirmation page no longer shows them) and they go back on sale.
+A **partial** refund is only recorded: the order stays `paid` and its tickets
+stay valid, and the server logs `Order #… was partly refunded in Stripe …
+Review it manually.` Refunding the rest voids the whole order. Disputes
+aren't handled automatically (docs/architecture.md, "Refunds made in
+Stripe"). Partly refunded orders:
+
+```sql
+select id, total_cents, amount_refunded_cents, created_at
+from orders where status = 'paid' and amount_refunded_cents > 0;
+```
+
+**Testing refunds in test mode.** Buy a ticket with `4242 4242 4242 4242`
+and wait for the confirmation page to show the ticket codes. Then:
+
+- Partial: refund part of it in the dashboard. The order stays `paid`
+  (`select status, amount_refunded_cents from orders where id = '<order id>'`)
+  and the page still shows the tickets.
+- Full: refund the rest (or a fresh order in full). The order becomes
+  `refunded`, the page shows no ticket codes, and the ticket type's
+  `quantity_sold` goes down by the order's quantity.
+- With the Stripe CLI forwarding to a local server, `stripe trigger
+  charge.refunded` sends a refund for a payment the app doesn't know: it's
+  acknowledged (200) and logged as having no order, and nothing changes.
+- Stripe → Developers → Webhooks → the endpoint shows each delivery and our
+  response; "Resend" redelivers one, which changes nothing the second time.
 
 **Orders that can't be fulfilled are refunded automatically.** This covers
 two buyers paying for the last ticket within seconds of each other (the
@@ -368,6 +406,16 @@ SQL editor:
 ```sql
 select id, buyer_email, total_cents, stripe_payment_intent_id, created_at
 from orders where status = 'oversold_refund_required';
+```
+
+Once you've refunded one of these by hand in the Stripe dashboard, mark it
+refunded yourself: a dashboard refund can't be matched to the automatic one
+(`charge.refunded` only changes `paid` orders), and these orders never took
+any tickets, so nothing else needs undoing:
+
+```sql
+update orders set status = 'refunded'
+where id = '<order id>' and status = 'oversold_refund_required';
 ```
 
 ## 3. Ticket emails

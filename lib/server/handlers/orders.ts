@@ -116,6 +116,50 @@ async function refundOversoldOrder(deps: Deps, orderId: string, paymentIntentId:
   await recordRefund(deps.db, orderId, refund);
 }
 
+type PaymentRefundResult = "refunded" | "partial" | "unchanged" | "not_found";
+
+/** Postgres `integer`: an amount beyond it can't be a real charge's. */
+const MAX_INT4 = 2_147_483_647;
+
+/**
+ * charge.refunded: a refund of one of our payments, whoever made it (usually
+ * the Stripe dashboard). charge.amount_refunded is cumulative and
+ * charge.refunded is true once it covers the whole charge. A full refund of a
+ * paid order voids it (`refunded`, tickets void, inventory released); a
+ * partial one is only recorded and logged for manual follow-up
+ * (private.record_payment_refund). Never throws for a payment that isn't
+ * ours: Stripe would retry it for days.
+ */
+async function recordPaymentRefund(db: Db, eventId: string, charge: Stripe.Charge) {
+  const paymentIntentId = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
+  const amount = charge.amount_refunded;
+  if (
+    !paymentIntentId ||
+    typeof charge.refunded !== "boolean" ||
+    !Number.isSafeInteger(amount) ||
+    amount < 0 ||
+    amount > MAX_INT4
+  ) {
+    console.warn(`Stripe ${eventId}: charge.refunded without a usable payment intent or amount; ignored.`);
+    return;
+  }
+  const [row] = await db.query<{ result: PaymentRefundResult; order_id: string | null }>(
+    `select result, order_id from private.record_payment_refund($1, $2, $3)`,
+    [paymentIntentId, amount, charge.refunded],
+  );
+  // Logs name the order by its short reference only: never its id (the confirmation page's credential) or the buyer.
+  const reference = row.order_id ? orderReference(row.order_id) : undefined;
+  if (row.result === "refunded") {
+    console.info(`Order ${reference} was refunded in full in Stripe: marked refunded, tickets void, inventory released.`);
+  } else if (row.result === "partial") {
+    // Needs a person, like a failed automatic refund (console.error, as recordRefund does).
+    console.error(`Order ${reference} was partly refunded in Stripe; it stays paid and its tickets stay valid. Review it manually.`);
+  } else if (row.result === "not_found") {
+    // Not ours, or (rarely) a refund delivered before its payment was fulfilled: see docs/architecture.md.
+    console.warn(`Stripe ${eventId}: charge.refunded for a payment with no order on record; ignored.`);
+  }
+}
+
 /** A buyer email is required for free orders (nothing else delivers the tickets) and optional otherwise. */
 function parseBuyerEmail(body: Record<string, unknown>, required: true): string;
 function parseBuyerEmail(body: Record<string, unknown>, required: false): string | null;
@@ -249,6 +293,7 @@ const ORDER_NOT_FOUND = "Order not found.";
  */
 export const getOrderBySession: Handler<{ sessionId: string }> = async (_req, { sessionId }, { db }) => {
   // Anything that isn't shaped like an order id can't be one: no query needed.
+  // A refunded order's tickets are void: CUSTOMER_ORDER_SELECT returns codes for paid orders only.
   if (!ORDER_ID_PATTERN.test(sessionId)) throw new HttpError(404, ORDER_NOT_FOUND);
   const [row] = await db.query(`${CUSTOMER_ORDER_SELECT} where o.id = $1`, [sessionId]);
   if (!row) throw new HttpError(404, ORDER_NOT_FOUND);
@@ -281,6 +326,12 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
     const refund = event.data.object as Stripe.Refund;
     const orderId = refund.metadata?.orderId;
     if (orderId) await recordRefund(deps.db, orderId, refund);
+    return received;
+  }
+
+  // Any refund of a charge, including ones made in the Stripe dashboard.
+  if (event.type === "charge.refunded") {
+    await recordPaymentRefund(deps.db, event.id, event.data.object as Stripe.Charge);
     return received;
   }
 

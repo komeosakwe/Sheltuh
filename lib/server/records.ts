@@ -297,6 +297,9 @@ export function toOrder(row: Row): OrderRecord {
 /**
  * The buyer's confirmation-page view of an order (`where o.id = $1`). Only the
  * columns CustomerOrder needs: no ids, fee split, Stripe ids or timestamps.
+ * Ticket codes only while the order is paid: a refunded order's tickets are
+ * void. `tickets_issued` tells a paid-then-refunded order (it had tickets)
+ * from one refunded because it couldn't be fulfilled (it never did).
  */
 export const CUSTOMER_ORDER_SELECT = `
   select o.id, o.status::text as status, o.event_title, o.buyer_email,
@@ -305,14 +308,24 @@ export const CUSTOMER_ORDER_SELECT = `
          coalesce((
            select json_agg(json_build_object('ticketCode', t.code, 'ticketTypeName', t.ticket_type_name)
                            order by t.ticket_type_id, t.code)
-           from public.tickets t where t.order_id = o.id
-         ), '[]'::json) as tickets
+           from public.tickets t where t.order_id = o.id and o.status = 'paid'
+         ), '[]'::json) as tickets,
+         exists (select 1 from public.tickets t where t.order_id = o.id) as tickets_issued
   from public.orders o`;
+
+/** Why a refunded (or refund-pending) order was refunded; undefined for any other status. */
+function refundReason(status: CustomerOrder["status"], ticketsIssued: boolean): CustomerOrder["refundReason"] {
+  if (status === "oversold_refund_required") return "oversold";
+  if (status === "refunded") return ticketsIssued ? "refunded" : "oversold";
+  return undefined;
+}
 
 export function toCustomerOrder(row: Row): CustomerOrder {
   const email = opt<string>(row.buyer_email);
+  const status = row.status as CustomerOrder["status"];
   return {
-    status: row.status as CustomerOrder["status"],
+    status,
+    refundReason: refundReason(status, row.tickets_issued === true),
     reference: orderReference(row.id as string),
     eventTitle: row.event_title as string,
     eventSlug: opt(row.event_slug),
@@ -320,7 +333,8 @@ export function toCustomerOrder(row: Row): CustomerOrder {
     subtotalCents: row.subtotal_cents as number,
     buyerFeeCents: row.buyer_fee_cents as number,
     totalCents: row.total_cents as number,
-    tickets: row.tickets as CustomerOrder["tickets"],
+    // Belt and braces with the SQL: never a code for an order that isn't paid.
+    tickets: status === "paid" ? (row.tickets as CustomerOrder["tickets"]) : [],
   };
 }
 
