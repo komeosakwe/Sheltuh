@@ -208,8 +208,10 @@ describe("/organisers/[organiserId] (live)", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
     await waitFor(() => expect(getOrganiserProfile).toHaveBeenCalledTimes(2));
-    const heading = await screen.findByRole("heading", { level: 1, name: "Couldn’t load this organiser" });
-    await waitFor(() => expect(heading).toHaveFocus());
+    // Re-query on every attempt: the first error heading is replaced while the retry loads.
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1, name: "Couldn’t load this organiser" })).toHaveFocus(),
+    );
   });
 
   it("doesn't move focus on the first load (only after 'Try again')", async () => {
