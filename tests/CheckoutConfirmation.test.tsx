@@ -58,4 +58,20 @@ describe("CheckoutConfirmation", () => {
     expect(screen.queryByRole("link", { name: "Back to the event" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Add yourself to Who’s Going" })).toBeNull();
   });
+
+  it("tells the buyer a paid order was refunded and shows no codes", async () => {
+    getOrderBySession.mockResolvedValue({ ...ORDER, status: "refunded", refundReason: "refunded", tickets: [] });
+    render(<CheckoutConfirmation />);
+    expect(await screen.findByText("This order has been refunded")).toBeInTheDocument();
+    expect(screen.getByText(/tickets for this order are no longer valid/)).toBeInTheDocument();
+    expect(screen.queryByText(/no tickets were issued/)).toBeNull();
+    expect(screen.queryByText("ABC123")).toBeNull();
+  });
+
+  it("keeps the sold-out wording for an oversold refund", async () => {
+    getOrderBySession.mockResolvedValue({ ...ORDER, status: "oversold_refund_required", refundReason: "oversold", tickets: [] });
+    render(<CheckoutConfirmation />);
+    expect(await screen.findByText("We couldn\u2019t reserve your tickets")).toBeInTheDocument();
+    expect(screen.getByText(/no tickets were issued/)).toBeInTheDocument();
+  });
 });
