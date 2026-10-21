@@ -21,7 +21,8 @@ const JOB_NOT_FOUND = "Email not found.";
 const JOB_ID = /^[1-9][0-9]{0,17}$/;
 
 /**
- * GET /api/cron/email-outbox — Vercel Cron, every 5 minutes (vercel.json).
+ * GET /api/cron/email-outbox — Vercel Cron, daily on the Hobby plan, every 5
+ * minutes on Pro (vercel.json; docs/supabase-setup.md).
  * Sends every due ticket email (retries, and anything the after-response
  * attempt didn't finish). Returns counts only.
  */

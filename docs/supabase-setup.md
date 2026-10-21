@@ -471,10 +471,14 @@ Set it up once:
 1. Generate a secret (`openssl rand -hex 32`) and add it to Vercel as
    `CRON_SECRET` (Production). Without it the cron route refuses every
    request and nothing is retried.
-2. `vercel.json` already schedules `GET /api/cron/email-outbox` every 5
-   minutes; Vercel sends the secret as a bearer token. Every-5-minute crons
-   need the **Pro** plan (Hobby runs crons at most daily). On Hobby, use
-   Supabase Cron with `pg_net` to call the URL with the header instead.
+2. `vercel.json` schedules `GET /api/cron/email-outbox` once a day
+   (17:00 UTC, early morning in Melbourne), because the project is on the
+   Hobby plan, which refuses deployments with more frequent crons. Vercel
+   sends the secret as a bearer token. Ticket emails still go out right
+   after each purchase; only retries of failed sends wait for the daily run.
+   On the **Pro** plan, change the schedule back to every 5 minutes
+   (`*/5 * * * *`). On Hobby, Supabase Cron with `pg_net` calling the URL with
+   the header can retry more often.
 3. Check it under Vercel → Project → Settings → Cron Jobs (each run returns
    counts: `claimed`, `sent`, `retrying`, `failed`).
 
