@@ -8,7 +8,7 @@
 import { requireAdmin } from "../auth";
 import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
 import { parseEventInput, type EventInput } from "../event-input";
-import { created, HttpError, ok, readJson } from "../http";
+import { createdPrivate, HttpError, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
 import { isUuid } from "../pagination";
 import { ADMIN_EVENT_SELECT, ADMIN_ORGANISER_SELECT, toAdminEvent, toAdminOrganiser } from "../records";
@@ -49,7 +49,7 @@ async function requireAdminEvent(db: Db, eventId: string): Promise<AdminEventRec
 /** GET /api/admin/events/[eventId] — any event, any status, for the admin editor. */
 export const adminGetEvent: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   await requireAdmin(req, verifyAccessToken);
-  return ok(await requireAdminEvent(db, eventId));
+  return okPrivate(await requireAdminEvent(db, eventId));
 };
 
 // ---------------------------------------------------------------------------
@@ -87,7 +87,7 @@ export const adminCreateOrganiser: Handler = async (req, _params, { db, verifyAc
     ],
   );
   const [record] = await db.query(`${ADMIN_ORGANISER_SELECT} where o.id = $1`, [row.id]);
-  return created(toAdminOrganiser(record));
+  return createdPrivate(toAdminOrganiser(record));
 };
 
 // ---------------------------------------------------------------------------
@@ -218,7 +218,7 @@ export const adminCreateEvent: Handler = async (req, _params, { db, verifyAccess
       throw new HttpError(400, PLATFORM_PAID_REFUSED, { ticketTypes: PLATFORM_PAID_REFUSED });
   }
   // Only "created" and "published" are left, and both carry the new event's id.
-  return created(await requireAdminEvent(db, outcome.new_event_id));
+  return createdPrivate(await requireAdminEvent(db, outcome.new_event_id));
 };
 
 /**
@@ -291,7 +291,7 @@ export const adminUpdateEvent: Handler<{ eventId: string }> = async (req, { even
     case "organiser_not_approved":
       throw new HttpError(409, "This event's organiser isn't approved (they may have been suspended), so it can't be published.");
   }
-  return ok(await requireAdminEvent(db, eventId));
+  return okPrivate(await requireAdminEvent(db, eventId));
 };
 
 // ---------------------------------------------------------------------------
@@ -318,7 +318,7 @@ export const adminPutEventImage: Handler<{ eventId: string }> = async (req, { ev
     [eventId, admin.userId, contentType, bytes],
   );
   if (row.result === "not_found") throw new HttpError(404, EVENT_NOT_FOUND);
-  return ok(await requireAdminEvent(db, eventId));
+  return okPrivate(await requireAdminEvent(db, eventId));
 };
 
 /** DELETE /api/admin/events/[eventId]/image — any status; logged `edited` when there was a photo. 200 with the event; 404. */
@@ -330,5 +330,5 @@ export const adminDeleteEventImage: Handler<{ eventId: string }> = async (req, {
     [eventId, admin.userId],
   );
   if (row.result === "not_found") throw new HttpError(404, EVENT_NOT_FOUND);
-  return ok(await requireAdminEvent(db, eventId));
+  return okPrivate(await requireAdminEvent(db, eventId));
 };

@@ -28,6 +28,62 @@ yet: treat the first pass as **test mode**, and only then go live.
   reporting straight from the Who's Going list; evidence vanishes when a
   member deletes their profile before being reported (product decision).
 
+## Go-live checklist
+
+The items added since the steps below were written (B1 to B4, check-in,
+refunds, the brand redesign). Tick each one on the test setup first, then on
+live. Details are in [`supabase-setup.md`](supabase-setup.md) and
+[`architecture.md`](architecture.md).
+
+- [ ] **Migrations, in order, up to the newest.** Run every file in
+      `supabase/migrations/` in filename order that the project doesn't have
+      yet, one SQL Editor query per file (or `npx supabase db push`), up to
+      and including the newest, currently
+      `20261023000200_trending_distinct.sql`. Never skip one or change the
+      order: later files rely on earlier ones (`20261023000100_review_hardening.sql`
+      stops with a list of event ids if a stored ticket link breaks a newer
+      rule; fix those and re-run it). Check with
+      `select max(version) from supabase_migrations.schema_migrations;` when
+      using the CLI.
+- [ ] **`CRON_SECRET`** in Vercel (Production): a long random string
+      (`openssl rand -hex 32`). Without it `/api/cron/email-outbox` and
+      `/api/cron/trending` refuse every call: failed ticket emails are never
+      retried and Trending stays empty.
+- [ ] **Cron schedules.** `vercel.json` runs both crons once a day, the
+      Hobby plan's limit. Once on **Vercel Pro**, change them to
+      `*/5 * * * *` (`/api/cron/email-outbox`) and `*/15 * * * *`
+      (`/api/cron/trending`). Until then, Supabase Cron can run the trending
+      refresh every 15 minutes instead
+      (`select cron.schedule('refresh-trending', '*/15 * * * *', $$select private.refresh_trending()$$);`,
+      `supabase-setup.md` §3).
+- [ ] **Stripe webhook `charge.refunded`** on the endpoint, in test **and**
+      live mode (configured separately), alongside the checkout and refund
+      events listed in `supabase-setup.md` §2. Without it a refund made in
+      the Stripe dashboard leaves the order paid and its tickets valid at the
+      door.
+- [ ] **Email footer banner** hosted at exactly
+      `https://sheltuh.com.au/images/email-footer.png` (the ticket email
+      links this fixed URL, `EMAIL_FOOTER_IMAGE_URL` in
+      `lib/server/ticket-email.ts`). The file is `public/images/email-footer.png`;
+      while `sheltuh.com.au` is still the Cloudflare Worker landing page,
+      upload it there too. Open the URL in a private window to check.
+- [ ] **Privacy Policy wording** (owner to approve; drafts in
+      `architecture.md`, "Trending" and "Check-in"):
+  - Trending and favourites: saved events, Who's Going and ticket orders are
+    counted together with other members' activity to rank a public
+    "Trending" list; it never shows who did what or how many people saved an
+    event; page views are counted without cookies or identifiers; the
+    organiser's own activity is excluded; staff can boost or remove events.
+  - Check-in: when a ticket is scanned at the door, the time (and the
+    scanning account: the organiser, or a Sheltüh admin for platform-managed
+    organisers' events) is recorded, shown with the ticket (its ticket page),
+    and deleted 25 months after the event.
+- [ ] **Bootzy font files.** The licensed display face isn't in the repo;
+      headlines fall back to Instrument Sans. Add
+      `app/fonts/bootzy/Bootzy-Regular.woff2` and its licence file, then
+      follow the three steps in `app/fonts.ts` (`brand-direction-one.md`
+      §3.4). Check the licence covers web embedding.
+
 ## What is ready in the code
 
 - Branch `claude/wizardly-darwin-v2c9n2` holds everything since PR #6:
@@ -46,8 +102,8 @@ yet: treat the first pass as **test mode**, and only then go live.
 ## Supabase (test project first)
 
 1. [ ] Create the project in **Sydney (ap-southeast-2)**.
-2. [ ] Run every file in `supabase/migrations/` **in filename order** (nine
-       files, `20260925000000_init.sql` to `20261004000000_messaging_hardening.sql`).
+2. [ ] Run every file in `supabase/migrations/` **in filename order**, from
+       `20260925000000_init.sql` up to the newest (see "Go-live checklist").
 3. [ ] Auth settings: "Confirm email" **on** (Who's Going and messaging trust
        `email_confirmed_at`, so this is a security setting, not a nicety);
        OTP-style email templates; password policy; Site URL set to the real

@@ -145,6 +145,28 @@ describe("admin authoring: access", () => {
     expect(n).toBe(1);
   });
 
+  it("every success response is private, no-store (admin data must not be cached)", async () => {
+    const organiserRes = await api.call(adminCreateOrganiser, { token: admin.token, body: platformOrganiserBody });
+    const eventRes = await createEvent({ ...eventInput(), organiserId: organiser.organiserId });
+    const event = eventRes.body as AdminEventRecord;
+    const eventId = event.eventId;
+    const getRes = await api.call(adminGetEvent, { token: admin.token, params: { eventId } });
+    const patchRes = await patch(eventId, editBody(event, { title: "Renamed" }));
+    const putRes = await sendImage(adminPutEventImage, eventId, "PUT", PNG);
+    const deleteRes = await sendImage(adminDeleteEventImage, eventId, "DELETE");
+    const results: [string, { status: number; headers: Headers }, number][] = [
+      ["create organiser", organiserRes, 201],
+      ["create event", eventRes, 201],
+      ["get event", getRes, 200],
+      ["edit event", patchRes, 200],
+      ["put image", putRes, 200],
+      ["delete image", deleteRes, 200],
+    ];
+    for (const [name, res, status] of results) {
+      expect([name, res.status, res.headers.get("cache-control")]).toEqual([name, status, "private, no-store"]);
+    }
+  });
+
   it("an unknown or malformed event id is a 404", async () => {
     const unknown = crypto.randomUUID();
     expect((await api.call(adminGetEvent, { token: admin.token, params: { eventId: unknown } })).status).toBe(404);

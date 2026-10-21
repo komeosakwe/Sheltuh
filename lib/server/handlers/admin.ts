@@ -32,10 +32,41 @@ async function findAdminOrganiser(db: Db, organiserId: string): Promise<AdminOrg
   return row ? toAdminOrganiser(row) : undefined;
 }
 
+/** Longest admin organiser search text (longer input is cut, as in the public event search). */
+export const MAX_ORGANISER_SEARCH_LENGTH = 100;
+
 /**
- * GET /api/admin/organisers?status=pending — most recently updated first.
- * Each item is an AdminOrganiserRecord: the full record (social handles
- * included) plus its newest 20 profile-edit and takedown log entries.
+ * Folds text for the admin organiser search: compatibility-decomposed
+ * (NFKD, so "ＣＡＦＥ" is "CAFE"), combining diacritical marks (U+0300–U+036F)
+ * removed, lower-cased. ORGANISER_SEARCH_FOLD is the same in SQL, applied to
+ * the columns; the two must stay in step.
+ */
+export function foldOrganiserSearch(text: string): string {
+  return text.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+const ORGANISER_SEARCH_FOLD = (column: string) =>
+  `lower(regexp_replace(normalize(coalesce(${column}, ''), NFKD), '[\\u0300-\\u036f]', '', 'g'))`;
+
+/** A LIKE pattern matching `text` anywhere, its wildcards (and the escape character) matched literally. */
+function containsPattern(text: string): string {
+  return `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}
+
+/**
+ * GET /api/admin/organisers?status=pending&q=&limit=&cursor= — most recently
+ * updated first. Each item is an AdminOrganiserRecord: the full record
+ * (social handles included) plus its newest 20 profile-edit and takedown log
+ * entries.
+ *
+ * `q` (optional, trimmed, at most MAX_ORGANISER_SEARCH_LENGTH characters)
+ * keeps organisers whose name, contact email or social handles (Instagram,
+ * TikTok, Facebook page, X) contain it, ignoring case and accents
+ * (foldOrganiserSearch); a leading "@" is ignored for the handles. `limit`
+ * is 20 by default, at most 50. No index serves the search (a substring of a
+ * folded expression can't use a btree, and pg_trgm isn't installed): it
+ * scans one status's organisers through organisers_status_updated_idx, a
+ * few hundred rows at most for a while.
  */
 export const adminListOrganisers: Handler = async (req, _params, { db, verifyAccessToken }) => {
   await requireAdmin(req, verifyAccessToken);
@@ -47,10 +78,31 @@ export const adminListOrganisers: Handler = async (req, _params, { db, verifyAcc
   const limit = parseLimit(qs.get("limit"));
   const offset = decodeCursor(qs.get("cursor"));
 
+  const params: unknown[] = [status];
+  const where = ["o.status = $1::public.organiser_status"];
+  const q = foldOrganiserSearch(qs.get("q")?.trim().slice(0, MAX_ORGANISER_SEARCH_LENGTH) ?? "").trim();
+  if (q) {
+    params.push(containsPattern(q));
+    const any = `$${params.length}`;
+    const handle = q.replace(/^@+/, "");
+    params.push(handle ? containsPattern(handle) : null);
+    const h = `$${params.length}`;
+    where.push(
+      `(${ORGANISER_SEARCH_FOLD("o.display_name")} like ${any}
+        or ${ORGANISER_SEARCH_FOLD("o.contact_email")} like ${any}
+        or (${h}::text is not null and (
+              ${ORGANISER_SEARCH_FOLD("o.instagram_handle")} like ${h}
+           or ${ORGANISER_SEARCH_FOLD("o.tiktok_handle")} like ${h}
+           or ${ORGANISER_SEARCH_FOLD("o.facebook_page")} like ${h}
+           or ${ORGANISER_SEARCH_FOLD("o.x_handle")} like ${h})))`,
+    );
+  }
+  params.push(limit + 1, offset);
+
   const rows = await db.query(
-    `${ADMIN_ORGANISER_SELECT} where o.status = $1::public.organiser_status
-     order by o.updated_at desc, o.id limit $2 offset $3`,
-    [status, limit + 1, offset],
+    `${ADMIN_ORGANISER_SELECT} where ${where.join(" and ")}
+     order by o.updated_at desc, o.id limit $${params.length - 1} offset $${params.length}`,
+    params,
   );
   return okPrivate(toPage(rows.map(toAdminOrganiser), offset, limit));
 };

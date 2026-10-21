@@ -53,7 +53,7 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. A trigger refuses a price above 0 for a platform-managed organiser's event (`ticket_types_platform_free_only`). `quantity_sold` only ever goes up in `fulfil_order`, and down only in `record_payment_refund` (a paid order refunded in full). |
 | `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Public via `GET /api/events/[id]/image` once published (cached for a day, versioned URL); before that only the owner/admins with a token. Every write (insert, update, delete) bumps the event's `updated_at` in the same transaction (`event_images_touch_event`), so a photo change is a new version of the event (see "Admin authoring"); writers lock the event row (for no key update) before the image row. Move to Storage/CDN if volume grows. |
 | `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished / ticketing_changed / created / edited / curated, by whom, and why. `details` (jsonb object, null for the other actions): for `ticketing_changed`, the old and new value of each ticketing field the admin changed (full ticket links: see "External ticketing"); for `edited`, the old and new value of each other field an admin changed (see "Admin authoring"); for `curated`, the old and new `boost` and `excluded` (see "Trending"). Shown to the event's organiser and to admins (`moderationLog[].changes`), never publicly, except `curated` entries, which only admins see (`GET /admin/events/{id}/curation`). `by` is the actor's account id for admins; the organiser's view shows `"Sheltüh team"` (`SHELTUH_TEAM_ACTOR`) for anyone but the organiser's own account. No update trigger: personal information in `details` or `reason` is redacted in place (`docs/supabase-setup.md`, APP 11/13). |
-| `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed / oversold_refund_required; oversold_refund_required → refunded (our automatic refund); paid → refunded (refunded in full in Stripe, see "Refunds made in Stripe"). `amount_refunded_cents` (≥ 0, default 0) is Stripe's cumulative refunded amount, recorded only for paid orders (a partial refund leaves the order paid). Indexed on `stripe_payment_intent_id` (partial, not null) for the refund webhook. `tickets_emailed_at` records the ticket email. `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). |
+| `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed / oversold_refund_required; oversold_refund_required → refunded (our automatic refund); paid → refunded (refunded in full in Stripe, see "Refunds made in Stripe"). `amount_refunded_cents` (≥ 0, default 0) is Stripe's cumulative refunded amount, recorded only for paid orders (a partial refund leaves the order paid). Indexed on `stripe_payment_intent_id` (partial, not null) for the refund webhook, and on `(event_id, created_at)` (partial, `paid`) for the trending refresh's 14-day read. `tickets_emailed_at` records the ticket email. `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). |
 | `tickets` | `code` | One row per admitted person. Rows are kept when their order is refunded, but only a `paid` order's tickets are valid: check-in checks the order's status. `checked_in_at`: when the ticket was admitted at the door (null until then, and again after an undo; cleared 25 months after the event ends). Indexed on `(event_id, ticket_type_id)` for the check-in counts. |
 | `ticket_check_ins` | `id` (identity) | The check-in log (see "Check-in"): one row per scan or undo, with a random `public_id` (uuid, unique: the only id the API shows, as `checkInId`; the sequential `id` stays internal, so ids don't reveal platform-wide scan volume), the event scanned for, the ticket `code` (null for an `invalid` scan: what was scanned is never stored), the acting account (the organiser's, or the admin's for a platform-managed organiser's event), the client's `request_id` (unique per event: the idempotency key), the `result` and, for an undo only, its `reason` (3–200 characters). Check constraints tie `invalid` to a null code and `undone` to a reason. Deleted with the event or the ticket, and by `purge_analytics` 25 months after the event ends. No buyer data. |
 | `private.platform_rate_limits` | `bucket` | Platform-wide fixed-window counters (`take_platform_rate_limit`): the hourly and 24-hour confirmation-email caps. Idle rows purged daily. |
@@ -671,7 +671,8 @@ the organiser, set per ticket type. Either way the platform keeps it.
 ## Trending
 
 The home page's Trending section (`lib/server/handlers/trending.ts`,
-`supabase/migrations/20261023000000_trending.sql`, `lib/api/trending.ts`).
+`supabase/migrations/20261023000000_trending.sql` and
+`20261023000200_trending_distinct.sql`, `lib/api/trending.ts`).
 Computed in the database into a snapshot, which the public endpoint serves.
 
 **Score** `S = R · P · B`, defined only in SQL (`private.trending_*`):
@@ -684,17 +685,25 @@ Computed in the database into a snapshot, which the public endpoint serves.
   members. Op: `paid` orders with a price; Of: `paid` A$0 (free) orders.
   F, G, Op and Of are each capped at 50 a day. Pending, failed and refunded
   orders don't count.
+- **People.** Each favourite, opt-in and order belongs to a person: a
+  normalised email address (`private.email_key`: lower case, trimmed, no
+  `+tag`, Gmail dots and googlemail.com folded) where there is one (the
+  account's email for favourites and opt-ins, the buyer email for orders),
+  else the account's user id. So a member's favourite and their guest
+  checkout are one person. An order without a buyer email adds to the score
+  but to nobody's count.
 - **The organiser's own activity is left out**: favourites and opt-ins by
-  the owner account, and orders whose buyer email is the owner account's
-  email or the organiser's contact email (ignoring case). Activity from
-  other accounts the organiser controls can't be told apart (see "Accepted
-  risks").
+  the owner account, and anything by a person whose normalised email is the
+  owner account's or the organiser's contact email (so `owner+promo@` and an
+  account registered with the contact email don't count either). Activity
+  from other accounts the organiser controls can't be told apart (see
+  "Accepted risks").
 - **Decay**: `R_raw = Σ u · 0.5^(age/3)` over the last 14 Melbourne days
   (age 0 is today, 13 the oldest): a 3-day half-life.
 - **Shrinkage**: `R = (n·R_raw + 2·median) / (n + 2)`, where n is the
-  event's engagement count (below) and the median is over the eligible
-  events' `R_raw`. An event with few engagement events is pulled towards the
-  typical score, so 3 lucky favourites don't top the list.
+  number of distinct people who engaged (below) and the median is over the
+  eligible events' `R_raw`. An event few people engaged with is pulled
+  towards the typical score, so 3 lucky favourites don't top the list.
 - **Start proximity** P: 1 when the event starts within 7 days (or has
   started), falling linearly to 0.3 at 60 days.
 - **Admin boost** B: 0.5 to 2, default 1.
@@ -702,11 +711,16 @@ Computed in the database into a snapshot, which the public endpoint serves.
 **Eligible**: published; organiser approved; not ended; starts within 60
 days; its latest approval at least 6 hours old (time for a second look, and
 a re-approved event waits again); not excluded by an admin; and at least 3
-**engagement events** in the window: favourites, opt-ins and orders after
-the daily caps and exclusions. Views aren't engagement events (anyone can
-send them without an account). At most 2 events per organiser (their best
-two), then the top 24. Ties: sooner start, then id. External events are
-eligible like any other (they gain only views and favourites).
+**different people** who engaged in the window (favourite, opt-in, or a
+paid order, free ones included), after the exclusions (manager decision,
+21 Oct 2026). One person favouriting, opting in and buying tickets is still
+one person, so nobody can make an event trend alone. Views aren't
+engagement (anyone can send them without an account). At most 2 events per
+organiser (their best two), then the top 24. Ties (equal score): sooner
+start, then id. Days are Melbourne days (`at time zone
+'Australia/Melbourne'`), so the window's midnight follows daylight saving.
+External events are eligible like any other (they gain only views and
+favourites).
 
 **Refresh**: Vercel Cron `GET /api/cron/trending` (`CRON_SECRET`, through
 `lib/server/cron-auth.ts`) calls `private.refresh_trending()`. The project is
@@ -772,8 +786,11 @@ going count only at 5 or more, above the event page's own threshold of 3.
   day, the score decays in days, shrinkage damps small numbers, at most 2
   events per organiser rank, and admins can exclude an event at once.
   Orders cost money (or a confirmed free booking under the free-ticket
-  caps). The owner exclusion only covers the organiser's own account and
-  contact email.
+  caps). Counting distinct people makes one account (or one address, with
+  its `+tag` and Gmail-dot variants) count once, but three throwaway
+  accounts or addresses on different domains are still three people. The
+  owner exclusion only covers the organiser's own account and contact
+  email (normalised).
 - **Staleness.** On Hobby, scores change once a day; read-time checks still
   drop events that end, are unpublished, are taken down or are excluded,
   and labels (going count, just announced) are worked out at read time.
@@ -1059,7 +1076,9 @@ Admins create events themselves, for any organiser
   (`events_platform_free_only`, `organisers_platform_free_only`). The API
   refuses first: 400 with `fieldErrors.ticketTypes` on admin create and edit,
   and checkout is a 409 for a paid line. Check-in is by admins only, there
-  being no owner to sign in (see "Check-in"). Paid ticket types stored before
+  being no owner to sign in (see "Check-in"); the admin editor
+  (`AdminEditEvent`) links such an event, when Sheltüh-ticketed, to its door
+  check-in, `/dashboard/{eventId}/check-in`. Paid ticket types stored before
   the migration (dev seed data) are left, but checkout refuses them and they
   can't be saved again with a price; `npm run seed-dev-data` now skips the
   paid sample events.
@@ -1236,7 +1255,7 @@ application is approved.
 | `GET /organisers/me/events/{id}/analytics?from&to&compare` · `…/analytics.csv` | organiser (own events). 400 bad range |
 | `POST /organisers/me/events/{id}/check-ins` `{code, requestId}` · `GET …/check-ins` · `POST …/check-ins/{checkInId}/undo` `{reason}` | organiser (own events), or admin (platform-managed organisers' events only; anything else 404); see "Check-in". Every ticket outcome is 200; 400 bad body, 404, 409 request id reused for another code, 413, 429. `checkInId`s are uuids |
 | `GET /organisers/me/analytics/overview?from&to&compare` · `…/overview.csv` | organiser: all own events. 400 bad range |
-| `GET /admin/organisers?status` · `POST /admin/organisers/{id}/approve` · `…/reject` | admin. Items (and the decision responses) are `AdminOrganiserRecord`: the full record plus `recentEdits` (newest 20 log entries). Approve/reject: 409 unless pending |
+| `GET /admin/organisers?status&q&limit&cursor` · `POST /admin/organisers/{id}/approve` · `…/reject` | admin. Items (and the decision responses) are `AdminOrganiserRecord`: the full record plus `recentEdits` (newest 20 log entries), most recently updated first. `q` (optional, at most 100 characters used): name, contact email or social handle containing it, ignoring case and accents (NFKD, combining marks removed; a leading `@` is ignored for handles; LIKE wildcards match literally); no index (a substring of a folded expression), it scans one status's organisers. `limit` 20 by default, at most 50. The admin event editor's organiser picker searches with it. Approve/reject: 409 unless pending |
 | `POST /admin/organisers/{id}/suspend` `{reason}` | admin. Takedown of an approved organiser (see "Organiser profiles"). 200 `{organiser, eventsUnpublished, submissionsRejected}`; 400 reason missing, over 500 characters or with control/invisible characters; 404 unknown; 409 not approved |
 | `GET /admin/events?status` · `POST /admin/events/{id}/approve` · `…/reject` · `…/unpublish` | admin. Approve: 409 if the event's organiser isn't approved. Items are `EventRecord`s, so the review queue shows `ticketingMode`, `externalTicketUrl`, `externalProvider` and `ticketingLocked` |
 | `POST /admin/organisers` | admin. A platform-managed organiser (see "Admin authoring"): the application's fields and rules. 201 `AdminOrganiserRecord`; 400 fieldErrors |
@@ -1250,9 +1269,8 @@ response). It's currently a row offset, fine at this scale.
 
 JSON request bodies over 256 KB are refused with 413. Every error response
 is `cache-control: private, no-store`, and so is every admin response
-(`admin.ts`, `email-outbox.ts`, `reports.ts`, `trending.ts`), except, for
-now, the admin authoring routes (`admin-authoring.ts`: still plain `ok` /
-`created`).
+(`admin.ts`, `admin-authoring.ts`, `email-outbox.ts`, `reports.ts`,
+`trending.ts`).
 
 ## Code map
 

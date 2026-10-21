@@ -45,14 +45,39 @@ export interface AdminUpdateEventInput extends EventInput {
   reason?: string | null;
 }
 
+/** GET /api/admin/organisers query. */
+export interface AdminListOrganisersQuery {
+  status: OrganiserStatus;
+  /**
+   * Search: name, contact email or social handles containing it, ignoring
+   * case and accents ("sheltuh" finds "Sheltüh Presents"; "@" before a handle
+   * is optional). Blank: everyone in `status`. At most 100 characters are used.
+   */
+  q?: string;
+  /** Page size: 20 by default, at most 50. */
+  limit?: number;
+  cursor?: string;
+}
+
 /**
  * Organisers in one status, most recently updated first. Each item carries
  * its social handles and `recentEdits`: the newest 20 entries of its
  * append-only log (profile edits made without review, and takedowns).
+ * Called with a query object (`{status, q, limit, cursor}`), or as
+ * `(status, getToken, cursor)`.
  */
-export async function adminListOrganisers(status: OrganiserStatus, getToken: GetToken, cursor?: string) {
+export async function adminListOrganisers(
+  query: OrganiserStatus | AdminListOrganisersQuery,
+  getToken: GetToken,
+  cursor?: string,
+) {
   const token = await getToken();
-  const qs = new URLSearchParams({ status, ...(cursor ? { cursor } : {}) });
+  const options: AdminListOrganisersQuery = typeof query === "string" ? { status: query, cursor } : query;
+  const { status, q, limit, cursor: pageCursor } = options;
+  const qs = new URLSearchParams({ status });
+  if (q?.trim()) qs.set("q", q.trim());
+  if (limit !== undefined) qs.set("limit", String(limit));
+  if (pageCursor) qs.set("cursor", pageCursor);
   return apiFetch<Paginated<AdminOrganiserRecord>>(`/admin/organisers?${qs}`, { token });
 }
 

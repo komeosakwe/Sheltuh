@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import EventEditor from "@/components/dashboard/EventEditor";
@@ -17,7 +18,9 @@ const STATUS_LABEL: Record<EventStatus, string> = {
 /**
  * /admin/events/[eventId]/edit (inside AdminGate): loads any event and edits
  * it in admin mode. After a save conflict, "Reload latest version" fetches it
- * again and remounts the editor on the new version.
+ * again and remounts the editor on the new version. A platform-managed
+ * organiser's Sheltüh-ticketed event links to its door check-in, which admins
+ * run (docs/architecture.md, "Check-in").
  */
 export default function AdminEditEvent() {
   const auth = useAuth();
@@ -63,11 +66,24 @@ export default function AdminEditEvent() {
   }
   if (!event) return <p className="text-sm text-muted">Loading event…</p>;
 
+  const adminCheckIn = event.organiserPlatformManaged && event.ticketingMode === "sheltuh";
+
   return (
     <>
       <p className="text-sm text-muted">
         Status: <span className="font-medium text-foreground">{STATUS_LABEL[event.status]}</span>
       </p>
+      {adminCheckIn && (
+        <p className="text-sm text-muted">
+          <Link
+            href={`/dashboard/${encodeURIComponent(event.eventId)}/check-in`}
+            className="inline-flex min-h-11 items-center font-medium text-foreground underline underline-offset-4"
+          >
+            Open door check-in
+          </Link>{" "}
+          — admins check tickets in for platform-managed organisers&rsquo; events.
+        </p>
+      )}
       <EventEditor
         key={generation}
         mode="admin"

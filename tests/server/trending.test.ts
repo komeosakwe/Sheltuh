@@ -308,7 +308,7 @@ describe("refresh_trending: scores", () => {
     await views(c, 500, 0);
     await views(c, 400, 2, true);
     await favourites(c, 3, 6);
-    // D: today 80 favourites (capped at 50, for the score and the engagement count).
+    // D: today 80 favourites (capped at 50 for the score; 80 different people for the shrinkage).
     await favourites(d, 80, 0);
 
     expect(await refresh()).toEqual({ eligible: 4, ranked: 4 });
@@ -319,7 +319,8 @@ describe("refresh_trending: scores", () => {
       [c]: utility(500, false, 0, 0, 0, 0) * decay(0) + utility(400, true, 0, 0, 0, 0) * decay(2) + utility(0, false, 3, 0, 0, 0) * decay(6),
       [d]: utility(0, false, 80, 0, 0, 0) * decay(0),
     };
-    const n = { [a]: 5, [b]: 5, [c]: 3, [d]: 50 };
+    // n: distinct people (every fixture action here is by a different account or buyer email).
+    const n = { [a]: 5, [b]: 5, [c]: 3, [d]: 80 };
     const prior = median(Object.values(raw));
     const expected = Object.fromEntries(Object.entries(raw).map(([id, r]) => [id, shrink(r, n[id], prior)]));
 
@@ -362,7 +363,7 @@ describe("refresh_trending: scores", () => {
 });
 
 describe("refresh_trending: eligibility", () => {
-  it("keeps only published events of approved organisers, not ended, starting within 60 days, approved 6+ hours ago, not excluded, with 3+ engagement events", async () => {
+  it("keeps only published events of approved organisers, not ended, starting within 60 days, approved 6+ hours ago, not excluded, with 3+ people engaging", async () => {
     const org = await organiser();
     const cases: Record<string, string> = {
       eligible: await event(org),
@@ -394,7 +395,7 @@ describe("refresh_trending: eligibility", () => {
     expect(result).toEqual({ eligible: 3, ranked: 3 });
   });
 
-  it("counts favourites, opt-ins and paid and free orders as engagement, after the daily caps; not pending, failed or refunded orders, or suspended members", async () => {
+  it("counts favourites, opt-ins and paid and free orders as engagement; not pending, failed or refunded orders, or suspended members", async () => {
     const orgMixed = await organiser();
     const orgNot = await organiser();
     const mixed = await event(orgMixed);
@@ -430,9 +431,138 @@ describe("refresh_trending: eligibility", () => {
     const [x, y] = await snapshot();
     expect(x.score).toBeCloseTo(y.score, 10);
   });
+
+  it("one person doing everything (favourite, opt-in, paid and free orders) doesn't make an event eligible", async () => {
+    const org = await organiser();
+    const id = await event(org);
+    const fan = await api.signUp({ email: "Fan.Person@example.com" });
+    await favourites(id, 1, 0, fan.userId);
+    await optIns(id, 1, { userId: fan.userId, daysAgo: 1 });
+    // Their guest checkouts, under the same address however it's typed (case, spaces, a +tag).
+    await orders(id, org, 3, { email: " fan.person+gig@EXAMPLE.com ", totalCents: 2500 });
+    await orders(id, org, 4, { email: "FAN.PERSON@example.com", daysAgo: 2 });
+    // 9 engagement events, 1 person.
+    expect(await refresh()).toEqual({ eligible: 0, ranked: 0 });
+
+    // A second person, also busy: still 2 people.
+    const second = await api.signUp();
+    await favourites(id, 1, 0, second.userId);
+    await orders(id, org, 5, { email: second.email });
+    expect(await refresh()).toEqual({ eligible: 0, ranked: 0 });
+
+    // A Gmail address with dots and googlemail.com is one person too.
+    await orders(id, org, 1, { email: "third.fan@gmail.com" });
+    await orders(id, org, 1, { email: "thirdfan@googlemail.com" });
+    await orders(id, org, 1, { email: "third.fan+x@gmail.com", totalCents: 1500 });
+    // ...and the third: now 3 people.
+    expect(await refresh()).toEqual({ eligible: 1, ranked: 1 });
+    expect(await ranked()).toEqual([id]);
+  });
+
+  it("three different people qualify, however each engaged (account or guest email)", async () => {
+    const org = await organiser();
+    const id = await event(org);
+    await favourites(id, 1, 0);
+    await optIns(id, 1, { daysAgo: 3 });
+    expect(await refresh()).toEqual({ eligible: 0, ranked: 0 });
+    await orders(id, org, 1, { email: "guest@buyer.example", daysAgo: 5 });
+    expect(await refresh()).toEqual({ eligible: 1, ranked: 1 });
+  });
+
+  it("a member's favourite and their guest order (same address) are one person; an order with no email is nobody", async () => {
+    const org = await organiser();
+    const id = await event(org);
+    const member = await api.signUp({ email: "member@fan.example" });
+    await favourites(id, 1, 0, member.userId);
+    await orders(id, org, 1, { email: "MEMBER@fan.example" });
+    await favourites(id, 1, 0);
+    await db.query(
+      `insert into public.orders (id, event_id, organiser_id, event_title, buyer_email, line_items,
+         subtotal_cents, buyer_fee_cents, total_cents, application_fee_cents, status, created_at)
+       values ('ord_noemail', $1, $2, 'Neon Static', null, '[]'::jsonb, 2500, 0, 2500, 0, 'paid', $3)`,
+      [id, org.organiserId, await dayAt(0)],
+    );
+    expect(await refresh()).toEqual({ eligible: 0, ranked: 0 });
+    await optIns(id, 1);
+    expect(await refresh()).toEqual({ eligible: 1, ranked: 1 });
+  });
+
+  it("leaves out the organiser's activity under a variant of their address, and an account with the contact email", async () => {
+    const org = await organiser();
+    const id = await event(org);
+    const [local, domain] = org.owner.email.split("@");
+    await orders(id, org, 1, { email: `${local}+promo@${domain.toUpperCase()}` });
+    const contactAccount = await api.signUp({ email: org.contactEmail.toUpperCase() });
+    await favourites(id, 1, 0, contactAccount.userId);
+    await favourites(id, 2, 0);
+    expect(await refresh()).toEqual({ eligible: 0, ranked: 0 });
+  });
+
+  it("buckets activity into Melbourne days across the start of daylight saving (4 Oct 2026)", async () => {
+    // Saturday 17 Oct 2026, 13:00 in Melbourne (AEDT, UTC+11). The window is
+    // 4 to 17 Oct: it starts at midnight on 4 Oct, still AEST (UTC+10), which
+    // is 2026-10-03T14:00Z; daylight saving began at 02:00 that morning.
+    pNow = "2026-10-17T02:00:00.000Z";
+    const id = await event(await organiser(), { startsInDays: 3 });
+    const fan = async (at: string) => {
+      const person = await api.signUp();
+      await db.query(`insert into public.event_favourites (user_id, event_id, created_at) values ($1, $2, $3)`, [person.userId, id, at]);
+    };
+    await fan("2026-10-03T14:30:00.000Z"); // 4 Oct 00:30 AEST: in the window, 13 days old
+    await fan("2026-10-04T12:30:00.000Z"); // 4 Oct 23:30 AEDT: 13 days old
+    await fan("2026-10-03T13:30:00.000Z"); // 3 Oct 23:30 AEST: before the window (00:30 on 4 Oct at today's offset)
+    expect(await refresh(pNow)).toEqual({ eligible: 0, ranked: 0 });
+
+    await fan("2026-10-04T13:30:00.000Z"); // 5 Oct 00:30 AEDT: 12 days old
+    expect(await refresh(pNow)).toEqual({ eligible: 1, ranked: 1 });
+    // The only eligible event is its own prior, so the score is its raw score (P = 1, B = 1).
+    const [row] = await snapshot();
+    expect(row.score).toBeCloseTo(utility(0, false, 2, 0, 0, 0) * decay(13) + utility(0, false, 1, 0, 0, 0) * decay(12), 10);
+  });
+
+  it("buckets activity into Melbourne days across the end of daylight saving (5 Apr 2026)", async () => {
+    // Sunday 5 Apr 2026, 12:00 in Melbourne (AEST, UTC+10, since 03:00 AEDT
+    // became 02:00 AEST). Today starts at midnight AEDT: 2026-04-04T13:00Z.
+    pNow = "2026-04-05T02:00:00.000Z";
+    const id = await event(await organiser(), { startsInDays: 3 });
+    const fan = async (at: string) => {
+      const person = await api.signUp();
+      await db.query(`insert into public.event_favourites (user_id, event_id, created_at) values ($1, $2, $3)`, [person.userId, id, at]);
+    };
+    await fan("2026-04-04T13:30:00.000Z"); // 5 Apr 00:30 AEDT: today (still 4 Apr at today's offset)
+    await fan("2026-04-04T12:30:00.000Z"); // 4 Apr 23:30 AEDT: yesterday
+    await fan("2026-04-04T00:00:00.000Z"); // 4 Apr 11:00 AEDT: yesterday
+    expect(await refresh(pNow)).toEqual({ eligible: 1, ranked: 1 });
+    const [row] = await snapshot();
+    expect(row.score).toBeCloseTo(utility(0, false, 1, 0, 0, 0) * decay(0) + utility(0, false, 2, 0, 0, 0) * decay(1), 10);
+  });
 });
 
 describe("refresh_trending: limits", () => {
+  it("breaks equal scores by the sooner start, then by id", async () => {
+    // Every start within 7 days (P = 1) and the same activity: four equal scores.
+    const later = await event(await organiser(), { startsInDays: 5 });
+    const sooner = await event(await organiser(), { startsInDays: 2 });
+    const sameA = await event(await organiser(), { startsInDays: 4 });
+    const sameB = await event(await organiser(), { startsInDays: 4 });
+    for (const id of [later, sooner, sameA, sameB]) await favourites(id, 3, 1);
+    await refresh();
+    const rows = await snapshot();
+    expect(new Set(rows.map((r) => r.score)).size).toBe(1);
+    const [first, second] = [sameA, sameB].sort();
+    expect(rows.map((r) => r.event_id)).toEqual([sooner, first, second, later]);
+  });
+
+  it("an organiser's two places go to its best two, ties by sooner start", async () => {
+    const org = await organiser();
+    const a = await event(org, { startsInDays: 6 });
+    const b = await event(org, { startsInDays: 2 });
+    const c = await event(org, { startsInDays: 4 });
+    for (const id of [a, b, c]) await favourites(id, 3, 1);
+    expect(await refresh()).toEqual({ eligible: 3, ranked: 2 });
+    expect(await ranked()).toEqual([b, c]);
+  });
+
   it("ranks at most 2 events per organiser (their best two)", async () => {
     const big = await organiser();
     const first = await event(big);

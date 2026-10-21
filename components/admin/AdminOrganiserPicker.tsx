@@ -9,16 +9,23 @@ import { EVENT_CATEGORIES, type EventCategory } from "@/lib/types";
 export interface PickedOrganiser {
   organiserId: string;
   displayName: string;
-  /** No owner account: free Sheltüh tickets or external ticketing only, no check-in. */
+  /**
+   * No owner account: free Sheltüh tickets or external ticketing only, and
+   * admins run its events' door check-in.
+   */
   platformManaged: boolean;
 }
 
 /**
- * The most approved organisers the picker loads, page by page (the list API's
- * pages; at most this many requests even at its smallest page). Past it, the
- * picker says it shows only the first ones; the filter searches those.
+ * How many approved organisers the picker shows at once: one page of the
+ * list API (its maximum). Typing searches all of them on the server (name,
+ * contact email and handles, any case, accents optional), so an organiser
+ * past this page is always reachable.
  */
-export const ORGANISER_PICKER_CAP = 200;
+export const ORGANISER_PICKER_PAGE = 50;
+
+/** Wait this long after the last keystroke before searching. */
+export const ORGANISER_SEARCH_DEBOUNCE_MS = 250;
 
 function toPicked(record: AdminOrganiserRecord): PickedOrganiser {
   return { organiserId: record.organiserId, displayName: record.displayName, platformManaged: !record.ownerUserId };
@@ -26,8 +33,13 @@ function toPicked(record: AdminOrganiserRecord): PickedOrganiser {
 
 const byName = (a: PickedOrganiser, b: PickedOrganiser) => a.displayName.localeCompare(b.displayName);
 
-/** Case- and accent-insensitive, so "sheltuh" finds "Sheltüh Presents". */
-const fold = (text: string) => text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+interface Results {
+  /** The search these are for ("" for the first page of everyone). */
+  query: string;
+  organisers: PickedOrganiser[];
+  /** More organisers match than are shown. */
+  more: boolean;
+}
 
 interface Props {
   getToken: GetToken;
@@ -39,55 +51,76 @@ interface Props {
 /**
  * The admin editor's organiser choice for a new event: any approved
  * organiser, or a new platform-managed one created inline (POST
- * /api/admin/organisers, with the organiser application's fields). Loads up
- * to ORGANISER_PICKER_CAP of them, with a filter over the names loaded.
+ * /api/admin/organisers, with the organiser application's fields). Shows the
+ * first ORGANISER_PICKER_PAGE; typing searches every approved organiser on
+ * the server (debounced), and announces how many match.
  */
 export default function AdminOrganiserPicker({ getToken, value, onChange, error }: Props) {
-  const [organisers, setOrganisers] = useState<PickedOrganiser[]>([]);
-  const [capped, setCapped] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [results, setResults] = useState<Results | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [query, setQuery] = useState("");
+  // Organisers created here, kept as options whatever the search shows.
+  const [created, setCreated] = useState<PickedOrganiser[]>([]);
+  const needle = query.trim();
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const run = async () => {
       try {
-        const all: PickedOrganiser[] = [];
-        let cursor: string | undefined;
-        do {
-          const result = await adminListOrganisers("approved", getToken, cursor);
-          all.push(...result.items.map(toPicked));
-          cursor = result.nextCursor;
-        } while (cursor && all.length < ORGANISER_PICKER_CAP);
-        if (!cancelled) {
-          setOrganisers(all.slice(0, ORGANISER_PICKER_CAP).sort(byName));
-          setCapped(Boolean(cursor) || all.length > ORGANISER_PICKER_CAP);
-        }
+        const page = await adminListOrganisers(
+          { status: "approved", q: needle || undefined, limit: ORGANISER_PICKER_PAGE },
+          getToken,
+        );
+        if (cancelled) return;
+        setResults({ query: needle, organisers: page.items.map(toPicked).sort(byName), more: Boolean(page.nextCursor) });
+        setLoadError(null);
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : "Couldn't load organisers.");
-      } finally {
-        if (!cancelled) setLoading(false);
       }
-    })();
+    };
+    // The first list loads at once; a search waits for a pause in typing.
+    const timer = setTimeout(run, needle ? ORGANISER_SEARCH_DEBOUNCE_MS : 0);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, [getToken]);
+  }, [needle, getToken]);
 
   function handleCreated(record: AdminOrganiserRecord) {
     const picked = toPicked(record);
-    setOrganisers((prev) => [...prev, picked].sort(byName));
+    setCreated((prev) => [...prev, picked]);
     onChange(picked);
     setCreating(false);
   }
 
-  const needle = fold(query.trim());
-  const matches = needle ? organisers.filter((o) => fold(o.displayName).includes(needle)) : organisers;
-  // The chosen organiser stays an option while filtered out, so the select never shows a blank choice.
-  const options = value && !matches.some((o) => o.organiserId === value.organiserId) ? [value, ...matches] : matches;
-  const describedBy = [error ? "organiserId-error" : null, capped ? "organiserId-cap" : null].filter(Boolean).join(" ");
+  const loading = results === null && !loadError;
+  // Results for an older query are kept on screen until the new ones arrive, but not announced.
+  const current = results !== null && results.query === needle;
+  const shown = results?.organisers ?? [];
+  // The chosen organiser (and any created here) stay options while not in the results, so the select never shows a blank choice.
+  const extras = [...(value ? [value] : []), ...created].filter(
+    (o, i, all) => !shown.some((s) => s.organiserId === o.organiserId) && all.findIndex((x) => x.organiserId === o.organiserId) === i,
+  );
+  const options = [...extras, ...shown];
+  const capNote =
+    current && results?.more
+      ? needle
+        ? `Showing the first ${shown.length} matches — keep typing to narrow them down.`
+        : `Showing ${shown.length} organisers — type to search for others.`
+      : null;
+  const describedBy = [error ? "organiserId-error" : null, capNote ? "organiserId-cap" : null].filter(Boolean).join(" ");
+
+  let status = "";
+  if (needle && current) {
+    const n = shown.length;
+    status =
+      n === 0
+        ? `No organisers match “${needle}”.`
+        : results?.more
+          ? `More than ${n} organisers match.`
+          : `${n} ${n === 1 ? "organiser matches" : "organisers match"}.`;
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -99,20 +132,19 @@ export default function AdminOrganiserPicker({ getToken, value, onChange, error 
           id="organiserId-filter"
           type="search"
           value={query}
-          disabled={loading}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={keepEnter}
           aria-controls="organiserId"
+          aria-describedby="organiserId-filter-hint"
           autoComplete="off"
           className="border border-foreground bg-transparent px-3 py-2 text-foreground"
         />
-        {/* Announced as the list narrows; silent until something is typed. */}
+        <p id="organiserId-filter-hint" className="text-sm text-muted">
+          Name, contact email or social handle.
+        </p>
+        {/* Announced when a search's results arrive; silent until something is typed. */}
         <p role="status" className="text-sm text-muted">
-          {needle && !loading
-            ? matches.length === 0
-              ? `No organisers match “${query.trim()}”.`
-              : `${matches.length} ${matches.length === 1 ? "organiser matches" : "organisers match"}.`
-            : ""}
+          {status}
         </p>
       </div>
       <div className="flex flex-col gap-1">
@@ -124,7 +156,7 @@ export default function AdminOrganiserPicker({ getToken, value, onChange, error 
           value={value?.organiserId ?? ""}
           disabled={loading}
           onChange={(e) => {
-            const picked = organisers.find((o) => o.organiserId === e.target.value);
+            const picked = options.find((o) => o.organiserId === e.target.value);
             if (picked) onChange(picked);
           }}
           aria-invalid={Boolean(error)}
@@ -140,9 +172,9 @@ export default function AdminOrganiserPicker({ getToken, value, onChange, error 
             </option>
           ))}
         </select>
-        {capped && (
+        {capNote && (
           <p id="organiserId-cap" className="text-sm text-muted">
-            Showing first {organisers.length} — type to search.
+            {capNote}
           </p>
         )}
         {error && (
@@ -239,8 +271,8 @@ function NewPlatformOrganiser({
       </p>
       <p className="text-sm text-muted">
         For events Sheltüh lists on someone&rsquo;s behalf. It has no account, so its events can only have free
-        tickets here or link to another site, and there&rsquo;s no check-in. It&rsquo;s approved straight away and
-        its profile is public.
+        tickets here or link to another site, and Sheltüh admins check tickets in at the door. It&rsquo;s approved
+        straight away and its profile is public.
       </p>
       {field(
         "new-organiser-displayName",

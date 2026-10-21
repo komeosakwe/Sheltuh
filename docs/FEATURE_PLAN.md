@@ -65,7 +65,8 @@ Migration `20261023000000`.
   the median.
 - Start proximity P: 1 within 7 days, floor 0.3. Admin boost B in [0.5, 2].
 - Eligible: published, organiser approved, not ended, starts within 60 days,
-  at least 6 hours since approval, not excluded, at least 3 engagement events.
+  at least 6 hours since approval, not excluded, at least 3 different people
+  engaging (manager decision below; migration `20261023000200`).
   At most 2 per organiser, top 24.
 - Snapshot table refreshed every 15 minutes by Vercel Cron
   `GET /api/cron/trending` (`CRON_SECRET`).

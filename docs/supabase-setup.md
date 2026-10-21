@@ -23,7 +23,11 @@ Stripe (payments) and Vercel (hosting).
    `20261003000000_messages.sql`, then
    `20261004000000_messaging_hardening.sql`.
    (Or use the CLI: `npx supabase link --project-ref <ref>` then
-   `npx supabase db push`.) Any later migration file goes in the same way.
+   `npx supabase db push`.) Every later migration file goes in the same way,
+   in filename order, up to the newest: see the "Go-live checklist" in
+   [`DEPLOYMENT.md`](DEPLOYMENT.md), which also lists `CRON_SECRET`, the cron
+   schedules, the `charge.refunded` webhook, the email footer banner, the
+   Privacy Policy wording and the Bootzy font files.
 3. **Collect the keys** (Project Settings → API Keys):
    - Publishable key (`sb_publishable_…`) → `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
    - Secret key (`sb_secret_…`) → `SUPABASE_SECRET_KEY`. Keep this on
