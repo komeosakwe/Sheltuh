@@ -178,9 +178,9 @@ describe("ApplicationForm — optional social profiles", () => {
     );
   }
 
-  it("groups the four handles under 'Optional: social profiles', noting they'll be public", () => {
+  it("groups the four handles under 'Social profiles (optional)', noting they'll be public", () => {
     renderForm("apply");
-    const group = screen.getByRole("group", { name: "Optional: social profiles" });
+    const group = screen.getByRole("group", { name: "Social profiles (optional)" });
     expect(group).toHaveAccessibleDescription("Shown publicly on your organiser profile once approved.");
     for (const label of ["Instagram username", "TikTok username", "Facebook page", "X username"]) {
       expect(group).toContainElement(screen.getByLabelText(label));
@@ -286,7 +286,7 @@ describe("ApplicationForm — website rule and public-profile notes", () => {
     renderForm();
     expect(screen.getByLabelText("Short description")).toHaveAccessibleDescription(PUBLIC_NOTE);
     expect(screen.getByLabelText("Website (optional)")).toHaveAccessibleDescription(PUBLIC_NOTE);
-    expect(screen.getByRole("group", { name: "Optional: social profiles" })).toHaveAccessibleDescription(PUBLIC_NOTE);
+    expect(screen.getByRole("group", { name: "Social profiles (optional)" })).toHaveAccessibleDescription(PUBLIC_NOTE);
   });
 
   it.each([

@@ -9,7 +9,7 @@ export default function AdminEmailsPage() {
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-8 px-5 py-12 sm:px-8 sm:py-20">
       <Link href="/admin" className="text-sm text-accent underline underline-offset-2">
-        &larr; Admin
+        <span aria-hidden="true">&larr;</span> Admin
       </Link>
       <h1 className="display-lg">Ticket emails</h1>
       <p className="max-w-xl text-sm text-muted">

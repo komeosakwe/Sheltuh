@@ -12,28 +12,28 @@ export default function AdminHomePage() {
         <div className="grid gap-4 sm:grid-cols-2">
           <Link
             href="/admin/organisers"
-            className="flex-1 bg-surface p-4 hover:border-accent"
+            className="flex-1 border border-surface-border bg-surface p-4 hover:border-accent"
           >
             <p className="font-heading text-2xl text-foreground">Organisers</p>
             <p className="mt-1 text-sm text-muted">Review applications, and suspend approved organisers.</p>
           </Link>
           <Link
             href="/admin/events"
-            className="flex-1 bg-surface p-4 hover:border-accent"
+            className="flex-1 border border-surface-border bg-surface p-4 hover:border-accent"
           >
             <p className="font-heading text-2xl text-foreground">Event submissions</p>
             <p className="mt-1 text-sm text-muted">Review, publish, reject or unpublish events.</p>
           </Link>
           <Link
             href="/admin/reports"
-            className="flex-1 bg-surface p-4 hover:border-accent"
+            className="flex-1 border border-surface-border bg-surface p-4 hover:border-accent"
           >
             <p className="font-heading text-2xl text-foreground">Member reports</p>
             <p className="mt-1 text-sm text-muted">Review reports, then dismiss or suspend.</p>
           </Link>
           <Link
             href="/admin/emails"
-            className="flex-1 bg-surface p-4 hover:border-accent"
+            className="flex-1 border border-surface-border bg-surface p-4 hover:border-accent"
           >
             <p className="font-heading text-2xl text-foreground">Ticket emails</p>
             <p className="mt-1 text-sm text-muted">See failed ticket emails and resend them.</p>

@@ -280,7 +280,7 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
       </div>
 
       <fieldset className="flex flex-col gap-4" aria-describedby="application-social-note">
-        <legend className="text-sm font-medium text-foreground">Optional: social profiles</legend>
+        <legend className="text-sm font-medium text-foreground">Social profiles (optional)</legend>
         <p id="application-social-note" className="text-sm text-muted">
           {PUBLIC_NOTE}
         </p>

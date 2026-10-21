@@ -5,12 +5,13 @@ import MessageField from "@/components/messages/MessageField";
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
 import { validateMessage } from "@/lib/message-text";
+import AdminSessionExpired from "./AdminSessionExpired";
 
 /** The API's limit on a takedown reason (code points). */
 export const SUSPEND_REASON_MAX = 500;
 
 export const SUSPEND_WARNING =
-  "This unpublishes all of their events and hides their public profile. Paid tickets stay valid; refunds are handled in Stripe.";
+  "This unpublishes all of their events and hides their public profile. Paid tickets stay valid; refunds are handled in Stripe. They can reapply; you’ll see it under Pending.";
 
 export type SuspendOutcome =
   | { ok: true }
@@ -20,7 +21,9 @@ export type SuspendOutcome =
    * Shown in the dialog. `gone`: there's nothing left to suspend (already
    * taken down, or unknown), so the only way on is to close the dialog.
    */
-  | { ok: false; message: string; gone?: boolean };
+  | { ok: false; message: string; gone?: boolean }
+  /** The session ran out: sign in again here (the reason is kept), then try again. */
+  | { ok: false; sessionExpired: true };
 
 const TITLE_ID = "suspend-organiser-title";
 const WARNING_ID = "suspend-organiser-warning";
@@ -29,10 +32,12 @@ const PROBLEM_ID = "suspend-organiser-problem";
 
 /**
  * Taking an approved organiser down: a modal dialog (native `<dialog>`, so
- * focus is kept inside and Escape closes it). A reason is required (shown to
- * the organiser, up to 500 characters). The form is mounted fresh for each
- * organiser. `onClose` runs whenever it closes (Cancel, Escape, or after
- * `onSubmit` succeeds and the parent clears `organiserName`).
+ * focus is kept inside and Escape closes it, except while a suspend is in
+ * flight). A reason is required (shown to the organiser, up to 500
+ * characters). The form is mounted fresh for each organiser. `onClose` runs
+ * whenever it closes (Cancel, Escape, or after `onSubmit` succeeds and the
+ * parent clears `organiserName`). A browser may still force it closed (a
+ * repeated Escape), so the parent must report a result that lands after that.
  */
 export default function SuspendOrganiserDialog({
   organiserName,
@@ -46,6 +51,17 @@ export default function SuspendOrganiserDialog({
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const open = organiserName !== null;
+  /** A suspend is in flight: Escape mustn't close the dialog under it. */
+  const busy = useRef(false);
+
+  async function submit(reason: string): Promise<SuspendOutcome> {
+    busy.current = true;
+    try {
+      return await onSubmit(reason);
+    } finally {
+      busy.current = false;
+    }
+  }
 
   useEffect(() => {
     const dialog = ref.current;
@@ -59,15 +75,18 @@ export default function SuspendOrganiserDialog({
       ref={ref}
       aria-labelledby={TITLE_ID}
       aria-describedby={WARNING_ID}
+      onCancel={(event) => {
+        if (busy.current) event.preventDefault();
+      }}
       onClose={onClose}
       className="mx-0 mt-auto mb-0 w-full max-w-none border-t border-foreground bg-background p-5 text-foreground backdrop:bg-foreground/50 sm:m-auto sm:max-w-lg sm:border sm:p-8"
     >
-      {organiserName !== null && <SuspendForm name={organiserName} onCancel={onClose} onSubmit={onSubmit} />}
+      {organiserName !== null && <SuspendForm name={organiserName} onCancel={onClose} onSubmit={submit} />}
     </dialog>
   );
 }
 
-type Problem = { message: string; gone: boolean };
+type Problem = { kind: "message"; message: string; gone: boolean } | { kind: "sessionExpired" };
 
 function SuspendForm({
   name,
@@ -84,7 +103,8 @@ function SuspendForm({
   const [busy, setBusy] = useState(false);
   const reasonRef = useRef<HTMLTextAreaElement | null>(null);
   const problemRef = useRef<HTMLDivElement>(null);
-  const pendingFocus = useRef<"reason" | "problem" | null>(null);
+  const submitRef = useRef<HTMLButtonElement>(null);
+  const pendingFocus = useRef<"reason" | "problem" | "submit" | null>(null);
 
   // Opening the dialog (a user action) starts in the reason box.
   useEffect(() => {
@@ -94,7 +114,7 @@ function SuspendForm({
   useEffect(() => {
     const target = pendingFocus.current;
     if (!target) return;
-    const element = (target === "reason" ? reasonRef : problemRef).current;
+    const element = (target === "reason" ? reasonRef : target === "problem" ? problemRef : submitRef).current;
     if (!element) return; // Not rendered yet: an earlier render's effects can run first.
     pendingFocus.current = null;
     element.focus();
@@ -102,7 +122,7 @@ function SuspendForm({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy || problem?.gone) return;
+    if (busy || isGone(problem)) return;
     setProblem(null);
     const invalid = validateMessage(reason, { label: "Reasons", max: SUSPEND_REASON_MAX, empty: "Enter a reason." });
     setReasonError(invalid);
@@ -117,13 +137,19 @@ function SuspendForm({
     if ("reasonError" in outcome) {
       setReasonError(outcome.reasonError);
       pendingFocus.current = "reason";
+    } else if ("sessionExpired" in outcome) {
+      setProblem({ kind: "sessionExpired" });
+      pendingFocus.current = "problem";
     } else {
-      setProblem({ message: outcome.message, gone: outcome.gone ?? false });
+      setProblem({ kind: "message", message: outcome.message, gone: outcome.gone ?? false });
       pendingFocus.current = "problem";
     }
   }
 
-  const describedBy = problem ? `${WARNING_ID} ${PROBLEM_ID}` : WARNING_ID;
+  const gone = isGone(problem);
+
+  // The reauth form isn't a description (its field labels would be read as one).
+  const describedBy = problem?.kind === "message" ? `${WARNING_ID} ${PROBLEM_ID}` : WARNING_ID;
 
   return (
     <form noValidate aria-busy={busy} onSubmit={handleSubmit} className="flex flex-col gap-5">
@@ -134,7 +160,7 @@ function SuspendForm({
         {SUSPEND_WARNING}
       </p>
 
-      {!problem?.gone && (
+      {!gone && (
         <MessageField
           id={REASON_ID}
           label="Reason (shown to the organiser)"
@@ -152,15 +178,27 @@ function SuspendForm({
 
       {problem && (
         <div id={PROBLEM_ID} ref={problemRef} tabIndex={-1} className="outline-offset-2">
-          <Notice tone="danger">
-            {problem.message}
-            {problem.gone && <> They&rsquo;ll be taken off this list when you close this.</>}
-          </Notice>
+          {problem.kind === "sessionExpired" ? (
+            // Not an alert as well: focus moves here, so it's read once.
+            <AdminSessionExpired
+              then="suspend them"
+              alert={false}
+              onSignedIn={() => {
+                setProblem(null);
+                pendingFocus.current = "submit";
+              }}
+            />
+          ) : (
+            <Notice tone="danger">
+              {problem.message}
+              {problem.gone && <> They&rsquo;ll be taken off this list when you close this.</>}
+            </Notice>
+          )}
         </div>
       )}
 
       <div className="flex flex-col gap-3 sm:flex-row">
-        {problem?.gone ? (
+        {gone ? (
           <Button
             variant="solid"
             size="lg"
@@ -173,6 +211,7 @@ function SuspendForm({
         ) : (
           <>
             <Button
+              ref={submitRef}
               type="submit"
               variant="danger"
               size="lg"
@@ -190,4 +229,8 @@ function SuspendForm({
       </div>
     </form>
   );
+}
+
+function isGone(problem: Problem | null): boolean {
+  return problem?.kind === "message" && problem.gone;
 }

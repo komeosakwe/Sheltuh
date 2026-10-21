@@ -65,7 +65,7 @@ export default function OrganiserProfileView({
         </header>
 
         {hasLinks && (
-          <section aria-labelledby="organiser-links" className="flex flex-col gap-3 lg:col-span-5 lg:pt-10">
+          <section aria-labelledby="organiser-links" className="flex flex-col gap-3 md:max-w-xl lg:col-span-5 lg:max-w-none">
             <h2 id="organiser-links" className="eyebrow font-sans text-muted">
               Links
             </h2>
@@ -95,10 +95,8 @@ export default function OrganiserProfileView({
       </section>
 
       {past.length > 0 && (
-        <section aria-labelledby="organiser-past" className="flex flex-col gap-4">
-          <h2 id="organiser-past" className="display-md !text-2xl">
-            Past events
-          </h2>
+        <section aria-labelledby="organiser-past">
+          <SectionHeader id="organiser-past" title="Past events" />
           <ul className="flex flex-col border-t border-surface-border">
             {past.map((event) => (
               <li key={event.id} className="border-b border-surface-border">

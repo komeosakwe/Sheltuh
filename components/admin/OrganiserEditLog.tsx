@@ -18,20 +18,29 @@ const KIND_LABELS: Record<OrganiserEditEntry["kind"], string> = {
 /**
  * An organiser's recent log entries (newest first), collapsed by default:
  * profile edits they made without review, and takedowns with the admin's
- * reason. Each lists the fields that changed, old → new. Everything is
+ * reason. Each lists the fields that changed, before and after. Everything is
  * organiser- or admin-supplied text, shown as text.
  */
 export default function OrganiserEditLog({ edits }: { edits: readonly OrganiserEditEntry[] }) {
   if (edits.length === 0) {
-    return <p className="text-xs text-muted">No recent profile changes.</p>;
+    return <p className="text-xs text-muted">No recent changes.</p>;
   }
   return (
     <details className="group text-sm">
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 font-semibold [&::-webkit-details-marker]:hidden">
-        <span aria-hidden="true" className="inline-block motion-safe:transition-transform group-open:rotate-90">
-          ▸
-        </span>
-        Recent profile changes ({edits.length})
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="size-4 shrink-0 motion-safe:transition-transform group-open:rotate-90"
+        >
+          <path d="m9 5 7 7-7 7" />
+        </svg>
+        Recent changes ({edits.length})
       </summary>
       <p className="text-xs text-muted">
         Newest first{edits.length >= MAX_ENTRIES ? `, the latest ${MAX_ENTRIES}` : ""}. Times are Melbourne time.
@@ -49,7 +58,7 @@ export default function OrganiserEditLog({ edits }: { edits: readonly OrganiserE
                 {entry.reason}
               </p>
             )}
-            <ChangeList changes={entry.changes} />
+            <ChangeList entry={entry} />
           </li>
         ))}
       </ol>
@@ -57,43 +66,71 @@ export default function OrganiserEditLog({ edits }: { edits: readonly OrganiserE
   );
 }
 
-function ChangeList({ changes }: { changes: OrganiserEditEntry["changes"] }) {
+function ChangeList({ entry }: { entry: OrganiserEditEntry }) {
   const rows = ORGANISER_FIELD_ORDER.flatMap((field) => {
-    const change = changes[field];
+    const change = entry.changes[field];
     return change ? [{ field, change }] : [];
   });
   if (rows.length === 0) return null;
   return (
-    <dl className="flex flex-col gap-1">
+    <dl className="flex flex-col gap-2 sm:grid sm:grid-cols-[6rem_1fr] sm:gap-x-3 sm:gap-y-2">
       {rows.map(({ field, change }) => (
-        <ChangeRow key={field} field={field} change={change} />
+        <ChangeRow key={field} field={field} change={change} kind={entry.kind} />
       ))}
     </dl>
   );
 }
 
-function ChangeRow({ field, change }: { field: OrganiserEditField; change: OrganiserEditChange }) {
+function ChangeRow({
+  field,
+  change,
+  kind,
+}: {
+  field: OrganiserEditField;
+  change: OrganiserEditChange;
+  kind: OrganiserEditEntry["kind"];
+}) {
+  const label = ORGANISER_FIELD_LABELS[field];
   return (
-    <div className="flex flex-wrap gap-x-2">
-      <dt className="font-semibold">{ORGANISER_FIELD_LABELS[field]}</dt>
-      <dd className="min-w-0 break-words">
-        <LogValue field={field} value={change.old} />{" "}
-        <span aria-hidden="true" className="text-muted">
-          →
-        </span>{" "}
-        <span className="sr-only">changed to</span> <LogValue field={field} value={change.new} />
+    // A block of its own on phones (label above values); from sm its cells join the list's grid.
+    <div className="flex flex-col gap-0.5 sm:contents">
+      <dt className="text-muted">{label}</dt>
+      <dd className="flex min-w-0 flex-col gap-0.5 break-words">
+        <span>
+          <span className="text-muted">Before: </span>
+          <LogValue field={field} context={`old ${label}`} value={change.old} kind={kind} />
+        </span>
+        <span>
+          <span className="text-muted">After: </span>
+          <LogValue field={field} context={`new ${label}`} value={change.new} kind={kind} />
+        </span>
       </dd>
     </div>
   );
 }
 
-function LogValue({ field, value }: { field: OrganiserEditField; value: string | null }) {
+function LogValue({
+  field,
+  context,
+  value,
+  kind,
+}: {
+  field: OrganiserEditField;
+  /** "old Bio", "new Website": who a "Show all" toggle belongs to. */
+  context: string;
+  value: string | null;
+  kind: OrganiserEditEntry["kind"];
+}) {
   if (value === null) return <span className="text-muted italic">(none)</span>;
-  return <LongText text={formatOrganiserFieldValue(field, value)} />;
+  return <LongText text={formatOrganiserFieldValue(field, value, kind)} context={context} />;
 }
 
-/** Text cut to LOG_VALUE_PREVIEW_LENGTH with a "Show all" toggle, or in full when it's short. */
-function LongText({ text }: { text: string }) {
+/**
+ * Text cut to LOG_VALUE_PREVIEW_LENGTH with a "Show all" toggle, or in full
+ * when it's short. `context` ("new Bio") ends the toggle's name for screen
+ * readers, so several toggles in one entry can be told apart.
+ */
+function LongText({ text, context }: { text: string; context: string }) {
   const [expanded, setExpanded] = useState(false);
   const chars = Array.from(text);
   if (chars.length <= LOG_VALUE_PREVIEW_LENGTH) {
@@ -111,6 +148,8 @@ function LongText({ text }: { text: string }) {
         className="inline-flex min-h-6 items-center text-xs font-semibold underline underline-offset-4 hover:decoration-2"
       >
         {expanded ? "Show less" : `Show all ${chars.length.toLocaleString("en-AU")} characters`}
+{" "}
+        <span className="sr-only">of the {context}</span>
       </button>
     </>
   );

@@ -107,7 +107,7 @@ describe("/organisers/[organiserId] (live)", () => {
     const expected: [string, string][] = [
       ["Instagram: @northside.noise (opens in a new tab)", "https://www.instagram.com/northside.noise/"],
       ["TikTok: @northside_noise (opens in a new tab)", "https://www.tiktok.com/@northside_noise"],
-      ["Facebook: northsidenoise (opens in a new tab)", "https://www.facebook.com/northsidenoise"],
+      ["Facebook: facebook.com/northsidenoise (opens in a new tab)", "https://www.facebook.com/northsidenoise"],
       ["X: @nsnoise (opens in a new tab)", "https://x.com/nsnoise"],
     ];
     await screen.findByRole("heading", { level: 1 });

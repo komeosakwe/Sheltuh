@@ -55,10 +55,10 @@ describe("socialHandleFromUrl / displayHandle", () => {
     expect(socialHandleFromUrl("nope")).toBeNull();
   });
 
-  it("shows @names, except Facebook pages", () => {
+  it("shows @names, except Facebook pages (facebook.com/page)", () => {
     expect(displayHandle("instagram", "a")).toBe("@a");
     expect(displayHandle("x", "a")).toBe("@a");
-    expect(displayHandle("facebook", "a")).toBe("a");
+    expect(displayHandle("facebook", "a")).toBe("facebook.com/a");
   });
 });
 

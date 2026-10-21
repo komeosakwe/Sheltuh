@@ -1,4 +1,4 @@
-import type { OrganiserEditField } from "@/lib/api/types";
+import type { OrganiserEditEntry, OrganiserEditField } from "@/lib/api/types";
 import { SOCIAL_HANDLE_FIELDS, type SocialHandleField } from "@/lib/organiser-profile";
 
 /** What the admin views call each field an organiser-log entry can record. */
@@ -24,11 +24,26 @@ function isSocialHandleField(field: OrganiserEditField): field is SocialHandleFi
   return SOCIAL_HANDLE_FIELDS.some((f) => f.field === field);
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  pending: "Pending",
+  approved: "Approved",
+  rejected: "Rejected",
+};
+
 /**
  * A stored value as it reads on the profile: handles with their prefix
- * ("@name", "facebook.com/page"), anything else as stored.
+ * ("@name", "facebook.com/page"), statuses in words ("Approved"; a takedown's
+ * "rejected" reads "Suspended"), anything else as stored.
  */
-export function formatOrganiserFieldValue(field: OrganiserEditField, value: string): string {
+export function formatOrganiserFieldValue(
+  field: OrganiserEditField,
+  value: string,
+  kind?: OrganiserEditEntry["kind"],
+): string {
+  if (field === "status") {
+    if (kind === "suspended" && value === "rejected") return "Suspended";
+    return STATUS_LABELS[value] ?? value;
+  }
   if (!isSocialHandleField(field)) return value;
   const prefix = SOCIAL_HANDLE_FIELDS.find((f) => f.field === field)?.prefix ?? "";
   return `${prefix}${value}`;

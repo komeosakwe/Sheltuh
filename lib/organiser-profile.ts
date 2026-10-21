@@ -233,7 +233,7 @@ export function socialHandleFromUrl(url: string): string | null {
   }
 }
 
-/** How a handle reads in a link: "@name", except Facebook pages, which aren't @-names. */
+/** How a handle reads in a link: "@name", except Facebook pages, which aren't @-names: "facebook.com/page". */
 export function displayHandle(network: SocialNetwork, handle: string): string {
-  return network === "facebook" ? handle : `@${handle}`;
+  return network === "facebook" ? `facebook.com/${handle}` : `@${handle}`;
 }

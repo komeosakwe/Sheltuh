@@ -84,7 +84,7 @@ export default function OrganiserLinks({
               strokeWidth={2}
               strokeLinecap="round"
               strokeLinejoin="round"
-              className="size-3.5 shrink-0 text-muted"
+              className="ml-auto size-3.5 shrink-0 text-muted"
             >
               <path d="M7 17 17 7M9 7h8v8" />
             </svg>
