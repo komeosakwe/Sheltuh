@@ -23,7 +23,7 @@ const DEFINITIONS: Record<string, string> = {
 };
 
 /**
- * The headline numbers (§5.10): big Bricolage numerals on a hairline rule,
+ * The headline numbers (§5.10): big Instrument Sans numerals on a hairline rule,
  * with the change in words underneath and the definitions in a disclosure.
  */
 export default function StatGrid({ stats, footnote }: { stats: Stat[]; footnote?: ReactNode }) {

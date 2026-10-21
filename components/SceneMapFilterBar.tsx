@@ -93,7 +93,7 @@ export default function SceneMapFilterBar({
           type="button"
           aria-pressed={time === "tonight"}
           onClick={() => onTimeChange(time === "tonight" ? "all" : "tonight")}
-          className="h-9 rounded-full border px-3.5 font-sans text-sm font-medium"
+          className="h-9 rounded-control border px-3.5 font-sans text-sm font-medium"
           style={pillStyle(time === "tonight")}
         >
           Tonight
@@ -102,7 +102,7 @@ export default function SceneMapFilterBar({
           type="button"
           aria-pressed={time === "weekend"}
           onClick={() => onTimeChange(time === "weekend" ? "all" : "weekend")}
-          className="h-9 rounded-full border px-3.5 font-sans text-sm font-medium"
+          className="h-9 rounded-control border px-3.5 font-sans text-sm font-medium"
           style={pillStyle(time === "weekend")}
         >
           This weekend
@@ -117,7 +117,7 @@ export default function SceneMapFilterBar({
               onSpecificDateChange(value);
               onTimeChange(value ? "date" : "all");
             }}
-            className="h-9 rounded-full border px-3.5 font-sans text-sm font-medium"
+            className="h-9 rounded-control border px-3.5 font-sans text-sm font-medium"
             style={pillStyle(time === "date")}
           />
         </label>
@@ -129,7 +129,7 @@ export default function SceneMapFilterBar({
           id="scene-category-filter"
           value={category}
           onChange={(event) => onCategoryChange(event.target.value as EventCategory | "all")}
-          className="h-9 rounded-full border px-3.5 font-sans text-sm"
+          className="h-9 rounded-control border px-3.5 font-sans text-sm"
           style={FIELD_STYLE}
         >
           <option value="all">All scenes</option>
@@ -147,7 +147,7 @@ export default function SceneMapFilterBar({
           id="scene-pricing-filter"
           value={pricing}
           onChange={(event) => onPricingChange(event.target.value as ScenePricingFilter)}
-          className="h-9 rounded-full border px-3.5 font-sans text-sm"
+          className="h-9 rounded-control border px-3.5 font-sans text-sm"
           style={FIELD_STYLE}
         >
           <option value="all">Any price</option>

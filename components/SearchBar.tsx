@@ -3,7 +3,7 @@ import { useId } from "react";
 /**
  * Site search: a plain GET form to /search?q=… so it works without JS and
  * needs no client state. `size="lg"` is the big version used on the search page.
- * `submit` adds a round yellow search button inside the field (phone home).
+ * `submit` adds a square search button inside the field (phone home).
  */
 export default function SearchBar({
   defaultValue = "",
@@ -59,13 +59,13 @@ export default function SearchBar({
           maxLength={100}
           placeholder={placeholder}
           autoComplete="off"
-          className={`w-full rounded-full! border-foreground! bg-surface! text-foreground placeholder:text-muted ${inputSize}`}
+          className={`w-full text-foreground placeholder:text-muted ${inputSize}`}
         />
         {submit && (
           <button
             type="submit"
             aria-label="Search"
-            className="absolute right-1 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-highlight text-foreground hover:bg-foreground hover:text-highlight"
+            className="absolute right-1 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-control bg-foreground text-background hover:bg-signal hover:text-signal-foreground"
           >
             <svg
               aria-hidden="true"

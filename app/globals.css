@@ -1,33 +1,33 @@
 @import "tailwindcss";
 
 /*
- * Sheltüh design tokens — editorial, cultural, minimal.
- * Black + off-white carry the UI; event photography/posters carry the colour.
+ * Sheltüh design tokens: Brand Direction One, "Structured Expression"
+ * (docs/design/brand-direction-one.md). Cream and white foundations, black
+ * structure, Signal Orange as a field or a mark (never small text on light).
  * Every component reads these semantic tokens, so the whole app re-skins here.
+ * Hex is lowercase and :root comes first: tests/pwa-manifest.test.ts reads the
+ * first --background, and tests/brand-tokens.test.ts pins the brand values.
  */
 :root {
-  --background: #f3f0e8; /* off-white paper */
-  --surface: #eae6db; /* one step darker, used sparingly */
-  --surface-border: #d3cec1; /* hairline */
-  --foreground: #0b0b0b; /* ink */
-  --muted: #6b675e;
-  --accent: #0b0b0b; /* CTAs are black pills */
-  --accent-strong: #2b2b2b;
-  --accent-foreground: #f3f0e8;
+  --background: #fffae7; /* Cream: the site foundation */
+  --card: #ffffff; /* White: cards, fields, sheets, dialogs */
+  --surface: #f2ecd6; /* sunken cream: skeletons, placeholders. Never behind orange marks (2.87:1) */
+  --surface-border: #ddd5ba; /* soft hairline, decorative dividers only (never a control boundary) */
+  --foreground: #000000; /* Black: text, structure rules, nav */
+  --muted: #6b675e; /* 5.39:1 on cream, 5.63:1 on white, 4.76:1 on surface */
+  --accent: #000000; /* default solid buttons and text links: stays black (orange text fails on cream) */
+  --accent-strong: #262626;
+  --accent-foreground: #fffae7;
+  --signal: #ff4800; /* Signal Orange: fills, marks, the one conversion CTA, large display only */
+  --signal-foreground: #000000; /* 6.18:1, the only small-text pairing on orange */
+  --ink: #000000; /* constants, never re-scoped (e.g. .btn-signal:hover) */
+  --cream: #fffae7;
   --danger: #b3261e;
   --danger-foreground: #ffffff;
-  --highlight: #e8ff3a; /* single graphic sticker colour, use rarely */
-  /* Phone home only (components/home/phone/, enforced by tests/phone-home-tokens.test.ts): */
-  --pop: #ff4fb0; /* scribble, "Up next"/"Under A$20" fills, avatar discs; never text on paper */
-  --card: #fbfaf5; /* phone home card surface (lifted paper) */
-  /* Scene map only: category ring on photo markers (components/map/). Each is
-     at least 3:1 (non-text contrast) against the light-grey basemap and paper. Category is always
-     in the marker's accessible name and in text on the card, never colour alone. */
-  --cat-live-music: #1e3fe0;
-  --cat-art: #c81d4f;
-  --cat-workshop: #a35a00;
-  --cat-pop-up: #0d7f72;
-  --cat-theatre: #7a2fc0;
+  /* Transitional aliases (brand-direction-one.md §9, increment 1): the old yellow
+     sticker and pink accents go orange through the token swap alone. Deleted in cleanup. */
+  --highlight: var(--signal);
+  --pop: var(--signal);
   /* Door check-in only (components/check-in/, docs/design/check-in.md; enforced by
      tests/door-tokens.test.ts). Each fill has its text pair. Never used for decoration;
      colour is never the only signal (icon + words + panel shape). */
@@ -37,6 +37,17 @@
   --door-refuse-foreground: #f3f0e8;
   --door-hold: #ffb020; /* "Not verified": frame, hazard stripes, icon, headline; offline banner fill */
   --door-hold-foreground: #0b0b0b;
+  /* Faces (app/fonts.ts). */
+  --face-sans: var(--font-instrument), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --face-mono: var(--font-plex-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* THE display token. Bootzy isn't licensed into the repo yet: the fallback is Instrument Sans 700,
+     set tight, which is how the brand book sets its own headlines. Flip this block when Bootzy
+     lands (brand-direction-one.md §3.4): --face-display: var(--font-bootzy), var(--face-sans);
+     --display-weight: 400; --display-tracking: -0.01em; --display-leading: 0.9. */
+  --face-display: var(--face-sans);
+  --display-weight: 700;
+  --display-tracking: -0.045em;
+  --display-leading: 0.88;
   --header-h: 3.5rem; /* 56px compact header, < lg */
   --buybar-h: 4.5rem; /* 72px sticky event-page buy bar, < lg */
 }
@@ -47,11 +58,44 @@
   }
 }
 
+/* Ink and orange are sections, not themes (brand-direction-one.md §2.3): every shared
+   component inverts inside them with no class changes. Light only: no dark-mode theme. */
+[data-surface="ink"] {
+  --background: #000000;
+  --card: #141414;
+  --surface: #1a1a1a;
+  --surface-border: #333333;
+  --foreground: #fffae7;
+  --muted: #a39e93; /* 7.87:1 on black */
+  --accent: #fffae7;
+  --accent-strong: #ffffff;
+  --accent-foreground: #000000;
+  --danger: #ff6b5e; /* 7.52:1 on black */
+  --danger-foreground: #000000;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* At most one full-bleed orange band per page. No grey on orange; .btn-signal is forbidden inside. */
+[data-surface="signal"] {
+  --background: #ff4800;
+  --foreground: #000000;
+  --muted: #000000;
+  --surface-border: #000000;
+  --accent: #000000;
+  --accent-strong: #262626;
+  --accent-foreground: #fffae7;
+  background: var(--background);
+  color: var(--foreground);
+}
+
 /* Door check-in: an ink surface for dark venues. Every shared component re-skins through these.
-   The background must equal DOOR_THEME_COLOR (lib/pwa/theme.ts). */
+   The background must equal DOOR_THEME_COLOR (lib/pwa/theme.ts). --card keeps fields on the
+   door's own ink (they were transparent before fields became white cards). */
 [data-door] {
   color-scheme: dark;
   --background: #0b0b0b;
+  --card: #0b0b0b;
   --surface: #1a1a1a;
   --surface-border: #3a3833;
   --foreground: #f3f0e8;
@@ -67,6 +111,7 @@
 
 @theme inline {
   --color-background: var(--background);
+  --color-card: var(--card);
   --color-surface: var(--surface);
   --color-surface-border: var(--surface-border);
   --color-foreground: var(--foreground);
@@ -74,32 +119,32 @@
   --color-accent: var(--accent);
   --color-accent-strong: var(--accent-strong);
   --color-accent-foreground: var(--accent-foreground);
+  --color-signal: var(--signal);
+  --color-signal-foreground: var(--signal-foreground);
+  --color-ink: var(--ink);
+  --color-cream: var(--cream);
   --color-danger: var(--danger);
   --color-danger-foreground: var(--danger-foreground);
   --color-highlight: var(--highlight);
   --color-pop: var(--pop);
-  --color-card: var(--card);
-  --color-cat-live-music: var(--cat-live-music);
-  --color-cat-art: var(--cat-art);
-  --color-cat-workshop: var(--cat-workshop);
-  --color-cat-pop-up: var(--cat-pop-up);
-  --color-cat-theatre: var(--cat-theatre);
   --color-door-admit: var(--door-admit);
   --color-door-admit-foreground: var(--door-admit-foreground);
   --color-door-refuse: var(--door-refuse);
   --color-door-refuse-foreground: var(--door-refuse-foreground);
   --color-door-hold: var(--door-hold);
   --color-door-hold-foreground: var(--door-hold-foreground);
-  --font-display: var(--font-display), "Arial Black", Arial, sans-serif;
-  --font-heading: var(--font-display), "Arial Black", Arial, sans-serif;
-  --font-sans: var(--font-body), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: var(--face-sans);
+  --font-mono: var(--face-mono);
 }
 
-/* Phone home only (see docs/design/mobile-home.md §2): everywhere else stays square and flat. */
+/* The brand's rounded squares (the umlaut dots, the logomark, the palette swatches). No pills,
+   no circles (rounded-full survives only on native radios and checkboxes), no shadows. */
 @theme {
-  --radius-card: 1rem;
-  --radius-badge: 0.5rem;
-  --shadow-card: 0 1px 2px rgb(11 11 11 / 0.06), 0 6px 16px -6px rgb(11 11 11 / 0.10);
+  --radius-card: 0.75rem; /* 12px: event media, info cards, sheets, ticket stub, map card */
+  --radius-control: 0.5rem; /* 8px: buttons, inputs, selects, search, chips, steppers, menus */
+  --radius-badge: 0.25rem; /* 4px: category chip, date badge, status badge, unread count */
+  --radius-dot: 28%; /* avatars, map markers (echo the umlaut) */
+  --shadow-card: 0 0 #0000; /* flat: elevation is white on cream plus a 1px border. Deleted in cleanup. */
 }
 
 * {
@@ -128,7 +173,7 @@ html {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-sans);
+  font-family: var(--face-sans);
   overflow-x: hidden;
   /* viewport-fit=cover (app/layout.tsx): keep content out of a landscape
      notch, as the browser did before. 0 on desktop and in portrait. Top and
@@ -137,59 +182,160 @@ body {
   padding-right: env(safe-area-inset-right);
 }
 
-/* Display type: oversized, condensed, uppercase, tightly set. */
+/* Headings: a tight uppercase grotesk (Instrument Sans 700), as the brand book sets them. */
 @layer base {
 h1,
 h2,
 h3,
 h4 {
-  font-family: var(--font-display), "Arial Black", Arial, sans-serif;
-  font-weight: 800;
-  letter-spacing: -0.01em;
+  font-family: var(--face-sans);
+  font-weight: 700;
+  letter-spacing: -0.025em;
   text-transform: uppercase;
   line-height: 0.95;
 }
 }
 
+/* The display token (Bootzy when licensed): at most once per view, never on event titles. */
+@utility font-display {
+  font-family: var(--face-display);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+}
+
+/* Instrument Sans with its weight: the variable font would otherwise default to 400. */
+@utility font-heading {
+  font-family: var(--face-sans);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+/* Home hero h1 only: the display token. 32–42px on phones, up to 96px. */
 @utility display-xl {
-  font-family: var(--font-display), "Arial Black", Arial, sans-serif;
-  font-size: clamp(2.75rem, 8.5vw, 6rem);
-  line-height: 0.95;
+  font-family: var(--face-display);
+  font-weight: var(--display-weight);
+  font-size: clamp(2rem, 10vw, 2.625rem);
+  line-height: var(--display-leading);
+  letter-spacing: var(--display-tracking);
   text-transform: uppercase;
-  letter-spacing: -0.01em;
-  /* Phones: 12vw keeps "Find your people." to one line from 320 to 430. */
-  @media (width < 40rem) {
-    font-size: clamp(2rem, 9.5vw, 2.75rem);
+  @media (width >= 40rem) {
+    font-size: clamp(3.375rem, 8.5vw, 6rem);
   }
 }
 
+/* Page h1 and event titles: Instrument Sans 700, 32–40px on phones, 56–72px from lg. */
 @utility display-lg {
-  font-family: var(--font-display), "Arial Black", Arial, sans-serif;
-  font-size: clamp(2.25rem, 6.5vw, 4.75rem);
-  line-height: 0.9;
+  font-family: var(--face-sans);
+  font-weight: 700;
+  font-size: clamp(2rem, 8.5vw, 2.5rem);
+  line-height: 0.95;
+  letter-spacing: -0.035em;
   text-transform: uppercase;
-  @media (width < 40rem) {
-    font-size: clamp(1.875rem, 8.5vw, 2.25rem);
-    line-height: 0.95;
+  @media (width >= 40rem) {
+    font-size: clamp(2.5rem, 5.5vw, 3.5rem);
+  }
+  @media (width >= 64rem) {
+    font-size: clamp(3.5rem, 5vw, 4.5rem);
   }
 }
 
+/* Section h2 and empty-state titles: 24/26, 28/30 from sm, 32/34 from lg. */
 @utility display-md {
-  font-family: var(--font-display), "Arial Black", Arial, sans-serif;
-  font-size: clamp(1.5rem, 3.4vw, 2.25rem);
-  line-height: 0.95;
+  font-family: var(--face-sans);
+  font-weight: 700;
+  font-size: 1.5rem;
+  line-height: 1.625rem;
+  letter-spacing: -0.03em;
   text-transform: uppercase;
+  @media (width >= 40rem) {
+    font-size: 1.75rem;
+    line-height: 1.875rem;
+  }
+  @media (width >= 64rem) {
+    font-size: 2rem;
+    line-height: 2.125rem;
+  }
 }
 
-/* Small caps-style label used for eyebrows, nav and pill text. */
+/* A brand question h1 ("What's on."): display-lg sizes in the display token. Two classes, so it
+   wins over either utility on its own whatever their order in the stylesheet. */
+@layer utilities {
+  .display-lg.font-display {
+    font-family: var(--face-display);
+    font-weight: var(--display-weight);
+    letter-spacing: var(--display-tracking);
+    line-height: 0.9;
+  }
+}
+
+/* Labels, straps, categories, field labels: IBM Plex Mono 500, 12/16. */
 @utility eyebrow {
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.14em;
+  font-family: var(--face-mono);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
-/* Form controls: flat, square, hairline — no rounded containers. */
+/* Dates and times on cards, timestamps, references: IBM Plex Mono 400, 12/16. */
+@utility meta {
+  font-family: var(--face-mono);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* The active-nav "umlaut" (brand-direction-one.md §5 #2): two rounded squares over the label,
+   orange on the current page, black under the pointer. `umlaut-lg` is the phone menu's
+   8px pair, aligned over the first letter. */
+@utility umlaut {
+  position: relative;
+  &::before {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: var(--umlaut-left, 50%);
+    width: var(--umlaut-w, 10px);
+    height: var(--umlaut-h, 4px);
+    translate: var(--umlaut-x, -50%) 0;
+    background: var(--umlaut, var(--foreground));
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 4'%3E%3Crect width='4' height='4' rx='1'/%3E%3Crect x='6' width='4' height='4' rx='1'/%3E%3C/svg%3E")
+      center / 100% 100% no-repeat;
+    opacity: 0;
+    pointer-events: none;
+  }
+  &[aria-current="page"] {
+    --umlaut: var(--signal);
+  }
+  &[aria-current="page"]::before {
+    opacity: 1;
+  }
+  @media (hover: hover) {
+    &:hover::before {
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    &::before {
+      transition: opacity 150ms ease-out;
+    }
+  }
+}
+
+@utility umlaut-lg {
+  --umlaut-w: 20px;
+  --umlaut-h: 8px;
+  --umlaut-left: 0;
+  --umlaut-x: 0;
+  &::before {
+    top: 0.25rem;
+  }
+}
+
+/* Form controls: white fields with a 1px black boundary and the control radius. */
 @layer base {
   a {
     color: inherit;
@@ -197,10 +343,22 @@ h4 {
   input:not([type="checkbox"]):not([type="radio"]),
   select,
   textarea {
-    border-radius: 0;
-    background-color: transparent;
+    border-radius: var(--radius-control);
+    background-color: var(--card);
     border: 1px solid var(--foreground);
     color: var(--foreground);
+  }
+  input:not([type="checkbox"]):not([type="radio"]):disabled,
+  select:disabled,
+  textarea:disabled {
+    background-color: var(--surface);
+    border-color: var(--surface-border);
+    color: var(--muted);
+  }
+  input[aria-invalid="true"],
+  select[aria-invalid="true"],
+  textarea[aria-invalid="true"] {
+    border-color: var(--danger);
   }
   input::placeholder,
   textarea::placeholder {
@@ -212,6 +370,7 @@ h4 {
   }
 }
 
+/* Never orange: next to .btn-signal it would merge with the fill. Cream inside ink scopes. */
 :focus-visible {
   outline: 2px solid var(--foreground);
   outline-offset: 3px;
@@ -230,7 +389,7 @@ h4 {
   @keyframes rise {
     from {
       opacity: 0;
-      transform: translateY(1.5rem);
+      transform: translateY(1rem);
     }
     to {
       opacity: 1;
@@ -247,28 +406,28 @@ h4 {
       transform: rotate(360deg);
     }
   }
-  /* Entrance on load, staggered with --d (e.g. style={{"--d": "120ms"}}). */
+  /* Entrance on load, staggered with --d (e.g. style={{"--d": "120ms"}}). Not on the LCP h1. */
   .rise {
-    animation: rise 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation: rise 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
     animation-delay: var(--d, 0ms);
   }
   .float {
     animation: float 7s ease-in-out infinite;
     animation-delay: var(--d, 0ms);
   }
-  /* Slow push-in on a photo (the container clips it); alternates so it never snaps back. */
-  @keyframes ken-burns {
+  /* A photo push-in (the container clips it): one cycle under 5s that holds its end frame and
+     never loops (WCAG 2.2.2). The class keeps its old name so call sites don't change. */
+  @keyframes push-in {
     from {
       transform: scale(1);
     }
     to {
-      transform: scale(1.12) translate(-1.5%, -1%);
+      transform: scale(1.06) translate(-1%, -0.5%);
     }
   }
   .ken-burns {
-    animation: ken-burns 16s ease-in-out infinite alternate;
+    animation: push-in 4.5s cubic-bezier(0.2, 0.7, 0.2, 1) 1 both;
     animation-delay: var(--d, 0ms);
-    will-change: transform;
   }
   .spin-slow {
     animation: spin-slow 24s linear infinite;
@@ -290,6 +449,24 @@ h4 {
       animation-range: entry 0% entry 45%;
     }
   }
+  /* DotsLoader (components/brand/DotsMark.tsx): the two dots move together and apart while
+     loading. With reduced motion they stay apart and the label carries the state. */
+  @keyframes dots-join-left {
+    to {
+      transform: translateX(12.5px);
+    }
+  }
+  @keyframes dots-join-right {
+    to {
+      transform: translateX(-12.5px);
+    }
+  }
+  .dots-loader > path:first-child {
+    animation: dots-join-left 0.9s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+  }
+  .dots-loader > path:last-child {
+    animation: dots-join-right 0.9s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+  }
 }
 
 @keyframes marquee {
@@ -301,62 +478,93 @@ h4 {
   }
 }
 
-/* Pill buttons — single source of truth, used by ui/Button and legacy call sites. */
+/* Buttons: rounded squares (brand-direction-one.md §6.1). Single source of truth, used by
+   ui/Button and legacy call sites. */
 @layer components {
   .btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    border-radius: 9999px;
+    min-height: 2.5rem; /* md: 40px */
+    border-radius: var(--radius-control);
     border: 1px solid var(--foreground);
-    padding: 0.625rem 1.5rem;
-    font-size: 0.75rem;
+    padding: 0.5rem 1.25rem;
+    font-family: var(--face-sans);
+    font-size: 0.8125rem;
+    line-height: 1rem;
     font-weight: 600;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.02em;
     text-transform: uppercase;
     transition: background-color 0.15s, color 0.15s, border-color 0.15s;
   }
-  /* aria-disabled: busy buttons that keep focus (ui/Button `busy`). */
-  .btn:disabled,
-  .btn[aria-disabled="true"] {
-    cursor: not-allowed;
-    opacity: 0.5;
-  }
   .btn-sm {
-    padding: 0.375rem 1rem;
-    font-size: 0.6875rem;
+    min-height: 2rem; /* 32px */
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+    line-height: 1rem;
   }
   /* Primary thumb actions: 48px tall. */
   .btn-lg {
-    padding: 0.875rem 1.75rem;
-    font-size: 0.8125rem;
-    line-height: 1.125rem; /* 14 + 18 + 14 + 1px borders = 48px */
+    min-height: 3rem;
+    padding: 0.75rem 1.5rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
   }
   .btn-solid {
     background: var(--accent);
     border-color: var(--accent);
     color: var(--accent-foreground);
   }
-  .btn-solid:hover:not(:disabled, [aria-disabled="true"]) {
-    background: var(--accent-strong);
-    border-color: var(--accent-strong);
-  }
   .btn-outline {
     background: transparent;
+    border-color: var(--foreground);
     color: var(--foreground);
   }
-  .btn-outline:hover:not(:disabled, [aria-disabled="true"]) {
-    background: var(--foreground);
-    color: var(--background);
+  /* The one primary conversion action per viewport. Never in checkout, forms, dashboards or
+     admin, and never inside [data-surface="signal"]. */
+  .btn-signal {
+    background: var(--signal);
+    border-color: var(--signal);
+    color: var(--signal-foreground);
   }
   .btn-danger {
     background: transparent;
     border-color: var(--danger);
     color: var(--danger);
   }
-  .btn-danger:hover:not(:disabled, [aria-disabled="true"]) {
-    background: var(--danger);
-    color: var(--danger-foreground);
+  @media (hover: hover) {
+    .btn-solid:hover:not(:disabled, [aria-disabled="true"]) {
+      background: var(--accent-strong);
+      border-color: var(--accent-strong);
+    }
+    .btn-outline:hover:not(:disabled, [aria-disabled="true"]) {
+      background: var(--foreground);
+      color: var(--background);
+    }
+    /* 6.18:1 orange on black, on cream pages and inside ink alike. */
+    .btn-signal:hover:not(:disabled, [aria-disabled="true"]) {
+      background: var(--ink);
+      border-color: var(--signal);
+      color: var(--signal);
+    }
+    .btn-danger:hover:not(:disabled, [aria-disabled="true"]) {
+      background: var(--danger);
+      color: var(--danger-foreground);
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .btn:active:not(:disabled, [aria-disabled="true"]) {
+      transform: translateY(1px);
+    }
+  }
+  /* Disabled and busy (aria-disabled: ui/Button `busy`, which keeps focus). A flat fill rather
+     than opacity, which would turn orange pink. */
+  .btn:disabled,
+  .btn[aria-disabled="true"] {
+    cursor: not-allowed;
+    background: var(--surface);
+    border-color: var(--surface-border);
+    color: var(--muted);
   }
 }

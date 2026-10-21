@@ -223,7 +223,7 @@ export default function EventArt({
           y="78"
           textAnchor="middle"
           fontSize="95"
-          fontFamily="var(--font-heading), 'Arial Narrow', sans-serif"
+          fontFamily="var(--face-display)"
           fill="#ffffff"
           opacity="0.08"
         >

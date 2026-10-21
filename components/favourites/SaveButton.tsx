@@ -10,7 +10,7 @@ import HeartIcon from "./HeartIcon";
 
 export type SaveButtonVariant = "overlay" | "plain" | "onDark" | "pill";
 
-const discBase = "flex size-9 items-center justify-center rounded-full border motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90";
+const discBase = "flex size-9 items-center justify-center rounded-control border motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90";
 
 /** The 44px hit area and the visible mark, per variant and state. */
 function classes(variant: SaveButtonVariant, saved: boolean) {
@@ -29,13 +29,13 @@ function classes(variant: SaveButtonVariant, saved: boolean) {
       };
     case "onDark":
       return {
-        target: "group/save flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:outline-background",
+        target: "group/save flex size-11 shrink-0 items-center justify-center rounded-control focus-visible:outline-background",
         mark: `${discBase} border-background ${saved ? "bg-background text-foreground" : "text-background"}`,
         icon: "size-4.5",
       };
     case "overlay":
       return {
-        target: "group/save flex size-11 items-center justify-center rounded-full",
+        target: "group/save flex size-11 items-center justify-center rounded-control",
         mark: `${discBase} border-foreground ${
           saved
             ? "bg-foreground text-background group-hover/save:bg-accent-strong"

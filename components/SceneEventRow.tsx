@@ -73,7 +73,7 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
         aria-pressed={selected}
         aria-label={`Locate ${event.title} on the map`}
         title="Locate on map"
-        className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border font-sans text-base transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+        className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-control border font-sans text-base transition-colors disabled:cursor-not-allowed disabled:opacity-40"
         style={
           selected
             ? { background: ORANGE, borderColor: ORANGE, color: "#f3f0e8" }

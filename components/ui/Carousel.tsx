@@ -57,7 +57,7 @@ function Arrow({ direction }: { direction: "prev" | "next" }) {
 // aria-disabled (not `disabled`) so a keyboard user who pages to the end keeps
 // focus on the button instead of dropping to <body>.
 const arrowClass =
-  "absolute top-[140px] z-10 hidden h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-accent text-accent-foreground transition-opacity hover:bg-accent-strong aria-disabled:cursor-default aria-disabled:opacity-25 aria-disabled:hover:bg-accent sm:flex";
+  "absolute top-[140px] z-10 hidden h-12 w-12 -translate-y-1/2 items-center justify-center rounded-control bg-accent text-accent-foreground transition-opacity hover:bg-accent-strong aria-disabled:cursor-default aria-disabled:opacity-25 aria-disabled:hover:bg-accent sm:flex";
 
 /**
  * Below sm (phones) it's simply a vertical list: full-width tiles, 32px apart,

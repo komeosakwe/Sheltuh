@@ -20,7 +20,7 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // The steppers use aria-disabled, not `disabled`: reaching 0 or the cap must
 // leave focus on the button rather than dropping it to <body>.
 const stepperButtonClass =
-  "flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-foreground text-lg font-semibold text-foreground transition-colors hover:border-accent hover:text-accent aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:hover:border-surface-border aria-disabled:hover:text-foreground";
+  "flex h-11 w-11 shrink-0 items-center justify-center rounded-control border border-foreground text-lg font-semibold text-foreground transition-colors hover:border-accent hover:text-accent aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:hover:border-surface-border aria-disabled:hover:text-foreground";
 
 export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const ticketTypes = event.ticketTypes;
@@ -328,7 +328,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
               type="button"
               disabled
               aria-disabled="true"
-              className="mt-4 w-full cursor-not-allowed rounded-full bg-surface-border px-4 py-3 font-medium text-muted"
+              className="mt-4 w-full cursor-not-allowed rounded-control border border-surface-border bg-surface px-4 py-3 font-medium text-muted"
             >
               Checkout unavailable in this demo
             </button>

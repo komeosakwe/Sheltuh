@@ -187,7 +187,7 @@ function SearchThisAreaControl({
           onSearchArea(map.getBounds());
           setShowButton(false);
         }}
-        className="pointer-events-auto flex min-h-11 items-center gap-1.5 rounded-full border border-foreground bg-foreground px-4 py-2 text-sm font-medium text-background"
+        className="pointer-events-auto flex min-h-11 items-center gap-1.5 rounded-control border border-foreground bg-foreground px-4 py-2 text-sm font-medium text-background"
       >
         <span aria-hidden="true">⟳</span> Search this area
       </button>
@@ -406,7 +406,7 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
 
       {status === "loading" && (
         <div className="pointer-events-none absolute inset-0 z-[1000] flex items-center justify-center bg-background/60">
-          <p className="rounded-full bg-foreground px-4 py-2 text-sm text-background">Loading map&hellip;</p>
+          <p className="rounded-control bg-foreground px-4 py-2 text-sm text-background">Loading map&hellip;</p>
         </div>
       )}
 

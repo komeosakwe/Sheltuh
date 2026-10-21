@@ -32,7 +32,7 @@ export default function SceneMapEventCard({ event, detailsHref, onDismiss, varia
       type="button"
       onClick={onDismiss}
       aria-label="Dismiss selected event"
-      className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-foreground bg-background font-sans text-lg text-foreground ${
+      className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-control border border-foreground bg-background font-sans text-lg text-foreground ${
         sheet ? "" : "absolute top-2 right-2"
       }`}
     >

@@ -1,11 +1,19 @@
 import Link from "next/link";
 import type { ButtonHTMLAttributes, ComponentProps, MouseEvent, Ref } from "react";
 
-export type ButtonVariant = "solid" | "outline" | "light" | "danger";
-/** `lg` is the 48px pill for primary thumb actions on phones. */
+/**
+ * `signal` (Signal Orange) is the one primary conversion action per viewport:
+ * the home hero, the event page's Get tickets, Join waitlist. Never in
+ * checkout, forms, dashboards or admin, and never inside an orange section.
+ * `solid` (black) is every other primary action. `light` is the outline on
+ * hard-coded black sections; inside `data-surface="ink"` use `outline`,
+ * which the scope inverts.
+ */
+export type ButtonVariant = "solid" | "signal" | "outline" | "light" | "danger";
+/** sm 32px, md 40px, and `lg`, the 48px thumb action on phones. */
 export type ButtonSize = "sm" | "md" | "lg";
 
-/** Small pill CTA — the only place fully rounded shapes appear in the UI. Styles live in globals.css (.btn). */
+/** Rounded-square buttons (docs/design/brand-direction-one.md §6.1). Styles live in globals.css (.btn). */
 export function buttonClass(
   variant: ButtonVariant = "solid",
   size: ButtonSize = "md",
@@ -13,6 +21,7 @@ export function buttonClass(
 ) {
   const variants: Record<ButtonVariant, string> = {
     solid: "btn-solid",
+    signal: "btn-signal",
     outline: "btn-outline",
     light: "btn-outline border-background text-background hover:!bg-background hover:!text-foreground",
     danger: "btn-danger",

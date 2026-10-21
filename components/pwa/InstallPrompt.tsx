@@ -26,7 +26,7 @@ const getPlatform = (): InstallPlatform => detectInstallPlatform(window);
 const getServerPlatform = (): InstallPlatform => "standalone";
 
 const dismissButtonClass =
-  "min-h-11 px-2 text-sm font-semibold text-background underline underline-offset-4 hover:no-underline focus-visible:outline-background";
+  "min-h-11 px-2 text-sm font-semibold text-foreground underline underline-offset-4 hover:no-underline";
 
 /**
  * "Add Sheltüh to your home screen", at the top of the footer on browsing
@@ -78,7 +78,7 @@ export default function InstallPrompt() {
         ref={confirmationRef}
         tabIndex={-1}
         role="status"
-        className="mb-10 text-sm text-background/70 focus:outline-none"
+        className="mb-10 text-sm text-muted focus:outline-none"
       >
         Okay, we won&rsquo;t suggest this again. You can still add Sheltüh from your browser&rsquo;s menu.
       </p>
@@ -117,33 +117,33 @@ export default function InstallPrompt() {
       role="group"
       aria-labelledby={titleId}
       data-install-prompt={mode}
-      className="mb-10 flex flex-col gap-4 border border-background/30 p-5 sm:flex-row sm:items-center sm:justify-between sm:gap-8"
+      className="mb-10 flex flex-col gap-4 rounded-card border border-foreground/30 p-5 sm:flex-row sm:items-center sm:justify-between sm:gap-8"
     >
       <div className="min-w-0 max-w-xl">
         <p id={titleId} className="text-base font-semibold">
           {mode === "prompt" ? "Get Sheltüh on your home screen" : "Add Sheltüh to your Home Screen"}
         </p>
         {mode === "prompt" ? (
-          <p className="mt-1 text-sm text-background/70">It opens full screen, like an app. No app store needed.</p>
+          <p className="mt-1 text-sm text-muted">It opens full screen, like an app. No app store needed.</p>
         ) : (
-          <ol className="mt-2 flex list-decimal flex-col gap-1 pl-5 text-sm text-background/70">
+          <ol className="mt-2 flex list-decimal flex-col gap-1 pl-5 text-sm text-muted">
             <li>
               Tap the Share button
               <ShareIcon />
               in Safari. If you can&rsquo;t see it, tap the &middot;&middot;&middot; button first.
             </li>
             <li>
-              Choose <span className="font-semibold text-background">Add to Home Screen</span>.
+              Choose <span className="font-semibold text-foreground">Add to Home Screen</span>.
             </li>
             <li>
-              Tap <span className="font-semibold text-background">Add</span>.
+              Tap <span className="font-semibold text-foreground">Add</span>.
             </li>
           </ol>
         )}
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-3">
         {mode === "prompt" && (
-          <Button variant="light" size="lg" busy={prompting} onClick={install} className="focus-visible:outline-background">
+          <Button variant="outline" size="lg" busy={prompting} onClick={install}>
             Install
           </Button>
         )}
@@ -166,7 +166,7 @@ function ShareIcon() {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="mx-1 inline-block h-4 w-4 -translate-y-px align-middle text-background"
+      className="mx-1 inline-block h-4 w-4 -translate-y-px align-middle text-foreground"
     >
       <path d="M12 3v12" />
       <path d="m8 7 4-4 4 4" />

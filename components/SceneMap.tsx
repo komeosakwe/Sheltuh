@@ -267,7 +267,7 @@ function SceneMapView({
               key={chip.key}
               type="button"
               onClick={chip.onRemove}
-              className="flex h-8 items-center gap-1.5 rounded-full border px-3 font-sans text-xs font-medium text-foreground"
+              className="flex h-8 items-center gap-1.5 rounded-control border px-3 font-sans text-xs font-medium text-foreground"
               style={{ borderColor: "#0b0b0b", background: "#f3f0e8" }}
             >
               {chip.label}
@@ -280,7 +280,7 @@ function SceneMapView({
           <button
             type="button"
             onClick={resetFilters}
-            className="h-8 rounded-full px-3 font-sans text-xs font-medium underline underline-offset-2"
+            className="h-8 rounded-control px-3 font-sans text-xs font-medium underline underline-offset-2"
             style={{ color: ORANGE }}
           >
             Clear all
@@ -324,7 +324,7 @@ function SceneMapView({
 
           {/* Mobile-only map/list toggle. Both panels are always visible from lg: up. */}
           <div
-            className="flex gap-1 self-start rounded-full border border-surface-border p-1 lg:hidden"
+            className="flex gap-1 self-start rounded-control border border-surface-border p-1 lg:hidden"
             role="tablist"
             aria-label="View"
           >
@@ -335,7 +335,7 @@ function SceneMapView({
                 role="tab"
                 aria-selected={mobileView === view}
                 onClick={() => setMobileView(view)}
-                className="min-h-[44px] rounded-full px-5 font-sans text-sm font-semibold capitalize transition-colors"
+                className="min-h-[44px] rounded-badge px-5 font-sans text-sm font-semibold capitalize transition-colors"
                 style={mobileView === view ? { background: ORANGE, color: "#f3f0e8" } : { color: "#6b675e" }}
               >
                 {view}

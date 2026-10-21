@@ -235,6 +235,7 @@ describe("sw.js lifecycle", () => {
     // checkouts). Changed offline.html? Bump VERSION in public/sw.js and add the new pair here.
     const SHIPPED: Record<string, string> = {
       v2: "c20b664a0d237dab12f770de9fb809fb777139111d631863bed63706cb189b9f",
+      v3: "73d8ffb247c633ccc57723f6c86969c11bea29fe2120e65010c216ed25c989bf",
     };
     const offline = readFileSync(path.resolve(import.meta.dirname, "../public/offline.html"), "utf8").replace(/\r\n/g, "\n");
     const worker = loadWorker();

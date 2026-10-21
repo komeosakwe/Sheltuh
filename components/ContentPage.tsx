@@ -24,7 +24,7 @@ export default function ContentPage({
       <PageHeader eyebrow={eyebrow} title={title} intro={intro} />
       {draft && (
         <p role="note" className="mb-10 flex flex-wrap items-baseline gap-3 text-sm">
-          <span className="eyebrow bg-highlight px-2 py-1 text-foreground">Draft</span>
+          <span className="eyebrow rounded-badge bg-signal px-2 py-1 text-signal-foreground">Draft</span>
           <span className="text-muted">
             This page is a plain-language draft and has not yet been reviewed by a lawyer. It may
             change before launch.

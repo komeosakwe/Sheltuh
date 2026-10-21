@@ -111,19 +111,24 @@ const markerButton = (title: string) => screen.findByRole("button", { name: new 
 const mapPanel = () => document.querySelector(".leaflet-container") as HTMLElement;
 
 describe("SceneMap photo markers", () => {
-  it("renders each located event as a photo marker in a category ring, with an accessible name", async () => {
+  it("renders each located event as a photo marker with the category in its name, not in a colour", async () => {
     await renderMap([withPhoto, noPhoto, westSide]);
 
     const marker = await markerButton("Photo Night");
     expect(marker.tagName).toBe("BUTTON");
     expect(marker).toHaveAttribute("aria-pressed", "false");
     expect(marker).toHaveAccessibleName(/^Photo Night\. Live music, /);
-    expect(marker.querySelector(".bg-cat-live-music")).not.toBeNull();
+    // Per-category ring colours are retired (brand-direction-one.md §2.7): every marker has the
+    // same black ring, and the category is in the name and the data attribute.
+    expect(marker).toHaveAttribute("data-category", "live-music");
+    expect(marker.querySelector(".bg-foreground")).not.toBeNull();
+    expect(marker.querySelector(".bg-signal")).toBeNull();
     expect(marker.querySelector("img")).toHaveAttribute("src", "/events/photo-night.jpg");
     expect(marker.querySelector("img")).toHaveAttribute("loading", "lazy");
 
     const theatre = await markerButton("Poster Only");
-    expect(theatre.querySelector(".bg-cat-theatre")).not.toBeNull();
+    expect(theatre).toHaveAttribute("data-category", "theatre");
+    expect(theatre).toHaveAccessibleName(/^Poster Only\. Theatre, /);
     // Each marker sits in a fixed 48px Leaflet icon box: no layout shift when the photo loads or fails.
     const icon = marker.closest(".leaflet-marker-icon") as HTMLElement;
     expect(icon.style.width).toBe("48px");
@@ -166,7 +171,10 @@ describe("SceneMap photo markers", () => {
     fireEvent.click(await markerButton("Photo Night"));
 
     await waitFor(() => expect(screen.getAllByRole("region", { name: "Selected event" }).length).toBeGreaterThan(0));
-    expect(await markerButton("Photo Night")).toHaveAttribute("aria-pressed", "true");
+    const pressed = await markerButton("Photo Night");
+    expect(pressed).toHaveAttribute("aria-pressed", "true");
+    // Selected: the ring turns Signal Orange (plus a black outer ring, so it never relies on colour).
+    expect(pressed.querySelector(".bg-signal.ring-foreground")).not.toBeNull();
 
     const card = screen.getAllByRole("region", { name: "Selected event" })[0];
     const photo = card.querySelector("img");
