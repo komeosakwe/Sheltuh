@@ -194,28 +194,45 @@ export default function DashboardContent() {
       {events !== null && events.length > 0 && (
         <>
           <ul className="flex flex-col gap-3">
-            {events.map((event) => (
-              <li key={event.eventId} className="flex items-stretch bg-surface">
-                <Link
-                  href={`/dashboard/${event.eventId}`}
-                  className="flex min-w-0 flex-1 items-center justify-between gap-3 p-4 hover:border-accent"
-                >
-                  <div className="min-w-0">
-                    <p className="font-medium text-foreground">{event.title || "Untitled event"}</p>
-                    <p className="text-sm text-muted">{event.suburb}</p>
+            {events.map((event) => {
+              const title = event.title || "Untitled event";
+              const canCheckIn = event.status === "published";
+              return (
+                // Under sm the side links drop below the title (two columns), so it isn't squeezed at 320.
+                <li key={event.eventId} className="flex flex-col bg-surface sm:flex-row sm:items-stretch">
+                  <Link
+                    href={`/dashboard/${event.eventId}`}
+                    className="flex min-w-0 flex-1 items-center justify-between gap-3 p-4 hover:border-accent"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground">{title}</p>
+                      <p className="text-sm text-muted">{event.suburb}</p>
+                    </div>
+                    <span className="bg-background px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted">
+                      {STATUS_LABEL[event.status]}
+                    </span>
+                  </Link>
+                  <div className="grid grid-cols-2 border-t border-background sm:flex sm:border-t-0">
+                    <Link
+                      href={`/dashboard/events/${encodeURIComponent(event.eventId)}/analytics`}
+                      className={`eyebrow inline-flex min-h-11 items-center px-4 underline underline-offset-4 sm:border-l sm:border-background ${
+                        canCheckIn ? "" : "col-span-2"
+                      }`.trim()}
+                    >
+                      Analytics <span className="sr-only">for {title}</span>
+                    </Link>
+                    {canCheckIn && (
+                      <Link
+                        href={`/dashboard/${encodeURIComponent(event.eventId)}/check-in`}
+                        className="eyebrow inline-flex min-h-11 items-center border-l border-background px-4 underline underline-offset-4"
+                      >
+                        Check-in <span className="sr-only">for {title}</span>
+                      </Link>
+                    )}
                   </div>
-                  <span className="bg-background px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted">
-                    {STATUS_LABEL[event.status]}
-                  </span>
-                </Link>
-                <Link
-                  href={`/dashboard/events/${encodeURIComponent(event.eventId)}/analytics`}
-                  className="eyebrow inline-flex min-h-11 items-center border-l border-background px-4 underline underline-offset-4"
-                >
-                  Analytics <span className="sr-only">for {event.title || "Untitled event"}</span>
-                </Link>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
           {nextCursor && (
             <button

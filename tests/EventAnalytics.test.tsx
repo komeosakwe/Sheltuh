@@ -204,4 +204,31 @@ describe("EventAnalytics — report", () => {
     expect(within(panel).getByRole("rowheader", { name: "Instagram bio" }).closest("tr")).toHaveTextContent("5.0%");
     expect(within(panel).getByRole("rowheader", { name: "Deleted link (zz9yx8wv)" })).toBeInTheDocument();
   });
+
+  it("attendance: checked in against sold, all time, with the way to the door for a published event", async () => {
+    api.getEventAnalytics.mockResolvedValue(
+      eventReport({ attendance: { checkedIn: 129, ticketsSold: 240, byTicketType: [] } }),
+    );
+    renderEvent();
+    const panel = await screen.findByRole("region", { name: "At the door" });
+    expect(within(panel).getByText("129")).toBeInTheDocument();
+    expect(within(panel).getByText("of 240 tickets sold (54%). All time, whatever the dates above.")).toBeInTheDocument();
+    expect(within(panel).getByRole("link", { name: "Open door check-in" })).toHaveAttribute("href", "/dashboard/evt-1/check-in");
+    // The note no longer promises check-ins "later".
+    expect(screen.queryByText(/Door check-ins/)).toBeNull();
+  });
+
+  it("attendance null (nothing sold yet): says so, no numbers", async () => {
+    api.getEventAnalytics.mockResolvedValue(eventReport({ attendance: null }));
+    renderEvent();
+    const panel = await screen.findByRole("region", { name: "At the door" });
+    expect(within(panel).getByText("No tickets have been sold yet, so there’s no one to check in.")).toBeInTheDocument();
+  });
+
+  it("attendance missing (an older response): no panel", async () => {
+    api.getEventAnalytics.mockResolvedValue(eventReport());
+    renderEvent();
+    await screen.findByRole("region", { name: "Over time" });
+    expect(screen.queryByRole("region", { name: "At the door" })).toBeNull();
+  });
 });

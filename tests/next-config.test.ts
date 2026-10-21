@@ -23,8 +23,23 @@ describe("next.config headers", () => {
     expect(byKey["x-robots-tag"]).toMatch(/\bnoindex\b/);
   });
 
+  it("caches the door scanner's versioned WASM decoder for a year, as immutable", async () => {
+    const byKey = await headersFor("/vendor/zxing-wasm/:path*");
+    expect(byKey["cache-control"]).toBe("public, max-age=31536000, immutable");
+    expect(Object.keys(byKey)).toEqual(["cache-control"]);
+  });
+
+  it("leaves /sw.js's CSP alone: the WASM rule can't match it", async () => {
+    const rules = (await nextConfig.headers?.()) ?? [];
+    const wasmRule = rules.find((r) => r.source.startsWith("/vendor/"));
+    expect(wasmRule?.source.startsWith("/sw")).toBe(false);
+    expect(rules.filter((r) => r.headers.some((h) => h.key.toLowerCase() === "content-security-policy")).map((r) => r.source)).toEqual([
+      "/sw.js",
+    ]);
+  });
+
   it("adds headers to no other path (deliberately: each rule above has a reason)", async () => {
     const rules = await nextConfig.headers?.();
-    expect(rules?.map((r) => r.source)).toEqual(["/sw.js", "/checkout/:path*"]);
+    expect(rules?.map((r) => r.source)).toEqual(["/sw.js", "/checkout/:path*", "/vendor/zxing-wasm/:path*"]);
   });
 });

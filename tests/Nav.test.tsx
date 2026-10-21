@@ -227,6 +227,18 @@ describe("Nav — header", () => {
     expect(other.container.querySelector("header")).toHaveClass("sticky");
   });
 
+  it("scrolls away at every width on the door check-in page, so it doesn't sit lit above the scanner", () => {
+    pathname = "/dashboard/evt-1/check-in";
+    const { container } = renderNav(fakeAuthValue());
+    const header = container.querySelector("header");
+    expect(header).toHaveClass("relative");
+    expect(header).not.toHaveClass("sticky");
+    expect(header).not.toHaveClass("lg:sticky");
+    cleanup();
+    pathname = "/dashboard/evt-1";
+    expect(renderNav(fakeAuthValue()).container.querySelector("header")).toHaveClass("sticky");
+  });
+
   it("gives the desktop search a short placeholder (the label is unchanged)", () => {
     renderNav(fakeAuthValue());
     const search = within(screen.getByRole("search", { name: "Search the site" })).getByRole("searchbox", {

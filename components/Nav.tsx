@@ -33,6 +33,8 @@ export default function Nav() {
   const [menuOpen, setMenuOpen] = useState(false);
   const unreadCount = useUnread()?.count ?? 0;
   const inThread = /^\/messages\/(?!blocked$)[^/]+$/.test(pathname);
+  // At the door the paper header scrolls away at every width, so it doesn't sit lit above the scanner.
+  const atDoor = /^\/dashboard\/[^/]+\/check-in$/.test(pathname);
 
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
 
@@ -80,7 +82,7 @@ export default function Nav() {
     // The top padding keeps it below a status bar or notch (viewport-fit=cover);
     // it's 0 on desktop and in iOS's default status-bar style.
     <header
-      className={`${inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 bg-background pt-[env(safe-area-inset-top)] lg:bg-background/95`}
+      className={`${atDoor ? "relative" : inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 bg-background pt-[env(safe-area-inset-top)] lg:bg-background/95`}
     >
       {/* Compact bar (phones and tablets). */}
       <div className="flex h-14 items-center justify-between border-b border-surface-border px-5 sm:px-8 lg:hidden">

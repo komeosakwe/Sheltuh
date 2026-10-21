@@ -9,8 +9,17 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
 import { withNext } from "@/lib/safe-next-path";
 
-/** The dashboard's copy for someone without an approved organiser application. */
-export function NotApprovedOrganiser({ status }: { status?: "pending" | "rejected" }) {
+/**
+ * The dashboard's copy for someone without an approved organiser application.
+ * `need`: what they're trying to do ("check people in at the door"); default "see analytics".
+ */
+export function NotApprovedOrganiser({
+  status,
+  need = "see analytics",
+}: {
+  status?: "pending" | "rejected";
+  need?: string;
+}) {
   return (
     <div className="bg-surface p-4">
       <p className="mb-3 text-foreground">
@@ -18,7 +27,7 @@ export function NotApprovedOrganiser({ status }: { status?: "pending" | "rejecte
           ? "Your organiser application is still pending review."
           : status === "rejected"
             ? "Your organiser application wasn't approved."
-            : "You need an approved organiser application before you can see analytics."}
+            : `You need an approved organiser application before you can ${need}.`}
       </p>
       <Link href="/organisers/apply" className="btn btn-solid">
         {status ? "View application" : "Apply as an organiser"}

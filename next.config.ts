@@ -30,6 +30,13 @@ const nextConfig: NextConfig = {
           { key: "X-Robots-Tag", value: "noindex, nofollow" },
         ],
       },
+      // The door scanner's self-hosted QR decoder (public/vendor/zxing-wasm/<version>/,
+      // lib/check-in/detector.ts). The version is in the path and a new version gets a
+      // new folder, so a file never changes at its URL: cache it for a year.
+      {
+        source: "/vendor/zxing-wasm/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
     ];
   },
 };

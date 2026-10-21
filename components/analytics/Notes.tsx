@@ -20,7 +20,7 @@ export function LaterStagesNote() {
     <section className="border-t border-surface-border pt-5">
       <p className="eyebrow text-muted">Coming later</p>
       <p className="mt-2 max-w-2xl text-sm text-muted">
-        Door check-ins and which suburbs your attendees come from. They&rsquo;ll appear here when they&rsquo;re ready.
+        Which suburbs your attendees come from. It&rsquo;ll appear here when it&rsquo;s ready.
       </p>
     </section>
   );

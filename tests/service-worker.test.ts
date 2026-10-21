@@ -179,6 +179,8 @@ describe("sw.js routing: never intercepted", () => {
     ["the manifest", req("/manifest.webmanifest")],
     ["a page fetched with fetch() (not a navigation)", req("/account")],
     ["an event page whose slug looks like an image, fetched as data", req("/events/poster.png")],
+    // The door scanner's decoder: HTTP-cached as immutable (next.config.ts), never stored by the worker.
+    ["the door scanner's WASM decoder (fetched by the scanner)", req("/vendor/zxing-wasm/3.1.3/zxing_reader.wasm")],
   ])("%s", (_label, request) => {
     expect(worker.routeFor(request)).toBe("bypass");
   });

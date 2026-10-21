@@ -28,6 +28,15 @@
   --cat-workshop: #a35a00;
   --cat-pop-up: #0d7f72;
   --cat-theatre: #7a2fc0;
+  /* Door check-in only (components/check-in/, docs/design/check-in.md; enforced by
+     tests/door-tokens.test.ts). Each fill has its text pair. Never used for decoration;
+     colour is never the only signal (icon + words + panel shape). */
+  --door-admit: #3ddc84; /* "Let in" panel fill, admitted icon on ink */
+  --door-admit-foreground: #0b0b0b;
+  --door-refuse: #b3261e; /* "Don't let in" panel fill (same value as paper-scope --danger) */
+  --door-refuse-foreground: #f3f0e8;
+  --door-hold: #ffb020; /* "Not verified": frame, hazard stripes, icon, headline; offline banner fill */
+  --door-hold-foreground: #0b0b0b;
   --header-h: 3.5rem; /* 56px compact header, < lg */
   --buybar-h: 4.5rem; /* 72px sticky event-page buy bar, < lg */
 }
@@ -36,6 +45,24 @@
   :root {
     --header-h: 4.375rem; /* 70px: the one-row desktop header, as measured at 1280 */
   }
+}
+
+/* Door check-in: an ink surface for dark venues. Every shared component re-skins through these.
+   The background must equal DOOR_THEME_COLOR (lib/pwa/theme.ts). */
+[data-door] {
+  color-scheme: dark;
+  --background: #0b0b0b;
+  --surface: #1a1a1a;
+  --surface-border: #3a3833;
+  --foreground: #f3f0e8;
+  --muted: #a39e93;
+  --accent: #f3f0e8;
+  --accent-strong: #d3cec1;
+  --accent-foreground: #0b0b0b;
+  --danger: #ff6b5e;
+  --danger-foreground: #0b0b0b;
+  background: var(--background);
+  color: var(--foreground);
 }
 
 @theme inline {
@@ -57,6 +84,12 @@
   --color-cat-workshop: var(--cat-workshop);
   --color-cat-pop-up: var(--cat-pop-up);
   --color-cat-theatre: var(--cat-theatre);
+  --color-door-admit: var(--door-admit);
+  --color-door-admit-foreground: var(--door-admit-foreground);
+  --color-door-refuse: var(--door-refuse);
+  --color-door-refuse-foreground: var(--door-refuse-foreground);
+  --color-door-hold: var(--door-hold);
+  --color-door-hold-foreground: var(--door-hold-foreground);
   --font-display: var(--font-display), "Arial Black", Arial, sans-serif;
   --font-heading: var(--font-display), "Arial Black", Arial, sans-serif;
   --font-sans: var(--font-body), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;

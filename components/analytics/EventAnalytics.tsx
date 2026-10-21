@@ -12,6 +12,7 @@ import type { GetToken } from "@/lib/api/client";
 import type { EventAnalytics as Report } from "@/lib/api/types";
 import { formatEventDateShort } from "@/lib/format";
 import AnalyticsGate, { NotApprovedOrganiser } from "./AnalyticsGate";
+import Attendance from "./Attendance";
 import DataTable from "./DataTable";
 import ExportCsvButton from "./ExportCsvButton";
 import { ValueOrNoData } from "./NoData";
@@ -217,6 +218,8 @@ function ReportBody({ data, range, busy }: { data: Report; range: RangeState; bu
           />
         }
       />
+
+      <Attendance attendance={data.attendance} event={data.event} />
 
       <Panel title="Over time" titleId="over-time">
         <div className="flex flex-col gap-8">
