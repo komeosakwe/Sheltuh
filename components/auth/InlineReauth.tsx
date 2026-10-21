@@ -1,7 +1,11 @@
 "use client";
 
-import { useState, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
+import AuthField, { fieldsForAuthError, useFocusAfterRender, type AuthErrorField } from "@/components/auth/AuthField";
+import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthContext";
+
+const FORM_ERROR_ID = "reauth-error";
 
 interface Props {
   /**
@@ -24,16 +28,36 @@ interface Props {
  * own <form>, and a native `submit` event bubbles — a nested form's submit
  * button would also trigger the outer form's onSubmit (i.e. a save) via
  * React's delegated listener, double-submitting on every sign-in click.
+ *
+ * Like the sign-in page: empty fields are caught before Supabase is called,
+ * focus goes to the first invalid field, and Sign in stays focusable while
+ * it works (busy, not disabled).
  */
 export default function InlineReauth({ expectedEmail, onSignedIn }: Props) {
   const auth = useAuth();
   const [email, setEmail] = useState(expectedEmail ?? "");
   const [password, setPassword] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const [error, setError] = useState<string | null>(null);
+  const [errorFields, setErrorFields] = useState<AuthErrorField[]>([]);
   const [loading, setLoading] = useState(false);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
+  const focusAfterRender = useFocusAfterRender();
 
   async function handleSignIn() {
+    if (loading) return;
     setError(null);
+    setErrorFields([]);
+    const missing = {
+      email: email.trim() ? undefined : "Enter your email",
+      password: password ? undefined : "Enter your password",
+    };
+    setFieldErrors(missing);
+    if (missing.email || missing.password) {
+      focusAfterRender(missing.email ? emailRef.current : passwordRef.current);
+      return;
+    }
     setLoading(true);
     try {
       await auth.signIn(email, password);
@@ -47,7 +71,14 @@ export default function InlineReauth({ expectedEmail, onSignedIn }: Props) {
       }
       onSignedIn();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't sign in.");
+      const message = err instanceof Error ? err.message : "Couldn't sign in.";
+      const fields = fieldsForAuthError(message, ["email", "password"]);
+      setError(message);
+      setErrorFields(fields);
+      // A locked email can't be fixed: the password is the field to go back to.
+      const editable = fields.filter((field) => !(field === "email" && expectedEmail));
+      if (editable.includes("email")) focusAfterRender(emailRef.current);
+      else if (editable.includes("password")) focusAfterRender(passwordRef.current);
     } finally {
       setLoading(false);
     }
@@ -56,54 +87,50 @@ export default function InlineReauth({ expectedEmail, onSignedIn }: Props) {
   function handlePasswordKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key !== "Enter") return;
     event.preventDefault();
-    if (!loading) void handleSignIn();
+    void handleSignIn();
   }
+
+  const invalidBy = (field: AuthErrorField) => (errorFields.includes(field) ? FORM_ERROR_ID : undefined);
 
   return (
     <div className="mt-3 flex flex-col gap-2 border-t border-danger/20 pt-3">
-      <div className="flex flex-col gap-1">
-        <label htmlFor="reauth-email" className="eyebrow text-muted">
-          Email
-        </label>
-        <input
-          id="reauth-email"
-          type="email"
-          autoComplete="email"
-          required
-          readOnly={Boolean(expectedEmail)}
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="border border-foreground bg-transparent px-3 py-1.5 text-sm text-foreground read-only:opacity-70"
-        />
-      </div>
-      <div className="flex flex-col gap-1">
-        <label htmlFor="reauth-password" className="eyebrow text-muted">
-          Password
-        </label>
-        <input
-          id="reauth-password"
-          type="password"
-          autoComplete="current-password"
-          required
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          onKeyDown={handlePasswordKeyDown}
-          className="border border-foreground bg-transparent px-3 py-1.5 text-sm text-foreground"
-        />
-      </div>
+      <AuthField
+        ref={emailRef}
+        id="reauth-email"
+        label="Email"
+        type="email"
+        autoComplete="email"
+        required
+        readOnly={Boolean(expectedEmail)}
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        error={fieldErrors.email}
+        invalidBy={invalidBy("email")}
+        compact
+        className="read-only:opacity-70"
+      />
+      <AuthField
+        ref={passwordRef}
+        id="reauth-password"
+        label="Password"
+        type="password"
+        autoComplete="current-password"
+        required
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        onKeyDown={handlePasswordKeyDown}
+        error={fieldErrors.password}
+        invalidBy={invalidBy("password")}
+        compact
+      />
       {error && (
-        <p role="alert" className="text-xs text-danger">
+        <p id={FORM_ERROR_ID} role="alert" className="text-xs text-danger">
           {error}
         </p>
       )}
-      <button
-        type="button"
-        onClick={handleSignIn}
-        disabled={loading}
-        className="btn btn-solid w-fit"
-      >
+      <Button onClick={handleSignIn} busy={loading} className="w-fit">
         {loading ? "Signing in…" : "Sign in"}
-      </button>
+      </Button>
     </div>
   );
 }

@@ -236,7 +236,7 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
         <legend className="eyebrow text-muted">Event categories</legend>
         <div className="flex flex-wrap gap-3">
           {EVENT_CATEGORIES.map((c) => (
-            <label key={c.value} className="flex items-center gap-1.5 text-sm text-foreground">
+            <label key={c.value} className="flex items-center gap-2 text-sm text-foreground">
               <input
                 id={categoryId(c.value)}
                 type="checkbox"

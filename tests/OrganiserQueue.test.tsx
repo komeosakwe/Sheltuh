@@ -124,6 +124,8 @@ describe("Admin organisers: statuses", () => {
     expect(await screen.findByText("Nothing to review")).toBeInTheDocument();
     expect(adminListOrganisers).toHaveBeenCalledWith("pending", expect.any(Function));
     expect(screen.getByRole("button", { name: "Pending" })).toHaveAttribute("aria-pressed", "true");
+    // Pressed shows the two dots too, not colour alone.
+    expect(screen.getByRole("button", { name: "Pending" }).querySelector("[data-selected-dots]")).not.toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Approved" }));
     expect(await screen.findByRole("heading", { name: "Org a1" })).toBeInTheDocument();

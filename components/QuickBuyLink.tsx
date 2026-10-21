@@ -19,6 +19,9 @@ import type { SheltuhEvent } from "@/lib/types";
  * two-column phone grid (cards ~134px wide at 320): below 640px the button
  * fills the card, the label is 12px, and the arrow drops, so it fits.
  * `fill` fills the row at every width.
+ *
+ * `now`: an event that has ended by then gets no button (default: the time
+ * of rendering), so a list that still shows it never offers to sell it.
  */
 export default function QuickBuyLink({
   event,
@@ -26,6 +29,7 @@ export default function QuickBuyLink({
   fullWidthOnPhones = false,
   narrow = false,
   fill = false,
+  now = new Date(),
 }: {
   event: SheltuhEvent;
   className?: string;
@@ -33,8 +37,9 @@ export default function QuickBuyLink({
   narrow?: boolean;
   /** Fill the row at every width (the map card's button row). */
   fill?: boolean;
+  now?: Date;
 }) {
-  const label = quickBuyLabel(event);
+  const label = quickBuyLabel(event, now);
   if (!label) return null;
   const width = fill
     ? "w-full px-4"
@@ -47,7 +52,8 @@ export default function QuickBuyLink({
     <div className={`flex ${className}`.trim()}>
       <Link
         href={`/events/${event.slug}#tickets`}
-        className={buttonClass("signal", "md", `min-h-11 sm:min-h-10 focus-visible:outline-ink ${width}`)}
+        // relative: its visually hidden name is positioned within the button, never the page.
+        className={buttonClass("signal", "md", `relative min-h-11 sm:min-h-10 focus-visible:outline-ink ${width}`)}
       >
         {/* The whole name in one span: a leading space in a separate sr-only suffix can be dropped inside a flex link. */}
         <span className="sr-only">

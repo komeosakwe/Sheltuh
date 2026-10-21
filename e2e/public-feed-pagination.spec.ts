@@ -78,14 +78,20 @@ test("loads more than 20 records across multiple 'Load more' clicks", async ({ p
 
   await page.goto("/events");
   await expect(page.getByText("Event 1", { exact: true })).toBeVisible();
-  await expect(page.getByText("Showing 10 events")).toBeVisible();
+  // The visible count, and the polite status that announces it (the count isn't a live region).
+  const count = (text: string) => page.locator("p.meta", { hasText: text });
+  const status = page.getByRole("status").filter({ hasText: /^Showing \d+ events$/ });
+  await expect(count("Showing 10 events")).toBeVisible();
+  await expect(status).toHaveText("Showing 10 events");
 
   await page.getByRole("button", { name: "Load more" }).click();
-  await expect(page.getByText("Showing 20 events")).toBeVisible();
+  await expect(count("Showing 20 events")).toBeVisible();
+  await expect(status).toHaveText("Showing 20 events");
   await expect(page.getByText("Event 20", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Load more" }).click();
-  await expect(page.getByText("Showing 25 events")).toBeVisible();
+  await expect(count("Showing 25 events")).toBeVisible();
+  await expect(status).toHaveText("Showing 25 events");
   await expect(page.getByText("Event 25", { exact: true })).toBeVisible();
 
   // All 25 loaded — the button disappears once nextCursor runs out.

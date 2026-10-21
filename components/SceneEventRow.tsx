@@ -9,7 +9,8 @@ import type { SheltuhEvent } from "@/lib/types";
 interface SceneEventRowProps {
   event: SheltuhEvent;
   selected: boolean;
-  onLocate: (eventId: string) => void;
+  /** `opener`: the Locate button, for focus to come back to when the selection is dismissed. */
+  onLocate: (eventId: string, opener: HTMLElement) => void;
   hasLocation: boolean;
   detailsHref: string;
 }
@@ -46,7 +47,8 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
           </p>
         )}
         <p className="meta">
-          {formatEventDateShort(event.startsAt)} · {formatEventTime(event.startsAt)}
+          <span className="whitespace-nowrap">{formatEventDateShort(event.startsAt)}</span> ·{" "}
+          <span className="whitespace-nowrap">{formatEventTime(event.startsAt)}</span>
         </p>
         <Link
           href={detailsHref}
@@ -66,7 +68,7 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
 
       <button
         type="button"
-        onClick={() => onLocate(event.id)}
+        onClick={(click) => onLocate(event.id, click.currentTarget)}
         disabled={!hasLocation}
         aria-pressed={selected}
         aria-label={`Locate ${event.title} on the map`}

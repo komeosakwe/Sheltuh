@@ -82,7 +82,7 @@ describe("EventAnalytics — states", () => {
     const nav = screen.getByRole("navigation", { name: "Event" });
     expect(within(nav).getByRole("link", { name: "Edit event" })).toHaveAttribute("href", "/dashboard/evt-1");
     expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
-    expect(screen.getByText("Loading analytics…").closest("[aria-busy='true']")).not.toBeNull();
+    expect(screen.getByRole("progressbar", { name: "Loading analytics" }).closest("[aria-busy='true']")).not.toBeNull();
   });
 
   it("never published: says when counting starts, hides the numbers, keeps tracking links", async () => {

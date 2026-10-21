@@ -9,12 +9,14 @@ export const metadata: Metadata = { title: "Payouts — Sheltüh" };
 
 export default function PayoutsPage() {
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-8 px-5 py-12 sm:px-8 sm:py-20">
-      <BackLink href="/dashboard">Your events</BackLink>
-      <PageHeader flush size="md" eyebrow="Organiser" title="Payouts" />
-      <Suspense fallback={<LoadingIndicator />}>
-        <PayoutsPanel />
-      </Suspense>
+    <div className="mx-auto max-w-6xl px-5 py-12 sm:px-8 sm:py-20">
+      <div className="flex max-w-2xl flex-col gap-8">
+        <BackLink href="/dashboard">Your events</BackLink>
+        <PageHeader flush size="md" eyebrow="Organiser" title="Payouts" />
+        <Suspense fallback={<LoadingIndicator />}>
+          <PayoutsPanel />
+        </Suspense>
+      </div>
     </div>
   );
 }

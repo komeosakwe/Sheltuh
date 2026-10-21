@@ -29,6 +29,7 @@ export default function MapEventMarker({ event, selected, onSelect }: MapEventMa
       aria-pressed={selected}
       aria-label={`${event.title}. ${categoryLabel}, ${formatEventDateShort(event.startsAt)}`}
       data-category={event.category}
+      data-event-id={event.id}
       className="group block h-12 w-12 cursor-pointer rounded-dot"
     >
       <span

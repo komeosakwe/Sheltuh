@@ -16,11 +16,11 @@ export default function Home() {
     <HomeEventsProvider>
       <div className="mx-auto max-w-6xl px-5 pt-4 sm:px-8 sm:pt-8 lg:pt-10">
         <HomeHero upNext={<UpNext />} />
-        <HomeEventSections guide={<GuideCard className="reveal mt-8 sm:mt-12 lg:mt-16" />} />
+        <HomeEventSections guide={<GuideCard className="mt-8 sm:mt-12 lg:mt-16" />} />
       </div>
       <CommunitySection className="mt-12 sm:mt-16" />
       <div className="mx-auto max-w-6xl px-5 pb-12 sm:px-8 sm:pb-16">
-        <CreatorsCard className="reveal mt-8 sm:mt-12 lg:mt-16" />
+        <CreatorsCard className="mt-8 sm:mt-12 lg:mt-16" />
       </div>
     </HomeEventsProvider>
   );

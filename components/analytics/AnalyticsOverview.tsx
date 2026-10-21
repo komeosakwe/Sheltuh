@@ -33,7 +33,9 @@ export default function AnalyticsOverview() {
       <Link href="/dashboard" className={`${backLinkClass} mb-6`}>
         &larr; Your events
       </Link>
-      <AnalyticsGate returnTo={PATH}>{(getToken) => <OverviewReport getToken={getToken} />}</AnalyticsGate>
+      <AnalyticsGate title="Analytics" returnTo={PATH}>
+        {(getToken) => <OverviewReport getToken={getToken} />}
+      </AnalyticsGate>
     </>
   );
 }

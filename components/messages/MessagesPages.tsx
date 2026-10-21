@@ -22,7 +22,7 @@ export function ThreadPageContent({ conversationId }: { conversationId: string }
   return (
     <MessagesGate
       returnTo={threadHref(conversationId)}
-      frameClassName="mx-auto flex w-full max-w-2xl flex-col gap-8 px-5 py-12 sm:px-8 sm:py-20"
+      frameClassName="mx-auto flex w-full max-w-6xl *:max-w-2xl flex-col gap-8 px-5 py-12 sm:px-8 sm:py-20"
       pageTitle="Conversation"
       demo={
         <>

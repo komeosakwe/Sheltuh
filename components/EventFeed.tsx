@@ -23,6 +23,7 @@ interface FeedProps {
 function DemoEventFeed({ query, initialCategory, initialPricing }: FeedProps) {
   const categories = getEventCategories();
   const [events, setEvents] = useState<SheltuhEvent[] | null>(null);
+  const [summary, setSummary] = useState("");
   const progress = useLoadingProgress(events === null);
 
   useEffect(() => {
@@ -38,14 +39,12 @@ function DemoEventFeed({ query, initialCategory, initialPricing }: FeedProps) {
 
   return (
     <div className="flex flex-col gap-4 sm:gap-6">
-      <DemoNotice>
-        These are fictional sample listings for this local prototype — no real tickets are on
-        sale.
-      </DemoNotice>
+      <DemoNotice>Sample listings — buttons open the sample event; nothing is sold.</DemoNotice>
       {/* Always mounted: screen readers announce text that changes inside a live region,
-          not one that appears already holding its text. The loader shows the progress. */}
+          not one that appears already holding its text. It says the load's start, then its
+          result (the browser's summary, also on every filter change). The loader shows the progress. */}
       <p role="status" className="sr-only">
-        {events === null ? "Loading events…" : ""}
+        {events === null ? "Loading events…" : progress.visible ? "" : summary}
       </p>
       {progress.visible && <FeedLoading percent={progress.percent} done={progress.done} />}
       {events !== null && !progress.visible && (
@@ -55,6 +54,7 @@ function DemoEventFeed({ query, initialCategory, initialPricing }: FeedProps) {
           query={query}
           initialCategory={initialCategory}
           initialPricing={initialPricing}
+          onSummaryChange={setSummary}
         />
       )}
     </div>

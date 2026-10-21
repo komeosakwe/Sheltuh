@@ -145,3 +145,87 @@ test.describe("discovery at 320×640", () => {
     });
   }
 });
+
+// The phone's selected-event sheet is fixed over the end of the page (WCAG 2.4.11, 2.4.3).
+test.describe("/map sheet and focus at 320×640", () => {
+  test.use({ viewport: { width: 320, height: 640 } });
+
+  test("Locate focuses the sheet; a focused footer link scrolls clear of it; Dismiss returns focus", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/map?view=list");
+    const locate = page.getByRole("button", { name: /^Locate .* on the map$/ }).and(page.locator(":enabled")).first();
+    await locate.click();
+
+    const sheet = page.locator("[data-map-sheet]");
+    await expect(sheet).toBeVisible();
+    await expect(sheet).toBeFocused();
+    const sheetTop = (await sheet.boundingBox())?.y ?? 0;
+    expect(sheetTop).toBeGreaterThan(0);
+
+    // Keyboard focus on to the footer's last link: it must end up above the sheet, not under it.
+    const footerLinks = page.locator("footer a");
+    const count = await footerLinks.count();
+    await footerLinks.nth(count - 2).focus();
+    await page.keyboard.press("Tab");
+    const focused = page.locator(":focus");
+    await expect(focused).toHaveAttribute("href", /.+/);
+    expect(await focused.evaluate((el) => el.closest("footer") !== null)).toBe(true);
+    // The page scrolls smoothly (data-scroll-behavior="smooth"): wait for it to settle.
+    await expect
+      .poll(
+        async () => {
+          const box = await focused.boundingBox();
+          const top = (await sheet.boundingBox())?.y ?? 0;
+          return (box?.y ?? 0) + (box?.height ?? Infinity) - top;
+        },
+        { timeout: 5_000 },
+      )
+      .toBeLessThanOrEqual(0);
+
+    // Dismiss: focus goes back into the map (the row that opened it is hidden on the map view).
+    await sheet.getByRole("button", { name: "Dismiss selected event" }).click();
+    await expect(sheet).toHaveCount(0);
+    expect(await page.evaluate(() => document.activeElement?.closest(".leaflet-container") !== null)).toBe(true);
+  });
+
+  test("with no map tiles, 'Show the list' switches to the list and focuses it", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/map");
+    await expect(page.getByText(/Map couldn.t load/)).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("button", { name: "Show the list", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Events list" })).toBeFocused();
+    await expect(page.getByRole("group", { name: "Show events as" }).getByRole("button", { name: "List" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  test("'Show the list of N events' focuses the list, which doesn't scroll inside the page", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/map");
+    await page.getByRole("button", { name: /^Show the list of \d+ events?$/ }).click();
+    const list = page.getByRole("region", { name: "Events list" });
+    await expect(list).toBeFocused();
+    const scroll = await list.evaluate((el) => ({ overflow: getComputedStyle(el).overflowY, client: el.clientHeight, scroll: el.scrollHeight }));
+    expect(scroll.overflow).toBe("visible");
+    expect(scroll.scroll).toBeLessThanOrEqual(scroll.client + 1);
+  });
+});
+
+test.describe("/map at 1440×900", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("the page ends at the footer: nothing in the list's scroller stretches it", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/map");
+    await expect(page.getByRole("region", { name: "Events list" })).toBeVisible();
+    const { docHeight, footerBottom } = await page.evaluate(() => {
+      const footer = document.querySelector("footer") as HTMLElement;
+      return {
+        docHeight: document.documentElement.scrollHeight,
+        footerBottom: footer.getBoundingClientRect().bottom + window.scrollY,
+      };
+    });
+    expect(Math.abs(docHeight - footerBottom)).toBeLessThanOrEqual(2);
+  });
+});

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import EventQueue from "@/components/admin/EventQueue";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
@@ -44,5 +44,26 @@ describe("EventQueue", () => {
     );
     expect(screen.getByRole("link", { name: "New event" })).toHaveAttribute("href", "/admin/events/new");
     expect(await screen.findByRole("link", { name: "Edit Neon Static" })).toHaveAttribute("href", "/admin/events/evt-1/edit");
+  });
+
+  it("status filters are toggle buttons: pressed is announced and marked with the two dots, not colour alone", async () => {
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ isAdmin: true })}>
+        <EventQueue />
+      </FakeAuthProvider>,
+    );
+    const group = screen.getByRole("group", { name: "Show events" });
+    const pending = within(group).getByRole("button", { name: "Pending review" });
+    expect(pending).toHaveAttribute("aria-pressed", "true");
+    expect(pending.querySelector("[data-selected-dots]")).not.toBeNull();
+    const published = within(group).getByRole("button", { name: "Published" });
+    expect(published).toHaveAttribute("aria-pressed", "false");
+    expect(published.querySelector("[data-selected-dots]")).toBeNull();
+
+    fireEvent.click(published);
+    expect(published).toHaveAttribute("aria-pressed", "true");
+    expect(published.querySelector("[data-selected-dots]")).not.toBeNull();
+    expect(pending.querySelector("[data-selected-dots]")).toBeNull();
+    await screen.findByRole("link", { name: "Edit Neon Static" });
   });
 });

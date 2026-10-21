@@ -103,8 +103,10 @@ export function ProgressLoader({
         className="flex items-center gap-3"
       >
         <DotsMark size="md" joined={done} className={`text-foreground ${done ? "" : "dots-loader"}`.trim()} />
+        {/* "Loading" alone until there's a number worth showing (no "Loading 0%"). */}
         <span aria-hidden="true" className="text-sm text-muted tabular-nums">
-          {done ? "Loaded" : "Loading"} {value}%
+          {done ? "Loaded" : "Loading"}
+          {done || value >= 1 ? ` ${value}%` : ""}
         </span>
       </div>
       {announce && (
@@ -142,14 +144,14 @@ export function LoadingIndicator({
 }
 
 /**
- * A view's whole loading state: the branded loader, plus the view's own
- * loading sentence ("Loading your account…") kept for screen readers as
- * plain text (it was the visible line before). Shown only while loading.
+ * A view's whole loading state: the branded loader, named by the view's own
+ * loading sentence ("Loading your account…" names the progressbar "Loading
+ * your account"), so screen readers hear what's loading once, from the
+ * progressbar, rather than twice. Shown only while loading.
  */
 export function LoadingState({ text, className = "" }: { text: string; className?: string }) {
   return (
     <div className={className || undefined}>
-      <p className="sr-only">{text}</p>
       <LoadingIndicator label={text.replace(/…$/, "")} />
     </div>
   );

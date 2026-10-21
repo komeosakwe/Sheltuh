@@ -47,7 +47,7 @@ export default function OrganiserEditLog({ edits }: { edits: readonly OrganiserE
       </p>
       <ol className="mt-3 flex flex-col gap-4">
         {edits.map((entry, index) => (
-          <li key={`${entry.at}-${index}`} className="flex flex-col gap-1.5 border-l-2 border-surface-border pl-3">
+          <li key={`${entry.at}-${index}`} className="flex flex-col gap-2 border-l-2 border-surface-border pl-3">
             <p className="text-xs text-muted">
               <span className="font-semibold text-foreground">{KIND_LABELS[entry.kind]}</span> ·{" "}
               <time dateTime={entry.at}>{formatDayTime(entry.at)}</time>

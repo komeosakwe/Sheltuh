@@ -39,10 +39,12 @@ const LEGAL_LINKS = [
  * Site footer: an ink section (data-surface="ink" re-skins everything inside
  * it), closing on the full-width orange wordmark (brand-direction-one.md
  * §6.13). The wordmark is decorative; the © line carries the name.
+ * `data-page-end`: the page's last block, which gains bottom room while the
+ * map's phone sheet is open (globals.css), so nothing ends up under it.
  */
 export default function Footer() {
   return (
-    <footer data-surface="ink">
+    <footer data-surface="ink" data-page-end="">
       {/* The bottom padding clears the home indicator in an installed iPhone app; it's 0 elsewhere. */}
       <div className="mx-auto max-w-6xl px-5 pt-12 pb-[calc(2rem+env(safe-area-inset-bottom))] sm:px-8 sm:pt-24">
         <InstallPrompt />

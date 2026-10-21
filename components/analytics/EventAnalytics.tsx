@@ -34,7 +34,9 @@ import Strap from "@/components/ui/Strap";
 export default function EventAnalytics({ eventId }: { eventId: string }) {
   const path = `/dashboard/events/${encodeURIComponent(eventId)}/analytics`;
   return (
-    <AnalyticsGate returnTo={path}>{(getToken) => <EventReport eventId={eventId} getToken={getToken} />}</AnalyticsGate>
+    <AnalyticsGate title="Event analytics" returnTo={path}>
+      {(getToken) => <EventReport eventId={eventId} getToken={getToken} />}
+    </AnalyticsGate>
   );
 }
 

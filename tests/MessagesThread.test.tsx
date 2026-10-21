@@ -113,7 +113,7 @@ describe("Thread — loading and reading", () => {
       ]),
     );
     renderThread();
-    expect(screen.getByText("Loading the conversation…")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Loading the conversation" })).toBeInTheDocument();
     const list = await ready();
     const items = within(list).getAllByRole("listitem");
     expect(items.map((li) => li.dataset.messageId)).toEqual(["1", "2", "3"]);

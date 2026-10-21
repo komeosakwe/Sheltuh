@@ -114,9 +114,11 @@ describe("LoadingIndicator and LoadingState", () => {
     expect(screen.getByRole("progressbar", { name: "Loading analytics" })).toBeInTheDocument();
   });
 
-  it("LoadingState keeps the view's own sentence for screen readers and names the bar after it", () => {
-    render(<LoadingState text="Loading your account…" />);
-    expect(screen.getByText("Loading your account…")).toHaveClass("sr-only");
+  it("LoadingState names the bar after the view's own sentence, and says it only once", () => {
+    const { container } = render(<LoadingState text="Loading your account…" />);
     expect(screen.getByRole("progressbar", { name: "Loading your account" })).toBeInTheDocument();
+    // No second, hidden copy of the sentence for screen readers to hear as well.
+    expect(screen.queryByText("Loading your account…")).toBeNull();
+    expect(container.querySelector(".sr-only")).toBeNull();
   });
 });

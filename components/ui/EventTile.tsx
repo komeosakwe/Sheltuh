@@ -56,14 +56,17 @@ export default function EventTile({
             title={event.title}
             className="aspect-[4/5] motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out motion-safe:group-hover:scale-[1.03]"
           />
-          {/* An opaque chip: 20:1 whatever the photo. */}
-          <span id={ids.chip} className="eyebrow absolute top-2 left-2 max-w-[calc(100%-4rem)] truncate rounded-badge bg-cream px-2 py-0.5 text-ink">
+          {/* An opaque chip: 20:1 whatever the photo. Bottom-left, clear of the Save heart in the
+              top-right corner, so even a 134px phone card has room for the whole label. */}
+          <span id={ids.chip} className="eyebrow absolute bottom-2 left-2 max-w-[calc(100%-1rem)] truncate rounded-badge bg-cream px-2 py-0.5 text-ink">
             {categoryLabel}
           </span>
         </div>
         <div className="flex min-w-0 flex-col gap-1">
           <p id={ids.date} className="meta">
-            {formatEventDateShort(event.startsAt)} · {formatEventTime(event.startsAt)}
+            {/* Each part stays whole: a narrow card wraps between them, never inside "7:00 pm". */}
+            <span className="whitespace-nowrap">{formatEventDateShort(event.startsAt)}</span> ·{" "}
+            <span className="whitespace-nowrap">{formatEventTime(event.startsAt)}</span>
           </p>
           <h3 id={ids.title} className="line-clamp-2 font-sans text-sm leading-5 font-semibold tracking-[-0.01em] break-words normal-case underline-offset-4 group-hover:underline sm:text-base sm:leading-[1.375rem]">
             {event.title}

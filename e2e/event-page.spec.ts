@@ -145,6 +145,47 @@ test.describe("Sheltüh-ticketed event at 390×844", () => {
   });
 });
 
+// Owner request (21 Oct 2026): the event's name, date and venue are on the first screen, above
+// the phone's sticky buy bar, without scrolling. The longest sample title is checked too.
+for (const vp of [
+  { width: 390, height: 844, phone: true },
+  { width: 375, height: 667, phone: true },
+  { width: 1280, height: 800, phone: false },
+]) {
+  test.describe(`first screen at ${vp.width}×${vp.height}`, () => {
+    test.use({ viewport: { width: vp.width, height: vp.height } });
+
+    for (const slug of ["neon-static", "laneway-projections-after-dark"]) {
+      test(`${slug}: ${vp.phone ? "the title, date and venue are in view, above the buy bar" : "the title is in view"}`, async ({ page }) => {
+        await mockApi(page);
+        await page.goto(`/events/${slug}`);
+        const h1 = page.getByRole("heading", { level: 1 });
+        await expect(h1).toBeVisible({ timeout: 30_000 });
+        expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+        const bar = page.locator("[data-buy-bar]");
+        const barBox = (await bar.isVisible()) ? await bar.boundingBox() : null;
+        if (vp.phone) expect(barBox).not.toBeNull();
+        // What's visible: from under the sticky header to the top of the buy bar (or the screen's foot).
+        const bottom = barBox ? barBox.y : vp.height;
+
+        const box = await h1.boundingBox();
+        expect(box).not.toBeNull();
+        expect(box?.y ?? -1).toBeGreaterThanOrEqual(0);
+        expect((box?.y ?? 0) + (box?.height ?? Infinity)).toBeLessThanOrEqual(bottom);
+
+        if (vp.phone) {
+          // The key facts under the title (the When/Where aside comes much later on phones).
+          const facts = h1.locator("xpath=following-sibling::p[1]");
+          const factsBox = await facts.boundingBox();
+          expect(factsBox).not.toBeNull();
+          expect((factsBox?.y ?? 0) + (factsBox?.height ?? Infinity)).toBeLessThanOrEqual(bottom);
+        }
+      });
+    }
+  });
+}
+
 test.describe("live event page that can't load", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 

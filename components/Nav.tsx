@@ -49,6 +49,9 @@ export default function Nav() {
   const atDoor = /^\/dashboard\/[^/]+\/check-in$/.test(pathname);
 
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+  // The page itself, or (Discover) the section: What's on and every event's page belong to Discover.
+  const current = (href: string): "page" | "true" | undefined =>
+    isActive(href) ? "page" : href === "/" && pathname.startsWith("/events") ? "true" : undefined;
 
   // Keep the button label in step with the popover, and move focus into the
   // menu when it opens (the browser moves it back to the button on close).
@@ -129,7 +132,7 @@ export default function Nav() {
             ref={menuButtonRef}
             type="button"
             popoverTarget={MENU_ID}
-            className="-mr-3 flex h-11 items-center gap-1.5 px-3 text-[0.8125rem] leading-4 font-semibold tracking-[0.01em] uppercase"
+            className="-mr-3 flex h-11 items-center gap-2 px-3 text-[0.8125rem] leading-4 font-semibold tracking-[0.01em] uppercase"
           >
             {menuOpen ? "Close" : "Menu"}
             {/* The Messages count lives inside the menu; this says there's something in there. */}
@@ -138,7 +141,7 @@ export default function Nav() {
                 <span
                   aria-hidden="true"
                   data-menu-unread=""
-                  className="inline-flex h-5 min-w-5 items-center justify-center rounded-badge bg-foreground px-1 text-xs leading-none font-semibold tracking-normal text-background tabular-nums"
+                  className="inline-flex h-5 min-w-5 items-center justify-center rounded-badge bg-foreground px-1 text-xs leading-5 font-semibold tracking-normal text-background tabular-nums"
                 >
                   {unreadCount > 99 ? "99+" : unreadCount}
                 </span>
@@ -167,7 +170,7 @@ export default function Nav() {
               // The "umlaut": two orange squares over the current page's label
               // (from aria-current), black ones over the label under the pointer.
               className={navLinkClass}
-              aria-current={isActive(link.href) ? "page" : undefined}
+              aria-current={current(link.href)}
             >
               {link.label}
             </Link>
@@ -200,7 +203,7 @@ export default function Nav() {
               <li key={link.href}>
                 <Link
                   href={link.href}
-                  aria-current={isActive(link.href) ? "page" : undefined}
+                  aria-current={current(link.href)}
                   // The current page gets the orange umlaut over its first letter.
                   className="display-lg umlaut umlaut-lg block pt-4 pb-3"
                 >

@@ -79,9 +79,9 @@ export default function EventFilterBar({
 
       <div
         id={PANEL_ID}
-        className={`${open ? "grid" : "hidden"} grid-cols-1 gap-4 sm:grid sm:grid-cols-3 sm:items-end sm:gap-5`}
+        className={`${open ? "grid" : "hidden"} grid-cols-1 gap-4 sm:grid sm:grid-cols-3 sm:items-start sm:gap-5`}
       >
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <label htmlFor="category-filter" className="eyebrow text-muted">
             Category
           </label>
@@ -100,7 +100,7 @@ export default function EventFilterBar({
           </select>
         </div>
 
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <label htmlFor="date-filter" className="eyebrow text-muted">
             On or after
           </label>
@@ -113,11 +113,13 @@ export default function EventFilterBar({
           />
         </div>
 
-        <fieldset className="flex flex-col gap-1.5">
-          <legend className="eyebrow text-muted">Price</legend>
-          <div className="flex gap-4 pt-1 sm:gap-3">
+        {/* Lined up with the fields beside it: the legend where their labels are, the choices
+            centred on a row as tall as a field (a legend sits outside a fieldset's flex gap). */}
+        <fieldset className="flex min-w-0 flex-col">
+          <legend className="eyebrow mb-2 text-muted">Price</legend>
+          <div className="flex min-h-12 items-center gap-4 sm:min-h-10 sm:gap-3">
             {(["all", "free", "paid"] as const).map((value) => (
-              <label key={value} className="flex min-h-11 items-center gap-1.5 text-sm text-foreground sm:min-h-0">
+              <label key={value} className="flex min-h-11 items-center gap-2 text-sm text-foreground sm:min-h-0">
                 <input
                   type="radio"
                   name="pricing"

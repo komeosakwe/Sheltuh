@@ -1,10 +1,12 @@
 "use client";
 
-import TicketStub from "@/components/tickets/TicketStub";
-import { ButtonLink } from "@/components/ui/Button";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import TicketStub from "@/components/tickets/TicketStub";
+import { ButtonLink } from "@/components/ui/Button";
+import { LoadingState } from "@/components/ui/ProgressLoader";
+import Strap from "@/components/ui/Strap";
 import { ApiError } from "@/lib/api/client";
 import { getOrderBySession } from "@/lib/api/orders";
 import { formatAud } from "@/lib/format";
@@ -21,6 +23,12 @@ type LoadState =
 const POLL_INTERVAL_MS = 2000;
 const MAX_POLLS = 12; // ~24s — generous for a webhook that's normally near-instant
 
+/**
+ * /checkout/success (docs/design/brand-direction-one.md §6.9): a quiet,
+ * left-aligned single column. The strap says "Order confirmed" with the
+ * reference, the event is the h1, then the ticket stubs (no grey wrapper)
+ * and the totals card. Every other state is left-aligned too, with its own h1.
+ */
 export default function CheckoutConfirmation() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id");
@@ -86,8 +94,8 @@ export default function CheckoutConfirmation() {
 
   if (state.status === "loading" || state.status === "confirming") {
     return (
-      <div className="flex flex-col items-center gap-3 py-16 text-center">
-        <p className="font-heading text-2xl text-foreground">Confirming your order&hellip;</p>
+      <div className="flex flex-col items-start gap-3 py-10 sm:py-14">
+        <LoadingState text="Confirming your order…" />
         <p className="text-sm text-muted">This only takes a moment.</p>
       </div>
     );
@@ -95,66 +103,54 @@ export default function CheckoutConfirmation() {
 
   if (state.status === "not-found") {
     return (
-      <div className="flex flex-col items-center gap-3 py-16 text-center">
-        <p className="font-heading text-2xl text-foreground">We couldn&rsquo;t find that order</p>
+      <StateMessage title="We couldn’t find that order">
         <p className="max-w-md text-sm text-muted">
           The link may be incomplete or expired. If you were charged, check your email for a receipt from Stripe.
         </p>
-        <Link href="/" className="mt-2 text-accent underline underline-offset-2">
-          Back to Sheltüh
-        </Link>
-      </div>
+      </StateMessage>
     );
   }
 
   if (state.status === "error") {
     return (
-      <div className="flex flex-col items-center gap-3 py-16 text-center">
-        <p className="font-heading text-2xl text-foreground">Something went wrong</p>
+      <StateMessage title="Something went wrong">
         <p role="alert" className="max-w-md text-sm text-danger">
           {state.message}
         </p>
-        <Link href="/" className="mt-2 text-accent underline underline-offset-2">
-          Back to Sheltüh
-        </Link>
-      </div>
+      </StateMessage>
     );
   }
 
   if (state.status === "oversold") {
     const refundedAfterPayment = state.order.refundReason === "refunded";
     return (
-      <div className="flex flex-col items-center gap-3 py-16 text-center">
-        <p className="font-heading text-2xl text-foreground">
-          {refundedAfterPayment ? "This order has been refunded" : "We couldn\u2019t reserve your tickets"}
-        </p>
+      <StateMessage title={refundedAfterPayment ? "This order has been refunded" : "We couldn\u2019t reserve your tickets"}>
         <p className="max-w-md text-sm text-muted">
           {refundedAfterPayment
             ? `Your payment for ${state.order.eventTitle} was refunded, so the tickets for this order are no longer valid.`
             : `${state.order.eventTitle} sold out or stopped taking bookings in the moments between your payment and confirming it. Your payment is being refunded in full \u2014 no tickets were issued for this order.`}
         </p>
-        <Link href="/" className="mt-2 text-accent underline underline-offset-2">
-          Back to Sheltüh
-        </Link>
-      </div>
+      </StateMessage>
     );
   }
 
   const { order } = state;
   const eventPath = order.eventSlug ? `/events/${encodeURIComponent(order.eventSlug)}` : null;
   return (
-    <div className="flex flex-col gap-6 py-10">
-      <div className="flex flex-col items-center gap-2 text-center">
-        <p className="eyebrow text-muted">Order confirmed</p>
-        <h1 className="display-md">{order.eventTitle}</h1>
+    <div className="flex flex-col gap-8 py-10 sm:py-14">
+      <div className="flex flex-col gap-3">
+        <Strap label="Order confirmed" note={order.reference} />
+        <h1 className="display-md break-words">{order.eventTitle}</h1>
         {order.maskedEmail && (
           <p className="text-sm text-muted">We&rsquo;re emailing your tickets to {order.maskedEmail}.</p>
         )}
       </div>
 
-      <div className="bg-surface p-4 print:bg-transparent">
-        <h2 className="font-heading text-xl text-foreground">Your tickets</h2>
-        <ul className="mt-3 flex flex-col gap-3">
+      <section aria-labelledby="your-tickets" className="flex flex-col gap-3">
+        <h2 id="your-tickets" className="font-heading text-xl text-foreground">
+          Your tickets
+        </h2>
+        <ul className="flex flex-col gap-3">
           {/* Numbered as in the ticket email and at the door: both order an order's
               tickets by ticket type, then code, as the API returns them. */}
           {order.tickets.map((ticket, i) => (
@@ -167,13 +163,13 @@ export default function CheckoutConfirmation() {
             />
           ))}
         </ul>
-        <p className="mt-3 text-xs text-muted">Show a QR code at the door, from this page or your ticket email.</p>
-        <p className="mt-1 text-xs text-muted">
-          This page needs a connection. If signal at the venue is patchy, take a screenshot first.
-        </p>
-        <p className="mt-1 text-xs text-muted">Each code gets in once, so don&rsquo;t post or share it.</p>
-        <p className="mt-1 text-xs text-muted">Order reference {order.reference}</p>
-      </div>
+        <div className="flex flex-col gap-1 text-xs text-muted">
+          <p>Show a QR code at the door, from this page or your ticket email.</p>
+          <p>This page needs a connection. If signal at the venue is patchy, take a screenshot first.</p>
+          <p>Each code gets in once, so don&rsquo;t post or share it.</p>
+          <p>Order reference {order.reference}</p>
+        </div>
+      </section>
 
       {/* The totals card (brand-direction-one.md §6.9). */}
       <div className="rounded-card border border-foreground bg-card p-4">
@@ -195,25 +191,40 @@ export default function CheckoutConfirmation() {
       </div>
 
       {eventPath ? (
-        <div className="flex flex-col items-center gap-3 text-center">
+        <div className="flex flex-col items-start gap-3">
           <p className="text-sm text-muted">Want people to know you&rsquo;re going?</p>
           <ButtonLink variant="outline" size="lg" href={`${eventPath}#whos-going`} className="w-full sm:w-auto">
             Add yourself to Who&rsquo;s Going
           </ButtonLink>
-          <p className="flex flex-wrap justify-center gap-x-6 text-sm">
-            <Link href={eventPath} className="inline-flex min-h-11 items-center text-accent underline underline-offset-2">
+          <p className="flex flex-wrap gap-x-6 text-sm">
+            <Link href={eventPath} className={linkClass}>
               Back to the event
             </Link>
-            <Link href="/" className="inline-flex min-h-11 items-center text-accent underline underline-offset-2">
+            <Link href="/" className={linkClass}>
               Back to Sheltüh
             </Link>
           </p>
         </div>
       ) : (
-        <Link href="/" className="self-center text-accent underline underline-offset-2">
+        <Link href="/" className={`${linkClass} self-start text-sm`}>
           Back to Sheltüh
         </Link>
       )}
+    </div>
+  );
+}
+
+const linkClass = "inline-flex min-h-11 items-center text-accent underline underline-offset-4";
+
+/** A state that ends the page (not found, an error, a refund): left-aligned, with its own h1 and a way back. */
+function StateMessage({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col items-start gap-3 py-10 sm:py-14">
+      <h1 className="display-md">{title}</h1>
+      {children}
+      <Link href="/" className={`${linkClass} text-sm`}>
+        Back to Sheltüh
+      </Link>
     </div>
   );
 }

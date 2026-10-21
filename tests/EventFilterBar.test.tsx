@@ -67,7 +67,7 @@ describe("EventFilterBar inside the demo feed", () => {
     fireEvent.change(screen.getByLabelText("Category"), { target: { value: "art" } });
     fireEvent.click(screen.getByRole("radio", { name: "Free" }));
     const toggle = screen.getByRole("button", { name: "Filters, 2 active" });
-    expect(screen.getByText(/^Showing \d+ of \d+ events$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Showing \d+ of \d+ events$/)).not.toHaveAttribute("aria-live");
 
     fireEvent.click(toggle);
     fireEvent.click(screen.getAllByRole("button", { name: "Reset filters" })[0]);

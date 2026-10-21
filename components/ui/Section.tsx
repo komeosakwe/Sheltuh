@@ -12,10 +12,12 @@ export function Page({
   width?: "wide" | "narrow" | "full";
   className?: string;
 }) {
-  const max = width === "narrow" ? "max-w-2xl" : width === "full" ? "" : "max-w-6xl";
+  // Narrow pages keep the site's left edge (in line with the logo): the same outer column as a
+  // wide page, with the content left-aligned in a max-w-2xl column inside it.
+  const max = width === "full" ? "" : "max-w-6xl";
   return (
     <div className={`mx-auto w-full px-5 py-12 sm:px-8 sm:py-20 ${max} ${className}`.trim()}>
-      {children}
+      {width === "narrow" ? <div className="max-w-2xl">{children}</div> : children}
     </div>
   );
 }
@@ -125,7 +127,7 @@ export function Panel({
 }: {
   children: ReactNode;
   className?: string;
-  title?: string;
+  title?: ReactNode;
   /** Names the section by its title, making it a labelled region landmark. */
   titleId?: string;
 }) {

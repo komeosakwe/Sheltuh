@@ -7,7 +7,7 @@ import { useHomeEvents } from "./HomeEventsProvider";
 import HomeRail, { HomeRailItem } from "./HomeRail";
 import SectionHead from "./SectionHead";
 
-const SECTION = "reveal mt-8 sm:mt-12 lg:mt-16";
+const SECTION = "mt-8 sm:mt-12 lg:mt-16";
 /**
  * The first section after the hero (owner decision 7, compact hero): a step
  * closer on phones, and no scroll-in rise, which would leave it faded at the
@@ -35,6 +35,9 @@ export default function HomeEventSections({ guide }: { guide?: ReactNode }) {
   const showComing = !!sections && sections.comingUp.length > 0;
   const first = loading ? "loading" : showWeekend ? "weekend" : showTrending ? "trending" : showComing ? "coming" : null;
   const spacing = (key: string) => (key === first ? FIRST_SECTION : SECTION);
+  // Every section after the first rises in as it scrolls into view (RevealObserver; the first is
+  // on screen at load, and the observer leaves that alone anyway).
+  const reveal = (key: string) => (key === first ? undefined : "");
 
   return (
     <>
@@ -58,7 +61,7 @@ export default function HomeEventSections({ guide }: { guide?: ReactNode }) {
       )}
 
       {weekend && showWeekend && (
-        <section aria-labelledby="home-weekend" data-home-section className={spacing("weekend")}>
+        <section aria-labelledby="home-weekend" data-home-section data-reveal={reveal("weekend")} className={spacing("weekend")}>
           <SectionHead
             id="home-weekend"
             title="This weekend"
@@ -82,7 +85,7 @@ export default function HomeEventSections({ guide }: { guide?: ReactNode }) {
       )}
 
       {sections && showTrending && (
-        <section aria-labelledby="home-trending" data-home-section className={spacing("trending")}>
+        <section aria-labelledby="home-trending" data-home-section data-reveal={reveal("trending")} className={spacing("trending")}>
           <SectionHead id="home-trending" title="Trending" />
           <HomeRail labelledBy="home-trending" grid="cards">
             {sections.trending.map(({ event, signal }) => (
@@ -95,7 +98,7 @@ export default function HomeEventSections({ guide }: { guide?: ReactNode }) {
       )}
 
       {sections && showComing && (
-        <section aria-labelledby="home-coming" data-home-section className={spacing("coming")}>
+        <section aria-labelledby="home-coming" data-home-section data-reveal={reveal("coming")} className={spacing("coming")}>
           <SectionHead
             id="home-coming"
             title="Coming up near you"
@@ -118,7 +121,7 @@ export default function HomeEventSections({ guide }: { guide?: ReactNode }) {
       {guide}
 
       {sections && sections.lowCost.length > 0 && (
-        <section aria-labelledby="home-free" data-home-section className={SECTION}>
+        <section aria-labelledby="home-free" data-home-section data-reveal className={SECTION}>
           <SectionHead
             id="home-free"
             title="Free & low-cost"

@@ -218,7 +218,7 @@ export default function TrackingLinks({ eventId, getToken }: { eventId: string; 
             <Notice>You&rsquo;ve made 20 links, the most for one event. Delete one to make another.</Notice>
           ) : (
             <form onSubmit={create} noValidate className="flex flex-col gap-3 sm:flex-row sm:items-end">
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-2">
                 <label htmlFor={`${id}-label`} className="eyebrow text-muted">
                   Label
                 </label>

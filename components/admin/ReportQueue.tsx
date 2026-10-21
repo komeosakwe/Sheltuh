@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import MessageField from "@/components/messages/MessageField";
 import { reportReasonLabel } from "@/components/messages/shared";
 import { Button } from "@/components/ui/Button";
+import { SelectedDots } from "@/components/ui/FilterChip";
 import { EmptyState, Notice } from "@/components/ui/Section";
 import { adminListReports, adminResolveReport } from "@/lib/api/admin";
 import { ApiError } from "@/lib/api/client";
@@ -129,6 +130,7 @@ export default function ReportQueue() {
               setAnnouncement("");
             }}
           >
+            {status === s.value && <SelectedDots />}
             {s.label}
           </Button>
         ))}

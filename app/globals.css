@@ -303,13 +303,16 @@ h4 {
   }
   /* The dots alone are orange on cream (3.25:1, non-text): the current page also gets a
      2px underline in the text colour, so it doesn't rest on colour and small marks only. */
-  &[aria-current="page"] {
+  /* "true": the section you're in, e.g. Discover on an event's page. */
+  &[aria-current="page"],
+  &[aria-current="true"] {
     --umlaut: var(--signal);
     text-decoration-line: underline;
     text-decoration-thickness: 2px;
     text-underline-offset: 4px;
   }
-  &[aria-current="page"]::before {
+  &[aria-current="page"]::before,
+  &[aria-current="true"]::before {
     opacity: 1;
   }
   @media (hover: hover) {
@@ -340,10 +343,18 @@ h4 {
   & ul {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
+    gap: 0.5rem;
+    /* Room from the paragraph before and after it, as between paragraphs (12px). */
+    margin-block: 0.75rem;
     /* A zero-width string marker rather than "none": Safari drops list semantics with none. */
     list-style-type: "\200B";
     padding-left: 0;
+  }
+  & ul:first-child {
+    margin-top: 0;
+  }
+  & ul:last-child {
+    margin-bottom: 0;
   }
   & ul > li {
     position: relative;
@@ -450,28 +461,6 @@ h4 {
   .fade-in {
     animation: fade-in 0.15s ease-out both;
   }
-  /* Rises as it scrolls into view where the browser supports scroll timelines; otherwise it just shows. */
-  @supports (animation-timeline: view()) {
-    .reveal {
-      animation: rise linear both;
-      animation-timeline: view();
-      animation-range: entry 0% entry 45%;
-    }
-  }
-  /* Scroll and load entrances (components/RevealObserver.tsx): marked elements rise 12px and
-     fade in as they come into view, staggered by --reveal-d. Transform and opacity only, so
-     nothing shifts; the observer does nothing under reduced motion, and neither does this. */
-  .reveal-pending {
-    opacity: 0;
-    transform: translateY(0.75rem);
-  }
-  .reveal-pending.is-revealed {
-    opacity: 1;
-    transform: none;
-    transition:
-      opacity 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) var(--reveal-d, 0ms),
-      transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) var(--reveal-d, 0ms);
-  }
   /* DotsLoader (components/brand/DotsMark.tsx): the two dots move together and apart while
      loading. With reduced motion they stay apart and the label carries the state. */
   @keyframes dots-join-left {
@@ -489,6 +478,57 @@ h4 {
   }
   .dots-loader > path:last-child {
     animation: dots-join-right 0.9s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+  }
+}
+
+/* Scroll and load entrances (components/RevealObserver.tsx): marked elements rise 12px and
+   fade in as they come into view, staggered by --reveal-d. Transform and opacity only, so
+   nothing shifts; the observer does nothing under reduced motion, and neither does this.
+   Screens only: a printout never waits for a scroll that can't happen (WCAG 1.3.1). */
+@media screen and (prefers-reduced-motion: no-preference) {
+  .reveal-pending {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+  .reveal-pending.is-revealed {
+    opacity: 1;
+    transform: none;
+    transition:
+      opacity 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) var(--reveal-d, 0ms),
+      transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) var(--reveal-d, 0ms);
+  }
+}
+
+/* Printing shows everything in place, whatever an entrance was doing on screen. */
+@media print {
+  .reveal-pending {
+    opacity: 1 !important;
+    transform: none !important;
+    animation: none !important;
+  }
+}
+
+/* The map's phone bottom sheet (SceneMap, data-map-sheet) is fixed over the page's end, so it
+   must never cover what has keyboard focus (WCAG 2.4.11): focus scrolls clear of it by the
+   sheet's measured height (--map-sheet-h, set by SceneMap), and the page's end gets the same
+   room so its last links can scroll above it. Phones only: from lg the card sits on the map. */
+@media (width < 64rem) {
+  html:has([data-map-sheet]) {
+    scroll-padding-bottom: calc(var(--map-sheet-h, 0px) + 0.75rem);
+  }
+  html:has([data-map-sheet]) [data-page-end] {
+    padding-bottom: var(--map-sheet-h, 0px);
+  }
+}
+
+/* /map: the map and list panel reaches up to 10rem past each side of the 72rem page column on
+   large screens (keeping a gutter of about 3rem to the window; 100vw includes the scrollbar),
+   while the heading and filters keep the page's left edge, in line with the logo. Below lg, or
+   with no room, it's the column's width. */
+@media (min-width: 64rem) {
+  .map-bleed {
+    --map-bleed: max(0rem, min(10rem, calc((100vw - 72rem) / 2 - 1rem)));
+    margin-inline: calc(-1 * var(--map-bleed));
   }
 }
 

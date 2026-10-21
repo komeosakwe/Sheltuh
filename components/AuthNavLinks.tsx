@@ -87,7 +87,7 @@ function UnreadBadge({ count }: { count: number | null }) {
       <span
         aria-hidden="true"
         data-unread-badge=""
-        className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-badge bg-foreground px-1 align-middle text-xs leading-none font-semibold tracking-normal text-background tabular-nums normal-case"
+        className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-badge bg-foreground px-1 align-middle text-xs leading-5 font-semibold tracking-normal text-background tabular-nums normal-case"
       >
         {shown}
       </span>

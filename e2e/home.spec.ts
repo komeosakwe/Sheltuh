@@ -97,6 +97,11 @@ for (const vp of VIEWPORTS) {
 
       // Up next's image (the card) and title are on screen without scrolling.
       expect((await box(upNextCard)).y).toBeLessThan(fold);
+      // The photo is seen: on top, in the open, at least 40% of the card's height.
+      const photoShare = await upNextCard.evaluate(
+        (link) => (link.firstElementChild?.getBoundingClientRect().height ?? 0) / link.getBoundingClientRect().height,
+      );
+      expect(photoShare).toBeGreaterThanOrEqual(0.4);
       expect((await box(upNextTitle)).y + (await box(upNextTitle)).height).toBeLessThanOrEqual(fold);
 
       const firstSection = page.locator("[data-home-section]").first();

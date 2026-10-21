@@ -10,8 +10,11 @@ export const metadata: Metadata = {
 
 export default function ConfirmFreeTicketsPage() {
   return (
-    <div className="mx-auto flex max-w-2xl flex-col px-4 sm:px-6">
-      <FreeOrderConfirm />
+    // The site's page edges, with a left-aligned max-w-2xl column.
+    <div className="mx-auto max-w-6xl px-5 sm:px-8">
+      <div className="flex max-w-2xl flex-col">
+        <FreeOrderConfirm />
+      </div>
     </div>
   );
 }

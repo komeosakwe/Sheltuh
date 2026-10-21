@@ -20,7 +20,7 @@ export function Field({
   children: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2">
       <label htmlFor={htmlFor} className="eyebrow text-muted">
         {label}
       </label>

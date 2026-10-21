@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Event submissions — Sheltüh admin
 
 export default function AdminEventsPage() {
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-8 px-5 py-12 sm:px-8 sm:py-20">
+    <div className="mx-auto flex max-w-6xl flex-col gap-8 px-5 py-12 sm:px-8 sm:py-20">
       <BackLink href="/admin">Admin</BackLink>
       <PageHeader flush size="md" eyebrow="Admin" title="Event submissions" />
       <AdminGate>

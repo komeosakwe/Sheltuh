@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { SelectedDots } from "@/components/ui/FilterChip";
 import { EmptyState, Notice } from "@/components/ui/Section";
 import { adminListEmailJobs, adminResendEmailJob } from "@/lib/api/admin";
 import { ApiError } from "@/lib/api/client";
@@ -140,6 +141,7 @@ export default function EmailOutbox() {
               setAnnouncement("");
             }}
           >
+            {status === s.value && <SelectedDots />}
             {s.label}
           </Button>
         ))}

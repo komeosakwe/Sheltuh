@@ -145,7 +145,8 @@ describe("Who's Going — demo", () => {
     expect(names(region)[0]).toContain(sampleData.attendees[0].displayName);
     const add = within(region).getByRole("button", { name: "Add yourself" });
     expect(add).toBeDisabled();
-    expect(add).toHaveAttribute("aria-disabled", "true");
+    // The shared button and its disabled style (brand-direction-one.md §6.1), not a one-off.
+    expect(add).toHaveClass("btn", "btn-lg");
     expect(within(region).getByRole("note")).toHaveTextContent("These names are samples.");
     expect(summaryLink()).toHaveAttribute("href", "#whos-going");
     expect(summaryLink()?.closest("p")).toHaveClass("lg:hidden");

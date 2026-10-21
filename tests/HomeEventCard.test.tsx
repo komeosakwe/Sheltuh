@@ -105,34 +105,42 @@ describe("FeaturedEventCard", () => {
     expect(img).toHaveAttribute("loading", "eager");
   });
 
-  it("is landscape at every width (owner decision 7: the compact hero)", () => {
+  it("is a wide photo strip on top (owner decision 7: the compact hero)", () => {
     const { container } = render(<FeaturedEventCard event={event} mode="demo" />);
-    // The photo holds the ratio, so it's the card's least height (the link itself has none).
-    const art = container.querySelector("[aria-hidden='true'].col-start-1");
-    expect(art).toHaveClass("min-[375px]:aspect-video", "sm:aspect-[2/1]", "lg:aspect-[4/3]");
+    const link = screen.getByRole("link");
+    const art = link.firstElementChild;
+    expect(art).toHaveAttribute("aria-hidden", "true");
+    expect(art).toHaveClass("w-full", "aspect-[4/1]", "sm:aspect-[2/1]", "lg:aspect-video");
     expect(container.innerHTML).not.toMatch(/aspect-\[4\/5\]|aspect-square/);
   });
 
-  it("stacks photo and text in one grid cell, the text in flow, so the card grows with its text instead of clipping it", () => {
-    const { container } = render(<FeaturedEventCard event={event} mode="demo" />);
+  it("shows the photo: the text is a black block below it, in flow, not laid over it (no fade)", () => {
+    render(<FeaturedEventCard event={event} mode="demo" />);
     const link = screen.getByRole("link");
-    expect(link).toHaveClass("grid", "overflow-hidden", "rounded-card");
-    // No fixed ratio on the link: its height is the grid row's, the larger of the photo and the text.
+    expect(link).toHaveClass("flex", "flex-col", "overflow-hidden", "rounded-card");
     expect(link.className).not.toMatch(/aspect-/);
-    const art = container.querySelector("[aria-hidden='true'].col-start-1");
-    const text = link.querySelector("[data-surface='ink']");
-    expect(art).toHaveClass("col-start-1", "row-start-1", "h-full");
-    expect(text).toHaveClass("col-start-1", "row-start-1", "self-end");
-    // In flow: not absolutely placed over the photo (its fade, a ::before, is).
-    expect(text?.className.split(" ")).not.toContain("absolute");
+    const art = link.firstElementChild as HTMLElement;
+    const text = link.querySelector("[data-surface='ink']") as HTMLElement;
+    expect(art.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(text.className).not.toMatch(/(^|\s)(absolute|col-start-1|row-start-1|self-end)(\s|$)/);
+    expect(text.className).not.toMatch(/before:|bg-linear/);
   });
 
-  it("puts the Up next chip in the text's flow, above the title (never positioned over it)", () => {
+  it("puts the going count on the price's line", () => {
+    render(<FeaturedEventCard event={event} mode="demo" />);
+    const going = screen.getByText(/\d+ going/);
+    const price = screen.getByText(/incl\. booking fee|Free/);
+    const row = going.closest(".flex-wrap");
+    expect(row).not.toBeNull();
+    expect(row).toContainElement(price);
+  });
+
+  it("puts the Up next chip in the photo's corner, an opaque badge before the title, never over the text", () => {
     render(<FeaturedEventCard event={event} mode="demo" />);
     const chip = screen.getByText("Up next");
     const title = screen.getByRole("heading", { level: 3 });
-    expect(chip.className.split(" ")).not.toContain("absolute");
-    expect(chip.parentElement).toBe(title.parentElement);
+    expect(chip).toHaveClass("absolute", "bg-signal", "text-signal-foreground");
+    expect(chip.closest("[data-surface='ink']")).toBeNull();
     expect(chip.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
@@ -240,11 +248,12 @@ describe("HomeEventCard", () => {
   });
 
   it.each([
-    ["free", "Free", "bg-signal"],
-    ["low-cost", "Under A$20", "border-foreground"],
+    ["free", "Free", "bg-foreground"],
+    ["low-cost", "Under A$20", "bg-card"],
   ] as const)("compact: the %s badge, the exact price, and no going row", (badge, label, cls) => {
     render(<HomeEventCard event={event} variant="compact" mode="demo" badge={badge} />);
-    expect(screen.getByText(label)).toHaveClass("rounded-badge", cls);
+    // Both bordered, so the two badges are the same height.
+    expect(screen.getByText(label)).toHaveClass("rounded-badge", "border", "border-foreground", cls);
     expect(mainLink("glass-sessions")).toHaveTextContent("From A$36.90 incl. booking fee");
     expect(screen.queryByText(/going/)).not.toBeInTheDocument();
   });
@@ -283,6 +292,26 @@ describe("HomeEventCard", () => {
 });
 
 describe("quick buy", () => {
+  // The fixtures are dated October 2026; an ended event gets no quick buy, so read them before then.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-01T00:00:00.000Z"));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("no link once the event has ended (an ended event still on screen is never offered for sale)", () => {
+    render(<QuickBuyLink event={event} now={new Date("2026-10-18T11:00:00.000Z")} />);
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    cleanup();
+    // By default, as of now.
+    vi.setSystemTime(new Date("2026-10-19T00:00:00.000Z"));
+    render(<QuickBuyLink event={event} />);
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    cleanup();
+    render(<QuickBuyLink event={event} now={new Date("2026-10-18T10:59:00.000Z")} />);
+    expect(screen.getByRole("link", { name: "Buy tickets for Glasshouse Sessions" })).toBeInTheDocument();
+  });
+
   it.each(["standard", "wide", "compact"] as const)(
     "%s: a sibling link to the tickets, after the card's link and its Save, named for the event",
     (variant) => {

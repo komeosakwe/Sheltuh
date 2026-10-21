@@ -43,6 +43,18 @@ describe("estimatedProgress (honest loading percentage)", () => {
     expect(estimatedProgress(PROGRESS_HALF_LIFE_MS, false, { step: 10 })).toBe(40);
   });
 
+  it("starts a stepped (reduced-motion) estimate at its first step, not 0, so it shows it's under way", () => {
+    expect(estimatedProgress(0, false, { step: 10 })).toBe(10);
+    expect(estimatedProgress(50, false, { step: 10 })).toBe(10);
+    expect(estimatedProgress(Number.NaN, false, { step: 10 })).toBe(10);
+    // Later steps are unchanged, and it still never passes the ceiling.
+    expect(estimatedProgress(4000, false, { step: 10 })).toBe(80);
+    expect(estimatedProgress(60_000, false, { step: 10 })).toBeLessThanOrEqual(90);
+    expect(estimatedProgress(0, true, { step: 10 })).toBe(100);
+    // The smooth estimate still starts at 0.
+    expect(estimatedProgress(0, false)).toBe(0);
+  });
+
   it("treats nonsense input as no time elapsed", () => {
     expect(estimatedProgress(-500, false)).toBe(0);
     expect(estimatedProgress(Number.NaN, false)).toBe(0);

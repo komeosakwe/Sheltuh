@@ -63,7 +63,7 @@ describe("Inbox", () => {
       ],
     });
     renderInbox();
-    expect(screen.getByText("Loading your messages…")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Loading your messages" })).toBeInTheDocument();
     await screen.findByRole("list", { name: "Conversations" });
     const [request, sent, active] = rows();
 

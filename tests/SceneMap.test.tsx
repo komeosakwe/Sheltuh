@@ -19,7 +19,7 @@ vi.mock("next/navigation", () => ({
 let mockEvents: SheltuhEvent[] = [];
 vi.mock("@/lib/data", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/data")>();
-  return { ...actual, getEvents: async () => mockEvents };
+  return { ...actual, getEvents: async () => mockEvents, getUpcomingEvents: async () => mockEvents };
 });
 
 import SceneMap from "@/components/SceneMap";

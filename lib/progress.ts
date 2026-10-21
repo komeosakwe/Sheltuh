@@ -16,7 +16,11 @@ export interface ProgressOptions {
   ceiling?: number;
   /** Time to cover half the remaining distance to the ceiling. */
   halfLifeMs?: number;
-  /** Round down to this step (reduced motion: 10, so it changes in visible steps). */
+  /**
+   * Round down to this step (reduced motion: 10, so it changes in visible
+   * steps). A stepped estimate starts at its first step, not 0, so the loader
+   * shows it's under way from the start.
+   */
   step?: number;
 }
 
@@ -29,5 +33,6 @@ export function estimatedProgress(elapsedMs: number, done: boolean, options: Pro
   const elapsed = Number.isFinite(elapsedMs) ? Math.max(elapsedMs, 0) : 0;
   const raw = ceiling * (1 - 2 ** (-elapsed / halfLife));
   // Floor (never round up toward the ceiling), then to the step.
-  return Math.floor(Math.floor(raw) / step) * step;
+  const stepped = Math.floor(Math.floor(raw) / step) * step;
+  return step > 1 ? Math.min(Math.max(stepped, step), ceiling) : stepped;
 }

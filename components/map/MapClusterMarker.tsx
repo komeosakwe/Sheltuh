@@ -31,6 +31,8 @@ export default function MapClusterMarker({ events, stacked, expanded, onActivate
       onClick={(domEvent) => onActivate(domEvent.currentTarget)}
       aria-label={label}
       aria-expanded={stacked ? expanded : undefined}
+      // Its events, so focus can come back here for one of them (SceneMap's Dismiss).
+      data-event-ids={events.map((event) => event.id).join(" ")}
       className="group relative block h-12 w-12 cursor-pointer rounded-dot"
     >
       {/* A second disc peeking out behind suggests a stack. */}

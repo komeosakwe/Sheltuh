@@ -29,7 +29,7 @@ export default function CategoryRow({ className = "" }: { className?: string }) 
           <RailItem key={item.href} className="shrink-0 snap-start">
             <Link
               href={item.href}
-              className="group flex w-18 flex-col items-center gap-1.5 motion-safe:transition-transform motion-safe:duration-150 motion-safe:active:scale-95 lg:w-16"
+              className="group flex w-18 flex-col items-center gap-2 motion-safe:transition-transform motion-safe:duration-150 motion-safe:active:scale-95 lg:w-16"
             >
               <span className="flex size-12 items-center justify-center rounded-dot border border-foreground bg-card transition-colors duration-150 group-hover:bg-surface">
                 <CategoryIcon name={item.icon} />

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { SelectedDots } from "@/components/ui/FilterChip";
 import { EmptyState, Notice } from "@/components/ui/Section";
 import { adminListOrganisers, adminSuspendOrganiser } from "@/lib/api/admin";
 import { ApiError } from "@/lib/api/client";
@@ -305,6 +306,7 @@ export default function OrganiserQueue() {
               setReauthOwner(null);
             }}
           >
+            {status === s.value && <SelectedDots />}
             {s.label}
           </Button>
         ))}

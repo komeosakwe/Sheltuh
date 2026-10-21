@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
 import EventTile from "@/components/ui/EventTile";
 import { sampleEvents } from "@/lib/sample-events";
@@ -11,8 +11,14 @@ import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 beforeEach(() => {
   sessionStorage.clear();
   localStorage.clear();
+  // The sample events are dated Sept–Nov 2026, and an ended event gets no quick buy: read them before then.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 const liveEvent: SheltuhEvent = {
   ...sampleEvents[0],

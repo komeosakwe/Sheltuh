@@ -28,7 +28,13 @@ const mediaArtClass = "motion-safe:transition-transform motion-safe:duration-300
 const titleClass =
   "font-sans normal-case tracking-[-0.01em] font-semibold group-hover:underline underline-offset-4";
 const chipClass = "eyebrow absolute rounded-badge px-2 py-0.5";
-const dateLine = (event: SheltuhEvent) => `${formatEventDateShort(event.startsAt)} · ${formatEventTime(event.startsAt)}`;
+/** "Sat 24 Oct · 7:30 pm", each part kept whole: a narrow card wraps between them, never inside one. */
+const dateLine = (event: SheltuhEvent) => (
+  <>
+    <span className="whitespace-nowrap">{formatEventDateShort(event.startsAt)}</span> ·{" "}
+    <span className="whitespace-nowrap">{formatEventTime(event.startsAt)}</span>
+  </>
+);
 const place = (event: SheltuhEvent) => [event.venueName, event.suburb].filter(Boolean).join(" · ");
 
 /**
@@ -97,7 +103,7 @@ export default function HomeEventCard({
               <span
                 id={ids.chip}
                 className={`eyebrow self-start rounded-badge px-2 py-0.5 ${
-                  badge === "free" ? "bg-signal text-signal-foreground" : "border border-foreground bg-card"
+                  badge === "free" ? "border border-foreground bg-foreground text-background" : "border border-foreground bg-card"
                 }`}
               >
                 {badge === "free" ? "Free" : "Under A$20"}

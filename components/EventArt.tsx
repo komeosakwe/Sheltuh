@@ -237,7 +237,16 @@ export default function EventArt({
         {renderPattern(poster)}
       </svg>
       )}
+      {/* A cream poster on the cream page would have no edge: a 1px inset black line gives it one. */}
+      {!showImage && isCream(poster.background) && (
+        <span className="pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-foreground ring-inset" />
+      )}
       {children && <div className="absolute inset-0 flex items-end p-3">{children}</div>}
     </div>
   );
+}
+
+/** The page's own colours (cream, white, sunken cream), on which a poster needs an edge. */
+function isCream(colour: string): boolean {
+  return ["#fffae7", "#ffffff", "#f2ecd6"].includes(colour.toLowerCase());
 }

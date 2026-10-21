@@ -118,8 +118,8 @@ export default function Inbox({ getToken }: { getToken: GetToken }) {
       {state.status === "ready" && state.items.length > 0 && (
         <>
           <ul ref={listRef} aria-label="Conversations" className="border-t border-foreground">
-            {state.items.map((conversation) => (
-              <ConversationRow key={conversation.conversationId} conversation={conversation} />
+            {state.items.map((conversation, index) => (
+              <ConversationRow key={conversation.conversationId} conversation={conversation} index={index} />
             ))}
           </ul>
           {state.nextCursor && (
@@ -140,7 +140,7 @@ export default function Inbox({ getToken }: { getToken: GetToken }) {
   );
 }
 
-function ConversationRow({ conversation }: { conversation: ConversationSummary }) {
+function ConversationRow({ conversation, index }: { conversation: ConversationSummary; index: number }) {
   const { otherDisplayName, status, event, lastMessage, unread } = conversation;
   const label = STATUS_LABEL[status];
   return (
@@ -149,7 +149,7 @@ function ConversationRow({ conversation }: { conversation: ConversationSummary }
         href={threadHref(conversation.conversationId)}
         className="flex min-h-11 gap-3 py-4 outline-offset-2 hover:bg-surface"
       >
-        <InitialsAvatar name={otherDisplayName} />
+        <InitialsAvatar name={otherDisplayName} index={index} />
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex items-baseline justify-between gap-3">
             <span className={`truncate text-base leading-6 ${unread ? "font-semibold" : ""}`.trim()}>

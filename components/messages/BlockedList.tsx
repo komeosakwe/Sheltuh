@@ -116,7 +116,7 @@ export default function BlockedList({ getToken }: { getToken: GetToken }) {
 
   return (
     <section aria-labelledby="blocked-title" aria-busy={state.status === "loading" ? true : undefined}>
-      <h2 id="blocked-title" ref={headingRef} tabIndex={-1} className="display-md mb-3 !text-2xl outline-offset-2">
+      <h2 id="blocked-title" ref={headingRef} tabIndex={-1} className="font-heading mb-3 text-xl leading-6 outline-offset-2">
         People you&rsquo;ve blocked
       </h2>
       <p className="mb-6 max-w-xl text-sm leading-5 text-muted">

@@ -7,7 +7,7 @@ import SectionHead from "./SectionHead";
 /** "Only in the city": one static editorial card, white with a black border (not itself a link; its button is). */
 export default function GuideCard({ className = "" }: { className?: string }) {
   return (
-    <section aria-labelledby="home-guide" className={className}>
+    <section aria-labelledby="home-guide" data-reveal className={className}>
       <SectionHead id="home-guide" title="Only in the city" />
       <div className="overflow-hidden rounded-card border border-foreground bg-card sm:grid sm:grid-cols-2">
         <EventArt

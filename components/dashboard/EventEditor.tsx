@@ -6,6 +6,7 @@ import InlineReauth from "@/components/auth/InlineReauth";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import AdminOrganiserPicker, { type PickedOrganiser } from "@/components/admin/AdminOrganiserPicker";
 import EventImageField from "@/components/dashboard/EventImageField";
+import { fieldClass } from "@/components/ui/Field";
 import {
   adminCreateEvent,
   adminDeleteEventImage,
@@ -26,6 +27,9 @@ import { calculateOrderSummary, MIN_PAID_TICKET_CENTS } from "@/lib/fees";
 import { formatAud, toMelbourneDateTimeInputParts } from "@/lib/format";
 import { checkExternalTicketUrl, type TicketingMode } from "@/lib/ticketing";
 import { EVENT_CATEGORIES } from "@/lib/types";
+
+/** A section title in the form (Panel's title style: 20/24, uppercase by the heading base rule, which a legend doesn't get). */
+const SECTION_TITLE = "font-heading text-xl leading-6 uppercase text-foreground";
 
 interface OrganiserProps {
   getToken: GetToken;
@@ -358,20 +362,20 @@ export default function EventEditor(props: Props) {
       )}
 
       <div className="flex flex-col gap-1">
-        <label htmlFor="title" className="text-sm font-medium text-foreground">
+        <label htmlFor="title" className="eyebrow text-muted">
           Title
         </label>
         <input
           id="title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+          className={fieldClass}
         />
         {errors.title && <p className="text-sm text-danger">{errors.title}</p>}
       </div>
 
       <div className="flex flex-col gap-1">
-        <label htmlFor="description" className="text-sm font-medium text-foreground">
+        <label htmlFor="description" className="eyebrow text-muted">
           Description
         </label>
         <textarea
@@ -379,20 +383,20 @@ export default function EventEditor(props: Props) {
           rows={4}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+          className={fieldClass}
         />
         {errors.description && <p className="text-sm text-danger">{errors.description}</p>}
       </div>
 
       <div className="flex flex-col gap-1">
-        <label htmlFor="category" className="text-sm font-medium text-foreground">
+        <label htmlFor="category" className="eyebrow text-muted">
           Category
         </label>
         <select
           id="category"
           value={category}
           onChange={(e) => setCategory(e.target.value as typeof category)}
-          className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+          className={fieldClass}
         >
           {EVENT_CATEGORIES.map((c) => (
             <option key={c.value} value={c.value}>
@@ -404,80 +408,80 @@ export default function EventEditor(props: Props) {
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
         <div className="flex flex-col gap-1 sm:col-span-1">
-          <label htmlFor="venueName" className="text-sm font-medium text-foreground">
+          <label htmlFor="venueName" className="eyebrow text-muted">
             Venue name
           </label>
           <input
             id="venueName"
             value={venueName}
             onChange={(e) => setVenueName(e.target.value)}
-            className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+            className={fieldClass}
           />
           {errors.venueName && <p className="text-sm text-danger">{errors.venueName}</p>}
         </div>
         <div className="flex flex-col gap-1 sm:col-span-1">
-          <label htmlFor="venueAddress" className="text-sm font-medium text-foreground">
+          <label htmlFor="venueAddress" className="eyebrow text-muted">
             Venue address
           </label>
           <input
             id="venueAddress"
             value={venueAddress}
             onChange={(e) => setVenueAddress(e.target.value)}
-            className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+            className={fieldClass}
           />
           {errors.venueAddress && <p className="text-sm text-danger">{errors.venueAddress}</p>}
         </div>
         <div className="flex flex-col gap-1 sm:col-span-1">
-          <label htmlFor="suburb" className="text-sm font-medium text-foreground">
+          <label htmlFor="suburb" className="eyebrow text-muted">
             Suburb
           </label>
           <input
             id="suburb"
             value={suburb}
             onChange={(e) => setSuburb(e.target.value)}
-            className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+            className={fieldClass}
           />
           {errors.suburb && <p className="text-sm text-danger">{errors.suburb}</p>}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-        <fieldset className="flex flex-col gap-2">
-          <legend className="text-sm font-medium text-foreground">Starts (Melbourne time)</legend>
-          <div className="flex gap-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <fieldset className="flex min-w-0 flex-col gap-2">
+          <legend className="eyebrow text-muted">Starts (Melbourne time)</legend>
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,8rem)] gap-2">
             <input
               type="date"
               aria-label="Start date"
               value={start.date}
               onChange={(e) => setStart((s) => ({ ...s, date: e.target.value }))}
-              className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+              className={`${fieldClass} min-w-0`}
             />
             <input
               type="time"
               aria-label="Start time"
               value={start.time}
               onChange={(e) => setStart((s) => ({ ...s, time: e.target.value }))}
-              className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+              className={`${fieldClass} min-w-0`}
             />
           </div>
           {(errors.start || errors.end) && <p className="text-sm text-danger">{errors.start || errors.end}</p>}
         </fieldset>
-        <fieldset className="flex flex-col gap-2">
-          <legend className="text-sm font-medium text-foreground">Ends (Melbourne time)</legend>
-          <div className="flex gap-2">
+        <fieldset className="flex min-w-0 flex-col gap-2">
+          <legend className="eyebrow text-muted">Ends (Melbourne time)</legend>
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,8rem)] gap-2">
             <input
               type="date"
               aria-label="End date"
               value={end.date}
               onChange={(e) => setEnd((s) => ({ ...s, date: e.target.value }))}
-              className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+              className={`${fieldClass} min-w-0`}
             />
             <input
               type="time"
               aria-label="End time"
               value={end.time}
               onChange={(e) => setEnd((s) => ({ ...s, time: e.target.value }))}
-              className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+              className={`${fieldClass} min-w-0`}
             />
           </div>
         </fieldset>
@@ -495,7 +499,7 @@ export default function EventEditor(props: Props) {
 
       {isAdmin && (
         <fieldset className="flex flex-col gap-3">
-          <legend className="font-heading text-xl text-foreground">Where are tickets sold?</legend>
+          <legend className={SECTION_TITLE}>Where are tickets sold?</legend>
           <div className="flex flex-wrap gap-5 text-sm text-foreground">
             <label className="flex items-center gap-2">
               <input
@@ -522,7 +526,7 @@ export default function EventEditor(props: Props) {
           {ticketingMode === "external" && (
             <>
               <div className="flex flex-col gap-1">
-                <label htmlFor="externalTicketUrl" className="text-sm font-medium text-foreground">
+                <label htmlFor="externalTicketUrl" className="eyebrow text-muted">
                   Ticket page address
                 </label>
                 <input
@@ -534,7 +538,7 @@ export default function EventEditor(props: Props) {
                   onChange={(e) => setExternalTicketUrl(e.target.value)}
                   aria-invalid={Boolean(errors.externalTicketUrl)}
                   aria-describedby={errors.externalTicketUrl ? "externalTicketUrl-error" : undefined}
-                  className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+                  className={fieldClass}
                 />
                 {errors.externalTicketUrl && (
                   <p id="externalTicketUrl-error" className="text-sm text-danger">
@@ -560,8 +564,8 @@ export default function EventEditor(props: Props) {
 
       {ticketingMode === "sheltuh" && (
       <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-heading text-xl text-foreground">Ticket types</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className={SECTION_TITLE}>Ticket types</h2>
           <button
             type="button"
             onClick={() => setTicketTypes((prev) => [...prev, newTicketType()])}
@@ -575,24 +579,24 @@ export default function EventEditor(props: Props) {
         {ticketTypes.map((ticket, index) => {
           const summary = calculateOrderSummary(ticket.priceCents, 1, ticket.feePolicy);
           return (
-            <div key={ticket.id} className="flex flex-col gap-3 bg-surface p-4">
+            <div key={ticket.id} className="flex flex-col gap-3 border-t border-foreground pt-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="flex flex-col gap-1">
-                  <label htmlFor={`ticket-${index}-name`} className="text-sm font-medium text-foreground">
+                  <label htmlFor={`ticket-${index}-name`} className="eyebrow text-muted">
                     Name
                   </label>
                   <input
                     id={`ticket-${index}-name`}
                     value={ticket.name}
                     onChange={(e) => updateTicket(index, { name: e.target.value })}
-                    className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+                    className={fieldClass}
                   />
                   {errors[`ticket-${index}-name`] && (
                     <p className="text-sm text-danger">{errors[`ticket-${index}-name`]}</p>
                   )}
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label htmlFor={`ticket-${index}-price`} className="text-sm font-medium text-foreground">
+                  <label htmlFor={`ticket-${index}-price`} className="eyebrow text-muted">
                     Price (A$)
                   </label>
                   <input
@@ -604,28 +608,28 @@ export default function EventEditor(props: Props) {
                     onChange={(e) =>
                       updateTicket(index, { priceCents: Math.round(Number(e.target.value) * 100) || 0 })
                     }
-                    className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+                    className={fieldClass}
                   />
                   {errors[`ticket-${index}-price`] && (
                     <p className="text-sm text-danger">{errors[`ticket-${index}-price`]}</p>
                   )}
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label htmlFor={`ticket-${index}-fee-policy`} className="text-sm font-medium text-foreground">
+                  <label htmlFor={`ticket-${index}-fee-policy`} className="eyebrow text-muted">
                     Who pays the booking fee?
                   </label>
                   <select
                     id={`ticket-${index}-fee-policy`}
                     value={ticket.feePolicy}
                     onChange={(e) => updateTicket(index, { feePolicy: e.target.value as TicketTypeInput["feePolicy"] })}
-                    className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+                    className={fieldClass}
                   >
                     <option value="buyer-pays">Buyer pays</option>
                     <option value="organiser-absorbs">Organiser absorbs</option>
                   </select>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label htmlFor={`ticket-${index}-qty`} className="text-sm font-medium text-foreground">
+                  <label htmlFor={`ticket-${index}-qty`} className="eyebrow text-muted">
                     Quantity available
                   </label>
                   <input
@@ -634,7 +638,7 @@ export default function EventEditor(props: Props) {
                     min={1}
                     value={ticket.quantityAvailable}
                     onChange={(e) => updateTicket(index, { quantityAvailable: Number(e.target.value) || 0 })}
-                    className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+                    className={fieldClass}
                   />
                   {errors[`ticket-${index}-qty`] && (
                     <p className="text-sm text-danger">{errors[`ticket-${index}-qty`]}</p>
@@ -669,7 +673,7 @@ export default function EventEditor(props: Props) {
 
       {isAdmin && initial && (
         <div className="flex flex-col gap-1">
-          <label htmlFor="admin-reason" className="text-sm font-medium text-foreground">
+          <label htmlFor="admin-reason" className="eyebrow text-muted">
             Note for the event&rsquo;s log (optional; the organiser sees it)
           </label>
           <textarea
@@ -679,7 +683,7 @@ export default function EventEditor(props: Props) {
             onChange={(e) => setReason(e.target.value)}
             aria-invalid={Boolean(errors.reason)}
             aria-describedby={errors.reason ? "admin-reason-error" : "admin-reason-hint"}
-            className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+            className={fieldClass}
           />
           {errors.reason ? (
             <p id="admin-reason-error" className="text-sm text-danger">

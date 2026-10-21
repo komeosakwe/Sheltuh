@@ -8,7 +8,7 @@ import { ButtonLink } from "@/components/ui/Button";
  */
 export default function NotFoundMessage() {
   return (
-    <div className="mx-auto flex max-w-2xl flex-col items-start px-5 py-20 sm:px-8 sm:py-24">
+    <div className="mx-auto flex max-w-6xl *:max-w-2xl flex-col items-start px-5 py-20 sm:px-8 sm:py-24">
       <DotsMark size="lg" className="text-foreground" />
       <h1 className="display-lg font-display mt-6">Lost?</h1>
       <p className="mt-4 max-w-md text-base leading-6 text-muted sm:text-lg sm:leading-7">

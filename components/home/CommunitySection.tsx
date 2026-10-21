@@ -7,7 +7,7 @@ import { getSampleGoing } from "@/lib/sample-going";
 import { isApiConfigured } from "@/lib/api/client";
 import GoingStack from "./GoingStack";
 
-/** Demo only: fictional initials. Live shows plain avatars, since signed-out visitors never receive names. */
+/** Demo only: fictional initials. Live shows no stack (no blank tiles), since signed-out visitors never receive names. */
 const DEMO_INITIALS = isApiConfigured
   ? undefined
   : getSampleGoing("home-community").attendees.slice(0, 5).map((a) => initialsFor(a.displayName));

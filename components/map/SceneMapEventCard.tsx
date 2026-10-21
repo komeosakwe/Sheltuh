@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Ref } from "react";
 import EventArt from "@/components/EventArt";
 import CardPrice from "@/components/home/CardPrice";
 import QuickBuyLink from "@/components/QuickBuyLink";
@@ -15,14 +16,19 @@ interface SceneMapEventCardProps {
   variant: "overlay" | "sheet";
   /** Must position the card (`absolute`/`fixed`/`relative`): the dismiss button is placed against it. */
   className: string;
+  ref?: Ref<HTMLElement>;
 }
 
 /**
  * The selected event's summary on the map (§6.15): a white card with a black
  * border; photo first, then category, date, title, venue, the all-inclusive
  * price, then the orange "Buy tickets" and "View event".
+ *
+ * The sheet takes focus (tabIndex -1) when Locate opens it on a phone, and
+ * carries `data-map-sheet`, so globals.css keeps focused things on the page
+ * clear of it while it's open (WCAG 2.4.11).
  */
-export default function SceneMapEventCard({ event, detailsHref, onDismiss, variant, className }: SceneMapEventCardProps) {
+export default function SceneMapEventCard({ event, detailsHref, onDismiss, variant, className, ref }: SceneMapEventCardProps) {
   const categoryLabel = EVENT_CATEGORIES.find((c) => c.value === event.category)?.label ?? event.category;
   const pinned = resolveEventCoordinates(event);
   const locationNote = !pinned
@@ -49,7 +55,10 @@ export default function SceneMapEventCard({ event, detailsHref, onDismiss, varia
 
   return (
     <section
+      ref={ref}
       aria-label="Selected event"
+      tabIndex={sheet ? -1 : undefined}
+      data-map-sheet={sheet ? "" : undefined}
       className={`overflow-hidden rounded-card border border-foreground bg-card ${className}`}
     >
       <div className={sheet ? "flex gap-3 p-3" : "flex flex-col"}>
@@ -75,9 +84,10 @@ export default function SceneMapEventCard({ event, detailsHref, onDismiss, varia
         </div>
         {sheet && dismiss}
       </div>
-      <div className={`flex flex-wrap items-center gap-2 ${sheet ? "px-3 pb-3" : "p-4 pt-3"}`}>
-        <QuickBuyLink event={event} fill className="flex-1" />
-        <Link href={detailsHref} className={buttonClass("outline", "md", "min-h-11 flex-1 sm:min-h-10")}>
+      {/* Stacked, full width: neither label is squeezed or wraps beside the other. */}
+      <div className={`flex flex-col gap-2 ${sheet ? "px-3 pb-3" : "p-4 pt-3"}`}>
+        <QuickBuyLink event={event} fill />
+        <Link href={detailsHref} className={buttonClass("outline", "md", "min-h-11 w-full sm:min-h-10")}>
           View event<span className="sr-only">: {event.title}</span>
         </Link>
       </div>

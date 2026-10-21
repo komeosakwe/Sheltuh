@@ -109,7 +109,7 @@ export default function LiveEventDetails({ slug }: { slug: string }) {
       {state.status === "not-found" ? (
         <NotFoundMessage />
       ) : state.status === "error" ? (
-        <div className="mx-auto flex max-w-2xl flex-col items-start gap-6 px-5 py-20 sm:px-8">
+        <div className="mx-auto flex max-w-6xl *:max-w-2xl flex-col items-start gap-6 px-5 py-20 sm:px-8">
           <h1 className="display-md">Couldn&rsquo;t load this event</h1>
           <Notice key={failures} tone="danger" role="alert">
             {state.message}

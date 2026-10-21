@@ -7,10 +7,12 @@ export const metadata: Metadata = { title: "Blocked members — Sheltüh" };
 
 export default function BlockedMembersPage() {
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-8 px-5 py-12 sm:px-8 sm:py-20">
-      <BackLink href="/messages">All messages</BackLink>
-      <PageHeader flush size="md" eyebrow="Messages" title="Blocked members" />
-      <BlockedPageContent />
+    <div className="mx-auto max-w-6xl px-5 py-12 sm:px-8 sm:py-20">
+      <div className="flex max-w-2xl flex-col gap-8">
+        <BackLink href="/messages">All messages</BackLink>
+        <PageHeader flush size="md" eyebrow="Messages" title="Blocked members" />
+        <BlockedPageContent />
+      </div>
     </div>
   );
 }

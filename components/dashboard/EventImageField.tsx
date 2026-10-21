@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClass } from "@/components/ui/Button";
 import { fetchPrivateEventImage } from "@/lib/api/events";
 import type { GetToken } from "@/lib/api/client";
 import { ImageError, prepareEventImage } from "@/lib/image";
@@ -88,9 +88,9 @@ export default function EventImageField({
 
   return (
     <div className="flex flex-col gap-3">
-      <label htmlFor="event-image" className="text-sm font-medium text-foreground">
+      <p id="event-image-title" className="eyebrow text-muted">
         Event photo
-      </label>
+      </p>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
         <div className="flex aspect-square w-40 shrink-0 items-center justify-center overflow-hidden bg-surface text-xs text-muted">
           {shown ? (
@@ -101,15 +101,30 @@ export default function EventImageField({
           )}
         </div>
         <div className="flex flex-col items-start gap-3">
+          {/* The native picker, visually hidden but focusable (its focus ring shows on the label,
+              styled as a button); named "Event photo, Choose a photo". */}
           <input
             ref={inputRef}
             id="event-image"
             type="file"
             accept="image/jpeg,image/png,image/webp"
             onChange={(e) => handlePick(e.target.files?.[0])}
-            className="max-w-full text-sm"
+            aria-labelledby="event-image-title event-image-pick"
+            aria-describedby="event-image-hint"
+            className="peer sr-only"
           />
-          <p className="max-w-sm text-xs text-muted">
+          <label
+            id="event-image-pick"
+            htmlFor="event-image"
+            className={buttonClass(
+              "outline",
+              "sm",
+              "min-h-11 cursor-pointer peer-focus-visible:outline-2 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-foreground",
+            )}
+          >
+            {hasImage ? "Choose another photo" : "Choose a photo"}
+          </label>
+          <p id="event-image-hint" className="max-w-sm text-xs text-muted">
             A square or portrait poster or photo works best. JPEG, PNG or WebP, resized automatically. Only
             use images you have the rights to.
           </p>

@@ -1,4 +1,5 @@
 import DemoNotice from "@/components/DemoNotice";
+import { Button } from "@/components/ui/Button";
 import { fieldClass } from "@/components/ui/Field";
 import { Panel } from "@/components/ui/Section";
 import { SAMPLE_CONVERSATION, SAMPLE_MESSAGES, SAMPLE_NOW } from "@/lib/sample-messages";
@@ -21,13 +22,10 @@ export default function DemoMessages() {
             Your message
           </label>
           <textarea id="demo-message" rows={2} disabled className={fieldClass} />
-          <button
-            type="button"
-            disabled
-            className="btn btn-lg w-full cursor-not-allowed border-surface-border bg-surface-border text-muted sm:w-auto sm:self-start"
-          >
+          {/* The shared disabled style (§6.1). */}
+          <Button size="lg" disabled className="w-full sm:w-auto sm:self-start">
             Send
-          </button>
+          </Button>
         </div>
       </Panel>
     </div>

@@ -100,6 +100,16 @@ describe("Nav — phone menu", () => {
     expect(within(menu).getByRole("link", { name: "Discover", hidden: true })).not.toHaveAttribute("aria-current");
   });
 
+  it("marks Discover as the current section on an event's page (and What's on)", () => {
+    for (const path of ["/events/neon-static", "/events"]) {
+      pathname = path;
+      const { menu } = renderNav(fakeAuthValue({ status: "signed-out" }));
+      expect(within(menu).getByRole("link", { name: "Discover", hidden: true })).toHaveAttribute("aria-current", "true");
+      expect(within(menu).getByRole("link", { name: "Map", hidden: true })).not.toHaveAttribute("aria-current");
+      cleanup();
+    }
+  });
+
   it("relabels the button and focuses the first link when opened, and resets on close", () => {
     const { menu } = renderNav(fakeAuthValue({ status: "signed-out" }));
     fireToggle(menu, "open");

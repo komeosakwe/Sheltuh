@@ -105,7 +105,7 @@ export default function LiveOrganiserProfile({ organiserId }: { organiserId: str
 
   if (state.status === "error") {
     return (
-      <div className="mx-auto flex max-w-2xl flex-col items-start gap-6 px-5 py-20 sm:px-8">
+      <div className="mx-auto flex max-w-6xl *:max-w-2xl flex-col items-start gap-6 px-5 py-20 sm:px-8">
         <h1 ref={headingRef} tabIndex={-1} className="display-lg outline-offset-2">
           Couldn&rsquo;t load this organiser
         </h1>

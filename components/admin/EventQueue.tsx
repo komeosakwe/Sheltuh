@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import PrivateEventImage from "@/components/admin/PrivateEventImage";
+import { Button } from "@/components/ui/Button";
+import { SelectedDots } from "@/components/ui/FilterChip";
 import { adminApproveEvent, adminListEvents, adminRejectEvent, adminUnpublishEvent } from "@/lib/api/admin";
 import type { EventRecord, EventStatus } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -110,18 +112,20 @@ export default function EventQueue() {
       <Link href="/admin/events/new" className="btn btn-solid w-fit">
         New event
       </Link>
-      <div className="flex flex-wrap gap-2">
+      {/* Toggle buttons, like the other admin queues: pressed is announced and shown by more than colour. */}
+      <div role="group" aria-label="Show events" className="flex flex-wrap gap-2">
         {STATUSES.map((s) => (
-          <button
+          <Button
             key={s}
-            type="button"
+            variant={status === s ? "solid" : "outline"}
+            size="sm"
+            className="min-h-11"
+            aria-pressed={status === s}
             onClick={() => setStatus(s)}
-            className={` px-3 py-1.5 text-sm font-medium ${
-              status === s ? "bg-accent text-accent-foreground" : "border border-surface-border text-foreground"
-            }`}
           >
+            {status === s && <SelectedDots />}
             {STATUS_LABEL[s]}
-          </button>
+          </Button>
         ))}
       </div>
 

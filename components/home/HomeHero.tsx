@@ -59,8 +59,9 @@ export default function HomeHero({ upNext }: { upNext: ReactNode }) {
         <p className="rise mt-3 max-w-[40ch] text-base leading-6 [--d:200ms] sm:mt-4 sm:text-lg sm:leading-7 lg:max-w-[48ch]">
           Live music, art, workshops and pop-ups in Melbourne, curated, with the people going.
         </p>
-        {/* One row at every width: below 640px the labels are a size smaller and the arrow drops, so both fit from 375px. */}
-        <div className="rise mt-4 flex gap-2 [--d:300ms] sm:mt-5 sm:gap-3">
+        {/* One row from 375px: below 640px the labels are a size smaller and the arrow drops, so both
+            fit. Narrower than that (320), they stack, full width, rather than squeeze. */}
+        <div className="rise mt-4 flex flex-col gap-2 [--d:300ms] min-[375px]:flex-row sm:mt-5 sm:gap-3">
           <ButtonLink href="/events" variant="signal" size="lg" className={CTA}>
             Explore events
             <ArrowRightIcon className="hidden h-4 w-4 sm:block" />

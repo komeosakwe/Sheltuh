@@ -49,6 +49,15 @@ export default function LiveEventFeed({ categories, query, initialCategory = "al
 
   const hasActiveFilters = category !== "all" || pricing !== "all" || onOrAfter !== "";
   const progress = useLoadingProgress(status === "loading");
+  const listRef = useRef<HTMLUListElement>(null);
+  const loadMoreRef = useRef<HTMLButtonElement>(null);
+  // How many results were showing when "Load more" was pressed, to find the first new one.
+  const countBeforeMore = useRef<number | null>(null);
+  // This is how many results have loaded so far, not the total number of
+  // events in the database — later pages may add more.
+  const summary = `Showing ${events.length} event${events.length === 1 ? "" : "s"}${
+    hasActiveFilters || query ? " matching your search" : ""
+  }`;
 
   function resetFilters() {
     setCategory("all");
@@ -157,8 +166,20 @@ export default function LiveEventFeed({ categories, query, initialCategory = "al
 
   function handleLoadMore() {
     requestIdRef.current += 1;
+    countBeforeMore.current = events.length;
     load(nextCursor, false);
   }
+
+  // "Load more" keeps focus while it loads (busy, not disabled). When the last page takes the
+  // button away with focus on it, focus goes to the first new event rather than the page.
+  useEffect(() => {
+    if (countBeforeMore.current === null || loadingMore) return;
+    const before = countBeforeMore.current;
+    countBeforeMore.current = null;
+    if (loadMoreRef.current || (document.activeElement && document.activeElement !== document.body)) return;
+    const firstNew = listRef.current?.children[before]?.querySelector("a");
+    firstNew?.focus();
+  }, [loadingMore, events]);
 
   return (
     <div className="flex flex-col gap-4 sm:gap-6">
@@ -174,9 +195,10 @@ export default function LiveEventFeed({ categories, query, initialCategory = "al
         onReset={resetFilters}
       />
 
-      {/* Always mounted so "Loading events…" is announced (see EventFeed); the loader shows the progress. */}
+      {/* Always mounted, so the load's start ("Loading events…") and its result ("Showing 26
+          events", after each Load more too) are announced (see EventFeed); the loader shows the progress. */}
       <p role="status" className="sr-only">
-        {status === "loading" ? "Loading events…" : ""}
+        {status === "loading" ? "Loading events…" : status === "loaded" && !progress.visible ? summary : ""}
       </p>
 
       {progress.visible && status !== "error" && <FeedLoading percent={progress.percent} done={progress.done} />}
@@ -194,12 +216,8 @@ export default function LiveEventFeed({ categories, query, initialCategory = "al
 
       {status === "loaded" && !progress.visible && (
         <>
-          {/* This is how many results have loaded so far, not the total
-              number of events in the database — later pages may add more. */}
-          <p aria-live="polite" className="meta text-muted">
-            Showing {events.length} event{events.length === 1 ? "" : "s"}
-            {hasActiveFilters || query ? " matching your search" : ""}
-          </p>
+          {/* Not a live region: the status above announces it. */}
+          <p className="meta text-muted">{summary}</p>
 
           {events.length === 0 ? (
             <EmptyState
@@ -218,12 +236,13 @@ export default function LiveEventFeed({ categories, query, initialCategory = "al
             </EmptyState>
           ) : (
             <>
-              <EventResults events={events} />
+              <EventResults events={events} heading="Events" listRef={listRef} />
               {nextCursor && (
                 <Button
+                  ref={loadMoreRef}
                   variant="outline"
                   onClick={handleLoadMore}
-                  disabled={loadingMore}
+                  busy={loadingMore}
                   className="self-center"
                 >
                   {loadingMore ? "Loading…" : "Load more"}

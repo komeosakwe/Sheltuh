@@ -1,11 +1,19 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventResults from "@/components/EventResults";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
 
-afterEach(cleanup);
+// The sample events are dated Sept–Nov 2026, and an ended event gets no quick buy: read them before then.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
+});
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 /** n distinct events, cloned from the samples with unique ids/slugs/titles. */
 function events(n: number): SheltuhEvent[] {
@@ -44,6 +52,20 @@ describe("EventResults (brand-direction-one.md §7: one grid of 4:5 tiles)", () 
       "href",
       `/events/${paid.slug}#tickets`,
     );
+  });
+
+  it("with a heading, puts a visually hidden h2 above the grid, so the tiles' h3 titles sit under it", () => {
+    render(<EventResults events={events(2)} heading="Events" />);
+    const h2 = screen.getByRole("heading", { level: 2, name: "Events" });
+    expect(h2).toHaveClass("sr-only");
+    const list = screen.getByRole("list", { name: "Events" });
+    expect(h2.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(list).getAllByRole("heading", { level: 3 })).toHaveLength(2);
+  });
+
+  it("has no heading of its own unless asked (a page with its own section heading)", () => {
+    render(<EventResults events={events(1)} />);
+    expect(screen.queryByRole("heading", { level: 2 })).toBeNull();
   });
 
   it("copes with no events at all", () => {

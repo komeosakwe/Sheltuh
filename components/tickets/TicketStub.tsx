@@ -30,7 +30,7 @@ export default function TicketStub({ code, typeName, ticketNumber, ticketCount }
       ? `Ticket ${ticketNumber} of ${ticketCount} · ${typeName}`
       : typeName;
   return (
-    <li className="border border-foreground print:break-inside-avoid sm:grid sm:grid-cols-[1fr_auto] sm:grid-rows-[auto_auto_1fr_auto] sm:gap-y-4">
+    <li className="overflow-hidden rounded-card border border-foreground bg-card print:break-inside-avoid sm:grid sm:grid-cols-[1fr_auto] sm:grid-rows-[auto_auto_1fr_auto] sm:gap-y-4">
       <div className="flex items-start justify-between gap-3 p-4 sm:contents">
         <p className="eyebrow min-w-0 break-words text-muted sm:col-start-1 sm:row-start-1 sm:mx-5 sm:mt-5">{label}</p>
         <UBarcode

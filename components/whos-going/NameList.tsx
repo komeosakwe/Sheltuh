@@ -62,7 +62,7 @@ export default function NameList({
             newFrom !== undefined && index >= newFrom ? "fade-in" : ""
           }`.trim()}
         >
-          <InitialsAvatar name={attendee.displayName} />
+          <InitialsAvatar name={attendee.displayName} index={index} />
           <span
             className={`truncate text-sm leading-5 ${withActions ? "min-w-0 flex-1" : ""}`.trim()}
             title={attendee.displayName}

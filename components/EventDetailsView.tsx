@@ -66,7 +66,9 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
   );
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 pt-2 pb-12 sm:gap-10 sm:px-8 sm:py-14">
+    // Phones: tight above the photo, so the title, date and venue are on the first screen,
+    // above the sticky buy bar (owner request, 21 Oct 2026; e2e/event-page.spec.ts).
+    <div className="mx-auto flex max-w-6xl flex-col gap-2 px-5 pb-12 sm:gap-10 sm:px-8 sm:py-14">
       {/* 44px tap target below lg; the desktop link keeps its original height. */}
       <Link
         href="/"
@@ -95,8 +97,8 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
         }}
       >
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-14">
-          <div className="flex flex-col gap-6 sm:gap-10 lg:col-span-7">
-            <div className="flex flex-col gap-4 sm:gap-5">
+          <div className="flex flex-col gap-4 sm:gap-10 lg:col-span-7">
+            <div className="flex flex-col gap-3 sm:gap-5">
               <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
                 <p className="eyebrow flex items-center gap-2 text-foreground">
                   <DotsMark size="xs" className="text-signal" />
@@ -122,14 +124,16 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
             </div>
 
             {/* The photo first on phones and tablets (it's aria-hidden, so reading and
-                focus order are unaffected): full-bleed 4:5 on phones, a 3:2 rounded
-                card from sm, and after the title from lg. The page's LCP image. */}
+                focus order are unaffected): full-bleed 4:3 on phones, never more than
+                36% of the screen's height so the title, date and venue still fit above
+                the buy bar (cropped, object-cover); a 3:2 rounded card from sm, and
+                after the title from lg. The page's LCP image. */}
             <EventArt
               poster={event.poster}
               imageUrl={event.imageUrl}
               title={event.title}
               priority
-              className="order-first -mx-5 aspect-[4/5] w-[calc(100%+2.5rem)] sm:mx-0 sm:aspect-[3/2] sm:w-full sm:rounded-card lg:order-none"
+              className="order-first -mx-5 aspect-[4/3] max-h-[36svh] w-[calc(100%+2.5rem)] sm:mx-0 sm:aspect-[3/2] sm:max-h-none sm:w-full sm:rounded-card lg:order-none"
             />
 
             {demo && (
@@ -152,62 +156,6 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
               </Panel>
             )}
           </div>
-
-          {/* Buy bar, below lg only, on an ink surface. Sticky to the bottom of the
-              viewport while the photo and description are read; it settles in its
-              own place, directly above When/Where and the tickets, so it can never
-              cover them or the footer. The page wrapper's padding is what -mx bleeds
-              it across. At 320 the heart doesn't fit: the one by the title stays. */}
-          {price && (
-            <div
-              data-buy-bar
-              data-surface="ink"
-              className="sticky bottom-0 z-20 -mx-5 flex min-h-18 items-center justify-between gap-4 px-5 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden"
-            >
-              <div className="min-w-0">
-                <p className="text-base leading-5 font-semibold tabular-nums">{price.amount}</p>
-                <p className="text-xs leading-4 text-muted">{price.note}</p>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <SaveButton event={saveTarget} variant="onDark" className="hidden min-[375px]:flex" />
-                <a href="#tickets" className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}>
-                  {/* "Buy tickets", or "Get free tickets" when every tier is free, in demo
-                      mode too (owner, 21 Oct 2026). */}
-                  {quickBuyLabel(event) ?? "Buy tickets"}
-                </a>
-              </div>
-            </div>
-          )}
-          {/* An external event's buy bar: where tickets are sold (never a price), and
-              the outbound link itself, not a jump to #tickets. */}
-          {ticketUrl && (
-            <div
-              data-buy-bar
-              data-surface="ink"
-              className="sticky bottom-0 z-20 -mx-5 flex min-h-18 items-center justify-between gap-4 px-5 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden"
-            >
-              <div className="min-w-0">
-                {event.externalFree ? (
-                  <>
-                    <p className="text-base leading-5 font-semibold">Free</p>
-                    <p className="text-xs leading-4 text-muted">Tickets on {provider}</p>
-                  </>
-                ) : (
-                  <p className="text-sm leading-5 font-semibold">Tickets on {provider}</p>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <SaveButton event={saveTarget} variant="onDark" className="hidden min-[375px]:flex" />
-                <ExternalTicketLink
-                  eventId={event.id}
-                  url={ticketUrl}
-                  provider={provider}
-                  short
-                  className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}
-                />
-              </div>
-            </div>
-          )}
 
           {/* Unstuck while Who's Going is expanded, so a tall aside can't hide the
               tickets below the fold. */}
@@ -277,6 +225,63 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
               </Panel>
             </div>
           </aside>
+
+          {/* Buy bar, below lg only, on an ink surface. Sticky to the bottom of the
+              viewport all the way down the page, and last in the grid, so it settles
+              under the tickets at the very end rather than parking mid-page (focus
+              scrolls clear of it: globals.css pads by --buybar-h). The page wrapper's
+              padding is what -mx bleeds it across. At 320 the heart doesn't fit: the
+              one by the title stays. */}
+          {price && (
+            <div
+              data-buy-bar
+              data-surface="ink"
+              className="sticky bottom-0 z-20 -mx-5 flex min-h-18 items-center justify-between gap-4 px-5 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden"
+            >
+              <div className="min-w-0">
+                <p className="text-base leading-5 font-semibold tabular-nums">{price.amount}</p>
+                <p className="text-xs leading-4 text-muted">{price.note}</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <SaveButton event={saveTarget} variant="onDark" className="hidden min-[375px]:flex" />
+                <a href="#tickets" className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}>
+                  {/* "Buy tickets", or "Get free tickets" when every tier is free, in demo
+                      mode too (owner, 21 Oct 2026). */}
+                  {quickBuyLabel(event) ?? "Buy tickets"}
+                </a>
+              </div>
+            </div>
+          )}
+          {/* An external event's buy bar: where tickets are sold (never a price), and
+              the outbound link itself, not a jump to #tickets. */}
+          {ticketUrl && (
+            <div
+              data-buy-bar
+              data-surface="ink"
+              className="sticky bottom-0 z-20 -mx-5 flex min-h-18 items-center justify-between gap-4 px-5 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden"
+            >
+              <div className="min-w-0">
+                {event.externalFree ? (
+                  <>
+                    <p className="text-base leading-5 font-semibold">Free</p>
+                    <p className="text-xs leading-4 text-muted">Tickets on {provider}</p>
+                  </>
+                ) : (
+                  <p className="text-sm leading-5 font-semibold">Tickets on {provider}</p>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <SaveButton event={saveTarget} variant="onDark" className="hidden min-[375px]:flex" />
+                <ExternalTicketLink
+                  eventId={event.id}
+                  url={ticketUrl}
+                  provider={provider}
+                  short
+                  className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </WhosGoingProvider>
     </div>

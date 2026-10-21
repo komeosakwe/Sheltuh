@@ -24,6 +24,7 @@ import ReportDialog, { type ReportOutcome } from "./ReportDialog";
 import { BLOCK_EFFECT, errorText, loadErrorMessage, messagingError, tallInlineLinkClass, THREAD_POLL_MS, threadHref } from "./shared";
 import { useUnread } from "./UnreadProvider";
 import { LoadingState } from "@/components/ui/ProgressLoader";
+import BackLink from "@/components/ui/BackLink";
 
 const LOAD_ERROR = "Couldn’t load this conversation.";
 const EARLIER_ERROR = "Couldn’t load earlier messages.";
@@ -492,11 +493,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
       <span key={announcement.n}>{announcement.text}</span>
     </p>
   );
-  const backLink = (
-    <Link href="/messages" className={`${tallInlineLinkClass} self-start text-sm`}>
-      <span aria-hidden="true">&larr;&nbsp;</span>All messages
-    </Link>
-  );
+  const backLink = <BackLink href="/messages">All messages</BackLink>;
   const reportName =
     view.status === "ready"
       ? view.data.conversation.otherDisplayName
@@ -509,7 +506,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
 
   if (view.status !== "ready") {
     return (
-      <div ref={rootRef} className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-5 py-12 sm:px-8 sm:py-20">
+      <div ref={rootRef} className="mx-auto flex w-full max-w-6xl *:max-w-2xl flex-col gap-6 px-5 py-12 sm:px-8 sm:py-20">
         {backLink}
         {renderOtherState(view)}
         {reportDialog}
@@ -523,7 +520,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
   const status = conversation.status;
 
   return (
-    <div ref={rootRef} className="mx-auto flex min-h-[calc(100dvh-var(--header-h))] w-full max-w-2xl flex-col px-5 sm:px-8">
+    <div ref={rootRef} className="mx-auto flex min-h-[calc(100dvh-var(--header-h))] w-full max-w-6xl *:max-w-2xl flex-col px-5 sm:px-8">
       <header className="flex flex-col gap-3 border-b border-surface-border pt-4 pb-4 sm:pt-8">
         {backLink}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">

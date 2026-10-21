@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import DotsMark from "@/components/brand/DotsMark";
 import DemoNotice from "@/components/DemoNotice";
 import { AttendeeMessageAction } from "@/components/messages/ComposeRequest";
 import { Button, ButtonLink } from "@/components/ui/Button";
@@ -242,6 +243,9 @@ export default function WhosGoing() {
     retry();
   }
 
+  const viewerListed =
+    data?.viewer.kind === "signed-in" && !data.viewer.profile?.suspended && Boolean(data.viewer.me.going);
+
   return (
     <div
       id="whos-going"
@@ -250,7 +254,16 @@ export default function WhosGoing() {
       data-wg-expanded={expanded ? "" : undefined}
       aria-busy={state.status === "loading" ? true : undefined}
     >
-      <Panel title="Who's going" titleId="whos-going-title">
+      <Panel
+        title={
+          // The two dots, joined once you're on the list yourself (brand-direction-one.md §5).
+          <span className="flex items-center gap-2">
+            <DotsMark size="xs" joined={viewerListed} className="text-signal" />
+            {"Who's going"}
+          </span>
+        }
+        titleId="whos-going-title"
+      >
         {state.status === "loading" && <p className="min-h-30 text-sm text-muted">Loading who&rsquo;s going…</p>}
 
         {state.status === "error" && (
@@ -293,7 +306,7 @@ export default function WhosGoing() {
       <>
         {countShown && (
           <p className="mb-4 flex items-baseline gap-2">
-            <span className="font-heading text-4xl leading-none font-extrabold tabular-nums">{d.count}</span>{" "}
+            <span className="font-heading text-4xl leading-none font-bold tabular-nums">{d.count}</span>{" "}
             <span className="eyebrow text-muted">going</span>
           </p>
         )}
@@ -358,14 +371,10 @@ export default function WhosGoing() {
   function renderDemoActions() {
     return (
       <>
-        <button
-          type="button"
-          disabled
-          aria-disabled="true"
-          className="btn btn-lg w-full cursor-not-allowed border-surface-border bg-surface-border text-muted sm:w-auto"
-        >
+        {/* The shared disabled style (§6.1). */}
+        <Button size="lg" disabled className="w-full sm:w-auto">
           Add yourself
-        </button>
+        </Button>
         <DemoNotice>These names are samples. Adding yourself isn&rsquo;t available in this demo.</DemoNotice>
       </>
     );
