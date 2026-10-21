@@ -4,16 +4,18 @@ import { useEffect, useRef, useState } from "react";
 import OrganiserProfileView from "@/components/organisers/OrganiserProfileView";
 import OrganiserUnavailable from "@/components/organisers/OrganiserUnavailable";
 import { Button } from "@/components/ui/Button";
+import { LoadingIndicator } from "@/components/ui/ProgressLoader";
 import { ApiError } from "@/lib/api/client";
 import { getOrganiserProfile } from "@/lib/api/organisers";
 import type { PublicOrganiserProfile } from "@/lib/api/types";
 import { ORGANISER_PAGE_TITLE, ORGANISER_UNAVAILABLE_TITLE, organiserPageTitle } from "@/lib/organiser-profile";
 
+/** A settled state remembers which load (`attempt`) it came from, so a retry focuses only on its own result. */
 type State =
   | { status: "loading" }
-  | { status: "not-found" }
-  | { status: "error"; message: string }
-  | { status: "loaded"; profile: PublicOrganiserProfile };
+  | { status: "not-found"; attempt: number }
+  | { status: "error"; message: string; attempt: number }
+  | { status: "loaded"; profile: PublicOrganiserProfile; attempt: number };
 
 const SERVER_TROUBLE = "Something went wrong on our side. Try again in a moment.";
 /** lib/api/client's fallback when an error response has no JSON message (a proxy's HTML 502, say). */
@@ -47,20 +49,22 @@ export default function LiveOrganiserProfile({ organiserId }: { organiserId: str
   // Bumped by "Try again" to re-run the load.
   const [attempt, setAttempt] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const focusHeadingWhenSettled = useRef(false);
+  // The retry whose result should get focus (null: none). Tied to the attempt number, so a
+  // stale effect or a late result from an earlier load can't consume it.
+  const focusAfterAttempt = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     getOrganiserProfile(organiserId)
       .then((profile) => {
-        if (!cancelled) setState({ status: "loaded", profile });
+        if (!cancelled) setState({ status: "loaded", profile, attempt });
       })
       .catch((err: unknown) => {
         if (cancelled) return;
         if (err instanceof ApiError && err.status === 404) {
-          setState({ status: "not-found" });
+          setState({ status: "not-found", attempt });
         } else {
-          setState({ status: "error", message: loadErrorMessage(err) });
+          setState({ status: "error", message: loadErrorMessage(err), attempt });
         }
       });
     return () => {
@@ -74,22 +78,26 @@ export default function LiveOrganiserProfile({ organiserId }: { organiserId: str
   }, [title]);
 
   useEffect(() => {
-    if (state.status === "loading" || !focusHeadingWhenSettled.current) return;
-    focusHeadingWhenSettled.current = false;
+    if (state.status === "loading" || focusAfterAttempt.current === null) return;
+    if (state.attempt !== focusAfterAttempt.current) return;
+    focusAfterAttempt.current = null;
     headingRef.current?.focus();
-  }, [state.status]);
+  }, [state]);
 
   function retry() {
-    focusHeadingWhenSettled.current = true;
+    focusAfterAttempt.current = attempt + 1;
     setState({ status: "loading" });
-    setAttempt((n) => n + 1);
+    setAttempt(attempt + 1);
   }
 
   if (state.status === "loading") {
     return (
-      <p role="status" className="px-4 py-10 text-center text-sm text-muted sm:px-6">
-        Loading organiser…
-      </p>
+      <div className="mx-auto flex max-w-6xl flex-col items-center px-5 py-20 sm:px-8">
+        <p role="status" className="sr-only">
+          Loading organiser…
+        </p>
+        <LoadingIndicator label="Loading organiser" />
+      </div>
     );
   }
 

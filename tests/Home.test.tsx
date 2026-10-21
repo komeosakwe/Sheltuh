@@ -66,7 +66,7 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     expect(screen.getByText("Free · Tickets on the organiser's site")).toBeInTheDocument();
   });
 
-  it("says the listings are samples, and every quick-buy link says 'See tickets'", async () => {
+  it("says the listings are samples, and every quick-buy link says 'Buy tickets' (or 'Get free tickets'), as live", async () => {
     render(<Home />);
     await settle();
     expect(screen.getByRole("note")).toHaveTextContent("Demo — sample events");
@@ -74,7 +74,7 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     expect(quick.length).toBeGreaterThan(5);
     for (const link of quick) {
       expect(link.getAttribute("href")).toMatch(/^\/events\/[^/]+#tickets$/);
-      expect(link).toHaveAccessibleName(/^See tickets for /);
+      expect(link).toHaveAccessibleName(/^(?:Buy tickets|Get free tickets) for /);
     }
   });
 

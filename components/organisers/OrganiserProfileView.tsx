@@ -1,7 +1,10 @@
 import Link from "next/link";
 import type { Ref } from "react";
 import OrganiserLinks from "@/components/organisers/OrganiserLinks";
+import { RESULTS_GRID } from "@/components/EventResults";
+import BackLink from "@/components/ui/BackLink";
 import EventTile from "@/components/ui/EventTile";
+import Strap from "@/components/ui/Strap";
 import { SectionHeader } from "@/components/ui/Section";
 import type { PublicOrganiserProfile } from "@/lib/api/types";
 import { formatDayWithYear } from "@/lib/format";
@@ -30,16 +33,11 @@ export default function OrganiserProfileView({
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-5 pt-2 pb-12 sm:gap-14 sm:px-8 sm:py-14">
-      <Link
-        href="/events"
-        className="eyebrow inline-flex min-h-11 w-fit items-center underline underline-offset-4"
-      >
-        &larr; All events
-      </Link>
+      <BackLink href="/events">All events</BackLink>
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-14">
         <header className="flex flex-col gap-5 lg:col-span-7">
-          <p className="eyebrow text-muted">Organiser</p>
+          <Strap label="Organiser" rule={false} />
           <h1
             ref={headingRef}
             tabIndex={headingRef ? -1 : undefined}
@@ -47,11 +45,11 @@ export default function OrganiserProfileView({
           >
             {profile.displayName}
           </h1>
-          <p className="text-sm text-muted">Member since {formatMemberSince(profile.memberSince)}</p>
+          <p className="meta text-muted">Member since {formatMemberSince(profile.memberSince)}</p>
           {categoryLabels.length > 0 && (
             <ul aria-label="Categories" className="flex flex-wrap gap-2">
               {categoryLabels.map((label) => (
-                <li key={label} className="eyebrow border border-foreground px-2 py-1">
+                <li key={label} className="eyebrow rounded-badge border border-foreground bg-card px-2 py-1">
                   {label}
                 </li>
               ))}
@@ -77,10 +75,10 @@ export default function OrganiserProfileView({
       <section aria-labelledby="organiser-upcoming">
         <SectionHeader id="organiser-upcoming" title="Upcoming events" />
         {upcoming.length > 0 ? (
-          <ul className="grid grid-cols-1 gap-y-8 sm:grid-cols-2 sm:gap-x-6 sm:gap-y-10 md:grid-cols-3 lg:grid-cols-4">
+          <ul data-reveal-stagger className={RESULTS_GRID}>
             {upcoming.map((event) => (
-              <li key={event.id}>
-                <EventTile event={event} showOrganiser={false} />
+              <li key={event.id} className="flex min-w-0">
+                <EventTile event={event} showOrganiser={false} className="w-full" />
               </li>
             ))}
           </ul>
@@ -107,7 +105,7 @@ export default function OrganiserProfileView({
                   <span className="text-sm font-semibold group-hover:underline group-hover:underline-offset-4">
                     {event.title}
                   </span>
-                  <span className="shrink-0 text-sm text-muted">
+                  <span className="meta shrink-0 text-muted">
                     {formatDayWithYear(event.startsAt)} · {event.venueName || event.suburb}
                   </span>
                 </Link>

@@ -22,6 +22,7 @@ import { STATUS_LABEL, backLinkClass, buildStats, failureKind, rangeErrorMessage
 import StatGrid from "./StatGrid";
 import { previousLabelFor } from "./TimeSeriesChart";
 import { useAnalyticsRange } from "./useAnalyticsRange";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 const PATH = "/dashboard/analytics";
 
@@ -40,6 +41,7 @@ export default function AnalyticsOverview() {
 function header(action?: ReactNode) {
   return (
     <PageHeader
+      size="md"
       eyebrow="Organiser"
       title="Analytics"
       intro="Ticket sales and page views across your events. Free for every organiser."
@@ -116,7 +118,7 @@ function OverviewReport({ getToken }: { getToken: GetToken }) {
     if (!data) {
       return (
         <div aria-busy="true" className="min-h-96">
-          <p className="text-sm text-muted">Loading analytics…</p>
+          <LoadingState text="Loading analytics…" />
         </div>
       );
     }

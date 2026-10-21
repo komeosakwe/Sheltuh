@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import DotsMark from "@/components/brand/DotsMark";
+import QuickBuyLink from "@/components/QuickBuyLink";
 import { Button } from "@/components/ui/Button";
+import { LoadingIndicator } from "@/components/ui/ProgressLoader";
 import { Notice } from "@/components/ui/Section";
 import FeaturedEventCard, { FEATURED_BOX, FeaturedEventCardPlaceholder } from "./FeaturedEventCard";
 import { useHomeEvents } from "./HomeEventsProvider";
-import QuickBuyLink from "./QuickBuyLink";
 
 /** The page's one load error (docs/design/home.md §5.5). */
 export const HOME_LOAD_ERROR = "Couldn’t load events. Check your connection and try again.";
@@ -54,7 +55,15 @@ export default function UpNext() {
       <h2 id="home-next" ref={headingRef} tabIndex={-1} className="sr-only">
         Up next
       </h2>
-      {state.status === "loading" && <FeaturedEventCardPlaceholder />}
+      {/* The page's one loader, over Up next's shape (the polite "Loading events…" is HomeEventSections'). */}
+      {state.status === "loading" && (
+        <div className="relative">
+          <FeaturedEventCardPlaceholder />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <LoadingIndicator label="Loading events" />
+          </div>
+        </div>
+      )}
       {state.status === "error" && (
         <div className={`flex flex-col justify-end bg-surface p-5 sm:p-8 ${FEATURED_BOX}`}>
           <Notice key={failures} tone="danger" role="alert">
@@ -74,7 +83,7 @@ export default function UpNext() {
       {upNext && (
         <>
           <FeaturedEventCard event={upNext} mode={mode} />
-          <QuickBuyLink event={upNext} mode={mode} className="mt-3" />
+          <QuickBuyLink event={upNext} className="mt-3" />
         </>
       )}
     </section>

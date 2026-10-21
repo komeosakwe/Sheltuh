@@ -5,11 +5,11 @@ import type { ButtonHTMLAttributes, ComponentProps, MouseEvent, Ref } from "reac
  * `signal` (Signal Orange) is the one primary conversion action per viewport:
  * the home hero, the event page's Get tickets, Join waitlist. Never in
  * checkout, forms, dashboards or admin, and never inside an orange section.
- * `solid` (black) is every other primary action. `light` is the outline on
- * hard-coded black sections; inside `data-surface="ink"` use `outline`,
- * which the scope inverts.
+ * `solid` (black) is every other primary action. On black, put the button
+ * inside `data-surface="ink"` and use `outline`, which the scope inverts
+ * (the old `light` variant is retired).
  */
-export type ButtonVariant = "solid" | "signal" | "outline" | "light" | "danger";
+export type ButtonVariant = "solid" | "signal" | "outline" | "danger";
 /** sm 32px, md 40px, and `lg`, the 48px thumb action on phones. */
 export type ButtonSize = "sm" | "md" | "lg";
 
@@ -23,7 +23,6 @@ export function buttonClass(
     solid: "btn-solid",
     signal: "btn-signal",
     outline: "btn-outline",
-    light: "btn-outline border-background text-background hover:!bg-background hover:!text-foreground",
     danger: "btn-danger",
   };
   const sizes: Record<ButtonSize, string> = { sm: "btn-sm", md: "", lg: "btn-lg" };

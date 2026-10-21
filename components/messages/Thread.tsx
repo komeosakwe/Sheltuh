@@ -23,6 +23,7 @@ import MessageList from "./MessageList";
 import ReportDialog, { type ReportOutcome } from "./ReportDialog";
 import { BLOCK_EFFECT, errorText, loadErrorMessage, messagingError, tallInlineLinkClass, THREAD_POLL_MS, threadHref } from "./shared";
 import { useUnread } from "./UnreadProvider";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 const LOAD_ERROR = "Couldn’t load this conversation.";
 const EARLIER_ERROR = "Couldn’t load earlier messages.";
@@ -614,7 +615,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
 
   function renderBlockConfirm(target: string) {
     return (
-      <div role="group" aria-labelledby="block-confirm-text" className="flex flex-col gap-3 bg-surface p-4">
+      <div role="group" aria-labelledby="block-confirm-text" className="flex flex-col gap-3 rounded-card border border-foreground bg-card p-4">
         <p id="block-confirm-text" className="text-sm font-semibold">
           Block {target}?
         </p>
@@ -703,7 +704,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
         return (
           <div aria-busy="true">
             <h1 className="sr-only">Conversation</h1>
-            <p className="text-sm text-muted">Loading the conversation…</p>
+            <LoadingState text="Loading the conversation…" />
           </div>
         );
       case "error":

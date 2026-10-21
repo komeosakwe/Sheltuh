@@ -27,6 +27,8 @@ import TrackingLinks from "./TrackingLinks";
 import TrackingLinkStatsTable from "./TrackingLinkStatsTable";
 import TrafficSources from "./TrafficSources";
 import { useAnalyticsRange } from "./useAnalyticsRange";
+import { LoadingState } from "@/components/ui/ProgressLoader";
+import Strap from "@/components/ui/Strap";
 
 /** /dashboard/events/[id]/analytics (docs/design/favourites-analytics.md §5.19). */
 export default function EventAnalytics({ eventId }: { eventId: string }) {
@@ -101,10 +103,10 @@ function EventReport({ eventId, getToken }: { eventId: string; getToken: GetToke
       <BackLinks eventId={eventId} />
       <header className="mb-10 flex flex-col gap-6 sm:mb-14 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex max-w-3xl flex-col gap-3">
-          <p className="eyebrow text-muted">Event analytics</p>
-          <h1 className="display-md">{event ? event.title || "Untitled event" : "Event analytics"}</h1>
+          <Strap label="Event analytics" rule={false} />
+          <h1 className="display-md break-words">{event ? event.title || "Untitled event" : "Event analytics"}</h1>
           {event && (
-            <p className="text-sm text-muted">
+            <p className="meta text-muted">
               {[formatEventDateShort(event.startsAt), event.venueName, STATUS_LABEL[event.status]].filter(Boolean).join(" · ")}
             </p>
           )}
@@ -142,7 +144,7 @@ function EventReport({ eventId, getToken }: { eventId: string; getToken: GetToke
           </>
         ) : !data ? (
           <div aria-busy="true" className="min-h-96">
-            <p className="text-sm text-muted">Loading analytics…</p>
+            <LoadingState text="Loading analytics…" />
           </div>
         ) : !data.event.everPublished ? (
           <Notice>Analytics start when this event is published. Nothing has been counted yet.</Notice>

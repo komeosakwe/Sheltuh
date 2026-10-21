@@ -73,7 +73,7 @@ export default function EventBrowser({
         onReset={resetFilters}
       />
 
-      <p aria-live="polite" className="text-sm text-muted">
+      <p aria-live="polite" className="meta text-muted">
         Showing {filteredEvents.length} of {events.length} events
       </p>
 

@@ -57,7 +57,9 @@ const heartFor = (event: SheltuhEvent) => screen.getByRole("button", { name: `Sa
 describe("heart placements", () => {
   it("EventTile: a sibling of the link (never inside it), right after it in tab order", () => {
     const { container } = withHearts(<EventTile event={EVENT} />);
-    const link = screen.getByRole("link");
+    // The tile's main link (the other is its quick-buy link, also a sibling of the heart).
+    const link = screen.getAllByRole("link").find((a) => a.getAttribute("href") === `/events/${EVENT.slug}`);
+    if (!link) throw new Error("no main link");
     const heart = heartFor(EVENT);
     expect(link.contains(heart)).toBe(false);
     expect(link.compareDocumentPosition(heart) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -111,10 +113,10 @@ describe("event page view count", () => {
   });
 });
 
-describe("EventResults layout='grid'", () => {
+describe("EventResults", () => {
   it("puts every event in the grid, with no carousel", () => {
     const events = sampleEvents.slice(0, 5);
-    render(<EventResults events={events} layout="grid" />);
+    render(<EventResults events={events} />);
     expect(screen.queryByRole("region", { name: "Events" })).toBeNull();
     expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(5);
   });

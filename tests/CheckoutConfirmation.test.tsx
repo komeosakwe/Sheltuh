@@ -51,6 +51,19 @@ describe("CheckoutConfirmation", () => {
     expect(document.body.textContent).not.toMatch(/mia@/);
   });
 
+  it("shows the totals in a white card with a black border, Total paid the largest number (§6.8, §6.9)", async () => {
+    getOrderBySession.mockResolvedValue(ORDER);
+    render(<CheckoutConfirmation />);
+    const totalTerm = await screen.findByText("Total paid");
+    const totalValue = totalTerm.nextElementSibling;
+    expect(totalValue).toHaveTextContent("A$31.70");
+    expect(totalValue).toHaveClass("text-xl", "font-bold", "tabular-nums");
+    const card = totalTerm.closest("dl")?.parentElement;
+    expect(card).toHaveClass("rounded-card", "border", "border-foreground", "bg-card", "p-4");
+    expect(card).not.toHaveClass("bg-surface");
+    expect(screen.getByText("Ticket subtotal").nextElementSibling).toHaveClass("tabular-nums");
+  });
+
   it("without an event slug (an older API), only links home", async () => {
     getOrderBySession.mockResolvedValue({ ...ORDER, eventSlug: undefined });
     render(<CheckoutConfirmation />);

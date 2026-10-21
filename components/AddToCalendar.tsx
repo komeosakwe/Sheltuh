@@ -30,9 +30,15 @@ const itemClass =
  * others) and Google Calendar. Both are built only when it's opened, in the
  * browser: the file is stamped with the current time and the page's own
  * origin, neither of which the server render could know.
+ *
+ * The file is a Blob object URL rather than a `data:` URI, which in-app
+ * browsers (Instagram's, Facebook's) are likelier to download; it's revoked
+ * when the menu closes. If the event's date can't be read, there's nothing to
+ * add, and a short message says so instead.
  */
 export default function AddToCalendar({ event, className = "" }: { event: CalendarEvent; className?: string }) {
   const [links, setLinks] = useState<{ ics: string; google: string } | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuId = useId();
@@ -47,6 +53,12 @@ export default function AddToCalendar({ event, className = "" }: { event: Calend
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [open]);
 
+  // Each opening makes a fresh file; it's released once the menu closes (or the page goes).
+  useEffect(() => {
+    if (!links) return;
+    return () => URL.revokeObjectURL(links.ics);
+  }, [links]);
+
   function toggle() {
     if (open) {
       setLinks(null);
@@ -55,8 +67,12 @@ export default function AddToCalendar({ event, className = "" }: { event: Calend
     const url = publicEventUrl(event.slug, window.location.origin);
     const ics = buildIcs(event, { url });
     const google = googleCalendarUrl(event, url);
-    if (ics === null || google === null) return;
-    setLinks({ ics: `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`, google });
+    if (ics === null || google === null) {
+      setUnavailable(true);
+      return;
+    }
+    setUnavailable(false);
+    setLinks({ ics: URL.createObjectURL(new Blob([ics], { type: "text/calendar;charset=utf-8" })), google });
   }
 
   function close() {
@@ -90,6 +106,10 @@ export default function AddToCalendar({ event, className = "" }: { event: Calend
         Add to calendar
         <ChevronIcon open={open} />
       </button>
+      {/* Always in the page, so the message is announced when it appears. */}
+      <p role="status" className="text-sm text-muted empty:hidden">
+        {unavailable ? "This event’s date can’t be added to a calendar." : ""}
+      </p>
       {links && (
         <ul
           id={menuId}

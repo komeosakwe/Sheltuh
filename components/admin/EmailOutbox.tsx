@@ -8,6 +8,7 @@ import { ApiError } from "@/lib/api/client";
 import type { AdminEmailJob, EmailJobStatus } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatMessageTime } from "@/lib/format";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 const STATUSES: { value: EmailJobStatus; label: string }[] = [
   { value: "failed", label: "Failed" },
@@ -149,7 +150,7 @@ export default function EmailOutbox() {
           {current} ticket emails
         </h2>
 
-        {state.status === "loading" && <p className="text-sm text-muted">Loading…</p>}
+        {state.status === "loading" && <LoadingState text="Loading…" />}
 
         {state.status === "error" && (
           <div className="flex flex-col items-start gap-3">

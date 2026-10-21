@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
 import { ApiError, isApiConfigured } from "@/lib/api/client";
 import { createCheckoutSession } from "@/lib/api/orders";
@@ -15,6 +17,31 @@ import type { SheltuhEvent, TicketType } from "@/lib/types";
 const MAX_QUANTITY_PER_TYPE = 8;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+type Quantities = Record<string, number>;
+
+function freeTicketsIn(ticketTypes: TicketType[], quantities: Quantities): number {
+  return ticketTypes.reduce((n, t) => n + (t.priceCents === 0 ? (quantities[t.id] ?? 0) : 0), 0);
+}
+
+function orderTotalCents(ticketTypes: TicketType[], quantities: Quantities): number {
+  return sumOrderSummaries(
+    ticketTypes.map((t) => calculateOrderSummary(t.priceCents, quantities[t.id] ?? 0, t.feePolicy)),
+  ).totalCents;
+}
+
+/**
+ * A ticket type's own limit per booking: its capacity, at most
+ * MAX_QUANTITY_PER_TYPE. ("Up to N", never "Only N left": `quantityAvailable`
+ * is the capacity, not what's still unsold.)
+ */
+function ownLimit(ticket: TicketType): number {
+  return Math.min(ticket.quantityAvailable, MAX_QUANTITY_PER_TYPE);
+}
+
+function ownLimitHint(ticket: TicketType): string {
+  return `Up to ${ownLimit(ticket)} per booking.`;
+}
+
 // The steppers use aria-disabled, not `disabled`: reaching 0 or the cap must
 // leave focus on the button rather than dropping it to <body>.
 const stepperButtonClass =
@@ -25,6 +52,10 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The panel's one live region: each change to the selection, and why a
+  // stepper at its limit didn't change it (brand-direction-one.md §6.9).
+  const [announcement, setAnnouncement] = useState("");
+  const idPrefix = useId();
   // Signed in: the account's email is the default, since a ticket booked
   // with it is also what lets them add themselves to Who's Going. Whatever
   // they type replaces it. (Read optionally: this also renders without auth.)
@@ -33,6 +64,9 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const [typedEmail, setTypedEmail] = useState<string | null>(null);
   const buyerEmail = typedEmail ?? accountEmail ?? "";
   const [emailError, setEmailError] = useState<string | null>(null);
+  // Bumped with every email error (even the same words again), so focus can
+  // follow each one to the field once it's rendered.
+  const [emailErrorCount, setEmailErrorCount] = useState(0);
   // A free order waiting on its emailed confirmation link: the address it went to.
   const [sentTo, setSentTo] = useState<string | null>(null);
   const sentHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -49,6 +83,17 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     }
   }, [sentTo]);
 
+  // An email error (ours or the API's) puts focus on the field it's about,
+  // after the message is in the field's description.
+  useEffect(() => {
+    if (emailErrorCount > 0) emailInputRef.current?.focus();
+  }, [emailErrorCount]);
+
+  function showEmailError(message: string) {
+    setEmailError(message);
+    setEmailErrorCount((n) => n + 1);
+  }
+
   // Only live events (which carry an organiserId) can be checked out —
   // demo sample events never have one, since there's no backend to check
   // out against.
@@ -58,23 +103,45 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   // across every free type, whether or not paid tickets are in it too (the
   // checkout API refuses anything more with a 400).
   const freeTypeCount = ticketTypes.filter((t) => t.priceCents === 0).length;
-  const freeChosen = ticketTypes.reduce((n, t) => n + (t.priceCents === 0 ? (quantities[t.id] ?? 0) : 0), 0);
-  const freeLimitReached = freeChosen >= MAX_FREE_TICKETS_PER_ORDER;
+  const freeLimitReached = freeTicketsIn(ticketTypes, quantities) >= MAX_FREE_TICKETS_PER_ORDER;
+  const freeLimitText = `Up to ${MAX_FREE_TICKETS_PER_ORDER} free tickets per booking${freeTypeCount > 1 ? ", in total across the free ticket types" : ""}.`;
 
-  function capFor(ticket: TicketType): number {
-    const cap = Math.min(ticket.quantityAvailable, MAX_QUANTITY_PER_TYPE);
-    if (ticket.priceCents > 0) return cap;
-    return Math.min(cap, MAX_FREE_TICKETS_PER_ORDER - (freeChosen - (quantities[ticket.id] ?? 0)));
+  /** How many of `ticket` this selection can hold, and why no more. */
+  function limitFor(ticket: TicketType, selection: Quantities): { cap: number; reason: string } {
+    const own = ownLimit(ticket);
+    if (ticket.priceCents > 0) return { cap: own, reason: ownLimitHint(ticket) };
+    const freeRoom =
+      MAX_FREE_TICKETS_PER_ORDER - (freeTicketsIn(ticketTypes, selection) - (selection[ticket.id] ?? 0));
+    return freeRoom < own ? { cap: freeRoom, reason: freeLimitText } : { cap: own, reason: ownLimitHint(ticket) };
+  }
+
+  function announce(text: string) {
+    // The same words again (another press at a limit) must still be read out:
+    // a trailing no-break space changes the region's text.
+    setAnnouncement((prev) => (prev === text ? `${text}\u00a0` : text));
   }
 
   function setQuantity(ticket: TicketType, value: number) {
-    const clamped = Math.max(0, Math.min(value, capFor(ticket)));
+    const current = quantities[ticket.id] ?? 0;
+    const { cap, reason } = limitFor(ticket, quantities);
+    const clamped = Math.max(0, Math.min(value, cap));
     // A press on a stepper that's at its limit (aria-disabled, so still
-    // clickable) changes nothing, and keeps any message on screen.
-    if (clamped === (quantities[ticket.id] ?? 0)) return;
-    setQuantities((prev) => ({ ...prev, [ticket.id]: clamped }));
+    // clickable) changes nothing, and keeps any message on screen. At the
+    // top, it says why.
+    if (clamped === current) {
+      if (value > current) announce(`${ticket.name}: ${current}. ${reason}`);
+      return;
+    }
+    const next = { ...quantities, [ticket.id]: clamped };
+    setQuantities(next);
     // A refusal was about the old selection.
     setError(null);
+    const totalCents = orderTotalCents(ticketTypes, next);
+    const reachedLimit = clamped > current && clamped >= limitFor(ticket, next).cap;
+    announce(
+      `${ticket.name}: ${clamped}. Total ${formatAud(totalCents)}${totalCents > 0 ? " incl. booking fees" : ""}.` +
+        (reachedLimit ? ` ${limitFor(ticket, next).reason}` : ""),
+    );
   }
 
   const lineSummaries = useMemo(
@@ -95,19 +162,23 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const hasAnyTickets = lineSummaries.some((line) => line.quantity > 0);
   // Every ticket free: no payment step, but an emailed confirmation link.
   const allFree = ticketTypes.every((t) => t.priceCents === 0);
+  const buyerPaysAFee = ticketTypes.some((t) => t.priceCents > 0 && t.feePolicy === "buyer-pays");
   const steps = allFree
     ? ["Choose tickets", "Confirm by email", "Tickets"]
     : ["Choose tickets", "Pay on Stripe", "Tickets by email"];
   // Paid orders give Stripe an email at checkout; free ones skip Stripe, so
   // this is the only way their tickets can reach the buyer.
   const needsEmail = canCheckout && hasAnyTickets && orderTotal.totalCents === 0;
+  // Before anything is chosen there's no total to go by: the event's own
+  // tickets decide whether this is a free booking.
+  const freeBooking = hasAnyTickets ? orderTotal.totalCents === 0 : allFree;
 
   async function handleCheckout() {
     if (!event.organiserId) return;
     setError(null);
     setEmailError(null);
     if (needsEmail && !EMAIL_REGEX.test(buyerEmail.trim())) {
-      setEmailError("Enter the email address to send your tickets to.");
+      showEmailError("Enter the email address to send your tickets to.");
       return;
     }
     setLoading(true);
@@ -144,7 +215,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         // tickets in `lineItems`) has no field to highlight, so it's said in
         // full rather than as "fix the highlighted fields".
         const { buyerEmail: emailMessage, ...others } = err.fieldErrors;
-        if (emailMessage) setEmailError(emailMessage);
+        if (emailMessage) showEmailError(emailMessage);
         const otherMessages = Object.values(others).filter(Boolean).join(" ");
         if (otherMessages || !emailMessage) setError(otherMessages || err.message);
       } else {
@@ -179,21 +250,34 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         </div>
       )}
 
-      <p className="text-sm text-muted">Booking fee: {describeBookingFee()}. Free tickets never carry a fee.</p>
+      {/* The fee rule only where a buyer pays it: not for free-only events, or
+          ones whose organiser absorbs every fee. */}
+      {buyerPaysAFee && (
+        <p className="text-sm text-muted">Booking fee: {describeBookingFee()}. Free tickets never carry a fee.</p>
+      )}
 
-      {/* Before the tickets, so the limit is known before choosing. */}
+      {/* Before the tickets, so the limit is known before choosing. Not a live
+          region: the panel's status below says when a limit is reached. */}
       {freeTypeCount > 0 && (
-        <p id="free-ticket-limit" aria-live="polite" className="text-xs text-muted">
+        <p id="free-ticket-limit" className="text-xs text-muted">
           {freeLimitReached
             ? `That's the most free tickets one booking can have (${MAX_FREE_TICKETS_PER_ORDER}${freeTypeCount > 1 ? " in total, across the free ticket types" : ""}).`
-            : `Up to ${MAX_FREE_TICKETS_PER_ORDER} free tickets per booking${freeTypeCount > 1 ? ", in total across the free ticket types" : ""}.`}
+            : freeLimitText}
         </p>
       )}
 
       <ul className="flex flex-col">
-        {lineSummaries.map(({ ticket, quantity }) => {
-          const cap = capFor(ticket);
+        {lineSummaries.map(({ ticket, quantity }, index) => {
+          const { cap } = limitFor(ticket, quantities);
           const breakdown = formatTicketBreakdown(ticket);
+          // The type's own limit, said before it's reached. A free type within
+          // the free-ticket limit has the line above instead.
+          const showOwnLimit = ticket.priceCents > 0 || ownLimit(ticket) < MAX_FREE_TICKETS_PER_ORDER;
+          const ownLimitId = `${idPrefix}-limit-${index}`;
+          const describedBy =
+            [showOwnLimit ? ownLimitId : null, ticket.priceCents === 0 ? "free-ticket-limit" : null]
+              .filter(Boolean)
+              .join(" ") || undefined;
           return (
             <li
               key={ticket.id}
@@ -208,7 +292,12 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                 </p>
                 {ticket.description && <p className="mt-1 text-sm text-muted">{ticket.description}</p>}
                 {/* What makes up the total, before anything is chosen. Never louder than it. */}
-                {breakdown && <p className="meta mt-1 text-muted">{breakdown}</p>}
+                {breakdown && <p className="mt-1 text-xs text-muted tabular-nums">{breakdown}</p>}
+                {showOwnLimit && (
+                  <p id={ownLimitId} className="mt-1 text-xs text-muted">
+                    {ownLimitHint(ticket)}
+                  </p>
+                )}
               </div>
               <div
                 role="group"
@@ -224,7 +313,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                 >
                   &minus;
                 </button>
-                <span aria-live="polite" className="w-10 text-center text-lg leading-6 font-semibold tabular-nums text-foreground">
+                <span className="w-10 text-center text-lg leading-6 font-semibold tabular-nums text-foreground">
                   {quantity}
                 </span>
                 <button
@@ -232,7 +321,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                   onClick={() => setQuantity(ticket, quantity + 1)}
                   aria-disabled={quantity >= cap}
                   aria-label={`Increase quantity for ${ticket.name}`}
-                  aria-describedby={ticket.priceCents === 0 ? "free-ticket-limit" : undefined}
+                  aria-describedby={describedBy}
                   className={stepperButtonClass}
                 >
                   +
@@ -242,6 +331,11 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
           );
         })}
       </ul>
+
+      {/* Each change to the selection, with the new total (and, at a limit, why). */}
+      <p role="status" className="sr-only">
+        {announcement}
+      </p>
 
       <div className="border-t border-foreground pt-4">
         <h3 className="eyebrow text-muted">Order summary</h3>
@@ -324,21 +418,24 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                 Booking as {accountEmail}, your account email, so you can add yourself to Who&rsquo;s Going.
               </p>
             )}
-            {/* Black, not orange: checkout stays quiet (brand-direction-one.md §6.9). */}
-            <button
-              type="button"
+            {/* Black, not orange: checkout stays quiet (brand-direction-one.md §6.9).
+                Busy, not disabled, while it works: focus stays on it. */}
+            <Button
+              variant="solid"
+              size="lg"
               onClick={handleCheckout}
-              disabled={!hasAnyTickets || loading}
-              className="btn btn-solid btn-lg mt-4 w-full"
+              busy={loading}
+              disabled={!hasAnyTickets}
+              className="mt-4 w-full"
             >
               {loading
-                ? orderTotal.totalCents === 0
+                ? freeBooking
                   ? "Booking…"
                   : "Redirecting to checkout…"
-                : orderTotal.totalCents === 0
+                : freeBooking
                   ? "Get free tickets"
                   : "Checkout"}
-            </button>
+            </Button>
             {error && (
               <div className="mt-3">
                 <Notice tone="danger" role="alert">
@@ -347,9 +444,22 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
               </div>
             )}
             <p className="mt-2 text-xs text-muted">
-              {orderTotal.totalCents === 0
-                ? "No payment step. We'll email you a link to confirm your tickets before they're issued. Signed in and booking with your account's verified email? That step is usually skipped."
-                : "You'll pay securely on Stripe's own checkout page."}
+              By booking you agree to the{" "}
+              <Link href="/purchase-terms" className="text-foreground underline underline-offset-2">
+                Purchase Terms
+              </Link>
+              . See our{" "}
+              <Link href="/privacy" className="text-foreground underline underline-offset-2">
+                Privacy Policy
+              </Link>
+              .
+            </p>
+            <p className="mt-2 text-xs text-muted">
+              {!hasAnyTickets
+                ? "Choose tickets to continue."
+                : freeBooking
+                  ? "No payment step. We'll email you a link to confirm your tickets before they're issued. Signed in and booking with your account's verified email? That step is usually skipped."
+                  : "You'll pay securely on Stripe's own checkout page."}
             </p>
           </>
         ) : (

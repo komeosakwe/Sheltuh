@@ -2,13 +2,13 @@ import Link from "next/link";
 import { useId } from "react";
 import EventArt from "@/components/EventArt";
 import SaveButton from "@/components/favourites/SaveButton";
+import QuickBuyLink from "@/components/QuickBuyLink";
 import { firstSentence, type TrendingSignal } from "@/lib/home-sections";
 import { formatDateBadge, formatEventDateShort, formatEventTime } from "@/lib/format";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 import CardPrice from "./CardPrice";
 import GoingStack from "./GoingStack";
 import { demoGoing } from "./going";
-import QuickBuyLink from "./QuickBuyLink";
 
 export type HomeCardVariant = "standard" | "wide" | "compact";
 
@@ -117,7 +117,7 @@ export default function HomeEventCard({
         </Link>
         <SaveButton event={target} variant="plain" className="absolute right-0 top-3" />
         {/* Indented to the text column: the 6rem (7rem) thumbnail plus the 0.75rem gap. mt-auto lines the rows up in a grid. */}
-        <QuickBuyLink event={event} mode={mode} fullWidthOnPhones className="mt-auto pt-3 pl-27 sm:pl-31" />
+        <QuickBuyLink event={event} fullWidthOnPhones className="mt-auto pt-3 pl-27 sm:pl-31" />
       </div>
     );
   }
@@ -177,7 +177,7 @@ export default function HomeEventCard({
       </Link>
       <SaveButton event={target} variant="overlay" className="absolute right-1 top-1" />
       {/* mt-auto lines the buttons up along a grid row; pt-3 keeps them clear of the text. */}
-      <QuickBuyLink event={event} mode={mode} className="mt-auto pt-3" />
+      <QuickBuyLink event={event} className="mt-auto pt-3" />
     </div>
   );
 }

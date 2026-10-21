@@ -12,6 +12,7 @@ import type { ConversationStatus, ConversationSummary } from "@/lib/api/types";
 import { formatMessageTime } from "@/lib/format";
 import { loadErrorMessage, threadHref } from "./shared";
 import { useUnread } from "./UnreadProvider";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 const LOAD_ERROR = "Couldn’t load your messages.";
 const MORE_ERROR = "Couldn’t load more conversations.";
@@ -96,7 +97,7 @@ export default function Inbox({ getToken }: { getToken: GetToken }) {
 
   return (
     <div aria-busy={state.status === "loading" ? true : undefined}>
-      {state.status === "loading" && <p className="text-sm text-muted">Loading your messages…</p>}
+      {state.status === "loading" && <LoadingState text="Loading your messages…" />}
 
       {state.status === "error" && (
         <div className="flex flex-col items-start gap-3">
@@ -155,7 +156,7 @@ function ConversationRow({ conversation }: { conversation: ConversationSummary }
               {unread && <span className="sr-only">Unread: </span>}
               {otherDisplayName}
             </span>
-            <time dateTime={lastMessage.sentAt} className="shrink-0 text-xs text-muted">
+            <time dateTime={lastMessage.sentAt} className="meta shrink-0 text-muted">
               {formatMessageTime(lastMessage.sentAt)}
             </time>
           </span>

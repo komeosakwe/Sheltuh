@@ -11,6 +11,7 @@ import type { AdminReport, ReportStatus } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatMessageTime } from "@/lib/format";
 import { validateMessage } from "@/lib/message-text";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 const STATUSES: { value: ReportStatus; label: string }[] = [
   { value: "open", label: "Open" },
@@ -138,7 +139,7 @@ export default function ReportQueue() {
           {current} reports
         </h2>
 
-        {state.status === "loading" && <p className="text-sm text-muted">Loading…</p>}
+        {state.status === "loading" && <LoadingState text="Loading…" />}
 
         {state.status === "error" && (
           <div className="flex flex-col items-start gap-3">

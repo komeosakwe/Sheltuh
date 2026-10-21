@@ -54,7 +54,7 @@ export default function SignupForm({ next }: { next?: string } = {}) {
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5" noValidate>
       <div className="flex flex-col gap-1">
-        <label htmlFor="email" className="text-sm font-medium text-foreground">
+        <label htmlFor="email" className="eyebrow text-muted">
           Email
         </label>
         <input
@@ -68,7 +68,7 @@ export default function SignupForm({ next }: { next?: string } = {}) {
         />
       </div>
       <div className="flex flex-col gap-1">
-        <label htmlFor="password" className="text-sm font-medium text-foreground">
+        <label htmlFor="password" className="eyebrow text-muted">
           Password
         </label>
         <input
@@ -86,7 +86,7 @@ export default function SignupForm({ next }: { next?: string } = {}) {
         </p>
       </div>
       <div className="flex flex-col gap-1">
-        <label htmlFor="confirmPassword" className="text-sm font-medium text-foreground">
+        <label htmlFor="confirmPassword" className="eyebrow text-muted">
           Confirm password
         </label>
         <input
@@ -109,7 +109,7 @@ export default function SignupForm({ next }: { next?: string } = {}) {
       <button
         type="submit"
         disabled={loading}
-        className="btn btn-solid w-fit"
+        className="btn btn-solid btn-lg w-full"
       >
         {loading ? "Creating account…" : "Sign up"}
       </button>

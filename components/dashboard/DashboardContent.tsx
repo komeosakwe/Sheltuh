@@ -1,17 +1,26 @@
 "use client";
 
 import Link from "next/link";
+import StatusBadge, { type StatusTone } from "@/components/ui/StatusBadge";
 import { useEffect, useRef, useState } from "react";
 import { listMyEvents } from "@/lib/api/events";
 import type { EventRecord } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 const STATUS_LABEL: Record<EventRecord["status"], string> = {
   draft: "Draft",
   pending_review: "Pending review",
   published: "Published",
   rejected: "Rejected",
+};
+
+const STATUS_TONE: Record<EventRecord["status"], StatusTone> = {
+  draft: "neutral",
+  pending_review: "pending",
+  published: "approved",
+  rejected: "rejected",
 };
 
 // Bounds the "skip past an empty page that still has a cursor" loop so a
@@ -107,13 +116,13 @@ export default function DashboardContent() {
   }
 
   if (auth.status === "loading" || organiserLoading) {
-    return <p className="text-sm text-muted">Loading…</p>;
+    return <LoadingState text="Loading…" />;
   }
 
   if (auth.status === "signed-out") {
     return (
-      <div className="bg-surface p-4">
-        <p className="mb-3 text-foreground">Sign in to see your events.</p>
+      <div className="border-t border-foreground pt-5">
+        <p className="mb-4 text-foreground">Sign in to see your events.</p>
         <Link href="/login" className="btn btn-solid">
           Sign in
         </Link>
@@ -131,8 +140,8 @@ export default function DashboardContent() {
 
   if (!organiser || organiser.status !== "approved") {
     return (
-      <div className="bg-surface p-4">
-        <p className="mb-3 text-foreground">
+      <div className="border-t border-foreground pt-5">
+        <p className="mb-4 text-foreground">
           {organiser?.status === "pending"
             ? "Your organiser application is still pending review."
             : organiser?.status === "rejected"
@@ -170,7 +179,7 @@ export default function DashboardContent() {
       </div>
 
       {!organiser.payoutsEnabled && (
-        <p className="bg-surface px-4 py-3 text-sm text-muted">
+        <p className="border-l-2 border-foreground py-1 pl-4 text-sm text-muted">
           Free events don&rsquo;t need this, but{" "}
           <Link href="/dashboard/payouts" className="text-accent underline underline-offset-2">
             connect Stripe
@@ -185,7 +194,7 @@ export default function DashboardContent() {
         </p>
       )}
 
-      {events === null && !eventsError && <p className="text-sm text-muted">Loading your events…</p>}
+      {events === null && !eventsError && <LoadingState text="Loading your events…" />}
 
       {events !== null && events.length === 0 && (
         <p className="text-sm text-muted">You haven&rsquo;t created any events yet.</p>
@@ -193,29 +202,27 @@ export default function DashboardContent() {
 
       {events !== null && events.length > 0 && (
         <>
-          <ul className="flex flex-col gap-3">
+          <ul data-reveal-stagger className="flex flex-col border-b border-foreground">
             {events.map((event) => {
               const title = event.title || "Untitled event";
               const canCheckIn = event.status === "published";
               return (
                 // Under sm the side links drop below the title (two columns), so it isn't squeezed at 320.
-                <li key={event.eventId} className="flex flex-col bg-surface sm:flex-row sm:items-stretch">
+                <li key={event.eventId} className="flex flex-col border-t border-foreground sm:flex-row sm:items-stretch">
                   <Link
                     href={`/dashboard/${event.eventId}`}
-                    className="flex min-w-0 flex-1 items-center justify-between gap-3 p-4 hover:border-accent"
+                    className="group flex min-w-0 flex-1 items-center justify-between gap-3 py-4 pr-3 hover:bg-surface sm:pl-2"
                   >
                     <div className="min-w-0">
-                      <p className="font-medium text-foreground">{title}</p>
+                      <p className="font-semibold break-words text-foreground underline-offset-4 group-hover:underline">{title}</p>
                       <p className="text-sm text-muted">{event.suburb}</p>
                     </div>
-                    <span className="bg-background px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted">
-                      {STATUS_LABEL[event.status]}
-                    </span>
+                    <StatusBadge tone={STATUS_TONE[event.status]}>{STATUS_LABEL[event.status]}</StatusBadge>
                   </Link>
-                  <div className="grid grid-cols-2 border-t border-background sm:flex sm:border-t-0">
+                  <div className="grid grid-cols-2 border-t border-surface-border sm:flex sm:border-t-0">
                     <Link
                       href={`/dashboard/events/${encodeURIComponent(event.eventId)}/analytics`}
-                      className={`eyebrow inline-flex min-h-11 items-center px-4 underline underline-offset-4 sm:border-l sm:border-background ${
+                      className={`eyebrow inline-flex min-h-11 items-center px-4 underline underline-offset-4 first:pl-0 sm:border-l sm:border-surface-border sm:first:pl-4 ${
                         canCheckIn ? "" : "col-span-2"
                       }`.trim()}
                     >
@@ -224,7 +231,7 @@ export default function DashboardContent() {
                     {canCheckIn && (
                       <Link
                         href={`/dashboard/${encodeURIComponent(event.eventId)}/check-in`}
-                        className="eyebrow inline-flex min-h-11 items-center border-l border-background px-4 underline underline-offset-4"
+                        className="eyebrow inline-flex min-h-11 items-center border-l border-surface-border px-4 underline underline-offset-4"
                       >
                         Check-in <span className="sr-only">for {title}</span>
                       </Link>

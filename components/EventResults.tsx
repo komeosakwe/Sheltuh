@@ -1,53 +1,24 @@
 import EventTile from "@/components/ui/EventTile";
-import Carousel, { CarouselItem } from "@/components/ui/Carousel";
 import type { SheltuhEvent } from "@/lib/types";
 
-const CAROUSEL_COUNT = 24;
+/** The results grid's columns (docs/design/brand-direction-one.md §7): two on phones, then three, then four. */
+export const RESULTS_GRID =
+  "grid grid-cols-2 gap-x-3 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4 lg:gap-x-8";
 
 /**
- * Editorial results layout: the first few events lead in a horizontal
- * carousel; anything beyond that (later pages, "load more") flows into a
- * roomy grid beneath. On phones both are one plain vertical list (the carousel
- * lays itself out as a list below sm, and the grid is one column). Every event
- * renders exactly once.
- *
- * `layout="grid"` puts every event in the grid (no carousel, no drift), for
- * lists that are for scanning, like /saved.
+ * A list of events as a grid of image-first tiles (/events, /search,
+ * /saved), every event exactly once, in the order given. The tiles rise in,
+ * a row at a time, as they scroll into view (RevealObserver; not under
+ * reduced motion).
  */
-export default function EventResults({
-  events,
-  layout = "rail",
-}: {
-  events: SheltuhEvent[];
-  layout?: "rail" | "grid";
-}) {
-  if (layout === "grid") return <ResultsGrid events={events} />;
-
-  const lead = events.slice(0, CAROUSEL_COUNT);
-  const rest = events.slice(CAROUSEL_COUNT);
-
+export default function EventResults({ events }: { events: SheltuhEvent[] }) {
   return (
-    <div className="flex flex-col gap-8 sm:gap-14">
-      {/* key: a different set of events (a filter change) starts a fresh carousel, so its
-          arrows and drift position never refer to the previous set. */}
-      <Carousel key={lead.map((event) => event.id).join(",")} label="Events" autoScroll>
-        {lead.map((event) => (
-          <CarouselItem key={event.id}>
-            <EventTile event={event} />
-          </CarouselItem>
-        ))}
-      </Carousel>
-      {rest.length > 0 && <ResultsGrid events={rest} />}
-    </div>
-  );
-}
-
-function ResultsGrid({ events }: { events: SheltuhEvent[] }) {
-  return (
-    <div className="grid grid-cols-1 gap-y-8 sm:grid-cols-2 sm:gap-x-6 sm:gap-y-10 md:grid-cols-3 lg:grid-cols-4">
+    <ul aria-label="Events" data-reveal-stagger className={RESULTS_GRID}>
       {events.map((event) => (
-        <EventTile key={event.id} event={event} />
+        <li key={event.id} className="flex min-w-0">
+          <EventTile event={event} className="w-full" />
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }

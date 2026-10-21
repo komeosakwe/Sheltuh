@@ -36,19 +36,20 @@ describe("EventTile organiser link", () => {
     expect(organiser).toHaveAttribute("href", "/organisers/org-1");
     // No nested anchors: the organiser link has no link ancestor.
     expect(organiser.parentElement?.closest("a")).toBeNull();
-    expect(screen.getByRole("link", { name: new RegExp(liveEvent.title) })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: new RegExp(`^${liveEvent.title}`) })).toHaveAttribute(
       "href",
       `/events/${liveEvent.slug}`,
     );
   });
 
-  it("reads and tabs: the tile's link, then the heart, then 'By organiser'", () => {
+  it("reads and tabs: the tile's link, the heart, Buy tickets, then 'By organiser'", () => {
     withHearts(<EventTile event={liveEvent} />);
-    const tile = screen.getByRole("link", { name: new RegExp(liveEvent.title) });
+    const tile = screen.getByRole("link", { name: new RegExp(`^${liveEvent.title}`) });
     const heart = screen.getByRole("button", { name: `Save ${liveEvent.title}` });
+    const buy = screen.getByRole("link", { name: `Buy tickets for ${liveEvent.title}` });
     const organiser = screen.getByRole("link", { name: "By Northside Noise" });
     const focusable = Array.from(document.querySelectorAll<HTMLElement>("a[href], button"));
-    expect(focusable).toEqual([tile, heart, organiser]);
+    expect(focusable).toEqual([tile, heart, buy, organiser]);
     // Still drawn over the art's corner, wherever it sits in the DOM.
     expect(heart).toHaveClass("absolute", "right-1", "top-1");
   });
@@ -68,3 +69,37 @@ describe("EventTile organiser link", () => {
     expect(screen.queryByRole("link", { name: /^By / })).not.toBeInTheDocument();
   });
 });
+
+describe("EventTile card anatomy (brand-direction-one.md §6.5)", () => {
+  it("names its link by the title first, then the date, place, all-inclusive price and category", () => {
+    render(<EventTile event={liveEvent} />);
+    const tile = screen.getByRole("link", { name: new RegExp(`^${liveEvent.title}`) });
+    expect(tile).toHaveAccessibleName(/incl\. booking fee/);
+    expect(tile).toHaveAccessibleName(new RegExp(liveEvent.suburb));
+  });
+
+  it("leads with a 4:5 rounded photo and a mono date line", () => {
+    const { container } = render(<EventTile event={liveEvent} />);
+    expect(container.querySelector(".aspect-\\[4\\/5\\]")).not.toBeNull();
+    expect(container.querySelector(".rounded-card")).not.toBeNull();
+    expect(container.querySelector("p.meta")).toHaveTextContent(/·/);
+  });
+
+  it("has an orange quick-buy link outside the card's link, to the event's tickets", () => {
+    render(<EventTile event={liveEvent} />);
+    const buy = screen.getByRole("link", { name: `Buy tickets for ${liveEvent.title}` });
+    expect(buy).toHaveAttribute("href", `/events/${liveEvent.slug}#tickets`);
+    expect(buy).toHaveClass("btn", "btn-signal", "min-h-11", "w-full", "sm:w-auto");
+    expect(buy.closest(`a[href="/events/${liveEvent.slug}"]`)).toBeNull();
+  });
+
+  it("says 'Get free tickets' for an all-free event, and has no quick buy before tickets exist", () => {
+    const free: SheltuhEvent = { ...liveEvent, ticketTypes: liveEvent.ticketTypes.map((t) => ({ ...t, priceCents: 0 })) };
+    render(<EventTile event={free} />);
+    expect(screen.getByRole("link", { name: `Get free tickets for ${free.title}` })).toBeInTheDocument();
+    cleanup();
+    render(<EventTile event={{ ...liveEvent, ticketTypes: [] }} />);
+    expect(screen.queryByRole("link", { name: /tickets for/ })).toBeNull();
+  });
+});
+

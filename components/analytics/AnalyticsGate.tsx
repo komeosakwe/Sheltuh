@@ -8,6 +8,7 @@ import type { GetToken } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
 import { withNext } from "@/lib/safe-next-path";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 /**
  * The dashboard's copy for someone without an approved organiser application.
@@ -21,7 +22,7 @@ export function NotApprovedOrganiser({
   need?: string;
 }) {
   return (
-    <div className="bg-surface p-4">
+    <div className="rounded-card border border-foreground bg-card p-4">
       <p className="mb-3 text-foreground">
         {status === "pending"
           ? "Your organiser application is still pending review."
@@ -60,7 +61,7 @@ export default function AnalyticsGate({
     );
   }
   if (auth.status === "loading" || (auth.status === "signed-in" && loading)) {
-    return <p className="text-sm text-muted">Loading…</p>;
+    return <LoadingState text="Loading…" />;
   }
   if (auth.status === "signed-out") {
     return (

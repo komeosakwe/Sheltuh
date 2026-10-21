@@ -26,15 +26,27 @@ describe("EventDetailsView buy bar (phones and tablets)", () => {
     expect(bar).toHaveClass("lg:hidden"); // never on desktop
     expect(within(bar).getByText("From A$31.70")).toBeInTheDocument();
     expect(within(bar).getByText("incl. booking fee")).toBeInTheDocument();
-    expect(within(bar).getByRole("link", { name: "See tickets" })).toHaveAttribute("href", "#tickets");
+    // "Buy tickets" in the demo too (owner, 21 Oct 2026); the tickets section says nothing's bookable.
+    expect(within(bar).getByRole("link", { name: "Buy tickets" })).toHaveAttribute("href", "#tickets");
+    expect(within(bar).queryByRole("link", { name: /See tickets|Get tickets/ })).toBeNull();
   });
 
-  it("says 'Get tickets' for a live event", () => {
+  it("says 'Buy tickets' for a live paid event", () => {
     const { container } = render(<EventDetailsView event={findEvent("fitzroy-poetry-and-noise")} demo={false} />);
     const bar = buyBar(container);
     if (!bar) throw new Error("buy bar not rendered");
     expect(within(bar).getByText("A$21.30")).toBeInTheDocument();
-    expect(within(bar).getByRole("link", { name: "Get tickets" })).toHaveAttribute("href", "#tickets");
+    expect(within(bar).getByRole("link", { name: "Buy tickets" })).toHaveAttribute("href", "#tickets");
+  });
+
+  it("says 'Get free tickets' when every ticket is free, live or demo", () => {
+    for (const demo of [true, false]) {
+      const { container, unmount } = render(<EventDetailsView event={findEvent("brunswick-zine-fair")} demo={demo} />);
+      const bar = buyBar(container);
+      if (!bar) throw new Error("buy bar not rendered");
+      expect(within(bar).getByRole("link", { name: "Get free tickets" })).toHaveAttribute("href", "#tickets");
+      unmount();
+    }
   });
 
   it("shows 'Free' with no booking fee for a free event", () => {
@@ -58,6 +70,8 @@ describe("EventDetailsView buy bar (phones and tablets)", () => {
     if (!tickets) throw new Error("#tickets not rendered");
     expect(tickets).toHaveAttribute("tabindex", "-1");
     expect(within(tickets).getByRole("heading", { name: "Tickets" })).toBeInTheDocument();
+    // Arriving there shows the (global) focus-visible ring: nothing removes it.
+    expect(tickets.className).not.toMatch(/outline-none/);
   });
 });
 
@@ -114,13 +128,13 @@ describe("EventDetailsView tickets panel", () => {
 });
 
 describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => {
-  it("puts the buy bar on an ink surface with the one orange Get tickets", () => {
+  it("puts the buy bar on an ink surface with the one orange Buy tickets", () => {
     const { container } = render(<EventDetailsView event={findEvent("neon-static")} demo />);
     const bar = buyBar(container);
     if (!bar) throw new Error("buy bar not rendered");
     expect(bar).toHaveAttribute("data-surface", "ink");
     expect(bar.className).not.toMatch(/bg-foreground|text-background/);
-    expect(within(bar).getByRole("link", { name: "See tickets" })).toHaveClass("btn-signal", "btn-lg");
+    expect(within(bar).getByRole("link", { name: "Buy tickets" })).toHaveClass("btn-signal", "btn-lg");
     // Checkout itself stays black.
     const tickets = container.querySelector<HTMLElement>("#tickets");
     if (!tickets) throw new Error("#tickets not rendered");
@@ -134,6 +148,24 @@ describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => 
     const share = screen.getByRole("button", { name: `Share ${event.title}` });
     expect(screen.getByText(`Live music · ${event.suburb}`)).toBeInTheDocument();
     expect(share.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("names the Tickets and Good to know sections by their headings (region landmarks)", () => {
+    render(<EventDetailsView event={findEvent("neon-static")} demo />);
+    expect(screen.getByRole("region", { name: "Tickets" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Good to know" })).toBeInTheDocument();
+  });
+
+  it("says the time is Melbourne time, and midnight in words", () => {
+    // Neon Static: 8:00 pm Fri 25 Sep to midnight, Melbourne time.
+    render(<EventDetailsView event={findEvent("neon-static")} demo />);
+    const when = screen.getByText("When").closest("div");
+    if (!when) throw new Error("When row not rendered");
+    // (Node's ICU writes September as "Sep" or "Sept".)
+    expect(within(when).getAllByRole("definition")[0]).toHaveTextContent(
+      /^Fri 25 Sept?, 8:00 pm – Sat 26 Sept?, midnightMelbourne time$/,
+    );
+    expect(document.body).not.toHaveTextContent("12:00 am");
   });
 
   it("offers Add to calendar under When", () => {

@@ -62,7 +62,7 @@ export default function InlineReauth({ expectedEmail, onSignedIn }: Props) {
   return (
     <div className="mt-3 flex flex-col gap-2 border-t border-danger/20 pt-3">
       <div className="flex flex-col gap-1">
-        <label htmlFor="reauth-email" className="text-xs font-medium text-foreground">
+        <label htmlFor="reauth-email" className="eyebrow text-muted">
           Email
         </label>
         <input
@@ -77,7 +77,7 @@ export default function InlineReauth({ expectedEmail, onSignedIn }: Props) {
         />
       </div>
       <div className="flex flex-col gap-1">
-        <label htmlFor="reauth-password" className="text-xs font-medium text-foreground">
+        <label htmlFor="reauth-password" className="eyebrow text-muted">
           Password
         </label>
         <input

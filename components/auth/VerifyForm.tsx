@@ -59,7 +59,7 @@ export default function VerifyForm() {
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5" noValidate>
       <div className="flex flex-col gap-1">
-        <label htmlFor="email" className="text-sm font-medium text-foreground">
+        <label htmlFor="email" className="eyebrow text-muted">
           Email
         </label>
         <input
@@ -73,7 +73,7 @@ export default function VerifyForm() {
         />
       </div>
       <div className="flex flex-col gap-1">
-        <label htmlFor="code" className="text-sm font-medium text-foreground">
+        <label htmlFor="code" className="eyebrow text-muted">
           Verification code
         </label>
         <input
@@ -103,7 +103,7 @@ export default function VerifyForm() {
         <button
           type="submit"
           disabled={loading}
-          className="btn btn-solid w-fit"
+          className="btn btn-solid btn-lg w-full"
         >
           {loading ? "Verifying…" : "Verify email"}
         </button>

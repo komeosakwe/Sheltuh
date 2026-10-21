@@ -11,6 +11,7 @@ import { SessionExpiredError } from "@/lib/auth/session-token";
 import AdminSessionExpired from "./AdminSessionExpired";
 import OrganiserItem, { actionErrorText, organiserHeadingId, suspendButtonId } from "./OrganiserItem";
 import SuspendOrganiserDialog, { type SuspendOutcome } from "./SuspendOrganiserDialog";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 const STATUSES: {
   value: OrganiserStatus;
@@ -344,7 +345,7 @@ export default function OrganiserQueue() {
         {current.intro && <p className="mt-2 text-sm text-muted">{current.intro}</p>}
 
         <div className="mt-4">
-          {state.status === "loading" && <p className="text-sm text-muted">Loading…</p>}
+          {state.status === "loading" && <LoadingState text="Loading…" />}
 
           {state.status === "error" && (
             <div className="flex flex-col items-start gap-3">

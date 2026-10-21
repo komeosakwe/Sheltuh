@@ -65,7 +65,7 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
       <form onSubmit={handleRequestCode} className="flex flex-col gap-5" noValidate>
         <p className="text-sm text-muted">Enter your account email and we&rsquo;ll send a reset code.</p>
         <div className="flex flex-col gap-1">
-          <label htmlFor="email" className="text-sm font-medium text-foreground">
+          <label htmlFor="email" className="eyebrow text-muted">
             Email
           </label>
           <input
@@ -86,7 +86,7 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
         <button
           type="submit"
           disabled={loading}
-          className="btn btn-solid w-fit"
+          className="btn btn-solid btn-lg w-full"
         >
           {loading ? "Sending…" : "Send reset code"}
         </button>
@@ -103,7 +103,7 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
     <form onSubmit={handleConfirm} className="flex flex-col gap-5" noValidate>
       <p className="text-sm text-muted">Enter the code we sent to {email} and choose a new password.</p>
       <div className="flex flex-col gap-1">
-        <label htmlFor="code" className="text-sm font-medium text-foreground">
+        <label htmlFor="code" className="eyebrow text-muted">
           Reset code
         </label>
         <input
@@ -118,7 +118,7 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
         />
       </div>
       <div className="flex flex-col gap-1">
-        <label htmlFor="newPassword" className="text-sm font-medium text-foreground">
+        <label htmlFor="newPassword" className="eyebrow text-muted">
           New password
         </label>
         <input
@@ -143,7 +143,7 @@ export default function ForgotPasswordForm({ next }: { next?: string } = {}) {
       <button
         type="submit"
         disabled={loading}
-        className="btn btn-solid w-fit"
+        className="btn btn-solid btn-lg w-full"
       >
         {loading ? "Resetting…" : "Reset password"}
       </button>

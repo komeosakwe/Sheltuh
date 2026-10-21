@@ -1,9 +1,12 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import Footer from "@/components/Footer";
 import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
 import { UnreadProvider } from "@/components/messages/UnreadProvider";
 import Nav from "@/components/Nav";
 import ServiceWorkerRegistration from "@/components/pwa/ServiceWorkerRegistration";
+import RevealObserver from "@/components/RevealObserver";
+import RouteProgress from "@/components/RouteProgress";
 import { isApiConfigured } from "@/lib/api/client";
 import { AuthProvider } from "@/lib/auth/AuthContext";
 import { APP_THEME_COLOR } from "@/lib/pwa/theme";
@@ -66,6 +69,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <UnreadProvider>
             <FavouritesProvider>
               <Nav />
+              {/* useSearchParams needs a Suspense boundary to keep pages static. */}
+              <Suspense fallback={null}>
+                <RouteProgress />
+              </Suspense>
               <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
                 {children}
               </main>
@@ -74,6 +81,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           </UnreadProvider>
         </AuthProvider>
         <ServiceWorkerRegistration />
+        <RevealObserver />
       </body>
     </html>
   );

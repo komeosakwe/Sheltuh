@@ -96,7 +96,7 @@ describe("the home's event sections", () => {
     expect(screen.getByRole("status")).toHaveTextContent("");
     const upNext = screen.getByRole("region", { name: "Up next" });
     expect(within(upNext).getByRole("heading", { level: 3 })).toHaveTextContent("Event next");
-    expect(within(upNext).getByRole("link", { name: "See tickets for Event next" })).toHaveAttribute(
+    expect(within(upNext).getByRole("link", { name: "Buy tickets for Event next" })).toHaveAttribute(
       "href",
       "/events/next#tickets",
     );

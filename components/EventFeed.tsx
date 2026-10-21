@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import DemoNotice from "@/components/DemoNotice";
 import EventBrowser from "@/components/EventBrowser";
+import FeedLoading from "@/components/FeedLoading";
+import { useLoadingProgress } from "@/components/ui/ProgressLoader";
 import LiveEventFeed from "@/components/LiveEventFeed";
 import { isApiConfigured } from "@/lib/api/client";
 import { getEventCategories, getUpcomingEvents } from "@/lib/data";
@@ -21,6 +23,7 @@ interface FeedProps {
 function DemoEventFeed({ query, initialCategory, initialPricing }: FeedProps) {
   const categories = getEventCategories();
   const [events, setEvents] = useState<SheltuhEvent[] | null>(null);
+  const progress = useLoadingProgress(events === null);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,11 +43,12 @@ function DemoEventFeed({ query, initialCategory, initialPricing }: FeedProps) {
         sale.
       </DemoNotice>
       {/* Always mounted: screen readers announce text that changes inside a live region,
-          not one that appears already holding its text. */}
-      <p role="status" className={events === null ? "text-sm text-muted" : "sr-only"}>
+          not one that appears already holding its text. The loader shows the progress. */}
+      <p role="status" className="sr-only">
         {events === null ? "Loading events…" : ""}
       </p>
-      {events !== null && (
+      {progress.visible && <FeedLoading percent={progress.percent} done={progress.done} />}
+      {events !== null && !progress.visible && (
         <EventBrowser
           events={events}
           categories={categories}

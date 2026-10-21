@@ -15,31 +15,39 @@ function events(n: number): SheltuhEvent[] {
   });
 }
 
-describe("EventResults", () => {
-  it("shows every event exactly once, however many there are", () => {
+describe("EventResults (brand-direction-one.md §7: one grid of 4:5 tiles)", () => {
+  it("shows every event exactly once, however many there are, in the order given", () => {
     render(<EventResults events={events(30)} />);
-    for (let i = 0; i < 30; i += 1) {
-      expect(screen.getAllByText(`Test event ${i}`)).toHaveLength(1);
-    }
+    const list = screen.getByRole("list", { name: "Events" });
+    const titles = within(list).getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+    expect(titles).toEqual(Array.from({ length: 30 }, (_, i) => `Test event ${i}`));
   });
 
-  it("puts the first 24 in the carousel and the rest in the grid below it", () => {
-    render(<EventResults events={events(30)} />);
-    const carousel = screen.getByRole("region", { name: "Events" });
-    expect(within(carousel).getAllByRole("heading", { level: 3 })).toHaveLength(24);
-    expect(within(carousel).queryByText("Test event 24")).not.toBeInTheDocument();
-    expect(screen.getByText("Test event 24")).toBeInTheDocument();
-    expect(screen.getByText("Test event 29")).toBeInTheDocument();
-  });
-
-  it("renders a short list wholly in the carousel, with no grid", () => {
+  it("is a two-column grid on phones, three from 640px and four from 1024px, with no carousel", () => {
     render(<EventResults events={events(3)} />);
-    const carousel = screen.getByRole("region", { name: "Events" });
-    expect(within(carousel).getAllByRole("heading", { level: 3 })).toHaveLength(3);
+    const list = screen.getByRole("list", { name: "Events" });
+    expect(list).toHaveClass("grid", "grid-cols-2", "sm:grid-cols-3", "lg:grid-cols-4");
+    expect(within(list).getAllByRole("listitem")).toHaveLength(3);
+    expect(screen.queryByRole("region", { name: "Events" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Pause|Play|Next events|Previous events/ })).toBeNull();
+  });
+
+  it("marks the grid for the staggered scroll entrance", () => {
+    render(<EventResults events={events(2)} />);
+    expect(screen.getByRole("list", { name: "Events" })).toHaveAttribute("data-reveal-stagger");
+  });
+
+  it("gives each tile its orange Buy tickets link to the event's tickets", () => {
+    const [paid] = events(1);
+    render(<EventResults events={[paid]} />);
+    expect(screen.getByRole("link", { name: `Buy tickets for ${paid.title}` })).toHaveAttribute(
+      "href",
+      `/events/${paid.slug}#tickets`,
+    );
   });
 
   it("copes with no events at all", () => {
     render(<EventResults events={[]} />);
-    expect(screen.getByRole("region", { name: "Events" })).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "Events" })).queryAllByRole("listitem")).toHaveLength(0);
   });
 });

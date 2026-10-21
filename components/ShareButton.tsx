@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { buttonClass } from "@/components/ui/Button";
+import { PHONE_QUERY } from "@/components/ui/useIsPhone";
 import { publicEventUrl } from "@/lib/event-url";
 
 const COPIED_FOR_MS = 4000;
+/** The popover's gap below the button on phones, matching `sm:mt-2`. */
+const POPOVER_GAP_PX = 8;
 
 function ShareIcon() {
   return (
@@ -54,15 +57,47 @@ export default function ShareButton({
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const fieldRef = useRef<HTMLInputElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const clearTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const popoverId = useId();
   const fieldId = useId();
 
   useEffect(() => () => clearTimeout(clearTimer.current), []);
 
+  const open = manualUrl !== null;
+
+  // Below sm the popover spans the viewport inside its gutters (`fixed
+  // inset-x-5`), just under the button, following it as the page scrolls; a
+  // 288px box hung off the button would run off a 320px screen. From sm it
+  // hangs from the button's right edge (classes alone).
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const popover = popoverRef.current;
+      const button = buttonRef.current;
+      if (!popover || !button) return;
+      popover.style.top = window.matchMedia(PHONE_QUERY).matches
+        ? `${button.getBoundingClientRect().bottom + POPOVER_GAP_PX}px`
+        : "";
+    };
+    place();
+    // Fixed, so focusing its field won't scroll it into view: if it opens past
+    // the bottom of the screen, bring it up (it follows the button).
+    const bottom = popoverRef.current?.getBoundingClientRect().bottom ?? 0;
+    if (window.matchMedia(PHONE_QUERY).matches && bottom > window.innerHeight) {
+      window.scrollBy(0, bottom - window.innerHeight + POPOVER_GAP_PX);
+      place();
+    }
+    window.addEventListener("scroll", place, { passive: true });
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place);
+      window.removeEventListener("resize", place);
+    };
+  }, [open]);
+
   // The popover's link is selected as it opens, ready to copy; a tap or click
   // anywhere else closes it.
-  const open = manualUrl !== null;
   useEffect(() => {
     if (!open) return;
     fieldRef.current?.focus();
@@ -139,6 +174,12 @@ export default function ShareButton({
           closePopover();
         }
       }}
+      onBlur={(event) => {
+        // Tabbing out of the popover closes it (focus stays where it went).
+        if (open && event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) {
+          setManualUrl(null);
+        }
+      }}
     >
       <button
         ref={buttonRef}
@@ -159,10 +200,11 @@ export default function ShareButton({
       </p>
       {manualUrl !== null && (
         <div
+          ref={popoverRef}
           id={popoverId}
           role="group"
           aria-label="Copy the link"
-          className="absolute top-full right-0 z-30 mt-2 flex w-72 max-w-[calc(100vw-2.5rem)] flex-col gap-2 rounded-control border border-foreground bg-card p-3 text-foreground"
+          className="fixed inset-x-5 z-30 flex flex-col gap-2 rounded-control border border-foreground bg-card p-3 text-foreground sm:absolute sm:inset-x-auto sm:top-full sm:right-0 sm:mt-2 sm:w-72"
         >
           <label htmlFor={fieldId} className="eyebrow text-muted">
             Link to this event

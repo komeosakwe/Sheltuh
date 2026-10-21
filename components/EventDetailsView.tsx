@@ -19,9 +19,19 @@ import WhosGoingSummaryLink from "@/components/whos-going/WhosGoingSummaryLink";
 import { isSafeTicketUrl } from "@/lib/event-url";
 import { formatEventDateShort, formatEventDateTimeRange, formatEventTime } from "@/lib/format";
 import { externalProviderLabel, formatFeedPriceParts } from "@/lib/pricing";
+import { quickBuyLabel } from "@/lib/quick-buy";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 
 const asideRowClass = "border-t border-foreground py-3";
+
+/**
+ * "Fri 25 Sep, 8:00 pm – Sat 26 Sep, midnight": the shared range, with
+ * midnight said in words (people misread "12:00 am"). The formatter always
+ * writes the hour as "12:00 am" for midnight, so this is a whole-word swap.
+ */
+function whenLabel(startsAt: string, endsAt?: string): string {
+  return formatEventDateTimeRange(startsAt, endsAt).replace(/\b12:00 am\b/g, "midnight");
+}
 
 /**
  * The event page (docs/design/brand-direction-one.md §6.10): the photo, a
@@ -48,7 +58,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
   const ticketUrl = external && isSafeTicketUrl(event.externalTicketUrl) ? event.externalTicketUrl : undefined;
   // No price for an external event: we can't vouch for another site's.
   const price = external ? null : formatFeedPriceParts(event);
-  const when = formatEventDateTimeRange(event.startsAt, event.endsAt);
+  const when = whenLabel(event.startsAt, event.endsAt);
   const shareText = `${event.title} · ${formatEventDateShort(event.startsAt)}, ${formatEventTime(event.startsAt)} · ${event.venueName}`;
   const saveTarget = { id: event.id, title: event.title, slug: event.slug };
   const outboundLink = (className: string) => (
@@ -129,7 +139,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
             <p className="max-w-2xl text-base leading-7 sm:text-lg">{event.description}</p>
 
             {goodToKnow.length > 0 && (
-              <Panel title="Good to know">
+              <Panel title="Good to know" titleId="good-to-know-title">
                 <dl className="flex flex-col gap-4 text-sm">
                   {goodToKnow.map((item) => (
                     <div key={item.label} className="grid grid-cols-1 gap-1 sm:grid-cols-[10rem_1fr]">
@@ -161,7 +171,9 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
               <div className="flex shrink-0 items-center gap-2">
                 <SaveButton event={saveTarget} variant="onDark" className="hidden min-[375px]:flex" />
                 <a href="#tickets" className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}>
-                  {demo ? "See tickets" : "Get tickets"}
+                  {/* "Buy tickets", or "Get free tickets" when every tier is free, in demo
+                      mode too (owner, 21 Oct 2026). */}
+                  {quickBuyLabel(event) ?? "Buy tickets"}
                 </a>
               </div>
             </div>
@@ -203,7 +215,10 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
             <dl className="flex flex-col">
               <div className={asideRowClass}>
                 <dt className="eyebrow text-muted">When</dt>
-                <dd className="mt-1 text-base leading-6">{when}</dd>
+                <dd className="mt-1 text-base leading-6">
+                  {when}
+                  <span className="block text-sm text-muted">Melbourne time</span>
+                </dd>
                 <dd>
                   <AddToCalendar event={event} />
                 </dd>
@@ -236,9 +251,10 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
             {!external && <WhosGoing />}
 
             {/* The buy bar's target: focusable, so jumping here moves keyboard and
-                screen-reader focus to the tickets too. */}
-            <div id="tickets" tabIndex={-1} className="focus:outline-none">
-              <Panel title="Tickets">
+                screen-reader focus to the tickets too, with the global focus-visible
+                ring around the section to show where you've landed. */}
+            <div id="tickets" tabIndex={-1} className="rounded-card">
+              <Panel title="Tickets" titleId="tickets-title">
                 {external ? (
                   <div className="flex flex-col gap-4 rounded-card border border-foreground bg-card p-4 sm:p-5">
                     {event.externalFree && <p className="text-base leading-6 font-semibold">Free entry</p>}

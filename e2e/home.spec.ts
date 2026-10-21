@@ -158,7 +158,7 @@ test.describe("the photo push-in", () => {
   });
 });
 
-test("a card's Get tickets lands on the event page with focus on the tickets", async ({ page }) => {
+test("a card's Buy tickets lands on the event page with focus on the tickets", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   const events = fixtures(Date.now());
   await mockApi(page);
@@ -169,7 +169,7 @@ test("a card's Get tickets lands on the event page with focus on the tickets", a
   });
   await page.goto("/");
   const section = page.locator("[data-home-section]").first();
-  const quickBuy = section.getByRole("link", { name: /^Get (free )?tickets for / }).first();
+  const quickBuy = section.getByRole("link", { name: /^(?:Buy tickets|Get free tickets) for / }).first();
   const href = await quickBuy.getAttribute("href");
   expect(href).toMatch(/^\/events\/[^/]+#tickets$/);
   await quickBuy.click();
@@ -195,7 +195,7 @@ test.describe("keyboard", () => {
     const section = page.locator("[data-home-section]").filter({ has: page.getByRole("heading", { name: "Coming up near you" }) });
     const items = section.getByRole("listitem");
     expect(await items.count()).toBeGreaterThan(2);
-    // Start on the first card's link, then Tab through the next two cards (link, Save, Get tickets each).
+    // Start on the first card's link, then Tab through the next two cards (link, Save, Buy tickets each).
     await items.first().getByRole("link").first().focus();
     for (let i = 0; i < 6; i++) {
       await page.keyboard.press("Tab");

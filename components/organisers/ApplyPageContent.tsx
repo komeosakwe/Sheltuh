@@ -6,10 +6,11 @@ import ApplicationForm from "@/components/organisers/ApplicationForm";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
 import type { OrganiserRecord } from "@/lib/api/types";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 function StatusCard({ children }: { children: ReactNode }) {
   return (
-    <div className="bg-surface p-4 text-foreground">{children}</div>
+    <div className="rounded-card border border-foreground bg-card p-4 text-foreground">{children}</div>
   );
 }
 
@@ -27,7 +28,7 @@ export default function ApplyPageContent() {
   }
 
   if (auth.status === "loading" || loading) {
-    return <p className="text-sm text-muted">Loading…</p>;
+    return <LoadingState text="Loading…" />;
   }
 
   if (auth.status === "signed-out") {

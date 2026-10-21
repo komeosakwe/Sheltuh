@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
 import FeaturedEventCard from "@/components/home/FeaturedEventCard";
 import HomeEventCard, { trendingChipText } from "@/components/home/HomeEventCard";
-import QuickBuyLink from "@/components/home/QuickBuyLink";
+import QuickBuyLink from "@/components/QuickBuyLink";
 import { formatDateBadge } from "@/lib/format";
 import { getSampleGoing } from "@/lib/sample-going";
 import type { SheltuhEvent } from "@/lib/types";
@@ -289,10 +289,10 @@ describe("quick buy", () => {
       withHearts(<HomeEventCard event={event} variant={variant} mode="live" />);
       const card = mainLink("glass-sessions");
       const save = screen.getByRole("button", { name: "Save Glasshouse Sessions" });
-      const buy = screen.getByRole("link", { name: "Get tickets for Glasshouse Sessions" });
+      const buy = screen.getByRole("link", { name: "Buy tickets for Glasshouse Sessions" });
       expect(buy).toHaveAttribute("href", "/events/glass-sessions#tickets");
       expect(card.contains(buy)).toBe(false);
-      // Tab order: main link → Save → Get tickets.
+      // Tab order: main link → Save → Buy tickets.
       expect(card.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(save.compareDocumentPosition(buy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       // Owner decision 6: an orange button with a black label, 44px tall on phones (40px from 640px).
@@ -304,13 +304,12 @@ describe("quick buy", () => {
   );
 
   const allFree: SheltuhEvent = { ...event, ticketTypes: [{ ...event.ticketTypes[0], priceCents: 0 }] };
-  it.each<[string, SheltuhEvent, "demo" | "live", string]>([
-    ["live, paid", event, "live", "Get tickets for Glasshouse Sessions"],
-    ["live, all free", allFree, "live", "Get free tickets for Glasshouse Sessions"],
-    ["demo", event, "demo", "See tickets for Glasshouse Sessions"],
-    ["live, external", external, "live", "Get tickets for Dub Session"],
-  ])("%s: %s", (_label, e, mode, name) => {
-    render(<QuickBuyLink event={e} mode={mode} />);
+  it.each<[string, SheltuhEvent, string]>([
+    ["paid", event, "Buy tickets for Glasshouse Sessions"],
+    ["all free", allFree, "Get free tickets for Glasshouse Sessions"],
+    ["external", external, "Buy tickets for Dub Session"],
+  ])("%s: %s", (_label, e, name) => {
+    render(<QuickBuyLink event={e} />);
     expect(screen.getByRole("link", { name })).toHaveAttribute("href", `/events/${e.slug}#tickets`);
   });
 
@@ -324,15 +323,15 @@ describe("quick buy", () => {
 
   it("compact: the button is indented to the text column (the 6rem thumbnail plus the 0.75rem gap; 7rem from 640px), full width there on phones", () => {
     render(<HomeEventCard event={event} variant="compact" mode="live" />);
-    const buy = screen.getByRole("link", { name: "Get tickets for Glasshouse Sessions" });
+    const buy = screen.getByRole("link", { name: "Buy tickets for Glasshouse Sessions" });
     expect(buy.parentElement).toHaveClass("pl-27", "sm:pl-31");
     expect(buy).toHaveClass("w-full", "sm:w-auto");
     expect(mainLink("glass-sessions")).toHaveClass("grid-cols-[6rem_1fr]", "sm:grid-cols-[7rem_1fr]", "gap-3");
   });
 
   it("the visible label is the short one; the name adds the title", () => {
-    render(<QuickBuyLink event={event} mode="live" />);
+    render(<QuickBuyLink event={event} />);
     const buy = screen.getByRole("link");
-    expect(within(buy).getByText("Get tickets")).toHaveAttribute("aria-hidden", "true");
+    expect(within(buy).getByText("Buy tickets")).toHaveAttribute("aria-hidden", "true");
   });
 });

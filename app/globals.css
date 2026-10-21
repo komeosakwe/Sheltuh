@@ -334,6 +334,33 @@ h4 {
   }
 }
 
+/* Content-page lists (brand-direction-one.md §5 #9): the book's small square bullet, a 6px
+   black rounded square at 0.6em from the top, instead of a round disc. */
+@utility square-bullets {
+  & ul {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    /* A zero-width string marker rather than "none": Safari drops list semantics with none. */
+    list-style-type: "\200B";
+    padding-left: 0;
+  }
+  & ul > li {
+    position: relative;
+    padding-left: 1.25rem;
+  }
+  & ul > li::before {
+    content: "";
+    position: absolute;
+    left: 0.25rem;
+    top: 0.6em;
+    width: 6px;
+    height: 6px;
+    border-radius: 1.5px;
+    background: var(--foreground);
+  }
+}
+
 /* Form controls: white fields with a 1px black boundary and the control radius. */
 @layer base {
   a {
@@ -430,6 +457,20 @@ h4 {
       animation-timeline: view();
       animation-range: entry 0% entry 45%;
     }
+  }
+  /* Scroll and load entrances (components/RevealObserver.tsx): marked elements rise 12px and
+     fade in as they come into view, staggered by --reveal-d. Transform and opacity only, so
+     nothing shifts; the observer does nothing under reduced motion, and neither does this. */
+  .reveal-pending {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+  .reveal-pending.is-revealed {
+    opacity: 1;
+    transform: none;
+    transition:
+      opacity 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) var(--reveal-d, 0ms),
+      transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) var(--reveal-d, 0ms);
   }
   /* DotsLoader (components/brand/DotsMark.tsx): the two dots move together and apart while
      loading. With reduced motion they stay apart and the label carries the state. */

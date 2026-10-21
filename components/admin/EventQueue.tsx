@@ -7,6 +7,7 @@ import { adminApproveEvent, adminListEvents, adminRejectEvent, adminUnpublishEve
 import type { EventRecord, EventStatus } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatEventDateTimeRange } from "@/lib/format";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 const STATUSES: EventStatus[] = ["pending_review", "published", "draft", "rejected"];
 const STATUS_LABEL: Record<EventStatus, string> = {
@@ -135,21 +136,21 @@ export default function EventQueue() {
         </p>
       )}
 
-      {loading && items.length === 0 && <p className="text-sm text-muted">Loading…</p>}
+      {loading && items.length === 0 && <LoadingState text="Loading…" />}
       {!loading && items.length === 0 && <p className="text-sm text-muted">No events with this status.</p>}
 
-      <ul className="flex flex-col gap-3">
+      <ul data-reveal-stagger className="flex flex-col border-b border-foreground">
         {items.map((item) => (
-          <li key={item.eventId} className="bg-surface p-4">
+          <li key={item.eventId} className="border-t border-foreground py-4">
             {item.imageUrl && <PrivateEventImage imageUrl={item.imageUrl} getToken={getToken} />}
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="font-medium text-foreground">{item.title}</p>
+                <p className="font-semibold break-words text-foreground">{item.title}</p>
                 <p className="text-sm text-muted">
                   {item.organiserName} &middot; {formatEventDateTimeRange(item.startsAt, item.endsAt)}
                 </p>
                 <p className="mt-1 text-sm text-foreground">{item.description}</p>
-                <p className="mt-1 text-xs text-muted">
+                <p className="meta mt-1 text-muted">
                   {item.venueName}, {item.suburb}
                 </p>
                 {item.rejectionReason && (

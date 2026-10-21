@@ -8,6 +8,7 @@ import EventMarkerLayer, { type MarkerDatum, type OpenSpot } from "@/components/
 import MapSpotList from "@/components/map/MapSpotList";
 import { runQuietly, stopQuietly } from "@/components/map/quiet-map";
 import { buttonClass } from "@/components/ui/Button";
+import { ProgressLoader, useLoadingProgress } from "@/components/ui/ProgressLoader";
 import {
   MELBOURNE_DEFAULT_CENTER,
   MELBOURNE_DEFAULT_ZOOM,
@@ -309,6 +310,9 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
     };
   }, [retryKey]);
 
+  // The tiles' estimated progress (the map reports no real progress until the first tile is in).
+  const tilesProgress = useLoadingProgress(status === "loading");
+
   function handleTileLoad() {
     loadedCount.current += 1;
     setStatus("loaded");
@@ -404,9 +408,14 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
         {announcement}
       </p>
 
-      {status === "loading" && (
-        <div className="pointer-events-none absolute inset-0 z-[1000] flex items-center justify-center bg-background/60">
-          <p className="rounded-control bg-foreground px-4 py-2 text-sm text-background">Loading map&hellip;</p>
+      {tilesProgress.visible && status !== "failed" && (
+        <div className="pointer-events-none absolute inset-0 z-[1000] flex items-center justify-center">
+          <ProgressLoader
+            percent={tilesProgress.percent}
+            done={tilesProgress.done}
+            label="Loading the map"
+            className="rounded-control border border-foreground bg-card px-3 py-2"
+          />
         </div>
       )}
 

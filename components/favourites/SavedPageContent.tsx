@@ -15,6 +15,7 @@ import { withNext } from "@/lib/safe-next-path";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
 import { useFavourites } from "./FavouritesProvider";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 /** Saved events per page (the API allows up to 50). */
 export const SAVED_PAGE_SIZE = 48;
@@ -41,7 +42,7 @@ export default function SavedPageContent() {
   const auth = useOptionalAuth();
 
   if (!favourites || favourites.mode === "demo") return <DemoSaved />;
-  if (!auth || favourites.status === "auth-loading") return <p className="text-sm text-muted">Loading…</p>;
+  if (!auth || favourites.status === "auth-loading") return <LoadingState text="Loading…" />;
   if (favourites.signedOut) {
     return (
       <EmptyState
@@ -83,7 +84,7 @@ function DemoSaved() {
         <DemoNotice>Saved on this device only. Nothing leaves your browser.</DemoNotice>
       </div>
       {!shown ? (
-        <p className="text-sm text-muted">Loading…</p>
+        <LoadingState text="Loading…" />
       ) : (
         <SavedList events={events} now={now} count={favourites?.count ?? 0} />
       )}
@@ -149,7 +150,7 @@ function LiveSaved({ getToken }: { getToken: () => Promise<string> }) {
   if (state.status === "loading") {
     return (
       <div aria-busy="true" className="min-h-64">
-        <p className="text-sm text-muted">Loading your saved events…</p>
+        <LoadingState text="Loading your saved events…" />
       </div>
     );
   }
@@ -229,7 +230,7 @@ function SavedList({
       <section aria-labelledby="saved-upcoming" className="flex flex-col">
         <SectionHeader title="Coming up" id="saved-upcoming" />
         {upcoming.length > 0 ? (
-          <EventResults events={upcoming} layout="grid" />
+          <EventResults events={upcoming} />
         ) : (
           <p className="text-sm text-muted">Nothing coming up. Your past events are below.</p>
         )}

@@ -175,15 +175,16 @@ export default function CheckoutConfirmation() {
         <p className="mt-1 text-xs text-muted">Order reference {order.reference}</p>
       </div>
 
-      <div className="bg-surface p-4">
+      {/* The totals card (brand-direction-one.md §6.9). */}
+      <div className="rounded-card border border-foreground bg-card p-4">
         <dl className="flex flex-col gap-2 text-sm">
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-4">
             <dt className="text-muted">Ticket subtotal</dt>
-            <dd className="text-foreground">{formatAud(order.subtotalCents)}</dd>
+            <dd className="tabular-nums text-foreground">{formatAud(order.subtotalCents)}</dd>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-4">
             <dt className="text-muted">Booking fees</dt>
-            <dd className="text-foreground">{formatAud(order.buyerFeeCents)}</dd>
+            <dd className="tabular-nums text-foreground">{formatAud(order.buyerFeeCents)}</dd>
           </div>
           {/* The total is the largest number here (brand-direction-one.md §6.8). */}
           <div className="mt-1 flex items-baseline justify-between gap-4 border-t border-foreground pt-3">

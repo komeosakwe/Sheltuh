@@ -127,12 +127,14 @@ test.describe("external event (free, organiser's site) at 390×844", () => {
 test.describe("Sheltüh-ticketed event at 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("buy bar Get tickets focuses the tickets, whose totals include the fee and come first", async ({ page }) => {
+  test("buy bar Buy tickets focuses the tickets, whose totals include the fee and come first", async ({ page }) => {
     await mockApi(page);
     await page.goto("/events/neon-static");
     const bar = page.locator("[data-buy-bar]");
     await expect(bar).toContainText("From A$31.70", { timeout: 30_000 });
-    await bar.getByRole("link", { name: "Get tickets" }).click();
+    // The tab is titled with the event once it's loaded (live pages render client-side).
+    await expect(page).toHaveTitle("Neon Static — Sheltüh");
+    await bar.getByRole("link", { name: "Buy tickets" }).click();
     await expect(page).toHaveURL(/#tickets$/);
     await expect(page.locator("#tickets")).toBeFocused();
     const tickets = page.locator("#tickets");
@@ -142,3 +144,80 @@ test.describe("Sheltüh-ticketed event at 390×844", () => {
     await noSidewaysScroll(page);
   });
 });
+
+test.describe("live event page that can't load", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("says so with Try again, which keeps focus and loads the page when it can", async ({ page }) => {
+    let fail = true;
+    let loads = 0;
+    await page.route("**/api/**", (route) => {
+      const url = new URL(route.request().url());
+      if (/^\/api\/events\/slug\//.test(url.pathname)) {
+        loads += 1;
+        return fail
+          ? route.fulfill({ status: 503, json: { error: "The service is busy." } })
+          : route.fulfill({ json: asPublic("neon-static") });
+      }
+      if (/\/going(\/|$)/.test(url.pathname)) return route.fulfill({ json: { count: 0, countHidden: true, closed: false } });
+      return route.fulfill({ status: 204 });
+    });
+    await page.goto("/events/neon-static");
+    await expect(page.getByRole("heading", { level: 1, name: "Couldn’t load this event" })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("alert").filter({ hasText: "The service is busy." })).toBeVisible();
+    await expect(page).toHaveTitle("Couldn’t load event — Sheltüh");
+    await expect(page.getByRole("link", { name: "Back to all events" })).toHaveAttribute("href", "/");
+
+    const retry = page.getByRole("button", { name: "Try again" });
+    await retry.focus();
+    const before = loads;
+    await page.keyboard.press("Enter");
+    await expect.poll(() => loads).toBe(before + 1);
+    await expect(retry).not.toHaveAttribute("aria-disabled", "true");
+    // Failed again: still on the button.
+    await expect(retry).toBeFocused();
+    fail = false;
+    await page.keyboard.press("Enter");
+    const title = page.getByRole("heading", { level: 1, name: "Neon Static" });
+    await expect(title).toBeFocused();
+    await expect(page).toHaveTitle("Neon Static — Sheltüh");
+  });
+});
+
+for (const width of [320, 375]) {
+  test.describe(`share popover at ${width}px`, () => {
+    test.use({ viewport: { width, height: 740 } });
+
+    test("stays inside the viewport and closes when focus leaves it", async ({ page }) => {
+      await mockApi(page);
+      // No share sheet, and a clipboard that refuses: the copy-by-hand popover.
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, "share", { value: undefined, configurable: true });
+        Object.defineProperty(navigator, "clipboard", {
+          value: { writeText: () => Promise.reject(new Error("denied")) },
+          configurable: true,
+        });
+      });
+      await page.goto("/events/neon-static");
+      const share = page.getByRole("button", { name: "Share Neon Static" });
+      await expect(share).toBeVisible({ timeout: 30_000 });
+      await share.click();
+      const popover = page.getByRole("group", { name: "Copy the link" });
+      await expect(popover).toBeVisible();
+      await expect(popover.getByRole("textbox", { name: "Link to this event" })).toBeFocused();
+      const box = await popover.boundingBox();
+      if (!box) throw new Error("popover not laid out");
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(width);
+      const shareBox = await share.boundingBox();
+      if (!shareBox) throw new Error("share not laid out");
+      expect(box.y).toBeGreaterThanOrEqual(shareBox.y + shareBox.height);
+      await noSidewaysScroll(page);
+
+      // Field → Close → Copy → out of the popover.
+      for (let i = 0; i < 3; i++) await page.keyboard.press("Tab");
+      await expect(popover).toHaveCount(0);
+      await expect(share).not.toBeFocused();
+    });
+  });
+}

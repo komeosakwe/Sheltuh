@@ -1,11 +1,10 @@
 import Link from "next/link";
 import EventArt from "@/components/EventArt";
+import CardPrice from "@/components/home/CardPrice";
+import QuickBuyLink from "@/components/QuickBuyLink";
+import { formatEventDateShort, formatEventTime } from "@/lib/format";
 import { EVENT_CATEGORIES } from "@/lib/types";
 import type { SheltuhEvent } from "@/lib/types";
-import { formatFeedPrice } from "@/lib/pricing";
-import { formatEventDateShort, formatEventTime } from "@/lib/format";
-
-const ORANGE = "#0b0b0b";
 
 interface SceneEventRowProps {
   event: SheltuhEvent;
@@ -16,54 +15,53 @@ interface SceneEventRowProps {
 }
 
 /**
- * A row is a title Link (navigates to the details page) plus a separate
- * "locate on map" button (selects + pans) — two independent, non-nested
- * interactive elements, rather than one big clickable card wrapping a link.
+ * A map list row (docs/design/brand-direction-one.md §6.15, compact card
+ * anatomy): the thumbnail, the date in mono, a title link to the event page,
+ * venue · suburb, category and the all-inclusive price, then the orange "Buy
+ * tickets" (owner decision 6), and a separate "locate on map" button
+ * (selects + pans). Independent, non-nested controls, rather than one big
+ * clickable card wrapping a link. Selected: a sunken fill, a black edge and
+ * the word "Selected", never colour alone.
  */
 export default function SceneEventRow({ event, selected, onLocate, hasLocation, detailsHref }: SceneEventRowProps) {
   const categoryLabel = EVENT_CATEGORIES.find((c) => c.value === event.category)?.label ?? event.category;
-  const priceLabel = formatFeedPrice(event);
 
   return (
     <div
-      className="grid grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-surface-border px-4 py-3 transition-colors last:border-b-0"
-      style={
-        selected
-          ? { background: "#eae6db", boxShadow: `inset 2px 0 0 ${ORANGE}` }
-          : { boxShadow: "inset 2px 0 0 transparent" }
-      }
+      className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 border-b border-l-2 border-b-surface-border px-4 py-3 last:border-b-0 ${
+        selected ? "border-l-foreground bg-surface" : "border-l-transparent"
+      }`}
     >
       <EventArt
         poster={event.poster}
         title={event.title}
         imageUrl={event.imageUrl}
-        className="h-20 w-20 flex-shrink-0  sm:h-24 sm:w-24"
+        className="h-20 w-20 shrink-0 overflow-hidden rounded-control sm:h-24 sm:w-24"
       />
 
       <div className="min-w-0">
         {selected && (
-          <span className="mb-1 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide" style={{ color: ORANGE }}>
+          <p className="eyebrow mb-1 flex items-center gap-1">
             <span aria-hidden="true">&#10003;</span> Selected
-          </span>
+          </p>
         )}
+        <p className="meta">
+          {formatEventDateShort(event.startsAt)} · {formatEventTime(event.startsAt)}
+        </p>
         <Link
           href={detailsHref}
-          className="block font-sans text-[17px] leading-snug font-semibold text-foreground underline-offset-2 hover:underline sm:text-[18px]"
+          className="mt-1 block text-base leading-[1.375rem] font-semibold break-words text-foreground underline-offset-4 hover:underline"
         >
           {event.title}
         </Link>
-        <p className="mt-1 truncate font-sans text-sm text-muted">
-          {formatEventDateShort(event.startsAt)}, {formatEventTime(event.startsAt)}
-        </p>
-        <p className="truncate font-sans text-sm text-muted">
+        <p className="truncate text-sm leading-5 text-muted">
           {event.venueName} &middot; {event.suburb}
         </p>
-        <p className="mt-1 font-sans text-sm">
-          <span className="text-muted">{categoryLabel}</span>
-          <span className="text-muted"> &middot; </span>
-          <span className="font-medium text-foreground">{priceLabel}</span>
-          {!hasLocation && <span className="ml-1.5 text-muted">&middot; not shown on map</span>}
+        <p className="text-sm leading-5 text-muted">
+          {categoryLabel}
+          {!hasLocation && <> &middot; not shown on map</>}
         </p>
+        <CardPrice event={event} className="text-sm leading-5" />
       </div>
 
       <button
@@ -73,15 +71,18 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
         aria-pressed={selected}
         aria-label={`Locate ${event.title} on the map`}
         title="Locate on map"
-        className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-control border font-sans text-base transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-        style={
-          selected
-            ? { background: ORANGE, borderColor: ORANGE, color: "#f3f0e8" }
-            : { background: "#f3f0e8", borderColor: "#0b0b0b", color: "#0b0b0b" }
-        }
+        className={`flex size-11 shrink-0 items-center justify-center rounded-control border disabled:cursor-not-allowed disabled:border-surface-border disabled:bg-surface disabled:text-muted ${
+          selected ? "border-foreground bg-foreground text-background" : "border-foreground bg-card text-foreground hover:bg-surface"
+        }`}
       >
-        <span aria-hidden="true">&#8982;</span>
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" className="h-5 w-5">
+          <circle cx="12" cy="12" r="6" />
+          <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+        </svg>
       </button>
+
+      {/* Under the text and the locate button, so it has room at 320px. */}
+      <QuickBuyLink event={event} narrow className="col-span-2 col-start-2 pt-3" />
     </div>
   );
 }

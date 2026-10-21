@@ -10,6 +10,7 @@ import { ApiError, type GetToken } from "@/lib/api/client";
 import { MAX_TRACKING_LINKS_PER_EVENT, type TrackingLink } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import DataTable from "./DataTable";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 export const MAX_LABEL_LENGTH = 40;
 const COPIED_MS = 2000;
@@ -191,7 +192,7 @@ export default function TrackingLinks({ eventId, getToken }: { eventId: string; 
         the people who click.
       </p>
 
-      {state.status === "loading" && <p className="text-sm text-muted">Loading links…</p>}
+      {state.status === "loading" && <LoadingState text="Loading links…" />}
 
       {state.status === "error" && (
         <div className="flex flex-col items-start gap-3">

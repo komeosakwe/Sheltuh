@@ -30,30 +30,29 @@ const event = (overrides: Partial<SheltuhEvent> = {}): SheltuhEvent => ({
 const external = (externalFree: boolean) =>
   event({ ticketTypes: [], ticketingMode: "external", externalTicketUrl: "https://dice.fm/x", externalFree, externalProvider: "DICE" });
 
-describe("quickBuyLabel (brand-direction-one.md §6.6)", () => {
+describe("quickBuyLabel (brand-direction-one.md §6.6; owner wording, 21 Oct 2026)", () => {
   it.each([
-    ["paid", event(), "Get tickets"],
+    ["paid", event(), "Buy tickets"],
     ["all free", event({ ticketTypes: [ticket(0), ticket(0)] }), "Get free tickets"],
-    ["free and paid tiers", event({ ticketTypes: [ticket(0), ticket(1500)] }), "Get tickets"],
-    ["external, paid", external(false), "Get tickets"],
-    ["external, free", external(true), "Get tickets"],
-  ])("live, %s: %s", (_label, e, expected) => {
-    expect(quickBuyLabel(e, "live")).toBe(expected);
+    ["free and paid tiers", event({ ticketTypes: [ticket(0), ticket(1500)] }), "Buy tickets"],
+    ["external, paid", external(false), "Buy tickets"],
+    ["external, free", external(true), "Buy tickets"],
+  ])("%s: %s", (_label, e, expected) => {
+    expect(quickBuyLabel(e)).toBe(expected);
   });
 
-  it("demo: 'See tickets' (nothing is bookable)", () => {
-    expect(quickBuyLabel(event(), "demo")).toBe("See tickets");
-    expect(quickBuyLabel(event({ ticketTypes: [ticket(0)] }), "demo")).toBe("See tickets");
-    expect(quickBuyLabel(external(false), "demo")).toBe("See tickets");
+  it("never says 'See tickets' or 'Get tickets' any more (demo mode included: the same words)", () => {
+    for (const e of [event(), event({ ticketTypes: [ticket(0)] }), external(false), external(true)]) {
+      expect(quickBuyLabel(e)).not.toMatch(/^(See|Get) tickets$/);
+    }
   });
 
   it("no link when there are no ticket types yet (the card says 'Tickets coming soon')", () => {
-    expect(quickBuyLabel(event({ ticketTypes: [] }), "live")).toBeNull();
-    expect(quickBuyLabel(event({ ticketTypes: [] }), "demo")).toBeNull();
+    expect(quickBuyLabel(event({ ticketTypes: [] }))).toBeNull();
   });
 
   it("no link once the event has ended", () => {
-    expect(quickBuyLabel(event(), "live", new Date("2026-11-01T11:00:00.000Z"))).toBeNull();
-    expect(quickBuyLabel(event(), "live", new Date("2026-11-01T10:59:59.000Z"))).toBe("Get tickets");
+    expect(quickBuyLabel(event(), new Date("2026-11-01T11:00:00.000Z"))).toBeNull();
+    expect(quickBuyLabel(event(), new Date("2026-11-01T10:59:59.000Z"))).toBe("Buy tickets");
   });
 });

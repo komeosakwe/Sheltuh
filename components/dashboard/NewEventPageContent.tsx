@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import EventEditor from "@/components/dashboard/EventEditor";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 export default function NewEventPageContent() {
   const auth = useAuth();
@@ -20,12 +21,12 @@ export default function NewEventPageContent() {
   }
 
   if (auth.status === "loading" || loading) {
-    return <p className="text-sm text-muted">Loading…</p>;
+    return <LoadingState text="Loading…" />;
   }
 
   if (auth.status !== "signed-in" || !organiser || organiser.status !== "approved") {
     return (
-      <div className="bg-surface p-4">
+      <div className="rounded-card border border-foreground bg-card p-4">
         <p className="mb-3 text-foreground">You need an approved organiser application to create events.</p>
         <Link href="/organisers/apply" className="btn btn-solid">
           Apply as an organiser

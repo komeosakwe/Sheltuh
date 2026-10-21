@@ -18,6 +18,7 @@ import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
 import { useProfile } from "@/lib/auth/useProfile";
 import { endSentence, validateDisplayName } from "@/lib/display-name";
 import { withNext } from "@/lib/safe-next-path";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 const pillClass = "w-full sm:w-auto";
 const linkClass = "underline underline-offset-4 hover:decoration-2";
@@ -42,7 +43,7 @@ export default function AccountContent() {
   }
 
   if (!auth.configured) return <DemoAccount />;
-  if (auth.status === "loading") return <p className="text-sm text-muted">Loading your account…</p>;
+  if (auth.status === "loading") return <LoadingState text="Loading your account…" />;
   if (auth.status === "signed-out") {
     return (
       <EmptyState
@@ -77,7 +78,7 @@ export default function AccountContent() {
 
       {state.status === "loading" && (
         <Panel title="Who's Going profile">
-          <p className="text-sm text-muted">Loading your profile…</p>
+          <LoadingState text="Loading your profile…" />
         </Panel>
       )}
 

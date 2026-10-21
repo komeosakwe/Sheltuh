@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/ui/Section";
 import { isApiConfigured, type GetToken } from "@/lib/api/client";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { withNext } from "@/lib/safe-next-path";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 /**
  * The shared front door of the messages pages. Demo mode (no API) renders
@@ -36,7 +37,7 @@ export default function MessagesGate({
     return frame(
       <>
         {pageTitle && <h1 className="sr-only">{pageTitle}</h1>}
-        <p className="text-sm text-muted">Loading…</p>
+        <LoadingState text="Loading…" />
       </>,
     );
   }

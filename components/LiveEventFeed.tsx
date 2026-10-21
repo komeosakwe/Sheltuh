@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import EventResults from "@/components/EventResults";
+import FeedLoading from "@/components/FeedLoading";
+import { useLoadingProgress } from "@/components/ui/ProgressLoader";
 import { Button } from "@/components/ui/Button";
 import { EmptyState, Notice } from "@/components/ui/Section";
 import EventFilterBar, { type PricingFilter } from "@/components/EventFilterBar";
@@ -46,6 +48,7 @@ export default function LiveEventFeed({ categories, query, initialCategory = "al
   const requestIdRef = useRef(0);
 
   const hasActiveFilters = category !== "all" || pricing !== "all" || onOrAfter !== "";
+  const progress = useLoadingProgress(status === "loading");
 
   function resetFilters() {
     setCategory("all");
@@ -171,10 +174,12 @@ export default function LiveEventFeed({ categories, query, initialCategory = "al
         onReset={resetFilters}
       />
 
-      {/* Always mounted so "Loading events…" is announced (see EventFeed). */}
-      <p role="status" className={status === "loading" ? "text-sm text-muted" : "sr-only"}>
+      {/* Always mounted so "Loading events…" is announced (see EventFeed); the loader shows the progress. */}
+      <p role="status" className="sr-only">
         {status === "loading" ? "Loading events…" : ""}
       </p>
+
+      {progress.visible && status !== "error" && <FeedLoading percent={progress.percent} done={progress.done} />}
 
       {status === "error" && (
         <div className="flex flex-col items-start gap-4">
@@ -187,11 +192,11 @@ export default function LiveEventFeed({ categories, query, initialCategory = "al
         </div>
       )}
 
-      {status === "loaded" && (
+      {status === "loaded" && !progress.visible && (
         <>
           {/* This is how many results have loaded so far, not the total
               number of events in the database — later pages may add more. */}
-          <p aria-live="polite" className="text-sm text-muted">
+          <p aria-live="polite" className="meta text-muted">
             Showing {events.length} event{events.length === 1 ? "" : "s"}
             {hasActiveFilters || query ? " matching your search" : ""}
           </p>

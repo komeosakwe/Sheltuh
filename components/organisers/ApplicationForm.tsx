@@ -169,7 +169,7 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5" noValidate>
       <div className="flex flex-col gap-1">
-        <label htmlFor="displayName" className="text-sm font-medium text-foreground">
+        <label htmlFor="displayName" className="eyebrow text-muted">
           Organiser name
         </label>
         <input
@@ -187,7 +187,7 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
       </div>
 
       <div className="flex flex-col gap-1">
-        <label htmlFor="contactEmail" className="text-sm font-medium text-foreground">
+        <label htmlFor="contactEmail" className="eyebrow text-muted">
           Contact email
         </label>
         <input
@@ -206,7 +206,7 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
       </div>
 
       <div className="flex flex-col gap-1">
-        <label htmlFor="description" className="text-sm font-medium text-foreground">
+        <label htmlFor="description" className="eyebrow text-muted">
           Short description
         </label>
         <textarea
@@ -233,7 +233,7 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
         className="flex flex-col gap-2"
         aria-describedby={errors.categories ? `${ID_PREFIX}-categories-error` : undefined}
       >
-        <legend className="text-sm font-medium text-foreground">Event categories</legend>
+        <legend className="eyebrow text-muted">Event categories</legend>
         <div className="flex flex-wrap gap-3">
           {EVENT_CATEGORIES.map((c) => (
             <label key={c.value} className="flex items-center gap-1.5 text-sm text-foreground">
@@ -257,7 +257,7 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
       </fieldset>
 
       <div className="flex flex-col gap-1">
-        <label htmlFor="websiteUrl" className="text-sm font-medium text-foreground">
+        <label htmlFor="websiteUrl" className="eyebrow text-muted">
           Website (optional)
         </label>
         <input
@@ -280,7 +280,7 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
       </div>
 
       <fieldset className="flex flex-col gap-4" aria-describedby="application-social-note">
-        <legend className="text-sm font-medium text-foreground">Social profiles (optional)</legend>
+        <legend className="eyebrow text-muted">Social profiles (optional)</legend>
         <p id="application-social-note" className="text-sm text-muted">
           {PUBLIC_NOTE}
         </p>

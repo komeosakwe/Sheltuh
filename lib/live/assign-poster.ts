@@ -9,15 +9,16 @@ import type { EventPoster, PosterPattern } from "@/lib/types";
  */
 const PATTERNS: PosterPattern[] = ["burst", "rings", "grid", "stripes", "waves", "confetti", "curtain", "halftone"];
 
+/** Brand colourways per pattern (docs/design/brand-direction-one.md §8.2): black, Signal Orange and cream only. */
 const PALETTES: [background: string, primary: string, secondary: string][] = [
-  ["#0a0a12", "#1e3fe0", "#ff2f6e"],
-  ["#141414", "#d98a3d", "#2f5bf6"],
-  ["#050507", "#2451f5", "#f5f4f0"],
-  ["#000000", "#1633a8", "#34e2c4"],
-  ["#0b0b0f", "#3b5bff", "#ffcf4d"],
-  ["#111116", "#274bdb", "#ff6b3d"],
-  ["#08080c", "#152e8a", "#c81d4f"],
-  ["#101014", "#0c2fb0", "#2fd0c8"],
+  ["#000000", "#ff4800", "#fffae7"],
+  ["#ff4800", "#000000", "#fffae7"],
+  ["#fffae7", "#000000", "#ff4800"],
+  ["#000000", "#fffae7", "#ff4800"],
+  ["#ff4800", "#fffae7", "#000000"],
+  ["#fffae7", "#ff4800", "#000000"],
+  ["#000000", "#ff4800", "#000000"],
+  ["#ff4800", "#000000", "#000000"],
 ];
 
 function hashString(input: string): number {
