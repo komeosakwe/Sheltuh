@@ -82,3 +82,34 @@ One responsive home, generalising the phone home: rails below `sm`, grids from
 `sm`, an "Up next" featured card in the hero from `lg`. Sections: Up next,
 Trending, This weekend (Fri 17:00 to Sun 23:59 Melbourne time), Coming up near
 you, and the rest. Each event appears once on the page.
+
+## Added 21 Oct 2026 (owner)
+
+### Brand Direction One redesign
+
+The whole site moves to the official brand identity ("Structured Expression"):
+black, white, cream `#FFFAE7` and Signal Orange `#FF4800`; Bootzy TM display
+(licensed files still needed; temporary fallback until then), Instrument Sans,
+IBM Plex Mono; the official wordmark, ü and two-dot logos in `public/brand/`.
+Spec: `docs/design/brand-direction-one.md`. It replaces the earlier visual
+direction (pink accents) but keeps the home structure in `docs/design/home.md`.
+Functionality, API contracts and the door scanner's functional colours are
+unchanged.
+
+### Discovery and buying
+
+- Quick buy from event cards: a direct "Get tickets" route from home and
+  discovery cards, without breaking the card's main link.
+- Share to a friend: Web Share API with a copy-link fallback, on cards and the
+  event page.
+- Add to calendar (low priority): `.ics` download and a Google Calendar link on
+  the event page and the ticket confirmation.
+- Waitlist for sold-out events: join from the event page and cards;
+  backend design to follow (consent, notification when tickets free up).
+
+### Pricing (ACCC)
+
+Advertised prices are the all-inclusive total, including the unavoidable
+booking fee, and no partial price is more prominent than the total. This
+applies to event cards, the ticket-selection screen and checkout, not only the
+payment step. Checkout stays visually quiet, predictable and trustworthy.
