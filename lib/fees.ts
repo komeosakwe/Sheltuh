@@ -1,3 +1,4 @@
+import { formatAud } from "./format";
 import type { FeePolicy } from "./types";
 
 /** Percentage of ticket face value charged as a booking fee. */
@@ -13,6 +14,18 @@ export const BOOKING_FEE_FLAT_CENTS = 50;
  * and the event editor.
  */
 export const MIN_PAID_TICKET_CENTS = 100;
+
+/**
+ * The booking fee as buyers read it, e.g. "4% of ticket face value + A$0.50
+ * per paid ticket". Built from BOOKING_FEE_RATE and BOOKING_FEE_FLAT_CENTS so
+ * the copy can't drift from what's charged.
+ */
+export function describeBookingFee(): string {
+  // Rounded to two decimal places of a percent, so a rate like 0.035 reads
+  // "3.5%" rather than the float's "3.5000000000000004%".
+  const percent = Math.round(BOOKING_FEE_RATE * 10000) / 100;
+  return `${percent}% of ticket face value + ${formatAud(BOOKING_FEE_FLAT_CENTS)} per paid ticket`;
+}
 
 /**
  * Booking fee for a single paid ticket: 4% of face value + A$0.50.

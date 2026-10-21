@@ -7,17 +7,27 @@ export function getTicketBuyerTotalCents(ticket: TicketType): number {
   return calculateOrderSummary(ticket.priceCents, 1, ticket.feePolicy).totalCents;
 }
 
-/** Cheapest buyer-payable total across an event's ticket types. */
-export function getMinBuyerTotalCents(event: SheltuhEvent): number {
+/**
+ * Cheapest buyer-payable total across an event's ticket types. `null` when
+ * the event has no ticket types: there's no price yet (not a free event, and
+ * never `Math.min()`'s `Infinity`).
+ */
+export function getMinBuyerTotalCents(event: SheltuhEvent): number | null {
+  if (event.ticketTypes.length === 0) return null;
   return Math.min(...event.ticketTypes.map(getTicketBuyerTotalCents));
 }
 
+/** Feed label for an event with no ticket types yet. */
+export const NO_TICKETS_LABEL = "Tickets coming soon";
+
 /**
  * Feed-card price label, e.g. "Free", "A$32 incl. booking fee", or
- * "From A$32 incl. booking fee" when ticket types vary in price.
+ * "From A$32 incl. booking fee" when ticket types vary in price;
+ * NO_TICKETS_LABEL when there are no ticket types.
  */
 export function formatFeedPrice(event: SheltuhEvent): string {
   const minTotalCents = getMinBuyerTotalCents(event);
+  if (minTotalCents === null) return NO_TICKETS_LABEL;
   if (minTotalCents === 0) return "Free";
   const prefix = event.ticketTypes.length > 1 ? "From " : "";
   return `${prefix}${formatAud(minTotalCents)} incl. booking fee`;
@@ -37,8 +47,8 @@ export interface FeedPriceParts {
  * when the event has no ticket types, since there's no price to show.
  */
 export function formatFeedPriceParts(event: SheltuhEvent): FeedPriceParts | null {
-  if (event.ticketTypes.length === 0) return null;
   const minTotalCents = getMinBuyerTotalCents(event);
+  if (minTotalCents === null) return null;
   if (minTotalCents === 0) {
     const hasPaid = event.ticketTypes.some((ticket) => ticket.priceCents > 0);
     return { amount: "Free", note: hasPaid ? "Paid tickets incl. booking fee" : "No booking fee" };

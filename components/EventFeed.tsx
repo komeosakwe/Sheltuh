@@ -5,7 +5,7 @@ import DemoNotice from "@/components/DemoNotice";
 import EventBrowser from "@/components/EventBrowser";
 import LiveEventFeed from "@/components/LiveEventFeed";
 import { isApiConfigured } from "@/lib/api/client";
-import { getEventCategories, getEvents } from "@/lib/data";
+import { getEventCategories, getUpcomingEvents } from "@/lib/data";
 import type { CategoryFilter, PricingFilter } from "@/lib/event-filter-params";
 import type { SheltuhEvent } from "@/lib/types";
 
@@ -24,7 +24,8 @@ function DemoEventFeed({ query, initialCategory, initialPricing }: FeedProps) {
 
   useEffect(() => {
     let cancelled = false;
-    getEvents().then((loaded) => {
+    // Same rule as the live feed (upcoming=1): only events that haven't ended.
+    getUpcomingEvents().then((loaded) => {
       if (!cancelled) setEvents(loaded);
     });
     return () => {

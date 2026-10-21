@@ -58,5 +58,11 @@ describe("loadHomeEvents (live)", () => {
     const events = await loadHomeEvents();
     expect(listPublicEvents).toHaveBeenCalledTimes(3);
     expect(events).toHaveLength(HOME_EVENT_LIMIT);
+    // Only events that haven't ended (upcoming=1), on every page.
+    expect(listPublicEvents.mock.calls.map(([params]) => params)).toEqual([
+      { upcoming: true, cursor: undefined },
+      { upcoming: true, cursor: "c1" },
+      { upcoming: true, cursor: "c2" },
+    ]);
   });
 });

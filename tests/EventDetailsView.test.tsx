@@ -2,6 +2,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import EventDetailsView from "@/components/EventDetailsView";
+import { describeBookingFee } from "@/lib/fees";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
 
@@ -83,5 +84,31 @@ describe("EventDetailsView organiser", () => {
     render(<EventDetailsView event={event} demo />);
     expect(screen.getByText(`Organised by ${event.organiserName}`).tagName).toBe("DD");
     expect(screen.queryByRole("link", { name: event.organiserName })).not.toBeInTheDocument();
+  });
+});
+
+describe("EventDetailsView tickets panel", () => {
+  function ticketsPanel(container: HTMLElement): HTMLElement {
+    const tickets = container.querySelector<HTMLElement>("#tickets");
+    if (!tickets) throw new Error("#tickets not rendered");
+    return tickets;
+  }
+
+  it("states the booking fee from lib/fees.ts, so the copy can't drift from what's charged", () => {
+    const { container } = render(<EventDetailsView event={findEvent("neon-static")} demo />);
+    const tickets = ticketsPanel(container);
+    const sentence = `Booking fee: ${describeBookingFee()}. Free tickets never carry a fee.`;
+    expect(within(tickets).getByText(sentence)).toBeInTheDocument();
+    // And it says what's actually charged today.
+    expect(sentence).toBe("Booking fee: 4% of ticket face value + A$0.50 per paid ticket. Free tickets never carry a fee.");
+  });
+
+  it("says tickets are coming soon when there are no ticket types, with no fee copy and nothing to select", () => {
+    const { container } = render(<EventDetailsView event={{ ...findEvent("neon-static"), ticketTypes: [] }} demo />);
+    const tickets = ticketsPanel(container);
+    expect(within(tickets).getByText("Tickets coming soon.")).toBeInTheDocument();
+    expect(within(tickets).queryByText(/Booking fee/)).not.toBeInTheDocument();
+    expect(within(tickets).queryByRole("button")).not.toBeInTheDocument();
+    expect(within(tickets).queryByRole("textbox")).not.toBeInTheDocument();
   });
 });

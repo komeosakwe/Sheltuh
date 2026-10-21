@@ -107,6 +107,13 @@ describe("matchesPricing", () => {
     expect(matchesPricing(cheap, "under25")).toBe(true);
     expect(matchesPricing(pricey, "under25")).toBe(false);
   });
+
+  it("an event with no ticket types yet is neither free nor under A$25 (it has no price)", () => {
+    const noTickets = eventAt("2026-09-20T00:00:00Z", { ticketTypes: [] });
+    expect(matchesPricing(noTickets, "all")).toBe(true);
+    expect(matchesPricing(noTickets, "free")).toBe(false);
+    expect(matchesPricing(noTickets, "under25")).toBe(false);
+  });
 });
 
 describe("matchesSearch", () => {

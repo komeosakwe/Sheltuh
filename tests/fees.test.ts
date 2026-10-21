@@ -3,6 +3,7 @@ import {
   BOOKING_FEE_FLAT_CENTS,
   BOOKING_FEE_RATE,
   calculateBookingFeeCents,
+  describeBookingFee,
   calculateOrderSummary,
   sumOrderSummaries,
 } from "../lib/fees";
@@ -115,5 +116,21 @@ describe("sumOrderSummaries", () => {
 
   it("sums to zero for an empty order", () => {
     expect(sumOrderSummaries([])).toEqual({ subtotalCents: 0, buyerFeeCents: 0, totalCents: 0 });
+  });
+});
+
+describe("describeBookingFee", () => {
+  it("states the fee buyers are charged: 4% + A$0.50 per paid ticket", () => {
+    expect(describeBookingFee()).toBe("4% of ticket face value + A$0.50 per paid ticket");
+  });
+
+  it("is built from the same constants calculateBookingFeeCents uses", () => {
+    // A A$10 ticket: the description's percentage and flat amount give the charged fee.
+    const [, percent, flatDollars] = describeBookingFee().match(/^([\d.]+)% .* \+ A\$([\d.]+) per paid ticket$/) ?? [];
+    expect(Number(percent) / 100).toBe(BOOKING_FEE_RATE);
+    expect(Math.round(Number(flatDollars) * 100)).toBe(BOOKING_FEE_FLAT_CENTS);
+    expect(Math.round(1000 * (Number(percent) / 100)) + Math.round(Number(flatDollars) * 100)).toBe(
+      calculateBookingFeeCents(1000),
+    );
   });
 });

@@ -10,6 +10,7 @@ import WhosGoing from "@/components/WhosGoing";
 import { WhosGoingProvider } from "@/components/whos-going/WhosGoingProvider";
 import WhosGoingSummaryLink from "@/components/whos-going/WhosGoingSummaryLink";
 import { Panel } from "@/components/ui/Section";
+import { describeBookingFee } from "@/lib/fees";
 import { formatEventDateTimeRange } from "@/lib/format";
 import { formatFeedPriceParts } from "@/lib/pricing";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
@@ -165,11 +166,17 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                 screen-reader focus to the tickets too. */}
             <div id="tickets" tabIndex={-1} className="focus:outline-none">
               <Panel title="Tickets">
-                <p className="mb-5 text-sm text-muted">
-                  Booking fee: 4% of ticket face value + A$0.50 per paid ticket. Free tickets never
-                  carry a fee.
-                </p>
-                <TicketSelector event={event} />
+                {event.ticketTypes.length === 0 ? (
+                  // Nothing on sale yet: no fee to explain and nothing to select.
+                  <p className="text-sm text-muted">Tickets coming soon.</p>
+                ) : (
+                  <>
+                    <p className="mb-5 text-sm text-muted">
+                      Booking fee: {describeBookingFee()}. Free tickets never carry a fee.
+                    </p>
+                    <TicketSelector event={event} />
+                  </>
+                )}
               </Panel>
             </div>
           </aside>

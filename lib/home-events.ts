@@ -1,6 +1,6 @@
 import { isApiConfigured } from "@/lib/api/client";
 import { listPublicEvents } from "@/lib/api/public-events";
-import { getEvents } from "@/lib/data";
+import { getUpcomingEvents } from "@/lib/data";
 import { adaptPublicEvent } from "@/lib/live/adapt";
 import type { SheltuhEvent } from "@/lib/types";
 
@@ -8,15 +8,17 @@ import type { SheltuhEvent } from "@/lib/types";
 export const HOME_EVENT_LIMIT = 24;
 
 async function load(): Promise<SheltuhEvent[]> {
+  // Only events that haven't ended (upcoming=1), so past ones can't crowd
+  // out what's coming up. Demo mode applies the same rule to the sample data.
   if (!isApiConfigured) {
-    const all = await getEvents();
+    const all = await getUpcomingEvents();
     return [...all].sort((a, b) => a.startsAt.localeCompare(b.startsAt)).slice(0, HOME_EVENT_LIMIT);
   }
   // Pages of 10: fetch enough to fill the wide carousel.
   const items: SheltuhEvent[] = [];
   let cursor: string | undefined;
   for (let i = 0; i < 3 && items.length < HOME_EVENT_LIMIT; i++) {
-    const page = await listPublicEvents({ cursor });
+    const page = await listPublicEvents({ upcoming: true, cursor });
     items.push(...page.items.map(adaptPublicEvent));
     cursor = page.nextCursor;
     if (!cursor) break;
@@ -27,7 +29,7 @@ async function load(): Promise<SheltuhEvent[]> {
 let inflight: Promise<SheltuhEvent[]> | null = null;
 
 /**
- * The home page's events, soonest first. The desktop preview and the phone
+ * The home page's events that haven't ended yet, soonest first. The desktop preview and the phone
  * sections both mount on every viewport, so concurrent callers share one
  * request set; once it settles the next call (a retry, a later visit) loads afresh.
  */

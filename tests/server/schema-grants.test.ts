@@ -142,11 +142,12 @@ describe("Data API lock-out", () => {
     expect(executable).toEqual([]);
   });
 
-  it("every `private` function pins its search_path, apart from the four that predate the rule", async () => {
+  it("every `private` function pins its search_path, apart from the three that predate the rule", async () => {
     // A function without a pinned search_path resolves names through the
-    // caller's. New ones must set it (`set search_path = ''`); these four
+    // caller's. New ones must set it (`set search_path = ''`); these three
     // (init migration) predate the rule and schema-qualify every name instead.
-    // fulfil_order was pinned when the email outbox redefined it.
+    // fulfil_order was pinned when the email outbox redefined it, and
+    // replace_ticket_types when the listing fixes did.
     const unpinned = await db.query<{ fn: string }>(
       `select p.proname as fn from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'private'
@@ -155,7 +156,6 @@ describe("Data API lock-out", () => {
     );
     expect(unpinned.map((r) => r.fn)).toEqual([
       "create_event_draft",
-      "replace_ticket_types",
       "transition_event",
       "update_event_draft",
     ]);

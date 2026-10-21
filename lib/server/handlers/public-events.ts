@@ -26,7 +26,14 @@ export const listPublicEvents: Handler = async (req, _params, { db }) => {
   const pricing = qs.get("pricing");
   if (pricing) {
     if (pricing !== "free" && pricing !== "paid") throw new HttpError(400, "pricing must be 'free' or 'paid'.");
-    where.push(pricing === "free" ? "e.is_free" : "not e.is_free");
+    // An event with no ticket types yet is neither: is_free is false for it
+    // (private.replace_ticket_types), and it has no paid ticket type either.
+    // The paid check is an index lookup on ticket_types' (event_id, id) key.
+    where.push(
+      pricing === "free"
+        ? "e.is_free"
+        : "exists (select 1 from public.ticket_types t where t.event_id = e.id and t.price_cents > 0)",
+    );
   }
 
   const onOrAfter = qs.get("onOrAfter");
@@ -46,7 +53,9 @@ export const listPublicEvents: Handler = async (req, _params, { db }) => {
   // below is already soonest first, so the offset cursor stays consistent:
   // each page re-applies the same filter and order. An event that ends
   // between two page loads drops out and shifts later rows up by one, as any
-  // change to the feed does with an offset cursor.
+  // change to the feed does with an offset cursor. Absent, empty, 0 or false
+  // means every published event (the original behaviour); anything else is a
+  // 400. Served by events_status_ends_idx.
   const upcoming = qs.get("upcoming");
   if (upcoming !== null && upcoming !== "") {
     if (upcoming === "1" || upcoming === "true") where.push("e.ends_at > now()");

@@ -70,7 +70,11 @@ async function mockEventsApi(route: Route, all: FakeEvent[]) {
 
 test("loads more than 20 records across multiple 'Load more' clicks", async ({ page }) => {
   const all = Array.from({ length: 25 }, (_, i) => makeEvent(i + 1));
-  await page.route("**/api/events*", (route) => mockEventsApi(route, all));
+  const requested: URL[] = [];
+  await page.route("**/api/events*", (route) => {
+    requested.push(new URL(route.request().url()));
+    return mockEventsApi(route, all);
+  });
 
   await page.goto("/events");
   await expect(page.getByText("Event 1", { exact: true })).toBeVisible();
@@ -86,6 +90,11 @@ test("loads more than 20 records across multiple 'Load more' clicks", async ({ p
 
   // All 25 loaded — the button disappears once nextCursor runs out.
   await expect(page.getByRole("button", { name: "Load more" })).toHaveCount(0);
+
+  // Every page, the first and each "Load more", asks only for events that haven't ended.
+  const feedRequests = requested.filter((url) => url.pathname === "/api/events");
+  expect(feedRequests.length).toBeGreaterThanOrEqual(3);
+  for (const url of feedRequests) expect(url.searchParams.get("upcoming")).toBe("1");
 });
 
 test("skips an empty filtered page that still has a cursor, reaching matches on a later page", async ({ page }) => {

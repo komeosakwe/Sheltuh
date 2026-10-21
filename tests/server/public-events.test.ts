@@ -150,3 +150,123 @@ describe("public feed filters and paging", () => {
     expect(page2.body.nextCursor).toBeUndefined();
   });
 });
+
+/** Moves an event's start and end relative to the database's now(), e.g. ("-3 hours", "-1 hour"). */
+async function setTimes(eventId: string, startOffset: string, endOffset: string) {
+  await api.db.query(
+    `update public.events set starts_at = now() + $2::interval, ends_at = now() + $3::interval where id = $1`,
+    [eventId, startOffset, endOffset],
+  );
+}
+
+describe("upcoming=1 (home page and /events)", () => {
+  beforeEach(async () => {
+    const ended = await publishedEvent(api, organiser, admin, { title: "Ended last week" });
+    await setTimes(ended.eventId, "-7 days -3 hours", "-7 days");
+    const justEnded = await publishedEvent(api, organiser, admin, { title: "Ended a minute ago" });
+    await setTimes(justEnded.eventId, "-3 hours", "-1 minute");
+    const inProgress = await publishedEvent(api, organiser, admin, { title: "On now" });
+    await setTimes(inProgress.eventId, "-1 hour", "2 hours");
+    const tonight = await publishedEvent(api, organiser, admin, { title: "Tonight" });
+    await setTimes(tonight.eventId, "5 hours", "8 hours");
+    const nextWeek = await publishedEvent(api, organiser, admin, { title: "Next week" });
+    await setTimes(nextWeek.eventId, "7 days", "7 days 3 hours");
+  });
+
+  it("drops events that have ended, keeps ones in progress, soonest first", async () => {
+    expect(titles(await api.call(listPublicEvents, { query: { upcoming: "1" } }))).toEqual([
+      "On now",
+      "Tonight",
+      "Next week",
+    ]);
+    expect(titles(await api.call(listPublicEvents, { query: { upcoming: "true" } }))).toEqual([
+      "On now",
+      "Tonight",
+      "Next week",
+    ]);
+  });
+
+  it("without it (or with 0, false or empty), still lists every published event, past ones included", async () => {
+    const all = ["Ended last week", "Ended a minute ago", "On now", "Tonight", "Next week"];
+    expect(titles(await api.call(listPublicEvents))).toEqual(all);
+    for (const upcoming of ["0", "false", ""]) {
+      expect(titles(await api.call(listPublicEvents, { query: { upcoming } }))).toEqual(all);
+    }
+  });
+
+  it("pages with the cursor through upcoming events only", async () => {
+    const page1 = await api.call(listPublicEvents, { query: { upcoming: "1", limit: "2" } });
+    expect(titles(page1)).toEqual(["On now", "Tonight"]);
+    expect(page1.body.nextCursor).toEqual(expect.any(String));
+    const page2 = await api.call(listPublicEvents, {
+      query: { upcoming: "1", limit: "2", cursor: page1.body.nextCursor },
+    });
+    expect(titles(page2)).toEqual(["Next week"]);
+    expect(page2.body.nextCursor).toBeUndefined();
+  });
+
+  it("combines with the other filters", async () => {
+    expect(titles(await api.call(listPublicEvents, { query: { upcoming: "1", q: "week" } }))).toEqual(["Next week"]);
+    expect(titles(await api.call(listPublicEvents, { query: { upcoming: "1", pricing: "free" } }))).toEqual([]);
+    expect(titles(await api.call(listPublicEvents, { query: { upcoming: "1", pricing: "paid" } }))).toHaveLength(3);
+  });
+
+  it("rejects any other value with 400", async () => {
+    for (const upcoming of ["yes", "2", "TRUE", "1 ", "upcoming", "-1"]) {
+      const res = await api.call(listPublicEvents, { query: { upcoming } });
+      expect(res.status, upcoming).toBe(400);
+      expect(res.body).toMatchObject({ error: "upcoming must be 1 or 0." });
+    }
+  });
+});
+
+describe("events with no ticket types", () => {
+  // The API requires a ticket type today; external ticketing (B2) won't. Until
+  // then the only way to get here is the database function itself.
+  async function withoutTicketTypes(title: string) {
+    const event = await publishedEvent(api, organiser, admin, {
+      title,
+      ticketTypes: [{ id: "free", name: "Free entry", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 30 }],
+    });
+    await api.db.query(`select private.replace_ticket_types($1, '[]'::jsonb)`, [event.eventId]);
+    return event;
+  }
+
+  const isFree = async (eventId: string) =>
+    (await api.db.query<{ is_free: boolean }>(`select is_free from public.events where id = $1`, [eventId]))[0].is_free;
+
+  it("are neither free nor paid, but still listed with an empty ticket list", async () => {
+    const bare = await withoutTicketTypes("No tickets yet");
+    await publishedEvent(api, organiser, admin, { title: "Paid gig" });
+    const free = await publishedEvent(api, organiser, admin, {
+      title: "Free gig",
+      ticketTypes: [{ id: "free", name: "Free entry", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 30 }],
+    });
+
+    expect(await isFree(bare.eventId)).toBe(false);
+    expect(await isFree(free.eventId)).toBe(true);
+    expect(titles(await api.call(listPublicEvents, { query: { pricing: "free" } }))).toEqual(["Free gig"]);
+    expect(titles(await api.call(listPublicEvents, { query: { pricing: "paid" } }))).toEqual(["Paid gig"]);
+
+    const listed = (await api.call(listPublicEvents)).body.items.find((e: { title: string }) => e.title === "No tickets yet");
+    expect(listed.ticketTypes).toEqual([]);
+    const page = await api.call(getPublicEventBySlug, { params: { slug: bare.slug } });
+    expect(page.status).toBe(200);
+    expect(page.body.ticketTypes).toEqual([]);
+  });
+
+  it("is_free follows the ticket types as they're replaced: none, all free, some paid", async () => {
+    const event = await withoutTicketTypes("Changing");
+    const set = (types: unknown[]) =>
+      api.db.query(`select private.replace_ticket_types($1, $2::text::jsonb)`, [event.eventId, JSON.stringify(types)]);
+    const freeType = { id: "f", name: "Free", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 5 };
+    const paidType = { id: "p", name: "Paid", priceCents: 2000, feePolicy: "buyer-pays", quantityAvailable: 5 };
+
+    await set([freeType]);
+    expect(await isFree(event.eventId)).toBe(true);
+    await set([freeType, paidType]);
+    expect(await isFree(event.eventId)).toBe(false);
+    await set([]);
+    expect(await isFree(event.eventId)).toBe(false);
+  });
+});
