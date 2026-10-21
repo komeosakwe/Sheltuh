@@ -223,12 +223,16 @@ describe("SMTP failures", () => {
     await makeDue();
     await drainEmailOutbox(api.deps);
     const [first, retry] = api.sendEmail.mock.calls.map(([m]) => m);
-    expect(retry.inlineImages).toHaveLength(1);
-    expect(retry.inlineImages![0].contentType).toBe("image/png");
-    expect(retry.html).toContain(`src="cid:${retry.inlineImages![0].cid}"`);
-    expect(retry.inlineImages![0].content.equals(first.inlineImages![0].content)).toBe(true);
+    // The wordmark, then the ticket's QR.
+    expect(retry.inlineImages).toHaveLength(2);
+    expect(retry.inlineImages!.map((i) => i.cid)).toEqual(first.inlineImages!.map((i) => i.cid));
+    for (const [i, image] of retry.inlineImages!.entries()) {
+      expect(image.contentType).toBe("image/png");
+      expect(retry.html).toContain(`src="cid:${image.cid}"`);
+      expect(image.content.equals(first.inlineImages![i].content)).toBe(true);
+    }
     const [code] = await api.db.query<{ code: string }>(`select code from public.tickets`);
-    expect(retry.html).toContain(`alt="QR code for ticket ${code.code}"`);
+    expect(retry.html).toContain(`alt="QR code for ticket ${code.code}.`);
   });
 
   it("are logged and stored without the address or the order id", async () => {

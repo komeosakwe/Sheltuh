@@ -7,7 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ApiError } from "@/lib/api/client";
 import { getOrderBySession } from "@/lib/api/orders";
-import { formatAud } from "@/lib/format";
+import { formatAud, formatEventDateTimeRange } from "@/lib/format";
 import type { CustomerOrder } from "@/lib/api/types";
 
 type LoadState =
@@ -142,6 +142,9 @@ export default function CheckoutConfirmation() {
 
   const { order } = state;
   const eventPath = order.eventSlug ? `/events/${encodeURIComponent(order.eventSlug)}` : null;
+  // Each ticket repeats the event, so a screenshot of one says what it's for. Unset from an older API.
+  const when = order.eventStartsAt ? formatEventDateTimeRange(order.eventStartsAt, order.eventEndsAt) : undefined;
+  const where = [order.venueName, order.suburb].filter((part) => !!part?.trim()).join(", ") || undefined;
   return (
     <div className="flex flex-col gap-6 py-10">
       <div className="flex flex-col items-center gap-2 text-center">
@@ -164,6 +167,10 @@ export default function CheckoutConfirmation() {
               typeName={ticket.ticketTypeName}
               ticketNumber={i + 1}
               ticketCount={order.tickets.length}
+              eventTitle={order.eventTitle}
+              when={when}
+              where={where}
+              checkedInAt={ticket.checkedInAt}
             />
           ))}
         </ul>

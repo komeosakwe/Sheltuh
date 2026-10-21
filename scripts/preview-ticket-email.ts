@@ -2,24 +2,37 @@
  * Writes the ticket confirmation email to local HTML/text files with synthetic
  * data, for eyeballing in a browser. Sends nothing and touches no service.
  *
- *   node --import tsx scripts/preview-ticket-email.ts [siteUrl]
+ *   node --import tsx scripts/preview-ticket-email.ts [siteUrl] [--out=dir] [--screenshots]
  *
- * Output: email-previews/*.html and *.txt (git-ignored). The logo is loaded
- * from `siteUrl` (default http://127.0.0.1:3111, the local dev server). The
- * real email shows each ticket's QR as an inline attachment (`cid:`), which a
- * browser can't resolve, so the preview swaps each `cid:` for a data URI of
- * the same PNG. qr-svg.html shows the SVG version (lib/ticket-qr.ts
- * `ticketQrSvgPath`, as the ticket page draws it) beside the PNG.
+ * Output: email-previews/*.html and *.txt (git-ignored), or `--out`'s
+ * directory. `siteUrl` (default http://127.0.0.1:3111, the local dev server)
+ * is only used for the "VIEW MY TICKETS" link. The footer banner is the one
+ * remote image (EMAIL_FOOTER_IMAGE_URL on sheltuh.com.au; it shows in the
+ * preview once that's deployed). The real email attaches its other images
+ * inline (`cid:`: the wordmark and
+ * each ticket's QR), which a browser can't resolve, so the preview swaps each
+ * `cid:` for a data URI of the same PNG. qr-svg.html shows the SVG version
+ * (lib/ticket-qr.ts `ticketQrSvgPath`, as the ticket page draws it) beside the
+ * PNG. email-preview.html is the multiple-tickets scenario.
+ *
+ * `--screenshots` also saves full-page screenshots of email-preview.html at
+ * 600px and 375px wide (email-preview-600.png, email-preview-375.png) and of
+ * the same email with images blocked (email-preview-375-no-images.png), with
+ * Playwright's Chromium. A browser isn't an email client: check real clients
+ * before trusting the layout.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { EmailMessage } from "../lib/server/email";
 import { buildTicketEmail } from "../lib/server/ticket-email";
 import type { EventRecord, OrderRecord } from "../lib/server/types";
 import { ticketQrLabel, ticketQrMatrix, ticketQrSvgPath } from "../lib/ticket-qr";
 
-const siteUrl = process.argv[2] ?? "http://127.0.0.1:3111";
-const outDir = path.join(process.cwd(), "email-previews");
+const args = process.argv.slice(2);
+const outArg = args.find((a) => a.startsWith("--out="));
+const screenshots = args.includes("--screenshots");
+const siteUrl = args.find((a) => !a.startsWith("--")) ?? "http://127.0.0.1:3111";
+const outDir = outArg ? path.resolve(outArg.slice("--out=".length)) : path.join(process.cwd(), "email-previews");
 
 const baseEvent = {
   title: "Neon Static",
@@ -80,25 +93,63 @@ function qrSvgPage(code: string, email: EmailMessage): string {
   const matrix = ticketQrMatrix(code);
   if (!matrix) throw new Error(`${code} isn't a ticket code`);
   const { d, size } = ticketQrSvgPath(matrix);
-  const png = email.inlineImages?.[0];
+  const png = email.inlineImages?.find((image) => image.cid.startsWith("ticket-qr-"));
   const pngTag = png ? `<img src="data:${png.contentType};base64,${png.content.toString("base64")}" width="174" height="174" alt="PNG">` : "";
   return `<!DOCTYPE html><html lang="en-AU"><head><meta charset="utf-8"><title>QR ${code}</title></head>
-<body style="font-family:sans-serif;background:#f3f0e8;padding:24px">
+<body style="font-family:sans-serif;background:#fffae7;padding:24px">
 <p>SVG (ticketQrSvgPath) and the email's PNG for ${code}</p>
 <svg role="img" aria-label="${ticketQrLabel(code)}" viewBox="0 0 ${size} ${size}" width="174" height="174" shape-rendering="crispEdges"><rect width="${size}" height="${size}" fill="#fff"/><path d="${d}" fill="#000"/></svg>
 ${pngTag}
 </body></html>`;
 }
 
-mkdirSync(outDir, { recursive: true });
-let written = 0;
-for (const [name, { order, event }] of Object.entries(scenarios)) {
-  const email = buildTicketEmail(order, event, siteUrl);
-  writeFileSync(path.join(outDir, `${name}.html`), withDataUris(email));
-  writeFileSync(path.join(outDir, `${name}.txt`), email.text);
-  written += 2;
+/** The email's HTML as a client blocking images shows it: each image's box with its alt text. */
+function imagesBlocked(email: EmailMessage): string {
+  return email.html.replace(/<img src="[^"]*"/g, '<img src=""');
 }
-const sample = scenarios["1-one-ticket"];
-writeFileSync(path.join(outDir, "qr-svg.html"), qrSvgPage("K7QM-2XPD", buildTicketEmail(sample.order, sample.event, siteUrl)));
-written += 1;
-console.log(`Wrote ${written} files to ${outDir}`);
+
+const PINNED_CHROMIUM = "/opt/pw-browsers/chromium";
+
+async function screenshot(htmlFile: string, width: number, file: string) {
+  const { chromium } = await import("@playwright/test");
+  const browser = await chromium.launch(existsSync(PINNED_CHROMIUM) ? { executablePath: PINNED_CHROMIUM } : {});
+  try {
+    const page = await browser.newPage({ viewport: { width, height: 800 }, deviceScaleFactor: 1 });
+    await page.goto(`file://${htmlFile}`);
+    await page.screenshot({ path: path.join(outDir, file), fullPage: true });
+  } finally {
+    await browser.close();
+  }
+}
+
+async function main() {
+  mkdirSync(outDir, { recursive: true });
+  let written = 0;
+  for (const [name, { order, event }] of Object.entries(scenarios)) {
+    const email = buildTicketEmail(order, event, siteUrl);
+    writeFileSync(path.join(outDir, `${name}.html`), withDataUris(email));
+    writeFileSync(path.join(outDir, `${name}.txt`), email.text);
+    written += 2;
+  }
+  const sample = scenarios["1-one-ticket"];
+  writeFileSync(path.join(outDir, "qr-svg.html"), qrSvgPage("K7QM-2XPD", buildTicketEmail(sample.order, sample.event, siteUrl)));
+  const preview = scenarios["2-multiple-tickets"];
+  const previewEmail = buildTicketEmail(preview.order, preview.event, siteUrl);
+  const previewFile = path.join(outDir, "email-preview.html");
+  writeFileSync(previewFile, withDataUris(previewEmail));
+  const blockedFile = path.join(outDir, "email-preview-no-images.html");
+  writeFileSync(blockedFile, imagesBlocked(previewEmail));
+  written += 3;
+  if (screenshots) {
+    await screenshot(previewFile, 600, "email-preview-600.png");
+    await screenshot(previewFile, 375, "email-preview-375.png");
+    await screenshot(blockedFile, 375, "email-preview-375-no-images.png");
+    written += 3;
+  }
+  console.log(`Wrote ${written} files to ${outDir}`);
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exitCode = 1;
+});

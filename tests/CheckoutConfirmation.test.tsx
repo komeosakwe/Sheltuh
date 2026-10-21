@@ -26,7 +26,20 @@ const ORDER: CustomerOrder = {
   subtotalCents: 3000,
   buyerFeeCents: 170,
   totalCents: 3170,
-  tickets: [{ ticketCode: "ABC123", ticketTypeName: "General admission" }],
+  tickets: [{ ticketCode: "ABC123", ticketTypeName: "General admission", checkedInAt: null }],
+};
+
+/** What the current API returns for a paid order: the event's details and each ticket's check-in status. */
+const WITH_DETAILS: CustomerOrder = {
+  ...ORDER,
+  eventStartsAt: "2027-03-06T09:00:00.000Z", // 8:00 pm AEDT
+  eventEndsAt: "2027-03-06T12:30:00.000Z",
+  venueName: "The Tote",
+  suburb: "Collingwood",
+  tickets: [
+    { ticketCode: "7KQM-2HXD", ticketTypeName: "General admission", checkedInAt: "2027-03-06T09:42:00.000Z" },
+    { ticketCode: "A2B3-C4D5", ticketTypeName: "VIP", checkedInAt: null },
+  ],
 };
 
 describe("CheckoutConfirmation", () => {
@@ -111,6 +124,49 @@ describe("CheckoutConfirmation", () => {
     expect(screen.queryByRole("img")).toBeNull();
     expect(screen.queryByText("7KQM-2HXD")).toBeNull();
     expect(screen.queryByText(/Show a QR code at the door/)).toBeNull();
+  });
+
+  it("shows each ticket's event, date, venue, type, QR, backup code and status", async () => {
+    getOrderBySession.mockResolvedValue(WITH_DETAILS);
+    render(<CheckoutConfirmation />);
+    expect(await screen.findByRole("img", { name: "QR code for ticket 7KQM-2HXD" })).toBeInTheDocument();
+    const tickets = screen.getAllByRole("listitem");
+    expect(tickets).toHaveLength(2);
+    for (const [i, ticket] of tickets.entries()) {
+      const text = ticket.textContent ?? "";
+      expect(text).toContain("Neon Static");
+      expect(text).toContain("Sat 6 Mar, 8:00 pm – 11:30 pm");
+      expect(text).toContain("The Tote, Collingwood");
+      expect(text).toContain("Backup code");
+      expect(text).toContain(WITH_DETAILS.tickets[i].ticketCode);
+    }
+    expect(tickets[0].textContent).toContain("Ticket 1 of 2 · General admission");
+    expect(tickets[0].textContent).toMatch(/Checked in (Sat 6 Mar( 2027)?, )?8:42 pm/);
+    expect(tickets[1].textContent).toContain("Ticket 2 of 2 · VIP");
+    expect(tickets[1].textContent).toContain("Ready to scan");
+    // Both keep their QR.
+    expect(screen.getByRole("img", { name: "QR code for ticket A2B3-C4D5" })).toBeInTheDocument();
+  });
+
+  it("from an older API (no event details or check-in status), shows the tickets without them", async () => {
+    getOrderBySession.mockResolvedValue({
+      ...ORDER,
+      tickets: [{ ticketCode: "7KQM-2HXD", ticketTypeName: "General admission" }],
+    });
+    render(<CheckoutConfirmation />);
+    expect(await screen.findByText("7KQM-2HXD")).toBeInTheDocument();
+    expect(screen.getByText("Ready to scan")).toBeInTheDocument();
+    expect(screen.queryByText(/Checked in/)).toBeNull();
+    expect(screen.getByRole("listitem").textContent).not.toMatch(/Collingwood|8:00 pm/);
+  });
+
+  it("shows a refunded order's refund copy, with no QR, date or venue, whatever the response carried", async () => {
+    getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, status: "refunded", refundReason: "refunded" });
+    render(<CheckoutConfirmation />);
+    expect(await screen.findByText("This order has been refunded")).toBeInTheDocument();
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.queryByText(/Checked in|Ready to scan|Backup code/)).toBeNull();
+    expect(document.body.textContent).not.toMatch(/7KQM-2HXD|The Tote/);
   });
 
   it("keeps the sold-out wording for an oversold refund", async () => {

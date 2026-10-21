@@ -296,22 +296,29 @@ export function toOrder(row: Row): OrderRecord {
 
 /**
  * The buyer's confirmation-page view of an order (`where o.id = $1`). Only the
- * columns CustomerOrder needs: no ids, fee split, Stripe ids or timestamps.
- * Ticket codes only while the order is paid: a refunded order's tickets are
- * void. `tickets_issued` tells a paid-then-refunded order (it had tickets)
- * from one refunded because it couldn't be fulfilled (it never did).
+ * columns CustomerOrder needs: no ids, fee split, Stripe ids or order
+ * timestamps. Ticket codes (with each ticket's check-in time) only while the
+ * order is paid: a refunded order's tickets are void. The event's current
+ * times, venue name and suburb are public event details (never the street
+ * address), shown on the tickets; the mapper drops them for any order that
+ * isn't paid. `tickets_issued` tells a paid-then-refunded order (it had
+ * tickets) from one refunded because it couldn't be fulfilled (it never did).
+ * Reads the event by primary key and the tickets by tickets_order_idx.
  */
 export const CUSTOMER_ORDER_SELECT = `
   select o.id, o.status::text as status, o.event_title, o.buyer_email,
          o.subtotal_cents, o.buyer_fee_cents, o.total_cents,
-         (select e.slug from public.events e where e.id = o.event_id) as event_slug,
+         e.slug as event_slug, e.starts_at as event_starts_at, e.ends_at as event_ends_at,
+         e.venue_name as event_venue_name, e.suburb as event_suburb,
          coalesce((
-           select json_agg(json_build_object('ticketCode', t.code, 'ticketTypeName', t.ticket_type_name)
+           select json_agg(json_build_object('ticketCode', t.code, 'ticketTypeName', t.ticket_type_name,
+                                             'checkedInAt', t.checked_in_at)
                            order by t.ticket_type_id, t.code)
            from public.tickets t where t.order_id = o.id and o.status = 'paid'
          ), '[]'::json) as tickets,
          exists (select 1 from public.tickets t where t.order_id = o.id) as tickets_issued
-  from public.orders o`;
+  from public.orders o
+  left join public.events e on e.id = o.event_id`;
 
 /** Why a refunded (or refund-pending) order was refunded; undefined for any other status. */
 function refundReason(status: CustomerOrder["status"], ticketsIssued: boolean): CustomerOrder["refundReason"] {
@@ -320,21 +327,36 @@ function refundReason(status: CustomerOrder["status"], ticketsIssued: boolean): 
   return undefined;
 }
 
+type CustomerTicketRow = { ticketCode: string; ticketTypeName: string; checkedInAt: string | null };
+
 export function toCustomerOrder(row: Row): CustomerOrder {
   const email = opt<string>(row.buyer_email);
   const status = row.status as CustomerOrder["status"];
+  const paid = status === "paid";
+  // Belt and braces with the SQL: never a code for an order that isn't paid.
+  const tickets = paid
+    ? (row.tickets as CustomerTicketRow[]).map((t) => ({
+        ticketCode: t.ticketCode,
+        ticketTypeName: t.ticketTypeName,
+        checkedInAt: t.checkedInAt ? iso(t.checkedInAt) : null,
+      }))
+    : [];
   return {
     status,
     refundReason: refundReason(status, row.tickets_issued === true),
     reference: orderReference(row.id as string),
     eventTitle: row.event_title as string,
     eventSlug: opt(row.event_slug),
+    // What the tickets show: only while they're valid.
+    eventStartsAt: paid && row.event_starts_at ? iso(row.event_starts_at) : undefined,
+    eventEndsAt: paid && row.event_ends_at ? iso(row.event_ends_at) : undefined,
+    venueName: paid ? opt(row.event_venue_name) : undefined,
+    suburb: paid ? opt(row.event_suburb) : undefined,
     maskedEmail: email ? maskEmail(email) : undefined,
     subtotalCents: row.subtotal_cents as number,
     buyerFeeCents: row.buyer_fee_cents as number,
     totalCents: row.total_cents as number,
-    // Belt and braces with the SQL: never a code for an order that isn't paid.
-    tickets: status === "paid" ? (row.tickets as CustomerOrder["tickets"]) : [],
+    tickets,
   };
 }
 
