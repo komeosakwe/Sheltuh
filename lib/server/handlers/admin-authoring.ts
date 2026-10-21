@@ -7,6 +7,7 @@
  */
 import { requireAdmin } from "../auth";
 import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
+import { sendWaitlistEmailsSoon } from "../email-outbox";
 import { parseEventInput, type EventInput } from "../event-input";
 import { createdPrivate, HttpError, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
@@ -236,7 +237,8 @@ export const adminCreateEvent: Handler = async (req, _params, { db, verifyAccess
  * cutting it below what's sold, or publishing for an organiser who isn't
  * approved.
  */
-export const adminUpdateEvent: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
+export const adminUpdateEvent: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
+  const { db, verifyAccessToken } = deps;
   const admin = await requireAdmin(req, verifyAccessToken);
   // An id that can't be an event is a 404 before the body is even read.
   if (!isUuid(eventId)) throw new HttpError(404, EVENT_NOT_FOUND);
@@ -291,6 +293,8 @@ export const adminUpdateEvent: Handler<{ eventId: string }> = async (req, { even
     case "organiser_not_approved":
       throw new HttpError(409, "This event's organiser isn't approved (they may have been suspended), so it can't be published.");
   }
+  // More tickets, a new ticket type or a publish may have notified the event's waitlist (private.notify_waitlist).
+  sendWaitlistEmailsSoon(deps);
   return okPrivate(await requireAdminEvent(db, eventId));
 };
 

@@ -1,6 +1,7 @@
 import { requireAdmin, type Caller } from "../auth";
 import type { Db } from "../db";
 import type { Deps } from "../deps";
+import { sendWaitlistEmailsSoon } from "../email-outbox";
 import { parseTicketing } from "../event-input";
 import { HttpError, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
@@ -252,6 +253,8 @@ async function moderateEvent(
   if (!row.moved) {
     throw new HttpError(409, `This event is no longer ${from.replace("_", " ")} — it may already have been reviewed.`);
   }
+  // Published (again): if it has tickets left, its waitlist may have been notified (private.notify_waitlist).
+  if (to === "published") sendWaitlistEmailsSoon(deps);
   return okPrivate(await requireEventForAdmin(deps.db, eventId));
 }
 

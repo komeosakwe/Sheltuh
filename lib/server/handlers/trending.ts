@@ -4,7 +4,7 @@ import type { Db } from "../db";
 import { HttpError, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
 import { isUuid } from "../pagination";
-import { eventSelectWith, toEvent, toPublicEvent } from "../records";
+import { eventSelectWith, toEvent, toPublicEventFromRow } from "../records";
 import type { Handler } from "../route";
 import { fail } from "../validation";
 import { OPEN as WHOS_GOING_OPEN, SUSPENDED_ATTENDEE } from "./going";
@@ -70,11 +70,11 @@ export const getTrendingEvents: Handler = async (_req, _params, { db }) => {
           const event = toEvent(row);
           const goingCount = row.going_count as number;
           if (row.going_open === true && goingCount >= TRENDING_GOING_THRESHOLD) {
-            return { event: toPublicEvent(event), label: "going", goingCount };
+            return { event: toPublicEventFromRow(row), label: "going", goingCount };
           }
           const firstApproval = event.moderationLog.find((entry) => entry.action === "approved");
           const justAnnounced = firstApproval !== undefined && now - Date.parse(firstApproval.at) <= JUST_ANNOUNCED_MS;
-          return { event: toPublicEvent(event), label: justAnnounced ? "just-announced" : "popular" };
+          return { event: toPublicEventFromRow(row), label: justAnnounced ? "just-announced" : "popular" };
         });
   const body: TrendingResponse = { items };
   return Response.json(body, { status: 200, headers: { "cache-control": TRENDING_CACHE_CONTROL } });

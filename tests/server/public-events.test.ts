@@ -66,6 +66,8 @@ describe("public event visibility", () => {
         "ticketingMode",
         "externalFree",
         "externalProvider",
+        // Waitlist (B-WL): always sent.
+        "soldOut",
       ].sort(),
     );
     expect(res.body).toMatchObject({ ticketingMode: "sheltuh", externalFree: false, externalProvider: null });

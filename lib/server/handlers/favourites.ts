@@ -2,7 +2,7 @@ import { MAX_FAVOURITES, type FavouriteEvent, type FavouriteIds, type FavouriteS
 import { requireCaller } from "../auth";
 import { HttpError, okPrivate } from "../http";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
-import { EVENT_SELECT, toEvent, toPublicEvent } from "../records";
+import { EVENT_SELECT, toPublicEventFromRow } from "../records";
 import type { Handler } from "../route";
 
 /**
@@ -37,7 +37,7 @@ export const listFavourites: Handler = async (req, _params, { db, verifyAccessTo
         page.map((f) => f.event_id),
       ])
     : [];
-  const byId = new Map(events.map((row) => [row.id as string, toPublicEvent(toEvent(row))]));
+  const byId = new Map(events.map((row) => [row.id as string, toPublicEventFromRow(row)]));
 
   const items: FavouriteEvent[] = [];
   for (const f of page) {

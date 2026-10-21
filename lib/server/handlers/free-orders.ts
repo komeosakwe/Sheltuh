@@ -64,7 +64,7 @@ async function recordRefusal(deps: Deps, reason: string) {
 }
 
 /** The caller, if the request carries a valid token; a bad or missing one just means "guest". */
-async function optionalCaller(req: Request, deps: Deps): Promise<Caller | null> {
+export async function optionalCaller(req: Request, deps: Deps): Promise<Caller | null> {
   const token = req.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
   return token ? deps.verifyAccessToken(token) : null;
 }

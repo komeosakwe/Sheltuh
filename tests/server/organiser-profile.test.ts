@@ -50,6 +50,8 @@ const PUBLIC_EVENT_KEYS = [
   "ticketingMode",
   "externalFree",
   "externalProvider",
+  // Waitlist (B-WL): always sent.
+  "soldOut",
 ].sort();
 
 function profile(organiserId: string) {

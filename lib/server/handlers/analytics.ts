@@ -219,6 +219,20 @@ async function eventOutbound(db: Db, eventId: string, range: DateRange): Promise
   return outboundStats(range, new Map(rows.map((r) => [r.day, { clicks: n(r.clicks), capReached: r.cap_reached }])));
 }
 
+/**
+ * People on the event's waitlist now (confirmed, not left): a count only.
+ * Organisers never see who (docs/architecture.md, "Waitlist"). An external
+ * event has no waitlist, so it's 0. event_waitlist_queue_idx.
+ */
+async function eventWaitlistCount(db: Db, eventId: string): Promise<number> {
+  const [row] = await db.query<{ count: number }>(
+    `select count(*)::int as count from private.event_waitlist w
+      where w.event_id = $1 and w.confirmed_at is not null and w.unsubscribed_at is null`,
+    [eventId],
+  );
+  return n(row?.count);
+}
+
 function periodTotals(p: EventPeriod, range: DateRange, since: string | null): AnalyticsTotals {
   return totals(p.ordersTotal, p.viewsTotal, viewsComplete(range, since), p.capDays.size > 0);
 }
@@ -229,7 +243,7 @@ async function buildEventAnalytics(db: Db, event: EventRecord, qs: URLSearchPara
   const previousRange = compare ? previousPeriod(range) : undefined;
 
   const external = event.ticketingMode === "external";
-  const [since, period, previous, groups, links, attendance, outbound, previousOutbound] = await Promise.all([
+  const [since, period, previous, groups, links, attendance, outbound, previousOutbound, waitlistCount] = await Promise.all([
     viewsTrackedSince(db),
     eventPeriod(db, event.eventId, range),
     previousRange ? eventPeriod(db, event.eventId, previousRange) : undefined,
@@ -241,6 +255,7 @@ async function buildEventAnalytics(db: Db, event: EventRecord, qs: URLSearchPara
     eventAttendance(db, event.eventId),
     external ? eventOutbound(db, event.eventId, range) : undefined,
     external && previousRange ? eventOutbound(db, event.eventId, previousRange) : undefined,
+    eventWaitlistCount(db, event.eventId),
   ]);
 
   const bySource: SourceViews[] = VIEW_SOURCES.map((source) => ({ source, views: period.viewsBySource.get(source) ?? 0 }));
@@ -267,6 +282,7 @@ async function buildEventAnalytics(db: Db, event: EventRecord, qs: URLSearchPara
     attendance,
     // External ticketing: clicks on the ticket link (sales happen elsewhere). Null for Sheltüh-ticketed events.
     outboundClicks: outbound ? { ...outbound, ...(previousOutbound ? { previous: previousOutbound } : {}) } : null,
+    waitlistCount,
     ...(previous && previousRange
       ? {
           previous: {

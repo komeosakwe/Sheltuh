@@ -339,6 +339,51 @@ export interface ConfirmFreeOrderResult {
   url: string;
 }
 
+// ---------------------------------------------------------------------------
+// Waitlist (docs/architecture.md, "Waitlist")
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /api/events/{eventId}/waitlist `{email?}`.
+ * - `joined` (201 new, 200 already on the list: `alreadyJoined`): a signed-in
+ *   member with a verified email joining with that email (sent, or left out).
+ *   `maskedEmail` is that address masked (`m***@example.com`).
+ * - `confirmation_sent` (202): anyone else. A link was emailed to confirm,
+ *   valid for `expiresInHours`. The same answer whether or not the address is
+ *   new, already on the list, or has had links recently: it says nothing
+ *   about the address.
+ */
+export type JoinWaitlistResult =
+  | { status: "joined"; maskedEmail: string; alreadyJoined: boolean }
+  | { status: "confirmation_sent"; expiresInHours: number };
+
+/** GET /api/events/{eventId}/waitlist/status (signed in): whether the caller is on the event's waitlist. */
+export interface WaitlistStatus {
+  joined: boolean;
+  /** The address on the list, masked; only when `joined`. */
+  maskedEmail?: string;
+}
+
+/**
+ * POST /api/waitlist/confirm `{token}` (from the emailed link's fragment):
+ * on the list (also when it already was). `ticketsAvailable`: tickets are on
+ * sale right now (someone may have freed some since the event sold out), so
+ * the page can link straight to them.
+ */
+export interface ConfirmWaitlistResult {
+  status: "joined";
+  eventTitle: string;
+  eventSlug: string;
+  ticketsAvailable: boolean;
+}
+
+/** POST /api/waitlist/leave `{token}` (from a notification email's leave link's fragment). Idempotent. */
+export interface LeaveWaitlistResult {
+  status: "left";
+  /** The event's title, while the event exists. */
+  eventTitle?: string;
+}
+
 /**
  * GET /api/orders/by-session/{orderId}: what the buyer's confirmation page
  * needs, and nothing more. The order id in the URL is the only credential, so
@@ -834,6 +879,12 @@ export interface EventAnalytics {
    * Always sent by the API; optional so older fixtures stay valid.
    */
   outboundClicks?: (OutboundClickStats & { previous?: OutboundClickStats }) | null;
+  /**
+   * People on the event's waitlist right now (confirmed, not left): an
+   * aggregate count only. Organisers never see who. 0 for an external event.
+   * Always sent by the API; optional so older fixtures stay valid.
+   */
+  waitlistCount?: number;
 }
 
 /** EventAnalytics.attendance. */

@@ -114,6 +114,8 @@ describe("Data API lock-out", () => {
       { table_name: "event_curation", rls: true },
       { table_name: "event_rate_limits", rls: true },
       { table_name: "event_view_cap_days", rls: true },
+      { table_name: "event_waitlist", rls: true },
+      { table_name: "event_waitlist_tokens", rls: true },
       { table_name: "free_order_refusals", rls: true },
       { table_name: "organiser_profile_edits", rls: true },
       { table_name: "platform_rate_limits", rls: true },
@@ -192,6 +194,38 @@ describe("Data API lock-out", () => {
       [names],
     );
     expect(rows).toEqual(names.map((fn) => ({ fn, pinned: true, client: false })));
+  });
+
+  it("the waitlist functions and triggers exist, pin search_path and aren't client-executable", async () => {
+    const names = [
+      "claim_outbox_jobs",
+      "confirm_waitlist_join",
+      "events_waitlist_release",
+      "join_waitlist",
+      "leave_waitlist",
+      "notify_waitlist",
+      "request_waitlist_join",
+      "ticket_types_waitlist_release",
+      "waitlist_join_state",
+    ];
+    const rows = await db.query<{ fn: string; pinned: boolean; client: boolean }>(
+      `select p.proname as fn,
+              exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c = 'search_path=""') as pinned,
+              has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
+                or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                            where a.grantee = 0 and a.privilege_type = 'EXECUTE') as client
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'private' and p.proname = any($1::text[]) order by 1`,
+      [names],
+    );
+    expect(rows).toEqual(names.map((fn) => ({ fn, pinned: true, client: false })));
+    // The waitlist's personal data has no policies (RLS on, nothing allowed to the Data API).
+    const [policies] = await db.query<{ n: number }>(
+      `select count(*)::int as n from pg_policy p join pg_class c on c.oid = p.polrelid
+         join pg_namespace s on s.oid = c.relnamespace
+        where s.nspname = 'private' and c.relname in ('event_waitlist', 'event_waitlist_tokens')`,
+    );
+    expect(policies.n).toBe(0);
   });
 
   it("every `private` function pins its search_path, apart from the two that predate the rule", async () => {

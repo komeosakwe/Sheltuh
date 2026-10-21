@@ -3,6 +3,27 @@ import type { EventCategory } from "@/lib/types";
 import { apiFetch } from "./client";
 import type { Paginated, TicketTypeInput } from "./types";
 
+/**
+ * `remaining` is only sent when this many tickets or fewer are left, so the
+ * API never reveals an exact large stock (or, through it, sales).
+ */
+export const REMAINING_SHOWN_AT_MOST = 10;
+
+/**
+ * A ticket type as the public sees it: the organiser's fields plus what's
+ * left. `quantityAvailable` is the capacity, not what's left.
+ */
+export interface PublicTicketType extends TicketTypeInput {
+  /** None left (every ticket sold). Always sent by the API; optional so older fixtures stay valid. */
+  soldOut?: boolean;
+  /**
+   * Tickets left, only when REMAINING_SHOWN_AT_MOST or fewer (0 when sold
+   * out); absent when more are left. First come, first served: no ticket is
+   * held while someone checks out.
+   */
+  remaining?: number;
+}
+
 export interface PublicEvent {
   organiserId: string;
   eventId: string;
@@ -18,7 +39,15 @@ export interface PublicEvent {
   organiserName: string;
   imageUrl?: string;
   /** Always empty for an external event. */
-  ticketTypes: TicketTypeInput[];
+  ticketTypes: PublicTicketType[];
+  /**
+   * Every ticket type is sold out (false with no ticket types, and always
+   * false for an external event, whose stock isn't known). While it's true
+   * and the event hasn't ended, people can join the waitlist
+   * (lib/api/waitlist.ts). Always sent by the API; optional so older
+   * fixtures stay valid.
+   */
+  soldOut?: boolean;
   /**
    * `sheltuh`: tickets sold here. `external`: sold on another site, at
    * `externalTicketUrl` (no Sheltüh checkout, booking fee, Who's Going or

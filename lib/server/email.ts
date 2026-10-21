@@ -22,6 +22,11 @@ export interface EmailMessage {
   text: string;
   html: string;
   inlineImages?: InlineImage[];
+  /**
+   * Extra message headers, e.g. `List-Unsubscribe` on waitlist emails.
+   * Values are fixed text or URLs the server built, never user input.
+   */
+  headers?: Record<string, string>;
 }
 
 export type SendEmail = (message: EmailMessage) => Promise<void>;
@@ -40,6 +45,7 @@ export function mailOptions(from: string, message: EmailMessage): Mail.Options {
     subject: message.subject,
     text: message.text,
     html: message.html,
+    ...(message.headers ? { headers: message.headers } : {}),
     ...(message.inlineImages?.length
       ? {
           attachments: message.inlineImages.map((image) => ({

@@ -58,7 +58,9 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | `ticket_check_ins` | `id` (identity) | The check-in log (see "Check-in"): one row per scan or undo, with a random `public_id` (uuid, unique: the only id the API shows, as `checkInId`; the sequential `id` stays internal, so ids don't reveal platform-wide scan volume), the event scanned for, the ticket `code` (null for an `invalid` scan: what was scanned is never stored), the acting account (the organiser's, or the admin's for a platform-managed organiser's event), the client's `request_id` (unique per event: the idempotency key), the `result` and, for an undo only, its `reason` (3–200 characters). Check constraints tie `invalid` to a null code and `undone` to a reason. Deleted with the event or the ticket, and by `purge_analytics` 25 months after the event ends. No buyer data. |
 | `private.platform_rate_limits` | `bucket` | Platform-wide fixed-window counters (`take_platform_rate_limit`): the hourly and 24-hour confirmation-email caps. Idle rows purged daily. |
 | `private.free_order_refusals` | `(day, reason)` | Counts of refused free bookings per Melbourne day and reason. No personal data. Deleted after 13 months. |
-| `private.email_outbox` | `id` | One ticket-email job per paid order (`(order_id, kind)` unique): status, attempts, next attempt, lease, redacted last error. No address or content (read from the order at send time). Deleted with the order. |
+| `private.email_outbox` | `id` | Transactional email jobs of two kinds: `ticket_email`, one per paid order (`(order_id, kind)` unique), and `waitlist_available`, one per person told that tickets are available again (`waitlist_entry_id`; at most one pending or sending per entry). A check ties each kind to its key. Status, attempts, next attempt, lease, redacted last error. No address or content (read from the order, or the waitlist entry, at send time). Deleted with the order or the entry. |
+| `private.event_waitlist` | `id` | One entry per `(event_id, email_key)` (see "Waitlist"): the address as typed and `private.email_key` of it, `user_id` (only when a member joined with their own verified email; deleted with the account), `confirmed_at` (on the list from then: join order), `unsubscribed_at` (left), `notified_at` and `notify_count`. Deleted with the event, and by `purge_social_data` 30 days after the event ends. Never shown to organisers except as a count. |
+| `private.event_waitlist_tokens` | `token_hash` | SHA-256 hashes of emailed waitlist tokens, never the tokens: `confirm` (a guest's join link, 24 hours, used once) and `leave` (one per notification email, valid while the entry exists). Deleted with the entry; expired confirmation links a week after expiry. |
 | `profiles` | `user_id` | A member's social identity: `display_name` (1–40 characters), `adult_confirmed_at` (required: no profile without an 18+ confirmation). Deleted with the Supabase account. `social_suspended_at` is deprecated and ignored (see `private.social_suspensions`). |
 | `event_attendees` | `id` | One row per Who's Going opt-in, unique per `(event_id, user_id)`. `id` is the opaque `attendeeId` shown to members: a fresh one per event, so it can't be linked across events or to a user. Deleted with the profile or the event, and by `purge_social_data` 30 days after the event ends. |
 | `private.social_suspensions` | `user_id` | Admin-set Who's Going suspensions (SQL only, `docs/supabase-setup.md`). Keyed on the auth user, not the profile, so a member can't clear one by deleting and recreating their profile. Deleted with the Supabase account. |
@@ -96,7 +98,7 @@ times, which are converted to instants honouring daylight saving
 | `transition_event` | Changes status and writes the moderation log entry in one step. It only moves an event from an expected status, so two admins acting at once can't both succeed; the loser gets a 409. |
 | `set_going` | Opts a member in to an event's Who's Going, checking everything in one step: the event is published, enabled, Sheltüh-ticketed and hasn't ended; the member isn't suspended (checked before the profile, so a suspended member without one still gets `suspended`); they have a profile; and a `paid` order for the event has their verified email (case-insensitive). Share-locks the event, then the profile, so an unpublish or profile deletion can't interleave. A suspension recorded mid-call can't be locked in advance, but every count and list filters suspensions at read time. Idempotent. Returns `going`, `event_unavailable`, `suspended`, `no_profile` or `not_eligible`. |
 | `take_rate_limit` | Records one hit on a member's `(user, bucket)` counter and says whether it's within the limit for the window. One upsert, so concurrent requests can't both take the last slot. |
-| `purge_social_data` | Retention: deletes Who's Going opt-ins 30 days after their event ended, rate-limit rows idle for a day, conversations (with their messages) 12 months after their last message, resolved reports 2 years after resolution, and pair records with no conversation 12 months after the pair's first request. Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`), not by a migration. |
+| `purge_social_data` | Retention: deletes Who's Going opt-ins 30 days after their event ended, rate-limit rows idle for a day, conversations (with their messages) 12 months after their last message, resolved reports 2 years after resolution, pair records with no conversation 12 months after the pair's first request, and the waitlist (see "Waitlist": entries 30 days after their event ended, unconfirmed entries 8 days after their last link, entries 30 days after their person left, expired confirmation links after a week). Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`), not by a migration. |
 | `request_conversation` | A first message to the member behind an `attendeeId`, checked in one step: the sender isn't suspended and is opted in to the same event, which is open; the recipient isn't suspended; neither blocks the other; the pair has no conversation yet and none on record (`conversation_pairs`: a pair whose conversation went with a deleted profile is `unavailable`); the sender is within both rate limits; and the recipient is within their cap on requests received (over it, `unavailable`). Locks the sender's profile first (`for no key update`, so it doesn't block the other member's FK checks and mutual requests can't deadlock). Two members requesting each other at once: the pair's primary key makes the second insert fail, which rolls back its rate-limit hits (and the recipient's count) and returns `exists` (409). The recipient's profile or account deleted mid-call is `unavailable`. Returns `sent`, `sender_suspended`, `not_going`, `unavailable`, `self`, `exists` or `rate_limited`. |
 | `send_message` | Locks the sender's profile, then the conversation, then checks visibility (blocks, the other member's suspension, a declined request), that the sender isn't waiting on their own request, and the rate limit, before inserting. A reply to a request accepts it; a reply and a decline racing can't both win. Returns `sent`, `sender_suspended`, `not_found`, `awaiting_reply` or `rate_limited`. |
 | `file_report` | Checks the reporter is in the conversation (and the message is the other member's), takes the rate limit and copies the evidence into the report in one step. Key-share-locks the conversation, then the message, when it finds them, so a profile deletion or retention purge waits for the report; one already under way means the report finds nothing (`not_found`, 404). The reported account deleted mid-call (a foreign-key failure) or a deadlock with an account deletion is also `not_found`, never a 500. |
@@ -117,7 +119,13 @@ times, which are converted to instants honouring daylight saving
 | `request_free_order` | A guest's pending free order: the platform's hourly and 24-hour caps (read-only), then, under an advisory lock on the address, the hourly link limit, then a hit on each platform cap. Returns `requested`, `address_limited`, `platform_limited` or `platform_daily_limited`. (The previous 13-argument form delegates to it with the same daily cap, for the deploy window; the app doesn't call it.) |
 | `confirm_free_order` | Confirms by token hash: locks the order, then (event, person), then the event (share) to check every ticket type is still free, then `fulfil_order`'s locks. Idempotent within the link's 24 hours. Returns `confirmed`, `already_confirmed`, `expired_confirmed`, `not_found`, `expired`, `unavailable`, `person_event_limit`, `no_longer_free` or `sold_out` (the last three mark the order `failed`). |
 | `purge_operational_data` | Retention for free-ticket and outbox data (see "Free tickets" and "Payment flow"); sent outbox jobs after 90 days, failed ones after a year. Idempotent; Supabase Cron daily. |
-| `claim_email_jobs`, `finish_email_job`, `resend_email_job`, `admin_resend_email_job` | The ticket-email outbox: lease due jobs with `skip locked` (an expired lease is taken again; one that expired on the 6th attempt fails), record an outcome only for the current lease holder, and an admin resend (not while leased, not twice in 5 minutes). `admin_resend_email_job` takes a hit on the admin's hourly allowance only when the resend is queued, in the same transaction (over it: `rate_limited`, nothing changed). |
+| `claim_outbox_jobs`, `finish_email_job`, `resend_email_job`, `admin_resend_email_job` | The email outbox: lease due jobs of any kind (optionally one order's, or one kind) with `skip locked` (an expired lease is taken again; one that expired on the 6th attempt fails), record an outcome only for the current lease holder, and an admin resend of a ticket email (not while leased, not twice in 5 minutes; a waitlist email is `not_found`). `admin_resend_email_job` takes a hit on the admin's hourly allowance only when the resend is queued, in the same transaction (over it: `rate_limited`, nothing changed). `claim_email_jobs`, the earlier form, now claims ticket emails only and is kept for the deploy window (see "Not built yet"). |
+| `waitlist_join_state` | Whether an event's waitlist takes joins: `open` (published, Sheltüh-ticketed, not ended, has ticket types and every one is sold out), else `not_found` (missing or not published), `external`, `ended` or `not_sold_out`. |
+| `join_waitlist` | A member's join with their own verified email (the API checks it's theirs): on the list at once, idempotently (`already_joined`); someone who left, or never confirmed, joins again at the back. Returns `joined`, `already_joined` or a `waitlist_join_state` refusal. |
+| `request_waitlist_join` | Anyone else's join: the event's state; the platform's hourly and daily caps (read-only, before anything about the address); then under an advisory lock on the address: already on the list (`already_joined`, nothing recorded), the address's hourly cap (`address_limited`), taking both platform caps, and a pending entry with the confirmation token's hash. Returns `requested`, `already_joined`, `address_limited`, `platform_limited`, `platform_daily_limited` or a state refusal. |
+| `confirm_waitlist_join` | Confirms by token hash: locks the token, then the entry. Returns `joined`, `already_joined`, `not_found`, `expired`, `used` (confirmed before, and left since) or `closed` (the event isn't published, is external or has ended; it needn't still be sold out). |
+| `leave_waitlist` | Takes the entry behind a leave token off the list, idempotently (`left`, or `not_found`). |
+| `notify_waitlist` | Queues "tickets are available again" emails for an event with tickets left (see "Waitlist"): target 3 per ticket left, at most 100, within a 12-hour window; only the shortfall from people told in the window is queued, so calling it again is a no-op until more tickets free up or the window passes. People never told first, then join order; skips buyers (paid orders, by normalised address), people with an email still waiting, and stops at 500 a day platform-wide. Advisory lock per event. Called at commit by deferred constraint triggers on `ticket_types` (insert with tickets; update leaving more tickets than before) and `events` (status becomes `published`). |
 | `edit_organiser_profile` | An approved organiser's profile edit (`PATCH /organisers/me`): locks the organiser row, checks it's still approved (`not_approved` → 409), writes only the fields sent whose value really changes, and appends their old and new values to `organiser_profile_edits`, in one step. A no-op edit writes nothing. Returns `updated`, `unchanged`, `not_approved` or `not_found`. |
 | `suspend_organiser` | An admin takedown, only from `approved` (a second admin gets 409): locks the organiser row, then its published and pending-review events in id order; sets the organiser `rejected` with the reason and reviewer; moves each published event to draft (`unpublished`) and each pending one to `rejected`, through `transition_event`, so the event moderation log records each with the admin and reason; logs the takedown. Deletes nothing. Returns the result and how many events moved. |
 | `record_payment_refund` | Records a `charge.refunded` by payment intent (see "Refunds made in Stripe"). Locks the order (`for update`), and acts only on a `paid` one. Full refund: `refunded`, the amount recorded, and each line item's quantity taken off its ticket type's `quantity_sold` (never below 0), updating ticket types in `ticketTypeId` order like `fulfil_order`, so the two can't deadlock. Partial: only `amount_refunded_cents`, which only grows. A redelivery (already refunded, or no larger amount) changes nothing, so inventory is released exactly once. Returns `refunded`, `partial`, `unchanged` or `not_found`, with the order id when found (logged by short reference only). |
@@ -205,7 +213,8 @@ times, which are converted to instants honouring daylight saving
      symbol's structure against the standard and pin a decoder-verified
      matrix. Email clients themselves aren't tested.
    Free orders require the buyer's email address at checkout; for paid
-   orders, Stripe collects it.
+   orders, Stripe collects it. The same outbox carries waitlist emails
+   (see "Waitlist"), claimed by the same workers (`claim_outbox_jobs`).
 5. `/checkout/success?session_id=<order id>` polls
    `GET /api/orders/by-session/<id>`. The unguessable order id is the
    credential, so the response is only what that page shows: status, short
@@ -406,6 +415,139 @@ people behind one address) and without a CAPTCHA
   that an address has 3 unconfirmed links in the last hour needs repeated
   timing measurements and reveals little; sending in the background instead
   would lose the 503 when a link can't be sent.
+
+## Waitlist
+
+People can join the waitlist of a sold-out event and are emailed when
+tickets free up (`lib/server/handlers/waitlist.ts`,
+`lib/server/waitlist-email.ts`,
+`supabase/migrations/20261024000000_waitlist.sql`, `lib/api/waitlist.ts`;
+UI states in `docs/design/brand-direction-one.md` §6.11).
+
+- **Sold-out data.** Public event payloads (the feed, `slug`, favourites,
+  organiser profiles, trending) carry, per ticket type, `soldOut` and
+  `remaining` only when 10 or fewer are left (`REMAINING_SHOWN_AT_MOST`; 0
+  when sold out), so an exact large stock (and, through it, sales) is never
+  shown; and the event's `soldOut`: every ticket type sold out (false with
+  no ticket types, and always for an external event). What's left is
+  `quantity_available − quantity_sold`: pending orders, paid or free, hold
+  nothing (inventory is only taken in `fulfil_order`), so there are no holds
+  to subtract. `quantityAvailable` is still the capacity. Organiser and admin
+  records are unchanged. The server computes no "from" price; the browser's
+  `lib/pricing.ts` must skip sold-out tiers.
+- **Who can join.** Only a published, Sheltüh-ticketed event that hasn't
+  ended and is sold out (every ticket type): an event that isn't published
+  is a 404 (as everywhere); external, ended or not sold out is a 409. No
+  per-tier waitlist.
+- **Joining.** One entry per person per event, the person being the
+  normalised address (`private.email_key`, as for free tickets). A
+  signed-in member with a verified email who leaves `email` out, or sends
+  that address (ignoring case), is on the list at once (201, or 200
+  `alreadyJoined`), with no email. Anyone else (a guest, another address, an
+  unverified account) gets `202 {status: "confirmation_sent",
+  expiresInHours: 24}` and a link, `/waitlist/confirm#token=…`: the token is
+  in the fragment and the page POSTs it on a button press
+  (`POST /api/waitlist/confirm`), as for free tickets, so a mail scanner
+  can't join anyone. Only the token's SHA-256 hash is stored. An entry made
+  this way never gets a `user_id`, so nobody can see or leave someone else's
+  entry from their account.
+- **No enumeration.** A guest gets the same 202 whether the address is new,
+  already on the list (no email sent: they have one) or over its hourly cap
+  (no email sent). Refusals about the event (404, 409) don't depend on the
+  address.
+- **Caps** (`WAITLIST_LIMITS`): 3 confirmation links per address per hour
+  (any event, normalised); 30 an hour and 200 per 24 hours platform-wide
+  (503 for everyone, checked before anything about the address and taken
+  only for a link that's about to be sent). A link that can't be sent is
+  dropped (it doesn't use the address's cap) and the answer is 503. Members
+  joining with their own verified email send nothing and aren't capped.
+- **Status and leaving.** `GET …/waitlist/status` (signed in): on the list by
+  account, or by their verified email (a guest link they confirmed counts).
+  `DELETE …/waitlist` (signed in) leaves, idempotently, whatever the
+  event's state. Every notification email has its own leave link,
+  `/waitlist/leave#token=…` (a page that POSTs the token,
+  `POST /api/waitlist/leave`), also sent as `List-Unsubscribe`; it works
+  until the entry is deleted. Leaving sets `unsubscribed_at`; a queued email
+  to someone who has left isn't sent. Joining again puts them at the back.
+- **Notification** (`private.notify_waitlist`): run at commit by deferred
+  constraint triggers whenever a transaction leaves an event with more
+  tickets than before (a full refund in Stripe releasing inventory, an admin
+  raising capacity or adding a ticket type on a published event, an event
+  published again with tickets left, e.g. after the organiser raised
+  capacity on a draft), whichever path did it. It queues
+  `waitlist_available` outbox jobs: up to 3 people per ticket left, at most
+  100 per event within a 12-hour window, each person at most once per 12
+  hours (people told in the window count towards the target, so repeated
+  calls, several triggers in one transaction and redelivered webhooks queue
+  nothing more), people never told first and then in join order, skipping
+  anyone with a paid order for the event (normalised address) and anyone
+  whose email is still waiting, and at most 500 a day platform-wide (they
+  share the mail quota). An expired or abandoned checkout frees nothing:
+  pending orders hold no tickets. Routes that can free tickets (the Stripe
+  webhook after a full refund, an admin's event edit, an approval) send the
+  queued emails straight after the response (`sendWaitlistEmailsSoon`, up to
+  100, 30 seconds; `maxDuration = 60` on those routes); the cron route sends
+  the rest and retries failures like ticket emails.
+- **The email** ("Tickets are available again", `buildWaitlistAvailableEmail`):
+  the event, when and where, a "Get tickets" link to
+  `/events/{slug}#tickets`, that it's first come, first served and nothing is
+  held, why they're getting it, and the leave link. Brand Direction One
+  colours (black on cream and white, Signal Orange only as the button, with
+  black text). Rebuilt at send time; skipped (not retried) if the person has
+  left, the event is no longer open, or it has sold out again since.
+  Transactional (about one event the person asked to hear about), with a
+  functional unsubscribe (Spam Act 2003).
+- **Privacy.** Waitlist addresses are personal data. Organisers never see
+  them: their event analytics show only `waitlistCount` (people on the list
+  now). Admins see no waitlist emails at `/admin/emails` (ticket emails
+  only). Logs name a job by id only. Retention (`purge_social_data`, daily):
+  entries 30 days after the event ends, unconfirmed entries 8 days after
+  their last link was requested, entries 30 days after their person left;
+  an account's own entries go with the account. Every response is
+  `private, no-store`.
+
+**Privacy Policy wording needed before go-live** (owner to approve):
+
+- That when someone joins an event's waitlist, Sheltüh keeps their email
+  address (and, if signed in, links it to their account) to email them,
+  about that event only, if tickets become available; that guests confirm
+  by email first; and that every such email has a link to leave the
+  waitlist.
+- That the organiser sees only how many people are on the waitlist, never
+  who, and that waitlist details are deleted 30 days after the event ends
+  (sooner if the person leaves the waitlist or never confirms).
+- That joining doesn't reserve a ticket: tickets that come up are first
+  come, first served, and not everyone on the waitlist is emailed at once.
+
+### Accepted risks (waitlist)
+
+- **Not everyone is told.** At most 3 people per ticket freed (100 per
+  window per event, 500 a day platform-wide) are emailed, so a long list
+  hears in turns, and if nobody buys, nobody else is told until more tickets
+  free up or the 12-hour window passes and another freeing happens. A ticket
+  freed with no further change never re-runs the round on its own (there's
+  no periodic sweep).
+- **No reservation.** The email is a heads-up; someone not on the list can
+  buy the freed ticket first. The email says so.
+- **Delay on Hobby.** Emails the after-response run doesn't send within 30
+  seconds wait for the cron, which is daily on Vercel's Hobby plan (every 5
+  minutes on Pro). A burst of 100 is normally sent in that time.
+- **Cooldown without an email.** A queued email that's skipped (sold out
+  again, or the event closed) still counts as the person's notification for
+  the 12-hour window.
+- **Mail quota.** Waitlist confirmations (200 a day) and notifications (500
+  a day) share the Workspace SMTP quota (about 2,000 a day) with ticket
+  emails and free-ticket links (400 a day). Move to a transactional email
+  provider before volume approaches it.
+- **Timing.** A guest's 202 for an address already on the list, or over its
+  cap, comes back faster (no email is sent); as for free tickets, telling
+  them apart needs repeated timing measurements.
+- **The count.** An organiser sees the exact number on the list, so with a
+  tiny list they could correlate a change with someone they know. It's a
+  count only, with no identity.
+- **Concurrency** is enforced in the database (an advisory lock per event for
+  rounds, per address for guest links, the unique `(event, person)` key);
+  the race tests run only on a real Postgres (`TEST_DATABASE_URL`).
 
 ## Who's Going
 
@@ -1215,7 +1357,10 @@ application is approved.
 | Method & path | Who |
 |---|---|
 | `GET /events?q&category&pricing&onOrAfter&upcoming&cursor&limit` | public (published only), soonest first. `upcoming=1` (or `true`): only events that haven't ended (`ends_at > now()`, in progress included); the home page and /events always send it. `pricing=free`: has ticket types, all free, or is external with `externalFree`; `paid`: has a paid ticket type (an event with no ticket types is neither, and so is an external event that isn't free: its price isn't known). 400 for an unknown `category`, `pricing` or `upcoming` value. Every item carries `ticketingMode`, `externalFree`, `externalProvider` and, for external events only, `externalTicketUrl` (see "External ticketing") |
-| `GET /events/slug/{slug}` | public (published only); same shape as a list item |
+| `GET /events/slug/{slug}` | public (published only); same shape as a list item. Every public event (list, slug, favourites, organiser profile, trending) carries `soldOut`, and per ticket type `soldOut` and `remaining` (only when 10 or fewer are left): see "Waitlist" |
+| `POST /events/{eventId}/waitlist` `{email?}` · `DELETE /events/{eventId}/waitlist` | POST: public (a member's token is read, optionally). 201/200 `{status: "joined", maskedEmail, alreadyJoined}` for a member's own verified email; 202 `{status: "confirmation_sent", expiresInHours}` for anyone else, whatever the address's history; 400 email; 404 not published; 409 external, ended or not sold out; 503 busy or the email failed. DELETE: signed in, leaves (204, idempotent) |
+| `GET /events/{eventId}/waitlist/status` | signed in: `{joined, maskedEmail?}`; 404 not published |
+| `POST /waitlist/confirm` `{token}` · `POST /waitlist/leave` `{token}` | public (the emailed token is the credential). Confirm: 200 `{status: "joined", eventTitle, eventSlug, ticketsAvailable}` (also when already on the list); 400; 404; 410 expired or used; 409 closed. Leave: 200 `{status: "left", eventTitle?}` (idempotent); 400; 404 |
 | `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). 409 for an external event, before anything else is read; 409 for a paid order from a platform-managed organiser. 201 `{url}`; 202 free order waiting on its emailed link; 400 (incl. over 4 free tickets in any order, paid or free); 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance; 503 free bookings busy or the confirmation email failed |
 | `POST /orders/confirm` `{token}` | public (the emailed token is the credential). 200 `{url}` (also when already confirmed, within 24 hours); 400 malformed; 404 unknown; 410 expired (confirmed or not); 409 sold out, allowance used, or a ticket type no longer free |
 | `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store` |
@@ -1252,7 +1397,7 @@ application is approved.
 | `POST /events/{id}/view` `{source?, code?}` | public. 204 (counted or not); 404 not published |
 | `POST /events/{id}/outbound` | public, no body needed (`{}`). 204 (counted or not); 404 not a published external event |
 | `GET /organisers/me/events/{id}/tracking-links` · `POST …` `{label}` · `DELETE …/tracking-links/{linkId}` | organiser (own events). POST 201; 400 label; 409 label taken or 20 links. DELETE 204, idempotent |
-| `GET /organisers/me/events/{id}/analytics?from&to&compare` · `…/analytics.csv` | organiser (own events). 400 bad range |
+| `GET /organisers/me/events/{id}/analytics?from&to&compare` · `…/analytics.csv` | organiser (own events). 400 bad range. The JSON has `waitlistCount` (people on the event's waitlist now: a count only) |
 | `POST /organisers/me/events/{id}/check-ins` `{code, requestId}` · `GET …/check-ins` · `POST …/check-ins/{checkInId}/undo` `{reason}` | organiser (own events), or admin (platform-managed organisers' events only; anything else 404); see "Check-in". Every ticket outcome is 200; 400 bad body, 404, 409 request id reused for another code, 413, 429. `checkInId`s are uuids |
 | `GET /organisers/me/analytics/overview?from&to&compare` · `…/overview.csv` | organiser: all own events. 400 bad range |
 | `GET /admin/organisers?status&q&limit&cursor` · `POST /admin/organisers/{id}/approve` · `…/reject` | admin. Items (and the decision responses) are `AdminOrganiserRecord`: the full record plus `recentEdits` (newest 20 log entries), most recently updated first. `q` (optional, at most 100 characters used): name, contact email or social handle containing it, ignoring case and accents (NFKD, combining marks removed; a leading `@` is ignored for handles; LIKE wildcards match literally); no index (a substring of a folded expression), it scans one status's organisers. `limit` 20 by default, at most 50. The admin event editor's organiser picker searches with it. Approve/reject: 409 unless pending |
@@ -1297,6 +1442,14 @@ is `cache-control: private, no-store`, and so is every admin response
   as inline SVG on `/checkout/success` and as a PNG in the ticket email.
 
 ## Not built yet
+
+- Waitlist pages and UI: `/waitlist/confirm` and `/waitlist/leave` (the
+  emailed links' pages, each POSTing the fragment's token on a button press,
+  with `/checkout/*`'s `no-referrer` and `noindex` headers), and the §6.11
+  states. The API, emails and notifications are built ("Waitlist").
+- Drop `private.claim_email_jobs` (superseded by `claim_outbox_jobs` in
+  `20261024000000_waitlist.sql`, kept only so a deploy still running the
+  previous app version can send ticket emails) once that deploy window is over.
 
 - Drop `private.update_event_draft` (superseded by `edit_event_draft` in
   `20261022000000_external_ticketing.sql`, kept only so a deploy still

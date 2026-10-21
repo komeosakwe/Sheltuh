@@ -1,7 +1,7 @@
 import { HttpError, ok } from "../http";
 import { melbourneLocalToUtcIso } from "../melbourne-time";
 import { decodeCursor, parseLimit, toPage } from "../pagination";
-import { EVENT_SELECT, toEvent, toPublicEvent } from "../records";
+import { EVENT_SELECT, toPublicEventFromRow } from "../records";
 import type { Handler } from "../route";
 import { EVENT_CATEGORIES, type EventCategory } from "../types";
 
@@ -83,12 +83,12 @@ export const listPublicEvents: Handler = async (req, _params, { db }) => {
      order by e.starts_at, e.id limit $${params.length - 1} offset $${params.length}`,
     params,
   );
-  return ok(toPage(rows.map((row) => toPublicEvent(toEvent(row))), offset, limit));
+  return ok(toPage(rows.map(toPublicEventFromRow), offset, limit));
 };
 
 /** GET /api/events/slug/[slug] — public; a slug that's been unpublished is a 404. */
 export const getPublicEventBySlug: Handler<{ slug: string }> = async (_req, { slug }, { db }) => {
   const [row] = await db.query(`${EVENT_SELECT} where e.slug = $1 and e.status = 'published'`, [slug]);
   if (!row) throw new HttpError(404, "Event not found.");
-  return ok(toPublicEvent(toEvent(row)));
+  return ok(toPublicEventFromRow(row));
 };

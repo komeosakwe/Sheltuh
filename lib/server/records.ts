@@ -26,6 +26,7 @@ import type {
   PublicOrganiserProfile,
   TicketTypeInput,
 } from "./types";
+import { REMAINING_SHOWN_AT_MOST, type PublicTicketType } from "@/lib/api/public-events";
 import { SHELTUH_TEAM_ACTOR } from "@/lib/api/types";
 import { ticketProviderName, type TicketingMode } from "@/lib/ticketing";
 import { maskEmail } from "./email-address";
@@ -204,6 +205,10 @@ const EVENT_COLUMNS = `
                     'quantityAvailable', t.quantity_available)) order by t.position)
            from public.ticket_types t where t.event_id = e.id
          ), '[]'::json) as ticket_types,
+         -- What's left per ticket type, for the public shape only (toPublicEventFromRow):
+         -- never mapped into EventRecord, and the public sees at most "10 or fewer".
+         (select json_object_agg(t.id, greatest(t.quantity_available - t.quantity_sold, 0))
+            from public.ticket_types t where t.event_id = e.id) as ticket_remaining,
          coalesce((
            select json_agg(json_strip_nulls(json_build_object(
                     'action', l.action, 'by', coalesce(l.actor_id::text, 'system'),
@@ -339,8 +344,33 @@ export function toAdminEvent(row: Row): AdminEventRecord {
   return { ...toEventForAdmin(row), organiserPlatformManaged: row.organiser_platform_managed === true };
 }
 
-/** The only event fields the public (unauthenticated) routes may expose. */
-export function toPublicEvent(event: EventRecord): PublicEvent {
+/**
+ * A public ticket type: whether it's sold out, and how many are left only
+ * when that's REMAINING_SHOWN_AT_MOST or fewer (never an exact large stock).
+ * A ticket type missing from `remaining` (none read) counts as on sale.
+ */
+function toPublicTicketType(ticket: TicketTypeInput, remaining: Record<string, number> | null | undefined): PublicTicketType {
+  const left = remaining?.[ticket.id];
+  if (left === undefined) return { ...ticket, soldOut: false };
+  return { ...ticket, soldOut: left <= 0, ...(left <= REMAINING_SHOWN_AT_MOST ? { remaining: Math.max(left, 0) } : {}) };
+}
+
+/**
+ * The public shape of a row of EVENT_SELECT (or eventSelectWith): the event
+ * plus what's left of each ticket type. Every public route maps rows with this.
+ */
+export function toPublicEventFromRow(row: Row): PublicEvent {
+  return toPublicEvent(toEvent(row), row.ticket_remaining as Record<string, number> | null);
+}
+
+/**
+ * The only event fields the public (unauthenticated) routes may expose.
+ * `remaining` (ticket type id → tickets left, as EVENT_SELECT's
+ * ticket_remaining reads it) drives `soldOut` and the low-stock `remaining`.
+ */
+export function toPublicEvent(event: EventRecord, remaining?: Record<string, number> | null): PublicEvent {
+  const external = event.ticketingMode === "external";
+  const ticketTypes = event.ticketTypes.map((ticket) => toPublicTicketType(ticket, remaining));
   return {
     organiserId: event.organiserId,
     eventId: event.eventId,
@@ -355,7 +385,9 @@ export function toPublicEvent(event: EventRecord): PublicEvent {
     endsAt: event.endsAt,
     organiserName: event.organiserName,
     imageUrl: event.imageUrl,
-    ticketTypes: event.ticketTypes,
+    ticketTypes,
+    // Every Sheltüh ticket type sold out. No ticket types, or an external event: not sold out (nothing to wait for).
+    soldOut: !external && ticketTypes.length > 0 && ticketTypes.every((ticket) => ticket.soldOut === true),
     ticketingMode: event.ticketingMode ?? "sheltuh",
     // Only an external event has a link (toEvent already drops it otherwise).
     ...(event.ticketingMode === "external" && event.externalTicketUrl

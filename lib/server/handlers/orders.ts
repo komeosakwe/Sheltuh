@@ -2,7 +2,7 @@ import type Stripe from "stripe";
 import { calculateBookingFeeCents, calculateOrderSummary } from "@/lib/fees";
 import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
 import type { Deps } from "../deps";
-import { sendTicketEmailSoon } from "../email-outbox";
+import { sendTicketEmailSoon, sendWaitlistEmailsSoon } from "../email-outbox";
 import { created, HttpError, ok, okPrivate, readJson } from "../http";
 import { parseCheckoutLineItems } from "../order-input";
 import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
@@ -158,9 +158,10 @@ const MAX_INT4 = 2_147_483_647;
  * paid order voids it (`refunded`, tickets void, inventory released); a
  * partial one is only recorded and logged for manual follow-up
  * (private.record_payment_refund). Never throws for a payment that isn't
- * ours: Stripe would retry it for days.
+ * ours: Stripe would retry it for days. Returns the result (undefined when
+ * the charge was unusable).
  */
-async function recordPaymentRefund(db: Db, eventId: string, charge: Stripe.Charge) {
+async function recordPaymentRefund(db: Db, eventId: string, charge: Stripe.Charge): Promise<PaymentRefundResult | undefined> {
   const paymentIntentId = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
   const amount = charge.amount_refunded;
   if (
@@ -171,7 +172,7 @@ async function recordPaymentRefund(db: Db, eventId: string, charge: Stripe.Charg
     amount > MAX_INT4
   ) {
     console.warn(`Stripe ${eventId}: charge.refunded without a usable payment intent or amount; ignored.`);
-    return;
+    return undefined;
   }
   const [row] = await db.query<{ result: PaymentRefundResult; order_id: string | null }>(
     `select result, order_id from private.record_payment_refund($1, $2, $3)`,
@@ -188,6 +189,7 @@ async function recordPaymentRefund(db: Db, eventId: string, charge: Stripe.Charg
     // Not ours, or (rarely) a refund delivered before its payment was fulfilled: see docs/architecture.md.
     console.warn(`Stripe ${eventId}: charge.refunded for a payment with no order on record; ignored.`);
   }
+  return row.result;
 }
 
 /** A buyer email is required for free orders (nothing else delivers the tickets) and optional otherwise. */
@@ -391,7 +393,9 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
 
   // Any refund of a charge, including ones made in the Stripe dashboard.
   if (event.type === "charge.refunded") {
-    await recordPaymentRefund(deps.db, event.id, event.data.object as Stripe.Charge);
+    const result = await recordPaymentRefund(deps.db, event.id, event.data.object as Stripe.Charge);
+    // The released tickets may have queued waitlist emails (private.notify_waitlist, at commit): send them now.
+    if (result === "refunded") sendWaitlistEmailsSoon(deps);
     return received;
   }
 

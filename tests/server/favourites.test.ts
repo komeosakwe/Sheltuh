@@ -262,6 +262,8 @@ describe("listing", () => {
         "ticketingMode",
         "externalFree",
         "externalProvider",
+        // Waitlist (B-WL): always sent.
+        "soldOut",
         "favouritedAt",
       ].sort(),
     );
