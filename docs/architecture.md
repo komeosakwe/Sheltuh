@@ -1899,22 +1899,14 @@ is `cache-control: private, no-store`, and so is every admin response
 
 ## Not built yet
 
-- Reserved seating UI (being built: the seat page, the seated event panel,
-  `/checkout/cancelled`, the seat-map editor and admin preview,
-  `docs/design/seating.md`). The API, holds, emails and check-in seat lines
-  are built ("Reserved seating"). Later (plan): live block/unblock (SQL
-  runbook for now, `docs/supabase-setup.md`), a move-seat tool (likewise),
-  standing areas on the map, venue templates, Realtime, the Companion Card
-  flow, Turnstile on holds.
-
-- Member profile and follow UI: the member profile page (`/members/{profileId}`),
-  profile settings (visibility, bio, handle, photo upload), clickable names and
-  thumbnails on Who's Going lists, the Follow button and email choice, the
-  home rail, the organiser page's video (click-to-load), follower count and
-  "Events hosted", the `/following/unsubscribe` page (with `/checkout/*`'s
-  `no-referrer` and `noindex` headers), and the admin report/organiser views
-  of the new fields. The API is built ("Member profiles", "Following
-  organisers").
+- Reserved seating, later (plan): live block/unblock (SQL runbook for now,
+  `docs/supabase-setup.md`), a move-seat tool (likewise), standing areas on
+  the map, venue templates, Realtime, the Companion Card flow, and
+  per-visitor protection on holds (Turnstile or a Vercel WAF rule; until
+  then, admins don't approve seated events for real on-sales). There's no
+  seating on/off switch.
+- Add to calendar on `/checkout/success` (the event page has it;
+  `CustomerOrder` carries no event start, end or venue; `docs/FEATURE_PLAN.md`).
 - Drop `private.user_reports.reported_avatar` (inline photo copies, superseded
   by `private.report_photos` in `20261102000100_social_hardening.sql`) once
   no report has one (reports made before it are deleted 2 years after
@@ -1923,10 +1915,6 @@ is `cache-control: private, no-store`, and so is every admin response
 - Drop `private.claim_outbox_jobs` (superseded by `claim_email_outbox` in
   `20261024000200_organiser_follows.sql`) once the deploy window is over.
 
-- Waitlist pages and UI: `/waitlist/confirm` and `/waitlist/leave` (the
-  emailed links' pages, each POSTing the fragment's token on a button press,
-  with `/checkout/*`'s `no-referrer` and `noindex` headers), and the §6.11
-  states. The API, emails and notifications are built ("Waitlist").
 - Drop `private.claim_email_jobs` (superseded by `claim_outbox_jobs` in
   `20261024000000_waitlist.sql`, kept only so a deploy still running the
   previous app version can send ticket emails) once that deploy window is over.

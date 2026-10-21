@@ -114,11 +114,9 @@ unchanged.
   link), check status, leave (signed in, or by each email's leave link) and
   confirm; "tickets are available again" emails through the outbox when
   tickets free up; the organiser's analytics `waitlistCount`.
-  **TODO (UI, not built):** the §6.11 states, cards' and the buy bar's
-  sold-out variants, `lib/pricing.ts` "From" skipping sold-out tiers, and the
-  `/waitlist/confirm` and `/waitlist/leave` pages the emails link to. Until
-  those pages exist the emailed links lead nowhere, so the UI must not offer
-  "Join waitlist" before they ship.
+  **UI built (21 Oct 2026):** sold-out states on cards and the buy bar,
+  "From" skipping sold-out tiers, and the `/waitlist/confirm` and
+  `/waitlist/leave` pages.
 - Add to calendar on the ticket confirmation (`/checkout/success`): not
   built yet. `CustomerOrder` has no event start, end or venue; it needs
   `eventStartsAt`, `eventEndsAt`, `venueName` and `venueAddress` (additive),
@@ -173,9 +171,9 @@ to 512 px and 96 px WebP with all metadata stripped, `GET /profiles/{profileId}`
 and its photo behind the Who's Going gate (blocks both ways, suspensions,
 rate limit), `profileId` and thumbnail on the attendee list only for visible
 profiles, message/block/report by `profileId`, admin removal of photo, bio or
-handle (logged). **TODO (UI, not built):** the profile page, settings and
-upload, clickable names with thumbnails (photos need the bearer token:
-`fetchAvatar` in `lib/api/profiles.ts`), admin report and profile views.
+handle (logged). **UI built (21 Oct 2026):** the
+profile page, settings and photo upload, clickable names with thumbnails,
+and the admin report and profile views.
 Privacy Policy wording is drafted in docs/architecture.md.
 
 ### Owner request (21 Oct 2026): organiser followers, events hosted, video
@@ -204,8 +202,7 @@ outbox (first publish only, at most one a day per organiser, batched, 500 a
 day platform-wide, unsubscribe link and `List-Unsubscribe`), and the featured
 video (`featuredVideoUrl`, strictly parsed, provider and id stored; logged
 edits; admin removal). An approved organiser's video edit isn't reviewed
-(logged, like the rest of the profile). **TODO (UI, not built):** Follow
-button with the email choice, the home rail, the organiser page's video
-(click-to-load) and counts, the `/following/unsubscribe` page (the emailed
-links lead nowhere until it ships), the video field in the profile form, and
-the admin "remove video" action.
+(logged, like the rest of the profile). **UI built (21 Oct
+2026):** Follow button with the email choice, the home rail, the organiser
+page's click-to-load video and counts, `/following/unsubscribe`, the video
+field in the profile form and the admin "remove video" action.

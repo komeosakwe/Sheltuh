@@ -3,7 +3,16 @@
 Owner request (21 Oct 2026): optional reserved seating for concert-style
 events, with an interactive seat map. Planned by the software-architect agent;
 decisions below were made by the manager while the owner was away (the
-architect's recommended defaults). Nothing here is built yet.
+architect's recommended defaults).
+
+**Status:** MVP built in commits 963ab62 (backend), c5bcf1a (hardening),
+26f3c05 (UI), 06b1ea7 (per-visitor hold limits, migration
+`20261103000000_seat_hold_client_limits.sql`) and fe89216 (review fixes).
+The "Later" items under Phases are not built.
+
+There's no seating on/off switch. Until the owner chooses per-visitor
+protection for holds (Turnstile or a Vercel WAF rule), "seating off" for
+real on-sales means admins don't approve seated events.
 
 ## Shape
 
@@ -61,11 +70,15 @@ architect's recommended defaults). Nothing here is built yet.
 9. Map changes after approval: admins only, before any order; live
    block/unblock in phase 2.
 10. "Best seats" focus point: stage centre, movable by the organiser.
+11. Quick buy on a seated event's card goes to its seat page ("Choose
+    seats"), not the event page.
 
 ## Phases
 
 MVP: design spec (`docs/design/seating.md`), migrations
-`20261101000000_reserved_seating.sql` and `20261101000100_seat_holds.sql`,
+`20261101000000_reserved_seating.sql` and `20261101000100_seat_holds.sql`
+(plus, as built, `20261102000000_seating_hardening.sql` and
+`20261103000000_seat_hold_client_limits.sql`),
 map and availability APIs, seated checkout and cancel, webhook, refunds,
 issuance, emails, check-in seat lines, seat page, editor, admin preview,
 demo seated event, tests (unit, server, real-Postgres races, components,

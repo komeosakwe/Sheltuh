@@ -18,6 +18,17 @@ yet: treat the first pass as **test mode**, and only then go live.
   pass, plus the build and 11 browser tests. CI (production build, server
   tests on Postgres 16, browser tests) was green on that exact commit;
   re-check the run for whatever commit you merge.
+- Also on the branch since: external ticketing, admin event authoring,
+  trending, the brand redesign, waitlist, member profiles and photos,
+  organiser follows and featured video, and reserved seating (backend, UI,
+  per-visitor seat-hold limits), each with code, security, accessibility
+  and visual reviews and their fixes; then the Next.js 16.3.8 and sharp 0.35.5
+  security upgrade (a2b46d9). Re-run the gates and check CI on the head
+  commit before merging.
+- **Seating has no on/off switch.** Until the owner chooses per-visitor
+  protection on seat holds (Turnstile or a Vercel WAF rule), keep seating
+  off for real on-sales by not approving seated events. The per-visitor
+  hold limit needs `STRIPE_WEBHOOK_SECRET` set (it fails open without it).
 - The owner ran migrations 20261001 to 20261004 in the Supabase SQL editor
   and saw "Success" for each; the first five were already present. Retention
   cron is scheduled (job id 1).
@@ -31,7 +42,8 @@ yet: treat the first pass as **test mode**, and only then go live.
 ## Go-live checklist
 
 The items added since the steps below were written (B1 to B4, check-in,
-refunds, the brand redesign). Tick each one on the test setup first, then on
+refunds, the brand redesign, waitlist, member profiles, follows, reserved
+seating). Tick each one on the test setup first, then on
 live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 [`architecture.md`](architecture.md).
 
@@ -39,12 +51,27 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       `supabase/migrations/` in filename order that the project doesn't have
       yet, one SQL Editor query per file (or `npx supabase db push`), up to
       and including the newest, currently
-      `20261023000200_trending_distinct.sql`. Never skip one or change the
-      order: later files rely on earlier ones (`20261023000100_review_hardening.sql`
+      `20261103000000_seat_hold_client_limits.sql`. Never skip one or change
+      the order: later files rely on earlier ones (`20261023000100_review_hardening.sql`
       stops with a list of event ids if a stored ticket link breaks a newer
       rule; fix those and re-run it). Check with
       `select max(version) from supabase_migrations.schema_migrations;` when
-      using the CLI.
+      using the CLI. The files on this branch that aren't on `main` yet, in
+      order:
+      1. `20261022000000_external_ticketing.sql`
+      2. `20261022000100_admin_event_authoring.sql`
+      3. `20261022000200_external_ticketing_hardening.sql`
+      4. `20261023000000_trending.sql`
+      5. `20261023000100_review_hardening.sql`
+      6. `20261023000200_trending_distinct.sql`
+      7. `20261024000000_waitlist.sql`
+      8. `20261024000100_member_profiles.sql`
+      9. `20261024000200_organiser_follows.sql`
+      10. `20261101000000_reserved_seating.sql`
+      11. `20261101000100_seat_holds.sql`
+      12. `20261102000000_seating_hardening.sql`
+      13. `20261102000100_social_hardening.sql`
+      14. `20261103000000_seat_hold_client_limits.sql`
 - [ ] **`CRON_SECRET`** in Vercel (Production): a long random string
       (`openssl rand -hex 32`). Without it `/api/cron/email-outbox` and
       `/api/cron/trending` refuse every call: failed ticket emails are never
@@ -87,9 +114,9 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 ## What is ready in the code
 
 - Branch `claude/wizardly-darwin-v2c9n2` holds everything since PR #6:
-  redesign follow-ups, phone home, Who's Going, messaging (backend), security
-  hardening. CI (types, lint, unit + API tests, Postgres 16 API tests, build,
-  browser tests) must be green on the head commit before merging.
+  redesign follow-ups, phone home, Who's Going, messaging, security
+  hardening, and the features listed under Status. CI (types, lint, unit +
+  API tests, Postgres 16 API tests, build, browser tests) must be green on the head commit before merging.
 - Demo mode (no Supabase env) still works; live mode needs the env below.
 
 ## Before you merge
