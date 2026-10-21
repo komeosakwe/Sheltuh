@@ -27,16 +27,21 @@ function classes(variant: SaveButtonVariant, saved: boolean) {
         mark: null,
         icon: "size-5 motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90",
       };
+    // Inside a `data-surface="ink"` section (the event page's buy bar), where
+    // foreground is cream and background black, so it inverts with the scope.
     case "onDark":
       return {
-        target: "group/save flex size-11 shrink-0 items-center justify-center rounded-control focus-visible:outline-background",
-        mark: `${discBase} border-background ${saved ? "bg-background text-foreground" : "text-background"}`,
+        target: "group/save flex size-11 shrink-0 items-center justify-center rounded-control",
+        mark: `${discBase} border-foreground ${saved ? "bg-foreground text-background" : "text-foreground"}`,
         icon: "size-4.5",
       };
+    // On a photo, which can be dark: the page's black outline could vanish into it, so
+    // keyboard focus rings the 36px mark instead, black on a cream gap that shows on any
+    // photo (never orange). Explicit ink/cream: it's the same on every surface.
     case "overlay":
       return {
-        target: "group/save flex size-11 items-center justify-center rounded-control",
-        mark: `${discBase} border-foreground ${
+        target: "group/save flex size-11 items-center justify-center rounded-control focus-visible:outline-none",
+        mark: `${discBase} border-foreground group-focus-visible/save:ring-2 group-focus-visible/save:ring-ink group-focus-visible/save:ring-offset-2 group-focus-visible/save:ring-offset-cream ${
           saved
             ? "bg-foreground text-background group-hover/save:bg-accent-strong"
             : "bg-background text-foreground group-hover/save:ring-1 group-hover/save:ring-foreground"

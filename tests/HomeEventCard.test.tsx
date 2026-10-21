@@ -106,9 +106,46 @@ describe("FeaturedEventCard", () => {
   });
 
   it("is landscape at every width (owner decision 7: the compact hero)", () => {
+    const { container } = render(<FeaturedEventCard event={event} mode="demo" />);
+    // The photo holds the ratio, so it's the card's least height (the link itself has none).
+    const art = container.querySelector("[aria-hidden='true'].col-start-1");
+    expect(art).toHaveClass("min-[375px]:aspect-video", "sm:aspect-[2/1]", "lg:aspect-[4/3]");
+    expect(container.innerHTML).not.toMatch(/aspect-\[4\/5\]|aspect-square/);
+  });
+
+  it("stacks photo and text in one grid cell, the text in flow, so the card grows with its text instead of clipping it", () => {
+    const { container } = render(<FeaturedEventCard event={event} mode="demo" />);
+    const link = screen.getByRole("link");
+    expect(link).toHaveClass("grid", "overflow-hidden", "rounded-card");
+    // No fixed ratio on the link: its height is the grid row's, the larger of the photo and the text.
+    expect(link.className).not.toMatch(/aspect-/);
+    const art = container.querySelector("[aria-hidden='true'].col-start-1");
+    const text = link.querySelector("[data-surface='ink']");
+    expect(art).toHaveClass("col-start-1", "row-start-1", "h-full");
+    expect(text).toHaveClass("col-start-1", "row-start-1", "self-end");
+    // In flow: not absolutely placed over the photo (its fade, a ::before, is).
+    expect(text?.className.split(" ")).not.toContain("absolute");
+  });
+
+  it("puts the Up next chip in the text's flow, above the title (never positioned over it)", () => {
     render(<FeaturedEventCard event={event} mode="demo" />);
-    expect(screen.getByRole("link")).toHaveClass("min-[375px]:aspect-video", "sm:aspect-[2/1]", "lg:aspect-[4/3]");
-    expect(screen.getByRole("link").className).not.toMatch(/aspect-\[4\/5\]|aspect-square/);
+    const chip = screen.getByText("Up next");
+    const title = screen.getByRole("heading", { level: 3 });
+    expect(chip.className.split(" ")).not.toContain("absolute");
+    expect(chip.parentElement).toBe(title.parentElement);
+    expect(chip.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("is named title first, then when, where, the price and the going count (not the chip)", () => {
+    render(<FeaturedEventCard event={event} mode="demo" />);
+    const name = screen.getByRole("link").getAttribute("aria-labelledby");
+    expect(name).toBeTruthy();
+    expect(screen.getByRole("link")).toHaveAccessibleName(
+      new RegExp(
+        `^Glasshouse Sessions .+ The Conservatory · Carlton From A\\$36\\.90 incl\\. booking fee ${getSampleGoing(event.id).count} going$`,
+      ),
+    );
+    expect(screen.getByRole("link")).not.toHaveAccessibleName(/Up next/);
   });
 
   it("demo: shows the sample going count and makes no request", () => {
@@ -184,6 +221,24 @@ describe("HomeEventCard", () => {
     expect(link).not.toHaveTextContent("Bring a blanket");
   });
 
+  it("wide: named title first; the date badge (it repeats the date line) and the description stay out of the name", () => {
+    render(<HomeEventCard event={event} variant="wide" mode="demo" />);
+    const { range } = formatDateBadge(event.startsAt, event.endsAt);
+    const link = mainLink("glass-sessions");
+    expect(within(link).getByText(range).closest("[aria-hidden='true']")).not.toBeNull();
+    expect(link).toHaveAccessibleName(
+      `Glasshouse Sessions Sun 18 Oct · 7:00 pm The Conservatory · Carlton From A$36.90 incl. booking fee Live music ${getSampleGoing(event.id).count} going`,
+    );
+  });
+
+  it.each([
+    ["standard", { signal: { kind: "going", count: 14 } as const }, "Glasshouse Sessions Sun 18 Oct · 7:00 pm The Conservatory · Carlton From A$36.90 incl. booking fee 14 going"],
+    ["compact", { badge: "free" as const }, "Glasshouse Sessions Sun 18 Oct · 7:00 pm The Conservatory · Carlton From A$36.90 incl. booking fee Free"],
+  ])("%s: named title first, then the date, venue, price and chip", (variant, extra, name) => {
+    render(<HomeEventCard event={event} variant={variant as "standard" | "compact"} mode="live" {...extra} />);
+    expect(mainLink("glass-sessions")).toHaveAccessibleName(name);
+  });
+
   it.each([
     ["free", "Free", "bg-signal"],
     ["low-cost", "Under A$20", "border-foreground"],
@@ -240,9 +295,11 @@ describe("quick buy", () => {
       // Tab order: main link → Save → Get tickets.
       expect(card.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(save.compareDocumentPosition(buy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      // 44px tall, black and underlined, never orange.
-      expect(buy).toHaveClass("min-h-11", "underline");
-      expect(buy.className).not.toMatch(/signal/);
+      // Owner decision 6: an orange button with a black label, 44px tall on phones (40px from 640px).
+      expect(buy).toHaveClass("btn", "btn-signal", "min-h-11", "sm:min-h-10", "px-4");
+      // Focus is the black ring, never orange.
+      expect(buy).toHaveClass("focus-visible:outline-ink");
+      expect(buy.className).not.toMatch(/outline-signal|ring-signal|text-white/);
     },
   );
 
@@ -261,6 +318,16 @@ describe("quick buy", () => {
     render(<HomeEventCard event={{ ...event, ticketTypes: [] }} variant="standard" mode="live" />);
     expect(mainLink("glass-sessions")).toHaveTextContent("Tickets coming soon");
     expect(screen.queryByRole("link", { name: /tickets for/ })).not.toBeInTheDocument();
+    // No empty row (wrapper) is left behind either.
+    expect(document.querySelector(".pt-3:empty")).toBeNull();
+  });
+
+  it("compact: the button is indented to the text column (the 6rem thumbnail plus the 0.75rem gap; 7rem from 640px), full width there on phones", () => {
+    render(<HomeEventCard event={event} variant="compact" mode="live" />);
+    const buy = screen.getByRole("link", { name: "Get tickets for Glasshouse Sessions" });
+    expect(buy.parentElement).toHaveClass("pl-27", "sm:pl-31");
+    expect(buy).toHaveClass("w-full", "sm:w-auto");
+    expect(mainLink("glass-sessions")).toHaveClass("grid-cols-[6rem_1fr]", "sm:grid-cols-[7rem_1fr]", "gap-3");
   });
 
   it("the visible label is the short one; the name adds the title", () => {

@@ -26,6 +26,8 @@ const FIRST_SECTION = "mt-6 sm:mt-12 lg:mt-16";
 export default function HomeEventSections({ guide }: { guide?: ReactNode }) {
   const { mode, state } = useHomeEvents();
   const loading = state.status === "loading";
+  // Try again keeps the error box on screen (no skeleton), but its load is announced like the first.
+  const announceLoading = loading || (state.status === "error" && state.retrying);
   const sections = state.status === "ready" ? state.sections : null;
   const weekend = sections?.weekend;
   const showWeekend = !!weekend && weekend.status !== "hidden";
@@ -38,7 +40,7 @@ export default function HomeEventSections({ guide }: { guide?: ReactNode }) {
     <>
       {/* Always mounted so "Loading events…" is announced. */}
       <p role="status" className="sr-only">
-        {loading ? "Loading events…" : ""}
+        {announceLoading ? "Loading events…" : ""}
       </p>
 
       {loading && (

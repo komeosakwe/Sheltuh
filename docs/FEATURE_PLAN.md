@@ -106,6 +106,18 @@ unchanged.
   the event page and the ticket confirmation.
 - Waitlist for sold-out events: join from the event page and cards;
   backend design to follow (consent, notification when tickets free up).
+  **TODO (not built):** the UI states are specified
+  (`docs/design/brand-direction-one.md` §6.11) but nothing renders them yet,
+  because there's no data to drive them. The waitlist needs, first, sold-out
+  data in the public event payloads (per ticket type `remaining` or
+  `soldOut`; today `quantityAvailable` is the organiser's capacity, not
+  what's left) and, second, endpoints to join, check status and leave, plus
+  the notification email (contract B-WL, §10). The event page, cards and buy
+  bar must not show "Sold out" or "Join waitlist" until then.
+- Add to calendar on the ticket confirmation (`/checkout/success`): not
+  built yet. `CustomerOrder` has no event start, end or venue; it needs
+  `eventStartsAt`, `eventEndsAt`, `venueName` and `venueAddress` (additive),
+  or the page fetching the event by `eventSlug`. The event page has it.
 
 ### Pricing (ACCC)
 

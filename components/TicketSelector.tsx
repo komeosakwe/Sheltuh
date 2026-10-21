@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Notice } from "@/components/ui/Section";
 import { ApiError, isApiConfigured } from "@/lib/api/client";
 import { createCheckoutSession } from "@/lib/api/orders";
 import { MAX_FREE_TICKETS_PER_ORDER } from "@/lib/api/types";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
-import { calculateOrderSummary, sumOrderSummaries } from "@/lib/fees";
+import { calculateOrderSummary, describeBookingFee, sumOrderSummaries } from "@/lib/fees";
 import { formatAud } from "@/lib/format";
 import { formatTicketBreakdown, formatTicketHeadline } from "@/lib/pricing";
 import { getTrackingRef } from "@/lib/tracking-ref";
@@ -14,13 +15,10 @@ import type { SheltuhEvent, TicketType } from "@/lib/types";
 const MAX_QUANTITY_PER_TYPE = 8;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// Phone and tablet sizing comes first in each class list below; the `lg:` classes
-// put desktop back exactly as it was (the mobile spec leaves desktop unchanged).
-
 // The steppers use aria-disabled, not `disabled`: reaching 0 or the cap must
 // leave focus on the button rather than dropping it to <body>.
 const stepperButtonClass =
-  "flex h-11 w-11 shrink-0 items-center justify-center rounded-control border border-foreground text-lg font-semibold text-foreground transition-colors hover:border-accent hover:text-accent aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:hover:border-surface-border aria-disabled:hover:text-foreground";
+  "flex size-11 shrink-0 items-center justify-center rounded-control border border-foreground bg-card text-lg font-semibold text-foreground transition-colors hover:bg-surface aria-disabled:cursor-not-allowed aria-disabled:border-surface-border aria-disabled:text-muted aria-disabled:hover:bg-card";
 
 export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const ticketTypes = event.ticketTypes;
@@ -95,6 +93,11 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const orderTotal = sumOrderSummaries(lineSummaries.map((line) => line.summary));
 
   const hasAnyTickets = lineSummaries.some((line) => line.quantity > 0);
+  // Every ticket free: no payment step, but an emailed confirmation link.
+  const allFree = ticketTypes.every((t) => t.priceCents === 0);
+  const steps = allFree
+    ? ["Choose tickets", "Confirm by email", "Tickets"]
+    : ["Choose tickets", "Pay on Stripe", "Tickets by email"];
   // Paid orders give Stripe an email at checkout; free ones skip Stripe, so
   // this is the only way their tickets can reach the buyer.
   const needsEmail = canCheckout && hasAnyTickets && orderTotal.totalCents === 0;
@@ -152,7 +155,32 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-5 rounded-card border border-foreground bg-card p-4 sm:p-5">
+      {/* What happens next, before anything is chosen (static: no progress bar). */}
+      {canCheckout && (
+        <div className="flex flex-col gap-1">
+          <ol aria-label="How booking works" className="eyebrow flex flex-wrap gap-x-3 gap-y-1">
+            {steps.map((step, i) => (
+              <li
+                key={step}
+                aria-current={i === 0 ? "step" : undefined}
+                className={`flex gap-x-3 ${i === 0 ? "text-foreground" : "text-muted"}`}
+              >
+                {i > 0 && <span aria-hidden="true">&rarr;</span>}
+                <span>
+                  {i + 1} {step}
+                </span>
+              </li>
+            ))}
+          </ol>
+          {allFree && (
+            <p className="text-xs text-muted">Signed in with a verified email? Step 2 is usually skipped.</p>
+          )}
+        </div>
+      )}
+
+      <p className="text-sm text-muted">Booking fee: {describeBookingFee()}. Free tickets never carry a fee.</p>
+
       {/* Before the tickets, so the limit is known before choosing. */}
       {freeTypeCount > 0 && (
         <p id="free-ticket-limit" aria-live="polite" className="text-xs text-muted">
@@ -162,32 +190,30 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         </p>
       )}
 
-      <ul className="flex flex-col gap-4">
+      <ul className="flex flex-col">
         {lineSummaries.map(({ ticket, quantity }) => {
           const cap = capFor(ticket);
           const breakdown = formatTicketBreakdown(ticket);
           return (
             <li
               key={ticket.id}
-              className="flex flex-col gap-4 bg-surface p-4 sm:flex-row sm:items-center sm:justify-between lg:gap-3"
+              className="flex flex-col gap-3 border-t border-surface-border py-4 first:border-t-0 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
             >
-              <div className="flex-1">
-                <p className="text-base font-semibold text-foreground">{ticket.name}</p>
-                {ticket.description && (
-                  <p className="text-sm text-muted">{ticket.description}</p>
-                )}
-                {/* The all-inclusive price: the loudest thing in the row on phones. */}
-                <p className="mt-1 text-base font-semibold tabular-nums text-foreground lg:text-sm lg:font-normal lg:normal-nums">
+              <div className="min-w-0 flex-1">
+                <p className="text-base leading-snug font-semibold text-foreground">{ticket.name}</p>
+                {/* The all-inclusive price per ticket comes first and is the loudest
+                    number, at every width (ACCC: brand-direction-one.md §6.8). */}
+                <p className="mt-1 text-base leading-6 font-semibold tabular-nums text-foreground">
                   {formatTicketHeadline(ticket)}
                 </p>
-                {quantity > 0 && breakdown && (
-                  <p className="mt-0.5 text-xs text-muted">{breakdown}</p>
-                )}
+                {ticket.description && <p className="mt-1 text-sm text-muted">{ticket.description}</p>}
+                {/* What makes up the total, before anything is chosen. Never louder than it. */}
+                {breakdown && <p className="meta mt-1 text-muted">{breakdown}</p>}
               </div>
               <div
                 role="group"
                 aria-label={`Quantity for ${ticket.name}`}
-                className="flex items-center gap-2"
+                className="flex shrink-0 items-center gap-2"
               >
                 <button
                   type="button"
@@ -198,10 +224,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                 >
                   &minus;
                 </button>
-                <span
-                  aria-live="polite"
-                  className="w-10 text-center text-lg font-medium tabular-nums text-foreground lg:w-8 lg:text-base"
-                >
+                <span aria-live="polite" className="w-10 text-center text-lg leading-6 font-semibold tabular-nums text-foreground">
                   {quantity}
                 </span>
                 <button
@@ -220,20 +243,23 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         })}
       </ul>
 
-      <div className="bg-surface p-4">
-        <h3 className="font-heading text-xl text-foreground">Order summary</h3>
+      <div className="border-t border-foreground pt-4">
+        <h3 className="eyebrow text-muted">Order summary</h3>
         <dl className="mt-3 flex flex-col gap-2 text-sm">
-          <div className="flex justify-between">
-            <dt className="text-muted">Ticket subtotal</dt>
-            <dd className="text-foreground">{formatAud(orderTotal.subtotalCents)}</dd>
+          <div className="flex justify-between gap-4">
+            <dt className="text-muted">Tickets</dt>
+            <dd className="tabular-nums text-foreground">{formatAud(orderTotal.subtotalCents)}</dd>
           </div>
-          <div className="flex justify-between">
-            <dt className="text-muted">Booking fees (you pay)</dt>
-            <dd className="text-foreground">{formatAud(orderTotal.buyerFeeCents)}</dd>
+          <div className="flex justify-between gap-4">
+            <dt className="text-muted">Booking fees</dt>
+            <dd className="tabular-nums text-foreground">{formatAud(orderTotal.buyerFeeCents)}</dd>
           </div>
-          <div className="flex justify-between border-t border-surface-border pt-2 text-base font-semibold lg:text-sm">
-            <dt className="text-foreground">Total</dt>
-            <dd className="text-foreground">{formatAud(orderTotal.totalCents)}</dd>
+          {/* The total is the largest number in the panel. */}
+          <div className="mt-1 flex items-baseline justify-between gap-4 border-t border-foreground pt-3">
+            <dt className="text-lg leading-6 font-bold text-foreground">Total</dt>
+            <dd className="text-xl leading-7 font-bold tabular-nums text-foreground">
+              {formatAud(orderTotal.totalCents)}
+            </dd>
           </div>
         </dl>
 
@@ -265,7 +291,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
           <>
             {needsEmail && (
               <div className="mt-4 flex flex-col gap-1">
-                <label htmlFor="buyer-email" className="text-sm font-medium text-foreground">
+                <label htmlFor="buyer-email" className="eyebrow text-muted">
                   Email for your tickets
                 </label>
                 <input
@@ -278,8 +304,9 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                   onChange={(e) => setTypedEmail(e.target.value)}
                   aria-invalid={emailError ? true : undefined}
                   aria-describedby={emailError ? "buyer-email-hint buyer-email-error" : "buyer-email-hint"}
-                  // 16px text so iOS doesn't zoom on focus, and a 48px target.
-                  className="min-h-12 border border-foreground bg-transparent px-3 py-2 text-base text-foreground lg:min-h-0"
+                  // 16px text so iOS doesn't zoom on focus, and a 48px target. Border, fill and the
+                  // invalid state come from the base field styles (globals.css).
+                  className="min-h-12 px-3 py-2 text-base"
                 />
                 <p id="buyer-email-hint" className="text-xs text-muted">
                   We&rsquo;ll send your tickets here. Booking with your Sheltüh account email
@@ -297,11 +324,12 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                 Booking as {accountEmail}, your account email, so you can add yourself to Who&rsquo;s Going.
               </p>
             )}
+            {/* Black, not orange: checkout stays quiet (brand-direction-one.md §6.9). */}
             <button
               type="button"
               onClick={handleCheckout}
               disabled={!hasAnyTickets || loading}
-              className="btn btn-solid btn-lg mt-4 w-full lg:px-6 lg:py-2.5 lg:text-xs/4.5"
+              className="btn btn-solid btn-lg mt-4 w-full"
             >
               {loading
                 ? orderTotal.totalCents === 0
@@ -312,9 +340,11 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                   : "Checkout"}
             </button>
             {error && (
-              <p role="alert" className="mt-2 text-sm text-danger">
-                {error}
-              </p>
+              <div className="mt-3">
+                <Notice tone="danger" role="alert">
+                  {error}
+                </Notice>
+              </div>
             )}
             <p className="mt-2 text-xs text-muted">
               {orderTotal.totalCents === 0
@@ -324,12 +354,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
           </>
         ) : (
           <>
-            <button
-              type="button"
-              disabled
-              aria-disabled="true"
-              className="mt-4 w-full cursor-not-allowed rounded-control border border-surface-border bg-surface px-4 py-3 font-medium text-muted"
-            >
+            <button type="button" disabled aria-disabled="true" className="btn btn-lg mt-4 w-full">
               Checkout unavailable in this demo
             </button>
             <p className="mt-2 text-xs text-muted">

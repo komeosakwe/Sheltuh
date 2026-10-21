@@ -133,7 +133,7 @@ export async function adminSetEventTicketing(eventId: string, input: AdminSetEve
  * Creates a platform-managed organiser (no owner account), approved straight
  * away. Same fields and rules as an organiser application (ApiError 400 with
  * fieldErrors). Its events can only have free Sheltüh tickets or external
- * ticketing, and no check-in.
+ * ticketing, and only admins check them in at the door.
  */
 export async function adminCreateOrganiser(input: AdminCreateOrganiserInput, getToken: GetToken) {
   const token = await getToken();

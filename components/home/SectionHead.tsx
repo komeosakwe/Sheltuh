@@ -7,7 +7,7 @@ import { ArrowRightIcon } from "./icons";
  * rule with a mono strap (the dots, a short label, an optional note on the
  * right), then the h2 and an optional "See all" link named for screen
  * readers by `srLabel`. The strap label repeats the h2, so it's hidden from
- * screen readers; the note isn't.
+ * screen readers; the note isn't, and comes after the h2 in reading order.
  */
 export default function SectionHead({
   id,
@@ -23,16 +23,17 @@ export default function SectionHead({
   note?: { text: string; className?: string };
   seeAll?: { href: string; srLabel: string };
 }) {
+  // The note follows the h2 in the DOM (so it's read after the heading it belongs to)
+  // but sits on the strap's right: both share the grid's first row.
   return (
-    <div className="mb-3 sm:mb-6">
-      <div className="eyebrow flex items-center justify-between gap-4 border-t border-foreground pt-2">
+    <div className="mb-3 grid grid-cols-[minmax(0,1fr)_auto] sm:mb-6">
+      <div className="eyebrow col-start-1 row-start-1 flex min-w-0 items-center gap-2 border-t border-foreground pt-2">
         <span aria-hidden="true" className="flex min-w-0 items-center gap-2">
           <DotsMark size="xs" className="text-signal" />
           <span className="truncate">{strap}</span>
         </span>
-        {note && <span className={`shrink-0 text-muted ${note.className ?? ""}`.trim()}>{note.text}</span>}
       </div>
-      <div className="mt-3 flex items-end justify-between gap-4">
+      <div className="col-span-2 row-start-2 mt-3 flex items-end justify-between gap-4">
         <h2 id={id} className="display-md">
           {title}
         </h2>
@@ -47,6 +48,9 @@ export default function SectionHead({
             <ArrowRightIcon />
           </Link>
         )}
+      </div>
+      <div className="eyebrow col-start-2 row-start-1 border-t border-foreground pt-2 pl-4">
+        {note && <span className={`text-muted ${note.className ?? ""}`.trim()}>{note.text}</span>}
       </div>
     </div>
   );

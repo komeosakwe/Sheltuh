@@ -15,10 +15,12 @@ import AnalyticsGate, { NotApprovedOrganiser } from "./AnalyticsGate";
 import DataTable from "./DataTable";
 import ExportCsvButton from "./ExportCsvButton";
 import { ValueOrNoData } from "./NoData";
+import OutboundClicks from "./OutboundClicks";
 import { AnalyticsPrivacyNote, LaterStagesNote, ViewsFootnote } from "./Notes";
 import RangeControls from "./RangeControls";
 import { STATUS_LABEL, backLinkClass, buildStats, failureKind, rangeErrorMessage, rowConversion, useKeyedLoad } from "./shared";
 import StatGrid from "./StatGrid";
+import { previousLabelFor } from "./TimeSeriesChart";
 import { useAnalyticsRange } from "./useAnalyticsRange";
 
 const PATH = "/dashboard/analytics";
@@ -149,6 +151,8 @@ function OverviewBody({ data, busy }: { data: Overview; busy: boolean }) {
     days,
     withFees: false,
   });
+  // Null (no column, no section) when the organiser has no external event.
+  const clicks = data.outboundClicks ?? null;
 
   return (
     <div aria-busy={busy || undefined} className={`flex flex-col gap-12 sm:gap-16 ${busy ? "opacity-60" : ""}`.trim()}>
@@ -163,6 +167,15 @@ function OverviewBody({ data, busy }: { data: Overview; busy: boolean }) {
           />
         }
       />
+      {clicks && (
+        <OutboundClicks
+          clicks={clicks}
+          range={data.range}
+          days={days}
+          previousLabel={data.previous ? previousLabelFor(data.range) : undefined}
+          intro="Clicks on the “Get tickets on …” links of your events sold on other sites. Their sales happen on those sites, so they aren’t in the sales numbers above."
+        />
+      )}
       <Panel title="By event" titleId="by-event">
         <DataTable
           caption="Views and sales by event"
@@ -174,6 +187,7 @@ function OverviewBody({ data, busy }: { data: Overview; busy: boolean }) {
             { key: "gross", label: "Gross", numeric: true },
             { key: "net", label: "Net", numeric: true },
             { key: "conversion", label: "Conversion", numeric: true },
+            ...(clicks ? [{ key: "clicks", label: "Ticket link clicks", numeric: true }] : []),
           ]}
           rows={data.events.map((event) => ({
             key: event.eventId,
@@ -197,6 +211,10 @@ function OverviewBody({ data, busy }: { data: Overview; busy: boolean }) {
               formatAudExact(event.totals.grossCents),
               formatAudExact(event.totals.netCents),
               <ValueOrNoData key="c" value={rowConversion(event.totals, counted)} />,
+              // Only external events have a ticket link to click.
+              ...(clicks
+                ? [<ValueOrNoData key="k" value={event.outboundClicks ? formatCount(event.outboundClicks.total) : null} />]
+                : []),
             ],
           }))}
           totals={[
@@ -206,6 +224,7 @@ function OverviewBody({ data, busy }: { data: Overview; busy: boolean }) {
             formatAudExact(data.totals.grossCents),
             formatAudExact(data.totals.netCents),
             <ValueOrNoData key="c" value={rowConversion(data.totals, counted)} />,
+            ...(clicks ? [formatCount(clicks.total)] : []),
           ]}
         />
         {data.eventsTruncated && (

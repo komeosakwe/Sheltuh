@@ -14,8 +14,8 @@ const DEMO_INITIALS = isApiConfigured
 
 /**
  * "Find your people": the page's one orange band, full-bleed (so the caller
- * places it outside the page container). The hero's "Join the community"
- * jumps here. The CTA sends signed-in members to find an event and everyone
+ * places it outside the page container). The hero's "Find your people"
+ * jumps here (a plain anchor, so focus lands on this section too). The CTA sends signed-in members to find an event and everyone
  * else (including while auth is still loading, which is also the server
  * render) to sign up. Black on orange throughout (6.18:1); never an orange
  * button here.

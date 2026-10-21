@@ -159,7 +159,9 @@ describe("the home's event sections", () => {
     await flush();
 
     const upNext = screen.getByRole("region", { name: "Up next" });
-    expect(within(upNext).getByRole("alert")).toHaveTextContent("Couldn’t load events.");
+    expect(within(upNext).getByRole("alert")).toHaveTextContent(
+      "Couldn’t load events. Check your connection and try again.",
+    );
     expect(screen.queryByRole("heading", { name: "Coming up near you" })).not.toBeInTheDocument();
     expect(screen.getByText("Guide slot")).toBeInTheDocument();
 
@@ -170,6 +172,63 @@ describe("the home's event sections", () => {
     expect(loadHomeEvents).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Coming up near you" })).toBeInTheDocument();
+  });
+
+  it("Try again keeps the error box and its focused button (busy) while loading, then moves focus to Up next", async () => {
+    loadHomeEvents.mockRejectedValueOnce(new Error("down"));
+    renderHome();
+    await flush();
+
+    let resolve: (events: SheltuhEvent[]) => void = () => {};
+    loadHomeEvents.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+    const button = screen.getByRole("button", { name: "Try again" });
+    button.focus();
+    fireEvent.click(button);
+
+    // Still mounted, still focused, marked busy and relabelled; a second click does nothing.
+    expect(button).toBeInTheDocument();
+    expect(button).toHaveFocus();
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(button).toHaveTextContent("Trying again…");
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading events…");
+    fireEvent.click(button);
+    expect(loadHomeEvents).toHaveBeenCalledTimes(2);
+
+    await act(async () => resolve(EVENTS));
+    const heading = screen.getByRole("heading", { level: 2, name: "Up next" });
+    expect(heading).toHaveAttribute("id", "home-next");
+    expect(heading).toHaveAttribute("tabindex", "-1");
+    expect(heading).toHaveFocus();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("a failed Try again keeps focus on the button, ends busy, and re-announces the alert", async () => {
+    loadHomeEvents.mockRejectedValueOnce(new Error("down"));
+    renderHome();
+    await flush();
+    const firstAlert = screen.getByRole("alert");
+
+    loadHomeEvents.mockRejectedValueOnce(new Error("still down"));
+    const button = screen.getByRole("button", { name: "Try again" });
+    button.focus();
+    fireEvent.click(button);
+    await flush();
+
+    expect(button).toHaveFocus();
+    expect(button).not.toHaveAttribute("aria-disabled");
+    expect(button).toHaveTextContent("Try again");
+    // A new alert element: screen readers announce it again.
+    const alert = screen.getByRole("alert");
+    expect(alert).not.toBe(firstAlert);
+    expect(alert).toHaveTextContent("Couldn’t load events. Check your connection and try again.");
+  });
+
+  it("doesn't move focus on load when there was no retry", async () => {
+    loadHomeEvents.mockResolvedValue(EVENTS);
+    renderHome();
+    await flush();
+    expect(screen.getByRole("heading", { level: 2, name: "Up next" })).not.toHaveFocus();
   });
 
   it("when nothing is upcoming: says so in Up next's box and hides the event sections", async () => {

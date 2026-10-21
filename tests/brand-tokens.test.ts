@@ -153,3 +153,13 @@ describe("brand faces", () => {
     expect(css).not.toMatch(/--font-(?:display|heading|body):/);
   });
 });
+
+describe("current page in the nav", () => {
+  it("marks it with a 2px underline as well as the orange dots (not colour and small marks alone)", () => {
+    const umlaut = css.slice(css.indexOf("@utility umlaut {"), css.indexOf("@utility umlaut-lg"));
+    const current = umlaut.match(/&\[aria-current="page"\]\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(current).toContain("--umlaut: var(--signal);");
+    expect(current).toContain("text-decoration-line: underline;");
+    expect(current).toContain("text-decoration-thickness: 2px;");
+  });
+});

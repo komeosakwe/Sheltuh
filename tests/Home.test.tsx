@@ -78,11 +78,19 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     }
   });
 
-  it("puts the orange community band outside the page container, and has one orange CTA", async () => {
+  it("puts the orange community band outside the page container; orange buttons are the hero CTA and the cards' quick buy only", async () => {
     const { container } = render(<Home />);
     await settle();
     const band = container.querySelector("[data-surface='signal']");
     expect(band?.closest(".max-w-6xl")).toBeNull();
-    expect(container.querySelectorAll(".btn-signal")).toHaveLength(1);
+    const quickBuy = screen.getAllByRole("link", { name: /tickets for/ });
+    const orange = Array.from(container.querySelectorAll(".btn-signal"));
+    // Owner decision 6: every card quick-buy is orange (black label); otherwise only Explore events.
+    expect(orange).toHaveLength(quickBuy.length + 1);
+    expect(orange.filter((el) => !quickBuy.includes(el as HTMLElement)).map((el) => el.textContent)).toEqual([
+      "Explore events",
+    ]);
+    // Never an orange button on the orange band.
+    expect(band?.querySelector(".btn-signal")).toBeNull();
   });
 });

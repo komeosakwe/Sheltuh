@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TicketSelector from "@/components/TicketSelector";
 import { ApiError } from "@/lib/api/client";
@@ -225,7 +225,9 @@ describe("TicketSelector (free tickets)", () => {
   it("states the free-ticket limit before the tickets", () => {
     render(<TicketSelector event={freeEvent()} />);
     const limit = screen.getByText("Up to 4 free tickets per booking, in total across the free ticket types.");
-    const firstTicket = screen.getAllByRole("listitem")[0];
+    // The first ticket's row (the "How booking works" steps are a list too, before both).
+    const firstTicket = screen.getByRole("group", { name: "Quantity for Free entry" }).closest("li");
+    if (!firstTicket) throw new Error("ticket row not rendered");
     expect(limit.compareDocumentPosition(firstTicket) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
@@ -342,5 +344,66 @@ describe("TicketSelector (demo)", () => {
     const button = screen.getByRole("button", { name: "Checkout unavailable in this demo" });
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute("aria-disabled", "true");
+  });
+});
+
+describe("TicketSelector pricing (ACCC all-inclusive, brand-direction-one.md §6.8)", () => {
+  it("shows each paid tier's total first, at full size on every width, then the breakdown, before anything is chosen", () => {
+    render(<TicketSelector event={live("neon-static")} />);
+    const total = screen.getByText("A$31.70 incl. booking fee");
+    const breakdown = screen.getByText("A$30 ticket + A$1.70 booking fee");
+    // Total before breakdown, and the breakdown is already there at quantity 0.
+    expect(total.compareDocumentPosition(breakdown) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Quantity for General admission" })).toHaveTextContent("0");
+    // The total: 16/24 semibold, never shrunk on desktop.
+    expect(total).toHaveClass("text-base", "font-semibold");
+    expect(total.className).not.toMatch(/\blg:/);
+    // The breakdown: smaller and muted.
+    expect(breakdown).toHaveClass("meta", "text-muted");
+  });
+
+  it("explains an organiser-absorbed fee, and gives a free tier no breakdown", () => {
+    const base = live("neon-static");
+    const event: SheltuhEvent = {
+      ...base,
+      ticketTypes: [
+        { id: "abs", name: "Workshop", priceCents: 12000, feePolicy: "organiser-absorbs", quantityAvailable: 10 },
+        { id: "free", name: "Listener", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 10 },
+      ],
+    };
+    render(<TicketSelector event={event} />);
+    expect(screen.getByText("A$120 incl. booking fee")).toBeInTheDocument();
+    expect(screen.getByText("A$120 ticket (booking fee included by organiser)")).toBeInTheDocument();
+    const freeRow = screen.getByRole("group", { name: "Quantity for Listener" }).closest("li");
+    if (!freeRow) throw new Error("free row not rendered");
+    expect(within(freeRow).getByText("Free")).toBeInTheDocument();
+    expect(freeRow.querySelector(".meta")).toBeNull();
+  });
+
+  it("makes the order total the largest number, below a black rule, and keeps checkout black", () => {
+    render(<TicketSelector event={live("neon-static")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    const totalTerm = screen.getByText("Total");
+    const totalValue = totalTerm.nextElementSibling;
+    expect(totalValue).toHaveTextContent("A$31.70");
+    expect(totalValue).toHaveClass("text-xl", "font-bold");
+    expect(totalTerm.parentElement).toHaveClass("border-t", "border-foreground");
+    expect(screen.getByText("Tickets").nextElementSibling).toHaveTextContent("A$30");
+    expect(screen.getByText("Booking fees").nextElementSibling).toHaveTextContent("A$1.70");
+    const checkout = screen.getByRole("button", { name: "Checkout" });
+    expect(checkout).toHaveClass("btn-solid", "btn-lg");
+    expect(checkout.className).not.toMatch(/signal|lg:/);
+  });
+
+  it("says what happens next before anything is chosen: paid and free", () => {
+    render(<TicketSelector event={live("neon-static")} />);
+    const steps = screen.getByRole("list", { name: "How booking works" });
+    expect(steps).toHaveTextContent("1 Choose tickets→2 Pay on Stripe→3 Tickets by email");
+    cleanup();
+    render(<TicketSelector event={live("brunswick-zine-fair")} />);
+    expect(screen.getByRole("list", { name: "How booking works" })).toHaveTextContent(
+      "1 Choose tickets→2 Confirm by email→3 Tickets",
+    );
+    expect(screen.getByText("Signed in with a verified email? Step 2 is usually skipped.")).toBeInTheDocument();
   });
 });

@@ -295,17 +295,97 @@ from showing 0 views for days nobody counted.
 `ticket_check_ins` log and the check-in functions. It's additive (no existing
 row changes) and also redefines `private.purge_analytics()` with the same
 result columns, so the analytics job above needs no change. Check-in is done
-by the event's organiser, signed in on the door device; admins can't, and
-events of platform-managed organisers (no owner account) can't be checked in
-yet (docs/architecture.md, "Check-in"). An event's check-ins (no buyer data):
+by the event's organiser, signed in on the door device. Events of
+platform-managed organisers (no owner account) are checked in by an admin,
+signed in as themselves on the same door page (`/dashboard/{event id}/check-in`);
+admins can't check in for organisers' own events
+(`20261023000100_review_hardening.sql`; docs/architecture.md, "Check-in").
+An event's check-ins (no buyer data), with who scanned:
 
 ```sql
-select c.id, c.result, right(c.ticket_code, 4) as code_last4, c.reason, c.created_at
-from ticket_check_ins c where c.event_id = '<event id>' order by c.id desc limit 50;
+select c.id, c.result, right(c.ticket_code, 4) as code_last4, c.reason, c.created_at, u.email as scanned_by
+from ticket_check_ins c left join auth.users u on u.id = c.actor_user_id
+where c.event_id = '<event id>' order by c.id desc limit 50;
 ```
 
 Mistaken admissions are undone from the app (with a reason, logged), not in
 SQL: an `update tickets set checked_in_at = null` would leave no record.
+
+### Platform-managed organisers
+
+When you create one (`/admin/events/new` → new organiser, or
+`POST /api/admin/organisers`), give it a Sheltüh alias as its contact email
+(one of the Google Workspace aliases, such as `bookings@sheltuh.com.au`, or a
+new alias), never a person's own address: the record is kept for as long as
+the organiser exists, admins see it, and whoever looks after the alias can
+change hands without the record changing.
+
+### A ticket link refused after a rule change
+
+The ticket link's rules (`private.external_ticket_url_ok`, mirrored in
+`lib/ticketing.ts`) are only checked when a link is written, so tightening
+them (for example adding a shortener) never blocks an unpublish or a
+takedown of an event that already holds such a link. A migration that
+tightens them should list the events whose stored link no longer passes, as
+`20261023000100_review_hardening.sql` does (it stops, naming them):
+
+```sql
+select id, title, status, external_ticket_url from public.events
+where external_ticket_url is not null and not private.external_ticket_url_ok(external_ticket_url);
+```
+
+For each one: replace the link with `PATCH /api/admin/events/{id}/ticketing`
+(`{"ticketingMode": "external", "externalTicketUrl": "https://…", "reason": "…"}`,
+logged), or, if there's no good link to give it, unpublish it
+(`POST /api/admin/events/{id}/unpublish`) and then fix it. Then run the
+migration again.
+
+### Redacting personal information from the event moderation log
+
+`edited` and `ticketing_changed` entries in `public.event_moderation_log`
+keep the old and new value of each changed field (`details`), and every entry
+can carry a free-text `reason`. If personal information ends up there (a
+phone number or someone's name in an old event description, say) and has to
+go, because the person asks for it to be corrected or removed (APP 13) or it
+shouldn't be kept (APP 11), redact it in place: keep the entry, so the record
+still shows that the field changed, when and by whom.
+
+1. First fix the event itself (the admin editor). That save logs another
+   `edited` entry whose `old` value is the text being removed, so redact
+   after it.
+2. Find every entry holding the text:
+
+   ```sql
+   select l.id, l.action, l.created_at, l.reason, l.details
+   from public.event_moderation_log l
+   where l.event_id = '<event id>' and (l.details::text ilike '%<text>%' or l.reason ilike '%<text>%')
+   order by l.id;
+   ```
+
+3. Replace each affected value (here a description's `old` value; use the
+   field and side that hold it, and `reason` the same way), in one
+   transaction, noting who redacted it and when:
+
+   ```sql
+   begin;
+   update public.event_moderation_log
+      set details = jsonb_set(details, '{description,old}', to_jsonb('[redacted <date> by <initials>: personal information]'::text))
+    where id = <entry id> and event_id = '<event id>';
+   -- check the row, then:
+   commit;
+   ```
+
+   A ticket type list (`ticketTypes`) is a whole array: replace the
+   affected name or description inside it with the same `jsonb_set` path
+   (`'{ticketTypes,old,0,description}'`).
+4. Record the request and what you redacted outside the database (the
+   privacy request log), not in the event log.
+
+The organiser profile edit log (`private.organiser_profile_edits`) refuses
+updates by design (trigger `organiser_profile_edits_append_only`); redacting
+there means disabling that trigger inside the same transaction, updating the
+one row, and enabling it again before `commit`. Do it only for a request you
+have recorded.
 
 ### Free-ticket and email outbox retention (daily job)
 

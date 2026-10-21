@@ -1,3 +1,4 @@
+import { isUpcomingEvent } from "@/lib/data";
 import { getMinBuyerTotalCents } from "@/lib/pricing";
 import type { SheltuhEvent } from "@/lib/types";
 
@@ -156,7 +157,9 @@ export function formatWeekendRange(window: WeekendWindow): string {
 
 const startMs = (event: SheltuhEvent) => Date.parse(event.startsAt);
 const endMs = (event: SheltuhEvent) => Date.parse(event.endsAt ?? event.startsAt);
-const bySoonest = (a: SheltuhEvent, b: SheltuhEvent) => startMs(a) - startMs(b) || a.id.localeCompare(b.id);
+
+/** Soonest start first; ties by id, so the order is stable. The home's one event order. */
+export const bySoonest = (a: SheltuhEvent, b: SheltuhEvent) => startMs(a) - startMs(b) || a.id.localeCompare(b.id);
 
 /**
  * Splits the home page's events into its sections (docs/design/home.md §6.2).
@@ -168,7 +171,7 @@ const bySoonest = (a: SheltuhEvent, b: SheltuhEvent) => startMs(a) - startMs(b) 
  */
 export function selectHomeSections(events: SheltuhEvent[], trending: TrendingItem[], now: Date): HomeSections {
   const nowMs = now.getTime();
-  const upcoming = events.filter((event) => endMs(event) > nowMs).sort(bySoonest);
+  const upcoming = events.filter((event) => isUpcomingEvent(event, now)).sort(bySoonest);
   const notStarted = upcoming.filter((event) => startMs(event) > nowMs);
 
   const claimed = new Set<string>();
@@ -179,13 +182,14 @@ export function selectHomeSections(events: SheltuhEvent[], trending: TrendingIte
   const upNext = notStarted[0] ?? upcoming[0];
   if (upNext) claim([upNext]);
 
-  // 2. This weekend: anything open during the window, events starting in it first.
+  // 2. This weekend: anything open during the window (owner decision 5). Events starting inside
+  // it come first, by start; then events already running when it opens (exhibitions), by start.
   const window = weekendWindow(now);
   const overlapping = upcoming.filter((event) => startMs(event) <= window.end && endMs(event) >= window.start);
-  const weekendKey = (event: SheltuhEvent) => Math.max(startMs(event), window.start);
+  const alreadyRunning = (event: SheltuhEvent) => (startMs(event) < window.start ? 1 : 0);
   const weekendItems = overlapping
     .filter(unclaimed)
-    .sort((a, b) => weekendKey(a) - weekendKey(b) || bySoonest(a, b))
+    .sort((a, b) => alreadyRunning(a) - alreadyRunning(b) || bySoonest(a, b))
     .slice(0, SECTION_MAX);
   // All of the weekend already in Up next: it's on screen above, so hide. Nothing on and the
   // weekend has started: hide (Coming up shows what's next). Nothing on yet: say so.
@@ -194,7 +198,7 @@ export function selectHomeSections(events: SheltuhEvent[], trending: TrendingIte
 
   // 3. Trending, in the server's order.
   const trendingLeft = trending
-    .filter(({ event }) => endMs(event) > nowMs && unclaimed(event))
+    .filter(({ event }) => isUpcomingEvent(event, now) && unclaimed(event))
     .slice(0, SECTION_MAX);
   const trendingItems = trendingLeft.length >= TRENDING_MIN ? trendingLeft : [];
   claim(trendingItems.map(({ event }) => event));

@@ -23,6 +23,17 @@ const MENU_PRIMARY_LINKS = [...PRIMARY_LINKS, { href: "/saved", label: "Saved" }
 const menuAccountLinkClass = "flex min-h-11 items-center text-base leading-6 font-semibold";
 
 /**
+ * While the phone menu is open the page behind it is inert: screen readers'
+ * virtual cursor (which ignores focus) can't wander into content the panel
+ * covers. The header stays live: it holds the menu and its Close button.
+ */
+function setPageInert(inert: boolean) {
+  for (const el of document.querySelectorAll<HTMLElement>("main, footer")) {
+    if (!el.closest("header")) el.toggleAttribute("inert", inert);
+  }
+}
+
+/**
  * Site header. Below `lg` it is one 56px bar (wordmark, search link, Menu button)
  * whose menu is a native popover: Escape and outside taps close it, and focus
  * returns to the Menu button. From `lg` up it is the one-row desktop header.
@@ -49,6 +60,7 @@ export default function Nav() {
     function handleToggle(event: ToggleEvent) {
       const open = event.newState === "open";
       setMenuOpen(open);
+      setPageInert(open);
       if (open) menu?.querySelector<HTMLElement>("a[href]")?.focus();
     }
     function handleFocusOut(event: FocusEvent) {
@@ -62,6 +74,7 @@ export default function Nav() {
     return () => {
       menu.removeEventListener("toggle", handleToggle);
       menu.removeEventListener("focusout", handleFocusOut);
+      setPageInert(false);
     };
   }, []);
 

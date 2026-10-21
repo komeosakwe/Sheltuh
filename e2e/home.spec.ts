@@ -126,8 +126,9 @@ for (const vp of VIEWPORTS) {
       );
       expect(overflow).toBeLessThanOrEqual(0);
 
-      // Live mode: no trending API yet, so no Trending section (never made-up data).
+      // The trending request isn't mocked here (404): the page shows no Trending, and no error.
       await expect(page.getByRole("heading", { name: "Trending" })).toHaveCount(0);
+      await expect(page.locator("main").getByRole("alert")).toHaveCount(0);
     });
   });
 }
@@ -176,3 +177,100 @@ test("a card's Get tickets lands on the event page with focus on the tickets", a
   await expect(page).toHaveURL(/#tickets$/, { timeout: 30_000 });
   await expect(page.locator("#tickets")).toBeFocused({ timeout: 30_000 });
 });
+
+test.describe("keyboard", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("the hero's Find your people jumps to the community band and puts focus on it", async ({ page }) => {
+    await openHome(page);
+    const link = page.getByRole("link", { name: "Find your people" });
+    await link.focus();
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/#find-your-people$/);
+    await expect(page.locator("#find-your-people")).toBeFocused();
+  });
+
+  test("at 390px, a card reached with Tab is brought fully into view in its rail", async ({ page }) => {
+    await openHome(page);
+    const section = page.locator("[data-home-section]").filter({ has: page.getByRole("heading", { name: "Coming up near you" }) });
+    const items = section.getByRole("listitem");
+    expect(await items.count()).toBeGreaterThan(2);
+    // Start on the first card's link, then Tab through the next two cards (link, Save, Get tickets each).
+    await items.first().getByRole("link").first().focus();
+    for (let i = 0; i < 6; i++) {
+      await page.keyboard.press("Tab");
+      const item = page.locator("li:has(:focus)").last();
+      await expect
+        .poll(async () => {
+          const b = await item.boundingBox();
+          if (!b) return "not rendered";
+          return b.x >= 0 && b.x + b.width <= 390 && b.y >= 0 && b.y + b.height <= 844 ? "in view" : `${b.x},${b.y} ${b.width}×${b.height}`;
+        })
+        .toBe("in view");
+    }
+    // It got past the cards that were on screen to begin with.
+    await expect(items.nth(2).locator(":focus")).toHaveCount(1);
+  });
+});
+
+for (const width of [1024, 1100]) {
+  test.describe(`Up next at ${width}px`, () => {
+    test.use({ viewport: { width, height: 800 } });
+
+    async function card(page: Page) {
+      const upNext = page.getByRole("region", { name: "Up next" });
+      const link = upNext.getByRole("link").first();
+      const box = async (l: ReturnType<Page["locator"]>) => {
+        const b = await l.boundingBox();
+        if (!b) throw new Error("not rendered");
+        return b;
+      };
+      return {
+        link: await box(link),
+        chip: await box(link.getByText("Up next", { exact: true })),
+        title: await box(upNext.getByRole("heading", { level: 3 })),
+        panel: await box(link.locator("[data-surface='ink']")),
+        texts: await link.locator("[data-surface='ink'] h3, [data-surface='ink'] p").evaluateAll((els) =>
+          els.map((el) => {
+            const r = el.getBoundingClientRect();
+            return { top: r.top, bottom: r.bottom };
+          }),
+        ),
+        panelBackground: await link
+          .locator("[data-surface='ink']")
+          .evaluate((el) => getComputedStyle(el).backgroundColor),
+      };
+    }
+
+    function expectReadable(c: Awaited<ReturnType<typeof card>>) {
+      // The chip sits above the title, never over it.
+      expect(c.chip.y + c.chip.height).toBeLessThanOrEqual(c.title.y);
+      // Nothing is clipped: chip and text are inside the card.
+      expect(c.chip.y).toBeGreaterThanOrEqual(c.link.y);
+      expect(c.title.y + c.title.height).toBeLessThanOrEqual(c.link.y + c.link.height + 0.5);
+      // Every line of text sits on the opaque black panel (cream 20:1, muted 7.9:1), never on the fade
+      // or the photo: the scrim is ≥ 4.5:1 behind all of it.
+      expect(c.panelBackground).toBe("rgb(0, 0, 0)");
+      for (const t of c.texts) {
+        expect(t.top).toBeGreaterThanOrEqual(c.panel.y - 0.5);
+        expect(t.bottom).toBeLessThanOrEqual(c.panel.y + c.panel.height + 0.5);
+      }
+    }
+
+    test("the chip and the title don't overlap, and all text is on the black panel", async ({ page }) => {
+      await openHome(page);
+      expectReadable(await card(page));
+    });
+
+    test("at 200% text the card grows instead of clipping", async ({ page }) => {
+      await openHome(page);
+      const before = await card(page);
+      await page.evaluate(() => {
+        document.documentElement.style.fontSize = "200%";
+      });
+      const after = await card(page);
+      expect(after.link.height).toBeGreaterThan(before.link.height);
+      expectReadable(after);
+    });
+  });
+}

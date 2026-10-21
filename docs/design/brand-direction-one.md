@@ -235,7 +235,7 @@ Sizes are given as base / `sm` 640 / `lg` 1024. LH is line-height.
 
 Brand lines use "ür" and "ü" for "your" and "you". To keep screen readers saying the right words, use one pattern everywhere (helper `components/brand/BrandU.tsx`):
 
-`<span aria-hidden="true">ÜR</span><span className="sr-only">your</span>`
+`<span aria-hidden="true">{the line as shown}</span><span className="sr-only">{the whole plain sentence}</span>`, e.g. `<BrandU spoken="Where is your Sheltüh?">…WHERE IS ÜR… SHELTÜH?</BrandU>`. One sr-only span holding the whole sentence (not "your" alone between visible pieces), so screen readers read it as one phrase.
 
 - In "Sheltüh", the ü is real text, unchanged.
 - Never put "ür" or "ü" in body copy, buttons, labels or errors. It's for brand lines only.
@@ -429,24 +429,25 @@ div.relative.flex.flex-col                                   (grid cell / rail i
 
 ### 6.6 Quick buy from cards (owner requirement 1)
 
-**Decision:** the card gets a **sibling text link** that goes straight to the event page's ticket section, `/events/{slug}#tickets`.
+**Decision:** the card gets a **sibling button-styled link** that goes straight to the event page's ticket section, `/events/{slug}#tickets`.
 - **Not a sheet.** One checkout path keeps the fee note, ticket terms, Who's Going booking email and the external-ticket beacon in one place, and it needs no new data loading on cards.
 - A sheet is listed in §10 as a later proposal.
 
-**Anatomy:**
-- `a.inline-flex.min-h-11.items-center.gap-1.self-start.-ml-0.5.px-0.5.text-sm.font-semibold.underline.underline-offset-4.decoration-1`.
-- Visible label, then `<span className="sr-only"> for {event.title}</span>`, then a 16px → arrow (`aria-hidden`).
-- Always underlined: it's a link, and quiet next to the card.
-- **It's never orange:** six orange CTAs per grid would kill the signal.
+**Anatomy** (owner decision 6 replaces the quiet underlined text link):
+- `buttonClass("signal", "md", "min-h-11 px-4 sm:min-h-10")`: Signal Orange fill, **black label** (6.18:1; never white on orange), `rounded-control`, semibold, 44px tall on phones and 40px from `sm`, the 16px → arrow kept.
+- Visible label (`aria-hidden`), plus one sr-only span with the whole name, "{label} for {event.title}".
+- Hover (hover-capable devices): the `.btn-signal` hover, black fill with an orange label. Press: the `.btn` 1px nudge, motion-safe only.
+- Focus: the page's black ring on a cream gap (`:focus-visible`, `outline-ink`); never orange.
+- It's outside the card's main link and never inside `[data-surface="signal"]`.
 
 **Placement:**
-- Its own row directly under the main link (`mt-1`). In grids, `mt-auto` aligns rows.
-- **compact:** the row is indented to the text column, `pl-[6.75rem] sm:pl-[7.75rem]`.
-- **featured:** the row sits under the card, outside it.
+- Its own row under the main link (`pt-3`). In grids, `mt-auto` aligns rows.
+- **compact:** the row is indented to the text column, `pl-27 sm:pl-31` (6.75rem / 7.75rem), and the button fills that column below `sm`.
+- **featured:** the row sits under the card, outside it (`mt-3`).
 
 **Hit area and spacing:**
-- 44px tall, and the text-width plus 4px wide.
-- At least 8px vertical separation from the card link's text (the `gap-1` plus the 44px box).
+- 44px tall on phones (40px from `sm`), the label plus 16px each side wide.
+- At least 12px vertical separation from the card link's text.
 - It never overlaps the Save heart (top-right of the media).
 
 **Label and target by event state:**
@@ -708,7 +709,7 @@ These are tools: quiet, dense and black-structured, with **no orange except the 
 
 | Page | Direction |
 | --- | --- |
-| **Home** `/` | Follows `home.md` for structure, dedupe, windows, Trending and external cards; its visual sections are updated to this system. Hero h1 is the brand question (`display-xl`): "WHERE / IS ÜR / SHELTÜH?" (§3.3 pattern; owner Q1), with the descriptive intro directly below so it still explains the site. CTAs: `signal` "Explore events" + `outline` "Join the community". Section straps per §6.4. "Find your people" becomes the page's **one orange band**: `data-surface="signal"`, full-bleed. GuideCard is a white info card with a black border; CreatorsCard is `data-surface="ink"`. |
+| **Home** `/` | Follows `home.md` for structure, dedupe, windows, Trending and external cards; its visual sections are updated to this system. Hero h1 is the brand question (`display-xl`): "WHERE / IS ÜR / SHELTÜH?" (§3.3 pattern; owner Q1), with the descriptive intro directly below so it still explains the site. CTAs: `signal` "Explore events" + `outline` "Find your people" (jumps to the band; `home.md` §5.2). Section straps per §6.4. "Find your people" becomes the page's **one orange band**: `data-surface="signal"`, full-bleed. GuideCard is a white info card with a black border; CreatorsCard is `data-surface="ink"`. |
 | **/events, /search** | `PageHeader brand` h1 "What's on." (`display-lg font-display`), strap "Events · Melbourne", existing intro (explains filtering). Filter bar: §6.2 fields on a `border-t border-foreground pt-5` row; the count in `meta`. Results: `EventTile` 4:5, grid `grid-cols-2 gap-x-3 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4 lg:gap-x-8`, quick buy per §6.6. Empty: §6.14. /search: same, with `SearchBar size="lg"`. |
 | **Event page** | §6.7–6.11 |
 | **Map** `/map` | h1 "Sheltüh near ü." (`display-lg font-display`; sr reads "Sheltüh near you"), with an optional `InlinePhoto` before "NEAR" (§8.3). The subtitle explains: "Events on the map. Tap a spot to see what's on there." Markers per §6.15; the panel is a white card. |
@@ -844,3 +845,4 @@ The initial letter keeps 8% opacity in `var(--face-display)`.
 3. Per-category map colours are retired: black pins, orange when selected; category stays in text and accessible names.
 4. Quick buy goes to the event page's tickets section (`/events/{slug}#tickets`, focus lands there), not a sheet.
 5. Still needed from the owner: Bootzy font files and web licence; the closer-dots logomark variation as a vector; photography with usage rights.
+6. Card quick-buy buttons are orange (Signal, black label) — owner request 21 Oct 2026; overrides the one-orange-button budget for cards.

@@ -126,20 +126,39 @@ describe("selectHomeSections", () => {
     expect(sections.upNext?.id).toBe("exhibition");
   });
 
-  it("This weekend: anything open in the window, events starting in it first", () => {
+  it("This weekend: anything open in the window; events starting in it first, then those already running (owner decision 5)", () => {
     const events = [
       event("next", day(22)),
-      // Fri 14:00–18:00 AEDT overlaps 17:00.
+      // Fri 14:00–18:00 AEDT overlaps 17:00: open in the window, but already running when it opens.
       event("fri-afternoon", "2026-10-23T03:00:00.000Z", { endsAt: "2026-10-23T07:00:00.000Z" }),
-      event("sat", day(24)),
       event("sun", day(25, 2)),
-      // A multi-day exhibition open through the weekend, sorted by the window's start.
+      event("sat", day(24)),
+      // Starts exactly at the window's start (Fri 17:00 AEDT): starts inside it.
+      event("fri-evening", "2026-10-23T06:00:00.000Z"),
+      // A multi-day exhibition open through the weekend: already running, so after every event starting in it.
       event("exhibition", "2026-10-15T00:00:00.000Z", { endsAt: "2026-11-15T08:00:00.000Z" }),
       event("mon", day(26)),
     ];
     const sections = selectHomeSections(events, [], NOW);
     expect(sections.weekend.status).toBe("cards");
-    expect(sections.weekend.items.map((e) => e.id)).toEqual(["exhibition", "fri-afternoon", "sat", "sun"]);
+    expect(sections.weekend.items.map((e) => e.id)).toEqual([
+      // Starting inside the window, by start.
+      "fri-evening",
+      "sat",
+      "sun",
+      // Already running when it opens, by start.
+      "exhibition",
+      "fri-afternoon",
+    ]);
+  });
+
+  it("This weekend: ties on start are broken by id", () => {
+    const sections = selectHomeSections(
+      [event("next", day(22)), event("sat-b", day(24)), event("sat-a", day(24))],
+      [],
+      NOW,
+    );
+    expect(sections.weekend.items.map((e) => e.id)).toEqual(["sat-a", "sat-b"]);
   });
 
   it("This weekend: an in-progress event counts during the weekend", () => {

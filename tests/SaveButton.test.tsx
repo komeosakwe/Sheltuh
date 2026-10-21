@@ -211,6 +211,34 @@ describe("SaveButton — live", () => {
   });
 });
 
+describe("SaveButton — focus on a photo (overlay)", () => {
+  it("rings the 36px mark, black on a cream gap, instead of the outline that can vanish into dark art; never orange", async () => {
+    const button = await readyHeart();
+    const mark = button.firstElementChild as HTMLElement;
+    expect(button).toHaveClass("group/save", "focus-visible:outline-none");
+    expect(mark).toHaveClass(
+      "size-9",
+      "group-focus-visible/save:ring-2",
+      "group-focus-visible/save:ring-ink",
+      "group-focus-visible/save:ring-offset-2",
+      "group-focus-visible/save:ring-offset-cream",
+    );
+    expect(`${button.className} ${mark.className}`).not.toMatch(/signal|orange/);
+  });
+
+  it("does the same when it's the sign-in link (signed out)", () => {
+    renderHeart(signedOut());
+    const link = screen.getByRole("link", { name: "Sign in to save Night Market" });
+    expect(link).toHaveClass("focus-visible:outline-none");
+    expect(link.firstElementChild).toHaveClass("group-focus-visible/save:ring-ink", "group-focus-visible/save:ring-offset-cream");
+  });
+
+  it("other variants keep the page's own outline", async () => {
+    const button = await readyHeart([], undefined, "plain");
+    expect(button.className).not.toMatch(/outline-none/);
+  });
+});
+
 describe("SaveButton — signed out (live)", () => {
   it("is a link to sign in that comes back to the event and saves it", () => {
     renderHeart(signedOut());

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import CategoryIcon, { type CategoryIconName } from "./CategoryIcon";
+import RailItem from "./RailItem";
 
 /** Every link opens /events with that filter already applied (see app/events/page.tsx). */
 export const HOME_CATEGORIES: { label: string; href: string; icon: CategoryIconName }[] = [
@@ -25,7 +26,7 @@ export default function CategoryRow({ className = "" }: { className?: string }) 
       {/* py-1.5 keeps the focus ring clear of the scroll container's clip. */}
       <ul className="no-scrollbar -mx-5 -my-1.5 flex snap-x snap-proximity scroll-px-5 gap-2 overflow-x-auto px-5 py-1.5 sm:mx-0 sm:snap-none sm:gap-3 sm:overflow-visible sm:px-0 lg:gap-1">
         {HOME_CATEGORIES.map((item) => (
-          <li key={item.href} className="shrink-0 snap-start">
+          <RailItem key={item.href} className="shrink-0 snap-start">
             <Link
               href={item.href}
               className="group flex w-18 flex-col items-center gap-1.5 motion-safe:transition-transform motion-safe:duration-150 motion-safe:active:scale-95 lg:w-16"
@@ -35,7 +36,7 @@ export default function CategoryRow({ className = "" }: { className?: string }) 
               </span>
               <span className="text-center text-xs leading-4 font-medium">{item.label}</span>
             </Link>
-          </li>
+          </RailItem>
         ))}
       </ul>
     </nav>

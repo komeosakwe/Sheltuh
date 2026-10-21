@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import DotsMark from "@/components/brand/DotsMark";
 import EventArt from "@/components/EventArt";
 import SaveButton from "@/components/favourites/SaveButton";
@@ -46,19 +46,30 @@ function useLiveGoingCount(eventId: string, enabled: boolean): number | null {
   return summary.count;
 }
 
-/**
- * The featured card's box (docs/design/home.md §5.5, owner decision 7): a
- * landscape card at every width, so the hero stays compact and the events
- * below it show without scrolling. Shared by every Up next state, so a
- * loading, error or empty box holds exactly the card's space.
- */
-export const FEATURED_BOX = "aspect-[4/3] min-[375px]:aspect-video sm:aspect-[2/1] lg:aspect-[4/3] rounded-card";
+/** The featured card's media ratio (docs/design/home.md §5.5, owner decision 7): landscape at every width. */
+const FEATURED_ASPECT = "aspect-[4/3] min-[375px]:aspect-video sm:aspect-[2/1] lg:aspect-[4/3]";
 
 /**
- * "Up next": the soonest event as one photo link with its details over a
- * functional scrim (black at least 85% wherever text sits), in the ink
- * scope so its text and avatars invert. Save sits on the photo, outside the
- * link. An external event has no Who's Going, so no count and no request.
+ * The featured card's box: a landscape card at every width, so the hero
+ * stays compact and the events below it show without scrolling. Shared by
+ * every Up next state, so a loading, error or empty box holds exactly the
+ * card's space.
+ */
+export const FEATURED_BOX = `${FEATURED_ASPECT} rounded-card`;
+
+/**
+ * "Up next": the soonest event as one photo link, its details on a black
+ * panel along the bottom of the photo (the ink scope, so its text and
+ * avatars invert) that fades out above the text. The photo and the panel
+ * share one grid cell: the photo sets the card's least height, and the
+ * panel, in flow, grows the card when its text needs more room (larger
+ * text sizes, narrow cards), so nothing is ever clipped and the text never
+ * sits on the fade (cream on black, 20:1; muted 7.9:1). Save sits on the
+ * photo, outside the link. An external event has no Who's Going, so no
+ * count and no request.
+ *
+ * The link's name is the title, then the date, place, price and going
+ * count (aria-labelledby): the "Up next" chip repeats the section's name.
  */
 export default function FeaturedEventCard({ event, mode }: { event: SheltuhEvent; mode: "demo" | "live" }) {
   const external = event.ticketingMode === "external";
@@ -70,51 +81,56 @@ export default function FeaturedEventCard({ event, mode }: { event: SheltuhEvent
       : liveCount === null
         ? null
         : { count: liveCount };
+  const id = useId();
+  const ids = { title: `${id}-title`, meta: `${id}-meta`, going: `${id}-going` };
 
   return (
     <div className="relative">
       <Link
         href={`/events/${event.slug}`}
-        className={`group relative block overflow-hidden motion-safe:transition-transform motion-safe:duration-150 motion-safe:active:scale-[0.99] ${FEATURED_BOX}`}
+        aria-labelledby={[ids.title, ids.meta, going ? ids.going : null].filter(Boolean).join(" ")}
+        className="group relative grid overflow-hidden rounded-card bg-ink motion-safe:transition-transform motion-safe:duration-150 motion-safe:active:scale-[0.99]"
       >
+        <EventArt
+          poster={event.poster}
+          imageUrl={event.imageUrl}
+          title={event.title}
+          priority
+          motion
+          className={`col-start-1 row-start-1 h-full w-full ${FEATURED_ASPECT}`}
+        />
         {/* The ink scope is inside the link, so the link's own focus ring stays the page's black. */}
-        <div data-surface="ink" className="absolute inset-0">
-          <div className="absolute inset-0">
-            <EventArt
-              poster={event.poster}
-              imageUrl={event.imageUrl}
-              title={event.title}
-              priority
-              motion
-              className="h-full w-full"
-            />
-          </div>
-          <div
-            aria-hidden="true"
-            className="absolute inset-0 bg-linear-to-t from-ink from-45% via-ink/85 via-70% to-ink/0"
-          />
-          <span className="eyebrow absolute left-3 top-3 flex items-center gap-2 rounded-badge bg-signal px-2 py-1 text-signal-foreground sm:left-5 sm:top-5">
+        <div
+          data-surface="ink"
+          className="relative col-start-1 row-start-1 flex flex-col self-end p-4 pr-16 before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-12 before:bg-linear-to-t before:from-ink before:to-ink/0 sm:max-w-[36rem] sm:p-6 sm:pr-20"
+        >
+          <span className="eyebrow flex items-center gap-2 self-start rounded-badge bg-signal px-2 py-1 text-signal-foreground">
             <DotsMark size="xs" />
             Up next
           </span>
-          <div className="absolute inset-x-0 bottom-0 flex flex-col p-4 pr-16 sm:max-w-[36rem] sm:p-6 sm:pr-20">
-            <h3 className="line-clamp-2 font-heading text-[1.375rem] leading-[0.95] tracking-[-0.025em] uppercase underline-offset-4 group-hover:underline sm:text-[2rem] md:text-[2.5rem] lg:text-[1.75rem]">
-              {event.title}
-            </h3>
-            <div className="mt-1.5 text-sm leading-5 sm:mt-2 sm:text-base sm:leading-6 lg:text-sm lg:leading-5">
-              <p>{formatEventDateTimeRange(event.startsAt, event.endsAt)}</p>
-              <p className="truncate text-muted">{[event.venueName, event.suburb].filter(Boolean).join(" · ")}</p>
-              <CardPrice event={event} />
-            </div>
-            {going && <GoingStack count={going.count} initials={going.initials} className="mt-1.5 sm:mt-2" />}
-          </div>
-          <span
-            aria-hidden="true"
-            className="absolute bottom-4 right-4 flex size-11 items-center justify-center rounded-control bg-cream text-ink sm:bottom-6 sm:right-6"
+          <h3
+            id={ids.title}
+            className="mt-2 line-clamp-2 font-heading text-[1.375rem] leading-[0.95] tracking-[-0.025em] uppercase underline-offset-4 group-hover:underline sm:mt-3 sm:text-[2rem] md:text-[2.5rem] lg:text-[1.75rem]"
           >
-            <ChevronRightIcon />
-          </span>
+            {event.title}
+          </h3>
+          <div id={ids.meta} className="mt-1.5 text-sm leading-5 sm:mt-2 sm:text-base sm:leading-6 lg:text-sm lg:leading-5">
+            <p>{formatEventDateTimeRange(event.startsAt, event.endsAt)}</p>
+            <p className="truncate text-muted">{[event.venueName, event.suburb].filter(Boolean).join(" · ")}</p>
+            <CardPrice event={event} />
+          </div>
+          {going && (
+            <div id={ids.going} className="mt-1.5 sm:mt-2">
+              <GoingStack count={going.count} initials={going.initials} />
+            </div>
+          )}
         </div>
+        <span
+          aria-hidden="true"
+          className="absolute bottom-4 right-4 flex size-11 items-center justify-center rounded-control bg-cream text-ink sm:bottom-6 sm:right-6"
+        >
+          <ChevronRightIcon />
+        </span>
       </Link>
       <SaveButton
         event={{ id: event.id, title: event.title, slug: event.slug }}

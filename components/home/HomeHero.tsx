@@ -4,7 +4,7 @@ import DotsMark from "@/components/brand/DotsMark";
 import DemoNotice from "@/components/DemoNotice";
 import EventArt from "@/components/EventArt";
 import SearchBar from "@/components/SearchBar";
-import { ButtonLink } from "@/components/ui/Button";
+import { buttonClass, ButtonLink } from "@/components/ui/Button";
 import { isApiConfigured } from "@/lib/api/client";
 import CategoryRow from "./CategoryRow";
 import { HOME_HERO } from "./home-content";
@@ -22,6 +22,10 @@ const CTA = "flex-auto px-3 text-[0.8125rem] sm:flex-none sm:px-6 sm:text-sm";
  *
  * The h1 is the LCP element, so it never animates in (`.rise` is on the
  * rest). Screen readers hear "Where is your Sheltüh?".
+ *
+ * The photo cell is hidden from 1024px, so it isn't loaded eagerly: it's
+ * lazy (never fetched while hidden) with a high fetch priority (first in the
+ * queue where it shows).
  */
 export default function HomeHero({ upNext }: { upNext: ReactNode }) {
   return (
@@ -32,22 +36,21 @@ export default function HomeHero({ upNext }: { upNext: ReactNode }) {
           Melbourne · What’s on
         </p>
         <div className="mt-2 grid grid-cols-[auto_minmax(5.5rem,1fr)] items-stretch gap-x-3 sm:mt-3 sm:grid-cols-[auto_minmax(10rem,1fr)] sm:gap-x-6 lg:grid-cols-1">
-          {/* The spaces between the spans keep the accessible text a sentence. */}
           <h1
             id="home-title"
-            className="font-display text-[clamp(2rem,9.25vw,2.25rem)] leading-[0.9] uppercase sm:text-[2.75rem] lg:text-[3.5rem]"
+            className="font-display text-[clamp(2rem,9.25vw,2.25rem)] leading-[1.02] [word-spacing:0.15em] uppercase sm:text-[2.75rem] lg:text-[3.5rem]"
           >
-            <span className="block whitespace-nowrap">
-              Where is <BrandU />
-            </span>{" "}
-            <span className="block whitespace-nowrap">Sheltüh?</span>
+            <BrandU spoken="Where is your Sheltüh?">
+              <span className="block whitespace-nowrap">Where is ÜR</span>
+              <span className="block whitespace-nowrap">Sheltüh?</span>
+            </BrandU>
           </h1>
           <div className="rise min-h-16 [--d:120ms] lg:hidden">
             <EventArt
               poster={HOME_HERO.poster}
               imageUrl={HOME_HERO.imageUrl}
               title="Sheltüh"
-              priority
+              priority="when-shown"
               motion
               className="h-full w-full rounded-card"
             />
@@ -62,13 +65,14 @@ export default function HomeHero({ upNext }: { upNext: ReactNode }) {
             Explore events
             <ArrowRightIcon className="hidden h-4 w-4 sm:block" />
           </ButtonLink>
-          <ButtonLink href="#find-your-people" variant="outline" size="lg" className={CTA}>
-            Join the community
-          </ButtonLink>
+          {/* A plain anchor, not next/link: the browser's own fragment jump moves focus to the band (tabIndex -1). */}
+          <a href="#find-your-people" className={buttonClass("outline", "lg", CTA)}>
+            Find your people
+          </a>
         </div>
         <div className="rise mt-3 [--d:400ms] sm:mt-6 lg:flex lg:items-center lg:gap-6">
           <div className="sm:max-w-xl lg:min-w-0 lg:flex-1">
-            <SearchBar size="lg" submit label="Search events" />
+            <SearchBar size="lg" submit label="Search events" placeholder="Search events" />
           </div>
           <CategoryRow className="mt-3 sm:mt-6 lg:mt-0 lg:shrink-0" />
         </div>

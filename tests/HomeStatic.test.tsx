@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import CategoryRow from "@/components/home/CategoryRow";
 import CommunitySection from "@/components/home/CommunitySection";
 import CreatorsCard from "@/components/home/CreatorsCard";
@@ -11,16 +11,37 @@ import HomeRail, { HomeRailItem } from "@/components/home/HomeRail";
 import SectionHead from "@/components/home/SectionHead";
 import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+/**
+ * Keyboard focus. jsdom's :focus-visible never matches a link, so it's
+ * emulated as a browser does after Tab: the focused element matches.
+ */
+function tabTo(el: HTMLElement) {
+  const matches = Element.prototype.matches;
+  vi.spyOn(Element.prototype, "matches").mockImplementation(function (this: Element, selector: string) {
+    return selector === ":focus-visible" ? this === document.activeElement : matches.call(this, selector);
+  });
+  el.focus();
+}
 
 describe("HomeHero", () => {
   it("has one h1, the brand question, which screen readers hear as 'Where is your Sheltüh?'", () => {
     render(<HomeHero upNext={<p>Up next slot</p>} />);
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1).toHaveAccessibleName("Where is your Sheltüh?");
-    // The visible "ÜR" is hidden from screen readers; "your" is read instead.
-    expect(within(h1).getByText("ÜR")).toHaveAttribute("aria-hidden", "true");
-    expect(within(h1).getByText("your")).toHaveClass("sr-only");
+    // One hidden visual line ("WHERE IS ÜR / SHELTÜH?") and one sr-only span with the whole sentence,
+    // so screen readers read it as one phrase, not "Where is", "your", "Sheltüh?".
+    expect(h1.children).toHaveLength(2);
+    const [visual, spoken] = Array.from(h1.children);
+    expect(visual).toHaveAttribute("aria-hidden", "true");
+    expect(visual).toHaveTextContent("Where is ÜRSheltüh?");
+    expect(spoken).toHaveClass("sr-only");
+    expect(spoken).toHaveTextContent(/^Where is your Sheltüh\?$/);
     // The display token, compact sizes (owner decision 7): at most 36px on phones, 44px from sm, 56px from lg.
     expect(h1).toHaveClass("font-display", "sm:text-[2.75rem]", "lg:text-[3.5rem]");
     expect(h1.className).toMatch(/text-\[clamp\(2rem,9\.25vw,2\.25rem\)\]/);
@@ -33,15 +54,23 @@ describe("HomeHero", () => {
     ).toBeInTheDocument();
   });
 
-  it("has one orange CTA to /events and an outline one to the community section", () => {
+  it("has one orange CTA to /events and an outline one, 'Find your people', to the community band", () => {
     render(<HomeHero upNext={null} />);
     const explore = screen.getByRole("link", { name: "Explore events" });
     expect(explore).toHaveAttribute("href", "/events");
     expect(explore).toHaveClass("btn-signal", "btn-lg");
-    const join = screen.getByRole("link", { name: "Join the community" });
-    expect(join).toHaveAttribute("href", "#find-your-people");
-    expect(join).toHaveClass("btn-outline");
+    const people = screen.getByRole("link", { name: "Find your people" });
+    expect(people).toHaveAttribute("href", "#find-your-people");
+    expect(people).toHaveClass("btn", "btn-outline", "btn-lg");
+    // Not the band's sign-up CTA's name.
+    expect(screen.queryByRole("link", { name: "Join the community" })).not.toBeInTheDocument();
     expect(document.querySelectorAll(".btn-signal")).toHaveLength(1);
+  });
+
+  it("gives the search a short placeholder (it fits a phone); the label is unchanged", () => {
+    render(<HomeHero upNext={null} />);
+    const search = within(screen.getByRole("search", { name: "Search events" })).getByRole("searchbox");
+    expect(search).toHaveAttribute("placeholder", "Search events");
   });
 
   it("holds search, the categories, the demo note and then the Up next slot, in that order", () => {
@@ -73,6 +102,13 @@ describe("HomeHero", () => {
     expect(img?.closest(".lg\\:hidden")).not.toBeNull();
   });
 
+  it("never fetches the photo where it's hidden (lg): lazy, with a high fetch priority where it shows", () => {
+    const { container } = render(<HomeHero upNext={null} />);
+    const img = container.querySelector("img");
+    expect(img).toHaveAttribute("loading", "lazy");
+    expect(img).toHaveAttribute("fetchpriority", "high");
+  });
+
   it("has no sticker graphics", () => {
     const { container } = render(<HomeHero upNext={null} />);
     expect(container.innerHTML).not.toMatch(/scribble|marquee|float|spin/i);
@@ -97,6 +133,15 @@ describe("CategoryRow", () => {
     expect(nav.querySelector(".rounded-full")).toBeNull();
     expect(nav.querySelectorAll(".rounded-dot")).toHaveLength(6);
   });
+
+  it("brings a keyboard-focused category fully into view in its row", () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    render(<CategoryRow />);
+    tabTo(screen.getByRole("link", { name: "Theatre" }));
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole("link", { name: "Theatre" }).closest("li"));
+  });
 });
 
 describe("SectionHead", () => {
@@ -114,6 +159,16 @@ describe("SectionHead", () => {
     expect(strap).not.toBeNull();
     expect(within(strap as HTMLElement).getByText("Coming up").closest("[aria-hidden='true']")).not.toBeNull();
     expect(screen.getByText("Fri 23 – Sun 25 Oct").closest("[aria-hidden='true']")).toBeNull();
+  });
+
+  it("puts the note after the h2 in reading order, while it shows on the strap's row", () => {
+    render(<SectionHead id="w" title="This weekend" note={{ text: "Fri 23 – Sun 25 Oct" }} seeAll={{ href: "/events", srLabel: "events" }} />);
+    const h2 = screen.getByRole("heading", { level: 2, name: "This weekend" });
+    const note = screen.getByText("Fri 23 – Sun 25 Oct");
+    expect(h2.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Visually on the strap: the grid's first row, right-hand column.
+    expect(note.parentElement).toHaveClass("row-start-1", "col-start-2");
+    expect(h2.parentElement).toHaveClass("row-start-2");
   });
 
   it("has no link without seeAll", () => {
@@ -142,6 +197,44 @@ describe("HomeRail", () => {
     expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["A", "B"]);
     // A snapping rail on phones, a grid from 640px.
     expect(list).toHaveClass("snap-x", "sm:grid", "sm:grid-cols-2", "md:grid-cols-3");
+  });
+
+  it.each([
+    ["no preference", false, "smooth"],
+    ["reduced motion", true, "auto"],
+  ])("brings a keyboard-focused card fully into view (%s)", (_label, reduce, behavior) => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: reduce }));
+    render(
+      <HomeRail labelledBy="x" grid="cards">
+        <HomeRailItem>
+          <a href="#a">A</a>
+          <button type="button">Save A</button>
+        </HomeRailItem>
+      </HomeRail>,
+    );
+    // Focus by keyboard on any control in the card scrolls the whole item (the li), not just the control.
+    tabTo(screen.getByRole("button", { name: "Save A" }));
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole("listitem"));
+    expect(scrollIntoView).toHaveBeenCalledWith({ inline: "nearest", block: "nearest", behavior });
+  });
+
+  it("doesn't scroll for a pointer focus (a tap or click mustn't move the card from under it)", () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    render(
+      <HomeRail labelledBy="x" grid="cards">
+        <HomeRailItem>
+          <a href="#a">A</a>
+        </HomeRailItem>
+      </HomeRail>,
+    );
+    const link = screen.getByRole("link");
+    // A focus event whose target isn't :focus-visible (it isn't actually focused here).
+    fireEvent.focus(link);
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 
   it("compact: 3 columns only from lg", () => {

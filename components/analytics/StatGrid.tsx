@@ -20,6 +20,8 @@ const DEFINITIONS: Record<string, string> = {
   Gross: "What buyers paid, including any booking fees they paid.",
   Fees: "Sheltüh booking fees (4% + A$0.50 per paid ticket), whether buyers paid them or you absorbed them.",
   Net: "Gross minus fees. This is what Stripe pays out to you. Card processing costs come out of our share, not yours.",
+  "Ticket link clicks":
+    "Times the “Get tickets on …” link of an event sold on another site was opened. We count clicks, not people, and can’t see what happens on that site.",
 };
 
 /**

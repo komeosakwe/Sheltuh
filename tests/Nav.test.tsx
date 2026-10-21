@@ -109,6 +109,41 @@ describe("Nav — phone menu", () => {
     expect(screen.getByRole("button", { name: "Menu" })).toBeInTheDocument();
   });
 
+  it("makes the page's main and footer inert while open, and live again on close", () => {
+    const main = document.createElement("main");
+    const footer = document.createElement("footer");
+    document.body.append(main, footer);
+    const { menu } = renderNav(fakeAuthValue({ status: "signed-out" }));
+    const header = screen.getByRole("banner");
+
+    fireToggle(menu, "open");
+    expect(main).toHaveAttribute("inert");
+    expect(footer).toHaveAttribute("inert");
+    // The header holds the menu and its Close button: never inert.
+    expect(header).not.toHaveAttribute("inert");
+    expect(menu.closest("[inert]")).toBeNull();
+
+    fireToggle(menu, "closed");
+    expect(main).not.toHaveAttribute("inert");
+    expect(footer).not.toHaveAttribute("inert");
+    main.remove();
+    footer.remove();
+  });
+
+  it("never leaves the page inert after it unmounts with the menu open", () => {
+    const main = document.createElement("main");
+    const footer = document.createElement("footer");
+    document.body.append(main, footer);
+    const { menu, unmount } = renderNav(fakeAuthValue({ status: "signed-out" }));
+    fireToggle(menu, "open");
+    expect(main).toHaveAttribute("inert");
+    unmount();
+    expect(main).not.toHaveAttribute("inert");
+    expect(footer).not.toHaveAttribute("inert");
+    main.remove();
+    footer.remove();
+  });
+
   it("closes after an action inside the menu", () => {
     const { menu } = renderNav(fakeAuthValue());
     const hidePopover = vi.fn();

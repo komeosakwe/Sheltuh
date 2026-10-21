@@ -185,9 +185,10 @@ export default function CheckoutConfirmation() {
             <dt className="text-muted">Booking fees</dt>
             <dd className="text-foreground">{formatAud(order.buyerFeeCents)}</dd>
           </div>
-          <div className="flex justify-between border-t border-surface-border pt-2 font-semibold">
-            <dt className="text-foreground">Total paid</dt>
-            <dd className="text-foreground">{formatAud(order.totalCents)}</dd>
+          {/* The total is the largest number here (brand-direction-one.md §6.8). */}
+          <div className="mt-1 flex items-baseline justify-between gap-4 border-t border-foreground pt-3">
+            <dt className="text-lg leading-6 font-bold text-foreground">Total paid</dt>
+            <dd className="text-xl leading-7 font-bold tabular-nums text-foreground">{formatAud(order.totalCents)}</dd>
           </div>
         </dl>
       </div>

@@ -112,3 +112,34 @@ describe("EventDetailsView tickets panel", () => {
     expect(within(tickets).queryByRole("textbox")).not.toBeInTheDocument();
   });
 });
+
+describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => {
+  it("puts the buy bar on an ink surface with the one orange Get tickets", () => {
+    const { container } = render(<EventDetailsView event={findEvent("neon-static")} demo />);
+    const bar = buyBar(container);
+    if (!bar) throw new Error("buy bar not rendered");
+    expect(bar).toHaveAttribute("data-surface", "ink");
+    expect(bar.className).not.toMatch(/bg-foreground|text-background/);
+    expect(within(bar).getByRole("link", { name: "See tickets" })).toHaveClass("btn-signal", "btn-lg");
+    // Checkout itself stays black.
+    const tickets = container.querySelector<HTMLElement>("#tickets");
+    if (!tickets) throw new Error("#tickets not rendered");
+    expect(tickets.querySelector(".btn-signal")).toBeNull();
+  });
+
+  it("has a category · suburb strap with Save and Share, then the title", () => {
+    const event = findEvent("neon-static");
+    render(<EventDetailsView event={event} demo />);
+    const heading = screen.getByRole("heading", { level: 1, name: event.title });
+    const share = screen.getByRole("button", { name: `Share ${event.title}` });
+    expect(screen.getByText(`Live music · ${event.suburb}`)).toBeInTheDocument();
+    expect(share.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("offers Add to calendar under When", () => {
+    render(<EventDetailsView event={findEvent("neon-static")} demo />);
+    const when = screen.getByText("When").closest("div");
+    if (!when) throw new Error("When row not rendered");
+    expect(within(when).getByRole("button", { name: "Add to calendar" })).toHaveAttribute("aria-expanded", "false");
+  });
+});

@@ -16,6 +16,7 @@ import Attendance from "./Attendance";
 import DataTable from "./DataTable";
 import ExportCsvButton from "./ExportCsvButton";
 import { ValueOrNoData } from "./NoData";
+import OutboundClicks from "./OutboundClicks";
 import { AnalyticsPrivacyNote, LaterStagesNote, ViewsFootnote } from "./Notes";
 import RangeControls from "./RangeControls";
 import { STATUS_LABEL, backLinkClass, buildStats, failureKind, rangeErrorMessage, useKeyedLoad } from "./shared";
@@ -218,6 +219,16 @@ function ReportBody({ data, range, busy }: { data: Report; range: RangeState; bu
           />
         }
       />
+
+      {data.outboundClicks && (
+        <OutboundClicks
+          clicks={data.outboundClicks}
+          range={data.range}
+          days={days}
+          previousLabel={previousLabel}
+          intro="Clicks on this event’s “Get tickets on …” link. Its tickets are sold on that site, so orders, tickets sold and money for this event aren’t counted here."
+        />
+      )}
 
       <Attendance attendance={data.attendance} event={data.event} />
 

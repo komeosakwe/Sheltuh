@@ -186,8 +186,13 @@ export default function EventArt({
   imageUrl?: string;
   className?: string;
   children?: ReactNode;
-  /** The page's largest above-the-fold image: load it eagerly at high priority instead of lazily. */
-  priority?: boolean;
+  /**
+   * `true`: the page's largest above-the-fold image: load it eagerly at high
+   * priority instead of lazily. `"when-shown"`: the same, for an image some
+   * widths hide with `display: none`: it stays lazy (a hidden lazy image is
+   * never fetched) with a high fetch priority (where it shows, it goes first).
+   */
+  priority?: boolean | "when-shown";
   /** Slowly pushes the photo in and back (reduced-motion safe). For hero and feature images only. */
   motion?: boolean;
 }) {
@@ -205,7 +210,7 @@ export default function EventArt({
         <img
           src={imageUrl}
           alt=""
-          loading={priority ? "eager" : "lazy"}
+          loading={priority === true ? "eager" : "lazy"}
           fetchPriority={priority ? "high" : undefined}
           decoding="async"
           // On a server-rendered page the image can fail before React attaches

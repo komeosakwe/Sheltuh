@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import RailItem from "./RailItem";
 
 /**
  * A section's list of cards: below 640px a horizontal rail (native
@@ -27,6 +28,7 @@ export default function HomeRail({
   );
 }
 
+/** One card's cell. Keyboard focus anywhere in the card brings the whole card into view (RailItem). */
 export function HomeRailItem({ children }: { children: ReactNode }) {
-  return <li className="flex shrink-0 snap-start">{children}</li>;
+  return <RailItem className="flex shrink-0 snap-start">{children}</RailItem>;
 }

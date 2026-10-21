@@ -1,34 +1,59 @@
 import Link from "next/link";
 import { Suspense } from "react";
+import AddToCalendar from "@/components/AddToCalendar";
 import EventViewBeacon from "@/components/analytics/EventViewBeacon";
+import DotsMark from "@/components/brand/DotsMark";
 import DemoNotice from "@/components/DemoNotice";
 import EventArt from "@/components/EventArt";
+import ExternalTicketLink from "@/components/ExternalTicketLink";
 import SaveButton from "@/components/favourites/SaveButton";
 import SaveOnReturn from "@/components/favourites/SaveOnReturn";
+import ShareButton from "@/components/ShareButton";
 import TicketSelector from "@/components/TicketSelector";
 import TicketsHashFocus from "@/components/TicketsHashFocus";
+import { buttonClass } from "@/components/ui/Button";
+import { Panel } from "@/components/ui/Section";
 import WhosGoing from "@/components/WhosGoing";
 import { WhosGoingProvider } from "@/components/whos-going/WhosGoingProvider";
 import WhosGoingSummaryLink from "@/components/whos-going/WhosGoingSummaryLink";
-import { Panel } from "@/components/ui/Section";
-import { describeBookingFee } from "@/lib/fees";
-import { formatEventDateTimeRange } from "@/lib/format";
-import { formatFeedPriceParts } from "@/lib/pricing";
+import { isSafeTicketUrl } from "@/lib/event-url";
+import { formatEventDateShort, formatEventDateTimeRange, formatEventTime } from "@/lib/format";
+import { externalProviderLabel, formatFeedPriceParts } from "@/lib/pricing";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 
+const asideRowClass = "border-t border-foreground py-3";
+
+/**
+ * The event page (docs/design/brand-direction-one.md §6.10): the photo, a
+ * strap with Save and Share, the title and key facts, then When / Where /
+ * Organiser, Who's Going and the tickets. An external event (tickets sold on
+ * another site) has a "Get tickets on {provider}" link instead of the ticket
+ * selector, and no price or Who's Going (docs/architecture.md, "External
+ * ticketing").
+ */
 export default function EventDetailsView({ event, demo }: { event: SheltuhEvent; demo: boolean }) {
   const categoryLabel =
     EVENT_CATEGORIES.find((category) => category.value === event.category)?.label ?? event.category;
 
   const goodToKnow = [
-    { label: "Who it\u2019s for", value: event.audience },
+    { label: "Who it’s for", value: event.audience },
     { label: "What to expect", value: event.whatToExpect },
     { label: "Age restriction", value: event.ageRestriction },
     { label: "Accessibility", value: event.accessibility },
   ].filter((item) => item.value);
 
-  const price = formatFeedPriceParts(event);
+  const external = event.ticketingMode === "external";
+  const provider = externalProviderLabel(event);
+  // Defence in depth: only an https ticket link is ever shown (or the buy bar with it).
+  const ticketUrl = external && isSafeTicketUrl(event.externalTicketUrl) ? event.externalTicketUrl : undefined;
+  // No price for an external event: we can't vouch for another site's.
+  const price = external ? null : formatFeedPriceParts(event);
+  const when = formatEventDateTimeRange(event.startsAt, event.endsAt);
+  const shareText = `${event.title} · ${formatEventDateShort(event.startsAt)}, ${formatEventTime(event.startsAt)} · ${event.venueName}`;
   const saveTarget = { id: event.id, title: event.title, slug: event.slug };
+  const outboundLink = (className: string) => (
+    <ExternalTicketLink eventId={event.id} url={ticketUrl} provider={provider} className={className} />
+  );
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 pt-2 pb-12 sm:gap-10 sm:px-8 sm:py-14">
@@ -48,45 +73,60 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
       </Suspense>
       <TicketsHashFocus />
 
-      {/* One Who's Going load, shared by the phone summary link and the panel. */}
+      {/* One Who's Going load, shared by the phone summary link and the panel
+          (always closed, with no request, for an external event). */}
       <WhosGoingProvider
-        event={{ id: event.id, slug: event.slug, title: event.title, organiserId: event.organiserId }}
+        event={{
+          id: event.id,
+          slug: event.slug,
+          title: event.title,
+          organiserId: event.organiserId,
+          ticketingMode: event.ticketingMode,
+        }}
       >
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-14">
           <div className="flex flex-col gap-6 sm:gap-10 lg:col-span-7">
-            <div className="flex flex-col gap-5">
-              <div className="flex min-h-11 items-center justify-between gap-4">
-                <p className="eyebrow text-muted">{categoryLabel}</p>
-                <SaveButton event={saveTarget} variant="pill" />
+            <div className="flex flex-col gap-4 sm:gap-5">
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                <p className="eyebrow flex items-center gap-2 text-foreground">
+                  <DotsMark size="xs" className="text-signal" />
+                  <span>
+                    {categoryLabel} · {event.suburb}
+                  </span>
+                </p>
+                <div className="flex items-center gap-2">
+                  <SaveButton event={saveTarget} variant="pill" />
+                  <ShareButton slug={event.slug} title={event.title} text={shareText} />
+                </div>
               </div>
-              <h1 className="display-lg">{event.title}</h1>
+              <h1 className="display-lg max-w-[20ch] break-words">{event.title}</h1>
               {/* Below lg the When/Where aside comes much later, so the key facts sit
                   under the title (desktop shows them in the aside beside it). */}
-              <p className="text-sm leading-5 lg:hidden">
-                <span className="block text-foreground">
-                  {formatEventDateTimeRange(event.startsAt, event.endsAt)}
-                </span>
-                <span className="block text-muted">
+              <p className="flex flex-col items-start gap-1 lg:hidden">
+                <span className="meta text-foreground">{when}</span>
+                <span className="text-sm text-muted">
                   {event.venueName} · {event.suburb}
                 </span>
                 <WhosGoingSummaryLink />
               </p>
             </div>
 
-            {/* Poster first on phones and tablets (it's aria-hidden, so reading and
-                focus order are unaffected); after the title from lg, as before. */}
+            {/* The photo first on phones and tablets (it's aria-hidden, so reading and
+                focus order are unaffected): full-bleed 4:5 on phones, a 3:2 rounded
+                card from sm, and after the title from lg. The page's LCP image. */}
             <EventArt
               poster={event.poster}
               imageUrl={event.imageUrl}
               title={event.title}
-              className="order-first -mx-5 aspect-square w-[calc(100%+2.5rem)] sm:mx-0 sm:aspect-[4/3] sm:w-full lg:order-none"
+              priority
+              className="order-first -mx-5 aspect-[4/5] w-[calc(100%+2.5rem)] sm:mx-0 sm:aspect-[3/2] sm:w-full sm:rounded-card lg:order-none"
             />
 
             {demo && (
               <DemoNotice>This listing is fictional sample data for this local prototype.</DemoNotice>
             )}
 
-            <p className="max-w-2xl text-base leading-relaxed sm:text-lg">{event.description}</p>
+            <p className="max-w-2xl text-base leading-7 sm:text-lg">{event.description}</p>
 
             {goodToKnow.length > 0 && (
               <Panel title="Good to know">
@@ -103,28 +143,56 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
             )}
           </div>
 
-          {/* Buy bar, below lg only. Sticky to the bottom of the viewport while the
-              poster and description are read; it settles in its own place, directly
-              above When/Where and the tickets, so it can never cover them or the
-              footer. The page wrapper's padding is what -mx bleeds it across. */}
+          {/* Buy bar, below lg only, on an ink surface. Sticky to the bottom of the
+              viewport while the photo and description are read; it settles in its
+              own place, directly above When/Where and the tickets, so it can never
+              cover them or the footer. The page wrapper's padding is what -mx bleeds
+              it across. At 320 the heart doesn't fit: the one by the title stays. */}
           {price && (
             <div
               data-buy-bar
-              className="sticky bottom-0 z-20 -mx-5 flex min-h-18 items-center justify-between gap-4 bg-foreground px-5 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] text-background sm:-mx-8 sm:px-8 lg:hidden"
+              data-surface="ink"
+              className="sticky bottom-0 z-20 -mx-5 flex min-h-18 items-center justify-between gap-4 px-5 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden"
             >
               <div className="min-w-0">
                 <p className="text-base leading-5 font-semibold tabular-nums">{price.amount}</p>
-                <p className="text-xs leading-4 text-background/70">{price.note}</p>
+                <p className="text-xs leading-4 text-muted">{price.note}</p>
               </div>
-              {/* At 320 the price, heart and CTA don't fit: the heart by the title stays. */}
               <div className="flex shrink-0 items-center gap-2">
                 <SaveButton event={saveTarget} variant="onDark" className="hidden min-[375px]:flex" />
-                <a
-                  href="#tickets"
-                  className="btn btn-lg shrink-0 border-background bg-background px-5 text-foreground focus-visible:outline-background sm:px-7"
-                >
+                <a href="#tickets" className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}>
                   {demo ? "See tickets" : "Get tickets"}
                 </a>
+              </div>
+            </div>
+          )}
+          {/* An external event's buy bar: where tickets are sold (never a price), and
+              the outbound link itself, not a jump to #tickets. */}
+          {ticketUrl && (
+            <div
+              data-buy-bar
+              data-surface="ink"
+              className="sticky bottom-0 z-20 -mx-5 flex min-h-18 items-center justify-between gap-4 px-5 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden"
+            >
+              <div className="min-w-0">
+                {event.externalFree ? (
+                  <>
+                    <p className="text-base leading-5 font-semibold">Free</p>
+                    <p className="text-xs leading-4 text-muted">Tickets on {provider}</p>
+                  </>
+                ) : (
+                  <p className="text-sm leading-5 font-semibold">Tickets on {provider}</p>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <SaveButton event={saveTarget} variant="onDark" className="hidden min-[375px]:flex" />
+                <ExternalTicketLink
+                  eventId={event.id}
+                  url={ticketUrl}
+                  provider={provider}
+                  short
+                  className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}
+                />
               </div>
             </div>
           )}
@@ -132,20 +200,23 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
           {/* Unstuck while Who's Going is expanded, so a tall aside can't hide the
               tickets below the fold. */}
           <aside className="flex flex-col gap-6 sm:gap-8 lg:col-span-5 lg:sticky lg:top-24 lg:self-start lg:has-[[data-wg-expanded]]:static">
-            <dl className="flex flex-col gap-5 border-t border-foreground pt-5 text-sm">
-              <div>
+            <dl className="flex flex-col">
+              <div className={asideRowClass}>
                 <dt className="eyebrow text-muted">When</dt>
-                <dd className="mt-1 text-base">{formatEventDateTimeRange(event.startsAt, event.endsAt)}</dd>
+                <dd className="mt-1 text-base leading-6">{when}</dd>
+                <dd>
+                  <AddToCalendar event={event} />
+                </dd>
               </div>
-              <div>
+              <div className={asideRowClass}>
                 <dt className="eyebrow text-muted">Where</dt>
-                <dd className="mt-1 text-base">
+                <dd className="mt-1 text-base leading-6">
                   {event.venueName}, {event.venueAddress}
                 </dd>
               </div>
-              <div>
+              <div className={asideRowClass}>
                 <dt className="eyebrow text-muted">Organiser</dt>
-                <dd className="mt-1 text-base">
+                <dd className="mt-1 text-base leading-6">
                   Organised by{" "}
                   {/* Only live events have an organiser (and so a profile) to link to. */}
                   {event.organiserId ? (
@@ -162,22 +233,30 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
               </div>
             </dl>
 
-            <WhosGoing />
+            {!external && <WhosGoing />}
 
             {/* The buy bar's target: focusable, so jumping here moves keyboard and
                 screen-reader focus to the tickets too. */}
             <div id="tickets" tabIndex={-1} className="focus:outline-none">
               <Panel title="Tickets">
-                {event.ticketTypes.length === 0 ? (
+                {external ? (
+                  <div className="flex flex-col gap-4 rounded-card border border-foreground bg-card p-4 sm:p-5">
+                    {event.externalFree && <p className="text-base leading-6 font-semibold">Free entry</p>}
+                    <p className="text-sm text-muted">
+                      Tickets for this event are sold and priced by {provider}, not Sheltüh, so there&rsquo;s no
+                      Sheltüh booking fee. Their terms apply.
+                    </p>
+                    {ticketUrl ? (
+                      outboundLink(buttonClass("solid", "lg", "w-full"))
+                    ) : (
+                      <p className="text-sm text-foreground">The ticket link isn&rsquo;t available right now.</p>
+                    )}
+                  </div>
+                ) : event.ticketTypes.length === 0 ? (
                   // Nothing on sale yet: no fee to explain and nothing to select.
                   <p className="text-sm text-muted">Tickets coming soon.</p>
                 ) : (
-                  <>
-                    <p className="mb-5 text-sm text-muted">
-                      Booking fee: {describeBookingFee()}. Free tickets never carry a fee.
-                    </p>
-                    <TicketSelector event={event} />
-                  </>
+                  <TicketSelector event={event} />
                 )}
               </Panel>
             </div>

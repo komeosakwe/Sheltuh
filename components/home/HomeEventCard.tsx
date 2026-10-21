@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { useId } from "react";
 import EventArt from "@/components/EventArt";
 import SaveButton from "@/components/favourites/SaveButton";
 import { firstSentence, type TrendingSignal } from "@/lib/home-sections";
@@ -41,6 +42,10 @@ const place = (event: SheltuhEvent) => [event.venueName, event.suburb].filter(Bo
  * Going counts are real or absent: demo cards show the sample count; live
  * cards show none until the list API carries one (no request per card); an
  * external event never shows one (no Who's Going there).
+ *
+ * The link's name starts with the title, then the date, place, price, chip
+ * or badge and going count (aria-labelledby). The wide card's date badge
+ * repeats the date line and is hidden; its description stays out of the name.
  */
 export default function HomeEventCard({
   event,
@@ -62,17 +67,35 @@ export default function HomeEventCard({
   const going = mode === "demo" && !external && !signal ? demoGoing(event.id) : null;
   const art = { poster: event.poster, imageUrl: event.imageUrl, title: event.title };
   const target = { id: event.id, title: event.title, slug: event.slug };
+  const id = useId();
+  const ids = {
+    title: `${id}-title`,
+    date: `${id}-date`,
+    place: `${id}-place`,
+    price: `${id}-price`,
+    chip: `${id}-chip`,
+    going: `${id}-going`,
+  };
+  const hasChip = variant === "compact" ? Boolean(badge) : true;
+  const labelledBy = [ids.title, ids.date, ids.place, ids.price, hasChip ? ids.chip : null, going ? ids.going : null]
+    .filter(Boolean)
+    .join(" ");
 
   if (variant === "compact") {
     return (
       <div className="relative flex w-[78vw] max-w-75 flex-col border-t border-surface-border pt-3 sm:w-full sm:max-w-none">
-        <Link href={href} className={`${linkClass} grid grid-cols-[6rem_1fr] sm:grid-cols-[7rem_1fr]`}>
+        <Link
+          href={href}
+          aria-labelledby={labelledBy}
+          className={`${linkClass} grid grid-cols-[6rem_1fr] sm:grid-cols-[7rem_1fr]`}
+        >
           <div className="overflow-hidden rounded-control">
             <EventArt {...art} className={`aspect-square ${mediaArtClass}`} />
           </div>
           <div className="flex min-w-0 flex-col gap-1 pr-11">
             {badge && (
               <span
+                id={ids.chip}
                 className={`eyebrow self-start rounded-badge px-2 py-0.5 ${
                   badge === "free" ? "bg-signal text-signal-foreground" : "border border-foreground bg-card"
                 }`}
@@ -80,16 +103,21 @@ export default function HomeEventCard({
                 {badge === "free" ? "Free" : "Under A$20"}
               </span>
             )}
-            <p className="meta">{dateLine(event)}</p>
-            <h3 className={`${titleClass} line-clamp-2 text-sm leading-5 sm:text-base sm:leading-[1.375rem]`}>
+            <p id={ids.date} className="meta">
+              {dateLine(event)}
+            </p>
+            <h3 id={ids.title} className={`${titleClass} line-clamp-2 text-sm leading-5 sm:text-base sm:leading-[1.375rem]`}>
               {event.title}
             </h3>
-            <p className="truncate text-xs leading-4 text-muted sm:text-sm sm:leading-5">{place(event)}</p>
-            <CardPrice event={event} className="text-xs leading-4 sm:text-sm sm:leading-5" />
+            <p id={ids.place} className="truncate text-xs leading-4 text-muted sm:text-sm sm:leading-5">
+              {place(event)}
+            </p>
+            <CardPrice id={ids.price} event={event} className="text-xs leading-4 sm:text-sm sm:leading-5" />
           </div>
         </Link>
         <SaveButton event={target} variant="plain" className="absolute right-0 top-3" />
-        <QuickBuyLink event={event} mode={mode} className="mt-1 ml-[6.25rem] sm:mt-auto sm:ml-[7.25rem]" />
+        {/* Indented to the text column: the 6rem (7rem) thumbnail plus the 0.75rem gap. mt-auto lines the rows up in a grid. */}
+        <QuickBuyLink event={event} mode={mode} fullWidthOnPhones className="mt-auto pt-3 pl-27 sm:pl-31" />
       </div>
     );
   }
@@ -100,44 +128,56 @@ export default function HomeEventCard({
     <div
       className={`relative flex flex-col sm:w-full sm:max-w-none ${wide ? "w-[80vw] max-w-80" : "w-[62vw] max-w-60"}`}
     >
-      <Link href={href} className={linkClass}>
+      <Link href={href} aria-labelledby={labelledBy} className={linkClass}>
         {/* Chips and badges sit beside the art, not inside it: the art is aria-hidden, they're content. */}
         <div className="relative overflow-hidden rounded-card">
           <EventArt {...art} className={`${wide ? "aspect-[3/2]" : "aspect-[4/3]"} ${mediaArtClass}`} />
           {date && (
-            <p className="absolute left-2 top-2 flex flex-col items-center rounded-badge bg-cream px-2 py-1 text-center text-ink">
+            <p
+              aria-hidden="true"
+              className="absolute left-2 top-2 flex flex-col items-center rounded-badge bg-cream px-2 py-1 text-center text-ink"
+            >
               <span className="text-sm leading-4 font-bold">{date.range}</span>{" "}
               <span className="eyebrow text-[0.625rem] leading-3">{date.month}</span>
             </p>
           )}
           {signal ? (
-            <span className={`${chipClass} left-2 top-2 bg-foreground text-background`}>
+            <span id={ids.chip} className={`${chipClass} left-2 top-2 bg-foreground text-background`}>
               {trendingChipText(signal, external)}
             </span>
           ) : (
-            <span className={`${chipClass} bg-cream text-ink ${wide ? "bottom-2 left-2" : "left-2 top-2"}`}>
+            <span id={ids.chip} className={`${chipClass} bg-cream text-ink ${wide ? "bottom-2 left-2" : "left-2 top-2"}`}>
               {categoryLabel(event)}
             </span>
           )}
         </div>
         <div className="flex flex-col gap-1">
-          <p className="meta">{dateLine(event)}</p>
+          <p id={ids.date} className="meta">
+            {dateLine(event)}
+          </p>
           <h3
+            id={ids.title}
             className={`${titleClass} line-clamp-2 ${
               wide ? "text-base leading-[1.375rem]" : "text-sm leading-5 sm:text-base sm:leading-[1.375rem]"
             }`}
           >
             {event.title}
           </h3>
-          <p className="truncate text-xs leading-4 text-muted sm:text-sm sm:leading-5">{place(event)}</p>
+          <p id={ids.place} className="truncate text-xs leading-4 text-muted sm:text-sm sm:leading-5">
+            {place(event)}
+          </p>
           {wide && <p className="line-clamp-2 text-sm leading-5 text-muted">{firstSentence(event.description)}</p>}
-          <CardPrice event={event} className="text-xs leading-4 sm:text-sm sm:leading-5" />
-          {going && <GoingStack count={going.count} initials={going.initials} className="mt-1" />}
+          <CardPrice id={ids.price} event={event} className="text-xs leading-4 sm:text-sm sm:leading-5" />
+          {going && (
+            <div id={ids.going} className="mt-1">
+              <GoingStack count={going.count} initials={going.initials} />
+            </div>
+          )}
         </div>
       </Link>
       <SaveButton event={target} variant="overlay" className="absolute right-1 top-1" />
-      {/* mt-auto lines the links up along a grid row. */}
-      <QuickBuyLink event={event} mode={mode} className="mt-1 sm:mt-auto" />
+      {/* mt-auto lines the buttons up along a grid row; pt-3 keeps them clear of the text. */}
+      <QuickBuyLink event={event} mode={mode} className="mt-auto pt-3" />
     </div>
   );
 }

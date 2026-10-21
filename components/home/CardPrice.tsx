@@ -7,14 +7,33 @@ import type { SheltuhEvent } from "@/lib/types";
  * the same line. An external event says where tickets are sold instead
  * ("Tickets on Humanitix", never a price), in the price's weight.
  */
-export default function CardPrice({ event, className = "" }: { event: SheltuhEvent; className?: string }) {
+export default function CardPrice({
+  event,
+  id,
+  className = "",
+}: {
+  event: SheltuhEvent;
+  /** For a card link's aria-labelledby. */
+  id?: string;
+  className?: string;
+}) {
   if (event.ticketingMode === "external") {
-    return <p className={`font-semibold ${className}`.trim()}>{formatFeedPrice(event)}</p>;
+    return (
+      <p id={id} className={`font-semibold ${className}`.trim()}>
+        {formatFeedPrice(event)}
+      </p>
+    );
   }
   const parts = formatFeedPriceParts(event);
-  if (!parts) return <p className={`font-semibold ${className}`.trim()}>{NO_TICKETS_LABEL}</p>;
+  if (!parts) {
+    return (
+      <p id={id} className={`font-semibold ${className}`.trim()}>
+        {NO_TICKETS_LABEL}
+      </p>
+    );
+  }
   return (
-    <p className={className}>
+    <p id={id} className={className}>
       <span className="font-semibold tabular-nums">{parts.amount}</span>{" "}
       <span className="text-muted">{parts.note}</span>
     </p>

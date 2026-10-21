@@ -283,7 +283,7 @@ h4 {
 }
 
 /* The active-nav "umlaut" (brand-direction-one.md §5 #2): two rounded squares over the label,
-   orange on the current page, black under the pointer. `umlaut-lg` is the phone menu's
+   orange on the current page (plus a 2px underline), black under the pointer. `umlaut-lg` is the phone menu's
    8px pair, aligned over the first letter. */
 @utility umlaut {
   position: relative;
@@ -301,8 +301,13 @@ h4 {
     opacity: 0;
     pointer-events: none;
   }
+  /* The dots alone are orange on cream (3.25:1, non-text): the current page also gets a
+     2px underline in the text colour, so it doesn't rest on colour and small marks only. */
   &[aria-current="page"] {
     --umlaut: var(--signal);
+    text-decoration-line: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 4px;
   }
   &[aria-current="page"]::before {
     opacity: 1;

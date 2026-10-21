@@ -7,7 +7,8 @@ import { selectHomeSections, type HomeSections } from "@/lib/home-sections";
 
 export type HomeEventsState =
   | { status: "loading" }
-  | { status: "error" }
+  /** `retrying`: Try again is loading; the error stays on screen (and its button keeps focus) until it settles. */
+  | { status: "error"; retrying: boolean }
   | { status: "ready"; sections: HomeSections; now: Date };
 
 export interface HomeEventsValue {
@@ -37,7 +38,7 @@ export function HomeEventsProvider({ children }: { children: ReactNode }) {
         if (!cancelled) setState({ status: "ready", sections: selectHomeSections(events, trending, now), now });
       },
       () => {
-        if (!cancelled) setState({ status: "error" });
+        if (!cancelled) setState({ status: "error", retrying: false });
       },
     );
     return () => {
@@ -45,8 +46,10 @@ export function HomeEventsProvider({ children }: { children: ReactNode }) {
     };
   }, [attempt]);
 
+  // The error box stays mounted while retrying: replacing it with the loading
+  // box would unmount the focused Try again button and drop focus to the page.
   const retry = useCallback(() => {
-    setState({ status: "loading" });
+    setState((prev) => (prev.status === "error" ? { status: "error", retrying: true } : { status: "loading" }));
     setAttempt((n) => n + 1);
   }, []);
 
