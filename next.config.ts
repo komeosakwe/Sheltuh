@@ -6,10 +6,21 @@ const nextConfig: NextConfig = {
   // navigates to http://127.0.0.1:<port>. Ignored outside development.
   allowedDevOrigins: ["127.0.0.1"],
 
-  // The service worker must never be served from a stale cache, or the kill
-  // switch (docs/pwa.md) could not reach visitors. Matches Next's PWA guide.
   async headers() {
     return [
+      // No page may be framed by another site (clickjacking): the legacy
+      // header and the CSP directive that replaces it. Only frame-ancestors, so
+      // no other content is restricted. It comes first: when two rules set the
+      // same header key, the later one wins, so /sw.js keeps its own CSP below.
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+        ],
+      },
+      // The service worker must never be served from a stale cache, or the kill
+      // switch (docs/pwa.md) could not reach visitors. Matches Next's PWA guide.
       {
         source: "/sw.js",
         headers: [

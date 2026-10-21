@@ -281,6 +281,62 @@ describe("orders a refund doesn't change", () => {
   });
 });
 
+describe("refund.updated / refund.failed for a refund made outside Sheltüh (no metadata.orderId)", () => {
+  function refundEvent(type: "refund.updated" | "refund.failed", status: string, paymentIntent: unknown) {
+    return stripeWebhookRequest({
+      type,
+      data: { object: { id: "re_dash", object: "refund", status, payment_intent: paymentIntent, metadata: {} } },
+    });
+  }
+
+  it("a failed dashboard refund of a voided order is logged as an error by event id and short reference, and changes nothing", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const orderId = await paidOrder([{ ticketTypeId: "ga", quantity: 1 }], "pi_dash");
+    await refund("pi_dash", 3170, true);
+    const before = await internal(orderId);
+
+    for (const type of ["refund.failed", "refund.updated"] as const) {
+      const res = await api.send(stripeWebhook, refundEvent(type, "failed", "pi_dash"));
+      expect({ status: res.status, body: res.body }).toEqual({ status: 200, body: { received: true } });
+    }
+    expect(error).toHaveBeenCalledTimes(2);
+    const logged = error.mock.calls.flat().map(String).join("\n");
+    expect(logged).toContain("evt_test");
+    expect(logged).toContain(orderReference(orderId));
+    expect(logged).toContain("failed");
+    expect(logged).not.toContain(orderId);
+    expect(logged).not.toContain("pi_dash");
+    expect(logged).not.toContain("buyer@example.com");
+    // Recorded state is untouched (charge.refunded owns it).
+    expect(await internal(orderId)).toEqual(before);
+  });
+
+  it("an expanded payment intent object resolves too; a canceled one is an error, a pending one only info", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const orderId = await paidOrder([{ ticketTypeId: "ga", quantity: 1 }], "pi_obj");
+    await api.send(stripeWebhook, refundEvent("refund.updated", "canceled", { id: "pi_obj", object: "payment_intent" }));
+    expect(error.mock.calls.flat().map(String).join("\n")).toContain(`order ${orderReference(orderId)} (made outside Sheltüh) has status canceled`);
+
+    info.mockClear();
+    await api.send(stripeWebhook, refundEvent("refund.updated", "pending", "pi_obj"));
+    expect(info.mock.calls.flat().map(String).join("\n")).toContain(`order ${orderReference(orderId)} (made outside Sheltüh) has status pending`);
+    expect(await internal(orderId)).toMatchObject({ status: "paid", amount_refunded_cents: 0 });
+  });
+
+  it("a payment with no order on record (or none at all) is acknowledged and logged by event id only", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const paymentIntent of ["pi_not_ours", null]) {
+      const res = await api.send(stripeWebhook, refundEvent("refund.failed", "failed", paymentIntent));
+      expect(res.status).toBe(200);
+    }
+    const logged = error.mock.calls.flat().map(String).join("\n");
+    expect(logged).toContain("Stripe evt_test: a refund of a payment with no order on record (made outside Sheltüh) has status failed");
+    expect(logged).not.toContain("pi_");
+  });
+});
+
 describe("the oversold refund path is unchanged", () => {
   async function oversold(refundStatus: "succeeded" | "pending") {
     // The single VIP goes to whoever pays first; the second payment is refunded by the webhook.

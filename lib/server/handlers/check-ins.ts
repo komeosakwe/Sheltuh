@@ -1,11 +1,13 @@
-import type {
-  CheckInLogEntry,
-  CheckInOutcome,
-  CheckInResult,
-  CheckInSummary,
-  EventAttendance,
-  UndoCheckInOutcome,
-  UndoCheckInResult,
+import {
+  MAX_UNDO_REASON_LENGTH,
+  MIN_UNDO_REASON_LENGTH,
+  type CheckInLogEntry,
+  type CheckInOutcome,
+  type CheckInResult,
+  type CheckInSummary,
+  type EventAttendance,
+  type UndoCheckInOutcome,
+  type UndoCheckInResult,
 } from "@/lib/api/types";
 import { parseTicketCode } from "@/lib/ticket-code";
 import { requireCaller } from "../auth";
@@ -21,7 +23,8 @@ import { requireApprovedOrganiser } from "./organiser-guard";
 
 /**
  * Ticket check-in at the door (docs/architecture.md, "Check-in";
- * supabase/migrations/20261021000000_ticket_check_in.sql).
+ * supabase/migrations/20261021000000_ticket_check_in.sql and
+ * 20261021130000_check_in_followups.sql).
  *
  * The approved organiser who owns the event, only: another organiser's event
  * is a 404, an admin with no organiser of their own a 403, signed out a 401.
@@ -29,9 +32,11 @@ import { requireApprovedOrganiser } from "./organiser-guard";
  *
  * Every ticket outcome is a 200 with a CheckInResult. An HTTP error only ever
  * means "couldn't verify": nothing was marked, and the door should treat it as
- * such (400 malformed request, 404, 413, 429 over the allowance). Every
+ * such (400 malformed request, 404, 409 a request id reused for another code,
+ * 413, 429 over the allowance). Every
  * response is `private, no-store`, and none carries a buyer's name or email,
  * an order id, or (in the log) more than a code's last four characters.
+ * Check-in ids are the log's random public ids, never its sequential key.
  */
 
 /** Per acting account, shared by check-ins and undos (take_rate_limit bucket 'check_in'). */
@@ -41,17 +46,12 @@ export const CHECK_IN_LIMIT = { limit: 600, window: "5 minutes" } as const;
 export const MAX_CHECK_IN_BODY_BYTES = 1024;
 const MAX_UNDO_BODY_BYTES = 4096;
 
-export const MIN_UNDO_REASON_LENGTH = 3;
-export const MAX_UNDO_REASON_LENGTH = 200;
-
 /** Newest log entries in the summary. */
 export const RECENT_CHECK_INS = 20;
 
 const EVENT_NOT_FOUND = "Event not found.";
 const RATE_LIMITED = "Too many check-ins in a few minutes. Wait a moment, then try again.";
-
-/** A log entry id (a positive bigint, as a string). */
-const CHECK_IN_ID = /^[1-9][0-9]{0,17}$/;
+const REQUEST_CONFLICT = "This request id was already used for a different code. Scan again.";
 
 const iso = (v: string | Date) => new Date(v).toISOString();
 
@@ -62,8 +62,8 @@ async function organiserCaller(req: Request, deps: Deps) {
 }
 
 interface CheckInRow {
-  result: CheckInOutcome | "not_found" | "rate_limited";
-  check_in_id: string | null;
+  result: CheckInOutcome | "not_found" | "rate_limited" | "conflict";
+  admission_id: string | null;
   ticket_type_name: string | null;
   ticket_number: number | null;
   ticket_count: number | null;
@@ -85,7 +85,10 @@ function toCheckInResult(row: CheckInRow): CheckInResult {
       codeLast4: row.code_last4 as string,
     },
   };
-  if (outcome === "admitted") result.checkInId = row.check_in_id as string;
+  // The admission an undo reverses: this one, or the ticket's current one when it's already in.
+  if ((outcome === "admitted" || outcome === "already_checked_in") && row.admission_id) {
+    result.checkInId = row.admission_id;
+  }
   if ((outcome === "admitted" || outcome === "already_checked_in") && row.first_checked_in_at) {
     result.checkedInAt = iso(row.first_checked_in_at);
   }
@@ -98,7 +101,8 @@ function toCheckInResult(row: CheckInRow): CheckInResult {
  * `code` must be a string (what was scanned or typed; anything that isn't a
  * ticket code is the `invalid` outcome, not an error) and `requestId` a uuid,
  * else 400. Ownership is checked inside private.check_in_ticket, in the same
- * transaction.
+ * transaction. A request id already logged for this event with a different
+ * code is a 409 (a retry always resends its own code).
  */
 export const checkInTicket: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const { caller, organiser } = await organiserCaller(req, deps);
@@ -111,7 +115,7 @@ export const checkInTicket: Handler<{ eventId: string }> = async (req, { eventId
   if (Object.keys(errors).length > 0) fail(errors);
 
   const [row] = await deps.db.query<CheckInRow>(
-    `select result, check_in_id::text as check_in_id, ticket_type_name, ticket_number, ticket_count, code_last4,
+    `select result, admission_id::text as admission_id, ticket_type_name, ticket_number, ticket_count, code_last4,
             first_checked_in_at, other_event_title
        from private.check_in_ticket($1, $2, $3, $4, $5::uuid, $6, $7::interval)`,
     [
@@ -126,15 +130,18 @@ export const checkInTicket: Handler<{ eventId: string }> = async (req, { eventId
   );
   if (row.result === "not_found") throw new HttpError(404, EVENT_NOT_FOUND);
   if (row.result === "rate_limited") throw new HttpError(429, RATE_LIMITED);
+  if (row.result === "conflict") throw new HttpError(409, REQUEST_CONFLICT);
   return okPrivate(toCheckInResult(row));
 };
 
 /**
  * POST /api/organisers/me/events/[eventId]/check-ins/[checkInId]/undo
- * `{reason}`: reverses an admission. 200 with the outcome (`undone`,
- * `not_checked_in`, `superseded`); 400 reason missing, under 3 or over 200
- * characters, or with control/invisible characters; 404 not the caller's
- * event, or no such admission in it; 429 over the allowance.
+ * `{reason}`: reverses an admission (`checkInId`: its public id, a uuid).
+ * 200 with the outcome (`undone`, `not_checked_in`, `superseded`); 400
+ * reason missing, under 3 or over 200 characters, or with control/invisible
+ * characters; 404 not the caller's event, or no such admission in it
+ * (including anything that isn't a uuid, such as an old numeric id); 429
+ * over the allowance.
  */
 export const undoCheckIn: Handler<{ eventId: string; checkInId: string }> = async (
   req,
@@ -155,7 +162,7 @@ export const undoCheckIn: Handler<{ eventId: string; checkInId: string }> = asyn
     errors.reason = `Write at least ${MIN_UNDO_REASON_LENGTH} characters.`;
   }
   if (Object.keys(errors).length > 0) fail(errors);
-  if (!CHECK_IN_ID.test(checkInId)) throw new HttpError(404, "Check-in not found.");
+  if (!isUuid(checkInId)) throw new HttpError(404, "Check-in not found.");
 
   const [row] = await deps.db.query<{
     result: UndoCheckInOutcome | "not_found" | "rate_limited";
@@ -164,7 +171,7 @@ export const undoCheckIn: Handler<{ eventId: string; checkInId: string }> = asyn
     code_last4: string | null;
   }>(
     `select result, check_in_id::text as check_in_id, ticket_type_name, code_last4
-       from private.undo_check_in($1, $2, $3, $4::bigint, $5, $6, $7::interval)`,
+       from private.undo_check_in($1, $2, $3, $4::uuid, $5, $6, $7::interval)`,
     [eventId, organiser.organiserId, caller.userId, checkInId, reason, CHECK_IN_LIMIT.limit, CHECK_IN_LIMIT.window],
   );
   if (row.result === "not_found") throw new HttpError(404, "Check-in not found.");
@@ -213,7 +220,7 @@ export const getCheckInSummary: Handler<{ eventId: string }> = async (req, { eve
       reason: string | null;
       undoable: boolean;
     }>(
-      `select c.id::text as id, c.result, c.created_at, right(c.ticket_code, 4) as code_last4, c.reason,
+      `select c.public_id::text as id, c.result, c.created_at, right(c.ticket_code, 4) as code_last4, c.reason,
               t.ticket_type_name,
               case when c.result = 'other_event' then e.title end as other_event_title,
               (c.result = 'admitted' and t.checked_in_at is not null

@@ -6,22 +6,16 @@ import { Button } from "@/components/ui/Button";
 import { fieldClass } from "@/components/ui/Field";
 import { Notice } from "@/components/ui/Section";
 import { ApiError } from "@/lib/api/client";
-import type { CheckInLogEntry } from "@/lib/api/types";
-import { undoAbout } from "@/lib/check-in/door-copy";
+import { MAX_UNDO_REASON_LENGTH, MIN_UNDO_REASON_LENGTH } from "@/lib/api/types";
+import { undoAbout, type UndoTarget } from "@/lib/check-in/door-copy";
 import { withNext } from "@/lib/safe-next-path";
 import { doorBusyClass } from "./busy-class";
 
 /**
- * The reason's length rules. These mirror MIN_UNDO_REASON_LENGTH and
- * MAX_UNDO_REASON_LENGTH in lib/server/handlers/check-ins.ts, which count
- * code points (`Array.from`), so the client counts the same way. Note: the
- * server constants are due to move somewhere both sides can import; until
- * then, keep these two in step with them.
+ * Characters as the server counts them (MIN_UNDO_REASON_LENGTH and
+ * MAX_UNDO_REASON_LENGTH, shared with lib/server/handlers/check-ins.ts): code
+ * points, so an emoji is one, not two UTF-16 units.
  */
-export const UNDO_REASON_MIN = 3;
-export const UNDO_REASON_MAX = 200;
-
-/** Characters as the server counts them: code points, so an emoji is one, not two UTF-16 units. */
 export function reasonLength(reason: string): number {
   return Array.from(reason).length;
 }
@@ -62,11 +56,11 @@ export default function UndoCheckInDialog({
   onClose,
   onSubmit,
 }: {
-  /** The admission to undo; null when closed. */
-  entry: CheckInLogEntry | null;
+  /** The admission to undo (from Recent scans or an Already-checked-in result); null when closed. */
+  entry: UndoTarget | null;
   returnTo: string;
   onClose: () => void;
-  onSubmit: (entry: CheckInLogEntry, reason: string) => Promise<UndoDialogOutcome>;
+  onSubmit: (entry: UndoTarget, reason: string) => Promise<UndoDialogOutcome>;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const open = entry !== null;
@@ -103,10 +97,10 @@ function UndoForm({
   onCancel,
   onSubmit,
 }: {
-  entry: CheckInLogEntry;
+  entry: UndoTarget;
   returnTo: string;
   onCancel: () => void;
-  onSubmit: (entry: CheckInLogEntry, reason: string) => Promise<UndoDialogOutcome>;
+  onSubmit: (entry: UndoTarget, reason: string) => Promise<UndoDialogOutcome>;
 }) {
   const [reason, setReason] = useState("");
   const [fieldError, setFieldError] = useState<string | null>(null);
@@ -133,11 +127,11 @@ function UndoForm({
     setNotice(null);
     const trimmed = reason.trim();
     const length = reasonLength(trimmed);
-    if (length < UNDO_REASON_MIN || length > UNDO_REASON_MAX) {
+    if (length < MIN_UNDO_REASON_LENGTH || length > MAX_UNDO_REASON_LENGTH) {
       setFieldError(
-        length < UNDO_REASON_MIN
-          ? `Give a reason of at least ${UNDO_REASON_MIN} characters.`
-          : `Keep the reason to ${UNDO_REASON_MAX} characters or fewer.`,
+        length < MIN_UNDO_REASON_LENGTH
+          ? `Give a reason of at least ${MIN_UNDO_REASON_LENGTH} characters.`
+          : `Keep the reason to ${MAX_UNDO_REASON_LENGTH} characters or fewer.`,
       );
       setErrorAttempt((n) => n + 1);
       pendingFocus.current = "input";
@@ -179,7 +173,7 @@ function UndoForm({
           value={reason}
           // maxLength counts UTF-16 units: twice the limit never cuts off a reason the server would take
           // (a code point is at most two units); the submit check above counts code points exactly.
-          maxLength={UNDO_REASON_MAX * 2}
+          maxLength={MAX_UNDO_REASON_LENGTH * 2}
           autoComplete="off"
           onChange={(event) => {
             setReason(event.target.value);
@@ -199,7 +193,7 @@ function UndoForm({
             )}
           </div>
           <p id="undo-reason-hint" className="text-xs text-muted">
-            Kept in the check-in log. 3 to 200 characters.
+            {`Kept in the check-in log. ${MIN_UNDO_REASON_LENGTH} to ${MAX_UNDO_REASON_LENGTH} characters.`}
           </p>
         </div>
       </div>

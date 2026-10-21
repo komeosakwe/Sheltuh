@@ -784,7 +784,12 @@ export interface CheckInTicket {
  */
 export interface CheckInResult {
   outcome: CheckInOutcome;
-  /** `admitted` only: the check-in to pass to undo. */
+  /**
+   * The admission to pass to undo (an opaque id). `admitted`: this check-in.
+   * `already_checked_in`: the ticket's current check-in, so the door can
+   * offer undo right away; absent when there's none to undo (e.g. a replayed
+   * request whose admission was undone since). Never set for other outcomes.
+   */
   checkInId?: string;
   /** Every outcome but `invalid`. */
   ticket?: CheckInTicket;
@@ -794,9 +799,13 @@ export interface CheckInResult {
   otherEventTitle?: string;
 }
 
+/** An undo reason's length, in characters (code points, `Array.from(reason).length`), after trimming. */
+export const MIN_UNDO_REASON_LENGTH = 3;
+export const MAX_UNDO_REASON_LENGTH = 200;
+
 /** POST /api/organisers/me/events/{eventId}/check-ins/{checkInId}/undo. */
 export interface UndoCheckInInput {
-  /** Why (3–200 characters). Kept in the check-in log. */
+  /** Why (MIN_UNDO_REASON_LENGTH–MAX_UNDO_REASON_LENGTH characters). Kept in the check-in log. */
   reason: string;
 }
 
@@ -816,6 +825,7 @@ export interface UndoCheckInResult {
 
 /** One entry in the check-in log, newest first. */
 export interface CheckInLogEntry {
+  /** An opaque id (a uuid); for an undoable admission, the id undo takes. */
   checkInId: string;
   result: CheckInOutcome | "undone";
   /** ISO 8601. */

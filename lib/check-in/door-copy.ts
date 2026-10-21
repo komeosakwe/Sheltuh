@@ -184,8 +184,15 @@ export function recentRow(entry: CheckInLogEntry): { label: string; detail: stri
   }
 }
 
+/**
+ * The admission an undo reverses, from a Recent-scans entry or an
+ * `already_checked_in` result: its id, when it was, and the ticket's type and
+ * last four characters.
+ */
+export type UndoTarget = Pick<CheckInLogEntry, "checkInId" | "at" | "codeLast4" | "ticketTypeName">;
+
 /** What an undo is about: "General admission · code ends 2HXD · checked in 8:42 pm". */
-export function undoAbout(entry: CheckInLogEntry): string {
+export function undoAbout(entry: UndoTarget): string {
   return [
     entry.ticketTypeName,
     entry.codeLast4 ? `code ends ${entry.codeLast4}` : null,

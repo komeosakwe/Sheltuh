@@ -200,7 +200,9 @@ describe("buildTicketEmail", () => {
       expect(tag).toContain(`alt="QR code for ticket ${code}"`);
       expect(tag).toContain('width="174" height="174"');
       expect(images[i].contentType).toBe("image/png");
-      expect(images[i].filename).toBe(`ticket-${code}-qr.png`);
+      // Numbered, never named after the code (the code is the ticket; file names leak into previews and downloads).
+      expect(images[i].filename).toBe(`ticket-${i + 1}-qr.png`);
+      expect(images[i].filename).not.toContain(code);
       // The PNG is this ticket's own QR (encodePng's pixels are tested in png.test.ts).
       expect(images[i].content.equals(encodePng(ticketQrMatrix(code)!, 12, 4))).toBe(true);
       expect(images[i].content.length).toBeLessThan(1024);
@@ -222,11 +224,14 @@ describe("buildTicketEmail", () => {
     const one = buildTicketEmail({ ...order, tickets: [order.tickets[0]] }, event, "https://x");
     expect(one.html).toContain("Show this QR code at the door. Turn your screen brightness up.");
     expect(one.html).toContain("Show your QR code at the door."); // preheader
-    expect(one.text).toContain("Show the QR code in this email at the door, with your screen brightness up.");
+    // The plain text can't show a QR: it points at the entry code, and at the full email for the QR.
+    expect(one.text).toContain("YOUR TICKET\nShow your entry code at the door (the QR code is in the full email).");
+    expect(one.text).not.toMatch(/QR code in this email/i);
     expect(one.text).toContain("Entry code: ABCD-EFGH");
     const many = buildTicketEmail(order, event, "https://x");
     expect(many.html).toContain("Show these QR codes at the door. Turn your screen brightness up.");
-    expect(many.text).toContain("YOUR TICKETS\nShow the QR codes in this email at the door");
+    expect(many.text).toContain("YOUR TICKETS\nShow your entry codes at the door (the QR codes are in the full email).");
+    expect(many.text).not.toMatch(/in this email/i);
   });
 
   it("gives a malformed code no QR, no attachment and the old wording", () => {

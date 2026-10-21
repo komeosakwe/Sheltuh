@@ -124,7 +124,8 @@ function ticketQr(code: string, index: number): TicketQr | null {
       cid: `ticket-qr-${index + 1}@sheltuh.com.au`,
       contentType: "image/png",
       content: encodePng(matrix, QR_PNG_PX_PER_MODULE, QR_QUIET_ZONE_MODULES),
-      filename: `ticket-${code}-qr.png`,
+      // Not the code: attachment names show up in mail previews, file lists and downloads, and the code is the ticket.
+      filename: `ticket-${index + 1}-qr.png`,
     },
     px: (matrix.length + QR_QUIET_ZONE_MODULES * 2) * QR_DISPLAY_PX_PER_MODULE,
     alt: ticketQrLabel(code),
@@ -172,8 +173,10 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
     ...(anyQr
       ? [
           one ? "YOUR TICKET" : "YOUR TICKETS",
-          `Show the QR ${one ? "code" : "codes"} in this email at the door, with your screen brightness up. ` +
-            `If ${one ? "it" : "one"} won't scan, door staff can type in the entry code.`,
+          // A text-only reader can't see the QR here: point them at the code, and at the full email for the QR.
+          one
+            ? "Show your entry code at the door (the QR code is in the full email)."
+            : "Show your entry codes at the door (the QR codes are in the full email).",
         ]
       : ["YOUR TICKETS (show these codes at the door)"]),
     ...order.tickets.flatMap((t, i) => [

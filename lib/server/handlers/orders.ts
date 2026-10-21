@@ -116,6 +116,36 @@ async function refundOversoldOrder(deps: Deps, orderId: string, paymentIntentId:
   await recordRefund(deps.db, orderId, refund);
 }
 
+/**
+ * refund.updated / refund.failed for a refund we didn't create (no
+ * metadata.orderId): usually one made in the Stripe dashboard. Its success is
+ * recorded through charge.refunded; this only makes the rest visible, above
+ * all a dashboard refund that failed after its order was already voided (the
+ * buyer got nothing back, and the order stays `refunded`). Logged by Stripe's
+ * event id and, when the payment intent is one of ours, the order's short
+ * reference: never the order id, the buyer or the payment intent. Changes
+ * nothing and never throws for a payment that isn't ours.
+ */
+async function logUnmatchedRefund(db: Db, eventId: string, refund: Stripe.Refund) {
+  const paymentIntentId = typeof refund.payment_intent === "string" ? refund.payment_intent : refund.payment_intent?.id;
+  let reference: string | undefined;
+  if (paymentIntentId) {
+    const [row] = await db.query<{ id: string }>(
+      `select id from public.orders where stripe_payment_intent_id = $1 limit 1`,
+      [paymentIntentId],
+    );
+    if (row) reference = orderReference(row.id);
+  }
+  const subject = reference ? `a refund of order ${reference}` : "a refund of a payment with no order on record";
+  const status = typeof refund.status === "string" ? refund.status.replace(/[^a-z_]/g, "") : "unknown";
+  if (status === "failed" || status === "canceled" || status === "requires_action") {
+    // Needs a person, like a failed automatic refund.
+    console.error(`Stripe ${eventId}: ${subject} (made outside Sheltüh) has status ${status}. Check it in the Stripe dashboard.`);
+  } else {
+    console.info(`Stripe ${eventId}: ${subject} (made outside Sheltüh) has status ${status}; charge.refunded records it.`);
+  }
+}
+
 type PaymentRefundResult = "refunded" | "partial" | "unchanged" | "not_found";
 
 /** Postgres `integer`: an amount beyond it can't be a real charge's. */
@@ -326,6 +356,7 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
     const refund = event.data.object as Stripe.Refund;
     const orderId = refund.metadata?.orderId;
     if (orderId) await recordRefund(deps.db, orderId, refund);
+    else await logUnmatchedRefund(deps.db, event.id, refund);
     return received;
   }
 

@@ -10,8 +10,8 @@ import { SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { application, approvedOrganiser, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
-// Ticket check-in: lib/server/handlers/check-ins.ts and
-// supabase/migrations/20261021000000_ticket_check_in.sql.
+// Ticket check-in: lib/server/handlers/check-ins.ts,
+// supabase/migrations/20261021000000_ticket_check_in.sql and 20261021130000_check_in_followups.sql.
 
 type Organiser = { token: string; userId: string; organiserId: string };
 
@@ -126,6 +126,15 @@ async function log(eventId = event.eventId) {
   );
 }
 
+/** The log's public ids (what the API calls checkInId), oldest first. */
+async function publicIds(eventId = event.eventId) {
+  const rows = await api.db.query<{ public_id: string; result: string }>(
+    `select public_id::text as public_id, result from public.ticket_check_ins where event_id = $1 order by id`,
+    [eventId],
+  );
+  return rows;
+}
+
 async function checkedInAt(code: string): Promise<Date | null> {
   const [row] = await api.db.query<{ checked_in_at: Date | string | null }>(
     `select checked_in_at from public.tickets where code = $1`,
@@ -145,6 +154,9 @@ async function anotherOrganiser() {
 
 /** A well-formed code no ticket has. */
 const UNKNOWN_CODE = "ZZZZ-2222";
+
+/** Check-in ids are random uuids (the log's public_id), never its sequential key. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 // ---------------------------------------------------------------------------
 // Authorisation
@@ -226,7 +238,7 @@ describe("checking a ticket in", () => {
     expect(first.headers.get("cache-control")).toBe("private, no-store");
     expect(first.body).toEqual({
       outcome: "admitted",
-      checkInId: expect.stringMatching(/^[1-9][0-9]*$/),
+      checkInId: expect.stringMatching(UUID),
       ticket: { ticketTypeName: tickets[0].ticketTypeName, ticketNumber: 1, ticketCount: 1, codeLast4: codes[0].slice(-4) },
       checkedInAt: expect.any(String),
     });
@@ -235,8 +247,10 @@ describe("checking a ticket in", () => {
 
     const again = await scan(organiser.token, codes[0]);
     expect(again.status).toBe(200);
+    // The refusal carries the current admission's id, so the door can undo it from there.
     expect(again.body).toEqual({
       outcome: "already_checked_in",
+      checkInId: first.body.checkInId,
       ticket: first.body.ticket,
       checkedInAt: first.body.checkedInAt,
     });
@@ -401,18 +415,70 @@ describe("retries (same request id)", () => {
     const dupe = await scan(organiser.token, codes[0], dupeId);
     expect(dupe.body.outcome).toBe("already_checked_in");
 
-    // Undo and admit again: a retry of the duplicate scan still reports the first admission.
+    expect(dupe.body.checkInId).toBe(admitted.body.checkInId);
+    // While that admission is still current, a retry of the duplicate offers the same undo.
+    expect((await scan(organiser.token, codes[0], dupeId)).body).toEqual(dupe.body);
+
+    // Undo and admit again: a retry of the duplicate scan still reports the first admission, but no longer
+    // offers to undo it (the time it shows and the admission an undo would reverse must be the same one).
     expect((await undo(organiser.token, admitted.body.checkInId)).body.outcome).toBe("undone");
+    const withoutUndo = { ...dupe.body };
+    delete withoutUndo.checkInId;
+    expect(await scan(organiser.token, codes[0], dupeId)).toMatchObject({ status: 200, body: withoutUndo });
+    expect((await scan(organiser.token, codes[0], dupeId)).body.checkInId).toBeUndefined();
     const readmitted = await scan(organiser.token, codes[0]);
     expect(readmitted.body.outcome).toBe("admitted");
-    expect(await scan(organiser.token, codes[0], dupeId)).toMatchObject({ status: 200, body: dupe.body });
+    expect((await scan(organiser.token, codes[0], dupeId)).body).toEqual(withoutUndo);
+    // A new duplicate scan offers the new admission.
+    expect((await scan(organiser.token, codes[0])).body.checkInId).toBe(readmitted.body.checkInId);
 
-    // A retry carrying a different code still gets the original answer (the request id is the key).
+    // The same request id with the same (unknown) code replays; so does any other text that isn't one of the
+    // organiser's tickets (the answer is the same `invalid`).
     const invalidId = crypto.randomUUID();
     expect((await scan(organiser.token, UNKNOWN_CODE, invalidId)).body).toEqual({ outcome: "invalid" });
-    expect((await scan(organiser.token, codes[0], invalidId)).body).toEqual({ outcome: "invalid" });
+    expect((await scan(organiser.token, UNKNOWN_CODE.toLowerCase(), invalidId)).body).toEqual({ outcome: "invalid" });
+    expect((await scan(organiser.token, "junk", invalidId)).body).toEqual({ outcome: "invalid" });
 
-    expect((await log()).map((r) => r.result)).toEqual(["admitted", "already_checked_in", "undone", "admitted", "invalid"]);
+    expect((await log()).map((r) => r.result)).toEqual([
+      "admitted",
+      "already_checked_in",
+      "undone",
+      "admitted",
+      "already_checked_in",
+      "invalid",
+    ]);
+  });
+
+  it("a request id reused for a different code is a 409, with nothing logged, marked or replayed", async () => {
+    const { codes } = await paidOrder(event.eventId, [{ ticketTypeId: "ga", quantity: 2 }]);
+    const { otherEvent } = await anotherOrganiser();
+    const theirs = await paidOrder(otherEvent.eventId, [{ ticketTypeId: "ga", quantity: 1 }]);
+
+    const admittedId = crypto.randomUUID();
+    expect((await scan(organiser.token, codes[0], admittedId)).body.outcome).toBe("admitted");
+    const invalidId = crypto.randomUUID();
+    expect((await scan(organiser.token, UNKNOWN_CODE, invalidId)).body.outcome).toBe("invalid");
+
+    for (const [requestId, code] of [
+      [admittedId, codes[1]], // another of this event's tickets
+      [admittedId, UNKNOWN_CODE], // a code that isn't one
+      [admittedId, "junk"],
+      [invalidId, codes[1]], // an invalid scan's id, now with a real ticket
+    ]) {
+      const res = await scan(organiser.token, code, requestId);
+      expect({ code, status: res.status }).toEqual({ code, status: 409 });
+      expect(res.headers.get("cache-control")).toBe("private, no-store");
+      expect(res.body).not.toHaveProperty("outcome");
+    }
+    // Another organiser's ticket resolves to nothing, like an unknown code: the invalid scan's answer replays,
+    // so a reused id can't tell their ticket from an unknown code either.
+    expect(await rawScan(organiser.token, theirs.codes[0])).toMatchObject({ status: 200, text: '{"outcome":"invalid"}' });
+    expect((await scan(organiser.token, theirs.codes[0], invalidId)).body).toEqual({ outcome: "invalid" });
+
+    expect(await checkedInAt(codes[1])).toBeNull();
+    expect((await log()).map((r) => r.result)).toEqual(["admitted", "invalid", "invalid"]);
+    // Its own code still replays.
+    expect((await scan(organiser.token, `sh1:${codes[0].toLowerCase()}`, admittedId)).body.outcome).toBe("admitted");
   });
 
   it("request ids are per event: the same id at another event is a new scan", async () => {
@@ -484,7 +550,7 @@ describe("undo", () => {
     expect(res.headers.get("cache-control")).toBe("private, no-store");
     expect(res.body).toEqual({
       outcome: "undone",
-      checkInId: expect.stringMatching(/^[1-9][0-9]*$/),
+      checkInId: expect.stringMatching(UUID),
       ticket: { ticketTypeName: "VIP", codeLast4: codes[0].slice(-4) },
     });
     expect(await checkedInAt(codes[0])).toBeNull();
@@ -500,6 +566,30 @@ describe("undo", () => {
     expect((await log()).map((r) => r.result)).toEqual(["admitted", "undone"]);
 
     expect((await scan(organiser.token, codes[0])).body.outcome).toBe("admitted");
+  });
+
+  it("can be done from an Already-checked-in result: its checkInId is the ticket's current admission", async () => {
+    const { codes } = await paidOrder(event.eventId, [{ ticketTypeId: "ga", quantity: 1 }]);
+    // Admitted long ago: far outside the newest 20 log rows.
+    const admitted = await scan(organiser.token, codes[0]);
+    for (let i = 0; i < 25; i++) await scan(organiser.token, UNKNOWN_CODE);
+    expect((await summary(organiser.token)).body.recent.some((e: { undoable: boolean }) => e.undoable)).toBe(false);
+
+    const refused = await scan(organiser.token, codes[0]);
+    expect(refused.body).toMatchObject({ outcome: "already_checked_in", checkInId: admitted.body.checkInId });
+    const res = await undo(organiser.token, refused.body.checkInId, "Letting them back in");
+    expect(res.body.outcome).toBe("undone");
+    expect(await checkedInAt(codes[0])).toBeNull();
+    expect((await scan(organiser.token, codes[0])).body.outcome).toBe("admitted");
+  });
+
+  it("an Already-checked-in result with no admission on record to undo carries no checkInId", async () => {
+    const { codes } = await paidOrder(event.eventId, [{ ticketTypeId: "ga", quantity: 1 }]);
+    // Checked in, but its admission row is gone (e.g. set by hand in SQL).
+    await api.db.query(`update public.tickets set checked_in_at = now() where code = $1`, [codes[0]]);
+    const res = await scan(organiser.token, codes[0]);
+    expect(res.body.outcome).toBe("already_checked_in");
+    expect(res.body).not.toHaveProperty("checkInId");
   });
 
   it("an older admission is superseded once the ticket was admitted again", async () => {
@@ -521,13 +611,27 @@ describe("undo", () => {
     const elsewhere = await paidOrder(second.eventId, [{ ticketTypeId: "ga", quantity: 1 }]);
     const invalid = await scan(organiser.token, UNKNOWN_CODE);
     expect(invalid.body.outcome).toBe("invalid");
-    const [{ id: invalidId }] = (await log()).filter((r) => r.result === "invalid");
+    const [{ public_id: invalidId }] = (await publicIds()).filter((r) => r.result === "invalid");
+    const admitted = await scan(organiser.token, mine.codes[0]);
     await scan(organiser.token, mine.codes[0]);
-    await scan(organiser.token, mine.codes[0]);
-    const alreadyId = (await log()).at(-1)!.id;
+    const alreadyId = (await publicIds()).at(-1)!.public_id;
     const there = await scan(organiser.token, elsewhere.codes[0], crypto.randomUUID(), second.eventId);
+    // The log's internal (sequential) key isn't an id the API knows, even for a real admission of this event.
+    const [{ id: internalId }] = (await log()).filter((r) => r.result === "admitted");
 
-    for (const id of [invalidId, alreadyId, there.body.checkInId, "999999999", "0", "abc", "1e3", "9".repeat(19)]) {
+    for (const id of [
+      invalidId,
+      alreadyId,
+      there.body.checkInId,
+      crypto.randomUUID(),
+      internalId,
+      "999999999",
+      "0",
+      "abc",
+      "1e3",
+      "9".repeat(19),
+      admitted.body.checkInId.toUpperCase().replace(/-/g, ""),
+    ]) {
       const res = await undo(organiser.token, id);
       expect(res.status).toBe(404);
       expect(res.headers.get("cache-control")).toBe("private, no-store");
@@ -616,6 +720,11 @@ describe("summary", () => {
       expect.objectContaining({ result: "undone", reason: "Wrong person", undoable: false }),
       expect.objectContaining({ checkInId: first.body.checkInId, result: "admitted", undoable: false }),
     ]);
+
+    // Every id is the row's random public id, never the sequential key.
+    const ids = res.body.recent.map((e: { checkInId: string }) => e.checkInId);
+    expect(ids.every((id: string) => UUID.test(id))).toBe(true);
+    expect(ids).toEqual((await publicIds()).map((r) => r.public_id).reverse());
 
     const text = JSON.stringify(res.body) + JSON.stringify(all.body);
     for (const code of codes) expect(text).not.toContain(code);
@@ -731,6 +840,21 @@ describe("database guards", () => {
     await expect(insert("NOPE-NOPE", "admitted")).rejects.toMatchObject({ code: "23503" });
   });
 
+  it("every log row gets its own random public id", async () => {
+    await scan(organiser.token, UNKNOWN_CODE);
+    await scan(organiser.token, UNKNOWN_CODE);
+    const [a, b] = await publicIds();
+    expect(a.public_id).toMatch(UUID);
+    expect(b.public_id).not.toBe(a.public_id);
+    await expect(
+      api.db.query(
+        `insert into public.ticket_check_ins (event_id, ticket_code, actor_user_id, request_id, result, public_id)
+         values ($1, null, $2, gen_random_uuid(), 'invalid', $3)`,
+        [event.eventId, organiser.userId, a.public_id],
+      ),
+    ).rejects.toMatchObject({ code: "23505" });
+  });
+
   it("refuses missing arguments and a bad undo reason outright", async () => {
     await expect(
       api.db.query(`select * from private.check_in_ticket($1, $2, null, 'ABCD-EFGH', gen_random_uuid(), 10, '1 minute')`, [
@@ -739,7 +863,7 @@ describe("database guards", () => {
       ]),
     ).rejects.toMatchObject({ code: "22023" });
     await expect(
-      api.db.query(`select * from private.undo_check_in($1, $2, $3, 1, 'no', 10, '1 minute')`, [
+      api.db.query(`select * from private.undo_check_in($1, $2, $3, gen_random_uuid(), 'no', 10, '1 minute')`, [
         event.eventId,
         organiser.organiserId,
         organiser.userId,
@@ -775,7 +899,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
 
   const checkIn = (conn: postgres.Sql, actorId: string, code: string, requestId: string = crypto.randomUUID()) =>
     conn.unsafe(
-      `select result, check_in_id::text as check_in_id from private.check_in_ticket($1, $2, $3, $4, $5::uuid, 600, '5 minutes')`,
+      `select result, check_in_id::text as check_in_id, admission_id::text as admission_id
+         from private.check_in_ticket($1, $2, $3, $4, $5::uuid, 600, '5 minutes')`,
       [event.eventId, organiser.organiserId, actorId, code, requestId],
     );
 
@@ -788,18 +913,23 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
     }
   });
 
-  it("two accounts scanning one ticket at once: the second waits on the ticket, then sees it's already in", async () => {
+  it("two accounts scanning one ticket at once: the second waits on the ticket, then sees it's already in (and which admission)", async () => {
     const { codes } = await paidOrder(event.eventId, [{ ticketTypeId: "ga", quantity: 1 }]);
     const staff = await api.signUp();
     const [one, two] = connections();
     try {
       await one.unsafe("begin");
-      expect((await checkIn(one, organiser.userId, codes[0]))[0].result).toBe("admitted");
+      const [first] = await checkIn(one, organiser.userId, codes[0]);
+      expect(first.result).toBe("admitted");
+      expect(first.admission_id).toBe(first.check_in_id);
       const blocked = await waitUntilBlocked(two);
       const pending = checkIn(two, staff.userId, codes[0]).execute();
       await blocked();
       await one.unsafe("commit");
-      expect((await pending)[0].result).toBe("already_checked_in");
+      const [second] = await pending;
+      expect(second.result).toBe("already_checked_in");
+      // The admission committed while it waited is the one it offers to undo.
+      expect(second.admission_id).toBe(first.check_in_id);
     } finally {
       await one.end();
       await two.end();

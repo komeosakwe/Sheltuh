@@ -6,8 +6,8 @@ import { Button, ButtonLink } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/Section";
 import { undoCheckIn } from "@/lib/api/check-ins";
 import { ApiError, type GetToken } from "@/lib/api/client";
-import type { CheckInLogEntry, CheckInResult } from "@/lib/api/types";
-import { resultAnnouncement, toneOf, type DoorResult } from "@/lib/check-in/door-copy";
+import type { CheckInResult } from "@/lib/api/types";
+import { resultAnnouncement, toneOf, type DoorResult, type UndoTarget } from "@/lib/check-in/door-copy";
 import { canVibrate, DoorSound, vibrateFor } from "@/lib/check-in/feedback";
 import { withNext } from "@/lib/safe-next-path";
 import { CheckInCounters, CheckInTitle } from "./CheckInHeader";
@@ -62,7 +62,11 @@ export default function DoorConsole({
   const [sound] = useState(() => new DoorSound());
   const [assertive, announceAssertive] = useAnnouncer();
   const [polite, announcePolite] = useAnnouncer();
-  const [undoTarget, setUndoTarget] = useState<CheckInLogEntry | null>(null);
+  const [undoTarget, setUndoTarget] = useState<UndoTarget | null>(null);
+  /** The result panel the open undo came from (its display id), or null (Recent scans, or closed). */
+  const undoPanelId = useRef<number | null>(null);
+  /** Whether focus or a pointer is inside the result panel, as it last reported. */
+  const panelPaused = useRef(false);
 
   const panelRef = useRef<HTMLDivElement>(null);
   const slotRef = useRef<HTMLElement>(null);
@@ -97,6 +101,31 @@ export default function DoorConsole({
   const onPanelFocusLost = useCallback(() => slotRef.current?.focus(), []);
 
   const scan = useDoorScan({ eventId, getToken, onResultShown, onServerResult, onPanelFocusLost, panelRef });
+  const { setPaused: setScanPaused } = scan;
+
+  // The panel's auto-return waits while focus or a pointer is inside it, and while the undo it opened is open
+  // (focus is in the dialog then, not the panel).
+  const onPanelPauseChange = useCallback(
+    (paused: boolean) => {
+      panelPaused.current = paused;
+      setScanPaused(paused || undoPanelId.current !== null);
+    },
+    [setScanPaused],
+  );
+
+  function openUndo(target: UndoTarget, fromPanel: number | null) {
+    undoPanelId.current = fromPanel;
+    if (fromPanel !== null) setScanPaused(true);
+    setUndoTarget(target);
+  }
+
+  function closeUndo() {
+    if (undoPanelId.current !== null) {
+      undoPanelId.current = null;
+      setScanPaused(panelPaused.current);
+    }
+    setUndoTarget(null);
+  }
   const camera = useCamera({ videoRef, slotRef, onDecode: scan.submitDecoded, accepting: scan.acceptingDecodes });
 
   // A camera problem is announced politely (focus alone only reads its heading, and "No camera found" has no
@@ -173,7 +202,7 @@ export default function DoorConsole({
     announcePolite("Camera off.");
   }
 
-  async function submitUndo(entry: CheckInLogEntry, reason: string): Promise<UndoDialogOutcome> {
+  async function submitUndo(entry: UndoTarget, reason: string): Promise<UndoDialogOutcome> {
     try {
       const result = await undoCheckIn(eventId, entry.checkInId, reason, getToken);
       if (result.outcome === "superseded") {
@@ -189,7 +218,11 @@ export default function DoorConsole({
         announcePolite("That check-in was already undone.");
       }
       pendingFocus.current = "recent-heading";
-      setUndoTarget(null);
+      // Undone from an Already-checked-in panel: that refusal no longer holds, so the panel goes (if it's
+      // still the one showing). Scanning the ticket again now admits it.
+      const fromPanel = undoPanelId.current;
+      closeUndo();
+      if (fromPanel !== null) scan.dismiss(fromPanel);
       scheduleRefresh();
       return { ok: true };
     } catch (error) {
@@ -216,8 +249,9 @@ export default function DoorConsole({
         returnTo={returnTo}
         panelRef={panelRef}
         onRetry={scan.retry}
-        onDismiss={scan.dismiss}
-        onPauseChange={scan.setPaused}
+        onDismiss={() => scan.dismiss()}
+        onUndo={(target) => openUndo(target, display.id)}
+        onPauseChange={onPanelPauseChange}
       />
     ) : display.kind === "checking" && display.showText ? (
       <div className="relative [grid-area:1/1] flex flex-col justify-center gap-1 bg-background p-4">
@@ -277,7 +311,7 @@ export default function DoorConsole({
                 refreshFailed={summary.refreshFailed}
                 headingRef={recentHeadingRef}
                 onRefresh={() => void summary.refreshNow()}
-                onUndo={setUndoTarget}
+                onUndo={(entry) => openUndo(entry, null)}
               />
             )}
           </div>
@@ -287,7 +321,7 @@ export default function DoorConsole({
         </div>
       </div>
 
-      <UndoCheckInDialog entry={undoTarget} returnTo={returnTo} onClose={() => setUndoTarget(null)} onSubmit={submitUndo} />
+      <UndoCheckInDialog entry={undoTarget} returnTo={returnTo} onClose={closeUndo} onSubmit={submitUndo} />
 
       <p aria-live="assertive" aria-atomic="true" className="sr-only" data-testid="result-announcer">
         {assertive}

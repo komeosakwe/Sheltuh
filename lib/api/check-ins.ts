@@ -8,8 +8,9 @@ import type { CheckInInput, CheckInResult, CheckInSummary, UndoCheckInInput, Und
  *
  * Every ticket outcome (admitted, already checked in, invalid, ...) resolves
  * normally. A thrown error means the ticket could NOT be verified and nothing
- * was marked: ApiError 0 (network), 400, 404, 413, 429 (over 600 check-ins
- * and undos per 5 minutes) or 5xx; or the abort error if `signal` aborted.
+ * was marked: ApiError 0 (network), 400, 404, 409 (the request id was used
+ * before for a different code), 413, 429 (over 600 check-ins and undos per
+ * 5 minutes) or 5xx; or the abort error if `signal` aborted.
  * Retry a scan with the same `requestId` and the server returns the original
  * result (an admission that lost its response still says `admitted`).
  */
@@ -29,7 +30,11 @@ export async function checkInTicket(
   return apiFetch<CheckInResult>(checkIns(eventId), { method: "POST", body, token, signal });
 }
 
-/** Reverses an admission (a `checkInId` from an `admitted` result or an `undoable` log entry), with a 3–200 character reason (ApiError 400 `fieldErrors.reason` otherwise). */
+/**
+ * Reverses an admission (a `checkInId` from an `admitted` or `already_checked_in` result, or an `undoable` log
+ * entry: an opaque uuid), with a 3–200 character reason (ApiError 400 `fieldErrors.reason` otherwise; 404 for an
+ * id that isn't an admission of this event).
+ */
 export async function undoCheckIn(
   eventId: string,
   checkInId: string,

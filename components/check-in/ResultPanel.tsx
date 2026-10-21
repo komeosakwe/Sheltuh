@@ -12,6 +12,7 @@ import {
   UNVERIFIED_DETAIL,
   type DoorResult,
   type DoorTone,
+  type UndoTarget,
 } from "@/lib/check-in/door-copy";
 import { withNext } from "@/lib/safe-next-path";
 import { doorBusyClass } from "./busy-class";
@@ -122,8 +123,27 @@ interface Props {
   panelRef: RefObject<HTMLDivElement | null>;
   onRetry: () => void;
   onDismiss: () => void;
+  /**
+   * Opens the undo dialog for an `already_checked_in` result's current
+   * admission. The panel only offers Undo check-in when the result carries
+   * what the dialog needs (`undoTargetOf`) and this is given.
+   */
+  onUndo?: (target: UndoTarget) => void;
   /** Focus or a pointer is inside: auto-return waits. */
   onPauseChange: (paused: boolean) => void;
+}
+
+/**
+ * What undoing the admission behind an `already_checked_in` result needs:
+ * its id (the ticket's current check-in), when it was, and the ticket's type
+ * and last four characters. Null when the server didn't send an id (nothing
+ * to undo) or any other outcome.
+ */
+export function undoTargetOf(result: DoorResult): UndoTarget | null {
+  if (result.kind !== "server") return null;
+  const { outcome, checkInId, checkedInAt, ticket } = result.result;
+  if (outcome !== "already_checked_in" || !checkInId || !checkedInAt || !ticket) return null;
+  return { checkInId, at: checkedInAt, codeLast4: ticket.codeLast4, ticketTypeName: ticket.ticketTypeName };
 }
 
 /**
@@ -131,7 +151,7 @@ interface Props {
  * or not verified, each with its own headline, icon and panel treatment.
  * Not a live region and never focused: the assertive announcer speaks it.
  */
-export default function ResultPanel({ result, retrying, returnTo, panelRef, onRetry, onDismiss, onPauseChange }: Props) {
+export default function ResultPanel({ result, retrying, returnTo, panelRef, onRetry, onDismiss, onUndo, onPauseChange }: Props) {
   const tone = toneOf(result);
   const { reason, details } = reasonAndDetails(result, new Date());
 
@@ -170,10 +190,18 @@ export default function ResultPanel({ result, retrying, returnTo, panelRef, onRe
       </Button>
     );
   } else if (tone === "refuse") {
+    const undoTarget = onUndo ? undoTargetOf(result) : null;
     actions = (
-      <Button variant="outline" size="lg" onClick={onDismiss} className="w-full sm:w-auto">
-        Scan next
-      </Button>
+      <>
+        <Button variant="outline" size="lg" onClick={onDismiss} className="w-full sm:w-auto">
+          Scan next
+        </Button>
+        {undoTarget && onUndo && (
+          <Button variant="outline" size="lg" onClick={() => onUndo(undoTarget)} className="w-full sm:w-auto">
+            Undo check-in
+          </Button>
+        )}
+      </>
     );
   }
 

@@ -250,10 +250,17 @@ export function useDoorScan({ eventId, getToken, onResultShown, onServerResult, 
     void send(current.result.scan, true);
   }, [send]);
 
-  /** "Scan next" / "Scan another": back to the viewfinder. */
-  const dismiss = useCallback(() => {
-    if (displayRef.current.kind === "result") setDisplay({ kind: "none" });
-  }, [setDisplay]);
+  /**
+   * "Scan next" / "Scan another": back to the viewfinder. With `id`, only if
+   * that panel is still the one showing (a later scan's panel stays).
+   */
+  const dismiss = useCallback(
+    (id?: number) => {
+      const current = displayRef.current;
+      if (current.kind === "result" && (id === undefined || current.id === id)) setDisplay({ kind: "none" });
+    },
+    [setDisplay],
+  );
 
   // Auto-return to the viewfinder, paused while focus or a pointer is in the panel.
   useEffect(() => {

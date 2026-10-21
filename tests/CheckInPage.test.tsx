@@ -879,6 +879,97 @@ describe("undo", () => {
   });
 });
 
+describe("undo from an Already-checked-in result", () => {
+  const refused: CheckInResult = { outcome: "already_checked_in", checkInId: "c7", ticket: TICKET, checkedInAt: EARLIER };
+  const undone = { outcome: "undone", checkInId: "u7", ticket: { ticketTypeName: "General admission", codeLast4: "2HXD" } };
+
+  async function refusedPanel() {
+    api.checkInTicket.mockResolvedValueOnce(refused);
+    await renderPage();
+    await typeAndCheck("7KQM-2HXD");
+    expect(panel()).toHaveAttribute("data-result", "refuse");
+    return panel();
+  }
+
+  it("offers Undo check-in next to Scan next, opening the undo dialog for the ticket's current check-in", async () => {
+    const shown = await refusedPanel();
+    expect(within(shown).getAllByRole("button").map((b) => b.textContent)).toEqual(["Scan next", "Undo check-in"]);
+    fireEvent.click(within(shown).getByRole("button", { name: "Undo check-in" }));
+    await advance();
+    const dialog = screen.getByRole("dialog", { name: "Undo this check-in?" });
+    expect(dialog).toHaveAttribute("open");
+    expect(within(dialog).getByText(/General admission · code ends 2HXD · checked in 8:42 pm\./)).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Reason")).toHaveFocus();
+  });
+
+  it("undone: the undo is for that check-in; the dialog and the stale refusal close, and it's announced and counted", async () => {
+    api.undoCheckIn.mockResolvedValue(undone);
+    const shown = await refusedPanel();
+    fireEvent.click(within(shown).getByRole("button", { name: "Undo check-in" }));
+    await advance();
+    const dialog = screen.getByRole("dialog", { name: "Undo this check-in?" });
+    fireEvent.change(within(dialog).getByLabelText("Reason"), { target: { value: "Letting them back in" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Undo check-in" }));
+    await advance();
+    expect(api.undoCheckIn).toHaveBeenCalledWith("evt-1", "c7", "Letting them back in", expect.any(Function));
+    expect(dialog).not.toHaveAttribute("open");
+    expect(slot().querySelector("[data-result]")).toBeNull();
+    await nextFrame();
+    expect(statusAnnouncer()).toHaveTextContent("Check-in undone. General admission, code ends 2HXD.");
+    expect(within(screen.getByRole("region", { name: "Count" })).getByText("99")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Recent scans" })).toHaveFocus();
+  });
+
+  it("the refusal doesn't time out behind the open dialog; Keep it closes it and the panel's countdown resumes", async () => {
+    const shown = await refusedPanel();
+    fireEvent.click(within(shown).getByRole("button", { name: "Undo check-in" }));
+    await advance();
+    await advance(30_000);
+    expect(slot().querySelector("[data-result]")).toBe(shown);
+    const dialog = screen.getByRole("dialog", { name: "Undo this check-in?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Keep it" }));
+    await advance();
+    expect(dialog).not.toHaveAttribute("open");
+    expect(api.undoCheckIn).not.toHaveBeenCalled();
+    expect(slot().querySelector("[data-result]")).toBe(shown);
+    await advance(10_000);
+    expect(slot().querySelector("[data-result]")).toBeNull();
+  });
+
+  it("an undo finishing after a newer scan leaves the newer result showing", async () => {
+    const pending = deferred<typeof undone>();
+    api.undoCheckIn.mockReturnValue(pending.promise);
+    const shown = await refusedPanel();
+    fireEvent.click(within(shown).getByRole("button", { name: "Undo check-in" }));
+    await advance();
+    const dialog = screen.getByRole("dialog", { name: "Undo this check-in?" });
+    fireEvent.change(within(dialog).getByLabelText("Reason"), { target: { value: "Letting them back in" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Undo check-in" }));
+    await advance();
+    api.checkInTicket.mockResolvedValueOnce({ outcome: "invalid" });
+    await typeAndCheck("ABCD-EFGH");
+    const newer = panel();
+    expect(within(newer).getByText("Not a valid ticket")).toBeInTheDocument();
+    pending.resolve(undone);
+    await advance();
+    expect(dialog).not.toHaveAttribute("open");
+    expect(panel()).toBe(newer);
+  });
+
+  it("isn't offered without a check-in to undo, or for any other refusal", async () => {
+    api.checkInTicket
+      .mockResolvedValueOnce({ outcome: "already_checked_in", ticket: TICKET, checkedInAt: EARLIER })
+      .mockResolvedValueOnce({ outcome: "not_admissible", checkInId: "c8", ticket: TICKET })
+      .mockResolvedValueOnce({ outcome: "other_event", checkInId: "c8", ticket: TICKET, otherEventTitle: "Late Show" });
+    await renderPage();
+    for (const code of ["7KQM-2HXD", "ABCD-EFGH", "JKLM-NPQR"]) {
+      await typeAndCheck(code);
+      expect(panel()).toHaveAttribute("data-result", "refuse");
+      expect(within(panel()).getAllByRole("button").map((b) => b.textContent)).toEqual(["Scan next"]);
+    }
+  });
+});
+
 describe("recent scans", () => {
   it("lists entries with their labels; Refresh reloads (busy meanwhile)", async () => {
     api.getCheckInSummary.mockResolvedValue(
