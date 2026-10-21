@@ -161,3 +161,8 @@ handle, and the upcoming events the member has opted into, with Message,
 Block and Report. No email or user id; the URL uses an opaque profile id.
 Members who haven't opted in stay plain text in the list. Blocking hides
 profiles both ways. Privacy Policy wording is needed.
+Profile pictures (owner request, same day): an optional photo on the member
+profile. The server re-encodes it to a small square image and strips all
+metadata (camera and GPS location) before storing it. It is shown only to
+signed-in members, only for profiles that are visible, and falls back to
+initials otherwise. Reporting and blocking cover the photo.
