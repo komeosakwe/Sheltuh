@@ -46,6 +46,12 @@ export interface HomeSections {
     status: "cards" | "empty" | "hidden";
     items: SheltuhEvent[];
   };
+  /**
+   * "From organisers you follow" (signed-in members who follow someone):
+   * upcoming events of followed organisers not already above. Empty when
+   * there are none (hidden).
+   */
+  following: SheltuhEvent[];
   /** Empty when hidden (fewer than three after de-duplication). */
   trending: TrendingItem[];
   /** Empty when hidden (fewer than two). */
@@ -164,12 +170,18 @@ export const bySoonest = (a: SheltuhEvent, b: SheltuhEvent) => startMs(a) - star
 /**
  * Splits the home page's events into its sections (docs/design/home.md §6.2).
  * Ended events are dropped first. Sections then claim events in priority
- * order (Up next, This weekend, Trending, Coming up, Free & low-cost), and a
- * later section never shows an event an earlier one did. A section that's
- * hidden for having too few events claims nothing, so its events stay
- * available to the sections after it.
+ * order (Up next, This weekend, From organisers you follow, Trending, Coming
+ * up, Free & low-cost), and a later section never shows an event an earlier
+ * one did. A section that's hidden for having too few events claims nothing,
+ * so its events stay available to the sections after it. `following`: the
+ * signed-in member's followed organisers' upcoming events (empty otherwise).
  */
-export function selectHomeSections(events: SheltuhEvent[], trending: TrendingItem[], now: Date): HomeSections {
+export function selectHomeSections(
+  events: SheltuhEvent[],
+  trending: TrendingItem[],
+  now: Date,
+  following: SheltuhEvent[] = [],
+): HomeSections {
   const nowMs = now.getTime();
   const upcoming = events.filter((event) => isUpcomingEvent(event, now)).sort(bySoonest);
   const notStarted = upcoming.filter((event) => startMs(event) > nowMs);
@@ -195,6 +207,14 @@ export function selectHomeSections(events: SheltuhEvent[], trending: TrendingIte
   // weekend has started: hide (Coming up shows what's next). Nothing on yet: say so.
   const weekendStatus = weekendItems.length > 0 ? "cards" : overlapping.length > 0 || window.during ? "hidden" : "empty";
   claim(weekendItems);
+
+  // 2b. From organisers you follow: soonest first, shown with even one event (the member asked for them).
+  const followingItems = following
+    .filter((event) => isUpcomingEvent(event, now) && unclaimed(event))
+    .sort(bySoonest)
+    .filter((event, index, list) => list.findIndex((other) => other.id === event.id) === index)
+    .slice(0, SECTION_MAX);
+  claim(followingItems);
 
   // 3. Trending, in the server's order.
   const trendingLeft = trending
@@ -224,6 +244,7 @@ export function selectHomeSections(events: SheltuhEvent[], trending: TrendingIte
   return {
     upNext,
     weekend: { window, status: weekendStatus, items: weekendItems },
+    following: followingItems,
     trending: trendingItems,
     comingUp,
     lowCost,
@@ -235,6 +256,7 @@ export function shownEventIds(sections: HomeSections): string[] {
   return [
     ...(sections.upNext ? [sections.upNext.id] : []),
     ...sections.weekend.items.map((event) => event.id),
+    ...sections.following.map((event) => event.id),
     ...sections.trending.map(({ event }) => event.id),
     ...sections.comingUp.map((event) => event.id),
     ...sections.lowCost.map(({ event }) => event.id),

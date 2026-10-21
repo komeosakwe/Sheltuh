@@ -319,6 +319,7 @@ export default function WhosGoing() {
             youRef={youRef}
             newFrom={newFrom}
             listRef={listRef}
+            getToken={mode === "live" ? getToken : undefined}
             renderAction={
               canMessage && getToken
                 ? (attendee) => (

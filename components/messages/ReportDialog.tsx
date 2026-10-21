@@ -25,16 +25,20 @@ const REASON_ERROR = "Choose a reason.";
  * Reporting a member: a modal dialog (native `<dialog>`, so focus is kept
  * inside, Escape closes it and focus returns to what opened it). A reason is
  * required; details are optional. The form is mounted fresh on each open.
+ * `subject`: what's reported, and so what a copy is kept of (a conversation,
+ * or a member profile's name, bio, Instagram and photo).
  */
 export default function ReportDialog({
   open,
   otherName,
+  subject = "conversation",
   onClose,
   onSubmit,
   returnTo,
 }: {
   open: boolean;
   otherName: string;
+  subject?: "conversation" | "profile";
   onClose: () => void;
   onSubmit: (reason: ReportReason, details: string | undefined) => Promise<ReportOutcome>;
   returnTo: string;
@@ -55,7 +59,9 @@ export default function ReportDialog({
       onClose={onClose}
       className="mx-0 mt-auto mb-0 w-full max-w-none border-t border-foreground bg-background p-5 text-foreground backdrop:bg-foreground/50 sm:m-auto sm:max-w-lg sm:border sm:p-8"
     >
-      {open && <ReportForm otherName={otherName} onCancel={onClose} onSubmit={onSubmit} returnTo={returnTo} />}
+      {open && (
+        <ReportForm otherName={otherName} subject={subject} onCancel={onClose} onSubmit={onSubmit} returnTo={returnTo} />
+      )}
     </dialog>
   );
 }
@@ -64,11 +70,13 @@ type Problem = { kind: "message"; message: string } | { kind: "session" };
 
 function ReportForm({
   otherName,
+  subject,
   onCancel,
   onSubmit,
   returnTo,
 }: {
   otherName: string;
+  subject: "conversation" | "profile";
   onCancel: () => void;
   onSubmit: (reason: ReportReason, details: string | undefined) => Promise<ReportOutcome>;
   returnTo: string;
@@ -148,9 +156,18 @@ function ReportForm({
         Report {otherName}
       </h2>
       <p id="report-about" className="text-sm leading-5">
-        We&rsquo;ll keep a copy of this conversation with your report so our team can review it, even if messages
-        are deleted later. We won&rsquo;t tell {otherName} about your report. If someone is in danger right now,
-        call 000.{" "}
+        {subject === "profile" ? (
+          <>
+            We&rsquo;ll keep a copy of {otherName}&rsquo;s profile (name, bio, Instagram and photo) with your report
+            so our team can review it, even if it changes later.
+          </>
+        ) : (
+          <>
+            We&rsquo;ll keep a copy of this conversation with your report so our team can review it, even if
+            messages are deleted later.
+          </>
+        )}{" "}
+        We won&rsquo;t tell {otherName} about your report. If someone is in danger right now, call 000.{" "}
         <Link href="/privacy#messages" className={inlineLinkClass}>
           How messages and reports are handled
         </Link>

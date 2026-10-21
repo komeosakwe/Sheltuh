@@ -47,7 +47,18 @@ export interface TicketType {
   /** Face value in integer cents. 0 means a free ticket. */
   priceCents: number;
   feePolicy: FeePolicy;
+  /** The capacity, not what's left (see `remaining`). */
   quantityAvailable: number;
+  /**
+   * None left: every ticket of this type is sold. From the API (live) or the
+   * sample data (demo); absent means on sale.
+   */
+  soldOut?: boolean;
+  /**
+   * Tickets left, only when the API says so (10 or fewer; 0 when sold out).
+   * Absent when more are left: never inferred from `quantityAvailable`.
+   */
+  remaining?: number;
 }
 
 /** Decimal degrees, WGS84. */
@@ -86,6 +97,11 @@ export interface SheltuhEvent {
   imageUrl?: string;
   /** Always empty for an external event (tickets sold on another site). */
   ticketTypes: TicketType[];
+  /**
+   * Every ticket type is sold out (never for an external event, or one with no
+   * ticket types). While it hasn't ended, people can join its waitlist.
+   */
+  soldOut?: boolean;
   /**
    * Where tickets are sold: `sheltuh` (here; absent means this too) or
    * `external` (on another site, at `externalTicketUrl`: no Sheltüh checkout,

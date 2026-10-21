@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { OrganiserEditChange, OrganiserEditEntry, OrganiserEditField } from "@/lib/api/types";
+import type { OrganiserEditChange, OrganiserEditEntry, OrganiserLogField } from "@/lib/api/types";
 import { formatDayTime } from "@/lib/format";
 import { formatOrganiserFieldValue, ORGANISER_FIELD_LABELS, ORGANISER_FIELD_ORDER } from "./organiser-fields";
 
@@ -17,8 +17,9 @@ const KIND_LABELS: Record<OrganiserEditEntry["kind"], string> = {
 
 /**
  * An organiser's recent log entries (newest first), collapsed by default:
- * profile edits they made without review, and takedowns with the admin's
- * reason. Each lists the fields that changed, before and after. Everything is
+ * profile edits they made without review, edits by the Sheltüh team (such as
+ * removing the featured video, `byStaff`) and takedowns, each with the
+ * admin's reason. Each lists the fields that changed, before and after. Everything is
  * organiser- or admin-supplied text, shown as text.
  */
 export default function OrganiserEditLog({ edits }: { edits: readonly OrganiserEditEntry[] }) {
@@ -49,10 +50,13 @@ export default function OrganiserEditLog({ edits }: { edits: readonly OrganiserE
         {edits.map((entry, index) => (
           <li key={`${entry.at}-${index}`} className="flex flex-col gap-2 border-l-2 border-surface-border pl-3">
             <p className="text-xs text-muted">
-              <span className="font-semibold text-foreground">{KIND_LABELS[entry.kind]}</span> ·{" "}
+              <span className="font-semibold text-foreground">
+                {entry.kind === "profile_edit" && entry.byStaff ? "Edit by the Sheltüh team" : KIND_LABELS[entry.kind]}
+              </span>{" "}
+              ·{" "}
               <time dateTime={entry.at}>{formatDayTime(entry.at)}</time>
             </p>
-            {entry.kind === "suspended" && entry.reason && (
+            {(entry.kind === "suspended" || entry.byStaff) && entry.reason && (
               <p className="break-words whitespace-pre-wrap">
                 <span className="text-muted">Reason: </span>
                 {entry.reason}
@@ -86,7 +90,7 @@ function ChangeRow({
   change,
   kind,
 }: {
-  field: OrganiserEditField;
+  field: OrganiserLogField;
   change: OrganiserEditChange;
   kind: OrganiserEditEntry["kind"];
 }) {
@@ -115,7 +119,7 @@ function LogValue({
   value,
   kind,
 }: {
-  field: OrganiserEditField;
+  field: OrganiserLogField;
   /** "old Bio", "new Website": who a "Show all" toggle belongs to. */
   context: string;
   value: string | null;

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import type { Ref } from "react";
+import FollowButton from "@/components/organisers/FollowButton";
 import OrganiserLinks from "@/components/organisers/OrganiserLinks";
+import VideoFacade from "@/components/organisers/VideoFacade";
 import { RESULTS_GRID } from "@/components/EventResults";
 import BackLink from "@/components/ui/BackLink";
 import EventTile from "@/components/ui/EventTile";
@@ -12,10 +14,13 @@ import { adaptPublicEvent } from "@/lib/live/adapt";
 import { formatMemberSince } from "@/lib/organiser-profile";
 import { EVENT_CATEGORIES } from "@/lib/types";
 
+const countFormatter = new Intl.NumberFormat("en-AU");
+
 /**
- * An approved organiser's public profile: who they are, their links, then
- * their events. `headingRef` makes the h1 focusable from script (tabIndex
- * -1), for a caller that moves focus to it.
+ * An approved organiser's public profile: who they are, Follow, their
+ * numbers (followers once there are 10, events hosted), their links and
+ * featured video, then their events. `headingRef` makes the h1 focusable
+ * from script (tabIndex -1), for a caller that moves focus to it.
  */
 export default function OrganiserProfileView({
   profile,
@@ -46,6 +51,26 @@ export default function OrganiserProfileView({
             {profile.displayName}
           </h1>
           <p className="meta text-muted">Member since {formatMemberSince(profile.memberSince)}</p>
+          {/* Followers only once the API sends a count (10 or more); events hosted (past events). */}
+          <dl className="flex flex-wrap gap-x-8 gap-y-3 empty:hidden">
+            {typeof profile.followerCount === "number" && (
+              <div className="flex flex-col">
+                <dt className="eyebrow text-muted">Followers</dt>
+                <dd className="font-heading text-2xl leading-8 tabular-nums">
+                  {countFormatter.format(profile.followerCount)}
+                </dd>
+              </div>
+            )}
+            {typeof profile.eventsHosted === "number" && (
+              <div className="flex flex-col">
+                <dt className="eyebrow text-muted">Events hosted</dt>
+                <dd className="font-heading text-2xl leading-8 tabular-nums">
+                  {countFormatter.format(profile.eventsHosted)}
+                </dd>
+              </div>
+            )}
+          </dl>
+          <FollowButton organiserId={profile.organiserId} organiserName={profile.displayName} />
           {categoryLabels.length > 0 && (
             <ul aria-label="Categories" className="flex flex-wrap gap-2">
               {categoryLabels.map((label) => (
@@ -62,13 +87,25 @@ export default function OrganiserProfileView({
           )}
         </header>
 
-        {hasLinks && (
-          <section aria-labelledby="organiser-links" className="flex flex-col gap-3 md:max-w-xl lg:col-span-5 lg:max-w-none">
-            <h2 id="organiser-links" className="eyebrow font-sans text-muted">
-              Links
-            </h2>
-            <OrganiserLinks websiteUrl={profile.websiteUrl} socialLinks={profile.socialLinks} />
-          </section>
+        {(hasLinks || profile.featuredVideo) && (
+          <div className="flex flex-col gap-8 md:max-w-xl lg:col-span-5 lg:max-w-none">
+            {profile.featuredVideo && (
+              <section aria-labelledby="organiser-video" className="flex flex-col gap-3">
+                <h2 id="organiser-video" className="eyebrow font-sans text-muted">
+                  Featured video
+                </h2>
+                <VideoFacade video={profile.featuredVideo} title={`${profile.displayName}’s featured video`} />
+              </section>
+            )}
+            {hasLinks && (
+              <section aria-labelledby="organiser-links" className="flex flex-col gap-3">
+                <h2 id="organiser-links" className="eyebrow font-sans text-muted">
+                  Links
+                </h2>
+                <OrganiserLinks websiteUrl={profile.websiteUrl} socialLinks={profile.socialLinks} />
+              </section>
+            )}
+          </div>
         )}
       </div>
 

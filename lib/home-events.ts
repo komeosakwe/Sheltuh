@@ -1,4 +1,5 @@
-import { isApiConfigured } from "@/lib/api/client";
+import { isApiConfigured, type GetToken } from "@/lib/api/client";
+import { listFollowingEvents } from "@/lib/api/follows";
 import { listPublicEvents } from "@/lib/api/public-events";
 import { getTrendingEvents } from "@/lib/api/trending";
 import { formatEventDateKey } from "@/lib/format";
@@ -12,6 +13,8 @@ import type { SheltuhEvent } from "@/lib/types";
 export const HOME_EVENT_LIMIT = 40;
 /** Live: the weekend top-up's page size. */
 export const HOME_WEEKEND_TOP_UP_LIMIT = 20;
+/** Live: how many followed organisers' events to ask for (the rail shows at most 6 once de-duplicated). */
+export const HOME_FOLLOWING_LIMIT = 12;
 /** Demo: how many sample events "trend". */
 const DEMO_TRENDING_MAX = 12;
 
@@ -78,4 +81,14 @@ export async function loadHomeTrending(now: Date): Promise<TrendingItem[]> {
     .sort((a, b) => b.count - a.count || bySoonest(a.event, b.event))
     .slice(0, DEMO_TRENDING_MAX)
     .map(({ event, count }) => ({ event, signal: { kind: "going", count } }));
+}
+
+/**
+ * A signed-in member's followed organisers' upcoming events, soonest first,
+ * for "From organisers you follow" (live only; the demo has no accounts).
+ * Events that have ended by `now` are dropped.
+ */
+export async function loadHomeFollowing(getToken: GetToken, now: Date): Promise<SheltuhEvent[]> {
+  const page = await listFollowingEvents(getToken, { limit: HOME_FOLLOWING_LIMIT });
+  return page.items.map(adaptPublicEvent).filter(notEnded(now)).sort(bySoonest);
 }

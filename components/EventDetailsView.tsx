@@ -18,7 +18,7 @@ import { WhosGoingProvider } from "@/components/whos-going/WhosGoingProvider";
 import WhosGoingSummaryLink from "@/components/whos-going/WhosGoingSummaryLink";
 import { isSafeTicketUrl } from "@/lib/event-url";
 import { formatEventDateShort, formatEventDateTimeRange, formatEventTime } from "@/lib/format";
-import { externalProviderLabel, formatFeedPriceParts } from "@/lib/pricing";
+import { externalProviderLabel, formatFeedPriceParts, isSoldOut } from "@/lib/pricing";
 import { quickBuyLabel } from "@/lib/quick-buy";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 
@@ -59,6 +59,11 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
   // No price for an external event: we can't vouch for another site's.
   const price = external ? null : formatFeedPriceParts(event);
   const when = whenLabel(event.startsAt, event.endsAt);
+  // The buy bar's action: to #tickets, where a sold-out event has its waitlist
+  // (§6.10, §6.11). Once a sold-out event has ended there's nothing to join.
+  const soldOut = isSoldOut(event);
+  const ended = Date.parse(event.endsAt ?? event.startsAt) <= new Date().getTime();
+  const buyBarLabel = soldOut && ended ? "See tickets" : (quickBuyLabel(event) ?? "Buy tickets");
   const shareText = `${event.title} · ${formatEventDateShort(event.startsAt)}, ${formatEventTime(event.startsAt)} · ${event.venueName}`;
   const saveTarget = { id: event.id, title: event.title, slug: event.slug };
   const outboundLink = (className: string) => (
@@ -240,14 +245,14 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
             >
               <div className="min-w-0">
                 <p className="text-base leading-5 font-semibold tabular-nums">{price.amount}</p>
-                <p className="text-xs leading-4 text-muted">{price.note}</p>
+                {price.note && <p className="text-xs leading-4 text-muted">{price.note}</p>}
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <SaveButton event={saveTarget} variant="onDark" className="hidden min-[375px]:flex" />
                 <a href="#tickets" className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}>
                   {/* "Buy tickets", or "Get free tickets" when every tier is free, in demo
-                      mode too (owner, 21 Oct 2026). */}
-                  {quickBuyLabel(event) ?? "Buy tickets"}
+                      mode too (owner, 21 Oct 2026); "Join waitlist" when sold out. */}
+                  {buyBarLabel}
                 </a>
               </div>
             </div>

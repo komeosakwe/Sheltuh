@@ -1,6 +1,14 @@
+import Link from "next/link";
 import type { ReactNode, Ref } from "react";
+import MemberAvatar from "@/components/members/MemberAvatar";
 import InitialsAvatar from "@/components/ui/InitialsAvatar";
+import type { GetToken } from "@/lib/api/client";
 import type { GoingAttendee } from "@/lib/api/types";
+
+/** A member profile's page. */
+export function memberHref(profileId: string) {
+  return `/members/${encodeURIComponent(profileId)}`;
+}
 
 /**
  * The guest list: the viewer's own "You" row first (spanning both columns),
@@ -10,6 +18,11 @@ import type { GoingAttendee } from "@/lib/api/types";
  * With `renderAction` (a member who can message the people listed), each
  * row gets that action on the right, so the list becomes one column: two
  * columns leave no room for a 44px button beside a name at 320px.
+ *
+ * A member who made their profile visible (`profileId`) has their name as a
+ * link to it (/members/{profileId}), and their photo when they have one,
+ * fetched with `getToken` only once the row is near the viewport; everyone
+ * else is plain text with initials.
  */
 export default function NameList({
   attendees,
@@ -19,6 +32,7 @@ export default function NameList({
   newFrom,
   listRef,
   renderAction,
+  getToken,
 }: {
   attendees: GoingAttendee[];
   /** The viewer's display name when they're going; omitted otherwise. */
@@ -28,6 +42,8 @@ export default function NameList({
   newFrom?: number;
   listRef?: Ref<HTMLUListElement>;
   renderAction?: (attendee: GoingAttendee) => ReactNode;
+  /** Signed-in members only: fetches profile thumbnails. Without it, initials. */
+  getToken?: GetToken;
 }) {
   const withActions = renderAction !== undefined;
   return (
@@ -62,13 +78,31 @@ export default function NameList({
             newFrom !== undefined && index >= newFrom ? "fade-in" : ""
           }`.trim()}
         >
-          <InitialsAvatar name={attendee.displayName} index={index} />
-          <span
-            className={`truncate text-sm leading-5 ${withActions ? "min-w-0 flex-1" : ""}`.trim()}
-            title={attendee.displayName}
-          >
-            {attendee.displayName}
-          </span>
+          <MemberAvatar
+            name={attendee.displayName}
+            index={index}
+            url={attendee.profileId && attendee.hasAvatar ? attendee.avatarThumbUrl : undefined}
+            getToken={getToken}
+            lazy
+          />
+          {attendee.profileId ? (
+            <Link
+              href={memberHref(attendee.profileId)}
+              className={`inline-flex min-h-11 min-w-0 items-center text-sm leading-5 underline underline-offset-4 hover:decoration-2 ${
+                withActions ? "flex-1" : ""
+              }`.trim()}
+              title={attendee.displayName}
+            >
+              <span className="truncate">{attendee.displayName}</span>
+            </Link>
+          ) : (
+            <span
+              className={`truncate text-sm leading-5 ${withActions ? "min-w-0 flex-1" : ""}`.trim()}
+              title={attendee.displayName}
+            >
+              {attendee.displayName}
+            </span>
+          )}
           {renderAction?.(attendee)}
         </li>
       ))}

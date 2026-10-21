@@ -271,3 +271,35 @@ describe("firstSentence", () => {
     expect(firstSentence("No break")).toBe("No break");
   });
 });
+
+describe("selectHomeSections: From organisers you follow", () => {
+  const NOW = at("2026-10-21T01:00:00.000Z"); // Wed 21 Oct, 12:00 AEDT
+  const upNext = event("next", "2026-10-22T08:00:00.000Z");
+  const sat = event("sat", "2026-10-24T08:00:00.000Z");
+  const later = Array.from({ length: 4 }, (_, i) => event(`l${i}`, `2026-11-0${i + 1}T08:00:00.000Z`));
+  const followedOnly = event("followed", "2026-11-10T08:00:00.000Z");
+
+  it("comes after This weekend and before Trending, without repeating what's above, and claims its events", () => {
+    const following = [sat, upNext, later[0], followedOnly];
+    const trending = [later[0], later[1], later[2], later[3]].map((e) => trend(e));
+    const sections = selectHomeSections([upNext, sat, ...later], trending, NOW, following);
+    expect(sections.following.map((e) => e.id)).toEqual(["l0", "followed"]);
+    // Trending no longer shows l0 (claimed by the rail above it).
+    expect(sections.trending.map(({ event }) => event.id)).toEqual(["l1", "l2", "l3"]);
+    const ids = shownEventIds(sections);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.indexOf("followed")).toBeLessThan(ids.indexOf("l1"));
+    expect(ids.indexOf("sat")).toBeLessThan(ids.indexOf("l0"));
+  });
+
+  it("is empty (hidden) with no follows, or when everything is already shown above, and drops ended events", () => {
+    expect(selectHomeSections([upNext, sat], [], NOW).following).toEqual([]);
+    expect(selectHomeSections([upNext, sat], [], NOW, [upNext, sat]).following).toEqual([]);
+    const ended = event("old", "2026-10-01T08:00:00.000Z");
+    expect(selectHomeSections([upNext], [], NOW, [ended]).following).toEqual([]);
+  });
+
+  it("shows even one event (the member asked for them)", () => {
+    expect(selectHomeSections([upNext], [], NOW, [followedOnly]).following.map((e) => e.id)).toEqual(["followed"]);
+  });
+});

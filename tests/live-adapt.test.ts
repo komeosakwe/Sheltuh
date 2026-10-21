@@ -57,3 +57,32 @@ describe("adaptPublicEvent: external ticketing fields", () => {
     }
   });
 });
+
+describe("adaptPublicEvent: sold-out data (docs/architecture.md, Waitlist)", () => {
+  const ga = { id: "t1", name: "GA", priceCents: 3000, feePolicy: "buyer-pays" as const, quantityAvailable: 100 };
+
+  it("passes the server's soldOut and remaining through, and invents neither", () => {
+    const adapted = adaptPublicEvent({
+      ...base,
+      soldOut: false,
+      ticketTypes: [
+        { ...ga, soldOut: false, remaining: 4 },
+        { ...ga, id: "t2", soldOut: true, remaining: 0 },
+        { ...ga, id: "t3", soldOut: false },
+      ],
+    });
+    expect(adapted.soldOut).toBeUndefined();
+    expect(adapted.ticketTypes[0]).toEqual({ ...ga, remaining: 4 });
+    expect(adapted.ticketTypes[1]).toEqual({ ...ga, id: "t2", soldOut: true, remaining: 0 });
+    expect(adapted.ticketTypes[2]).toEqual({ ...ga, id: "t3" });
+  });
+
+  it("marks the event sold out only when the server does, and never an external one", () => {
+    const tiers = [{ ...ga, soldOut: true, remaining: 0 }];
+    expect(adaptPublicEvent({ ...base, soldOut: true, ticketTypes: tiers }).soldOut).toBe(true);
+    expect(adaptPublicEvent({ ...base, ticketTypes: tiers }).soldOut).toBeUndefined();
+    expect(
+      adaptPublicEvent({ ...base, soldOut: true, ticketingMode: "external", externalTicketUrl: "https://dice.fm/x" }).soldOut,
+    ).toBeUndefined();
+  });
+});

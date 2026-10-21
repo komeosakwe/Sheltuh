@@ -211,6 +211,9 @@ const coreSampleEvents: SheltuhEvent[] = [
     ageRestriction: "Recommended 15+ for coarse language and mature themes.",
     accessibility: "Lift access to the studio; one wheelchair-accessible seating position — book ahead via the organiser.",
     poster: { pattern: "curtain", background: "#000000", primary: "#ff4800", secondary: "#000000" },
+    // Sold out, as the API would say it (`soldOut`, and `remaining: 0` on each
+    // tier), so the demo shows the sold-out cards and the waitlist (§6.11).
+    soldOut: true,
     ticketTypes: [
       {
         id: "off-kilter-full",
@@ -218,6 +221,8 @@ const coreSampleEvents: SheltuhEvent[] = [
         priceCents: 3500,
         feePolicy: "buyer-pays",
         quantityAvailable: 45,
+        soldOut: true,
+        remaining: 0,
       },
       {
         id: "off-kilter-concession",
@@ -226,6 +231,8 @@ const coreSampleEvents: SheltuhEvent[] = [
         priceCents: 2500,
         feePolicy: "buyer-pays",
         quantityAvailable: 15,
+        soldOut: true,
+        remaining: 0,
       },
     ],
   },
@@ -256,6 +263,8 @@ const coreSampleEvents: SheltuhEvent[] = [
         priceCents: 12000,
         feePolicy: "organiser-absorbs",
         quantityAvailable: 10,
+        // A few left, as the API says it (only at 10 or fewer): "Only 4 left."
+        remaining: 4,
       },
     ],
   },

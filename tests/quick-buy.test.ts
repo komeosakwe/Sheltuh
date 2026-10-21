@@ -56,3 +56,25 @@ describe("quickBuyLabel (brand-direction-one.md §6.6; owner wording, 21 Oct 202
     expect(quickBuyLabel(event(), new Date("2026-11-01T10:59:59.000Z"))).toBe("Buy tickets");
   });
 });
+
+describe("quickBuyLabel when sold out (§6.5 sold-out variant, §6.11)", () => {
+  const soldOut = (overrides: Partial<SheltuhEvent> = {}) =>
+    event({ soldOut: true, ticketTypes: [{ ...ticket(3000), soldOut: true, remaining: 0 }], ...overrides });
+
+  it("says Join waitlist (to the same #tickets) while the event hasn't ended", () => {
+    expect(quickBuyLabel(soldOut(), new Date("2026-10-21T00:00:00Z"))).toBe("Join waitlist");
+  });
+
+  it("offers nothing once it has ended", () => {
+    expect(quickBuyLabel(soldOut(), new Date("2026-11-02T00:00:00Z"))).toBeNull();
+  });
+
+  it("a sold-out paid tier beside a free one on sale: Get free tickets", () => {
+    const e = event({ ticketTypes: [ticket(0), { ...ticket(3000), soldOut: true }] });
+    expect(quickBuyLabel(e)).toBe("Get free tickets");
+  });
+
+  it("an external event is never sold out", () => {
+    expect(quickBuyLabel({ ...external(false), soldOut: true })).toBe("Buy tickets");
+  });
+});

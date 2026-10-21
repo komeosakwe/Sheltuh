@@ -9,13 +9,33 @@ export function getTicketBuyerTotalCents(ticket: TicketType): number {
 }
 
 /**
- * Cheapest buyer-payable total across an event's ticket types. `null` when
- * the event has no ticket types: there's no price yet (not a free event, and
- * never `Math.min()`'s `Infinity`).
+ * The tiers a "From" price is taken from: those still on sale. When every
+ * tier is sold out, all of them (their prices are still advertised, in
+ * muted, on the event page: docs/design/brand-direction-one.md §6.8).
+ */
+export function pricedTicketTypes(event: SheltuhEvent): TicketType[] {
+  const onSale = event.ticketTypes.filter((ticket) => !ticket.soldOut);
+  return onSale.length > 0 ? onSale : event.ticketTypes;
+}
+
+/**
+ * Cheapest buyer-payable total across an event's ticket types still on sale
+ * (a sold-out tier never sets the "From" price; when all are sold out, the
+ * cheapest of them). `null` when the event has no ticket types: there's no
+ * price yet (not a free event, and never `Math.min()`'s `Infinity`).
  */
 export function getMinBuyerTotalCents(event: SheltuhEvent): number | null {
-  if (event.ticketTypes.length === 0) return null;
-  return Math.min(...event.ticketTypes.map(getTicketBuyerTotalCents));
+  const tiers = pricedTicketTypes(event);
+  if (tiers.length === 0) return null;
+  return Math.min(...tiers.map(getTicketBuyerTotalCents));
+}
+
+/** Card and buy-bar label for an event whose every ticket type is sold out. */
+export const SOLD_OUT_LABEL = "Sold out";
+
+/** Every Sheltüh ticket type is sold out (an external event never is: its stock isn't known). */
+export function isSoldOut(event: SheltuhEvent): boolean {
+  return event.ticketingMode !== "external" && event.soldOut === true && event.ticketTypes.length > 0;
 }
 
 /** Feed label for an event with no ticket types yet. */
@@ -32,8 +52,9 @@ export function externalProviderLabel(event: SheltuhEvent): string {
 
 /**
  * Feed-card price label, e.g. "Free", "A$32 incl. booking fee", or
- * "From A$32 incl. booking fee" when ticket types vary in price;
- * NO_TICKETS_LABEL when there are no ticket types. An event ticketed on
+ * "From A$32 incl. booking fee" when the ticket types on sale vary in price;
+ * NO_TICKETS_LABEL when there are no ticket types; SOLD_OUT_LABEL when every
+ * ticket type is sold out. An event ticketed on
  * another site shows where tickets are sold, never a price we can't vouch
  * for (docs/design/home.md §5.7): "Tickets on Humanitix", or "Free · Tickets
  * on the organiser's site" when its organiser says entry is free.
@@ -43,10 +64,11 @@ export function formatFeedPrice(event: SheltuhEvent): string {
     const where = `Tickets on ${externalProviderLabel(event)}`;
     return event.externalFree ? `Free · ${where}` : where;
   }
+  if (isSoldOut(event)) return SOLD_OUT_LABEL;
   const minTotalCents = getMinBuyerTotalCents(event);
   if (minTotalCents === null) return NO_TICKETS_LABEL;
   if (minTotalCents === 0) return "Free";
-  const prefix = event.ticketTypes.length > 1 ? "From " : "";
+  const prefix = pricedTicketTypes(event).length > 1 ? "From " : "";
   return `${prefix}${formatAud(minTotalCents)} incl. booking fee`;
 }
 
@@ -62,7 +84,7 @@ export interface FeedPriceParts {
  * them apart (the event page's buy bar, cards). Same minimum buyer total as
  * `formatFeedPrice`, so the number is all-inclusive by construction. `null`
  * when a Sheltüh-ticketed event has no ticket types, since there's no price
- * to show. An external event: `Free` + "Tickets on {provider}", or
+ * to show. Sold out: `Sold out` and no note (§6.5's sold-out variant). An external event: `Free` + "Tickets on {provider}", or
  * "Tickets on {provider}" alone, never a price.
  */
 export function formatFeedPriceParts(event: SheltuhEvent): FeedPriceParts | null {
@@ -70,13 +92,15 @@ export function formatFeedPriceParts(event: SheltuhEvent): FeedPriceParts | null
     const where = `Tickets on ${externalProviderLabel(event)}`;
     return event.externalFree ? { amount: "Free", note: where } : { amount: where, note: "" };
   }
+  if (isSoldOut(event)) return { amount: SOLD_OUT_LABEL, note: "" };
   const minTotalCents = getMinBuyerTotalCents(event);
   if (minTotalCents === null) return null;
+  const tiers = pricedTicketTypes(event);
   if (minTotalCents === 0) {
-    const hasPaid = event.ticketTypes.some((ticket) => ticket.priceCents > 0);
+    const hasPaid = tiers.some((ticket) => ticket.priceCents > 0);
     return { amount: "Free", note: hasPaid ? "Paid tickets incl. booking fee" : "No booking fee" };
   }
-  const prefix = event.ticketTypes.length > 1 ? "From " : "";
+  const prefix = tiers.length > 1 ? "From " : "";
   return { amount: `${prefix}${formatAud(minTotalCents)}`, note: "incl. booking fee" };
 }
 

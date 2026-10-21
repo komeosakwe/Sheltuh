@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import InlineReauth from "@/components/auth/InlineReauth";
+import FeaturedVideoField, { featuredVideoInitial, featuredVideoUrlError } from "@/components/organisers/FeaturedVideoField";
 import SocialHandleFields from "@/components/organisers/SocialHandleFields";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import { applyAsOrganiser, resubmitOrganiser, type OrganiserApplicationInput } from "@/lib/api/organisers";
@@ -20,7 +21,14 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ID_PREFIX = "application";
 const FIX_FIELDS_MESSAGE = "Please fix the highlighted fields.";
 
-type ApplicationField = "displayName" | "contactEmail" | "description" | "categories" | "websiteUrl" | SocialHandleField;
+type ApplicationField =
+  | "displayName"
+  | "contactEmail"
+  | "description"
+  | "categories"
+  | "websiteUrl"
+  | SocialHandleField
+  | "featuredVideoUrl";
 /** Form order, for moving focus to the first field with an error. */
 const FIELD_ORDER: readonly ApplicationField[] = [
   "displayName",
@@ -29,12 +37,13 @@ const FIELD_ORDER: readonly ApplicationField[] = [
   "categories",
   "websiteUrl",
   ...SOCIAL_HANDLE_FIELDS.map((f) => f.field),
+  "featuredVideoUrl",
 ];
 
 /** The id of the control focus moves to for a field's error (categories: the first checkbox). */
 function focusTargetId(field: ApplicationField): string {
   if (field === "categories") return categoryId(EVENT_CATEGORIES[0].value);
-  if (SOCIAL_HANDLE_FIELDS.some((f) => f.field === field)) return `${ID_PREFIX}-${field}`;
+  if (SOCIAL_HANDLE_FIELDS.some((f) => f.field === field) || field === "featuredVideoUrl") return `${ID_PREFIX}-${field}`;
   return field;
 }
 
@@ -82,6 +91,7 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
     facebookPage: initial?.facebookPage ?? "",
     xHandle: initial?.xHandle ?? "",
   });
+  const [video, setVideo] = useState(() => featuredVideoInitial(initial?.featuredVideo));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -117,6 +127,8 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
     // is fine even from before the https rule (as the API allows).
     const websiteError = websiteUrlError(websiteUrl, initial?.websiteUrl);
     if (websiteError) next.websiteUrl = websiteError;
+    const videoError = featuredVideoUrlError(video);
+    if (videoError) next.featuredVideoUrl = videoError;
     return next;
   }
 
@@ -141,6 +153,8 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
       // Blank is sent as null: on a resubmit that clears a handle (one left
       // out would be kept). The server validates them and drops any '@'.
       ...socialHandlesForRequest(handles),
+      // Blank: none (a resubmission sends null, which removes one given before).
+      featuredVideoUrl: video.trim() || (mode === "resubmit" ? null : undefined),
     };
 
     setLoading(true);
@@ -292,6 +306,16 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
           inputClassName="border border-foreground bg-transparent px-3 py-2 text-foreground"
         />
       </fieldset>
+
+      <FeaturedVideoField
+        id={`${ID_PREFIX}-featuredVideoUrl`}
+        value={video}
+        onChange={setVideo}
+        error={errors.featuredVideoUrl}
+        labelClassName="eyebrow text-muted"
+        inputClassName="border border-foreground bg-transparent px-3 py-2 text-foreground"
+        publicNote={PUBLIC_NOTE}
+      />
 
       {submitError && sessionExpired && (
         <div role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">

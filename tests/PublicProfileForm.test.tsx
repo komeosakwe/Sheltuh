@@ -332,3 +332,52 @@ describe("PublicProfilePanel", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load your organiser status.");
   });
 });
+
+describe("PublicProfileForm: featured video", () => {
+  it("starts with the saved video's link and a preview facade (no player loaded)", () => {
+    const { container } = render(
+      <FakeAuthProvider value={fakeAuthValue()}>
+        <PublicProfileForm organiser={{ ...RECORD, featuredVideo: { provider: "vimeo", id: "76979871" } }} getToken={getToken} />
+      </FakeAuthProvider>,
+    );
+    expect(screen.getByLabelText("Featured video (optional)")).toHaveValue("https://vimeo.com/76979871");
+    expect(screen.getByRole("button", { name: "Play video: Your featured video" })).toBeInTheDocument();
+    expect(container.querySelector("iframe")).toBeNull();
+  });
+
+  it("refuses a link that isn't a YouTube or Vimeo video, on the field (focused), before sending", async () => {
+    renderForm();
+    const field = screen.getByLabelText("Featured video (optional)");
+    fireEvent.change(field, { target: { value: "https://www.youtube.com/playlist?list=abc" } });
+    save();
+    await waitFor(() => expect(field).toHaveFocus());
+    expect(field).toHaveAttribute("aria-invalid", "true");
+    expect(describedBy(field)).toMatch(/Paste a YouTube or Vimeo link/);
+    expect(updateOrganiserProfile).not.toHaveBeenCalled();
+  });
+
+  it("sends a new video, and only when it's a different one; blank removes it", async () => {
+    updateOrganiserProfile.mockImplementation(async (input: { featuredVideoUrl?: string | null }) => ({
+      ...RECORD,
+      featuredVideo: input.featuredVideoUrl ? { provider: "youtube", id: "dQw4w9WgXcQ" } : undefined,
+    }));
+    renderForm();
+    const field = screen.getByLabelText("Featured video (optional)");
+    fireEvent.change(field, { target: { value: "youtu.be/dQw4w9WgXcQ" } });
+    expect(screen.getByRole("button", { name: /Play video/ })).toBeInTheDocument();
+    save();
+    await waitFor(() =>
+      expect(updateOrganiserProfile).toHaveBeenCalledWith({ featuredVideoUrl: "youtu.be/dQw4w9WgXcQ" }, getToken),
+    );
+    // Stored as provider + id: the field shows its canonical link.
+    await waitFor(() => expect(field).toHaveValue("https://www.youtube.com/watch?v=dQw4w9WgXcQ"));
+    // The same video pasted another way is no change.
+    fireEvent.change(field, { target: { value: "https://youtu.be/dQw4w9WgXcQ" } });
+    save();
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No changes to save."));
+    expect(updateOrganiserProfile).toHaveBeenCalledTimes(1);
+    fireEvent.change(field, { target: { value: "" } });
+    save();
+    await waitFor(() => expect(updateOrganiserProfile).toHaveBeenLastCalledWith({ featuredVideoUrl: null }, getToken));
+  });
+});

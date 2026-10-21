@@ -66,7 +66,9 @@ describe("TrackingLinks", () => {
     expect(api.createTrackingLink).toHaveBeenCalledWith("evt-1", { label: "Newsletter" }, getToken);
     const headers = within(table()).getAllByRole("rowheader").map((h) => h.textContent);
     expect(headers).toEqual(["Newsletter", "Old"]);
-    expect(input).toHaveFocus();
+    // Focus moves in an effect after the commit that cleared the field, which
+    // can still be pending when the waitFor above resolves.
+    await waitFor(() => expect(input).toHaveFocus());
     expect(screen.getByText("Link created: Newsletter.")).toHaveAttribute("role", "status");
   });
 
@@ -155,7 +157,8 @@ describe("TrackingLinks", () => {
     fireEvent.click(screen.getByRole("button", { name: "Yes, delete" }));
     await waitFor(() => expect(within(table()).queryByRole("rowheader", { name: "One" })).toBeNull());
     expect(api.deleteTrackingLink).toHaveBeenCalledWith("evt-1", "l1", getToken);
-    expect(screen.getAllByRole("button", { name: "Copy link for Two" })).toContain(document.activeElement);
+    // As on create: focus moves in an effect that can still be pending here.
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Copy link for Two" })).toContain(document.activeElement));
     expect(screen.getByText("Deleted One.")).toBeInTheDocument();
 
     fireEvent.click(within(table()).getByRole("button", { name: "Delete Two" }));

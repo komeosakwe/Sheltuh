@@ -17,8 +17,9 @@ const FIRST_SECTION = "mt-6 sm:mt-12 lg:mt-16";
 
 /**
  * The home's event sections below the hero (docs/design/home.md §5.6), in
- * order: This weekend, Trending, Coming up near you, the static `guide` slot,
- * then Free & low-cost. Each event appears once on the page (the provider's
+ * order: This weekend, From organisers you follow (signed-in members who
+ * follow someone, when any of their events are left to show), Trending,
+ * Coming up near you, the static `guide` slot, then Free & low-cost. Each event appears once on the page (the provider's
  * sections are already de-duplicated, Up next included). A section with too
  * few events renders nothing; on a load error they're all hidden and Up next
  * carries the alert.
@@ -31,9 +32,20 @@ export default function HomeEventSections({ guide }: { guide?: ReactNode }) {
   const sections = state.status === "ready" ? state.sections : null;
   const weekend = sections?.weekend;
   const showWeekend = !!weekend && weekend.status !== "hidden";
+  const showFollowing = !!sections && sections.following.length > 0;
   const showTrending = !!sections && sections.trending.length > 0;
   const showComing = !!sections && sections.comingUp.length > 0;
-  const first = loading ? "loading" : showWeekend ? "weekend" : showTrending ? "trending" : showComing ? "coming" : null;
+  const first = loading
+    ? "loading"
+    : showWeekend
+      ? "weekend"
+      : showFollowing
+        ? "following"
+        : showTrending
+          ? "trending"
+          : showComing
+            ? "coming"
+            : null;
   const spacing = (key: string) => (key === first ? FIRST_SECTION : SECTION);
   // Every section after the first rises in as it scrolls into view (RevealObserver; the first is
   // on screen at load, and the observer leaves that alone anyway).
@@ -81,6 +93,24 @@ export default function HomeEventSections({ guide }: { guide?: ReactNode }) {
               Nothing listed for this weekend yet. New events are added through the week.
             </p>
           )}
+        </section>
+      )}
+
+      {sections && showFollowing && (
+        <section aria-labelledby="home-following" data-home-section data-reveal={reveal("following")} className={spacing("following")}>
+          <SectionHead
+            id="home-following"
+            title="From organisers you follow"
+            strap="Following"
+            seeAll={{ href: "/following", srLabel: "organisers you follow" }}
+          />
+          <HomeRail labelledBy="home-following" grid="cards">
+            {sections.following.map((event) => (
+              <HomeRailItem key={event.id}>
+                <HomeEventCard event={event} variant="standard" mode={mode} />
+              </HomeRailItem>
+            ))}
+          </HomeRail>
         </section>
       )}
 

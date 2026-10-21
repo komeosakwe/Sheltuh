@@ -631,7 +631,7 @@ describe("Who's Going — signed in", () => {
     const region = await panel();
     fireEvent.click(within(region).getByRole("button", { name: "Show me as going" }));
     expect(await within(region).findByRole("alert")).toHaveTextContent("Set up your Who's Going profile first.");
-    expect(within(region).getByRole("button", { name: "Add yourself" })).toHaveFocus();
+    await waitFor(() => expect(within(region).getByRole("button", { name: "Add yourself" })).toHaveFocus());
   });
 
   it("keeps focus on Stop showing me when opting out fails", async () => {

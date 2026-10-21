@@ -375,6 +375,12 @@ export default function OrganiserQueue() {
                   item={item}
                   getToken={getToken}
                   onRemoved={removed}
+                  onUpdated={(record, message) => {
+                    setItems((current) => current.map((i) => (i.organiserId === record.organiserId ? record : i)));
+                    setAnnouncement(message);
+                    setDescribedFocus(record.organiserId);
+                    pendingFocus.current = organiserHeadingId(record.organiserId);
+                  }}
                   onSuspend={openSuspend}
                   headingDescribedBy={
                     describedFocus === item.organiserId && announcement ? ANNOUNCEMENT_ID : undefined
