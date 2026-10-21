@@ -1,6 +1,6 @@
 import type Stripe from "stripe";
 import { calculateBookingFeeCents, calculateOrderSummary } from "@/lib/fees";
-import type { Db } from "../db";
+import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
 import type { Deps } from "../deps";
 import { sendTicketEmailSoon } from "../email-outbox";
 import { created, HttpError, ok, okPrivate, readJson } from "../http";
@@ -201,6 +201,25 @@ function parseBuyerEmail(body: Record<string, unknown>, required: boolean): stri
   return email;
 }
 
+/** Tickets for an external event are sold on another site: no Sheltüh checkout. */
+export const EXTERNAL_CHECKOUT_REFUSED = "Tickets for this event are sold on another site, not on Sheltüh.";
+
+/**
+ * The orders_sheltuh_only trigger refused an order because the event became
+ * external since it was read (an admin's change racing the checkout): the
+ * same 409 as the early check. Anything else is rethrown.
+ */
+async function refuseIfExternal<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (err) {
+    if (pgErrorCode(err) === PG_CHECK_VIOLATION && pgConstraint(err) === "orders_sheltuh_only") {
+      throw new HttpError(409, EXTERNAL_CHECKOUT_REFUSED);
+    }
+    throw err;
+  }
+}
+
 /**
  * POST /api/events/[eventId]/checkout — public guest checkout. A paid order
  * becomes a Stripe Checkout Session paying out to the organiser's Connect
@@ -214,6 +233,8 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   const { db } = deps;
   const event = await findEventById(db, eventId);
   if (!event || event.status !== "published") throw new HttpError(404, "This event isn't available for booking.");
+  // External ticketing: no Sheltüh checkout, free or paid (the database refuses the order too).
+  if (event.ticketingMode === "external") throw new HttpError(409, EXTERNAL_CHECKOUT_REFUSED);
 
   const body = await readJson(req);
   const lineItems = parseCheckoutLineItems(body, event.ticketTypes);
@@ -224,7 +245,9 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
     const buyerEmail = parseBuyerEmail(body, true);
     await assertFreeTicketsPerOrder(deps, lineItems);
     await assertAvailable(db, eventId, lineItems);
-    return createFreeOrder(req, deps, { event, lineItems, buyerEmail, trackingCode: parseTrackingCode(body.trackingCode) });
+    return refuseIfExternal(() =>
+      createFreeOrder(req, deps, { event, lineItems, buyerEmail, trackingCode: parseTrackingCode(body.trackingCode) }),
+    );
   }
 
   const buyerEmail = parseBuyerEmail(body, false);
@@ -264,7 +287,7 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
 
   // The order exists before Stripe does, so no payment can ever arrive
   // without an order to attach it to.
-  await insertOrder();
+  await refuseIfExternal(insertOrder);
   const siteUrl = deps.siteUrl();
   let session: Stripe.Checkout.Session;
   try {

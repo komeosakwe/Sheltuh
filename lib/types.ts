@@ -82,7 +82,20 @@ export interface SheltuhEvent {
   poster: EventPoster;
   /** Optional event photo/poster (path under /public or absolute URL). Falls back to `poster` art when absent or failing to load. */
   imageUrl?: string;
+  /** Always empty for an external event (tickets sold on another site). */
   ticketTypes: TicketType[];
+  /**
+   * Where tickets are sold: `sheltuh` (here; absent means this too) or
+   * `external` (on another site, at `externalTicketUrl`: no Sheltüh checkout,
+   * booking fee, Who's Going or check-in, and no price shown).
+   */
+  ticketingMode?: "sheltuh" | "external";
+  /** External events only: the ticket page. */
+  externalTicketUrl?: string;
+  /** External events only: the organiser says entry is free. */
+  externalFree?: boolean;
+  /** External events only: a known ticketing site's name, or null for "the organiser's site". */
+  externalProvider?: string | null;
   /**
    * Optional organiser-supplied context — shown on the details page only
    * when present. Never inferred or invented: the live API doesn't collect

@@ -7,6 +7,7 @@ import type { EventCategory } from "@/lib/types";
 export type { EventCategory, FeePolicy } from "@/lib/types";
 export type {
   AdminEmailJob,
+  AdminSetEventTicketingInput,
   AdminOrganiserRecord,
   OrganiserEditChange,
   OrganiserEditEntry,
@@ -42,6 +43,8 @@ export type {
   ReportReason,
   ReportReceipt,
   ReportStatus,
+  TicketingChanges,
+  TicketingMode,
   TicketTypeInput,
   UnreadCount,
 } from "@/lib/api/types";

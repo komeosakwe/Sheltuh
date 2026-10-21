@@ -20,5 +20,13 @@ export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
     poster: assignPoster(event.slug),
     imageUrl: event.imageUrl,
     ticketTypes: event.ticketTypes,
+    ticketingMode: event.ticketingMode ?? "sheltuh",
+    ...(event.ticketingMode === "external"
+      ? {
+          externalTicketUrl: event.externalTicketUrl,
+          externalFree: event.externalFree === true,
+          externalProvider: event.externalProvider ?? null,
+        }
+      : {}),
   };
 }

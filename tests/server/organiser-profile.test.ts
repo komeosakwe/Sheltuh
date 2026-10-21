@@ -46,7 +46,11 @@ const PUBLIC_EVENT_KEYS = [
   "title",
   "venueAddress",
   "venueName",
-];
+  // External ticketing (B2): always sent; externalTicketUrl only for external events.
+  "ticketingMode",
+  "externalFree",
+  "externalProvider",
+].sort();
 
 function profile(organiserId: string) {
   return api.call(getPublicOrganiserProfile, { params: { organiserId } });

@@ -16,8 +16,12 @@ import type { GoingSummary, MyGoingStatus } from "../types";
 
 const NOT_FOUND = "Event not found.";
 
-/** SQL for "Who's Going is open" on an events row aliased `e`. */
-const OPEN = `(e.whos_going_enabled and e.ends_at > now())`;
+/**
+ * SQL for "Who's Going is open" on an events row aliased `e`. Never for an
+ * external event (tickets sold elsewhere: nobody can show they hold one), so
+ * it reads as closed (private.set_going refuses it the same way).
+ */
+const OPEN = `(e.whos_going_enabled and e.ends_at > now() and e.ticketing_mode = 'sheltuh')`;
 
 /** SQL: the event_attendees row aliased `a` belongs to a suspended member. */
 const SUSPENDED_ATTENDEE = `exists (select 1 from private.social_suspensions s where s.user_id = a.user_id)`;

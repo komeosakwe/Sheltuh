@@ -3,6 +3,7 @@ import type {
   AdminEmailJob,
   AdminOrganiserRecord,
   AdminReport,
+  AdminSetEventTicketingInput,
   EmailJobStatus,
   EventRecord,
   EventStatus,
@@ -77,6 +78,24 @@ export async function adminRejectEvent(eventId: string, reason: string, getToken
 export async function adminUnpublishEvent(eventId: string, getToken: GetToken) {
   const token = await getToken();
   return apiFetch<EventRecord>(`/admin/events/${eventId}/unpublish`, { method: "POST", token });
+}
+
+/**
+ * Sets an event's ticketing (mode, ticket link, free flag), whatever its
+ * status: the only way to change an approved event's mode or link. Logged in
+ * the event's moderation log as `ticketing_changed`, with `reason` and the
+ * old and new values (`ModerationLogEntry.changes`). Returns the event
+ * (unchanged, with nothing logged, if nothing would change). ApiError 400
+ * (fieldErrors ticketingMode / externalTicketUrl / externalFree / reason),
+ * 404 unknown event, 409 switching to external an event that has orders.
+ */
+export async function adminSetEventTicketing(eventId: string, input: AdminSetEventTicketingInput, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<EventRecord>(`/admin/events/${encodeURIComponent(eventId)}/ticketing`, {
+    method: "PATCH",
+    body: input,
+    token,
+  });
 }
 
 /** Member reports, oldest first for `open`, most recently resolved first otherwise. */

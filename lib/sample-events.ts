@@ -259,6 +259,51 @@ const coreSampleEvents: SheltuhEvent[] = [
       },
     ],
   },
+  // External ticketing (docs/architecture.md, "External ticketing"): listed
+  // here, tickets sold on another site. No ticket types. The links are
+  // placeholders: the demo never sends anyone to buy anything.
+  {
+    id: "evt-thornbury-dub-session",
+    slug: "thornbury-dub-session",
+    title: "Thornbury Dub Session",
+    description:
+      "A long night of dub and roots on a hand-built sound system, with three selectors and a live horn section. Tickets are sold on Humanitix by the organisers.",
+    category: "live-music",
+    suburb: "Thornbury",
+    venueName: "The Bluestone Hall",
+    venueAddress: "800 High Street, Thornbury VIC 3071",
+    coordinates: { lat: -37.7553, lng: 145.0007 },
+    startsAt: "2026-11-07T08:30:00.000Z",
+    endsAt: "2026-11-07T13:00:00.000Z",
+    organiserName: "Low End Theory Sound",
+    poster: { pattern: "waves", background: "#0b0b0b", primary: "#ff4800", secondary: "#fffae7" },
+    ticketTypes: [],
+    ticketingMode: "external",
+    externalTicketUrl: "https://events.humanitix.com/thornbury-dub-session-demo",
+    externalFree: false,
+    externalProvider: "Humanitix",
+  },
+  {
+    id: "evt-footscray-open-studios",
+    slug: "footscray-open-studios",
+    title: "Footscray Open Studios",
+    description:
+      "Twelve artists open their studios for an afternoon of works in progress, demos and conversation. Free entry; RSVP on the organisers' own site so they know how many to expect.",
+    category: "art",
+    suburb: "Footscray",
+    venueName: "Nicholson Street Studios",
+    venueAddress: "12 Nicholson Street, Footscray VIC 3011",
+    coordinates: { lat: -37.8, lng: 144.8998 },
+    startsAt: "2026-11-27T23:00:00.000Z",
+    endsAt: "2026-11-28T05:00:00.000Z",
+    organiserName: "Footscray Studio Collective",
+    poster: { pattern: "grid", background: "#fffae7", primary: "#0b0b0b", secondary: "#ff4800" },
+    ticketTypes: [],
+    ticketingMode: "external",
+    externalTicketUrl: "https://www.example.com/footscray-open-studios/rsvp",
+    externalFree: true,
+    externalProvider: null,
+  },
 ];
 
 /** The hand-written showcase events followed by the compact, generated ones. */

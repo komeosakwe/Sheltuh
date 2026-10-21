@@ -1,5 +1,8 @@
+import type { TicketingMode } from "@/lib/ticketing";
 import type { EventCategory, FeePolicy } from "@/lib/types";
 import type { PublicEvent } from "./public-events";
+
+export type { TicketingMode } from "@/lib/ticketing";
 
 export type OrganiserStatus = "pending" | "approved" | "rejected";
 
@@ -111,11 +114,27 @@ export interface TicketTypeInput {
   quantityAvailable: number;
 }
 
+/** One changed field of a `ticketing_changed` log entry: its value before and after. */
+export interface TicketingFieldChange<T> {
+  old: T | null;
+  new: T | null;
+}
+
+/** What an admin's ticketing change changed: only the fields that did. */
+export interface TicketingChanges {
+  ticketingMode?: TicketingFieldChange<TicketingMode>;
+  externalTicketUrl?: TicketingFieldChange<string>;
+  externalFree?: TicketingFieldChange<boolean>;
+}
+
 export interface ModerationLogEntry {
-  action: "submitted" | "approved" | "rejected" | "unpublished";
+  /** `ticketing_changed`: an admin changed the event's ticketing (PATCH /admin/events/{id}/ticketing). */
+  action: "submitted" | "approved" | "rejected" | "unpublished" | "ticketing_changed";
   by: string;
   at: string;
   reason?: string;
+  /** For `ticketing_changed` only: the old and new value of each field that changed. */
+  changes?: TicketingChanges;
 }
 
 export interface EventRecord {
@@ -133,12 +152,51 @@ export interface EventRecord {
   organiserName: string;
   /** Same-origin path of the organiser's photo, if one was uploaded. Versioned (?v=) so it caches safely. */
   imageUrl?: string;
+  /** Always empty for an external event. */
   ticketTypes: TicketTypeInput[];
+  /**
+   * Where tickets are sold: `sheltuh` (here, the default) or `external` (on
+   * another site, at `externalTicketUrl`; no Sheltüh checkout, booking fee,
+   * Who's Going or check-in). Always sent by the API; optional so older
+   * fixtures stay valid (absent means `sheltuh`).
+   */
+  ticketingMode?: TicketingMode;
+  /** External events only: the ticket page, as stored (the URL parser's form: lower-case host, punycode). */
+  externalTicketUrl?: string;
+  /** External events only: the organiser says entry is free. Always sent (false for Sheltüh-ticketed events). */
+  externalFree?: boolean;
+  /**
+   * External events only: the ticketing site's name for "Get tickets on
+   * {provider}" (lib/ticketing.ts, ticketProviderName), or null for a site
+   * that isn't on the known list, which the UI calls "the organiser's site".
+   * Always sent; null for Sheltüh-ticketed events.
+   */
+  externalProvider?: string | null;
+  /**
+   * The event has been approved at least once, so the organiser can no longer
+   * change `ticketingMode` or `externalTicketUrl` (a PATCH that tries is a
+   * 409); only an admin can. Always sent.
+   */
+  ticketingLocked?: boolean;
   status: EventStatus;
   rejectionReason?: string;
   moderationLog: ModerationLogEntry[];
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * PATCH /api/admin/events/{eventId}/ticketing (admin): sets an event's
+ * ticketing whatever its status, logged as `ticketing_changed` with `reason`.
+ */
+export interface AdminSetEventTicketingInput {
+  ticketingMode: TicketingMode;
+  /** Required for `external`; must be absent, null or empty for `sheltuh`. */
+  externalTicketUrl?: string | null;
+  /** `external` only (default false); must be absent or false for `sheltuh`. */
+  externalFree?: boolean;
+  /** 1–500 characters, shown in the event's moderation log (the organiser sees it). */
+  reason: string;
 }
 
 export interface Paginated<T> {
@@ -648,6 +706,31 @@ export interface AnalyticsEventSummary {
   venueName: string;
   /** It's been approved at least once (it may since have been unpublished). */
   everPublished: boolean;
+  /** Always sent; optional so older fixtures stay valid (absent means `sheltuh`). */
+  ticketingMode?: TicketingMode;
+}
+
+/** Clicks on an external event's ticket link on one Melbourne day. */
+export interface OutboundClickDay {
+  date: string;
+  clicks: number;
+  /** The event's per-minute click cap was reached that day (any of the organiser's events, in the overview): clicks is a lower bound. */
+  unreliable: boolean;
+}
+
+/**
+ * Clicks on external events' "Get tickets on …" links (POST
+ * /api/events/{id}/outbound): aggregate daily counts only, no visitor data.
+ * Counted from 22 Oct 2026, when external ticketing was added, so every day
+ * an external event could have had a click is covered (no "not counted"
+ * days). Sales of external events happen elsewhere and aren't known.
+ */
+export interface OutboundClickStats {
+  total: number;
+  /** The cap was reached on at least one day of the period. */
+  unreliable: boolean;
+  /** Every day in the range, oldest first, zero-filled. */
+  byDay: OutboundClickDay[];
 }
 
 /** GET /api/organisers/me/events/{eventId}/analytics?from&to&compare. */
@@ -675,6 +758,12 @@ export interface EventAnalytics {
    * event ends, after which `checkedIn` is 0.
    */
   attendance?: EventAttendance | null;
+  /**
+   * Ticket-link clicks over `range` for an external event (`previous` also
+   * has them, with `compare=prevPeriod`); null for a Sheltüh-ticketed event.
+   * Always sent by the API; optional so older fixtures stay valid.
+   */
+  outboundClicks?: (OutboundClickStats & { previous?: OutboundClickStats }) | null;
 }
 
 /** EventAnalytics.attendance. */
@@ -694,6 +783,13 @@ export interface AnalyticsOverviewEvent {
   totals: AnalyticsTotals;
   /** With `compare=prevPeriod`. */
   previous?: AnalyticsTotals;
+  /** Always sent; optional so older fixtures stay valid (absent means `sheltuh`). */
+  ticketingMode?: TicketingMode;
+  /**
+   * External events only: ticket-link clicks in the range (and, with
+   * `compare=prevPeriod`, `previous`). Absent for Sheltüh-ticketed events.
+   */
+  outboundClicks?: { total: number; unreliable: boolean; previous?: { total: number; unreliable: boolean } };
 }
 
 /** GET /api/organisers/me/analytics/overview?from&to&compare. */
@@ -710,6 +806,12 @@ export interface AnalyticsOverview {
   /** More than 500 events: the rest aren't listed (they're still in `totals`). */
   eventsTruncated: boolean;
   previous?: { range: DateRange; totals: AnalyticsTotals; byDay: AnalyticsDay[] };
+  /**
+   * Ticket-link clicks across all the organiser's external events (with
+   * `previous` for `compare=prevPeriod`); null when they have no external
+   * event. Always sent by the API; optional so older fixtures stay valid.
+   */
+  outboundClicks?: (OutboundClickStats & { previous?: OutboundClickStats }) | null;
 }
 
 /** Optional query for the analytics routes. Defaults: an event's whole life (capped), or the last 30 days. */

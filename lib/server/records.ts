@@ -25,6 +25,7 @@ import type {
   PublicOrganiserProfile,
   TicketTypeInput,
 } from "./types";
+import { ticketProviderName, type TicketingMode } from "@/lib/ticketing";
 import { maskEmail } from "./email-address";
 import { orderReference } from "./order-reference";
 import { socialLinks } from "./organiser-input";
@@ -190,6 +191,7 @@ export const EVENT_SELECT = `
   select e.id, e.organiser_id, e.slug, e.title, e.description, e.category::text as category,
          e.venue_name, e.venue_address, e.suburb, e.starts_at, e.ends_at,
          e.status::text as status, e.rejection_reason, e.created_at, e.updated_at,
+         e.ticketing_mode, e.external_ticket_url, e.external_free,
          o.display_name as organiser_name,
          (select '/api/events/' || e.id::text || '/image?v=' || floor(extract(epoch from i.updated_at))::bigint::text
             from public.event_images i where i.event_id = e.id) as image_url,
@@ -203,14 +205,36 @@ export const EVENT_SELECT = `
          coalesce((
            select json_agg(json_strip_nulls(json_build_object(
                     'action', l.action, 'by', coalesce(l.actor_id::text, 'system'),
-                    'at', l.created_at, 'reason', l.reason)) order by l.id)
+                    'at', l.created_at, 'reason', l.reason, 'changes', l.details)) order by l.id)
            from public.event_moderation_log l where l.event_id = e.id
          ), '[]'::json) as moderation_log
   from public.events e
   join public.organisers o on o.id = e.organiser_id`;
 
+/**
+ * A moderation log entry from EVENT_SELECT. json_strip_nulls also strips the
+ * nulls inside `changes` (an old value that was null, e.g. no link before),
+ * so each change is rebuilt with both sides.
+ */
+function toModerationLogEntry(entry: ModerationLogEntry): ModerationLogEntry {
+  const result: ModerationLogEntry = { ...entry, at: iso(entry.at) };
+  if (entry.changes) {
+    const changes: NonNullable<ModerationLogEntry["changes"]> = {};
+    for (const [field, change] of Object.entries(entry.changes) as [
+      keyof NonNullable<ModerationLogEntry["changes"]>,
+      { old?: unknown; new?: unknown },
+    ][]) {
+      (changes as Record<string, { old: unknown; new: unknown }>)[field] = { old: change.old ?? null, new: change.new ?? null };
+    }
+    result.changes = changes;
+  }
+  return result;
+}
+
 export function toEvent(row: Row): EventRecord {
   const log = row.moderation_log as ModerationLogEntry[];
+  const ticketingMode = (row.ticketing_mode ?? "sheltuh") as TicketingMode;
+  const externalTicketUrl = ticketingMode === "external" ? opt<string>(row.external_ticket_url) : undefined;
   return {
     organiserId: row.organiser_id as string,
     eventId: row.id as string,
@@ -226,9 +250,15 @@ export function toEvent(row: Row): EventRecord {
     organiserName: row.organiser_name as string,
     imageUrl: opt(row.image_url),
     ticketTypes: row.ticket_types as TicketTypeInput[],
+    ticketingMode,
+    externalTicketUrl,
+    externalFree: row.external_free === true,
+    externalProvider: externalTicketUrl ? ticketProviderName(externalTicketUrl) : null,
+    // Once approved, the ticketing is frozen for the organiser (private.edit_event_draft).
+    ticketingLocked: log.some((entry) => entry.action === "approved"),
     status: row.status as EventRecord["status"],
     rejectionReason: opt(row.rejection_reason),
-    moderationLog: log.map((entry) => ({ ...entry, at: iso(entry.at) })),
+    moderationLog: log.map(toModerationLogEntry),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };
@@ -251,6 +281,13 @@ export function toPublicEvent(event: EventRecord): PublicEvent {
     organiserName: event.organiserName,
     imageUrl: event.imageUrl,
     ticketTypes: event.ticketTypes,
+    ticketingMode: event.ticketingMode ?? "sheltuh",
+    // Only an external event has a link (toEvent already drops it otherwise).
+    ...(event.ticketingMode === "external" && event.externalTicketUrl
+      ? { externalTicketUrl: event.externalTicketUrl }
+      : {}),
+    externalFree: event.externalFree === true,
+    externalProvider: event.externalProvider ?? null,
   };
 }
 

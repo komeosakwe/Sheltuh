@@ -37,12 +37,17 @@ async function main() {
               returning id`
           )[0].id;
 
+        const external = event.ticketingMode === "external";
+        const externalFree = external && event.externalFree === true;
         const [inserted] = await tx`
           insert into public.events (organiser_id, slug, title, description, category, venue_name, venue_address,
-                                     suburb, starts_at, ends_at, status)
+                                     suburb, starts_at, ends_at, status,
+                                     ticketing_mode, external_ticket_url, external_free, is_free)
           values (${organiserId}, ${event.slug}, ${event.title}, ${event.description}, ${event.category},
                   ${event.venueName}, ${event.venueAddress}, ${event.suburb}, ${event.startsAt},
-                  ${event.endsAt ?? event.startsAt}, 'published')
+                  ${event.endsAt ?? event.startsAt}, 'published',
+                  ${external ? "external" : "sheltuh"}, ${external ? (event.externalTicketUrl ?? null) : null},
+                  ${externalFree}, ${externalFree})
           on conflict (slug) do nothing
           returning id`;
         if (!inserted) return;

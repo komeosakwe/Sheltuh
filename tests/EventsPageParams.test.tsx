@@ -48,7 +48,12 @@ describe("/events query params (demo)", () => {
   it("starts on free events from ?pricing=free", async () => {
     await renderPage({ pricing: "free" });
     expect(screen.getByRole("radio", { name: "Free" })).toBeChecked();
-    const free = upcoming.filter((e) => e.ticketTypes.every((t) => t.priceCents === 0)).length;
+    // The API's rule (lib/data.ts isFreeEvent): Sheltüh ticket types all free, or an external event marked free.
+    const free = upcoming.filter((e) =>
+      e.ticketingMode === "external"
+        ? e.externalFree === true
+        : e.ticketTypes.length > 0 && e.ticketTypes.every((t) => t.priceCents === 0),
+    ).length;
     expect(screen.getByText(`Showing ${free} of ${upcoming.length} events`)).toBeInTheDocument();
   });
 

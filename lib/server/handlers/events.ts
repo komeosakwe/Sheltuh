@@ -59,24 +59,43 @@ export const createEventDraft: Handler = async (req, _params, { db, verifyAccess
   throw new HttpError(500, "Could not allocate a unique event URL — try a different title.");
 };
 
-/** PATCH /api/events/[eventId] — only while the event is a draft or rejected. */
+/** Shown when an organiser tries to change an approved event's ticketing. */
+export const TICKETING_FROZEN =
+  "This event's ticketing was approved, so where tickets are sold and the ticket link can't be changed here. Contact Sheltüh to change them.";
+
+/**
+ * PATCH /api/events/[eventId] — only while the event is a draft or rejected
+ * (409 otherwise). Once the event has ever been approved, its ticketing mode
+ * and ticket link are frozen: a change to either is a 409 with fieldErrors
+ * (only an admin can change them: PATCH /api/admin/events/[eventId]/ticketing).
+ * The free flag of an external event, and everything else, stay editable.
+ */
 export const updateEventDraft: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
   const organiser = await requireApprovedOrganiser(db, caller);
-  await requireOwnEvent(db, organiser.organiserId, eventId);
+  const current = await requireOwnEvent(db, organiser.organiserId, eventId);
   const input = parseEventInput(await readJson(req));
 
-  let updated: boolean;
+  let result: string;
   try {
-    const [row] = await db.query<{ updated: boolean }>(
-      `select private.update_event_draft($1, $2, $3::text::jsonb, $4::text::jsonb) as updated`,
+    const [row] = await db.query<{ result: "updated" | "not_found" | "not_editable" | "ticketing_frozen" }>(
+      `select private.edit_event_draft($1, $2, $3::text::jsonb, $4::text::jsonb) as result`,
       [eventId, organiser.organiserId, JSON.stringify(eventFields(input)), JSON.stringify(input.ticketTypes)],
     );
-    updated = row.updated;
+    result = row.result;
   } catch (err) {
     ticketTypeConflict(err);
   }
-  if (!updated) throw new HttpError(409, "This event can't be edited while it's pending review or published.");
+  if (result === "not_found") throw new HttpError(404, "Event not found.");
+  if (result === "not_editable") {
+    throw new HttpError(409, "This event can't be edited while it's pending review or published.");
+  }
+  if (result === "ticketing_frozen") {
+    const fieldErrors: Record<string, string> = {};
+    if ((current.ticketingMode ?? "sheltuh") !== input.ticketingMode) fieldErrors.ticketingMode = TICKETING_FROZEN;
+    if ((current.externalTicketUrl ?? null) !== input.externalTicketUrl) fieldErrors.externalTicketUrl = TICKETING_FROZEN;
+    throw new HttpError(409, TICKETING_FROZEN, fieldErrors);
+  }
   return ok(await requireEvent(db, eventId));
 };
 

@@ -62,8 +62,13 @@ describe("public event visibility", () => {
         "title",
         "venueAddress",
         "venueName",
+        // External ticketing (B2): always sent; externalTicketUrl only for external events.
+        "ticketingMode",
+        "externalFree",
+        "externalProvider",
       ].sort(),
     );
+    expect(res.body).toMatchObject({ ticketingMode: "sheltuh", externalFree: false, externalProvider: null });
     const list = await api.call(listPublicEvents);
     expect(list.body.items[0]).toEqual(res.body);
   });
@@ -221,8 +226,10 @@ describe("upcoming=1 (home page and /events)", () => {
 });
 
 describe("events with no ticket types", () => {
-  // The API requires a ticket type today; external ticketing (B2) won't. Until
-  // then the only way to get here is the database function itself.
+  // The organiser's form requires a ticket type for a Sheltüh-ticketed event.
+  // Such an event can still have none: an admin moving an external event back
+  // to Sheltüh ticketing (external-ticketing.test.ts), or the database
+  // function itself, as here.
   async function withoutTicketTypes(title: string) {
     const event = await publishedEvent(api, organiser, admin, {
       title,

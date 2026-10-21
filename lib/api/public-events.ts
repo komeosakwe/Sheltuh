@@ -1,3 +1,4 @@
+import type { TicketingMode } from "@/lib/ticketing";
 import type { EventCategory } from "@/lib/types";
 import { apiFetch } from "./client";
 import type { Paginated, TicketTypeInput } from "./types";
@@ -16,12 +17,36 @@ export interface PublicEvent {
   endsAt: string;
   organiserName: string;
   imageUrl?: string;
+  /** Always empty for an external event. */
   ticketTypes: TicketTypeInput[];
+  /**
+   * `sheltuh`: tickets sold here. `external`: sold on another site, at
+   * `externalTicketUrl` (no Sheltüh checkout, booking fee, Who's Going or
+   * check-in; no ticket types, and no price shown). Always sent by the API;
+   * optional so older fixtures stay valid (absent means `sheltuh`).
+   */
+  ticketingMode?: TicketingMode;
+  /** External events only: the ticket page. Link to it only through the outbound beacon (recordOutboundClick). */
+  externalTicketUrl?: string;
+  /** The organiser says entry is free (external events only; false otherwise). Always sent. */
+  externalFree?: boolean;
+  /**
+   * External events only: a known ticketing site's name ("Humanitix",
+   * "Eventbrite", ...) for "Get tickets on {provider}", or null: then say
+   * "the organiser's site", never the bare host. Always sent; null for
+   * Sheltüh-ticketed events.
+   */
+  externalProvider?: string | null;
 }
 
 export interface ListPublicEventsParams {
   category?: EventCategory;
   onOrAfter?: string;
+  /**
+   * `free`: Sheltüh-ticketed with ticket types, all free, or external with
+   * `externalFree`. `paid`: has a paid Sheltüh ticket type (external events
+   * never match: their price isn't known).
+   */
   pricing?: "free" | "paid";
   /** Free-text search over title, venue, suburb, organiser and description. */
   q?: string;

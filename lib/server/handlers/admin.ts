@@ -1,6 +1,7 @@
 import { requireAdmin, type Caller } from "../auth";
 import type { Db } from "../db";
 import type { Deps } from "../deps";
+import { parseTicketing } from "../event-input";
 import { HttpError, ok, readJson } from "../http";
 import { parseMessageText } from "../message-input";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
@@ -219,4 +220,50 @@ export const adminRejectEvent: Handler<{ eventId: string }> = async (req, { even
 export const adminUnpublishEvent: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const admin = await requireAdmin(req, deps.verifyAccessToken);
   return moderateEvent(admin, eventId, deps, { from: "published", to: "draft", action: "unpublished" });
+};
+
+/** Longest reason for an admin's ticketing change (shown in the event's moderation log). */
+export const MAX_TICKETING_REASON_LENGTH = 500;
+
+/**
+ * PATCH /api/admin/events/[eventId]/ticketing — body {ticketingMode,
+ * externalTicketUrl?, externalFree?, reason}; ticketingMode is required
+ * here (unlike the organiser's form). Sets the event's ticketing
+ * whatever its status (organisers can't once the event has been approved),
+ * with the organiser's rules for the fields (lib/server/event-input.ts,
+ * parseTicketing). Logged in the moderation log as `ticketing_changed`, with
+ * the reason and the old and new value of each field changed
+ * (private.admin_set_event_ticketing). 200 with the event (unchanged, and
+ * nothing logged, when nothing would change); 400 bad fields or reason; 404
+ * unknown event; 409 switching to external an event that has orders.
+ */
+export const adminSetEventTicketing: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
+  const admin = await requireAdmin(req, deps.verifyAccessToken);
+  const body = await readJson(req);
+  const errors: Record<string, string> = {};
+  // Required here (the organiser's form defaults it to sheltuh): an admin
+  // request without it must never quietly turn an external event back.
+  if (body.ticketingMode === undefined || body.ticketingMode === null) {
+    errors.ticketingMode = "Choose where tickets are sold.";
+  }
+  const ticketing = parseTicketing(body, errors);
+  const reason = parseMessageText(body.reason, "reason", errors, {
+    allowLinks: true,
+    label: "Reasons",
+    maxLength: MAX_TICKETING_REASON_LENGTH,
+  });
+  if (Object.keys(errors).length > 0) fail(errors);
+  if (!isUuid(eventId)) throw new HttpError(404, "Event not found.");
+
+  const [row] = await deps.db.query<{ result: "updated" | "unchanged" | "not_found" | "has_orders" }>(
+    `select private.admin_set_event_ticketing($1, $2, $3, $4, $5, $6) as result`,
+    [eventId, admin.userId, ticketing.ticketingMode, ticketing.externalTicketUrl, ticketing.externalFree, reason],
+  );
+  if (row.result === "not_found") throw new HttpError(404, "Event not found.");
+  if (row.result === "has_orders") {
+    throw new HttpError(409, "This event has orders, so its tickets can't move to another site.", {
+      ticketingMode: "This event has orders.",
+    });
+  }
+  return ok(await requireEvent(deps.db, eventId));
 };

@@ -63,8 +63,19 @@ describe("single-ticket-type events omit the 'From' prefix", () => {
   });
 });
 
+/** Sample events sold on Sheltüh. External ones have no ticket types or price here, by design. */
+const sheltuhSampleEvents = sampleEvents.filter((e) => e.ticketingMode !== "external");
+
 describe("feed price stays consistent with the checkout total for every sample event", () => {
-  it.each(sampleEvents)("$title", (event) => {
+  it("covers the Sheltüh-ticketed ones (external events sell elsewhere and have no price here)", () => {
+    expect(sheltuhSampleEvents.length).toBeGreaterThan(10);
+    for (const e of sampleEvents.filter((x) => x.ticketingMode === "external")) {
+      expect(e.ticketTypes).toEqual([]);
+      expect(getMinBuyerTotalCents(e)).toBeNull();
+    }
+  });
+
+  it.each(sheltuhSampleEvents)("$title", (event) => {
     const minTotal = getMinBuyerTotalCents(event);
     // Every sample event has ticket types, so there's a price.
     if (minTotal === null) throw new Error(`${event.slug} has no ticket types`);
@@ -140,7 +151,7 @@ describe("an event with no ticket types yet", () => {
     expect(NO_TICKETS_LABEL).toBe("Tickets coming soon");
   });
 
-  it.each(sampleEvents)("matches the feed price for $title", (event) => {
+  it.each(sheltuhSampleEvents)("matches the feed price for $title", (event) => {
     const parts = formatFeedPriceParts(event);
     expect(parts).not.toBeNull();
     const joined = parts?.amount === "Free" ? "Free" : `${parts?.amount} ${parts?.note}`;

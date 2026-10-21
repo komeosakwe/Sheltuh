@@ -55,6 +55,24 @@ const REQUEST_CONFLICT = "This request id was already used for a different code.
 
 const iso = (v: string | Date) => new Date(v).toISOString();
 
+/** External ticketing: Sheltüh issues no tickets for the event, so there's nothing to check in. */
+export const EXTERNAL_CHECK_IN_REFUSED =
+  "Tickets for this event are sold on another site, so there's no Sheltüh check-in for it.";
+
+/**
+ * 409 for the organiser's own external event. Anything else (not theirs, no
+ * such event) is left to the caller's own 404. An external event can't have
+ * tickets (the database refuses its orders), so this is a clear answer
+ * rather than a guard: every scan would be `invalid` anyway.
+ */
+async function refuseExternalEvent(db: Db, organiserId: string, eventId: string): Promise<void> {
+  const [row] = await db.query<{ ticketing_mode: string }>(
+    `select e.ticketing_mode from public.events e where e.id = $1 and e.organiser_id = $2`,
+    [eventId, organiserId],
+  );
+  if (row?.ticketing_mode === "external") throw new HttpError(409, EXTERNAL_CHECK_IN_REFUSED);
+}
+
 async function organiserCaller(req: Request, deps: Deps) {
   const caller = await requireCaller(req, deps.verifyAccessToken);
   const organiser = await requireApprovedOrganiser(deps.db, caller);
@@ -113,6 +131,7 @@ export const checkInTicket: Handler<{ eventId: string }> = async (req, { eventId
   if (typeof body.code !== "string") errors.code = "Scan or enter a ticket code.";
   if (typeof body.requestId !== "string" || !isUuid(body.requestId)) errors.requestId = "Invalid request id.";
   if (Object.keys(errors).length > 0) fail(errors);
+  await refuseExternalEvent(deps.db, organiser.organiserId, eventId);
 
   const [row] = await deps.db.query<CheckInRow>(
     `select result, admission_id::text as admission_id, ticket_type_name, ticket_number, ticket_count, code_last4,
@@ -163,6 +182,7 @@ export const undoCheckIn: Handler<{ eventId: string; checkInId: string }> = asyn
   }
   if (Object.keys(errors).length > 0) fail(errors);
   if (!isUuid(checkInId)) throw new HttpError(404, "Check-in not found.");
+  await refuseExternalEvent(deps.db, organiser.organiserId, eventId);
 
   const [row] = await deps.db.query<{
     result: UndoCheckInOutcome | "not_found" | "rate_limited";
@@ -207,6 +227,7 @@ async function ticketTypeCounts(db: Db, eventId: string) {
 export const getCheckInSummary: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const { organiser } = await organiserCaller(req, deps);
   const event = await requireOwnEvent(deps.db, organiser.organiserId, eventId);
+  if (event.ticketingMode === "external") throw new HttpError(409, EXTERNAL_CHECK_IN_REFUSED);
 
   const [types, recent] = await Promise.all([
     ticketTypeCounts(deps.db, event.eventId),
