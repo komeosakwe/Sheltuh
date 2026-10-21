@@ -1,6 +1,6 @@
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { formatSeatLine } from "@/lib/seating/format";
-import type { EmailMessage } from "./email";
+import { subjectLine, type EmailMessage } from "./email";
 import { formatTicketDate, formatTicketTime } from "./ticket-email";
 import type { EventRecord, OrderLineItem, TicketSeat } from "./types";
 
@@ -84,5 +84,5 @@ export function buildFreeConfirmationEmail(
 </body>
 </html>`;
 
-  return { to, subject: `Confirm your free tickets: ${event.title}`, text, html };
+  return { to, subject: subjectLine(`Confirm your free tickets: ${event.title}`), text, html };
 }

@@ -81,6 +81,7 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | `event_view_counts` | `(event_id, day, source, coalesce(link_code, ''))` (unique index) | Aggregate page-view counters, one row per event, Melbourne day, source bucket and tracking code: no visitor data of any kind. `link_code` is a plain copy of the code (no foreign key), so a deleted link's counts are kept. Deleted with the event, and by `purge_analytics` after 25 months. |
 | `event_outbound_clicks` | `(event_id, day)` | Clicks on an external event's ticket link, one row per event and Melbourne day: `clicks` (≥ 0) and `cap_reached` (the per-minute click cap was reached that day, so `clicks` is a lower bound). No visitor data of any kind. Deleted with the event, and by `purge_analytics` after 25 months. |
 | `private.event_rate_limits` | `(event_id, bucket)` | Fixed-window counters keyed on an event, never a person (`take_event_rate_limit`): caps the views (bucket `views`) and ticket-link clicks (`outbound`) counted per event per minute. Deleted with the event; idle rows purged daily. |
+| `private.client_rate_limits` | `(client_key, bucket)` | Fixed-window counters keyed on a client (`take_client_rate_limit`): the per-client seat-hold limit (buckets `seat_holds:<event id>` and `seat_holds`, see "Reserved seating"). `client_key` is the API's keyed SHA-256 (HMAC) of the client's IP address (an IPv6 address's /64), salted with a value derived from `STRIPE_WEBHOOK_SECRET` (`lib/server/client-key.ts`); the raw address is never stored or sent to the database (check constraint: 64 hex characters). Idle rows purged daily (`purge_operational_data`). |
 | `private.event_view_cap_days` | `(event_id, day)` | A marker that the event's view cap was reached on that Melbourne day, so reports can flag the day's views as a lower bound. No visitor data. Deleted with the event, and by `purge_analytics` after 25 months. |
 | `private.event_curation` | `event_id` | An admin's trending curation (see "Trending"): `boost` (0.5 to 2, default 1, check constraint) and `excluded`, with who changed it last and when (null until changed). Written only by `set_event_curation`. Deleted with the event. |
 | `private.trending_snapshot` | `rank` | The ranked trending list (at most 24): rank, event (unique), score and when it was computed. Rebuilt as a whole by `refresh_trending`; holds no counts. Deleted with the event. |
@@ -126,7 +127,7 @@ times, which are converted to instants honouring daylight saving
 | `place_free_order` | A member's free order, created and fulfilled in one step under an advisory lock on (event, person): the per-person cap, then the daily allowance, then `fulfil_order`. A refusal or sell-out writes nothing (beyond a refusal count). Returns `paid`, `person_event_limit`, `member_daily_limit` or `sold_out`. |
 | `request_free_order` | A guest's pending free order: the platform's hourly and 24-hour caps (read-only), then, under an advisory lock on the address, the hourly link limit, then a hit on each platform cap. Returns `requested`, `address_limited`, `platform_limited` or `platform_daily_limited`. (The previous 13-argument form delegates to it with the same daily cap, for the deploy window; the app doesn't call it.) |
 | `confirm_free_order` | Confirms by token hash: locks the order, then (event, person), then the event (share) to check every ticket type is still free, then `fulfil_order`'s locks. Idempotent within the link's 24 hours. Returns `confirmed`, `already_confirmed`, `expired_confirmed`, `not_found`, `expired`, `unavailable`, `person_event_limit`, `no_longer_free`, `seats_taken` (a seated order's seats went to someone else since the link was sent) or `sold_out` (the last four mark the order `failed`). A seated order takes the seat lock before the order row. |
-| `purge_operational_data` | Retention for free-ticket and outbox data (see "Free tickets" and "Payment flow"); sent outbox jobs after 90 days, failed ones after a year. Idempotent; Supabase Cron daily. |
+| `purge_operational_data` | Retention for free-ticket and outbox data (see "Free tickets" and "Payment flow"); sent outbox jobs after 90 days, failed ones after a year; per-client counters (`client_rate_limits`) idle for a day. Idempotent; Supabase Cron daily. |
 | `claim_outbox_jobs`, `finish_email_job`, `resend_email_job`, `admin_resend_email_job` | The email outbox: lease due jobs of any kind (optionally one order's, or one kind) with `skip locked` (an expired lease is taken again; one that expired on the 6th attempt fails), record an outcome only for the current lease holder, and an admin resend of a ticket email (not while leased, not twice in 5 minutes; a waitlist email is `not_found`). `admin_resend_email_job` takes a hit on the admin's hourly allowance only when the resend is queued, in the same transaction (over it: `rate_limited`, nothing changed). `claim_email_jobs`, the earlier form, now claims ticket emails only and is kept for the deploy window (see "Not built yet"). |
 | `waitlist_join_state` | Whether an event's waitlist takes joins: `open` (published, Sheltüh-ticketed, not ended, has ticket types and every one is sold out), else `not_found` (missing or not published), `external`, `ended` or `not_sold_out`. |
 | `join_waitlist` | A member's join with their own verified email (the API checks it's theirs): on the list at once, idempotently (`already_joined`); someone who left, or never confirmed, joins again at the back. An entry already on the list is linked to the member's account only if its address is exactly theirs (ignoring case), never by a normalised match (`+tag`, Gmail dots). Returns `joined`, `already_joined` or a `waitlist_join_state` refusal. |
@@ -152,6 +153,7 @@ times, which are converted to instants honouring daylight saving
 | `write_seat_map`, `clear_seat_map` | Internal: store a layout (the seats derived from it in SQL, so the two can't disagree; at most 5 tiers, `event_seat_maps_max_tiers`; then every tier's `seated` and capacity recomputed) or remove it. An identical layout is `unchanged` (version kept). Either refuses (check_violation, `event_seat_maps_no_orders`, the API's 409) when the event has any order, whatever the caller checked: defence in depth, so no caller can rewrite seats a pending order holds or a paid one has sold. |
 | `hold_seats` | A paid seated checkout's pending order and its holds, all or nothing (see "Reserved seating"): the seat lock; a used-up hold window refused with a plain read (`rate_limited`, nothing written); then the order, the event (published, Sheltüh-ticketed), the map version, every seat free (else `seats_unavailable` with the ids), lines matching the seats' tiers, and the held-seat cap; only then, with every refusal decided, one hit on the event's hold counter (`take_event_rate_limit`, bucket `seat_holds`, its row locked last) and the holds. A refusal writes nothing at all, so refused attempts (the cap above all) never use up the allowance (`20261102000000_seating_hardening.sql`). Returns `held` (with `hold_expires_at`), `rate_limited`, `not_on_sale`, `version`, `seats_unavailable`, `tier_mismatch` or `hold_cap`. |
 | `release_seat_holds` | A pending order marked `failed` and its holds cleared, under the seat lock; anything not pending is returned unchanged (its status). |
+| `take_client_rate_limit`, `take_seat_hold_attempt` | `take_rate_limit`'s fixed-window counter keyed on a client key. `take_seat_hold_attempt` takes one hit on the client's `seat_holds:<event id>` bucket, then one on its `seat_holds` (all events) bucket, in that order (nothing else writes them), and returns `ok`, `event` or `all`; a refusal keeps neither hit (`20261103000000_seat_hold_client_limits.sql`). |
 | `place_free_seated_order`, `request_free_seated_order` | `place_free_order` / `request_free_order` for a seated free order (the seat lock first; the order records its seats). A guest's order holds nothing until confirmed. `seats_unavailable` when a member's seat is gone. |
 | `fulfil_order` | Queues the ticket email in the same step (see "Payment flow"). Takes inventory for every line item, issues the tickets and marks the order paid. If any ticket type has sold out, or the event is no longer published, it takes nothing and marks the order `oversold_refund_required`. Rows are locked in a fixed order, so concurrent orders can't deadlock. It's idempotent, so Stripe's webhook redeliveries are harmless. A seated order takes the event's seat lock first, needs every seat (free, its own hold, or an expired hold) and lines that match its seats exactly (no order buys a seated tier without seats), and gives each ticket one of its tier's seats; otherwise the oversold path, which also clears its holds. |
 
@@ -541,7 +543,9 @@ UI states in `docs/design/brand-direction-one.md` §6.11).
   colours (black on cream and white, Signal Orange only as the button, with
   black text). The subject (here and on the confirmation email) has control,
   invisible and text-direction characters of the title replaced by a space
-  (`subjectLine`). Rebuilt at send time; skipped (not retried) if the person has
+  (`subjectLine`, `lib/server/email.ts`: every email's subject goes through
+  it, the ticket, free-confirmation and follower emails' too, and
+  `mailOptions` applies it again before sending). Rebuilt at send time; skipped (not retried) if the person has
   left, the event is no longer open, or it has sold out again since.
   Transactional (about one event the person asked to hear about), with a
   functional unsubscribe (Spam Act 2003).
@@ -1219,7 +1223,10 @@ scanner at `/dashboard/[eventId]/check-in` (`components/check-in/*`,
 - **Summary** (`GET …/check-ins`): checked in and sold (tickets of `paid`
   orders) per ticket type with capacity, and the newest 20 log entries
   (result, time, ticket type, last four characters of the code, an undo's
-  reason, and whether an admission can still be undone).
+  reason, whether an admission can still be undone, and, for a seated
+  ticket of this event, its seat: `seat {section, row, seat, kind}`, absent
+  otherwise, including for `other_event` entries and once a refund has
+  freed the seat).
 - **Privacy.** A scan shows no buyer identity: no name, email or order id,
   anywhere in check-in. The log stores the event, ticket code (never the
   text of an invalid scan), acting account, result, an undo's reason and the
@@ -1663,6 +1670,45 @@ unchanged.
   changed map) is decided before the counter and writes nothing, so only
   real holds count: refused attempts can't use up the allowance and lock
   buyers out.
+- **Per-client hold limit** (a manager decision;
+  `20261103000000_seat_hold_client_limits.sql`, `lib/server/client-key.ts`,
+  `SEAT_HOLD_LIMITS.perClient`). Before `hold_seats`, every paid seated
+  checkout takes one attempt from its client's allowance
+  (`take_seat_hold_attempt`): 20 per event and 60 across all events per 10
+  minutes (fixed windows). Over either is a 429 `client_rate_limited` with
+  the seats asked for ("You've started a lot of checkouts…"), and nothing
+  else is written. Unlike the event's counter, every attempt that reaches
+  `hold_seats` counts, refused or not: this is the bound on refused attempts
+  per client. Attempts turned away before it (a seat visibly taken, a
+  changed map, bad input), general admission and free seats don't count.
+  Why these numbers: a buyer whose seats keep going retries a handful of
+  times, so 20 leaves room for them and for a few buyers sharing one
+  address (venue wifi, a phone network's shared address), while one client
+  now needs at least six addresses to use up an event's 120; 60 bounds a
+  client working through many events. The client is its IP address as
+  Vercel reports it: the first hop of `x-forwarded-for` (Vercel overwrites
+  that header, so it can't be spoofed there), else `x-real-ip`; an IPv6
+  address counts by its /64, an IPv4-mapped one as IPv4. Only a keyed
+  SHA-256 is stored (`client_rate_limits`), never the address; the salt is
+  derived (HMAC, labelled `sheltuh/client-key/v1`) from
+  `STRIPE_WEBHOOK_SECRET`, which paid checkout needs anyway, so there's no
+  new environment variable, and rotating that secret only restarts the
+  counters. It fails open, with a log line that carries no request detail,
+  when there's no usable IP header (never on Vercel) or the secret isn't set.
+- **Back from Stripe.** A paid checkout's 201 (seated `{url,
+  holdExpiresAt, orderId}`, general admission `{url, orderId}`, both
+  `private, no-store`) carries the pending order's id, so the page can keep
+  it for the session and call `POST /orders/by-session/{orderId}/cancel`
+  when the buyer comes back without paying. That adds no exposure: the id
+  goes only to the client that made the order, which already gets it in
+  Stripe's success and cancel URLs, and the cancel route's model is
+  unchanged: the id (`ord_` + 32 hex, 128 random bits) is the credential
+  (anything else shaped differently is a 404 without a query), a paid order
+  is never changed (`paid`), Stripe already holding the payment is
+  `processing`, a guest's free booking is a 404, and the Stripe session is
+  expired before anything is released, so nothing can be paid for seats
+  that are no longer held. A general admission order cancelled this way is
+  simply `failed` (it held nothing).
 - **Payment.** `fulfil_order` sells the seats (free, held by the order, or an
   expired hold nobody took) with the inventory and gives each ticket a seat of
   its tier. A seat that went elsewhere (a late async payment after its hold
@@ -1681,7 +1727,8 @@ unchanged.
   ("Stalls · Row F · Seat 12", plain text "Seat: Stalls, Row F, Seat 12";
   `lib/seating/format.ts`), the free confirmation email (the chosen seats, and
   that they're held only once confirmed) and check-in (`ticket.seat`) carry
-  `{section, row, seat, kind}`.
+  `{section, row, seat, kind}`, and so do the door's Recent scans
+  (`CheckInLogEntry.seat`, for this event's seated tickets only).
 - **Lock order**, everywhere: the event's seat advisory lock
   (`lock_event_seats`), the order, the event, ticket types in id order, seats
   in id order. Seated paths read the order's event (immutable) without a lock
@@ -1696,6 +1743,10 @@ unchanged.
   free member against paid hold, the cap, a flood of cap refusals using no
   allowance, duplicate webhooks), which runs only
   on a real Postgres (`TEST_DATABASE_URL`).
+  `tests/server/seat-hold-client-limits.test.ts` covers the per-client limit
+  (client IP parsing, the keyed hash, both buckets, windows, fail-open; its
+  concurrency cases need `TEST_DATABASE_URL`), and
+  `tests/server/email-subjects.test.ts` every email's subject cleaning.
 
 ### Accepted risks (reserved seating)
 
@@ -1708,10 +1759,20 @@ unchanged.
   others to the seats left, for 35 minutes at a time.
 - **Refused hold attempts aren't rate-limited per event.** A flood of
   attempts that will be refused (at the cap, or for taken seats) writes
-  nothing, but each briefly takes the event's seat lock (the API's early
-  checks turn most taken-seat attempts away before it). Bounded by the
-  platform's request limits only; a bot check on holds (Turnstile, "Not built
-  yet") is the next step if it's abused.
+  nothing to the event, but each briefly takes the event's seat lock (the
+  API's early checks turn most taken-seat attempts away before it). Each
+  client gets 20 such attempts per event per 10 minutes; a client with many
+  addresses (a botnet, or rotating IPv6 /64s) isn't bounded beyond that. A
+  bot check on holds (Turnstile, "Not built yet") is the next step if it's
+  abused.
+- **Shared addresses share the per-client limit.** People behind one
+  address (venue or campus wifi, a phone network's shared IPv4 address) get
+  20 hold attempts per event between them per 10 minutes. Small Melbourne
+  on-sales shouldn't come near it; raise `SEAT_HOLD_LIMITS.perClient` if
+  one does. It fails open without an IP header (logged), which only happens
+  off Vercel; if the app is ever hosted behind a proxy that appends to
+  `x-forwarded-for`, `clientIp` must change, since the first hop would then
+  be the client's to choose.
 - **Free seated bookings are capped at 4 seats** by the per-order free-ticket
   cap, though paid orders can take 10.
 - **A cached map outlives an unpublish.** The public map URL is cached for a
@@ -1734,13 +1795,13 @@ application is approved.
 | `POST /events/{eventId}/waitlist` `{email?}` · `DELETE /events/{eventId}/waitlist` | POST: public (a member's token is read, optionally). 201/200 `{status: "joined", maskedEmail, alreadyJoined}` for a member's own verified email; 202 `{status: "confirmation_sent", expiresInHours}` for anyone else, whatever the address's history; 400 email; 404 not published; 409 external, ended or not sold out; 503 busy (the platform caps; the link is emailed after the response, so a failed send isn't reported). DELETE: signed in, leaves (204, idempotent) |
 | `GET /events/{eventId}/waitlist/status` | signed in: `{joined, maskedEmail?}`; 404 not published |
 | `POST /waitlist/confirm` `{token}` · `POST /waitlist/leave` `{token}` | public (the emailed token is the credential). Confirm: 200 `{status: "joined", eventTitle, eventSlug, ticketsAvailable}` (also when already on the list); 400; 404; 410 expired or used; 409 closed. Leave: 200 `{status: "left", eventTitle?}` (the title only while the event is published; idempotent); 400; 404 |
-| `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). 409 for an external event, before anything else is read; 409 for a paid order from a platform-managed organiser. 201 `{url}`; 202 free order waiting on its emailed link; 400 (incl. over 4 free tickets in any order, paid or free); 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance; 503 free bookings busy (the guest's link is emailed after the response). 409 for too many of a ticket type names the number left only when it's 10 or fewer |
-| `POST /events/{eventId}/checkout` with `seats: {mapVersion, seatIds}` | public: a seated checkout (see "Reserved seating"). Paid: 201 `{url, holdExpiresAt}` (private, no-store). Free: as above (201 member, 202 guest). 400 (bad seats, over 10, a seated tier in `lineItems`, no map); 404; 409 `seats` taken (body `code`, `seatIds`) or `seatMapVersion` changed; 429 too many seats held or hold attempts for the event (body `seatIds`) |
+| `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). 409 for an external event, before anything else is read; 409 for a paid order from a platform-managed organiser. 201 `{url}` (a paid order: `{url, orderId}`, `private, no-store`; see "Reserved seating", "Back from Stripe"); 202 free order waiting on its emailed link; 400 (incl. over 4 free tickets in any order, paid or free); 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance; 503 free bookings busy (the guest's link is emailed after the response). 409 for too many of a ticket type names the number left only when it's 10 or fewer |
+| `POST /events/{eventId}/checkout` with `seats: {mapVersion, seatIds}` | public: a seated checkout (see "Reserved seating"). Paid: 201 `{url, holdExpiresAt, orderId}` (private, no-store). Free: as above (201 member, 202 guest). 400 (bad seats, over 10, a seated tier in `lineItems`, no map); 404; 409 `seats` taken (body `code`, `seatIds`) or `seatMapVersion` changed; 429 too many seats held or hold attempts for the event, or this client's hold attempts used up (`code: "client_rate_limited"`; body `seatIds`) |
 | `GET /events/{eventId}/seat-map?v=` | public once published (`public, max-age=31536000, immutable`, only at the current `v`; any other `v` or none is a `307` to `?v={current}`, `no-store`, no body); before that the owning organiser or an admin (bearer), private. `SeatMapRecord`. 404 no map or not visible |
 | `GET /events/{eventId}/seat-availability` | as above: `SeatAvailability` (the bitmap), `public, max-age=0, s-maxage=5` once published |
 | `PUT /events/{eventId}/seat-map` `{template}` · `DELETE …` | organiser (own event, draft or rejected, never approved). Up to 1 MB. 200 `SeatMapRecord` / 204; 400 `fieldErrors["template.…"]`; 404; 409 not editable, locked, external or has orders |
 | `PUT /admin/events/{eventId}/seat-map` `{template, reason}` · `DELETE …` `{reason}` | admin, any status, no orders. 200 `SeatMapRecord` / 204; 400; 404; 409 has orders (`fieldErrors.template`) or external |
-| `POST /orders/by-session/{orderId}/cancel` | public (the order id is the credential): expires the Stripe session, then cancels the order and releases its seats. 200 `{status: "released" \| "paid" \| "processing", eventTitle, eventSlug?}`; 404; 409 still being set up |
+| `POST /orders/by-session/{orderId}/cancel` | public (the order id is the credential; only the client that made the order gets it: the checkout's 201 and Stripe's URLs): expires the Stripe session, then cancels the order and releases its seats; a paid order is never changed. 200 `{status: "released" \| "paid" \| "processing", eventTitle, eventSlug?}`; 404; 409 still being set up |
 | `POST /orders/confirm` `{token}` | public (the emailed token is the credential). 200 `{url}` (also when already confirmed, within 24 hours); 400 malformed; 404 unknown; 410 expired (confirmed or not); 409 sold out, allowance used, or a ticket type no longer free |
 | `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store` |
 | `GET /cron/email-outbox` | Vercel Cron (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due ticket emails, returns counts |

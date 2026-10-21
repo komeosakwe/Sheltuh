@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { checkInTicket } from "@/lib/server/handlers/check-ins";
+import { checkInTicket, getCheckInSummary } from "@/lib/server/handlers/check-ins";
 import { confirmFreeOrder } from "@/lib/server/handlers/free-orders";
 import { cancelPendingOrder, createCheckout, getOrderBySession, SEAT_HOLD_LIMITS, stripeWebhook } from "@/lib/server/handlers/orders";
 import { joinWaitlist } from "@/lib/server/handlers/waitlist";
@@ -92,13 +92,16 @@ describe("holding seats at checkout (paid)", () => {
     const res = await checkout({ ...seats(["A1", "B2"]), lineItems: [{ ticketTypeId: "ga", quantity: 2 }], buyerEmail: "fan@example.com" });
     expect(res.status).toBe(201);
     expect(res.headers.get("cache-control")).toBe("private, no-store");
-    expect(Object.keys(res.body).sort()).toEqual(["holdExpiresAt", "url"]);
+    expect(Object.keys(res.body).sort()).toEqual(["holdExpiresAt", "orderId", "url"]);
     const holdMs = Date.parse(res.body.holdExpiresAt) - before;
     expect(holdMs).toBeGreaterThan(34 * 60_000);
     expect(holdMs).toBeLessThan(36 * 60_000);
 
     const params = api.stripe.checkout.sessions.create.mock.calls[0][0];
     const orderId = params.client_reference_id;
+    // The response's order id is the order just made (the one in Stripe's URLs).
+    expect(res.body.orderId).toBe(orderId);
+    expect(res.body.orderId).toMatch(/^ord_[0-9a-f]{32}$/);
     expect(params.expires_at * 1000 - before).toBeGreaterThan(30 * 60_000);
     expect(params.expires_at * 1000 - before).toBeLessThanOrEqual(SEAT_HOLD_LIMITS.stripeSessionMinutes * 60_000 + 1000);
     expect(params.cancel_url).toBe(`${SITE_URL}/checkout/cancelled?order=${orderId}`);
@@ -410,6 +413,27 @@ describe("the webhook", () => {
 describe("cancelling a seated checkout (the buyer left Stripe's page)", () => {
   const cancel = (orderId: string) => api.call(cancelPendingOrder, { params: { sessionId: orderId }, method: "POST" });
 
+  it("Back from Stripe: the order id from the checkout's response cancels it and frees the seats at once", async () => {
+    const res = await checkout(seats(["A1", "A2"]));
+    expect(res.status).toBe(201);
+    expect(await seatStates(api, event.eventId)).toMatchObject({ A1: `held:${res.body.orderId}`, A2: `held:${res.body.orderId}` });
+    const cancelled = await cancel(res.body.orderId);
+    expect(cancelled.body).toEqual({ status: "released", eventTitle: "Neon Static", eventSlug: event.slug });
+    expect(api.stripe.checkout.sessions.expire).toHaveBeenCalledWith("cs_test_1");
+    expect(await seatStates(api, event.eventId)).toMatchObject({ A1: "free", A2: "free" });
+    // Someone else can have them straight away.
+    expect((await checkout(seats(["A1"]))).status).toBe(201);
+  });
+
+  it("a paid order's id cancels nothing: it stays paid, its seats sold, and Stripe isn't asked", async () => {
+    const orderId = await paidSeats(["A1"]);
+    const res = await cancel(orderId);
+    expect(res.body.status).toBe("paid");
+    expect(api.stripe.checkout.sessions.expire).not.toHaveBeenCalled();
+    expect((await orders())[0].status).toBe("paid");
+    expect(await seatStates(api, event.eventId)).toMatchObject({ A1: `sold:${orderId}` });
+  });
+
   it("expires the Stripe session first, then releases the seats; safe to repeat", async () => {
     await checkout(seats(["A1", "A2"]));
     const [order] = await orders();
@@ -520,19 +544,71 @@ describe("check-in", () => {
       ticket: { ticketTypeName: "Standard", seat: { section: "Stalls", row: "B", seat: "2", kind: "standard" } },
     });
   });
+
+  it("Recent scans carry the seat for this event's seated tickets only", async () => {
+    const orderId = await paidSeats(["B2"]);
+    const [{ code }] = await api.db.query<{ code: string }>(`select code from public.tickets where order_id = $1`, [orderId]);
+    const ga = await api.call(createCheckout, { params: { eventId: event.eventId }, body: { lineItems: [{ ticketTypeId: "ga", quantity: 1 }] } });
+    expect(ga.status).toBe(201);
+    await api.send(stripeWebhook, completed(ga.body.orderId, "pi_ga"));
+    const [{ code: gaCode }] = await api.db.query<{ code: string }>(`select code from public.tickets where order_id = $1`, [ga.body.orderId]);
+    // A seated ticket of another event: an other_event entry here, and no seat (it's somewhere else).
+    const { event: other } = await seatedEvent(api, organiser, admin, { overrides: { title: "Other Hall" } });
+    const otherHold = await api.call(createCheckout, {
+      params: { eventId: other.eventId },
+      body: { seats: { mapVersion: other.seating!.version, seatIds: ["A3"] } },
+    });
+    await api.send(stripeWebhook, completed(otherHold.body.orderId, "pi_other"));
+    const [{ code: otherCode }] = await api.db.query<{ code: string }>(`select code from public.tickets where order_id = $1`, [otherHold.body.orderId]);
+
+    const scan = (ticketCode: string) =>
+      api.call(checkInTicket, { token: organiser.token, params: { eventId: event.eventId }, body: { code: ticketCode, requestId: crypto.randomUUID() } });
+    await scan(code);
+    await scan(gaCode);
+    await scan(otherCode);
+    await scan("NOPE-NOPE");
+    const summary = await api.call(getCheckInSummary, { token: organiser.token, params: { eventId: event.eventId } });
+    expect(summary.status).toBe(200);
+    const [invalid, otherEvent, gaEntry, seated] = summary.body.recent;
+    expect(seated).toMatchObject({ result: "admitted", ticketTypeName: "Standard", seat: { section: "Stalls", row: "B", seat: "2", kind: "standard" } });
+    expect(gaEntry).toMatchObject({ result: "admitted", ticketTypeName: "Standing" });
+    expect(otherEvent).toMatchObject({ result: "other_event", otherEventTitle: "Other Hall" });
+    expect(invalid).toMatchObject({ result: "invalid" });
+    for (const entry of [invalid, otherEvent, gaEntry]) expect(entry).not.toHaveProperty("seat");
+
+    // A full refund frees the seat: the log entry no longer names one.
+    await api.send(
+      stripeWebhook,
+      stripeWebhookRequest({
+        type: "charge.refunded",
+        data: { object: { id: "ch_1", object: "charge", payment_intent: `pi_${orderId}`, amount_refunded: 3170, refunded: true } },
+      }),
+    );
+    const afterRefund = await api.call(getCheckInSummary, { token: organiser.token, params: { eventId: event.eventId } });
+    expect(afterRefund.body.recent.at(-1)).not.toHaveProperty("seat");
+  });
 });
 
 describe("general admission is unchanged", () => {
-  it("a GA checkout has no hold, no expiry and the event page as cancel_url; its body is just {url}", async () => {
+  it("a GA checkout has no hold, no expiry and the event page as cancel_url; its body is {url, orderId}, never cached", async () => {
     const ga = await publishedEvent(api, organiser, admin, { title: "Plain Gig" });
     const res = await checkout({ lineItems: [{ ticketTypeId: "ga", quantity: 1 }] }, { eventId: ga.eventId });
     expect(res.status).toBe(201);
-    expect(Object.keys(res.body)).toEqual(["url"]);
+    expect(Object.keys(res.body).sort()).toEqual(["orderId", "url"]);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
     const params = api.stripe.checkout.sessions.create.mock.lastCall![0];
+    expect(res.body.orderId).toBe(params.client_reference_id);
     expect(params).not.toHaveProperty("expires_at");
     expect(params.cancel_url).toBe(`${SITE_URL}/events/${ga.slug}`);
     const [order] = await api.db.query(`select seat_ids from public.orders where event_id = $1`, [ga.eventId]);
     expect(order.seat_ids).toBeNull();
+
+    // Its id cancels it too (expired at Stripe first; nothing to release).
+    const cancelled = await api.call(cancelPendingOrder, { params: { sessionId: res.body.orderId }, method: "POST" });
+    expect(cancelled.body).toEqual({ status: "released", eventTitle: "Plain Gig", eventSlug: ga.slug });
+    expect(api.stripe.checkout.sessions.expire).toHaveBeenCalledTimes(1);
+    const [after] = await api.db.query(`select status::text as status from public.orders where event_id = $1`, [ga.eventId]);
+    expect(after.status).toBe("failed");
   });
 
   it("a mixed event's GA tier can still be bought without seats", async () => {

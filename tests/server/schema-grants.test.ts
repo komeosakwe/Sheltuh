@@ -112,6 +112,7 @@ describe("Data API lock-out", () => {
     );
     expect(tables).toEqual([
       { table_name: "analytics_settings", rls: true },
+      { table_name: "client_rate_limits", rls: true },
       { table_name: "conversation_pairs", rls: true },
       { table_name: "email_outbox", rls: true },
       { table_name: "event_curation", rls: true },
@@ -236,7 +237,7 @@ describe("Data API lock-out", () => {
     expect(policies.n).toBe(0);
   });
 
-  it("the reserved seating functions and triggers exist, pin search_path and aren't client-executable", async () => {
+  it("the reserved seating functions and triggers (and the per-client hold limit's) exist, pin search_path and aren't client-executable", async () => {
     const names = [
       "admin_replace_seat_map",
       "admin_set_event_ticketing",
@@ -252,11 +253,14 @@ describe("Data API lock-out", () => {
       "lock_event_seats",
       "order_seats_match",
       "place_free_seated_order",
+      "purge_operational_data",
       "record_payment_refund",
       "release_seat_holds",
       "replace_seat_map",
       "request_free_seated_order",
       "seat_map_summary",
+      "take_client_rate_limit",
+      "take_seat_hold_attempt",
       "ticket_types_seated_capacity",
       "unavailable_seats",
       "write_seat_map",

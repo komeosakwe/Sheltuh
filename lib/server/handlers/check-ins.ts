@@ -7,6 +7,7 @@ import {
   type CheckInSummary,
   type EventAttendance,
   type SeatKind,
+  type TicketSeat,
   type UndoCheckInOutcome,
   type UndoCheckInResult,
 } from "@/lib/api/types";
@@ -136,6 +137,21 @@ interface CheckInRow {
   seat_kind: string | null;
 }
 
+type SeatColumns = Pick<CheckInRow, "seat_section" | "seat_row" | "seat_label" | "seat_kind">;
+
+/** `{seat}` when the row names one (reserved seating), else nothing. */
+function seatOf(row: SeatColumns): { seat?: TicketSeat } {
+  if (row.seat_section === null || row.seat_section === undefined) return {};
+  return {
+    seat: {
+      section: row.seat_section,
+      row: row.seat_row ?? "",
+      seat: row.seat_label as string,
+      kind: (row.seat_kind ?? "standard") as SeatKind,
+    },
+  };
+}
+
 function toCheckInResult(row: CheckInRow): CheckInResult {
   const outcome = row.result as CheckInOutcome;
   // Unknown codes and other organisers' tickets must be indistinguishable: nothing but the outcome.
@@ -148,16 +164,7 @@ function toCheckInResult(row: CheckInRow): CheckInResult {
       ticketCount: row.ticket_count as number,
       codeLast4: row.code_last4 as string,
       // Reserved seating: where to send them (absent for general admission).
-      ...(row.seat_section !== null && row.seat_section !== undefined
-        ? {
-            seat: {
-              section: row.seat_section,
-              row: row.seat_row ?? "",
-              seat: row.seat_label as string,
-              kind: (row.seat_kind ?? "standard") as SeatKind,
-            },
-          }
-        : {}),
+      ...seatOf(row),
     },
   };
   // The admission an undo reverses: this one, or the ticket's current one when it's already in.
@@ -299,7 +306,8 @@ async function ticketTypeCounts(db: Db, eventId: string) {
 /**
  * GET /api/organisers/me/events/[eventId]/check-ins: counts (tickets of paid
  * orders, checked in and sold, per ticket type, with capacity) and the
- * newest 20 log entries, showing only the last four characters of codes.
+ * newest 20 log entries, showing only the last four characters of codes
+ * (and, for a seated ticket of this event, its seat).
  */
 export const getCheckInSummary: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const { organiserId } = await doorCaller(req, deps, eventId);
@@ -317,16 +325,19 @@ export const getCheckInSummary: Handler<{ eventId: string }> = async (req, { eve
       other_event_title: string | null;
       reason: string | null;
       undoable: boolean;
-    }>(
+    } & SeatColumns>(
       `select c.public_id::text as id, c.result, c.created_at, right(c.ticket_code, 4) as code_last4, c.reason,
               t.ticket_type_name,
               case when c.result = 'other_event' then e.title end as other_event_title,
+              s.section_label as seat_section, s.row_label as seat_row, s.seat_label, s.kind as seat_kind,
               (c.result = 'admitted' and t.checked_in_at is not null
                  and not exists (select 1 from public.ticket_check_ins l
                                   where l.ticket_code = c.ticket_code and l.result = 'admitted' and l.id > c.id)) as undoable
          from public.ticket_check_ins c
          left join public.tickets t on t.code = c.ticket_code
          left join public.events e on e.id = t.event_id
+         -- This event's tickets only (an other_event entry's seat is somewhere else); event_seats' primary key.
+         left join public.event_seats s on s.event_id = c.event_id and t.event_id = c.event_id and s.id = t.seat_id
         where c.event_id = $1
         order by c.id desc
         limit $2`,
@@ -356,6 +367,7 @@ export const getCheckInSummary: Handler<{ eventId: string }> = async (req, { eve
       ticketTypeName: r.ticket_type_name,
       ...(r.other_event_title ? { otherEventTitle: r.other_event_title } : {}),
       ...(r.reason ? { reason: r.reason } : {}),
+      ...seatOf(r),
       undoable: r.undoable === true,
     })),
   };

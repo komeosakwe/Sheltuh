@@ -388,9 +388,9 @@ export const MAX_FREE_TICKETS_PER_ORDER = 4;
 
 /**
  * POST /api/events/{eventId}/checkout.
- * - 201 `{url}`: go there. Stripe's checkout for a paid order; the
- *   confirmation page for a free order by a signed-in member booking with
- *   their own (verified) account email.
+ * - 201 `{url}`: go there. Stripe's checkout for a paid order (with
+ *   `orderId`); the confirmation page for a free order by a signed-in member
+ *   booking with their own (verified) account email.
  * - 202 `{status: "confirmation_sent"}`: a free order by anyone else. A link
  *   to confirm it has been emailed to the address given (valid for
  *   `expiresInHours`); nothing is issued or held until it's confirmed.
@@ -403,6 +403,14 @@ export type CheckoutResult =
        * Stripe's page closes a few minutes before (SEAT_HOLD.stripeMinutes).
        */
       holdExpiresAt?: string;
+      /**
+       * A paid (Stripe) checkout only, seated or not: the pending order's id
+       * (`ord_` + 32 hex). Only this client gets it (it's also in Stripe's
+       * success and cancel URLs); keep it for the session only and pass it to
+       * cancelPendingOrder when the buyer comes Back from Stripe. It's the
+       * order's credential: never log it or put it anywhere shared.
+       */
+      orderId?: string;
     }
   | { status: "confirmation_sent"; expiresInHours: number };
 
@@ -1263,6 +1271,12 @@ export interface CheckInLogEntry {
   otherEventTitle?: string;
   /** `undone` only. */
   reason?: string;
+  /**
+   * The ticket's seat (lib/seating/format.ts says it), for a ticket of this
+   * event that has one; absent for general admission, `invalid` and
+   * `other_event` entries, and once a refund has freed the seat.
+   */
+  seat?: TicketSeat;
   /** An `admitted` entry that is the ticket's current check-in, so it can be undone. */
   undoable: boolean;
 }
@@ -1365,13 +1379,14 @@ export interface CheckoutSeatsInput {
  *   and let the buyer choose again).
  * - 409 `seat_map_changed` (fieldErrors.seatMapVersion): the map was replaced; reload it.
  * - 429 (`hold_cap`: too many seats held for the event right now; `rate_limited`:
- *   too many checkouts for it in 10 minutes; fieldErrors.seats): `seatIds`, the
- *   seats asked for (none were held).
+ *   too many checkouts for it in 10 minutes; `client_rate_limited`: too many
+ *   checkouts from this connection in 10 minutes, for this event or in all;
+ *   fieldErrors.seats): `seatIds`, the seats asked for (none were held).
  * - 409 from POST /api/orders/confirm when a guest's seats went before they
  *   confirmed (`code: "seats_taken"`): `seats` (their labels) and `eventSlug`.
  */
 export interface SeatErrorDetails {
-  code?: "seats_unavailable" | "hold_cap" | "rate_limited" | "seat_map_changed" | "seats_taken";
+  code?: "seats_unavailable" | "hold_cap" | "rate_limited" | "client_rate_limited" | "seat_map_changed" | "seats_taken";
   seatIds?: string[];
   seats?: TicketSeat[];
   eventSlug?: string;

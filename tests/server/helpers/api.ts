@@ -112,7 +112,15 @@ export class TestApi {
 
   async call<P extends Record<string, string>>(
     handler: Handler<P>,
-    options: { params?: P; token?: string; body?: unknown; query?: Record<string, string>; method?: string } = {},
+    options: {
+      params?: P;
+      token?: string;
+      body?: unknown;
+      query?: Record<string, string>;
+      method?: string;
+      /** Extra request headers, e.g. `x-forwarded-for` (none by default: no client IP). */
+      headers?: Record<string, string>;
+    } = {},
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- tests assert on arbitrary response JSON
   ): Promise<{ status: number; body: any; headers: Headers }> {
     const url = new URL(`${SITE_URL}/api/test`);
@@ -121,6 +129,7 @@ export class TestApi {
       method: options.method ?? (options.body === undefined ? "GET" : "POST"),
       headers: {
         "content-type": "application/json",
+        ...options.headers,
         ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
       },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),

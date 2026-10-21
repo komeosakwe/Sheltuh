@@ -1,6 +1,6 @@
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { publicEventUrl } from "@/lib/event-url";
-import type { EmailMessage } from "./email";
+import { subjectLine, type EmailMessage } from "./email";
 import type { EventRecord } from "./types";
 import { button, escapeHtml, INK, MUTED, page, supportFooter, when, where } from "./waitlist-email";
 
@@ -55,7 +55,7 @@ export function buildFollowerNewEventsEmail(input: {
 }): EmailMessage {
   const { to, events, total, siteUrl, unsubscribeLink } = input;
   // Organiser-supplied: kept to one line, so it can't bend the subject header.
-  const organiserName = input.organiserName.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ").trim();
+  const organiserName = subjectLine(input.organiserName);
   const organiserLink = organiserPageLink(siteUrl, input.organiserId);
   const heading =
     total === 1 ? `New from ${organiserName}` : `${total} new events from ${organiserName}`;
@@ -94,10 +94,7 @@ export function buildFollowerNewEventsEmail(input: {
 
   return {
     to,
-    subject: (total === 1 ? `New from ${organiserName}: ${events[0].title}` : heading).replace(
-      /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu,
-      " ",
-    ),
+    subject: subjectLine(total === 1 ? `New from ${organiserName}: ${events[0].title}` : heading),
     text,
     html,
     headers: { "List-Unsubscribe": `<${unsubscribeLink}>` },

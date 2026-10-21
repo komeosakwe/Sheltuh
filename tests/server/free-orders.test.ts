@@ -623,7 +623,7 @@ describe("confirmation re-checks", () => {
 });
 
 describe("retention (purge_operational_data)", () => {
-  it("deletes unconfirmed links a week after expiry, idle counters, old refusal counts and old email jobs; keeps paid orders", async () => {
+  it("deletes unconfirmed links a week after expiry, idle counters (platform and per-client), old refusal counts and old email jobs; keeps paid orders", async () => {
     await book("old@example.com");
     await book("recent@example.com");
     await bookAndConfirm("paid@example.com");
@@ -640,6 +640,11 @@ describe("retention (purge_operational_data)", () => {
     await api.db.query(
       `insert into private.platform_rate_limits (bucket, window_started_at, hits) values ('stale', now() - interval '2 days', 1)`,
     );
+    await api.db.query(
+      `insert into private.client_rate_limits (client_key, bucket, window_started_at, hits) values
+         ($1, 'seat_holds', now() - interval '2 days', 1), ($1, 'seat_holds:recent', now() - interval '20 hours', 1)`,
+      ["a".repeat(64)],
+    );
     await api.db.query(`update private.email_outbox set sent_at = now() - interval '91 days'`);
 
     const [counts] = await api.db.query(`select * from private.purge_operational_data()`);
@@ -648,13 +653,15 @@ describe("retention (purge_operational_data)", () => {
       platform_rate_limits_deleted: 1,
       free_order_refusals_deleted: 1,
       email_jobs_deleted: 1,
+      client_rate_limits_deleted: 1,
     });
+    expect(await api.db.query(`select bucket from private.client_rate_limits`)).toEqual([{ bucket: "seat_holds:recent" }]);
     expect((await orders()).map((o) => [o.buyer_email, o.status]).sort()).toEqual([
       ["paid@example.com", "paid"],
       ["recent@example.com", "pending"],
     ]);
     const [again] = await api.db.query(`select * from private.purge_operational_data()`);
-    expect(Object.values(again)).toEqual([0, 0, 0, 0]);
+    expect(Object.values(again)).toEqual([0, 0, 0, 0, 0]);
   });
 });
 

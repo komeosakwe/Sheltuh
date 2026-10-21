@@ -1,6 +1,6 @@
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { publicEventUrl } from "@/lib/event-url";
-import type { EmailMessage } from "./email";
+import { subjectLine, type EmailMessage } from "./email";
 import { formatTicketDate, formatTicketTime } from "./ticket-email";
 import type { EventRecord } from "./types";
 
@@ -91,16 +91,6 @@ function eventBlock(event: EventRecord): string {
 }
 
 export const supportFooter = `Need help? Email <a href="mailto:${escapeHtml(SUPPORT_EMAIL)}" style="color:${MUTED}">${escapeHtml(SUPPORT_EMAIL)}</a><br>Sheltüh &middot; Melbourne`;
-
-/**
- * A subject line from organiser-supplied text (the event title): control,
- * invisible and text-direction characters (bidi overrides and isolates,
- * zero-width characters, line and paragraph separators) become one space, so
- * a title can't reorder or hide what the inbox shows, or bend the header.
- */
-export function subjectLine(value: string): string {
-  return value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ").replace(/ {2,}/g, " ").trim();
-}
 
 /** A guest's confirm-to-join email. Nothing is added to the list until the link's page is confirmed. */
 export function buildWaitlistConfirmationEmail(

@@ -2,7 +2,7 @@ import { SUPPORT_EMAIL } from "@/lib/contact";
 import { formatAud } from "@/lib/format";
 import { formatSeatLine, speakSeatLine } from "@/lib/seating/format";
 import { QR_QUIET_ZONE_MODULES, ticketQrLabel, ticketQrMatrix } from "@/lib/ticket-qr";
-import type { EmailMessage, InlineImage } from "./email";
+import { subjectLine, type EmailMessage, type InlineImage } from "./email";
 import { orderReference } from "./order-reference";
 import { encodePng } from "./png";
 import type { EventRecord, OrderRecord, TicketSeat } from "./types";
@@ -278,7 +278,7 @@ ${tickets}
   const inlineImages = qrs.flatMap((qr) => (qr ? [qr.image] : []));
   return {
     to: order.buyerEmail ?? "",
-    subject: `Your tickets: ${event.title}`,
+    subject: subjectLine(`Your tickets: ${event.title}`),
     text,
     html,
     ...(inlineImages.length > 0 ? { inlineImages } : {}),

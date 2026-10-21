@@ -7,7 +7,8 @@ import { formatSeatLine } from "@/lib/seating/format";
 import { MAX_SEATS_PER_ORDER } from "@/lib/seating/template";
 import { REMAINING_SHOWN_AT_MOST } from "@/lib/api/public-events";
 import { SEAT_HOLD } from "@/lib/api/types";
-import { created, createdPrivate, HttpError, ok, okPrivate, readJson } from "../http";
+import { clientIp, clientKey } from "../client-key";
+import { createdPrivate, HttpError, ok, okPrivate, readJson } from "../http";
 import { parseCheckoutLineItems } from "../order-input";
 import { parseCheckoutSeats } from "../seat-map-input";
 import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
@@ -294,7 +295,10 @@ async function refuseIfExternal<T>(work: () => Promise<T>): Promise<T> {
 /**
  * POST /api/events/[eventId]/checkout — public guest checkout. A paid order
  * becomes a Stripe Checkout Session paying out to the organiser's Connect
- * account, fulfilled by the webhook: 201 with its URL. A wholly free order
+ * account, fulfilled by the webhook: 201 `{url, orderId}` (private,
+ * no-store; the order id lets the page cancel it, POST
+ * /orders/by-session/{orderId}/cancel, if the buyer comes Back from
+ * Stripe). A wholly free order
  * never touches Stripe (./free-orders.ts): 201 with the confirmation page's
  * URL for a member's own verified email, otherwise 202, the confirmation
  * link being emailed straight after the response. Any order, paid or free, holds at most 4 free
@@ -410,7 +414,10 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   if (!session.url) throw new Error("Stripe did not return a Checkout Session URL.");
 
   await db.query(`update public.orders set stripe_checkout_session_id = $2 where id = $1`, [orderId, session.id]);
-  return created({ url: session.url });
+  // The order id goes back only to the client that made the order (it's in Stripe's success and cancel URLs
+  // anyway), so the page can cancel it if the buyer comes Back from Stripe: never cached.
+  const result: CheckoutResult = { url: session.url, orderId };
+  return createdPrivate(result);
 };
 
 const ORDER_NOT_FOUND = "Order not found.";
@@ -532,11 +539,21 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
  * page closing at 31 (its minimum is 30, and the buyer is told 30); per event,
  * 120 holds per 10 minutes (refused attempts don't count), and at most the
  * larger of 20 seats or 30% of its unblocked seats held at once.
+ *
+ * Per client (keyed on its IP address, lib/server/client-key.ts; a manager
+ * decision): 20 hold attempts per event and 60 across all events per 10
+ * minutes. Every attempt that reaches private.hold_seats counts, refused or
+ * not. A buyer whose seats keep being taken retries a handful of times, so
+ * 20 leaves plenty for them and for a few people on one connection (venue
+ * wifi, a phone network's shared address), while one client can no longer
+ * use up the event's 120 alone (it takes at least six). 60 bounds a client
+ * working through many events.
  */
 export const SEAT_HOLD_LIMITS = {
   hold: `${SEAT_HOLD.holdMinutes} minutes`,
   stripeSessionMinutes: SEAT_HOLD.stripeMinutes + 1,
   attempts: { limit: 120, window: "10 minutes" },
+  perClient: { event: 20, allEvents: 60, window: "10 minutes" },
   capMin: 20,
   capShare: 0.3,
 } as const;
@@ -544,6 +561,7 @@ export const SEAT_HOLD_LIMITS = {
 const SEATS_TAKEN = "Some seats were taken while you were choosing. Choose other seats, then press Checkout again.";
 const SEAT_MAP_CHANGED = "The seat map has changed. Reload it and choose your seats again.";
 const BUSY = "A lot of people are checking out for this event right now. Try again in a minute.";
+const CLIENT_BUSY = "You've started a lot of checkouts in the last few minutes. Wait a few minutes, then try again.";
 
 function seatError(status: number, message: string, field: string, details: SeatErrorDetails): HttpError {
   return new HttpError(status, message, { [field]: message }, { ...details });
@@ -555,6 +573,34 @@ function refuseSeatedLines(event: EventRecord, lineItems: OrderLineItem[]) {
   const seated = new Set(event.ticketTypes.filter((t) => t.seated).map((t) => t.id));
   const line = lineItems.find((l) => seated.has(l.ticketTypeId));
   if (line) fail({ lineItems: `"${line.ticketTypeName}" seats are chosen on the seat map.` });
+}
+
+/**
+ * One hold attempt against the client's own allowance (SEAT_HOLD_LIMITS.perClient,
+ * private.take_seat_hold_attempt): 429 `client_rate_limited` when it's used
+ * up, nothing else written. Fails open, with a log line (never the request's
+ * headers), when the request has no usable client IP (always set on Vercel)
+ * or the secret the key is salted with isn't configured.
+ */
+async function takeClientHoldAttempt(req: Request, deps: Deps, eventId: string, seatIds: string[]) {
+  const ip = clientIp(req);
+  if (!ip) {
+    console.warn("Seat hold without a client IP header: the per-client hold limit was skipped.");
+    return;
+  }
+  let secret: string;
+  try {
+    secret = deps.stripeWebhookSecret();
+  } catch {
+    console.error("STRIPE_WEBHOOK_SECRET isn't set: the per-client hold limit was skipped.");
+    return;
+  }
+  const { event, allEvents, window } = SEAT_HOLD_LIMITS.perClient;
+  const [row] = await deps.db.query<{ result: "ok" | "event" | "all" }>(
+    `select private.take_seat_hold_attempt($1, $2, $3, $4, $5::interval) as result`,
+    [clientKey(ip, secret), eventId, event, allEvents, window],
+  );
+  if (row.result !== "ok") throw seatError(429, CLIENT_BUSY, "seats", { code: "client_rate_limited", seatIds });
 }
 
 interface ChosenSeat extends TicketSeat {
@@ -576,15 +622,17 @@ function seatLines(event: EventRecord, seats: ChosenSeat[]): OrderLineItem[] {
  * POST …/checkout with `seats: {mapVersion, seatIds}` (and optional
  * `lineItems` for the event's general admission tiers, which don't count
  * towards the 10 seats). Prices come from each seat's tier.
- * - Paid: the pending order and its 35-minute holds in one step
- *   (private.hold_seats), then Stripe (expires in 31 minutes; a Stripe error
- *   releases the holds). 201 `{url, holdExpiresAt}`.
+ * - Paid: one attempt against the client's own hold allowance, then the
+ *   pending order and its 35-minute holds in one step (private.hold_seats),
+ *   then Stripe (expires in 31 minutes; a Stripe error releases the holds).
+ *   201 `{url, holdExpiresAt, orderId}`.
  * - Free: a member's own verified email gets the seats at once; anyone else
  *   an emailed link, holding nothing until it's confirmed.
  * Refusals write nothing (only a hold counts towards the event's hold
  * attempts): 400 bad input; 409 `seats` taken or unknown (body `seatIds`),
  * `seatMapVersion` changed; 429 too many seats held or holds made for the
- * event (body `seatIds`).
+ * event, or too many attempts by this client (`client_rate_limited`; body
+ * `seatIds`).
  */
 async function createSeatedCheckout(
   req: Request,
@@ -645,6 +693,7 @@ async function createSeatedCheckout(
     throw new HttpError(409, "This organiser hasn't finished setting up payouts yet — ticket sales aren't open.");
   }
 
+  await takeClientHoldAttempt(req, deps, event.eventId, seatIds);
   const orderId = `ord_${crypto.randomUUID().replace(/-/g, "")}`;
   const [hold] = await refuseIfExternal(() =>
     db.query<{ result: string; hold_expires_at: string | Date | null; unavailable_seat_ids: string[] | null }>(
@@ -746,7 +795,13 @@ async function createSeatedCheckout(
   }
 
   await db.query(`update public.orders set stripe_checkout_session_id = $2 where id = $1`, [orderId, session.id]);
-  const result: CheckoutResult = { url: session.url, holdExpiresAt: new Date(hold.hold_expires_at as string).toISOString() };
+  const result: CheckoutResult = {
+    url: session.url,
+    holdExpiresAt: new Date(hold.hold_expires_at as string).toISOString(),
+    // Only to the client that made the order (as for general admission): the seat page keeps it so Back from
+    // Stripe can release the seats at once.
+    orderId,
+  };
   return createdPrivate(result);
 }
 
@@ -771,6 +826,11 @@ async function expireCheckoutSession(deps: Deps, sessionId: string): Promise<"ex
  * CancelOrderResult: `released` (also when it already was), `paid`, or
  * `processing` (Stripe already has the payment). 404 unknown or not a card
  * checkout; 409 still being set up (try again). `private, no-store`.
+ * The id (`ord_` + 32 hex, 128 random bits) only ever reaches the client
+ * that made the order: the checkout's response and Stripe's success and
+ * cancel URLs. A paid order is never changed here, and the session is
+ * expired before anything is released, so nothing can be paid for seats
+ * that are no longer held.
  */
 export const cancelPendingOrder: Handler<{ sessionId: string }> = async (_req, { sessionId }, deps) => {
   if (!ORDER_ID_PATTERN.test(sessionId)) throw new HttpError(404, ORDER_NOT_FOUND);
