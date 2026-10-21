@@ -8,7 +8,7 @@ import { ArrowRightIcon } from "./icons";
 export default function PhoneHero() {
   return (
     <section aria-labelledby="home-title">
-      <p className="eyebrow rise mb-3 text-muted">Melbourne · Naarm</p>
+      <p className="eyebrow rise mb-3 text-muted">Australia · Curated</p>
       <div className="grid grid-cols-[auto_minmax(5.5rem,1fr)] items-stretch gap-x-3">
         {/* The spaces between spans keep the accessible text a sentence. */}
         <h1
@@ -31,7 +31,7 @@ export default function PhoneHero() {
         </div>
       </div>
       <p className="rise mt-4 max-w-[34ch] text-base leading-6 [--d:300ms]">
-        Live music, art, workshops and pop-ups, plus the people who make Melbourne’s creative scene.
+        Live music, art, workshops and pop-ups, plus the people who make Australia’s creative scene.
       </p>
       <div className="rise mt-5 flex flex-col gap-2 [--d:400ms]">
         <ButtonLink href="/events" size="lg" className="w-full">

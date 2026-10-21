@@ -24,7 +24,7 @@ export default function IntentHero() {
     <>
       <section className="mx-auto grid max-w-6xl grid-cols-1 gap-4 px-5 pb-8 pt-6 sm:gap-10 sm:px-8 sm:pb-24 sm:pt-14 lg:grid-cols-12">
         <div className="flex flex-col justify-between gap-4 sm:gap-10 lg:col-span-7">
-          <p className="eyebrow rise text-muted">Melbourne &middot; Naarm</p>
+          <p className="eyebrow rise text-muted">Australia &middot; Curated</p>
           <h1 className="display-xl rise [--d:100ms]">
             Find your room.
             <br />
@@ -57,14 +57,14 @@ export default function IntentHero() {
           <EventArt poster={HERO_POSTERS[0]} imageUrl={HERO_POSTERS[0].imageUrl} motion title="Sheltüh" priority className="float absolute right-0 top-0 h-[430px] w-[78%]" />
           <EventArt poster={HERO_POSTERS[1]} imageUrl={HERO_POSTERS[1].imageUrl} motion title="Sheltüh" className="float absolute bottom-0 left-0 h-[220px] w-[46%] [--d:-2s]" />
           <EventArt poster={HERO_POSTERS[2]} imageUrl={HERO_POSTERS[2].imageUrl} motion title="Sheltüh" className="float absolute bottom-6 right-0 h-[150px] w-[38%] [--d:-4s]" />
-          <RoundBadge text="Curated · Melbourne · Naarm · " className="absolute left-2 top-16 h-28 w-28 rounded-full bg-highlight text-foreground" />
+          <RoundBadge text="Curated · Aussie · Local · " className="absolute left-2 top-16 h-28 w-28 rounded-full bg-highlight text-foreground" />
           <Burst className="absolute right-[-8px] top-[-14px] h-10 w-10 text-foreground" />
         </div>
       </section>
 
       {/* Hidden on phones: it costs a screen band before the feed and can't be paused. */}
       <div className="hidden sm:block">
-        <Marquee items={["Live music", "Art", "Workshops", "Pop-ups", "Theatre", "Melbourne"]} />
+        <Marquee items={["Live music", "Art", "Workshops", "Pop-ups", "Theatre", "Australia"]} />
       </div>
     </>
   );
