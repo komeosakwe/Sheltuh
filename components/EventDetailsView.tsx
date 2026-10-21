@@ -8,6 +8,7 @@ import EventArt from "@/components/EventArt";
 import ExternalTicketLink from "@/components/ExternalTicketLink";
 import SaveButton from "@/components/favourites/SaveButton";
 import SaveOnReturn from "@/components/favourites/SaveOnReturn";
+import SeatedTicketsPanel from "@/components/seating/SeatedTicketsPanel";
 import ShareButton from "@/components/ShareButton";
 import TicketSelector from "@/components/TicketSelector";
 import TicketsHashFocus from "@/components/TicketsHashFocus";
@@ -19,7 +20,7 @@ import WhosGoingSummaryLink from "@/components/whos-going/WhosGoingSummaryLink";
 import { isSafeTicketUrl } from "@/lib/event-url";
 import { formatEventDateShort, formatEventDateTimeRange, formatEventTime } from "@/lib/format";
 import { externalProviderLabel, formatFeedPriceParts, isSoldOut } from "@/lib/pricing";
-import { quickBuyLabel } from "@/lib/quick-buy";
+import { goesToSeatPage, quickBuyLabel } from "@/lib/quick-buy";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 
 const asideRowClass = "border-t border-foreground py-3";
@@ -63,7 +64,8 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
   // (§6.10, §6.11). Once a sold-out event has ended there's nothing to join.
   const soldOut = isSoldOut(event);
   const ended = Date.parse(event.endsAt ?? event.startsAt) <= new Date().getTime();
-  const buyBarLabel = soldOut && ended ? "See tickets" : (quickBuyLabel(event) ?? "Buy tickets");
+  const buyBarLabel = (soldOut || event.seating) && ended ? "See tickets" : (quickBuyLabel(event) ?? "Buy tickets");
+  const seatPage = goesToSeatPage(event) && !ended;
   const shareText = `${event.title} · ${formatEventDateShort(event.startsAt)}, ${formatEventTime(event.startsAt)} · ${event.venueName}`;
   const saveTarget = { id: event.id, title: event.title, slug: event.slug };
   const outboundLink = (className: string) => (
@@ -224,6 +226,9 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                 ) : event.ticketTypes.length === 0 ? (
                   // Nothing on sale yet: no fee to explain and nothing to select.
                   <p className="text-sm text-muted">Tickets coming soon.</p>
+                ) : event.seating ? (
+                  // Reserved seating: tiers are chosen on the seat page, never as quantities here.
+                  <SeatedTicketsPanel event={event} demo={demo} />
                 ) : (
                   <TicketSelector event={event} />
                 )}
@@ -249,11 +254,19 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <SaveButton event={saveTarget} variant="onDark" className="hidden min-[375px]:flex" />
-                <a href="#tickets" className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}>
-                  {/* "Buy tickets", or "Get free tickets" when every tier is free, in demo
-                      mode too (owner, 21 Oct 2026); "Join waitlist" when sold out. */}
-                  {buyBarLabel}
-                </a>
+                {seatPage ? (
+                  // A seated event's buy bar goes straight to its seat page (manager decision 2,
+                  // docs/design/seating.md).
+                  <Link href={`/events/${event.slug}/seats`} className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}>
+                    {buyBarLabel}
+                  </Link>
+                ) : (
+                  <a href="#tickets" className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}>
+                    {/* "Buy tickets", or "Get free tickets" when every tier is free, in demo
+                        mode too (owner, 21 Oct 2026); "Join waitlist" when sold out. */}
+                    {buyBarLabel}
+                  </a>
+                )}
               </div>
             </div>
           )}

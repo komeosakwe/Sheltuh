@@ -86,3 +86,25 @@ describe("adaptPublicEvent: sold-out data (docs/architecture.md, Waitlist)", () 
     ).toBeUndefined();
   });
 });
+
+describe("adaptPublicEvent: reserved seating", () => {
+  const ga = { id: "t1", name: "GA", priceCents: 3000, feePolicy: "buyer-pays" as const, quantityAvailable: 100 };
+
+  it("carries the map's version and the seated flag on seated tiers only", () => {
+    const adapted = adaptPublicEvent({
+      ...base,
+      seating: { version: 7 },
+      ticketTypes: [
+        { ...ga, id: "stalls", seated: true },
+        { ...ga, id: "standing" },
+      ],
+    });
+    expect(adapted.seating).toEqual({ version: 7 });
+    expect(adapted.ticketTypes[0]).toEqual({ ...ga, id: "stalls", seated: true });
+    expect(adapted.ticketTypes[1]).toEqual({ ...ga, id: "standing" });
+  });
+
+  it("a general admission event has no seating", () => {
+    expect(adaptPublicEvent({ ...base, ticketTypes: [ga] })).not.toHaveProperty("seating");
+  });
+});

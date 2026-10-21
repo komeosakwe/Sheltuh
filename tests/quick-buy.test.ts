@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { quickBuyLabel } from "@/lib/quick-buy";
+import { goesToSeatPage, quickBuyHref, quickBuyLabel } from "@/lib/quick-buy";
 import type { SheltuhEvent, TicketType } from "@/lib/types";
 
 const ticket = (priceCents: number): TicketType => ({
@@ -76,5 +76,27 @@ describe("quickBuyLabel when sold out (§6.5 sold-out variant, §6.11)", () => {
 
   it("an external event is never sold out", () => {
     expect(quickBuyLabel({ ...external(false), soldOut: true })).toBe("Buy tickets");
+  });
+});
+
+describe("seated events (reserved seating; docs/design/seating.md §5.1, manager decision)", () => {
+  const seated = (overrides: Partial<SheltuhEvent> = {}) =>
+    event({ seating: { version: 3 }, ticketTypes: [{ ...ticket(3000), seated: true }], ...overrides });
+
+  it("says Choose seats and goes straight to the seat page while on sale", () => {
+    expect(quickBuyLabel(seated())).toBe("Choose seats");
+    expect(quickBuyHref(seated())).toBe("/events/e/seats");
+    expect(goesToSeatPage(seated())).toBe(true);
+  });
+
+  it("sold out: Join waitlist, to the event's tickets section (the waitlist is there)", () => {
+    const e = seated({ soldOut: true, ticketTypes: [{ ...ticket(3000), seated: true, soldOut: true, remaining: 0 }] });
+    expect(quickBuyLabel(e)).toBe("Join waitlist");
+    expect(quickBuyHref(e)).toBe("/events/e#tickets");
+  });
+
+  it("general admission events keep #tickets", () => {
+    expect(quickBuyHref(event())).toBe("/events/e#tickets");
+    expect(goesToSeatPage(event())).toBe(false);
   });
 });

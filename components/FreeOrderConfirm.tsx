@@ -2,23 +2,25 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import { ApiError } from "@/lib/api/client";
 import { confirmFreeOrder } from "@/lib/api/orders";
+import { seatErrorDetails } from "@/lib/api/seating";
+import { compareSeats, formatSeatLine } from "@/lib/seating/format";
 import { useFragmentToken } from "@/lib/link-token";
 
 type Action =
   | { status: "idle" }
   | { status: "confirming" }
-  /** `retry`: the same link may work if pressed again (anything but a refusal). */
-  | { status: "error"; title: string; message: string; retry: boolean };
+  /** `retry`: the same link may work if pressed again (anything but a refusal). `seatsHref`: choose seats again. */
+  | { status: "error"; title: string; message: string; retry: boolean; seatsHref?: string };
 
 type State =
   | { status: "loading" }
   | { status: "ready"; token: string }
   | { status: "confirming"; token: string }
   | { status: "missing" }
-  | { status: "error"; title: string; message: string; token?: string };
+  | { status: "error"; title: string; message: string; token?: string; seatsHref?: string };
 
 function errorAction(err: unknown): Action {
   if (err instanceof ApiError) {
@@ -33,7 +35,22 @@ function errorAction(err: unknown): Action {
         retry: false,
       };
     }
-    if (err.status === 409) return { status: "error", title: "We couldn’t issue these tickets", message: err.message, retry: false };
+    if (err.status === 409) {
+      // A seated guest booking whose seats went to someone else before the link was confirmed
+      // (docs/design/seating.md §5.11).
+      const seats = seatErrorDetails(err);
+      if (seats?.code === "seats_taken") {
+        const lines = [...(seats.seats ?? [])].sort(compareSeats).map(formatSeatLine).join(", ");
+        return {
+          status: "error",
+          title: "Those seats have gone",
+          message: `Some of your seats were booked by someone else before you confirmed${lines ? `: ${lines}` : ""}. Nothing was booked.`,
+          retry: false,
+          ...(seats.eventSlug ? { seatsHref: `/events/${encodeURIComponent(seats.eventSlug)}/seats` } : {}),
+        };
+      }
+      return { status: "error", title: "We couldn’t issue these tickets", message: err.message, retry: false };
+    }
   }
   return {
     status: "error",
@@ -60,7 +77,13 @@ export default function FreeOrderConfirm() {
     fragment.status !== "ready"
       ? fragment
       : action.status === "error"
-        ? { status: "error", title: action.title, message: action.message, token: action.retry ? fragment.token : undefined }
+        ? {
+            status: "error",
+            title: action.title,
+            message: action.message,
+            token: action.retry ? fragment.token : undefined,
+            seatsHref: action.seatsHref,
+          }
         : { status: action.status === "confirming" ? "confirming" : "ready", token: fragment.token };
 
   useEffect(() => {
@@ -92,6 +115,7 @@ export default function FreeOrderConfirm() {
         ? "Open the link straight from your email, making sure the whole link is used."
         : state.message;
     const retryToken = state.status === "error" ? state.token : undefined;
+    const seatsHref = state.status === "error" ? state.seatsHref : undefined;
     return (
       <div className="flex flex-col items-center gap-3 py-16 text-center">
         {/* No role="alert" on the message: focus moves to the heading, which
@@ -107,6 +131,11 @@ export default function FreeOrderConfirm() {
         <p id="free-order-message" className="max-w-md text-sm text-muted">
           {message}
         </p>
+        {seatsHref && (
+          <ButtonLink variant="solid" size="lg" href={seatsHref} className="mt-2 w-full sm:w-auto">
+            Choose seats again
+          </ButtonLink>
+        )}
         {retryToken && (
           <Button variant="outline" size="lg" className="mt-2" onClick={() => confirm(retryToken)}>
             Try again

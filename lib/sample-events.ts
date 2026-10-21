@@ -209,11 +209,14 @@ const coreSampleEvents: SheltuhEvent[] = [
     audience: "General theatre audience — contains coarse language.",
     whatToExpect: "Fixed seating in the round, 75 minutes with no interval.",
     ageRestriction: "Recommended 15+ for coarse language and mature themes.",
-    accessibility: "Lift access to the studio; one wheelchair-accessible seating position — book ahead via the organiser.",
+    accessibility: "Lift access to the studio; one wheelchair space with a companion seat beside it, both on the seat map.",
     poster: { pattern: "curtain", background: "#000000", primary: "#ff4800", secondary: "#000000" },
-    // Sold out, as the API would say it (`soldOut`, and `remaining: 0` on each
-    // tier), so the demo shows the sold-out cards and the waitlist (§6.11).
-    soldOut: true,
+    // Reserved seating (lib/sample-seat-maps.ts): staged in the round, 60
+    // numbered seats with a few already taken. Both tiers are seated, so the
+    // event page shows the seated panel and the seat page works in the demo.
+    // `remaining` is what the API would send for the demo map (10 or fewer
+    // left): 10 concession seats are still free (tests/seating/sample-map.test.ts).
+    seating: { version: 1 },
     ticketTypes: [
       {
         id: "off-kilter-full",
@@ -221,8 +224,7 @@ const coreSampleEvents: SheltuhEvent[] = [
         priceCents: 3500,
         feePolicy: "buyer-pays",
         quantityAvailable: 45,
-        soldOut: true,
-        remaining: 0,
+        seated: true,
       },
       {
         id: "off-kilter-concession",
@@ -231,8 +233,8 @@ const coreSampleEvents: SheltuhEvent[] = [
         priceCents: 2500,
         feePolicy: "buyer-pays",
         quantityAvailable: 15,
-        soldOut: true,
-        remaining: 0,
+        remaining: 10,
+        seated: true,
       },
     ],
   },

@@ -83,8 +83,8 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     await settle();
     const band = container.querySelector("[data-surface='signal']");
     expect(band?.closest(".max-w-6xl")).toBeNull();
-    // The sold-out demo event's quick buy is "Join waitlist" (still orange, owner decision 6).
-    const quickBuy = screen.getAllByRole("link", { name: /(?:tickets|Join waitlist) for/ });
+    // The sold-out demo event's quick buy is "Join waitlist", the seated one's "Choose seats" (still orange, owner decision 6).
+    const quickBuy = screen.getAllByRole("link", { name: /(?:tickets|Join waitlist|Choose seats) for/ });
     const orange = Array.from(container.querySelectorAll(".btn-signal"));
     // Owner decision 6: every card quick-buy is orange (black label); otherwise only Explore events.
     expect(orange).toHaveLength(quickBuy.length + 1);

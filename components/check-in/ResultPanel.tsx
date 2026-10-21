@@ -2,6 +2,7 @@
 
 import type { ReactNode, RefObject } from "react";
 import { Button, ButtonLink } from "@/components/ui/Button";
+import SeatLine from "@/components/seating/SeatLine";
 import type { CheckInTicket } from "@/lib/api/types";
 import {
   canRetry,
@@ -45,6 +46,8 @@ function TicketLine({ ticket }: { ticket: CheckInTicket }) {
       <p className="text-base">
         Ticket {ticket.ticketNumber} of {ticket.ticketCount} · Code ends {ticket.codeLast4}
       </p>
+      {/* Larger than the type, so staff can direct people (docs/design/seating.md §5.15). */}
+      {ticket.seat && <SeatLine seat={ticket.seat} className="block text-2xl leading-8 font-semibold" />}
     </>
   );
 }
@@ -101,6 +104,7 @@ function reasonAndDetails(result: DoorResult, now: Date): { reason: string; deta
                 {ticket.ticketTypeName} · Ticket {ticket.ticketNumber} of {ticket.ticketCount} · Code ends {ticket.codeLast4}
               </p>
             )}
+            {ticket?.seat && <SeatLine seat={ticket.seat} className="block text-2xl leading-8 font-semibold" />}
           </>
         ),
       };

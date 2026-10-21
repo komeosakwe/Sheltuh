@@ -46,6 +46,7 @@
   --display-leading: 0.88;
   --header-h: 3.5rem; /* 56px compact header, < lg */
   --buybar-h: 4.5rem; /* 72px sticky event-page buy bar, < lg */
+  --seatbar-h: 5.5rem; /* 88px phone summary bar on /events/[slug]/seats (before safe area) */
 }
 
 @media (min-width: 64rem) {
@@ -304,6 +305,8 @@ h4 {
   /* The dots alone are orange on cream (3.25:1, non-text): the current page also gets a
      2px underline in the text colour, so it doesn't rest on colour and small marks only. */
   /* "true": the section you're in, e.g. Discover on an event's page. */
+  /* aria-selected: the seat page's Map / List tabs (docs/design/seating.md §5.4). */
+  &[aria-selected="true"],
   &[aria-current="page"],
   &[aria-current="true"] {
     --umlaut: var(--signal);
@@ -311,6 +314,7 @@ h4 {
     text-decoration-thickness: 2px;
     text-underline-offset: 4px;
   }
+  &[aria-selected="true"]::before,
   &[aria-current="page"]::before,
   &[aria-current="true"]::before {
     opacity: 1;
@@ -461,6 +465,23 @@ h4 {
   .fade-in {
     animation: fade-in 0.15s ease-out both;
   }
+  /* The seat map's programmatic moves (zoom buttons, section chips, Find seats): a short
+     transform transition. Drag and pinch never get it, and reduced motion jumps instantly
+     (docs/design/seating.md §6). */
+  .seat-map-view {
+    transition: transform var(--seat-map-ms, 200ms) cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+  /* The phone summary sheet and the legend's Key popover (§6; BD1 §8.4). */
+  @keyframes seat-sheet-in {
+    from {
+      opacity: 0;
+      transform: translateY(1rem);
+    }
+  }
+  .seat-sheet,
+  .seat-popover {
+    animation: seat-sheet-in 0.2s ease-out both;
+  }
   /* DotsLoader (components/brand/DotsMark.tsx): the two dots move together and apart while
      loading. With reduced motion they stay apart and the label carries the state. */
   @keyframes dots-join-left {
@@ -478,6 +499,37 @@ h4 {
   }
   .dots-loader > path:last-child {
     animation: dots-join-right 0.9s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes seat-sheet-fade {
+    from {
+      opacity: 0;
+    }
+  }
+  .seat-sheet,
+  .seat-popover {
+    animation: seat-sheet-fade 0.1s ease-out both;
+  }
+}
+
+/* Seat maps in forced-colours mode (docs/design/seating.md §5.3): seat outlines in the
+   system text colour, chosen seats in Highlight, unavailable in GrayText. The tier
+   patterns keep their own colours (forced-color-adjust: none on their <defs>). */
+@media (forced-colors: active) {
+  .seat-shape {
+    stroke: CanvasText;
+  }
+  [data-state="selected"] > .seat-shape {
+    fill: Highlight;
+  }
+  [data-state="selected"] [data-glyph="check"] {
+    stroke: HighlightText;
+  }
+  [data-state="unavailable"] > .seat-shape,
+  [data-state="unavailable"] [data-glyph="cross"] {
+    stroke: GrayText;
   }
 }
 
@@ -518,6 +570,10 @@ h4 {
   }
   html:has([data-map-sheet]) [data-page-end] {
     padding-bottom: var(--map-sheet-h, 0px);
+  }
+  /* Focus never hides under the seat page's bar (WCAG 2.4.11), as for the event buy bar. */
+  html:has([data-seat-bar]) {
+    scroll-padding-bottom: calc(var(--seatbar-h) + env(safe-area-inset-bottom) + 0.5rem);
   }
 }
 

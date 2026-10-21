@@ -157,6 +157,17 @@ describe("door copy", () => {
     for (const [result, text] of results) expect(resultAnnouncement(result)).toBe(text);
   });
 
+  it("adds the seat, spoken, for a seated ticket (docs/design/seating.md §5.15)", () => {
+    const at = "2026-10-17T09:42:00.000Z";
+    const seated = { ...ticket, seat: { section: "Stalls", row: "F", seat: "12", kind: "standard" as const } };
+    expect(resultAnnouncement({ kind: "server", scan, result: { outcome: "admitted", ticket: seated }, ownAgoMs: null })).toBe(
+      "Let in. General admission, ticket 2 of 3. Stalls, Row F, Seat 12.",
+    );
+    expect(
+      resultAnnouncement({ kind: "server", scan, result: { outcome: "already_checked_in", ticket: seated, checkedInAt: at }, ownAgoMs: null }),
+    ).toBe("Don’t let in. Already checked in at 8:42 pm. Stalls, Row F, Seat 12.");
+  });
+
   it("says why a scan wasn't verified, and mentions retrying only where Retry is offered", () => {
     const spoken: [UnverifiedReason, string][] = [
       ["network", "Not verified. Don’t let in yet. Couldn’t reach Sheltüh. Retry when you have signal."],

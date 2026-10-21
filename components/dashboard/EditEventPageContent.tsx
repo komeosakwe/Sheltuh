@@ -73,14 +73,27 @@ export default function EditEventPageContent() {
 
   return (
     <>
-      <ButtonLink
-        variant="outline"
-        size="sm"
-        className="min-h-11 w-fit"
-        href={`/dashboard/events/${encodeURIComponent(event.eventId)}/analytics`}
-      >
-        Analytics
-      </ButtonLink>
+      <div className="flex flex-wrap gap-2">
+        <ButtonLink
+          variant="outline"
+          size="sm"
+          className="min-h-11 w-fit"
+          href={`/dashboard/events/${encodeURIComponent(event.eventId)}/analytics`}
+        >
+          Analytics
+        </ButtonLink>
+        {/* Reserved seating: optional, for Sheltüh-ticketed events (docs/design/seating.md §5.13). */}
+        {event.ticketingMode !== "external" && (
+          <ButtonLink
+            variant="outline"
+            size="sm"
+            className="min-h-11 w-fit"
+            href={`/dashboard/${encodeURIComponent(event.eventId)}/seat-map`}
+          >
+            {event.seating ? `Seat map · ${event.seating.seatCount} seats` : "Add a seat map"}
+          </ButtonLink>
+        )}
+      </div>
       <EventEditor getToken={getToken} initial={event} onSaved={setEvent} />
     </>
   );

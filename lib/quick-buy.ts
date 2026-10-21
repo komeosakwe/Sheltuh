@@ -1,7 +1,7 @@
 import { isSoldOut, pricedTicketTypes } from "./pricing";
 import type { SheltuhEvent } from "./types";
 
-export type QuickBuyLabel = "Buy tickets" | "Get free tickets" | "Join waitlist";
+export type QuickBuyLabel = "Buy tickets" | "Get free tickets" | "Join waitlist" | "Choose seats";
 
 /**
  * The visible label of a card's quick-buy link to `/events/{slug}#tickets`
@@ -16,14 +16,31 @@ export type QuickBuyLabel = "Buy tickets" | "Get free tickets" | "Join waitlist"
  * out, with its click beacon; the card itself never links out. Sold out
  * (every tier, from the server's `soldOut`): "Join waitlist", to the same
  * section, where the waitlist block is (§6.5, §6.11). Still orange (owner
- * decision 6).
+ * decision 6). A seated event (reserved seating) still on sale: "Choose
+ * seats", straight to its seat page (quickBuyHref).
  */
 export function quickBuyLabel(event: SheltuhEvent, now?: Date): QuickBuyLabel | null {
   if (now && Date.parse(event.endsAt ?? event.startsAt) <= now.getTime()) return null;
   const external = event.ticketingMode === "external";
   if (!external && event.ticketTypes.length === 0) return null;
   if (isSoldOut(event)) return "Join waitlist";
+  if (!external && event.seating) return "Choose seats";
   // The tiers still on sale decide: a sold-out paid tier leaves free tickets only.
   if (!external && pricedTicketTypes(event).every((ticket) => ticket.priceCents === 0)) return "Get free tickets";
   return "Buy tickets";
+}
+
+/** Whether a quick buy (or the buy bar) for `event` goes to its seat page: seated and not sold out. */
+export function goesToSeatPage(event: SheltuhEvent): boolean {
+  return event.ticketingMode !== "external" && Boolean(event.seating) && !isSoldOut(event);
+}
+
+/**
+ * Where a quick buy (or the event page's buy bar) goes: a seated event still
+ * on sale goes straight to `/events/{slug}/seats` (manager decision,
+ * docs/design/seating.md §8); everything else to the event page's ticket
+ * section (a sold-out seated event's waitlist is there).
+ */
+export function quickBuyHref(event: SheltuhEvent): string {
+  return goesToSeatPage(event) ? `/events/${event.slug}/seats` : `/events/${event.slug}#tickets`;
 }

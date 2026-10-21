@@ -107,6 +107,17 @@ describe("FollowButton", () => {
     await waitFor(() => expect(followOrganiser).toHaveBeenCalledWith(ORG, { notifyNewEvents: false }, expect.any(Function)));
   });
 
+  it("if the follow status can't be loaded, it still starts unticked and sends an explicit false (Spam Act consent)", async () => {
+    getFollowStatus.mockRejectedValue(new ApiError(500, "Server error."));
+    followOrganiser.mockResolvedValue({ following: true, notifyNewEvents: false });
+    withAuth(<FollowButton organiserId={ORG} organiserName="N" />);
+    const email = await screen.findByRole("checkbox", { name: "Email me when they announce a new event" });
+    await waitFor(() => expect(email).toBeEnabled());
+    expect(email).not.toBeChecked();
+    fireEvent.click(await screen.findByRole("button", { name: "Follow N" }));
+    await waitFor(() => expect(followOrganiser).toHaveBeenCalledWith(ORG, { notifyNewEvents: false }, expect.any(Function)));
+  });
+
   it("while following, the checkbox changes the email choice, and Following unfollows", async () => {
     getFollowStatus.mockResolvedValue({ following: true, notifyNewEvents: true });
     followOrganiser.mockResolvedValue({ following: true, notifyNewEvents: false });

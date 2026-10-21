@@ -59,6 +59,17 @@ export interface TicketType {
    * Absent when more are left: never inferred from `quantityAvailable`.
    */
   remaining?: number;
+  /**
+   * A tier with seats on the event's seat map (reserved seating): sold only
+   * by choosing seats on /events/{slug}/seats, never as a quantity. Absent
+   * for general admission.
+   */
+  seated?: true;
+}
+
+/** An event's seat map (reserved seating): its version, for GET /events/{id}/seat-map?v={version}. */
+export interface EventSeatingRef {
+  version: number;
 }
 
 /** Decimal degrees, WGS84. */
@@ -114,6 +125,12 @@ export interface SheltuhEvent {
   externalFree?: boolean;
   /** External events only: a known ticketing site's name, or null for "the organiser's site". */
   externalProvider?: string | null;
+  /**
+   * Reserved seating: the event has a seat map (its seated tiers carry
+   * `seated`). Absent for a general admission event. Tickets for a seated
+   * event are chosen on /events/{slug}/seats.
+   */
+  seating?: EventSeatingRef;
   /**
    * Optional organiser-supplied context — shown on the details page only
    * when present. Never inferred or invented: the live API doesn't collect

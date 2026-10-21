@@ -1,5 +1,7 @@
+import SeatLine from "@/components/seating/SeatLine";
 import TicketQr from "@/components/tickets/TicketQr";
 import UBarcode from "@/components/tickets/UBarcode";
+import type { TicketSeat } from "@/lib/api/types";
 import { TICKET_CODE_PATTERN } from "@/lib/ticket-code";
 
 interface TicketStubProps {
@@ -8,6 +10,8 @@ interface TicketStubProps {
   /** Its place in the order ("Ticket 2 of 3"), numbered as in the ticket email. Shown only when the order has more than one. */
   ticketNumber?: number;
   ticketCount?: number;
+  /** Its seat, for a reserved-seating event ("Stalls · Row F · Seat 12", docs/design/seating.md §5.15). */
+  seat?: TicketSeat;
 }
 
 /**
@@ -23,7 +27,7 @@ interface TicketStubProps {
  * stub's full height (so the perforation does too) and centres the QR in it,
  * however tall the left column grows.
  */
-export default function TicketStub({ code, typeName, ticketNumber, ticketCount }: TicketStubProps) {
+export default function TicketStub({ code, typeName, ticketNumber, ticketCount, seat }: TicketStubProps) {
   const hasQr = TICKET_CODE_PATTERN.test(code);
   const label =
     ticketNumber !== undefined && ticketCount !== undefined && ticketCount > 1
@@ -32,7 +36,10 @@ export default function TicketStub({ code, typeName, ticketNumber, ticketCount }
   return (
     <li className="overflow-hidden rounded-card border border-foreground bg-card print:break-inside-avoid sm:grid sm:grid-cols-[1fr_auto] sm:grid-rows-[auto_auto_1fr_auto] sm:gap-y-4">
       <div className="flex items-start justify-between gap-3 p-4 sm:contents">
-        <p className="eyebrow min-w-0 break-words text-muted sm:col-start-1 sm:row-start-1 sm:mx-5 sm:mt-5">{label}</p>
+        <div className="min-w-0 sm:col-start-1 sm:row-start-1 sm:mx-5 sm:mt-5">
+          <p className="eyebrow break-words text-muted">{label}</p>
+          {seat && <SeatLine seat={seat} className="mt-1 block text-base leading-6 font-semibold text-foreground print:text-black" />}
+        </div>
         <UBarcode
           code={code}
           className="h-12 w-auto shrink-0 sm:col-start-1 sm:row-start-4 sm:mx-5 sm:mb-5 sm:h-28 sm:self-end sm:justify-self-start"

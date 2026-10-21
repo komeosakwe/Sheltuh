@@ -83,7 +83,7 @@ test.describe("sold out: Join waitlist at 390×844", () => {
     page,
   }) => {
     const joins: unknown[] = [];
-    const soldOut = asPublic("off-kilter-a-new-play", 3);
+    const soldOut = asPublic("dead-letter-office", 3);
     await page.route("**/api/**", (route) => {
       const request = route.request();
       const url = new URL(request.url());

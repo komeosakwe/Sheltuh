@@ -30,10 +30,13 @@ export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
       quantityAvailable: ticket.quantityAvailable,
       ...(ticket.soldOut === true ? { soldOut: true } : {}),
       ...(typeof ticket.remaining === "number" ? { remaining: ticket.remaining } : {}),
+      ...(ticket.seated === true ? { seated: true as const } : {}),
     })),
     // An external event's stock isn't known, so it's never sold out here.
     ...(event.soldOut === true && event.ticketingMode !== "external" ? { soldOut: true } : {}),
     ticketingMode: event.ticketingMode ?? "sheltuh",
+    // Reserved seating: only the map's version (the seat page loads the map itself).
+    ...(event.seating && event.ticketingMode !== "external" ? { seating: { version: event.seating.version } } : {}),
     ...(event.ticketingMode === "external"
       ? {
           externalTicketUrl: event.externalTicketUrl,

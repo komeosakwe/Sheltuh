@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { ArrowRightIcon } from "@/components/home/icons";
 import { buttonClass } from "@/components/ui/Button";
-import { quickBuyLabel } from "@/lib/quick-buy";
+import { quickBuyHref, quickBuyLabel } from "@/lib/quick-buy";
 import type { SheltuhEvent } from "@/lib/types";
 
 /**
  * A card's or list row's "Buy tickets" button (docs/design/brand-direction-one.md
  * §6.6, owner decision 6 and the owner's wording of 21 Oct 2026): a sibling
- * of the card's main link, straight to the event page's ticket section.
+ * of the card's main link, straight to the event page's ticket section (a
+ * seated event's seat page: lib/quick-buy.ts quickBuyHref).
  * Signal Orange with a black label (6.18:1, never white), 44px tall on phones
  * and 40px from 640px; hover turns it black with an orange label, a press
  * nudges it (motion-safe), and keyboard focus is the page's black ring on a
@@ -51,7 +52,7 @@ export default function QuickBuyLink({
   return (
     <div className={`flex ${className}`.trim()}>
       <Link
-        href={`/events/${event.slug}#tickets`}
+        href={quickBuyHref(event)}
         // relative: its visually hidden name is positioned within the button, never the page.
         className={buttonClass("signal", "md", `relative min-h-11 sm:min-h-10 focus-visible:outline-ink ${width}`)}
       >

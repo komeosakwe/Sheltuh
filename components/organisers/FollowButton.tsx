@@ -54,7 +54,7 @@ export default function FollowButton({ organiserId, organiserName }: { organiser
         if (cancelled) return;
         // Not (or no longer) an organiser you can follow: no button. Anything else: offer it anyway.
         if (err instanceof ApiError && err.status === 404) setResult({ organiserId, load: { status: "hidden" } });
-        else setResult({ organiserId, load: { status: "ready", follow: { following: false, notifyNewEvents: true } } });
+        else setResult({ organiserId, load: { status: "ready", follow: { following: false, notifyNewEvents: false } } });
       },
     );
     return () => {

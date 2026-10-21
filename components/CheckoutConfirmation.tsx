@@ -10,6 +10,7 @@ import Strap from "@/components/ui/Strap";
 import { ApiError } from "@/lib/api/client";
 import { getOrderBySession } from "@/lib/api/orders";
 import { formatAud } from "@/lib/format";
+import { compareSeats } from "@/lib/seating/format";
 import type { CustomerOrder } from "@/lib/api/types";
 
 type LoadState =
@@ -19,6 +20,15 @@ type LoadState =
   | { status: "oversold"; order: CustomerOrder }
   | { status: "not-found" }
   | { status: "error"; message: string };
+
+/** Each ticket with its number in the API's (and the email's) order, seated ones sorted by seat. */
+function sortTicketsBySeat(tickets: CustomerOrder["tickets"]) {
+  const numbered = tickets.map((ticket, i) => ({ ticket, number: i + 1 }));
+  if (!tickets.some((ticket) => ticket.seat)) return numbered;
+  return [...numbered].sort((a, b) =>
+    a.ticket.seat && b.ticket.seat ? compareSeats(a.ticket.seat, b.ticket.seat) : a.ticket.seat ? -1 : b.ticket.seat ? 1 : a.number - b.number,
+  );
+}
 
 const POLL_INTERVAL_MS = 2000;
 const MAX_POLLS = 12; // ~24s — generous for a webhook that's normally near-instant
@@ -153,13 +163,16 @@ export default function CheckoutConfirmation() {
         <ul className="flex flex-col gap-3">
           {/* Numbered as in the ticket email and at the door: both order an order's
               tickets by ticket type, then code, as the API returns them. */}
-          {order.tickets.map((ticket, i) => (
+          {/* Seated tickets are listed by section, row, then seat (docs/design/seating.md §5.15),
+              keeping their numbers from the email's order. */}
+          {sortTicketsBySeat(order.tickets).map(({ ticket, number }) => (
             <TicketStub
               key={ticket.ticketCode}
               code={ticket.ticketCode}
               typeName={ticket.ticketTypeName}
-              ticketNumber={i + 1}
+              ticketNumber={number}
               ticketCount={order.tickets.length}
+              seat={ticket.seat}
             />
           ))}
         </ul>

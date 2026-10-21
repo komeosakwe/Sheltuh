@@ -623,3 +623,19 @@ describe("TicketSelector booking fee rule", () => {
     expect(screen.queryByText(RULE)).toBeNull();
   });
 });
+
+describe("TicketSelector never sells a seated tier (reserved seating)", () => {
+  it("leaves seated tiers out, so only general admission can be chosen and checked out", async () => {
+    const base = live("neon-static");
+    const [ga, vip] = base.ticketTypes;
+    const event: SheltuhEvent = { ...base, seating: { version: 1 }, ticketTypes: [ga, { ...vip, seated: true }] };
+    createCheckoutSession.mockReturnValue(new Promise(() => {}));
+    render(<TicketSelector event={event} />);
+    expect(screen.queryByText(vip.name)).toBeNull();
+    expect(screen.queryByRole("button", { name: `Increase quantity for ${vip.name}` })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: `Increase quantity for ${ga.name}` }));
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
+    expect(createCheckoutSession.mock.calls[0][1]).toEqual([{ ticketTypeId: ga.id, quantity: 1 }]);
+  });
+});

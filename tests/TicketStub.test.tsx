@@ -75,4 +75,16 @@ describe("TicketStub", () => {
     };
     expect(shape("K7M2-QW3R")).not.toEqual(shape("A2B3-C4D5"));
   });
+
+  it("shows a seated ticket's seat under its type, said in full to screen readers (docs/design/seating.md §5.15)", () => {
+    render(
+      <ul>
+        <TicketStub code="K7M2-QW3R" typeName="Premium" seat={{ section: "Stalls", row: "F", seat: "12", kind: "standard" }} />
+      </ul>,
+    );
+    const line = screen.getByText("Stalls · Row F · Seat 12");
+    expect(line).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByText("Stalls, Row F, Seat 12")).toHaveClass("sr-only");
+    expect(line.parentElement).toHaveClass("font-semibold");
+  });
 });

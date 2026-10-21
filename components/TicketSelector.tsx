@@ -12,17 +12,12 @@ import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { calculateOrderSummary, describeBookingFee, sumOrderSummaries } from "@/lib/fees";
 import { formatAud } from "@/lib/format";
 import { formatTicketBreakdown, formatTicketHeadline, isSoldOut, pricedTicketTypes } from "@/lib/pricing";
+import { freeTicketsIn, isLow, ownLimit, ownLimitHint, type Quantities } from "@/lib/ticket-limits";
 import { getTrackingRef } from "@/lib/tracking-ref";
 import type { SheltuhEvent, TicketType } from "@/lib/types";
+import { stepperButtonClass } from "@/components/ui/stepper";
 
-const MAX_QUANTITY_PER_TYPE = 8;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-type Quantities = Record<string, number>;
-
-function freeTicketsIn(ticketTypes: TicketType[], quantities: Quantities): number {
-  return ticketTypes.reduce((n, t) => n + (t.priceCents === 0 ? (quantities[t.id] ?? 0) : 0), 0);
-}
 
 function orderTotalCents(ticketTypes: TicketType[], quantities: Quantities): number {
   return sumOrderSummaries(
@@ -31,32 +26,12 @@ function orderTotalCents(ticketTypes: TicketType[], quantities: Quantities): num
 }
 
 /**
- * A ticket type's own limit per booking: its capacity, what's left when the
- * server says (`remaining`, only sent at 10 or fewer), and at most
- * MAX_QUANTITY_PER_TYPE. `quantityAvailable` is the capacity, not what's
- * still unsold, so "Only N left" comes from `remaining` alone.
+ * The general admission ticket selector. Never sells a seated tier (reserved
+ * seating): those are only bought by choosing seats on the seat page, so
+ * they're left out here even if an event with a seat map reaches it.
  */
-function ownLimit(ticket: TicketType): number {
-  return Math.min(ticket.quantityAvailable, ticket.remaining ?? Infinity, MAX_QUANTITY_PER_TYPE);
-}
-
-function ownLimitHint(ticket: TicketType): string {
-  const perBooking = `Up to ${ownLimit(ticket)} per booking.`;
-  if (ticket.remaining === undefined || ticket.remaining <= 0) return perBooking;
-  // "Only 3 left." says the limit on its own; "Only 9 left. Up to 8 per booking." when both bite.
-  const left = `Only ${ticket.remaining} left.`;
-  return ownLimit(ticket) < ticket.remaining ? `${left} ${perBooking}` : left;
-}
-
-const isLow = (ticket: TicketType) => ticket.remaining !== undefined && ticket.remaining > 0;
-
-// The steppers use aria-disabled, not `disabled`: reaching 0 or the cap must
-// leave focus on the button rather than dropping it to <body>.
-const stepperButtonClass =
-  "flex size-11 shrink-0 items-center justify-center rounded-control border border-foreground bg-card text-lg font-semibold text-foreground transition-colors hover:bg-surface aria-disabled:cursor-not-allowed aria-disabled:border-surface-border aria-disabled:text-muted aria-disabled:hover:bg-card";
-
 export default function TicketSelector({ event }: { event: SheltuhEvent }) {
-  const ticketTypes = event.ticketTypes;
+  const ticketTypes = useMemo(() => event.ticketTypes.filter((ticket) => !ticket.seated), [event.ticketTypes]);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -175,7 +150,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
 
   const hasAnyTickets = lineSummaries.some((line) => line.quantity > 0);
   // Every ticket on sale free: no payment step, but an emailed confirmation link.
-  const allFree = pricedTicketTypes(event).every((t) => t.priceCents === 0);
+  const allFree = pricedTicketTypes({ ...event, ticketTypes }).every((t) => t.priceCents === 0);
   const buyerPaysAFee = ticketTypes.some((t) => t.priceCents > 0 && t.feePolicy === "buyer-pays");
   const steps = allFree
     ? ["Choose tickets", "Confirm by email", "Tickets"]

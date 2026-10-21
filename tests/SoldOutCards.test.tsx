@@ -26,8 +26,8 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** The demo's sold-out event (lib/sample-events.ts): every tier sold out, 14 Nov 2026. */
-const soldOut = sampleEvents.find((e) => e.slug === "off-kilter-a-new-play") as SheltuhEvent;
+/** The demo's sold-out event (lib/sample-events-more.ts): every tier sold out, 24 Oct 2026. */
+const soldOut = sampleEvents.find((e) => e.slug === "dead-letter-office") as SheltuhEvent;
 
 function expectSoldOutCard() {
   // The price line says it in words (§6.5 sold-out variant), black and in the price's weight.
@@ -46,7 +46,7 @@ describe("sold-out cards (brand-direction-one.md §6.5)", () => {
     render(<EventTile event={soldOut} showSave={false} />);
     expectSoldOutCard();
     // The card link's name carries the price line, so "Sold out" is heard with the title.
-    expect(screen.getByRole("link", { name: /^Off-Kilter: A New Play .*Sold out/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^Dead Letter Office .*Sold out/ })).toBeInTheDocument();
   });
 
   it.each(["standard", "wide", "compact"] as const)("HomeEventCard %s", (variant) => {

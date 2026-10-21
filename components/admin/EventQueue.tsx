@@ -157,6 +157,20 @@ export default function EventQueue() {
                 <p className="meta mt-1 text-muted">
                   {item.venueName}, {item.suburb}
                 </p>
+                {item.seating && (
+                  // Reserved seating (docs/design/seating.md §5.14).
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 border-t border-surface-border pt-2">
+                    <span className="eyebrow text-muted">Seat map</span>
+                    <span className="meta">{item.seating.seatCount} seats</span>
+                    <Link
+                      href={`/admin/events/${encodeURIComponent(item.eventId)}/seat-map`}
+                      aria-label={`Preview and view in editor: ${item.title} seat map`}
+                      className="inline-flex min-h-11 items-center text-sm underline underline-offset-4"
+                    >
+                      Preview and view in editor
+                    </Link>
+                  </div>
+                )}
                 {item.rejectionReason && (
                   <p className="mt-1 text-xs text-muted">Rejection reason: {item.rejectionReason}</p>
                 )}

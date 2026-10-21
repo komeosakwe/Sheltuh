@@ -73,6 +73,17 @@ export default function AdminEditEvent() {
       <p className="text-sm text-muted">
         Status: <span className="font-medium text-foreground">{STATUS_LABEL[event.status]}</span>
       </p>
+      {event.ticketingMode !== "external" && (
+        <p className="text-sm text-muted">
+          <Link
+            href={`/admin/events/${encodeURIComponent(event.eventId)}/seat-map`}
+            className="inline-flex min-h-11 items-center font-medium text-foreground underline underline-offset-4"
+          >
+            {event.seating ? `Seat map (${event.seating.seatCount} seats)` : "Seat map"}
+          </Link>{" "}
+          — preview, replace or remove (only while the event has no orders).
+        </p>
+      )}
       {adminCheckIn && (
         <p className="text-sm text-muted">
           <Link

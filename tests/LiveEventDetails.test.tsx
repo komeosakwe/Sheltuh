@@ -143,7 +143,7 @@ describe("LiveEventDetails", () => {
     getPublicEventBySlug.mockResolvedValueOnce(publicEvent("neon-static"));
     await act(async () => fireEvent.click(retry));
     const heading = screen.getByRole("heading", { level: 1, name: "Neon Static" });
-    expect(heading).toHaveFocus();
+    await waitFor(() => expect(heading).toHaveFocus());
     expect(document.title).toBe("Neon Static — Sheltüh");
   });
 });

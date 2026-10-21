@@ -247,6 +247,7 @@ describe("sold-out tiers (waitlist; brand-direction-one.md §6.5, §6.8)", () =>
   });
 
   it("the demo has one sold-out event", () => {
-    expect(sampleEvents.filter(isSoldOut).map((e) => e.slug)).toEqual(["off-kilter-a-new-play"]);
+    // Dead Letter Office; the seated demo (Off-Kilter) has seats left (lib/sample-seat-maps.ts).
+    expect(sampleEvents.filter(isSoldOut).map((e) => e.slug)).toEqual(["dead-letter-office"]);
   });
 });
