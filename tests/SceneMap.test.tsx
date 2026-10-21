@@ -29,7 +29,7 @@ const sizeDescriptors = {
   clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight"),
 };
 
-beforeAll(() => {
+beforeAll(async () => {
   Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 800 });
   Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 600 });
   vi.stubGlobal(
@@ -41,6 +41,19 @@ beforeAll(() => {
     },
   );
   Element.prototype.scrollIntoView = vi.fn();
+  // The map panel is a next/dynamic import (React.lazy behind Suspense) of Leaflet and
+  // react-leaflet, and its first mount pays one-off costs: importing those modules (~0.3s idle,
+  // over 2s under a full-suite load), React's 300ms throttle on revealing suspended content, and
+  // first-run Leaflet/React work. That used to land inside whichever test ran first and break its
+  // 1s `waitFor` for the map. Mount it once here, under the hook timeout (the wait is long only
+  // because of that cold import), and check the cold path does render a marker; every test then
+  // mounts it warm and waits only for its own behaviour.
+  mockEvents = [withPhoto];
+  render(<SceneMap />);
+  await waitFor(() => expect(screen.getByRole("button", { name: /^Photo Night\./ })).toBeInTheDocument(), {
+    timeout: 30_000,
+  });
+  cleanup();
 });
 
 afterAll(() => {

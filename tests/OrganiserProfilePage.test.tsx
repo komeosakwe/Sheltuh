@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import OrganiserProfilePage from "@/app/organisers/[organiserId]/page";
 import { ApiError } from "@/lib/api/client";
@@ -64,6 +64,17 @@ function profile(overrides: Partial<PublicOrganiserProfile> = {}): PublicOrganis
     recentEvents: [publicEvent("gone", { startsAt: "2025-08-01T09:00:00.000Z", endsAt: "2025-08-01T12:00:00.000Z" })],
     ...overrides,
   };
+}
+
+/** A promise the test settles itself. */
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {};
+  let reject: (reason: unknown) => void = () => {};
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 async function renderPage(organiserId = ORGANISER_ID) {
@@ -175,13 +186,15 @@ describe("/organisers/[organiserId] (live)", () => {
   });
 
   it("shows other errors, and loads again on 'Try again', focusing the loaded profile's heading", async () => {
-    getOrganiserProfile
-      .mockRejectedValueOnce(new ApiError(429, "Too many requests. Try again shortly."))
-      .mockResolvedValueOnce(profile());
+    const firstLoad = deferred<never>();
+    getOrganiserProfile.mockReturnValueOnce(firstLoad.promise).mockResolvedValueOnce(profile());
     await renderPage();
 
     expect(screen.getByRole("status")).toHaveTextContent("Loading organiser");
-    expect(await screen.findByRole("alert")).toHaveTextContent("Too many requests. Try again shortly.");
+    // Fail inside act() so the error state settles (render and effects) before the click: see
+    // "focuses the error heading again when a retry fails too".
+    await act(async () => firstLoad.reject(new ApiError(429, "Too many requests. Try again shortly.")));
+    expect(screen.getByRole("alert")).toHaveTextContent("Too many requests. Try again shortly.");
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     const heading = await screen.findByRole("heading", { level: 1, name: "Northside Noise" });
     // The button is gone: focus goes to the new heading, not <body>.
@@ -194,9 +207,12 @@ describe("/organisers/[organiserId] (live)", () => {
     getOrganiserProfile
       .mockRejectedValueOnce(new ApiError(0, "Couldn't reach the server. Check your connection and try again."))
       .mockRejectedValueOnce(new ApiError(404, "Organiser not found."));
-    await renderPage();
+    // Settle the first failure before the click: see "focuses the error heading again when a retry fails too".
+    await act(async () => {
+      await renderPage();
+    });
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach the server.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't reach the server.");
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     const heading = await screen.findByRole("heading", { level: 1, name: "This organiser isn’t available" });
     await waitFor(() => expect(heading).toHaveFocus());
@@ -204,9 +220,15 @@ describe("/organisers/[organiserId] (live)", () => {
 
   it("focuses the error heading again when a retry fails too", async () => {
     getOrganiserProfile.mockRejectedValue(new ApiError(0, "Couldn't reach the server."));
-    await renderPage();
+    // Let the first failure settle completely (its render *and* its effects) before clicking, as
+    // a person would. Settled outside act(), React leaves that render's effects for a later task,
+    // and under load the click could land first: the stale focus effect then consumed the
+    // "focus after retry" flag on the old heading, so the retry's heading was never focused.
+    await act(async () => {
+      await renderPage();
+    });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(getOrganiserProfile).toHaveBeenCalledTimes(2));
     // Re-query on every attempt: the first error heading is replaced while the retry loads.
     await waitFor(() =>
