@@ -209,10 +209,10 @@ The mark is the official secondary ü (`public/brand/sheltuh-u.svg`, Brand
 Direction One) in black on Signal Orange
 (`docs/design/brand-direction-one.md` §4). It is drawn from the vector (no
 font), so it looks the same on any machine. One script produces
-`app/icon.svg` (a 64px square, square corners as in the owner's icon artwork, the ü at 53% of its height),
+`app/icon.svg` (a 64px square, square corners as in the owner's icon artwork, the ü at 80% of its height so it reads in a browser tab),
 `app/favicon.ico` (16, 32 and 48 px), `app/apple-icon.png` (180) and the
 manifest icons, all full-bleed orange with the ü at 53% height (inside the
-maskable 80% safe zone); the favicon uses 60% so it stays legible at 16px. It uses `sharp`, which Next
+maskable 80% safe zone); the tab icons (`icon.svg`, `favicon.ico`) use 80% and 84% so the ü reads at 16–32px. It uses `sharp`, which Next
 already installs. Run it from the repo root as a throwaway file:
 
 ```js
@@ -243,7 +243,7 @@ const svg = (rx, share) => `<svg xmlns="http://www.w3.org/2000/svg" width="64" h
   ${glyph(share)}
 </svg>
 `;
-fs.writeFileSync(`${ROOT}/app/icon.svg`, svg(0, 0.53));
+fs.writeFileSync(`${ROOT}/app/icon.svg`, svg(0, 0.8));
 // Maskable and apple-touch icons must be opaque (iOS fills transparency with black), full-bleed,
 // with the ü at 53% height inside the 80% safe zone.
 const png = (s, size, file, opaque = false) => {
@@ -258,7 +258,7 @@ await png(svg(0, 0.53), 180, `${ROOT}/app/apple-icon.png`, true);
 // favicon.ico with 16, 32 and 48 px PNG images.
 const sizes = [16, 32, 48];
 const imgs = [];
-for (const n of sizes) imgs.push(await sharp(Buffer.from(svg(0, 0.6)), { density: 72 * (n / 64) * 2 }).resize(n, n).png().toBuffer());
+for (const n of sizes) imgs.push(await sharp(Buffer.from(svg(0, 0.84)), { density: 72 * (n / 64) * 2 }).resize(n, n).png().toBuffer());
 const head = Buffer.alloc(6); head.writeUInt16LE(0, 0); head.writeUInt16LE(1, 2); head.writeUInt16LE(imgs.length, 4);
 let offset = 6 + 16 * imgs.length;
 const dir = imgs.map((b, i) => { const e = Buffer.alloc(16); e[0] = sizes[i]; e[1] = sizes[i]; e.writeUInt16LE(1, 4); e.writeUInt16LE(32, 6); e.writeUInt32LE(b.length, 8); e.writeUInt32LE(offset, 12); offset += b.length; return e; });
