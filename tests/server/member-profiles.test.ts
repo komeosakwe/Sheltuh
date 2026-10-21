@@ -762,7 +762,11 @@ describe("profile photos", () => {
     const gif = await sharp({ create: { width: 8, height: 8, channels: 3, background: "#000" } }).gif().toBuffer();
     const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>');
     const corrupt = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(200, 7)]);
-    for (const body of [gif, svg, corrupt, Buffer.alloc(0)]) {
+    // Polyglots: a valid image signature followed by SVG markup.
+    const svgBody = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>';
+    const riffSvg = Buffer.concat([Buffer.from("RIFF"), Buffer.from([0x60, 0, 0, 0]), Buffer.from("WEBP"), Buffer.from(svgBody)]);
+    const pngSvg = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from(svgBody)]);
+    for (const body of [gif, svg, corrupt, riffSvg, pngSvg, Buffer.alloc(0)]) {
       const res = await upload(m.token, body, { "content-type": "image/jpeg" });
       expect(res.status).toBe(400);
       expect(Object.keys(res.body.fieldErrors)).toEqual(["avatar"]);

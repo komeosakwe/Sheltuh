@@ -773,7 +773,9 @@ Clickable Who's Going names (owner request, 21 Oct 2026;
 - **Photos.** `PUT /profiles/me/avatar` takes the raw bytes: JPEG, PNG or WebP
   sniffed from the bytes (the declared type is ignored; SVG, GIF, HEIC and
   anything else are a 400), at most 5 MB, read as a stream and cut off past
-  it (413). sharp decodes it once (first frame only, at most 24 megapixels,
+  it (413). A header-only read then confirms libvips itself chose its JPEG,
+  PNG or WebP loader, so a polyglot (an image signature followed by SVG, say)
+  can't reach another decoder. sharp decodes it once (first frame only, at most 24 megapixels,
   refused from the header, so a small file can't claim a huge canvas),
   applies the EXIF orientation, crops to a 512 px square of raw sRGB pixels,
   and writes from those a 512 px WebP and a 96 px thumbnail with **no

@@ -153,7 +153,7 @@ describe("LiveEventDetails document title vs streamed metadata", () => {
     getPublicEventBySlug.mockResolvedValue(publicEvent("neon-static"));
     render(<LiveEventDetails slug="neon-static" />);
     await screen.findByRole("heading", { level: 1, name: "Neon Static" });
-    expect(document.title).toBe("Neon Static — Sheltüh");
+    await waitFor(() => expect(document.title).toBe("Neon Static — Sheltüh"));
     // As Next does when generateMetadata's result streams in late.
     await act(async () => {
       document.title = "Sheltüh";

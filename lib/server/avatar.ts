@@ -93,6 +93,13 @@ async function inEncodeSlot<T>(work: () => Promise<T>): Promise<T> {
  */
 export async function encodeAvatar(input: Uint8Array): Promise<EncodedAvatar> {
   return inEncodeSlot(async () => {
+    // libvips picks its loader from the bytes, independently of our sniff. A
+    // header-only read confirms it chose a JPEG, PNG or WebP loader, so a
+    // polyglot can't reach another decoder (SVG, PDF, TIFF…).
+    const format = await sharp(input, { failOn: "error" })
+      .metadata()
+      .then((m) => m.format, () => undefined);
+    if (format !== "jpeg" && format !== "png" && format !== "webp") throw NOT_AN_IMAGE();
     const square = await sharp(input, { limitInputPixels: MAX_AVATAR_INPUT_PIXELS, failOn: "error", pages: 1 })
       // Applies the EXIF orientation to the pixels (the tag itself isn't kept).
       .rotate()
