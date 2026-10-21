@@ -5,10 +5,15 @@ import { useEffect, useRef, useState } from "react";
 import { backLinkClass } from "@/components/analytics/shared";
 import { formatCount } from "@/lib/analytics-format";
 import type { CheckInSummary } from "@/lib/api/types";
+import { checkedInPercent } from "@/lib/check-in/door-copy";
 import { DOOR_TIMING } from "@/lib/check-in/timing";
 import { formatEventDateTimeRange, formatEventTime } from "@/lib/format";
 
-/** "← Your events" and the eyebrow, then the event title (§5.A2). */
+/**
+ * "← Your events" and the eyebrow, then the event title (§5.A2). The eyebrow
+ * carries the date: under "Door check-in" on phones (inside the 44px row, so
+ * it costs no height above the scanner), after it from md.
+ */
 export function CheckInTitle({ summary }: { summary: CheckInSummary | null }) {
   return (
     <header>
@@ -18,7 +23,12 @@ export function CheckInTitle({ summary }: { summary: CheckInSummary | null }) {
         </Link>
         <p className="eyebrow text-right text-muted">
           Door check-in
-          {summary && <span className="hidden md:inline"> · {formatEventDateTimeRange(summary.event.startsAt)}</span>}
+          {summary && (
+            <>
+              <span className="block md:hidden">{formatEventDateTimeRange(summary.event.startsAt)}</span>
+              <span className="hidden md:inline"> · {formatEventDateTimeRange(summary.event.startsAt)}</span>
+            </>
+          )}
         </p>
       </div>
       <h1
@@ -33,7 +43,7 @@ export function CheckInTitle({ summary }: { summary: CheckInSummary | null }) {
 }
 
 function Bar({ value, total }: { value: number; total: number }) {
-  const percent = total > 0 ? Math.min(100, (value / total) * 100) : 0;
+  const percent = checkedInPercent(value, total);
   return (
     <div aria-hidden="true" className="h-1 w-full bg-surface-border">
       <div className="h-full bg-foreground" style={{ width: `${percent}%` }} />
@@ -67,7 +77,7 @@ export function CheckInCounters({
     previous.current = checkedIn;
     if (before === undefined || before === checkedIn) return;
     const timer = setTimeout(
-      () => setAnnouncement(`${formatCount(checkedIn)} checked in of ${formatCount(ticketsSold)} sold.`),
+      () => setAnnouncement(`${formatCount(checkedIn)} of ${formatCount(ticketsSold)} checked in.`),
       DOOR_TIMING.countAnnounceDebounceMs,
     );
     return () => clearTimeout(timer);
@@ -80,18 +90,24 @@ export function CheckInCounters({
       </h2>
       {summary ? (
         <>
-          <div className="flex items-end gap-3">
+          {/* Under sm, capacity joins the muted line so the row stays one line at 320. From sm it's the eyebrow on
+              the right, which wraps onto its own line where the column is narrow, as at 768. */}
+          <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
             <p className="font-heading text-[2.5rem] leading-10 font-extrabold tabular-nums md:text-6xl md:leading-none">
               {formatCount(summary.checkedIn)}
             </p>
-            <div className="flex flex-col pb-0.5">
-              <p className="text-sm">checked in</p>
-              <p className="text-sm text-muted">
-                of {formatCount(summary.ticketsSold)} sold
-                {summary.ticketsSold > 0 && ` · ${formatCount(Math.max(0, summary.ticketsSold - summary.checkedIn))} to come`}
-              </p>
+            <div className="flex min-w-0 flex-col pb-0.5">
+              <p className="text-sm">of {formatCount(summary.ticketsSold)} checked in</p>
+              {summary.ticketsSold > 0 ? (
+                <p className="text-sm text-muted">
+                  {formatCount(Math.max(0, summary.ticketsSold - summary.checkedIn))} to come
+                  <span className="sm:hidden"> · capacity {formatCount(summary.capacity)}</span>
+                </p>
+              ) : (
+                <p className="text-sm text-muted sm:hidden">Capacity {formatCount(summary.capacity)}</p>
+              )}
             </div>
-            <p className="eyebrow ml-auto pb-1 text-muted">Capacity {formatCount(summary.capacity)}</p>
+            <p className="eyebrow ml-auto hidden pb-1 text-muted sm:block">Capacity {formatCount(summary.capacity)}</p>
           </div>
           <div className="mt-2">
             <Bar value={summary.checkedIn} total={summary.ticketsSold} />

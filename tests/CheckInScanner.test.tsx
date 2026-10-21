@@ -136,6 +136,22 @@ describe("starting and stopping", () => {
     expect(navigator.wakeLock.request).toHaveBeenCalledWith("screen");
   });
 
+  it("keeps focus while starting: Start camera hands it to the busy Starting… button, then to Stop camera", async () => {
+    const media = deferred<ReturnType<typeof fakeStream>>();
+    getUserMedia.mockReturnValue(media.promise);
+    await renderPage();
+    const start = screen.getByRole("button", { name: "Start camera" });
+    act(() => start.focus());
+    fireEvent.click(start);
+    await advance();
+    const starting = within(slot()).getByRole("button", { name: "Starting…" });
+    expect(starting).toHaveFocus();
+    expect(starting).toHaveAttribute("aria-disabled", "true");
+    media.resolve(fakeStream());
+    await advance();
+    expect(screen.getByRole("button", { name: "Stop camera" })).toHaveFocus();
+  });
+
   it("Stop camera: stops the stream and wake lock, says so, and focuses Start camera", async () => {
     await renderPage();
     await startCamera();
@@ -188,16 +204,23 @@ describe("starting and stopping", () => {
 
 describe("camera problems", () => {
   it.each([
-    ["NotAllowedError", "Camera access is blocked", "Try again", true],
-    ["NotReadableError", "The camera is in use", "Try again", true],
-    ["NotFoundError", "No camera found", null, false],
-    ["OverconstrainedError", "No camera found", null, false],
-  ])("%s: %s", async (name, title, button, focused) => {
+    ["NotAllowedError", "Camera access is blocked", "Try again", "Allow the camera for this site, then tap Try again. Until then, type codes below."],
+    ["NotReadableError", "The camera is in use", "Try again", "Close any other app using the camera, then try again."],
+    ["NotFoundError", "No camera found", null, "Type codes below."],
+    ["OverconstrainedError", "No camera found", null, "Type codes below."],
+  ])("%s: %s, focused and announced", async (name, title, button, body) => {
     getUserMedia.mockRejectedValue(new DOMException("x", name));
     await renderPage();
+    act(() => screen.getByRole("button", { name: "Start camera" }).focus());
     await startCamera();
+    // Focus lands on the heading (never dropped to the page), and the problem is said politely.
     const heading = within(slot()).getByRole("heading", { name: title });
-    if (focused) expect(heading).toHaveFocus();
+    expect(heading).toHaveFocus();
+    await advance(40);
+    const status = screen.getByTestId("status-announcer");
+    expect(status).toHaveTextContent(`${title}. ${body}`);
+    expect(status).toHaveAttribute("aria-live", "polite");
+    expect(screen.getByTestId("result-announcer")).toHaveTextContent("");
     if (button) expect(within(slot()).getByRole("button", { name: button })).toBeInTheDocument();
     else expect(within(slot()).queryByRole("button")).toBeNull();
     // Typing still works.
@@ -223,6 +246,21 @@ describe("camera problems", () => {
     expect(within(slot()).getByRole("heading", { name: "The scanner couldn’t load" })).toHaveFocus();
     expect(screen.getByText("Check your connection and try again, or type codes below.")).toBeInTheDocument();
     expect(track.stop).toHaveBeenCalled();
+  });
+
+  it("the scanner failing while live: focus goes from the vanished Stop camera to the heading, and it's announced", async () => {
+    await renderPage();
+    await startCamera();
+    expect(screen.getByRole("button", { name: "Stop camera" })).toHaveFocus();
+    // Five failed decodes in a row (MAX_DECODE_FAILURES) and the scanner is treated as broken.
+    for (let i = 0; i < 5; i += 1) detect.mockRejectedValueOnce(new Error("decoder crashed"));
+    await advance(125 * 5);
+    const heading = within(slot()).getByRole("heading", { name: "The scanner couldn’t load" });
+    expect(heading).toHaveFocus();
+    await advance(40);
+    expect(screen.getByTestId("status-announcer")).toHaveTextContent(
+      "The scanner couldn’t load. Check your connection and try again, or type codes below.",
+    );
   });
 
   it("unsupported browser (no camera API): explains, never offers Start", async () => {
@@ -359,6 +397,22 @@ describe("decoding", () => {
     api.checkInTicket.mockResolvedValueOnce(admitted);
     await show(qr("SH1:ABCD-EFGH"));
     expect(api.checkInTicket).toHaveBeenCalledTimes(2);
+  });
+
+  it("the same code back in front of the camera after Scan another resends the unresolved scan's request id", async () => {
+    api.checkInTicket.mockRejectedValueOnce(new ApiError(0, "x"));
+    await renderPage();
+    await startCamera();
+    await show(qr("SH1:7KQM-2HXD"));
+    expect(resultOf()).toBe("hold");
+    await advance(5000);
+    fireEvent.click(within(slot()).getByRole("button", { name: "Scan another" }));
+    await advance();
+    api.checkInTicket.mockResolvedValueOnce(admitted);
+    await show(qr("SH1:7KQM-2HXD"));
+    expect(api.checkInTicket).toHaveBeenCalledTimes(2);
+    expect(api.checkInTicket.mock.calls[1][2]).toBe(api.checkInTicket.mock.calls[0][2]);
+    expect(resultOf()).toBe("admit");
   });
 
   it("stops decoding when the camera stops", async () => {

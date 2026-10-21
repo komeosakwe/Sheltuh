@@ -8,11 +8,13 @@ import {
   formatCheckedInAt,
   ownScanNote,
   toneOf,
+  UNKNOWN_OUTCOME_DETAIL,
   UNVERIFIED_DETAIL,
   type DoorResult,
   type DoorTone,
 } from "@/lib/check-in/door-copy";
 import { withNext } from "@/lib/safe-next-path";
+import { doorBusyClass } from "./busy-class";
 import DoorIcon, { type DoorIconName } from "./DoorIcon";
 
 /** Each panel resets the tokens locally, so text, focus ring and outline pills follow its fill (§5.A4). */
@@ -106,6 +108,9 @@ function reasonAndDetails(result: DoorResult, now: Date): { reason: string; deta
         reason: "Not a valid ticket",
         details: <p className="text-base">This code isn’t a ticket for any of your events.</p>,
       };
+    default:
+      // An answer this client doesn't know fails closed: toneOf makes it Not verified, never Let in.
+      return { reason: "Don’t let in yet", details: <p className="text-base">{UNKNOWN_OUTCOME_DETAIL}</p> };
   }
 }
 
@@ -133,14 +138,14 @@ export default function ResultPanel({ result, retrying, returnTo, panelRef, onRe
   let actions: ReactNode = null;
   if (result.kind === "unverified") {
     const scanAnother = (
-      <Button variant="outline" size="lg" busy={retrying} onClick={onDismiss} className="w-full sm:w-auto">
+      <Button variant="outline" size="lg" busy={retrying} onClick={onDismiss} className={`w-full sm:w-auto ${doorBusyClass}`}>
         Scan another
       </Button>
     );
     actions = (
       <>
         {canRetry(result.reason) && (
-          <Button variant="solid" size="lg" busy={retrying} onClick={onRetry} className="w-full sm:w-auto">
+          <Button variant="solid" size="lg" busy={retrying} onClick={onRetry} className={`w-full sm:w-auto ${doorBusyClass}`}>
             {retrying ? "Retrying…" : "Retry"}
           </Button>
         )}
@@ -156,6 +161,13 @@ export default function ResultPanel({ result, retrying, returnTo, panelRef, onRe
         )}
         {scanAnother}
       </>
+    );
+  } else if (tone === "hold") {
+    // A server answer this client doesn't recognise: no Retry (the same request id replays the same answer).
+    actions = (
+      <Button variant="outline" size="lg" onClick={onDismiss} className="w-full sm:w-auto">
+        Scan another
+      </Button>
     );
   } else if (tone === "refuse") {
     actions = (

@@ -18,7 +18,7 @@ import ManualEntry from "./ManualEntry";
 import OfflineBanner, { useOnline } from "./OfflineBanner";
 import RecentScans from "./RecentScans";
 import ResultPanel from "./ResultPanel";
-import Scanner from "./Scanner";
+import Scanner, { cameraProblemAnnouncement } from "./Scanner";
 import UndoCheckInDialog, { undoErrorOutcome, type UndoDialogOutcome } from "./UndoCheckInDialog";
 import { useAnnouncer } from "./useAnnouncer";
 import { useCamera } from "./useCamera";
@@ -99,6 +99,27 @@ export default function DoorConsole({
   const scan = useDoorScan({ eventId, getToken, onResultShown, onServerResult, onPanelFocusLost, panelRef });
   const camera = useCamera({ videoRef, slotRef, onDecode: scan.submitDecoded, accepting: scan.acceptingDecodes });
 
+  // A camera problem is announced politely (focus alone only reads its heading, and "No camera found" has no
+  // button to land on). If the control that had focus went with the old state (Stop camera when the scanner
+  // fails while live), focus goes to the problem's heading rather than the page.
+  const previousCameraState = useRef(camera.state);
+  useEffect(() => {
+    const before = previousCameraState.current;
+    previousCameraState.current = camera.state;
+    if (before === camera.state) return;
+    const problem = cameraProblemAnnouncement(camera.state);
+    if (!problem) return;
+    announcePolite(problem);
+    const active = document.activeElement;
+    if (!pendingFocus.current && (active === null || active === document.body)) pendingFocus.current = "state-heading";
+  }, [announcePolite, camera.state]);
+
+  // "Checking…" (shown once a request takes over 250ms) is said politely; the result follows assertively.
+  const checkingShown = scan.display.kind === "checking" && scan.display.showText;
+  useEffect(() => {
+    if (checkingShown) announcePolite("Checking…");
+  }, [announcePolite, checkingShown]);
+
   // Moves focus only where §5.A13 says: Start ↔ Stop, error headings, the Recent scans heading after an undo.
   useEffect(() => {
     const target = pendingFocus.current;
@@ -132,11 +153,16 @@ export default function DoorConsole({
     if (soundOn) sound.unlock();
     const door = doorRef.current;
     if (door) window.scrollTo({ top: door.getBoundingClientRect().top + window.scrollY, behavior: "instant" });
+    // Start camera is replaced by the busy "Starting…" button: keep focus on it, not the page.
+    pendingFocus.current = "start";
     const next = await camera.start();
     if (next === "live") {
       pendingFocus.current = "stop";
       announcePolite("Camera on. Hold the ticket’s QR code inside the frame.");
-    } else if (next === "denied" || next === "busy" || next === "load-failed") {
+    } else if (next === "paused") {
+      pendingFocus.current = "start";
+    } else {
+      // Every other outcome is a problem with a focusable heading (announced by the effect above).
       pendingFocus.current = "state-heading";
     }
   }

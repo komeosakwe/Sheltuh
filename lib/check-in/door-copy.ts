@@ -27,11 +27,33 @@ export type DoorResult =
 /** Let in, don't let in, or not verified: the panel's treatment, sound and vibration. */
 export type DoorTone = "admit" | "refuse" | "hold";
 
+/** The outcomes this client knows how to show. */
+const KNOWN_OUTCOMES: ReadonlySet<string> = new Set<CheckInResult["outcome"]>([
+  "admitted",
+  "already_checked_in",
+  "not_admissible",
+  "other_event",
+  "invalid",
+]);
+
+/**
+ * Whether the server's answer is one this client understands. An outcome it
+ * doesn't know (a newer server, a bad response) fails closed: Not verified,
+ * never let in and never a definite refusal.
+ */
+export function isKnownOutcome(result: CheckInResult): boolean {
+  return KNOWN_OUTCOMES.has(result.outcome);
+}
+
 export function toneOf(result: DoorResult): DoorTone {
   if (result.kind === "unverified") return "hold";
+  if (result.kind === "server" && !isKnownOutcome(result.result)) return "hold";
   if (result.kind === "server" && result.result.outcome === "admitted") return "admit";
   return "refuse";
 }
+
+/** Shown and said for a server answer this client doesn't recognise (fail closed). */
+export const UNKNOWN_OUTCOME_DETAIL = "Sheltüh sent an answer this page doesn’t recognise. Reload the page, then check the code again.";
 
 /**
  * A thrown check-in error, read for the Not-verified panel. Aborts and
@@ -61,6 +83,25 @@ export function canRetry(reason: UnverifiedReason): boolean {
   return reason === "network" || reason === "rate-limited" || reason === "server";
 }
 
+/**
+ * What the Not-verified announcement adds per reason (§5.A8). Only the
+ * reasons that offer Retry mention retrying, so nobody listens for a button
+ * that isn't there.
+ */
+export const UNVERIFIED_SPOKEN: Record<UnverifiedReason, string> = {
+  network: "Couldn’t reach Sheltüh. Retry when you have signal.",
+  "rate-limited": "Too many scans. Wait a few seconds, then retry.",
+  server: "Sheltüh had a problem. Retry in a moment.",
+  "signed-out": "You’ve been signed out. Sign in again.",
+  "no-access": "This account can’t check people in for this event.",
+  unsendable: "This scan couldn’t be sent. Type the code instead.",
+};
+
+/** How much of `total` `value` is, as a 0–100 share for a bar (0 when nothing has sold). */
+export function checkedInPercent(value: number, total: number): number {
+  return total > 0 ? Math.min(100, Math.max(0, (value / total) * 100)) : 0;
+}
+
 /** "just now", "14 min ago", "1 hr 5 min ago" (under a day). */
 export function relativeAgo(ms: number): string {
   const minutes = Math.floor(Math.max(0, ms) / 60_000);
@@ -87,7 +128,7 @@ export function ownScanNote(agoMs: number): string {
 /** The assertive announcement for a result (§5.A8). */
 export function resultAnnouncement(result: DoorResult): string {
   if (result.kind === "foreign") return "Don’t let in. Not a Sheltüh ticket.";
-  if (result.kind === "unverified") return "Not verified. Don’t let in yet. Retry.";
+  if (result.kind === "unverified") return `Not verified. Don’t let in yet. ${UNVERIFIED_SPOKEN[result.reason]}`;
   const { outcome, ticket, checkedInAt, otherEventTitle } = result.result;
   switch (outcome) {
     case "admitted":
@@ -102,6 +143,8 @@ export function resultAnnouncement(result: DoorResult): string {
       return otherEventTitle ? `Don’t let in. Ticket for ${otherEventTitle}.` : "Don’t let in. Wrong event.";
     case "invalid":
       return "Don’t let in. Not a valid ticket.";
+    default:
+      return "Not verified. Don’t let in yet. Reload the page, then check the code again.";
   }
 }
 
@@ -135,6 +178,9 @@ export function recentRow(entry: CheckInLogEntry): { label: string; detail: stri
         detail: [typeAndCode(entry), entry.reason ? `Reason: ${entry.reason}` : null].filter(Boolean).join(" · "),
         icon: "undo",
       };
+    default:
+      // A result this client doesn't know: listed, never shown as an admission.
+      return { label: "Unknown result", detail: typeAndCode(entry), icon: "cross" };
   }
 }
 

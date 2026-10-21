@@ -20,6 +20,11 @@ export const DOOR_TIMING = {
   requestTimeoutMs: 8000,
   /** An already-checked-in ticket this device admitted within this long gets "Checked in on this device…". */
   ownScanWindowMs: 60_000,
+  /**
+   * A code whose scan ended Not verified keeps its request id this long: a rescan or retype of it resends that
+   * id, so a request the server did process replays its answer instead of reading as a second scan.
+   */
+  unresolvedReuseMs: 60_000,
   /** Counters refresh this long after a result or an undo (bursts collapse into one request). */
   refreshDebounceMs: 1000,
   /** Counters refresh this often while the page is visible. */

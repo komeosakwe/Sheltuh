@@ -1,20 +1,26 @@
 import { Panel } from "@/components/ui/Section";
 import { formatCount } from "@/lib/analytics-format";
 import type { CheckInSummary } from "@/lib/api/types";
+import { checkedInPercent } from "@/lib/check-in/door-copy";
 import { CountBar } from "./CheckInHeader";
 
 function Rows({ types }: { types: CheckInSummary["byTicketType"] }) {
   if (types.length === 0) return <p className="text-sm text-muted">This event has no ticket types.</p>;
   return (
-    <dl>
+    // No rule under the last row: the next section's own top rule follows it.
+    <dl className="[&>div:last-child]:border-b-0">
       {types.map((type) => (
         <div key={type.ticketTypeId} className="grid grid-cols-[1fr_auto] gap-x-3 border-b border-surface-border py-3">
-          <dt className="text-sm break-words">{type.name}</dt>
+          <dt className="min-w-0 text-sm break-words">{type.name}</dt>
           <dd className="text-right text-sm tabular-nums">
-            {formatCount(type.checkedIn)} of {formatCount(type.ticketsSold)} in
+            {/* Short on screen so the name keeps its width at 768; said in full. */}
+            {formatCount(type.checkedIn)} of {formatCount(type.ticketsSold)}
+            <span className="sr-only"> checked</span> in
             <span className="block text-xs text-muted">Capacity {formatCount(type.capacity)}</span>
           </dd>
           <dd className="col-span-2 mt-2">
+            {/* The bar is aria-hidden: this is what it shows. */}
+            <span className="sr-only">{Math.round(checkedInPercent(type.checkedIn, type.ticketsSold))}% checked in</span>
             <CountBar value={type.checkedIn} total={type.ticketsSold} />
           </dd>
         </div>

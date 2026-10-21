@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { Button } from "@/components/ui/Button";
+import { doorBusyClass } from "./busy-class";
 import type { CameraState } from "./useCamera";
 import DoorIcon from "./DoorIcon";
 
@@ -11,12 +12,16 @@ const stateLayerClass = "relative [grid-area:1/1] flex flex-col justify-center g
  * The reticle (§4): a centred square, 70% of the slot's shorter side, drawn
  * as four static L-shaped corners with 24px arms. A 4px light stroke over a
  * 6px dark one gives the 1px dark edge that reads over bright and dark video.
+ * On phones it shrinks to stay clear of the controls band (max-h: the slot
+ * less 6.5rem, two 44px pills plus their 8px inset), never below half the
+ * slot. Must match `reticleSide` (lib/check-in/frame-dedupe.ts), which sets
+ * the decode region.
  */
 function Reticle() {
   const corners = ["top-0 left-0", "top-0 right-0 rotate-90", "right-0 bottom-0 rotate-180", "bottom-0 left-0 -rotate-90"];
   return (
     <div aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center">
-      <div className="relative aspect-square h-[70%] max-w-[70%]">
+      <div className="relative aspect-square h-[70%] max-h-[calc(100%-6.5rem)] min-h-[50%] max-w-[70%]">
         {corners.map((position) => (
           <svg key={position} viewBox="0 0 24 24" fill="none" strokeLinecap="square" className={`absolute size-6 ${position}`}>
             <path d="M2 22V2h20" stroke="var(--background)" strokeWidth="6" />
@@ -101,7 +106,7 @@ export default function Scanner({
         />
         {live && <Reticle />}
         {live && (
-          <div className="absolute right-3 bottom-3 flex gap-2">
+          <div className="absolute right-2 bottom-2 flex gap-2">
             {camera.torchAvailable && (
               <Button
                 size="sm"
@@ -159,7 +164,7 @@ function StateLayer({
         <div className="flex max-w-sm flex-col gap-3">
           <p className="text-base">Starting camera…</p>
           <div>
-            <Button ref={startButtonRef} size="lg" variant="solid" busy>
+            <Button ref={startButtonRef} size="lg" variant="solid" busy className={doorBusyClass}>
               Starting…
             </Button>
           </div>
@@ -173,8 +178,8 @@ function StateLayer({
     <div ref={layerRef} inert={covered} className={stateLayerClass}>
       <div className="flex max-w-sm flex-col gap-3">
         <h2
-          ref={content.focusHeading ? headingRef : undefined}
-          tabIndex={content.focusHeading ? -1 : undefined}
+          ref={headingRef}
+          tabIndex={-1}
           className="flex items-start gap-2 font-sans text-xl leading-7 font-semibold tracking-normal normal-case outline-offset-2"
         >
           {content.icon && <DoorIcon name="alert" className="mt-1 size-5 text-danger" />}
@@ -201,9 +206,21 @@ function StateLayer({
   );
 }
 
+/**
+ * The polite announcement when the camera can't run (§5.A8): its heading and
+ * body, so "No camera found" isn't silent. Null for states that aren't a
+ * problem the person just ran into.
+ */
+export function cameraProblemAnnouncement(state: CameraState): string | null {
+  if (state === "live" || state === "starting") return null;
+  const content = STATE_COPY[state];
+  return content.problem ? `${content.title}. ${content.body}` : null;
+}
+
+/** `problem`: a start (or the scanner) just failed, so it's announced and its heading focused. */
 const STATE_COPY: Record<
   Exclude<CameraState, "live" | "starting">,
-  { title: string; body: string; button?: string; focusHeading?: boolean; icon?: boolean }
+  { title: string; body: string; button?: string; problem?: boolean; icon?: boolean }
 > = {
   idle: {
     title: "Scan tickets with your camera",
@@ -220,7 +237,7 @@ const STATE_COPY: Record<
     title: "Camera access is blocked",
     body: "Allow the camera for this site, then tap Try again. Until then, type codes below.",
     button: "Try again",
-    focusHeading: true,
+    problem: true,
     icon: true,
   },
   insecure: {
@@ -231,17 +248,17 @@ const STATE_COPY: Record<
     title: "This browser can’t use the camera here",
     body: "Open this page in Safari (iPhone) or Chrome (Android), or type codes below.",
   },
-  "no-camera": { title: "No camera found", body: "Type codes below." },
+  "no-camera": { title: "No camera found", body: "Type codes below.", problem: true },
   busy: {
     title: "The camera is in use",
     body: "Close any other app using the camera, then try again.",
     button: "Try again",
-    focusHeading: true,
+    problem: true,
   },
   "load-failed": {
     title: "The scanner couldn’t load",
     body: "Check your connection and try again, or type codes below.",
     button: "Try again",
-    focusHeading: true,
+    problem: true,
   },
 };

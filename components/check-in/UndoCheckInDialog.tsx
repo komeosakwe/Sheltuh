@@ -9,11 +9,29 @@ import { ApiError } from "@/lib/api/client";
 import type { CheckInLogEntry } from "@/lib/api/types";
 import { undoAbout } from "@/lib/check-in/door-copy";
 import { withNext } from "@/lib/safe-next-path";
+import { doorBusyClass } from "./busy-class";
 
+/**
+ * The reason's length rules. These mirror MIN_UNDO_REASON_LENGTH and
+ * MAX_UNDO_REASON_LENGTH in lib/server/handlers/check-ins.ts, which count
+ * code points (`Array.from`), so the client counts the same way. Note: the
+ * server constants are due to move somewhere both sides can import; until
+ * then, keep these two in step with them.
+ */
 export const UNDO_REASON_MIN = 3;
 export const UNDO_REASON_MAX = 200;
 
+/** Characters as the server counts them: code points, so an emoji is one, not two UTF-16 units. */
+export function reasonLength(reason: string): number {
+  return Array.from(reason).length;
+}
+
 const SUGGESTIONS = ["Scanned by mistake", "Wrong ticket scanned", "Letting them back in"];
+
+/** A touch screen as the main pointer: focusing a text input there would throw up the keyboard over the sheet. */
+function primaryPointerIsTouch(): boolean {
+  return typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+}
 
 /** What the page made of an undo request, for the dialog. */
 export type UndoDialogOutcome =
@@ -56,7 +74,13 @@ export default function UndoCheckInDialog({
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
+    if (open && !dialog.open) {
+      dialog.showModal();
+      // Opening focuses the reason field, except on touch screens: there the heading takes focus, so the
+      // keyboard only comes up when they tap the field (most reach for a suggestion). Set after showModal,
+      // which would otherwise pick the field itself.
+      dialog.querySelector<HTMLElement>(primaryPointerIsTouch() ? "#undo-title" : "#undo-reason")?.focus();
+    }
     if (!open && dialog.open) dialog.close();
   }, [open]);
 
@@ -86,15 +110,13 @@ function UndoForm({
 }) {
   const [reason, setReason] = useState("");
   const [fieldError, setFieldError] = useState<string | null>(null);
+  /** Bumped per field error, so the same error is put back into the live region and said again. */
+  const [errorAttempt, setErrorAttempt] = useState(0);
   const [notice, setNotice] = useState<{ text: string; signIn: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const noticeRef = useRef<HTMLDivElement>(null);
   const pendingFocus = useRef<"input" | "notice" | null>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
 
   useEffect(() => {
     const target = pendingFocus.current;
@@ -110,8 +132,14 @@ function UndoForm({
     if (busy) return;
     setNotice(null);
     const trimmed = reason.trim();
-    if (trimmed.length < UNDO_REASON_MIN) {
-      setFieldError("Give a reason of at least 3 characters.");
+    const length = reasonLength(trimmed);
+    if (length < UNDO_REASON_MIN || length > UNDO_REASON_MAX) {
+      setFieldError(
+        length < UNDO_REASON_MIN
+          ? `Give a reason of at least ${UNDO_REASON_MIN} characters.`
+          : `Keep the reason to ${UNDO_REASON_MAX} characters or fewer.`,
+      );
+      setErrorAttempt((n) => n + 1);
       pendingFocus.current = "input";
       inputRef.current?.focus();
       return;
@@ -123,6 +151,7 @@ function UndoForm({
     setBusy(false);
     if ("fieldError" in outcome) {
       setFieldError(outcome.fieldError);
+      setErrorAttempt((n) => n + 1);
       pendingFocus.current = "input";
     } else {
       setNotice({ text: outcome.notice, signIn: outcome.signIn === true });
@@ -132,7 +161,7 @@ function UndoForm({
 
   return (
     <form noValidate aria-busy={busy} onSubmit={handleSubmit} className="flex flex-col gap-5">
-      <h2 id="undo-title" className="display-md !text-2xl">
+      <h2 id="undo-title" tabIndex={-1} className="display-md !text-2xl outline-offset-2">
         Undo this check-in?
       </h2>
       <p id="undo-about" className="text-sm">
@@ -148,7 +177,9 @@ function UndoForm({
           id="undo-reason"
           name="reason"
           value={reason}
-          maxLength={UNDO_REASON_MAX}
+          // maxLength counts UTF-16 units: twice the limit never cuts off a reason the server would take
+          // (a code point is at most two units); the submit check above counts code points exactly.
+          maxLength={UNDO_REASON_MAX * 2}
           autoComplete="off"
           onChange={(event) => {
             setReason(event.target.value);
@@ -158,14 +189,19 @@ function UndoForm({
           aria-describedby={fieldError ? "undo-reason-error undo-reason-hint" : "undo-reason-hint"}
           className={fieldClass}
         />
-        {fieldError && (
-          <p id="undo-reason-error" className="text-sm text-danger">
-            {fieldError}
+        <div>
+          {/* Mounted before any error, so screen readers hear one appear. */}
+          <div role="status" aria-atomic="true" data-testid="undo-reason-error-region">
+            {fieldError && (
+              <p key={errorAttempt} id="undo-reason-error" className="mb-1.5 text-sm text-danger">
+                {fieldError}
+              </p>
+            )}
+          </div>
+          <p id="undo-reason-hint" className="text-xs text-muted">
+            Kept in the check-in log. 3 to 200 characters.
           </p>
-        )}
-        <p id="undo-reason-hint" className="text-xs text-muted">
-          Kept in the check-in log. 3 to 200 characters.
-        </p>
+        </div>
       </div>
 
       <div role="group" aria-label="Suggested reasons" className="flex flex-wrap gap-2">
@@ -202,7 +238,7 @@ function UndoForm({
       )}
 
       <div className="flex flex-col gap-3 sm:flex-row">
-        <Button type="submit" variant="danger" size="lg" busy={busy} className="w-full sm:w-auto">
+        <Button type="submit" variant="danger" size="lg" busy={busy} className={`w-full sm:w-auto ${doorBusyClass}`}>
           {busy ? "Undoing…" : "Undo check-in"}
         </Button>
         <Button variant="outline" size="lg" onClick={onCancel} className="w-full sm:w-auto">

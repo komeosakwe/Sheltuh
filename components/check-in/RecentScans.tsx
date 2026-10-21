@@ -6,6 +6,7 @@ import { Notice } from "@/components/ui/Section";
 import type { CheckInLogEntry } from "@/lib/api/types";
 import { recentRow } from "@/lib/check-in/door-copy";
 import { formatEventTime, formatMessageTime } from "@/lib/format";
+import { doorBusyClass } from "./busy-class";
 import DoorIcon from "./DoorIcon";
 
 const ICON_CLASS = { check: "text-door-admit", cross: "text-danger", undo: "text-foreground" } as const;
@@ -42,11 +43,18 @@ export default function RecentScans({
   const fresh = useFreshIds(entries);
   return (
     <section aria-labelledby="recent-scans" className="border-t border-foreground pt-5">
+      {/* At 768 the column is ~275px: the heading steps down to 20px there so it stays on one line beside Refresh. */}
       <div className="mb-2 flex items-center justify-between gap-3">
-        <h2 id="recent-scans" ref={headingRef} tabIndex={-1} className="display-md !text-2xl outline-offset-2">
+        <h2 id="recent-scans" ref={headingRef} tabIndex={-1} className="display-md min-w-0 !text-2xl outline-offset-2 md:!text-xl lg:!text-2xl">
           Recent scans
         </h2>
-        <Button size="sm" variant="outline" busy={refreshing} onClick={onRefresh} className="min-h-11">
+        <Button
+          size="sm"
+          variant="outline"
+          busy={refreshing}
+          onClick={onRefresh}
+          className={`min-h-11 shrink-0 ${doorBusyClass}`}
+        >
           Refresh
         </Button>
       </div>
@@ -64,29 +72,30 @@ export default function RecentScans({
             return (
               <li
                 key={entry.checkInId}
-                className={`flex min-h-14 items-center gap-3 border-b border-surface-border py-3 ${
+                className={`flex min-h-14 items-start gap-3 border-b border-surface-border py-3 ${
                   fresh.has(entry.checkInId) ? "fade-in" : ""
                 }`.trim()}
               >
                 <DoorIcon name={row.icon} className={`size-5 ${ICON_CLASS[row.icon]}`} />
-                <div className="min-w-0 flex-1">
+                {/* Undo sits under the detail, inside this column, so every row's time stays flush right. */}
+                <div className="flex min-w-0 flex-1 flex-col">
                   <div className="flex items-baseline justify-between gap-3">
                     <p className="text-sm font-semibold">{row.label}</p>
                     <p className="shrink-0 text-xs text-muted tabular-nums">{formatMessageTime(entry.at)}</p>
                   </div>
                   <p className="text-sm break-words text-muted">{row.detail}</p>
+                  {entry.undoable && (
+                    <Button size="sm" variant="outline" onClick={() => onUndo(entry)} className="mt-2 min-h-11 self-start">
+                      Undo{" "}
+                      <span className="sr-only">
+                        check-in, {[entry.ticketTypeName, entry.codeLast4 ? `code ends ${entry.codeLast4}` : null]
+                          .filter(Boolean)
+                          .join(", ")}
+                        , {formatEventTime(entry.at)}
+                      </span>
+                    </Button>
+                  )}
                 </div>
-                {entry.undoable && (
-                  <Button size="sm" variant="outline" onClick={() => onUndo(entry)} className="min-h-11">
-                    Undo{" "}
-                    <span className="sr-only">
-                      check-in, {[entry.ticketTypeName, entry.codeLast4 ? `code ends ${entry.codeLast4}` : null]
-                        .filter(Boolean)
-                        .join(", ")}
-                      , {formatEventTime(entry.at)}
-                    </span>
-                  </Button>
-                )}
               </li>
             );
           })}

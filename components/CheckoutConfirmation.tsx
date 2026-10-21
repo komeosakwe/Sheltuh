@@ -145,7 +145,7 @@ export default function CheckoutConfirmation() {
   return (
     <div className="flex flex-col gap-6 py-10">
       <div className="flex flex-col items-center gap-2 text-center">
-        <p className="text-sm font-medium uppercase tracking-wide text-accent">Order confirmed</p>
+        <p className="eyebrow text-muted">Order confirmed</p>
         <h1 className="display-md">{order.eventTitle}</h1>
         {order.maskedEmail && (
           <p className="text-sm text-muted">We&rsquo;re emailing your tickets to {order.maskedEmail}.</p>

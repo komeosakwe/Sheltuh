@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api/client";
-import type { CheckInLogEntry } from "@/lib/api/types";
+import type { CheckInLogEntry, CheckInResult } from "@/lib/api/types";
 import {
   canRetry,
+  checkedInPercent,
   formatCheckedInAt,
   recentRow,
   relativeAgo,
@@ -11,8 +12,10 @@ import {
   undoAbout,
   unverifiedReason,
   type DoorResult,
+  type UnverifiedReason,
 } from "@/lib/check-in/door-copy";
-import { classifyDecode, isInsideReticle, reticleInVideo, SameCodeFilter } from "@/lib/check-in/frame-dedupe";
+import { UnresolvedScans } from "@/components/check-in/useDoorScan";
+import { classifyDecode, isInsideReticle, reticleInVideo, reticleSide, SameCodeFilter } from "@/lib/check-in/frame-dedupe";
 import { normaliseTypedCode } from "@/lib/check-in/manual-code";
 import { requestScreenWakeLock } from "@/lib/check-in/wake-lock";
 
@@ -51,13 +54,25 @@ describe("classifyDecode", () => {
 });
 
 describe("reticle", () => {
-  it("is a centred square 70% of the slot's shorter side, mapped through object-cover", () => {
-    // 1280×720 video in a 4:3 slot of 400×300: scale = max(400/1280, 300/720) = 0.4167.
+  it("is a centred square, as wide as the on-screen reticle, mapped through object-cover", () => {
+    // 1280×720 video in a 4:3 slot of 400×300: scale = max(400/1280, 300/720) = 0.4167. The reticle is
+    // 196px there (300 − 104 for the controls band, under 70% = 210), so 196 / 0.4167 = 470.4 video px.
     const r = reticleInVideo({ width: 1280, height: 720 }, { width: 400, height: 300 });
-    expect(r.width).toBeCloseTo(504);
-    expect(r.height).toBeCloseTo(504);
-    expect(r.x).toBeCloseTo((1280 - 504) / 2);
-    expect(r.y).toBeCloseTo((720 - 504) / 2);
+    expect(r.width).toBeCloseTo(470.4);
+    expect(r.height).toBeCloseTo(470.4);
+    expect(r.x).toBeCloseTo((1280 - 470.4) / 2);
+    expect(r.y).toBeCloseTo((720 - 470.4) / 2);
+  });
+
+  it("is 70% of the slot's shorter side, but stays clear of the Stop camera / Torch band on phones", () => {
+    // Tablet and desktop (1:1 slot): plain 70%.
+    expect(reticleSide({ width: 380, height: 380 })).toBeCloseTo(266);
+    expect(reticleSide({ width: 540, height: 540 })).toBeCloseTo(378);
+    // Phones (4:3): 320 → 288×216 and 375 → 343×257.25, each the slot less two 52px bands.
+    expect(reticleSide({ width: 288, height: 216 })).toBeCloseTo(112);
+    expect(reticleSide({ width: 343, height: 257.25 })).toBeCloseTo(153.25);
+    // A very short slot (landscape) never drops below half its shorter side.
+    expect(reticleSide({ width: 600, height: 150 })).toBeCloseTo(75);
   });
 
   it("falls back to the frame itself when the slot has no size", () => {
@@ -83,12 +98,40 @@ describe("SameCodeFilter", () => {
   });
 });
 
+describe("UnresolvedScans", () => {
+  it("keeps a Not-verified scan's request id for its code, for the window, until a definite answer", () => {
+    const ids = vi.spyOn(crypto, "randomUUID").mockReturnValue("22222222-2222-4222-8222-222222222222");
+    const unresolved = new UnresolvedScans(60_000);
+    unresolved.remember(scan, 1000);
+    expect(unresolved.scanFor(scan.code, 60_999)).toEqual(scan);
+    expect(unresolved.scanFor("ABCD-EFGH", 2000).requestId).toBe("22222222-2222-4222-8222-222222222222");
+    expect(unresolved.scanFor(scan.code, 61_000).requestId).toBe("22222222-2222-4222-8222-222222222222");
+    unresolved.remember(scan, 70_000);
+    unresolved.resolve(scan.code);
+    expect(unresolved.scanFor(scan.code, 70_001).requestId).toBe("22222222-2222-4222-8222-222222222222");
+    ids.mockRestore();
+  });
+});
+
 describe("door copy", () => {
   it("names each result's tone", () => {
     expect(toneOf({ kind: "server", scan, result: { outcome: "admitted", ticket }, ownAgoMs: null })).toBe("admit");
     expect(toneOf({ kind: "server", scan, result: { outcome: "invalid" }, ownAgoMs: null })).toBe("refuse");
     expect(toneOf({ kind: "foreign" })).toBe("refuse");
     expect(toneOf({ kind: "unverified", scan, reason: "network" })).toBe("hold");
+  });
+
+  it("fails closed on an outcome it doesn't know: Not verified, never Let in", () => {
+    const unknown = { outcome: "admitted_vip", ticket } as unknown as CheckInResult;
+    const result: DoorResult = { kind: "server", scan, result: unknown, ownAgoMs: null };
+    expect(toneOf(result)).toBe("hold");
+    expect(resultAnnouncement(result)).toBe("Not verified. Don’t let in yet. Reload the page, then check the code again.");
+    const entry = { checkInId: "c1", result: "teleported", at: "2026-10-17T09:42:00.000Z", codeLast4: "2HXD", ticketTypeName: "General admission", undoable: false };
+    expect(recentRow(entry as unknown as CheckInLogEntry)).toEqual({
+      label: "Unknown result",
+      detail: "General admission · Code ends 2HXD",
+      icon: "cross",
+    });
   });
 
   it("announces each result with the exact §5.A8 strings", () => {
@@ -106,9 +149,34 @@ describe("door copy", () => {
       ],
       [{ kind: "server", scan, result: { outcome: "invalid" }, ownAgoMs: null }, "Don’t let in. Not a valid ticket."],
       [{ kind: "foreign" }, "Don’t let in. Not a Sheltüh ticket."],
-      [{ kind: "unverified", scan, reason: "rate-limited" }, "Not verified. Don’t let in yet. Retry."],
+      [
+        { kind: "unverified", scan, reason: "rate-limited" },
+        "Not verified. Don’t let in yet. Too many scans. Wait a few seconds, then retry.",
+      ],
     ];
     for (const [result, text] of results) expect(resultAnnouncement(result)).toBe(text);
+  });
+
+  it("says why a scan wasn't verified, and mentions retrying only where Retry is offered", () => {
+    const spoken: [UnverifiedReason, string][] = [
+      ["network", "Not verified. Don’t let in yet. Couldn’t reach Sheltüh. Retry when you have signal."],
+      ["rate-limited", "Not verified. Don’t let in yet. Too many scans. Wait a few seconds, then retry."],
+      ["server", "Not verified. Don’t let in yet. Sheltüh had a problem. Retry in a moment."],
+      ["signed-out", "Not verified. Don’t let in yet. You’ve been signed out. Sign in again."],
+      ["no-access", "Not verified. Don’t let in yet. This account can’t check people in for this event."],
+      ["unsendable", "Not verified. Don’t let in yet. This scan couldn’t be sent. Type the code instead."],
+    ];
+    for (const [reason, text] of spoken) {
+      const said = resultAnnouncement({ kind: "unverified", scan, reason });
+      expect(said).toBe(text);
+      expect(/retry/i.test(said)).toBe(canRetry(reason));
+    }
+  });
+
+  it("gives a bar's share of what's sold, capped, and 0 when nothing has sold", () => {
+    expect(checkedInPercent(100, 180)).toBeCloseTo(55.56, 2);
+    expect(checkedInPercent(5, 4)).toBe(100);
+    expect(checkedInPercent(3, 0)).toBe(0);
   });
 
   it("reads thrown errors as reasons it couldn't verify", () => {

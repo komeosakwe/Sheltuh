@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { checkInTicket } from "@/lib/api/check-ins";
 import type { GetToken } from "@/lib/api/client";
 import type { CheckInResult } from "@/lib/api/types";
-import { toneOf, unverifiedReason, type DoorResult, type DoorScan } from "@/lib/check-in/door-copy";
+import { isKnownOutcome, toneOf, unverifiedReason, type DoorResult, type DoorScan } from "@/lib/check-in/door-copy";
 import { classifyDecode, SameCodeFilter } from "@/lib/check-in/frame-dedupe";
 import { DOOR_TIMING } from "@/lib/check-in/timing";
 
@@ -46,6 +46,39 @@ function newRequestId(): string {
   return crypto.randomUUID();
 }
 
+/**
+ * Codes whose last scan wasn't verified (an error, a timeout, an answer this
+ * client doesn't know), with that scan's request id. The server may have
+ * processed it, so scanning or typing the same code again within
+ * `DOOR_TIMING.unresolvedReuseMs` resends the same id: the server replays its
+ * original answer (a lost "admitted" shows as Let in) instead of treating it
+ * as a second scan, which would wrongly say "Already checked in" to a guest
+ * it let in. A definite answer for the code clears it.
+ */
+export class UnresolvedScans {
+  private scans = new Map<string, { requestId: string; at: number }>();
+
+  constructor(private readonly windowMs: number) {}
+
+  /** `scan` ended without a definite answer at `now`. */
+  remember(scan: DoorScan, now: number): void {
+    this.scans.set(scan.code, { requestId: scan.requestId, at: now });
+    for (const [code, entry] of this.scans) if (now - entry.at >= this.windowMs) this.scans.delete(code);
+  }
+
+  /** `code` got a definite answer. */
+  resolve(code: string): void {
+    this.scans.delete(code);
+  }
+
+  /** A scan of `code` at `now`: its unresolved request id when there is one, else a new one. */
+  scanFor(code: string, now: number): DoorScan {
+    const entry = this.scans.get(code);
+    if (entry && now - entry.at < this.windowMs) return { code, requestId: entry.requestId };
+    return { code, requestId: newRequestId() };
+  }
+}
+
 /** Rejects with the signal's reason when it aborts, so a hung token refresh can't outlast the timeout. */
 function untilAborted(signal: AbortSignal): Promise<never> {
   return new Promise((_, reject) => {
@@ -58,7 +91,8 @@ function untilAborted(signal: AbortSignal): Promise<never> {
  * The door scanner's scan rules (docs/design/check-in.md §5.A4): one request
  * at a time, an 8s timeout, "Checking…" only after 250ms, minimum holds,
  * auto-return, same-code suppression for 3s, Not verified until resolved,
- * and Retry with the scan's own request id.
+ * and Retry with the scan's own request id (also reused, for a minute, when
+ * that code is scanned or typed again after "Scan another").
  */
 export function useDoorScan({ eventId, getToken, onResultShown, onServerResult, onPanelFocusLost, panelRef }: Options) {
   const [display, setDisplayState] = useState<ScanDisplay>({ kind: "none" });
@@ -71,6 +105,7 @@ export function useDoorScan({ eventId, getToken, onResultShown, onServerResult, 
   const nextId = useRef(0);
   const [filter] = useState(() => new SameCodeFilter(DOOR_TIMING.sameCodeMs));
   const ownAdmissions = useRef(new Map<string, number>());
+  const [unresolved] = useState(() => new UnresolvedScans(DOOR_TIMING.unresolvedReuseMs));
   const controller = useRef<AbortController | null>(null);
   const mounted = useRef(true);
   const remaining = useRef<{ id: number; ms: number }>({ id: -1, ms: 0 });
@@ -154,12 +189,16 @@ export function useDoorScan({ eventId, getToken, onResultShown, onServerResult, 
             ? now - ownAt
             : null;
         if (result.outcome === "admitted") ownAdmissions.current.set(scan.code, now);
+        if (isKnownOutcome(result)) unresolved.resolve(scan.code);
+        else unresolved.remember(scan, now);
         setInFlight(false);
         present({ kind: "server", scan, result, ownAgoMs }, key);
         callbacks.current.onServerResult(result);
-        return "verified";
+        // An answer this client doesn't know is Not verified: the field keeps the code.
+        return isKnownOutcome(result) ? "verified" : "unverified";
       } catch (error) {
         if (!mounted.current) return "ignored";
+        unresolved.remember(scan, Date.now());
         setInFlight(false);
         present({ kind: "unverified", scan, reason: unverifiedReason(error) }, key);
         return "unverified";
@@ -169,7 +208,7 @@ export function useDoorScan({ eventId, getToken, onResultShown, onServerResult, 
         if (controller.current === abort) controller.current = null;
       }
     },
-    [eventId, getToken, present, setDisplay, setInFlight],
+    [eventId, getToken, present, setDisplay, setInFlight, unresolved],
   );
 
   /** A decode from the camera (raw QR text). Ignored unless it's a new scan the rules allow. */
@@ -186,9 +225,9 @@ export function useDoorScan({ eventId, getToken, onResultShown, onServerResult, 
         present({ kind: "foreign" }, decoded.key);
         return;
       }
-      void send({ code: decoded.code, requestId: newRequestId() }, false);
+      void send(unresolved.scanFor(decoded.code, now), false);
     },
-    [filter, present, send, setDisplay],
+    [filter, present, send, setDisplay, unresolved],
   );
 
   /** A typed code (already canonical). Retypes the Not-verified code to retry it. */
@@ -199,9 +238,9 @@ export function useDoorScan({ eventId, getToken, onResultShown, onServerResult, 
       if (current.kind === "result" && current.result.kind === "unverified" && current.result.scan.code === code) {
         return send(current.result.scan, true);
       }
-      return send({ code, requestId: newRequestId() }, false);
+      return send(unresolved.scanFor(code, Date.now()), false);
     },
-    [send],
+    [send, unresolved],
   );
 
   /** Retry the Not-verified scan with its own request id. */
@@ -235,7 +274,7 @@ export function useDoorScan({ eventId, getToken, onResultShown, onServerResult, 
   }, [display, paused, setDisplay]);
 
   /** Whether camera decodes can be accepted right now (saves decoding work while they can't). */
-  const acceptingDecodes = !inFlight && !(display.kind === "result" && display.result.kind === "unverified");
+  const acceptingDecodes = !inFlight && !(display.kind === "result" && toneOf(display.result) === "hold");
 
   return { display, inFlight, acceptingDecodes, submitDecoded, submitManual, retry, dismiss, setPaused };
 }

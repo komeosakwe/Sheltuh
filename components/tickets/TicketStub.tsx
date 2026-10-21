@@ -19,7 +19,9 @@ interface TicketStubProps {
  * Phones: a header row (type, small ü), a perforation, then the QR, code and
  * brightness hint centred. From `sm`, the two inner wrappers become
  * `display: contents` so their children sit in one grid: type, code, hint and
- * a large ü down the left, the QR on the right.
+ * a large ü down the left, the QR on the right. The QR's cell stretches the
+ * stub's full height (so the perforation does too) and centres the QR in it,
+ * however tall the left column grows.
  */
 export default function TicketStub({ code, typeName, ticketNumber, ticketCount }: TicketStubProps) {
   const hasQr = TICKET_CODE_PATTERN.test(code);
@@ -38,7 +40,7 @@ export default function TicketStub({ code, typeName, ticketNumber, ticketCount }
       </div>
       <div className="flex flex-col items-center gap-3 border-t border-dashed border-foreground p-4 sm:contents">
         {hasQr && (
-          <div className="sm:col-start-2 sm:row-span-4 sm:row-start-1 sm:border-l sm:border-dashed sm:border-foreground sm:p-5">
+          <div className="sm:col-start-2 sm:row-span-4 sm:row-start-1 sm:flex sm:items-center sm:border-l sm:border-dashed sm:border-foreground sm:p-5">
             <TicketQr code={code} />
           </div>
         )}

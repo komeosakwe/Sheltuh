@@ -1,6 +1,6 @@
 # Door check-in and the QR ticket: design spec
 
-Status: spec, not built · Owner: ui-design-director · Scope: (A) the organiser's door scanner at
+Status: built (components/check-in/, components/tickets/); this spec tracks the shipped copy and behaviour · Owner: ui-design-director · Scope: (A) the organiser's door scanner at
 `/dashboard/[eventId]/check-in`, used on a phone at a loud, dark venue entrance; (B) the QR code on
 `/checkout/success`, which replaces the Code 128 barcode in `components/tickets/TicketStub.tsx`. Phones from 320px,
 plus tablet.
@@ -118,7 +118,7 @@ Add a guard test like `tests/phone-home-tokens.test.ts`: `door-` utility classes
 | `surface-border` #3a3833 | #0b0b0b | 1.7:1 | Hairlines and bar tracks only (decorative) |
 | QR #000000 | #ffffff | 21:1 | QR modules |
 | `foreground` #0b0b0b | paper `surface` #eae6db | 15.8:1 | Ticket code text on the stub |
-| paper `muted` #6b675e | paper `surface` | 4.5:1 | Brightness hint on the stub (passes AA, just) |
+| paper `muted` #6b675e | paper `surface` | 4.52:1 | Type label and brightness hint on the stub (passes AA, just: don't lighten either) |
 
 **Lightness separation:** the let-in fill has relative luminance 0.54 and the don't-let-in fill 0.11. They stay
 clearly different for protanopes and deuteranopes. Not verified isn't a fill at all: it's black with an amber frame
@@ -190,13 +190,14 @@ The order is the reading and focus order:
 9. Recent scans (`mt-8`).
 10. "How check-in works" (`mt-8`, a `<details>`).
 
-**Budget with the Nav scrolled away and the camera live:**
+**Budget with the Nav scrolled away and the camera live** (measured in Chromium, Oct 2026). The header row holds the
+date (§5.A2) and the counters stay one row under `sm` (capacity rides on the muted line), so neither adds height:
 
-| Width | Content width | Viewfinder | Header + counters | Up to the bottom of manual entry |
+| Width | Content width | Viewfinder | Header + counters | Bottom of the code input / of its hint |
 | --- | --- | --- | --- | --- |
-| 320 (568 tall) | 288 | 288×216 | ~140 | ~446px. Fits in Safari's ~460px visible area |
-| 375 (667) | 343 | 343×257 | ~140 | ~487px. Fits in ~553px |
-| 430 (932) | 398 | 398×298 | ~140 | ~528px. Fits easily |
+| 320 (568 tall) | 288 | 288×216 | 142 | 461 / 483px. The input reaches Safari's ~460px visible area; the hint is just below |
+| 375 (667) | 343 | 343×257 | 142 | 502 / 524px. Fits in ~553px |
+| 430 (932) | 398 | 398×298 | 142 | ~543 / ~565px. Fits easily |
 
 A refusal panel can be taller than the 4:3 slot at 320 and 375 (§5.A4). The slot grows and pushes manual entry
 down while it shows. That's accepted, because the staffer is dealing with the person in front of them.
@@ -219,12 +220,16 @@ Same order as phones. The viewfinder stays 4:3 (528×396).
 ## 4. Imagery
 
 - **Camera feed:** `<video playsInline muted autoPlay>` with `object-cover` in the scanner slot. The reticle is a
-  centred square whose side is 70% of the slot's shorter side, drawn as four L-shaped corners: 24px arms, 4px
+  centred square whose side is 70% of the slot's shorter side, but never so tall that it reaches the live controls:
+  at most the slot's height less 104px (two 44px pills plus their 8px inset), and never under half the shorter side.
+  On phones that's 112px at 320 and about 153px at 375; tablet and desktop keep 70%. It's drawn as four L-shaped
+  corners: 24px arms, 4px
   `foreground` stroke and a 1px `background` outer edge (SVG `paint-order="stroke"`), so it reads over bright and
   dark video. There's no scan line and no animation. **No text sits on the video.** Controls that overlap it have
   opaque `bg-background`.
 - **Decode region:** only codes whose bounding-box centre falls inside the reticle count. A poster on the wall at
-  the edge of the frame is ignored.
+  the edge of the frame is ignored. The region and the drawn reticle share one rule (`reticleSide` in
+  `lib/check-in/frame-dedupe.ts`; the CSS in `Scanner.tsx` mirrors it).
 - **No event art** on the scanner.
 - **QR plate on the ticket:** see §5.B.
 
@@ -262,20 +267,23 @@ Same order as phones. The viewfinder stays 4:3 (528×396).
 #### 5.A2 Header and counters (`CheckInHeader.tsx`)
 
 - **Row:** on the left, the back link `backLinkClass` "← Your events" to `/dashboard`. On the right, the eyebrow
-  "Door check-in". On `md+`, the eyebrow also shows the date as "Door check-in · Sat 18 Oct, 7:00 pm"
-  (`formatEventDateTimeRange(startsAt)`).
+  "Door check-in" with the date (`formatEventDateTimeRange(startsAt)`). Phones: the date is a second eyebrow line,
+  "Sat 18 Oct, 7:00 pm", right-aligned under "Door check-in" inside the 44px row, so it adds no height. `md+`: one
+  line, "Door check-in · Sat 18 Oct, 7:00 pm". Nothing sits between the h1 and the counters.
 - **h1:** `summary.event.title`, styled as §2.3.
 - **Counters:** `section aria-labelledby` with a visually hidden h2 "Count".
-  - Phones: `flex items-end gap-3`. The numeral `checkedIn`, then a stack: "checked in" (`text-sm`) and "of 240
-    sold · 112 to come" (`text-sm text-muted`). "To come" is `max(0, ticketsSold − checkedIn)`. On the right
-    (`ml-auto`): eyebrow "Capacity 300".
+  - Row `flex flex-wrap items-end gap-x-3 gap-y-1`. The numeral `checkedIn`, then a stack: "of 240 checked in"
+    (`text-sm`) and the muted line (`text-sm text-muted`). "To come" is `max(0, ticketsSold − checkedIn)`.
+    - Under `sm`: the muted line is "112 to come · capacity 300", so the row stays one line at 320.
+    - From `sm`: the muted line is "112 to come", and the eyebrow "Capacity 300" sits on the right (`ml-auto`). It
+      wraps onto its own line where the column is narrow (the right column at 768), which is fine there.
   - Bar `mt-2 h-1 w-full bg-surface-border`, with the inner fill `bg-foreground` at
     `min(100, checkedIn / ticketsSold × 100)%` (0 when nothing has sold). `aria-hidden` (the words carry it).
   - Counts use `formatCount` (never abbreviated).
-  - **No sales:** "0 checked in · of 0 sold", then `text-sm text-muted`: "No tickets have been sold for this event
-    yet."
-- **Polite announcement:** a visually hidden `aria-live="polite" aria-atomic="true"` region. It's set to "129
-  checked in of 240 sold." only when `checkedIn` changes, debounced 1500ms, and never on page load.
+  - **No sales:** "0" and "of 0 checked in", no "to come"; under `sm` the muted line is "Capacity 300". Under the
+    bar, `text-sm text-muted`: "No tickets have been sold for this event yet."
+- **Polite announcement:** a visually hidden `aria-live="polite" aria-atomic="true"` region. It's set to "129 of
+  240 checked in." only when `checkedIn` changes, debounced 1500ms, and never on page load.
 
 #### 5.A3 Scanner slot (`Scanner.tsx`)
 
@@ -309,14 +317,17 @@ and `max-w-sm`.
 | Permission denied (`NotAllowedError`) | h2 + `alert` icon (20px, `text-danger`) + body + list + button | h2 "Camera access is blocked". Body "Allow the camera for this site, then tap Try again. Until then, type codes below." List (`text-sm`, ordered): "iPhone: tap **aA** in the address bar, then Website Settings › Camera › Allow." / "Android (Chrome): tap the icon left of the address, then Permissions › Camera › Allow." Button "Try again" | Moves to the h2 (`tabIndex={-1}`) |
 | Insecure context (`!isSecureContext`) | h2 + body, no button | h2 "The camera needs a secure connection". Body "Browsers only allow the camera on addresses starting with https://. Open this page that way, or type codes below." | — |
 | Unsupported (no `mediaDevices.getUserMedia`, typical of in-app browsers) | h2 + body | h2 "This browser can't use the camera here". Body "Open this page in Safari (iPhone) or Chrome (Android), or type codes below." | — |
-| No camera (`NotFoundError`, `OverconstrainedError`) | h2 + body | h2 "No camera found". Body "Type codes below." | — |
+| No camera (`NotFoundError`, `OverconstrainedError`) | h2 + body | h2 "No camera found". Body "Type codes below." | Moves to the h2 (there's no button to land on) |
 | Camera busy (`NotReadableError`) | h2 + body + button | h2 "The camera is in use". Body "Close any other app using the camera, then try again." Button "Try again" | Moves to the h2 |
 | Scanner failed to load (polyfill import or WASM error) | h2 + body + button | h2 "The scanner couldn't load". Body "Check your connection and try again, or type codes below." Button "Try again" | Moves to the h2 |
 
 The Insecure and Unsupported checks run on mount, so those states replace Idle and Start is never offered.
 
-**Live controls:** `absolute bottom-3 right-3 flex gap-2`, each `Button size="sm" variant="outline"` with
-`min-h-11 bg-background`.
+Every state reached by a failed start (blocked, no camera, in use, failed to load) is also said politely as
+"{h2}. {body}", because focus on the heading alone reads only the heading.
+
+**Live controls:** `absolute bottom-2 right-2 flex gap-2`, each `Button size="sm" variant="outline"` with
+`min-h-11 bg-background`. The reticle is sized to stay clear of them (§4).
 - **Torch:** shown only when `track.getCapabilities().torch` is true. It's a toggle with a fixed name and
   `aria-pressed`. When on, it gets `btn-solid` styling and a leading 20px `check` icon. Hint in "How check-in works":
   torch is for paper tickets; turn it off for phone screens (glare).
@@ -362,6 +373,7 @@ Below, "2HXD" stands for `codeLast4`, "General admission" for `ticketTypeName`, 
 | 401 | alert | NOT VERIFIED | Don't let in yet | You've been signed out. Nothing was marked. Sign in again, then retry. | `ButtonLink` "Sign in" (to `withNext` back here), "Scan another" |
 | 403 or 404 | alert | NOT VERIFIED | Don't let in yet | This account can't check people in for this event. Nothing was marked. | `ButtonLink` "Back to your events", "Scan another" |
 | 400 or 413 | alert | NOT VERIFIED | Don't let in yet | This scan couldn't be sent. Nothing was marked. Type the code below instead. | "Scan another" |
+| An outcome this client doesn't know (a newer server, a bad response): **fails closed** | alert | NOT VERIFIED | Don't let in yet | Sheltüh sent an answer this page doesn't recognise. Reload the page, then check the code again. | "Scan another" (no Retry: the same request id replays the same answer) |
 
 **Retry:** reuse the scan's `requestId`. While retrying, the button is `busy` with the label "Retrying…" and the
 panel stays. A retry that returns `admitted` shows the normal Let-in panel, which is correct for a lost response.
@@ -377,6 +389,11 @@ panel stays. A retry that returns `admitted` shows the normal Let-in panel, whic
 - **Same code:** any decode of the same canonical code within 3000ms of its result appearing is ignored, with no
   request, sound or vibration. After 3000ms it counts as a new scan with a new `requestId`. That gives "Already
   checked in", annotated "on this device" as above.
+- **Unresolved codes keep their id:** when a scan ends Not verified (any error or timeout, or an unknown outcome),
+  its code and `requestId` are remembered for 60s (`DOOR_TIMING.unresolvedReuseMs`). Scanning or typing that code
+  again in that time, even after "Scan another", resends the same `requestId`. The server may have processed the
+  lost request: replaying it shows the original answer (a lost admission shows Let in), where a new id would show
+  a wrongful "Already checked in" to a guest who was let in. A definite answer for the code forgets it.
 - **One request at a time:** while a request is in flight, every decode is ignored and the manual Check button is
   `busy`.
 - **Timers pause** while keyboard focus or a pointer is inside the panel.
@@ -422,7 +439,8 @@ to all three panels. The icon and words still carry the meaning.
 - Row `flex gap-2`:
   - Input `id="door-code"` with `fieldClass font-mono uppercase tracking-wider flex-1 min-w-0`, `inputMode="text"`,
     `autoCapitalize="characters"`, `autoComplete="off"`, `autoCorrect="off"`, `spellCheck={false}`,
-    `enterKeyHint="go"`, `maxLength={20}` and placeholder "7KQM-2HXD".
+    `enterKeyHint="go"` and `maxLength={20}`. **No placeholder**: the hint below already shows the format, and a
+    code-shaped placeholder can be mistaken for a code already typed in.
   - `Button type="submit" size="lg" variant="solid"` "Check".
 - Hint: "Like 7KQM-2HXD. Codes never contain O, 0, I or 1."
 
@@ -463,7 +481,14 @@ focus in the input.
 | Wrong event | "Don't let in. Ticket for {otherEventTitle}." |
 | Invalid | "Don't let in. Not a valid ticket." |
 | Not a Sheltüh QR | "Don't let in. Not a Sheltüh ticket." |
-| Not verified | "Not verified. Don't let in yet. Retry." |
+| Not verified | "Not verified. Don't let in yet. " plus the reason. Only reasons that offer Retry mention it: |
+| · network, offline, timeout | "… Couldn't reach Sheltüh. Retry when you have signal." |
+| · 429 | "… Too many scans. Wait a few seconds, then retry." |
+| · 5xx | "… Sheltüh had a problem. Retry in a moment." |
+| · 401 | "… You've been signed out. Sign in again." |
+| · 403 or 404 | "… This account can't check people in for this event." |
+| · 400 or 413 | "… This scan couldn't be sent. Type the code instead." |
+| · unknown outcome | "… Reload the page, then check the code again." |
 
 - **Polite:** counters (§5.A2), camera on and off, "Back online.", and undo outcomes (§5.A10).
 - **Assertive is reserved for results.** Field errors use `aria-describedby`, plus focus that is already in the
@@ -472,17 +497,19 @@ focus in the input.
 #### 5.A9 Recent scans (`RecentScans.tsx`)
 
 **Container:** `Panel title="Recent scans" titleId="recent-scans"`. The h2 takes `tabIndex={-1}` as the focus
-target after an undo. In the header row on the right: `Button size="sm" variant="outline" min-h-11` "Refresh"
-(`busy` while loading).
+target after an undo. In the header row on the right: `Button size="sm" variant="outline" min-h-11 shrink-0`
+"Refresh" (`busy` while loading). The h2 is `min-w-0` and steps down to 20px at `md` (`md:!text-xl lg:!text-2xl`),
+so it stays on one line beside Refresh in the ~275px right column at 768.
 
 **List:** `ul` of `summary.recent` (newest first, 20 at most). Rows are
-`li.flex.items-center.gap-3.py-3.min-h-14.border-b.border-surface-border`:
+`li.flex.items-start.gap-3.py-3.min-h-14.border-b.border-surface-border`:
 - 20px icon. `check` is `text-door-admit`, `cross` is `text-danger`, `undo` is `text-foreground`.
 - Text column `flex-1 min-w-0`:
   - Line 1: label (14/20, 600) and, at the right, the time (`formatMessageTime(at)`, 12/16 muted, tabular).
   - Line 2: detail (14/20 muted, `break-words`).
-- For `undoable` rows only: `Button size="sm" variant="outline" min-h-11` "Undo", with `<span className="sr-only">`
-  " check-in, General admission, code ends 2HXD, 8:42 pm".
+  - For `undoable` rows only, line 3: `Button size="sm" variant="outline" min-h-11 mt-2 self-start` "Undo", with
+    `<span className="sr-only">` " check-in, General admission, code ends 2HXD, 8:42 pm". It sits in the text
+    column, not beside it, so every row's time stays flush right.
 
 | `result` | Label | Detail |
 | --- | --- | --- |
@@ -492,6 +519,7 @@ target after an undo. In the header row on the right: `Button size="sm" variant=
 | `other_event` | Wrong event | For {otherEventTitle} · Code ends 2HXD |
 | `invalid` | Not valid | Code not recorded |
 | `undone` | Undone | General admission · Code ends 2HXD · Reason: {reason} |
+| anything else (fail closed) | Unknown result | General admission · Code ends 2HXD |
 
 New rows (after a refresh) use the existing `fade-in` (150ms, opacity only, reduced-motion safe).
 
@@ -512,7 +540,10 @@ each open. Render it inside the door wrapper so it inherits the ink tokens. Back
   in, and the ticket can be scanned again."
 - `Field`:
   - Label "Reason". Hint "Kept in the check-in log. 3 to 200 characters."
-  - Input `fieldClass`, `maxLength={200}`, autofocused on open.
+  - Input `fieldClass`. Characters are counted as the server counts them: code points (`Array.from`), so an emoji
+    is one. `maxLength={400}` (UTF-16 units) never cuts off a valid reason; the submit check enforces 3 to 200.
+  - **Focus on open:** the input, except on touch screens (`(pointer: coarse)`), where the h2 (`tabIndex={-1}`)
+    takes focus, so the keyboard doesn't cover the sheet before they pick a suggestion or tap the field.
 - Suggestions: `flex flex-wrap gap-2` of `Button size="sm" variant="outline" min-h-11`: "Scanned by mistake",
   "Wrong ticket scanned", "Letting them back in". A tap fills the input and doesn't submit. Focus stays on the
   chip.
@@ -525,6 +556,7 @@ each open. Render it inside the door wrapper so it inherits the ink tokens. Back
 | Result | Behaviour and copy |
 | --- | --- |
 | Under 3 characters (client side) | "Give a reason of at least 3 characters." Inline, focus to the input |
+| Over 200 characters (client side) | "Keep the reason to 200 characters or fewer." Inline, focus to the input |
 | 400 `fieldErrors.reason` | Show the server message inline |
 | `undone` | Close. Polite: "Check-in undone. General admission, code ends 2HXD." Refresh. Focus to the "Recent scans" h2. Decrement `checkedIn` locally |
 | `not_checked_in` | Close. Polite: "That check-in was already undone." Refresh. Focus to the h2 |
@@ -538,10 +570,15 @@ each open. Render it inside the door wrapper so it inherits the ink tokens. Back
 
 - **Phones:** `<details>` with `<summary className="inline-flex min-h-11 items-center eyebrow underline
   underline-offset-4">` "By ticket type". On `md+` it's an open `Panel title="By ticket type"`.
-- **Rows:** `dl` rows `py-3 border-b border-surface-border grid grid-cols-[1fr_auto] gap-x-3`:
-  - `dt.text-sm`: the name.
-  - `dd.text-sm.tabular-nums.text-right`: "100 of 180 in", then `text-xs text-muted` "Capacity 200".
-  - A full-row `h-1` bar under each (as §5.A2, `aria-hidden`).
+- **Rows:** `dl` rows `py-3 border-b border-surface-border grid grid-cols-[1fr_auto] gap-x-3`, with no border on
+  the last row (`[&>div:last-child]:border-b-0`): the next section's `border-t border-foreground` follows it, so
+  there's one rule, not two.
+  - `dt.text-sm.min-w-0`: the name.
+  - `dd.text-sm.tabular-nums.text-right`: "100 of 180 in" on screen, with `<span className="sr-only"> checked</span>`
+    before "in" so it's said as "100 of 180 checked in". Short so the name keeps its width at 768. Then
+    `text-xs text-muted` "Capacity 200".
+  - A full-row `h-1` bar under each (as §5.A2, `aria-hidden`), with its share in words for screen readers:
+    `sr-only` "56% checked in".
 - **Empty:** "This event has no ticket types."
 
 #### 5.A12 How check-in works (static `<details>`)
@@ -575,7 +612,7 @@ Focus moves only as follows:
 - Start ↔ Stop swap.
 - Error states focus their h2.
 - An undo focuses the "Recent scans" h2.
-- The dialog autofocuses its input and returns focus on close (native).
+- The dialog focuses its input on open (its h2 on touch screens, §5.A10) and returns focus on close (native).
 
 Results never steal focus. Every interactive element is at least 44×44 (`min-h-11`; primary actions `size="lg"`,
 48px).
@@ -642,7 +679,9 @@ Drop `LinearBarcode`. Delete `components/tickets/LinearBarcode.tsx` if nothing e
 **640px and up:** `grid grid-cols-[1fr_auto]`
 - Left (`p-5 flex flex-col justify-between gap-4`): eyebrow type, then the code (`font-mono text-2xl
   tracking-widest`), the hint, and `UBarcode h-28 w-auto` at the bottom-left.
-- Right (`p-5 border-l border-dashed border-foreground`): the 232px QR.
+- Right (`p-5 border-l border-dashed border-foreground flex items-center`): the 232px QR. The cell stretches the
+  stub's full height (so the perforation does) and centres the QR, however tall a long type name makes the left
+  column.
 
 **States:** the stub only renders for a `paid`, ready order (as today). Loading, not-found, error and oversold
 states in `CheckoutConfirmation` are unchanged and show no QR.
@@ -653,6 +692,8 @@ Replace "Show this page or your ticket email at the door." with three `p.text-xs
 1. "Show a QR code at the door, from this page or your ticket email."
 2. "This page needs a connection. If signal at the venue is patchy, take a screenshot first."
 3. "Each code gets in once, so don't post or share it."
+
+The "Order confirmed" line above the h1 is `p.eyebrow.text-muted` (4.9:1 on paper `background`).
 
 The order-reference line stays. If the ticket email doesn't carry a QR yet when this ships, line 1 becomes "Show
 the QR code on this page at the door, or the code in your ticket email." (§7).
