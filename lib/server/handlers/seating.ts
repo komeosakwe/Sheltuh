@@ -26,9 +26,10 @@ const EVENT_NOT_FOUND = "Event not found.";
 
 /**
  * A published event's map at its current version never changes (a new map is
- * a new version: the URL changes), so it's cached for a year. Anything else
- * (no `v`, or another version) is answered without caching, so a guessed
- * future version can't be cached with the current map in it.
+ * a new version: the URL changes), so it's cached for a year. Any other URL
+ * (no `v`, or another version) is a redirect to the current one, itself never
+ * cached, so the layout is only ever read and sent at the cacheable URL, and
+ * a guessed future version can't be cached with the current map in it.
  */
 export const SEAT_MAP_CACHE = "public, max-age=31536000, immutable";
 /** Availability: shared by every buyer, at most 5 seconds old at the CDN (docs/SEATING_PLAN.md). */
@@ -78,21 +79,38 @@ async function readSeatMapRecord(db: Db, eventId: string): Promise<SeatMapRecord
   return row ? { eventId, version: row.version, seatCount: row.seat_count, template: row.layout } : undefined;
 }
 
+/** The redirect to a published map's current version: never cached itself (the version moves). */
+export const SEAT_MAP_REDIRECT_CACHE = "no-store";
+
 /**
  * GET /api/events/[eventId]/seat-map[?v=version] — the map
- * (SeatMapRecord). Public once the event is published: cached for a year when
- * `v` is the current version, not cached otherwise. Before that, the owning
- * organiser or an admin only, never cached. 404 for no map.
+ * (SeatMapRecord). Public once the event is published: served only at the
+ * current version (`v`), cached for a year; any other `v`, or none, is a 307
+ * to `?v={current}` (`no-store`), without reading the layout. Before that,
+ * the owning organiser or an admin only, whatever `v`, never cached. 404 for
+ * no map.
  */
 export const getSeatMap: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const meta = await readMapMeta(deps.db, eventId);
   if (!meta || meta.version === null) throw new HttpError(404, MAP_NOT_FOUND);
   const published = meta.status === "published";
-  if (!published) await requireOwnerOrAdmin(req, deps, meta.organiser_id, MAP_NOT_FOUND);
+  if (published) {
+    const url = new URL(req.url);
+    if (url.searchParams.get("v") !== String(meta.version)) {
+      url.search = "";
+      url.searchParams.set("v", String(meta.version));
+      return new Response(null, {
+        status: 307,
+        headers: { location: url.toString(), "cache-control": SEAT_MAP_REDIRECT_CACHE },
+      });
+    }
+  } else {
+    await requireOwnerOrAdmin(req, deps, meta.organiser_id, MAP_NOT_FOUND);
+  }
   const record = await readSeatMapRecord(deps.db, eventId);
   if (!record) throw new HttpError(404, MAP_NOT_FOUND);
-  const requested = new URL(req.url).searchParams.get("v");
-  const cacheable = published && requested === String(record.version);
+  // A map replaced between the two reads: its new version isn't the URL's, so it's not cached here.
+  const cacheable = published && record.version === meta.version;
   return Response.json(record, {
     headers: cacheable ? { "cache-control": SEAT_MAP_CACHE } : PRIVATE_NO_STORE,
   });
@@ -141,6 +159,10 @@ function mapWriteRefused(err: unknown): never {
   if (pgErrorCode(err) === PG_CHECK_VIOLATION && pgConstraint(err) === "event_seat_maps_sheltuh_only") {
     throw new HttpError(409, EXTERNAL_NO_MAP);
   }
+  // private.write_seat_map / clear_seat_map: never while the event has orders (defence in depth).
+  if (pgErrorCode(err) === PG_CHECK_VIOLATION && pgConstraint(err) === "event_seat_maps_no_orders") {
+    throw new HttpError(409, HAS_ORDERS, { template: HAS_ORDERS });
+  }
   throw err;
 }
 
@@ -148,6 +170,7 @@ const EXTERNAL_NO_MAP = "Tickets for this event are sold on another site, so it 
 export const SEAT_MAP_FROZEN =
   "This seat map is locked because the event has been approved. To change it, contact Sheltüh.";
 const NOT_EDITABLE = "The seat map can't be changed while the event is pending review or published.";
+const HAS_ORDERS = "This event has orders, so its seat map can't be replaced.";
 
 function organiserMapRefusal(result: string): never | void {
   switch (result) {
@@ -159,6 +182,8 @@ function organiserMapRefusal(result: string): never | void {
       throw new HttpError(409, SEAT_MAP_FROZEN);
     case "external":
       throw new HttpError(409, EXTERNAL_NO_MAP);
+    case "has_orders":
+      throw new HttpError(409, HAS_ORDERS, { template: HAS_ORDERS });
   }
 }
 
@@ -169,7 +194,7 @@ function organiserMapRefusal(result: string): never | void {
  * event's ticket types (400 fieldErrors `template.…`). Each seated tier's
  * capacity becomes its unblocked seats. 200 with the SeatMapRecord (the same
  * version when nothing changed); 404; 409 not editable, approved before
- * (locked) or external.
+ * (locked), external, or the event has orders.
  */
 export const putSeatMap: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
@@ -201,15 +226,19 @@ export const deleteSeatMap: Handler<{ eventId: string }> = async (req, { eventId
   const caller = await requireCaller(req, verifyAccessToken);
   const organiser = await requireApprovedOrganiser(db, caller);
   await requireOwnEvent(db, organiser.organiserId, eventId);
-  const [row] = await db.query<{ result: string }>(`select private.delete_seat_map($1, $2) as result`, [
-    eventId,
-    organiser.organiserId,
-  ]);
-  organiserMapRefusal(row.result);
+  let result: string;
+  try {
+    const [row] = await db.query<{ result: string }>(`select private.delete_seat_map($1, $2) as result`, [
+      eventId,
+      organiser.organiserId,
+    ]);
+    result = row.result;
+  } catch (err) {
+    mapWriteRefused(err);
+  }
+  organiserMapRefusal(result);
   return noContentPrivate();
 };
-
-const HAS_ORDERS = "This event has orders, so its seat map can't be replaced.";
 
 function parseAdminReason(value: unknown): string {
   const errors: Record<string, string> = {};

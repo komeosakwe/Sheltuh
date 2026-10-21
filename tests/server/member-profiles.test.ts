@@ -1,11 +1,17 @@
 import sharp from "sharp";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { MAX_AVATAR_UPLOAD_BYTES } from "@/lib/server/avatar";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  AVATAR_ENCODE_CONCURRENCY,
+  encodeAvatar,
+  MAX_AVATAR_INPUT_PIXELS,
+  MAX_AVATAR_UPLOAD_BYTES,
+} from "@/lib/server/avatar";
 import { createBlock } from "@/lib/server/handlers/blocks";
 import { listGoingAttendees } from "@/lib/server/handlers/going";
 import {
   adminGetMemberProfile,
   adminRemoveProfileContent,
+  AVATAR_VIEW_RATE_LIMIT,
   getMemberAvatar,
   getMemberProfile,
   PROFILE_VIEW_RATE_LIMIT,
@@ -570,11 +576,142 @@ describe("reporting a profile", () => {
   });
 });
 
+describe("reporting a profile: who may, and how often", () => {
+  const report = (token: string, profileId: string, reason = "spam") =>
+    api.call(createReport, { token, body: { profileId, reason } });
+
+  it("only a profile the reporter can see now, or a member they've blocked; anything else is the unknown-id 404", async () => {
+    const reporter = await member(api);
+    const hidden = await member(api);
+    expect((await report(reporter.token, await profileIdOf(hidden))).status).toBe(404);
+    await makeVisible(hidden);
+    expect((await report(reporter.token, await profileIdOf(hidden))).status).toBe(201);
+
+    // Blocked by the reporter: hidden from them now, still reportable (they may block first, then report).
+    const blockedByReporter = await member(api);
+    await block(reporter, blockedByReporter);
+    expect((await report(reporter.token, await profileIdOf(blockedByReporter))).status).toBe(201);
+
+    // The target blocked the reporter: the same 404 as an unknown id (no hint that the profile exists).
+    const blocksReporter = await member(api);
+    await makeVisible(blocksReporter);
+    await block(blocksReporter, reporter);
+    const refused = await report(reporter.token, await profileIdOf(blocksReporter));
+    const unknown = await report(reporter.token, crypto.randomUUID());
+    expect(refused.status).toBe(404);
+    expect(refused.body).toEqual(unknown.body);
+    // A suspended reporter can't see profiles either.
+    const visible = await member(api);
+    await makeVisible(visible);
+    const suspendedReporter = await member(api);
+    await suspend(api, suspendedReporter);
+    expect((await report(suspendedReporter.token, await profileIdOf(visible))).status).toBe(404);
+  });
+
+  it("one open report per reporter and member: another is a 200 with the open one, using no allowance; after resolution, a new one", async () => {
+    const reporter = await member(api);
+    const target = await member(api);
+    await makeVisible(target);
+    const profileId = await profileIdOf(target);
+    const first = await report(reporter.token, profileId);
+    expect(first.status).toBe(201);
+    const again = await report(reporter.token, profileId, "harassment");
+    expect(again.status).toBe(200);
+    expect(again.body).toEqual(first.body);
+    const [{ hits }] = await api.db.query<{ hits: number }>(
+      `select hits from private.rate_limits where user_id = $1 and bucket = 'user_reports'`,
+      [reporter.userId],
+    );
+    expect(hits).toBe(1);
+    // Someone else's report about the same member is their own.
+    const other = await member(api);
+    expect((await report(other.token, profileId)).status).toBe(201);
+    await api.db.query(
+      `update private.user_reports set status = 'dismissed', resolved_at = now() where id = $1`,
+      [first.body.reportId],
+    );
+    const later = await report(reporter.token, profileId);
+    expect(later.status).toBe(201);
+    expect(later.body.reportId).not.toBe(first.body.reportId);
+    // The database holds the rule too.
+    await expect(
+      api.db.query(
+        `insert into private.user_reports (reporter_id, reported_user_id, target_type, reason) values ($1, $2, 'profile', 'spam')`,
+        [reporter.userId, target.userId],
+      ),
+    ).rejects.toThrow(/user_reports_open_profile_key|duplicate key/);
+  });
+
+  it("a photo is copied once however many reports take it; purged once no report needs it", async () => {
+    const target = await member(api);
+    await makeVisible(target);
+    expect((await upload(target.token, await smallPng())).status).toBe(200);
+    const profileId = await profileIdOf(target);
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const reporter = await member(api);
+      const res = await report(reporter.token, profileId);
+      expect(res.status).toBe(201);
+      ids.push(res.body.reportId);
+    }
+    const photos = async () =>
+      (await api.db.query<{ n: number }>(`select count(*)::int as n from private.report_photos`))[0].n;
+    expect(await photos()).toBe(1);
+    for (const reportId of ids) {
+      const photo = await raw(adminGetReportAvatar, rawRequest("GET", admin.token), { reportId });
+      expect(photo.status).toBe(200);
+      expect((await sharp(Buffer.from(await photo.arrayBuffer())).metadata()).width).toBe(512);
+    }
+    const items = (await api.call(adminListReports, { token: admin.token })).body.items;
+    expect(items.every((r: { reportedAvatarUrl?: string }) => r.reportedAvatarUrl)).toBe(true);
+
+    // Still referenced: kept. Every report resolved and past retention: the photo goes too.
+    await api.db.query(`update private.report_photos set last_used_at = now() - interval '2 days'`);
+    expect((await api.db.query<{ report_photos_deleted: number }>(`select * from private.purge_social_data()`))[0].report_photos_deleted).toBe(0);
+    await api.db.query(
+      `update private.user_reports set status = 'dismissed', resolved_at = now() - interval '25 months', created_at = now() - interval '25 months'`,
+    );
+    const [purged] = await api.db.query<{ user_reports_deleted: number; report_photos_deleted: number }>(
+      `select * from private.purge_social_data()`,
+    );
+    expect(purged).toMatchObject({ user_reports_deleted: 3, report_photos_deleted: 1 });
+    expect(await photos()).toBe(0);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Photos
 // ---------------------------------------------------------------------------
 
 describe("profile photos", () => {
+  it(`refuses an image over ${MAX_AVATAR_INPUT_PIXELS / 1_000_000} megapixels from its header (400), however small the file`, async () => {
+    const m = await member(api);
+    // 5000 × 5000 = 25 megapixels of one colour: a tiny file claiming a big canvas.
+    const big = await sharp({ create: { width: 5000, height: 5000, channels: 3, background: { r: 1, g: 2, b: 3 } } })
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+    expect(big.length).toBeLessThan(MAX_AVATAR_UPLOAD_BYTES);
+    const res = await upload(m.token, big);
+    expect(res.status).toBe(400);
+    expect(await storedAvatar(m)).toBeUndefined();
+    // Just under the limit decodes.
+    const fits = await sharp({ create: { width: 4000, height: 6000, channels: 3, background: { r: 1, g: 2, b: 3 } } })
+      .jpeg()
+      .toBuffer();
+    expect((await upload(m.token, fits)).status).toBe(200);
+  });
+
+  it(`decodes at most ${AVATAR_ENCODE_CONCURRENCY.running} at once per instance, queues ${AVATAR_ENCODE_CONCURRENCY.waiting}, then 503`, async () => {
+    const png = await smallPng();
+    const total = AVATAR_ENCODE_CONCURRENCY.running + AVATAR_ENCODE_CONCURRENCY.waiting + 1;
+    const results = await Promise.allSettled(Array.from({ length: total }, () => encodeAvatar(png)));
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(total - 1);
+    const [refused] = results.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
+    expect(refused.reason).toMatchObject({ statusCode: 503 });
+    // The slots are all free again.
+    expect((await encodeAvatar(png)).thumb.length).toBeGreaterThan(0);
+  });
+
   it("re-encodes to square WebP (512 and 96 px) and strips EXIF, GPS, ICC and XMP", async () => {
     const m = await member(api);
     const input = await jpegWithGps();
@@ -752,9 +889,45 @@ describe("serving photos", () => {
     expect((await getAvatar(viewer.token, target.profileId)).status).toBe(404);
   });
 
-  it("admins can see any photo (moderation), whatever its visibility", async () => {
+  it("admins can see any photo (moderation), whatever its visibility; every admin read is logged by ids only", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const hidden = await withPhoto({ visible: false });
     expect((await getAvatar(admin.token, hidden.profileId)).status).toBe(200);
+    expect((await api.call(adminGetMemberProfile, { token: admin.token, params: { profileId: hidden.profileId } })).status).toBe(200);
+    const logged = info.mock.calls.flat().map(String);
+    expect(logged).toEqual([
+      `Admin ${admin.userId} read the photo of member profile ${hidden.profileId}.`,
+      `Admin ${admin.userId} read member profile ${hidden.profileId}.`,
+    ]);
+    expect(logged.join("\n")).not.toContain(hidden.userId);
+  });
+
+  it("If-None-Match never gets a 304 past the visibility check: hidden or blocked since, it's a 404", async () => {
+    const target = await withPhoto();
+    const viewer = await member(api);
+    const ok = await getAvatar(viewer.token, target.profileId);
+    const etag = ok.headers.get("etag")!;
+    await makeVisible(target, false);
+    const hidden = await getAvatar(viewer.token, target.profileId, "", { "if-none-match": etag });
+    expect(hidden.status).toBe(404);
+    expect(hidden.headers.get("etag")).toBeNull();
+    await makeVisible(target);
+    await block(target, viewer);
+    expect((await getAvatar(viewer.token, target.profileId, "", { "if-none-match": etag })).status).toBe(404);
+  });
+
+  it(`is rate-limited per member (${AVATAR_VIEW_RATE_LIMIT.hits} per ${AVATAR_VIEW_RATE_LIMIT.window}, 304s included); admins aren't`, async () => {
+    const target = await withPhoto();
+    const viewer = await member(api);
+    expect((await getAvatar(viewer.token, target.profileId)).status).toBe(200);
+    await api.db.query(`update private.rate_limits set hits = $2 where user_id = $1 and bucket = 'avatar_views'`, [
+      viewer.userId,
+      AVATAR_VIEW_RATE_LIMIT.hits,
+    ]);
+    expect((await getAvatar(viewer.token, target.profileId)).status).toBe(429);
+    expect((await getAvatar(viewer.token, target.profileId, "", { "if-none-match": '"x"' })).status).toBe(429);
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    expect((await getAvatar(admin.token, target.profileId)).status).toBe(200);
   });
 });
 

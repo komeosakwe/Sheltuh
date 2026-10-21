@@ -28,3 +28,6 @@ alter table auth.users add column if not exists raw_app_meta_data jsonb;
 alter default privileges in schema public grant all on tables to anon, authenticated;
 -- Sequences too (identity columns' sequences included).
 alter default privileges in schema public grant all on sequences to anon, authenticated;
+-- Set by Supabase Auth once the user confirms their email (read by
+-- private.notify_followers).
+alter table auth.users add column if not exists email_confirmed_at timestamptz;

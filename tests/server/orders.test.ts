@@ -232,6 +232,21 @@ describe("paid checkout", () => {
     expect(tooMany.body.error).toBe('Only 1 of "VIP" left.');
   });
 
+  it("names the exact number left only when it's 10 or fewer (as public payloads do); otherwise a generic 409", async () => {
+    const event = await publishedEvent(api, organiser, admin, {
+      ticketTypes: [{ id: "ga", name: "GA", priceCents: 3000, feePolicy: "buyer-pays", quantityAvailable: 15 }],
+    });
+    await enablePayouts(api, organiser.organiserId);
+    const params = { eventId: event.eventId };
+    const big = await api.call(createCheckout, { params, body: { lineItems: [{ ticketTypeId: "ga", quantity: 16 }] } });
+    expect(big.status).toBe(409);
+    expect(big.body.error).toBe(`There aren't that many "GA" tickets left. Choose fewer.`);
+    expect(big.body.error).not.toMatch(/\d/);
+    await api.db.query(`update public.ticket_types set quantity_sold = 5 where event_id = $1`, [event.eventId]);
+    const small = await api.call(createCheckout, { params, body: { lineItems: [{ ticketTypeId: "ga", quantity: 11 }] } });
+    expect(small.body.error).toBe('Only 10 of "GA" left.');
+  });
+
   it("isn't available for an event that isn't published", async () => {
     const event = await publishedEvent(api, organiser, admin, { ticketTypes: PAID_TICKETS });
     await api.call(adminUnpublishEvent, { token: admin.token, params: { eventId: event.eventId }, method: "POST" });
@@ -652,5 +667,65 @@ describe("ticket types with sales", () => {
     });
     expect(raised.status).toBe(200);
     expect(await sold(event.eventId)).toEqual({ rsvp: 2 });
+  });
+});
+
+describe("a payment for an order that had already failed", () => {
+  it("is logged and refunded in full, once, with a per-order idempotency key; the order stays failed", async () => {
+    const event = await publishedEvent(api, organiser, admin, { ticketTypes: PAID_TICKETS });
+    await enablePayouts(api, organiser.organiserId);
+    const res = await api.call(createCheckout, {
+      params: { eventId: event.eventId },
+      body: { lineItems: [{ ticketTypeId: "ga", quantity: 1 }] },
+    });
+    const orderId = api.stripe.checkout.sessions.create.mock.lastCall![0].client_reference_id as string;
+    expect(res.status).toBe(201);
+    // Cancelled or expired before Stripe reported the (late) payment.
+    await api.send(stripeWebhook, stripeWebhookRequest({ type: "checkout.session.expired", data: completedSession(orderId).data }));
+    expect((await internal(orderId)).status).toBe("failed");
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    api.stripe.refunds.create.mockResolvedValueOnce({ id: "re_failed_1", status: "pending" });
+    const paid = await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId)));
+    expect(paid.status).toBe(200);
+    expect(api.stripe.refunds.create).toHaveBeenCalledTimes(1);
+    expect(api.stripe.refunds.create).toHaveBeenCalledWith(
+      expect.objectContaining({ payment_intent: "pi_test_1", reverse_transfer: true, refund_application_fee: true }),
+      { idempotencyKey: `failed-order-refund-${orderId}` },
+    );
+    const logged = warn.mock.calls.flat().map(String).join("\n");
+    expect(logged).toContain(orderReference(orderId));
+    expect(logged).not.toContain(orderId);
+    const row = await internal(orderId);
+    expect(row.status).toBe("failed");
+    expect(row.stripe_payment_intent_id).toBe("pi_test_1");
+    expect(await sold(event.eventId)).toEqual({ ga: 0, vip: 0 });
+
+    // A redelivery (or the async success after the completed event) doesn't refund again.
+    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId)));
+    await api.send(stripeWebhook, stripeWebhookRequest({ type: "checkout.session.async_payment_succeeded", data: completedSession(orderId).data }));
+    expect(api.stripe.refunds.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("a Stripe error returns 500 so Stripe redelivers; an unpaid completed session refunds nothing", async () => {
+    const event = await publishedEvent(api, organiser, admin, { ticketTypes: PAID_TICKETS });
+    await enablePayouts(api, organiser.organiserId);
+    await api.call(createCheckout, { params: { eventId: event.eventId }, body: { lineItems: [{ ticketTypeId: "ga", quantity: 1 }] } });
+    const orderId = api.stripe.checkout.sessions.create.mock.lastCall![0].client_reference_id as string;
+    await api.db.query(`update public.orders set status = 'failed' where id = $1`, [orderId]);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId, { payment_status: "unpaid" })));
+    expect(api.stripe.refunds.create).not.toHaveBeenCalled();
+
+    api.stripe.refunds.create.mockRejectedValueOnce(new Error("stripe down"));
+    expect((await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId)))).status).toBe(500);
+    expect((await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId)))).status).toBe(200);
+    expect(api.stripe.refunds.create).toHaveBeenCalledTimes(2);
+    expect(api.stripe.refunds.create.mock.calls.map(([, opts]) => opts.idempotencyKey)).toEqual([
+      `failed-order-refund-${orderId}`,
+      `failed-order-refund-${orderId}`,
+    ]);
   });
 });

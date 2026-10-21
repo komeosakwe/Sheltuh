@@ -73,7 +73,7 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | `messages` | `id` (identity) | Plain text, 1–1000 characters (check constraint). The id is the opaque, increasing `messageId` (keyset cursor). Deleted with the conversation or the sender's profile. |
 | `user_blocks` | `id` | `(blocker_id, blocked_id)` unique, keyed on the accounts (not profiles), so recreating a profile doesn't lift a block. `id` is the opaque `blockId`, shown only to the blocker. `blocked_display_name` is a snapshot of the blocked member's name taken when the block was made, never refreshed (the live name would tell the blocker about renames and deletions). It's kept, like the block, until either account is deleted or the block is lifted. |
 | `private.conversation_pairs` | `(user_low, user_high)` | Content-free record that two accounts have had a conversation: the pair and when the first request was sent. References `auth.users` only (not profiles), so deleting and recreating a profile, which deletes the conversation, doesn't reset "one conversation per pair" or undo a decline. Deleted with either account, and by `purge_social_data` once no conversation remains and it's over 12 months old. |
-| `organiser_follows` | `id` | A member following an approved organiser (see "Following organisers"): `(user_id, organiser_id)` unique, keyed on the account (not the profile). `notify_new_events` (chosen when following, default true), `notified_through` (the newest announcement already emailed) and `next_notify_at` (24 hours after the last email). Never shown to anyone else; counted for the organiser's profile (from 10) and analytics. Deleted with the account or the organiser. |
+| `organiser_follows` | `id` | A member following an approved organiser (see "Following organisers"): `(user_id, organiser_id)` unique, keyed on the account (not the profile). `notify_new_events` (chosen when following; off unless chosen, default false), `notified_through` (the newest announcement already emailed) and `next_notify_at` (24 hours after the last email). Never shown to anyone else; counted for the organiser's profile (from 10) and analytics. Deleted with the account or the organiser. |
 | `private.organiser_follow_tokens` | `token_hash` | SHA-256 hashes of the unsubscribe tokens in follower emails (one per email), never the tokens. Deleted with the follow, and 90 days after the email (`purge_social_data`). |
 | `private.organiser_event_announcements` | `event_id` | Each event the first time it's published (organiser, time), so publishing it again emails nobody, and an email can list what was announced since the last. Backfilled with every event approved before the migration. Deleted with the event. |
 | `event_favourites` | `(user_id, event_id)` | A member's favourites (account, not profile). At most 500 per account (`add_favourite`). Kept when the event is unpublished, but hidden until it's published again. Deleted with the account or the event. Never shown to anyone else; counted only as an aggregate input to the trending score, never per event or per person (see "Trending"). Indexed on `(event_id, created_at)` for that count. |
@@ -85,7 +85,8 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | `private.event_curation` | `event_id` | An admin's trending curation (see "Trending"): `boost` (0.5 to 2, default 1, check constraint) and `excluded`, with who changed it last and when (null until changed). Written only by `set_event_curation`. Deleted with the event. |
 | `private.trending_snapshot` | `rank` | The ranked trending list (at most 24): rank, event (unique), score and when it was computed. Rebuilt as a whole by `refresh_trending`; holds no counts. Deleted with the event. |
 | `private.analytics_settings` | single row | `views_tracked_since`: the Melbourne day view counting started (when its migration ran), so reports show earlier days as "not counted" rather than 0. |
-| `private.user_reports` | `id` | A member's report: copies of the reported message, up to 20 messages of context and the reported display name; `target_type` (`conversation`, `attendee` or `profile`); for a profile report, copies of the bio, Instagram handle and photo (512 px WebP). Every reference is `on delete set null`, so the evidence survives the messages and both accounts. `status`: open → actioned (suspended) / dismissed. Resolved reports are deleted 2 years after resolution. |
+| `private.user_reports` | `id` | A member's report: copies of the reported message, up to 20 messages of context and the reported display name; `target_type` (`conversation`, `attendee` or `profile`); for a profile report, copies of the bio, Instagram handle and photo (512 px WebP: `reported_avatar_sha256`, a key into `private.report_photos`; reports made before that keep the copy inline in `reported_avatar`, never both: `user_reports_one_avatar_copy`). At most one open profile report per reporter and reported member (partial unique index `user_reports_open_profile_key`). Every reference is `on delete set null`, so the evidence survives the messages and both accounts. `status`: open → actioned (suspended) / dismissed. Resolved reports are deleted 2 years after resolution. |
+| `private.report_photos` | `sha256` | Profile reports' photo copies, once per distinct image (`sha256 = sha256(image)`, check constraint), however many reports take it. `last_used_at` is bumped whenever a report takes it. Deleted by `purge_social_data` once no report references it and it's been unused for a day. |
 
 Timestamps are `timestamptz`. Organisers enter Australia/Melbourne local
 times, which are converted to instants honouring daylight saving
@@ -105,7 +106,7 @@ times, which are converted to instants honouring daylight saving
 | `transition_event` | Changes status and writes the moderation log entry in one step. It only moves an event from an expected status, so two admins acting at once can't both succeed; the loser gets a 409. |
 | `set_going` | Opts a member in to an event's Who's Going, checking everything in one step: the event is published, enabled, Sheltüh-ticketed and hasn't ended; the member isn't suspended (checked before the profile, so a suspended member without one still gets `suspended`); they have a profile; and a `paid` order for the event has their verified email (case-insensitive). Share-locks the event, then the profile, so an unpublish or profile deletion can't interleave. A suspension recorded mid-call can't be locked in advance, but every count and list filters suspensions at read time. Idempotent. Returns `going`, `event_unavailable`, `suspended`, `no_profile` or `not_eligible`. |
 | `take_rate_limit` | Records one hit on a member's `(user, bucket)` counter and says whether it's within the limit for the window. One upsert, so concurrent requests can't both take the last slot. |
-| `purge_social_data` | Retention: deletes Who's Going opt-ins 30 days after their event ended, profile moderation log entries after 2 years, follower-email unsubscribe tokens after 90 days, rate-limit rows idle for a day, conversations (with their messages) 12 months after their last message, resolved reports 2 years after resolution, pair records with no conversation 12 months after the pair's first request, and the waitlist (see "Waitlist": entries 30 days after their event ended, unconfirmed entries 8 days after their last link, entries 30 days after their person left, expired confirmation links after a week). Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`), not by a migration. |
+| `purge_social_data` | Retention: deletes Who's Going opt-ins 30 days after their event ended, profile moderation log entries after 2 years, follower-email unsubscribe tokens after 90 days, report photos no report references (after a day unused), rate-limit rows idle for a day, conversations (with their messages) 12 months after their last message, resolved reports 2 years after resolution, pair records with no conversation 12 months after the pair's first request, and the waitlist (see "Waitlist": entries 30 days after their event ended, unconfirmed entries 8 days after their last link, entries 30 days after their person left, expired confirmation links after a week). Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`), not by a migration. |
 | `request_conversation` | A first message to the member behind an `attendeeId`, checked in one step: the sender isn't suspended and is opted in to the same event, which is open; the recipient isn't suspended; neither blocks the other; the pair has no conversation yet and none on record (`conversation_pairs`: a pair whose conversation went with a deleted profile is `unavailable`); the sender is within both rate limits; and the recipient is within their cap on requests received (over it, `unavailable`). Locks the sender's profile first (`for no key update`, so it doesn't block the other member's FK checks and mutual requests can't deadlock). Two members requesting each other at once: the pair's primary key makes the second insert fail, which rolls back its rate-limit hits (and the recipient's count) and returns `exists` (409). The recipient's profile or account deleted mid-call is `unavailable`. Returns `sent`, `sender_suspended`, `not_going`, `unavailable`, `self`, `exists` or `rate_limited`. |
 | `send_message` | Locks the sender's profile, then the conversation, then checks visibility (blocks, the other member's suspension, a declined request), that the sender isn't waiting on their own request, and the rate limit, before inserting. A reply to a request accepts it; a reply and a decline racing can't both win. Returns `sent`, `sender_suspended`, `not_found`, `awaiting_reply` or `rate_limited`. |
 | `file_report` | Checks the reporter is in the conversation (and the message is the other member's), takes the rate limit and copies the evidence into the report in one step. Key-share-locks the conversation, then the message, when it finds them, so a profile deletion or retention purge waits for the report; one already under way means the report finds nothing (`not_found`, 404). The reported account deleted mid-call (a foreign-key failure) or a deadlock with an account deletion is also `not_found`, never a 500. |
@@ -128,28 +129,28 @@ times, which are converted to instants honouring daylight saving
 | `purge_operational_data` | Retention for free-ticket and outbox data (see "Free tickets" and "Payment flow"); sent outbox jobs after 90 days, failed ones after a year. Idempotent; Supabase Cron daily. |
 | `claim_outbox_jobs`, `finish_email_job`, `resend_email_job`, `admin_resend_email_job` | The email outbox: lease due jobs of any kind (optionally one order's, or one kind) with `skip locked` (an expired lease is taken again; one that expired on the 6th attempt fails), record an outcome only for the current lease holder, and an admin resend of a ticket email (not while leased, not twice in 5 minutes; a waitlist email is `not_found`). `admin_resend_email_job` takes a hit on the admin's hourly allowance only when the resend is queued, in the same transaction (over it: `rate_limited`, nothing changed). `claim_email_jobs`, the earlier form, now claims ticket emails only and is kept for the deploy window (see "Not built yet"). |
 | `waitlist_join_state` | Whether an event's waitlist takes joins: `open` (published, Sheltüh-ticketed, not ended, has ticket types and every one is sold out), else `not_found` (missing or not published), `external`, `ended` or `not_sold_out`. |
-| `join_waitlist` | A member's join with their own verified email (the API checks it's theirs): on the list at once, idempotently (`already_joined`); someone who left, or never confirmed, joins again at the back. Returns `joined`, `already_joined` or a `waitlist_join_state` refusal. |
+| `join_waitlist` | A member's join with their own verified email (the API checks it's theirs): on the list at once, idempotently (`already_joined`); someone who left, or never confirmed, joins again at the back. An entry already on the list is linked to the member's account only if its address is exactly theirs (ignoring case), never by a normalised match (`+tag`, Gmail dots). Returns `joined`, `already_joined` or a `waitlist_join_state` refusal. |
 | `request_waitlist_join` | Anyone else's join: the event's state; the platform's hourly and daily caps (read-only, before anything about the address); then under an advisory lock on the address: already on the list (`already_joined`, nothing recorded), the address's hourly cap (`address_limited`), taking both platform caps, and a pending entry with the confirmation token's hash. Returns `requested`, `already_joined`, `address_limited`, `platform_limited`, `platform_daily_limited` or a state refusal. |
 | `confirm_waitlist_join` | Confirms by token hash: locks the token, then the entry. Returns `joined`, `already_joined`, `not_found`, `expired`, `used` (confirmed before, and left since) or `closed` (the event isn't published, is external or has ended; it needn't still be sold out). |
 | `leave_waitlist` | Takes the entry behind a leave token off the list, idempotently (`left`, or `not_found`). |
-| `notify_waitlist` | Queues "tickets are available again" emails for an event with tickets left (see "Waitlist"): target 3 per ticket left, at most 100, within a 12-hour window; only the shortfall from people told in the window is queued, so calling it again is a no-op until more tickets free up or the window passes. People never told first, then join order; skips buyers (paid orders, by normalised address), people with an email still waiting, and stops at 500 a day platform-wide. Advisory lock per event. Called at commit by deferred constraint triggers on `ticket_types` (insert with tickets; update leaving more tickets than before) and `events` (status becomes `published`). |
+| `notify_waitlist` | Queues "tickets are available again" emails for an event with tickets left (see "Waitlist"): target 3 per ticket left, at most 100, within a 12-hour window; only the shortfall from people told in the window is queued, so calling it again is a no-op until more tickets free up or the window passes. People never told first, then join order; skips buyers (paid orders, by normalised address), people with an email still waiting, and stops at 500 a day platform-wide. Advisory lock per event. Called at commit by deferred constraint triggers on `ticket_types` (insert with tickets; update leaving more tickets than before) and `events` (status becomes `published`). The triggers catch any error from it and raise a warning instead (event id and SQLSTATE only), so queueing emails can never fail the refund, edit or approval that freed the tickets. |
 | `edit_organiser_profile` | An approved organiser's profile edit (`PATCH /organisers/me`): locks the organiser row, checks it's still approved (`not_approved` → 409), writes only the fields sent whose value really changes (the featured video as `"provider:id"`), and appends their old and new values to `organiser_profile_edits`, in one step. A no-op edit writes nothing. Returns `updated`, `unchanged`, `not_approved` or `not_found`. |
 | `admin_remove_featured_video` | An admin removes an organiser's featured video (any status): locks the organiser row (for update), clears it and logs a `profile_edit` by the admin with the reason. Returns `removed`, `unchanged` (none: nothing logged) or `not_found`. |
 | `member_profile_visible` | The one rule for seeing a member profile (stable SQL): the member behind a `profileId` if the viewer has a profile, neither is suspended, neither blocks the other, and the profile is visible or the viewer's own; else null. Used by every read and write by `profileId`; the API also requires a verified email. |
-| `file_profile_report` | A report about a profile: key-share-locks the profile, copies its display name, bio, handle and photo into the report, takes the reports rate limit, inserts (`target_type` `profile`). Returns `filed`, `not_found`, `self` or `rate_limited`. The profile needn't be visible any more, and blocks don't matter. |
+| `file_profile_report` | A report about a profile: key-share-locks the profile; only one the reporter can see now (`member_profile_visible`) or a member they've blocked (else `not_found`, the unknown-id answer); an open profile report by the same reporter about the same member is returned as it is (`already_open`, no allowance used; two at once: the unique index makes the second find the first); then the reports rate limit, the photo copied once per distinct image (`report_photos`, upserted so a concurrent purge skips it), and the insert (`target_type` `profile`). Returns `filed`, `already_open`, `not_found`, `self` or `rate_limited`. |
 | `create_block_by_profile` | `create_block` for a profile the blocker can see now (`member_profile_visible`); same snapshot, rate limit and results. |
 | `request_conversation_by_profile` | A first message by `profileId`: the profile must be visible to the sender (`unavailable` otherwise, 404); picks the soonest open event both are opted in to (`not_going` if none) and hands over to `request_conversation` with that attendeeId, so every other rule is the same code. |
 | `admin_remove_profile_content` | An admin removes a member's photo, bio and/or Instagram handle: locks the profile (no key update), then the photo; removes only what's there; logs the fields, admin and reason in `profile_moderation_log`. Returns `removed` (with the fields), `unchanged` or `not_found`. |
-| `follow_organiser` | A follow (or a change of its email choice): key-share-locks the approved organiser (`not_found` otherwise; `self` for its own account), then an advisory lock on the account; an existing follow is `exists` (its choice updated if sent); else the 500-follow cap (`limit`) and the 60-an-hour allowance (`rate_limited`) before the insert (`followed`). |
+| `follow_organiser` | A follow (or a change of its email choice): key-share-locks the approved organiser (`not_found` otherwise; `self` for its own account), then an advisory lock on the account; an existing follow is `exists` (its choice updated if sent); else the 500-follow cap (`limit`) and the 60-an-hour allowance (`rate_limited`) before the insert (`followed`, emails off unless the choice sent was true). |
 | `unsubscribe_follow` | Turns a follow's emails off by an unsubscribe token's hash (the follow stays). Idempotent: `unsubscribed` or `not_found`. |
-| `notify_followers` | Run at commit by the deferred constraint trigger `events_followers_announce` (status becomes `published`): for a published, upcoming event of an approved organiser, records the announcement (once per event ever: a republish is a no-op), then, under an advisory lock per organiser, queues one `organiser_new_events` job per follower with emails on who has none waiting, due at the later of now and 24 hours after their last, until the platform's 500 a day. Locks each follow row as it's queued. |
+| `notify_followers` | Run at commit by the deferred constraint trigger `events_followers_announce` (status becomes `published`): for a published, upcoming event of an approved organiser, records the announcement (once per event ever: a republish is a no-op), then, under an advisory lock per organiser, queues one `organiser_new_events` job per follower with emails on and a confirmed email (`auth.users.email_confirmed_at`) who has none waiting, due at the later of now and 24 hours after their last, until the platform's 500 a day. Locks each follow row as it's queued. |
 | `claim_email_outbox` | `claim_outbox_jobs` for every kind, also returning the follow. `claim_outbox_jobs` (the previous release's) now leaves `organiser_new_events` alone, for the deploy window. |
 | `suspend_organiser` | An admin takedown, only from `approved` (a second admin gets 409): locks the organiser row, then its published and pending-review events in id order; sets the organiser `rejected` with the reason and reviewer; moves each published event to draft (`unpublished`) and each pending one to `rejected`, through `transition_event`, so the event moderation log records each with the admin and reason; logs the takedown. Deletes nothing. Returns the result and how many events moved. |
 | `record_payment_refund` | Records a `charge.refunded` by payment intent (see "Refunds made in Stripe"). Locks the order (`for update`), and acts only on a `paid` one. Full refund: `refunded`, the amount recorded, and each line item's quantity taken off its ticket type's `quantity_sold` (never below 0), updating ticket types in `ticketTypeId` order like `fulfil_order`, so the two can't deadlock. Partial: only `amount_refunded_cents`, which only grows. A redelivery (already refunded, or no larger amount) changes nothing, so inventory is released exactly once. Returns `refunded`, `partial`, `unchanged` or `not_found`, with the order id when found (logged by short reference only). A full refund of a seated order also frees its seats (tickets' `seat_id` cleared, then the seats' sale), after the seat lock. |
-| `replace_seat_map`, `delete_seat_map` | The organiser's map (see "Reserved seating"): the seat lock, then the event row (owned by the organiser, else `not_found`); only while draft or rejected (`not_editable`) and never approved (`frozen`), not external (`external`); then `write_seat_map` / `clear_seat_map`. |
+| `replace_seat_map`, `delete_seat_map` | The organiser's map (see "Reserved seating"): the seat lock, then the event row (owned by the organiser, else `not_found`); only while draft or rejected (`not_editable`) and never approved (`frozen`), not external (`external`), and the event has no orders of any status (`has_orders`); then `write_seat_map` / `clear_seat_map`. |
 | `admin_replace_seat_map` | An admin's replacement (layout) or removal (null), any status, only while the event has no orders of any status (`has_orders`); a reason is required; logged `edited` with `changes.seatMap` (old and new `{version, seatCount}`). Nothing changing is `unchanged`, nothing logged. |
-| `write_seat_map`, `clear_seat_map` | Internal: store a layout (the seats derived from it in SQL, so the two can't disagree; at most 5 tiers, `event_seat_maps_max_tiers`; then every tier's `seated` and capacity recomputed) or remove it. An identical layout is `unchanged` (version kept). |
-| `hold_seats` | A paid seated checkout's pending order and its holds, all or nothing (see "Reserved seating"): the seat lock, one hit on the event's hold-attempt counter (`take_event_rate_limit`, bucket `seat_holds`), then the order, the event (published, Sheltüh-ticketed), the map version, every seat free (else `seats_unavailable` with the ids), lines matching the seats' tiers, and the held-seat cap. Returns `held` (with `hold_expires_at`), `rate_limited`, `not_on_sale`, `version`, `seats_unavailable`, `tier_mismatch` or `hold_cap`. |
+| `write_seat_map`, `clear_seat_map` | Internal: store a layout (the seats derived from it in SQL, so the two can't disagree; at most 5 tiers, `event_seat_maps_max_tiers`; then every tier's `seated` and capacity recomputed) or remove it. An identical layout is `unchanged` (version kept). Either refuses (check_violation, `event_seat_maps_no_orders`, the API's 409) when the event has any order, whatever the caller checked: defence in depth, so no caller can rewrite seats a pending order holds or a paid one has sold. |
+| `hold_seats` | A paid seated checkout's pending order and its holds, all or nothing (see "Reserved seating"): the seat lock; a used-up hold window refused with a plain read (`rate_limited`, nothing written); then the order, the event (published, Sheltüh-ticketed), the map version, every seat free (else `seats_unavailable` with the ids), lines matching the seats' tiers, and the held-seat cap; only then, with every refusal decided, one hit on the event's hold counter (`take_event_rate_limit`, bucket `seat_holds`, its row locked last) and the holds. A refusal writes nothing at all, so refused attempts (the cap above all) never use up the allowance (`20261102000000_seating_hardening.sql`). Returns `held` (with `hold_expires_at`), `rate_limited`, `not_on_sale`, `version`, `seats_unavailable`, `tier_mismatch` or `hold_cap`. |
 | `release_seat_holds` | A pending order marked `failed` and its holds cleared, under the seat lock; anything not pending is returned unchanged (its status). |
 | `place_free_seated_order`, `request_free_seated_order` | `place_free_order` / `request_free_order` for a seated free order (the seat lock first; the order records its seats). A guest's order holds nothing until confirmed. `seats_unavailable` when a member's seat is gone. |
 | `fulfil_order` | Queues the ticket email in the same step (see "Payment flow"). Takes inventory for every line item, issues the tickets and marks the order paid. If any ticket type has sold out, or the event is no longer published, it takes nothing and marks the order `oversold_refund_required`. Rows are locked in a fixed order, so concurrent orders can't deadlock. It's idempotent, so Stripe's webhook redeliveries are harmless. A seated order takes the event's seat lock first, needs every seat (free, its own hold, or an expired hold) and lines that match its seats exactly (no order buys a seated tier without seats), and gives each ticket one of its tier's seats; otherwise the oversold path, which also clears its holds. |
@@ -181,6 +182,15 @@ times, which are converted to instants honouring daylight saving
      `refund.updated` / `refund.failed` settle pending ones. A refund call
      that errors returns 500, so Stripe redelivers and it's retried.
    - `expired` / `async_payment_failed` → the order is marked `failed`.
+   - A payment (`completed` and paid, or `async_payment_succeeded`) for an
+     order that's already `failed` (its checkout errored or was cancelled, or
+     its session expired, before Stripe reported the payment) is logged
+     (`console.warn`, short reference) and refunded in full the same way
+     (`reverse_transfer`, `refund_application_fee`, idempotency key
+     `failed-order-refund-{orderId}`); the refund id and payment intent are
+     recorded on the order, which stays `failed`, so a redelivery asks
+     nothing more. A refund call that errors returns 500 (Stripe redelivers);
+     a refund that fails later is logged by `refund.updated` / `refund.failed`.
    - `charge.refunded` → `record_payment_refund` (see "Refunds made in
      Stripe").
    - Any other event type is acknowledged (200) and ignored.
@@ -378,8 +388,11 @@ people behind one address) and without a CAPTCHA
   history. Over the hourly link limit, the response is the same 202 and no
   email is sent (the owner already has 3 links). The per-person cap is only
   reported at confirmation, to whoever holds the emailed link.
-- If the confirmation email can't be sent, the pending order is deleted and
-  the response is 503.
+- The confirmation email is sent straight after the response (`Deps.defer`),
+  so the 202 never waits on SMTP. If it can't be sent, the pending order is
+  deleted (it holds nothing) and the failure is logged by short reference;
+  the guest, already told to check their inbox, books again. The only 503s
+  are the platform caps, which don't depend on the address.
 - A ticket code that clashes with an existing one (40 random bits) is retried
   once with fresh codes, on every fulfilment path.
 - **Refusal counts** (`private.free_order_refusals`): per Melbourne day and
@@ -399,9 +412,10 @@ people behind one address) and without a CAPTCHA
 - **Retention** (`purge_operational_data`, daily): unconfirmed or refused
   guest orders a week after their link expired; refusal counts after 13
   months.
-- Live mode without SMTP configured can't send a confirmation link, so every
-  guest free booking is a 503 (members booking with their own verified
-  email are unaffected).
+- Live mode without SMTP configured can't send a confirmation link: every
+  guest free booking gets its 202, the send fails after the response
+  (logged) and the order is dropped, so nothing can be confirmed (members
+  booking with their own verified email are unaffected).
 
 ### Accepted risks (free tickets)
 
@@ -433,13 +447,15 @@ people behind one address) and without a CAPTCHA
   refused for everyone. Watch `private.free_order_refusals`
   (`docs/supabase-setup.md`); an automated alert on those two reasons is
   advised but not built.
-- **Timing.** The platform-cap 503 doesn't depend on the address, but the
-  other outcomes can still differ slightly in response time (an
-  address-limited request skips the platform write, the insert and the SMTP
-  send, so its 202 comes back faster than a real one). Accepted: telling
-  that an address has 3 unconfirmed links in the last hour needs repeated
-  timing measurements and reveals little; sending in the background instead
-  would lose the 503 when a link can't be sent.
+- **Timing.** The platform-cap 503 doesn't depend on the address, and the
+  link is emailed after the response, so no outcome waits on SMTP. What's
+  left is a few milliseconds of database work: an address-limited request
+  skips the platform-cap write and the insert, so its 202 can come back
+  slightly faster than a real one. Accepted: telling that an address has 3
+  unconfirmed links in the last hour would need many repeated timing
+  measurements and reveals little. The cost of sending after the response:
+  a link that can't be sent is no longer a 503; the guest sees the usual
+  202 and gets no email (the order is dropped and the failure logged).
 
 ## Waitlist
 
@@ -483,16 +499,21 @@ UI states in `docs/design/brand-direction-one.md` §6.11).
 - **Caps** (`WAITLIST_LIMITS`): 3 confirmation links per address per hour
   (any event, normalised); 30 an hour and 200 per 24 hours platform-wide
   (503 for everyone, checked before anything about the address and taken
-  only for a link that's about to be sent). A link that can't be sent is
-  dropped (it doesn't use the address's cap) and the answer is 503. Members
-  joining with their own verified email send nothing and aren't capped.
+  only for a link that's about to be sent). The link is emailed straight
+  after the response (`Deps.defer`), so the 202 never waits on SMTP; one
+  that can't be sent is dropped (it doesn't use the address's cap) and
+  logged, with no address. Members joining with their own verified email
+  send nothing and aren't capped.
 - **Status and leaving.** `GET …/waitlist/status` (signed in): on the list by
-  account, or by their verified email (a guest link they confirmed counts).
+  account, or by exactly their verified email, ignoring case (a guest link
+  they confirmed counts); never by the normalised key, which folds `+tags`
+  and Gmail dots, so `fan+x@…` can't see or leave `fan@…`'s entry.
   `DELETE …/waitlist` (signed in) leaves, idempotently, whatever the
   event's state. Every notification email has its own leave link,
   `/waitlist/leave#token=…` (a page that POSTs the token,
   `POST /api/waitlist/leave`), also sent as `List-Unsubscribe`; it works
-  until the entry is deleted. Leaving sets `unsubscribed_at`; a queued email
+  until the entry is deleted, and answers with the event's title only while
+  it's published. Leaving sets `unsubscribed_at`; a queued email
   to someone who has left isn't sent. Joining again puts them at the back.
 - **Notification** (`private.notify_waitlist`): run at commit by deferred
   constraint triggers whenever a transaction leaves an event with more
@@ -518,7 +539,9 @@ UI states in `docs/design/brand-direction-one.md` §6.11).
   `/events/{slug}#tickets`, that it's first come, first served and nothing is
   held, why they're getting it, and the leave link. Brand Direction One
   colours (black on cream and white, Signal Orange only as the button, with
-  black text). Rebuilt at send time; skipped (not retried) if the person has
+  black text). The subject (here and on the confirmation email) has control,
+  invisible and text-direction characters of the title replaced by a space
+  (`subjectLine`). Rebuilt at send time; skipped (not retried) if the person has
   left, the event is no longer open, or it has sold out again since.
   Transactional (about one event the person asked to hear about), with a
   functional unsubscribe (Spam Act 2003).
@@ -564,9 +587,12 @@ UI states in `docs/design/brand-direction-one.md` §6.11).
   a day) share the Workspace SMTP quota (about 2,000 a day) with ticket
   emails and free-ticket links (400 a day). Move to a transactional email
   provider before volume approaches it.
-- **Timing.** A guest's 202 for an address already on the list, or over its
-  cap, comes back faster (no email is sent); as for free tickets, telling
-  them apart needs repeated timing measurements.
+- **Timing.** The link is emailed after the response, so no answer waits on
+  SMTP. A guest's 202 for an address already on the list, or over its cap,
+  can still come back a few milliseconds faster (less database work); as
+  for free tickets, telling them apart needs many repeated timing
+  measurements. A link that can't be sent is no longer a 503: the guest
+  sees the usual 202 and no email arrives.
 - **The count.** An organiser sees the exact number on the list, so with a
   tiny list they could correlate a change with someone they know. It's a
   count only, with no identity.
@@ -734,31 +760,44 @@ Clickable Who's Going names (owner request, 21 Oct 2026;
   them); `conversationId` when a visible one exists. `POST /conversations
   {profileId, body}`, `POST /blocks {profileId}` and `POST /reports
   {profileId, reason, details?}` work as their attendeeId forms. A profile
-  report copies the display name, bio, handle and photo into the report
-  (kept like message copies, 2 years after resolution).
+  report is only for a profile the reporter can see now, or a member they've
+  blocked (anything else is the unknown-id 404, so a report can't probe for a
+  hidden profile); one open report per reporter and member (another is a 200
+  with the open one, using no allowance). It copies the display name, bio,
+  handle and photo into the report (kept like message copies, 2 years after
+  resolution; the photo once per distinct image, `private.report_photos`).
 - **Photos.** `PUT /profiles/me/avatar` takes the raw bytes: JPEG, PNG or WebP
   sniffed from the bytes (the declared type is ignored; SVG, GIF, HEIC and
   anything else are a 400), at most 5 MB, read as a stream and cut off past
-  it (413). sharp decodes it (first frame only, at most 50 megapixels, so a
-  small file can't claim a huge canvas), applies the EXIF orientation, crops
-  to a square and writes a 512 px WebP and a 96 px thumbnail with **no
-  metadata at all** (no EXIF, GPS, camera, ICC or XMP; converted to sRGB
-  first). The upload itself is never stored. 20 uploads a day (429).
+  it (413). sharp decodes it once (first frame only, at most 24 megapixels,
+  refused from the header, so a small file can't claim a huge canvas),
+  applies the EXIF orientation, crops to a 512 px square of raw sRGB pixels,
+  and writes from those a 512 px WebP and a 96 px thumbnail with **no
+  metadata at all** (no EXIF, GPS, camera, ICC or XMP). The upload itself is
+  never stored. 20 uploads a day (429). At most 2 photos are decoded at once
+  per server instance, 8 more wait, and past that it's a 503
+  (`AVATAR_ENCODE_CONCURRENCY`).
   sharp is the version Next ships (declared in package.json), on Next's
   server-external list, so Vercel's file tracing includes its native binary.
 - **Serving photos.** `GET /profiles/{profileId}/avatar[?size=thumb]` needs
   the bearer token (never public, so the browser fetches it and shows a blob
   URL), the same gate as the profile (404 otherwise), and admins (any
-  profile, for moderation). `private, no-cache` with an ETag: the browser may
-  keep it, but every use is re-checked (a 304 only after the gate passes), so
-  a block or a hidden profile applies at once. `Cross-Origin-Resource-Policy:
+  profile, for moderation). Members are rate-limited (600 fetches per 10
+  minutes, 304s included, then 429; `AVATAR_VIEW_RATE_LIMIT`). `private,
+  no-cache` with an ETag: the browser may keep it, but every use is
+  re-checked (a 304 only after the gate passes; a matching `If-None-Match`
+  for a profile hidden or blocked since is the 404), so a block or a hidden
+  profile applies at once. `Cross-Origin-Resource-Policy:
   same-origin`. URLs carry a version (`?v=`), and no photo shows initials.
 - **Moderation.** Admins see `targetType`, the copies and `reportedProfileId`
   on reports, read any profile (`GET /admin/profiles/{profileId}`, with its
   moderation log) and remove a photo, bio or handle with a reason
   (`POST /admin/profiles/{profileId}/remove-content`), logged in
   `private.profile_moderation_log` (fields, admin, reason; never the
-  content). Suspension (resolving a report with `suspend`) hides the profile
+  content). Every admin read of a member's profile or photo, or a report's
+  photo copy, is logged (`console.info`: the admin's account id and the
+  opaque profile or report id, never the member's name, content or account
+  id). Suspension (resolving a report with `suspend`) hides the profile
   and photo from everyone; a suspended member can't change their profile or
   upload a photo, and can always delete them.
 - **Retention.** The photo, bio and handle are deleted with the profile
@@ -788,9 +827,15 @@ Clickable Who's Going names (owner request, 21 Oct 2026;
   admin removal are the control. Revisit if spam appears.
 - **A visible member can be followed across events.** That's the point of a
   profile, and it's opt-in; hidden members stay per-event.
-- **Images are decoded on the server.** Bounded: 5 MB, 50 megapixels, first
-  frame, three sniffed formats, 20 a day per member, verified members only.
-  A libvips vulnerability would still be reachable; keep sharp updated.
+- **Images are decoded on the server.** Bounded: 5 MB, 24 megapixels, first
+  frame, three sniffed formats, one decode per upload, 2 at once per
+  instance, 20 a day per member, verified members only. A libvips
+  vulnerability would still be reachable; keep sharp updated. A photo over
+  24 megapixels (some phones' full-resolution mode) has to be downsized
+  first.
+- **A hidden profile can't be reported.** A member who hides their profile
+  after someone saw it can't be reported by profile any more (unless the
+  reporter blocked them); reports by conversation or attendee still work.
 - **A screenshot outlives a block.** Nothing can stop a member keeping a copy
   of a photo they once saw.
 
@@ -1496,8 +1541,10 @@ Members follow organisers (owner request, 21 Oct 2026;
 
 - **Following** (`POST /organisers/{id}/follow {notifyNewEvents?}`):
   signed-in members with a verified email, approved organisers only (404),
-  not their own (400). Idempotent (201 new, 200 again; sending
-  `notifyNewEvents` again changes it). At most 500 follows per account (409)
+  not their own (400). `notifyNewEvents` must be a boolean if sent (null or
+  anything else is a 400); a new follow's emails are off unless it's `true`.
+  Idempotent (201 new, 200 again; sending `notifyNewEvents` again changes
+  it, leaving it out keeps the choice). At most 500 follows per account (409)
   and 60 new follows an hour (429). `DELETE` unfollows (204, idempotent,
   whatever the organiser's state). Keyed on the account, like favourites.
 - **Who sees what.** Nobody sees who follows whom. The public profile shows
@@ -1508,7 +1555,9 @@ Members follow organisers (owner request, 21 Oct 2026;
   followed approved organisers, soonest first, paginated, public event
   shape); `GET /me/following` lists the organisers (taken-down ones drop out;
   the follow is kept).
-- **New-event emails.** Chosen when following (default on). When an event is
+- **New-event emails.** Chosen when following (off unless chosen), and only
+  to an account whose email Supabase Auth has confirmed
+  (`email_confirmed_at`: checked when queueing and again when sending). When an event is
   published for the first time (an approval, an admin's create or edit, any
   path: a deferred constraint trigger, `notify_followers`), each follower
   with emails on gets one `organiser_new_events` outbox job, at most one per
@@ -1580,15 +1629,20 @@ unchanged.
   quantities beside the seats; they don't count towards the 10 seats.
 - **Who changes it.** The organiser, while the event is a draft (or
   rejected) that has never been approved: the map freezes at first approval,
-  like the ticketing. After that, admins only, any status, only while the
+  like the ticketing (and never once it has orders: the database functions
+  refuse, whoever calls them). After that, admins only, any status, only while the
   event has no orders of any status (a pending order may hold seats), with a
   reason, logged `edited` with `changes.seatMap` (the organiser sees "Sheltüh
   team"). A map change bumps the event's `updatedAt`. Switching to external
   ticketing removes the map; a tier with seats can't be removed (409).
 - **Public reads.** `GET …/seat-map?v={version}` is cached for a year at the
   current version (a new map is a new version: versions come from a sequence
-  and are never reused); any other `v` is answered uncached, so a guessed
-  future version can't be cached with today's map. `GET …/seat-availability`
+  and are never reused); any other `v`, or none, is a `307` to
+  `?v={current}` with `Cache-Control: no-store`, answered without reading
+  the layout, so the full body is only ever served (and read) at the
+  cacheable URL, and a guessed future version can't be cached with today's
+  map. Before publishing, the owner and admins get the map at any `v`,
+  never cached. `GET …/seat-availability`
   is a bitmap by seat position (`lib/seating/availability.ts`): sold, held and
   blocked are one state (decision 3), cached 5 seconds at the CDN; the seat
   page polls it every 10 seconds while visible. Before publishing, both are
@@ -1602,11 +1656,13 @@ unchanged.
   `cancel_url` is `/checkout/cancelled?order={orderId}`, whose page calls
   `POST /orders/by-session/{id}/cancel`: the session is expired first, so it
   can't be paid afterwards), `checkout.session.expired` and
-  `async_payment_failed`. Anti-hoarding (decision 5), per event: 120 hold
-  attempts per 10 minutes (`take_event_rate_limit`, bucket `seat_holds`), and
-  at most the larger of 20 seats or 30% of the unblocked seats held at once;
-  either is a 429 with the seats asked for. A refusal writes nothing but the
-  attempt.
+  `async_payment_failed`. Anti-hoarding (decision 5), per event: 120 holds
+  per 10 minutes (`take_event_rate_limit`, bucket `seat_holds`), and at most
+  the larger of 20 seats or 30% of the unblocked seats held at once; either
+  is a 429 with the seats asked for. Every refusal (the cap, taken seats, a
+  changed map) is decided before the counter and writes nothing, so only
+  real holds count: refused attempts can't use up the allowance and lock
+  buyers out.
 - **Payment.** `fulfil_order` sells the seats (free, held by the order, or an
   expired hold nobody took) with the inventory and gives each ticket a seat of
   its tier. A seat that went elsewhere (a late async payment after its hold
@@ -1637,15 +1693,25 @@ unchanged.
   `tests/server/seat-maps.test.ts`, `tests/server/seated-checkout.test.ts`,
   and `tests/server/seating-races.test.ts` (overlapping holds, opposite
   orders, a lapsed hold's payment against a new hold, refund against hold,
-  free member against paid hold, the cap, duplicate webhooks), which runs only
+  free member against paid hold, the cap, a flood of cap refusals using no
+  allowance, duplicate webhooks), which runs only
   on a real Postgres (`TEST_DATABASE_URL`).
 
 ### Accepted risks (reserved seating)
 
-- **A busy on-sale hits the hold limits.** 120 hold attempts per 10 minutes is
-  per event and shared by every buyer: a popular on-sale gets 429s ("a lot of
+- **A busy on-sale hits the hold limits.** 120 holds per 10 minutes is per
+  event and shared by every buyer: a popular on-sale gets 429s ("a lot of
   people are checking out") until the window passes. That's the anti-hoarding
-  decision; raise `SEAT_HOLD_LIMITS` if it bites.
+  decision; raise `SEAT_HOLD_LIMITS` if it bites. Refused attempts no longer
+  count, so the window is only used up by real holds (each one also bounded
+  by the held-seat cap); a hoarder holding up to the cap can still keep
+  others to the seats left, for 35 minutes at a time.
+- **Refused hold attempts aren't rate-limited per event.** A flood of
+  attempts that will be refused (at the cap, or for taken seats) writes
+  nothing, but each briefly takes the event's seat lock (the API's early
+  checks turn most taken-seat attempts away before it). Bounded by the
+  platform's request limits only; a bot check on holds (Turnstile, "Not built
+  yet") is the next step if it's abused.
 - **Free seated bookings are capped at 4 seats** by the per-order free-ticket
   cap, though paid orders can take 10.
 - **A cached map outlives an unpublish.** The public map URL is cached for a
@@ -1665,14 +1731,14 @@ application is approved.
 |---|---|
 | `GET /events?q&category&pricing&onOrAfter&upcoming&cursor&limit` | public (published only), soonest first. `upcoming=1` (or `true`): only events that haven't ended (`ends_at > now()`, in progress included); the home page and /events always send it. `pricing=free`: has ticket types, all free, or is external with `externalFree`; `paid`: has a paid ticket type (an event with no ticket types is neither, and so is an external event that isn't free: its price isn't known). 400 for an unknown `category`, `pricing` or `upcoming` value. Every item carries `ticketingMode`, `externalFree`, `externalProvider` and, for external events only, `externalTicketUrl` (see "External ticketing") |
 | `GET /events/slug/{slug}` | public (published only); same shape as a list item. Every public event (list, slug, favourites, organiser profile, trending) carries `soldOut`, and per ticket type `soldOut` and `remaining` (only when 10 or fewer are left): see "Waitlist" |
-| `POST /events/{eventId}/waitlist` `{email?}` · `DELETE /events/{eventId}/waitlist` | POST: public (a member's token is read, optionally). 201/200 `{status: "joined", maskedEmail, alreadyJoined}` for a member's own verified email; 202 `{status: "confirmation_sent", expiresInHours}` for anyone else, whatever the address's history; 400 email; 404 not published; 409 external, ended or not sold out; 503 busy or the email failed. DELETE: signed in, leaves (204, idempotent) |
+| `POST /events/{eventId}/waitlist` `{email?}` · `DELETE /events/{eventId}/waitlist` | POST: public (a member's token is read, optionally). 201/200 `{status: "joined", maskedEmail, alreadyJoined}` for a member's own verified email; 202 `{status: "confirmation_sent", expiresInHours}` for anyone else, whatever the address's history; 400 email; 404 not published; 409 external, ended or not sold out; 503 busy (the platform caps; the link is emailed after the response, so a failed send isn't reported). DELETE: signed in, leaves (204, idempotent) |
 | `GET /events/{eventId}/waitlist/status` | signed in: `{joined, maskedEmail?}`; 404 not published |
-| `POST /waitlist/confirm` `{token}` · `POST /waitlist/leave` `{token}` | public (the emailed token is the credential). Confirm: 200 `{status: "joined", eventTitle, eventSlug, ticketsAvailable}` (also when already on the list); 400; 404; 410 expired or used; 409 closed. Leave: 200 `{status: "left", eventTitle?}` (idempotent); 400; 404 |
-| `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). 409 for an external event, before anything else is read; 409 for a paid order from a platform-managed organiser. 201 `{url}`; 202 free order waiting on its emailed link; 400 (incl. over 4 free tickets in any order, paid or free); 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance; 503 free bookings busy or the confirmation email failed |
+| `POST /waitlist/confirm` `{token}` · `POST /waitlist/leave` `{token}` | public (the emailed token is the credential). Confirm: 200 `{status: "joined", eventTitle, eventSlug, ticketsAvailable}` (also when already on the list); 400; 404; 410 expired or used; 409 closed. Leave: 200 `{status: "left", eventTitle?}` (the title only while the event is published; idempotent); 400; 404 |
+| `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). 409 for an external event, before anything else is read; 409 for a paid order from a platform-managed organiser. 201 `{url}`; 202 free order waiting on its emailed link; 400 (incl. over 4 free tickets in any order, paid or free); 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance; 503 free bookings busy (the guest's link is emailed after the response). 409 for too many of a ticket type names the number left only when it's 10 or fewer |
 | `POST /events/{eventId}/checkout` with `seats: {mapVersion, seatIds}` | public: a seated checkout (see "Reserved seating"). Paid: 201 `{url, holdExpiresAt}` (private, no-store). Free: as above (201 member, 202 guest). 400 (bad seats, over 10, a seated tier in `lineItems`, no map); 404; 409 `seats` taken (body `code`, `seatIds`) or `seatMapVersion` changed; 429 too many seats held or hold attempts for the event (body `seatIds`) |
-| `GET /events/{eventId}/seat-map?v=` | public once published (`public, max-age=31536000, immutable` only when `v` is the current version; otherwise not cached); before that the owning organiser or an admin (bearer), private. `SeatMapRecord`. 404 no map or not visible |
+| `GET /events/{eventId}/seat-map?v=` | public once published (`public, max-age=31536000, immutable`, only at the current `v`; any other `v` or none is a `307` to `?v={current}`, `no-store`, no body); before that the owning organiser or an admin (bearer), private. `SeatMapRecord`. 404 no map or not visible |
 | `GET /events/{eventId}/seat-availability` | as above: `SeatAvailability` (the bitmap), `public, max-age=0, s-maxage=5` once published |
-| `PUT /events/{eventId}/seat-map` `{template}` · `DELETE …` | organiser (own event, draft or rejected, never approved). Up to 1 MB. 200 `SeatMapRecord` / 204; 400 `fieldErrors["template.…"]`; 404; 409 not editable, locked or external |
+| `PUT /events/{eventId}/seat-map` `{template}` · `DELETE …` | organiser (own event, draft or rejected, never approved). Up to 1 MB. 200 `SeatMapRecord` / 204; 400 `fieldErrors["template.…"]`; 404; 409 not editable, locked, external or has orders |
 | `PUT /admin/events/{eventId}/seat-map` `{template, reason}` · `DELETE …` `{reason}` | admin, any status, no orders. 200 `SeatMapRecord` / 204; 400; 404; 409 has orders (`fieldErrors.template`) or external |
 | `POST /orders/by-session/{orderId}/cancel` | public (the order id is the credential): expires the Stripe session, then cancels the order and releases its seats. 200 `{status: "released" \| "paid" \| "processing", eventTitle, eventSlug?}`; 404; 409 still being set up |
 | `POST /orders/confirm` `{token}` | public (the emailed token is the credential). 200 `{url}` (also when already confirmed, within 24 hours); 400 malformed; 404 unknown; 410 expired (confirmed or not); 409 sold out, allowance used, or a ticket type no longer free |
@@ -1695,12 +1761,12 @@ application is approved.
 | `PUT /events/{id}/going/me` | verified email, eligible ticket holder with a profile. 404 if Who's Going isn't open, 409 without a profile, 403 if not eligible or suspended |
 | `GET /profiles/me` · `DELETE /profiles/me` | signed in (own profile; DELETE also removes every opt-in, every conversation the member is in, for both sides, and the photo, bio and handle). GET also has `profileId`, `profileVisible`, `bio?`, `instagramHandle?`, `hasAvatar`, `avatarUrl?`, `avatarThumbUrl?` |
 | `PATCH /profiles/me` `{displayName?, profileVisible?, bio?, instagramHandle?}` | verified email, a profile (404), not suspended (403). Absent: unchanged; null or "" clears bio or handle. 400 fieldErrors |
-| `PUT /profiles/me/avatar` (raw JPEG/PNG/WebP) · `DELETE …/avatar` · `GET …/avatar[?size=thumb]` | PUT: verified, a profile (404), not suspended (403); 200 the profile; 400 not a supported image; 413 over 5 MB; 429 over 20 a day. DELETE: signed in, 204 idempotent. GET: the caller's own |
+| `PUT /profiles/me/avatar` (raw JPEG/PNG/WebP) · `DELETE …/avatar` · `GET …/avatar[?size=thumb]` | PUT: verified, a profile (404), not suspended (403); 200 the profile; 400 not a supported image (or over 24 megapixels); 413 over 5 MB; 429 over 20 a day; 503 too many photos being decoded on the instance. DELETE: signed in, 204 idempotent. GET: the caller's own |
 | `GET /profiles/{profileId}` | verified member with a profile, not suspended: `MemberProfile` (see "Member profiles"); 404 for anything they can't see; 429 |
-| `GET /profiles/{profileId}/avatar[?size=thumb]` | the same gate (404 otherwise), or an admin. WebP, `private, no-cache`, ETag (304) |
+| `GET /profiles/{profileId}/avatar[?size=thumb]` | the same gate (404 otherwise, also with a matching `If-None-Match`), or an admin (logged). WebP, `private, no-cache`, ETag (304); 429 over 600 per 10 minutes (members) |
 | `GET /admin/profiles/{profileId}` · `POST …/remove-content` `{fields, reason}` | admin. `AdminMemberProfile` (with the moderation log; remove-content adds `removed`). 400; 404 |
 | `GET /admin/reports/{reportId}/avatar` | admin: a profile report's copy of the photo. 404 none |
-| `GET /organisers/{organiserId}/follow` · `POST …/follow` `{notifyNewEvents?}` · `DELETE …/follow` | GET signed in, `{following, notifyNewEvents}` (404 not approved). POST verified email: 201 new / 200 existing; 400 bad boolean or own organiser; 404; 409 500 follows; 429. DELETE signed in, 204 idempotent |
+| `GET /organisers/{organiserId}/follow` · `POST …/follow` `{notifyNewEvents?}` · `DELETE …/follow` | GET signed in, `{following, notifyNewEvents}` (404 not approved). POST verified email: 201 new (emails off unless `notifyNewEvents: true`) / 200 existing; 400 not a boolean (null included) or own organiser; 404; 409 500 follows; 429. DELETE signed in, 204 idempotent |
 | `GET /me/following?cursor&limit` · `GET /me/following/events?cursor&limit` | signed in: `FollowedOrganiser` items; upcoming events of followed organisers (public event shape), soonest first |
 | `POST /follows/unsubscribe` `{token}` | public (the emailed token is the credential). 200 `{status: "unsubscribed", organiserName?}` (idempotent); 400; 404 |
 | `POST /admin/organisers/{organiserId}/remove-video` `{reason}` | admin. 200 `AdminOrganiserRecord` (unchanged, nothing logged, without a video); 400; 404 |
@@ -1712,7 +1778,7 @@ application is approved.
 | `POST /conversations/{id}/decline` | signed-in recipient of a request (204, idempotent); 409 otherwise; 404 non-participant |
 | `POST /conversations/{id}/read` `{lastReadMessageId?}` | verified participant (204) |
 | `GET /blocks?cursor` · `POST /blocks` `{conversationId}\|{attendeeId}\|{profileId}` · `DELETE /blocks/{blockId}` | signed in (own blocks). POST 201 (new, or one the caller already has), 400 self, 404 not something the caller can currently see (including already blocked either way), 429 (30 per 24 hours); DELETE 204, idempotent |
-| `POST /reports` `{conversationId, messageId?}\|{attendeeId}\|{profileId}, reason, details?` | signed in (a verified email for `profileId`). 201; 400 yourself; 404 not yours; 429. Admin reports carry `targetType`, `reportedProfileId?` and, for profiles, the copies |
+| `POST /reports` `{conversationId, messageId?}\|{attendeeId}\|{profileId}, reason, details?` | signed in (a verified email for `profileId`). 201; 200 with the open report when the caller already has one about that profile's member; 400 yourself; 404 not yours (for `profileId`: not visible to the caller and not someone they blocked); 429. Admin reports carry `targetType`, `reportedProfileId?` and, for profiles, the copies |
 | `GET /admin/reports?status` · `POST /admin/reports/{id}/resolve` `{action, note?}` | admin. 409 if already resolved |
 | `GET /favourites?cursor&limit` | signed in: own favourited published events, newest favourite first, in the feed's public shape plus `favouritedAt` |
 | `GET /favourites/ids` | signed in: `{eventIds}` (at most 500) |
@@ -1786,6 +1852,11 @@ is `cache-control: private, no-store`, and so is every admin response
   `no-referrer` and `noindex` headers), and the admin report/organiser views
   of the new fields. The API is built ("Member profiles", "Following
   organisers").
+- Drop `private.user_reports.reported_avatar` (inline photo copies, superseded
+  by `private.report_photos` in `20261102000100_social_hardening.sql`) once
+  no report has one (reports made before it are deleted 2 years after
+  resolution), with its `user_reports_one_avatar_copy` check, and the
+  `coalesce` in `adminGetReportAvatar`.
 - Drop `private.claim_outbox_jobs` (superseded by `claim_email_outbox` in
   `20261024000200_organiser_follows.sql`) once the deploy window is over.
 

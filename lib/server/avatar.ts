@@ -24,11 +24,18 @@ export const AVATAR_SIZE = 512;
 /** The thumbnail's side (Who's Going list, messages). */
 export const AVATAR_THUMB_SIZE = 96;
 /**
- * Largest decoded image accepted, in pixels (about 7000 × 7000): a small
- * file can claim a huge canvas ("decompression bomb"), which sharp refuses
- * before allocating it.
+ * Largest decoded image accepted, in pixels (24 megapixels: 6000 × 4000, a
+ * full-size photo from most cameras and phones): a small file can claim a
+ * huge canvas ("decompression bomb"), which sharp refuses from the header,
+ * before allocating it. A bigger photo has to be downsized first.
  */
-export const MAX_AVATAR_INPUT_PIXELS = 50_000_000;
+export const MAX_AVATAR_INPUT_PIXELS = 24_000_000;
+/**
+ * Photos decoded at once per server instance, and how many more may wait for
+ * a turn: decoding is CPU- and memory-heavy, so a burst of uploads queues
+ * instead of running side by side, and past the queue it's a 503.
+ */
+export const AVATAR_ENCODE_CONCURRENCY = { running: 2, waiting: 8 } as const;
 
 export interface EncodedAvatar {
   image: Buffer;
@@ -54,29 +61,59 @@ export async function readAvatarUpload(req: Request): Promise<Uint8Array> {
   return bytes;
 }
 
-function square(input: Uint8Array, size: number, quality: number): Promise<Buffer> {
-  return (
-    sharp(input, { limitInputPixels: MAX_AVATAR_INPUT_PIXELS, failOn: "error", pages: 1 })
-      // Applies the EXIF orientation to the pixels (the tag itself isn't kept).
-      .rotate()
-      .resize(size, size, { fit: "cover", position: "centre" })
-      // Into sRGB, so the image looks right without an embedded ICC profile.
-      .toColourspace("srgb")
-      // No keepMetadata/withMetadata/keepExif/keepIccProfile: nothing is written but pixels.
-      .webp({ quality, effort: 4 })
-      .toBuffer()
-  );
+let running = 0;
+const waiting: (() => void)[] = [];
+
+/** Runs `work` in one of AVATAR_ENCODE_CONCURRENCY's slots, waiting for one if needed; 503 when the queue is full. */
+async function inEncodeSlot<T>(work: () => Promise<T>): Promise<T> {
+  if (running < AVATAR_ENCODE_CONCURRENCY.running) {
+    running += 1;
+  } else {
+    if (waiting.length >= AVATAR_ENCODE_CONCURRENCY.waiting) {
+      throw new HttpError(503, "Lots of photos are being uploaded right now. Try again in a minute.");
+    }
+    // The slot is handed over by the finishing job (running stays the same).
+    await new Promise<void>((resolve) => waiting.push(resolve));
+  }
+  try {
+    return await work();
+  } finally {
+    const next = waiting.shift();
+    if (next) next();
+    else running -= 1;
+  }
 }
 
 /**
- * Re-encodes an uploaded photo (already sniffed as JPEG, PNG or WebP). A file
- * that doesn't decode (truncated, corrupt, over the pixel limit) is a 400.
+ * Re-encodes an uploaded photo (already sniffed as JPEG, PNG or WebP),
+ * decoding it once: the upload becomes a 512 px square of raw sRGB pixels,
+ * and both WebPs are made from those (the thumbnail scaled down from them). A
+ * file that doesn't decode (truncated, corrupt, over the pixel limit) is a
+ * 400; a full queue (AVATAR_ENCODE_CONCURRENCY) a 503.
  */
 export async function encodeAvatar(input: Uint8Array): Promise<EncodedAvatar> {
-  try {
-    const [image, thumb] = await Promise.all([square(input, AVATAR_SIZE, 82), square(input, AVATAR_THUMB_SIZE, 80)]);
+  return inEncodeSlot(async () => {
+    const square = await sharp(input, { limitInputPixels: MAX_AVATAR_INPUT_PIXELS, failOn: "error", pages: 1 })
+      // Applies the EXIF orientation to the pixels (the tag itself isn't kept).
+      .rotate()
+      .resize(AVATAR_SIZE, AVATAR_SIZE, { fit: "cover", position: "centre" })
+      // Into sRGB, so the image looks right without an embedded ICC profile.
+      .toColourspace("srgb")
+      // Raw pixels: nothing of the upload but them goes any further.
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+      .catch(() => {
+        throw NOT_AN_IMAGE();
+      });
+    const raw = { raw: { width: square.info.width, height: square.info.height, channels: square.info.channels } };
+    // No keepMetadata/withMetadata/keepExif/keepIccProfile: nothing is written but pixels.
+    const [image, thumb] = await Promise.all([
+      sharp(square.data, raw).webp({ quality: 82, effort: 4 }).toBuffer(),
+      sharp(square.data, raw)
+        .resize(AVATAR_THUMB_SIZE, AVATAR_THUMB_SIZE, { fit: "cover", position: "centre" })
+        .webp({ quality: 80, effort: 4 })
+        .toBuffer(),
+    ]);
     return { image, thumb };
-  } catch {
-    throw NOT_AN_IMAGE();
-  }
+  });
 }

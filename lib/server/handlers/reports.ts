@@ -5,6 +5,7 @@ import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
 import { ADMIN_REPORT_SELECT, toAdminReport } from "../records";
 import type { Handler } from "../route";
 import type { ReportReceipt, ReportStatus } from "../types";
+import { logAdminRead } from "./member-profiles";
 
 /**
  * Member reports (docs/architecture.md, "Messages"). A report keeps copies of
@@ -25,7 +26,10 @@ const REPORT_STATUSES: ReportStatus[] = ["open", "actioned", "dismissed"];
  * POST /api/reports {conversationId, messageId?} | {attendeeId} | {profileId},
  * {reason, details?}. Signed in is enough: reporting is never gated on
  * verification (a profileId is only ever shown to verified members, so it
- * needs one). A profile report copies the bio, Instagram handle and photo.
+ * needs one). A profile report copies the bio, Instagram handle and photo,
+ * and is only for a profile the caller can see now, or a member they've
+ * blocked (the same 404 otherwise). One open profile report per reporter and
+ * member: another is answered 200 with the open one (nothing new filed).
  */
 export const createReport: Handler = async (req, _params, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
@@ -58,6 +62,7 @@ export const createReport: Handler = async (req, _params, { db, verifyAccessToke
   }
   switch (row.result) {
     case "filed":
+    case "already_open":
       break;
     case "not_found":
       throw new HttpError(404, NOT_FOUND);
@@ -72,7 +77,8 @@ export const createReport: Handler = async (req, _params, { db, verifyAccessToke
     reportId: row.new_report_id as string,
     createdAt: new Date(row.filed_at as string | Date).toISOString(),
   };
-  return createdPrivate(receipt);
+  // A profile the caller already has an open report about: that report, unchanged (200).
+  return row.result === "already_open" ? okPrivate(receipt) : createdPrivate(receipt);
 };
 
 /** GET /api/admin/reports?status=open&cursor — open ones oldest first; resolved ones most recently resolved first. */
@@ -125,13 +131,18 @@ export const adminResolveReport: Handler<{ reportId: string }> = async (
  * profile report took (it outlives the member's photo). Never cached.
  */
 export const adminGetReportAvatar: Handler<{ reportId: string }> = async (req, { reportId }, { db, verifyAccessToken }) => {
-  await requireAdmin(req, verifyAccessToken);
+  const admin = await requireAdmin(req, verifyAccessToken);
   if (!isUuid(reportId)) throw new HttpError(404, REPORT_NOT_FOUND);
+  // The copy is stored once per distinct photo (private.report_photos); reports made before that keep it inline.
   const [row] = await db.query<{ data: Uint8Array }>(
-    `select r.reported_avatar as data from private.user_reports r where r.id = $1 and r.reported_avatar is not null`,
+    `select coalesce(ph.image, r.reported_avatar) as data
+       from private.user_reports r
+       left join private.report_photos ph on ph.sha256 = r.reported_avatar_sha256
+      where r.id = $1 and coalesce(ph.image, r.reported_avatar) is not null`,
     [reportId],
   );
   if (!row) throw new HttpError(404, "No photo on this report.");
+  logAdminRead(admin.userId, `the photo copy on report ${reportId}`);
   return new Response(new Uint8Array(row.data), {
     headers: {
       "content-type": "image/webp",

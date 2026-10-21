@@ -29,8 +29,8 @@ async function optionalToken(getToken?: GetToken): Promise<string | undefined> {
  * address was already on the list. A token that can't be had is left off.
  *
  * ApiError: 400 (fieldErrors `email`), 404 event not found, 409 not sold out,
- * ticketed elsewhere, or ended (the waitlist is closed), 503 busy or the
- * confirmation email couldn't be sent.
+ * ticketed elsewhere, or ended (the waitlist is closed), 503 busy (the
+ * link is emailed after the answer, so a failed send isn't reported here).
  */
 export async function joinWaitlist(eventId: string, email?: string, getToken?: GetToken) {
   const token = await optionalToken(getToken);

@@ -28,7 +28,8 @@ export interface CheckoutLineItemInput {
  * ApiError: 400 (fieldErrors `buyerEmail` / `lineItems`, e.g. over 4 free
  * tickets in any order, paid or free), 404 event not on sale, 409 sold out or this email already has its
  * free tickets for the event, 429 too many free bookings today (members),
- * 503 free bookings busy or the confirmation email couldn't be sent.
+ * 503 free bookings busy (the link is emailed after the answer, so a failed
+ * send isn't reported here).
  */
 export async function createCheckoutSession(
   eventId: string,

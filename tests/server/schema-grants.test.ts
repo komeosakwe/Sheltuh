@@ -127,6 +127,7 @@ describe("Data API lock-out", () => {
       { table_name: "profile_avatars", rls: true },
       { table_name: "profile_moderation_log", rls: true },
       { table_name: "rate_limits", rls: true },
+      { table_name: "report_photos", rls: true },
       { table_name: "social_suspensions", rls: true },
       { table_name: "trending_snapshot", rls: true },
       { table_name: "user_reports", rls: true },

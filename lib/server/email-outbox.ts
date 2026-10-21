@@ -156,7 +156,7 @@ async function deliverWaitlistEmail(deps: Deps, entryId: string): Promise<Outcom
  * `notified_through` moves to the newest announcement considered, so the
  * next email starts after it. Skipped, not retried, if they unfollowed or
  * turned notifications off, the organiser isn't approved any more, there's
- * no address, or none of the events is still on. Never throws.
+ * no confirmed address, or none of the events is still on. Never throws.
  */
 async function deliverFollowerEmail(deps: Deps, followId: string): Promise<Outcome> {
   try {
@@ -165,6 +165,7 @@ async function deliverFollowerEmail(deps: Deps, followId: string): Promise<Outco
       notify: boolean;
       since: string;
       email: string | null;
+      email_confirmed: boolean;
       organiser_name: string;
       approved: boolean;
     }>(
@@ -172,7 +173,8 @@ async function deliverFollowerEmail(deps: Deps, followId: string): Promise<Outco
       // keeps milliseconds, and postgres.js sends a parameter the server types
       // as timestamptz through new Date(), hence `$n::text::timestamptz` below.
       `select f.organiser_id, f.notify_new_events as notify, coalesce(f.notified_through, f.created_at)::text as since,
-              u.email, o.display_name as organiser_name, o.status = 'approved' as approved
+              u.email, u.email_confirmed_at is not null as email_confirmed,
+              o.display_name as organiser_name, o.status = 'approved' as approved
          from public.organiser_follows f
          join auth.users u on u.id = f.user_id
          join public.organisers o on o.id = f.organiser_id
@@ -183,6 +185,8 @@ async function deliverFollowerEmail(deps: Deps, followId: string): Promise<Outco
     if (!follow.notify) return skip("they turned these emails off");
     if (!follow.approved) return skip("the organiser isn't approved any more");
     if (!follow.email) return skip("the account has no email address");
+    // Only to an address Supabase Auth has confirmed (private.notify_followers queues no others).
+    if (!follow.email_confirmed) return skip("the account's email address isn't confirmed");
 
     const [window] = await deps.db.query<{ through: string | null }>(
       `select max(a.announced_at)::text as through from private.organiser_event_announcements a

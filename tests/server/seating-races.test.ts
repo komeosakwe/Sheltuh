@@ -200,6 +200,35 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("seat races (real Postgres only)
     await expectConsistent(event.eventId);
   });
 
+  it("a flood of attempts refused at the hold cap, at once, uses none of the event's hold allowance", async () => {
+    const event = await bigEvent();
+    const hits = async () =>
+      (
+        await api.db.query<{ hits: number }>(
+          `select hits from private.event_rate_limits where event_id = $1 and bucket = 'seat_holds'`,
+          [event.eventId],
+        )
+      )[0]?.hits ?? 0;
+    // 30 premium seats: the cap is 20. Two holds reach it.
+    expect((await hold(event, ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9", "A10"])).status).toBe(201);
+    expect((await hold(event, ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "B10"])).status).toBe(201);
+    expect(await hits()).toBe(2);
+    // More refused attempts than the whole allowance (120 per 10 minutes), concurrently.
+    const flood = await Promise.all(
+      Array.from({ length: 150 }, (_, i) => hold(event, [i % 2 ? `A${11 + (i % 5)}` : `B${11 + (i % 5)}`])),
+    );
+    expect(new Set(flood.map((r) => `${r.status}:${r.body.code}`))).toEqual(new Set(["429:hold_cap"]));
+    expect(await hits()).toBe(2);
+    // A real buyer still gets in as soon as a hold lapses.
+    await api.db.query(
+      `update public.event_seats set hold_expires_at = now() - interval '1 second' where event_id = $1 and id = 'A1'`,
+      [event.eventId],
+    );
+    expect((await hold(event, ["A11"])).status).toBe(201);
+    expect(await hits()).toBe(3);
+    await expectConsistent(event.eventId);
+  });
+
   it("duplicate payment webhooks at once: the seats are sold and ticketed once", async () => {
     const event = await bigEvent();
     await hold(event, ["A1", "A2", "A3"]);

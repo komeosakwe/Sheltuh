@@ -59,7 +59,7 @@ async function followers(n: number, organiserId = organiser.organiserId) {
   const users = [];
   for (let i = 0; i < n; i++) {
     const user = await api.signUp();
-    await api.db.query(`insert into public.organiser_follows (user_id, organiser_id) values ($1, $2)`, [
+    await api.db.query(`insert into public.organiser_follows (user_id, organiser_id, notify_new_events) values ($1, $2, true)`, [
       user.userId,
       organiserId,
     ]);
@@ -95,17 +95,17 @@ function tokenFrom(text: string): string {
 // ---------------------------------------------------------------------------
 
 describe("following an organiser", () => {
-  it("201 the first time (emails on by default), 200 after (idempotent), and GET shows it", async () => {
+  it("201 the first time (emails off unless chosen), 200 after (idempotent), and GET shows it", async () => {
     const m = await api.signUp();
     expect((await status(m.token)).body).toEqual({ following: false, notifyNewEvents: false });
     const first = await follow(m.token);
     expect(first.status).toBe(201);
-    expect(first.body).toEqual({ following: true, notifyNewEvents: true });
+    expect(first.body).toEqual({ following: true, notifyNewEvents: false });
     expect(first.headers.get("cache-control")).toBe("private, no-store");
     const again = await follow(m.token);
     expect(again.status).toBe(200);
-    expect(again.body).toEqual({ following: true, notifyNewEvents: true });
-    expect((await status(m.token)).body).toEqual({ following: true, notifyNewEvents: true });
+    expect(again.body).toEqual({ following: true, notifyNewEvents: false });
+    expect((await status(m.token)).body).toEqual({ following: true, notifyNewEvents: false });
     const [{ n }] = await api.db.query<{ n: number }>(`select count(*)::int as n from public.organiser_follows`);
     expect(n).toBe(1);
   });
@@ -115,7 +115,12 @@ describe("following an organiser", () => {
     expect((await follow(m.token, { notifyNewEvents: false })).body.notifyNewEvents).toBe(false);
     expect((await follow(m.token)).body.notifyNewEvents).toBe(false);
     expect((await follow(m.token, { notifyNewEvents: true })).body.notifyNewEvents).toBe(true);
-    expect((await follow(m.token, { notifyNewEvents: "yes" })).status).toBe(400);
+    // Left out, an existing follow's choice is kept; anything but a boolean (null included) is a 400.
+    expect((await follow(m.token)).body.notifyNewEvents).toBe(true);
+    for (const notifyNewEvents of ["yes", null, 1, "true"]) {
+      expect((await follow(m.token, { notifyNewEvents })).status).toBe(400);
+    }
+    expect((await status(m.token)).body.notifyNewEvents).toBe(true);
   });
 
   it("unfollowing is 204 and idempotent", async () => {
@@ -223,7 +228,7 @@ describe("GET /me/following and /me/following/events", () => {
     const second = await approvedOrganiser(api, admin, { displayName: "Second" });
     await follow(m.token, { notifyNewEvents: false });
     await api.db.query(`update public.organiser_follows set created_at = now() - interval '1 hour'`);
-    await follow(m.token, {}, second.organiserId);
+    await follow(m.token, { notifyNewEvents: true }, second.organiserId);
 
     const res = await api.call(listMyFollowing, { token: m.token });
     expect(res.headers.get("cache-control")).toBe("private, no-store");
@@ -285,7 +290,7 @@ describe("new-event emails", () => {
   it("one email per follower with emails on when an event is first published, with a working unsubscribe link", async () => {
     const on = await api.signUp();
     const off = await api.signUp();
-    await follow(on.token);
+    await follow(on.token, { notifyNewEvents: true });
     await follow(off.token, { notifyNewEvents: false });
 
     const event = await publishAndSend();
@@ -317,9 +322,51 @@ describe("new-event emails", () => {
     expect(sentTo(on.email)).toHaveLength(1);
   });
 
+  it("a failure queueing follower emails never fails the publish (a warning instead)", async () => {
+    const m = await api.signUp();
+    await follow(m.token, { notifyNewEvents: true });
+    await api.db.query(`alter function private.notify_followers(uuid) rename to notify_followers_saved`);
+    try {
+      await api.db.query(`create function private.notify_followers(p_event_id uuid) returns integer
+        language plpgsql set search_path = '' as $$ begin raise exception 'outbox broken'; end $$`);
+      const event = await publishAndSend();
+      expect(event.status).toBe("published");
+      expect(await jobs()).toEqual([]);
+    } finally {
+      await api.db.query(`drop function if exists private.notify_followers(uuid)`);
+      await api.db.query(`alter function private.notify_followers_saved(uuid) rename to notify_followers`);
+    }
+  });
+
+  it("only followers whose email Supabase Auth has confirmed are queued (and checked again at send time)", async () => {
+    const confirmed = await api.signUp();
+    const unconfirmed = await api.signUp();
+    await follow(confirmed.token, { notifyNewEvents: true });
+    await follow(unconfirmed.token, { notifyNewEvents: true });
+    await api.db.query(`update auth.users set email_confirmed_at = null where id = $1`, [unconfirmed.userId]);
+    await publishAndSend();
+    expect(sentTo(confirmed.email)).toHaveLength(1);
+    expect(sentTo(unconfirmed.email)).toHaveLength(0);
+    expect(await jobs()).toHaveLength(1);
+
+    // Queued while confirmed, unconfirmed before it went (e.g. an email change): skipped at send time.
+    const [job] = await jobs();
+    await api.db.query(`delete from private.email_outbox`);
+    await api.db.query(`insert into private.email_outbox (kind, follow_id) values ('organiser_new_events', $1)`, [job.follow_id]);
+    await api.db.query(`update public.organiser_follows set notified_through = null where id = $1`, [job.follow_id]);
+    await api.db.query(`update auth.users set email_confirmed_at = null where id = $1`, [confirmed.userId]);
+    await drainEmailOutbox(api.deps, { kind: "organiser_new_events" });
+    expect(sentTo(confirmed.email)).toHaveLength(1);
+    // The same job with the address confirmed again is sent: it was the confirmation that stopped it.
+    await api.db.query(`update private.email_outbox set status = 'pending', next_attempt_at = now(), attempts = 0`);
+    await api.db.query(`update auth.users set email_confirmed_at = now() where id = $1`, [confirmed.userId]);
+    await drainEmailOutbox(api.deps, { kind: "organiser_new_events" });
+    expect(sentTo(confirmed.email)).toHaveLength(2);
+  });
+
   it("at most one a day per organiser: a second event the same day waits 24 hours and goes in the next email", async () => {
     const m = await api.signUp();
-    await follow(m.token);
+    await follow(m.token, { notifyNewEvents: true });
     await publishAndSend({ title: "First" });
     expect(sentTo(m.email)).toHaveLength(1);
 
@@ -344,7 +391,7 @@ describe("new-event emails", () => {
 
   it("publishing an event again (after an unpublish) emails nobody", async () => {
     const m = await api.signUp();
-    await follow(m.token);
+    await follow(m.token, { notifyNewEvents: true });
     const event = await publishAndSend();
     expect(sentTo(m.email)).toHaveLength(1);
     await api.db.query(`update private.email_outbox set status = 'sent' where kind = 'organiser_new_events'`);
@@ -369,7 +416,7 @@ describe("new-event emails", () => {
 
   it("skips an email whose events were all unpublished before it went, and one after unfollowing (cascade)", async () => {
     const m = await api.signUp();
-    await follow(m.token);
+    await follow(m.token, { notifyNewEvents: true });
     const event = await publishedEvent(api, organiser, admin);
     await api.call(adminUnpublishEvent, { token: admin.token, params: { eventId: event.eventId }, method: "POST" });
     await api.runDeferred();
@@ -378,7 +425,7 @@ describe("new-event emails", () => {
     expect(job.status).toBe("failed");
 
     const other = await api.signUp();
-    await follow(other.token);
+    await follow(other.token, { notifyNewEvents: true });
     await publishedEvent(api, organiser, admin, { title: "New" });
     expect(await jobs()).toHaveLength(3);
     await unfollow(other.token);
@@ -425,7 +472,7 @@ describe("new-event emails", () => {
 
   it("purge_social_data deletes unsubscribe tokens after 90 days", async () => {
     const m = await api.signUp();
-    await follow(m.token);
+    await follow(m.token, { notifyNewEvents: true });
     await publishAndSend();
     await publishAndSend({ title: "Two" });
     await api.db.query(`update private.email_outbox set next_attempt_at = now() where kind = 'organiser_new_events' and status = 'pending'`);

@@ -13,6 +13,7 @@ import {
   putSeatMap,
   SEAT_AVAILABILITY_CACHE,
   SEAT_MAP_CACHE,
+  SEAT_MAP_REDIRECT_CACHE,
 } from "@/lib/server/handlers/seating";
 import { MAX_SEAT_MAP_BODY_BYTES } from "@/lib/server/seat-map-input";
 import { SITE_URL, TestApi } from "./helpers/api";
@@ -274,6 +275,31 @@ describe("an admin's seat map change", () => {
   });
 });
 
+describe("never while the event has orders (defence in depth)", () => {
+  it("the organiser's save and removal say has_orders (409); write_seat_map and clear_seat_map refuse too", async () => {
+    const draft = await draftEvent(api, organiser, { ticketTypes: SEATED_TIERS });
+    expect((await put(draft.eventId, gridTemplate(DEFAULT_ROWS))).status).toBe(200);
+    // Not reachable through the API (a draft that was never approved has no orders): planted to prove the guard.
+    await insertOrder(api, draft, null, "failed");
+    const replaced = await put(draft.eventId, gridTemplate([{ label: "A", tier: "prem", seats: 2 }]));
+    expect(replaced.status).toBe(409);
+    expect(replaced.body.fieldErrors).toHaveProperty("template");
+    const removed = await api.call(deleteSeatMap, { token: organiser.token, params: { eventId: draft.eventId }, method: "DELETE" });
+    expect(removed.status).toBe(409);
+    for (const [fn, args] of [
+      ["select private.write_seat_map($1, $2::text::jsonb)", [draft.eventId, JSON.stringify(gridTemplate([{ label: "C", tier: "prem", seats: 1 }]))]],
+      ["select private.clear_seat_map($1)", [draft.eventId]],
+    ] as const) {
+      await expect(api.db.query(fn, [...args])).rejects.toThrow(/event with orders/);
+    }
+    const [{ seats }] = await api.db.query<{ seats: number }>(
+      `select count(*)::int as seats from public.event_seats where event_id = $1`,
+      [draft.eventId],
+    );
+    expect(seats).toBe(10);
+  });
+});
+
 describe("public reads", () => {
   it("a published event's map: cached for a long time at its current version only", async () => {
     const { event, map } = await seatedEvent(api, organiser, admin);
@@ -282,8 +308,40 @@ describe("public reads", () => {
     expect(current.status).toBe(200);
     expect(current.headers.get("cache-control")).toBe(SEAT_MAP_CACHE);
     expect(current.body).toEqual(map);
-    for (const query of [{}, { v: String(map.version + 1) }, { v: "x" }] as Record<string, string>[]) {
+  });
+
+  it("a published event's map at any other URL (no v, a stale, future or junk v): a no-store 307 to the current version, no body", async () => {
+    const { event, map } = await seatedEvent(api, organiser, admin);
+    const params = { eventId: event.eventId };
+    for (const query of [{}, { v: String(map.version - 1) }, { v: String(map.version + 1) }, { v: "x" }] as Record<string, string>[]) {
       const res = await api.call(getSeatMap, { params, query });
+      expect(res.status).toBe(307);
+      expect(res.headers.get("cache-control")).toBe(SEAT_MAP_REDIRECT_CACHE);
+      expect(res.body).toBeUndefined();
+      const location = new URL(res.headers.get("location")!);
+      expect(location.searchParams.get("v")).toBe(String(map.version));
+      expect([...location.searchParams.keys()]).toEqual(["v"]);
+    }
+    // A stale version after the map is replaced redirects to the new one.
+    await api.call(adminPutSeatMap, {
+      token: admin.token,
+      params,
+      method: "PUT",
+      body: { template: gridTemplate([{ label: "A", tier: "prem", seats: 3 }, { label: "B", tier: "std", seats: 2 }]), reason: "Fix" },
+    });
+    const stale = await api.call(getSeatMap, { params, query: { v: String(map.version) } });
+    expect(stale.status).toBe(307);
+    const current = new URL(stale.headers.get("location")!).searchParams.get("v");
+    expect(Number(current)).toBeGreaterThan(map.version);
+    const fresh = await api.call(getSeatMap, { params, query: { v: current! } });
+    expect(fresh.status).toBe(200);
+    expect(fresh.headers.get("cache-control")).toBe(SEAT_MAP_CACHE);
+  });
+
+  it("before publishing, the owner gets the map at any v (never cached, no redirect)", async () => {
+    const { event } = await seatedEvent(api, organiser, admin, { publish: false });
+    for (const query of [{}, { v: "1" }] as Record<string, string>[]) {
+      const res = await api.call(getSeatMap, { params: { eventId: event.eventId }, query, token: organiser.token });
       expect(res.status).toBe(200);
       expect(res.headers.get("cache-control")).toBe("private, no-store");
     }

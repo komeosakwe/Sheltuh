@@ -80,7 +80,17 @@ async function soldOut(eventId = event.eventId) {
   await api.db.query(`update public.ticket_types set quantity_sold = quantity_available where event_id = $1`, [eventId]);
 }
 
-function join(body: Record<string, unknown>, options: { token?: string; eventId?: string } = {}) {
+/**
+ * Joins, then runs what was deferred until after the response (Deps.defer): a
+ * guest's confirmation email is sent there. `joinOnly` doesn't.
+ */
+async function join(body: Record<string, unknown>, options: { token?: string; eventId?: string } = {}) {
+  const res = await joinOnly(body, options);
+  await api.runDeferred();
+  return res;
+}
+
+function joinOnly(body: Record<string, unknown>, options: { token?: string; eventId?: string } = {}) {
   return api.call(joinWaitlist, { token: options.token, params: { eventId: options.eventId ?? event.eventId }, body });
 }
 
@@ -366,14 +376,32 @@ describe("joining", () => {
     expect((await join({}, { token: (await api.signUp()).token })).status).toBe(201);
   });
 
-  it("drops the link and answers 503 when the confirmation email can't be sent", async () => {
+  it("emails a guest's link only after the response: no SMTP call before it", async () => {
+    const res = await joinOnly({ email: "fan@example.com" });
+    expect(res.status).toBe(202);
+    expect(res.body).toEqual({ status: "confirmation_sent", expiresInHours: WAITLIST_LIMITS.confirmHours });
+    expect(api.sendEmail).not.toHaveBeenCalled();
+    await api.runDeferred();
+    expect(sentTo("fan@example.com")).toHaveLength(1);
+  });
+
+  it("drops the link when the confirmation email can't be sent (the answer was already a 202)", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     api.sendEmail.mockRejectedValueOnce(new Error("SMTP down for fan@example.com"));
-    expect((await join({ email: "fan@example.com" })).status).toBe(503);
+    expect((await joinOnly({ email: "fan@example.com" })).status).toBe(202);
+    await api.runDeferred();
     const [{ n }] = await api.db.query<{ n: number }>(`select count(*)::int as n from private.event_waitlist_tokens`);
     expect(n).toBe(0);
     // The log line has no address.
     expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain("fan@example.com");
+  });
+
+  it("the email's subject carries no control, invisible or text-direction characters from the event title", async () => {
+    await api.db.query(`update public.events set title = $2 where id = $1`, [event.eventId, "Neon\u202E citatS\u200B\u2066 Night\u2028Two"]);
+    expect((await join({ email: "fan@example.com" })).status).toBe(202);
+    const [message] = sentTo("fan@example.com");
+    expect(message.subject).toBe("Confirm the waitlist: Neon citatS Night Two");
+    expect(message.subject).not.toMatch(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u);
   });
 
   it("validates the address and the event", async () => {
@@ -476,6 +504,26 @@ describe("status and leaving", () => {
     expect((await status(user.token)).status).toBe(404);
   });
 
+  it("a member's entry is by account or the exact address only, never a normalised match (+tag, Gmail dots)", async () => {
+    await guestOnList("fan@example.com");
+    const tagged = await api.signUp({ email: "fan+x@example.com" });
+    expect((await status(tagged.token)).body).toEqual({ joined: false });
+    // Leaving doesn't reach someone else's entry either.
+    await api.call(leaveWaitlistAsMember, { token: tagged.token, params: { eventId: event.eventId }, method: "DELETE" });
+    expect((await entries())[0]).toMatchObject({ email: "fan@example.com", left: false, user_id: null });
+    // Joining with the tagged address finds the person on the list, but doesn't link that entry to the account.
+    const joined = await join({}, { token: tagged.token });
+    expect(joined.status).toBe(200);
+    expect(joined.body).toMatchObject({ alreadyJoined: true });
+    expect(await entries()).toEqual([expect.objectContaining({ email: "fan@example.com", user_id: null })]);
+    expect((await status(tagged.token)).body).toEqual({ joined: false });
+    // The exact address, ignoring case, is theirs: linked.
+    const owner = await api.signUp({ email: "Fan@Example.com" });
+    expect((await status(owner.token)).body).toEqual({ joined: true, maskedEmail: "f***@example.com" });
+    expect((await join({}, { token: owner.token })).status).toBe(200);
+    expect((await entries())[0]).toMatchObject({ user_id: owner.userId });
+  });
+
   it("a member leaves with DELETE, idempotently, whatever the event's state", async () => {
     const user = await memberOnList();
     const del = () => api.call(leaveWaitlistAsMember, { token: user.token, params: { eventId: event.eventId }, method: "DELETE" });
@@ -506,6 +554,9 @@ describe("status and leaving", () => {
     await soldOut();
     expect((await join({ email: "other@example.com" })).status).toBe(202);
     expect((await leave(tokenFromEmail("/waitlist/confirm"))).status).toBe(404);
+    // An unpublished event's title isn't public: the leave link still works, without it.
+    await api.call(adminUnpublishEvent, { token: admin.token, params: { eventId: event.eventId }, method: "POST" });
+    expect((await leave(token)).body).toEqual({ status: "left" });
   });
 });
 
@@ -648,6 +699,25 @@ describe("notifications when tickets free up", () => {
     expect((await waitlistJobs()).map((j) => j.email)).toEqual(["a@example.com"]);
     await api.runDeferred();
     expect(sentTo("a@example.com")).toHaveLength(1);
+  });
+
+  it("a failure queueing the emails never fails the change that freed the tickets (a warning instead)", async () => {
+    await memberOnList("a@example.com");
+    await api.db.query(`alter function private.notify_waitlist(uuid) rename to notify_waitlist_saved`);
+    try {
+      await api.db.query(`create function private.notify_waitlist(p_event_id uuid) returns integer
+        language plpgsql set search_path = '' as $$ begin raise exception 'outbox broken'; end $$`);
+      await setSold("ga", 1);
+      const [{ quantity_sold }] = await api.db.query<{ quantity_sold: number }>(
+        `select quantity_sold from public.ticket_types where event_id = $1`,
+        [event.eventId],
+      );
+      expect(quantity_sold).toBe(1);
+      expect(await waitlistJobs()).toEqual([]);
+    } finally {
+      await api.db.query(`drop function if exists private.notify_waitlist(uuid)`);
+      await api.db.query(`alter function private.notify_waitlist_saved(uuid) rename to notify_waitlist`);
+    }
   });
 
   it("an expired or abandoned checkout frees nothing (pending orders hold no tickets), so nobody is told", async () => {

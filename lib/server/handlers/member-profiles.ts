@@ -37,6 +37,22 @@ export const PROFILE_VIEW_RATE_LIMIT = { hits: 30, window: "10 minutes" } as con
 export const PROFILE_EVENT_LIMIT = 24;
 
 /**
+ * Photo fetches per member per window (304s included): far above a member
+ * scrolling Who's Going lists and conversations (each list page is itself
+ * rate-limited), and a bound on bulk downloading. Admins aren't limited.
+ */
+export const AVATAR_VIEW_RATE_LIMIT = { hits: 600, window: "10 minutes" } as const;
+
+/**
+ * Admins can read any member's profile and photos (moderation). Each such
+ * read is logged, by the admin's account id and opaque ids only (never the
+ * member's name, content or account id), so access can be audited.
+ */
+export function logAdminRead(adminId: string, what: string): void {
+  console.info(`Admin ${adminId} read ${what}.`);
+}
+
+/**
  * A photo response. `private, no-cache` with an ETag: the browser may keep
  * it, but asks again every time, and every request passes the visibility
  * check before a 304, so a block or a hidden profile applies at once.
@@ -125,8 +141,8 @@ export const getMemberProfile: Handler<{ profileId: string }> = async (req, { pr
 /**
  * GET /api/profiles/[profileId]/avatar[?size=thumb] — the photo (512 px, or
  * the 96 px thumbnail), never public: verified members who may see the
- * profile (the same rule as GET /profiles/{id}), and admins (moderation),
- * whatever its visibility. 404 otherwise.
+ * profile (the same rule as GET /profiles/{id}), rate-limited (429), and
+ * admins (moderation, logged), whatever its visibility. 404 otherwise.
  */
 export const getMemberAvatar: Handler<{ profileId: string }> = async (req, { profileId }, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
@@ -134,6 +150,13 @@ export const getMemberAvatar: Handler<{ profileId: string }> = async (req, { pro
     throw new HttpError(403, "Verify your email address first.");
   }
   if (!isUuid(profileId)) throw new HttpError(404, NOT_FOUND);
+  if (!caller.isAdmin) {
+    const [{ allowed }] = await db.query<{ allowed: boolean }>(
+      `select private.take_rate_limit($1, 'avatar_views', $2, $3::interval) as allowed`,
+      [caller.userId, AVATAR_VIEW_RATE_LIMIT.hits, AVATAR_VIEW_RATE_LIMIT.window],
+    );
+    if (!allowed) throw new HttpError(429, "Too many requests. Try again in a few minutes.");
+  }
   const thumb = new URL(req.url).searchParams.get("size") === "thumb";
   const [row] = await db.query<{ data: Uint8Array; version: string }>(
     `select case when $3 then a.thumb else a.image end as data,
@@ -145,6 +168,7 @@ export const getMemberAvatar: Handler<{ profileId: string }> = async (req, { pro
     [caller.userId, profileId, thumb, caller.isAdmin],
   );
   if (!row) throw new HttpError(404, "Photo not found.");
+  if (caller.isAdmin) logAdminRead(caller.userId, `the ${thumb ? "thumbnail" : "photo"} of member profile ${profileId}`);
   return avatarResponse(req, row.data, row.version, thumb);
 };
 
@@ -154,16 +178,17 @@ export const getMemberAvatar: Handler<{ profileId: string }> = async (req, { pro
 
 const CONTENT_FIELDS: readonly ProfileContentField[] = ["avatar", "bio", "instagram"];
 
-/** GET /api/admin/profiles/[profileId] — admin: the profile whatever its visibility, and its moderation log. */
+/** GET /api/admin/profiles/[profileId] — admin: the profile whatever its visibility, and its moderation log. Logged. */
 export const adminGetMemberProfile: Handler<{ profileId: string }> = async (
   req,
   { profileId },
   { db, verifyAccessToken },
 ) => {
-  await requireAdmin(req, verifyAccessToken);
+  const admin = await requireAdmin(req, verifyAccessToken);
   if (!isUuid(profileId)) throw new HttpError(404, NOT_FOUND);
   const [row] = await db.query(`${ADMIN_PROFILE_SELECT} where p.public_id = $1`, [profileId]);
   if (!row) throw new HttpError(404, NOT_FOUND);
+  logAdminRead(admin.userId, `member profile ${profileId}`);
   return okPrivate(toAdminMemberProfile(row));
 };
 

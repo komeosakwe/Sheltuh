@@ -181,7 +181,63 @@ describe("holding seats at checkout (paid)", () => {
     expect((await checkout({ seats: { mapVersion: version, seatIds: ["B9"] } }, { eventId: big.eventId })).status).toBe(201);
   });
 
-  it("anti-hoarding: 120 hold attempts per event per 10 minutes, then 429 (the attempt counter is all a refusal writes)", async () => {
+  it("only real holds count towards the event's hold attempts: refusals (cap, taken seats, stale map) write nothing", async () => {
+    const { event: big } = await seatedEvent(api, organiser, admin, {
+      rows: [
+        { label: "A", tier: "prem", seats: 15 },
+        { label: "B", tier: "std", seats: 15 },
+      ],
+      overrides: { title: "Count Hall" },
+    });
+    const version = big.seating!.version;
+    const hits = async () =>
+      (
+        await api.db.query<{ hits: number }>(
+          `select hits from private.event_rate_limits where event_id = $1 and bucket = 'seat_holds'`,
+          [big.eventId],
+        )
+      )[0]?.hits ?? 0;
+    const ids = (row: string, from: number, n: number) => Array.from({ length: n }, (_, i) => `${row}${from + i}`);
+    const holdIn = (seatIds: string[], mapVersion = version) => checkout({ seats: { mapVersion, seatIds } }, { eventId: big.eventId });
+    expect((await holdIn(ids("A", 1, 10))).status).toBe(201);
+    expect((await holdIn(ids("A", 11, 5).concat(ids("B", 1, 5)))).status).toBe(201);
+    expect(await hits()).toBe(2);
+    // At the cap (20 held): every attempt is refused, and none counts.
+    for (let i = 0; i < 25; i++) expect((await holdIn([`B${10 + (i % 5)}`])).body.code).toBe("hold_cap");
+    expect(await hits()).toBe(2);
+    // Refused by the database for taken seats or a stale map (the API's early checks bypassed): nothing counted either.
+    for (const [seatIds, mapVersion, result] of [
+      [["A1"], version, "seats_unavailable"],
+      [["B9"], version + 1, "version"],
+    ] as const) {
+      const [row] = await api.db.query<{ result: string }>(
+        `select result from private.hold_seats($1, $2, $3, 'x', '[]'::jsonb, 0, 0, 0, 0, null, null, $4, $5::text[],
+                                               '35 minutes', 120, '10 minutes', 20, 0.3)`,
+        [`ord_${crypto.randomUUID().replace(/-/g, "")}`, big.eventId, big.organiserId, mapVersion, seatIds],
+      );
+      expect(row.result).toBe(result);
+    }
+    expect(await hits()).toBe(2);
+    expect(await api.db.query(`select 1 from public.orders where event_id = $1`, [big.eventId])).toHaveLength(2);
+  });
+
+  it("a used-up hold window is refused up front: no order, and the counter stays at the limit", async () => {
+    await api.db.query(
+      `insert into private.event_rate_limits (event_id, bucket, window_started_at, hits) values ($1, 'seat_holds', now(), $2)`,
+      [event.eventId, SEAT_HOLD_LIMITS.attempts.limit],
+    );
+    const res = await checkout(seats(["A1"]));
+    expect(res.status).toBe(429);
+    expect(res.body).toMatchObject({ code: "rate_limited" });
+    expect(await orders()).toEqual([]);
+    const [{ hits }] = await api.db.query<{ hits: number }>(
+      `select hits from private.event_rate_limits where event_id = $1 and bucket = 'seat_holds'`,
+      [event.eventId],
+    );
+    expect(hits).toBe(SEAT_HOLD_LIMITS.attempts.limit);
+  });
+
+  it("anti-hoarding: 120 holds per event per 10 minutes, then 429", async () => {
     await api.db.query(
       `insert into private.event_rate_limits (event_id, bucket, window_started_at, hits) values ($1, 'seat_holds', now(), 120)`,
       [event.eventId],
@@ -421,6 +477,7 @@ describe("free seats", () => {
     const res = await checkout({ ...seats(["A3"]), buyerEmail: "guest@example.com" });
     expect(res.status).toBe(202);
     expect(await seatStates(api, event.eventId)).toMatchObject({ A3: "free" });
+    await api.runDeferred(); // the link is emailed after the response
     const email = api.sendEmail.mock.lastCall![0];
     expect(email.text).toContain("Seats: Stalls · Row A · Seat 3");
     expect(email.text).toContain("only held once you confirm");
@@ -432,6 +489,7 @@ describe("free seats", () => {
 
   it("seats taken before the guest confirms: a tailored 409 naming them, the order failed, nothing issued", async () => {
     await checkout({ ...seats(["A4", "A5"]), buyerEmail: "guest@example.com" });
+    await api.runDeferred();
     const token = api.sendEmail.mock.lastCall![0].text.match(/#token=([A-Za-z0-9_-]+)/)![1];
     const fan = await api.signUp({ email: "fan@example.com" });
     expect((await checkout({ ...seats(["A5"]), buyerEmail: "fan@example.com" }, { token: fan.token })).status).toBe(201);

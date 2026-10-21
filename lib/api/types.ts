@@ -1295,7 +1295,7 @@ export interface FollowStatus {
 
 /** POST /api/organisers/{organiserId}/follow. */
 export interface FollowInput {
-  /** Chosen when following (default true); sending it again changes it. */
+  /** Chosen when following (left out: off); sending it again changes it. Must be a boolean if sent. */
   notifyNewEvents?: boolean;
 }
 

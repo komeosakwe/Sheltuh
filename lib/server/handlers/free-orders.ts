@@ -3,6 +3,7 @@ import { MAX_FREE_TICKETS_PER_ORDER } from "@/lib/api/types";
 import type { Caller } from "../auth";
 import { pgConstraint, pgErrorCode, PG_UNIQUE_VIOLATION } from "../db";
 import type { Deps } from "../deps";
+import type { EmailMessage } from "../email";
 import { redactForLog } from "../email-address";
 import { sendTicketEmailSoon } from "../email-outbox";
 import { buildFreeConfirmationEmail, freeOrderConfirmLink } from "../free-confirmation-email";
@@ -200,21 +201,35 @@ export async function createFreeOrder(req: Request, deps: Deps, input: FreeOrder
       throw new Error(`Unexpected request_free_order result: ${result}`);
   }
 
+  // Sent after the response, so a real link's 202 takes as long as an address-limited one (no SMTP round
+  // trip to time). Nobody can confirm a link that never arrived: a failed send drops the order (it holds nothing).
+  const message = buildFreeConfirmationEmail(
+    buyerEmail,
+    event,
+    lineItems,
+    freeOrderConfirmLink(deps.siteUrl(), token),
+    FREE_LIMITS.confirmHours,
+    seats?.labels,
+  );
+  deps.defer(() => sendFreeConfirmation(deps, orderId, message));
+  return Response.json(sent, { status: 202, headers: PRIVATE_NO_STORE });
+}
+
+/** A guest's confirmation link, after the response. Never throws: logged by short reference, never the address. */
+async function sendFreeConfirmation(deps: Deps, orderId: string, message: EmailMessage) {
   try {
-    const link = freeOrderConfirmLink(deps.siteUrl(), token);
-    await deps.sendEmail(
-      buildFreeConfirmationEmail(buyerEmail, event, lineItems, link, FREE_LIMITS.confirmHours, seats?.labels),
-    );
+    await deps.sendEmail(message);
   } catch (err) {
-    // Nobody can confirm a link that never arrived: drop the order (it holds nothing).
-    await deps.db.query(`delete from public.orders where id = $1 and status = 'pending'`, [orderId]);
     console.error(
       `Free order ${orderReference(orderId)} confirmation email failed:`,
       redactForLog(err instanceof Error ? err.message : "unknown error"),
     );
-    throw new HttpError(503, "We couldn't send the confirmation email just now. Try again in a few minutes.");
+    try {
+      await deps.db.query(`delete from public.orders where id = $1 and status = 'pending'`, [orderId]);
+    } catch {
+      console.error(`Free order ${orderReference(orderId)} could not be dropped after its email failed.`);
+    }
   }
-  return Response.json(sent, { status: 202, headers: PRIVATE_NO_STORE });
 }
 
 /**

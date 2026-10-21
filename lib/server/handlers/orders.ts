@@ -5,6 +5,7 @@ import type { Deps } from "../deps";
 import { sendTicketEmailSoon, sendWaitlistEmailsSoon } from "../email-outbox";
 import { formatSeatLine } from "@/lib/seating/format";
 import { MAX_SEATS_PER_ORDER } from "@/lib/seating/template";
+import { REMAINING_SHOWN_AT_MOST } from "@/lib/api/public-events";
 import { SEAT_HOLD } from "@/lib/api/types";
 import { created, createdPrivate, HttpError, ok, okPrivate, readJson } from "../http";
 import { parseCheckoutLineItems } from "../order-input";
@@ -62,9 +63,15 @@ async function assertAvailable(db: Db, eventId: string, lineItems: OrderLineItem
   for (const line of lineItems) {
     const remaining = left.get(line.ticketTypeId) ?? 0;
     if (line.quantity > remaining) {
+      // An exact count only when public payloads show one too (REMAINING_SHOWN_AT_MOST): a large stock, and
+      // through it sales, is never given away by asking for more than there is.
       throw new HttpError(
         409,
-        remaining === 0 ? `"${line.ticketTypeName}" is sold out.` : `Only ${remaining} of "${line.ticketTypeName}" left.`,
+        remaining <= 0
+          ? `"${line.ticketTypeName}" is sold out.`
+          : remaining <= REMAINING_SHOWN_AT_MOST
+            ? `Only ${remaining} of "${line.ticketTypeName}" left.`
+            : `There aren't that many "${line.ticketTypeName}" tickets left. Choose fewer.`,
       );
     }
   }
@@ -128,6 +135,51 @@ async function refundOversoldOrder(deps: Deps, orderId: string, paymentIntentId:
     { idempotencyKey: `oversold-refund-${orderId}` },
   );
   await recordRefund(deps.db, orderId, refund);
+}
+
+/**
+ * A payment for an order that had already failed: its checkout errored or was
+ * cancelled, or its session expired, before Stripe reported the payment
+ * (e.g. a delayed payment method, or a session Stripe created although the
+ * call to create it failed). There's nothing to fulfil it with (a seated
+ * order's seats were released), so it's refunded in full, Sheltüh's fee and
+ * the organiser's transfer included, as for an oversold order. Stripe's
+ * idempotency key (per order) and the refund id recorded on the order make a
+ * redelivery refund at most once. The order stays `failed`. Logged by the
+ * order's short reference only. Throws on a Stripe error so the webhook
+ * returns 500 and Stripe redelivers.
+ */
+async function refundPaymentForFailedOrder(deps: Deps, orderId: string, paymentIntentId: string | undefined) {
+  const reference = orderReference(orderId);
+  if (!paymentIntentId) {
+    console.error(`Order ${reference} was paid after it failed, with no payment intent on record — refund it manually.`);
+    return;
+  }
+  const [row] = await deps.db.query<{ stripe_refund_id: string | null }>(
+    `select stripe_refund_id from public.orders where id = $1`,
+    [orderId],
+  );
+  if (row?.stripe_refund_id) return;
+  console.warn(`Order ${reference} was paid after it failed: refunding the payment.`);
+  const refund = await deps.stripe().refunds.create(
+    {
+      payment_intent: paymentIntentId,
+      reverse_transfer: true,
+      refund_application_fee: true,
+      metadata: { orderId, reason: "paid_after_order_failed" },
+    },
+    { idempotencyKey: `failed-order-refund-${orderId}` },
+  );
+  // Recorded so a redelivery doesn't ask again, and charge.refunded finds the order (it changes only paid ones).
+  await deps.db.query(
+    `update public.orders
+        set stripe_refund_id = $2, stripe_payment_intent_id = coalesce(stripe_payment_intent_id, $3)
+      where id = $1 and status = 'failed'`,
+    [orderId, refund.id, paymentIntentId],
+  );
+  if (refund.status === "failed" || refund.status === "canceled") {
+    console.error(`Refund ${refund.id} for order ${reference} ${refund.status} — refund it manually.`);
+  }
 }
 
 /**
@@ -244,8 +296,8 @@ async function refuseIfExternal<T>(work: () => Promise<T>): Promise<T> {
  * becomes a Stripe Checkout Session paying out to the organiser's Connect
  * account, fulfilled by the webhook: 201 with its URL. A wholly free order
  * never touches Stripe (./free-orders.ts): 201 with the confirmation page's
- * URL for a member's own verified email, otherwise 202 once a confirmation
- * link has been emailed. Any order, paid or free, holds at most 4 free
+ * URL for a member's own verified email, otherwise 202, the confirmation
+ * link being emailed straight after the response. Any order, paid or free, holds at most 4 free
  * tickets (400, fieldErrors.lineItems).
  */
 export const createCheckout: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
@@ -431,6 +483,15 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
     await refundOversoldOrder(deps, order.orderId, order.stripePaymentIntentId);
     return received;
   }
+  // Paid for an order that had already failed (cancelled, expired or a checkout error): refund it.
+  if (order.status === "failed" && isPaymentEvent) {
+    if (session.payment_status === "paid") {
+      const paymentIntentId =
+        typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
+      await refundPaymentForFailedOrder(deps, order.orderId, paymentIntentId);
+    }
+    return received;
+  }
   // Already handled (Stripe redelivers) — nothing left to do.
   if (order.status !== "pending") return received;
 
@@ -469,8 +530,8 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
 /**
  * Seat holds (docs/SEATING_PLAN.md decisions 1 and 5): 35 minutes, Stripe's
  * page closing at 31 (its minimum is 30, and the buyer is told 30); per event,
- * 120 hold attempts per 10 minutes, and at most the larger of 20 seats or 30%
- * of its unblocked seats held at once.
+ * 120 holds per 10 minutes (refused attempts don't count), and at most the
+ * larger of 20 seats or 30% of its unblocked seats held at once.
  */
 export const SEAT_HOLD_LIMITS = {
   hold: `${SEAT_HOLD.holdMinutes} minutes`,
@@ -520,9 +581,10 @@ function seatLines(event: EventRecord, seats: ChosenSeat[]): OrderLineItem[] {
  *   releases the holds). 201 `{url, holdExpiresAt}`.
  * - Free: a member's own verified email gets the seats at once; anyone else
  *   an emailed link, holding nothing until it's confirmed.
- * Refusals write nothing (beyond the hold attempt): 400 bad input; 409
- * `seats` taken or unknown (body `seatIds`), `seatMapVersion` changed; 429
- * too many holds or attempts for the event (body `seatIds`).
+ * Refusals write nothing (only a hold counts towards the event's hold
+ * attempts): 400 bad input; 409 `seats` taken or unknown (body `seatIds`),
+ * `seatMapVersion` changed; 429 too many seats held or holds made for the
+ * event (body `seatIds`).
  */
 async function createSeatedCheckout(
   req: Request,

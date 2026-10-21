@@ -17,8 +17,8 @@ export async function getFollowStatus(organiserId: string, getToken: GetToken) {
 }
 
 /**
- * Follows (idempotent), with the email choice (default true; sending it
- * again changes it). ApiError 400 (own organiser), 403 (unverified), 404,
+ * Follows (idempotent), with the email choice (off unless `true` is sent;
+ * sending it again changes it; anything but a boolean is a 400). ApiError 400 (own organiser), 403 (unverified), 404,
  * 409 (500 follows), 429.
  */
 export async function followOrganiser(organiserId: string, input: FollowInput, getToken: GetToken) {

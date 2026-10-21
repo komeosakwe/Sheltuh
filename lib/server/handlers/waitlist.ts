@@ -6,6 +6,7 @@ import type {
   WaitlistStatus,
 } from "@/lib/api/types";
 import { requireCaller, type Caller } from "../auth";
+import type { Deps } from "../deps";
 import { maskEmail, redactForLog } from "../email-address";
 import { HttpError, noContentPrivate, okPrivate, PRIVATE_NO_STORE, readJson } from "../http";
 import { isUuid } from "../pagination";
@@ -79,10 +80,13 @@ function isOwnVerifiedEmail(caller: Caller | null, email: string): caller is Cal
 
 /**
  * SQL: waitlist entry `w` is the caller's, $2 being their user id and $3 their
- * verified email (null when it isn't verified): joined from their account,
- * or with that address (it's theirs, so a guest link they confirmed counts).
+ * verified email (null when it isn't verified): joined from their account, or
+ * with exactly that address, ignoring case (it's theirs, so a guest link they
+ * confirmed counts). Never by the normalised key (private.email_key): that
+ * folds `+tags` and Gmail dots, so `a+x@…` would reach `a@…`'s entry, and
+ * other providers needn't treat those as one mailbox.
  */
-const CALLERS_ENTRY = `(w.user_id = $2 or ($3::text is not null and w.email_key = private.email_key($3)))`;
+const CALLERS_ENTRY = `(w.user_id = $2 or ($3::text is not null and lower(w.email) = lower($3)))`;
 
 const callerParams = (caller: Caller) => [caller.userId, caller.emailVerified && caller.email ? caller.email : null];
 
@@ -94,8 +98,10 @@ const callerParams = (caller: Caller) => [caller.userId, caller.emailVerified &&
  * email who leaves `email` out (or sends that address) is on the list at
  * once: 201, or 200 if they already were. Anyone else gets 202 and a
  * confirmation link by email, the same 202 whatever the address's history
- * (already on the list, or over its hourly cap: then no email is sent).
- * 400 email; 503 platform cap, or the email couldn't be sent.
+ * (already on the list, or over its hourly cap: then no email is sent). The
+ * link is emailed after the response (Deps.defer), so the 202 doesn't wait on
+ * SMTP; one that can't be sent is dropped and logged. 400 email; 503 the
+ * platform's caps (the same for every address).
  */
 export const joinWaitlist: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   if (!isUuid(eventId)) throw new HttpError(404, EVENT_NOT_FOUND);
@@ -155,19 +161,28 @@ export const joinWaitlist: Handler<{ eventId: string }> = async (req, { eventId 
       refuseJoin(result);
   }
 
-  const event = await findEventById(deps.db, eventId);
-  try {
-    if (!event) throw new Error("the event no longer exists");
-    const link = waitlistConfirmLink(deps.siteUrl(), token);
-    await deps.sendEmail(buildWaitlistConfirmationEmail(email, event, link, WAITLIST_LIMITS.confirmHours));
-  } catch (err) {
-    // Nobody can confirm a link that never arrived: drop it, so it doesn't use the address's hourly cap.
-    await deps.db.query(`delete from private.event_waitlist_tokens where token_hash = $1`, [tokenHash]);
-    console.error("Waitlist confirmation email failed:", redactForLog(err instanceof Error ? err.message : "unknown error"));
-    throw new HttpError(503, "We couldn't send the confirmation email just now. Try again in a few minutes.");
-  }
+  // Sent after the response, so a real link's 202 takes as long as an already-joined or address-limited one
+  // (no SMTP round trip to time). A link that can't be sent is dropped, so it doesn't use the address's cap.
+  const link = waitlistConfirmLink(deps.siteUrl(), token);
+  deps.defer(() => sendWaitlistConfirmation(deps, eventId, email, link, tokenHash));
   return Response.json(sent, { status: 202, headers: PRIVATE_NO_STORE });
 };
+
+/** The guest's confirmation link, after the response. Never throws: a failure drops the link and is logged without the address. */
+async function sendWaitlistConfirmation(deps: Deps, eventId: string, email: string, link: string, tokenHash: string) {
+  try {
+    const event = await findEventById(deps.db, eventId);
+    if (!event) throw new Error("the event no longer exists");
+    await deps.sendEmail(buildWaitlistConfirmationEmail(email, event, link, WAITLIST_LIMITS.confirmHours));
+  } catch (err) {
+    console.error("Waitlist confirmation email failed:", redactForLog(err instanceof Error ? err.message : "unknown error"));
+    try {
+      await deps.db.query(`delete from private.event_waitlist_tokens where token_hash = $1`, [tokenHash]);
+    } catch {
+      console.error("Waitlist confirmation link could not be dropped after a failed send.");
+    }
+  }
+}
 
 /**
  * GET /api/events/[eventId]/waitlist/status — signed in. Whether the caller
@@ -259,7 +274,8 @@ export const confirmWaitlist: Handler = async (req, _params, deps) => {
 /**
  * POST /api/waitlist/leave {token} — public (a notification email's leave
  * link). Takes that person off that event's list; no more emails about it.
- * 200, idempotent; 400 malformed; 404 unknown (or deleted since).
+ * 200 (with the event's title while it's published), idempotent; 400
+ * malformed; 404 unknown (or deleted since).
  */
 export const leaveWaitlist: Handler = async (req, _params, deps) => {
   const token = readToken(await readJson(req));
@@ -268,7 +284,11 @@ export const leaveWaitlist: Handler = async (req, _params, deps) => {
     [hashToken(token)],
   );
   if (row.result !== "left") throw new HttpError(404, LINK_NOT_FOUND);
-  const [event] = await deps.db.query<{ title: string }>(`select title from public.events where id = $1`, [row.event_id]);
+  // The title only while the event is published: an unpublished event's title isn't public.
+  const [event] = await deps.db.query<{ title: string }>(
+    `select title from public.events where id = $1 and status = 'published'`,
+    [row.event_id],
+  );
   const result: LeaveWaitlistResult = { status: "left", ...(event ? { eventTitle: event.title } : {}) };
   return okPrivate(result);
 };

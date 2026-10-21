@@ -61,17 +61,20 @@ export const getFollow: Handler<{ organiserId: string }> = async (req, { organis
 
 /**
  * POST /api/organisers/[organiserId]/follow {notifyNewEvents?} — verified
- * members. 201 a new follow (notifyNewEvents defaults to true); 200 already
- * following (idempotent; notifyNewEvents, if sent, updates the choice); 400
- * not a boolean, or the organiser's own account; 404 not an approved
+ * members. 201 a new follow (emails only if notifyNewEvents is true: left
+ * out, they're off); 200 already following (idempotent; notifyNewEvents, if
+ * sent, updates the choice); 400 not a boolean (null included), or the
+ * organiser's own account; 404 not an approved
  * organiser; 409 at 500 follows; 429 over 60 new follows an hour. Atomic in
  * private.follow_organiser.
  */
 export const followOrganiser: Handler<{ organiserId: string }> = async (req, { organiserId }, { db, verifyAccessToken }) => {
   const caller = await requireVerifiedCaller(req, verifyAccessToken);
   const body = await readJson(req);
+  // Emails only by explicit choice: left out, a new follow's are off (an existing follow's choice is kept);
+  // anything but true or false (null included) is a 400.
   const notify = body.notifyNewEvents;
-  if (notify !== undefined && notify !== null && typeof notify !== "boolean") {
+  if (notify !== undefined && typeof notify !== "boolean") {
     fail({ notifyNewEvents: "Must be true or false." });
   }
   if (!isUuid(organiserId)) throw new HttpError(404, NOT_FOUND);
