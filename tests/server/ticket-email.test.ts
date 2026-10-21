@@ -94,11 +94,13 @@ describe("buildTicketEmail", () => {
   // Updated deliberately for QR check-in: each ticket now has a QR image, but
   // it encodes only the code printed beneath it, so the rule still holds that
   // nothing is carried by an image alone (and there's still no barcode).
-  it("keeps the essentials as real text (the only images are the logo and a QR per ticket)", () => {
+  it("keeps the essentials as real text (the only images are the logo, a QR per ticket and the footer banner)", () => {
     const { html } = buildTicketEmail(order, event, "https://x");
-    expect(html.match(/<img /g)).toHaveLength(1 + order.tickets.length);
+    expect(html.match(/<img /g)).toHaveLength(2 + order.tickets.length);
     expect(html.match(/<img src="cid:/g)).toHaveLength(order.tickets.length);
     expect(html).toContain('src="https://x/icons/icon-192.png"');
+    expect(html).toContain('src="https://sheltuh.com.au/images/email-footer.png"');
+    expect(html).toMatch(/<img src="https:\/\/sheltuh\.com\.au\/images\/email-footer\.png"[^>]* alt="[^"]+"/);
     expect(html).not.toMatch(/barcode/i);
     const withoutImages = html.replace(/<img[^>]*>/g, "");
     for (const needle of ["Paint &#38; &#60;Sip&#62;", "Studio 5", "5 Smith St, Fitzroy", "ABCD-EFGH", "JKLM-NPQR", "A$64", "#ABC"]) {

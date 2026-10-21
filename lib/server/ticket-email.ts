@@ -7,6 +7,13 @@ import { encodePng } from "./png";
 import type { EventRecord, OrderRecord } from "./types";
 
 /**
+ * Brand footer banner. A fixed public URL on the marketing site, not built
+ * from the app's origin, so it renders the same from every environment. It
+ * carries no order data, so a hosted image (unlike the QR codes) is fine.
+ */
+export const EMAIL_FOOTER_IMAGE_URL = "https://sheltuh.com.au/images/email-footer.png";
+
+/**
  * The buyer's tickets email, sent once an order is paid (free orders included).
  *
  * Table-based markup with inline styles so it holds up in Gmail, Apple Mail and
@@ -251,6 +258,7 @@ ${tickets}
     Need help? Email <a href="mailto:${escapeHtml(SUPPORT_EMAIL)}" style="color:${MUTED};text-decoration:underline">${escapeHtml(SUPPORT_EMAIL)}</a><br>
     Sheltüh &middot; Melbourne
   </td></tr>
+  <tr><td style="padding:20px 0 0 0"><img src="${EMAIL_FOOTER_IMAGE_URL}" width="600" alt="Sheltüh. Music. Art. Fashion. Culture." style="display:block;border:0;width:100%;max-width:600px;height:auto"></td></tr>
 </table>
 <!--[if mso]></td></tr></table><![endif]-->
 </td></tr>
