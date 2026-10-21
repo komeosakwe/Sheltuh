@@ -21,10 +21,10 @@ const NOT_FOUND = "Event not found.";
  * external event (tickets sold elsewhere: nobody can show they hold one), so
  * it reads as closed (private.set_going refuses it the same way).
  */
-const OPEN = `(e.whos_going_enabled and e.ends_at > now() and e.ticketing_mode = 'sheltuh')`;
+export const OPEN = `(e.whos_going_enabled and e.ends_at > now() and e.ticketing_mode = 'sheltuh')`;
 
 /** SQL: the event_attendees row aliased `a` belongs to a suspended member. */
-const SUSPENDED_ATTENDEE = `exists (select 1 from private.social_suspensions s where s.user_id = a.user_id)`;
+export const SUSPENDED_ATTENDEE = `exists (select 1 from private.social_suspensions s where s.user_id = a.user_id)`;
 
 /**
  * SQL: the event_attendees row aliased `a` and the viewer ($2) block one

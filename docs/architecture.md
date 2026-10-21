@@ -52,7 +52,7 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected; unpublish returns it to draft. `is_free` (true only when the event has ticket types and all are free; for an external event, `external_free`) is kept up to date by `replace_ticket_types` for the feed's free filter. `whos_going_enabled` (default true) is an admin-only kill switch for that event's Who's Going, set in SQL (`docs/supabase-setup.md`). `ticketing_mode` (`sheltuh`, the default, or `external`), `external_ticket_url` and `external_free`: see "External ticketing". Check constraints: an external event has a link that passes `private.external_ticket_url_ok`, a Sheltüh-ticketed one has no link and isn't `external_free`, and an external event's `is_free` equals `external_free`. Triggers refuse ticket types and orders for an external event, and switching an event with ticket types to external. |
 | `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. A trigger refuses a price above 0 for a platform-managed organiser's event (`ticket_types_platform_free_only`). `quantity_sold` only ever goes up in `fulfil_order`, and down only in `record_payment_refund` (a paid order refunded in full). |
 | `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Public via `GET /api/events/[id]/image` once published (cached for a day, versioned URL); before that only the owner/admins with a token. Move to Storage/CDN if volume grows. |
-| `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished / ticketing_changed / created / edited (and `curated`, reserved for admin curation, not written yet), by whom, and why. `details` (jsonb object, null for the other actions): for `ticketing_changed`, the old and new value of each ticketing field the admin changed (full ticket links: see "External ticketing"); for `edited`, the old and new value of each other field an admin changed (see "Admin authoring"). Shown to the event's organiser and to admins (`moderationLog[].changes`), never publicly. |
+| `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished / ticketing_changed / created / edited / curated, by whom, and why. `details` (jsonb object, null for the other actions): for `ticketing_changed`, the old and new value of each ticketing field the admin changed (full ticket links: see "External ticketing"); for `edited`, the old and new value of each other field an admin changed (see "Admin authoring"); for `curated`, the old and new `boost` and `excluded` (see "Trending"). Shown to the event's organiser and to admins (`moderationLog[].changes`), never publicly, except `curated` entries, which only admins see (`GET /admin/events/{id}/curation`). |
 | `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed / oversold_refund_required; oversold_refund_required → refunded (our automatic refund); paid → refunded (refunded in full in Stripe, see "Refunds made in Stripe"). `amount_refunded_cents` (≥ 0, default 0) is Stripe's cumulative refunded amount, recorded only for paid orders (a partial refund leaves the order paid). Indexed on `stripe_payment_intent_id` (partial, not null) for the refund webhook. `tickets_emailed_at` records the ticket email. `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). |
 | `tickets` | `code` | One row per admitted person. Rows are kept when their order is refunded, but only a `paid` order's tickets are valid: check-in checks the order's status. `checked_in_at`: when the ticket was admitted at the door (null until then, and again after an undo; cleared 25 months after the event ends). Indexed on `(event_id, ticket_type_id)` for the check-in counts. |
 | `ticket_check_ins` | `id` (identity) | The check-in log (see "Check-in"): one row per scan or undo, with a random `public_id` (uuid, unique: the only id the API shows, as `checkInId`; the sequential `id` stays internal, so ids don't reveal platform-wide scan volume), the event scanned for, the ticket `code` (null for an `invalid` scan: what was scanned is never stored), the acting account, the client's `request_id` (unique per event: the idempotency key), the `result` and, for an undo only, its `reason` (3–200 characters). Check constraints tie `invalid` to a null code and `undone` to a reason. Deleted with the event or the ticket, and by `purge_analytics` 25 months after the event ends. No buyer data. |
@@ -67,12 +67,14 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | `messages` | `id` (identity) | Plain text, 1–1000 characters (check constraint). The id is the opaque, increasing `messageId` (keyset cursor). Deleted with the conversation or the sender's profile. |
 | `user_blocks` | `id` | `(blocker_id, blocked_id)` unique, keyed on the accounts (not profiles), so recreating a profile doesn't lift a block. `id` is the opaque `blockId`, shown only to the blocker. `blocked_display_name` is a snapshot of the blocked member's name taken when the block was made, never refreshed (the live name would tell the blocker about renames and deletions). It's kept, like the block, until either account is deleted or the block is lifted. |
 | `private.conversation_pairs` | `(user_low, user_high)` | Content-free record that two accounts have had a conversation: the pair and when the first request was sent. References `auth.users` only (not profiles), so deleting and recreating a profile, which deletes the conversation, doesn't reset "one conversation per pair" or undo a decline. Deleted with either account, and by `purge_social_data` once no conversation remains and it's over 12 months old. |
-| `event_favourites` | `(user_id, event_id)` | A member's favourites (account, not profile). At most 500 per account (`add_favourite`). Kept when the event is unpublished, but hidden until it's published again. Deleted with the account or the event. Never counted or shown to anyone else. |
+| `event_favourites` | `(user_id, event_id)` | A member's favourites (account, not profile). At most 500 per account (`add_favourite`). Kept when the event is unpublished, but hidden until it's published again. Deleted with the account or the event. Never shown to anyone else; counted only as an aggregate input to the trending score, never per event or per person (see "Trending"). Indexed on `(event_id, created_at)` for that count. |
 | `event_tracking_links` | `id` | Up to 20 per event (`create_tracking_link`): a server-made `code` (8 characters, `[2-9a-hjkmnp-z]`, unique per event) and an organiser `label` (1–40 characters, unique per event ignoring case). Deleted with the event. |
 | `event_view_counts` | `(event_id, day, source, coalesce(link_code, ''))` (unique index) | Aggregate page-view counters, one row per event, Melbourne day, source bucket and tracking code: no visitor data of any kind. `link_code` is a plain copy of the code (no foreign key), so a deleted link's counts are kept. Deleted with the event, and by `purge_analytics` after 25 months. |
 | `event_outbound_clicks` | `(event_id, day)` | Clicks on an external event's ticket link, one row per event and Melbourne day: `clicks` (≥ 0) and `cap_reached` (the per-minute click cap was reached that day, so `clicks` is a lower bound). No visitor data of any kind. Deleted with the event, and by `purge_analytics` after 25 months. |
 | `private.event_rate_limits` | `(event_id, bucket)` | Fixed-window counters keyed on an event, never a person (`take_event_rate_limit`): caps the views (bucket `views`) and ticket-link clicks (`outbound`) counted per event per minute. Deleted with the event; idle rows purged daily. |
 | `private.event_view_cap_days` | `(event_id, day)` | A marker that the event's view cap was reached on that Melbourne day, so reports can flag the day's views as a lower bound. No visitor data. Deleted with the event, and by `purge_analytics` after 25 months. |
+| `private.event_curation` | `event_id` | An admin's trending curation (see "Trending"): `boost` (0.5 to 2, default 1, check constraint) and `excluded`, with who changed it last and when (null until changed). Written only by `set_event_curation`. Deleted with the event. |
+| `private.trending_snapshot` | `rank` | The ranked trending list (at most 24): rank, event (unique), score and when it was computed. Rebuilt as a whole by `refresh_trending`; holds no counts. Deleted with the event. |
 | `private.analytics_settings` | single row | `views_tracked_since`: the Melbourne day view counting started (when its migration ran), so reports show earlier days as "not counted" rather than 0. |
 | `private.user_reports` | `id` | A member's report: copies of the reported message, up to 20 messages of context and the reported display name. Every reference is `on delete set null`, so the evidence survives the messages and both accounts. `status`: open → actioned (suspended) / dismissed. Resolved reports are deleted 2 years after resolution. |
 
@@ -105,6 +107,9 @@ times, which are converted to instants honouring daylight saving
 | `record_outbound_click` | Counts one click on an external event's ticket link: the event must be published and external (`not_found` otherwise); then the event's per-minute cap (`take_event_rate_limit`, bucket `outbound`; a refused click flags the day `cap_reached`: the first refusal writes the flag, and every later one is plain reads, the cap's counter and then the flag, with no write, row lock or transaction id, `20261022000200_external_ticketing_hardening.sql`); then one upsert increment. Like `record_view`, no row lock on the event and no exception block. Returns `recorded`, `not_found` or `rate_limited`. |
 | `record_view` | Counts one view: the event must be published; the source is bucketed (unknown → `other`); a code that's one of the event's tracking codes makes it `tracking` under that code (any other code is ignored); then the event's per-minute cap (a refused view records the day in `event_view_cap_days`; after the first, that's a no-op); then one upsert increment. No row lock on the event and no exception block, to keep the hot path to two small upserts. Returns `recorded`, `not_found` or `rate_limited`. |
 | `create_tracking_link` | Adds a link to an event the organiser owns, under an advisory lock on the event (so the 20-link cap holds under concurrency, without locking the events row that checkouts share-lock). Returns `created`, `not_found`, `limit`, `label_taken`, or `code_taken` (the API retries with a fresh code). |
+| `refresh_trending` | Rebuilds the trending snapshot in one step (see "Trending"): an advisory lock serialises concurrent runs, the old rows are deleted (not truncated, so readers are never blocked and see the previous snapshot until it commits), and the eligible events are scored and ranked. Takes an optional `now` (tests). Returns `eligible` and `ranked` counts. |
+| `trending_day_utility`, `trending_decay`, `trending_shrink`, `trending_proximity` | The trending formula's parts, immutable, so the SQL is the formula's only definition (tests call them directly). |
+| `set_event_curation` | An admin's boost and exclusion for any event, any status: key-share-locks the event, then locks its curation row; nothing changing is `unchanged` (nothing logged); otherwise the update and a `curated` moderation log entry (admin, reason, old and new values), in one step. Returns `updated`, `unchanged` or `not_found`. |
 | `purge_analytics` | Retention: deletes view and outbound-click counters for days over 25 months ago and per-event rate-limit rows idle for a day, and, for events that ended over 25 months ago, the check-in log and the tickets' `checked_in_at`. Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`). |
 | `check_in_ticket` | One scan, in one step (see "Check-in"): the event must be the organiser's (`not_found`); a hit on the account's `check_in` allowance (`rate_limited`, nothing logged); then, under an advisory lock on (event, request id), a request id already logged returns its original result unchanged, or `conflict` (nothing logged; the API's 409) if the submitted code doesn't resolve to the logged one. Otherwise: a code that isn't one of the organiser's tickets is `invalid`; another of their events' tickets is `other_event`; else it share-locks the order, then locks the ticket (`for update`), and decides `not_admissible` (order not `paid`), `already_checked_in` (with the first time, and `admission_id`: the ticket's current admission, for undo) or `admitted` (sets `checked_in_at`; `admission_id` is the new row). Every result but `not_found`, `rate_limited` and `conflict` logs exactly one row. Ids returned are public ids. |
 | `undo_check_in` | Reverses an admission (an `admitted` log row of the event, by its `public_id`) with a reason: same ownership check, allowance and locks as `check_in_ticket`. Returns `undone` (clears `checked_in_at`, logs an `undone` row with the reason), `not_found`, `not_checked_in` (already undone), `superseded` (admitted again since: undo the newer one) or `rate_limited`. Only `undone` logs a row. |
@@ -545,6 +550,11 @@ No verified email is needed: nothing here involves anyone else.
   probe for unpublished events.
 - Nobody else sees favourites, and there's no public count. Every response
   is `private, no-store`. Deleting the account or the event deletes them.
+- Favourites are **counted only as an aggregate input to the trending
+  score** (owner decision, 21 Oct 2026): how many favourites an event gained
+  each day goes into its score with views, opt-ins and orders, and only the
+  final score is kept. No per-event or per-person favourite count is stored,
+  shown or exported, to the public, organisers or admins (see "Trending").
 
 ## Organiser analytics
 
@@ -657,6 +667,121 @@ reads 0). Orders (and so their `tracking_code`) are kept as financial records.
 Booking fee: 4% of face value + A$0.50 per paid ticket (`lib/fees.ts`,
 which the API and the UI both use). It's either buyer-paid or absorbed by
 the organiser, set per ticket type. Either way the platform keeps it.
+
+## Trending
+
+The home page's Trending section (`lib/server/handlers/trending.ts`,
+`supabase/migrations/20261023000000_trending.sql`, `lib/api/trending.ts`).
+Computed in the database into a snapshot, which the public endpoint serves.
+
+**Score** `S = R · P · B`, defined only in SQL (`private.trending_*`):
+
+- **Daily utility**, per Melbourne day:
+  `u = 6·ln(1+V) + 8F + 15G + 25Op + 10Of`. V: page views (`event_view_counts`,
+  all sources), capped at 300 a day, and 0 on a day the view cap was reached
+  (`event_view_cap_days`: a flood day counts no views at all). F: favourites
+  added that day. G: Who's Going opt-ins that day, not counting suspended
+  members. Op: `paid` orders with a price; Of: `paid` A$0 (free) orders.
+  F, G, Op and Of are each capped at 50 a day. Pending, failed and refunded
+  orders don't count.
+- **The organiser's own activity is left out**: favourites and opt-ins by
+  the owner account, and orders whose buyer email is the owner account's
+  email or the organiser's contact email (ignoring case). Activity from
+  other accounts the organiser controls can't be told apart (see "Accepted
+  risks").
+- **Decay**: `R_raw = Σ u · 0.5^(age/3)` over the last 14 Melbourne days
+  (age 0 is today, 13 the oldest): a 3-day half-life.
+- **Shrinkage**: `R = (n·R_raw + 2·median) / (n + 2)`, where n is the
+  event's engagement count (below) and the median is over the eligible
+  events' `R_raw`. An event with few engagement events is pulled towards the
+  typical score, so 3 lucky favourites don't top the list.
+- **Start proximity** P: 1 when the event starts within 7 days (or has
+  started), falling linearly to 0.3 at 60 days.
+- **Admin boost** B: 0.5 to 2, default 1.
+
+**Eligible**: published; organiser approved; not ended; starts within 60
+days; its latest approval at least 6 hours old (time for a second look, and
+a re-approved event waits again); not excluded by an admin; and at least 3
+**engagement events** in the window: favourites, opt-ins and orders after
+the daily caps and exclusions. Views aren't engagement events (anyone can
+send them without an account). At most 2 events per organiser (their best
+two), then the top 24. Ties: sooner start, then id. External events are
+eligible like any other (they gain only views and favourites).
+
+**Refresh**: Vercel Cron `GET /api/cron/trending` (`CRON_SECRET`, through
+`lib/server/cron-auth.ts`) calls `private.refresh_trending()`. The project is
+on Vercel's Hobby plan, which allows daily crons only, so `vercel.json` runs
+it daily at 17:20 UTC (early morning in Melbourne). **On the Pro plan, make it
+every 15 minutes** (`*/15 * * * *`). On Hobby, Supabase Cron can call
+`select private.refresh_trending();` more often instead
+(`docs/supabase-setup.md`). The public list works from a day-old snapshot:
+the read-time checks below keep it correct, it only reacts more slowly.
+
+**Public read** (`GET /api/events/trending`): the snapshot in rank order,
+re-checked at read time (published, not ended, organiser approved, not
+excluded), so an unpublished, ended, taken-down or excluded event drops out
+straight away. With fewer than 3 left, `items` is `[]` (the home hides the
+section). Each item is `{event, label, goingCount?}`, `event` in the feed's
+public shape, and the label is:
+
+- `going`, with `goingCount`, when Who's Going is open (enabled, not ended,
+  Sheltüh-ticketed: never an external event) and at least 5 members are
+  going (`TRENDING_GOING_THRESHOLD`; suspended members aren't counted, as
+  on the event page);
+- else `just-announced` when the event was first approved within 72 hours;
+- else `popular`.
+
+It never carries a score, rank number, view count or favourite count. It's
+not personalised, so the CDN caches it (`public, max-age=0, s-maxage=300,
+stale-while-revalidate=600`); error responses stay `private, no-store`.
+
+**Curation** (`PUT /api/admin/events/{id}/curation {boost, excluded,
+reason}`, admin, any status): `set_event_curation` stores it in
+`private.event_curation` and logs `curated` with the admin, the reason and
+the old and new values. A boost applies at the next refresh; an exclusion
+hides the event from the public list at once. `curated` entries are
+editorial: they're left out of the event's `moderationLog` (which the
+organiser sees), and admins read them, newest 20, from
+`GET /api/admin/events/{id}/curation`.
+
+**Privacy.** Favourites are an aggregate input only (owner decision, 21 Oct
+2026): the refresh counts them per event and day, inside the database,
+and keeps only the final score. No favourite count, per event or per
+person, is stored, shown or exported, to anyone (the snapshot holds rank,
+event, score and time; admins see no breakdown). The public label shows a
+going count only at 5 or more, above the event page's own threshold of 3.
+
+**Privacy Policy wording needed before go-live** (owner to approve):
+
+- That the events a member saves (favourites), whether they've said they're
+  going (Who's Going), and ticket orders are used, combined and counted
+  together with other members' activity, to rank events in a "Trending"
+  list; that this ranking never shows who did what or how many people saved
+  an event; and that page views are counted without cookies or any
+  identifier.
+- That organisers' own activity on their events is excluded, and that
+  Sheltüh staff can boost or remove events from Trending at their
+  discretion (editorial curation), so the list isn't purely algorithmic.
+
+### Accepted risks (trending)
+
+- **Gaming with fake accounts.** Favourites need only a signed-in account
+  (no verified email), and views need nothing. A ring of accounts can lift
+  an event. Bounded, not prevented: views are logarithmic and capped at 300
+  a day (and a flood day counts none), each other signal is capped at 50 a
+  day, the score decays in days, shrinkage damps small numbers, at most 2
+  events per organiser rank, and admins can exclude an event at once.
+  Orders cost money (or a confirmed free booking under the free-ticket
+  caps). The owner exclusion only covers the organiser's own account and
+  contact email.
+- **Staleness.** On Hobby, scores change once a day; read-time checks still
+  drop events that end, are unpublished, are taken down or are excluded,
+  and labels (going count, just announced) are worked out at read time.
+- **CDN window.** A change can take up to 5 minutes (plus the
+  stale-while-revalidate window) to show to visitors.
+- **Concurrency** of two refreshes is serialised by an advisory lock; the
+  tests run refreshes sequentially (PGlite has one connection), so run the
+  suite on a real Postgres before go-live.
 
 ## Check-in
 
@@ -944,8 +1069,8 @@ Admins create events themselves, for any organiser
   logged `edited` with `changes.image`.
 - **Audit.** `created`, `edited` and `ticketing_changed` entries carry the
   admin's user id; the event's organiser sees them in their event's
-  `moderationLog` (the public never does). `curated` is reserved for admin
-  curation (B4).
+  `moderationLog` (the public never does). `curated` entries (trending
+  curation, see "Trending") are the exception: only admins see them.
 - **Responses** are `AdminEventRecord`: an `EventRecord` plus
   `organiserPlatformManaged`.
 
@@ -1044,6 +1169,8 @@ application is approved.
 | `POST /orders/confirm` `{token}` | public (the emailed token is the credential). 200 `{url}` (also when already confirmed, within 24 hours); 400 malformed; 404 unknown; 410 expired (confirmed or not); 409 sold out, allowance used, or a ticket type no longer free |
 | `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store` |
 | `GET /cron/email-outbox` | Vercel Cron (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due ticket emails, returns counts |
+| `GET /cron/trending` | Vercel Cron (same secret, 401 otherwise): rebuilds the trending snapshot, returns `{eligible, ranked}` |
+| `GET /events/trending` | public: `{items: [{event, label, goingCount?}]}` (see "Trending"), at most 24, best first; `items: []` with fewer than 3. `cache-control: public, max-age=0, s-maxage=300, stale-while-revalidate=600` |
 | `GET /admin/emails?status&cursor` · `POST /admin/emails/{jobId}/resend` | admin. Status `failed` (default), `pending`, `sending`, `sent`. Resend: 404 unknown, 409 being sent, 429 resent in the last 5 minutes or over 20 an hour |
 | `POST /stripe/webhook` | Stripe (signature-verified) |
 | `POST /organisers/apply` · `GET /organisers/me` · `PATCH /organisers/me` | signed in. PATCH: a rejected application is resubmitted in full (back to pending); an approved organiser edits their profile (see "Organiser profiles"); pending is a 409 |
@@ -1083,6 +1210,7 @@ application is approved.
 | `POST /admin/organisers` | admin. A platform-managed organiser (see "Admin authoring"): the application's fields and rules. 201 `AdminOrganiserRecord`; 400 fieldErrors |
 | `GET /admin/events/{id}` · `POST /admin/events` · `PATCH /admin/events/{id}` | admin (see "Admin authoring"). `AdminEventRecord`. POST: the event body plus `organiserId`, `publish?`; 201; 400 fieldErrors (`organiserId` unknown; `ticketTypes` paid for a platform-managed organiser); 409 organiser not approved. PATCH: the event body with `ticketingMode` required, `expectedUpdatedAt`, `publish?`, `reason?` (≤500); 200 (unchanged if nothing changes); 400 fieldErrors (incl. `reason` to change an approved event's mode or link); 404; 409 stale version (`fieldErrors.expectedUpdatedAt`), orders on a switch to external, sold ticket types, or organiser not approved when publishing |
 | `PUT /admin/events/{id}/image` · `DELETE /admin/events/{id}/image` | admin, any status. As the organiser's (413, 400), logged `edited`; 404 |
+| `GET /admin/events/{id}/curation` · `PUT …/curation` `{boost, excluded, reason}` | admin, any status (see "Trending"). `{eventId, boost, excluded, updatedAt, log}` (newest 20 changes). PUT: 200 (unchanged, nothing logged, if nothing changes; logged `curated` otherwise); 400 fieldErrors (`boost` a number from 0.5 to 2, rounded to 2 places; `excluded` a boolean; `reason` 1–500 characters); 404 |
 | `PATCH /admin/events/{id}/ticketing` `{ticketingMode, externalTicketUrl?, externalFree?, reason}` | admin. Any status. 200 with the event (logged as `ticketing_changed`; unchanged, and nothing logged, if nothing would change); 400 fields (`ticketingMode` is required) or reason (1–500 characters); 404; 409 switching to external an event with orders |
 
 Lists are paginated with an opaque `cursor` (`nextCursor` in the
@@ -1126,6 +1254,8 @@ is `cache-control: private, no-store`.
   the organiser's login; see "Accepted limits (check-in)"), and an offline
   mode for the scanner.
 - Analytics beyond stages A and B (see "Organiser analytics").
+- Admin trending UI (F5): curation has an API (`…/admin/events/{id}/curation`),
+  but there's no admin read of the ranked snapshot yet.
 - Venue coordinates (the map falls back to suburb centroids).
 - Who's Going beyond increment 2: no admin UI for suspensions or the
   per-event switch (SQL only, `docs/supabase-setup.md`), and an opt-in isn't

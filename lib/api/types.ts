@@ -152,7 +152,9 @@ export interface ModerationLogEntry {
    * /admin/events/{id}/ticketing, or the ticketing part of PATCH
    * /admin/events/{id}). `created`: an admin created the event (POST
    * /admin/events). `edited`: an admin changed anything else, its photo
-   * included. `curated`: reserved for admin curation (not written yet).
+   * included. `curated`: an admin changed the event's trending boost or
+   * exclusion; never in an event's `moderationLog` (admins see those entries
+   * through GET /admin/events/{id}/curation).
    */
   action:
     | "submitted"

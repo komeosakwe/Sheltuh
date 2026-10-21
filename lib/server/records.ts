@@ -207,7 +207,9 @@ const EVENT_COLUMNS = `
            select json_agg(json_strip_nulls(json_build_object(
                     'action', l.action, 'by', coalesce(l.actor_id::text, 'system'),
                     'at', l.created_at, 'reason', l.reason, 'changes', l.details)) order by l.id)
-           from public.event_moderation_log l where l.event_id = e.id
+           -- Admin curation of trending ('curated') stays out: editorial, admins
+           -- only (GET /admin/events/{id}/curation).
+           from public.event_moderation_log l where l.event_id = e.id and l.action <> 'curated'
          ), '[]'::json) as moderation_log`;
 
 const EVENT_FROM = `
@@ -216,6 +218,14 @@ const EVENT_FROM = `
 
 export const EVENT_SELECT = `
   select ${EVENT_COLUMNS}${EVENT_FROM}`;
+
+/**
+ * EVENT_SELECT with extra columns (SQL over `e` and `o`), for reads that need
+ * more than the record, e.g. the trending rank. The result still maps with toEvent.
+ */
+export const eventSelectWith = (extraColumns: string) => `
+  select ${EVENT_COLUMNS},
+         ${extraColumns}${EVENT_FROM}`;
 
 /** EVENT_SELECT plus whether the organiser is platform-managed (no owner account). Admin only. */
 export const ADMIN_EVENT_SELECT = `

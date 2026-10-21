@@ -488,6 +488,23 @@ Set it up once:
 3. Check it under Vercel → Project → Settings → Cron Jobs (each run returns
    counts: `claimed`, `sent`, `retrying`, `failed`).
 
+**Trending.** `vercel.json` also runs `GET /api/cron/trending` once a day
+(17:20 UTC), with the same `CRON_SECRET`: it rebuilds the home page's
+Trending list (`private.refresh_trending()`, docs/architecture.md,
+"Trending"). Daily is a Hobby-plan limit, not a design choice: **on Pro, set
+its schedule to every 15 minutes (`*/15 * * * *`)**. On Hobby you can refresh
+more often from Supabase Cron instead (the function needs no secret: it only
+reads and rewrites the snapshot):
+
+```sql
+select cron.schedule('refresh-trending', '*/15 * * * *', $$select private.refresh_trending()$$);
+```
+
+It's safe to run by hand at any time and returns `eligible` and `ranked`
+counts. Until it has run once, Trending is empty and the home page hides the
+section. To curate (boost or exclude an event), use
+`PUT /api/admin/events/{id}/curation` rather than SQL, so the change is logged.
+
 Failed emails are listed at `/admin/emails`, by order reference and masked
 address, with a **Resend now** button. Delivery is at-least-once, so a buyer
 can occasionally get the same email twice. From SQL:

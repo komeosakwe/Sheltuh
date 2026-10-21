@@ -111,6 +111,7 @@ describe("Data API lock-out", () => {
       { table_name: "analytics_settings", rls: true },
       { table_name: "conversation_pairs", rls: true },
       { table_name: "email_outbox", rls: true },
+      { table_name: "event_curation", rls: true },
       { table_name: "event_rate_limits", rls: true },
       { table_name: "event_view_cap_days", rls: true },
       { table_name: "free_order_refusals", rls: true },
@@ -118,6 +119,7 @@ describe("Data API lock-out", () => {
       { table_name: "platform_rate_limits", rls: true },
       { table_name: "rate_limits", rls: true },
       { table_name: "social_suspensions", rls: true },
+      { table_name: "trending_snapshot", rls: true },
       { table_name: "user_reports", rls: true },
     ]);
     const grants = await db.query(
@@ -154,6 +156,28 @@ describe("Data API lock-out", () => {
       "organisers_platform_free_only",
       "ticket_check_ins_guard",
       "ticket_types_platform_free_only",
+    ];
+    const rows = await db.query<{ fn: string; pinned: boolean; client: boolean }>(
+      `select p.proname as fn,
+              exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c = 'search_path=""') as pinned,
+              has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
+                or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                            where a.grantee = 0 and a.privilege_type = 'EXECUTE') as client
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'private' and p.proname = any($1::text[]) order by 1`,
+      [names],
+    );
+    expect(rows).toEqual(names.map((fn) => ({ fn, pinned: true, client: false })));
+  });
+
+  it("the trending functions exist, pin search_path and aren't client-executable", async () => {
+    const names = [
+      "refresh_trending",
+      "set_event_curation",
+      "trending_day_utility",
+      "trending_decay",
+      "trending_proximity",
+      "trending_shrink",
     ];
     const rows = await db.query<{ fn: string; pinned: boolean; client: boolean }>(
       `select p.proname as fn,
