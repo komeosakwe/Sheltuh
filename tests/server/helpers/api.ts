@@ -23,6 +23,8 @@ export function createFakeStripe() {
     checkout: {
       sessions: {
         create: vi.fn().mockResolvedValue({ id: "cs_test_1", url: "https://checkout.stripe.test/cs_test_1" }),
+        expire: vi.fn().mockResolvedValue({ id: "cs_test_1", status: "expired" }),
+        retrieve: vi.fn().mockResolvedValue({ id: "cs_test_1", status: "open" }),
       },
     },
     refunds: { create: vi.fn().mockResolvedValue({ id: "re_test_1", status: "succeeded" }) },

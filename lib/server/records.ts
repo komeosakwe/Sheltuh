@@ -14,6 +14,7 @@ import type {
   ConversationSummary,
   CustomerOrder,
   EventRecord,
+  EventSeating,
   GoingAttendee,
   IssuedTicket,
   MemberProfile,
@@ -238,9 +239,13 @@ const EVENT_COLUMNS = `
            select json_agg(json_strip_nulls(json_build_object(
                     'id', t.id, 'name', t.name, 'description', t.description,
                     'priceCents', t.price_cents, 'feePolicy', t.fee_policy,
-                    'quantityAvailable', t.quantity_available)) order by t.position)
+                    'quantityAvailable', t.quantity_available,
+                    -- Only for a seated tier (stripped otherwise: a GA tier's JSON is unchanged).
+                    'seated', case when t.seated then true end)) order by t.position)
            from public.ticket_types t where t.event_id = e.id
          ), '[]'::json) as ticket_types,
+         (select json_build_object('version', m.version, 'seatCount', m.seat_count)
+            from public.event_seat_maps m where m.event_id = e.id) as seating,
          -- What's left per ticket type, for the public shape only (toPublicEventFromRow):
          -- never mapped into EventRecord, and the public sees at most "10 or fewer".
          (select json_object_agg(t.id, greatest(t.quantity_available - t.quantity_sold, 0))
@@ -292,6 +297,7 @@ const LOG_CHANGE_FIELDS = [
   "endsAt",
   "ticketTypes",
   "image",
+  "seatMap",
 ] as const satisfies readonly (keyof NonNullable<ModerationLogEntry["changes"]>)[];
 
 /** One change as stored: json_strip_nulls has dropped a side that was null. */
@@ -367,6 +373,7 @@ function mapEvent(row: Row, audience: LogAudience): EventRecord {
     externalProvider: externalTicketUrl ? ticketProviderName(externalTicketUrl) : null,
     // Once approved, the ticketing is frozen for the organiser (private.edit_event_draft).
     ticketingLocked: log.some((entry) => entry.action === "approved"),
+    ...(row.seating ? { seating: row.seating as EventSeating } : {}),
     status: row.status as EventRecord["status"],
     rejectionReason: opt(row.rejection_reason),
     moderationLog: log.map((entry) => toModerationLogEntry(entry, audience)),
@@ -431,6 +438,8 @@ export function toPublicEvent(event: EventRecord, remaining?: Record<string, num
       : {}),
     externalFree: event.externalFree === true,
     externalProvider: event.externalProvider ?? null,
+    // Seated events only: a general admission event's payload is unchanged.
+    ...(event.seating ? { seating: { version: event.seating.version } } : {}),
   };
 }
 
@@ -438,16 +447,25 @@ export function toPublicEvent(event: EventRecord, remaining?: Record<string, num
 // Orders
 // ---------------------------------------------------------------------------
 
+/**
+ * A ticket's seat (`t` is public.tickets) as {section, row, seat, kind}, or
+ * null (stripped by json_strip_nulls: a GA ticket's JSON is unchanged).
+ * tickets_seat_key / event_seats_pkey: one row each.
+ */
+const TICKET_SEAT_JSON = `(select json_build_object('section', s.section_label, 'row', s.row_label, 'seat', s.seat_label,
+                                       'kind', s.kind)
+                      from public.event_seats s where s.event_id = t.event_id and s.id = t.seat_id)`;
+
 export const ORDER_SELECT = `
   select o.id, o.event_id, o.organiser_id, o.event_title, o.buyer_email, o.line_items,
          o.subtotal_cents, o.buyer_fee_cents, o.total_cents, o.application_fee_cents,
          o.status::text as status, o.stripe_checkout_session_id, o.stripe_payment_intent_id,
-         o.created_at, o.updated_at,
+         o.created_at, o.updated_at, o.seat_ids,
          (select e.slug from public.events e where e.id = o.event_id) as event_slug,
          coalesce((
-           select json_agg(json_build_object(
+           select json_agg(json_strip_nulls(json_build_object(
                     'ticketCode', t.code, 'ticketTypeId', t.ticket_type_id,
-                    'ticketTypeName', t.ticket_type_name) order by t.ticket_type_id, t.code)
+                    'ticketTypeName', t.ticket_type_name, 'seat', ${TICKET_SEAT_JSON})) order by t.ticket_type_id, t.code)
            from public.tickets t where t.order_id = o.id
          ), '[]'::json) as tickets
   from public.orders o`;
@@ -468,6 +486,7 @@ export function toOrder(row: Row): OrderRecord {
     status: row.status as OrderRecord["status"],
     stripeCheckoutSessionId: opt(row.stripe_checkout_session_id),
     stripePaymentIntentId: opt(row.stripe_payment_intent_id),
+    ...(Array.isArray(row.seat_ids) ? { seatIds: row.seat_ids as string[] } : {}),
     tickets: row.tickets as IssuedTicket[],
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
@@ -486,7 +505,8 @@ export const CUSTOMER_ORDER_SELECT = `
          o.subtotal_cents, o.buyer_fee_cents, o.total_cents,
          (select e.slug from public.events e where e.id = o.event_id) as event_slug,
          coalesce((
-           select json_agg(json_build_object('ticketCode', t.code, 'ticketTypeName', t.ticket_type_name)
+           select json_agg(json_strip_nulls(json_build_object('ticketCode', t.code, 'ticketTypeName', t.ticket_type_name,
+                                                              'seat', ${TICKET_SEAT_JSON}))
                            order by t.ticket_type_id, t.code)
            from public.tickets t where t.order_id = o.id and o.status = 'paid'
          ), '[]'::json) as tickets,

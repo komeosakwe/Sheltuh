@@ -3,13 +3,27 @@ import { calculateBookingFeeCents, calculateOrderSummary } from "@/lib/fees";
 import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
 import type { Deps } from "../deps";
 import { sendTicketEmailSoon, sendWaitlistEmailsSoon } from "../email-outbox";
-import { created, HttpError, ok, okPrivate, readJson } from "../http";
+import { formatSeatLine } from "@/lib/seating/format";
+import { MAX_SEATS_PER_ORDER } from "@/lib/seating/template";
+import { SEAT_HOLD } from "@/lib/api/types";
+import { created, createdPrivate, HttpError, ok, okPrivate, readJson } from "../http";
 import { parseCheckoutLineItems } from "../order-input";
+import { parseCheckoutSeats } from "../seat-map-input";
 import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
 import { CUSTOMER_ORDER_SELECT, ORDER_SELECT, toCustomerOrder, toOrder } from "../records";
 import type { Handler } from "../route";
 import { parseTrackingCode } from "../tracking-codes";
-import type { CustomerOrderLookup, OrderLineItem, OrderRecord, OrderStatus } from "../types";
+import type {
+  CancelOrderResult,
+  CheckoutResult,
+  CustomerOrderLookup,
+  EventRecord,
+  OrderLineItem,
+  OrderRecord,
+  OrderStatus,
+  SeatErrorDetails,
+  TicketSeat,
+} from "../types";
 import { fail, requireEmail } from "../validation";
 import { findEventById } from "./event-queries";
 import { assertFreeTicketsPerOrder, createFreeOrder, withTicketCodes } from "./free-orders";
@@ -242,7 +256,10 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   if (event.ticketingMode === "external") throw new HttpError(409, EXTERNAL_CHECKOUT_REFUSED);
 
   const body = await readJson(req);
+  // Reserved seating: seats chosen on the map (and any general admission lines with them).
+  if (body.seats !== undefined && body.seats !== null) return createSeatedCheckout(req, deps, event, body);
   const lineItems = parseCheckoutLineItems(body, event.ticketTypes);
+  refuseSeatedLines(event, lineItems);
   const totals = orderTotals(lineItems);
   const isFree = totals.totalCents === 0;
   // Free: tickets straight away for a member's own verified email, an emailed confirmation link for anyone else.
@@ -418,7 +435,12 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
   if (order.status !== "pending") return received;
 
   if (isFailureEvent) {
-    await deps.db.query(`update public.orders set status = 'failed' where id = $1 and status = 'pending'`, [order.orderId]);
+    if (order.seatIds) {
+      // A seated order's holds go straight back (they'd also lapse on their own).
+      await deps.db.query(`select private.release_seat_holds($1)`, [order.orderId]);
+    } else {
+      await deps.db.query(`update public.orders set status = 'failed' where id = $1 and status = 'pending'`, [order.orderId]);
+    }
     return received;
   }
   // A completed session can still be awaiting a delayed payment method.
@@ -438,4 +460,290 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
     await refundOversoldOrder(deps, order.orderId, paymentIntentId);
   }
   return received;
+};
+
+// ---------------------------------------------------------------------------
+// Reserved seating (docs/architecture.md, "Reserved seating")
+// ---------------------------------------------------------------------------
+
+/**
+ * Seat holds (docs/SEATING_PLAN.md decisions 1 and 5): 35 minutes, Stripe's
+ * page closing at 31 (its minimum is 30, and the buyer is told 30); per event,
+ * 120 hold attempts per 10 minutes, and at most the larger of 20 seats or 30%
+ * of its unblocked seats held at once.
+ */
+export const SEAT_HOLD_LIMITS = {
+  hold: `${SEAT_HOLD.holdMinutes} minutes`,
+  stripeSessionMinutes: SEAT_HOLD.stripeMinutes + 1,
+  attempts: { limit: 120, window: "10 minutes" },
+  capMin: 20,
+  capShare: 0.3,
+} as const;
+
+const SEATS_TAKEN = "Some seats were taken while you were choosing. Choose other seats, then press Checkout again.";
+const SEAT_MAP_CHANGED = "The seat map has changed. Reload it and choose your seats again.";
+const BUSY = "A lot of people are checking out for this event right now. Try again in a minute.";
+
+function seatError(status: number, message: string, field: string, details: SeatErrorDetails): HttpError {
+  return new HttpError(status, message, { [field]: message }, { ...details });
+}
+
+/** A tier with seats is sold only by choosing seats: never as a quantity (400). */
+function refuseSeatedLines(event: EventRecord, lineItems: OrderLineItem[]) {
+  if (!event.seating) return;
+  const seated = new Set(event.ticketTypes.filter((t) => t.seated).map((t) => t.id));
+  const line = lineItems.find((l) => seated.has(l.ticketTypeId));
+  if (line) fail({ lineItems: `"${line.ticketTypeName}" seats are chosen on the seat map.` });
+}
+
+interface ChosenSeat extends TicketSeat {
+  id: string;
+  ticketTypeId: string;
+}
+
+/** The seats' tiers as priced lines (prices from the database), in the event's tier order. */
+function seatLines(event: EventRecord, seats: ChosenSeat[]): OrderLineItem[] {
+  return event.ticketTypes.flatMap((tier) => {
+    const quantity = seats.filter((seat) => seat.ticketTypeId === tier.id).length;
+    return quantity > 0
+      ? [{ ticketTypeId: tier.id, ticketTypeName: tier.name, unitPriceCents: tier.priceCents, feePolicy: tier.feePolicy, quantity }]
+      : [];
+  });
+}
+
+/**
+ * POST …/checkout with `seats: {mapVersion, seatIds}` (and optional
+ * `lineItems` for the event's general admission tiers, which don't count
+ * towards the 10 seats). Prices come from each seat's tier.
+ * - Paid: the pending order and its 35-minute holds in one step
+ *   (private.hold_seats), then Stripe (expires in 31 minutes; a Stripe error
+ *   releases the holds). 201 `{url, holdExpiresAt}`.
+ * - Free: a member's own verified email gets the seats at once; anyone else
+ *   an emailed link, holding nothing until it's confirmed.
+ * Refusals write nothing (beyond the hold attempt): 400 bad input; 409
+ * `seats` taken or unknown (body `seatIds`), `seatMapVersion` changed; 429
+ * too many holds or attempts for the event (body `seatIds`).
+ */
+async function createSeatedCheckout(
+  req: Request,
+  deps: Deps,
+  event: EventRecord,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const { db } = deps;
+  if (!event.seating) fail({ seats: "This event doesn't have reserved seating." });
+  const { mapVersion, seatIds } = parseCheckoutSeats(body.seats);
+  if (seatIds.length > MAX_SEATS_PER_ORDER) fail({ seats: `You can choose up to ${MAX_SEATS_PER_ORDER} seats.` });
+
+  // General admission lines, if any (a seated tier here is a 400).
+  const rawLines = body.lineItems;
+  let gaLines: OrderLineItem[] = [];
+  if (rawLines !== undefined && rawLines !== null && !(Array.isArray(rawLines) && rawLines.length === 0)) {
+    gaLines = parseCheckoutLineItems(body, event.ticketTypes);
+    refuseSeatedLines(event, gaLines);
+  }
+
+  if (mapVersion !== event.seating.version) {
+    throw seatError(409, SEAT_MAP_CHANGED, "seatMapVersion", { code: "seat_map_changed" });
+  }
+  const seats = await db.query<ChosenSeat & { unavailable: boolean }>(
+    `select s.id, s.ticket_type_id as "ticketTypeId", s.section_label as section, s.row_label as "row",
+            s.seat_label as seat, s.kind,
+            (s.blocked or s.sold_order_id is not null
+              or (s.hold_order_id is not null and s.hold_expires_at > now())) as unavailable
+       from public.event_seats s
+      where s.event_id = $1 and s.id = any($2::text[])
+      order by s.position`,
+    [event.eventId, seatIds],
+  );
+  const found = new Set(seats.map((seat) => seat.id));
+  const gone = [...seatIds.filter((id) => !found.has(id)), ...seats.filter((seat) => seat.unavailable).map((seat) => seat.id)].sort();
+  if (gone.length > 0) throw seatError(409, SEATS_TAKEN, "seats", { code: "seats_unavailable", seatIds: gone });
+
+  const lineItems = [...seatLines(event, seats), ...gaLines];
+  const totals = orderTotals(lineItems);
+  const trackingCode = parseTrackingCode(body.trackingCode);
+  const labels = seats.map(({ section, row, seat, kind }) => ({ section, row, seat, kind }));
+
+  if (totals.totalCents === 0) {
+    const buyerEmail = parseBuyerEmail(body, true);
+    await assertFreeTicketsPerOrder(deps, lineItems);
+    await assertAvailable(db, event.eventId, lineItems);
+    return refuseIfExternal(() =>
+      createFreeOrder(req, deps, { event, lineItems, buyerEmail, trackingCode, seats: { seatIds, labels } }),
+    );
+  }
+
+  const buyerEmail = parseBuyerEmail(body, false);
+  await assertFreeTicketsPerOrder(deps, lineItems);
+  await assertAvailable(db, event.eventId, lineItems);
+  const organiser = await findOrganiserById(db, event.organiserId);
+  if (organiser && !organiser.ownerUserId) throw new HttpError(409, PLATFORM_PAID_CHECKOUT_REFUSED);
+  if (!organiser?.stripeAccountId || !organiser.payoutsEnabled) {
+    throw new HttpError(409, "This organiser hasn't finished setting up payouts yet — ticket sales aren't open.");
+  }
+
+  const orderId = `ord_${crypto.randomUUID().replace(/-/g, "")}`;
+  const [hold] = await refuseIfExternal(() =>
+    db.query<{ result: string; hold_expires_at: string | Date | null; unavailable_seat_ids: string[] | null }>(
+      `select result, hold_expires_at, unavailable_seat_ids
+         from private.hold_seats($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11, $12, $13::text[],
+                                 $14::interval, $15, $16::interval, $17, $18)`,
+      [
+        orderId,
+        event.eventId,
+        event.organiserId,
+        event.title,
+        JSON.stringify(lineItems),
+        totals.subtotalCents,
+        totals.buyerFeeCents,
+        totals.totalCents,
+        totals.applicationFeeCents,
+        buyerEmail,
+        trackingCode,
+        mapVersion,
+        seatIds,
+        SEAT_HOLD_LIMITS.hold,
+        SEAT_HOLD_LIMITS.attempts.limit,
+        SEAT_HOLD_LIMITS.attempts.window,
+        SEAT_HOLD_LIMITS.capMin,
+        SEAT_HOLD_LIMITS.capShare,
+      ],
+    ),
+  );
+  switch (hold.result) {
+    case "held":
+      break;
+    case "rate_limited":
+      throw seatError(429, BUSY, "seats", { code: "rate_limited", seatIds });
+    case "hold_cap":
+      throw seatError(429, BUSY, "seats", { code: "hold_cap", seatIds });
+    case "seats_unavailable":
+      throw seatError(409, SEATS_TAKEN, "seats", { code: "seats_unavailable", seatIds: hold.unavailable_seat_ids ?? seatIds });
+    case "version":
+    case "tier_mismatch":
+      throw seatError(409, SEAT_MAP_CHANGED, "seatMapVersion", { code: "seat_map_changed" });
+    case "not_on_sale":
+      throw new HttpError(404, "This event isn't available for booking.");
+    default:
+      throw new Error(`Unexpected hold_seats result: ${hold.result}`);
+  }
+
+  const siteUrl = deps.siteUrl();
+  let session: Stripe.Checkout.Session;
+  try {
+    session = await deps.stripe().checkout.sessions.create({
+      mode: "payment",
+      client_reference_id: orderId,
+      ...(buyerEmail ? { customer_email: buyerEmail } : {}),
+      expires_at: Math.floor(Date.now() / 1000) + SEAT_HOLD_LIMITS.stripeSessionMinutes * 60,
+      line_items: lineItems.flatMap((line) => {
+        const lineSeats = seats.filter((seat) => seat.ticketTypeId === line.ticketTypeId);
+        const items: Stripe.Checkout.SessionCreateParams.LineItem[] = [
+          {
+            price_data: {
+              currency: "aud",
+              product_data: {
+                name: `${line.ticketTypeName} — ${event.title}`,
+                ...(lineSeats.length > 0 ? { description: lineSeats.map(formatSeatLine).join("; ") } : {}),
+              },
+              unit_amount: line.unitPriceCents,
+            },
+            quantity: line.quantity,
+          },
+        ];
+        if (line.feePolicy === "buyer-pays" && line.unitPriceCents > 0) {
+          items.push({
+            price_data: {
+              currency: "aud",
+              product_data: { name: "Booking fee" },
+              unit_amount: calculateBookingFeeCents(line.unitPriceCents),
+            },
+            quantity: line.quantity,
+          });
+        }
+        return items;
+      }),
+      payment_intent_data: {
+        application_fee_amount: totals.applicationFeeCents,
+        transfer_data: { destination: organiser.stripeAccountId },
+      },
+      success_url: `${siteUrl}/checkout/success?session_id=${orderId}`,
+      // The cancelled page releases the seats at once (POST /orders/by-session/{id}/cancel).
+      cancel_url: `${siteUrl}/checkout/cancelled?order=${orderId}`,
+      metadata: { orderId, eventId: event.eventId },
+    });
+  } catch (err) {
+    // Nobody can pay for these seats: give them back now, not in 35 minutes.
+    await db.query(`select private.release_seat_holds($1)`, [orderId]);
+    throw err;
+  }
+  if (!session.url) {
+    await db.query(`select private.release_seat_holds($1)`, [orderId]);
+    throw new Error("Stripe did not return a Checkout Session URL.");
+  }
+
+  await db.query(`update public.orders set stripe_checkout_session_id = $2 where id = $1`, [orderId, session.id]);
+  const result: CheckoutResult = { url: session.url, holdExpiresAt: new Date(hold.hold_expires_at as string).toISOString() };
+  return createdPrivate(result);
+}
+
+/** Stripe's answer to expiring a session that can't be expired (already complete or expired). */
+async function expireCheckoutSession(deps: Deps, sessionId: string): Promise<"expired" | "complete"> {
+  try {
+    await deps.stripe().checkout.sessions.expire(sessionId);
+    return "expired";
+  } catch (err) {
+    const session = await deps.stripe().checkout.sessions.retrieve(sessionId);
+    if (session.status === "expired") return "expired";
+    if (session.status === "complete") return "complete";
+    throw err;
+  }
+}
+
+/**
+ * POST /api/orders/by-session/[sessionId]/cancel — public, the order id is
+ * the credential (as for GET). The buyer left Stripe's page (the seated
+ * checkout's cancel_url): the Stripe session is expired first, so it can't
+ * be paid any more, then the order is cancelled and its seats released.
+ * CancelOrderResult: `released` (also when it already was), `paid`, or
+ * `processing` (Stripe already has the payment). 404 unknown or not a card
+ * checkout; 409 still being set up (try again). `private, no-store`.
+ */
+export const cancelPendingOrder: Handler<{ sessionId: string }> = async (_req, { sessionId }, deps) => {
+  if (!ORDER_ID_PATTERN.test(sessionId)) throw new HttpError(404, ORDER_NOT_FOUND);
+  const [row] = await deps.db.query<{
+    status: OrderStatus;
+    stripe_checkout_session_id: string | null;
+    free_link: boolean;
+    event_title: string;
+    event_slug: string | null;
+  }>(
+    `select o.status::text as status, o.stripe_checkout_session_id, o.confirmation_token_hash is not null as free_link,
+            o.event_title, (select e.slug from public.events e where e.id = o.event_id) as event_slug
+       from public.orders o where o.id = $1`,
+    [sessionId],
+  );
+  // A guest's free booking isn't a card checkout: nothing to cancel here.
+  if (!row || row.free_link) throw new HttpError(404, ORDER_NOT_FOUND);
+  const answer = (status: CancelOrderResult["status"]) =>
+    okPrivate({ status, eventTitle: row.event_title, ...(row.event_slug ? { eventSlug: row.event_slug } : {}) } satisfies CancelOrderResult);
+
+  if (row.status === "paid") return answer("paid");
+  if (row.status === "failed") return answer("released");
+  if (row.status !== "pending") return answer("processing");
+  if (!row.stripe_checkout_session_id) {
+    throw new HttpError(409, "This checkout is still being set up. Try again in a moment.");
+  }
+  if ((await expireCheckoutSession(deps, row.stripe_checkout_session_id)) === "complete") return answer("processing");
+  const [released] = await deps.db.query<{ result: string }>(`select private.release_seat_holds($1) as result`, [sessionId]);
+  switch (released.result) {
+    case "released":
+    case "failed":
+      return answer("released");
+    case "paid":
+      return answer("paid");
+    default:
+      return answer("processing");
+  }
 };

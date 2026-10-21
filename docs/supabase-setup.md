@@ -344,6 +344,104 @@ logged), or, if there's no good link to give it, unpublish it
 (`POST /api/admin/events/{id}/unpublish`) and then fix it. Then run the
 migration again.
 
+### Reserved seating
+
+Seat maps, holds and sales are described in `docs/architecture.md`
+("Reserved seating"). Run these in the Supabase SQL editor. Each takes the
+event's seat lock first, as the app does, so it can't interleave with a
+checkout, a payment or a refund. Replace the `<…>` values; event ids are
+uuids, seat ids are the map's (e.g. `A12`), order ids `ord_…`.
+
+**Release a stuck hold.** Holds end on their own 35 minutes after Checkout,
+and the app releases them straight away when Stripe's session expires or the
+buyer cancels. To free a hold early, first **expire the order's Checkout
+Session in the Stripe dashboard** (Payments → Checkout sessions), or check
+it has expired: releasing a hold whose session can still be paid would let
+the buyer pay for seats someone else may then take (they'd be refunded
+automatically, but it's avoidable). Then:
+
+```sql
+select private.release_seat_holds('<order id>');
+-- 'released': the order is now failed and its seats are free.
+-- Anything else ('paid', 'failed', …) is the order's status: nothing changed.
+```
+
+**Block a seat after approval** (a broken seat, a camera position). The
+organiser's map is frozen once approved, and an admin can only replace it
+while the event has no orders (`PUT /api/admin/events/{id}/seat-map`). With
+orders, block an unsold seat in SQL. The seat's tier loses one place of
+capacity. The stored layout isn't changed: buyers see the seat as
+unavailable (the availability bitmap), and the editor still shows it as
+before.
+
+```sql
+do $$
+declare
+  v_event uuid := '<event id>';
+  v_seat text := '<seat id>';
+begin
+  perform private.lock_event_seats(v_event);
+  update public.event_seats
+     set blocked = true, hold_order_id = null, hold_expires_at = null
+   where event_id = v_event and id = v_seat and not blocked and sold_order_id is null
+     and (hold_order_id is null or hold_expires_at <= now());
+  if not found then
+    raise exception 'Seat % is unknown, already blocked, sold or held right now: nothing changed.', v_seat;
+  end if;
+  -- Recompute the tiers' capacity (the ticket_types_seated_capacity trigger).
+  update public.ticket_types set quantity_available = quantity_available where event_id = v_event and seated;
+  insert into public.event_moderation_log (event_id, action, actor_id, reason)
+  values (v_event, 'edited', '<your admin user id>', 'Seat ' || v_seat || ' blocked: <why>');
+end
+$$;
+```
+
+Unblocking is the same with `blocked = false` (and no hold or sale to check).
+A seat that's sold must be moved first (below), or its order refunded.
+
+**Move a buyer's seat** (same ticket type only: a different price is a
+refund and a new booking). The new seat must be free (not sold, blocked or
+held right now). The ticket keeps its code; the buyer's confirmation page
+shows the new seat at once.
+
+```sql
+do $$
+declare
+  v_event uuid := '<event id>';
+  v_order text := '<order id>';
+  v_from text := '<current seat id>';
+  v_to text := '<new seat id>';
+  v_tier text;
+  v_code text;
+begin
+  perform private.lock_event_seats(v_event);
+  select ticket_type_id into v_tier from public.event_seats
+   where event_id = v_event and id = v_from and sold_order_id = v_order for update;
+  if not found then
+    raise exception 'Seat % isn''t sold to that order.', v_from;
+  end if;
+  perform 1 from public.event_seats
+   where event_id = v_event and id = v_to and ticket_type_id = v_tier and not blocked and sold_order_id is null
+     and (hold_order_id is null or hold_expires_at <= now())
+     for update;
+  if not found then
+    raise exception 'Seat % isn''t free in the same ticket type.', v_to;
+  end if;
+  select code into v_code from public.tickets where event_id = v_event and order_id = v_order and seat_id = v_from;
+  -- The ticket lets go of the seat first (its foreign key needs the seat sold to its order).
+  update public.tickets set seat_id = null where code = v_code;
+  update public.event_seats set sold_order_id = null where event_id = v_event and id = v_from;
+  update public.event_seats set sold_order_id = v_order, hold_order_id = null, hold_expires_at = null
+   where event_id = v_event and id = v_to;
+  update public.tickets set seat_id = v_to where code = v_code;
+  update public.orders set seat_ids = array_replace(seat_ids, v_from, v_to) where id = v_order;
+end
+$$;
+```
+
+Then resend the ticket email from `/admin/emails` (it's rebuilt from the
+order, so it shows the new seat), and tell the buyer.
+
 ### Redacting personal information from the event moderation log
 
 `edited` and `ticketing_changed` entries in `public.event_moderation_log`

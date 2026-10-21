@@ -58,11 +58,13 @@ describe("Data API lock-out", () => {
     expect(open).toEqual([]);
   });
 
-  it("the messaging, favourites, analytics, outbound-click and check-in tables exist in `public` with RLS on, no policies and no client grants", async () => {
+  it("the messaging, favourites, analytics, outbound-click, check-in and seating tables exist in `public` with RLS on, no policies and no client grants", async () => {
     const tables = [
       "conversations",
       "event_favourites",
       "event_outbound_clicks",
+      "event_seat_maps",
+      "event_seats",
       "event_tracking_links",
       "event_view_counts",
       "messages",
@@ -231,6 +233,50 @@ describe("Data API lock-out", () => {
         where s.nspname = 'private' and c.relname in ('event_waitlist', 'event_waitlist_tokens')`,
     );
     expect(policies.n).toBe(0);
+  });
+
+  it("the reserved seating functions and triggers exist, pin search_path and aren't client-executable", async () => {
+    const names = [
+      "admin_replace_seat_map",
+      "admin_set_event_ticketing",
+      "check_in_ticket",
+      "clear_seat_map",
+      "confirm_free_order",
+      "delete_seat_map",
+      "edit_event_draft",
+      "event_seat_maps_sheltuh_only",
+      "event_seat_maps_touch_event",
+      "fulfil_order",
+      "hold_seats",
+      "lock_event_seats",
+      "order_seats_match",
+      "place_free_seated_order",
+      "record_payment_refund",
+      "release_seat_holds",
+      "replace_seat_map",
+      "request_free_seated_order",
+      "seat_map_summary",
+      "ticket_types_seated_capacity",
+      "unavailable_seats",
+      "write_seat_map",
+    ];
+    const rows = await db.query<{ fn: string; pinned: boolean; client: boolean }>(
+      `select p.proname as fn,
+              bool_and(exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c = 'search_path=""')) as pinned,
+              bool_or(has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
+                or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                            where a.grantee = 0 and a.privilege_type = 'EXECUTE')) as client
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'private' and p.proname = any($1::text[]) group by p.proname order by 1`,
+      [names],
+    );
+    expect(rows).toEqual(names.map((fn) => ({ fn, pinned: true, client: false })));
+    // The version sequence isn't the Data API's either.
+    const [seq] = await db.query<{ granted: number }>(
+      `select count(*)::int as granted from pg_class c, aclexplode(coalesce(c.relacl, acldefault('s', c.relowner))) a
+        where c.oid = 'private.seat_map_versions'::regclass and (a.grantee = 0 or a.grantee in ('anon'::regrole, 'authenticated'::regrole))`,
+    );
+    expect(seq.granted).toBe(0);
   });
 
   it("the member profile and organiser follow functions and triggers exist, pin search_path and aren't client-executable", async () => {

@@ -1,7 +1,8 @@
 import { SUPPORT_EMAIL } from "@/lib/contact";
+import { formatSeatLine } from "@/lib/seating/format";
 import type { EmailMessage } from "./email";
 import { formatTicketDate, formatTicketTime } from "./ticket-email";
-import type { EventRecord, OrderLineItem } from "./types";
+import type { EventRecord, OrderLineItem, TicketSeat } from "./types";
 
 const SANS = `'Helvetica Neue', Helvetica, Arial, sans-serif`;
 const CREAM = "#f3f0e8";
@@ -28,22 +29,31 @@ function summarise(lineItems: OrderLineItem[]): string {
   return lineItems.map((l) => `${l.quantity} × ${l.ticketTypeName}`).join(", ");
 }
 
-/** The confirm-your-free-tickets email (plain text plus a simple HTML version). */
+/** Shown with a seated booking's seats: nothing is held until the link is confirmed (decision 7). */
+export const SEATS_NOT_HELD_NOTE = "Your seats are only held once you confirm, if they're still free.";
+
+/**
+ * The confirm-your-free-tickets email (plain text plus a simple HTML
+ * version). `seats`: a seated booking's seats, one line each.
+ */
 export function buildFreeConfirmationEmail(
   to: string,
   event: EventRecord,
   lineItems: OrderLineItem[],
   link: string,
   hoursValid: number,
+  seats?: TicketSeat[],
 ): EmailMessage {
   const when = `${formatTicketDate(event.startsAt, event.endsAt)}, ${formatTicketTime(event.startsAt, event.endsAt)}`;
   const tickets = summarise(lineItems);
+  const seatLines = (seats ?? []).map(formatSeatLine);
   const text = [
     "Confirm your free tickets",
     "",
     event.title,
     when,
     `Tickets: ${tickets}`,
+    ...(seatLines.length > 0 ? [`Seats: ${seatLines.join("; ")}`, SEATS_NOT_HELD_NOTE] : []),
     "",
     `Confirm here (the link works for ${hoursValid} hours): ${link}`,
     "",
@@ -63,7 +73,7 @@ export function buildFreeConfirmationEmail(
 <h1 style="margin:0 0 12px 0;font-size:30px;line-height:36px">Confirm your free tickets</h1>
 <p style="margin:0 0 4px 0;font-size:20px;line-height:26px;font-weight:bold;color:${BLUE}">${escapeHtml(event.title)}</p>
 <p style="margin:0 0 4px 0;font-size:16px;line-height:24px">${escapeHtml(when)}</p>
-<p style="margin:0 0 24px 0;font-size:16px;line-height:24px">Tickets: ${escapeHtml(tickets)}</p>
+<p style="margin:0 0 ${seatLines.length > 0 ? 8 : 24}px 0;font-size:16px;line-height:24px">Tickets: ${escapeHtml(tickets)}</p>${seatLines.length > 0 ? `\n<p style="margin:0 0 4px 0;font-size:16px;line-height:24px;font-weight:bold">${seatLines.map(escapeHtml).join("<br>")}</p>\n<p style="margin:0 0 24px 0;font-size:15px;line-height:22px;color:${MUTED}">${escapeHtml(SEATS_NOT_HELD_NOTE)}</p>` : ""}
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0"><tr>
 <td bgcolor="${BLUE}" style="background-color:${BLUE};border-radius:10px"><a href="${escapeHtml(link)}" style="display:block;padding:14px 30px;font-size:16px;line-height:20px;font-weight:bold;color:#ffffff;text-decoration:none">Confirm my tickets</a></td>
 </tr></table>

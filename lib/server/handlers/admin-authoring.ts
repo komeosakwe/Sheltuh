@@ -18,7 +18,7 @@ import type { AdminEventRecord } from "../types";
 import { fail } from "../validation";
 import { MAX_TICKETING_REASON_LENGTH } from "./admin";
 import { readEventImage } from "./event-images";
-import { eventFields, ticketTypeConflict, withUniqueSlug } from "./events";
+import { eventFields, ticketTypeConflict, withSeatedCapacity, withUniqueSlug } from "./events";
 import { parseApplication } from "./organisers";
 
 /** Shown when a platform-managed organiser's event would have a paid Sheltüh ticket. */
@@ -262,6 +262,8 @@ export const adminUpdateEvent: Handler<{ eventId: string }> = async (req, { even
     };
   });
 
+  const current = await findAdminEvent(db, eventId);
+  const edit = current ? withSeatedCapacity(input, current) : input;
   let result: string;
   try {
     const [row] = await db.query<{ result: string }>(
@@ -270,8 +272,8 @@ export const adminUpdateEvent: Handler<{ eventId: string }> = async (req, { even
         eventId,
         admin.userId,
         extra.expectedUpdatedAt,
-        JSON.stringify(eventFields(input)),
-        JSON.stringify(input.ticketTypes),
+        JSON.stringify(eventFields(edit)),
+        JSON.stringify(edit.ticketTypes),
         extra.publish,
         extra.reason,
       ],

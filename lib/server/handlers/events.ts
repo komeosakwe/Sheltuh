@@ -27,6 +27,13 @@ export function eventFields(input: EventInput): Omit<EventInput, "ticketTypes"> 
 
 /** Turns the database's inventory guards into messages an organiser can act on. */
 export function ticketTypeConflict(err: unknown): never {
+  if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION && pgConstraint(err) === "event_seats_ticket_type_fkey") {
+    throw new HttpError(
+      409,
+      "A ticket type with seats on the seat map can't be removed. Move its seats to another ticket type first.",
+      { ticketTypes: "A ticket type with seats on the seat map can't be removed." },
+    );
+  }
   if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION && pgConstraint(err)?.startsWith("tickets_")) {
     throw new HttpError(409, "A ticket type that has already sold tickets can't be removed.");
   }
@@ -34,6 +41,22 @@ export function ticketTypeConflict(err: unknown): never {
     throw new HttpError(409, "A ticket type's quantity can't go below the number already sold.");
   }
   throw err;
+}
+
+/**
+ * A seated tier's capacity is set by the seat map (its unblocked seats; the
+ * database's ticket_types_seated_capacity trigger enforces it whatever is
+ * sent). An edit's quantity for such a tier is replaced by the stored one,
+ * so the editor's stale number neither errors nor shows up as an admin
+ * "change".
+ */
+export function withSeatedCapacity(input: EventInput, current: EventRecord): EventInput {
+  const seated = new Map(current.ticketTypes.filter((t) => t.seated).map((t) => [t.id, t.quantityAvailable]));
+  if (seated.size === 0) return input;
+  return {
+    ...input,
+    ticketTypes: input.ticketTypes.map((t) => (seated.has(t.id) ? { ...t, quantityAvailable: seated.get(t.id) as number } : t)),
+  };
 }
 
 /** POST /api/events — creates a draft owned by the caller's organisation. */
@@ -104,7 +127,7 @@ export const updateEventDraft: Handler<{ eventId: string }> = async (req, { even
   const caller = await requireCaller(req, verifyAccessToken);
   const organiser = await requireApprovedOrganiser(db, caller);
   const current = await requireOwnEvent(db, organiser.organiserId, eventId);
-  const input = parseEventInput(withStoredTicketing(await readJson(req), current));
+  const input = withSeatedCapacity(parseEventInput(withStoredTicketing(await readJson(req), current)), current);
 
   let result: string;
   try {

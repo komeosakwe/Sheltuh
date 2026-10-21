@@ -6,6 +6,7 @@ import {
   type CheckInResult,
   type CheckInSummary,
   type EventAttendance,
+  type SeatKind,
   type UndoCheckInOutcome,
   type UndoCheckInResult,
 } from "@/lib/api/types";
@@ -129,6 +130,10 @@ interface CheckInRow {
   code_last4: string | null;
   first_checked_in_at: string | Date | null;
   other_event_title: string | null;
+  seat_section: string | null;
+  seat_row: string | null;
+  seat_label: string | null;
+  seat_kind: string | null;
 }
 
 function toCheckInResult(row: CheckInRow): CheckInResult {
@@ -142,6 +147,17 @@ function toCheckInResult(row: CheckInRow): CheckInResult {
       ticketNumber: row.ticket_number as number,
       ticketCount: row.ticket_count as number,
       codeLast4: row.code_last4 as string,
+      // Reserved seating: where to send them (absent for general admission).
+      ...(row.seat_section !== null && row.seat_section !== undefined
+        ? {
+            seat: {
+              section: row.seat_section,
+              row: row.seat_row ?? "",
+              seat: row.seat_label as string,
+              kind: (row.seat_kind ?? "standard") as SeatKind,
+            },
+          }
+        : {}),
     },
   };
   // The admission an undo reverses: this one, or the ticket's current one when it's already in.
@@ -177,7 +193,7 @@ export const checkInTicket: Handler<{ eventId: string }> = async (req, { eventId
   try {
     [row] = await deps.db.query<CheckInRow>(
       `select result, admission_id::text as admission_id, ticket_type_name, ticket_number, ticket_count, code_last4,
-              first_checked_in_at, other_event_title
+              first_checked_in_at, other_event_title, seat_section, seat_row, seat_label, seat_kind
          from private.check_in_ticket($1, $2, $3, $4, $5::uuid, $6, $7::interval)`,
       [
         eventId,

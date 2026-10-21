@@ -21,7 +21,7 @@ export async function runHandler<P extends Params>(
     return await handler(req, params, deps);
   } catch (err) {
     if (err instanceof HttpError) {
-      return errorJson(err.statusCode, { error: err.message, fieldErrors: err.fieldErrors });
+      return errorJson(err.statusCode, { ...err.details, error: err.message, fieldErrors: err.fieldErrors });
     }
     // Never log request bodies or tokens — they carry personal data.
     console.error("Unhandled API error:", redactForLog(err instanceof Error ? err.message : "unknown error"));

@@ -66,6 +66,13 @@ export interface PublicEvent {
    * Sheltüh-ticketed events.
    */
   externalProvider?: string | null;
+  /**
+   * Only for an event with a seat map (reserved seating): its version, for
+   * GET /events/{id}/seat-map?v={version}. Its seated tiers carry
+   * `seated: true`; general admission tiers (a mixed event) don't. Absent for
+   * a general admission event, whose payload is otherwise unchanged.
+   */
+  seating?: { version: number };
 }
 
 export interface ListPublicEventsParams {

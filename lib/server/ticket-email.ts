@@ -1,10 +1,11 @@
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { formatAud } from "@/lib/format";
+import { formatSeatLine, speakSeatLine } from "@/lib/seating/format";
 import { QR_QUIET_ZONE_MODULES, ticketQrLabel, ticketQrMatrix } from "@/lib/ticket-qr";
 import type { EmailMessage, InlineImage } from "./email";
 import { orderReference } from "./order-reference";
 import { encodePng } from "./png";
-import type { EventRecord, OrderRecord } from "./types";
+import type { EventRecord, OrderRecord, TicketSeat } from "./types";
 
 /**
  * Brand footer banner. A fixed public URL on the marketing site, not built
@@ -139,7 +140,14 @@ function ticketQr(code: string, index: number): TicketQr | null {
   };
 }
 
-function ticketCard(code: string, typeName: string, index: number, total: number, qr: TicketQr | null): string {
+function ticketCard(
+  code: string,
+  typeName: string,
+  index: number,
+  total: number,
+  qr: TicketQr | null,
+  seat?: TicketSeat,
+): string {
   const label = total > 1 ? `Ticket ${index + 1} of ${total}` : "Your ticket";
   // The PNG carries its own white quiet zone, so the card behind it needn't be white.
   const qrRow = qr
@@ -147,7 +155,7 @@ function ticketCard(code: string, typeName: string, index: number, total: number
     : "";
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:2px solid ${INK};border-radius:10px;margin:0 0 14px 0">
 <tr><td style="padding:16px 18px 6px 18px;font-family:${SANS};font-size:12px;line-height:18px;letter-spacing:1.2px;text-transform:uppercase;font-weight:bold;color:${MUTED}">${escapeHtml(label)}${typeName ? ` &middot; ${escapeHtml(typeName)}` : ""}</td></tr>
-${qrRow}<tr><td style="padding:0 18px 16px 18px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td class="code" bgcolor="${CREAM}" align="center" style="background-color:${CREAM};border-radius:8px;padding:14px 8px;font-family:${MONO};font-size:28px;line-height:34px;font-weight:bold;letter-spacing:3px;color:${INK};word-break:break-all">${escapeHtml(code)}</td></tr></table></td></tr>
+${seat ? `<tr><td style="padding:0 18px 10px 18px;font-family:${SANS};font-size:16px;line-height:24px;font-weight:bold;color:${INK}">${escapeHtml(formatSeatLine(seat))}</td></tr>\n` : ""}${qrRow}<tr><td style="padding:0 18px 16px 18px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td class="code" bgcolor="${CREAM}" align="center" style="background-color:${CREAM};border-radius:8px;padding:14px 8px;font-family:${MONO};font-size:28px;line-height:34px;font-weight:bold;letter-spacing:3px;color:${INK};word-break:break-all">${escapeHtml(code)}</td></tr></table></td></tr>
 </table>`;
 }
 
@@ -189,6 +197,7 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
     ...order.tickets.flatMap((t, i) => [
       "",
       `${order.tickets.length > 1 ? `Ticket ${i + 1} of ${order.tickets.length}` : "Your ticket"}${t.ticketTypeName ? ` - ${t.ticketTypeName}` : ""}`,
+      ...(t.seat ? [`Seat: ${speakSeatLine(t.seat)}`] : []),
       `Entry code: ${t.ticketCode}`,
     ]),
     "",
@@ -204,7 +213,7 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
   // --- HTML ---
   const details =
     detailRow("Date", date) + detailRow("Time", when) + (venue ? detailRow("Venue", venue) : "") + (address ? detailRow("Address", address) : "");
-  const tickets = order.tickets.map((t, i) => ticketCard(t.ticketCode, t.ticketTypeName, i, order.tickets.length, qrs[i])).join("\n");
+  const tickets = order.tickets.map((t, i) => ticketCard(t.ticketCode, t.ticketTypeName, i, order.tickets.length, qrs[i], t.seat)).join("\n");
   const preheader = `Your ${one ? "ticket" : "tickets"} for ${event.title}. Show your ${anyQr ? "QR code" : "entry code"} at the door.`;
   const instructions = anyQr
     ? `Show ${one ? "this QR code" : "these QR codes"} at the door. Turn your screen brightness up. If ${one ? "it" : "one"} won&rsquo;t scan, door staff can type in ${one ? "the" : "its"} code.`

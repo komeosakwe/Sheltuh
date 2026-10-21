@@ -2,10 +2,12 @@ import type { TicketingMode } from "@/lib/ticketing";
 import type { EventCategory, FeePolicy } from "@/lib/types";
 import type { FeaturedVideo } from "./featured-video";
 import type { PublicEvent } from "./public-events";
+import type { SeatMapTemplate, TicketSeat } from "@/lib/seating/template";
 
 export type { FeaturedVideo, FeaturedVideoProvider } from "./featured-video";
 
 export type { TicketingMode } from "@/lib/ticketing";
+export type { SeatKind, SeatMapTemplate, TicketSeat } from "@/lib/seating/template";
 
 export type OrganiserStatus = "pending" | "approved" | "rejected";
 
@@ -140,7 +142,25 @@ export interface TicketTypeInput {
   description?: string;
   priceCents: number;
   feePolicy: FeePolicy;
+  /**
+   * For a seated tier (`seated`), the number of its seats that aren't
+   * blocked: set by the seat map, whatever an edit sends.
+   */
   quantityAvailable: number;
+  /**
+   * Sent (as true) only for a tier with seats on the event's seat map
+   * (docs/architecture.md, "Reserved seating"): it's sold only by choosing
+   * seats (POST …/checkout `seats`), never as a quantity. Absent otherwise,
+   * so a general admission event's payload is unchanged. Ignored in edits.
+   */
+  seated?: true;
+}
+
+/** An event's seat map, as event records carry it (absent: general admission only). */
+export interface EventSeating {
+  /** The map's version: GET /events/{id}/seat-map?v={version}. Never reused. */
+  version: number;
+  seatCount: number;
 }
 
 /** One changed field of a `ticketing_changed` log entry: its value before and after. */
@@ -173,6 +193,8 @@ export interface EventEditChanges {
   endsAt?: TicketingFieldChange<string>;
   ticketTypes?: TicketingFieldChange<TicketTypeInput[]>;
   image?: TicketingFieldChange<"set">;
+  /** An admin replaced or removed the seat map (or switched the event to external ticketing, removing it). */
+  seatMap?: TicketingFieldChange<EventSeating>;
 }
 
 /** ModerationLogEntry.by for an admin's entry in an organiser's view: never the admin's account id. */
@@ -250,6 +272,12 @@ export interface EventRecord {
    * 409); only an admin can. Always sent.
    */
   ticketingLocked?: boolean;
+  /**
+   * The event's seat map, when it has one. The organiser can change the map
+   * only while `ticketingLocked` is false (never approved) and the event is a
+   * draft or rejected; after that only an admin, while it has no orders.
+   */
+  seating?: EventSeating;
   status: EventStatus;
   rejectionReason?: string;
   moderationLog: ModerationLogEntry[];
@@ -326,6 +354,8 @@ export interface IssuedTicket {
   ticketCode: string;
   ticketTypeId: string;
   ticketTypeName: string;
+  /** The ticket's seat, for a seated order (lib/seating/format.ts says it). */
+  seat?: TicketSeat;
 }
 
 export interface OrderRecord {
@@ -346,6 +376,8 @@ export interface OrderRecord {
   /** Unset for free orders, which never touch Stripe. */
   stripeCheckoutSessionId?: string;
   stripePaymentIntentId?: string;
+  /** A seated order's seats (ids on the event's seat map); absent for general admission. */
+  seatIds?: string[];
   tickets: IssuedTicket[];
   createdAt: string;
   updatedAt: string;
@@ -363,7 +395,16 @@ export const MAX_FREE_TICKETS_PER_ORDER = 4;
  *   to confirm it has been emailed to the address given (valid for
  *   `expiresInHours`); nothing is issued or held until it's confirmed.
  */
-export type CheckoutResult = { url: string } | { status: "confirmation_sent"; expiresInHours: number };
+export type CheckoutResult =
+  | {
+      url: string;
+      /**
+       * A seated paid checkout only: when the seats' hold ends (ISO 8601).
+       * Stripe's page closes a few minutes before (SEAT_HOLD.stripeMinutes).
+       */
+      holdExpiresAt?: string;
+    }
+  | { status: "confirmation_sent"; expiresInHours: number };
 
 /** POST /api/orders/confirm `{token}` (from the emailed link's fragment): 200 with the confirmation page's URL. */
 export interface ConfirmFreeOrderResult {
@@ -447,7 +488,7 @@ export interface CustomerOrder {
   buyerFeeCents: number;
   totalCents: number;
   /** Only for a `paid` order; empty for every other status (a refunded order's tickets are void). */
-  tickets: { ticketCode: string; ticketTypeName: string }[];
+  tickets: { ticketCode: string; ticketTypeName: string; seat?: TicketSeat }[];
 }
 
 export type CustomerOrderLookup = CustomerOrder | { status: "pending" };
@@ -1158,6 +1199,8 @@ export interface CheckInTicket {
   ticketCount: number;
   /** The code's last four characters. */
   codeLast4: string;
+  /** The ticket's seat, for a seated event (lib/seating/format.ts says it). */
+  seat?: TicketSeat;
 }
 
 /**
@@ -1269,4 +1312,90 @@ export interface UnsubscribeFollowResult {
   status: "unsubscribed";
   /** Still following: only the emails stop. */
   organiserName?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Reserved seating (docs/architecture.md, "Reserved seating")
+// ---------------------------------------------------------------------------
+
+/**
+ * Seat holds (docs/SEATING_PLAN.md). The buyer is told `stripeMinutes`
+ * (Stripe's page closes then); the seats stay held `holdMinutes`, a buffer for
+ * the payment to be confirmed.
+ */
+export const SEAT_HOLD = { holdMinutes: 35, stripeMinutes: 30 } as const;
+
+/**
+ * GET /api/events/{eventId}/seat-map[?v=version]. Public once the event is
+ * published (cached for a long time when `v` is the current version); before
+ * that, the owning organiser or an admin only (bearer token).
+ */
+export interface SeatMapRecord {
+  eventId: string;
+  version: number;
+  seatCount: number;
+  /** The map, as validated and stored: sections → rows → seats, stage, focus point. */
+  template: SeatMapTemplate;
+}
+
+/**
+ * GET /api/events/{eventId}/seat-availability (published events). `unavailable`
+ * is the bitmap (lib/seating/availability.ts) by seat position for map
+ * `version`: sold, held and blocked look the same. Cached 5 seconds.
+ */
+export interface SeatAvailability {
+  eventId: string;
+  version: number;
+  seatCount: number;
+  unavailable: string;
+}
+
+/** The `seats` part of POST /api/events/{eventId}/checkout. */
+export interface CheckoutSeatsInput {
+  /** The map version the seats were chosen on (a different one is a 409, fieldErrors.seatMapVersion). */
+  mapVersion: number;
+  /** 1 to 10 seat ids. General admission lines (`lineItems`) don't count towards the 10. */
+  seatIds: string[];
+}
+
+/**
+ * Extra body fields of a seated checkout's error responses, besides `error`
+ * and `fieldErrors`:
+ * - 409 (fieldErrors.seats): `seatIds`, the seats that were taken (remove them
+ *   and let the buyer choose again).
+ * - 409 `seat_map_changed` (fieldErrors.seatMapVersion): the map was replaced; reload it.
+ * - 429 (`hold_cap`: too many seats held for the event right now; `rate_limited`:
+ *   too many checkouts for it in 10 minutes; fieldErrors.seats): `seatIds`, the
+ *   seats asked for (none were held).
+ * - 409 from POST /api/orders/confirm when a guest's seats went before they
+ *   confirmed (`code: "seats_taken"`): `seats` (their labels) and `eventSlug`.
+ */
+export interface SeatErrorDetails {
+  code?: "seats_unavailable" | "hold_cap" | "rate_limited" | "seat_map_changed" | "seats_taken";
+  seatIds?: string[];
+  seats?: TicketSeat[];
+  eventSlug?: string;
+}
+
+/**
+ * POST /api/orders/by-session/{orderId}/cancel: the buyer left Stripe's page
+ * (its cancel_url, /checkout/cancelled?order={orderId}).
+ * - `released`: nothing was charged; the order is cancelled and its seats are
+ *   free again (also when that had already happened).
+ * - `paid`: it's paid already (show /checkout/success?session_id={orderId}).
+ * - `processing`: Stripe already has the payment (or is confirming it); the
+ *   confirmation page will show the result.
+ */
+export interface CancelOrderResult {
+  status: "released" | "paid" | "processing";
+  /** The event's slug, for "Choose seats again" (unset if the event is gone). */
+  eventSlug?: string;
+  eventTitle: string;
+}
+
+/** PUT /api/admin/events/{eventId}/seat-map. */
+export interface AdminSeatMapInput {
+  template: SeatMapTemplate;
+  /** 1–500 characters, logged (the organiser sees it). */
+  reason: string;
 }
