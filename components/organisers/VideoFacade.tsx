@@ -66,7 +66,7 @@ export default function VideoFacade({ video, title }: { video: FeaturedVideo; ti
                 className="absolute inset-0 size-full rounded-card object-cover"
               />
             )}
-            <span className="relative flex items-center gap-3 rounded-control bg-cream px-4 py-3 text-ink motion-safe:transition-transform motion-safe:group-hover:scale-105">
+            <span className="relative flex items-center gap-3 rounded-control border border-foreground bg-card px-4 py-3 text-foreground group-hover:bg-surface">
               <svg aria-hidden="true" viewBox="0 0 24 24" className="size-6 fill-current">
                 <path d="M8 5.5v13l10.5-6.5z" />
               </svg>

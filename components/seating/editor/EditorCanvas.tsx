@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import { useCallback, useId, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { SNAP } from "@/lib/seating/editing";
 import type { SeatTreatment } from "@/lib/seating/selection";
 import { flattenSeats, type FlatSeat, type SeatMapSection, type SeatMapTemplate } from "@/lib/seating/template";
@@ -36,6 +36,7 @@ export default function EditorCanvas({
   onSelect,
   onMove,
   onFocusPoint,
+  canvasNode,
 }: {
   template: SeatMapTemplate;
   selected: ReadonlySet<string>;
@@ -48,12 +49,22 @@ export default function EditorCanvas({
   onSelect: (ids: string[], mode: SelectMode) => void;
   onMove: (dx: number, dy: number) => void;
   onFocusPoint: (point: { x: number; y: number }) => void;
+  /** The focusable canvas, for the editor to return focus to (after the toolbar's Delete removes the toolbar). */
+  canvasNode?: (node: HTMLDivElement | null) => void;
 }) {
   const { setContainer, view, seatPx, animateMs, minScale, maxScale, zoomBy, fitAll, toMap, onKeyDown } = useMapView(template);
   const gridId = useId().replace(/[^A-Za-z0-9_-]/g, "");
   const seats = useMemo(() => flattenSeats(template), [template]);
   const ghostSeats = useMemo(() => (ghost ? flattenSeats({ ...template, sections: [ghost] }) : []), [ghost, template]);
   const [drag, setDrag] = useState<Drag | null>(null);
+  // A stable ref callback: a new one each render would detach and reattach the node (and re-measure).
+  const containerRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      setContainer(node);
+      canvasNode?.(node);
+    },
+    [setContainer, canvasNode],
+  );
   const box = useRef<DOMRect | null>(null);
 
   function local(event: PointerEvent<HTMLDivElement>) {
@@ -157,7 +168,7 @@ export default function EditorCanvas({
   return (
     <div className="relative h-full w-full">
       <div
-        ref={setContainer}
+        ref={containerRef}
         tabIndex={0}
         role="group"
         aria-label="Seat map canvas. Arrow keys move the map, + and − zoom, 0 shows it all. Choose seats with the Sections list and the inspector."

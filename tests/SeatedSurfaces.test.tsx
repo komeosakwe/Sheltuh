@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventDetailsView from "@/components/EventDetailsView";
 import CheckoutCancelled from "@/components/seating/CheckoutCancelled";
 import SeatMapEditor from "@/components/seating/editor/SeatMapEditor";
+import SeatedTicketsPanel from "@/components/seating/SeatedTicketsPanel";
 import { seatMapAccess } from "@/components/seating/editor/SeatMapEditorPage";
 import { ApiError } from "@/lib/api/client";
 import { SAMPLE_SEAT_MAPS } from "@/lib/sample-seat-maps";
@@ -78,13 +79,30 @@ describe("event page for a seated event (docs/design/seating.md §5.1)", () => {
   });
 });
 
+describe("seated panel once the event has ended (§5.1)", () => {
+  it("no Choose your seats: says sales have ended", () => {
+    vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));
+    render(<SeatedTicketsPanel event={seated} demo />);
+    expect(screen.queryByRole("link", { name: "Choose your seats" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "How booking works" })).toBeNull();
+    expect(screen.getByText("Ticket sales for this event have ended.")).toBeInTheDocument();
+  });
+});
+
 describe("/checkout/cancelled (§5.12)", () => {
-  it("releases the seats once and says so, focusing the event title", async () => {
+  it("releases the seats once and says so, focusing the h1, with the event named above it", async () => {
     cancelPendingOrder.mockResolvedValue({ status: "released", eventTitle: "Off-Kilter: A New Play", eventSlug: "off-kilter" });
+    // Released here, so the seat page won't try again on Back.
+    window.sessionStorage.setItem("sheltuh:pending-checkout", JSON.stringify({ orderId: "ord_abc", slug: "off-kilter", at: Date.now() }));
     render(<CheckoutCancelled />);
+    expect(window.sessionStorage.getItem("sheltuh:pending-checkout")).toBeNull();
+    // Loading has its heading too.
+    expect(screen.getByRole("heading", { level: 1, name: "Checkout cancelled" })).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent(/Releasing your seats/);
-    const heading = await screen.findByRole("heading", { name: "Off-Kilter: A New Play" });
+    await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+    const heading = screen.getByRole("heading", { level: 1, name: "Checkout cancelled" });
     await waitFor(() => expect(heading).toHaveFocus());
+    expect(screen.getByText("Off-Kilter: A New Play")).toBeInTheDocument();
     expect(cancelPendingOrder).toHaveBeenCalledTimes(1);
     expect(cancelPendingOrder).toHaveBeenCalledWith("ord_abc");
     expect(screen.getByText("You weren’t charged, and your seats have been released for others.")).toBeInTheDocument();
@@ -107,7 +125,8 @@ describe("/checkout/cancelled (§5.12)", () => {
       "We couldn’t release your seats just now. They’ll be released automatically within 35 minutes. You weren’t charged.",
     );
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByRole("heading", { name: "Off-Kilter" })).toBeInTheDocument();
+    expect(await screen.findByText("You weren’t charged, and your seats have been released for others.")).toBeInTheDocument();
+    expect(screen.getByText("Off-Kilter")).toBeInTheDocument();
     expect(cancelPendingOrder).toHaveBeenCalledTimes(2);
   });
 
@@ -178,5 +197,59 @@ describe("organiser seat-map editor (§5.13)", () => {
     expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Preview as buyer" }));
     expect(screen.getByRole("button", { name: "Checkout is off in preview" })).toBeDisabled();
+  });
+  const sampleRecord = { eventId: event.id, version: 1, seatCount: 60, template: SAMPLE_SEAT_MAPS["evt-off-kilter"].template };
+
+  it("selects rows and single seats from the Sections list with the keyboard (2.1.1)", () => {
+    render(<SeatMapEditor event={event} initial={sampleRecord} status="Draft" locked={false} onSave={vi.fn()} />);
+    const disclosure = screen.getByRole("button", { name: "Rows and seats in North" });
+    expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(disclosure);
+    expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    const rowA = screen.getByRole("checkbox", { name: "North, Row A" });
+    fireEvent.click(rowA);
+    expect(within(screen.getByRole("toolbar", { name: "Selected seats" })).getByText("5 selected")).toBeInTheDocument();
+    expect(rowA).toBeChecked();
+    expect(screen.getByText("5 seats selected.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Seats in North, Row A" }));
+    const seats = screen.getByRole("group", { name: "Seats in North, Row A" });
+    fireEvent.click(within(seats).getByRole("checkbox", { name: "Seat 1" }));
+    expect(within(screen.getByRole("toolbar")).getByText("4 selected")).toBeInTheDocument();
+    expect(rowA).not.toBeChecked();
+    expect((rowA as HTMLInputElement).indeterminate).toBe(true);
+    // A partly chosen row: checking it adds the rest; checking it again clears the row.
+    fireEvent.click(rowA);
+    expect(within(screen.getByRole("toolbar")).getByText("5 selected")).toBeInTheDocument();
+    fireEvent.click(rowA);
+    expect(screen.queryByRole("toolbar")).toBeNull();
+  });
+
+  it("focus has somewhere to go when its control is removed: Delete section, Remove map, the toolbar's Delete", async () => {
+    const onRemove = vi.fn(async () => {});
+    const { container } = render(
+      <SeatMapEditor event={event} initial={sampleRecord} status="Draft" locked={false} onSave={vi.fn()} onRemove={onRemove} />,
+    );
+    // Toolbar Delete: the toolbar goes with the selection, so focus goes to the canvas.
+    fireEvent.click(screen.getByRole("button", { name: "Select North" }));
+    fireEvent.click(within(screen.getByRole("toolbar", { name: "Selected seats" })).getByRole("button", { name: "Delete" }));
+    expect(screen.queryByRole("toolbar")).toBeNull();
+    expect(container.querySelector('[aria-label^="Seat map canvas"]')).toHaveFocus();
+
+    // Delete section: its row in the list is gone, so the Sections heading.
+    screen.getByRole("button", { name: "Delete East" }).focus();
+    fireEvent.click(screen.getByRole("button", { name: "Delete East" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Delete section?" })).getByRole("button", { name: "Delete section" }));
+    expect(screen.queryByRole("button", { name: "Delete East" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Sections" })).toHaveFocus();
+
+    // Remove map: its button is gone, so the h1.
+    screen.getByRole("button", { name: "Remove map" }).focus();
+    fireEvent.click(screen.getByRole("button", { name: "Remove map" }));
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog", { name: "Remove the seat map?" })).getByRole("button", { name: "Remove map" }));
+    });
+    expect(onRemove).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("heading", { level: 1, name: "Seat map" })).toHaveFocus();
   });
 });

@@ -103,8 +103,9 @@ export function SeatLegendStrip(props: LegendProps) {
   }, [open]);
 
   return (
-    <div className="relative border-b border-surface-border">
-      <div className="no-scrollbar flex min-h-11 items-center gap-4 overflow-x-auto px-4 sm:px-8">
+    <div className="relative flex items-center gap-3 border-b border-surface-border pr-4 sm:pr-8">
+      {/* The prices scroll; Key stays put beside them, always reachable. */}
+      <div className="no-scrollbar flex min-h-11 min-w-0 flex-1 items-center gap-4 overflow-x-auto pl-4 sm:pl-8">
         {tiers.map((tier) => (
           <span key={tier.id} className="inline-flex shrink-0 items-center gap-2 text-sm">
             <SeatSwatch size={16} treatment={treatments.get(tier.id) ?? "outline"} patterns={patterns} />
@@ -113,17 +114,17 @@ export function SeatLegendStrip(props: LegendProps) {
           </span>
         ))}
         <span className="meta shrink-0 text-muted">Incl. booking fee</span>
-        <button
-          ref={buttonRef}
-          type="button"
-          aria-expanded={open}
-          aria-controls={popoverId}
-          onClick={() => setOpen((v) => !v)}
-          className="min-h-11 shrink-0 text-sm font-semibold underline underline-offset-4"
-        >
-          Key
-        </button>
       </div>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-expanded={open}
+        aria-controls={popoverId}
+        onClick={() => setOpen((v) => !v)}
+        className="min-h-11 shrink-0 text-sm font-semibold underline underline-offset-4"
+      >
+        Key
+      </button>
       <div
         ref={popoverRef}
         id={popoverId}

@@ -36,8 +36,8 @@ async function loadMap(event: SheltuhEvent, version?: number): Promise<{ map: Se
 /**
  * The live seat page (docs/design/seating.md §5.2): loads the event by slug,
  * then its map and availability, with loading, not-found and error states.
- * A map replaced while the page is open is reloaded (the picker remounts on
- * the new version).
+ * A map replaced while the page is open is reloaded with the event, in place
+ * (the picker keeps the buyer's seats that are still on it).
  */
 export default function LiveSeatPage({ slug }: { slug: string }) {
   const [state, setState] = useState<State>({ status: "loading" });
@@ -78,16 +78,29 @@ export default function LiveSeatPage({ slug }: { slug: string }) {
     if (state.status === "error" && retrying === false && attempt > 0) errorHeadingRef.current?.focus();
   }, [state, retrying, attempt]);
 
-  // The availability poll (or a checkout) saw another map version: load the current map.
+  // The availability poll (or a checkout) saw another map version: load the event again (its tiers,
+  // prices and seated flags may have changed with the map), then the current map. The picker keeps
+  // its selection and drops seats that are no longer on the map.
+  const reloading = useRef(false);
   const reloadMap = useCallback(() => {
-    if (state.status !== "ready") return;
-    const event = state.event;
-    loadMap(event)
-      .then((loaded) => setState({ status: "ready", event, ...loaded }))
-      .catch(() => {
+    if (reloading.current) return;
+    reloading.current = true;
+    (async () => {
+      try {
+        const event = adaptPublicEvent(await getPublicEventBySlug(slug));
+        if (!event.seating) {
+          setState({ status: "no-map", event });
+          return;
+        }
+        const loaded = await loadMap(event);
+        setState({ status: "ready", event, ...loaded });
+      } catch {
         // Keep the page as it is; the next poll tries again.
-      });
-  }, [state]);
+      } finally {
+        reloading.current = false;
+      }
+    })();
+  }, [slug]);
 
   if (state.status === "loading") return <SeatPickerLoading />;
   if (state.status === "not-found") return <NotFoundMessage />;
@@ -130,7 +143,6 @@ export default function LiveSeatPage({ slug }: { slug: string }) {
   }
   return (
     <SeatPicker
-      key={state.map.version}
       event={state.event}
       map={state.map}
       mode="live"

@@ -158,47 +158,50 @@ export default function SeatList({
                 const oneTier = rowTiers.size === 1 ? tierById.get(row[0].ticketTypeId) : undefined;
                 const groupName = row[0].row ? `${section.label}, Row ${row[0].row}` : section.label;
                 return (
-                  <fieldset key={`${section.id}-${row[0].row}`} aria-label={groupName} className="border-t border-surface-border py-3 first:border-t-0">
-                    <legend className="eyebrow mb-2">
-                      {row[0].row ? `Row ${row[0].row}` : "Seats"}
-                      {oneTier && ` · ${oneTier.name} · ${seatPriceText(oneTier)}`}
-                    </legend>
-                    <div className="grid grid-cols-[repeat(auto-fill,minmax(3.5rem,1fr))] gap-2">
-                      {row.map((seat) => {
-                        const unavailable = isUnavailable(seat) && !selected.has(seat.id);
-                        const tier = tierById.get(seat.ticketTypeId);
-                        return (
-                          <label
-                            key={seat.id}
-                            className={`flex min-h-11 items-center gap-2 rounded-control border px-2 ${
-                              unavailable
-                                ? "border-surface-border bg-surface text-muted line-through"
-                                : "border-foreground bg-card has-[:checked]:bg-signal"
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selected.has(seat.id)}
-                              disabled={unavailable || !interactive}
-                              onChange={() => onToggle(seat)}
-                              aria-label={seatCheckboxName(seat, tier, unavailable)}
-                              className="size-4 shrink-0"
-                              data-seat-id={seat.id}
-                            />
-                            <span aria-hidden="true" className="text-sm font-semibold tabular-nums">
-                              {seat.seat}
-                            </span>
-                            {rowTiers.size > 1 && (
-                              <SeatSwatch size={12} treatment={treatments.get(seat.ticketTypeId) ?? "outline"} patterns={patterns} />
-                            )}
-                            {seat.kind !== "standard" && (
-                              <SeatSwatch size={12} kind={seat.kind} state="available" treatment="outline" patterns={patterns} />
-                            )}
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </fieldset>
+                  // The hairline is on a wrapper, not the fieldset, so the legend never cuts a notch in it.
+                  <div key={`${section.id}-${row[0].row}`} className="border-t border-surface-border py-3 first:border-t-0">
+                    <fieldset aria-label={groupName}>
+                      <legend className="eyebrow mb-2">
+                        {row[0].row ? `Row ${row[0].row}` : "Seats"}
+                        {oneTier && ` · ${oneTier.name} · ${seatPriceText(oneTier)}`}
+                      </legend>
+                      <div className="grid grid-cols-[repeat(auto-fill,minmax(3.5rem,1fr))] gap-2">
+                        {row.map((seat) => {
+                          const unavailable = isUnavailable(seat) && !selected.has(seat.id);
+                          const tier = tierById.get(seat.ticketTypeId);
+                          return (
+                            <label
+                              key={seat.id}
+                              className={`flex min-h-11 items-center gap-2 rounded-control border px-2 ${
+                                unavailable
+                                  ? "border-surface-border bg-surface text-muted line-through"
+                                  : "border-foreground bg-card has-[:checked]:bg-signal"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selected.has(seat.id)}
+                                disabled={unavailable || !interactive}
+                                onChange={() => onToggle(seat)}
+                                aria-label={seatCheckboxName(seat, tier, unavailable)}
+                                className="size-4 shrink-0"
+                                data-seat-id={seat.id}
+                              />
+                              <span aria-hidden="true" className="text-sm font-semibold tabular-nums">
+                                {seat.seat}
+                              </span>
+                              {rowTiers.size > 1 && (
+                                <SeatSwatch size={12} treatment={treatments.get(seat.ticketTypeId) ?? "outline"} patterns={patterns} />
+                              )}
+                              {seat.kind !== "standard" && (
+                                <SeatSwatch size={12} kind={seat.kind} state="available" treatment="outline" patterns={patterns} />
+                              )}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </fieldset>
+                  </div>
                 );
               })}
             </div>

@@ -92,8 +92,9 @@ describe("FollowButton", () => {
     expect(followOrganiser).not.toHaveBeenCalled();
     fireEvent.click(button);
     await waitFor(() => expect(followOrganiser).toHaveBeenCalledWith(ORG, { notifyNewEvents: true }, expect.any(Function)));
-    const following = await screen.findByRole("button", { name: "Following Northside Noise" });
-    expect(following).toHaveAttribute("aria-pressed", "true");
+    // One name for the toggle ("Follow"), its state in aria-pressed.
+    await screen.findByRole("button", { name: "Follow Northside Noise", pressed: true });
+    expect(screen.queryByRole("button", { name: /^Following/ })).toBeNull();
     expect(screen.getByRole("status")).toHaveTextContent("We’ll email you when they announce a new event.");
   });
 
@@ -118,7 +119,7 @@ describe("FollowButton", () => {
     await waitFor(() => expect(followOrganiser).toHaveBeenCalledWith(ORG, { notifyNewEvents: false }, expect.any(Function)));
   });
 
-  it("while following, the checkbox changes the email choice, and Following unfollows", async () => {
+  it("while following, the checkbox changes the email choice, and the pressed Follow unfollows", async () => {
     getFollowStatus.mockResolvedValue({ following: true, notifyNewEvents: true });
     followOrganiser.mockResolvedValue({ following: true, notifyNewEvents: false });
     unfollowOrganiser.mockResolvedValue(undefined);
@@ -128,7 +129,7 @@ describe("FollowButton", () => {
     fireEvent.click(email);
     await waitFor(() => expect(followOrganiser).toHaveBeenCalledWith(ORG, { notifyNewEvents: false }, expect.any(Function)));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("New-event emails off."));
-    fireEvent.click(screen.getByRole("button", { name: "Following N" }));
+    fireEvent.click(screen.getByRole("button", { name: "Follow N", pressed: true }));
     await waitFor(() => expect(unfollowOrganiser).toHaveBeenCalledWith(ORG, expect.any(Function)));
     expect(await screen.findByRole("button", { name: "Follow N" })).toHaveAttribute("aria-pressed", "false");
   });

@@ -76,7 +76,10 @@ function bank(side: (typeof SIDES)[number]): SeatMapSection {
     });
     return { label: rowLabel, ends: [{ x: seats[0].x, y: seats[0].y }, { x: seats[seats.length - 1].x, y: seats[seats.length - 1].y }], seats };
   });
-  const outer = place(side.side, ROWS.length - 0.25, 0);
+  // The bank's name, clear of its back row at any zoom (beside it for east and west: SeatMap anchors
+  // it). Not further out: at the fitted view, NORTH would sit under the section chips, and WEST
+  // would touch the canvas edge at 320px.
+  const outer = place(side.side, ROWS.length + 0.25, 0);
   return { id: side.side, label: side.label, labelAnchor: outer, rows };
 }
 

@@ -1,13 +1,14 @@
 "use client";
 
-import { useId, useState, type FormEvent, type ReactNode } from "react";
+import { useId, useState, type FormEvent, type ReactNode, type Ref } from "react";
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
 import { formatAud } from "@/lib/format";
 import { getTicketBuyerTotalCents } from "@/lib/pricing";
 import { GENERATOR_LIMITS, type SectionGeneratorOptions } from "@/lib/seating/editing";
-import { MAX_SEATED_TIERS, type SeatMapStage, type SeatMapTemplate } from "@/lib/seating/template";
+import { MAX_SEATED_TIERS, type SeatMapRow, type SeatMapSeat, type SeatMapSection, type SeatMapStage, type SeatMapTemplate } from "@/lib/seating/template";
 import type { TicketType } from "@/lib/types";
+import type { SelectMode } from "./EditorCanvas";
 
 export type GeneratorDraft = Omit<SectionGeneratorOptions, "origin">;
 
@@ -64,7 +65,10 @@ const tierOption = (tier: TicketType) =>
 /**
  * The editor's left panel (docs/design/seating.md §5.13): "Add a section"
  * (rectangular or curved, with a live ghost on the canvas), the Sections
- * list, the stage and the focus point, and the five-tier check.
+ * list, the stage and the focus point, and the five-tier check. The
+ * Sections list is also the keyboard way to select below section level
+ * (§7, 2.1.1): each section's rows open as a list with a checkbox per row,
+ * and each row's seats open with a checkbox per seat.
  */
 export default function GeneratorPanel({
   template,
@@ -74,11 +78,14 @@ export default function GeneratorPanel({
   onDraft,
   onAdd,
   onSelectSection,
+  selected,
+  onSelectSeats,
   onRenameSection,
   onDeleteSection,
   onStage,
   onFocusPoint,
   sectionButtonRef,
+  sectionsHeadingRef,
   readOnly,
 }: {
   template: SeatMapTemplate;
@@ -89,12 +96,18 @@ export default function GeneratorPanel({
   onDraft: (draft: GeneratorDraft) => void;
   onAdd: () => void;
   onSelectSection: (id: string) => void;
+  /** The editor's selection, for the row and seat checkboxes. */
+  selected: ReadonlySet<string>;
+  /** A row or seat checkbox: "add" its seats, or "toggle" them (a fully selected row unselects). */
+  onSelectSeats: (ids: string[], mode: SelectMode) => void;
   onRenameSection: (id: string) => void;
   onDeleteSection: (id: string) => void;
   onStage: (stage: SeatMapStage | undefined) => void;
   onFocusPoint: (point: { x: number; y: number }) => void;
   /** Focus moves to the newly added section's Select button. */
   sectionButtonRef: (id: string, node: HTMLButtonElement | null) => void;
+  /** The Sections heading (focus lands here when a deleted section's row is gone). */
+  sectionsHeadingRef?: Ref<HTMLHeadingElement>;
   readOnly: boolean;
 }) {
   const id = useId();
@@ -203,7 +216,7 @@ export default function GeneratorPanel({
       )}
 
       <section aria-labelledby={`${id}-sections`} className="flex flex-col">
-        <h2 id={`${id}-sections`} className="font-heading text-lg">
+        <h2 ref={sectionsHeadingRef} id={`${id}-sections`} tabIndex={-1} className="font-heading text-lg outline-offset-2">
           Sections
         </h2>
         {template.sections.length === 0 && <p className="mt-2 text-sm text-muted">None yet.</p>}
@@ -247,6 +260,7 @@ export default function GeneratorPanel({
                     </>
                   )}
                 </div>
+                <SectionRows section={section} selected={selected} onSelectSeats={onSelectSeats} idPrefix={`${id}-${section.id}`} />
               </li>
             );
           })}
@@ -291,6 +305,133 @@ export default function GeneratorPanel({
           </button>
         )}
       </section>
+    </div>
+  );
+}
+
+const rowName = (row: SeatMapRow) => (row.label ? `Row ${row.label}` : "Unnamed row");
+
+function seatName(seat: SeatMapSeat): string {
+  const kind = seat.kind === "wheelchair" ? ", wheelchair space" : seat.kind === "companion" ? ", companion seat" : "";
+  return `Seat ${seat.label}${kind}${seat.blocked ? ", blocked" : ""}`;
+}
+
+/** A checkbox showing all (checked), some (mixed) or none of `ids` selected. */
+function GroupCheckbox({ ids, selected, label, onChange }: { ids: string[]; selected: ReadonlySet<string>; label: string; onChange: (all: boolean) => void }) {
+  const count = ids.filter((seatId) => selected.has(seatId)).length;
+  const all = ids.length > 0 && count === ids.length;
+  return (
+    <input
+      type="checkbox"
+      checked={all}
+      ref={(node) => {
+        if (node) node.indeterminate = count > 0 && !all;
+      }}
+      aria-label={label}
+      onChange={() => onChange(all)}
+      className="size-4 shrink-0"
+    />
+  );
+}
+
+/**
+ * A section's rows, behind a disclosure: a checkbox per row (selects or
+ * unselects the whole row), and per row a disclosure with a checkbox per
+ * seat. They feed the same selection as the canvas, so the toolbar and the
+ * inspector act on it.
+ */
+function SectionRows({
+  section,
+  selected,
+  onSelectSeats,
+  idPrefix,
+}: {
+  section: SeatMapSection;
+  selected: ReadonlySet<string>;
+  onSelectSeats: (ids: string[], mode: SelectMode) => void;
+  idPrefix: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [openRows, setOpenRows] = useState<ReadonlySet<number>>(new Set());
+  const panelId = `${idPrefix}-rows`;
+  if (section.rows.length === 0) return null;
+  return (
+    <div className="flex flex-col">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((v) => !v)}
+        className="flex min-h-11 w-fit items-center gap-1 text-sm underline underline-offset-4"
+      >
+        Rows and seats <span className="sr-only">in {section.label}</span>
+        <svg aria-hidden="true" viewBox="0 0 16 16" className={`size-4 ${open ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="1.75">
+          <path d="M3 6l5 5 5-5" />
+        </svg>
+      </button>
+      <ul id={panelId} hidden={!open} className="flex flex-col">
+        {open &&
+          section.rows.map((row, index) => {
+            const ids = row.seats.map((seat) => seat.id);
+            const rowOpen = openRows.has(index);
+            const seatsId = `${idPrefix}-row${index}`;
+            const name = rowName(row);
+            return (
+              <li key={index} className="border-t border-surface-border">
+                <div className="flex items-center gap-2">
+                  <label className="flex min-h-11 min-w-0 flex-1 items-center gap-2 text-sm">
+                    <GroupCheckbox
+                      ids={ids}
+                      selected={selected}
+                      label={`${section.label}, ${name}`}
+                      onChange={(all) => onSelectSeats(ids, all ? "toggle" : "add")}
+                    />
+                    <span className="min-w-0 break-words">{name}</span>
+                    <span className="meta text-muted">
+                      {row.seats.length} {row.seats.length === 1 ? "seat" : "seats"}
+                    </span>
+                  </label>
+                  <button
+                    type="button"
+                    aria-expanded={rowOpen}
+                    aria-controls={seatsId}
+                    onClick={() =>
+                      setOpenRows((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(index)) next.delete(index);
+                        else next.add(index);
+                        return next;
+                      })
+                    }
+                    className="min-h-11 shrink-0 text-sm underline underline-offset-4"
+                  >
+                    Seats <span className="sr-only">in {section.label}, {name}</span>
+                  </button>
+                </div>
+                <fieldset id={seatsId} hidden={!rowOpen} aria-label={`Seats in ${section.label}, ${name}`} className="pb-2">
+                  {rowOpen && (
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(3rem,1fr))] gap-1">
+                      {row.seats.map((seat) => (
+                        <label key={seat.id} className="flex min-h-10 items-center gap-1 rounded-control border border-foreground bg-card px-2 text-sm has-[:checked]:bg-surface">
+                          <input
+                            type="checkbox"
+                            checked={selected.has(seat.id)}
+                            onChange={() => onSelectSeats([seat.id], "toggle")}
+                            aria-label={seatName(seat)}
+                            className="size-4 shrink-0"
+                          />
+                          <span aria-hidden="true" className="tabular-nums">
+                            {seat.label}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </fieldset>
+              </li>
+            );
+          })}
+      </ul>
     </div>
   );
 }

@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import DotsMark from "@/components/brand/DotsMark";
+import DemoNotice from "@/components/DemoNotice";
 import { Button } from "@/components/ui/Button";
-import { ApiError } from "@/lib/api/client";
+import { ApiError, isApiConfigured } from "@/lib/api/client";
 import { useFragmentToken } from "@/lib/link-token";
 
 /** What a finished action shows: a heading, what it means, and where to go next. */
@@ -59,7 +60,8 @@ type Step<T> =
  * does nothing until it's pressed (a mail scanner opening the link changes
  * nothing). The token is read from the fragment once and removed from the
  * address bar (lib/link-token.ts). Every outcome is a heading that takes
- * focus, so it's read out; while working, a status region says so.
+ * focus, so it's read out; while working, a status region says so. In
+ * demo mode (no live service) it says so instead of failing.
  */
 export default function EmailLinkAction<T>({
   title,
@@ -98,6 +100,19 @@ export default function EmailLinkAction<T>({
     } catch (err) {
       setStep({ status: "error", error: error(err) });
     }
+  }
+
+  // Demo mode (no live service): there's nothing to act on, which isn't an error.
+  if (!isApiConfigured) {
+    return (
+      <div className="flex flex-col items-start gap-4 py-16">
+        <h1 className="display-md break-words">{title}</h1>
+        <DemoNotice>Email links work on the live site. Nothing was changed in this demo.</DemoNotice>
+        <Link href="/" className="inline-flex min-h-11 items-center underline underline-offset-4">
+          Back to Sheltüh
+        </Link>
+      </div>
+    );
   }
 
   if (fragment.status === "loading") {

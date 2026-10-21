@@ -319,8 +319,19 @@ h4 {
   &[aria-current="true"]::before {
     opacity: 1;
   }
+  /* A tab (min-h-11) carries the state; the umlaut is on its label span, so the dots sit at the word. */
+  [role="tab"][aria-selected="true"] > & {
+    --umlaut: var(--signal);
+    text-decoration-line: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 4px;
+  }
+  [role="tab"][aria-selected="true"] > &::before {
+    opacity: 1;
+  }
   @media (hover: hover) {
-    &:hover::before {
+    &:hover::before,
+    [role="tab"]:hover > &::before {
       opacity: 1;
     }
   }

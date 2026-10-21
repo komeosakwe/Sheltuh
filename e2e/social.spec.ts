@@ -269,7 +269,7 @@ test.describe("organiser page at 390×844", () => {
     const email = page.getByRole("checkbox", { name: "Email me when they announce a new event" });
     await expect(email).not.toBeChecked();
     await page.getByRole("button", { name: "Follow Northside Noise" }).click();
-    await expect(page.getByRole("button", { name: "Following Northside Noise" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("button", { name: "Follow Northside Noise" })).toHaveAttribute("aria-pressed", "true");
     expect(follows).toEqual([{ notifyNewEvents: false }]);
 
     const play = page.getByRole("button", { name: /Play video/ });

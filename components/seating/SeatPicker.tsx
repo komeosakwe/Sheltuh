@@ -18,13 +18,14 @@ import { useIsDesktop } from "@/components/ui/useIsDesktop";
 import { DotsLoader } from "@/components/brand/DotsMark";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import { createCheckoutSession } from "@/lib/api/orders";
-import { createSeatedCheckout, getSeatAvailability, seatErrorDetails } from "@/lib/api/seating";
+import { cancelPendingOrder, createSeatedCheckout, getSeatAvailability, seatErrorDetails } from "@/lib/api/seating";
 import { MAX_FREE_TICKETS_PER_ORDER, SEAT_HOLD } from "@/lib/api/types";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { formatAud, formatEventDateShort, formatEventTime } from "@/lib/format";
-import { getTicketBuyerTotalCents } from "@/lib/pricing";
+import { getTicketBuyerTotalCents, isSoldOut } from "@/lib/pricing";
 import { unavailablePositions } from "@/lib/seating/availability";
 import { formatSeatLine, speakSeatLine } from "@/lib/seating/format";
+import { rememberPendingCheckout, takePendingCheckout } from "@/lib/seating/pending-checkout";
 import {
   findBestSeats,
   generalAdmissionTiers,
@@ -151,7 +152,7 @@ export default function SeatPicker({
   );
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
-  // A new map version (an admin replaced it): drop seats that no longer exist.
+  // A new map version (an admin replaced it): seats that no longer exist drop out (and leave selectedIds, below).
   const selectedSeats = useMemo(
     () => sortSeats(selectedIds.map((id) => byId.get(id)).filter((seat): seat is FlatSeat => seat !== undefined)),
     [selectedIds, byId],
@@ -193,6 +194,12 @@ export default function SeatPicker({
   const readOnly = ended;
   const availableCount = useMemo(() => seats.filter((seat) => !isUnavailable(seat)).length, [seats, isUnavailable]);
   const everySeatTaken = availableCount === 0 && selectedSeats.length === 0;
+  // Every seat unavailable but the event isn't sold out: they're held by people checking out, and
+  // come back if those don't pay (the poll keeps going and shows them). Only sold out offers the waitlist.
+  const soldOut = isSoldOut(event);
+  const takenWords = soldOut
+    ? "Every seat is taken."
+    : `Every seat is held by people checking out right now. Held seats come back within ${SEAT_HOLD.stripeMinutes} minutes if they’re not bought: keep this page open to see them.`;
   const canCheckout = mode === "live" && Boolean(event.organiserId) && !readOnly;
 
   // Totals (lib/fees.ts only).
@@ -213,6 +220,29 @@ export default function SeatPicker({
     // The same words again must still be read out: a trailing no-break space changes the text.
     setAnnouncement((prev) => (prev === text ? `${text}\u00a0` : text));
   }, []);
+  // A new map version (replaced while the page is open; LiveSeatPage reloads it in place, so the
+  // selection survives): availability starts again from the new map, and chosen seats that are no
+  // longer on it leave the selection, saying which.
+  const [shownMap, setShownMap] = useState(map);
+  if (shownMap !== map) {
+    setShownMap(map);
+    setUnavailable(new Set(initialUnavailable));
+    setFailures(0);
+    const before = new Map(flattenSeats(shownMap.template).map((seat) => [seat.id, seat]));
+    const gone = selectedIds
+      .filter((id) => !byId.has(id))
+      .map((id) => before.get(id))
+      .filter((seat): seat is FlatSeat => seat !== undefined);
+    if (gone.length > 0) {
+      setSelectedIds((prev) => prev.filter((id) => byId.has(id)));
+      const text =
+        gone.length === 1
+          ? `The seat map has been updated. ${speakSeatLine(gone[0])} is no longer on it and has been removed from your seats.`
+          : `The seat map has been updated. ${sortSeats(gone).map(speakSeatLine).join("; ")} are no longer on it and have been removed from your seats.`;
+      announce(text);
+      setInline({ text });
+    }
+  }
   const selectedIdsRef = useRef(selectedIds);
   useEffect(() => {
     selectedIdsRef.current = selectedIds;
@@ -249,7 +279,46 @@ export default function SeatPicker({
       setFailures((n) => n + 1);
     }
   }, [event.id, pollToken, map.version, map.seatCount, byId, onMapStale, announce]);
-  useVisibleInterval(pollAvailability, AVAILABILITY_POLL_MS, { enabled: Boolean(poll) && !readOnly });
+  // Not while checking out: the buyer's own just-held seats would come back as "just taken".
+  useVisibleInterval(pollAvailability, AVAILABILITY_POLL_MS, { enabled: Boolean(poll) && !readOnly && !busy });
+
+  // Back from Stripe (the browser's Back: a page restored from the back/forward cache, or loaded
+  // afresh): release the hold this tab started rather than leave the seats held for the full hold,
+  // and Checkout works again. Stripe's own cancel link goes to /checkout/cancelled instead.
+  const releasePending = useCallback(async () => {
+    const pending = takePendingCheckout();
+    if (!pending) return;
+    setBusy(false);
+    try {
+      const result = await cancelPendingOrder(pending.orderId);
+      // Paid or being confirmed meanwhile: nothing was held for nothing, so nothing to say.
+      if (result.status !== "released") return;
+      const text = "You left the payment page, so the seats held for you have been released. You weren’t charged.";
+      announce(text);
+      setInline({ text });
+    } catch {
+      setCheckoutError((prev) => ({
+        text: `We couldn’t release the seats held for your checkout just now. They’ll be released automatically within ${SEAT_HOLD.holdMinutes} minutes. You weren’t charged.`,
+        n: (prev?.n ?? 0) + 1,
+      }));
+    }
+  }, [announce]);
+  useEffect(() => {
+    if (mode !== "live") return;
+    let disposed = false;
+    // Deferred, so the effect body itself never sets state (as CheckoutConfirmation does).
+    queueMicrotask(() => {
+      if (!disposed) void releasePending();
+    });
+    function onPageShow(event: PageTransitionEvent) {
+      if (event.persisted) void releasePending();
+    }
+    window.addEventListener("pageshow", onPageShow);
+    return () => {
+      disposed = true;
+      window.removeEventListener("pageshow", onPageShow);
+    };
+  }, [mode, releasePending]);
 
   // Focus moves that wait for the render they depend on.
   useEffect(() => {
@@ -391,9 +460,12 @@ export default function SeatPicker({
   }
 
   function onTabKey(event: KeyboardEvent<HTMLButtonElement>) {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    let next: SeatTab;
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") next = tab === "map" ? "list" : "map";
+    else if (event.key === "Home") next = "map";
+    else if (event.key === "End") next = "list";
+    else return;
     event.preventDefault();
-    const next: SeatTab = tab === "map" ? "list" : "map";
     selectTab(next);
     document.getElementById(`${idPrefix}-tab-${next}`)?.focus();
   }
@@ -455,6 +527,8 @@ export default function SeatPicker({
           : await createCheckoutSession(event.id, lineItems, email, getTrackingRef(event.id), getToken);
       if ("url" in result) {
         // No setBusy(false): the page is navigating away, and re-enabling Checkout would invite a double press.
+        // Coming Back from Stripe resets it and releases the hold (releasePending).
+        if (result.orderId) rememberPendingCheckout(result.orderId, event.slug);
         window.location.assign(result.url);
         return;
       }
@@ -469,6 +543,9 @@ export default function SeatPicker({
       } else if (details?.code === "seat_map_changed") {
         text = "The seat map has just been updated. Check your seats, then press Checkout again.";
         onMapStale?.();
+      } else if (err instanceof ApiError && err.status === 429 && details?.code === "client_rate_limited") {
+        // This visitor's own limit, not the event's: waiting a minute won't do.
+        text = "You’ve tried to hold seats a lot in a short time. Wait a few minutes and try again.";
       } else if (err instanceof ApiError && err.status === 429) {
         text = "A lot of people are checking out for this event right now. Try again in a minute.";
       } else if (err instanceof ApiError && err.fieldErrors?.buyerEmail) {
@@ -497,20 +574,22 @@ export default function SeatPicker({
 
   const checkoutLabel = busy ? (freeBooking ? "Booking…" : "Holding your seats…") : freeBooking ? "Get free tickets" : "Checkout";
 
-  function checkoutButton(className: string) {
+  /** `bar`: the phone seat bar, where a disabled Checkout keeps the short label (§5.10) and the reason is in its name and the sheet's note. */
+  function checkoutButton(className: string, bar = false) {
     if (readOnly) return null;
     if (everySeatTaken && gaTiers.every((t) => t.soldOut)) return null;
-    if (mode === "preview") {
+    if (mode === "preview" || !canCheckout) {
+      const reason = mode === "preview" ? "is off in preview" : "unavailable in this demo";
       return (
         <button type="button" disabled aria-disabled="true" className={`btn btn-lg ${className}`}>
-          Checkout is off in preview
-        </button>
-      );
-    }
-    if (!canCheckout) {
-      return (
-        <button type="button" disabled aria-disabled="true" className={`btn btn-lg ${className}`}>
-          Checkout unavailable in this demo
+          {bar ? (
+            // The space outside the hidden words, so the name keeps it ("Checkout unavailable in this demo").
+            <span>
+              Checkout <span className="sr-only">{reason}</span>
+            </span>
+          ) : (
+            `Checkout ${reason}`
+          )}
         </button>
       );
     }
@@ -528,6 +607,22 @@ export default function SeatPicker({
     </Notice>
   );
 
+  /** The summary's one inline message; on phones with the sheet closed it shows above the seat bar instead. */
+  const inlineMessage = inline && (
+    <div className="flex flex-col gap-1">
+      <Notice>{inline.text}</Notice>
+      {inline.undo && (
+        <button
+          type="button"
+          onClick={() => inline.undo && undoFind(inline.undo)}
+          className="min-h-11 w-fit text-sm font-semibold underline underline-offset-4"
+        >
+          Undo
+        </button>
+      )}
+    </div>
+  );
+
   function summaryBody(headingRef: typeof summaryHeadingRef) {
     return (
       <div className="flex flex-col gap-4">
@@ -536,7 +631,7 @@ export default function SeatPicker({
         </h2>
         {selectedSeats.length === 0 ? (
           <p className="text-sm text-muted">
-            {everySeatTaken ? "Every seat is taken." : `No seats chosen yet. Choose up to ${MAX_SEATS_PER_ORDER} seats.`}
+            {everySeatTaken ? takenWords : `No seats chosen yet. Choose up to ${MAX_SEATS_PER_ORDER} seats.`}
           </p>
         ) : (
           <ul className="flex flex-col">
@@ -552,8 +647,11 @@ export default function SeatPicker({
                       {kindWords}
                     </p>
                   </div>
-                  <p className="text-sm font-semibold tabular-nums">
-                    {tier && tier.priceCents === 0 ? "Free" : formatAud(tier ? getTicketBuyerTotalCents(tier) : 0)}
+                  <p className="flex flex-col items-end text-right">
+                    <span className="text-sm font-semibold tabular-nums">
+                      {tier && tier.priceCents === 0 ? "Free" : formatAud(tier ? getTicketBuyerTotalCents(tier) : 0)}
+                    </span>
+                    {tier && getTicketBuyerTotalCents(tier) > tier.priceCents && <span className="text-xs text-muted">incl. fee</span>}
                   </p>
                   {!readOnly && sentTo === null && (
                     <button
@@ -576,26 +674,13 @@ export default function SeatPicker({
             })}
           </ul>
         )}
-        {everySeatTaken && (
+        {everySeatTaken && soldOut && (
           <Link href={`/events/${event.slug}#tickets`} className="inline-flex min-h-11 w-fit items-center text-sm font-semibold underline underline-offset-4">
             Join the waitlist
           </Link>
         )}
 
-        {inline && (
-          <div className="flex flex-col gap-1">
-            <Notice>{inline.text}</Notice>
-            {inline.undo && (
-              <button
-                type="button"
-                onClick={() => inline.undo && undoFind(inline.undo)}
-                className="min-h-11 w-fit text-sm font-semibold underline underline-offset-4"
-              >
-                Undo
-              </button>
-            )}
-          </div>
-        )}
+        {inlineMessage}
 
         {mixed && !readOnly && (
           <GeneralAdmissionSteppers
@@ -609,7 +694,7 @@ export default function SeatPicker({
 
         <dl className="flex flex-col gap-2 border-t border-foreground pt-3 text-sm">
           <div className="flex justify-between gap-4">
-            <dt className="text-muted">Tickets</dt>
+            <dt className="text-muted">Ticket face value</dt>
             <dd className="tabular-nums">{formatAud(totals.subtotalCents)}</dd>
           </div>
           <div className="flex justify-between gap-4">
@@ -686,7 +771,7 @@ export default function SeatPicker({
           </>
         ) : mode === "demo" ? (
           <p className="text-xs text-muted">
-            This is a local prototype. No payment information is collected and no seats are held
+            This is a local prototype, so checkout is unavailable. No payment information is collected and no seats are held
             {hasAnything ? " — the total above is a preview only." : "."}
           </p>
         ) : (
@@ -695,12 +780,16 @@ export default function SeatPicker({
       </div>
     ) : null;
 
-  const stale =
-    poll && failures >= STALE_AFTER_FAILURES ? (
-      <p className="meta px-4 py-2 text-muted sm:px-8 lg:px-0">
-        {lastUpdated ? `Availability last updated ${lastUpdated}.` : "Availability couldn’t be updated."} Seats may already be taken.
-      </p>
-    ) : null;
+  // A polite live region, mounted while polling, so the line is read out when it appears.
+  const stale = poll ? (
+    <div role="status">
+      {failures >= STALE_AFTER_FAILURES && (
+        <p className="meta px-4 py-2 text-muted sm:px-8 lg:px-0">
+          {lastUpdated ? `Availability last updated ${lastUpdated}.` : "Availability couldn’t be updated."} Seats may already be taken.
+        </p>
+      )}
+    </div>
+  ) : null;
 
   const listAndMap = (
     <>
@@ -779,7 +868,8 @@ export default function SeatPicker({
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_24rem] lg:gap-8">
         {/* Phones and tablets: a viewport-height tool, the seat bar at its foot (§3.1). */}
         <div className="flex h-[calc(100dvh-var(--header-h))] min-h-[29rem] flex-col lg:block lg:h-auto lg:min-h-0">
-          <div className="flex min-h-12 items-center gap-3 border-b border-foreground px-4 sm:px-8 lg:flex-col lg:items-start lg:gap-1 lg:border-0 lg:px-0 lg:pb-4">
+          {/* Tighter below sm, so "Choose seats" fits whole at 320 beside the back link and Find seats. */}
+          <div className="flex min-h-12 items-center gap-2 border-b border-foreground px-2 sm:gap-3 sm:px-8 lg:flex-col lg:items-start lg:gap-1 lg:border-0 lg:px-0 lg:pb-4">
             <Link
               href={backHref}
               aria-label={`Back to ${event.title}`}
@@ -795,7 +885,7 @@ export default function SeatPicker({
               <p className="meta hidden truncate text-muted sm:block">{dateLine}</p>
             </div>
             {!readOnly && (
-              <button type="button" onClick={() => setFindOpen(true)} className="btn btn-outline btn-sm min-h-11 shrink-0 lg:hidden">
+              <button type="button" onClick={() => setFindOpen(true)} className="btn btn-outline btn-sm min-h-11 shrink-0 px-2 sm:px-3 lg:hidden">
                 Find seats
               </button>
             )}
@@ -813,9 +903,10 @@ export default function SeatPicker({
                 tabIndex={tab === name ? 0 : -1}
                 onClick={() => selectTab(name)}
                 onKeyDown={onTabKey}
-                className={`${navLinkClass} inline-flex min-h-11 items-center`}
+                className="inline-flex min-h-11 items-center"
               >
-                {name === "map" ? "Map" : "List"}
+                {/* The umlaut on the label itself, so its dots sit just over the word (§5.4). */}
+                <span className={navLinkClass}>{name === "map" ? "Map" : "List"}</span>
               </button>
             ))}
           </div>
@@ -835,13 +926,21 @@ export default function SeatPicker({
             </div>
           )}
 
-          <div className="relative min-h-60 flex-1 lg:mt-4 lg:h-[calc(100dvh-var(--header-h)-10rem)] lg:min-h-[32rem] lg:flex-none lg:border lg:border-foreground">
+          <div className="relative min-h-60 flex-1 lg:mt-4 lg:h-[calc(100dvh-var(--header-h)-13.5rem)] lg:min-h-[32rem] lg:flex-none lg:border lg:border-foreground">
             {listAndMap}
           </div>
 
           {/* The phone seat bar (§5.10): white, in flow at the foot of the tool. */}
           {!readOnly && (
-            <div data-seat-bar className="relative border-t border-foreground bg-card lg:hidden">
+            <div
+              data-seat-bar
+              // The sheet never covers what has focus (WCAG 2.4.11): it closes once focus moves out of it and the bar.
+              onBlur={(event) => {
+                const next = event.relatedTarget;
+                if (sheetOpen && next instanceof Node && !event.currentTarget.contains(next)) setSheetOpen(false);
+              }}
+              className="relative border-t border-foreground bg-card lg:hidden"
+            >
               {sheetOpen && !isDesktop && (
                 <div
                   id={`${idPrefix}-sheet`}
@@ -857,6 +956,7 @@ export default function SeatPicker({
                   {holdAndTerms}
                 </div>
               )}
+              {inlineMessage && !isDesktop && !sheetOpen && <div className="px-4 pt-3 sm:px-8">{inlineMessage}</div>}
               <div className="flex min-h-[var(--seatbar-h)] items-center gap-3 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-8">
                 <button
                   ref={sheetToggleRef}
@@ -864,7 +964,8 @@ export default function SeatPicker({
                   aria-expanded={sheetOpen}
                   aria-controls={`${idPrefix}-sheet`}
                   onClick={toggleSheet}
-                  className="flex min-h-11 min-w-0 flex-1 flex-col items-start text-left"
+                  // A floor under the price column, so "From A$… incl. booking fee" stays readable at 320.
+                  className="flex min-h-11 min-w-36 flex-1 flex-col items-start text-left"
                 >
                   <span className="eyebrow flex items-center gap-1">
                     {hasAnything ? `${plural(selectedSeats.length, "seat", "seats")}${gaCount ? ` + ${gaCount}` : ""} · Details` : "No seats chosen"}
@@ -872,18 +973,23 @@ export default function SeatPicker({
                       <path d="M2 8l4-4 4 4" />
                     </svg>
                   </span>
-                  {hasAnything ? (
+                  {everySeatTaken ? (
+                    <span className="text-sm leading-6 font-semibold">{soldOut ? "Sold out" : "All seats held right now"}</span>
+                  ) : hasAnything ? (
                     <span className="text-lg leading-6 font-bold tabular-nums">
                       {formatAud(totals.totalCents)} <span className="text-xs font-normal text-muted">incl. fees</span>
                     </span>
                   ) : (
-                    <span className="text-base leading-6 font-semibold tabular-nums">
-                      {fromCents === null ? "" : fromCents === 0 ? "Free" : `From ${formatAud(fromCents)}`}{" "}
-                      {fromCents !== null && fromCents > 0 && <span className="text-xs font-normal text-muted">incl. booking fee</span>}
+                    <span className="flex flex-col">
+                      <span className="text-base leading-6 font-semibold tabular-nums">
+                        {fromCents === null ? "" : fromCents === 0 ? "Free" : `From ${formatAud(fromCents)}`}
+                      </span>
+                      {/* Its own line: the note never breaks mid-phrase beside Checkout. */}
+                      {fromCents !== null && fromCents > 0 && <span className="text-xs text-muted">incl. booking fee</span>}
                     </span>
                   )}
                 </button>
-                {!isDesktop && checkoutButton("shrink-0 px-5")}
+                {!isDesktop && checkoutButton("shrink-0 px-5", true)}
               </div>
               {errorNotice && !isDesktop && <div className="px-4 pb-3 sm:px-8">{errorNotice}</div>}
             </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useRef, useState } from "react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
 import { ApiError } from "@/lib/api/client";
@@ -91,6 +91,13 @@ export default function SeatMapEditor({
   const [removeOpen, setRemoveOpen] = useState(false);
   const sectionButtons = useRef(new Map<string, HTMLButtonElement>());
   const focusSection = useRef<string | null>(null);
+  // Where focus goes when the control that had it is removed (dialogs' fallbackFocus, the toolbar's Delete).
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const sectionsHeadingRef = useRef<HTMLHeadingElement>(null);
+  const canvas = useRef<HTMLDivElement | null>(null);
+  const canvasNode = useCallback((node: HTMLDivElement | null) => {
+    canvas.current = node;
+  }, []);
 
   const tiers = event.ticketTypes;
   const tierIds = useMemo(() => tiers.map((t) => t.id), [tiers]);
@@ -172,6 +179,17 @@ export default function SeatMapEditor({
     });
   }
 
+  /** The Sections list's row and seat checkboxes: select, then say how many are selected. */
+  function selectFromList(ids: string[], mode: SelectMode) {
+    const next = new Set(selectedIds);
+    for (const seatId of ids) {
+      if (mode === "toggle" && next.has(seatId)) next.delete(seatId);
+      else next.add(seatId);
+    }
+    setSelectedIds(next);
+    say(`${next.size} ${next.size === 1 ? "seat" : "seats"} selected.`);
+  }
+
   function patchSelection(patch: SeatPatch, message: string) {
     commit(updateSeats(template, selectedIds, patch), message);
   }
@@ -242,73 +260,84 @@ export default function SeatMapEditor({
 
   const toolbarButton = "btn btn-outline btn-sm min-h-10";
   return (
-    <div className="flex flex-col">
-      <SeatPatternDefs ids={patterns} />
-      <div className="flex flex-wrap items-center gap-2 border-b border-foreground px-4 py-2">
-        <h1 className="font-heading mr-2 text-xl">Seat map</h1>
-        <span
-          className={`eyebrow rounded-badge border border-foreground px-2 py-0.5 ${status === "Approved · locked" ? "bg-foreground text-background" : ""}`}
-        >
-          {status}
-        </span>
-        <span className="meta text-muted">{counts}</span>
-        {dirty && !readOnly && <span className="meta text-muted">· Unsaved changes</span>}
-        <span className="flex-1" />
-        {!readOnly && (
-          <>
-            <button type="button" onClick={undo} aria-disabled={past.length === 0 || undefined} className={`${toolbarButton} hidden lg:inline-flex`}>
-              Undo
-            </button>
-            <button type="button" onClick={redo} aria-disabled={future.length === 0 || undefined} className={`${toolbarButton} hidden lg:inline-flex`}>
-              Redo
-            </button>
-            <button type="button" onClick={() => setImportOpen(true)} className={toolbarButton}>
-              Import
-            </button>
-          </>
-        )}
-        <button type="button" onClick={() => exportSeatMap(template, event.slug)} className={toolbarButton}>
-          Export
-        </button>
-        <button type="button" aria-pressed={preview} onClick={() => setPreview((v) => !v)} className={toolbarButton}>
-          {preview ? "Back to editing" : "Preview as buyer"}
-        </button>
-        {!readOnly && saved && onRemove && (
-          <button type="button" onClick={() => setRemoveOpen(true)} className="btn btn-danger btn-sm min-h-10">
-            Remove map
+    // From lg, one grid (§3.4): the toolbar and its notices across the top, then the three panels fill the rest.
+    <div
+      className={
+        preview
+          ? "flex flex-col"
+          : "flex flex-col lg:grid lg:h-[calc(100dvh-var(--header-h))] lg:min-h-[36rem] lg:grid-cols-[20rem_minmax(0,1fr)_20rem] lg:grid-rows-[auto_minmax(0,1fr)]"
+      }
+    >
+      <div className="lg:col-span-3">
+        <SeatPatternDefs ids={patterns} />
+        <div className="flex flex-wrap items-center gap-2 border-b border-foreground px-4 py-2">
+          <h1 ref={headingRef} tabIndex={-1} className="font-heading mr-2 text-xl outline-offset-2">
+            Seat map
+          </h1>
+          <span
+            className={`eyebrow rounded-badge border border-foreground px-2 py-0.5 ${status === "Approved · locked" ? "bg-foreground text-background" : ""}`}
+          >
+            {status}
+          </span>
+          <span className="meta text-muted">{counts}</span>
+          {dirty && !readOnly && <span className="meta text-muted">· Unsaved changes</span>}
+          <span className="flex-1" />
+          {!readOnly && (
+            <>
+              <button type="button" onClick={undo} aria-disabled={past.length === 0 || undefined} className={`${toolbarButton} hidden lg:inline-flex`}>
+                Undo
+              </button>
+              <button type="button" onClick={redo} aria-disabled={future.length === 0 || undefined} className={`${toolbarButton} hidden lg:inline-flex`}>
+                Redo
+              </button>
+              <button type="button" onClick={() => setImportOpen(true)} className={toolbarButton}>
+                Import
+              </button>
+            </>
+          )}
+          <button type="button" onClick={() => exportSeatMap(template, event.slug)} className={toolbarButton}>
+            Export
           </button>
+          <button type="button" aria-pressed={preview} onClick={() => setPreview((v) => !v)} className={toolbarButton}>
+            {preview ? "Back to editing" : "Preview as buyer"}
+          </button>
+          {!readOnly && saved && onRemove && (
+            <button type="button" onClick={() => setRemoveOpen(true)} className="btn btn-danger btn-sm min-h-10">
+              Remove map
+            </button>
+          )}
+          {!readOnly && (
+            <Button variant="solid" size="sm" busy={saving} onClick={save} className="min-h-10">
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          )}
+        </div>
+
+        <p role="status" className="sr-only">
+          {status_}
+        </p>
+        {readOnly && (
+          <div className="px-4 py-3">
+            <Notice>{lockedMessage}</Notice>
+          </div>
         )}
-        {!readOnly && (
-          <Button variant="solid" size="sm" busy={saving} onClick={save} className="min-h-10">
-            {saving ? "Saving…" : "Save"}
-          </Button>
+        {saveError && (
+          <div className="px-4 py-3">
+            <Notice tone="danger" role="alert">
+              <p>{saveError.text}</p>
+              {saveError.lines.length > 0 && (
+                <ul className="mt-1">
+                  {saveError.lines.map((line) => (
+                    <li key={line} className="meta break-words">
+                      {line}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Notice>
+          </div>
         )}
       </div>
-
-      <p role="status" className="sr-only">
-        {status_}
-      </p>
-      {readOnly && (
-        <div className="px-4 py-3">
-          <Notice>{lockedMessage}</Notice>
-        </div>
-      )}
-      {saveError && (
-        <div className="px-4 py-3">
-          <Notice tone="danger" role="alert">
-            <p>{saveError.text}</p>
-            {saveError.lines.length > 0 && (
-              <ul className="mt-1">
-                {saveError.lines.map((line) => (
-                  <li key={line} className="meta break-words">
-                    {line}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Notice>
-        </div>
-      )}
 
       {preview ? (
         <SeatPicker
@@ -323,88 +352,92 @@ export default function SeatMapEditor({
           <div className="px-4 py-6 lg:hidden">
             <Notice>The seat map editor needs a screen at least 1024px wide.</Notice>
           </div>
-          <div className="hidden h-[calc(100dvh-var(--header-h)-3.5rem)] min-h-[36rem] grid-cols-[20rem_minmax(0,1fr)_20rem] lg:grid">
-            <div className="overflow-y-auto border-r border-foreground p-4">
-              <GeneratorPanel
-                template={template}
+          <div className="hidden overflow-y-auto border-r border-foreground p-4 lg:block">
+            <GeneratorPanel
+              template={template}
+              tiers={tiers}
+              usableTierIds={usableTierIds}
+              draft={draft}
+              onDraft={setDraft}
+              onAdd={add}
+              onSelectSection={(sectionId) => {
+                const ids = sectionSeatIds(template, sectionId);
+                select(ids, "replace");
+                say(`${ids.length} seats selected.`);
+              }}
+              selected={selectedIds}
+              onSelectSeats={selectFromList}
+              onRenameSection={setRenaming}
+              onDeleteSection={setDeleting}
+              onStage={(stage: SeatMapStage | undefined) => {
+                if (stage && ![stage.x, stage.y, stage.width, stage.height].every(Number.isFinite)) return;
+                commit(fitCanvas({ ...template, ...(stage ? { stage } : {}) }));
+              }}
+              onFocusPoint={(point) => {
+                if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+                commit(fitCanvas({ ...template, focus: point }), "Focus point moved.");
+              }}
+              sectionButtonRef={(sectionId, node) => {
+                if (node) sectionButtons.current.set(sectionId, node);
+                else sectionButtons.current.delete(sectionId);
+              }}
+              sectionsHeadingRef={sectionsHeadingRef}
+              readOnly={readOnly}
+            />
+          </div>
+          <div className="relative hidden min-w-0 lg:block">
+            <EditorCanvas
+              template={template}
+              selected={selectedIds}
+              invalid={invalid}
+              ghost={ghost}
+              treatments={treatments}
+              patterns={patterns}
+              readOnly={readOnly}
+              onSelect={(ids, mode) => {
+                select(ids, mode);
+              }}
+              onMove={(dx, dy) => commit(moveSeats(template, selectedIds, dx, dy), "Seats moved.")}
+              onFocusPoint={(point) => commit(fitCanvas({ ...template, focus: point }), "Focus point moved.")}
+              canvasNode={canvasNode}
+            />
+            {!readOnly && selection.length > 0 && (
+              <SelectionToolbar
+                count={selection.length}
                 tiers={tiers}
                 usableTierIds={usableTierIds}
-                draft={draft}
-                onDraft={setDraft}
-                onAdd={add}
-                onSelectSection={(sectionId) => {
-                  const ids = sectionSeatIds(template, sectionId);
-                  select(ids, "replace");
-                  say(`${ids.length} seats selected.`);
+                tier={selectionTier}
+                wheelchair={tri(selection.map((s) => s.kind === "wheelchair"))}
+                companion={tri(selection.map((s) => s.kind === "companion"))}
+                blocked={tri(selection.map((s) => s.blocked))}
+                onTier={(tierId) => patchSelection({ ticketTypeId: tierId }, "Tier changed.")}
+                onKind={(kind) => patchSelection({ kind }, kind === "standard" ? "Set to standard." : `Set to ${kind}.`)}
+                onBlocked={(blocked) => patchSelection({ blocked }, blocked ? "Blocked." : "Unblocked.")}
+                onRelabel={() => setRelabelOpen(true)}
+                onAlign={() => commit(alignSeats(template, selectedIds), "Aligned.")}
+                onNudge={(dx, dy) => commit(moveSeats(template, selectedIds, dx, dy), "Moved.")}
+                onClear={() => setSelectedIds(new Set())}
+                onDelete={() => {
+                  const n = selectedIds.size;
+                  commit(deleteSeats(template, selectedIds), `Deleted ${n} ${n === 1 ? "seat" : "seats"}.`);
+                  setSelectedIds(new Set());
+                  // The toolbar (and its Delete) goes with the selection: carry on from the canvas.
+                  canvas.current?.focus();
                 }}
-                onRenameSection={setRenaming}
-                onDeleteSection={setDeleting}
-                onStage={(stage: SeatMapStage | undefined) => {
-                  if (stage && ![stage.x, stage.y, stage.width, stage.height].every(Number.isFinite)) return;
-                  commit(fitCanvas({ ...template, ...(stage ? { stage } : {}) }));
-                }}
-                onFocusPoint={(point) => {
-                  if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
-                  commit(fitCanvas({ ...template, focus: point }), "Focus point moved.");
-                }}
-                sectionButtonRef={(sectionId, node) => {
-                  if (node) sectionButtons.current.set(sectionId, node);
-                  else sectionButtons.current.delete(sectionId);
-                }}
-                readOnly={readOnly}
               />
-            </div>
-            <div className="relative min-w-0">
-              <EditorCanvas
-                template={template}
-                selected={selectedIds}
-                invalid={invalid}
-                ghost={ghost}
-                treatments={treatments}
-                patterns={patterns}
-                readOnly={readOnly}
-                onSelect={(ids, mode) => {
-                  select(ids, mode);
-                }}
-                onMove={(dx, dy) => commit(moveSeats(template, selectedIds, dx, dy), "Seats moved.")}
-                onFocusPoint={(point) => commit(fitCanvas({ ...template, focus: point }), "Focus point moved.")}
-              />
-              {!readOnly && selection.length > 0 && (
-                <SelectionToolbar
-                  count={selection.length}
-                  tiers={tiers}
-                  usableTierIds={usableTierIds}
-                  tier={selectionTier}
-                  wheelchair={tri(selection.map((s) => s.kind === "wheelchair"))}
-                  companion={tri(selection.map((s) => s.kind === "companion"))}
-                  blocked={tri(selection.map((s) => s.blocked))}
-                  onTier={(tierId) => patchSelection({ ticketTypeId: tierId }, "Tier changed.")}
-                  onKind={(kind) => patchSelection({ kind }, kind === "standard" ? "Set to standard." : `Set to ${kind}.`)}
-                  onBlocked={(blocked) => patchSelection({ blocked }, blocked ? "Blocked." : "Unblocked.")}
-                  onRelabel={() => setRelabelOpen(true)}
-                  onAlign={() => commit(alignSeats(template, selectedIds), "Aligned.")}
-                  onNudge={(dx, dy) => commit(moveSeats(template, selectedIds, dx, dy), "Moved.")}
-                  onClear={() => setSelectedIds(new Set())}
-                  onDelete={() => {
-                    const n = selectedIds.size;
-                    commit(deleteSeats(template, selectedIds), `Deleted ${n} ${n === 1 ? "seat" : "seats"}.`);
-                    setSelectedIds(new Set());
-                  }}
-                />
-              )}
-            </div>
-            <div className="overflow-y-auto border-l border-foreground p-4">
-              <InspectorPanel
-                selection={selection}
-                tiers={tiers}
-                usableTierIds={usableTierIds}
-                stats={stats}
-                issues={issues}
-                readOnly={readOnly}
-                onPatch={(patch) => patchSelection(patch, "Seat updated.")}
-                onSelectIssue={(issue: MapIssue) => select(issue.seatIds, "replace")}
-              />
-            </div>
+            )}
+          </div>
+          <div className="hidden overflow-y-auto border-l border-foreground p-4 lg:block">
+            <InspectorPanel
+              selection={selection}
+              tiers={tiers}
+              usableTierIds={usableTierIds}
+              stats={stats}
+              issues={issues}
+              readOnly={readOnly}
+              onPatch={(patch) => patchSelection(patch, "Seat updated.")}
+              onSelectIssue={(issue: MapIssue) => select(issue.seatIds, "replace")}
+            />
           </div>
         </>
       )}
@@ -444,7 +477,7 @@ export default function SeatMapEditor({
         )}
       </SeatDialog>
 
-      <SeatDialog open={deleting !== null} title="Delete section?" onClose={() => setDeleting(null)}>
+      <SeatDialog open={deleting !== null} title="Delete section?" onClose={() => setDeleting(null)} fallbackFocus={sectionsHeadingRef}>
         <p className="text-base">
           {template.sections.find((s) => s.id === deleting)?.label} and all its seats will be removed. You can undo this before saving.
         </p>
@@ -468,7 +501,7 @@ export default function SeatMapEditor({
         </div>
       </SeatDialog>
 
-      <SeatDialog open={removeOpen} title="Remove the seat map?" onClose={() => setRemoveOpen(false)}>
+      <SeatDialog open={removeOpen} title="Remove the seat map?" onClose={() => setRemoveOpen(false)} fallbackFocus={headingRef}>
         <p className="text-base">The event goes back to general admission. Its tiers keep their names and prices.</p>
         <div className="flex flex-col gap-3 sm:flex-row-reverse sm:justify-start">
           <Button variant="danger" onClick={remove}>

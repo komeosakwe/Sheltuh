@@ -22,7 +22,7 @@ function errorMessage(err: unknown): string {
 
 /**
  * Follow an organiser (docs/architecture.md, "Following organisers"): a
- * toggle button ("Follow" / "Following", aria-pressed) and, beside it, the
+ * toggle button ("Follow", aria-pressed: on shows a check) and, beside it, the
  * choice of an email when they announce a new event (unticked until they
  * tick it: consent under the Spam Act, so the request always says which;
  * changeable while following; every such email can be unsubscribed
@@ -133,9 +133,15 @@ export default function FollowButton({ organiserId, organiserName }: { organiser
         onClick={toggle}
         className="w-full sm:w-auto"
       >
-        {/* The space outside the hidden suffix, so the name keeps it ("Follow Static Collective"). */}
+        {/* A toggle keeps one name; aria-pressed says whether it's on. The space outside the hidden
+            suffix, so the name keeps it ("Follow Static Collective"). On: a check, not colour alone. */}
+        {following && (
+          <svg aria-hidden="true" viewBox="0 0 16 16" className="size-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M3 8.5l3.5 3.5L13 4.5" />
+          </svg>
+        )}
         <span>
-          {following ? "Following" : "Follow"} <span className="sr-only">{organiserName}</span>
+          Follow <span className="sr-only">{organiserName}</span>
         </span>
       </Button>
       <label className="flex min-h-11 items-center gap-3 text-sm">

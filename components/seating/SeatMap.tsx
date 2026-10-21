@@ -5,7 +5,7 @@ import { getTicketBuyerTotalCents } from "@/lib/pricing";
 import { formatAud } from "@/lib/format";
 import { formatSeatLine } from "@/lib/seating/format";
 import { seatBounds, type Bounds, type SeatTreatment } from "@/lib/seating/selection";
-import { SEAT_SIZE, type FlatSeat, type SeatMapTemplate } from "@/lib/seating/template";
+import { SEAT_SIZE, type FlatSeat, type SeatMapSection, type SeatMapTemplate } from "@/lib/seating/template";
 import type { TicketType } from "@/lib/types";
 import SeatGlyph, { type EditorSeatMarks, type PatternIds, type SeatState } from "./SeatGlyph";
 import SectionChips from "./SectionChips";
@@ -74,6 +74,25 @@ const SeatLayer = memo(function SeatLayer({ seats, stateOf, treatments, patterns
   );
 });
 
+/**
+ * How a section's name sits on its anchor: beside the seats when the anchor
+ * is clear of them to the right ("start", reading away from them) or left
+ * ("end"), else centred (above or below them, or over them).
+ */
+function sectionLabelAnchor(section: SeatMapSection): "start" | "middle" | "end" {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const row of section.rows) {
+    for (const seat of row.seats) {
+      min = Math.min(min, seat.x);
+      max = Math.max(max, seat.x);
+    }
+  }
+  if (section.labelAnchor.x > max + SEAT_SIZE / 2) return "start";
+  if (section.labelAnchor.x < min - SEAT_SIZE / 2) return "end";
+  return "middle";
+}
+
 /** Stage, section names and row labels (§5.3 Labels), sized to stay 12px on screen. */
 export function MapLabels({ template, scale, seatPx }: { template: SeatMapTemplate; scale: number; seatPx: number }) {
   const font = 12 / scale;
@@ -111,7 +130,7 @@ export function MapLabels({ template, scale, seatPx }: { template: SeatMapTempla
           x={section.labelAnchor.x}
           y={section.labelAnchor.y}
           dominantBaseline="central"
-          textAnchor="middle"
+          textAnchor={sectionLabelAnchor(section)}
           fontSize={font}
           className="fill-foreground font-mono font-medium uppercase"
           letterSpacing="0.04em"
@@ -363,7 +382,10 @@ export default function SeatMap({
         id={hintId}
         className={
           focused
-            ? "meta pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 border border-foreground bg-card px-2 py-1 text-foreground"
+            ? // Under the section chips (h-11, from top-2) when there are any, so it never covers them.
+              `meta pointer-events-none absolute left-1/2 -translate-x-1/2 border border-foreground bg-card px-2 py-1 text-foreground ${
+                template.sections.length >= 2 ? "top-14" : "top-3"
+              }`
             : "sr-only"
         }
       >

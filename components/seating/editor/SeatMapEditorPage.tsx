@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import DemoNotice from "@/components/DemoNotice";
 import { useEffect, useState, type ReactNode } from "react";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 import { Notice } from "@/components/ui/Section";
@@ -61,7 +62,16 @@ export default function SeatMapEditorPage({ eventId }: { eventId: string }) {
 
   const frame = (children: ReactNode) => <div className="mx-auto max-w-6xl px-5 py-12 sm:px-8">{children}</div>;
 
-  if (!auth.configured) return frame(<Notice tone="danger" role="alert">Accounts aren&rsquo;t configured in this environment yet.</Notice>);
+  if (!auth.configured) {
+    // Demo mode isn't a fault: say what this is, neutrally.
+    return frame(
+      <div className="flex flex-col items-start gap-4">
+        <h1 className="font-heading text-2xl">Seat map</h1>
+        <DemoNotice>Organiser tools need the live service, which isn&rsquo;t connected here.</DemoNotice>
+        <Notice>Seat maps are drawn here by organisers once accounts are available. To see one, open a seated sample event and choose seats.</Notice>
+      </div>,
+    );
+  }
   if (auth.status === "loading" || organiserLoading) return frame(<LoadingState text="Loading…" />);
   if (!ready) {
     return frame(

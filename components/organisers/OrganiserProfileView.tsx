@@ -56,7 +56,7 @@ export default function OrganiserProfileView({
             {typeof profile.followerCount === "number" && (
               <div className="flex flex-col">
                 <dt className="eyebrow text-muted">Followers</dt>
-                <dd className="font-heading text-2xl leading-8 tabular-nums">
+                <dd className="font-heading text-[2rem] leading-9 tracking-[-0.03em] tabular-nums lg:text-[2.5rem] lg:leading-11">
                   {countFormatter.format(profile.followerCount)}
                 </dd>
               </div>
@@ -64,7 +64,7 @@ export default function OrganiserProfileView({
             {typeof profile.eventsHosted === "number" && (
               <div className="flex flex-col">
                 <dt className="eyebrow text-muted">Events hosted</dt>
-                <dd className="font-heading text-2xl leading-8 tabular-nums">
+                <dd className="font-heading text-[2rem] leading-9 tracking-[-0.03em] tabular-nums lg:text-[2.5rem] lg:leading-11">
                   {countFormatter.format(profile.eventsHosted)}
                 </dd>
               </div>
@@ -91,7 +91,7 @@ export default function OrganiserProfileView({
           <div className="flex flex-col gap-8 md:max-w-xl lg:col-span-5 lg:max-w-none">
             {profile.featuredVideo && (
               <section aria-labelledby="organiser-video" className="flex flex-col gap-3">
-                <h2 id="organiser-video" className="eyebrow font-sans text-muted">
+                <h2 id="organiser-video" className="eyebrow text-muted">
                   Featured video
                 </h2>
                 <VideoFacade video={profile.featuredVideo} title={`${profile.displayName}’s featured video`} />
@@ -99,7 +99,7 @@ export default function OrganiserProfileView({
             )}
             {hasLinks && (
               <section aria-labelledby="organiser-links" className="flex flex-col gap-3">
-                <h2 id="organiser-links" className="eyebrow font-sans text-muted">
+                <h2 id="organiser-links" className="eyebrow text-muted">
                   Links
                 </h2>
                 <OrganiserLinks websiteUrl={profile.websiteUrl} socialLinks={profile.socialLinks} />

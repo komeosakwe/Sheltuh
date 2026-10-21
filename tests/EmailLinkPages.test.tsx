@@ -18,6 +18,14 @@ vi.mock("@/lib/api/follows", () => ({
   unsubscribeFromFollowEmails: (...args: unknown[]) => unsubscribeFromFollowEmails(...args),
 }));
 
+const { api } = vi.hoisted(() => ({ api: { configured: true } }));
+vi.mock("@/lib/api/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/client")>()),
+  get isApiConfigured() {
+    return api.configured;
+  },
+}));
+
 const TOKEN = "Z".repeat(40) + "a_-";
 
 function at(path: string) {
@@ -25,6 +33,7 @@ function at(path: string) {
 }
 
 beforeEach(() => {
+  api.configured = true;
   confirmWaitlist.mockReset();
   leaveWaitlist.mockReset();
   unsubscribeFromFollowEmails.mockReset();
@@ -142,5 +151,18 @@ describe("/following/unsubscribe", () => {
     render(<FollowUnsubscribe />);
     fireEvent.click(await screen.findByRole("button", { name: "Unsubscribe" }));
     expect(await screen.findByRole("heading", { name: "This link isn’t valid" })).toBeInTheDocument();
+  });
+});
+
+describe("email link pages in demo mode (no live service)", () => {
+  it("say it's a demo, change nothing, and never show an error", () => {
+    api.configured = false;
+    at(`/following/unsubscribe#token=${TOKEN}`);
+    render(<FollowUnsubscribe />);
+    expect(screen.getByRole("heading", { level: 1, name: "Stop new-event emails" })).toBeInTheDocument();
+    expect(screen.getByRole("note")).toHaveTextContent("Email links work on the live site. Nothing was changed in this demo.");
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByText("Something went wrong")).toBeNull();
+    expect(unsubscribeFromFollowEmails).not.toHaveBeenCalled();
   });
 });

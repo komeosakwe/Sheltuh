@@ -1010,6 +1010,17 @@ describe("recent scans", () => {
     expect(within(list).getByRole("button", { name: "Refresh" })).not.toHaveAttribute("aria-disabled");
   });
 
+  it("a seated ticket's row says its seat after the type and code, and Undo's name includes it", async () => {
+    api.getCheckInSummary.mockResolvedValue(
+      summary({ recent: [logEntry({ ticketTypeName: "Premium", seat: { section: "Stalls", row: "F", seat: "12", kind: "standard" } })] }),
+    );
+    await renderPage();
+    const list = screen.getByRole("region", { name: "Recent scans" });
+    const detail = within(list).getByText("Stalls · Row F · Seat 12").closest("p") as HTMLElement;
+    expect(detail).toHaveTextContent("Premium · Code ends 2HXD · Stalls · Row F · Seat 12");
+    expect(within(list).getByRole("button", { name: /^Undo check-in, Premium, code ends 2HXD, Stalls, Row F, Seat 12,/ })).toBeInTheDocument();
+  });
+
   it("only rows new since the last list fade in (opacity only; off under reduced motion)", async () => {
     await renderPage();
     const list = screen.getByRole("region", { name: "Recent scans" });

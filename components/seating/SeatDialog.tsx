@@ -6,8 +6,9 @@ import { useEffect, useId, useRef, type ReactNode, type RefObject } from "react"
  * A modal dialog for the seat page and editor (brand-direction-one.md
  * §6.14): a native `<dialog>` (focus kept inside, Escape closes), a bottom
  * sheet below `sm`, a 44px close button. Opening focuses `initialFocus`, or
- * the title; closing puts focus back where it was. Content mounts only
- * while open.
+ * the title; closing puts focus back where it was, or on `fallbackFocus`
+ * when that control has gone (Delete section, Remove map). Content mounts
+ * only while open.
  */
 export default function SeatDialog({
   open,
@@ -15,6 +16,7 @@ export default function SeatDialog({
   onClose,
   children,
   initialFocus,
+  fallbackFocus,
   wide = false,
 }: {
   open: boolean;
@@ -22,6 +24,8 @@ export default function SeatDialog({
   onClose: () => void;
   children: ReactNode;
   initialFocus?: RefObject<HTMLElement | null>;
+  /** Where focus goes on closing if the control that opened the dialog was removed meanwhile (tabIndex -1 for a heading). */
+  fallbackFocus?: RefObject<HTMLElement | null>;
   /** The editor's import dialog: up to 40rem from `sm`. */
   wide?: boolean;
 }) {
@@ -43,8 +47,9 @@ export default function SeatDialog({
       const target = returnTo.current;
       returnTo.current = null;
       if (target.isConnected) target.focus();
+      else fallbackFocus?.current?.focus();
     }
-  }, [open, initialFocus]);
+  }, [open, initialFocus, fallbackFocus]);
 
   return (
     <dialog

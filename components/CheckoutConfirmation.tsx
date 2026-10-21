@@ -11,6 +11,7 @@ import { ApiError } from "@/lib/api/client";
 import { getOrderBySession } from "@/lib/api/orders";
 import { formatAud } from "@/lib/format";
 import { compareSeats } from "@/lib/seating/format";
+import { forgetPendingCheckout } from "@/lib/seating/pending-checkout";
 import type { CustomerOrder } from "@/lib/api/types";
 
 type LoadState =
@@ -44,6 +45,11 @@ export default function CheckoutConfirmation() {
   const sessionId = searchParams.get("session_id");
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const pollCount = useRef(0);
+
+  // Paid: going Back to the seat page mustn't try to release this order's seats.
+  useEffect(() => {
+    if (sessionId) forgetPendingCheckout(sessionId);
+  }, [sessionId]);
 
   useEffect(() => {
     let cancelled = false;

@@ -6,6 +6,8 @@ import { Notice } from "@/components/ui/Section";
 import type { CheckInLogEntry } from "@/lib/api/types";
 import { recentRow } from "@/lib/check-in/door-copy";
 import { formatEventTime, formatMessageTime } from "@/lib/format";
+import { speakSeatLine } from "@/lib/seating/format";
+import SeatLine from "@/components/seating/SeatLine";
 import { doorBusyClass } from "./busy-class";
 import DoorIcon from "./DoorIcon";
 
@@ -83,12 +85,21 @@ export default function RecentScans({
                     <p className="text-sm font-semibold">{row.label}</p>
                     <p className="shrink-0 text-xs text-muted tabular-nums">{formatMessageTime(entry.at)}</p>
                   </div>
-                  <p className="text-sm break-words text-muted">{row.detail}</p>
+                  {/* A seated ticket's seat after the type and code (docs/design/seating.md §5.15). */}
+                  <p className="text-sm break-words text-muted">
+                    {row.detail}
+                    {entry.seat && (
+                      <>
+                        {row.detail && <span aria-hidden="true"> · </span>}
+                        <SeatLine seat={entry.seat} />
+                      </>
+                    )}
+                  </p>
                   {entry.undoable && (
                     <Button size="sm" variant="outline" onClick={() => onUndo(entry)} className="mt-2 min-h-11 self-start">
                       Undo{" "}
                       <span className="sr-only">
-                        check-in, {[entry.ticketTypeName, entry.codeLast4 ? `code ends ${entry.codeLast4}` : null]
+                        check-in, {[entry.ticketTypeName, entry.codeLast4 ? `code ends ${entry.codeLast4}` : null, entry.seat ? speakSeatLine(entry.seat) : null]
                           .filter(Boolean)
                           .join(", ")}
                         , {formatEventTime(entry.at)}

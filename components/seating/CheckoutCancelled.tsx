@@ -9,6 +9,7 @@ import { Notice } from "@/components/ui/Section";
 import { ApiError, isApiConfigured } from "@/lib/api/client";
 import { cancelPendingOrder } from "@/lib/api/seating";
 import { SEAT_HOLD, type CancelOrderResult } from "@/lib/api/types";
+import { forgetPendingCheckout } from "@/lib/seating/pending-checkout";
 
 type State =
   | { status: "releasing" }
@@ -22,8 +23,9 @@ const linkClass = "inline-flex min-h-11 items-center text-sm text-foreground und
  * /checkout/cancelled?order={orderId} (docs/design/seating.md §5.12): the
  * buyer left Stripe's page, so the order is cancelled and its held seats
  * released straight away (POST /api/orders/by-session/{id}/cancel, safe to
- * repeat). No orange: a checkout page. The h1 takes focus once there's an
- * answer.
+ * repeat). No orange: a checkout page. The h1 ("Checkout cancelled", with
+ * the event above it) is there while releasing, and takes focus once
+ * there's an answer.
  */
 export default function CheckoutCancelled() {
   const orderId = useSearchParams().get("order");
@@ -47,6 +49,8 @@ export default function CheckoutCancelled() {
     // Once per order id (Strict Mode runs effects twice in development; the call is safe to repeat anyway).
     if (!orderId || !isApiConfigured || started.current === orderId) return;
     started.current = orderId;
+    // Released here: the seat page has nothing left to release when the buyer goes back to it.
+    forgetPendingCheckout(orderId);
     void release(orderId, 0);
   }, [orderId, release]);
 
@@ -72,7 +76,8 @@ export default function CheckoutCancelled() {
 
   if (state.status === "releasing") {
     return (
-      <div className="py-10 sm:py-14">
+      <div className="flex flex-col items-start gap-4 py-10 sm:py-14">
+        <h1 className="font-heading text-2xl">Checkout cancelled</h1>
         <DotsLoader announce label="Releasing your seats" />
       </div>
     );
@@ -146,9 +151,9 @@ export default function CheckoutCancelled() {
 
   return (
     <div className="flex flex-col items-start gap-4 py-10 sm:py-14">
-      <p className="eyebrow w-full border-t border-foreground pt-2">Checkout cancelled</p>
-      <h1 ref={headingRef} tabIndex={-1} className="display-md break-words outline-offset-2">
-        {result.eventTitle}
+      <p className="eyebrow w-full border-t border-foreground pt-2 break-words">{result.eventTitle}</p>
+      <h1 ref={headingRef} tabIndex={-1} className="display-md outline-offset-2">
+        Checkout cancelled
       </h1>
       <p className="max-w-md text-base leading-6">You weren&rsquo;t charged, and your seats have been released for others.</p>
       {eventPath && (

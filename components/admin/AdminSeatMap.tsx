@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ImportDialog from "@/components/seating/editor/ImportExport";
 import SeatMapEditor from "@/components/seating/editor/SeatMapEditor";
 import SeatDialog from "@/components/seating/SeatDialog";
@@ -45,6 +45,8 @@ export default function AdminSeatMap({ eventId }: { eventId: string }) {
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // Removing the map removes its Remove button: focus comes back to Replace instead.
+  const replaceRef = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -101,7 +103,7 @@ export default function AdminSeatMap({ eventId }: { eventId: string }) {
         </Link>
         <span className="flex-1" />
         {event.ticketingMode !== "external" && (
-          <Button variant="outline" size="sm" className="min-h-10" onClick={() => setReplaceOpen(true)}>
+          <Button ref={replaceRef} variant="outline" size="sm" className="min-h-10" onClick={() => setReplaceOpen(true)}>
             Replace seat map
           </Button>
         )}
@@ -141,7 +143,7 @@ export default function AdminSeatMap({ eventId }: { eventId: string }) {
         requireReason
         onReplace={(template, reason) => replace(template, reason)}
       />
-      <SeatDialog open={removeOpen} title="Remove the seat map?" onClose={() => setRemoveOpen(false)}>
+      <SeatDialog open={removeOpen} title="Remove the seat map?" onClose={() => setRemoveOpen(false)} fallbackFocus={replaceRef}>
         <RemoveForm
           onCancel={() => setRemoveOpen(false)}
           onRemove={async (reason) => {

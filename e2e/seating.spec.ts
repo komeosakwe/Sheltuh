@@ -46,10 +46,14 @@ function asPublic(): PublicEvent {
 interface Seen {
   checkouts: unknown[];
   availability: number;
+  cancels: string[];
 }
 
+/** The pending order's id, as the API returns it with Stripe's URL (ord_ + 32 hex). */
+const ORDER_ID = `ord_${"e2e0".repeat(8)}`;
+
 async function mockApi(page: Page, { takenAtCheckout }: { takenAtCheckout?: string[] } = {}): Promise<Seen> {
-  const seen: Seen = { checkouts: [], availability: 0 };
+  const seen: Seen = { checkouts: [], availability: 0, cancels: [] };
   const pub = asPublic();
   await page.route("**/api/**", (route) => {
     const request = route.request();
@@ -79,8 +83,16 @@ async function mockApi(page: Page, { takenAtCheckout }: { takenAtCheckout?: stri
       }
       return route.fulfill({
         status: 201,
-        json: { url: `${new URL(request.url()).origin}/e2e-stripe-stub`, holdExpiresAt: new Date(Date.now() + 35 * 60_000).toISOString() },
+        json: {
+          url: `${new URL(request.url()).origin}/e2e-stripe-stub`,
+          holdExpiresAt: new Date(Date.now() + 35 * 60_000).toISOString(),
+          orderId: ORDER_ID,
+        },
       });
+    }
+    if (url.pathname === `/api/orders/by-session/${ORDER_ID}/cancel` && request.method() === "POST") {
+      seen.cancels.push(url.pathname);
+      return route.fulfill({ json: { status: "released", eventTitle: pub.title, eventSlug: pub.slug } });
     }
     if (/\/view$/.test(url.pathname)) return route.fulfill({ status: 204 });
     if (/\/going(\/|$)/.test(url.pathname)) return route.fulfill({ json: { count: 0, countHidden: true, closed: false } });
@@ -91,6 +103,17 @@ async function mockApi(page: Page, { takenAtCheckout }: { takenAtCheckout?: stri
     route.fulfill({ contentType: "text/html", body: "<title>Stripe stub</title><h1>Stripe checkout (stub)</h1>" }),
   );
   return seen;
+}
+
+/** The seat page's h1 shows whole ("Choose seats", not "Choose se…"). */
+async function headingNotTruncated(page: Page) {
+  const clipped = await page.getByRole("heading", { level: 1, name: "Choose seats" }).evaluate((h) => {
+    // The text's own width against the box (scrollWidth rounds, and misses a sub-pixel ellipsis).
+    const range = document.createRange();
+    range.selectNodeContents(h);
+    return range.getBoundingClientRect().width > h.getBoundingClientRect().width;
+  });
+  expect(clipped).toBe(false);
 }
 
 async function noSidewaysScroll(page: Page) {
@@ -128,6 +151,9 @@ for (const vp of [
       await expect(page.getByRole("heading", { level: 1, name: "Choose seats" })).toBeVisible({ timeout: 30_000 });
       await expect(page.getByRole("img", { name: /^Seat map of The Esplanade Studio\. 43 seats available/ })).toBeVisible();
       await noSidewaysScroll(page);
+      await headingNotTruncated(page);
+      // The seat bar stays close to the spec's 88px (plus the hairline).
+      expect((await page.locator("[data-seat-bar]").boundingBox())?.height ?? 0).toBeLessThanOrEqual(90);
 
       await page.getByRole("tab", { name: "List" }).click();
       const rowA = page.getByRole("group", { name: "North, Row A" });
@@ -211,6 +237,16 @@ test.describe("seated event at 1280×900", () => {
       { seats: { mapVersion: 1, seatIds: ["N-A1", "N-A2"] } },
       { seats: { mapVersion: 1, seatIds: ["N-A2"] } },
     ]);
+
+    // The browser's Back from "Stripe": the hold is released at once, and Checkout works again.
+    await page.goBack();
+    await expect(page.getByText("You left the payment page, so the seats held for you have been released.").first()).toBeVisible({
+      timeout: 30_000,
+    });
+    expect(seen.cancels).toEqual([`/api/orders/by-session/${ORDER_ID}/cancel`]);
+    // Restored from the back/forward cache or loaded afresh, it's no longer "Holding your seats…".
+    await expect(page.getByRole("button", { name: "Checkout" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Holding your seats…" })).toHaveCount(0);
   });
 
   test("the cancelled page releases the seats", async ({ page }) => {
@@ -225,7 +261,8 @@ test.describe("seated event at 1280×900", () => {
     });
     const response = await page.goto("/checkout/cancelled?order=ord_e2e");
     expect(response?.headers()["referrer-policy"]).toBe("no-referrer");
-    await expect(page.getByRole("heading", { level: 1, name: event!.title })).toBeFocused({ timeout: 30_000 });
+    await expect(page.getByRole("heading", { level: 1, name: "Checkout cancelled" })).toBeFocused({ timeout: 30_000 });
+    await expect(page.getByText(event!.title, { exact: true })).toBeVisible();
     await expect(page.getByText("your seats have been released for others")).toBeVisible();
     await expect(page.getByRole("link", { name: "Choose seats again" })).toHaveAttribute("href", `/events/${event!.slug}/seats`);
     expect(posts.length).toBeGreaterThanOrEqual(1);

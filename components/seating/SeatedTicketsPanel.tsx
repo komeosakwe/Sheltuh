@@ -20,7 +20,8 @@ import { patternIdsFor, SeatPatternDefs, SeatSwatch } from "./SeatGlyph";
  * §5.1), in TicketSelector's place: the steps, the "From" price, each tier
  * with its seat pattern and all-inclusive price, then "Choose your seats"
  * to the seat page. Nothing is chosen here, so seated tiers are never sold
- * as quantities. Sold out: the waitlist instead.
+ * as quantities. Sold out: the waitlist instead; once the event has ended,
+ * no "Choose your seats".
  */
 export default function SeatedTicketsPanel({ event, demo }: { event: SheltuhEvent; demo: boolean }) {
   const patterns = patternIdsFor(`panel-${event.id}`);
@@ -39,7 +40,7 @@ export default function SeatedTicketsPanel({ event, demo }: { event: SheltuhEven
   return (
     <div className="flex flex-col gap-5 rounded-card border border-foreground bg-card p-4 sm:p-5">
       <SeatPatternDefs ids={patterns} />
-      {!soldOut && (
+      {!soldOut && !ended && (
         <ol aria-label="How booking works" className="eyebrow flex flex-wrap gap-x-3 gap-y-1">
           {steps.map((step, i) => (
             <li key={step} aria-current={i === 0 ? "step" : undefined} className={`flex gap-x-3 ${i === 0 ? "text-foreground" : "text-muted"}`}>
@@ -68,7 +69,7 @@ export default function SeatedTicketsPanel({ event, demo }: { event: SheltuhEven
           return (
             <li
               key={ticket.id}
-              className="grid grid-cols-[1rem_1fr_auto] items-start gap-x-3 border-t border-surface-border py-3 first:border-t-0 first:pt-0"
+              className="grid grid-cols-[1rem_1fr] items-start gap-x-3 border-t border-surface-border py-3 first:border-t-0 first:pt-0 sm:grid-cols-[1rem_1fr_auto]"
             >
               <span className="mt-1">
                 {ticket.seated && <SeatSwatch size={16} treatment={treatments.get(ticket.id) ?? "outline"} patterns={patterns} />}
@@ -91,7 +92,12 @@ export default function SeatedTicketsPanel({ event, demo }: { event: SheltuhEven
                   )
                 )}
               </div>
-              <p className={`text-base leading-6 font-semibold tabular-nums ${tierSoldOut ? "text-muted" : ""}`}>{formatTicketHeadline(ticket)}</p>
+              {/* Phones: the price under the name (as TicketSelector's rows); from sm, on the right. */}
+              <p
+                className={`col-start-2 text-base leading-6 font-semibold tabular-nums sm:col-start-3 sm:row-start-1 ${tierSoldOut ? "text-muted" : ""}`}
+              >
+                {formatTicketHeadline(ticket)}
+              </p>
             </li>
           );
         })}
@@ -99,6 +105,8 @@ export default function SeatedTicketsPanel({ event, demo }: { event: SheltuhEven
 
       {soldOut ? (
         <WaitlistBlock eventId={event.id} closed={ended} demo={demo || !isApiConfigured} />
+      ) : ended ? (
+        <p className="border-t border-foreground pt-4 text-sm">Ticket sales for this event have ended.</p>
       ) : (
         <div className="flex flex-col gap-3 border-t border-foreground pt-4">
           <p className={`text-sm ${low ? "font-semibold" : ""}`}>

@@ -130,7 +130,7 @@ A viewport-height tool under the site header: `flex h-[calc(100dvh-var(--header-
 
 | Column | Contents |
 | --- | --- |
-| Left | Header row: back link `eyebrow` "← {event title}" (underlined, `min-h-11`), h1 `font-heading text-xl`, `meta` date · venue. Then tabs. Then the map canvas: `h-[calc(100dvh-var(--header-h)-10rem)] min-h-[32rem]`, `border border-foreground` (square), cream. The List view replaces the canvas in the same box and scrolls inside it. |
+| Left | Header row: back link `eyebrow` "← {event title}" (underlined, `min-h-11`), h1 `font-heading text-xl`, `meta` date · venue. Then tabs. Then the map canvas: `h-[calc(100dvh-var(--header-h)-13.5rem)] min-h-[32rem]`, `border border-foreground` (square), cream. The List view replaces the canvas in the same box and scrolls inside it. |
 | Right (24rem) | `sticky top-[calc(var(--header-h)+1.5rem)] max-h-[calc(100dvh-var(--header-h)-3rem)] overflow-y-auto`. Order: Legend (§5.5, full form) → Find seats (§5.9, inline) → Summary card (§5.10) with Checkout. |
 
 No legend strip and no seat bar at ≥lg.
@@ -339,7 +339,7 @@ Tab memory: the chosen tab is kept in `sessionStorage` (`sheltuh:seat-tab`) for 
    - Right: the all-inclusive price 14/20 600 `tabular-nums` ("A$65.30", or "Free" for free tiers).
    - Remove: a `size-11 rounded-control` icon button (16px ×) with `aria-label="Remove Stalls, Row F, Seat 12"`, hover `bg-surface`. Focus then moves to the next line's remove button, or to the heading if none are left.
 4. Mixed events: a "General admission" sub-heading in `eyebrow text-muted`, then `TicketSelector`-style tier rows with steppers (same classes, same messages).
-5. **Totals** `dl`, exactly as `TicketSelector`: "Tickets" and "Booking fees" 14/20 (labels muted), a 1px black rule, then **"Total" 18/24 700 with its value 20/28 700 `tabular-nums`**, the largest number on the page. Under it `meta` muted "{n} seats".
+5. **Totals** `dl`, as `TicketSelector`: "Ticket face value" and "Booking fees" 14/20 (labels muted), a 1px black rule, then **"Total" 18/24 700 with its value 20/28 700 `tabular-nums`**, the largest number on the page. Under it `meta` muted "{n} seats".
 6. The free-order email field when needed (as `TicketSelector`).
 7. **Checkout:** `Button variant="solid" size="lg" className="w-full"`, "Checkout" or "Get free tickets". Disabled with nothing chosen. Busy: "Holding your seats…".
 8. **Hold copy** 12/16 muted, under the button (§5.11).
