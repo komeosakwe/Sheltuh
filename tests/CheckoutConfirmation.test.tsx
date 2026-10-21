@@ -169,6 +169,40 @@ describe("CheckoutConfirmation", () => {
     expect(document.body.textContent).not.toMatch(/7KQM-2HXD|The Tote/);
   });
 
+  it("for an event that's no longer listed, keeps the tickets and QRs but shows the support line instead of its date and venue", async () => {
+    // A buggy or older response that still carried details must not show them either.
+    getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, eventListed: false });
+    render(<CheckoutConfirmation />);
+    expect(await screen.findByRole("img", { name: "QR code for ticket 7KQM-2HXD" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "QR code for ticket A2B3-C4D5" })).toBeInTheDocument();
+    const tickets = screen.getAllByRole("listitem");
+    expect(tickets).toHaveLength(2);
+    for (const [i, ticket] of tickets.entries()) {
+      const text = ticket.textContent ?? "";
+      expect(text).toContain("Neon Static");
+      expect(text).toContain(
+        "This event is no longer listed. Contact support@sheltuh.com.au if you have questions.",
+      );
+      expect(text).toContain(WITH_DETAILS.tickets[i].ticketCode);
+      expect(text).not.toMatch(/8:00 pm|Sat 6 Mar, |The Tote|Collingwood/);
+    }
+    for (const link of screen.getAllByRole("link", { name: "support@sheltuh.com.au" })) {
+      expect(link).toHaveAttribute("href", "mailto:support@sheltuh.com.au");
+    }
+    // The event's page is gone: no links to it.
+    expect(screen.queryByRole("link", { name: "Back to the event" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Add yourself to Who’s Going" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Back to Sheltüh" })).toHaveAttribute("href", "/");
+  });
+
+  it("a listed event (eventListed true) shows its details and no support line", async () => {
+    getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, eventListed: true });
+    render(<CheckoutConfirmation />);
+    expect(await screen.findAllByText("The Tote, Collingwood")).toHaveLength(2);
+    expect(screen.queryByText(/no longer listed/)).toBeNull();
+    expect(screen.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/neon-static");
+  });
+
   it("keeps the sold-out wording for an oversold refund", async () => {
     getOrderBySession.mockResolvedValue({ ...ORDER, status: "oversold_refund_required", refundReason: "oversold", tickets: [] });
     render(<CheckoutConfirmation />);

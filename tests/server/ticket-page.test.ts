@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { adminUnpublishEvent } from "@/lib/server/handlers/admin";
 import { checkInTicket, undoCheckIn } from "@/lib/server/handlers/check-ins";
 import { confirmFreeOrder } from "@/lib/server/handlers/free-orders";
 import { createCheckout, getOrderBySession, stripeWebhook } from "@/lib/server/handlers/orders";
@@ -187,6 +188,7 @@ describe("the ticket page (GET /api/orders/by-session/{id})", () => {
     expect(body).toMatchObject({
       status: "paid",
       eventTitle: "Neon Static",
+      eventListed: true,
       eventStartsAt: "2027-03-06T09:00:00.000Z",
       eventEndsAt: "2027-03-06T12:30:00.000Z",
       venueName: "The Tote",
@@ -212,6 +214,32 @@ describe("the ticket page (GET /api/orders/by-session/{id})", () => {
       venueName: "The Corner",
       suburb: "Richmond",
     });
+  });
+
+  it("once the event isn't published, keeps the tickets but drops its date, time, venue and suburb", async () => {
+    const { orderId } = await paidOrder([{ ticketTypeId: "ga", quantity: 2 }]);
+    const codes = ((await page(orderId)).tickets as Ticket[]).map((t) => t.ticketCode);
+    const details = ["eventStartsAt", "eventEndsAt", "venueName", "suburb"];
+    const expectUnlisted = async () => {
+      const body = await page(orderId);
+      expect(body).toMatchObject({ status: "paid", eventTitle: "Neon Static", eventListed: false });
+      for (const key of details) expect(body).not.toHaveProperty(key);
+      expect((body.tickets as Ticket[]).map((t) => t.ticketCode)).toEqual(codes);
+      expect(JSON.stringify(body)).not.toMatch(/The Tote|Collingwood|2027-03-06/);
+    };
+
+    // Unpublished by an admin (back to draft).
+    const unpublished = await api.call(adminUnpublishEvent, { token: admin.token, params: { eventId: event.eventId }, method: "POST" });
+    expect(unpublished.status).toBe(200);
+    await expectUnlisted();
+    // Back in review, or rejected.
+    for (const status of ["pending_review", "rejected"]) {
+      await api.db.query(`update public.events set status = $2::public.event_status where id = $1`, [event.eventId, status]);
+      await expectUnlisted();
+    }
+    // Published again: the details are back.
+    await api.db.query(`update public.events set status = 'published' where id = $1`, [event.eventId]);
+    expect(await page(orderId)).toMatchObject({ eventListed: true, venueName: "The Tote", suburb: "Collingwood" });
   });
 
   it("says when a ticket was checked in, only for that ticket, and goes back to ready after an undo", async () => {
@@ -257,7 +285,7 @@ describe("the ticket page (GET /api/orders/by-session/{id})", () => {
     );
     const body = await page(orderId);
     expect(body).toMatchObject({ status: "refunded", refundReason: "refunded", tickets: [] });
-    for (const key of ["eventStartsAt", "eventEndsAt", "venueName", "suburb"]) expect(body).not.toHaveProperty(key);
+    for (const key of ["eventListed", "eventStartsAt", "eventEndsAt", "venueName", "suburb"]) expect(body).not.toHaveProperty(key);
     expect(JSON.stringify(body)).not.toContain(ticket.ticketCode);
   });
 

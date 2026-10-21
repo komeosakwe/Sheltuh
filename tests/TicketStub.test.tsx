@@ -148,4 +148,30 @@ describe("TicketStub", () => {
     expect(container.querySelectorAll("li p")).toHaveLength(5); // type, backup label, code, status, hint
     expect(screen.getByText("Ready to scan")).toBeInTheDocument();
   });
+
+  it("for an event that's no longer listed, says so with the support address instead of when and where, and keeps the QR", () => {
+    render(
+      <ul>
+        <TicketStub
+          code="K7M2-QW3R"
+          typeName="GA"
+          eventTitle="Neon Static"
+          when="Sat 6 Mar, 8:00 pm – 11:30 pm"
+          where="The Tote, Collingwood"
+          eventUnlisted
+        />
+      </ul>,
+    );
+    const ticket = screen.getByRole("listitem");
+    expect(ticket.textContent).toContain(
+      "This event is no longer listed. Contact support@sheltuh.com.au if you have questions.",
+    );
+    expect(screen.getByRole("link", { name: "support@sheltuh.com.au" })).toHaveAttribute("href", "mailto:support@sheltuh.com.au");
+    expect(screen.queryByText("Sat 6 Mar, 8:00 pm – 11:30 pm")).toBeNull();
+    expect(screen.queryByText("The Tote, Collingwood")).toBeNull();
+    expect(screen.getByText("Neon Static")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "QR code for ticket K7M2-QW3R" })).toBeInTheDocument();
+    expect(screen.getByText("K7M2-QW3R")).toBeInTheDocument();
+    expect(screen.getByText("Ready to scan")).toBeInTheDocument();
+  });
 });

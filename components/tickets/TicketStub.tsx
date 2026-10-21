@@ -1,5 +1,6 @@
 import TicketQr from "@/components/tickets/TicketQr";
 import UBarcode from "@/components/tickets/UBarcode";
+import { SUPPORT_EMAIL } from "@/lib/contact";
 import { formatMessageTime } from "@/lib/format";
 import { TICKET_CODE_PATTERN } from "@/lib/ticket-code";
 
@@ -15,6 +16,12 @@ interface TicketStubProps {
   when?: string;
   /** Where: the venue name and suburb, "The Cellar Door, Fitzroy". */
   where?: string;
+  /**
+   * The event is no longer listed (unpublished, rejected or removed): say so,
+   * with the support address, instead of any date or venue. The ticket itself
+   * (QR, code, status) still shows.
+   */
+  eventUnlisted?: boolean;
   /** When the ticket was checked in at the door (ISO), or null/unset if it hasn't been. */
   checkedInAt?: string | null;
 }
@@ -45,6 +52,7 @@ export default function TicketStub({
   eventTitle,
   when,
   where,
+  eventUnlisted = false,
   checkedInAt,
 }: TicketStubProps) {
   const hasQr = TICKET_CODE_PATTERN.test(code);
@@ -63,8 +71,20 @@ export default function TicketStub({
         <div className="flex min-w-0 flex-col gap-1 sm:col-start-1 sm:row-start-1 sm:mx-5 sm:mt-5">
           <p className="eyebrow break-words text-muted">{label}</p>
           {eventTitle && <p className="font-heading text-lg break-words text-foreground">{eventTitle}</p>}
-          {when && <p className="text-sm text-foreground">{when}</p>}
-          {where && <p className="text-sm break-words text-muted">{where}</p>}
+          {eventUnlisted ? (
+            <p className="text-sm break-words text-foreground">
+              This event is no longer listed. Contact{" "}
+              <a href={`mailto:${SUPPORT_EMAIL}`} className="text-accent underline underline-offset-2">
+                {SUPPORT_EMAIL}
+              </a>{" "}
+              if you have questions.
+            </p>
+          ) : (
+            <>
+              {when && <p className="text-sm text-foreground">{when}</p>}
+              {where && <p className="text-sm break-words text-muted">{where}</p>}
+            </>
+          )}
         </div>
         <UBarcode
           code={code}

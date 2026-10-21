@@ -535,7 +535,8 @@ describe("guest order lookup (GET /api/orders/by-session/{orderId})", () => {
       reference: orderReference(orderId),
       eventTitle: "Neon Static",
       eventSlug: event.slug,
-      // The event's public details, for the tickets (8:00 pm – 11:30 pm AEDT).
+      // The event's public details, for the tickets (8:00 pm – 11:30 pm AEDT), while it's published.
+      eventListed: true,
       eventStartsAt: "2027-03-06T09:00:00.000Z",
       eventEndsAt: "2027-03-06T12:30:00.000Z",
       venueName: "The Tote",

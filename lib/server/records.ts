@@ -301,14 +301,18 @@ export function toOrder(row: Row): OrderRecord {
  * order is paid: a refunded order's tickets are void. The event's current
  * times, venue name and suburb are public event details (never the street
  * address), shown on the tickets; the mapper drops them for any order that
- * isn't paid. `tickets_issued` tells a paid-then-refunded order (it had
- * tickets) from one refunded because it couldn't be fulfilled (it never did).
- * Reads the event by primary key and the tickets by tickets_order_idx.
+ * isn't paid, and for any event that isn't published (unpublished, back in
+ * draft or review, rejected, or gone): those details are no longer public,
+ * so the order only says the event is no longer listed (`eventListed`).
+ * `tickets_issued` tells a paid-then-refunded order (it had tickets) from one
+ * refunded because it couldn't be fulfilled (it never did). Reads the event
+ * by primary key and the tickets by tickets_order_idx.
  */
 export const CUSTOMER_ORDER_SELECT = `
   select o.id, o.status::text as status, o.event_title, o.buyer_email,
          o.subtotal_cents, o.buyer_fee_cents, o.total_cents,
-         e.slug as event_slug, e.starts_at as event_starts_at, e.ends_at as event_ends_at,
+         e.slug as event_slug, e.status::text as event_status,
+         e.starts_at as event_starts_at, e.ends_at as event_ends_at,
          e.venue_name as event_venue_name, e.suburb as event_suburb,
          coalesce((
            select json_agg(json_build_object('ticketCode', t.code, 'ticketTypeName', t.ticket_type_name,
@@ -333,6 +337,9 @@ export function toCustomerOrder(row: Row): CustomerOrder {
   const email = opt<string>(row.buyer_email);
   const status = row.status as CustomerOrder["status"];
   const paid = status === "paid";
+  // The event's details are public only while it's published; a missing event (left join) isn't listed either.
+  const listed = row.event_status === "published";
+  const details = paid && listed;
   // Belt and braces with the SQL: never a code for an order that isn't paid.
   const tickets = paid
     ? (row.tickets as CustomerTicketRow[]).map((t) => ({
@@ -347,11 +354,12 @@ export function toCustomerOrder(row: Row): CustomerOrder {
     reference: orderReference(row.id as string),
     eventTitle: row.event_title as string,
     eventSlug: opt(row.event_slug),
-    // What the tickets show: only while they're valid.
-    eventStartsAt: paid && row.event_starts_at ? iso(row.event_starts_at) : undefined,
-    eventEndsAt: paid && row.event_ends_at ? iso(row.event_ends_at) : undefined,
-    venueName: paid ? opt(row.event_venue_name) : undefined,
-    suburb: paid ? opt(row.event_suburb) : undefined,
+    // What the tickets show: only while they're valid, and only while the event is published.
+    eventListed: paid ? listed : undefined,
+    eventStartsAt: details && row.event_starts_at ? iso(row.event_starts_at) : undefined,
+    eventEndsAt: details && row.event_ends_at ? iso(row.event_ends_at) : undefined,
+    venueName: details ? opt(row.event_venue_name) : undefined,
+    suburb: details ? opt(row.event_suburb) : undefined,
     maskedEmail: email ? maskEmail(email) : undefined,
     subtotalCents: row.subtotal_cents as number,
     buyerFeeCents: row.buyer_fee_cents as number,

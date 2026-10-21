@@ -141,10 +141,16 @@ export default function CheckoutConfirmation() {
   }
 
   const { order } = state;
-  const eventPath = order.eventSlug ? `/events/${encodeURIComponent(order.eventSlug)}` : null;
+  // An event that's no longer published: no date or venue (the API leaves them out too), and no links to
+  // its page, which would be a 404. Unset (an older API) counts as listed.
+  const unlisted = order.eventListed === false;
+  const eventPath = order.eventSlug && !unlisted ? `/events/${encodeURIComponent(order.eventSlug)}` : null;
   // Each ticket repeats the event, so a screenshot of one says what it's for. Unset from an older API.
-  const when = order.eventStartsAt ? formatEventDateTimeRange(order.eventStartsAt, order.eventEndsAt) : undefined;
-  const where = [order.venueName, order.suburb].filter((part) => !!part?.trim()).join(", ") || undefined;
+  const when =
+    order.eventStartsAt && !unlisted ? formatEventDateTimeRange(order.eventStartsAt, order.eventEndsAt) : undefined;
+  const where = unlisted
+    ? undefined
+    : [order.venueName, order.suburb].filter((part) => !!part?.trim()).join(", ") || undefined;
   return (
     <div className="flex flex-col gap-6 py-10">
       <div className="flex flex-col items-center gap-2 text-center">
@@ -170,6 +176,7 @@ export default function CheckoutConfirmation() {
               eventTitle={order.eventTitle}
               when={when}
               where={where}
+              eventUnlisted={unlisted}
               checkedInAt={ticket.checkedInAt}
             />
           ))}

@@ -8,6 +8,7 @@ import { encodePng } from "@/lib/server/png";
 import {
   buildTicketEmail,
   EMAIL_FOOTER_IMAGE_URL,
+  EVENT_UNLISTED_TEXT,
   formatTicketDate,
   formatTicketTime,
   orderReference,
@@ -23,6 +24,7 @@ const event = {
   venueAddress: "5 Smith St, Fitzroy",
   startsAt: "2027-03-06T09:00:00.000Z",
   endsAt: "2027-03-06T11:00:00.000Z",
+  status: "published",
 } as EventRecord;
 
 const order = {
@@ -96,11 +98,14 @@ describe("buildTicketEmail", () => {
   it("has one VIEW MY TICKETS button: black text on Signal Orange, at least 44px tall, to the order's ticket page", () => {
     for (const tickets of [[order.tickets[0]], order.tickets]) {
       const { html, text } = buildTicketEmail({ ...order, tickets }, event, "https://x");
-      const buttons = [...html.matchAll(/<td bgcolor="([^"]+)"[^>]*><a href="([^"]+)" style="([^"]*)">([^<]+)<\/a><\/td>/g)];
+      const buttons = [...html.matchAll(/<td bgcolor="([^"]+)"[^>]*style="([^"]*)"><a href="([^"]+)" style="([^"]*)">([^<]+)<\/a><\/td>/g)];
       expect(buttons).toHaveLength(1);
-      const [, bg, href, style, label] = buttons[0];
+      const [, bg, cellStyle, href, style, label] = buttons[0];
       expect(label).toBe("VIEW MY TICKETS");
       expect(bg).toBe(BRAND.orange);
+      // Outlook for Windows ignores padding on an <a>: the cell carries it there, so the button keeps its size.
+      expect(cellStyle).toContain("mso-padding-alt:16px 24px");
+      expect(cellStyle).toContain(`background-color:${BRAND.orange}`);
       expect(style).toContain(`color:${BRAND.black}`); // 6.18:1; white on orange would fail for 16px text
       expect(style).toContain("padding:16px 24px"); // 20px line + 32px padding = 52px tall (>= 44px)
       expect(style).toContain("display:block");
@@ -198,6 +203,30 @@ describe("buildTicketEmail", () => {
     expect(html).not.toContain("&middot; </td>");
   });
 
+  it("for an event that's no longer published, sends no date, time, venue or address: a no-longer-listed line instead, and the tickets", () => {
+    for (const status of ["draft", "pending_review", "rejected"] as const) {
+      const email = buildTicketEmail(order, { ...event, status }, "https://x");
+      for (const body of [email.text, email.html]) {
+        for (const detail of ["Saturday 6 March", "8:00 pm", "AEDT", "Studio 5", "Smith St", "Fitzroy"]) expect(body).not.toContain(detail);
+        expect(body).toContain("ABCD-EFGH");
+        expect(body).toContain("JKLM-NPQR");
+        expect(body).toContain("https://x/checkout/success?session_id=ord_abc");
+      }
+      for (const label of ["Date", "Time", "Venue", "Address"]) expect(email.html).not.toContain(`>${label}</td>`);
+      expect(email.text).not.toMatch(/^(Date|Time|Venue|Address):/m);
+      expect(email.text).toContain(EVENT_UNLISTED_TEXT);
+      expect(EVENT_UNLISTED_TEXT).toBe("This event is no longer listed. Contact support@sheltuh.com.au if you have questions.");
+      expect(email.html).toContain(
+        'This event is no longer listed. Contact <a href="mailto:support@sheltuh.com.au" style="color:#000000;text-decoration:underline">support@sheltuh.com.au</a> if you have questions.',
+      );
+      expect(qrImages(email)).toHaveLength(2);
+    }
+    // A published event never gets the line.
+    const listed = buildTicketEmail(order, event, "https://x");
+    expect(listed.text).not.toContain("no longer listed");
+    expect(listed.html).not.toContain("no longer listed");
+  });
+
   it("escapes every dynamic value, including ticket codes and the venue", () => {
     const { html } = buildTicketEmail(
       { ...order, tickets: [{ ticketCode: 'A<B>"1"&', ticketTypeId: "t", ticketTypeName: "<i>VIP</i>" }] } as OrderRecord,
@@ -228,7 +257,12 @@ describe("buildTicketEmail", () => {
     expect(html).toContain('href="mailto:support@sheltuh.com.au"');
     expect(text.toLowerCase()).not.toContain("reply");
     expect(html.toLowerCase()).not.toContain("just reply");
-    expect(html).toContain("display:none"); // preheader
+    // The preheader: hidden everywhere, Outlook desktop included (it ignores display:none alone).
+    const preheader = html.match(/<body[^>]*>\n<div style="([^"]*)">([^<]*)</);
+    expect(preheader?.[2]).toContain("Your tickets for Paint &#38; &#60;Sip&#62;.");
+    for (const rule of ["display:none", "mso-hide:all", "max-height:0", "overflow:hidden", "opacity:0"]) {
+      expect(preheader?.[1]).toContain(rule);
+    }
     expect(html).toContain('lang="en-AU"');
   });
 

@@ -237,9 +237,18 @@ export interface CustomerOrder {
   /** The event's current slug, for linking back to /events/{eventSlug}. Unset if the event is gone. */
   eventSlug?: string;
   /**
+   * Only for a `paid` order: whether the event is still published. `false`
+   * when it's been unpublished, sent back to draft or review, rejected or
+   * removed: its date and venue are then left out, and the tickets say it's
+   * no longer listed. Unset for any other status (and from an older API,
+   * where a missing value means listed).
+   */
+  eventListed?: boolean;
+  /**
    * The event's current start and end (ISO instants), venue name and suburb,
-   * as shown on its public page, for the tickets. Only for a `paid` order;
-   * unset otherwise (and from an older API).
+   * as shown on its public page, for the tickets. Only for a `paid` order
+   * whose event is published (`eventListed`); unset otherwise (and from an
+   * older API).
    */
   eventStartsAt?: string;
   eventEndsAt?: string;

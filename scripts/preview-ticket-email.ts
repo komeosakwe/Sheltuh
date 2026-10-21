@@ -40,6 +40,7 @@ const baseEvent = {
   venueAddress: "12 Hosier Lane, Melbourne VIC 3000",
   startsAt: "2027-03-06T09:00:00.000Z", // 8:00 pm AEDT
   endsAt: "2027-03-06T13:00:00.000Z",
+  status: "published",
 } as EventRecord;
 
 const ticket = (code: string, typeName = "General admission") => ({ ticketCode: code, ticketTypeId: "t", ticketTypeName: typeName });
@@ -76,6 +77,10 @@ const scenarios: Record<string, { order: OrderRecord; event: EventRecord }> = {
   "6-html-in-text": {
     order: baseOrder([ticket("A<B>-\"1\"&")], 1000),
     event: { ...baseEvent, title: `<script>alert("x")</script> & Friends`, venueName: "<b>Venue</b>" } as EventRecord,
+  },
+  "7-event-no-longer-listed": {
+    order: baseOrder([ticket("K7QM-2XPD")], 2338),
+    event: { ...baseEvent, status: "draft" } as EventRecord,
   },
 };
 

@@ -19,7 +19,13 @@ import type { EventRecord, OrderRecord } from "./types";
  * order reference and total; support; the brand banner.
  *
  * Table-based markup with inline styles and bgcolor attributes, so it holds up
- * in Gmail, Apple Mail and Outlook. Everything essential (event, when, where,
+ * in Gmail, Apple Mail and Outlook. Outlook for Windows ignores padding on an
+ * <a>, so the button's cell carries the same padding as `mso-padding-alt`
+ * (Outlook only) and keeps its size there; everywhere else the padding is on
+ * the block-level <a>, so the whole button is the link. The preheader is
+ * hidden with `mso-hide:all` too, which Outlook needs on top of display:none.
+ * An event that's no longer published gets EVENT_UNLISTED_TEXT instead of its
+ * date, time, venue and address. Everything essential (event, when, where,
  * every ticket code, the total) is real text, so it reads the same with images
  * blocked; every image has alt text.
  *
@@ -196,13 +202,23 @@ export function ticketPageLink(siteUrl: string, orderId: string): string {
 
 export const VIEW_TICKETS_LABEL = "VIEW MY TICKETS";
 
+/**
+ * What the email says, in place of the date, time, venue and address, when
+ * the event isn't published any more (unpublished, back in draft or review,
+ * or rejected): its details are no longer public, and may no longer be right.
+ * The tickets still go out. The same rule as the ticket page (toCustomerOrder).
+ */
+export const EVENT_UNLISTED_TEXT = `This event is no longer listed. Contact ${SUPPORT_EMAIL} if you have questions.`;
+
 /** The sent email: a 600px-wide card, with a plain-text alternative. */
 export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl: string): EmailMessage {
   const link = ticketPageLink(siteUrl, order.orderId);
-  const date = formatTicketDate(event.startsAt, event.endsAt);
-  const when = formatTicketTime(event.startsAt, event.endsAt);
-  const venue = event.venueName?.trim() ?? "";
-  const address = event.venueAddress?.trim() ?? "";
+  // The outbox rebuilds this from the live event on every attempt and resend: only a published event's details go out.
+  const listed = event.status === "published";
+  const date = listed ? formatTicketDate(event.startsAt, event.endsAt) : "";
+  const when = listed ? formatTicketTime(event.startsAt, event.endsAt) : "";
+  const venue = listed ? (event.venueName?.trim() ?? "") : "";
+  const address = listed ? (event.venueAddress?.trim() ?? "") : "";
   const reference = orderReference(order.orderId);
   const total = order.totalCents === 0 ? "Free" : `${formatAud(order.totalCents)} (incl. booking fees)`;
   const qrs = order.tickets.map((t, i) => ticketQr(t.ticketCode, i));
@@ -216,10 +232,14 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
     "YOU'RE IN.",
     event.title,
     "",
-    `Date: ${date}`,
-    `Time: ${when}`,
-    ...(venue ? [`Venue: ${venue}`] : []),
-    ...(address ? [`Address: ${address}`] : []),
+    ...(listed
+      ? [
+          `Date: ${date}`,
+          `Time: ${when}`,
+          ...(venue ? [`Venue: ${venue}`] : []),
+          ...(address ? [`Address: ${address}`] : []),
+        ]
+      : [EVENT_UNLISTED_TEXT]),
     "",
     ...(anyQr
       ? [
@@ -246,8 +266,9 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
   ].join("\n");
 
   // --- HTML ---
-  const details =
-    detailRow("Date", date) + detailRow("Time", when) + (venue ? detailRow("Venue", venue) : "") + (address ? detailRow("Address", address) : "");
+  const details = listed
+    ? detailRow("Date", date) + detailRow("Time", when) + (venue ? detailRow("Venue", venue) : "") + (address ? detailRow("Address", address) : "")
+    : `<tr><td style="padding:12px 0;border-bottom:1px solid ${BLACK};font-family:${SANS};font-size:16px;line-height:24px;color:${BLACK}">This event is no longer listed. Contact <a href="mailto:${escapeHtml(SUPPORT_EMAIL)}" style="color:${BLACK};text-decoration:underline">${escapeHtml(SUPPORT_EMAIL)}</a> if you have questions.</td></tr>`;
   const tickets = order.tickets.map((t, i) => ticketCard(t.ticketCode, t.ticketTypeName, i, order.tickets.length, qrs[i])).join("\n");
   const preheader = `Your ${one ? "ticket" : "tickets"} for ${event.title}. Show your ${anyQr ? "QR code" : "entry code"} at the door.`;
   const instructions = anyQr
@@ -276,7 +297,7 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
 </style>
 </head>
 <body bgcolor="${CREAM}" style="margin:0;padding:0;background-color:${CREAM};-webkit-text-size-adjust:100%">
-<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:${CREAM};font-size:1px;line-height:1px">${escapeHtml(preheader)}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;color:${CREAM};font-size:1px;line-height:1px">${escapeHtml(preheader)}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${CREAM}" style="background-color:${CREAM}">
 <tr><td align="center" style="padding:24px 12px">
 <!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
@@ -292,7 +313,7 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
     <p style="margin:0 0 16px 0;font-family:${SANS};font-size:16px;line-height:24px;color:${BLACK}">${instructions}</p>
 ${tickets}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:12px 0 28px 0"><tr>
-      <td bgcolor="${ORANGE}" align="center" style="background-color:${ORANGE};border-radius:8px"><a href="${escapeHtml(link)}" style="display:block;padding:16px 24px;font-family:${SANS};font-size:16px;line-height:20px;font-weight:bold;letter-spacing:1.2px;color:${BLACK};text-decoration:none;border-radius:8px">${VIEW_TICKETS_LABEL}</a></td>
+      <td bgcolor="${ORANGE}" align="center" style="background-color:${ORANGE};border-radius:8px;mso-padding-alt:16px 24px"><a href="${escapeHtml(link)}" style="display:block;padding:16px 24px;font-family:${SANS};font-size:16px;line-height:20px;font-weight:bold;letter-spacing:1.2px;color:${BLACK};text-decoration:none;border-radius:8px">${VIEW_TICKETS_LABEL}</a></td>
     </tr></table>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:2px solid ${BLACK}">
       <tr><td style="padding:14px 12px 4px 0;font-family:${SANS};font-size:14px;line-height:20px;color:${BLACK};white-space:nowrap">Order reference</td><td align="right" style="padding:14px 0 4px 0;font-family:${MONO};font-size:14px;line-height:20px;color:${BLACK}">${escapeHtml(reference)}</td></tr>
