@@ -106,16 +106,19 @@ unchanged.
   event page.
 - Add to calendar (low priority): `.ics` download and a Google Calendar link on
   the event page and the ticket confirmation.
-- Waitlist for sold-out events: join from the event page and cards;
-  backend design to follow (consent, notification when tickets free up).
-  **TODO (not built):** the UI states are specified
-  (`docs/design/brand-direction-one.md` §6.11) but nothing renders them yet,
-  because there's no data to drive them. The waitlist needs, first, sold-out
-  data in the public event payloads (per ticket type `remaining` or
-  `soldOut`; today `quantityAvailable` is the organiser's capacity, not
-  what's left) and, second, endpoints to join, check status and leave, plus
-  the notification email (contract B-WL, §10). The event page, cards and buy
-  bar must not show "Sold out" or "Join waitlist" until then.
+- Waitlist for sold-out events: join from the event page and cards.
+  **Backend built (B-WL, 21 Oct 2026; migration `20261024000000_waitlist.sql`,
+  docs/architecture.md "Waitlist"):** public event payloads carry `soldOut`
+  (event and ticket type) and `remaining` (only at 10 or fewer); endpoints to
+  join (members with their verified email at once, anyone else by an emailed
+  link), check status, leave (signed in, or by each email's leave link) and
+  confirm; "tickets are available again" emails through the outbox when
+  tickets free up; the organiser's analytics `waitlistCount`.
+  **TODO (UI, not built):** the §6.11 states, cards' and the buy bar's
+  sold-out variants, `lib/pricing.ts` "From" skipping sold-out tiers, and the
+  `/waitlist/confirm` and `/waitlist/leave` pages the emails link to. Until
+  those pages exist the emailed links lead nowhere, so the UI must not offer
+  "Join waitlist" before they ship.
 - Add to calendar on the ticket confirmation (`/checkout/success`): not
   built yet. `CustomerOrder` has no event start, end or venue; it needs
   `eventStartsAt`, `eventEndsAt`, `venueName` and `venueAddress` (additive),
@@ -148,3 +151,13 @@ scanner. Admins still cannot check in for organiser-owned events.
 - Curation (boost/exclude) entries are hidden from organisers' moderation log.
 - Unpublished events: ticket pages and resent emails drop the venue and time
   and say the event is no longer listed.
+
+### Owner request (21 Oct 2026): clickable Who's Going names and member profiles
+
+Manager design decision: member profiles are opt-in (default off). Only
+verified members with a profile can see them (the same gate as Who's Going
+names). A profile shows the display name, an optional short bio and Instagram
+handle, and the upcoming events the member has opted into, with Message,
+Block and Report. No email or user id; the URL uses an opaque profile id.
+Members who haven't opted in stay plain text in the list. Blocking hides
+profiles both ways. Privacy Policy wording is needed.
