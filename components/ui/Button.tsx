@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ButtonHTMLAttributes, ComponentProps, MouseEvent } from "react";
+import type { ButtonHTMLAttributes, ComponentProps, MouseEvent, Ref } from "react";
 
 export type ButtonVariant = "solid" | "outline" | "light" | "danger";
 /** `lg` is the 48px pill for primary thumb actions on phones. */
@@ -45,7 +45,7 @@ export function Button({
   busy = false,
   onClick,
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & StyleProps & { busy?: boolean }) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & StyleProps & { busy?: boolean; ref?: Ref<HTMLButtonElement> }) {
   return (
     <button
       type={type}

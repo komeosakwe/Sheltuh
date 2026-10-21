@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import AuthNavLinks, { navLinkClass } from "@/components/AuthNavLinks";
 import SearchBar from "@/components/SearchBar";
+import SavedNavLink from "@/components/favourites/SavedNavLink";
 import { useUnread } from "@/components/messages/UnreadProvider";
 import { ButtonLink } from "@/components/ui/Button";
 
@@ -14,6 +15,9 @@ const PRIMARY_LINKS = [
   { href: "/", label: "Discover" },
   { href: "/map", label: "Map" },
 ] as const;
+
+/** The phone menu's own primary list: the desktop links plus Saved (an icon link on desktop). */
+const MENU_PRIMARY_LINKS = [...PRIMARY_LINKS, { href: "/saved", label: "Saved" }] as const;
 
 const menuAccountLinkClass = "flex min-h-11 items-center text-base font-semibold";
 
@@ -29,6 +33,8 @@ export default function Nav() {
   const [menuOpen, setMenuOpen] = useState(false);
   const unreadCount = useUnread()?.count ?? 0;
   const inThread = /^\/messages\/(?!blocked$)[^/]+$/.test(pathname);
+  // At the door the paper header scrolls away at every width, so it doesn't sit lit above the scanner.
+  const atDoor = /^\/dashboard\/[^/]+\/check-in$/.test(pathname);
 
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
 
@@ -76,7 +82,7 @@ export default function Nav() {
     // The top padding keeps it below a status bar or notch (viewport-fit=cover);
     // it's 0 on desktop and in iOS's default status-bar style.
     <header
-      className={`${inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 bg-background pt-[env(safe-area-inset-top)] lg:bg-background/95`}
+      className={`${atDoor ? "relative" : inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 bg-background pt-[env(safe-area-inset-top)] lg:bg-background/95`}
     >
       {/* Compact bar (phones and tablets). */}
       <div className="flex h-14 items-center justify-between border-b border-surface-border px-5 sm:px-8 lg:hidden">
@@ -103,6 +109,7 @@ export default function Nav() {
               <path d="m20 20-3.5-3.5" />
             </svg>
           </Link>
+          <SavedNavLink size="compact" />
           <button
             ref={menuButtonRef}
             type="button"
@@ -150,6 +157,7 @@ export default function Nav() {
               {link.label}
             </Link>
           ))}
+          <SavedNavLink size="desktop" />
           <AuthNavLinks compact />
           <ButtonLink href="/organisers/apply" size="sm" className="ml-1">
             For organisers
@@ -173,7 +181,7 @@ export default function Nav() {
           className="flex min-h-full flex-col px-5 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-6 sm:px-8"
         >
           <ul className="flex flex-col">
-            {PRIMARY_LINKS.map((link) => (
+            {MENU_PRIMARY_LINKS.map((link) => (
               <li key={link.href}>
                 <Link
                   href={link.href}

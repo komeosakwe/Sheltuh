@@ -71,8 +71,11 @@ export function selectHomeSections(events: SheltuhEvent[], now: Date): HomeSecti
   const lowCost = atLeast(
     upcoming
       .filter((event) => event !== featured)
-      .map((event) => ({ event, cents: getMinBuyerTotalCents(event) }))
-      .filter(({ cents }) => cents <= LOW_COST_MAX_CENTS)
+      .flatMap((event) => {
+        // No ticket types yet: no price, so neither free nor low-cost.
+        const cents = getMinBuyerTotalCents(event);
+        return cents !== null && cents <= LOW_COST_MAX_CENTS ? [{ event, cents }] : [];
+      })
       .slice(0, RAIL_MAX)
       .map(({ event, cents }): LowCostItem => ({ event, badge: cents === 0 ? "free" : "low-cost" })),
   );

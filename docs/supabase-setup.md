@@ -179,6 +179,58 @@ where blocker_id = (select id from auth.users where email = 'blocker@example.com
 Messages are private between the two members. Only read them in response to
 a report, through the copies in the report.
 
+### Organiser takedown and profile edit log
+
+Approved organisers can change their bio, website and social handles without
+a new review. Every change is logged with its old and new values in
+`private.organiser_profile_edits`, which the admin organiser queue shows
+(newest 20 per organiser). If an organiser's profile or events turn out to be
+abusive, take them down from the queue (Suspend), through the admin API
+(`POST /api/admin/organisers/{id}/suspend` with `{"reason": "…"}`), or in the
+SQL editor with the same function the API uses:
+
+```sql
+-- Find the organiser.
+select id, display_name, status, website_url from public.organisers where display_name ilike '%name%';
+
+-- Take them down (replace both ids; the reason, 1–500 characters, is shown to the organiser).
+select * from private.suspend_organiser('<organiser id>', '<your auth user id>', 'short reason');
+```
+
+It returns `suspended` with how many events it unpublished
+(`events_unpublished`) and how many waiting submissions it rejected
+(`submissions_rejected`), or `not_approved` / `not_found` and changes nothing.
+In one transaction it sets the organiser `rejected`, unpublishes their
+published events (back to draft), rejects events waiting for review, and logs
+everything (the event moderation log and the organiser's log). Nothing is
+deleted, and paid tickets stay valid: refunding them is a separate decision,
+made in the Stripe dashboard. Don't take an organiser down by updating
+`organisers.status` by hand: that leaves their events published and bookable.
+
+To reinstate them, they reapply from their dashboard (their application goes
+back to pending) and an admin approves it. Their unpublished events stay drafts
+until they resubmit them and an admin approves each one.
+
+Recent profile changes across all organisers, newest first:
+
+```sql
+select o.display_name, e.kind, e.edited_at, e.changed_fields, e.reason
+from private.organiser_profile_edits e join public.organisers o on o.id = e.organiser_id
+order by e.id desc
+limit 50;
+```
+
+One organiser's full history:
+
+```sql
+select e.kind, e.edited_at, e.changed_fields, e.reason, u.email as actor_email
+from private.organiser_profile_edits e left join auth.users u on u.id = e.actor_id
+where e.organiser_id = '<organiser id>'
+order by e.id;
+```
+
+The log is append-only: the database refuses updates to it.
+
 ### Who's Going and messages retention (daily job)
 
 Opt-ins are deleted 30 days after their event ends, conversations (with
@@ -207,6 +259,102 @@ safe to run by hand at any time; it returns how many rows it deleted
 `20261003000000_messages.sql`, the existing job keeps working unchanged: the
 function keeps its name and still takes no arguments.
 
+### Analytics retention (daily job)
+
+Organiser page-view counters are deleted 25 months after the day they
+counted, per-event view rate-limit counters once idle for a day, and the
+door check-in log and tickets' check-in times 25 months after their event
+ends, by `private.purge_analytics()`. Nothing about visitors is stored in the first
+place (no cookie, IP address or user id), so this only bounds how long the
+aggregate numbers are kept. Schedule it alongside the job above:
+
+```sql
+select cron.schedule('purge-analytics', '27 3 * * *', $$select private.purge_analytics()$$);
+```
+
+It's safe to run by hand at any time and returns how many rows it deleted
+(`event_view_counts_deleted`, `event_rate_limits_deleted`; check-in rows
+aren't counted in the result, which keeps an existing job working unchanged).
+Orders, tickets, and the tracking code recorded on orders, are financial
+records and aren't purged.
+
+View counting starts the day `20261006000000_event_analytics.sql` is applied
+(`private.analytics_settings.views_tracked_since`); reports show earlier days
+as "not counted". Don't change that date by hand: it's what keeps a report
+from showing 0 views for days nobody counted.
+
+### Ticket check-in
+
+`20261021000000_ticket_check_in.sql` adds `tickets.checked_in_at`, the
+`ticket_check_ins` log and the check-in functions. It's additive (no existing
+row changes) and also redefines `private.purge_analytics()` with the same
+result columns, so the analytics job above needs no change. Check-in is done
+by the event's organiser, signed in on the door device; admins can't, and
+events of platform-managed organisers (no owner account) can't be checked in
+yet (docs/architecture.md, "Check-in"). An event's check-ins (no buyer data):
+
+```sql
+select c.id, c.result, right(c.ticket_code, 4) as code_last4, c.reason, c.created_at
+from ticket_check_ins c where c.event_id = '<event id>' order by c.id desc limit 50;
+```
+
+Mistaken admissions are undone from the app (with a reason, logged), not in
+SQL: an `update tickets set checked_in_at = null` would leave no record.
+
+### Free-ticket and email outbox retention (daily job)
+
+Guest free orders that were never confirmed are deleted a week after their
+link expired, along with idle platform counters, free-booking refusal counts
+older than 13 months, and ticket-email jobs (sent ones after 90 days, failed
+ones after a year), by `private.purge_operational_data()`:
+
+```sql
+select cron.schedule('purge-operational-data', '37 3 * * *', $$select private.purge_operational_data()$$);
+```
+
+It's safe to run by hand and returns how many rows it deleted. Paid orders
+are financial records and are never purged. To see how often free bookings
+are refused (no personal data is kept):
+
+```sql
+select day, reason, refusals from private.free_order_refusals order by day desc, reason;
+```
+
+Any `platform_hourly_limit` or `platform_daily_limit` rows mean guest free
+bookings were refused for everyone for a while (the platform-wide caps on
+confirmation emails). A few are fine; a steady stream suggests someone is
+flooding the free path (docs/architecture.md, "Accepted risks (free
+tickets)"). Each count stops at 10,000 a day.
+
+**Malformed addresses from before stricter checking.** Buyer and organiser
+emails are now checked as one plain address (no names, comments, quotes or
+lists). Once, after applying `20261017000000_free_order_caps.sql`, check for
+rows stored earlier that wouldn't pass (mail now always goes to them as a
+single address, but they're worth a look):
+
+```sql
+select id, status, created_at from public.orders where buyer_email ~ '[,;<>()":\[\]\\[:space:]]';
+select id, status, created_at from public.organisers where contact_email ~ '[,;<>()":\[\]\\[:space:]]';
+```
+
+**Organiser websites (pre-deploy check).** Before deploying the organiser
+profile release, and again after applying
+`20261016000000_organiser_public_profile.sql` (whose check constraint would
+fail on these rows), this should return no rows:
+
+```sql
+select id from public.organisers where website_url !~* '^https?://' or char_length(website_url) > 2048;
+```
+
+The API now only takes new `https://` addresses without a username or
+password. Older `http://` ones keep working until the organiser changes them.
+To review them (optional):
+
+```sql
+select id, display_name, website_url from public.organisers
+where website_url ~* '^http://' or website_url ~ '^[A-Za-z]+://[^/?#]*@';
+```
+
 ## 2. Stripe (Connect)
 
 1. In the Stripe dashboard, stay in **test mode** and enable **Connect**. Use
@@ -218,13 +366,51 @@ function keeps its name and still takes no arguments.
    - Events: `checkout.session.completed`,
      `checkout.session.async_payment_succeeded`,
      `checkout.session.async_payment_failed`, `checkout.session.expired`,
-     `refund.updated`, `refund.failed`
+     `refund.updated`, `refund.failed`, `charge.refunded`
    - Its signing secret (`whsec_…`) → `STRIPE_WEBHOOK_SECRET`
 
    For local testing: `stripe listen --forward-to localhost:3000/api/stripe/webhook`
    prints a temporary signing secret to use instead.
 4. Repeat steps 2–3 in live mode when you're ready to take real money.
    Live mode uses different keys and a different webhook secret.
+
+**`charge.refunded` is required in both test and live mode.** Test-mode and
+live-mode endpoints are configured separately, so check the event list on
+each. An endpoint created before this event was handled must have it added
+(Developers → Webhooks → the endpoint → Update details → Select events).
+Without it, a refund made in the Stripe dashboard leaves the order `paid`
+and its tickets valid.
+
+**Refunding a paid order.** Refund it from the Stripe dashboard (Payments →
+the payment → Refund). For a destination charge, choose whether to reverse
+the organiser's transfer and refund Sheltüh's application fee there; the app
+doesn't decide. A **full** refund marks the order `refunded`: its tickets are
+void (the confirmation page no longer shows them) and they go back on sale.
+A **partial** refund is only recorded: the order stays `paid` and its tickets
+stay valid, and the server logs `Order #… was partly refunded in Stripe …
+Review it manually.` Refunding the rest voids the whole order. Disputes
+aren't handled automatically (docs/architecture.md, "Refunds made in
+Stripe"). Partly refunded orders:
+
+```sql
+select id, total_cents, amount_refunded_cents, created_at
+from orders where status = 'paid' and amount_refunded_cents > 0;
+```
+
+**Testing refunds in test mode.** Buy a ticket with `4242 4242 4242 4242`
+and wait for the confirmation page to show the ticket codes. Then:
+
+- Partial: refund part of it in the dashboard. The order stays `paid`
+  (`select status, amount_refunded_cents from orders where id = '<order id>'`)
+  and the page still shows the tickets.
+- Full: refund the rest (or a fresh order in full). The order becomes
+  `refunded`, the page shows no ticket codes, and the ticket type's
+  `quantity_sold` goes down by the order's quantity.
+- With the Stripe CLI forwarding to a local server, `stripe trigger
+  charge.refunded` sends a refund for a payment the app doesn't know: it's
+  acknowledged (200) and logged as having no order, and nothing changes.
+- Stripe → Developers → Webhooks → the endpoint shows each delivery and our
+  response; "Resend" redelivers one, which changes nothing the second time.
 
 **Orders that can't be fulfilled are refunded automatically.** This covers
 two buyers paying for the last ticket within seconds of each other (the
@@ -243,6 +429,16 @@ select id, buyer_email, total_cents, stripe_payment_intent_id, created_at
 from orders where status = 'oversold_refund_required';
 ```
 
+Once you've refunded one of these by hand in the Stripe dashboard, mark it
+refunded yourself: a dashboard refund can't be matched to the automatic one
+(`charge.refunded` only changes `paid` orders), and these orders never took
+any tickets, so nothing else needs undoing:
+
+```sql
+update orders set status = 'refunded'
+where id = '<order id>' and status = 'oversold_refund_required';
+```
+
 ## 3. Ticket emails
 
 After every paid or free order, the buyer gets an email with their ticket
@@ -257,14 +453,43 @@ Google Workspace, so there's no new vendor:
    `.env.example`. Google already sends for your domain under the existing
    SPF record, so no DNS change is needed.
 
-Workspace allows about 2,000 messages a day, which is plenty for launch. If
-SMTP isn't set, orders still work and tickets still show on the confirmation
-page; the server logs that no email was sent. To find orders whose email
-failed:
+Workspace allows about 2,000 messages a day, which is plenty for launch (it's
+shared with free-ticket confirmation emails, which are capped at 60 an hour
+and 400 a day so most of it stays for ticket emails). If SMTP isn't set, paid
+orders still work and tickets still show on the confirmation page; each
+ticket email is retried on the schedule below and then shows as failed. But
+guests can't book free tickets without SMTP: the confirmation link can't be
+sent, so every guest free booking is refused with a 503 ("We couldn't send
+the confirmation email just now"). Members booking with their own verified
+email still get theirs.
+
+**Retries.** Every ticket email goes through an outbox: it's tried straight
+after the order is paid, then by a cron job every 5 minutes (1 min, 5 min,
+30 min, 2 h and 6 h after each failure; after the 6th it's marked failed).
+Set it up once:
+
+1. Generate a secret (`openssl rand -hex 32`) and add it to Vercel as
+   `CRON_SECRET` (Production). Without it the cron route refuses every
+   request and nothing is retried.
+2. `vercel.json` schedules `GET /api/cron/email-outbox` once a day
+   (17:00 UTC, early morning in Melbourne), because the project is on the
+   Hobby plan, which refuses deployments with more frequent crons. Vercel
+   sends the secret as a bearer token. Ticket emails still go out right
+   after each purchase; only retries of failed sends wait for the daily run.
+   On the **Pro** plan, change the schedule back to every 5 minutes
+   (`*/5 * * * *`). On Hobby, Supabase Cron with `pg_net` calling the URL with
+   the header can retry more often.
+3. Check it under Vercel → Project → Settings → Cron Jobs (each run returns
+   counts: `claimed`, `sent`, `retrying`, `failed`).
+
+Failed emails are listed at `/admin/emails`, by order reference and masked
+address, with a **Resend now** button. Delivery is at-least-once, so a buyer
+can occasionally get the same email twice. From SQL:
 
 ```sql
-select id, buyer_email, created_at from orders
-where status = 'paid' and buyer_email is not null and tickets_emailed_at is null;
+select j.id, j.status, j.attempts, j.last_error, j.next_attempt_at, o.event_title
+from private.email_outbox j join orders o on o.id = j.order_id
+where j.status in ('failed', 'pending') order by j.created_at desc;
 ```
 
 ## 4. Vercel
@@ -292,8 +517,10 @@ changing them.
 4. Create an event with a free ticket and a paid ticket, and submit it.
    Approve it at `/admin/events`.
 5. Signed out, open the event:
-   - Get the free ticket (it asks for an email). It's issued instantly
-     and the ticket email arrives.
+   - Get the free ticket (it asks for an email). Signed out, a "confirm your
+     free tickets" email arrives; open its link, press Confirm, and the
+     tickets are issued and the ticket email arrives. Signed in with the
+     same email, the tickets are issued straight away.
    - Buy the paid ticket with card `4242 4242 4242 4242`. The confirmation
      page shows ticket codes once Stripe's webhook arrives, usually within
      seconds.

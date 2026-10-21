@@ -1,9 +1,10 @@
 import { MIN_PAID_TICKET_CENTS } from "@/lib/fees";
+import { URL_DISALLOWED } from "@/lib/ticketing";
+import { isPlainEmailAddress, MAX_EMAIL_LENGTH } from "./email-address";
 import { HttpError } from "./http";
 import { melbourneLocalToUtcIso } from "./melbourne-time";
 import { EVENT_CATEGORIES, type EventCategory, type FeePolicy, type TicketTypeInput } from "./types";
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_REGEX = /^\d{2}:\d{2}$/;
 
@@ -23,9 +24,13 @@ export function requireString(value: unknown, field: string, errors: Record<stri
   return value.trim();
 }
 
+/**
+ * A single plain address (isPlainEmailAddress): no display names, comments,
+ * quoted local parts or lists, so a stored value can only ever be one recipient.
+ */
 export function requireEmail(value: unknown, field: string, errors: Record<string, string>): string {
-  const email = requireString(value, field, errors, 320);
-  if (email && !EMAIL_REGEX.test(email)) {
+  const email = requireString(value, field, errors, MAX_EMAIL_LENGTH);
+  if (email && !errors[field] && !isPlainEmailAddress(email)) {
     errors[field] = "Enter a valid email address.";
   }
   return email;
@@ -52,20 +57,64 @@ export function requireCategory(value: unknown, field: string, errors: Record<st
   return value as EventCategory;
 }
 
-export function optionalUrl(value: unknown, field: string, errors: Record<string, string>): string | undefined {
-  if (value === undefined || value === null || value === "") return undefined;
+/** Longest URL accepted (matches the organisers.website_url check constraint). */
+export const MAX_URL_LENGTH = 2048;
+
+// Control, invisible-format, separator and whitespace characters (NUL
+// included, which Postgres text can't store), and backslashes, which URL
+// parsers read as "/" (so "https://a.example\@b.example" goes to
+// a.example while reading like b.example). None belong in a URL as typed.
+// Shared with the external ticket link's check (lib/ticketing.ts).
+
+/**
+ * An optional URL, trimmed. A new value must start with `https://` as typed
+ * (the database checks http(s)), so the stored text is always safe to use as
+ * a link's href, whatever the URL parser would have normalised. It can't
+ * carry a username or password ("https://bank.example@evil.example" reads as
+ * one site and goes to another), or any of URL_DISALLOWED.
+ *
+ * `current` is the value already stored: sent back exactly as it is, it's
+ * kept even if it predates these rules (an `http://` site), so a client that
+ * sends the whole record back doesn't fail on a field nobody changed.
+ */
+export function optionalUrl(
+  value: unknown,
+  field: string,
+  errors: Record<string, string>,
+  options: { current?: string } = {},
+): string | undefined {
+  if (value === undefined || value === null) return undefined;
   if (typeof value !== "string") {
     errors[field] = "Enter a valid URL.";
     return undefined;
   }
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (options.current !== undefined && trimmed === options.current) return trimmed;
+  if (trimmed.length > MAX_URL_LENGTH) {
+    errors[field] = `Must be ${MAX_URL_LENGTH} characters or fewer.`;
+    return undefined;
+  }
+  if (/^http:\/\//i.test(trimmed)) {
+    errors[field] = "Use your site's secure address, starting with https://";
+    return undefined;
+  }
+  let url: URL;
   try {
-    const url = new URL(value);
-    if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("bad protocol");
-    return value;
+    if (!/^https:\/\//i.test(trimmed) || URL_DISALLOWED.test(trimmed)) throw new Error("not a plain https URL");
+    url = new URL(trimmed);
+    if (url.protocol !== "https:") throw new Error("not https");
   } catch {
     errors[field] = "Enter a valid URL, including https://";
     return undefined;
   }
+  // The authority as typed (up to the first / ? or #), as well as the parser's view.
+  const authority = trimmed.slice("https://".length).split(/[/?#]/, 1)[0];
+  if (authority.includes("@") || url.username || url.password) {
+    errors[field] = "Enter the address without a username or password.";
+    return undefined;
+  }
+  return trimmed;
 }
 
 /**

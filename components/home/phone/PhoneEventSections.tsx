@@ -88,7 +88,7 @@ export default function PhoneEventSections({ guide }: { guide?: ReactNode }) {
         <section aria-labelledby="home-coming" className="reveal mt-8">
           <SectionHead
             id="home-coming"
-            title="Coming up in Melbourne"
+            title="Coming up near you"
             seeAll={{ href: "/events", srLabel: "events" }}
           />
           {loading ? (

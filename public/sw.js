@@ -13,7 +13,8 @@
  * rules in the plain functions below.
  */
 
-const VERSION = "v1";
+// v2: public/offline.html changed (precached), so the shell cache must be replaced.
+const VERSION = "v2";
 const CACHE_PREFIX = "sheltuh-";
 const SHELL_CACHE = `${CACHE_PREFIX}shell-${VERSION}`;
 const STATIC_CACHE = `${CACHE_PREFIX}static-${VERSION}`;

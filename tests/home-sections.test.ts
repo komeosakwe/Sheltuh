@@ -97,6 +97,22 @@ describe("selectHomeSections", () => {
     ]);
   });
 
+  it("leaves events with no ticket types yet out of Free & low-cost (no price is not free)", () => {
+    const noTickets = { ...event("no-tickets", "2026-10-02T08:00:00.000Z"), ticketTypes: [] };
+    const sections = selectHomeSections(
+      [
+        event("featured", "2026-10-01T08:00:00.000Z"),
+        noTickets,
+        event("free", "2026-10-03T08:00:00.000Z", 0),
+        event("cheap", "2026-10-04T08:00:00.000Z", 1800),
+      ],
+      NOW,
+    );
+    expect(sections.lowCost.map(({ event: e }) => e.id)).toEqual(["free", "cheap"]);
+    // Still listed elsewhere: it's an upcoming event, just without a price.
+    expect(sections.comingUp.map((e) => e.id)).toContain("no-tickets");
+  });
+
   it("hides Free & low-cost with fewer than two", () => {
     const sections = selectHomeSections(
       [event("a", "2026-10-01T08:00:00.000Z"), event("free", "2026-10-02T08:00:00.000Z", 0), event("c", "2026-10-03T08:00:00.000Z")],

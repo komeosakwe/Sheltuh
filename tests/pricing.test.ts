@@ -7,6 +7,7 @@ import {
   formatTicketHeadline,
   getMinBuyerTotalCents,
   getTicketBuyerTotalCents,
+  NO_TICKETS_LABEL,
 } from "../lib/pricing";
 import { sampleEvents } from "../lib/sample-events";
 import type { SheltuhEvent } from "../lib/types";
@@ -65,6 +66,8 @@ describe("single-ticket-type events omit the 'From' prefix", () => {
 describe("feed price stays consistent with the checkout total for every sample event", () => {
   it.each(sampleEvents)("$title", (event) => {
     const minTotal = getMinBuyerTotalCents(event);
+    // Every sample event has ticket types, so there's a price.
+    if (minTotal === null) throw new Error(`${event.slug} has no ticket types`);
 
     // The feed's minimum must actually be achievable by some ticket type.
     const achievable = event.ticketTypes.some(
@@ -122,6 +125,19 @@ describe("formatFeedPriceParts (the event page's buy bar)", () => {
 
   it("no ticket types: nothing to show (never 'A$Infinity')", () => {
     expect(formatFeedPriceParts({ ...findEvent("neon-static"), ticketTypes: [] })).toBeNull();
+  });
+});
+
+describe("an event with no ticket types yet", () => {
+  const event: SheltuhEvent = { ...findEvent("neon-static"), ticketTypes: [] };
+
+  it("has no minimum price (null, never Infinity or 0)", () => {
+    expect(getMinBuyerTotalCents(event)).toBeNull();
+  });
+
+  it("reads 'Tickets coming soon' on feed cards, not 'Free' or a price", () => {
+    expect(formatFeedPrice(event)).toBe(NO_TICKETS_LABEL);
+    expect(NO_TICKETS_LABEL).toBe("Tickets coming soon");
   });
 
   it.each(sampleEvents)("matches the feed price for $title", (event) => {

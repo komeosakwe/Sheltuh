@@ -43,3 +43,27 @@ export function resolveEventCoordinates(event: SheltuhEvent): Coordinates | null
 /** Roughly bounds inner Melbourne — used as the map's default view. */
 export const MELBOURNE_DEFAULT_CENTER: Coordinates = { lat: -37.808, lng: 144.965 };
 export const MELBOURNE_DEFAULT_ZOOM = 12;
+
+/**
+ * Greater Melbourne with a margin (Mornington Peninsula, Yarra Valley, Geelong's
+ * edge, Macedon Ranges). The map is kept inside this box so it always reads as
+ * a Melbourne map: it can't be panned or zoomed out to the world, and a stray
+ * event outside it is not pinned (it would stretch the view away from the city).
+ */
+export const MELBOURNE_METRO_BOUNDS = { south: -38.55, west: 144.2, north: -37.35, east: 145.95 } as const;
+export const MELBOURNE_MIN_ZOOM = 9;
+
+export function isInMelbourneMetro(coords: Coordinates): boolean {
+  const b = MELBOURNE_METRO_BOUNDS;
+  return coords.lat >= b.south && coords.lat <= b.north && coords.lng >= b.west && coords.lng <= b.east;
+}
+
+/**
+ * Where an event goes on the map: its coordinates when they fall inside
+ * Greater Melbourne, otherwise null. Events outside are not pinned, so the
+ * list, Locate and the "can't be placed" count treat them as unplaceable too.
+ */
+export function resolveMapCoordinates(event: SheltuhEvent): Coordinates | null {
+  const coords = resolveEventCoordinates(event);
+  return coords && isInMelbourneMetro(coords) ? coords : null;
+}

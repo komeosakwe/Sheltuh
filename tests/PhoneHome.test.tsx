@@ -29,7 +29,7 @@ describe("PhoneHome (demo data, 30 Sep 2026)", () => {
     expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
       "Browse by category",
       "Up next",
-      "Coming up in Melbourne",
+      "Coming up near you",
       "What’s on in October",
       "Only in the city",
       "Free & low-cost",

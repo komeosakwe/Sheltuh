@@ -69,7 +69,16 @@ export function formatDayWithYear(isoLike: string, now: Date = new Date()): stri
  */
 export function formatMessageTime(isoLike: string, now: Date = new Date()): string {
   const sameDay = dateKeyFormatter.format(new Date(isoLike)) === dateKeyFormatter.format(now);
-  return sameDay ? formatEventTime(isoLike) : `${formatDayWithYear(isoLike, now)}, ${formatEventTime(isoLike)}`;
+  return sameDay ? formatEventTime(isoLike) : formatDayTime(isoLike, now);
+}
+
+/**
+ * A day and time, Australia/Melbourne, always with the day: "Fri 25 Sep,
+ * 8:05 pm", plus the year when it isn't `now`'s ("Fri 25 Sep 2025, 8:05 pm").
+ * For logs, where "8:05 pm" alone would be ambiguous once the day has passed.
+ */
+export function formatDayTime(isoLike: string, now: Date = new Date()): string {
+  return `${formatDayWithYear(isoLike, now)}, ${formatEventTime(isoLike)}`;
 }
 
 const dateTimeInputFormatter = new Intl.DateTimeFormat("en-CA", {

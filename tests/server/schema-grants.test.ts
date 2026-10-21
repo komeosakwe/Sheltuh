@@ -25,6 +25,31 @@ describe("Data API lock-out", () => {
     expect(grants).toEqual([]);
   });
 
+  it("no column of any table in `public` or `private` is granted to anon, authenticated or PUBLIC", async () => {
+    // A column-level grant (`grant select (display_name) on public.organisers
+    // to anon`) doesn't show in role_table_grants, but exposes the column
+    // through the Data API all the same.
+    const viaInformationSchema = await db.query(
+      `select table_schema, table_name, column_name, grantee, privilege_type from information_schema.role_column_grants
+        where table_schema in ('public', 'private') and grantee in ('anon', 'authenticated', 'PUBLIC')
+        order by 1, 2, 3, 4, 5`,
+    );
+    expect(viaInformationSchema).toEqual([]);
+    // The same from the catalogue, which doesn't depend on which roles the
+    // test connection is a member of.
+    const viaCatalogue = await db.query(
+      `select n.nspname as schema, c.relname as table_name, a.attname as column_name, x.privilege_type
+         from pg_attribute a
+         join pg_class c on c.oid = a.attrelid
+         join pg_namespace n on n.oid = c.relnamespace,
+              aclexplode(a.attacl) x
+        where n.nspname in ('public', 'private') and a.attacl is not null
+          and (x.grantee = 0 or x.grantee in ('anon'::regrole, 'authenticated'::regrole))
+        order by 1, 2, 3, 4`,
+    );
+    expect(viaCatalogue).toEqual([]);
+  });
+
   it("row-level security is on for every table in `public`", async () => {
     const open = await db.query(
       `select c.relname as table_name from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -33,8 +58,16 @@ describe("Data API lock-out", () => {
     expect(open).toEqual([]);
   });
 
-  it("the messaging tables exist in `public` with RLS on, no policies and no client grants", async () => {
-    const tables = ["conversations", "messages", "user_blocks"];
+  it("the messaging, favourites, analytics and check-in tables exist in `public` with RLS on, no policies and no client grants", async () => {
+    const tables = [
+      "conversations",
+      "event_favourites",
+      "event_tracking_links",
+      "event_view_counts",
+      "messages",
+      "ticket_check_ins",
+      "user_blocks",
+    ];
     const rows = await db.query<{ table_name: string; rls: boolean; policies: number; grants: number }>(
       `select c.relname as table_name, c.relrowsecurity as rls,
               (select count(*)::int from pg_policy p where p.polrelid = c.oid) as policies,
@@ -74,7 +107,14 @@ describe("Data API lock-out", () => {
         where n.nspname = 'private' and c.relkind = 'r' order by 1`,
     );
     expect(tables).toEqual([
+      { table_name: "analytics_settings", rls: true },
       { table_name: "conversation_pairs", rls: true },
+      { table_name: "email_outbox", rls: true },
+      { table_name: "event_rate_limits", rls: true },
+      { table_name: "event_view_cap_days", rls: true },
+      { table_name: "free_order_refusals", rls: true },
+      { table_name: "organiser_profile_edits", rls: true },
+      { table_name: "platform_rate_limits", rls: true },
       { table_name: "rate_limits", rls: true },
       { table_name: "social_suspensions", rls: true },
       { table_name: "user_reports", rls: true },
@@ -100,5 +140,24 @@ describe("Data API lock-out", () => {
         order by 1`,
     );
     expect(executable).toEqual([]);
+  });
+
+  it("every `private` function pins its search_path, apart from the three that predate the rule", async () => {
+    // A function without a pinned search_path resolves names through the
+    // caller's. New ones must set it (`set search_path = ''`); these three
+    // (init migration) predate the rule and schema-qualify every name instead.
+    // fulfil_order was pinned when the email outbox redefined it, and
+    // replace_ticket_types when the listing fixes did.
+    const unpinned = await db.query<{ fn: string }>(
+      `select p.proname as fn from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'private'
+          and not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c like 'search_path=%')
+        order by 1`,
+    );
+    expect(unpinned.map((r) => r.fn)).toEqual([
+      "create_event_draft",
+      "transition_event",
+      "update_event_draft",
+    ]);
   });
 });

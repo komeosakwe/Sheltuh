@@ -53,23 +53,33 @@ export function messageLength(value: string): number {
   return Array.from(normaliseMessage(value)).length;
 }
 
-const TOO_LONG = `Keep it to ${MESSAGE_MAX.toLocaleString("en-AU")} characters or fewer.`;
+function tooLong(max: number) {
+  return `Keep it to ${max.toLocaleString("en-AU")} characters or fewer.`;
+}
 
 /**
  * Client-side check before sending. `label` names the field in the control
  * character error ("Messages", "Details", "Notes"). `optional` allows blank.
+ * `max` is the field's limit (default MESSAGE_MAX), `empty` the error for a
+ * required field left blank (default "Write a message.").
  */
 export function validateMessage(
   value: string,
-  { label = "Messages", optional = false }: { label?: string; optional?: boolean } = {},
+  {
+    label = "Messages",
+    optional = false,
+    max = MESSAGE_MAX,
+    empty = "Write a message.",
+  }: { label?: string; optional?: boolean; max?: number; empty?: string } = {},
 ): string | null {
-  if (value.length > RAW_INPUT_CAP) return TOO_LONG;
+  // Refused before any regex or normalisation, as the API does (4x the limit).
+  if (value.length > max * 4) return tooLong(max);
   if (DISALLOWED.test(value.replace(EMOJI_TAG_SEQUENCE, ""))) {
     return `${label} can't contain control, invisible or text-direction characters.`;
   }
   const text = normaliseMessage(value);
-  if (!text) return optional ? null : "Write a message.";
-  if (!VISIBLE.test(text)) return optional ? "Add some text, or leave this blank." : "Write a message.";
-  if (Array.from(text).length > MESSAGE_MAX) return TOO_LONG;
+  if (!text) return optional ? null : empty;
+  if (!VISIBLE.test(text)) return optional ? "Add some text, or leave this blank." : empty;
+  if (Array.from(text).length > max) return tooLong(max);
   return null;
 }

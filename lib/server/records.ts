@@ -3,21 +3,31 @@
  * the camelCase API shapes in lib/api/types.ts. Nulls become undefined so
  * they drop out of JSON responses, matching the optional fields.
  */
+import type { Db } from "./db";
 import type {
+  AdminEmailJob,
+  AdminOrganiserRecord,
   AdminReport,
   BlockRecord,
   ConversationSummary,
+  CustomerOrder,
   EventRecord,
   GoingAttendee,
   IssuedTicket,
   MessageRecord,
   ModerationLogEntry,
   OrderRecord,
+  OrganiserEditEntry,
+  OrganiserEditField,
   OrganiserRecord,
   ProfileRecord,
   PublicEvent,
+  PublicOrganiserProfile,
   TicketTypeInput,
 } from "./types";
+import { maskEmail } from "./email-address";
+import { orderReference } from "./order-reference";
+import { socialLinks } from "./organiser-input";
 
 type Row = Record<string, unknown>;
 
@@ -33,12 +43,72 @@ function opt<T>(value: unknown): T | undefined {
 // Organisers
 // ---------------------------------------------------------------------------
 
-export const ORGANISER_SELECT = `
-  select o.id, o.owner_user_id, o.display_name, o.contact_email, o.description,
-         o.categories::text[] as categories, o.website_url, o.status::text as status,
+const ORGANISER_COLUMNS = `o.id, o.owner_user_id, o.display_name, o.contact_email, o.description,
+         o.categories::text[] as categories, o.website_url,
+         o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle, o.status::text as status,
          o.rejection_reason, o.reviewed_by, o.reviewed_at, o.stripe_account_id,
-         o.payouts_enabled, o.created_at, o.updated_at
+         o.payouts_enabled, o.created_at, o.updated_at`;
+
+export const ORGANISER_SELECT = `
+  select ${ORGANISER_COLUMNS}
   from public.organisers o`;
+
+/** Log entries shown per organiser in the admin queue. */
+export const ADMIN_ORGANISER_EDIT_LIMIT = 20;
+
+/**
+ * The admin queue's organiser: every column plus the newest
+ * ADMIN_ORGANISER_EDIT_LIMIT entries of private.organiser_profile_edits, in
+ * the same query (organiser_profile_edits_organiser_idx), so a page is one
+ * query, not one per organiser. Admin only.
+ */
+export const ADMIN_ORGANISER_SELECT = `
+  select ${ORGANISER_COLUMNS},
+         coalesce((
+           select json_agg(json_build_object('kind', x.kind, 'at', x.edited_at, 'changes', x.changed_fields,
+                                             'reason', x.reason) order by x.id desc)
+           from (select pe.id, pe.kind, pe.edited_at, pe.changed_fields, pe.reason
+                   from private.organiser_profile_edits pe
+                  where pe.organiser_id = o.id
+                  order by pe.id desc
+                  limit ${ADMIN_ORGANISER_EDIT_LIMIT}) x
+         ), '[]'::json) as recent_edits
+  from public.organisers o`;
+
+/** organisers column → API field, for the log's changed_fields keys. */
+const EDIT_FIELDS: Record<string, OrganiserEditField> = {
+  description: "description",
+  website_url: "websiteUrl",
+  instagram_handle: "instagramHandle",
+  tiktok_handle: "tiktokHandle",
+  facebook_page: "facebookPage",
+  x_handle: "xHandle",
+  status: "status",
+};
+
+function toEditValue(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function toOrganiserEdit(entry: {
+  kind: OrganiserEditEntry["kind"];
+  at: string;
+  changes: Record<string, { old?: unknown; new?: unknown }>;
+  reason: string | null;
+}): OrganiserEditEntry {
+  const changes: OrganiserEditEntry["changes"] = {};
+  for (const [column, change] of Object.entries(entry.changes)) {
+    const field = EDIT_FIELDS[column];
+    if (field) changes[field] = { old: toEditValue(change.old), new: toEditValue(change.new) };
+  }
+  return { kind: entry.kind, at: iso(entry.at), changes, reason: opt(entry.reason) };
+}
+
+/** For rows of ADMIN_ORGANISER_SELECT. */
+export function toAdminOrganiser(row: Row): AdminOrganiserRecord {
+  const edits = row.recent_edits as Parameters<typeof toOrganiserEdit>[0][];
+  return { ...toOrganiser(row), recentEdits: edits.map(toOrganiserEdit) };
+}
 
 export function toOrganiser(row: Row): OrganiserRecord {
   return {
@@ -49,6 +119,10 @@ export function toOrganiser(row: Row): OrganiserRecord {
     description: row.description as string,
     categories: row.categories as OrganiserRecord["categories"],
     websiteUrl: opt(row.website_url),
+    instagramHandle: opt(row.instagram_handle),
+    tiktokHandle: opt(row.tiktok_handle),
+    facebookPage: opt(row.facebook_page),
+    xHandle: opt(row.x_handle),
     status: row.status as OrganiserRecord["status"],
     rejectionReason: opt(row.rejection_reason),
     reviewedBy: opt(row.reviewed_by),
@@ -65,6 +139,47 @@ export function toOwnOrganiserView(record: OrganiserRecord): OrganiserRecord {
   const view = { ...record };
   delete view.reviewedBy;
   return view;
+}
+
+/**
+ * An organiser's public profile. Only the columns the public may see: no
+ * contact email, owner, Stripe, payout or review columns are even read. Not
+ * exported: the only way to use it is findPublicOrganiserRow, which always
+ * adds the approved-only filter.
+ */
+const PUBLIC_ORGANISER_SELECT = `
+  select o.id, o.display_name, o.description, o.categories::text[] as categories, o.website_url,
+         o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle,
+         to_char(o.created_at at time zone 'Australia/Melbourne', 'YYYY-MM') as member_since
+  from public.organisers o`;
+
+/** The public columns of an approved organiser (for toPublicOrganiserProfile); undefined for anything else. */
+export async function findPublicOrganiserRow(db: Db, organiserId: string): Promise<Row | undefined> {
+  const [row] = await db.query(`${PUBLIC_ORGANISER_SELECT} where o.id = $1 and o.status = 'approved'`, [organiserId]);
+  return row;
+}
+
+export function toPublicOrganiserProfile(
+  row: Row,
+  upcomingEvents: PublicEvent[],
+  recentEvents: PublicEvent[],
+): PublicOrganiserProfile {
+  return {
+    organiserId: row.id as string,
+    displayName: row.display_name as string,
+    description: row.description as string,
+    categories: row.categories as PublicOrganiserProfile["categories"],
+    websiteUrl: opt(row.website_url),
+    socialLinks: socialLinks({
+      instagramHandle: opt(row.instagram_handle),
+      tiktokHandle: opt(row.tiktok_handle),
+      facebookPage: opt(row.facebook_page),
+      xHandle: opt(row.x_handle),
+    }),
+    memberSince: row.member_since as string,
+    upcomingEvents,
+    recentEvents,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -176,6 +291,78 @@ export function toOrder(row: Row): OrderRecord {
     tickets: row.tickets as IssuedTicket[],
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
+  };
+}
+
+/**
+ * The buyer's confirmation-page view of an order (`where o.id = $1`). Only the
+ * columns CustomerOrder needs: no ids, fee split, Stripe ids or timestamps.
+ * Ticket codes only while the order is paid: a refunded order's tickets are
+ * void. `tickets_issued` tells a paid-then-refunded order (it had tickets)
+ * from one refunded because it couldn't be fulfilled (it never did).
+ */
+export const CUSTOMER_ORDER_SELECT = `
+  select o.id, o.status::text as status, o.event_title, o.buyer_email,
+         o.subtotal_cents, o.buyer_fee_cents, o.total_cents,
+         (select e.slug from public.events e where e.id = o.event_id) as event_slug,
+         coalesce((
+           select json_agg(json_build_object('ticketCode', t.code, 'ticketTypeName', t.ticket_type_name)
+                           order by t.ticket_type_id, t.code)
+           from public.tickets t where t.order_id = o.id and o.status = 'paid'
+         ), '[]'::json) as tickets,
+         exists (select 1 from public.tickets t where t.order_id = o.id) as tickets_issued
+  from public.orders o`;
+
+/** Why a refunded (or refund-pending) order was refunded; undefined for any other status. */
+function refundReason(status: CustomerOrder["status"], ticketsIssued: boolean): CustomerOrder["refundReason"] {
+  if (status === "oversold_refund_required") return "oversold";
+  if (status === "refunded") return ticketsIssued ? "refunded" : "oversold";
+  return undefined;
+}
+
+export function toCustomerOrder(row: Row): CustomerOrder {
+  const email = opt<string>(row.buyer_email);
+  const status = row.status as CustomerOrder["status"];
+  return {
+    status,
+    refundReason: refundReason(status, row.tickets_issued === true),
+    reference: orderReference(row.id as string),
+    eventTitle: row.event_title as string,
+    eventSlug: opt(row.event_slug),
+    maskedEmail: email ? maskEmail(email) : undefined,
+    subtotalCents: row.subtotal_cents as number,
+    buyerFeeCents: row.buyer_fee_cents as number,
+    totalCents: row.total_cents as number,
+    // Belt and braces with the SQL: never a code for an order that isn't paid.
+    tickets: status === "paid" ? (row.tickets as CustomerOrder["tickets"]) : [],
+  };
+}
+
+/** Admin view of a ticket-email job; append `where …`. Reads the order only for its reference, title and masked email. */
+export const ADMIN_EMAIL_JOB_SELECT = `
+  select j.id::text as id, j.kind, j.status, j.attempts, j.next_attempt_at, j.last_error,
+         j.created_at, j.sent_at, j.last_resend_at,
+         o.id as order_id, o.status::text as order_status, o.event_title, o.buyer_email
+    from private.email_outbox j
+    join public.orders o on o.id = j.order_id`;
+
+export function toAdminEmailJob(row: Row): AdminEmailJob {
+  const email = opt<string>(row.buyer_email);
+  const status = row.status as AdminEmailJob["status"];
+  return {
+    jobId: row.id as string,
+    kind: row.kind as AdminEmailJob["kind"],
+    status,
+    attempts: row.attempts as number,
+    nextAttemptAt: status === "pending" ? iso(row.next_attempt_at) : undefined,
+    lastError: opt(row.last_error),
+    createdAt: iso(row.created_at),
+    sentAt: row.sent_at ? iso(row.sent_at) : undefined,
+    lastResendAt: row.last_resend_at ? iso(row.last_resend_at) : undefined,
+    orderReference: orderReference(row.order_id as string),
+    orderStatus: row.order_status as AdminEmailJob["orderStatus"],
+    eventTitle: row.event_title as string,
+    maskedEmail: email ? maskEmail(email) : undefined,
   };
 }
 

@@ -5,7 +5,7 @@ import EventResults from "@/components/EventResults";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/Section";
 import EventFilterBar, { type PricingFilter } from "@/components/EventFilterBar";
-import { isFreeEvent } from "@/lib/data";
+import { isFreeEvent, isPaidEvent } from "@/lib/data";
 import { formatEventDateKey } from "@/lib/format";
 import type { EventCategory, SheltuhEvent } from "@/lib/types";
 
@@ -44,8 +44,8 @@ export default function EventBrowser({
       .filter((event) => category === "all" || event.category === category)
       .filter((event) => {
         if (pricing === "all") return true;
-        const free = isFreeEvent(event);
-        return pricing === "free" ? free : !free;
+        // An event with no ticket types yet is neither free nor paid.
+        return pricing === "free" ? isFreeEvent(event) : isPaidEvent(event);
       })
       .filter((event) => onOrAfter === "" || formatEventDateKey(event.startsAt) >= onOrAfter)
       .sort((a, b) => a.startsAt.localeCompare(b.startsAt));

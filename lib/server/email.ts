@@ -1,13 +1,58 @@
 import nodemailer from "nodemailer";
+import type Mail from "nodemailer/lib/mailer";
+
+/**
+ * An image embedded in the message and shown by the HTML as
+ * `<img src="cid:{cid}">` (e.g. a ticket's QR code). Sent as an inline
+ * attachment in a multipart/related part, so it shows even when a client
+ * blocks remote images.
+ */
+export interface InlineImage {
+  /** Unique within the message; the HTML refers to it as `cid:{cid}`. */
+  cid: string;
+  contentType: "image/png";
+  content: Buffer;
+  /** Shown if a client lists the image as an attachment. */
+  filename?: string;
+}
 
 export interface EmailMessage {
   to: string;
   subject: string;
   text: string;
   html: string;
+  inlineImages?: InlineImage[];
 }
 
 export type SendEmail = (message: EmailMessage) => Promise<void>;
+
+/**
+ * Nodemailer's options for one message. The recipient goes in as an address
+ * object, which nodemailer uses as a single address: a string would be parsed
+ * as an address list, so a stored value like "a@x.com, b@y.com" or
+ * "name <b@y.com>" could reach someone other than the buyer. (The API only
+ * stores plain addresses: lib/server/email-address.ts.)
+ */
+export function mailOptions(from: string, message: EmailMessage): Mail.Options {
+  return {
+    from,
+    to: { name: "", address: message.to },
+    subject: message.subject,
+    text: message.text,
+    html: message.html,
+    ...(message.inlineImages?.length
+      ? {
+          attachments: message.inlineImages.map((image) => ({
+            cid: image.cid,
+            contentType: image.contentType,
+            content: image.content,
+            contentDisposition: "inline" as const,
+            ...(image.filename ? { filename: image.filename } : {}),
+          })),
+        }
+      : {}),
+  };
+}
 
 /**
  * SMTP sender from env, or null when SMTP isn't configured. Any SMTP server
@@ -24,9 +69,14 @@ export function createSmtpSender(env: NodeJS.ProcessEnv = process.env): SendEmai
     port,
     secure: port === 465,
     auth: { user: SMTP_USER, pass: SMTP_PASS },
+    // Well inside the email outbox's 2-minute lease (lib/server/email-outbox.ts),
+    // so a hung server fails the attempt rather than outliving it and sending twice.
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 30_000,
   });
 
   return async (message) => {
-    await transport.sendMail({ from: EMAIL_FROM, ...message });
+    await transport.sendMail(mailOptions(EMAIL_FROM, message));
   };
 }

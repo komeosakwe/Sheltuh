@@ -41,9 +41,9 @@ design.
 
 | Cache name | What | Strategy | Bound | Invalidation |
 | --- | --- | --- | --- | --- |
-| `sheltuh-shell-v1` | `/offline.html` only | Precached on `install` (fetched with `cache: "reload"`) | 1 entry | Replaced when `VERSION` changes; old caches deleted on `activate` |
-| `sheltuh-static-v1` | Same-origin `GET /_next/static/**` (JS, CSS and the self-hosted `next/font` files under `/_next/static/media`). These URLs are content-hashed, so a new deploy uses new URLs | Cache first, network on a miss | 150 entries, 30 days per entry | Oldest entries trimmed after each write; entries older than 30 days are refetched; whole cache dropped on a `VERSION` change |
-| `sheltuh-images-v1` | Same-origin `GET` image requests (`request.destination === "image"`, image file extension) outside `/api` and `/_next/image`: `public/` images, icons, the favicon and apple icon | Stale-while-revalidate | 60 entries, 7 days per entry | As above |
+| `sheltuh-shell-v2` | `/offline.html` only | Precached on `install` (fetched with `cache: "reload"`) | 1 entry | Replaced when `VERSION` changes; old caches deleted on `activate` |
+| `sheltuh-static-v2` | Same-origin `GET /_next/static/**` (JS, CSS and the self-hosted `next/font` files under `/_next/static/media`). These URLs are content-hashed, so a new deploy uses new URLs | Cache first, network on a miss | 150 entries, 30 days per entry | Oldest entries trimmed after each write; entries older than 30 days are refetched; whole cache dropped on a `VERSION` change |
+| `sheltuh-images-v2` | Same-origin `GET` image requests (`request.destination === "image"`, image file extension) outside `/api` and `/_next/image`: `public/` images, icons, the favicon and apple icon | Stale-while-revalidate | 60 entries, 7 days per entry | As above |
 
 A response is only stored when **all** of these hold: it is `200 OK`, it is
 same-origin (`type: "basic"`), its `Cache-Control` doesn't contain `no-store`
@@ -102,7 +102,7 @@ on the return from Stripe Checkout) rather than flashing the offline page.
 | A page already on screen when the connection drops | It stays on screen. Anything that needs the server (loading events, Who's Going, sending a message, checkout, ticket codes) fails with that screen's existing error message. |
 | Browsing, search, map, event details | Need a connection. |
 | Buying tickets, Stripe Checkout | Needs a connection. Nothing is queued. |
-| Your tickets / ticket codes | Need a connection (`/checkout/success`, account). The confirmation email lists the codes, and an email app may have it saved offline. |
+| Your tickets / ticket codes | Need a connection (`/checkout/success`, account). Your ticket QR codes are in your confirmation email, and an email app may have it saved offline. |
 | Messages | Need a connection to read or send. A typed draft stays in the box on screen; it is not sent later. |
 | First visit ever, or browser storage cleared | No service worker yet, so the browser's own offline error appears. |
 

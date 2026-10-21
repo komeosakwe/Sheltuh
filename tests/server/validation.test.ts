@@ -91,6 +91,42 @@ describe("optionalUrl", () => {
     optionalUrl("ftp://example.com", "url", errors2);
     expect(errors2.url).toBeDefined();
   });
+
+  it.each([
+    "http://example.com",
+    "HTTP://example.com",
+    "https://user@example.com",
+    "https://user:pw@example.com",
+    "https://@example.com",
+    "https://example.com@evil.example",
+    "https://evil.example\\@example.com",
+    "https://exa mple.com",
+    "https://example.com/\u0000",
+    "https://example.com/​",
+    "https://example.com/‮",
+    "https://example.com/a\nb",
+  ])("rejects %j as a new value", (value) => {
+    const errors: Record<string, string> = {};
+    expect(optionalUrl(value, "url", errors)).toBeUndefined();
+    expect(errors.url).toBeDefined();
+  });
+
+  it("keeps the stored value sent back unchanged (an http:// one included), but only that value", () => {
+    const errors: Record<string, string> = {};
+    expect(optionalUrl(" http://legacy.example ", "url", errors, { current: "http://legacy.example" })).toBe(
+      "http://legacy.example",
+    );
+    expect(errors.url).toBeUndefined();
+    optionalUrl("http://legacy.example/other", "url", errors, { current: "http://legacy.example" });
+    expect(errors.url).toMatch(/https:\/\//);
+  });
+
+  it("accepts '@' outside the host", () => {
+    const errors: Record<string, string> = {};
+    expect(optionalUrl("https://medium.com/@static", "url", errors)).toBe("https://medium.com/@static");
+    expect(optionalUrl("https://example.com/?a=b@c", "url", errors)).toBe("https://example.com/?a=b@c");
+    expect(errors.url).toBeUndefined();
+  });
 });
 
 describe("requireMelbourneDateTime", () => {

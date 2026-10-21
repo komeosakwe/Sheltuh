@@ -18,9 +18,11 @@ function setupSql(): string[] {
 }
 
 const RESET_SQL = `truncate private.user_reports, public.messages, public.conversations, private.conversation_pairs, public.user_blocks,
-  private.rate_limits, private.social_suspensions, public.event_attendees, public.profiles,
-  public.tickets, public.orders, public.event_moderation_log, public.ticket_types, public.events, public.organisers,
-  auth.users cascade`;
+  private.rate_limits, private.platform_rate_limits, private.free_order_refusals, private.social_suspensions, public.event_attendees, public.profiles,
+  public.event_favourites, public.event_view_counts, public.event_tracking_links, private.event_rate_limits, private.event_view_cap_days,
+  private.email_outbox, private.organiser_profile_edits, public.ticket_check_ins, public.tickets, public.orders, public.event_moderation_log, public.ticket_types, public.events, public.organisers,
+  auth.users cascade;
+  update private.analytics_settings set views_tracked_since = (now() at time zone 'Australia/Melbourne')::date`;
 
 /**
  * A real Postgres with Supabase's auth stubs and every migration in

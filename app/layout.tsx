@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, Inter } from "next/font/google";
 import Footer from "@/components/Footer";
+import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
 import { UnreadProvider } from "@/components/messages/UnreadProvider";
 import Nav from "@/components/Nav";
 import ServiceWorkerRegistration from "@/components/pwa/ServiceWorkerRegistration";
@@ -59,11 +60,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         </a>
         <AuthProvider>
           <UnreadProvider>
-            <Nav />
-            <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
-              {children}
-            </main>
-            <Footer />
+            <FavouritesProvider>
+              <Nav />
+              <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
+                {children}
+              </main>
+              <Footer />
+            </FavouritesProvider>
           </UnreadProvider>
         </AuthProvider>
         <ServiceWorkerRegistration />

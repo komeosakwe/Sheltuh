@@ -8,13 +8,13 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError } from "@/lib/api/client";
 import { getOrderBySession } from "@/lib/api/orders";
 import { formatAud } from "@/lib/format";
-import type { OrderRecord } from "@/lib/api/types";
+import type { CustomerOrder } from "@/lib/api/types";
 
 type LoadState =
   | { status: "loading" }
   | { status: "confirming" } // paid on Stripe's side, waiting on our webhook to land
-  | { status: "ready"; order: OrderRecord }
-  | { status: "oversold"; order: OrderRecord }
+  | { status: "ready"; order: CustomerOrder }
+  | { status: "oversold"; order: CustomerOrder }
   | { status: "not-found" }
   | { status: "error"; message: string };
 
@@ -60,7 +60,7 @@ export default function CheckoutConfirmation() {
           return;
         }
 
-        const order = result as OrderRecord;
+        const order = result;
         if (order.status === "paid") {
           setState({ status: "ready", order });
         } else if (order.status === "oversold_refund_required" || order.status === "refunded") {
@@ -122,12 +122,16 @@ export default function CheckoutConfirmation() {
   }
 
   if (state.status === "oversold") {
+    const refundedAfterPayment = state.order.refundReason === "refunded";
     return (
       <div className="flex flex-col items-center gap-3 py-16 text-center">
-        <p className="font-heading text-2xl text-foreground">We couldn&rsquo;t reserve your tickets</p>
+        <p className="font-heading text-2xl text-foreground">
+          {refundedAfterPayment ? "This order has been refunded" : "We couldn\u2019t reserve your tickets"}
+        </p>
         <p className="max-w-md text-sm text-muted">
-          {state.order.eventTitle} sold out or stopped taking bookings in the moments between your payment and
-          confirming it. Your payment is being refunded in full — no tickets were issued for this order.
+          {refundedAfterPayment
+            ? `Your payment for ${state.order.eventTitle} was refunded, so the tickets for this order are no longer valid.`
+            : `${state.order.eventTitle} sold out or stopped taking bookings in the moments between your payment and confirming it. Your payment is being refunded in full \u2014 no tickets were issued for this order.`}
         </p>
         <Link href="/" className="mt-2 text-accent underline underline-offset-2">
           Back to Sheltüh
@@ -141,19 +145,34 @@ export default function CheckoutConfirmation() {
   return (
     <div className="flex flex-col gap-6 py-10">
       <div className="flex flex-col items-center gap-2 text-center">
-        <p className="text-sm font-medium uppercase tracking-wide text-accent">Order confirmed</p>
+        <p className="eyebrow text-muted">Order confirmed</p>
         <h1 className="display-md">{order.eventTitle}</h1>
-        {order.buyerEmail && <p className="text-sm text-muted">A receipt was sent to {order.buyerEmail}.</p>}
+        {order.maskedEmail && (
+          <p className="text-sm text-muted">We&rsquo;re emailing your tickets to {order.maskedEmail}.</p>
+        )}
       </div>
 
-      <div className="bg-surface p-4">
+      <div className="bg-surface p-4 print:bg-transparent">
         <h2 className="font-heading text-xl text-foreground">Your tickets</h2>
         <ul className="mt-3 flex flex-col gap-3">
-          {order.tickets.map((ticket) => (
-            <TicketStub key={ticket.ticketCode} code={ticket.ticketCode} typeName={ticket.ticketTypeName} />
+          {/* Numbered as in the ticket email and at the door: both order an order's
+              tickets by ticket type, then code, as the API returns them. */}
+          {order.tickets.map((ticket, i) => (
+            <TicketStub
+              key={ticket.ticketCode}
+              code={ticket.ticketCode}
+              typeName={ticket.ticketTypeName}
+              ticketNumber={i + 1}
+              ticketCount={order.tickets.length}
+            />
           ))}
         </ul>
-        <p className="mt-3 text-xs text-muted">Show this page or your email receipt at the door.</p>
+        <p className="mt-3 text-xs text-muted">Show a QR code at the door, from this page or your ticket email.</p>
+        <p className="mt-1 text-xs text-muted">
+          This page needs a connection. If signal at the venue is patchy, take a screenshot first.
+        </p>
+        <p className="mt-1 text-xs text-muted">Each code gets in once, so don&rsquo;t post or share it.</p>
+        <p className="mt-1 text-xs text-muted">Order reference {order.reference}</p>
       </div>
 
       <div className="bg-surface p-4">

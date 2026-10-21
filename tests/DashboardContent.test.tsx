@@ -100,3 +100,53 @@ describe("DashboardContent — pagination over the organiser's own events", () =
     expect(screen.getAllByText("Event b")).toHaveLength(1);
   });
 });
+
+describe("DashboardContent — analytics entry points", () => {
+  it("links to the analytics overview, and to each event's analytics beside (not inside) its edit link", async () => {
+    listMyEvents.mockResolvedValueOnce({ items: [makeRecord("a", { title: "Night Market" })], nextCursor: undefined });
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText("Night Market")).toBeInTheDocument());
+    expect(screen.getByRole("link", { name: "Analytics" })).toHaveAttribute("href", "/dashboard/analytics");
+    // The dashboard's actions are 44px targets, Public profile included.
+    for (const name of ["New event", "Payouts", "Analytics", "Public profile"]) {
+      expect(screen.getByRole("link", { name })).toHaveClass("min-h-11");
+    }
+    expect(screen.getByRole("link", { name: "Public profile" })).toHaveAttribute("href", "/dashboard/profile");
+    const perEvent = screen.getByRole("link", { name: "Analytics for Night Market" });
+    expect(perEvent).toHaveAttribute("href", "/dashboard/events/a/analytics");
+    const edit = screen.getByRole("link", { name: /^Night Market/ });
+    expect(edit).toHaveAttribute("href", "/dashboard/a");
+    expect(edit.contains(perEvent)).toBe(false);
+  });
+});
+
+describe("DashboardContent — door check-in entry point", () => {
+  it("links to check-in for published events only, beside (not inside) the edit link", async () => {
+    listMyEvents.mockResolvedValueOnce({
+      items: [
+        makeRecord("a", { title: "Night Market", status: "published" }),
+        makeRecord("b", { title: "Draft Night", status: "draft" }),
+        makeRecord("c", { title: "Waiting", status: "pending_review" }),
+      ],
+      nextCursor: undefined,
+    });
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText("Night Market")).toBeInTheDocument());
+    const checkIn = screen.getByRole("link", { name: "Check-in for Night Market" });
+    expect(checkIn).toHaveAttribute("href", "/dashboard/a/check-in");
+    expect(checkIn).toHaveClass("min-h-11");
+    expect(screen.getByRole("link", { name: /^Night Market/ }).contains(checkIn)).toBe(false);
+    expect(screen.queryByRole("link", { name: "Check-in for Draft Night" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Check-in for Waiting" })).toBeNull();
+    expect(screen.getAllByRole("link", { name: /^Check-in for/ })).toHaveLength(1);
+  });
+
+  it("stacks the side links under the title below 640px, two to a row", async () => {
+    listMyEvents.mockResolvedValueOnce({ items: [makeRecord("a", { title: "Night Market", status: "published" })], nextCursor: undefined });
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText("Night Market")).toBeInTheDocument());
+    const row = screen.getByRole("link", { name: "Check-in for Night Market" }).parentElement;
+    expect(row).toHaveClass("grid", "grid-cols-2", "sm:flex");
+    expect(row?.closest("li")).toHaveClass("flex-col", "sm:flex-row");
+  });
+});

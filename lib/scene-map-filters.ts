@@ -61,7 +61,9 @@ export function matchesTimeFilter(event: SheltuhEvent, filter: TimeFilter, now: 
 export function matchesPricing(event: SheltuhEvent, filter: ScenePricingFilter): boolean {
   if (filter === "all") return true;
   if (filter === "free") return isFreeEvent(event);
-  return getMinBuyerTotalCents(event) < UNDER_PRICE_CENTS;
+  // No ticket types yet: no price, so not "under" anything.
+  const minTotalCents = getMinBuyerTotalCents(event);
+  return minTotalCents !== null && minTotalCents < UNDER_PRICE_CENTS;
 }
 
 /** Matches a free-text search against the event's name, venue and suburb. */

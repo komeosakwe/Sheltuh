@@ -66,6 +66,8 @@ export default function LiveEventFeed({ categories, query, initialCategory = "al
           pricing: pricing === "all" ? undefined : pricing,
           onOrAfter: onOrAfter || undefined,
           q: query || undefined,
+          // Past events are never listed: only ones that haven't ended.
+          upcoming: true,
           cursor: cur,
         });
         if (requestIdRef.current !== myRequestId) return "stale" as const;

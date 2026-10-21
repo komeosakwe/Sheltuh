@@ -1,5 +1,6 @@
 import Link from "next/link";
 import EventArt from "@/components/EventArt";
+import SaveButton from "@/components/favourites/SaveButton";
 import { firstSentence } from "@/lib/home-sections";
 import { formatDateBadge, formatEventDateShort, formatEventTime } from "@/lib/format";
 import { formatFeedPrice } from "@/lib/pricing";
@@ -38,76 +39,86 @@ export default function HomeEventCard({
   const href = `/events/${event.slug}`;
   const going = mode === "demo" ? demoGoing(event.id) : null;
   const art = { poster: event.poster, imageUrl: event.imageUrl, title: event.title };
+  const target = { id: event.id, title: event.title, slug: event.slug };
 
   if (variant === "compact") {
     return (
-      <Link href={href} className={`${cardClass} grid min-h-28 w-[78vw] max-w-75 grid-cols-[6rem_1fr]`}>
-        <EventArt {...art} className="h-full" />
-        <div className="flex min-w-0 flex-col gap-1 p-3">
-          {badge && (
-            <span
-              className={`eyebrow self-start rounded-full px-2 py-0.5 text-foreground ${
-                badge === "free" ? "bg-highlight" : "bg-pop"
-              }`}
-            >
-              {badge === "free" ? "Free" : "Under A$20"}
-            </span>
-          )}
-          <h3 className={`${titleClass} line-clamp-1 text-sm leading-5`}>{event.title}</h3>
-          <p className="truncate text-xs leading-4 text-muted">
-            {formatEventDateShort(event.startsAt)} · {event.venueName || event.suburb}
-          </p>
-          <p className="text-xs leading-4 font-semibold">{formatFeedPrice(event)}</p>
-        </div>
-      </Link>
+      <div className="relative flex w-[78vw] max-w-75">
+        <Link href={href} className={`${cardClass} grid min-h-28 w-full grid-cols-[6rem_1fr]`}>
+          <EventArt {...art} className="h-full" />
+          <div className="flex min-w-0 flex-col gap-1 p-3 pr-11">
+            {badge && (
+              <span
+                className={`eyebrow self-start rounded-full px-2 py-0.5 text-foreground ${
+                  badge === "free" ? "bg-highlight" : "bg-pop"
+                }`}
+              >
+                {badge === "free" ? "Free" : "Under A$20"}
+              </span>
+            )}
+            <h3 className={`${titleClass} line-clamp-1 text-sm leading-5`}>{event.title}</h3>
+            <p className="truncate text-xs leading-4 text-muted">
+              {formatEventDateShort(event.startsAt)} · {event.venueName || event.suburb}
+            </p>
+            <p className="text-xs leading-4 font-semibold">{formatFeedPrice(event)}</p>
+          </div>
+        </Link>
+        <SaveButton event={target} variant="plain" className="absolute right-0 top-0" />
+      </div>
     );
   }
 
   if (variant === "wide") {
     const date = formatDateBadge(event.startsAt, event.endsAt);
     return (
-      <Link href={href} className={`${cardClass} w-[80vw] max-w-80 flex-col`}>
-        {/* Badges sit beside the art, not inside it: the art is aria-hidden, the badges are content. */}
-        <div className="relative">
-          <EventArt {...art} className="aspect-[3/2]" />
-          <p className="absolute left-3 top-3 flex flex-col items-center rounded-badge bg-card px-2 py-1 text-center text-foreground">
-            <span className="font-heading text-sm leading-4 font-extrabold">{date.range}</span>{" "}
-            <span className="eyebrow leading-3">{date.month}</span>
-          </p>
-          <span className={`${chipClass} bottom-3 left-3`}>{categoryLabel(event)}</span>
-        </div>
-        <div className="flex flex-1 flex-col gap-1 p-4">
-          <h3 className={`${titleClass} line-clamp-2 text-base leading-[1.375rem]`}>{event.title}</h3>
-          <p className="line-clamp-2 text-sm leading-5 text-muted">{firstSentence(event.description)}</p>
-          <p className="text-xs leading-4 font-semibold">{formatFeedPrice(event)}</p>
-          {going && <GoingStack count={going.count} initials={going.initials} className="mt-auto pt-1" />}
-        </div>
-      </Link>
+      <div className="relative flex w-[80vw] max-w-80">
+        <Link href={href} className={`${cardClass} w-full flex-col`}>
+          {/* Badges sit beside the art, not inside it: the art is aria-hidden, the badges are content. */}
+          <div className="relative">
+            <EventArt {...art} className="aspect-[3/2]" />
+            <p className="absolute left-3 top-3 flex flex-col items-center rounded-badge bg-card px-2 py-1 text-center text-foreground">
+              <span className="font-heading text-sm leading-4 font-extrabold">{date.range}</span>{" "}
+              <span className="eyebrow leading-3">{date.month}</span>
+            </p>
+            <span className={`${chipClass} bottom-3 left-3`}>{categoryLabel(event)}</span>
+          </div>
+          <div className="flex flex-1 flex-col gap-1 p-4">
+            <h3 className={`${titleClass} line-clamp-2 text-base leading-[1.375rem]`}>{event.title}</h3>
+            <p className="line-clamp-2 text-sm leading-5 text-muted">{firstSentence(event.description)}</p>
+            <p className="text-xs leading-4 font-semibold">{formatFeedPrice(event)}</p>
+            {going && <GoingStack count={going.count} initials={going.initials} className="mt-auto pt-1" />}
+          </div>
+        </Link>
+        <SaveButton event={target} variant="overlay" className="absolute right-2 top-2" />
+      </div>
     );
   }
 
   return (
-    <Link href={href} className={`${cardClass} w-[62vw] max-w-60 flex-col`}>
-      <div className="relative">
-        <EventArt {...art} className="aspect-[4/3]" />
-        <span className={`${chipClass} left-2 top-2`}>{categoryLabel(event)}</span>
-      </div>
-      <div className="flex flex-1 flex-col gap-1 p-3">
-        <h3 className={`${titleClass} line-clamp-2 text-sm leading-5`}>{event.title}</h3>
-        <p className="flex items-center gap-1 text-xs leading-4 text-muted">
-          <CalendarIcon className="h-3 w-3 shrink-0" />
-          <span className="truncate">
-            {formatEventDateShort(event.startsAt)} · {formatEventTime(event.startsAt)}
-          </span>
-        </p>
-        <p className="flex items-center gap-1 text-xs leading-4 text-muted">
-          <PinIcon className="h-3 w-3 shrink-0" />
-          <span className="truncate">{event.venueName || event.suburb}</span>
-        </p>
-        <p className="text-xs leading-4 font-semibold">{formatFeedPrice(event)}</p>
-        {going && <GoingStack count={going.count} initials={going.initials} className="mt-auto pt-2" />}
-      </div>
-    </Link>
+    <div className="relative flex w-[62vw] max-w-60">
+      <Link href={href} className={`${cardClass} w-full flex-col`}>
+        <div className="relative">
+          <EventArt {...art} className="aspect-[4/3]" />
+          <span className={`${chipClass} left-2 top-2`}>{categoryLabel(event)}</span>
+        </div>
+        <div className="flex flex-1 flex-col gap-1 p-3">
+          <h3 className={`${titleClass} line-clamp-2 text-sm leading-5`}>{event.title}</h3>
+          <p className="flex items-center gap-1 text-xs leading-4 text-muted">
+            <CalendarIcon className="h-3 w-3 shrink-0" />
+            <span className="truncate">
+              {formatEventDateShort(event.startsAt)} · {formatEventTime(event.startsAt)}
+            </span>
+          </p>
+          <p className="flex items-center gap-1 text-xs leading-4 text-muted">
+            <PinIcon className="h-3 w-3 shrink-0" />
+            <span className="truncate">{event.venueName || event.suburb}</span>
+          </p>
+          <p className="text-xs leading-4 font-semibold">{formatFeedPrice(event)}</p>
+          {going && <GoingStack count={going.count} initials={going.initials} className="mt-auto pt-2" />}
+        </div>
+      </Link>
+      <SaveButton event={target} variant="overlay" className="absolute right-1 top-1" />
+    </div>
   );
 }
 

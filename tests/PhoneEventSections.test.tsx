@@ -60,7 +60,7 @@ describe("PhoneEventSections", () => {
     loadHomeEvents.mockReturnValue(new Promise(() => {}));
     render(<PhoneEventSections guide={<p>Guide slot</p>} />);
     expect(screen.getByRole("status")).toHaveTextContent("Loading events…");
-    expect(screen.getByRole("heading", { name: "Coming up in Melbourne" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Coming up near you" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Event/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /What’s on/ })).not.toBeInTheDocument();
     expect(screen.getByText("Guide slot")).toBeInTheDocument();
@@ -75,7 +75,7 @@ describe("PhoneEventSections", () => {
     const upNext = screen.getByRole("region", { name: "Up next" });
     expect(within(upNext).getByRole("link")).toHaveAttribute("href", "/events/soon0");
 
-    const coming = screen.getByRole("list", { name: "Coming up in Melbourne" });
+    const coming = screen.getByRole("list", { name: "Coming up near you" });
     expect(within(coming).getAllByRole("link").map((a) => a.getAttribute("href"))).toEqual(
       [1, 2, 3, 4, 5, 6].map((i) => `/events/soon${i}`),
     );
@@ -106,7 +106,7 @@ describe("PhoneEventSections", () => {
     await flush();
 
     expect(screen.getByRole("alert")).toHaveTextContent("Couldn’t load events.");
-    expect(screen.queryByRole("heading", { name: "Coming up in Melbourne" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Coming up near you" })).not.toBeInTheDocument();
     expect(screen.getByText("Guide slot")).toBeInTheDocument();
 
     loadHomeEvents.mockResolvedValueOnce(EVENTS);
@@ -115,7 +115,7 @@ describe("PhoneEventSections", () => {
     await flush();
     expect(loadHomeEvents).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByRole("list", { name: "Coming up in Melbourne" })).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Coming up near you" })).toBeInTheDocument();
   });
 
   it("when nothing is upcoming: says so and hides the other event sections", async () => {
@@ -123,7 +123,7 @@ describe("PhoneEventSections", () => {
     render(<PhoneEventSections />);
     await flush();
     expect(screen.getByText("No events have been published yet. Check back soon.")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Coming up in Melbourne" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Coming up near you" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /What’s on/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Free & low-cost" })).not.toBeInTheDocument();
   });

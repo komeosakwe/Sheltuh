@@ -27,7 +27,7 @@ describe("PhoneHero", () => {
   it("rises in on load, staggered, like the desktop hero", () => {
     render(<PhoneHero />);
     expect(screen.getByRole("heading", { level: 1 }).className).toMatch(/\brise\b/);
-    expect(screen.getByText("Melbourne · Naarm").className).toMatch(/\brise\b/);
+    expect(screen.getByText("Australia · Curated").className).toMatch(/\brise\b/);
     expect(screen.getByRole("link", { name: "Explore events" }).parentElement?.className).toMatch(/\brise\b/);
   });
 });

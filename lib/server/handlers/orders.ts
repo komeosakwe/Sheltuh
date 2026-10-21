@@ -2,15 +2,17 @@ import type Stripe from "stripe";
 import { calculateBookingFeeCents, calculateOrderSummary } from "@/lib/fees";
 import type { Db } from "../db";
 import type { Deps } from "../deps";
-import { created, HttpError, ok, readJson } from "../http";
+import { sendTicketEmailSoon } from "../email-outbox";
+import { created, HttpError, ok, okPrivate, readJson } from "../http";
 import { parseCheckoutLineItems } from "../order-input";
-import { ORDER_SELECT, toOrder } from "../records";
+import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
+import { CUSTOMER_ORDER_SELECT, ORDER_SELECT, toCustomerOrder, toOrder } from "../records";
 import type { Handler } from "../route";
-import { buildTicketEmail } from "../ticket-email";
-import { issueTickets } from "../ticket-issuance";
-import type { OrderLineItem, OrderRecord, OrderStatus } from "../types";
+import { parseTrackingCode } from "../tracking-codes";
+import type { CustomerOrderLookup, OrderLineItem, OrderRecord, OrderStatus } from "../types";
 import { fail, requireEmail } from "../validation";
 import { findEventById } from "./event-queries";
+import { assertFreeTicketsPerOrder, createFreeOrder, withTicketCodes } from "./free-orders";
 import { findOrganiserById } from "./organiser-guard";
 
 /**
@@ -59,29 +61,13 @@ async function fulfilOrder(
   order: OrderRecord,
   payment: { buyerEmail?: string | null; paymentIntentId?: string | null } = {},
 ): Promise<OrderStatus | null> {
-  const [row] = await db.query<{ status: OrderStatus | null }>(
-    `select private.fulfil_order($1, $2, $3, $4::text::jsonb)::text as status`,
-    [order.orderId, payment.buyerEmail ?? null, payment.paymentIntentId ?? null, JSON.stringify(issueTickets(order.lineItems))],
-  );
-  return row.status;
-}
-
-/**
- * Emails the buyer their tickets. Best-effort: the order is already paid and
- * the tickets are on the confirmation page, so a mail failure is logged (and
- * visible as a null tickets_emailed_at) rather than failing the request.
- */
-async function sendTicketEmail(deps: Deps, orderId: string): Promise<void> {
-  try {
-    const order = await findOrder(deps.db, orderId);
-    if (!order?.buyerEmail || order.status !== "paid") return;
-    const event = await findEventById(deps.db, order.eventId);
-    if (!event) return;
-    await deps.sendEmail(buildTicketEmail(order, event, deps.siteUrl()));
-    await deps.db.query(`update public.orders set tickets_emailed_at = now() where id = $1`, [orderId]);
-  } catch (err) {
-    console.error(`Ticket email for order ${orderId} failed:`, err instanceof Error ? err.message : "unknown error");
-  }
+  return withTicketCodes(order.lineItems, async (tickets) => {
+    const [row] = await db.query<{ status: OrderStatus | null }>(
+      `select private.fulfil_order($1, $2, $3, $4::text::jsonb)::text as status`,
+      [order.orderId, payment.buyerEmail ?? null, payment.paymentIntentId ?? null, JSON.stringify(tickets)],
+    );
+    return row.status;
+  });
 }
 
 /**
@@ -99,7 +85,7 @@ async function recordRefund(db: Db, orderId: string, refund: Pick<Stripe.Refund,
     [orderId, refund.id, refund.status],
   );
   if (refund.status === "failed" || refund.status === "canceled") {
-    console.error(`Refund ${refund.id} for order ${orderId} ${refund.status} — refund it manually.`);
+    console.error(`Refund ${refund.id} for order ${orderReference(orderId)} ${refund.status} — refund it manually.`);
   }
 }
 
@@ -113,7 +99,9 @@ async function recordRefund(db: Db, orderId: string, refund: Pick<Stripe.Refund,
  */
 async function refundOversoldOrder(deps: Deps, orderId: string, paymentIntentId: string | undefined) {
   if (!paymentIntentId) {
-    console.error(`Order ${orderId} couldn't be fulfilled and has no payment intent on record — refund it manually.`);
+    console.error(
+      `Order ${orderReference(orderId)} couldn't be fulfilled and has no payment intent on record — refund it manually.`,
+    );
     return;
   }
   const refund = await deps.stripe().refunds.create(
@@ -128,7 +116,83 @@ async function refundOversoldOrder(deps: Deps, orderId: string, paymentIntentId:
   await recordRefund(deps.db, orderId, refund);
 }
 
+/**
+ * refund.updated / refund.failed for a refund we didn't create (no
+ * metadata.orderId): usually one made in the Stripe dashboard. Its success is
+ * recorded through charge.refunded; this only makes the rest visible, above
+ * all a dashboard refund that failed after its order was already voided (the
+ * buyer got nothing back, and the order stays `refunded`). Logged by Stripe's
+ * event id and, when the payment intent is one of ours, the order's short
+ * reference: never the order id, the buyer or the payment intent. Changes
+ * nothing and never throws for a payment that isn't ours.
+ */
+async function logUnmatchedRefund(db: Db, eventId: string, refund: Stripe.Refund) {
+  const paymentIntentId = typeof refund.payment_intent === "string" ? refund.payment_intent : refund.payment_intent?.id;
+  let reference: string | undefined;
+  if (paymentIntentId) {
+    const [row] = await db.query<{ id: string }>(
+      `select id from public.orders where stripe_payment_intent_id = $1 limit 1`,
+      [paymentIntentId],
+    );
+    if (row) reference = orderReference(row.id);
+  }
+  const subject = reference ? `a refund of order ${reference}` : "a refund of a payment with no order on record";
+  const status = typeof refund.status === "string" ? refund.status.replace(/[^a-z_]/g, "") : "unknown";
+  if (status === "failed" || status === "canceled" || status === "requires_action") {
+    // Needs a person, like a failed automatic refund.
+    console.error(`Stripe ${eventId}: ${subject} (made outside Sheltüh) has status ${status}. Check it in the Stripe dashboard.`);
+  } else {
+    console.info(`Stripe ${eventId}: ${subject} (made outside Sheltüh) has status ${status}; charge.refunded records it.`);
+  }
+}
+
+type PaymentRefundResult = "refunded" | "partial" | "unchanged" | "not_found";
+
+/** Postgres `integer`: an amount beyond it can't be a real charge's. */
+const MAX_INT4 = 2_147_483_647;
+
+/**
+ * charge.refunded: a refund of one of our payments, whoever made it (usually
+ * the Stripe dashboard). charge.amount_refunded is cumulative and
+ * charge.refunded is true once it covers the whole charge. A full refund of a
+ * paid order voids it (`refunded`, tickets void, inventory released); a
+ * partial one is only recorded and logged for manual follow-up
+ * (private.record_payment_refund). Never throws for a payment that isn't
+ * ours: Stripe would retry it for days.
+ */
+async function recordPaymentRefund(db: Db, eventId: string, charge: Stripe.Charge) {
+  const paymentIntentId = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
+  const amount = charge.amount_refunded;
+  if (
+    !paymentIntentId ||
+    typeof charge.refunded !== "boolean" ||
+    !Number.isSafeInteger(amount) ||
+    amount < 0 ||
+    amount > MAX_INT4
+  ) {
+    console.warn(`Stripe ${eventId}: charge.refunded without a usable payment intent or amount; ignored.`);
+    return;
+  }
+  const [row] = await db.query<{ result: PaymentRefundResult; order_id: string | null }>(
+    `select result, order_id from private.record_payment_refund($1, $2, $3)`,
+    [paymentIntentId, amount, charge.refunded],
+  );
+  // Logs name the order by its short reference only: never its id (the confirmation page's credential) or the buyer.
+  const reference = row.order_id ? orderReference(row.order_id) : undefined;
+  if (row.result === "refunded") {
+    console.info(`Order ${reference} was refunded in full in Stripe: marked refunded, tickets void, inventory released.`);
+  } else if (row.result === "partial") {
+    // Needs a person, like a failed automatic refund (console.error, as recordRefund does).
+    console.error(`Order ${reference} was partly refunded in Stripe; it stays paid and its tickets stay valid. Review it manually.`);
+  } else if (row.result === "not_found") {
+    // Not ours, or (rarely) a refund delivered before its payment was fulfilled: see docs/architecture.md.
+    console.warn(`Stripe ${eventId}: charge.refunded for a payment with no order on record; ignored.`);
+  }
+}
+
 /** A buyer email is required for free orders (nothing else delivers the tickets) and optional otherwise. */
+function parseBuyerEmail(body: Record<string, unknown>, required: true): string;
+function parseBuyerEmail(body: Record<string, unknown>, required: false): string | null;
 function parseBuyerEmail(body: Record<string, unknown>, required: boolean): string | null {
   if (!required && (body.buyerEmail === undefined || body.buyerEmail === null || body.buyerEmail === "")) return null;
   const errors: Record<string, string> = {};
@@ -138,10 +202,13 @@ function parseBuyerEmail(body: Record<string, unknown>, required: boolean): stri
 }
 
 /**
- * POST /api/events/[eventId]/checkout — public guest checkout, returns the
- * URL to send the browser to. A wholly free order never touches Stripe and
- * is fulfilled immediately; anything else becomes a Stripe Checkout Session
- * paying out to the organiser's Connect account, fulfilled by the webhook.
+ * POST /api/events/[eventId]/checkout — public guest checkout. A paid order
+ * becomes a Stripe Checkout Session paying out to the organiser's Connect
+ * account, fulfilled by the webhook: 201 with its URL. A wholly free order
+ * never touches Stripe (./free-orders.ts): 201 with the confirmation page's
+ * URL for a member's own verified email, otherwise 202 once a confirmation
+ * link has been emailed. Any order, paid or free, holds at most 4 free
+ * tickets (400, fieldErrors.lineItems).
  */
 export const createCheckout: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const { db } = deps;
@@ -151,15 +218,30 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   const body = await readJson(req);
   const lineItems = parseCheckoutLineItems(body, event.ticketTypes);
   const totals = orderTotals(lineItems);
-  const buyerEmail = parseBuyerEmail(body, totals.totalCents === 0);
+  const isFree = totals.totalCents === 0;
+  // Free: tickets straight away for a member's own verified email, an emailed confirmation link for anyone else.
+  if (isFree) {
+    const buyerEmail = parseBuyerEmail(body, true);
+    await assertFreeTicketsPerOrder(deps, lineItems);
+    await assertAvailable(db, eventId, lineItems);
+    return createFreeOrder(req, deps, { event, lineItems, buyerEmail, trackingCode: parseTrackingCode(body.trackingCode) });
+  }
+
+  const buyerEmail = parseBuyerEmail(body, false);
+  // Free lines in a paid order: the same per-order cap. The Stripe payment identifies the buyer, so there's
+  // no emailed confirmation or per-person allowance (those count wholly free orders only).
+  await assertFreeTicketsPerOrder(deps, lineItems);
   await assertAvailable(db, eventId, lineItems);
+  // Attribution only (never affects price or status): kept if it's one of the event's tracking codes, else null.
+  const trackingCode = parseTrackingCode(body.trackingCode);
   const orderId = `ord_${crypto.randomUUID().replace(/-/g, "")}`;
 
   const insertOrder = () =>
     db.query(
       `insert into public.orders (id, event_id, organiser_id, event_title, line_items, subtotal_cents,
-         buyer_fee_cents, total_cents, application_fee_cents, buyer_email)
-       values ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10)`,
+         buyer_fee_cents, total_cents, application_fee_cents, buyer_email, tracking_code)
+       values ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10,
+         (select l.code from public.event_tracking_links l where l.event_id = $2 and l.code = $11))`,
       [
         orderId,
         eventId,
@@ -171,20 +253,9 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
         totals.totalCents,
         totals.applicationFeeCents,
         buyerEmail,
+        trackingCode,
       ],
     );
-
-  if (totals.totalCents === 0) {
-    await insertOrder();
-    const status = await fulfilOrder(db, (await findOrder(db, orderId))!);
-    if (status !== "paid") {
-      // Nothing was charged, so there's nothing to refund — just drop it.
-      await db.query(`delete from public.orders where id = $1`, [orderId]);
-      throw new HttpError(409, "Those tickets just sold out.");
-    }
-    await sendTicketEmail(deps, orderId);
-    return created({ url: `${deps.siteUrl()}/checkout/success?session_id=${orderId}` });
-  }
 
   const organiser = await findOrganiserById(db, event.organiserId);
   if (!organiser?.stripeAccountId || !organiser.payoutsEnabled) {
@@ -242,16 +313,22 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   return created({ url: session.url });
 };
 
+const ORDER_NOT_FOUND = "Order not found.";
+
 /**
  * GET /api/orders/by-session/[sessionId] — public. The unguessable order id
  * from the confirmation page's URL is the credential (guest checkout has no
- * account). A pending order reveals nothing but its status.
+ * account), so the response is only what that page shows (CustomerOrder),
+ * never cached anywhere. A pending order reveals nothing but its status.
  */
 export const getOrderBySession: Handler<{ sessionId: string }> = async (_req, { sessionId }, { db }) => {
-  const order = await findOrder(db, sessionId);
-  if (!order) throw new HttpError(404, "Order not found.");
-  if (order.status === "pending") return ok({ status: order.status });
-  return ok(order);
+  // Anything that isn't shaped like an order id can't be one: no query needed.
+  // A refunded order's tickets are void: CUSTOMER_ORDER_SELECT returns codes for paid orders only.
+  if (!ORDER_ID_PATTERN.test(sessionId)) throw new HttpError(404, ORDER_NOT_FOUND);
+  const [row] = await db.query(`${CUSTOMER_ORDER_SELECT} where o.id = $1`, [sessionId]);
+  if (!row) throw new HttpError(404, ORDER_NOT_FOUND);
+  const lookup: CustomerOrderLookup = row.status === "pending" ? { status: "pending" } : toCustomerOrder(row);
+  return okPrivate(lookup);
 };
 
 /**
@@ -279,6 +356,13 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
     const refund = event.data.object as Stripe.Refund;
     const orderId = refund.metadata?.orderId;
     if (orderId) await recordRefund(deps.db, orderId, refund);
+    else await logUnmatchedRefund(deps.db, event.id, refund);
+    return received;
+  }
+
+  // Any refund of a charge, including ones made in the Stripe dashboard.
+  if (event.type === "charge.refunded") {
+    await recordPaymentRefund(deps.db, event.id, event.data.object as Stripe.Charge);
     return received;
   }
 
@@ -314,7 +398,8 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
     paymentIntentId,
   });
   if (status === "paid") {
-    await sendTicketEmail(deps, order.orderId);
+    // Queued by fulfil_order in the same transaction; this is just the first try.
+    sendTicketEmailSoon(deps, order.orderId);
   } else if (status === "oversold_refund_required") {
     // Charged, but the last tickets went to someone else first.
     await refundOversoldOrder(deps, order.orderId, paymentIntentId);

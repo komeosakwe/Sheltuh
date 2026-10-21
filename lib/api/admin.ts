@@ -1,29 +1,53 @@
 import { apiFetch, type GetToken } from "./client";
 import type {
+  AdminEmailJob,
+  AdminOrganiserRecord,
   AdminReport,
+  EmailJobStatus,
   EventRecord,
   EventStatus,
-  OrganiserRecord,
   OrganiserStatus,
   Paginated,
   ReportStatus,
   ResolveReportInput,
+  SuspendOrganiserResult,
 } from "./types";
 
+/**
+ * Organisers in one status, most recently updated first. Each item carries
+ * its social handles and `recentEdits`: the newest 20 entries of its
+ * append-only log (profile edits made without review, and takedowns).
+ */
 export async function adminListOrganisers(status: OrganiserStatus, getToken: GetToken, cursor?: string) {
   const token = await getToken();
   const qs = new URLSearchParams({ status, ...(cursor ? { cursor } : {}) });
-  return apiFetch<Paginated<OrganiserRecord>>(`/admin/organisers?${qs}`, { token });
+  return apiFetch<Paginated<AdminOrganiserRecord>>(`/admin/organisers?${qs}`, { token });
 }
 
 export async function adminApproveOrganiser(organiserId: string, getToken: GetToken) {
   const token = await getToken();
-  return apiFetch<OrganiserRecord>(`/admin/organisers/${organiserId}/approve`, { method: "POST", token });
+  return apiFetch<AdminOrganiserRecord>(`/admin/organisers/${organiserId}/approve`, { method: "POST", token });
 }
 
 export async function adminRejectOrganiser(organiserId: string, reason: string, getToken: GetToken) {
   const token = await getToken();
-  return apiFetch<OrganiserRecord>(`/admin/organisers/${organiserId}/reject`, {
+  return apiFetch<AdminOrganiserRecord>(`/admin/organisers/${organiserId}/reject`, {
+    method: "POST",
+    body: { reason },
+    token,
+  });
+}
+
+/**
+ * Takes an approved organiser down: their status becomes `rejected` with
+ * `reason` (1–500 characters, shown to them), their profile disappears, their
+ * published events are unpublished and events waiting for review rejected.
+ * Nothing is deleted. ApiError 400 (fieldErrors.reason), 404 unknown
+ * organiser, 409 not approved (e.g. another admin already suspended them).
+ */
+export async function adminSuspendOrganiser(organiserId: string, reason: string, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<SuspendOrganiserResult>(`/admin/organisers/${encodeURIComponent(organiserId)}/suspend`, {
     method: "POST",
     body: { reason },
     token,
@@ -70,4 +94,20 @@ export async function adminResolveReport(reportId: string, input: ResolveReportI
     body: input,
     token,
   });
+}
+
+/** Ticket emails in one status, newest first (default view: `failed`). */
+export async function adminListEmailJobs(status: EmailJobStatus, getToken: GetToken, cursor?: string) {
+  const token = await getToken();
+  const qs = new URLSearchParams({ status, ...(cursor ? { cursor } : {}) });
+  return apiFetch<Paginated<AdminEmailJob>>(`/admin/emails?${qs}`, { token });
+}
+
+/**
+ * Sends a ticket email again now. ApiError 409 while it's being sent; 429 if
+ * it was resent in the last 5 minutes or the admin has resent 20 this hour.
+ */
+export async function adminResendEmailJob(jobId: string, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminEmailJob>(`/admin/emails/${encodeURIComponent(jobId)}/resend`, { method: "POST", token });
 }

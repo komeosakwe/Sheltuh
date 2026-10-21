@@ -10,8 +10,19 @@ const CAROUSEL_COUNT = 24;
  * roomy grid beneath. On phones both are one plain vertical list (the carousel
  * lays itself out as a list below sm, and the grid is one column). Every event
  * renders exactly once.
+ *
+ * `layout="grid"` puts every event in the grid (no carousel, no drift), for
+ * lists that are for scanning, like /saved.
  */
-export default function EventResults({ events }: { events: SheltuhEvent[] }) {
+export default function EventResults({
+  events,
+  layout = "rail",
+}: {
+  events: SheltuhEvent[];
+  layout?: "rail" | "grid";
+}) {
+  if (layout === "grid") return <ResultsGrid events={events} />;
+
   const lead = events.slice(0, CAROUSEL_COUNT);
   const rest = events.slice(CAROUSEL_COUNT);
 
@@ -26,13 +37,17 @@ export default function EventResults({ events }: { events: SheltuhEvent[] }) {
           </CarouselItem>
         ))}
       </Carousel>
-      {rest.length > 0 && (
-        <div className="grid grid-cols-1 gap-y-8 sm:grid-cols-2 sm:gap-x-6 sm:gap-y-10 md:grid-cols-3 lg:grid-cols-4">
-          {rest.map((event) => (
-            <EventTile key={event.id} event={event} />
-          ))}
-        </div>
-      )}
+      {rest.length > 0 && <ResultsGrid events={rest} />}
+    </div>
+  );
+}
+
+function ResultsGrid({ events }: { events: SheltuhEvent[] }) {
+  return (
+    <div className="grid grid-cols-1 gap-y-8 sm:grid-cols-2 sm:gap-x-6 sm:gap-y-10 md:grid-cols-3 lg:grid-cols-4">
+      {events.map((event) => (
+        <EventTile key={event.id} event={event} />
+      ))}
     </div>
   );
 }

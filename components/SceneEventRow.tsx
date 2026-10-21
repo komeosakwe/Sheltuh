@@ -36,6 +36,7 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
       <EventArt
         poster={event.poster}
         title={event.title}
+        imageUrl={event.imageUrl}
         className="h-20 w-20 flex-shrink-0  sm:h-24 sm:w-24"
       />
 

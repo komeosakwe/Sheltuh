@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
@@ -179,6 +180,8 @@ describe("sw.js routing: never intercepted", () => {
     ["the manifest", req("/manifest.webmanifest")],
     ["a page fetched with fetch() (not a navigation)", req("/account")],
     ["an event page whose slug looks like an image, fetched as data", req("/events/poster.png")],
+    // The door scanner's decoder: HTTP-cached as immutable (next.config.ts), never stored by the worker.
+    ["the door scanner's WASM decoder (fetched by the scanner)", req("/vendor/zxing-wasm/3.1.3/zxing_reader.wasm")],
   ])("%s", (_label, request) => {
     expect(worker.routeFor(request)).toBe("bypass");
   });
@@ -225,6 +228,18 @@ describe("sw.js lifecycle", () => {
     await worker.dispatchLifecycle("install");
     expect(await worker.caches.keys()).toEqual([worker.constant<string>("SHELL_CACHE")]);
     expect(worker.caches.allUrls()).toEqual([`${ORIGIN}/offline.html`]);
+  });
+
+  it("bumps VERSION whenever a precached file changes (docs/pwa.md), so activate replaces the old shell cache", () => {
+    // Each VERSION with the sha256 of public/offline.html it shipped (line endings normalised, for Windows
+    // checkouts). Changed offline.html? Bump VERSION in public/sw.js and add the new pair here.
+    const SHIPPED: Record<string, string> = {
+      v2: "c20b664a0d237dab12f770de9fb809fb777139111d631863bed63706cb189b9f",
+    };
+    const offline = readFileSync(path.resolve(import.meta.dirname, "../public/offline.html"), "utf8").replace(/\r\n/g, "\n");
+    const worker = loadWorker();
+    expect(worker.constant<string>("PRECACHE_URLS")).toEqual(["/offline.html"]);
+    expect(SHIPPED[worker.constant<string>("VERSION")]).toBe(createHash("sha256").update(offline).digest("hex"));
   });
 
   it("deletes old Sheltüh caches on activate and leaves current and unrelated ones", async () => {
