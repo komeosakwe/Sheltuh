@@ -1,4 +1,4 @@
-/** Small inline icons for the phone home. All decorative (`aria-hidden`); the text beside them carries the meaning. */
+/** Small inline icons for the home page. All decorative (`aria-hidden`); the text beside them carries the meaning. */
 
 const common = {
   "aria-hidden": true,

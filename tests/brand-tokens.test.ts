@@ -85,7 +85,8 @@ describe("brand colour tokens", () => {
     expect(css).toContain("--radius-control: 0.5rem;");
     expect(css).toContain("--radius-card: 0.75rem;");
     expect(css).toContain("--radius-badge: 0.25rem;");
-    expect(css).toContain("--shadow-card: 0 0 #0000;");
+    // No shadows anywhere: the transitional flat shadow-card token is gone too.
+    expect(css).not.toMatch(/--shadow-card|box-shadow:/);
     expect(css).not.toMatch(/border-radius:\s*9999px/);
   });
 });
@@ -109,26 +110,24 @@ describe("Signal Orange text", () => {
   });
 });
 
-describe("retired accents (transitional, brand-direction-one.md §9)", () => {
-  // Increment 1 turns --highlight and --pop into aliases of --signal. Until the home
-  // increment replaces them, their classes and shadow-card stay on the home only.
+describe("retired accents and motion (brand-direction-one.md §9, cleanup)", () => {
+  // The home redesign removed the last users of the transitional pink/yellow aliases and the
+  // sticker graphics, so the aliases, their classes and the perpetual motion are gone everywhere.
   const LEGACY = /\b(?:shadow-card|(?:bg|text|ring|border|from|via|to|fill|stroke|outline|decoration)-(?:pop|highlight))\b(?![-\w])/;
-  const ALLOWED = [
-    path.join("components", "home") + path.sep,
-    path.join("components", "HomeSections.tsx"),
-    path.join("components", "IntentHero.tsx"),
-    path.join("components", "ui", "Sticker.tsx"),
-  ];
-  const matching = sources.filter(({ text }) => LEGACY.test(text)).map(({ file }) => file);
 
-  it("are aliases of Signal Orange, not their old yellow and pink", () => {
-    expect(block(":root")).toContain("--highlight: var(--signal);");
-    expect(block(":root")).toContain("--pop: var(--signal);");
+  it("no longer defines the --highlight and --pop aliases, or their old yellow and pink", () => {
+    expect(css).not.toMatch(/--(?:highlight|pop|color-highlight|color-pop):/);
     expect(css).not.toMatch(/#e8ff3a|#ff4fb0/);
   });
 
-  it("appear only on the home until its redesign", () => {
-    expect(matching.filter((file) => !ALLOWED.some((allowed) => file.startsWith(allowed)))).toEqual([]);
+  it("are used nowhere", () => {
+    expect(sources.filter(({ text }) => LEGACY.test(text)).map(({ file }) => file)).toEqual([]);
+  });
+
+  it("has no looping decorative motion: no float, slow spin or marquee", () => {
+    expect(css).not.toMatch(/\.float\b|spin-slow|@keyframes marquee/);
+    const looping = /className=["'`{][^"'`]*(?:\bfloat\b|\bspin-slow\b|animate-\[spin)/;
+    expect(sources.filter(({ text }) => looping.test(text)).map(({ file }) => file)).toEqual([]);
   });
 });
 

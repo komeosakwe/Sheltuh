@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventDetailsView from "@/components/EventDetailsView";
 import EventResults from "@/components/EventResults";
 import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
-import FeaturedEventCard from "@/components/home/phone/FeaturedEventCard";
-import HomeEventCard from "@/components/home/phone/HomeEventCard";
+import FeaturedEventCard from "@/components/home/FeaturedEventCard";
+import HomeEventCard from "@/components/home/HomeEventCard";
 import EventTile from "@/components/ui/EventTile";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
@@ -73,7 +73,9 @@ describe("heart placements", () => {
   it.each(["standard", "wide", "compact"] as const)("HomeEventCard %s has a heart beside its link", (variant) => {
     withHearts(<HomeEventCard event={EVENT} variant={variant} mode="demo" />);
     const heart = heartFor(EVENT);
-    expect(screen.getByRole("link").contains(heart)).toBe(false);
+    // The card's main link (the other is its quick-buy link, also a sibling of the heart).
+    const card = screen.getAllByRole("link").find((a) => a.getAttribute("href") === `/events/${EVENT.slug}`);
+    expect(card?.contains(heart)).toBe(false);
     expect(heart).toHaveAttribute("data-save-variant", variant === "compact" ? "plain" : "overlay");
   });
 

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-/** Hand-made 24×24 stroke icons for the phone home's category row. Decorative: the label beside each carries the meaning. */
+/** Hand-made 24×24 stroke icons for the home page's category row. Decorative: the label beside each carries the meaning. */
 
 export type CategoryIconName = "music" | "art" | "workshop" | "pop-up" | "theatre" | "free";
 

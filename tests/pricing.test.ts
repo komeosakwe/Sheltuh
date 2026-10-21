@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { calculateOrderSummary } from "../lib/fees";
 import {
+  externalProviderLabel,
   formatFeedPrice,
   formatFeedPriceParts,
   formatTicketBreakdown,
@@ -156,5 +157,44 @@ describe("an event with no ticket types yet", () => {
     expect(parts).not.toBeNull();
     const joined = parts?.amount === "Free" ? "Free" : `${parts?.amount} ${parts?.note}`;
     expect(joined).toBe(formatFeedPrice(event));
+  });
+});
+
+describe("an event ticketed on another site (external)", () => {
+  const base: SheltuhEvent = {
+    ...findEvent("neon-static"),
+    ticketTypes: [],
+    ticketingMode: "external",
+    externalTicketUrl: "https://events.humanitix.com/a-night",
+    externalFree: false,
+    externalProvider: "Humanitix",
+  };
+
+  it("says where tickets are sold, never a price or 'Tickets coming soon'", () => {
+    expect(formatFeedPrice(base)).toBe("Tickets on Humanitix");
+    expect(formatFeedPriceParts(base)).toEqual({ amount: "Tickets on Humanitix", note: "" });
+  });
+
+  it("free entry: 'Free · Tickets on {provider}'", () => {
+    const free = { ...base, externalFree: true };
+    expect(formatFeedPrice(free)).toBe("Free · Tickets on Humanitix");
+    expect(formatFeedPriceParts(free)).toEqual({ amount: "Free", note: "Tickets on Humanitix" });
+  });
+
+  it("an unknown site is 'the organiser's site', never the bare host", () => {
+    const unknown = { ...base, externalTicketUrl: "https://www.example.com.au/rsvp", externalProvider: null };
+    expect(formatFeedPrice(unknown)).toBe("Tickets on the organiser's site");
+    expect(formatFeedPrice({ ...unknown, externalFree: true })).toBe("Free · Tickets on the organiser's site");
+  });
+
+  it("without the API's provider name, reads it from the link (known sites only)", () => {
+    const rest: SheltuhEvent = { ...base, externalProvider: undefined };
+    expect(externalProviderLabel({ ...rest, externalTicketUrl: "https://www.eventbrite.com.au/e/123" })).toBe("Eventbrite");
+    expect(externalProviderLabel({ ...rest, externalTicketUrl: "https://tickets.example.org/x" })).toBe("the organiser's site");
+  });
+
+  it("covers the demo's two external events", () => {
+    const external = sampleEvents.filter((e) => e.ticketingMode === "external");
+    expect(external.map(formatFeedPrice).sort()).toEqual(["Free · Tickets on the organiser's site", "Tickets on Humanitix"]);
   });
 });

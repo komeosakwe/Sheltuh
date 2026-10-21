@@ -135,7 +135,7 @@ const badgeMonthFormatter = new Intl.DateTimeFormat("en-AU", {
 });
 
 /**
- * The phone home's date badge, in Melbourne local time: `{ range: "3", month: "OCT" }`
+ * The home's date badge, in Melbourne local time: `{ range: "3", month: "OCT" }`
  * for one day (an end on the same local date counts as one day),
  * `{ range: "19–25", month: "OCT" }` for a span within a month, and
  * `{ range: "30 OCT–2", month: "NOV" }` for a span across months.

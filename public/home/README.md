@@ -1,4 +1,4 @@
-Photos for the phone home page's static slots (`components/home/phone/home-content.ts`):
+Photos for the home page's static slots (`components/home/home-content.ts`):
 the hero, the city guide card and the creators card. Drop a file here (e.g. `hero.jpg`),
 ideally a square of at least 1200px so it survives every crop (images crop from the centre),
 then set the matching `imageUrl` (e.g. `HOME_HERO.imageUrl = "/home/hero.jpg"`). Until then

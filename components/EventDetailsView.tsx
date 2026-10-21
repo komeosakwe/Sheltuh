@@ -6,6 +6,7 @@ import EventArt from "@/components/EventArt";
 import SaveButton from "@/components/favourites/SaveButton";
 import SaveOnReturn from "@/components/favourites/SaveOnReturn";
 import TicketSelector from "@/components/TicketSelector";
+import TicketsHashFocus from "@/components/TicketsHashFocus";
 import WhosGoing from "@/components/WhosGoing";
 import { WhosGoingProvider } from "@/components/whos-going/WhosGoingProvider";
 import WhosGoingSummaryLink from "@/components/whos-going/WhosGoingSummaryLink";
@@ -45,6 +46,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
       <Suspense fallback={null}>
         <SaveOnReturn event={saveTarget} />
       </Suspense>
+      <TicketsHashFocus />
 
       {/* One Who's Going load, shared by the phone summary link and the panel. */}
       <WhosGoingProvider

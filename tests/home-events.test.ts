@@ -10,9 +10,14 @@ vi.mock("@/lib/api/public-events", () => ({
   listPublicEvents: (...args: unknown[]) => listPublicEvents(...args),
 }));
 
-const { loadHomeEvents, HOME_EVENT_LIMIT } = await import("@/lib/home-events");
+const { loadHomeEvents, loadHomeTrending, HOME_EVENT_LIMIT, HOME_WEEKEND_TOP_UP_LIMIT } = await import(
+  "@/lib/home-events"
+);
 
-function item(id: string): PublicEvent {
+// Wed 21 Oct 2026, 12:00 AEDT. This weekend ends Sun 25 Oct 23:59:59.999 AEDT (12:59:59.999Z).
+const NOW = new Date("2026-10-21T01:00:00.000Z");
+
+function item(id: string, startsAt = "2026-12-01T09:00:00.000Z", endsAt = "2026-12-01T12:00:00.000Z"): PublicEvent {
   return {
     organiserId: "org",
     eventId: id,
@@ -23,8 +28,8 @@ function item(id: string): PublicEvent {
     venueName: "v",
     venueAddress: "a",
     suburb: "s",
-    startsAt: "2026-12-01T09:00:00.000Z",
-    endsAt: "2026-12-01T12:00:00.000Z",
+    startsAt,
+    endsAt,
     organiserName: "Org",
     ticketTypes: [],
   };
@@ -36,33 +41,59 @@ beforeEach(() => {
 afterEach(() => vi.clearAllMocks());
 
 describe("loadHomeEvents (live)", () => {
-  it("shares one request set between callers that overlap (desktop preview + phone sections)", async () => {
-    listPublicEvents.mockResolvedValue({ items: [item("a")], nextCursor: undefined });
-    const [first, second] = await Promise.all([loadHomeEvents(), loadHomeEvents()]);
+  it("makes one request for upcoming events, with a limit, when the page reaches past the weekend", async () => {
+    listPublicEvents.mockResolvedValue({ items: [item("a", "2026-10-22T08:00:00.000Z"), item("b")], nextCursor: "c1" });
+    const events = await loadHomeEvents(NOW);
     expect(listPublicEvents).toHaveBeenCalledTimes(1);
-    expect(first).toBe(second);
-    expect(first.map((e) => e.id)).toEqual(["a"]);
+    expect(listPublicEvents).toHaveBeenCalledWith({ upcoming: true, limit: HOME_EVENT_LIMIT });
+    expect(HOME_EVENT_LIMIT).toBeLessThanOrEqual(50); // the server's maximum
+    expect(events.map((e) => e.id)).toEqual(["a", "b"]);
   });
 
-  it("loads afresh once the previous load has settled, including after a failure (retry)", async () => {
-    listPublicEvents.mockRejectedValueOnce(new Error("down"));
-    await expect(loadHomeEvents()).rejects.toThrow("down");
-    listPublicEvents.mockResolvedValueOnce({ items: [item("b")], nextCursor: undefined });
-    await expect(loadHomeEvents()).resolves.toHaveLength(1);
+  it("makes no second request when there are no more pages", async () => {
+    listPublicEvents.mockResolvedValue({ items: [item("a", "2026-10-22T08:00:00.000Z")], nextCursor: undefined });
+    await loadHomeEvents(NOW);
+    expect(listPublicEvents).toHaveBeenCalledTimes(1);
+  });
+
+  it("tops up from the weekend's first day when the page stops before the weekend is over, merging by id", async () => {
+    listPublicEvents
+      .mockResolvedValueOnce({
+        items: [item("a", "2026-10-21T08:00:00.000Z"), item("b", "2026-10-22T08:00:00.000Z")],
+        nextCursor: "c1",
+      })
+      .mockResolvedValueOnce({
+        items: [item("b", "2026-10-22T08:00:00.000Z"), item("sat", "2026-10-24T08:00:00.000Z")],
+        nextCursor: undefined,
+      });
+    const events = await loadHomeEvents(NOW);
     expect(listPublicEvents).toHaveBeenCalledTimes(2);
+    // Friday 23 Oct, Melbourne's date.
+    expect(listPublicEvents.mock.calls[1][0]).toEqual({
+      upcoming: true,
+      onOrAfter: "2026-10-23",
+      limit: HOME_WEEKEND_TOP_UP_LIMIT,
+    });
+    expect(events.map((e) => e.id)).toEqual(["a", "b", "sat"]);
   });
 
-  it("pages until it has enough for the home page, then stops", async () => {
-    const page = (n: number) => ({ items: Array.from({ length: 10 }, (_, i) => item(`p${n}-${i}`)), nextCursor: `c${n}` });
-    listPublicEvents.mockResolvedValueOnce(page(1)).mockResolvedValueOnce(page(2)).mockResolvedValueOnce(page(3));
-    const events = await loadHomeEvents();
-    expect(listPublicEvents).toHaveBeenCalledTimes(3);
-    expect(events).toHaveLength(HOME_EVENT_LIMIT);
-    // Only events that haven't ended (upcoming=1), on every page.
-    expect(listPublicEvents.mock.calls.map(([params]) => params)).toEqual([
-      { upcoming: true, cursor: undefined },
-      { upcoming: true, cursor: "c1" },
-      { upcoming: true, cursor: "c2" },
-    ]);
+  it("drops anything that has ended by now (a tab left open), soonest first", async () => {
+    listPublicEvents.mockResolvedValue({
+      items: [item("later"), item("over", "2026-10-20T08:00:00.000Z", "2026-10-20T12:00:00.000Z")],
+      nextCursor: undefined,
+    });
+    expect((await loadHomeEvents(NOW)).map((e) => e.id)).toEqual(["later"]);
+  });
+
+  it("rejects when the request fails (the page shows its error and Try again)", async () => {
+    listPublicEvents.mockRejectedValue(new Error("down"));
+    await expect(loadHomeEvents(NOW)).rejects.toThrow("down");
+  });
+});
+
+describe("loadHomeTrending (live)", () => {
+  it("has no trending API yet, so returns nothing (and makes no request): the section stays hidden", async () => {
+    await expect(loadHomeTrending(NOW)).resolves.toEqual([]);
+    expect(listPublicEvents).not.toHaveBeenCalled();
   });
 });

@@ -24,10 +24,6 @@
   --cream: #fffae7;
   --danger: #b3261e;
   --danger-foreground: #ffffff;
-  /* Transitional aliases (brand-direction-one.md §9, increment 1): the old yellow
-     sticker and pink accents go orange through the token swap alone. Deleted in cleanup. */
-  --highlight: var(--signal);
-  --pop: var(--signal);
   /* Door check-in only (components/check-in/, docs/design/check-in.md; enforced by
      tests/door-tokens.test.ts). Each fill has its text pair. Never used for decoration;
      colour is never the only signal (icon + words + panel shape). */
@@ -125,8 +121,6 @@
   --color-cream: var(--cream);
   --color-danger: var(--danger);
   --color-danger-foreground: var(--danger-foreground);
-  --color-highlight: var(--highlight);
-  --color-pop: var(--pop);
   --color-door-admit: var(--door-admit);
   --color-door-admit-foreground: var(--door-admit-foreground);
   --color-door-refuse: var(--door-refuse);
@@ -138,13 +132,13 @@
 }
 
 /* The brand's rounded squares (the umlaut dots, the logomark, the palette swatches). No pills,
-   no circles (rounded-full survives only on native radios and checkboxes), no shadows. */
+   no circles (rounded-full survives only on native radios and checkboxes), no shadows:
+   elevation is white on cream plus a 1px border. */
 @theme {
   --radius-card: 0.75rem; /* 12px: event media, info cards, sheets, ticket stub, map card */
   --radius-control: 0.5rem; /* 8px: buttons, inputs, selects, search, chips, steppers, menus */
   --radius-badge: 0.25rem; /* 4px: category chip, date badge, status badge, unread count */
   --radius-dot: 28%; /* avatars, map markers (echo the umlaut) */
-  --shadow-card: 0 0 #0000; /* flat: elevation is white on cream plus a 1px border. Deleted in cleanup. */
 }
 
 * {
@@ -396,23 +390,9 @@ h4 {
       transform: none;
     }
   }
-  @keyframes float {
-    50% {
-      transform: translateY(-10px);
-    }
-  }
-  @keyframes spin-slow {
-    to {
-      transform: rotate(360deg);
-    }
-  }
   /* Entrance on load, staggered with --d (e.g. style={{"--d": "120ms"}}). Not on the LCP h1. */
   .rise {
     animation: rise 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
-    animation-delay: var(--d, 0ms);
-  }
-  .float {
-    animation: float 7s ease-in-out infinite;
     animation-delay: var(--d, 0ms);
   }
   /* A photo push-in (the container clips it): one cycle under 5s that holds its end frame and
@@ -428,9 +408,6 @@ h4 {
   .ken-burns {
     animation: push-in 4.5s cubic-bezier(0.2, 0.7, 0.2, 1) 1 both;
     animation-delay: var(--d, 0ms);
-  }
-  .spin-slow {
-    animation: spin-slow 24s linear infinite;
   }
   /* Rows that just appeared (Who's Going "Show more", your own row): opacity only, no movement. */
   @keyframes fade-in {
@@ -466,15 +443,6 @@ h4 {
   }
   .dots-loader > path:last-child {
     animation: dots-join-right 0.9s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
-  }
-}
-
-@keyframes marquee {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-50%);
   }
 }
 

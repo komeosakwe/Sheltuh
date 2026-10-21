@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type PointerEvent } from "react";
-import { useIsPhone } from "@/components/home/phone/useIsPhone";
+import { useIsPhone } from "@/components/ui/useIsPhone";
 import { bucketSeries, chooseBucket, niceMax, type ChartPoint } from "@/lib/analytics-chart";
 import { daysInRange, formatCount, formatDateRangeLong } from "@/lib/analytics-format";
 import type { DateRange } from "@/lib/api/types";
