@@ -13,7 +13,9 @@ import DoorConsole, { checkInPath, pageClass } from "./DoorConsole";
  * /dashboard/[eventId]/check-in (docs/design/check-in.md): the organiser's
  * door scanner, on an ink surface (`data-door`) for dark venues. This is the
  * gate: demo mode, loading, signed out and not an approved organiser use the
- * shared states, which re-skin in the door scope.
+ * shared states, which re-skin in the door scope. An admin goes straight to
+ * the console: admins check in for platform-managed organisers' events, and
+ * the API answers 404 for any other event, which the console shows.
  */
 export default function CheckInPage({ eventId }: { eventId: string }) {
   const doorRef = useRef<HTMLDivElement>(null);
@@ -64,6 +66,7 @@ function Gate({ eventId, doorRef }: { eventId: string; doorRef: RefObject<HTMLDi
       </Shell>
     );
   }
+  if (auth.isAdmin) return <DoorConsole eventId={eventId} getToken={auth.getAccessToken} doorRef={doorRef} />;
   if (error) {
     return (
       <Shell>

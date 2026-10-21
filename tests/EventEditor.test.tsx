@@ -17,6 +17,9 @@ vi.mock("@/lib/api/events", () => ({
   updateEventDraft: (...args: unknown[]) => updateEventDraft(...args),
   createEventDraft: (...args: unknown[]) => createEventDraft(...args),
   submitEventForReview: (...args: unknown[]) => submitEventForReview(...args),
+  // Passed to the photo step on every save; never called here (no photo change).
+  uploadEventImage: vi.fn(),
+  deleteEventImage: vi.fn(),
 }));
 
 afterEach(cleanup);

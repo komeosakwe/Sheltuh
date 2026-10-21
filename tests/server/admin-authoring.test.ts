@@ -1,6 +1,7 @@
+import postgres from "postgres";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { pgConstraint, pgErrorCode } from "@/lib/server/db";
-import { adminSetEventTicketing, adminSuspendOrganiser } from "@/lib/server/handlers/admin";
+import { adminRejectEvent, adminSetEventTicketing, adminSuspendOrganiser } from "@/lib/server/handlers/admin";
 import {
   adminCreateEvent,
   adminCreateOrganiser,
@@ -11,14 +12,16 @@ import {
   EVENT_EDIT_CONFLICT,
   PLATFORM_PAID_REFUSED,
 } from "@/lib/server/handlers/admin-authoring";
+import { SHELTUH_TEAM_ACTOR } from "@/lib/api/types";
 import { checkInTicket } from "@/lib/server/handlers/check-ins";
-import { getMyEvent, listMyEvents, updateEventDraft } from "@/lib/server/handlers/events";
+import { deleteEventImage, putEventImage } from "@/lib/server/handlers/event-images";
+import { getMyEvent, listMyEvents, submitEventForReview, updateEventDraft } from "@/lib/server/handlers/events";
 import { createCheckout, PLATFORM_PAID_CHECKOUT_REFUSED } from "@/lib/server/handlers/orders";
 import { getPublicEventBySlug } from "@/lib/server/handlers/public-events";
 import type { Handler } from "@/lib/server/route";
 import type { AdminEventRecord } from "@/lib/server/types";
 import { SITE_URL, TestApi } from "./helpers/api";
-import { application, approvedOrganiser, eventInput, insertOrder, publishedEvent, signUpAdmin } from "./helpers/fixtures";
+import { application, approvedOrganiser, draftEvent, eventInput, insertOrder, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
 /**
@@ -34,12 +37,14 @@ const FREE_TICKETS = [
 
 let api: TestApi;
 let reset: () => Promise<void>;
+let serverUrl: string | undefined;
 let admin: { token: string; userId: string };
 let organiser: { token: string; userId: string; organiserId: string };
 
 beforeAll(async () => {
   const testDb = await createTestDb();
   reset = testDb.reset;
+  serverUrl = testDb.url;
   api = new TestApi(testDb.db);
 });
 
@@ -334,9 +339,12 @@ describe("PATCH /admin/events/{id}", () => {
     expect(edited.changes.title).toEqual({ old: "Neon Static", new: "Neon Static: Encore" });
     expect(edited.changes.ticketTypes.old).toEqual(event.ticketTypes);
     expect(edited.changes.ticketTypes.new).toEqual(ticketTypes);
-    // The organiser sees the same entry on their event.
+    // The organiser sees the same entry on their event, by the Sheltüh team: an admin's id is only shown to admins.
     const own = await api.call(getMyEvent, { token: organiser.token, params: { eventId: event.eventId } });
-    expect(own.body.moderationLog.at(-1)).toEqual(edited);
+    expect(own.body.moderationLog.at(-1)).toEqual({ ...edited, by: SHELTUH_TEAM_ACTOR });
+    expect(JSON.stringify(own.body)).not.toContain(admin.userId);
+    // Their own entries keep their id.
+    expect(own.body.moderationLog.find((l: { action: string }) => l.action === "submitted").by).toBe(organiser.userId);
   });
 
   it("saving the same values changes and logs nothing", async () => {
@@ -497,6 +505,58 @@ describe("admin photos", () => {
     ).toEqual([{ image: { old: null, new: "set" } }, { image: { old: "set", new: "set" } }, { image: { old: "set", new: null } }]);
   });
 
+  it("a photo change is a new version: an admin's own photo save answers with it, and a save from before it is stale", async () => {
+    const event = await adminEvent(organiser.organiserId);
+    const put = await sendImage(adminPutEventImage, event.eventId, "PUT", PNG);
+    expect(put.body.updatedAt).not.toBe(event.updatedAt);
+    // The version loaded before the photo is stale; the one the photo save returned isn't.
+    expect((await patch(event.eventId, editBody(event, { title: "Stale" }))).status).toBe(409);
+    expect((await patch(event.eventId, editBody(put.body, { title: "Fresh" }))).status).toBe(200);
+    const current = (await api.call(adminGetEvent, { token: admin.token, params: { eventId: event.eventId } })).body;
+    const del = await sendImage(adminDeleteEventImage, event.eventId, "DELETE");
+    expect(del.body.updatedAt).not.toBe(current.updatedAt);
+    expect((await patch(event.eventId, editBody(current, { title: "Stale again" }))).status).toBe(409);
+    // Nothing to delete: no new version.
+    const noop = await sendImage(adminDeleteEventImage, event.eventId, "DELETE");
+    expect(noop.body.updatedAt).toBe(del.body.updatedAt);
+  });
+
+  it("an organiser's photo swap after the admin opened the event makes the admin's publish stale (409): nothing published", async () => {
+    const png = (tag: number) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, tag, tag, tag, tag]);
+    const draft = await draftEvent(api, organiser);
+    const organiserImage = (method: "PUT" | "DELETE", body?: BodyInit) =>
+      sendImage(method === "PUT" ? putEventImage : deleteEventImage, draft.eventId, method, body, organiser.token);
+    expect((await organiserImage("PUT", png(1))).status).toBe(200);
+    await api.call(submitEventForReview, { token: organiser.token, params: { eventId: draft.eventId }, method: "POST" });
+    await api.call(adminRejectEvent, { token: admin.token, params: { eventId: draft.eventId }, body: { reason: "Wrong date." } });
+    const loaded = (await api.call(adminGetEvent, { token: admin.token, params: { eventId: draft.eventId } })).body;
+
+    // Still rejected, so the organiser may change the photo: a new version.
+    const swapped = await organiserImage("PUT", png(9));
+    expect(swapped.status).toBe(200);
+    expect(swapped.body.updatedAt).not.toBe(loaded.updatedAt);
+    const publish = await patch(draft.eventId, editBody(loaded, { publish: true }));
+    expect(publish.status).toBe(409);
+    expect(publish.body.fieldErrors).toEqual({ expectedUpdatedAt: EVENT_EDIT_CONFLICT });
+    const after = (await api.call(adminGetEvent, { token: admin.token, params: { eventId: draft.eventId } })).body;
+    expect(after.status).toBe("rejected");
+
+    // Removing the photo is a new version too.
+    expect((await organiserImage("DELETE")).body.updatedAt).not.toBe(after.updatedAt);
+    expect((await patch(draft.eventId, editBody(after, { publish: true }))).status).toBe(409);
+    // Reloaded, the admin sees the current photo state, and can publish.
+    const reloaded = (await api.call(adminGetEvent, { token: admin.token, params: { eventId: draft.eventId } })).body;
+    expect(reloaded.imageUrl).toBeUndefined();
+    expect((await patch(draft.eventId, editBody(reloaded, { publish: true }))).body.status).toBe("published");
+  });
+
+  it("deleting an event with a photo still works (the photo goes with it)", async () => {
+    const event = await adminEvent(organiser.organiserId);
+    expect((await sendImage(adminPutEventImage, event.eventId, "PUT", PNG)).status).toBe(200);
+    await api.db.query(`delete from public.events where id = $1`, [event.eventId]);
+    expect(await api.db.query(`select 1 from public.event_images where event_id = $1`, [event.eventId])).toEqual([]);
+  });
+
   it("uses the organiser upload's rules: 400 not an image, 413 over 2 MB", async () => {
     const event = await adminEvent(organiser.organiserId);
     const notImage = await sendImage(adminPutEventImage, event.eventId, "PUT", new Uint8Array([1, 2, 3, 4]));
@@ -515,7 +575,7 @@ describe("admin photos", () => {
 // Platform-managed restrictions
 // ---------------------------------------------------------------------------
 
-describe("platform-managed organisers: no paid Sheltüh tickets, no check-in", () => {
+describe("platform-managed organisers: no paid Sheltüh tickets; only admins at the door", () => {
   it("the API refuses paid ticket types on create and edit; free ones are fine", async () => {
     const platformId = await platformOrganiser();
     const paid = await createEvent({ ...eventInput(), organiserId: platformId });
@@ -585,21 +645,114 @@ describe("platform-managed organisers: no paid Sheltüh tickets, no check-in", (
     expect((await patch(event.eventId, editBody(current, { title: "Renamed" }))).status).toBe(400);
   });
 
-  it("nobody can check in, and the database refuses a check-in row for its events", async () => {
+  it("only an admin can check in, and the database refuses anyone else's check-in row for its events", async () => {
     const platformId = await platformOrganiser();
     const event = await adminEvent(platformId, { ticketTypes: FREE_TICKETS, publish: true });
     const scan = (token: string) =>
       api.call(checkInTicket, { token, params: { eventId: event.eventId }, body: { code: "7KQM2HXD", requestId: crypto.randomUUID() } });
-    expect((await scan(admin.token)).status).toBe(403);
+    expect((await scan(admin.token)).body).toEqual({ outcome: "invalid" });
     expect((await scan(organiser.token)).status).toBe(404);
     expect(await dbError(api.db.query(
       `insert into public.ticket_check_ins (event_id, ticket_code, actor_user_id, request_id, result)
        values ($1, null, $2, gen_random_uuid(), 'invalid')`,
-      [event.eventId, admin.userId],
-    ))).toEqual({ code: "23514", constraint: "ticket_check_ins_owned_organiser_only" });
+      [event.eventId, organiser.userId],
+    ))).toEqual({ code: "23514", constraint: "ticket_check_ins_actor_allowed" });
     expect(await dbError(api.db.query(
       `select * from private.check_in_ticket($1, $2, $3, null, gen_random_uuid(), 600, '5 minutes')`,
-      [event.eventId, platformId, admin.userId],
-    ))).toEqual({ code: "23514", constraint: "ticket_check_ins_owned_organiser_only" });
+      [event.eventId, platformId, organiser.userId],
+    ))).toEqual({ code: "23514", constraint: "ticket_check_ins_actor_allowed" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Photo writes at once: two sessions need a real server (PGlite is one
+// connection). Run with TEST_DATABASE_URL (CLAUDE.md, "Quality gates").
+// ---------------------------------------------------------------------------
+
+describe.skipIf(!process.env.TEST_DATABASE_URL)("photo writes at once (real Postgres only)", () => {
+  const IMAGE = Buffer.from(PNG);
+
+  async function waitUntilBlocked(conn: postgres.Sql) {
+    const [{ pid }] = await conn.unsafe("select pg_backend_pid() as pid");
+    return async () => {
+      for (let i = 0; ; i++) {
+        const [row] = await api.db.query<{ wait_event_type: string | null }>(
+          `select wait_event_type from pg_stat_activity where pid = $1`,
+          [pid],
+        );
+        if (row?.wait_event_type === "Lock") return;
+        if (i > 200) throw new Error("never blocked");
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    };
+  }
+
+  /** The organiser handler's write (lib/server/handlers/event-images.ts), on a connection of its own. */
+  const organiserPut = (conn: postgres.Sql, eventId: string) =>
+    conn.unsafe(
+      `insert into public.event_images (event_id, content_type, data)
+       select e.id, 'image/png', $2::bytea from public.events e
+        where e.id = $1 and e.organiser_id = $3 and e.status in ('draft', 'rejected')
+          for no key update of e
+       on conflict (event_id) do update set content_type = excluded.content_type, data = excluded.data, updated_at = now()
+       returning event_id`,
+      [eventId, IMAGE, organiser.organiserId],
+    );
+  const adminPut = (conn: postgres.Sql, eventId: string) =>
+    conn.unsafe(`select private.admin_put_event_image($1, $2, 'image/png', $3::bytea) as result`, [eventId, admin.userId, IMAGE]);
+
+  it("an admin's and an organiser's photo write at once: the second waits on the event row, then both succeed (no deadlock)", async () => {
+    const draft = await draftEvent(api, organiser);
+    const [one, two] = [postgres(serverUrl!, { max: 1, onnotice: () => {} }), postgres(serverUrl!, { max: 1, onnotice: () => {} })];
+    try {
+      // The organiser's write has locked the event row (its first step) but not yet written the image.
+      await two.unsafe("begin");
+      await two.unsafe(`select 1 from public.events where id = $1 for no key update`, [draft.eventId]);
+      // The admin's write waits on the event row before touching the image (were it to write the image
+      // first, the organiser's insert below would wait on it while it waited on the event: a deadlock).
+      await one.unsafe("begin");
+      const blocked = await waitUntilBlocked(one);
+      const adminPending = adminPut(one, draft.eventId).execute();
+      await blocked();
+      expect(await organiserPut(two, draft.eventId)).toHaveLength(1);
+      await two.unsafe("commit");
+      expect((await adminPending)[0].result).toBe("updated");
+      await one.unsafe("commit");
+
+      // And the other way round: the admin's write first, the organiser's waits.
+      await one.unsafe("begin");
+      await adminPut(one, draft.eventId);
+      await two.unsafe("begin");
+      const waiting = await waitUntilBlocked(two);
+      const organiserPending = organiserPut(two, draft.eventId).execute();
+      await waiting();
+      await one.unsafe("commit");
+      expect(await organiserPending).toHaveLength(1);
+      await two.unsafe("commit");
+    } finally {
+      await one.end();
+      await two.end();
+    }
+  });
+
+  it("an admin's save racing a photo write waits for it, then is stale (409): nothing saved", async () => {
+    const event = await adminEvent(organiser.organiserId);
+    const one = postgres(serverUrl!, { max: 1, onnotice: () => {} });
+    try {
+      await one.unsafe("begin");
+      await adminPut(one, event.eventId);
+      // The PATCH (its own transaction, through the API) waits on the event row the photo write holds.
+      const pending = patch(event.eventId, editBody(event, { title: "Raced" }));
+      await new Promise((r) => setTimeout(r, 200));
+      await one.unsafe("commit");
+      const res = await pending;
+      expect(res.status).toBe(409);
+      expect(res.body.fieldErrors).toEqual({ expectedUpdatedAt: EVENT_EDIT_CONFLICT });
+    } finally {
+      await one.end();
+    }
+    const current = (await api.call(adminGetEvent, { token: admin.token, params: { eventId: event.eventId } })).body;
+    expect(current.title).toBe("Neon Static");
+    expect(current.imageUrl).toBeDefined();
   });
 });

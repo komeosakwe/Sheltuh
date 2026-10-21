@@ -150,6 +150,21 @@ describe("check-in gate", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load your organiser status.");
   });
 
+  it("an admin without an organiser of their own: straight to the console (platform-managed events)", async () => {
+    organiserState = { loading: false, organiser: null, error: null };
+    await renderPage(fakeAuthValue({ isAdmin: true, email: "admin@sheltuh.example" }));
+    expect(api.getCheckInSummary).toHaveBeenCalledWith("evt-1", expect.any(Function));
+    expect(screen.getByLabelText("Type a code")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Apply as an organiser" })).not.toBeInTheDocument();
+  });
+
+  it("an admin on an organiser's event: the API's 404 shows Event not found", async () => {
+    organiserState = { loading: false, organiser: null, error: null };
+    api.getCheckInSummary.mockRejectedValue(new ApiError(404, "Not found."));
+    await renderPage(fakeAuthValue({ isAdmin: true }));
+    expect(screen.getByRole("heading", { level: 1, name: "Event not found" })).toBeInTheDocument();
+  });
+
   it("not your event (404): Event not found, with the way back", async () => {
     api.getCheckInSummary.mockRejectedValue(new ApiError(404, "Not found."));
     await renderPage();

@@ -84,7 +84,12 @@ export class TestApi {
   ): Promise<{ token: string; userId: string; email: string }> {
     const userId = crypto.randomUUID();
     const email = options.email ?? `${userId.slice(0, 8)}@example.com`;
-    await this.db.query(`insert into auth.users (id, email) values ($1, $2)`, [userId, email]);
+    // app_metadata as Supabase stores it: the database reads the admin role too (ticket_check_ins_guard).
+    await this.db.query(`insert into auth.users (id, email, raw_app_meta_data) values ($1, $2, $3::text::jsonb)`, [
+      userId,
+      email,
+      JSON.stringify(options.admin ? { role: "admin" } : {}),
+    ]);
     const token = `token-${userId}`;
     this.callers.set(token, {
       userId,

@@ -145,12 +145,14 @@ describe("Data API lock-out", () => {
     expect(executable).toEqual([]);
   });
 
-  it("the admin authoring functions and platform-managed guards exist, pin search_path and aren't client-executable", async () => {
+  it("the admin authoring functions and platform-managed and review-hardening guards exist, pin search_path and aren't client-executable", async () => {
     const names = [
       "admin_create_event",
       "admin_delete_event_image",
       "admin_edit_event",
       "admin_put_event_image",
+      "event_images_touch_event",
+      "events_external_ticket_url_valid",
       "events_platform_free_only",
       "orders_platform_free_only",
       "organisers_platform_free_only",

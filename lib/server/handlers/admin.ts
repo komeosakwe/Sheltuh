@@ -2,14 +2,14 @@ import { requireAdmin, type Caller } from "../auth";
 import type { Db } from "../db";
 import type { Deps } from "../deps";
 import { parseTicketing } from "../event-input";
-import { HttpError, ok, readJson } from "../http";
+import { HttpError, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
-import { ADMIN_ORGANISER_SELECT, EVENT_SELECT, toAdminOrganiser, toEvent } from "../records";
+import { ADMIN_ORGANISER_SELECT, EVENT_SELECT, toAdminOrganiser, toEventForAdmin } from "../records";
 import type { Handler } from "../route";
 import type { AdminOrganiserRecord, EventStatus, OrganiserStatus, SuspendOrganiserResult } from "../types";
 import { fail, requireString } from "../validation";
-import { requireEvent } from "./event-queries";
+import { requireEventForAdmin } from "./event-queries";
 
 const ORGANISER_STATUSES: OrganiserStatus[] = ["pending", "approved", "rejected"];
 const EVENT_STATUSES: EventStatus[] = ["draft", "pending_review", "published", "rejected"];
@@ -52,7 +52,7 @@ export const adminListOrganisers: Handler = async (req, _params, { db, verifyAcc
      order by o.updated_at desc, o.id limit $2 offset $3`,
     [status, limit + 1, offset],
   );
-  return ok(toPage(rows.map(toAdminOrganiser), offset, limit));
+  return okPrivate(toPage(rows.map(toAdminOrganiser), offset, limit));
 };
 
 /**
@@ -78,7 +78,7 @@ async function reviewOrganiser(
   if (rows.length === 0) {
     throw new HttpError(409, "This application is no longer pending — it may already have been reviewed.");
   }
-  return ok(await findAdminOrganiser(deps.db, organiserId));
+  return okPrivate(await findAdminOrganiser(deps.db, organiserId));
 }
 
 /** POST /api/admin/organisers/[organiserId]/approve */
@@ -138,7 +138,7 @@ export const adminSuspendOrganiser: Handler<{ organiserId: string }> = async (re
     eventsUnpublished: row.events_unpublished,
     submissionsRejected: row.submissions_rejected,
   };
-  return ok(result);
+  return okPrivate(result);
 };
 
 // ---------------------------------------------------------------------------
@@ -161,7 +161,7 @@ export const adminListEvents: Handler = async (req, _params, { db, verifyAccessT
      order by e.starts_at, e.id limit $2 offset $3`,
     [status, limit + 1, offset],
   );
-  return ok(toPage(rows.map(toEvent), offset, limit));
+  return okPrivate(toPage(rows.map(toEventForAdmin), offset, limit));
 };
 
 interface Moderation {
@@ -177,7 +177,7 @@ async function moderateEvent(
   { from, to, action }: Moderation,
   reason: string | null = null,
 ) {
-  await requireEvent(deps.db, eventId);
+  await requireEventForAdmin(deps.db, eventId);
   // Publishing needs the organiser to be approved. Its row is share-locked
   // first (private.suspend_organiser locks it for update, then the events),
   // so a takedown and an approval can't interleave: an approval after a
@@ -200,7 +200,7 @@ async function moderateEvent(
   if (!row.moved) {
     throw new HttpError(409, `This event is no longer ${from.replace("_", " ")} — it may already have been reviewed.`);
   }
-  return ok(await requireEvent(deps.db, eventId));
+  return okPrivate(await requireEventForAdmin(deps.db, eventId));
 }
 
 /** POST /api/admin/events/[eventId]/approve — publishes it. */
@@ -266,5 +266,5 @@ export const adminSetEventTicketing: Handler<{ eventId: string }> = async (req, 
       ticketingMode: "This event has orders.",
     });
   }
-  return ok(await requireEvent(deps.db, eventId));
+  return okPrivate(await requireEventForAdmin(deps.db, eventId));
 };

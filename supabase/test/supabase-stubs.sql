@@ -17,6 +17,9 @@ end
 $$;
 create schema if not exists auth;
 create table if not exists auth.users (id uuid primary key, email text);
+-- Supabase keeps app_metadata here; role 'admin' is what makes an admin
+-- (scripts/promote-admin.ts). Read by private.ticket_check_ins_guard.
+alter table auth.users add column if not exists raw_app_meta_data jsonb;
 
 -- Supabase grants anon/authenticated access to every new table in `public` by
 -- default; the migrations must revoke it (docs/architecture.md: "no client

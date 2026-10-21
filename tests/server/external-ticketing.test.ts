@@ -5,8 +5,10 @@ import {
   adminListEvents,
   adminRejectEvent,
   adminSetEventTicketing,
+  adminSuspendOrganiser,
   adminUnpublishEvent,
 } from "@/lib/server/handlers/admin";
+import { adminPutEventImage } from "@/lib/server/handlers/admin-authoring";
 import {
   getAnalyticsOverview,
   getAnalyticsOverviewCsv,
@@ -175,6 +177,64 @@ describe("database constraints", () => {
         ),
       ),
     ).toBe("events_external_no_ticket_types");
+  });
+
+  it("a link is checked when it's written: inserting or changing to a refused link fails", async () => {
+    const [ext] = await insertEvent({ ticketing_mode: "external", external_ticket_url: HUMANITIX });
+    expect(
+      await violation(() =>
+        api.db.query(`update public.events set external_ticket_url = 'https://linktr.ee/neon' where id = $1`, [ext.id]),
+      ),
+    ).toBe("events_external_ticket_url_valid");
+    expect(await eventRow(ext.id)).toMatchObject({ external_ticket_url: HUMANITIX });
+  });
+
+  it("a stored link a later rule refuses doesn't block anything else: unpublish, takedown, photo, relinking", async () => {
+    // Approved before a rule tightened (e.g. a shortener added to private.external_ticket_url_ok):
+    // stored as the earlier rules allowed, which this simulates by writing it with the check off.
+    const NOW_REFUSED = "https://linktr.ee/neon-static";
+    const live = await publishedEvent(api, organiser, admin, external());
+    const other = await publishedEvent(api, organiser, admin, external({ title: "Second night" }));
+    await api.db.query(`alter table public.events disable trigger events_external_ticket_url_valid`);
+    try {
+      await api.db.query(`update public.events set external_ticket_url = $2 where id = any($1::uuid[])`, [
+        [live.eventId, other.eventId],
+        NOW_REFUSED,
+      ]);
+    } finally {
+      await api.db.query(`alter table public.events enable trigger events_external_ticket_url_valid`);
+    }
+
+    // Status changes and other writes to the row never re-check the stored link.
+    const unpublished = await unpublish(live.eventId);
+    expect(unpublished.status).toBe(200);
+    expect(unpublished.body.status).toBe("draft");
+    const photo = await api.send(
+      adminPutEventImage,
+      new Request(`${SITE_URL}/api/test`, {
+        method: "PUT",
+        headers: { authorization: `Bearer ${admin.token}` },
+        body: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]),
+      }),
+      { eventId: other.eventId },
+    );
+    expect(photo.status).toBe(200);
+    const takedown = await api.call(adminSuspendOrganiser, {
+      token: admin.token,
+      params: { organiserId: organiser.organiserId },
+      body: { reason: "Link now points somewhere else." },
+    });
+    expect(takedown.status).toBe(200);
+    expect(takedown.body.eventsUnpublished).toBe(1);
+    expect(await eventRow(other.eventId)).toMatchObject({ external_ticket_url: NOW_REFUSED });
+
+    // The runbook: replace the link (any status), and the new one is checked.
+    expect((await adminPatch(admin.token, live.eventId, { ...external(), reason: "Replace the redirector." })).status).toBe(200);
+    expect(await eventRow(live.eventId)).toMatchObject({ external_ticket_url: HUMANITIX });
+    expect(
+      (await adminPatch(admin.token, other.eventId, { ...external({ externalTicketUrl: "https://bit.ly/neon" }), reason: "x" }))
+        .status,
+    ).toBe(400);
   });
 
   it("existing events are Sheltüh-ticketed with no link", async () => {

@@ -4,7 +4,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import EventEditor from "@/components/dashboard/EventEditor";
 import { adminGetEvent } from "@/lib/api/admin";
-import type { AdminEventRecord, EventRecord, EventStatus } from "@/lib/api/types";
+import type { AdminEventRecord, EventStatus } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 
 const STATUS_LABEL: Record<EventStatus, string> = {
@@ -73,7 +73,7 @@ export default function AdminEditEvent() {
         mode="admin"
         getToken={getToken}
         initial={event}
-        onSaved={(record: EventRecord) => setEvent(record as AdminEventRecord)}
+        onSaved={setEvent}
         onReload={() => load({ cancelled: false })}
       />
     </>

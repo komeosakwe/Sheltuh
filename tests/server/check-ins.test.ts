@@ -1,5 +1,8 @@
 import postgres from "postgres";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { pgConstraint } from "@/lib/server/db";
+import { adminApproveOrganiser } from "@/lib/server/handlers/admin";
+import { adminCreateEvent, adminCreateOrganiser } from "@/lib/server/handlers/admin-authoring";
 import { getEventAnalytics } from "@/lib/server/handlers/analytics";
 import { CHECK_IN_LIMIT, checkInTicket, getCheckInSummary, undoCheckIn } from "@/lib/server/handlers/check-ins";
 import { createCheckout, getOrderBySession, stripeWebhook } from "@/lib/server/handlers/orders";
@@ -7,7 +10,7 @@ import { applyAsOrganiser } from "@/lib/server/handlers/organisers";
 import { runHandler } from "@/lib/server/route";
 import type { EventRecord } from "@/lib/server/types";
 import { SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
-import { application, approvedOrganiser, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
+import { application, approvedOrganiser, enablePayouts, eventInput, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
 // Ticket check-in: lib/server/handlers/check-ins.ts,
@@ -163,7 +166,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 // ---------------------------------------------------------------------------
 
 describe("who can check in", () => {
-  it("only the approved organiser who owns the event: 401 signed out, 403 without an approved organiser, 404 anyone else's", async () => {
+  it("only the approved organiser who owns the event: 401 signed out, 403 without an approved organiser, 404 anyone else's (an admin's too)", async () => {
     const { codes } = await paidOrder(event.eventId, [{ ticketTypeId: "ga", quantity: 1 }]);
     const member = await api.signUp();
     const pending = await api.signUp();
@@ -172,7 +175,7 @@ describe("who can check in", () => {
 
     expect((await scan(undefined, codes[0])).status).toBe(401);
     expect((await scan(member.token, codes[0])).status).toBe(403);
-    expect((await scan(admin.token, codes[0])).status).toBe(403); // admins can't check in
+    expect((await scan(admin.token, codes[0])).status).toBe(404); // admins only for platform-managed organisers' events
     expect((await scan(pending.token, codes[0])).status).toBe(403);
     expect((await scan(other.token, codes[0])).status).toBe(404);
     expect((await scan(organiser.token, codes[0], crypto.randomUUID(), "not-a-uuid")).status).toBe(404);
@@ -180,7 +183,7 @@ describe("who can check in", () => {
 
     for (const token of [undefined, member.token, admin.token, other.token]) {
       const status = (await summary(token)).status;
-      expect(status).toBe(token === undefined ? 401 : token === other.token ? 404 : 403);
+      expect(status).toBe(token === undefined ? 401 : token === other.token || token === admin.token ? 404 : 403);
     }
 
     // Nothing was logged, marked or counted against anyone.
@@ -200,29 +203,205 @@ describe("who can check in", () => {
     const { other, otherEvent } = await anotherOrganiser();
 
     expect((await undo(undefined, checkInId)).status).toBe(401);
-    expect((await undo(admin.token, checkInId)).status).toBe(403);
+    expect((await undo(admin.token, checkInId)).status).toBe(404);
     expect((await undo(other.token, checkInId)).status).toBe(404);
     // Their own event id doesn't reach someone else's check-in either.
     expect((await undo(other.token, checkInId, "Scanned the wrong ticket", otherEvent.eventId)).status).toBe(404);
     expect(await checkedInAt(codes[0])).not.toBeNull();
     expect((await log()).map((r) => r.result)).toEqual(["admitted"]);
   });
+});
 
-  it("a platform-managed organiser's event (no owner account) can't be checked in by anyone", async () => {
-    const [{ id: platformOrganiser }] = await api.db.query<{ id: string }>(
-      `insert into public.organisers (owner_user_id, display_name, contact_email, description, categories, status)
-       values (null, 'Sheltüh Presents', 'hello@sheltuh.test', '', '{live-music}', 'approved') returning id`,
-    );
-    const [{ id: platformEvent }] = await api.db.query<{ id: string }>(
-      `insert into public.events (organiser_id, slug, title, description, category, venue_name, venue_address, suburb,
-                                  starts_at, ends_at, status)
-       values ($1, 'platform-night', 'Platform night', '', 'live-music', 'Hall', '1 St', 'Fitzroy',
-               now() + interval '1 day', now() + interval '1 day 3 hours', 'published') returning id`,
-      [platformOrganiser],
-    );
-    expect((await scan(admin.token, UNKNOWN_CODE, crypto.randomUUID(), platformEvent)).status).toBe(403);
-    expect((await scan(organiser.token, UNKNOWN_CODE, crypto.randomUUID(), platformEvent)).status).toBe(404);
-    expect(await log(platformEvent)).toEqual([]);
+// ---------------------------------------------------------------------------
+// Admins at the door: platform-managed organisers' events only (owner
+// decision, docs/FEATURE_PLAN.md; 20261023000100_review_hardening.sql)
+// ---------------------------------------------------------------------------
+
+const FREE_TICKETS = [{ id: "free", name: "Free entry", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 50 }];
+
+/** A new platform-managed organiser (no owner account), made by the admin. */
+async function platformOrganiser(): Promise<string> {
+  const res = await api.call(adminCreateOrganiser, {
+    token: admin.token,
+    body: { ...application, displayName: "Sheltüh Presents", contactEmail: "events@sheltuh.example" },
+  });
+  expect(res.status).toBe(201);
+  return res.body.organiserId as string;
+}
+
+/** A published event of the platform-managed organiser, and a member's free order of `quantity` tickets for it. */
+async function platformEventWithTickets(quantity = 1, overrides: Record<string, unknown> = {}) {
+  const organiserId = await platformOrganiser();
+  const created = await api.call(adminCreateEvent, {
+    token: admin.token,
+    body: { ...eventInput({ title: "Sheltüh Presents: Late Night", ticketTypes: FREE_TICKETS, ...overrides }), organiserId, publish: true },
+  });
+  expect(created.status).toBe(201);
+  const eventId = created.body.eventId as string;
+  const member = await api.signUp();
+  const booked = await api.call(createCheckout, {
+    token: member.token,
+    params: { eventId },
+    body: { lineItems: [{ ticketTypeId: "free", quantity }], buyerEmail: member.email },
+  });
+  expect(booked.status).toBe(201);
+  const orderId = new URL(booked.body.url).searchParams.get("session_id")!;
+  const page = await api.call(getOrderBySession, { params: { sessionId: orderId } });
+  return { eventId, organiserId, codes: (page.body.tickets as { ticketCode: string }[]).map((t) => t.ticketCode) };
+}
+
+describe("admins at the door of a platform-managed organiser's event", () => {
+  it("an admin checks in, sees the summary and undoes, recorded as the scanner, on their own allowance", async () => {
+    const platform = await platformEventWithTickets(2);
+
+    const admitted = await scan(admin.token, platform.codes[0], crypto.randomUUID(), platform.eventId);
+    expect(admitted.status).toBe(200);
+    expect(admitted.headers.get("cache-control")).toBe("private, no-store");
+    expect(admitted.body).toMatchObject({
+      outcome: "admitted",
+      checkInId: expect.stringMatching(UUID),
+      ticket: { ticketTypeName: "Free entry", ticketNumber: 1, ticketCount: 2, codeLast4: platform.codes[0].slice(-4) },
+    });
+    const again = await scan(admin.token, platform.codes[0], crypto.randomUUID(), platform.eventId);
+    expect(again.body).toMatchObject({ outcome: "already_checked_in", checkInId: admitted.body.checkInId });
+    expect((await scan(admin.token, UNKNOWN_CODE, crypto.randomUUID(), platform.eventId)).body).toEqual({ outcome: "invalid" });
+
+    const counts = await summary(admin.token, platform.eventId);
+    expect(counts.status).toBe(200);
+    expect(counts.headers.get("cache-control")).toBe("private, no-store");
+    expect(counts.body).toMatchObject({ checkedIn: 1, ticketsSold: 2, capacity: 50 });
+    expect(counts.body.recent.map((r: { result: string }) => r.result)).toEqual(["invalid", "already_checked_in", "admitted"]);
+
+    const undone = await undo(admin.token, admitted.body.checkInId, "Scanned the wrong ticket", platform.eventId);
+    expect(undone.status).toBe(200);
+    expect(undone.body.outcome).toBe("undone");
+    expect(await checkedInAt(platform.codes[0])).toBeNull();
+
+    // The admin is the acting account on every row (the audit), and the allowance is theirs.
+    const rows = await log(platform.eventId);
+    expect(rows.map((r) => [r.result, r.actor_user_id])).toEqual([
+      ["admitted", admin.userId],
+      ["already_checked_in", admin.userId],
+      ["invalid", admin.userId],
+      ["undone", admin.userId],
+    ]);
+    expect(rows.at(-1)?.reason).toBe("Scanned the wrong ticket");
+    expect(await api.db.query(`select user_id, hits from private.rate_limits where bucket = 'check_in'`)).toEqual([
+      { user_id: admin.userId, hits: 4 },
+    ]);
+  });
+
+  it("the authorisation matrix: admins only on platform-managed events, organisers only on their own", async () => {
+    const platform = await platformEventWithTickets(1);
+    const own = await paidOrder(event.eventId, [{ ticketTypeId: "ga", quantity: 1 }]);
+    const member = await api.signUp();
+
+    // An organiser (or anyone else) on the platform event: 404 / 403 / 401, as for another organiser's event.
+    expect((await scan(organiser.token, platform.codes[0], crypto.randomUUID(), platform.eventId)).status).toBe(404);
+    expect((await summary(organiser.token, platform.eventId)).status).toBe(404);
+    expect((await scan(member.token, platform.codes[0], crypto.randomUUID(), platform.eventId)).status).toBe(403);
+    expect((await scan(undefined, platform.codes[0], crypto.randomUUID(), platform.eventId)).status).toBe(401);
+    // An admin on an organiser's event, even holding its ticket, or on an event that doesn't exist: 404.
+    expect((await scan(admin.token, own.codes[0])).status).toBe(404);
+    expect((await summary(admin.token)).status).toBe(404);
+    expect((await scan(admin.token, own.codes[0], crypto.randomUUID(), crypto.randomUUID())).status).toBe(404);
+    expect((await scan(admin.token, own.codes[0], crypto.randomUUID(), "not-a-uuid")).status).toBe(404);
+    // The organiser's ticket scanned at the platform event by an admin: just invalid (another organiser's).
+    expect((await scan(admin.token, own.codes[0], crypto.randomUUID(), platform.eventId)).body).toEqual({ outcome: "invalid" });
+
+    // Nothing else was logged, marked or counted.
+    expect(await log()).toEqual([]);
+    expect((await log(platform.eventId)).map((r) => r.result)).toEqual(["invalid"]);
+    expect(await checkedInAt(own.codes[0])).toBeNull();
+    expect(await checkedInAt(platform.codes[0])).toBeNull();
+    expect(await api.db.query(`select user_id from private.rate_limits where bucket = 'check_in'`)).toEqual([
+      { user_id: admin.userId },
+    ]);
+  });
+
+  it("an admin who also owns an approved organiser checks in for its events as usual", async () => {
+    const adminOrganiser = await api.signUp({ admin: true });
+    const applied = await api.call(applyAsOrganiser, { token: adminOrganiser.token, body: { ...application, displayName: "Admin's Collective" } });
+    await api.call(adminApproveOrganiser, { token: admin.token, params: { organiserId: applied.body.organiserId }, method: "POST" });
+    const theirs = await publishedEvent(api, adminOrganiser, admin, { title: "Their Own Night", ticketTypes: FREE_TICKETS });
+    const res = await scan(adminOrganiser.token, UNKNOWN_CODE, crypto.randomUUID(), theirs.eventId);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ outcome: "invalid" });
+    // But not another organiser's.
+    expect((await scan(adminOrganiser.token, UNKNOWN_CODE)).status).toBe(404);
+  });
+
+  it("an external event of a platform-managed organiser has no check-in: 409, nothing logged or counted", async () => {
+    const organiserId = await platformOrganiser();
+    const created = await api.call(adminCreateEvent, {
+      token: admin.token,
+      body: {
+        ...eventInput({ ticketTypes: [] }),
+        ticketingMode: "external",
+        externalTicketUrl: "https://events.humanitix.com/late-night",
+        organiserId,
+        publish: true,
+      },
+    });
+    expect(created.status).toBe(201);
+    const eventId = created.body.eventId as string;
+    expect((await scan(admin.token, UNKNOWN_CODE, crypto.randomUUID(), eventId)).status).toBe(409);
+    expect((await summary(admin.token, eventId)).status).toBe(409);
+    expect((await undo(admin.token, crypto.randomUUID(), "Scanned the wrong ticket", eventId)).status).toBe(409);
+    expect(await log(eventId)).toEqual([]);
+  });
+
+  it("the database refuses a check-in row by anyone but an admin for a platform-managed event, and by an admin for an organiser's", async () => {
+    const platform = await platformEventWithTickets(1);
+    const own = await paidOrder(event.eventId, [{ ticketTypeId: "ga", quantity: 1 }]);
+    const refusal = async (work: Promise<unknown>) => {
+      try {
+        await work;
+      } catch (err) {
+        return { code: (err as { code?: string }).code, constraint: pgConstraint(err) };
+      }
+      throw new Error("expected the database to refuse it");
+    };
+    const actorRefused = { code: "23514", constraint: "ticket_check_ins_actor_allowed" };
+    const insert = (eventId: string, actorId: string) =>
+      api.db.query(
+        `insert into public.ticket_check_ins (event_id, ticket_code, actor_user_id, request_id, result)
+         values ($1, null, $2, gen_random_uuid(), 'invalid')`,
+        [eventId, actorId],
+      );
+    // Straight inserts.
+    expect(await refusal(insert(platform.eventId, organiser.userId))).toEqual(actorRefused);
+    expect(await refusal(insert(event.eventId, admin.userId))).toEqual(actorRefused);
+    // The functions, called as a buggy API might: nothing admitted, nothing counted (the call rolls back).
+    expect(
+      await refusal(
+        api.db.query(`select * from private.check_in_ticket($1, $2, $3, $4, gen_random_uuid(), 600, '5 minutes')`, [
+          event.eventId,
+          organiser.organiserId,
+          admin.userId,
+          own.codes[0],
+        ]),
+      ),
+    ).toEqual(actorRefused);
+    expect(
+      await refusal(
+        api.db.query(`select * from private.check_in_ticket($1, $2, $3, $4, gen_random_uuid(), 600, '5 minutes')`, [
+          platform.eventId,
+          platform.organiserId,
+          organiser.userId,
+          platform.codes[0],
+        ]),
+      ),
+    ).toEqual(actorRefused);
+    expect(await checkedInAt(own.codes[0])).toBeNull();
+    expect(await checkedInAt(platform.codes[0])).toBeNull();
+    expect(await api.db.query(`select 1 from public.ticket_check_ins`)).toEqual([]);
+    expect(await api.db.query(`select 1 from private.rate_limits where bucket = 'check_in'`)).toEqual([]);
+    // The owner, any non-admin account on an organiser's event (future door staff), and an admin on a platform one: fine.
+    const staff = await api.signUp();
+    await insert(event.eventId, organiser.userId);
+    await insert(event.eventId, staff.userId);
+    await insert(platform.eventId, admin.userId);
   });
 });
 
@@ -911,6 +1090,23 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
       const results = await Promise.all([scan(organiser.token, codes[0]), scan(organiser.token, codes[0])]);
       expect(results.map((r) => r.body.outcome).sort()).toEqual(["admitted", "already_checked_in"]);
     }
+  });
+
+  it("an admin's two scans of one platform-managed event's ticket at once: exactly one is admitted", async () => {
+    const platform = await platformEventWithTickets(1);
+    for (let round = 0; round < 5; round++) {
+      if (round > 0) await api.db.query(`update public.tickets set checked_in_at = null where code = $1`, [platform.codes[0]]);
+      const results = await Promise.all([
+        scan(admin.token, platform.codes[0], crypto.randomUUID(), platform.eventId),
+        scan(admin.token, platform.codes[0], crypto.randomUUID(), platform.eventId),
+      ]);
+      expect(results.map((r) => r.body.outcome).sort()).toEqual(["admitted", "already_checked_in"]);
+    }
+    const actors = await api.db.query<{ actor_user_id: string }>(
+      `select distinct actor_user_id from public.ticket_check_ins where event_id = $1`,
+      [platform.eventId],
+    );
+    expect(actors).toEqual([{ actor_user_id: admin.userId }]);
   });
 
   it("two accounts scanning one ticket at once: the second waits on the ticket, then sees it's already in (and which admission)", async () => {

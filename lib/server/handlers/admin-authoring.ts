@@ -114,6 +114,14 @@ function parseAdminEventBody<T>(body: Record<string, unknown>, parseExtra: (erro
   return { input, extra };
 }
 
+function parseOrganiserId(value: unknown, errors: Errors): string {
+  if (typeof value !== "string" || !isUuid(value)) {
+    errors.organiserId = "Choose an organiser.";
+    return "";
+  }
+  return value;
+}
+
 function parsePublish(value: unknown, errors: Errors): boolean {
   if (value === undefined || value === null) return false;
   if (typeof value !== "boolean") {
@@ -154,6 +162,14 @@ function writeRefused(err: unknown): never {
 }
 
 /**
+ * private.admin_create_event's row: a refusal has no event id; "created" and
+ * "published" always have one.
+ */
+type AdminCreateEventOutcome =
+  | { result: "organiser_not_found" | "organiser_not_approved" | "platform_paid"; new_event_id: null }
+  | { result: "created" | "published"; new_event_id: string };
+
+/**
  * POST /api/admin/events — body: the organiser's event fields (same rules,
  * external ticketing included) plus `organiserId` (any approved organiser,
  * platform-managed or not) and optional `publish`. Creates the event, logged
@@ -165,16 +181,15 @@ function writeRefused(err: unknown): never {
 export const adminCreateEvent: Handler = async (req, _params, { db, verifyAccessToken }) => {
   const admin = await requireAdmin(req, verifyAccessToken);
   const body = await readJson(req);
-  const { input, extra } = parseAdminEventBody(body, (errors) => {
-    const organiserId = body.organiserId;
-    if (typeof organiserId !== "string" || !isUuid(organiserId)) errors.organiserId = "Choose an organiser.";
-    return { organiserId: organiserId as string, publish: parsePublish(body.publish, errors) };
-  });
+  const { input, extra } = parseAdminEventBody(body, (errors) => ({
+    organiserId: parseOrganiserId(body.organiserId, errors),
+    publish: parsePublish(body.publish, errors),
+  }));
 
-  let outcome: { result: string; new_event_id: string | null };
+  let outcome: AdminCreateEventOutcome;
   try {
     outcome = await withUniqueSlug(input.title, async (slug) => {
-      const [row] = await db.query<{ result: string; new_event_id: string | null }>(
+      const [row] = await db.query<AdminCreateEventOutcome>(
         `select result, new_event_id
            from private.admin_create_event($1, $2, $3, $4::text::jsonb, $5::text::jsonb, $6)`,
         [
@@ -202,7 +217,8 @@ export const adminCreateEvent: Handler = async (req, _params, { db, verifyAccess
     case "platform_paid":
       throw new HttpError(400, PLATFORM_PAID_REFUSED, { ticketTypes: PLATFORM_PAID_REFUSED });
   }
-  return created(await requireAdminEvent(db, outcome.new_event_id!));
+  // Only "created" and "published" are left, and both carry the new event's id.
+  return created(await requireAdminEvent(db, outcome.new_event_id));
 };
 
 /**

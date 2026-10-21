@@ -87,15 +87,19 @@ export const putEventImage: Handler<{ eventId: string }> = async (req, { eventId
   const { bytes, contentType } = await readEventImage(req);
 
   // Ownership and "still a draft/rejected" are re-checked inside the write
-  // itself (with the event row share-locked), not just before the body was
-  // read: otherwise a slow upload could land after the event was submitted and
-  // approved, putting an unreviewed image on a published event.
+  // itself (with the event row locked), not just before the body was read:
+  // otherwise a slow upload could land after the event was submitted and
+  // approved, putting an unreviewed image on a published event. The event row
+  // is locked for no key update before the image row, the order every image
+  // writer uses: the event_images_touch_event trigger then bumps the event's
+  // updated_at (20261023000100_review_hardening.sql), so an admin editing the
+  // event sees a new version.
   const written = await db.query(
     `insert into public.event_images (event_id, content_type, data)
      select e.id, $2::text, $3::bytea
        from public.events e
       where e.id = $1 and e.organiser_id = $4 and e.status in ('draft', 'rejected')
-        for share of e
+        for no key update of e
      on conflict (event_id) do update set content_type = excluded.content_type,
        data = excluded.data, updated_at = now()
      returning event_id`,
@@ -113,9 +117,15 @@ export const deleteEventImage: Handler<{ eventId: string }> = async (req, { even
   if (event.status !== "draft" && event.status !== "rejected") {
     throw new HttpError(409, EDIT_LOCKED_MESSAGE);
   }
+  // The event row first (for no key update), then the image: see putEventImage.
   const deleted = await db.query(
-    `delete from public.event_images i using public.events e
-      where i.event_id = e.id and e.id = $1 and e.organiser_id = $2 and e.status in ('draft', 'rejected')
+    `with e as (
+       select e.id from public.events e
+        where e.id = $1 and e.organiser_id = $2 and e.status in ('draft', 'rejected')
+          for no key update
+     )
+     delete from public.event_images i using e
+      where i.event_id = e.id
       returning i.event_id`,
     [eventId, organiser.organiserId],
   );

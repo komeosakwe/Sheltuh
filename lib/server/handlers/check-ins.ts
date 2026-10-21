@@ -10,7 +10,7 @@ import {
   type UndoCheckInResult,
 } from "@/lib/api/types";
 import { parseTicketCode } from "@/lib/ticket-code";
-import { requireCaller } from "../auth";
+import { requireCaller, type Caller } from "../auth";
 import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
 import type { Deps } from "../deps";
 import { HttpError, okPrivate, readJson } from "../http";
@@ -23,12 +23,14 @@ import { requireApprovedOrganiser } from "./organiser-guard";
 
 /**
  * Ticket check-in at the door (docs/architecture.md, "Check-in";
- * supabase/migrations/20261021000000_ticket_check_in.sql and
- * 20261021130000_check_in_followups.sql).
+ * supabase/migrations/20261021000000_ticket_check_in.sql,
+ * 20261021130000_check_in_followups.sql and 20261023000100_review_hardening.sql).
  *
- * The approved organiser who owns the event, only: another organiser's event
- * is a 404, an admin with no organiser of their own a 403, signed out a 401.
- * Platform-managed organisers (no owner account) can't check anyone in.
+ * The approved organiser who owns the event, and admins for platform-managed
+ * organisers' events (no owner account; owner decision, docs/FEATURE_PLAN.md),
+ * only: another organiser's event is a 404 (for an admin too), a non-admin
+ * without an approved organiser a 403, signed out a 401. An admin is the
+ * acting account: the log records them, and the rate limit is theirs.
  *
  * Every ticket outcome is a 200 with a CheckInResult. An HTTP error only ever
  * means "couldn't verify": nothing was marked, and the door should treat it as
@@ -74,10 +76,48 @@ async function refuseExternalEvent(db: Db, organiserId: string, eventId: string)
   if (row?.ticketing_mode === "external") throw new HttpError(409, EXTERNAL_CHECK_IN_REFUSED);
 }
 
-async function organiserCaller(req: Request, deps: Deps) {
+/**
+ * Who's at the door, and the organiser whose event it must be (passed to
+ * private.check_in_ticket / undo_check_in, which check it again, and
+ * ticket_check_ins_guard, which refuses an admin on an organiser's event and
+ * anyone else on a platform-managed one).
+ *
+ * Not an admin: their own approved organiser (403 otherwise); whether the
+ * event is theirs is left to the caller (404). An admin: the event is read
+ * first; a platform-managed organiser's event is checked in as that
+ * organiser, an event of their own organiser (an admin who's also an
+ * organiser) as usual, and anything else is a 404.
+ */
+async function doorCaller(req: Request, deps: Deps, eventId: string): Promise<{ caller: Caller; organiserId: string }> {
   const caller = await requireCaller(req, deps.verifyAccessToken);
-  const organiser = await requireApprovedOrganiser(deps.db, caller);
-  return { caller, organiser };
+  if (!caller.isAdmin) {
+    const organiser = await requireApprovedOrganiser(deps.db, caller);
+    return { caller, organiserId: organiser.organiserId };
+  }
+  const [event] = isUuid(eventId)
+    ? await deps.db.query<{ organiser_id: string; owner_user_id: string | null }>(
+        `select e.organiser_id, o.owner_user_id
+           from public.events e join public.organisers o on o.id = e.organiser_id
+          where e.id = $1`,
+        [eventId],
+      )
+    : [];
+  if (event?.owner_user_id === null) return { caller, organiserId: event.organiser_id };
+  if (event && event.owner_user_id === caller.userId) {
+    const organiser = await requireApprovedOrganiser(deps.db, caller);
+    return { caller, organiserId: organiser.organiserId };
+  }
+  throw new HttpError(404, EVENT_NOT_FOUND);
+}
+
+/**
+ * ticket_check_ins_guard refused the actor (an admin on an organiser's event,
+ * or anyone else on a platform-managed one): the API checked first, so this
+ * only answers a race or a bug, as the 404 the API would have given.
+ * Nothing was logged or counted (the whole call rolled back).
+ */
+function isActorRefused(err: unknown): boolean {
+  return pgErrorCode(err) === PG_CHECK_VIOLATION && pgConstraint(err) === "ticket_check_ins_actor_allowed";
 }
 
 interface CheckInRow {
@@ -124,7 +164,7 @@ function toCheckInResult(row: CheckInRow): CheckInResult {
  * code is a 409 (a retry always resends its own code).
  */
 export const checkInTicket: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
-  const { caller, organiser } = await organiserCaller(req, deps);
+  const { caller, organiserId } = await doorCaller(req, deps, eventId);
   if (!isUuid(eventId)) throw new HttpError(404, EVENT_NOT_FOUND);
   const body = await readJson(req, MAX_CHECK_IN_BODY_BYTES);
 
@@ -141,7 +181,7 @@ export const checkInTicket: Handler<{ eventId: string }> = async (req, { eventId
          from private.check_in_ticket($1, $2, $3, $4, $5::uuid, $6, $7::interval)`,
       [
         eventId,
-        organiser.organiserId,
+        organiserId,
         caller.userId,
         parseTicketCode(body.code),
         body.requestId,
@@ -155,6 +195,7 @@ export const checkInTicket: Handler<{ eventId: string }> = async (req, { eventId
     if (pgErrorCode(err) === PG_CHECK_VIOLATION && pgConstraint(err) === "ticket_check_ins_sheltuh_only") {
       throw new HttpError(409, EXTERNAL_CHECK_IN_REFUSED);
     }
+    if (isActorRefused(err)) throw new HttpError(404, EVENT_NOT_FOUND);
     throw err;
   }
   if (row.result === "not_found") throw new HttpError(404, EVENT_NOT_FOUND);
@@ -177,7 +218,7 @@ export const undoCheckIn: Handler<{ eventId: string; checkInId: string }> = asyn
   { eventId, checkInId },
   deps,
 ) => {
-  const { caller, organiser } = await organiserCaller(req, deps);
+  const { caller, organiserId } = await doorCaller(req, deps, eventId);
   if (!isUuid(eventId)) throw new HttpError(404, EVENT_NOT_FOUND);
   const body = await readJson(req, MAX_UNDO_BODY_BYTES);
 
@@ -193,19 +234,26 @@ export const undoCheckIn: Handler<{ eventId: string; checkInId: string }> = asyn
   if (Object.keys(errors).length > 0) fail(errors);
   if (!isUuid(checkInId)) throw new HttpError(404, "Check-in not found.");
 
-  const [row] = await deps.db.query<{
+  type UndoRow = {
     result: UndoCheckInOutcome | "not_found" | "rate_limited";
     check_in_id: string | null;
     ticket_type_name: string | null;
     code_last4: string | null;
-  }>(
-    `select result, check_in_id::text as check_in_id, ticket_type_name, code_last4
-       from private.undo_check_in($1, $2, $3, $4::uuid, $5, $6, $7::interval)`,
-    [eventId, organiser.organiserId, caller.userId, checkInId, reason, CHECK_IN_LIMIT.limit, CHECK_IN_LIMIT.window],
-  );
+  };
+  let row: UndoRow;
+  try {
+    [row] = await deps.db.query<UndoRow>(
+      `select result, check_in_id::text as check_in_id, ticket_type_name, code_last4
+         from private.undo_check_in($1, $2, $3, $4::uuid, $5, $6, $7::interval)`,
+      [eventId, organiserId, caller.userId, checkInId, reason, CHECK_IN_LIMIT.limit, CHECK_IN_LIMIT.window],
+    );
+  } catch (err) {
+    if (isActorRefused(err)) throw new HttpError(404, "Check-in not found.");
+    throw err;
+  }
   if (row.result === "not_found") {
     // An external event has no admissions: say why, rather than "not found".
-    await refuseExternalEvent(deps.db, organiser.organiserId, eventId);
+    await refuseExternalEvent(deps.db, organiserId, eventId);
     throw new HttpError(404, "Check-in not found.");
   }
   if (row.result === "rate_limited") throw new HttpError(429, RATE_LIMITED);
@@ -238,8 +286,8 @@ async function ticketTypeCounts(db: Db, eventId: string) {
  * newest 20 log entries, showing only the last four characters of codes.
  */
 export const getCheckInSummary: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
-  const { organiser } = await organiserCaller(req, deps);
-  const event = await requireOwnEvent(deps.db, organiser.organiserId, eventId);
+  const { organiserId } = await doorCaller(req, deps, eventId);
+  const event = await requireOwnEvent(deps.db, organiserId, eventId);
   if (event.ticketingMode === "external") throw new HttpError(409, EXTERNAL_CHECK_IN_REFUSED);
 
   const [types, recent] = await Promise.all([

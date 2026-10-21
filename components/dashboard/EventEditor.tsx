@@ -27,21 +27,32 @@ import { formatAud, toMelbourneDateTimeInputParts } from "@/lib/format";
 import { checkExternalTicketUrl, type TicketingMode } from "@/lib/ticketing";
 import { EVENT_CATEGORIES } from "@/lib/types";
 
-interface Props {
+interface OrganiserProps {
   getToken: GetToken;
-  initial?: EventRecord | AdminEventRecord;
+  mode?: "organiser";
+  initial?: EventRecord;
   onSaved: (record: EventRecord) => void;
-  /**
-   * Admin authoring (/admin/events/new and /admin/events/[eventId]/edit): any
-   * status is editable, a new event picks its organiser (or creates a
-   * platform-managed one), ticketing is editable, saving can publish, and an
-   * edit carries the version it started from (a conflict is reported, with
-   * `onReload` to fetch the latest version).
-   */
-  mode?: "organiser" | "admin";
-  /** Admin mode: fetch the latest version after a save conflict (remount the editor with it). */
+  onReload?: never;
+}
+
+/**
+ * Admin authoring (/admin/events/new and /admin/events/[eventId]/edit): any
+ * status is editable, a new event picks its organiser (or creates a
+ * platform-managed one), ticketing is editable, saving can publish, and an
+ * edit carries the version it started from (a conflict is reported, with
+ * `onReload` to fetch the latest version). Every admin route answers with an
+ * AdminEventRecord, and that's what `onSaved` gets.
+ */
+interface AdminProps {
+  getToken: GetToken;
+  mode: "admin";
+  initial?: AdminEventRecord;
+  onSaved: (record: AdminEventRecord) => void;
+  /** Fetch the latest version after a save conflict (remount the editor with it). */
   onReload?: () => void;
 }
+
+type Props = OrganiserProps | AdminProps;
 
 const PLATFORM_FREE_ONLY = "A platform-managed organiser can only offer free tickets here, or link to another site.";
 
@@ -59,10 +70,11 @@ function newTicketType(): TicketTypeInput {
   };
 }
 
-export default function EventEditor({ getToken, initial, onSaved, mode = "organiser", onReload }: Props) {
+export default function EventEditor(props: Props) {
+  const { getToken, initial, onReload } = props;
   const router = useRouter();
   const auth = useAuth();
-  const isAdmin = mode === "admin";
+  const isAdmin = props.mode === "admin";
   // Captured once at mount: the account this draft belongs to, so that if
   // the session expires mid-edit, recovery only accepts signing back in as
   // this same account — never a different one saving over it.
@@ -183,16 +195,22 @@ export default function EventEditor({ getToken, initial, onSaved, mode = "organi
     return input;
   }
 
-  /** Applies a pending photo change to a saved event; returns the latest record. */
-  async function syncImage(record: EventRecord): Promise<EventRecord> {
+  /**
+   * Applies a pending photo change to a saved event through `upload` or
+   * `remove` (the organiser's routes or the admin's, which answer with the
+   * same kind of record they're given); returns the latest record.
+   */
+  async function syncImage<R extends EventRecord>(
+    record: R,
+    upload: (eventId: string, image: Blob, getToken: GetToken) => Promise<R>,
+    remove: (eventId: string, getToken: GetToken) => Promise<R>,
+  ): Promise<R> {
     if (imageFile) {
-      const upload = isAdmin ? adminUploadEventImage : uploadEventImage;
       const updated = await upload(record.eventId, imageFile, getToken);
       setImageFile(null);
       return updated;
     }
     if (imageRemoved && record.imageUrl) {
-      const remove = isAdmin ? adminDeleteEventImage : deleteEventImage;
       const updated = await remove(record.eventId, getToken);
       setImageRemoved(false);
       return updated;
@@ -201,7 +219,7 @@ export default function EventEditor({ getToken, initial, onSaved, mode = "organi
   }
 
   /** Admin mode: creates the event, or saves the whole of it against the version being edited. */
-  async function adminSave(input: EventInput): Promise<EventRecord> {
+  async function adminSave(input: EventInput): Promise<AdminEventRecord> {
     const existingId = initial?.eventId ?? createdId;
     if (existingId) {
       const record = await adminUpdateEvent(
@@ -228,24 +246,31 @@ export default function EventEditor({ getToken, initial, onSaved, mode = "organi
     setSaving(true);
     setConflict(false);
     try {
-      const existingId = initial?.eventId ?? createdId;
-      let record: EventRecord;
-      if (isAdmin) {
-        record = await adminSave(input);
+      if (props.mode === "admin") {
+        let record = await adminSave(input);
         setPublish(false);
+        record = await syncImage(record, adminUploadEventImage, adminDeleteEventImage);
+        // A photo change bumps the event's version too: the next save is made against it.
+        setVersion(record.updatedAt);
+        if (!initial) {
+          router.push(`/admin/events/${encodeURIComponent(record.eventId)}/edit`);
+          return;
+        }
+        setReason("");
+        props.onSaved(record);
       } else {
-        record = existingId
+        const existingId = initial?.eventId ?? createdId;
+        let record = existingId
           ? await updateEventDraft(existingId, input, getToken)
           : await createEventDraft(input, getToken);
         if (!existingId) setCreatedId(record.eventId);
+        record = await syncImage(record, uploadEventImage, deleteEventImage);
+        if (!initial) {
+          router.push(`/dashboard/${record.eventId}`);
+          return;
+        }
+        props.onSaved(record);
       }
-      record = await syncImage(record);
-      if (!initial) {
-        router.push(isAdmin ? `/admin/events/${encodeURIComponent(record.eventId)}/edit` : `/dashboard/${record.eventId}`);
-        return;
-      }
-      setReason("");
-      onSaved(record);
     } catch (err) {
       // Never clears title/description/tickets/etc. above — a failed save
       // (including an expired session) leaves the form exactly as typed.
@@ -256,7 +281,8 @@ export default function EventEditor({ getToken, initial, onSaved, mode = "organi
   }
 
   async function handleSubmitForReview() {
-    if (!initial) return;
+    // Organisers only: an admin publishes from the save itself.
+    if (!initial || props.mode === "admin") return;
     setSubmitError(null);
     setSessionExpired(false);
     // Submit what's on screen, not the last save: unsaved edits are saved
@@ -266,9 +292,9 @@ export default function EventEditor({ getToken, initial, onSaved, mode = "organi
     setSubmitting(true);
     try {
       const saved = await updateEventDraft(initial.eventId, input, getToken);
-      await syncImage(saved);
+      await syncImage(saved, uploadEventImage, deleteEventImage);
       const record = await submitEventForReview(initial.eventId, getToken);
-      onSaved(record);
+      props.onSaved(record);
     } catch (err) {
       handleError(err, "Couldn't submit this event for review.");
     } finally {
@@ -327,7 +353,7 @@ export default function EventEditor({ getToken, initial, onSaved, mode = "organi
       )}
       {isAdmin && platformManaged && (
         <p className="border-l-2 border-foreground px-4 py-2 text-sm text-muted">
-          {PLATFORM_FREE_ONLY} There&rsquo;s no check-in at the door for its events.
+          {PLATFORM_FREE_ONLY} Its events are checked in at the door by an admin.
         </p>
       )}
 

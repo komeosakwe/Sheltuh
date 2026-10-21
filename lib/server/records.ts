@@ -26,6 +26,7 @@ import type {
   PublicOrganiserProfile,
   TicketTypeInput,
 } from "./types";
+import { SHELTUH_TEAM_ACTOR } from "@/lib/api/types";
 import { ticketProviderName, type TicketingMode } from "@/lib/ticketing";
 import { maskEmail } from "./email-address";
 import { orderReference } from "./order-reference";
@@ -206,6 +207,9 @@ const EVENT_COLUMNS = `
          coalesce((
            select json_agg(json_strip_nulls(json_build_object(
                     'action', l.action, 'by', coalesce(l.actor_id::text, 'system'),
+                    -- Someone other than the organiser's owner: Sheltüh staff
+                    -- (an admin), whose id the organiser's view doesn't show.
+                    'staff', l.actor_id is not null and l.actor_id is distinct from o.owner_user_id,
                     'at', l.created_at, 'reason', l.reason, 'changes', l.details)) order by l.id)
            -- Admin curation of trending ('curated') stays out: editorial, admins
            -- only (GET /admin/events/{id}/curation).
@@ -252,15 +256,26 @@ const LOG_CHANGE_FIELDS = [
 /** One change as stored: json_strip_nulls has dropped a side that was null. */
 type StoredChange = { old?: unknown; new?: unknown } | undefined;
 
+/** A log entry as EVENT_COLUMNS reads it. */
+type StoredLogEntry = Omit<ModerationLogEntry, "changes"> & { staff?: boolean; changes?: Record<string, StoredChange> };
+
+/**
+ * Who a log entry shows as its actor. Admins see account ids; an
+ * organiser's view of their own event shows SHELTUH_TEAM_ACTOR for anyone
+ * but the organiser's owner (an admin's id is never theirs to know).
+ */
+type LogAudience = "organiser" | "admin";
+
 /**
  * A moderation log entry from EVENT_SELECT. json_strip_nulls also strips the
  * nulls inside `changes` (an old value that was null, e.g. no link before),
  * so each known field's change is rebuilt with both sides; anything else
  * stored there is dropped.
  */
-function toModerationLogEntry(entry: Omit<ModerationLogEntry, "changes"> & { changes?: Record<string, StoredChange> }): ModerationLogEntry {
-  const { changes: stored, ...rest } = entry;
+function toModerationLogEntry(entry: StoredLogEntry, audience: LogAudience): ModerationLogEntry {
+  const { changes: stored, staff, ...rest } = entry;
   const result: ModerationLogEntry = { ...rest, at: iso(entry.at) };
+  if (staff && audience === "organiser") result.by = SHELTUH_TEAM_ACTOR;
   if (stored) {
     const changes: Record<string, { old: unknown; new: unknown }> = {};
     for (const field of LOG_CHANGE_FIELDS) {
@@ -272,8 +287,22 @@ function toModerationLogEntry(entry: Omit<ModerationLogEntry, "changes"> & { cha
   return result;
 }
 
+/**
+ * For rows of EVENT_SELECT, as the event's organiser (or the public, through
+ * toPublicEvent) sees it: an admin's log entries show SHELTUH_TEAM_ACTOR, not
+ * their account id. Admin routes use toEventForAdmin.
+ */
 export function toEvent(row: Row): EventRecord {
-  const log = row.moderation_log as Parameters<typeof toModerationLogEntry>[0][];
+  return mapEvent(row, "organiser");
+}
+
+/** For rows of EVENT_SELECT, in admin routes: log entries keep every actor's account id. */
+export function toEventForAdmin(row: Row): EventRecord {
+  return mapEvent(row, "admin");
+}
+
+function mapEvent(row: Row, audience: LogAudience): EventRecord {
+  const log = row.moderation_log as StoredLogEntry[];
   const ticketingMode = (row.ticketing_mode ?? "sheltuh") as TicketingMode;
   const externalTicketUrl = ticketingMode === "external" ? opt<string>(row.external_ticket_url) : undefined;
   return {
@@ -299,7 +328,7 @@ export function toEvent(row: Row): EventRecord {
     ticketingLocked: log.some((entry) => entry.action === "approved"),
     status: row.status as EventRecord["status"],
     rejectionReason: opt(row.rejection_reason),
-    moderationLog: log.map(toModerationLogEntry),
+    moderationLog: log.map((entry) => toModerationLogEntry(entry, audience)),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };
@@ -307,7 +336,7 @@ export function toEvent(row: Row): EventRecord {
 
 /** For rows of ADMIN_EVENT_SELECT. */
 export function toAdminEvent(row: Row): AdminEventRecord {
-  return { ...toEvent(row), organiserPlatformManaged: row.organiser_platform_managed === true };
+  return { ...toEventForAdmin(row), organiserPlatformManaged: row.organiser_platform_managed === true };
 }
 
 /** The only event fields the public (unauthenticated) routes may expose. */

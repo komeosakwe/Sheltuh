@@ -114,7 +114,8 @@ describe("POST /admin/organisers/{id}/suspend: takedown", () => {
 
     const res = await suspend(organiser.organiserId, { reason: "  Impersonating another venue.  " });
     expect(res.status).toBe(200);
-    expect(res.headers.get("cache-control")).toBeNull();
+    // Admin responses are about named people: never cached.
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
     expect(Object.keys(res.body).sort()).toEqual(["eventsUnpublished", "organiser", "submissionsRejected"]);
     expect(res.body).toMatchObject({ eventsUnpublished: 1, submissionsRejected: 1 });
     expect(res.body.organiser).toMatchObject({

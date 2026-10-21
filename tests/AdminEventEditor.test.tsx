@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import AdminOrganiserPicker, { ORGANISER_PICKER_CAP } from "@/components/admin/AdminOrganiserPicker";
 import EventEditor from "@/components/dashboard/EventEditor";
 import { ApiError } from "@/lib/api/client";
 import type { AdminEventRecord, AdminOrganiserRecord, EventRecord } from "@/lib/api/types";
@@ -83,7 +84,10 @@ const EVENT: AdminEventRecord = {
   organiserPlatformManaged: false,
 };
 
-function renderEditor(props: Partial<Parameters<typeof EventEditor>[0]> = {}) {
+/** The admin editor's props (the organiser's are typed apart: their onSaved gets an EventRecord). */
+type AdminEditorProps = Extract<Parameters<typeof EventEditor>[0], { mode: "admin" }>;
+
+function renderEditor(props: Partial<AdminEditorProps> = {}) {
   render(
     <FakeAuthProvider value={fakeAuthValue({ email: "admin@sheltuh.example", isAdmin: true })}>
       <EventEditor mode="admin" getToken={vi.fn().mockResolvedValue("token")} onSaved={vi.fn()} {...props} />
@@ -224,6 +228,72 @@ describe("EventEditor (admin) — a new event", () => {
     );
     expect(screen.queryByRole("group", { name: "New platform-managed organiser" })).toBeNull();
     expect(screen.getByText(/can only offer free tickets here/)).toBeInTheDocument();
+  });
+});
+
+describe("AdminOrganiserPicker", () => {
+  const getToken = vi.fn().mockResolvedValue("token");
+  const page = (from: number, count: number, nextCursor?: string) => ({
+    items: Array.from({ length: count }, (_, i) =>
+      organiserRecord({ organiserId: `org-${from + i}`, displayName: `Organiser ${String(from + i).padStart(3, "0")}` }),
+    ),
+    nextCursor,
+  });
+  const options = () => screen.getAllByRole("option").filter((o) => o.getAttribute("value"));
+
+  it("loads every page while under the cap, and says nothing about a cap", async () => {
+    adminListOrganisers.mockResolvedValueOnce(page(0, 20, "c1")).mockResolvedValueOnce(page(20, 5));
+    render(<AdminOrganiserPicker getToken={getToken} value={null} onChange={vi.fn()} />);
+    await waitFor(() => expect(options()).toHaveLength(25));
+    expect(adminListOrganisers).toHaveBeenCalledTimes(2);
+    expect(adminListOrganisers).toHaveBeenLastCalledWith("approved", getToken, "c1");
+    expect(screen.queryByText(/Showing first/)).not.toBeInTheDocument();
+  });
+
+  it(`stops at ${ORGANISER_PICKER_CAP} and says it's showing the first ones, tied to the select`, async () => {
+    let n = 0;
+    adminListOrganisers.mockImplementation(async () => page((n += 1) * 20 - 20, 20, `c${n}`));
+    render(<AdminOrganiserPicker getToken={getToken} value={null} onChange={vi.fn()} />);
+    const note = await screen.findByText(`Showing first ${ORGANISER_PICKER_CAP} — type to search.`);
+    expect(options()).toHaveLength(ORGANISER_PICKER_CAP);
+    expect(adminListOrganisers).toHaveBeenCalledTimes(ORGANISER_PICKER_CAP / 20);
+    expect(screen.getByLabelText("Organiser").getAttribute("aria-describedby")).toContain(note.id);
+  });
+
+  it("filters the names as you type (any case, accents optional), announces the count, and keeps the chosen one", async () => {
+    adminListOrganisers.mockResolvedValue({ items: [OWNED, PLATFORM, organiserRecord({ organiserId: "org-3", displayName: "Northside Records" })] });
+    const onChange = vi.fn();
+    const chosen = { organiserId: "org-3", displayName: "Northside Records", platformManaged: false };
+    render(<AdminOrganiserPicker getToken={getToken} value={chosen} onChange={onChange} />);
+    const filter = screen.getByLabelText("Search organisers");
+    await waitFor(() => expect(filter).not.toBeDisabled());
+
+    fireEvent.change(filter, { target: { value: "SHELTUH" } });
+    expect(options().map((o) => o.textContent)).toEqual(["Northside Records", "Sheltüh Presents (platform-managed)"]);
+    expect(screen.getByRole("status")).toHaveTextContent("1 organiser matches.");
+
+    fireEvent.change(filter, { target: { value: "zzz" } });
+    expect(screen.getByRole("status")).toHaveTextContent("No organisers match “zzz”.");
+    // The chosen organiser is still its option, so the select never goes blank.
+    expect(screen.getByLabelText("Organiser")).toHaveValue("org-3");
+
+    fireEvent.change(filter, { target: { value: "static" } });
+    fireEvent.change(screen.getByLabelText("Organiser"), { target: { value: "org-1" } });
+    expect(onChange).toHaveBeenCalledWith({ organiserId: "org-1", displayName: "Static Collective", platformManaged: false });
+  });
+
+  it("Enter in the filter doesn't submit the event form around it", async () => {
+    adminListOrganisers.mockResolvedValue({ items: [OWNED] });
+    const onSubmit = vi.fn((e: { preventDefault: () => void }) => e.preventDefault());
+    render(
+      <form onSubmit={onSubmit}>
+        <AdminOrganiserPicker getToken={getToken} value={null} onChange={vi.fn()} />
+      </form>,
+    );
+    const filter = screen.getByLabelText("Search organisers");
+    await waitFor(() => expect(filter).not.toBeDisabled());
+    const enter = fireEvent.keyDown(filter, { key: "Enter" });
+    expect(enter).toBe(false); // default prevented
   });
 });
 

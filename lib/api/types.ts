@@ -146,6 +146,9 @@ export interface EventEditChanges {
   image?: TicketingFieldChange<"set">;
 }
 
+/** ModerationLogEntry.by for an admin's entry in an organiser's view: never the admin's account id. */
+export const SHELTUH_TEAM_ACTOR = "Sheltüh team";
+
 export interface ModerationLogEntry {
   /**
    * `ticketing_changed`: an admin changed the event's ticketing (PATCH
@@ -165,6 +168,11 @@ export interface ModerationLogEntry {
     | "created"
     | "edited"
     | "curated";
+  /**
+   * Who acted: an account id, or `"system"`. In the organiser's own view of
+   * their event, every actor other than the organiser's account (an admin)
+   * is SHELTUH_TEAM_ACTOR instead: admins' ids are only shown to admins.
+   */
   by: string;
   at: string;
   reason?: string;
@@ -238,7 +246,7 @@ export interface AdminSetEventTicketingInput {
 export interface AdminEventRecord extends EventRecord {
   /**
    * The organiser has no owner account: it can only have free Sheltüh
-   * tickets or external ticketing, and no check-in.
+   * tickets or external ticketing, and only admins check its events in.
    */
   organiserPlatformManaged: boolean;
 }
