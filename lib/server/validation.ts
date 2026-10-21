@@ -1,4 +1,5 @@
 import { MIN_PAID_TICKET_CENTS } from "@/lib/fees";
+import { URL_DISALLOWED } from "@/lib/ticketing";
 import { isPlainEmailAddress, MAX_EMAIL_LENGTH } from "./email-address";
 import { HttpError } from "./http";
 import { melbourneLocalToUtcIso } from "./melbourne-time";
@@ -63,7 +64,7 @@ export const MAX_URL_LENGTH = 2048;
 // included, which Postgres text can't store), and backslashes, which URL
 // parsers read as "/" (so "https://a.example\@b.example" goes to
 // a.example while reading like b.example). None belong in a URL as typed.
-const URL_DISALLOWED = /[\p{Cc}\p{Cf}\p{Z}\s\\]/u;
+// Shared with the external ticket link's check (lib/ticketing.ts).
 
 /**
  * An optional URL, trimmed. A new value must start with `https://` as typed

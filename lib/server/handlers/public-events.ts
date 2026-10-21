@@ -42,6 +42,17 @@ export const listPublicEvents: Handler = async (req, _params, { db }) => {
     where.push(`e.starts_at >= $${params.length}`);
   }
 
+  // Only events that haven't ended yet (in progress included). The order
+  // below is already soonest first, so the offset cursor stays consistent:
+  // each page re-applies the same filter and order. An event that ends
+  // between two page loads drops out and shifts later rows up by one, as any
+  // change to the feed does with an offset cursor.
+  const upcoming = qs.get("upcoming");
+  if (upcoming !== null && upcoming !== "") {
+    if (upcoming === "1" || upcoming === "true") where.push("e.ends_at > now()");
+    else if (upcoming !== "0" && upcoming !== "false") throw new HttpError(400, "upcoming must be 1 or 0.");
+  }
+
   // Free-text search over title, venue, suburb, organiser and description.
   // LIKE wildcards in the user's text are escaped so they match literally.
   const q = qs.get("q")?.trim().slice(0, 100);

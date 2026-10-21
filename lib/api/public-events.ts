@@ -25,6 +25,8 @@ export interface ListPublicEventsParams {
   pricing?: "free" | "paid";
   /** Free-text search over title, venue, suburb, organiser and description. */
   q?: string;
+  /** Only events that haven't ended yet (in progress included), still soonest first. */
+  upcoming?: boolean;
   cursor?: string;
 }
 
@@ -34,6 +36,7 @@ export function listPublicEvents(params: ListPublicEventsParams = {}) {
   if (params.onOrAfter) qs.set("onOrAfter", params.onOrAfter);
   if (params.pricing) qs.set("pricing", params.pricing);
   if (params.q) qs.set("q", params.q);
+  if (params.upcoming) qs.set("upcoming", "1");
   if (params.cursor) qs.set("cursor", params.cursor);
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
   return apiFetch<Paginated<PublicEvent>>(`/events${suffix}`);

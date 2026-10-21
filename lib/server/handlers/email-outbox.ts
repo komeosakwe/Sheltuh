@@ -1,5 +1,5 @@
-import { createHash, timingSafeEqual } from "node:crypto";
 import { requireAdmin } from "../auth";
+import { requireCronSecret } from "../cron-auth";
 import { drainEmailOutbox, sendTicketEmailSoon } from "../email-outbox";
 import { HttpError, okPrivate } from "../http";
 import { decodeCursor, parseLimit, toPage } from "../pagination";
@@ -19,26 +19,6 @@ export const RESEND_MIN_INTERVAL = "5 minutes";
 
 const JOB_NOT_FOUND = "Email not found.";
 const JOB_ID = /^[1-9][0-9]{0,17}$/;
-
-function sha256(value: string): Buffer {
-  return createHash("sha256").update(value, "utf8").digest();
-}
-
-/**
- * Vercel Cron sends `Authorization: Bearer <CRON_SECRET>`. Compared in
- * constant time (as fixed-length digests, so the length doesn't leak either).
- * Without CRON_SECRET set, nothing gets in.
- */
-function requireCronSecret(req: Request, secret: string | undefined): void {
-  if (!secret) {
-    console.error("CRON_SECRET isn't set: refusing a cron request.");
-    throw new HttpError(401, "Unauthorized.");
-  }
-  const match = req.headers.get("authorization")?.match(/^Bearer (.+)$/);
-  if (!match || !timingSafeEqual(sha256(match[1]), sha256(secret))) {
-    throw new HttpError(401, "Unauthorized.");
-  }
-}
 
 /**
  * GET /api/cron/email-outbox — Vercel Cron, every 5 minutes (vercel.json).
