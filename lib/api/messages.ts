@@ -8,6 +8,7 @@ import type {
   Paginated,
   ReportInput,
   ReportReceipt,
+  StartConversationByProfileInput,
   StartConversationInput,
   UnreadCount,
 } from "./types";
@@ -34,7 +35,10 @@ export async function listConversations(getToken: GetToken, cursor?: string) {
  * (caller not going to that event, or suspended), 404 (member not available),
  * 409 (a conversation with them already exists), 429 (rate-limited).
  */
-export async function startConversation(input: StartConversationInput, getToken: GetToken) {
+export async function startConversation(
+  input: StartConversationInput | StartConversationByProfileInput,
+  getToken: GetToken,
+) {
   const token = await getToken();
   return apiFetch<ConversationSummary>("/conversations", { method: "POST", body: input, token });
 }

@@ -428,7 +428,7 @@ async function buildOverview(db: Db, organiserId: string, qs: URLSearchParams): 
   const { range, compare } = parseAnalyticsQuery(qs, { from: addDays(today, -(DEFAULT_RANGE_DAYS - 1)), today });
   const previousRange = compare ? previousPeriod(range) : undefined;
 
-  const [since, period, previous, events, outbound, previousOutbound] = await Promise.all([
+  const [since, period, previous, events, outbound, previousOutbound, followers] = await Promise.all([
     viewsTrackedSince(db),
     organiserPeriod(db, organiserId, range),
     previousRange ? organiserPeriod(db, organiserId, previousRange) : undefined,
@@ -454,6 +454,10 @@ async function buildOverview(db: Db, organiserId: string, qs: URLSearchParams): 
     ),
     organiserOutbound(db, organiserId, range),
     previousRange ? organiserOutbound(db, organiserId, previousRange) : undefined,
+    // The exact number, for the organiser only (organiser_follows_organiser_idx).
+    db.query<{ n: number }>(`select count(*)::int as n from public.organiser_follows where organiser_id = $1`, [
+      organiserId,
+    ]),
   ]);
   const hasExternal = events[0]?.has_external === true;
 
@@ -506,6 +510,7 @@ async function buildOverview(db: Db, organiserId: string, qs: URLSearchParams): 
       hasExternal || outbound.any || previousOutbound?.any
         ? { ...outbound.stats, ...(previousOutbound ? { previous: previousOutbound.stats } : {}) }
         : null,
+    followerCount: followers[0].n,
   };
 }
 

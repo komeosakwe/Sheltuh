@@ -7,7 +7,7 @@
  */
 import { requireAdmin } from "../auth";
 import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
-import { sendWaitlistEmailsSoon } from "../email-outbox";
+import { sendFollowerEmailsSoon, sendPublishEmailsSoon } from "../email-outbox";
 import { parseEventInput, type EventInput } from "../event-input";
 import { createdPrivate, HttpError, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
@@ -70,9 +70,10 @@ export const adminCreateOrganiser: Handler = async (req, _params, { db, verifyAc
   const [row] = await db.query<{ id: string }>(
     `insert into public.organisers (owner_user_id, display_name, contact_email, description, categories, website_url,
                                     instagram_handle, tiktok_handle, facebook_page, x_handle,
+                                    featured_video_provider, featured_video_id,
                                     status, reviewed_by, reviewed_at)
      values (null, $1, $2, $3, array(select jsonb_array_elements_text($4::text::jsonb))::public.event_category[], $5,
-             $6, $7, $8, $9, 'approved', $10, now())
+             $6, $7, $8, $9, $11, $12, 'approved', $10, now())
      returning id`,
     [
       input.displayName,
@@ -85,6 +86,8 @@ export const adminCreateOrganiser: Handler = async (req, _params, { db, verifyAc
       input.handles.facebookPage ?? null,
       input.handles.xHandle ?? null,
       admin.userId,
+      input.featuredVideo?.provider ?? null,
+      input.featuredVideo?.id ?? null,
     ],
   );
   const [record] = await db.query(`${ADMIN_ORGANISER_SELECT} where o.id = $1`, [row.id]);
@@ -179,7 +182,8 @@ type AdminCreateEventOutcome =
  * AdminEventRecord; 400 fieldErrors (organiserId unknown; a paid ticket type
  * for a platform-managed organiser: ticketTypes); 409 organiser not approved.
  */
-export const adminCreateEvent: Handler = async (req, _params, { db, verifyAccessToken }) => {
+export const adminCreateEvent: Handler = async (req, _params, deps) => {
+  const { db, verifyAccessToken } = deps;
   const admin = await requireAdmin(req, verifyAccessToken);
   const body = await readJson(req);
   const { input, extra } = parseAdminEventBody(body, (errors) => ({
@@ -219,6 +223,8 @@ export const adminCreateEvent: Handler = async (req, _params, { db, verifyAccess
       throw new HttpError(400, PLATFORM_PAID_REFUSED, { ticketTypes: PLATFORM_PAID_REFUSED });
   }
   // Only "created" and "published" are left, and both carry the new event's id.
+  // Published: the organiser's followers were queued an email (private.notify_followers).
+  if (outcome.result === "published") sendFollowerEmailsSoon(deps);
   return createdPrivate(await requireAdminEvent(db, outcome.new_event_id));
 };
 
@@ -293,8 +299,9 @@ export const adminUpdateEvent: Handler<{ eventId: string }> = async (req, { even
     case "organiser_not_approved":
       throw new HttpError(409, "This event's organiser isn't approved (they may have been suspended), so it can't be published.");
   }
-  // More tickets, a new ticket type or a publish may have notified the event's waitlist (private.notify_waitlist).
-  sendWaitlistEmailsSoon(deps);
+  // More tickets, a new ticket type or a publish may have notified the event's
+  // waitlist (private.notify_waitlist); a first publish, its organiser's followers.
+  sendPublishEmailsSoon(deps);
   return okPrivate(await requireAdminEvent(db, eventId));
 };
 

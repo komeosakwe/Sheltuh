@@ -66,6 +66,7 @@ describe("Data API lock-out", () => {
       "event_tracking_links",
       "event_view_counts",
       "messages",
+      "organiser_follows",
       "ticket_check_ins",
       "user_blocks",
     ];
@@ -117,8 +118,12 @@ describe("Data API lock-out", () => {
       { table_name: "event_waitlist", rls: true },
       { table_name: "event_waitlist_tokens", rls: true },
       { table_name: "free_order_refusals", rls: true },
+      { table_name: "organiser_event_announcements", rls: true },
+      { table_name: "organiser_follow_tokens", rls: true },
       { table_name: "organiser_profile_edits", rls: true },
       { table_name: "platform_rate_limits", rls: true },
+      { table_name: "profile_avatars", rls: true },
+      { table_name: "profile_moderation_log", rls: true },
       { table_name: "rate_limits", rls: true },
       { table_name: "social_suspensions", rls: true },
       { table_name: "trending_snapshot", rls: true },
@@ -224,6 +229,42 @@ describe("Data API lock-out", () => {
       `select count(*)::int as n from pg_policy p join pg_class c on c.oid = p.polrelid
          join pg_namespace s on s.oid = c.relnamespace
         where s.nspname = 'private' and c.relname in ('event_waitlist', 'event_waitlist_tokens')`,
+    );
+    expect(policies.n).toBe(0);
+  });
+
+  it("the member profile and organiser follow functions and triggers exist, pin search_path and aren't client-executable", async () => {
+    const names = [
+      "admin_remove_featured_video",
+      "admin_remove_profile_content",
+      "claim_email_outbox",
+      "create_block_by_profile",
+      "edit_organiser_profile",
+      "events_followers_announce",
+      "file_profile_report",
+      "follow_organiser",
+      "member_profile_visible",
+      "notify_followers",
+      "request_conversation_by_profile",
+      "unsubscribe_follow",
+      "user_reports_target_type",
+    ];
+    const rows = await db.query<{ fn: string; pinned: boolean; client: boolean }>(
+      `select p.proname as fn,
+              exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c = 'search_path=""') as pinned,
+              has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
+                or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                            where a.grantee = 0 and a.privilege_type = 'EXECUTE') as client
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'private' and p.proname = any($1::text[]) order by 1`,
+      [names],
+    );
+    expect(rows).toEqual(names.map((fn) => ({ fn, pinned: true, client: false })));
+    // Photos, follows, tokens and the moderation log: RLS on, no policies.
+    const [policies] = await db.query<{ n: number }>(
+      `select count(*)::int as n from pg_policy p join pg_class c on c.oid = p.polrelid
+        where c.relname in ('profile_avatars', 'profile_moderation_log', 'organiser_follows',
+                            'organiser_follow_tokens', 'organiser_event_announcements')`,
     );
     expect(policies.n).toBe(0);
   });

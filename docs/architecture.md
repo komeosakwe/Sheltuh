@@ -47,8 +47,8 @@ Stripe ──webhook──▶ /api/stripe/webhook
 
 | Table | Key | Notes |
 |---|---|---|
-| `organisers` | `id` | `owner_user_id` is unique, one application per account. It's null for platform-managed organisers (events Sheltüh lists on someone's behalf, and seed data), which admins create (`POST /admin/organisers`), which sell no paid Sheltüh tickets, and whose events only admins check in (see "Admin authoring" and "Check-in"); their `contact_email` should be a Sheltüh alias, never a person's own address (`docs/supabase-setup.md`); check constraint `organisers_platform_no_payouts`: such an organiser has no Stripe account and no payouts. `status`: pending → approved / rejected. Also holds the Stripe Connect account id and `payouts_enabled`. Optional social handles (`instagram_handle`, `tiktok_handle`, `facebook_page`, `x_handle`), stored without `@` and pattern-checked by the database; `website_url` must be http(s), at most 2048 characters (check constraint; the API only takes new `https://` addresses, see "Organiser profiles"). An admin takedown sets `rejected` (see "Organiser profiles"). |
-| `private.organiser_profile_edits` | `id` (identity) | Append-only log per organiser: each profile edit made without review (`profile_edit`: old and new value of each changed field, by the owner) and each admin takedown (`suspended`, with the admin and reason). A trigger refuses updates (except the `actor_id` foreign key's own set-null when that account is deleted). Admins see the newest 20 per organiser. Kept while the organiser exists; deleted with it. |
+| `organisers` | `id` | `owner_user_id` is unique, one application per account. It's null for platform-managed organisers (events Sheltüh lists on someone's behalf, and seed data), which admins create (`POST /admin/organisers`), which sell no paid Sheltüh tickets, and whose events only admins check in (see "Admin authoring" and "Check-in"); their `contact_email` should be a Sheltüh alias, never a person's own address (`docs/supabase-setup.md`); check constraint `organisers_platform_no_payouts`: such an organiser has no Stripe account and no payouts. `status`: pending → approved / rejected. Also holds the Stripe Connect account id and `payouts_enabled`. Optional social handles (`instagram_handle`, `tiktok_handle`, `facebook_page`, `x_handle`), stored without `@` and pattern-checked by the database; `website_url` must be http(s), at most 2048 characters (check constraint; the API only takes new `https://` addresses, see "Organiser profiles"). An admin takedown sets `rejected` (see "Organiser profiles"). `featured_video_provider` (`youtube` or `vimeo`) and `featured_video_id`: the featured video, provider and id only, never a URL (check constraint `organisers_featured_video_check`: both or neither, id pattern per provider). |
+| `private.organiser_profile_edits` | `id` (identity) | Append-only log per organiser: each profile edit made without review (`profile_edit`: old and new value of each changed field, by the owner, or by an admin with a reason: removing the featured video, logged as `featured_video` `"provider:id"`) and each admin takedown (`suspended`, with the admin and reason; a takedown must have a reason). A trigger refuses updates (except the `actor_id` foreign key's own set-null when that account is deleted). Admins see the newest 20 per organiser. Kept while the organiser exists; deleted with it. |
 | `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected; unpublish returns it to draft. `is_free` (true only when the event has ticket types and all are free; for an external event, `external_free`) is kept up to date by `replace_ticket_types` for the feed's free filter. `whos_going_enabled` (default true) is an admin-only kill switch for that event's Who's Going, set in SQL (`docs/supabase-setup.md`). `ticketing_mode` (`sheltuh`, the default, or `external`), `external_ticket_url` and `external_free`: see "External ticketing". Check constraints: an external event has a link, a Sheltüh-ticketed one has no link and isn't `external_free`, and an external event's `is_free` equals `external_free`. The trigger `events_external_ticket_url_valid` checks a link against `private.external_ticket_url_ok` when it's inserted or changed (only then, so tightening the rules never blocks a later status change; see "External ticketing"). `updated_at` changes on every update of the row, a photo change included (trigger `event_images_touch_event`). Triggers refuse ticket types and orders for an external event, and switching an event with ticket types to external. |
 | `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. A trigger refuses a price above 0 for a platform-managed organiser's event (`ticket_types_platform_free_only`). `quantity_sold` only ever goes up in `fulfil_order`, and down only in `record_payment_refund` (a paid order refunded in full). |
 | `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Public via `GET /api/events/[id]/image` once published (cached for a day, versioned URL); before that only the owner/admins with a token. Every write (insert, update, delete) bumps the event's `updated_at` in the same transaction (`event_images_touch_event`), so a photo change is a new version of the event (see "Admin authoring"); writers lock the event row (for no key update) before the image row. Move to Storage/CDN if volume grows. |
@@ -58,10 +58,12 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | `ticket_check_ins` | `id` (identity) | The check-in log (see "Check-in"): one row per scan or undo, with a random `public_id` (uuid, unique: the only id the API shows, as `checkInId`; the sequential `id` stays internal, so ids don't reveal platform-wide scan volume), the event scanned for, the ticket `code` (null for an `invalid` scan: what was scanned is never stored), the acting account (the organiser's, or the admin's for a platform-managed organiser's event), the client's `request_id` (unique per event: the idempotency key), the `result` and, for an undo only, its `reason` (3–200 characters). Check constraints tie `invalid` to a null code and `undone` to a reason. Deleted with the event or the ticket, and by `purge_analytics` 25 months after the event ends. No buyer data. |
 | `private.platform_rate_limits` | `bucket` | Platform-wide fixed-window counters (`take_platform_rate_limit`): the hourly and 24-hour confirmation-email caps. Idle rows purged daily. |
 | `private.free_order_refusals` | `(day, reason)` | Counts of refused free bookings per Melbourne day and reason. No personal data. Deleted after 13 months. |
-| `private.email_outbox` | `id` | Transactional email jobs of two kinds: `ticket_email`, one per paid order (`(order_id, kind)` unique), and `waitlist_available`, one per person told that tickets are available again (`waitlist_entry_id`; at most one pending or sending per entry). A check ties each kind to its key. Status, attempts, next attempt, lease, redacted last error. No address or content (read from the order, or the waitlist entry, at send time). Deleted with the order or the entry. |
+| `private.email_outbox` | `id` | Transactional email jobs of three kinds: `ticket_email`, one per paid order (`(order_id, kind)` unique), `waitlist_available`, one per person told that tickets are available again (`waitlist_entry_id`; at most one pending or sending per entry), and `organiser_new_events`, a follower's new-event email (`follow_id`; at most one pending or sending per follow; see "Following organisers"). A check ties each kind to its key. Status, attempts, next attempt, lease, redacted last error. No address or content (read from the order, the waitlist entry or the follow, at send time). Deleted with the order, the entry or the follow. |
 | `private.event_waitlist` | `id` | One entry per `(event_id, email_key)` (see "Waitlist"): the address as typed and `private.email_key` of it, `user_id` (only when a member joined with their own verified email; deleted with the account), `confirmed_at` (on the list from then: join order), `unsubscribed_at` (left), `notified_at` and `notify_count`. Deleted with the event, and by `purge_social_data` 30 days after the event ends. Never shown to organisers except as a count. |
 | `private.event_waitlist_tokens` | `token_hash` | SHA-256 hashes of emailed waitlist tokens, never the tokens: `confirm` (a guest's join link, 24 hours, used once) and `leave` (one per notification email, valid while the entry exists). Deleted with the entry; expired confirmation links a week after expiry. |
-| `profiles` | `user_id` | A member's social identity: `display_name` (1–40 characters), `adult_confirmed_at` (required: no profile without an 18+ confirmation). Deleted with the Supabase account. `social_suspended_at` is deprecated and ignored (see `private.social_suspensions`). |
+| `profiles` | `user_id` | A member's social identity: `display_name` (1–40 characters), `adult_confirmed_at` (required: no profile without an 18+ confirmation). Deleted with the Supabase account. `social_suspended_at` is deprecated and ignored (see `private.social_suspensions`). Member profile fields (see "Member profiles"): `public_id` (random uuid, unique: the opaque `profileId`, never the user id; a recreated profile gets a new one), `profile_visible` (opt-in, default false), `bio` (1–200 characters) and `instagram_handle` (Instagram's username pattern, check constraint), both optional. |
+| `private.profile_avatars` | `user_id` | The member's photo as the server re-encoded it: `image` (512 × 512 WebP, ≤ 512 KB) and `thumb` (96 × 96 WebP, ≤ 64 KB), no metadata. Deleted with the profile. |
+| `private.profile_moderation_log` | `id` (identity) | An admin's removal of a member's photo, bio or Instagram handle: the member's account, the admin, which fields (never the content) and the reason (1–500). Deleted with the member's account, and 2 years after the entry (`purge_social_data`). |
 | `event_attendees` | `id` | One row per Who's Going opt-in, unique per `(event_id, user_id)`. `id` is the opaque `attendeeId` shown to members: a fresh one per event, so it can't be linked across events or to a user. Deleted with the profile or the event, and by `purge_social_data` 30 days after the event ends. |
 | `private.social_suspensions` | `user_id` | Admin-set Who's Going suspensions (SQL only, `docs/supabase-setup.md`). Keyed on the auth user, not the profile, so a member can't clear one by deleting and recreating their profile. Deleted with the Supabase account. |
 | `private.rate_limits` | `(user_id, bucket)` | Fixed-window per-member request counters (`take_rate_limit`). Deleted with the account; stale rows purged daily. |
@@ -69,6 +71,9 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | `messages` | `id` (identity) | Plain text, 1–1000 characters (check constraint). The id is the opaque, increasing `messageId` (keyset cursor). Deleted with the conversation or the sender's profile. |
 | `user_blocks` | `id` | `(blocker_id, blocked_id)` unique, keyed on the accounts (not profiles), so recreating a profile doesn't lift a block. `id` is the opaque `blockId`, shown only to the blocker. `blocked_display_name` is a snapshot of the blocked member's name taken when the block was made, never refreshed (the live name would tell the blocker about renames and deletions). It's kept, like the block, until either account is deleted or the block is lifted. |
 | `private.conversation_pairs` | `(user_low, user_high)` | Content-free record that two accounts have had a conversation: the pair and when the first request was sent. References `auth.users` only (not profiles), so deleting and recreating a profile, which deletes the conversation, doesn't reset "one conversation per pair" or undo a decline. Deleted with either account, and by `purge_social_data` once no conversation remains and it's over 12 months old. |
+| `organiser_follows` | `id` | A member following an approved organiser (see "Following organisers"): `(user_id, organiser_id)` unique, keyed on the account (not the profile). `notify_new_events` (chosen when following, default true), `notified_through` (the newest announcement already emailed) and `next_notify_at` (24 hours after the last email). Never shown to anyone else; counted for the organiser's profile (from 10) and analytics. Deleted with the account or the organiser. |
+| `private.organiser_follow_tokens` | `token_hash` | SHA-256 hashes of the unsubscribe tokens in follower emails (one per email), never the tokens. Deleted with the follow, and 90 days after the email (`purge_social_data`). |
+| `private.organiser_event_announcements` | `event_id` | Each event the first time it's published (organiser, time), so publishing it again emails nobody, and an email can list what was announced since the last. Backfilled with every event approved before the migration. Deleted with the event. |
 | `event_favourites` | `(user_id, event_id)` | A member's favourites (account, not profile). At most 500 per account (`add_favourite`). Kept when the event is unpublished, but hidden until it's published again. Deleted with the account or the event. Never shown to anyone else; counted only as an aggregate input to the trending score, never per event or per person (see "Trending"). Indexed on `(event_id, created_at)` for that count. |
 | `event_tracking_links` | `id` | Up to 20 per event (`create_tracking_link`): a server-made `code` (8 characters, `[2-9a-hjkmnp-z]`, unique per event) and an organiser `label` (1–40 characters, unique per event ignoring case). Deleted with the event. |
 | `event_view_counts` | `(event_id, day, source, coalesce(link_code, ''))` (unique index) | Aggregate page-view counters, one row per event, Melbourne day, source bucket and tracking code: no visitor data of any kind. `link_code` is a plain copy of the code (no foreign key), so a deleted link's counts are kept. Deleted with the event, and by `purge_analytics` after 25 months. |
@@ -78,7 +83,7 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | `private.event_curation` | `event_id` | An admin's trending curation (see "Trending"): `boost` (0.5 to 2, default 1, check constraint) and `excluded`, with who changed it last and when (null until changed). Written only by `set_event_curation`. Deleted with the event. |
 | `private.trending_snapshot` | `rank` | The ranked trending list (at most 24): rank, event (unique), score and when it was computed. Rebuilt as a whole by `refresh_trending`; holds no counts. Deleted with the event. |
 | `private.analytics_settings` | single row | `views_tracked_since`: the Melbourne day view counting started (when its migration ran), so reports show earlier days as "not counted" rather than 0. |
-| `private.user_reports` | `id` | A member's report: copies of the reported message, up to 20 messages of context and the reported display name. Every reference is `on delete set null`, so the evidence survives the messages and both accounts. `status`: open → actioned (suspended) / dismissed. Resolved reports are deleted 2 years after resolution. |
+| `private.user_reports` | `id` | A member's report: copies of the reported message, up to 20 messages of context and the reported display name; `target_type` (`conversation`, `attendee` or `profile`); for a profile report, copies of the bio, Instagram handle and photo (512 px WebP). Every reference is `on delete set null`, so the evidence survives the messages and both accounts. `status`: open → actioned (suspended) / dismissed. Resolved reports are deleted 2 years after resolution. |
 
 Timestamps are `timestamptz`. Organisers enter Australia/Melbourne local
 times, which are converted to instants honouring daylight saving
@@ -98,7 +103,7 @@ times, which are converted to instants honouring daylight saving
 | `transition_event` | Changes status and writes the moderation log entry in one step. It only moves an event from an expected status, so two admins acting at once can't both succeed; the loser gets a 409. |
 | `set_going` | Opts a member in to an event's Who's Going, checking everything in one step: the event is published, enabled, Sheltüh-ticketed and hasn't ended; the member isn't suspended (checked before the profile, so a suspended member without one still gets `suspended`); they have a profile; and a `paid` order for the event has their verified email (case-insensitive). Share-locks the event, then the profile, so an unpublish or profile deletion can't interleave. A suspension recorded mid-call can't be locked in advance, but every count and list filters suspensions at read time. Idempotent. Returns `going`, `event_unavailable`, `suspended`, `no_profile` or `not_eligible`. |
 | `take_rate_limit` | Records one hit on a member's `(user, bucket)` counter and says whether it's within the limit for the window. One upsert, so concurrent requests can't both take the last slot. |
-| `purge_social_data` | Retention: deletes Who's Going opt-ins 30 days after their event ended, rate-limit rows idle for a day, conversations (with their messages) 12 months after their last message, resolved reports 2 years after resolution, pair records with no conversation 12 months after the pair's first request, and the waitlist (see "Waitlist": entries 30 days after their event ended, unconfirmed entries 8 days after their last link, entries 30 days after their person left, expired confirmation links after a week). Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`), not by a migration. |
+| `purge_social_data` | Retention: deletes Who's Going opt-ins 30 days after their event ended, profile moderation log entries after 2 years, follower-email unsubscribe tokens after 90 days, rate-limit rows idle for a day, conversations (with their messages) 12 months after their last message, resolved reports 2 years after resolution, pair records with no conversation 12 months after the pair's first request, and the waitlist (see "Waitlist": entries 30 days after their event ended, unconfirmed entries 8 days after their last link, entries 30 days after their person left, expired confirmation links after a week). Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`), not by a migration. |
 | `request_conversation` | A first message to the member behind an `attendeeId`, checked in one step: the sender isn't suspended and is opted in to the same event, which is open; the recipient isn't suspended; neither blocks the other; the pair has no conversation yet and none on record (`conversation_pairs`: a pair whose conversation went with a deleted profile is `unavailable`); the sender is within both rate limits; and the recipient is within their cap on requests received (over it, `unavailable`). Locks the sender's profile first (`for no key update`, so it doesn't block the other member's FK checks and mutual requests can't deadlock). Two members requesting each other at once: the pair's primary key makes the second insert fail, which rolls back its rate-limit hits (and the recipient's count) and returns `exists` (409). The recipient's profile or account deleted mid-call is `unavailable`. Returns `sent`, `sender_suspended`, `not_going`, `unavailable`, `self`, `exists` or `rate_limited`. |
 | `send_message` | Locks the sender's profile, then the conversation, then checks visibility (blocks, the other member's suspension, a declined request), that the sender isn't waiting on their own request, and the rate limit, before inserting. A reply to a request accepts it; a reply and a decline racing can't both win. Returns `sent`, `sender_suspended`, `not_found`, `awaiting_reply` or `rate_limited`. |
 | `file_report` | Checks the reporter is in the conversation (and the message is the other member's), takes the rate limit and copies the evidence into the report in one step. Key-share-locks the conversation, then the message, when it finds them, so a profile deletion or retention purge waits for the report; one already under way means the report finds nothing (`not_found`, 404). The reported account deleted mid-call (a foreign-key failure) or a deadlock with an account deletion is also `not_found`, never a 500. |
@@ -126,7 +131,17 @@ times, which are converted to instants honouring daylight saving
 | `confirm_waitlist_join` | Confirms by token hash: locks the token, then the entry. Returns `joined`, `already_joined`, `not_found`, `expired`, `used` (confirmed before, and left since) or `closed` (the event isn't published, is external or has ended; it needn't still be sold out). |
 | `leave_waitlist` | Takes the entry behind a leave token off the list, idempotently (`left`, or `not_found`). |
 | `notify_waitlist` | Queues "tickets are available again" emails for an event with tickets left (see "Waitlist"): target 3 per ticket left, at most 100, within a 12-hour window; only the shortfall from people told in the window is queued, so calling it again is a no-op until more tickets free up or the window passes. People never told first, then join order; skips buyers (paid orders, by normalised address), people with an email still waiting, and stops at 500 a day platform-wide. Advisory lock per event. Called at commit by deferred constraint triggers on `ticket_types` (insert with tickets; update leaving more tickets than before) and `events` (status becomes `published`). |
-| `edit_organiser_profile` | An approved organiser's profile edit (`PATCH /organisers/me`): locks the organiser row, checks it's still approved (`not_approved` → 409), writes only the fields sent whose value really changes, and appends their old and new values to `organiser_profile_edits`, in one step. A no-op edit writes nothing. Returns `updated`, `unchanged`, `not_approved` or `not_found`. |
+| `edit_organiser_profile` | An approved organiser's profile edit (`PATCH /organisers/me`): locks the organiser row, checks it's still approved (`not_approved` → 409), writes only the fields sent whose value really changes (the featured video as `"provider:id"`), and appends their old and new values to `organiser_profile_edits`, in one step. A no-op edit writes nothing. Returns `updated`, `unchanged`, `not_approved` or `not_found`. |
+| `admin_remove_featured_video` | An admin removes an organiser's featured video (any status): locks the organiser row (for update), clears it and logs a `profile_edit` by the admin with the reason. Returns `removed`, `unchanged` (none: nothing logged) or `not_found`. |
+| `member_profile_visible` | The one rule for seeing a member profile (stable SQL): the member behind a `profileId` if the viewer has a profile, neither is suspended, neither blocks the other, and the profile is visible or the viewer's own; else null. Used by every read and write by `profileId`; the API also requires a verified email. |
+| `file_profile_report` | A report about a profile: key-share-locks the profile, copies its display name, bio, handle and photo into the report, takes the reports rate limit, inserts (`target_type` `profile`). Returns `filed`, `not_found`, `self` or `rate_limited`. The profile needn't be visible any more, and blocks don't matter. |
+| `create_block_by_profile` | `create_block` for a profile the blocker can see now (`member_profile_visible`); same snapshot, rate limit and results. |
+| `request_conversation_by_profile` | A first message by `profileId`: the profile must be visible to the sender (`unavailable` otherwise, 404); picks the soonest open event both are opted in to (`not_going` if none) and hands over to `request_conversation` with that attendeeId, so every other rule is the same code. |
+| `admin_remove_profile_content` | An admin removes a member's photo, bio and/or Instagram handle: locks the profile (no key update), then the photo; removes only what's there; logs the fields, admin and reason in `profile_moderation_log`. Returns `removed` (with the fields), `unchanged` or `not_found`. |
+| `follow_organiser` | A follow (or a change of its email choice): key-share-locks the approved organiser (`not_found` otherwise; `self` for its own account), then an advisory lock on the account; an existing follow is `exists` (its choice updated if sent); else the 500-follow cap (`limit`) and the 60-an-hour allowance (`rate_limited`) before the insert (`followed`). |
+| `unsubscribe_follow` | Turns a follow's emails off by an unsubscribe token's hash (the follow stays). Idempotent: `unsubscribed` or `not_found`. |
+| `notify_followers` | Run at commit by the deferred constraint trigger `events_followers_announce` (status becomes `published`): for a published, upcoming event of an approved organiser, records the announcement (once per event ever: a republish is a no-op), then, under an advisory lock per organiser, queues one `organiser_new_events` job per follower with emails on who has none waiting, due at the later of now and 24 hours after their last, until the platform's 500 a day. Locks each follow row as it's queued. |
+| `claim_email_outbox` | `claim_outbox_jobs` for every kind, also returning the follow. `claim_outbox_jobs` (the previous release's) now leaves `organiser_new_events` alone, for the deploy window. |
 | `suspend_organiser` | An admin takedown, only from `approved` (a second admin gets 409): locks the organiser row, then its published and pending-review events in id order; sets the organiser `rejected` with the reason and reviewer; moves each published event to draft (`unpublished`) and each pending one to `rejected`, through `transition_event`, so the event moderation log records each with the admin and reason; logs the takedown. Deletes nothing. Returns the result and how many events moved. |
 | `record_payment_refund` | Records a `charge.refunded` by payment intent (see "Refunds made in Stripe"). Locks the order (`for update`), and acts only on a `paid` one. Full refund: `refunded`, the amount recorded, and each line item's quantity taken off its ticket type's `quantity_sold` (never below 0), updating ticket types in `ticketTypeId` order like `fulfil_order`, so the two can't deadlock. Partial: only `amount_refunded_cents`, which only grows. A redelivery (already refunded, or no larger amount) changes nothing, so inventory is released exactly once. Returns `refunded`, `partial`, `unchanged` or `not_found`, with the order id when found (logged by short reference only). |
 | `fulfil_order` | Queues the ticket email in the same step (see "Payment flow"). Takes inventory for every line item, issues the tickets and marks the order paid. If any ticket type has sold out, or the event is no longer published, it takes nothing and marks the order `oversold_refund_required`. Rows are locked in a fixed order, so concurrent orders can't deadlock. It's idempotent, so Stripe's webhook redeliveries are harmless. |
@@ -570,7 +585,9 @@ Who sees what:
   that below 3 people: `count` is then 0 with `countHidden: true`, so 0, 1
   and 2 look the same.
 - Verified members with a profile that isn't suspended see display names,
-  paginated (at most 50 a page), with an opaque per-event `attendeeId`.
+  paginated (at most 50 a page), with an opaque per-event `attendeeId`, and,
+  only for a member who made their member profile visible, its `profileId`
+  and photo thumbnail (`hasAvatar`, `avatarThumbUrl`; see "Member profiles").
   Never an email, user id or ticket type. The list is rate-limited per
   member (30 requests per 10 minutes, then 429).
 - Suspended members (`private.social_suspensions`) are left out of every
@@ -596,8 +613,10 @@ Direct messages between members who met on a Who's Going list
 - **First contact** is one request message (1–1000 characters, plain text,
   no links), and only between two members opted in to the same event while
   its Who's Going is open, neither suspended nor blocking the other. The
-  client only knows the recipient's per-event `attendeeId`; the server
-  resolves it. One conversation per pair, ever (a second request either way
+  client only knows the recipient's per-event `attendeeId`, or their
+  `profileId` from a member profile (the server picks the soonest shared open
+  event, `request_conversation_by_profile`); the server resolves it. Blocks
+  and reports can also be made by `profileId` (see "Member profiles"). One conversation per pair, ever (a second request either way
   is a 409).
 - **Accepting** is replying. Until then the sender can't send more (409).
   **Declining** is silent: the conversation disappears for the recipient,
@@ -672,6 +691,98 @@ Direct messages between members who met on a Who's Going list
   platform carried in between. Accepted: it's a volume signal, not content,
   and a per-conversation ordinal would mean a counter per conversation on
   every send.
+
+## Member profiles
+
+Clickable Who's Going names (owner request, 21 Oct 2026;
+`lib/server/handlers/member-profiles.ts`, `profiles.ts`, `lib/server/avatar.ts`,
+`supabase/migrations/20261024000100_member_profiles.sql`).
+
+- **Opt-in.** A member profile is off by default (`profile_visible`). Turned
+  on (`PATCH /profiles/me {profileVisible: true}`), other members who may see
+  it get the display name, an optional bio (1–200 characters, cleaned like an
+  organiser's bio: no control, invisible or text-direction characters, line
+  breaks normalised; links allowed) and Instagram handle (the organiser
+  handle rule; the server builds the URL), the photo, and the open events the
+  member has opted in to (published, Who's Going on, not ended; at most 24).
+  Never an email, user id or attendeeId. Members who haven't opted in stay
+  plain text on Who's Going lists (no `profileId`).
+- **The profile id** is `profiles.public_id`: random, stable for the
+  profile's life, not the user id and not a per-event attendeeId. It links a
+  visible member's opt-ins across events, which is what a profile is for;
+  hidden members keep only per-event attendeeIds. Deleting and recreating the
+  profile gives a new id (and starts hidden, without bio, handle or photo).
+- **Who may see one** (`private.member_profile_visible`, the same gate as
+  Who's Going names): a signed-in member with a verified email and a
+  profile, not suspended; the profile's member not suspended; neither blocks
+  the other; and the profile visible (or their own). Anything else is the
+  same 404, unknown ids included, so existence never leaks. Rate-limited like
+  the attendee list (30 views per 10 minutes, then 429). Responses are
+  `private, no-store`.
+- **Message, Block, Report.** `canMessage` mirrors the messaging rules (a
+  shared open event both are opted in to, and never a conversation between
+  them); `conversationId` when a visible one exists. `POST /conversations
+  {profileId, body}`, `POST /blocks {profileId}` and `POST /reports
+  {profileId, reason, details?}` work as their attendeeId forms. A profile
+  report copies the display name, bio, handle and photo into the report
+  (kept like message copies, 2 years after resolution).
+- **Photos.** `PUT /profiles/me/avatar` takes the raw bytes: JPEG, PNG or WebP
+  sniffed from the bytes (the declared type is ignored; SVG, GIF, HEIC and
+  anything else are a 400), at most 5 MB, read as a stream and cut off past
+  it (413). sharp decodes it (first frame only, at most 50 megapixels, so a
+  small file can't claim a huge canvas), applies the EXIF orientation, crops
+  to a square and writes a 512 px WebP and a 96 px thumbnail with **no
+  metadata at all** (no EXIF, GPS, camera, ICC or XMP; converted to sRGB
+  first). The upload itself is never stored. 20 uploads a day (429).
+  sharp is the version Next ships (declared in package.json), on Next's
+  server-external list, so Vercel's file tracing includes its native binary.
+- **Serving photos.** `GET /profiles/{profileId}/avatar[?size=thumb]` needs
+  the bearer token (never public, so the browser fetches it and shows a blob
+  URL), the same gate as the profile (404 otherwise), and admins (any
+  profile, for moderation). `private, no-cache` with an ETag: the browser may
+  keep it, but every use is re-checked (a 304 only after the gate passes), so
+  a block or a hidden profile applies at once. `Cross-Origin-Resource-Policy:
+  same-origin`. URLs carry a version (`?v=`), and no photo shows initials.
+- **Moderation.** Admins see `targetType`, the copies and `reportedProfileId`
+  on reports, read any profile (`GET /admin/profiles/{profileId}`, with its
+  moderation log) and remove a photo, bio or handle with a reason
+  (`POST /admin/profiles/{profileId}/remove-content`), logged in
+  `private.profile_moderation_log` (fields, admin, reason; never the
+  content). Suspension (resolving a report with `suspend`) hides the profile
+  and photo from everyone; a suspended member can't change their profile or
+  upload a photo, and can always delete them.
+- **Retention.** The photo, bio and handle are deleted with the profile
+  (`DELETE /profiles/me`, or the account) and the photo alone with
+  `DELETE /profiles/me/avatar`. Report copies follow the reports' retention;
+  the moderation log goes 2 years after each entry or with the account.
+
+**Privacy Policy wording needed before go-live** (owner to approve):
+
+- That a member can choose to make a profile (display name, optional short
+  bio, Instagram username and photo, and the upcoming events they've said
+  they're going to) visible to other signed-in members with a verified email
+  and a profile; that it's off unless they turn it on, and they can turn it
+  off, change it or delete it at any time.
+- That uploaded photos are re-encoded and all embedded information (camera
+  details, location/GPS, date) is removed before storage, and that photos are
+  only shown to signed-in members who can see the profile, never publicly.
+- That blocking hides profiles both ways; that reports keep a copy of the
+  reported profile content for moderation (deleted 2 years after the report
+  is resolved); and that Sheltüh staff may remove a photo, bio or handle and
+  keep a record of the removal (not the content) for up to 2 years.
+
+### Accepted risks (member profiles)
+
+- **Bios can carry links.** As organiser bios do (owner decision: "like the
+  organiser bio"). Members only see them on profiles they opened; reports and
+  admin removal are the control. Revisit if spam appears.
+- **A visible member can be followed across events.** That's the point of a
+  profile, and it's opt-in; hidden members stay per-event.
+- **Images are decoded on the server.** Bounded: 5 MB, 50 megapixels, first
+  frame, three sniffed formats, 20 a day per member, verified members only.
+  A libvips vulnerability would still be reachable; keep sharp updated.
+- **A screenshot outlives a block.** Nothing can stop a member keeping a copy
+  of a photo they once saw.
 
 ## Favourites
 
@@ -773,6 +884,9 @@ length just before.
 with `= + - @`, a tab or a carriage return (after any leading whitespace) gets
 a leading `'` so spreadsheets don't run it as a formula; money is decimal
 dollars; the file starts with a UTF-8 BOM for Excel.
+
+**Followers**: the overview's `followerCount` is the exact number of members
+following the organiser now (the public profile only shows it from 10).
 
 **Attendance**: the event report's `attendance` compares tickets checked in
 at the door with tickets sold (tickets of `paid` orders, all-time rather than
@@ -1338,16 +1452,94 @@ Admins create events themselves, for any organiser
 - **Recommended future work, not built:** email the organiser when their
   profile changes (so a hijacked account's edits are noticed), and an alert
   to admins on edits to recently approved organisers.
+- **Featured video.** One YouTube or Vimeo video, given as a pasted link
+  (`featuredVideoUrl`) on the application (reviewed with it) or an approved
+  organiser's profile edit (no review, logged with old and new value, like
+  the bio). Only exactly `youtube.com/watch?v={id}` (also `www.`, `m.`),
+  `youtu.be/{id}`, `youtube.com/shorts/{id}` (11 characters of
+  `[A-Za-z0-9_-]`) and `vimeo.com/{digits}` (1–12) are accepted, with http(s)
+  or no scheme, no credentials or port (`lib/api/featured-video.ts`; anything
+  else is a 400 on `featuredVideoUrl`). Only the provider and id are stored
+  (a check constraint repeats the rules); the page builds the
+  privacy-enhanced player (`youtube-nocookie.com`, Vimeo `dnt=1`) and loads it
+  only when the visitor presses play. Admins remove it with a reason
+  (`POST /admin/organisers/{id}/remove-video`), logged as a `profile_edit` by
+  the Sheltüh team (`byStaff`).
 - **Public profile** (`GET /organisers/{id}/profile`): only approved
   organisers. Only `organiserId`, `displayName`, `description`,
   `categories`, `websiteUrl`, `socialLinks`, `memberSince` (Melbourne
-  `YYYY-MM` of the application) and their published events in the feed's
-  public shape: `upcomingEvents` (not yet ended, soonest first), then
+  `YYYY-MM` of the application), `featuredVideo` (`{provider, id}` or null),
+  `followerCount` (only from 10 followers, else null: see "Following
+  organisers"), `eventsHosted` (published events that have ended) and their
+  published events in the feed's public shape: `upcomingEvents` (not yet ended, soonest first), then
   `recentEvents` (ended, most recent first), 24 in all. The organiser query
   reads no private column (contact email, owner, Stripe, payouts, review). Not
   personalised, so it's sent without `private, no-store`, like the event feed.
   Like the other public reads, it isn't rate-limited (no IPs or cookies):
   each request is three indexed queries and a bounded response.
+
+## Following organisers
+
+Members follow organisers (owner request, 21 Oct 2026;
+`lib/server/handlers/follows.ts`, `lib/server/follower-email.ts`,
+`supabase/migrations/20261024000200_organiser_follows.sql`, `lib/api/follows.ts`).
+
+- **Following** (`POST /organisers/{id}/follow {notifyNewEvents?}`):
+  signed-in members with a verified email, approved organisers only (404),
+  not their own (400). Idempotent (201 new, 200 again; sending
+  `notifyNewEvents` again changes it). At most 500 follows per account (409)
+  and 60 new follows an hour (429). `DELETE` unfollows (204, idempotent,
+  whatever the organiser's state). Keyed on the account, like favourites.
+- **Who sees what.** Nobody sees who follows whom. The public profile shows
+  `followerCount` only from 10 (`FOLLOWER_COUNT_THRESHOLD`; null below, as
+  Who's Going hides small counts); the organiser's analytics overview shows
+  the exact `followerCount`.
+- **The home rail**: `GET /me/following/events` (published, upcoming events of
+  followed approved organisers, soonest first, paginated, public event
+  shape); `GET /me/following` lists the organisers (taken-down ones drop out;
+  the follow is kept).
+- **New-event emails.** Chosen when following (default on). When an event is
+  published for the first time (an approval, an admin's create or edit, any
+  path: a deferred constraint trigger, `notify_followers`), each follower
+  with emails on gets one `organiser_new_events` outbox job, at most one per
+  organiser per 24 hours: a follower with an email already waiting gets the
+  new event in it, and one emailed in the last 24 hours gets the next 24
+  hours after it. The email ("New from {organiser}", Brand Direction One) is
+  built when it's sent, listing every event announced since their last that's
+  still published and upcoming (at most 6, then "and N more"); none left, it's
+  skipped. Publishing an event again (after an unpublish) emails nobody.
+  At most 500 queued a day platform-wide (shared SMTP quota). Sent straight
+  after the publishing response (`sendPublishEmailsSoon`, sharing the 30-second
+  budget with the waitlist's) and by the outbox cron.
+- **Unsubscribing.** Every email has its own link,
+  `/following/unsubscribe#token=…` (a page that POSTs the fragment's token on a
+  button press, `POST /follows/unsubscribe`), also sent as `List-Unsubscribe`.
+  It turns that organiser's emails off and keeps the follow. Only the token's
+  SHA-256 hash is stored; links work for 90 days (Spam Act 2003: at least 30),
+  or until unfollowing.
+- **Retention.** Follows go with the account or the organiser; tokens with the
+  follow or after 90 days; queued emails with the follow.
+
+**Privacy Policy wording needed before go-live** (owner to approve):
+
+- That members can follow organisers; that organisers see only how many
+  people follow them (the public sees the number from 10), never who.
+- That followers who choose to are emailed when an organiser they follow
+  publishes new events (at most one email a day per organiser), and every
+  email has a link to stop them.
+
+### Accepted risks (follows)
+
+- **Counts can be inflated** with verified throwaway accounts (60 an hour
+  each). It's a display number only; nothing is paid on it.
+- **Not everyone is told** past 500 emails a day platform-wide; the rest see
+  the event on their home rail. A skipped email (event unpublished first)
+  still counts as that day's email.
+- **One-click unsubscribe (RFC 8058)** isn't offered (the link is a page);
+  Gmail and Yahoo require it only from 5,000 messages a day.
+- **Concurrency** (the cap, two publishes at once) is enforced in the
+  database (advisory locks per account and per organiser, the unique active
+  job per follow); run the suite on a real Postgres before go-live.
 
 ## API
 
@@ -1380,16 +1572,26 @@ application is approved.
 | `GET /events/{id}/going/attendees?cursor` | verified email with a profile that isn't suspended (403 otherwise); published only; 429 when rate-limited |
 | `GET /events/{id}/going/me` · `DELETE /events/{id}/going/me` | signed in (own opt-in) |
 | `PUT /events/{id}/going/me` | verified email, eligible ticket holder with a profile. 404 if Who's Going isn't open, 409 without a profile, 403 if not eligible or suspended |
-| `GET /profiles/me` · `DELETE /profiles/me` | signed in (own profile; DELETE also removes every opt-in, and every conversation the member is in, for both sides) |
+| `GET /profiles/me` · `DELETE /profiles/me` | signed in (own profile; DELETE also removes every opt-in, every conversation the member is in, for both sides, and the photo, bio and handle). GET also has `profileId`, `profileVisible`, `bio?`, `instagramHandle?`, `hasAvatar`, `avatarUrl?`, `avatarThumbUrl?` |
+| `PATCH /profiles/me` `{displayName?, profileVisible?, bio?, instagramHandle?}` | verified email, a profile (404), not suspended (403). Absent: unchanged; null or "" clears bio or handle. 400 fieldErrors |
+| `PUT /profiles/me/avatar` (raw JPEG/PNG/WebP) · `DELETE …/avatar` · `GET …/avatar[?size=thumb]` | PUT: verified, a profile (404), not suspended (403); 200 the profile; 400 not a supported image; 413 over 5 MB; 429 over 20 a day. DELETE: signed in, 204 idempotent. GET: the caller's own |
+| `GET /profiles/{profileId}` | verified member with a profile, not suspended: `MemberProfile` (see "Member profiles"); 404 for anything they can't see; 429 |
+| `GET /profiles/{profileId}/avatar[?size=thumb]` | the same gate (404 otherwise), or an admin. WebP, `private, no-cache`, ETag (304) |
+| `GET /admin/profiles/{profileId}` · `POST …/remove-content` `{fields, reason}` | admin. `AdminMemberProfile` (with the moderation log; remove-content adds `removed`). 400; 404 |
+| `GET /admin/reports/{reportId}/avatar` | admin: a profile report's copy of the photo. 404 none |
+| `GET /organisers/{organiserId}/follow` · `POST …/follow` `{notifyNewEvents?}` · `DELETE …/follow` | GET signed in, `{following, notifyNewEvents}` (404 not approved). POST verified email: 201 new / 200 existing; 400 bad boolean or own organiser; 404; 409 500 follows; 429. DELETE signed in, 204 idempotent |
+| `GET /me/following?cursor&limit` · `GET /me/following/events?cursor&limit` | signed in: `FollowedOrganiser` items; upcoming events of followed organisers (public event shape), soonest first |
+| `POST /follows/unsubscribe` `{token}` | public (the emailed token is the credential). 200 `{status: "unsubscribed", organiserName?}` (idempotent); 400; 404 |
+| `POST /admin/organisers/{organiserId}/remove-video` `{reason}` | admin. 200 `AdminOrganiserRecord` (unchanged, nothing logged, without a video); 400; 404 |
 | `PUT /profiles/me` | verified email, not suspended (403). Creating needs `adultConfirmed: true` (an explicit `false` is a 400); a rename (no `adultConfirmed`) with no profile is a 404. Display names are checked in `lib/server/profile-input.ts`: no control, invisible or default-ignorable characters (U+FE0E/FE0F allowed), at least one letter or digit, at most 4 combining marks per character, no links, emails or @handles, no Latin/Cyrillic/Greek mix within a word, and no reserved names, compared on a lookalike skeleton |
 | `GET /conversations?cursor` | verified member: own conversations, newest activity first |
-| `POST /conversations` `{attendeeId, body}` | verified member going to the same open event. 201; 400 invalid/links/self, 403 not going or suspended, 404 member unavailable (also: blocked either way, a pair whose conversation was deleted, or the recipient over their incoming cap), 409 conversation exists, 429 |
+| `POST /conversations` `{attendeeId, body}` \| `{profileId, body}` | verified member going to the same open event. 201; 400 invalid/links/self, 403 not going or suspended, 404 member unavailable (also: blocked either way, a pair whose conversation was deleted, or the recipient over their incoming cap), 409 conversation exists, 429 |
 | `GET /conversations/unread` | verified member: `{count}` of conversations with something unread |
 | `GET /conversations/{id}/messages?after\|before` · `POST …/messages` `{body}` | verified participant (404 otherwise). POST: 409 while awaiting a reply, 403 suspended, 429 |
 | `POST /conversations/{id}/decline` | signed-in recipient of a request (204, idempotent); 409 otherwise; 404 non-participant |
 | `POST /conversations/{id}/read` `{lastReadMessageId?}` | verified participant (204) |
-| `GET /blocks?cursor` · `POST /blocks` `{conversationId}\|{attendeeId}` · `DELETE /blocks/{blockId}` | signed in (own blocks). POST 201 (new, or one the caller already has), 400 self, 404 not something the caller can currently see (including already blocked either way), 429 (30 per 24 hours); DELETE 204, idempotent |
-| `POST /reports` `{conversationId, messageId?}\|{attendeeId}, reason, details?` | signed in. 201; 404 not yours; 429 |
+| `GET /blocks?cursor` · `POST /blocks` `{conversationId}\|{attendeeId}\|{profileId}` · `DELETE /blocks/{blockId}` | signed in (own blocks). POST 201 (new, or one the caller already has), 400 self, 404 not something the caller can currently see (including already blocked either way), 429 (30 per 24 hours); DELETE 204, idempotent |
+| `POST /reports` `{conversationId, messageId?}\|{attendeeId}\|{profileId}, reason, details?` | signed in (a verified email for `profileId`). 201; 400 yourself; 404 not yours; 429. Admin reports carry `targetType`, `reportedProfileId?` and, for profiles, the copies |
 | `GET /admin/reports?status` · `POST /admin/reports/{id}/resolve` `{action, note?}` | admin. 409 if already resolved |
 | `GET /favourites?cursor&limit` | signed in: own favourited published events, newest favourite first, in the feed's public shape plus `favouritedAt` |
 | `GET /favourites/ids` | signed in: `{eventIds}` (at most 500) |
@@ -1442,6 +1644,17 @@ is `cache-control: private, no-store`, and so is every admin response
   as inline SVG on `/checkout/success` and as a PNG in the ticket email.
 
 ## Not built yet
+
+- Member profile and follow UI: the member profile page (`/members/{profileId}`),
+  profile settings (visibility, bio, handle, photo upload), clickable names and
+  thumbnails on Who's Going lists, the Follow button and email choice, the
+  home rail, the organiser page's video (click-to-load), follower count and
+  "Events hosted", the `/following/unsubscribe` page (with `/checkout/*`'s
+  `no-referrer` and `noindex` headers), and the admin report/organiser views
+  of the new fields. The API is built ("Member profiles", "Following
+  organisers").
+- Drop `private.claim_outbox_jobs` (superseded by `claim_email_outbox` in
+  `20261024000200_organiser_follows.sql`) once the deploy window is over.
 
 - Waitlist pages and UI: `/waitlist/confirm` and `/waitlist/leave` (the
   emailed links' pages, each POSTing the fragment's token on a button press,

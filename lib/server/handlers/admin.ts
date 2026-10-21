@@ -1,7 +1,7 @@
 import { requireAdmin, type Caller } from "../auth";
 import type { Db } from "../db";
 import type { Deps } from "../deps";
-import { sendWaitlistEmailsSoon } from "../email-outbox";
+import { sendPublishEmailsSoon } from "../email-outbox";
 import { parseTicketing } from "../event-input";
 import { HttpError, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
@@ -194,6 +194,33 @@ export const adminSuspendOrganiser: Handler<{ organiserId: string }> = async (re
   return okPrivate(result);
 };
 
+/**
+ * POST /api/admin/organisers/[organiserId]/remove-video — body { reason }.
+ * Removes the organiser's featured video, whatever their status
+ * (private.admin_remove_featured_video), logged on the organiser's log as a
+ * profile edit by the admin with the reason. 200 with the organiser (nothing
+ * logged when there was no video); 400 reason; 404 unknown.
+ */
+export const adminRemoveFeaturedVideo: Handler<{ organiserId: string }> = async (req, { organiserId }, deps) => {
+  const admin = await requireAdmin(req, deps.verifyAccessToken);
+  const body = await readJson(req);
+  const errors: Record<string, string> = {};
+  const reason = parseMessageText(body.reason, "reason", errors, {
+    allowLinks: true,
+    label: "Reasons",
+    maxLength: MAX_SUSPEND_REASON_LENGTH,
+  });
+  if (Object.keys(errors).length > 0) fail(errors);
+  if (!isUuid(organiserId)) throw new HttpError(404, ORGANISER_NOT_FOUND);
+
+  const [row] = await deps.db.query<{ result: "removed" | "unchanged" | "not_found" }>(
+    `select private.admin_remove_featured_video($1, $2, $3) as result`,
+    [organiserId, admin.userId, reason],
+  );
+  if (row.result === "not_found") throw new HttpError(404, ORGANISER_NOT_FOUND);
+  return okPrivate((await findAdminOrganiser(deps.db, organiserId))!);
+};
+
 // ---------------------------------------------------------------------------
 // Event submissions
 // ---------------------------------------------------------------------------
@@ -253,8 +280,10 @@ async function moderateEvent(
   if (!row.moved) {
     throw new HttpError(409, `This event is no longer ${from.replace("_", " ")} — it may already have been reviewed.`);
   }
-  // Published (again): if it has tickets left, its waitlist may have been notified (private.notify_waitlist).
-  if (to === "published") sendWaitlistEmailsSoon(deps);
+  // Published (again): if it has tickets left, its waitlist may have been
+  // notified (private.notify_waitlist); the first time, the organiser's
+  // followers (private.notify_followers).
+  if (to === "published") sendPublishEmailsSoon(deps);
   return okPrivate(await requireEventForAdmin(deps.db, eventId));
 }
 

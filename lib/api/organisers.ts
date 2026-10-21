@@ -23,6 +23,12 @@ export interface OrganiserApplicationInput extends OrganiserSocialHandlesInput {
   description: string;
   categories: EventCategory[];
   websiteUrl?: string;
+  /**
+   * A YouTube or Vimeo link (youtube.com/watch?v=…, youtu.be/…,
+   * youtube.com/shorts/…, vimeo.com/{digits}); only the provider and id are
+   * kept. Left out: unchanged on a resubmission; null or "" removes it.
+   */
+  featuredVideoUrl?: string | null;
 }
 
 /**
@@ -32,6 +38,8 @@ export interface OrganiserApplicationInput extends OrganiserSocialHandlesInput {
 export interface OrganiserProfileInput extends OrganiserSocialHandlesInput {
   description?: string;
   websiteUrl?: string | null;
+  /** As OrganiserApplicationInput.featuredVideoUrl. No review; logged for admins. */
+  featuredVideoUrl?: string | null;
 }
 
 export async function applyAsOrganiser(input: OrganiserApplicationInput, getToken: GetToken) {

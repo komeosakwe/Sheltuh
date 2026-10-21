@@ -166,6 +166,17 @@ profile. The server re-encodes it to a small square image and strips all
 metadata (camera and GPS location) before storing it. It is shown only to
 signed-in members, only for profiles that are visible, and falls back to
 initials otherwise. Reporting and blocking cover the photo.
+**Backend built (21 Oct 2026; migration `20261024000100_member_profiles.sql`,
+docs/architecture.md "Member profiles"):** opt-in visibility, bio and
+Instagram handle (`PATCH /profiles/me`), photo upload re-encoded with sharp
+to 512 px and 96 px WebP with all metadata stripped, `GET /profiles/{profileId}`
+and its photo behind the Who's Going gate (blocks both ways, suspensions,
+rate limit), `profileId` and thumbnail on the attendee list only for visible
+profiles, message/block/report by `profileId`, admin removal of photo, bio or
+handle (logged). **TODO (UI, not built):** the profile page, settings and
+upload, clickable names with thumbnails (photos need the bearer token:
+`fetchAvatar` in `lib/api/profiles.ts`), admin report and profile views.
+Privacy Policy wording is drafted in docs/architecture.md.
 
 ### Owner request (21 Oct 2026): organiser followers, events hosted, video
 
@@ -183,3 +194,18 @@ Manager design decisions:
   player only when clicked (no third-party cookies before, no autoplay). No
   self-hosted video, to keep hosting costs at zero. Reviewed with the rest of
   the profile; admins can remove it.
+
+**Backend built (21 Oct 2026; migration `20261024000200_organiser_follows.sql`,
+docs/architecture.md "Following organisers" and "Organiser profiles"):**
+follow and unfollow (`/organisers/{id}/follow`), `/me/following` and
+`/me/following/events`, `followerCount` (from 10) and `eventsHosted` on the
+public profile, the exact count in analytics, new-event emails through the
+outbox (first publish only, at most one a day per organiser, batched, 500 a
+day platform-wide, unsubscribe link and `List-Unsubscribe`), and the featured
+video (`featuredVideoUrl`, strictly parsed, provider and id stored; logged
+edits; admin removal). An approved organiser's video edit isn't reviewed
+(logged, like the rest of the profile). **TODO (UI, not built):** Follow
+button with the email choice, the home rail, the organiser page's video
+(click-to-load) and counts, the `/following/unsubscribe` page (the emailed
+links lead nowhere until it ships), the video field in the profile form, and
+the admin "remove video" action.

@@ -28,8 +28,8 @@ export function sniffImageType(bytes: Uint8Array): ImageType | null {
 
 const EDIT_LOCKED_MESSAGE = "This event can't be edited while it's pending review or published.";
 
-/** Reads a request body, returning null as soon as it exceeds `max` bytes. */
-async function readCapped(req: Request, max: number): Promise<Uint8Array | null> {
+/** Reads a request body, returning null as soon as it exceeds `max` bytes. Also used for profile photos (lib/server/avatar.ts). */
+export async function readCappedBytes(req: Request, max: number): Promise<Uint8Array | null> {
   if (!req.body) return new Uint8Array(0);
   const reader = req.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -65,7 +65,7 @@ export async function readEventImage(req: Request): Promise<{ bytes: Uint8Array;
   if (Number.isFinite(declared) && declared > MAX_EVENT_IMAGE_BYTES) throw tooLarge();
   // Read as a stream and stop at the cap, so a request with no Content-Length
   // (chunked) can't make the server buffer an arbitrarily large body first.
-  const bytes = await readCapped(req, MAX_EVENT_IMAGE_BYTES);
+  const bytes = await readCappedBytes(req, MAX_EVENT_IMAGE_BYTES);
   if (!bytes) throw tooLarge();
 
   const contentType = sniffImageType(bytes);

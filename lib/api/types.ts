@@ -1,6 +1,9 @@
 import type { TicketingMode } from "@/lib/ticketing";
 import type { EventCategory, FeePolicy } from "@/lib/types";
+import type { FeaturedVideo } from "./featured-video";
 import type { PublicEvent } from "./public-events";
+
+export type { FeaturedVideo, FeaturedVideoProvider } from "./featured-video";
 
 export type { TicketingMode } from "@/lib/ticketing";
 
@@ -29,6 +32,11 @@ export interface OrganiserRecord {
   updatedAt: string;
   stripeAccountId?: string;
   payoutsEnabled?: boolean;
+  /**
+   * The organiser's featured video (YouTube or Vimeo), stored as provider and
+   * id only. Unset when there's none. Public on their profile once approved.
+   */
+  featuredVideo?: FeaturedVideo;
 }
 
 /** A field an organiser-log entry can record a change to (`status` only for a takedown). */
@@ -40,6 +48,12 @@ export type OrganiserEditField =
   | "facebookPage"
   | "xHandle"
   | "status";
+
+/**
+ * Every field the organiser log can name: OrganiserEditField plus
+ * `featuredVideo`, whose values are "youtube:{id}" / "vimeo:{id}".
+ */
+export type OrganiserLogField = OrganiserEditField | "featuredVideo";
 
 /** One field's value before and after; null means it was (or became) unset. */
 export interface OrganiserEditChange {
@@ -56,9 +70,14 @@ export interface OrganiserEditEntry {
   kind: "profile_edit" | "suspended";
   at: string;
   /** Only the fields that changed. */
-  changes: Partial<Record<OrganiserEditField, OrganiserEditChange>>;
-  /** The admin's reason, for `suspended` only. */
+  changes: Partial<Record<OrganiserLogField, OrganiserEditChange>>;
+  /**
+   * The admin's reason: for `suspended`, and for a `profile_edit` made by an
+   * admin (`byStaff`, e.g. removing the featured video).
+   */
   reason?: string;
+  /** A `profile_edit` made by Sheltüh staff (an admin), not the organiser. */
+  byStaff?: boolean;
 }
 
 /** The admin queue's view of an organiser: the full record plus its newest log entries. */
@@ -97,6 +116,16 @@ export interface PublicOrganiserProfile {
   socialLinks: OrganiserSocialLinks;
   /** "YYYY-MM" (Melbourne): the month the organiser joined. */
   memberSince: string;
+  /** Always sent (null when there's none); optional so older fixtures stay valid. */
+  featuredVideo?: FeaturedVideo | null;
+  /**
+   * Members following the organiser, only once it's 10 or more
+   * (FOLLOWER_COUNT_THRESHOLD); null below that. Always sent; optional so
+   * older fixtures stay valid.
+   */
+  followerCount?: number | null;
+  /** Published events that have ended ("Events hosted"). Always sent; optional so older fixtures stay valid. */
+  eventsHosted?: number;
   /** Published events that haven't ended, soonest first. */
   upcomingEvents: PublicEvent[];
   /** Published events that have ended, most recent first. Together with upcomingEvents, at most 24. */
@@ -267,6 +296,8 @@ export interface AdminCreateOrganiserInput {
   tiktokHandle?: string | null;
   facebookPage?: string | null;
   xHandle?: string | null;
+  /** A YouTube or Vimeo link (see lib/api/featured-video.ts); null or "" for none. */
+  featuredVideoUrl?: string | null;
 }
 
 export interface Paginated<T> {
@@ -464,7 +495,7 @@ export interface AdminEmailJob {
 // Who's Going
 // ---------------------------------------------------------------------------
 
-/** The caller's own social profile (GET/PUT /api/profiles/me). */
+/** The caller's own social profile (GET/PUT/PATCH /api/profiles/me). */
 export interface ProfileRecord {
   /** 1–40 characters. Shown to other verified members on events you opt in to. */
   displayName: string;
@@ -475,6 +506,100 @@ export interface ProfileRecord {
   suspended: boolean;
   createdAt: string;
   updatedAt: string;
+  // The fields below are always sent; optional so older fixtures stay valid.
+  /** Opaque id of the member profile page (/members/{profileId}). New if the profile is deleted and recreated. */
+  profileId?: string;
+  /** Opted in to a member profile other verified members can open (default false). */
+  profileVisible?: boolean;
+  /** Up to 200 characters, plain text. */
+  bio?: string;
+  /** Instagram username, without '@'. */
+  instagramHandle?: string;
+  hasAvatar?: boolean;
+  /** The 512 px photo (needs the bearer token: fetch it, don't put it in an <img src>). Versioned. */
+  avatarUrl?: string;
+  /** The 96 px thumbnail. */
+  avatarThumbUrl?: string;
+}
+
+/**
+ * PATCH /api/profiles/me. Fields left out are unchanged; null or "" clears
+ * `bio` / `instagramHandle`. Needs a verified email and a profile.
+ */
+export interface ProfilePatchInput {
+  displayName?: string;
+  profileVisible?: boolean;
+  /** Up to 200 characters, plain text (links allowed). */
+  bio?: string | null;
+  /** Instagram username; a leading '@' is dropped. */
+  instagramHandle?: string | null;
+}
+
+/**
+ * GET /api/profiles/{profileId}: another member's profile, for verified
+ * members with a profile that isn't suspended. Never an email or user id.
+ */
+export interface MemberProfile {
+  profileId: string;
+  displayName: string;
+  bio?: string;
+  instagramHandle?: string;
+  /** https://www.instagram.com/{handle}/, built by the server. */
+  instagramUrl?: string;
+  hasAvatar: boolean;
+  /** Versioned; fetch with the bearer token. */
+  avatarUrl?: string;
+  avatarThumbUrl?: string;
+  /** It's the caller's own profile. */
+  isYou: boolean;
+  /**
+   * Events whose Who's Going the member has opted in to that are still open
+   * (published, not ended), soonest first, at most 24.
+   */
+  upcomingEvents: PublicEvent[];
+  /**
+   * A first message can be sent now (POST /api/conversations {profileId,
+   * body}): both opted in to the same open event, and no conversation
+   * between them ever. Doesn't account for rate limits.
+   */
+  canMessage: boolean;
+  /** Their existing conversation, when the caller can see it. */
+  conversationId?: string;
+}
+
+/** What an admin can remove from a member profile. */
+export type ProfileContentField = "avatar" | "bio" | "instagram";
+
+/** POST /api/admin/profiles/{profileId}/remove-content. */
+export interface RemoveProfileContentInput {
+  fields: ProfileContentField[];
+  /** 1–500 characters. Logged (never the content removed). */
+  reason: string;
+}
+
+export interface ProfileModerationEntry {
+  removed: ProfileContentField[];
+  reason: string;
+  at: string;
+  /** The admin's account id; unset if that account was deleted. */
+  by?: string;
+}
+
+/** GET /api/admin/profiles/{profileId} (and the remove-content response). Admin only. */
+export interface AdminMemberProfile {
+  profileId: string;
+  displayName: string;
+  profileVisible: boolean;
+  bio?: string;
+  instagramHandle?: string;
+  hasAvatar: boolean;
+  /** Admins may fetch it whatever the profile's visibility. */
+  avatarUrl?: string;
+  suspended: boolean;
+  /** Newest first, at most 20. */
+  moderationLog: ProfileModerationEntry[];
+  /** Set by remove-content: what that request removed (empty: nothing was there). */
+  removed?: ProfileContentField[];
 }
 
 export interface ProfileInput {
@@ -504,6 +629,15 @@ export interface GoingAttendee {
   displayName: string;
   /** This entry is the caller. */
   isYou: boolean;
+  /**
+   * Their member profile (GET /api/profiles/{profileId}), only when they've
+   * made it visible. Absent: show the name as plain text.
+   */
+  profileId?: string;
+  /** Always sent; true only with a profileId and a photo. Optional so older fixtures stay valid. */
+  hasAvatar?: boolean;
+  /** The 96 px photo when hasAvatar (fetch with the bearer token); otherwise show initials. */
+  avatarThumbUrl?: string;
 }
 
 /** GET/PUT/DELETE /api/events/{eventId}/going/me. */
@@ -576,6 +710,16 @@ export interface StartConversationInput {
   body: string;
 }
 
+/**
+ * POST /api/conversations by member profile: the same rules (both opted in to
+ * the same open event); the server picks that event.
+ */
+export interface StartConversationByProfileInput {
+  profileId: string;
+  /** 1–1000 characters, plain text, no links. */
+  body: string;
+}
+
 /** POST /api/conversations/{conversationId}/messages. */
 export interface SendMessageInput {
   /** 1–1000 characters, plain text. */
@@ -587,8 +731,8 @@ export interface UnreadCount {
   count: number;
 }
 
-/** POST /api/blocks: exactly one of the two. */
-export type BlockInput = { conversationId: string } | { attendeeId: string };
+/** POST /api/blocks: exactly one of these. */
+export type BlockInput = { conversationId: string } | { attendeeId: string } | { profileId: string };
 
 /** GET/POST /api/blocks. */
 export interface BlockRecord {
@@ -613,6 +757,8 @@ export type ReportReason = "harassment" | "spam" | "inappropriate" | "impersonat
 export interface ReportInput {
   conversationId?: string;
   attendeeId?: string;
+  /** A member profile (its bio, Instagram handle or photo); exactly one of the three ids. */
+  profileId?: string;
   messageId?: string;
   reason: ReportReason;
   /** Optional, up to 1000 characters. */
@@ -646,6 +792,15 @@ export interface AdminReport {
   context: { from: "reporter" | "reported"; body: string; sentAt: string }[];
   resolvedAt?: string;
   resolutionNote?: string;
+  /** What was reported. Always sent; optional so older fixtures stay valid. */
+  targetType?: "conversation" | "attendee" | "profile";
+  /** The reported member's current profile, if they still have one (for GET/remove-content). */
+  reportedProfileId?: string;
+  /** Profile reports: copies of the bio and Instagram handle when reported. */
+  reportedBio?: string;
+  reportedInstagramHandle?: string;
+  /** Profile reports with a photo: the copy taken when reported (admin only; fetch with the bearer token). */
+  reportedAvatarUrl?: string;
 }
 
 /** POST /api/admin/reports/{reportId}/resolve. `suspend` also suspends the reported member. */
@@ -933,6 +1088,11 @@ export interface AnalyticsOverview {
    * event. Always sent by the API; optional so older fixtures stay valid.
    */
   outboundClicks?: (OutboundClickStats & { previous?: OutboundClickStats }) | null;
+  /**
+   * Members following the organiser now: the exact number (the public
+   * profile only shows it from 10). Always sent; optional so older fixtures stay valid.
+   */
+  followerCount?: number;
 }
 
 /** Optional query for the analytics routes. Defaults: an event's whole life (capped), or the last 30 days. */
@@ -1077,4 +1237,36 @@ export interface CheckInSummary {
   byTicketType: { ticketTypeId: string; name: string; checkedIn: number; ticketsSold: number; capacity: number }[];
   /** The newest 20 log entries. */
   recent: CheckInLogEntry[];
+}
+
+// ---------------------------------------------------------------------------
+// Following organisers
+// ---------------------------------------------------------------------------
+
+/** GET/POST /api/organisers/{organiserId}/follow (the caller's own follow). */
+export interface FollowStatus {
+  following: boolean;
+  /** Emailed when the organiser publishes a new event (at most one email a day per organiser). False when not following. */
+  notifyNewEvents: boolean;
+}
+
+/** POST /api/organisers/{organiserId}/follow. */
+export interface FollowInput {
+  /** Chosen when following (default true); sending it again changes it. */
+  notifyNewEvents?: boolean;
+}
+
+/** One entry of GET /api/me/following. */
+export interface FollowedOrganiser {
+  organiserId: string;
+  displayName: string;
+  notifyNewEvents: boolean;
+  followedAt: string;
+}
+
+/** POST /api/follows/unsubscribe {token}: the emailed link's token is the credential. */
+export interface UnsubscribeFollowResult {
+  status: "unsubscribed";
+  /** Still following: only the emails stop. */
+  organiserName?: string;
 }

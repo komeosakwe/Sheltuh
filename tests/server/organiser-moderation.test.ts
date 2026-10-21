@@ -529,7 +529,8 @@ describe("the profile edit log", () => {
     await expect(insert("other", change, null)).rejects.toThrow(/check constraint|violates/i);
     await expect(insert("profile_edit", "{}", null)).rejects.toThrow(/check constraint|violates/i);
     await expect(insert("profile_edit", "[]", null)).rejects.toThrow(/check constraint|violates/i);
-    await expect(insert("profile_edit", change, "a reason")).rejects.toThrow(/check constraint|violates/i);
+    // A profile edit may carry a reason: an admin's (e.g. removing the featured video).
+    await insert("profile_edit", change, "a reason");
     await expect(insert("suspended", change, null)).rejects.toThrow(/check constraint|violates/i);
     await expect(insert("suspended", change, "a".repeat(501))).rejects.toThrow(/check constraint|violates/i);
     await insert("suspended", change, "ok");

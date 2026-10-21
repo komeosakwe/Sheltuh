@@ -124,14 +124,20 @@ export function parseMessageId(value: unknown, field: string): string | undefine
 
 export const MEMBER_UNAVAILABLE = "This member isn't available to message.";
 
-/** POST /api/conversations body. */
-export function parseStartConversation(body: Record<string, unknown>): { attendeeId: string; body: string } {
+const given = (value: unknown) => value !== undefined && value !== null;
+
+/** POST /api/conversations body: {attendeeId, body} or {profileId, body}. */
+export function parseStartConversation(
+  body: Record<string, unknown>,
+): { attendeeId: string; profileId?: undefined; body: string } | { attendeeId?: undefined; profileId: string; body: string } {
   const errors: Record<string, string> = {};
-  if (body.attendeeId === undefined || body.attendeeId === null) errors.attendeeId = "Choose who to message.";
+  if (!given(body.attendeeId) && !given(body.profileId)) errors.attendeeId = "Choose who to message.";
+  if (given(body.attendeeId) && given(body.profileId)) errors.attendeeId = "Give attendeeId or profileId, not both.";
   const attendeeId = optionalId(body.attendeeId, "attendeeId", errors, MEMBER_UNAVAILABLE);
+  const profileId = optionalId(body.profileId, "profileId", errors, MEMBER_UNAVAILABLE);
   const text = parseMessageText(body.body, "body", errors, { allowLinks: false });
   if (Object.keys(errors).length > 0) fail(errors);
-  return { attendeeId: attendeeId as string, body: text };
+  return attendeeId ? { attendeeId, body: text } : { profileId: profileId as string, body: text };
 }
 
 /** POST /api/conversations/{id}/messages body. */
@@ -142,17 +148,18 @@ export function parseSendMessage(body: Record<string, unknown>): { body: string 
   return { body: text };
 }
 
-/** Exactly one of conversationId / attendeeId (POST /api/blocks, POST /api/reports). */
+/** Exactly one of conversationId / attendeeId / profileId (POST /api/blocks, POST /api/reports). */
 export function parseTarget(
   body: Record<string, unknown>,
   notFound: string,
   errors: Record<string, string>,
-): { conversationId?: string; attendeeId?: string } {
+): { conversationId?: string; attendeeId?: string; profileId?: string } {
   const conversationId = optionalId(body.conversationId, "conversationId", errors, notFound);
   const attendeeId = optionalId(body.attendeeId, "attendeeId", errors, notFound);
-  const given = [body.conversationId, body.attendeeId].filter((v) => v !== undefined && v !== null).length;
-  if (given !== 1) errors.conversationId = "Give exactly one of conversationId or attendeeId.";
-  return { conversationId, attendeeId };
+  const profileId = optionalId(body.profileId, "profileId", errors, notFound);
+  const count = [body.conversationId, body.attendeeId, body.profileId].filter(given).length;
+  if (count !== 1) errors.conversationId = "Give exactly one of conversationId, attendeeId or profileId.";
+  return { conversationId, attendeeId, profileId };
 }
 
 /** POST /api/reports body. */

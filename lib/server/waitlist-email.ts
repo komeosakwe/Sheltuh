@@ -19,12 +19,12 @@ import type { EventRecord } from "./types";
 
 const CREAM = "#fffae7";
 const CARD = "#ffffff";
-const INK = "#000000";
-const MUTED = "#6b675e";
+export const INK = "#000000";
+export const MUTED = "#6b675e";
 const SIGNAL = "#ff4800";
 const SANS = `'Instrument Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif`;
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
@@ -48,15 +48,16 @@ export function waitlistEventLink(siteUrl: string, slug: string): string {
   return `${publicEventUrl(slug, siteUrl)}#tickets`;
 }
 
-function when(event: EventRecord): string {
+export function when(event: EventRecord): string {
   return `${formatTicketDate(event.startsAt, event.endsAt)}, ${formatTicketTime(event.startsAt, event.endsAt)}`;
 }
 
-function where(event: EventRecord): string {
+export function where(event: EventRecord): string {
   return [event.venueName, event.suburb].filter(Boolean).join(", ");
 }
 
-function button(label: string, href: string): string {
+/** The one call-to-action (Signal Orange fill, black text). Shared with lib/server/follower-email.ts. */
+export function button(label: string, href: string): string {
   return (
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0"><tr>` +
     `<td bgcolor="${SIGNAL}" style="background-color:${SIGNAL};border:1px solid ${INK};border-radius:8px">` +
@@ -65,7 +66,8 @@ function button(label: string, href: string): string {
   );
 }
 
-function page(title: string, body: string, footer: string): string {
+/** The brand email page (cream, one white card). Shared with lib/server/follower-email.ts. */
+export function page(title: string, body: string, footer: string): string {
   return `<!DOCTYPE html>
 <html lang="en-AU">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title></head>
@@ -88,7 +90,7 @@ function eventBlock(event: EventRecord): string {
   );
 }
 
-const supportFooter = `Need help? Email <a href="mailto:${escapeHtml(SUPPORT_EMAIL)}" style="color:${MUTED}">${escapeHtml(SUPPORT_EMAIL)}</a><br>Sheltüh &middot; Melbourne`;
+export const supportFooter = `Need help? Email <a href="mailto:${escapeHtml(SUPPORT_EMAIL)}" style="color:${MUTED}">${escapeHtml(SUPPORT_EMAIL)}</a><br>Sheltüh &middot; Melbourne`;
 
 /** A guest's confirm-to-join email. Nothing is added to the list until the link's page is confirmed. */
 export function buildWaitlistConfirmationEmail(

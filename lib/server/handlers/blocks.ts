@@ -38,16 +38,18 @@ export const listBlocks: Handler = async (req, _params, { db, verifyAccessToken 
 };
 
 /**
- * POST /api/blocks {conversationId} | {attendeeId} — blocks the other member
- * of a conversation the caller can currently see (or a request they
- * declined), or the member behind an attendeeId on a Who's Going list they
- * may currently view. Anything else is a 404, including a member already
- * blocked either way (they're hidden from the caller already), so blocking
- * can't be used to tell whether two attendeeIds are the same person. Always
- * 201 with the block when it succeeds, including when the caller already had
- * it (e.g. a double submit). Rate-limited (429). Signed in is enough:
- * protecting yourself is never gated on verification. Atomic in
- * private.create_block.
+ * POST /api/blocks {conversationId} | {attendeeId} | {profileId} — blocks the
+ * other member of a conversation the caller can currently see (or a request
+ * they declined), the member behind an attendeeId on a Who's Going list they
+ * may currently view, or the member behind a profile they may currently see
+ * (private.member_profile_visible; a verified email too). Anything else is a
+ * 404, including a member already blocked either way (they're hidden from
+ * the caller already), so blocking can't be used to tell whether two
+ * attendeeIds are the same person. Always 201 with the block when it
+ * succeeds, including when the caller already had it (e.g. a double submit).
+ * Rate-limited (429). Signed in is enough: protecting yourself is never gated
+ * on verification (except by profileId, which only verified members see).
+ * Atomic in private.create_block / private.create_block_by_profile.
  */
 export const createBlock: Handler = async (req, _params, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
@@ -55,18 +57,31 @@ export const createBlock: Handler = async (req, _params, { db, verifyAccessToken
   const target = parseTarget(await readJson(req), NOT_FOUND, errors);
   if (Object.keys(errors).length > 0) fail(errors);
 
-  const [row] = await db.query<{
+  type BlockRow = {
     result: string;
     block_id: string | null;
     block_name: string | null;
     block_created_at: string | Date | null;
-  }>(`select * from private.create_block($1, $2, $3, $4, $5::interval)`, [
-    caller.userId,
-    target.conversationId ?? null,
-    target.attendeeId ?? null,
-    BLOCK_RATE_LIMIT.hits,
-    BLOCK_RATE_LIMIT.window,
-  ]);
+  };
+  let row: BlockRow;
+  if (target.profileId) {
+    // Only a verified member can see profiles; anyone else can't block from one.
+    if (!caller.emailVerified) throw new HttpError(404, NOT_FOUND);
+    [row] = await db.query<BlockRow>(`select * from private.create_block_by_profile($1, $2, $3, $4::interval)`, [
+      caller.userId,
+      target.profileId,
+      BLOCK_RATE_LIMIT.hits,
+      BLOCK_RATE_LIMIT.window,
+    ]);
+  } else {
+    [row] = await db.query<BlockRow>(`select * from private.create_block($1, $2, $3, $4, $5::interval)`, [
+      caller.userId,
+      target.conversationId ?? null,
+      target.attendeeId ?? null,
+      BLOCK_RATE_LIMIT.hits,
+      BLOCK_RATE_LIMIT.window,
+    ]);
+  }
   switch (row.result) {
     case "blocked":
       return createdPrivate(

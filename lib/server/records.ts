@@ -6,6 +6,7 @@
 import type { Db } from "./db";
 import type {
   AdminEmailJob,
+  AdminMemberProfile,
   AdminEventRecord,
   AdminOrganiserRecord,
   AdminReport,
@@ -15,12 +16,14 @@ import type {
   EventRecord,
   GoingAttendee,
   IssuedTicket,
+  MemberProfile,
   MessageRecord,
   ModerationLogEntry,
   OrderRecord,
   OrganiserEditEntry,
-  OrganiserEditField,
+  OrganiserLogField,
   OrganiserRecord,
+  ProfileContentField,
   ProfileRecord,
   PublicEvent,
   PublicOrganiserProfile,
@@ -28,6 +31,7 @@ import type {
 } from "./types";
 import { REMAINING_SHOWN_AT_MOST, type PublicTicketType } from "@/lib/api/public-events";
 import { SHELTUH_TEAM_ACTOR } from "@/lib/api/types";
+import { isFeaturedVideo, type FeaturedVideo } from "@/lib/api/featured-video";
 import { ticketProviderName, type TicketingMode } from "@/lib/ticketing";
 import { maskEmail } from "./email-address";
 import { orderReference } from "./order-reference";
@@ -51,7 +55,7 @@ const ORGANISER_COLUMNS = `o.id, o.owner_user_id, o.display_name, o.contact_emai
          o.categories::text[] as categories, o.website_url,
          o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle, o.status::text as status,
          o.rejection_reason, o.reviewed_by, o.reviewed_at, o.stripe_account_id,
-         o.payouts_enabled, o.created_at, o.updated_at`;
+         o.payouts_enabled, o.created_at, o.updated_at, o.featured_video_provider, o.featured_video_id`;
 
 export const ORGANISER_SELECT = `
   select ${ORGANISER_COLUMNS}
@@ -70,8 +74,10 @@ export const ADMIN_ORGANISER_SELECT = `
   select ${ORGANISER_COLUMNS},
          coalesce((
            select json_agg(json_build_object('kind', x.kind, 'at', x.edited_at, 'changes', x.changed_fields,
-                                             'reason', x.reason) order by x.id desc)
-           from (select pe.id, pe.kind, pe.edited_at, pe.changed_fields, pe.reason
+                                             'reason', x.reason, 'staff', x.staff) order by x.id desc)
+           from (select pe.id, pe.kind, pe.edited_at, pe.changed_fields, pe.reason,
+                        -- Made by someone other than the organiser's own account: an admin.
+                        pe.actor_id is distinct from o.owner_user_id as staff
                    from private.organiser_profile_edits pe
                   where pe.organiser_id = o.id
                   order by pe.id desc
@@ -80,13 +86,14 @@ export const ADMIN_ORGANISER_SELECT = `
   from public.organisers o`;
 
 /** organisers column → API field, for the log's changed_fields keys. */
-const EDIT_FIELDS: Record<string, OrganiserEditField> = {
+const EDIT_FIELDS: Record<string, OrganiserLogField> = {
   description: "description",
   website_url: "websiteUrl",
   instagram_handle: "instagramHandle",
   tiktok_handle: "tiktokHandle",
   facebook_page: "facebookPage",
   x_handle: "xHandle",
+  featured_video: "featuredVideo",
   status: "status",
 };
 
@@ -99,13 +106,27 @@ function toOrganiserEdit(entry: {
   at: string;
   changes: Record<string, { old?: unknown; new?: unknown }>;
   reason: string | null;
+  staff?: boolean;
 }): OrganiserEditEntry {
   const changes: OrganiserEditEntry["changes"] = {};
   for (const [column, change] of Object.entries(entry.changes)) {
     const field = EDIT_FIELDS[column];
     if (field) changes[field] = { old: toEditValue(change.old), new: toEditValue(change.new) };
   }
-  return { kind: entry.kind, at: iso(entry.at), changes, reason: opt(entry.reason) };
+  return {
+    kind: entry.kind,
+    at: iso(entry.at),
+    changes,
+    reason: opt(entry.reason),
+    // A takedown is always an admin's; only an edit needs saying who made it.
+    ...(entry.kind === "profile_edit" && entry.staff === true ? { byStaff: true } : {}),
+  };
+}
+
+/** The stored featured video (organisers.featured_video_provider / _id), or undefined. */
+function featuredVideoOf(row: Row): FeaturedVideo | undefined {
+  const video = { provider: row.featured_video_provider, id: row.featured_video_id };
+  return isFeaturedVideo(video) ? video : undefined;
 }
 
 /** For rows of ADMIN_ORGANISER_SELECT. */
@@ -135,6 +156,7 @@ export function toOrganiser(row: Row): OrganiserRecord {
     payoutsEnabled: row.payouts_enabled as boolean,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
+    featuredVideo: featuredVideoOf(row),
   };
 }
 
@@ -154,8 +176,19 @@ export function toOwnOrganiserView(record: OrganiserRecord): OrganiserRecord {
 const PUBLIC_ORGANISER_SELECT = `
   select o.id, o.display_name, o.description, o.categories::text[] as categories, o.website_url,
          o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle,
-         to_char(o.created_at at time zone 'Australia/Melbourne', 'YYYY-MM') as member_since
+         o.featured_video_provider, o.featured_video_id,
+         to_char(o.created_at at time zone 'Australia/Melbourne', 'YYYY-MM') as member_since,
+         -- organiser_follows_organiser_idx; only shown from FOLLOWER_COUNT_THRESHOLD.
+         (select count(*)::int from public.organiser_follows f where f.organiser_id = o.id) as follower_count,
+         (select count(*)::int from public.events e
+           where e.organiser_id = o.id and e.status = 'published' and e.ends_at <= now()) as events_hosted
   from public.organisers o`;
+
+/**
+ * Below this many followers the public profile shows no count (null), like
+ * Who's Going's small numbers: a handful of followers is easy to tie to people.
+ */
+export const FOLLOWER_COUNT_THRESHOLD = 10;
 
 /** The public columns of an approved organiser (for toPublicOrganiserProfile); undefined for anything else. */
 export async function findPublicOrganiserRow(db: Db, organiserId: string): Promise<Row | undefined> {
@@ -181,6 +214,9 @@ export function toPublicOrganiserProfile(
       xHandle: opt(row.x_handle),
     }),
     memberSince: row.member_since as string,
+    featuredVideo: featuredVideoOf(row) ?? null,
+    followerCount: (row.follower_count as number) >= FOLLOWER_COUNT_THRESHOLD ? (row.follower_count as number) : null,
+    eventsHosted: row.events_hosted as number,
     upcomingEvents,
     recentEvents,
   };
@@ -519,24 +555,122 @@ export function toAdminEmailJob(row: Row): AdminEmailJob {
  * public.profiles … returning`. Suspension lives in private.social_suspensions
  * (profiles.social_suspended_at is deprecated and ignored).
  */
-export const PROFILE_COLUMNS = `display_name, created_at, updated_at,
-  exists (select 1 from private.social_suspensions s where s.user_id = profiles.user_id) as suspended`;
+export const PROFILE_COLUMNS = `display_name, created_at, updated_at, public_id, profile_visible, bio, instagram_handle,
+  exists (select 1 from private.social_suspensions s where s.user_id = profiles.user_id) as suspended,
+  ${avatarVersionOf("profiles.user_id")} as avatar_version`;
+
+/**
+ * SQL: the photo's version for the member `userIdSql` (milliseconds since
+ * the epoch of its last change, as text), or null with no photo. It goes in
+ * the photo's URL, so a new photo is a new URL.
+ */
+export function avatarVersionOf(userIdSql: string): string {
+  return `(select floor(extract(epoch from av.updated_at) * 1000)::bigint::text
+             from private.profile_avatars av where av.user_id = ${userIdSql})`;
+}
+
+/** A member photo's URLs (the route checks who may see it on every request). */
+export function avatarUrls(profileId: string, version: string): { avatarUrl: string; avatarThumbUrl: string } {
+  const base = `/api/profiles/${profileId}/avatar`;
+  const v = encodeURIComponent(version);
+  return { avatarUrl: `${base}?v=${v}`, avatarThumbUrl: `${base}?size=thumb&v=${v}` };
+}
 
 export function toProfile(row: Row): ProfileRecord {
+  const profileId = row.public_id as string;
+  const version = opt<string>(row.avatar_version);
   return {
     displayName: row.display_name as string,
     suspended: row.suspended === true,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
+    profileId,
+    profileVisible: row.profile_visible === true,
+    bio: opt(row.bio),
+    instagramHandle: opt(row.instagram_handle),
+    hasAvatar: version !== undefined,
+    ...(version !== undefined ? avatarUrls(profileId, version) : {}),
   };
 }
 
-/** Only ever the opaque per-event id and the display name: never a user id, email or ticket. */
+/**
+ * Only ever the opaque per-event id and the display name, plus the member's
+ * profile id and photo when (and only when) their profile is visible: never a
+ * user id, email or ticket. `profile_id` and `avatar_version` must already be
+ * null for a profile that isn't visible (going.ts).
+ */
 export function toGoingAttendee(row: Row): GoingAttendee {
+  const profileId = opt<string>(row.profile_id);
+  const version = profileId ? opt<string>(row.avatar_version) : undefined;
   return {
     attendeeId: row.id as string,
     displayName: row.display_name as string,
     isYou: row.is_you === true,
+    ...(profileId ? { profileId } : {}),
+    hasAvatar: version !== undefined,
+    ...(profileId && version !== undefined ? { avatarThumbUrl: avatarUrls(profileId, version).avatarThumbUrl } : {}),
+  };
+}
+
+/**
+ * Another member's profile (GET /api/profiles/{profileId}). `row` holds the
+ * profile's public columns only (going.ts / profiles.ts read nothing else).
+ */
+export function toMemberProfile(
+  row: Row,
+  upcomingEvents: PublicEvent[],
+  messaging: { canMessage: boolean; conversationId?: string },
+): MemberProfile {
+  const profileId = row.public_id as string;
+  const version = opt<string>(row.avatar_version);
+  const handle = opt<string>(row.instagram_handle);
+  return {
+    profileId,
+    displayName: row.display_name as string,
+    bio: opt(row.bio),
+    instagramHandle: handle,
+    instagramUrl: handle ? socialLinks({ instagramHandle: handle }).instagram : undefined,
+    hasAvatar: version !== undefined,
+    ...(version !== undefined ? avatarUrls(profileId, version) : {}),
+    isYou: row.is_you === true,
+    upcomingEvents,
+    canMessage: messaging.canMessage,
+    ...(messaging.conversationId ? { conversationId: messaging.conversationId } : {}),
+  };
+}
+
+/** For `select … from public.profiles p` (admin only): the profile, its photo and newest moderation entries. */
+export const ADMIN_PROFILE_SELECT = `
+  select p.public_id, p.display_name, p.profile_visible, p.bio, p.instagram_handle,
+         ${avatarVersionOf("p.user_id")} as avatar_version,
+         exists (select 1 from private.social_suspensions s where s.user_id = p.user_id) as suspended,
+         coalesce((
+           select json_agg(json_build_object('removed', l.removed, 'reason', l.reason, 'at', l.created_at,
+                                             'by', l.admin_id) order by l.id desc)
+             from (select * from private.profile_moderation_log l
+                    where l.user_id = p.user_id order by l.id desc limit 20) l
+         ), '[]'::json) as moderation_log
+    from public.profiles p`;
+
+export function toAdminMemberProfile(row: Row): AdminMemberProfile {
+  const profileId = row.public_id as string;
+  const version = opt<string>(row.avatar_version);
+  const log = row.moderation_log as { removed: ProfileContentField[]; reason: string; at: string; by: string | null }[];
+  return {
+    profileId,
+    displayName: row.display_name as string,
+    profileVisible: row.profile_visible === true,
+    bio: opt(row.bio),
+    instagramHandle: opt(row.instagram_handle),
+    hasAvatar: version !== undefined,
+    ...(version !== undefined ? { avatarUrl: avatarUrls(profileId, version).avatarUrl } : {}),
+    suspended: row.suspended === true,
+    moderationLog: log.map((entry) => ({
+      removed: entry.removed,
+      reason: entry.reason,
+      at: iso(entry.at),
+      ...(entry.by ? { by: entry.by } : {}),
+    })),
   };
 }
 
@@ -629,7 +763,9 @@ export const ADMIN_REPORT_SELECT = `
   select r.id, r.status, r.reason, r.details, r.created_at, r.reported_display_name,
          r.reported_user_id is not null as reported_account_exists,
          exists (select 1 from private.social_suspensions s where s.user_id = r.reported_user_id) as reported_suspended,
-         e.title as event_title, r.message_body, r.context, r.resolved_at, r.resolution_note
+         e.title as event_title, r.message_body, r.context, r.resolved_at, r.resolution_note,
+         r.target_type, r.reported_bio, r.reported_instagram, r.reported_avatar is not null as has_reported_avatar,
+         (select p.public_id from public.profiles p where p.user_id = r.reported_user_id) as reported_profile_id
     from private.user_reports r
     left join public.events e on e.id = r.event_id`;
 
@@ -649,5 +785,10 @@ export function toAdminReport(row: Row): AdminReport {
     context: context.map((m) => ({ from: m.from, body: m.body, sentAt: iso(m.sentAt) })),
     resolvedAt: row.resolved_at ? iso(row.resolved_at) : undefined,
     resolutionNote: opt(row.resolution_note),
+    targetType: row.target_type as AdminReport["targetType"],
+    reportedProfileId: opt(row.reported_profile_id),
+    reportedBio: opt(row.reported_bio),
+    reportedInstagramHandle: opt(row.reported_instagram),
+    ...(row.has_reported_avatar === true ? { reportedAvatarUrl: `/api/admin/reports/${row.id as string}/avatar` } : {}),
   };
 }

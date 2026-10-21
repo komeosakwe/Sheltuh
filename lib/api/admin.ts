@@ -3,6 +3,7 @@ import type { EventInput } from "./events";
 import type {
   AdminCreateOrganiserInput,
   AdminEmailJob,
+  AdminMemberProfile,
   AdminEventRecord,
   AdminOrganiserRecord,
   AdminReport,
@@ -12,6 +13,7 @@ import type {
   EventStatus,
   OrganiserStatus,
   Paginated,
+  RemoveProfileContentInput,
   ReportStatus,
   ResolveReportInput,
   SuspendOrganiserResult,
@@ -246,4 +248,37 @@ export async function adminListEmailJobs(status: EmailJobStatus, getToken: GetTo
 export async function adminResendEmailJob(jobId: string, getToken: GetToken) {
   const token = await getToken();
   return apiFetch<AdminEmailJob>(`/admin/emails/${encodeURIComponent(jobId)}/resend`, { method: "POST", token });
+}
+
+/**
+ * Removes an organiser's featured video, with a reason (logged on their
+ * organiser log as an edit by the Sheltüh team). ApiError 400 (reason), 404.
+ */
+export async function adminRemoveFeaturedVideo(organiserId: string, reason: string, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminOrganiserRecord>(`/admin/organisers/${encodeURIComponent(organiserId)}/remove-video`, {
+    method: "POST",
+    body: { reason },
+    token,
+  });
+}
+
+/** A member profile whatever its visibility, with its moderation log (AdminReport.reportedProfileId). */
+export async function adminGetMemberProfile(profileId: string, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminMemberProfile>(`/admin/profiles/${encodeURIComponent(profileId)}`, { token });
+}
+
+/**
+ * Removes a member's photo, bio and/or Instagram handle, with a reason
+ * (logged; the content isn't kept). `removed` says what was there to remove.
+ * ApiError 400, 404.
+ */
+export async function adminRemoveProfileContent(profileId: string, input: RemoveProfileContentInput, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminMemberProfile>(`/admin/profiles/${encodeURIComponent(profileId)}/remove-content`, {
+    method: "POST",
+    body: input,
+    token,
+  });
 }

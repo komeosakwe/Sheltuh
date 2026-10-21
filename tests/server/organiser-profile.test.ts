@@ -353,6 +353,9 @@ describe("GET /organisers/{organiserId}/profile", () => {
       "categories",
       "description",
       "displayName",
+      "eventsHosted",
+      "featuredVideo",
+      "followerCount",
       "memberSince",
       "organiserId",
       "recentEvents",
@@ -361,6 +364,9 @@ describe("GET /organisers/{organiserId}/profile", () => {
       "websiteUrl",
     ]);
     expect(res.body).toMatchObject({
+      featuredVideo: null,
+      followerCount: null,
+      eventsHosted: 0,
       organiserId: organiser.organiserId,
       displayName: application.displayName,
       description: application.description,

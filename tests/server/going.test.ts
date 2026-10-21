@@ -416,7 +416,9 @@ describe("attendee list", () => {
       ["Grace", true],
     ]);
     for (const item of res.body.items) {
-      expect(Object.keys(item).sort()).toEqual(["attendeeId", "displayName", "isYou"]);
+      // No profile id or photo: none of them made their member profile visible.
+      expect(Object.keys(item).sort()).toEqual(["attendeeId", "displayName", "hasAvatar", "isYou"]);
+      expect(item.hasAvatar).toBe(false);
     }
     const raw = JSON.stringify(res.body);
     for (const m of [first, hidden, third]) {

@@ -17,21 +17,35 @@ import type { ReportReceipt, ReportStatus } from "../types";
 /** Reports per member per window: plenty for real problems, too few to flood the queue. */
 export const REPORT_RATE_LIMIT = { hits: 20, window: "24 hours" } as const;
 
-const NOT_FOUND = "We couldn't find that conversation, message or member.";
+const NOT_FOUND = "We couldn't find that conversation, message, member or profile.";
 const REPORT_NOT_FOUND = "Report not found.";
 const REPORT_STATUSES: ReportStatus[] = ["open", "actioned", "dismissed"];
 
 /**
- * POST /api/reports {conversationId, messageId?} | {attendeeId}, {reason, details?}.
- * Signed in is enough: reporting is never gated on verification.
+ * POST /api/reports {conversationId, messageId?} | {attendeeId} | {profileId},
+ * {reason, details?}. Signed in is enough: reporting is never gated on
+ * verification (a profileId is only ever shown to verified members, so it
+ * needs one). A profile report copies the bio, Instagram handle and photo.
  */
 export const createReport: Handler = async (req, _params, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
   const input = parseReport(await readJson(req), NOT_FOUND);
 
-  const [row] = await db.query<{ result: string; new_report_id: string | null; filed_at: string | Date | null }>(
-    `select * from private.file_report($1, $2, $3, $4::bigint, $5, $6, $7, $8::interval)`,
-    [
+  type ReportRow = { result: string; new_report_id: string | null; filed_at: string | Date | null };
+  let row: ReportRow;
+  if (input.profileId) {
+    // Profile ids are only ever shown to verified members.
+    if (!caller.emailVerified) throw new HttpError(404, NOT_FOUND);
+    [row] = await db.query<ReportRow>(`select * from private.file_profile_report($1, $2, $3, $4, $5, $6::interval)`, [
+      caller.userId,
+      input.profileId,
+      input.reason,
+      input.details ?? null,
+      REPORT_RATE_LIMIT.hits,
+      REPORT_RATE_LIMIT.window,
+    ]);
+  } else {
+    [row] = await db.query<ReportRow>(`select * from private.file_report($1, $2, $3, $4::bigint, $5, $6, $7, $8::interval)`, [
       caller.userId,
       input.conversationId ?? null,
       input.attendeeId ?? null,
@@ -40,8 +54,8 @@ export const createReport: Handler = async (req, _params, { db, verifyAccessToke
       input.details ?? null,
       REPORT_RATE_LIMIT.hits,
       REPORT_RATE_LIMIT.window,
-    ],
-  );
+    ]);
+  }
   switch (row.result) {
     case "filed":
       break;
@@ -104,4 +118,26 @@ export const adminResolveReport: Handler<{ reportId: string }> = async (
 
   const [row] = await db.query(`${ADMIN_REPORT_SELECT} where r.id = $1`, [reportId]);
   return okPrivate(toAdminReport(row));
+};
+
+/**
+ * GET /api/admin/reports/[reportId]/avatar — admin: the copy of the photo a
+ * profile report took (it outlives the member's photo). Never cached.
+ */
+export const adminGetReportAvatar: Handler<{ reportId: string }> = async (req, { reportId }, { db, verifyAccessToken }) => {
+  await requireAdmin(req, verifyAccessToken);
+  if (!isUuid(reportId)) throw new HttpError(404, REPORT_NOT_FOUND);
+  const [row] = await db.query<{ data: Uint8Array }>(
+    `select r.reported_avatar as data from private.user_reports r where r.id = $1 and r.reported_avatar is not null`,
+    [reportId],
+  );
+  if (!row) throw new HttpError(404, "No photo on this report.");
+  return new Response(new Uint8Array(row.data), {
+    headers: {
+      "content-type": "image/webp",
+      "x-content-type-options": "nosniff",
+      "cache-control": "private, no-store",
+      "cross-origin-resource-policy": "same-origin",
+    },
+  });
 };
