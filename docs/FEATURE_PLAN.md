@@ -166,3 +166,20 @@ profile. The server re-encodes it to a small square image and strips all
 metadata (camera and GPS location) before storing it. It is shown only to
 signed-in members, only for profiles that are visible, and falls back to
 initials otherwise. Reporting and blocking cover the photo.
+
+### Owner request (21 Oct 2026): organiser followers, events hosted, video
+
+Manager design decisions:
+- Members can follow organisers. The follower count shows publicly once it
+  reaches 10 (hidden below that, like Who's Going counts).
+- Organiser pages show "Events hosted" (past published events) alongside the
+  existing upcoming and past lists.
+- Signed-in members get a "From organisers you follow" section on the home
+  page, and can choose an email when a followed organiser publishes a new
+  event (opt-in at follow time, one-click unsubscribe, at most one a day per
+  organiser).
+- Organisers can feature one video by pasting a YouTube or Vimeo link. It
+  shows as a thumbnail with a play button and loads the privacy-enhanced
+  player only when clicked (no third-party cookies before, no autoplay). No
+  self-hosted video, to keep hosting costs at zero. Reviewed with the rest of
+  the profile; admins can remove it.
