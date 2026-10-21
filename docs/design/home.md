@@ -1,6 +1,10 @@
 # Home page (all widths) design spec
 
-Status: proposed · Owner: ui-design-director · Scope: `/` from 320px up. This replaces the split home: `PhoneHome` below `sm` plus the desktop tree (`IntentHero`, `EventPreview`, `WhatElse`, `PartnerBand`) from `sm`. One tree generalises the phone home: rails below `sm`, grids from `sm`, and "Up next" inside the hero from `lg`. It builds on `docs/design/mobile-home.md`. Below 640px nothing changes except what this spec says.
+Status: proposed · Owner: ui-design-director · Scope: `/` from 320px up.
+
+> **Visual layer updated 21 Oct 2026 for `docs/design/brand-direction-one.md` (Brand Direction One).** The tokens, type, radii, colours and motion in §1.4, §2, §4, §5 and §8 below follow that spec, and it wins on any visual conflict. Structure, order, de-duplication (§6), the weekend window, Trending, external-ticketing cards, accessibility (§7, plus quick buy) and owner decisions 2–6 are unchanged. Decision 1 (soft cards with pink accents) is superseded: pink is replaced by Signal Orange, and cards follow the brand's rounded-square, image-first card.
+
+This replaces the split home: `PhoneHome` below `sm` plus the desktop tree (`IntentHero`, `EventPreview`, `WhatElse`, `PartnerBand`) from `sm`. One tree generalises the phone home: rails below `sm`, grids from `sm`, and "Up next" inside the hero from `lg`. It builds on `docs/design/mobile-home.md`. Below 640px nothing changes except what this spec says.
 
 **Code read:** `app/page.tsx`, `app/layout.tsx`, `app/globals.css`, `components/home/phone/*`, `IntentHero`, `EventPreview`, `HomeSections`, `EventResults`, `EventArt`, `DemoNotice`, `ui/{EventTile,Carousel,Section}`, `lib/{home-sections,home-events,types,pricing,format,scene-map-filters}.ts`, `lib/api/public-events.ts`, `lib/server/handlers/public-events.ts`, `lib/server/pagination.ts`, `tests/{phone-home-tokens,PhoneHome,PhoneEventSections}.test.*`, `docs/FEATURE_PLAN.md`, `docs/design-system.md`, `docs/design/mobile.md`, `docs/design/mobile-home.md`.
 
@@ -17,45 +21,55 @@ Status: proposed · Owner: ui-design-director · Scope: `/` from 320px up. This 
 1. **One page, one outline.** A single DOM serves every width, so the h1, landmarks and focus order are identical everywhere. The layout changes; the content doesn't.
 2. **Each event appears once.** Sections claim events in a fixed priority order (§6.2). A later section never repeats one an earlier section showed, so the page reads as a guide, not a feed sliced several ways.
 3. **Time first, then signal, then breadth.** The answer to "what's on soon" comes before "what's popular", which comes before "everything else". This follows the research: 93% of people find events too late.
-4. **The home's soft language works at every width.** `rounded-card`, `shadow-card`, `bg-card` and `pop` now apply to the whole home page (only the home), so the page doesn't change character at 640px. Scale contrast does the editorial work: a 54–96px cover against 14–16px Inter.
-5. **Prices are honest or absent.** Sheltüh-ticketed events show the all-inclusive price (`formatFeedPrice`). External events show where tickets are sold, never a price we can't vouch for.
-6. **Nothing moves on its own except the photo push-in, which respects reduced motion.** No drift, no marquee and no autoplay rails on the home.
+4. **One brand language at every width** (`brand-direction-one.md`). Cards are image-first, with rounded-square media (`rounded-card` 12px), no container and no shadow. Section heads use the rule-and-strap structure. Orange is used once per view for the conversion CTA and once on the page as a band. Scale contrast does the editorial work: a 54–96px display h1 against 14–16px Instrument Sans and 12px Plex Mono metadata.
+5. **Prices are honest or absent.** Sheltüh-ticketed events show the all-inclusive price (`formatFeedPriceParts`, total first). External events show where tickets are sold, never a price we can't vouch for.
+6. **Nothing moves on its own except the photo push-in.** It runs one cycle of 5 seconds or less, holds its end frame, and is off under reduced motion. No drift, no marquee and no autoplay rails on the home.
 
 ## 2. Tokens
 
-**`app/globals.css`: no new variables.** Change the two comments `/* Phone home only … */` to `/* Home page only (components/home/, docs/design/home.md) … */`. Values are unchanged.
+**`app/globals.css`:** per `brand-direction-one.md` §2. The home uses no home-only tokens any more. `rounded-card`, `bg-card` and the brand colours are site-wide, `shadow-card` is flat (then deleted), and `pop` is an alias of `signal` (then deleted).
 
-**Scope gate:** in `tests/phone-home-tokens.test.ts`, `ALLOWED[0]` becomes `components/home/` (the folder moves, §5). Rename the test file to `home-tokens.test.ts`. This is a deliberate scope change, not a weaker test: the classes still can't leak outside the home.
+**Scope gate:** `tests/phone-home-tokens.test.ts` is folded into `tests/brand-tokens.test.ts` (`brand-direction-one.md` §9, increment 5). That test asserts `bg-pop`, `text-pop`, `highlight` and `shadow-card` appear nowhere, and that `text-signal` never sits in a className with small-text classes. This replaces the old scope test because the classes are now site-wide by design. It doesn't weaken the gate.
 
-**Contrast:** the `mobile-home.md` §2 pairs all still apply. One pair is added:
+**Contrast** (full table in `brand-direction-one.md` §2.2):
 
 | Pair | Ratio | Use |
 | --- | --- | --- |
-| `background` / `foreground` | 17.3:1 | Trending chip (ink pill, paper text) |
+| Black / Cream `#fffae7` | 20.08:1 | Page text |
+| Black / White `#ffffff` | 21:1 | Info cards (Guide), fields |
+| `muted` `#6b675e` / Cream | 5.39:1 | Card venue, section notes |
+| Black / Signal `#ff4800` | 6.18:1 | Hero CTA label, "Up next" and "Free" badges, the Community band text |
+| Cream / Black | 20.08:1 | Featured card text on the scrim (≥85% black), Creators card, Trending chip |
+| Signal / Cream | 3.25:1 | **Non-text only**: strap dots. Never text. |
 
-**Type** (Bricolage = `font-heading` 800; Inter = `font-sans`). Sizes are given as base / `sm:` / `md:` / `lg:`. A blank cell inherits the cell to its left.
+**Type.** Faces and utilities are as in `brand-direction-one.md` §3: Instrument Sans (`font-sans`, `font-heading`), Plex Mono (`eyebrow`, `meta`), and the display token (`font-display`; Bootzy when licensed). Sizes are given as base / `sm:` / `md:` / `lg:`. A blank cell inherits the cell to its left.
 
 | Role | Base (<640) | sm 640 | md 768 | lg 1024 | LH | Tracking | Case | Wt |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Hero eyebrow | `eyebrow` 11px | | | | 16px | 0.14em | upper | 600 |
-| Hero h1 | `text-[clamp(2rem,10vw,2.625rem)]` | `sm:text-[clamp(3.375rem,8.5vw,6rem)]` (54@640, 65@768) | | (87@1024, 96@≥1130) | 0.9 | -0.01em | upper | 800 |
+| Hero strap | `eyebrow` (Plex Mono) 12px | | | | 16px | 0.04em | upper | 500 |
+| Hero h1 (`display-xl`, display token) | `text-[clamp(2rem,10vw,2.625rem)]` | `sm:text-[clamp(3.375rem,8.5vw,6rem)]` (54@640, 65@768) | | (87@1024, 96@≥1130) | 0.88 | display token (-0.045em fallback) | upper | display token (700 fallback) |
 | Hero intro | 16px | `sm:text-lg` 18px | | | 24 / `sm:leading-7` 28 | 0 | sentence | 400 |
-| Section h2 | `text-[1.375rem]` 22px | `sm:text-[1.75rem]` 28px | | `lg:text-[2rem]` 32px | 28 / 32 / 36 | -0.01em | sentence (`normal-case`) | 800 |
-| Section note (new) | 14px `text-muted` | | | | 20px | 0 | sentence | 400 |
-| Featured title (h3) | `clamp(1.75rem,8vw,2rem)` | `sm:text-[2rem]` | `md:text-[2.5rem]` | `lg:text-[2.25rem]` | 0.95 | -0.01em | upper | 800 |
+| Section strap | `eyebrow` 12px | | | | 16px | 0.04em | upper | 500 |
+| Section h2 (`display-md`) | 24px | 28px | | 32px | 26 / 30 / 34 | -0.03em | upper | 700 |
+| Featured title (h3) | `clamp(1.75rem,8vw,2rem)` | `sm:text-[2rem]` | `md:text-[2.5rem]` | `lg:text-[2.25rem]` | 0.95 | -0.025em | upper | 700 |
 | Featured meta | 14px | `sm:text-base` | | | 20 / `sm:leading-6` | 0 | sentence | 400 (price 600) |
-| Card title, standard/compact | 14px | `sm:text-base` | | | 20 / `sm:leading-[1.375rem]` | 0 | sentence | 600 |
-| Card title, wide | 16px | | | | 22px | 0 | sentence | 600 |
-| Card meta and price | 12px | `sm:text-sm` | | | 16 / `sm:leading-5` | 0 | sentence | 400 / price 600 |
+| Card date (`meta`, Plex Mono) | 12px | | | | 16px | 0.02em | upper | 400 |
+| Card title, standard/compact | 14px | `sm:text-base` | | | 20 / `sm:leading-[1.375rem]` | -0.01em | sentence | 600 |
+| Card title, wide | 16px | | | | 22px | -0.01em | sentence | 600 |
+| Card venue and price | 12px | `sm:text-sm` | | | 16 / `sm:leading-5` | 0 | sentence | 400 / price amount 600 |
 | Wide-card description | 14px muted | | | | 20px | 0 | sentence | 400 |
-| Chips and badges | `eyebrow` 11px | | | | 16px | 0.14em | upper | 600 |
-| See all | 14px | | | | 20px | 0 | sentence | 600 |
-| Guide/creators title | 22px | `sm:text-[1.75rem]` | | | 28 / 32 | -0.01em | sentence | 800 |
+| Chips and badges | `eyebrow` 12px | | | | 16px | 0.04em | upper | 500 |
+| See all, quick buy | 14px | | | | 20px | 0 | sentence | 600 |
+| Guide/creators title | 24px (`display-md`) | 28px | | | 26 / 30 | -0.03em | upper | 700 |
+| Community line (`display-lg font-display`) | `display-lg` | | | | 0.9 | display token | upper | display token |
 | Community body | 16px | `sm:text-lg` | | | 24 / 28 | 0 | sentence | 400 |
 
 **Hero h1 acceptance:**
-- "Find your" sets on one line, and the h1 is exactly 4 lines, at 320, 375, 430, 640, 768, 1024 and 1280.
-- If "Find your" overflows the 7-column hero at 1024, lower the `sm:` clamp maximum to `5.5rem`.
+- Copy is pending owner question 1 in `brand-direction-one.md`.
+- If the brand line is approved, the h1 is "WHERE / IS ÜR / SHELTÜH?": exactly 3 lines at 320, 375, 430, 640, 768, 1024 and 1280, and "SHELTÜH?" never breaks.
+- If it isn't approved, keep "Find your room. Find your people.", where "Find your" sets on one line and the h1 is exactly 4 lines at those widths.
+- If a line overflows the 7-column hero at 1024, lower the `sm:` clamp maximum to `5.5rem`.
+- Re-run this acceptance when Bootzy is swapped in.
 
 **Spacing.** Steps are 4, 8, 12, 16, 20, 24, 32, 48 and 64 only.
 
@@ -64,14 +78,22 @@ Status: proposed · Owner: ui-design-director · Scope: `/` from 320px up. This 
 | Gutter | 20 (`px-5`) | 32 (`sm:px-8`) | 32 |
 | Page top / bottom | `pt-6` / `pb-12` | `sm:pt-12` / `sm:pb-16` | |
 | Between sections, including hero → first section | 32 (`mt-8`) | 48 (`sm:mt-12`) | 64 (`lg:mt-16`) |
+| Section strap → h2 | 12 (`mt-3`) | | |
 | Section head → content | 12 (`mb-3`) | 24 (`sm:mb-6`) | |
 | Rail gap / grid gap | 12 (`gap-3`) | `sm:gap-x-6 sm:gap-y-8` (24/32) | |
-| Hero: eyebrow → h1 | `mb-3` | `sm:mb-4` | |
+| Card media → text | 12 (`gap-3`) | | |
+| Hero: strap → h1 | `mb-3` | `sm:mb-4` | |
 | Hero: h1 → intro → CTAs | `mt-4`, `mt-5` | `sm:mt-6`, `sm:mt-8` | |
 | Hero: CTAs → search → categories → demo note | `mt-6` each | search `sm:mt-8` | |
 | Hero: → Up next | `mt-6` | `sm:mt-8` | `lg:mt-0` (own column) |
 
-**Radii and shadow:** as in `mobile-home.md` §2, now at every width on the home. Placeholders, error and empty boxes use `rounded-card` without a shadow. `Notice`, `DemoNotice` and `.btn` are unchanged.
+**Radii and elevation** (`brand-direction-one.md` §2.4):
+- `rounded-card` (12px): card media, featured card, Guide, Creators and the hero photo cell.
+- `rounded-control` (8px): compact thumbs, search, buttons.
+- `rounded-badge` (4px): chips and badges.
+- `rounded-dot`: avatars and category discs.
+- **No shadows.** The Guide card is White with `border border-foreground`.
+- Placeholders, error and empty boxes are `rounded-card bg-surface`.
 
 **Motion:** see §8.
 
@@ -93,7 +115,7 @@ Status: proposed · Owner: ui-design-director · Scope: `/` from 320px up. This 
 Caps are 6 per section, so grids fill 3×2 or 2×3. A short last row is allowed: don't pad it, and don't stretch cards to fill it.
 
 **Hero (`lg`):** `section.lg:grid.lg:grid-cols-12.lg:gap-x-8.lg:items-start`.
-- **Left column, `lg:col-span-7`:** eyebrow, h1, intro, CTAs, search, categories, demo note.
+- **Left column, `lg:col-span-7`:** strap, h1, intro, CTAs, search, categories, demo note.
 - **Right column, `lg:col-span-5 lg:col-start-8 lg:pt-7`:** the Up next section. The 28px top padding aligns the card's top with the h1.
 - **Card size:** 381×476 at 1024 and 435×544 at 1280.
 - **Below lg:** Up next follows the demo note in the single column.
@@ -108,7 +130,7 @@ Caps are 6 per section, so grids fill 3×2 or 2×3. A short last row is allowed:
 | 4 | Coming up near you (§5.6) | Fewer than 2 |
 | 5 | Only in the city: `GuideCard` (§5.8) | — |
 | 6 | Free & low-cost (§5.6) | Fewer than 2 |
-| 7 | Find your people (§5.8) | — |
+| 7 | Find your people (§5.8): the page's one orange band | — |
 | 8 | Bring your event to life (§5.8) | — |
 
 **Why this order:**
@@ -135,20 +157,24 @@ These are owner questions; see the end of this spec.
 | Featured | 4:5 (<375), 1:1 (≥375) | `sm:aspect-[3/2]` (576×384) | `md:aspect-video` (704×396) | `lg:aspect-[4/5]` (381×476 to 435×544) | `event.imageUrl` / `EventArt` |
 | Standard | 4:3, 198–240 wide | 4:3, 276×207 | 4:3, 219×164 | 4:3, 304×228 to 346×260 | same |
 | Wide | 3:2, 256–320 wide | 3:2, 276×184 | 3:2, 219×146 | 3:2, 304×203 to 346×231 | same |
-| Compact thumb | 96px × card height (min 112) | `sm:grid-cols-[7rem_1fr]` (112px) | | | same |
+| Compact thumb | 96px square (`rounded-control`) | `sm:grid-cols-[7rem_1fr]` (112px) | | | same |
 | Guide, Creators | 16:9 | Half of a 2-col split, `sm:aspect-auto sm:h-full sm:min-h-64` | | | `HOME_GUIDE`/`HOME_CREATORS` |
 
 **Text budget on the featured card:** about 233px from sm up, with title, meta and going on 24px lines. That's 61% of the height @640, 59% @768 and ≤49% at lg, so it stays inside the scrim zone, where black is at least 85% opaque.
 - From sm, text stays inside `max-w-[36rem]`.
 - No other slot puts text on an image. Chips and badges use opaque fills.
+- The scrim is the only gradient on the site. It's functional, not decorative.
 
 **Other rules:**
 - **Crop:** centre crop, `object-cover`. A focal point needs backend work (§9).
-- **Fallback:** every slot is an `EventArt` with a fixed ratio, so a missing or failing photo shows the generated poster with no layout shift.
+- **Photography:** follow `brand-direction-one.md` §8.1: candid Melbourne nights, no stock, no filters.
+- **Fallback:** every slot is an `EventArt` with a fixed ratio, so a missing or failing photo shows the generated poster in brand colourways (`brand-direction-one.md` §8.2), with no layout shift.
 - **`priority`** (eager, high fetch priority) goes only on the featured card's `EventArt`. It sits above the fold at lg and is partly visible on phones. `HOME_HERO` keeps `priority` (it's the phone LCP image). At lg it's `display:none`, and its eager download is an accepted cost.
 - **Accessibility:** all art is `aria-hidden`, and titles are always real text.
 
 ## 5. Components
+
+Visual anatomy for every card is `brand-direction-one.md` §6.5. This section keeps the home-specific structure and data rules.
 
 ### Files
 
@@ -156,11 +182,11 @@ These are owner questions; see the end of this spec.
 
 | Action | File |
 | --- | --- |
-| **Reuse unchanged** | `EventArt`, `favourites/SaveButton`, `GoingStack`, `CategoryIcon`, `icons`, `going.ts`, `home-content.ts`, `SearchBar`, `DemoNotice`, `ui/Button`, `ui/Section` (`Notice`), `ui/Sticker` (`Scribble`), `Nav`, `Footer` |
-| **Change** | `app/page.tsx`, `PhoneHome` → `Home`, `PhoneHero` → `HomeHero`, `CategoryRow`, `PhoneRail` → `HomeRail`, `SectionHead`, `HomeEventCard`, `FeaturedEventCard`, `PhoneEventSections` → `HomeEventSections`, `GuideCard`, `CommunitySection`, `CreatorsCard`, `lib/home-sections.ts`, `lib/home-events.ts`, `lib/api/public-events.ts` (additive `limit?: number`), `lib/pricing.ts` (additive `formatCardPrice`) |
+| **Reuse unchanged** | `EventArt`, `favourites/SaveButton`, `CategoryIcon`, `icons`, `going.ts`, `home-content.ts`, `SearchBar`, `DemoNotice`, `ui/Button`, `ui/Section` (`Notice`), `Nav`, `Footer` |
+| **Change** | `app/page.tsx`, `PhoneHome` → `Home`, `PhoneHero` → `HomeHero`, `CategoryRow`, `PhoneRail` → `HomeRail`, `SectionHead`, `HomeEventCard`, `FeaturedEventCard`, `GoingStack` (rounded-dot avatars, brand fills), `PhoneEventSections` → `HomeEventSections`, `GuideCard`, `CommunitySection`, `CreatorsCard`, `lib/home-sections.ts`, `lib/home-events.ts`, `lib/api/public-events.ts` (additive `limit?: number`), `lib/pricing.ts` (additive `formatCardPrice`) |
 | **New (minimal)** | `components/home/HomeEventsProvider.tsx` (context: load, compute, retry); `components/home/UpNext.tsx` (consumer for the hero slot); `lib/api/trending.ts`; `lib/external-ticketing.ts` (`ticketProviderName`, unless B2 ships one, in which case reuse it) |
 | **Move** | `useIsPhone.ts` → `components/ui/useIsPhone.ts`, updating `TimeSeriesChart` |
-| **Delete** (no other usages) | `IntentHero.tsx`, `EventPreview.tsx`, `HomeSections.tsx`, and their own tests (`IntentHero`, `EventPreview`, `WhatElse`). These tests are removed with the components they test, not to make anything pass. |
+| **Delete** (no other usages) | `IntentHero.tsx`, `EventPreview.tsx`, `HomeSections.tsx`, and their own tests (`IntentHero`, `EventPreview`, `WhatElse`). These tests are removed with the components they test, not to make anything pass. The `Scribble` is removed from the hero, so delete it from `ui/Sticker.tsx` if nothing else uses it. |
 
 ### 5.1 `app/page.tsx` and `Home.tsx`
 
@@ -173,7 +199,10 @@ These are owner questions; see the end of this spec.
   <div className="mx-auto max-w-6xl px-5 pt-6 pb-12 sm:px-8 sm:pt-12 sm:pb-16">
     <HomeHero upNext={<UpNext />} />
     <HomeEventSections guide={<GuideCard className="reveal mt-8 sm:mt-12 lg:mt-16" />} />
-    <CommunitySection className="reveal mt-8 sm:mt-12 lg:mt-16" />
+  </div>
+  {/* Full-bleed orange band: outside the container. */}
+  <CommunitySection className="mt-8 sm:mt-12 lg:mt-16" />
+  <div className="mx-auto max-w-6xl px-5 pb-12 sm:px-8 sm:pb-16">
     <CreatorsCard className="reveal mt-8 sm:mt-12 lg:mt-16" />
   </div>
 </HomeEventsProvider>
@@ -184,23 +213,26 @@ These are owner questions; see the end of this spec.
 Props: `{ upNext: ReactNode }`. Markup: `section[aria-labelledby=home-title]` with the lg grid from §3.
 
 - **Left column** (`lg:col-span-7`), in this order:
-  - **Eyebrow:** "Australia · Curated", unchanged.
+  - **Strap:** `eyebrow text-muted` with `DotsMark xs` (orange), reading "Melbourne · What's on".
   - **Headline row:** `grid grid-cols-[auto_minmax(5.5rem,1fr)] sm:grid-cols-[auto_minmax(10rem,1fr)] lg:grid-cols-1 items-stretch gap-x-3 sm:gap-x-6`.
-    - The h1 keeps its 4 spans with the §2 sizes. **Remove `.rise` from the h1**, because it's the LCP element on every width (`mobile-home.md` §5.1 already said this).
-    - The photo cell is unchanged, plus `lg:hidden`.
-  - **Intro:** copy unchanged. Classes `mt-4 sm:mt-6 max-w-[34ch] sm:max-w-[40ch]`.
-  - **CTAs:** `mt-5 sm:mt-8 flex flex-col gap-2 sm:flex-row sm:gap-3`. Each `ButtonLink size="lg"` is `w-full sm:w-auto`. Labels and targets are unchanged ("Explore events" → `/events`, "Join the community" → `#find-your-people`).
-  - **Search:** `mt-6 sm:mt-8 sm:max-w-xl`, `<SearchBar size="lg" submit label="Search events" />`.
-  - **Categories:** `<CategoryRow className="mt-6" />`.
+    - The h1 is `display-xl` with one `span.block` per line (§2 acceptance). The "ÜR" uses the `brand-direction-one.md` §3.3 pattern, so it's read as "your". **Remove `.rise` from the h1**, because it's the LCP element on every width.
+    - The photo cell: `EventArt … priority motion className="h-full w-full rounded-card"`, with `lg:hidden`. **No `Scribble`.**
+  - **Intro:** "Live music, art, workshops and pop-ups in Melbourne, curated, with the people going." Classes `mt-4 sm:mt-6 max-w-[34ch] sm:max-w-[40ch] text-base sm:text-lg`.
+  - **CTAs:** `mt-5 sm:mt-8 flex flex-col gap-2 sm:flex-row sm:gap-3`.
+    - "Explore events" → `/events` is `ButtonLink variant="signal" size="lg"`. This is the page's one orange CTA above the fold.
+    - "Join the community" → `#find-your-people` is `variant="outline" size="lg"`.
+    - Both are `w-full sm:w-auto`.
+  - **Search:** `mt-6 sm:mt-8 sm:max-w-xl`, `<SearchBar size="lg" submit label="Search events" />`. The submit is black (`brand-direction-one.md` §6.2).
+  - **Categories:** `<CategoryRow className="mt-6" />`. Discs are `size-12 rounded-dot border border-foreground bg-card`.
   - **Demo note** (demo only): `mt-6`, `<DemoNotice>Sample listings, nothing here is a real booking.</DemoNotice>`. It moves here from the event sections so its DOM position is fixed.
 - **Right column:** `{upNext}` wrapped in `div.mt-6.sm:mt-8.lg:mt-0.lg:col-span-5.lg:col-start-8.lg:pt-7`.
-- **`.rise`** stays on the eyebrow, photo, intro, CTAs, search and categories with their existing `--d` delays. It is never on the Up next card.
+- **`.rise`** stays on the strap, photo, intro, CTAs, search and categories with their existing `--d` delays. It is never on the Up next card.
 
 ### 5.3 `CategoryRow.tsx`
 
-- **Below sm:** unchanged.
+- **Below sm:** unchanged layout.
 - **From sm:** the `ul` adds `sm:mx-0 sm:px-0 sm:overflow-visible sm:snap-none sm:gap-3`. Six 72px items plus five 12px gaps is 492px, which fits 576 without scrolling.
-- **States:** unchanged.
+- **States:** hover `bg-surface`; focus uses the global ring; press `motion-safe:active:scale-95`.
 
 ### 5.4 `HomeRail.tsx` (was `PhoneRail`)
 
@@ -222,35 +254,40 @@ All states share one box: `aspect-[4/5] min-[375px]:aspect-square sm:aspect-[3/2
 | State | Render |
 | --- | --- |
 | Loading | `FeaturedEventCardPlaceholder`: the box in `bg-surface`, `aria-hidden` |
-| Ready | `FeaturedEventCard` |
+| Ready | `FeaturedEventCard`, followed by its quick-buy row (`brand-direction-one.md` §6.6), outside the card |
 | Error | The box in `bg-surface flex flex-col justify-end p-5 sm:p-8`, containing `Notice tone="danger" role="alert"` "Couldn't load events." then `Button variant="outline" size="lg" className="mt-3 self-start"` "Try again" (calls the provider's `retry`). The box keeps the hero's height, so there's no layout shift. |
-| Empty (no upcoming events) | The same box in `bg-surface p-5 sm:p-8 flex flex-col justify-end`, containing `p.text-base.leading-6` "No events have been published yet. Check back soon." (existing copy) |
+| Empty (no upcoming events) | The same box in `bg-surface p-5 sm:p-8 flex flex-col justify-end`, containing `DotsMark lg` then `p.mt-6.text-base.leading-6` "No events have been published yet. Check back soon." (existing copy) |
 
 **`FeaturedEventCard` changes:**
 - **Aspect:** the box classes above, replacing `aspect-[4/5] min-[375px]:aspect-square`.
+- **Visuals:** per `brand-direction-one.md` §6.5 `featured`:
+  - The text block is in `data-surface="ink"`.
+  - The "Up next" badge is `eyebrow rounded-badge bg-signal text-black px-2 py-1` with `DotsMark xs`, replacing `bg-pop rounded-full`.
+  - The title is `font-heading` uppercase.
+  - The arrow is `size-11 rounded-control bg-cream text-black`.
 - **Text:** the content block adds `sm:p-8 sm:pr-20 sm:max-w-[36rem]`. The title gets the §2 sizes. The meta gets `sm:text-base sm:leading-6`.
 - **`EventArt`:** add `priority`. Keep `motion` (§8).
 - **External events** (`event.ticketingMode === "external"`):
   - The price line reads `formatCardPrice(event)` (§5.7).
   - No `GoingStack`, and `useLiveGoingCount` is called with `enabled = mode === "live" && !external`, so no request is made.
-- **States:** hover, focus and active as today. The arrow disc is unchanged (`bottom-5 right-5`, and `sm:bottom-8 sm:right-8`).
+- **States:** hover, focus and active as today. The arrow is at `bottom-5 right-5`, and `sm:bottom-8 sm:right-8`.
 
 ### 5.6 `HomeEventSections.tsx` (was `PhoneEventSections`)
 
 - **Data:** reads the provider. There's no data loading here and no `useIsPhone` gating: cards render at every width.
 - **Sections:** each is `section[aria-labelledby]` with `SectionHead` + `HomeRail`, plus `reveal` and `mt-8 sm:mt-12 lg:mt-16`.
 
-| id | h2 | Note (`SectionHead.note`) | See all | Card | Rail `grid` |
+| id | h2 | Note (strap, right) | See all | Card | Rail `grid` |
 | --- | --- | --- | --- | --- | --- |
 | `home-weekend` | "This weekend" | Mon to Fri before 17:00: "Fri 23 – Sun 25 Oct" (`formatWeekendRange`, §6.3). During the weekend: "Until Sun 25 Oct" | `/events`, srLabel "events" | `wide` | `cards` |
 | `home-trending` | "Trending" | — | none (no trending page) | `standard` with `signal` | `cards` |
-| `home-coming` | "Coming up near you" (copy kept) | `hidden sm:block`: "The most interesting live music, art, workshops and pop-ups in your city — curated, not scraped." (copy kept from the desktop home) | `/events`, "events" | `standard` | `cards` |
+| `home-coming` | "Coming up near you" (copy kept) | `hidden sm:block`: "The most interesting live music, art, workshops and pop-ups in your city — curated, not scraped." (copy kept from the desktop home; below the h2 as 14/20 muted, since it's too long for the strap) | `/events`, "events" | `standard` | `cards` |
 | `home-free` | "Free & low-cost" | — | `/events?pricing=free`, "free events" | `compact` with `badge` | `compact` |
 
 **Loading:**
 - An always-mounted `p[role=status].sr-only` reads "Loading events…".
 - Below the hero there's one skeleton section, `aria-hidden`:
-  - A `h-7 w-48 sm:h-8 bg-surface mb-3 sm:mb-6` heading bar.
+  - A strap rule, then a `h-7 w-48 sm:h-8 bg-surface mt-3 mb-3 sm:mb-6` heading bar.
   - Then a `HomeRail`-shaped `div` holding 3 `HomeEventCardPlaceholder`s; the third is `hidden md:block`.
   - Placeholders get `sm:w-full sm:max-w-none`.
 - No shimmer.
@@ -260,11 +297,19 @@ All states share one box: `aspect-[4/5] min-[375px]:aspect-square sm:aspect-[3/2
 
 **Ready:** render per §6. Hidden sections render nothing; they don't reserve space.
 
-**`SectionHead.tsx`:**
-- Add `note?: { text: string; className?: string }`. The row is `flex items-end justify-between gap-4 mb-3 sm:mb-6`. The left side is `div` > h2 (§2 sizes) + `p.mt-1.text-sm.leading-5.text-muted{note.className}`.
-- See all is unchanged.
+**`SectionHead.tsx`** (`brand-direction-one.md` §6.4):
+- Add `note?: { text: string; className?: string }`.
+- Markup: the strap (`border-t border-foreground pt-2 eyebrow flex justify-between`: `DotsMark xs` + the h2's text in short form on the left, the note on the right in `text-muted`), then `mt-3` a row `flex items-end justify-between gap-4 mb-3 sm:mb-6` with the h2 (`display-md`) and See all.
+- The strap label is `aria-hidden`, because the h2 already says it.
+- See all: Instrument 600 14/20, underlined, a 16px → arrow, `min-h-11`.
 
 ### 5.7 `HomeEventCard.tsx`
+
+**Anatomy:** image-first with no container (`brand-direction-one.md` §6.5).
+- Drop `rounded-card bg-card shadow-card` from the link.
+- `rounded-card overflow-hidden` goes on the media wrapper (`rounded-control` for compact).
+- Text sits on the page under the media: `meta` date (black), title, venue (muted), price amount 600 + "incl. booking fee" 400 muted (`formatFeedPriceParts`), then `GoingStack`.
+- The wide card's date badge is `rounded-badge bg-cream`. Category chips are `eyebrow rounded-badge bg-cream`.
 
 **Widths:** each wrapper adds `sm:w-full sm:max-w-none`, so it is fluid in the grid:
 - standard: `w-[62vw] max-w-60`
@@ -273,8 +318,12 @@ All states share one box: `aspect-[4/5] min-[375px]:aspect-square sm:aspect-[3/2
 
 **Type:** the §2 sizes. Standard and compact titles get `sm:text-base sm:leading-[1.375rem]`; meta and price lines get `sm:text-sm sm:leading-5`. Compact columns become `grid-cols-[6rem_1fr] sm:grid-cols-[7rem_1fr]`.
 
+**Badges** (compact): "Free" `bg-signal text-black`; "Under A$20" `border border-foreground bg-card`. Both `eyebrow rounded-badge px-2 py-0.5`.
+
+**Quick buy (new):** a "Get tickets" sibling link under each card's main link, per `brand-direction-one.md` §6.6: labels by event state, `/events/{slug}#tickets`, 44px hit area, never orange. For compact, it's indented to the text column.
+
 **New prop `signal?: TrendingSignal`** (Trending only), where `TrendingSignal = { kind: "going"; count: number } | { kind: "just-announced" } | { kind: "popular" }`.
-- It replaces the category chip at `left-2 top-2` with `eyebrow absolute rounded-full bg-foreground px-2 py-0.5 text-background`.
+- It replaces the category chip at `left-2 top-2` with `eyebrow absolute rounded-badge bg-foreground px-2 py-0.5 text-background`.
 - The chip text is "{count} going", "Just announced" or "Popular this week".
 - There are never raw view counts and never a number other than the server's thresholded going count.
 - Trending cards don't render `GoingStack`, because the chip already carries it.
@@ -286,31 +335,42 @@ All states share one box: `aspect-[4/5] min-[375px]:aspect-square sm:aspect-[3/2
   - Otherwise: `formatFeedPrice(event)`
 - The line keeps the price style (600 weight).
 - No `GoingStack`, and no "{N} going" chip: B2 has no Who's Going for these events. If the trending API labels one "going", show "Popular this week" instead.
-- The card still links to `/events/{slug}`. The outbound link and its click beacon live only on the event page, so there's no external-link icon on the card.
+- The card still links to `/events/{slug}`, and so does its quick-buy row. The outbound link and its click beacon live only on the event page, so there's no external-link icon on the card.
 - `{provider}` comes from `ticketProviderName(url)`:
   - Known hosts: humanitix.com → Humanitix, eventbrite.com and eventbrite.com.au → Eventbrite, trybooking.com → TryBooking, moshtix.com.au → Moshtix, oztix.com.au → Oztix, ticketek.com.au → Ticketek, ticketmaster.com.au → Ticketmaster, dice.fm → DICE.
   - Anything else: "Tickets on the organiser's site" (owner decision 4).
   - The same helper drives the event page's "Get tickets on {provider}" (B2).
 
-**Unchanged:**
-- **States:** hover underlines the title (hover-capable devices only); focus-visible uses the global ring (rails keep `py-4`, and the grid doesn't clip); active is `motion-safe:active:scale-[0.98]`. There's no disabled state.
-- **Loading:** `HomeEventCardPlaceholder`.
+**Sold out** (when the B-WL data exists): the price line reads "Sold out" and the quick buy reads "Join waitlist" (`brand-direction-one.md` §6.5, §6.11).
+
+**States:**
+- **Hover:** the media scales 1.03 and the title underlines (hover-capable devices only).
+- **Focus-visible:** the global ring on the main link. Rails keep `py-4`, and the grid doesn't clip.
+- **Active:** `motion-safe:active:scale-[0.98]`.
+- There's no disabled state.
+- **Loading:** `HomeEventCardPlaceholder`: `rounded-card bg-surface` media at the card's ratio, plus three `bg-surface` text bars.
 
 ### 5.8 Static sections
 
 **`GuideCard`:**
+- A white info card: `rounded-card border border-foreground bg-card overflow-hidden`.
 - From sm the card is `sm:grid sm:grid-cols-2`.
 - Art: `aspect-video sm:aspect-auto sm:h-full sm:min-h-64`.
 - Body: `p-4 sm:p-8 sm:self-center`, with the title at the §2 sizes.
 
 **`CreatorsCard`:**
+- `rounded-card overflow-hidden` with `data-surface="ink"`.
 - Same split as the guide, but mirrored: the art gets `sm:order-last`.
 - Body: `p-5 sm:p-8 sm:self-center`.
+- The CTA is `btn-outline` (it inverts inside the ink scope).
 
-**`CommunitySection`:**
+**`CommunitySection`** (the page's one orange band):
+- `section` with `data-surface="signal"`, **full-bleed** (outside the container, §5.1), and inner `mx-auto max-w-6xl px-5 sm:px-8 py-12 sm:py-16`.
 - From sm: `sm:grid sm:grid-cols-2 sm:gap-x-8 sm:items-end`.
-- Left column: h2 + `GoingStack lg`. Right column: body + CTA.
-- The CTA becomes `w-full sm:w-auto`.
+- Left column: the h2 (`display-lg`, plus `font-display` if owner Q1 approves brand lines) + `GoingStack lg`.
+  - The avatars are `rounded-dot`, with fills cycling black/cream, cream/black and white/black, and `ring-4 ring-background` (orange).
+- Right column: body (black on orange, 6.18:1) + CTA.
+- The CTA is `btn-solid` (black, cream label), `w-full sm:w-auto`. **Never `btn-signal` here.**
 - `id`, `tabIndex=-1` and the copy are unchanged.
 
 ### 5.9 `HomeEventsProvider.tsx` (client, new)
@@ -381,7 +441,7 @@ All in Australia/Melbourne wall-clock time, DST-safe. Build it with the `Intl` a
 | --- | --- |
 | ≥1 unclaimed weekend event | The section, up to 6 wide cards |
 | Weekend events exist, but all were claimed by Up next | Hidden: the event is already on screen above |
-| Zero weekend events and `during = false` | **Empty state:** the h2, the note, See all, then `p.text-sm.leading-5.text-muted` "Nothing listed for this weekend yet. New events are added through the week." No cards and no skeleton. |
+| Zero weekend events and `during = false` | **Empty state:** the strap and note, the h2, See all, then `p.text-sm.leading-5.text-muted` "Nothing listed for this weekend yet. New events are added through the week." No cards and no skeleton. |
 | Zero weekend events and `during = true` | Hidden. "Nothing on" mid-weekend is a dead end, and Coming up shows what's next. |
 
 **Unit tests** (`tests/home-sections.test.ts`): Thu 23:59, Fri 16:59, Fri 17:00, Sat noon, Sun 23:59, and Mon 00:00. Also the 4 Oct 2026 DST start and the 5 Apr 2026 DST end, a multi-day event, an in-progress event, and each de-duplication priority.
@@ -389,7 +449,7 @@ All in Australia/Melbourne wall-clock time, DST-safe. Build it with the `Intl` a
 ## 7. Accessibility
 
 **Headings** (same at every width):
-- h1 "Find your room. Find your people."
+- h1: "Where is your Sheltüh?" as read by screen readers ("ÜR" is `aria-hidden`, followed by sr-only "your"; owner Q1). Fallback: "Find your room. Find your people."
 - h2 "Browse by category" (sr-only)
 - h2 "Up next" (sr-only), with the featured title as h3
 - h2 "This weekend", h3 cards
@@ -403,12 +463,13 @@ All in Australia/Melbourne wall-clock time, DST-safe. Build it with the `Intl` a
 **Landmarks and names:**
 - Each section is `aria-labelledby` its h2.
 - Each rail or grid `ul` is `aria-labelledby` the same h2, so it's announced as a list of N.
-- Card links take their name from their content: chip, title, date, venue, price or "Tickets on {provider}", and "N going".
+- Card links take their name from their content: chip, date, title, venue, price or "Tickets on {provider}", and "N going".
+- Quick-buy links are "Get tickets for {title}", "Get free tickets for {title}", "See tickets for {title}" (demo) or "Join waitlist for {title}".
 - See all links are "See all events" or "See all free events".
-- Art, icons, discs and arrows are `aria-hidden`.
+- Art, icons, dots, discs and arrows are `aria-hidden`. Strap labels that repeat the h2 are `aria-hidden`.
 
 **Focus order:** this is the DOM order, which matches the visual order at every width:
-- Skip link → Nav → Explore events → Join the community → search input → Search submit → 6 category links → Up next card → its Save → for each section: See all, then for each card, card link → Save.
+- Skip link → Nav → Explore events → Join the community → search input → Search submit → 6 category links → Up next card → its Save → its Get tickets → for each section: See all, then for each card, card link → Save → Get tickets.
 - At lg, the left hero column comes before the right column, matching left-to-right reading.
 
 **Rails (<sm):**
@@ -417,8 +478,8 @@ All in Australia/Melbourne wall-clock time, DST-safe. Build it with the `Intl` a
 - There are no arrow keys, roving tabindex, arrow buttons or drift, so WCAG 2.2.2 doesn't apply to rails.
 
 **Targets:**
-- Pills: 48px.
-- Search submit, See all, Save: 44px.
+- Hero buttons: 48px.
+- Search submit, See all, Save, Get tickets: 44px.
 - Category items: 72×70.
 - Cards: at least 112px.
 
@@ -427,19 +488,20 @@ All in Australia/Melbourne wall-clock time, DST-safe. Build it with the `Intl` a
 - The load error is `role="alert"` with a Try again button.
 - Trending's absence is silent.
 
-**Zoom:** at 200% text, cards grow (`min-h`, `flex-1`), and the h1 may wrap past 4 lines.
+**Zoom:** at 200% text, cards grow (`min-h`, `flex-1`), and the h1 may wrap past its acceptance line count.
 
 ## 8. Motion
 
 | What | Behaviour | Reduced motion |
 | --- | --- | --- |
-| Hero photo cell (`HOME_HERO`, <lg) and featured card art | The existing `ken-burns`: 16s alternate push-in, via `EventArt motion`. **No other home image gets `motion`.** | Static. `.ken-burns` only exists inside `@media (prefers-reduced-motion: no-preference)`. Acceptance: under emulated `reduce`, the computed `animation-name` is `none` on both images. |
-| Hero entrance `.rise` (not the h1) | 0.8s, staggered by `--d` | None (the existing media query) |
+| Hero photo cell (`HOME_HERO`, <lg) and featured card art | Push-in via `EventArt motion` (the redefined `.ken-burns`, `brand-direction-one.md` §8.4): `scale(1) → scale(1.06) translate(-1%,-0.5%)`, **one cycle of 4.5s**, `cubic-bezier(.2,.7,.2,1)`, holding the end frame (`both`). **It never loops** (owner decision 6). **No other home image gets `motion`.** | Static. `.ken-burns` only exists inside `@media (prefers-reduced-motion: no-preference)`. Acceptance: under emulated `reduce`, the computed `animation-name` is `none` on both images. Without `reduce`, `animation-iteration-count` is `1`. |
+| Hero entrance `.rise` (not the h1) | 0.6s, staggered by `--d` | None (the existing media query) |
 | Section `.reveal` | Scroll-timeline rise | None |
+| Card image hover | `scale(1.03)` 300ms ease-out, hover-capable only | None |
 | Card press | `motion-safe:active:scale-[0.98]` over 150ms | None |
 | `#find-your-people` jump | Smooth scroll | Instant (`html` rule) |
 | Rails | Thumb or Tab only, native snap | — |
-| Removed from home | `Carousel` drift, `Marquee`, `.float` collage | — |
+| Removed from home | `Carousel` drift, `Marquee`, `.float` collage, `Scribble` | — |
 
 ## 9. Dependencies and out of scope
 
@@ -454,29 +516,30 @@ All in Australia/Melbourne wall-clock time, DST-safe. Build it with the `Intl` a
    - A going count on list items, so cards outside Trending can show "N going" live.
    - Image variants (Supabase transforms or `next/image` `remotePatterns`): the lg featured card is 435px CSS wide, so 870px source at 2x.
    - A focal point (`imageFocalX/Y`).
+5. **B-WL** (`brand-direction-one.md` §10): sold-out data on list payloads, for the "Sold out · Join waitlist" card state.
 
 **Proposals needing a behaviour change** (not in this build):
 - `/events?when=weekend`, so This weekend's See all lands filtered.
 - A `/trending` page, if Trending needs its own See all.
 
 **Docs to update after the build:**
-- `design-system.md`: the "phone home exception" becomes the "home exception" at every width, under `components/home/`; add `HomeRail`.
-- `mobile-home.md`: add a header line saying it's superseded at ≥640 by this spec.
+- `design-system.md`: record the home components (`HomeRail`, `HomeEventCard`, `SectionHead` strap) under `components/home/`.
+- `mobile-home.md`: add a header line saying it's superseded at ≥640 by this spec, and visually everywhere by `brand-direction-one.md`.
 
-**Out of scope:** `Nav`, `Footer`, `/events` and `EventTile` (B2/F1 can reuse `formatCardPrice` there), the event page, promoted/featured flags, and personalisation or geolocation (the "near you" copy is kept as-is).
+**Out of scope here** (covered by `brand-direction-one.md`): `Nav`, `Footer`, `/events` and `EventTile` (B2/F1 can reuse `formatCardPrice` there), the event page, promoted/featured flags, and personalisation or geolocation (the "near you" copy is kept as-is).
 
-**Build order** (F3, after B2 and B4 contracts exist; mock them in tests until then):
+**Build order** (F3, after B2 and B4 contracts exist; mock them in tests until then; after `brand-direction-one.md` increments 1–4):
 1. `lib`: `weekendWindow`, `formatWeekendRange`, the new `selectHomeSections`, `formatCardPrice`, `ticketProviderName`, the loaders, with tests.
-2. Folder move and renames, the token-test path, `useIsPhone` move.
+2. Folder move and renames, folding the token test into `brand-tokens.test.ts`, the `useIsPhone` move.
 3. The provider, `UpNext`, the hero lg grid, and `HomeRail` grids.
-4. Event sections and states; delete the old desktop components.
+4. Event sections and states, quick buy; delete the old desktop components.
 5. Hand-offs: `ux-accessibility-reviewer`, then `visual-qa` at 320, 375, 430, 640, 768, 1024 and 1280, in both demo and live mode.
 
 **Gates:** `npx next typegen`, `npx tsc --noEmit`, `npm run lint`, `npm test`, `npm run build`. No e2e covers `/` today. Add one Playwright smoke test for the home at 1280 and 390: one h1, Up next present, and no duplicate event links across sections.
 
 ## Owner decisions (21 Oct 2026)
 
-1. Soft cards at every width: confirmed. Cards keep the phone home's rounded corners, light shadow and pink accents from 640px up.
+1. ~~Soft cards at every width: confirmed. Cards keep the phone home's rounded corners, light shadow and pink accents from 640px up.~~ **Superseded by Brand Direction One** (`brand-direction-one.md`). Cards are image-first, with 12px rounded-square media, no shadow, and Signal Orange instead of pink.
 2. Removed from `/`: the intent pills, poster collage and marquee, "What else?", the partner band (`/partners` stays in the footer) and "What's on this month". Confirmed.
 3. External events show "Tickets on <provider>" and no price on cards ("Free · Tickets on <provider>" when free). Confirmed.
 4. Unknown ticket sites show "Tickets on the organiser's site", not the bare hostname.
