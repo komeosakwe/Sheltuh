@@ -113,3 +113,10 @@ Advertised prices are the all-inclusive total, including the unavoidable
 booking fee, and no partial price is more prominent than the total. This
 applies to event cards, the ticket-selection screen and checkout, not only the
 payment step. Checkout stays visually quiet, predictable and trustworthy.
+
+### Owner decision (21 Oct 2026): admin check-in for platform-managed events
+
+Events under a platform-managed organiser (no organiser account) can issue
+free Sheltüh tickets. Admins may run the door scanner for those events only:
+same atomic check-in, rate limit and audit log, with the admin recorded as the
+scanner. Admins still cannot check in for organiser-owned events.
