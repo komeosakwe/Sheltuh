@@ -92,6 +92,13 @@ const westSide = makeEvent({
   startsAt: "2026-11-22T09:00:00.000Z",
 });
 const unmapped = makeEvent({ id: "unmapped", title: "Somewhere Unknown", suburb: "Nowhereville" });
+// Geocoded, but in Sydney: outside Greater Melbourne, so never pinned.
+const interstate = makeEvent({
+  id: "interstate",
+  title: "Sydney Show",
+  suburb: "Surry Hills",
+  coordinates: { lat: -33.8861, lng: 151.2111 },
+});
 
 async function renderMap(events: SheltuhEvent[]) {
   mockEvents = events;
@@ -195,6 +202,15 @@ describe("SceneMap photo markers", () => {
     expect(markerNames).toHaveLength(1);
     expect(markerNames.join()).not.toMatch(/Somewhere Unknown/);
     expect(screen.getByRole("button", { name: "Locate Somewhere Unknown on the map" })).toBeDisabled();
+    expect(screen.getByText(/1 event can.t be placed on the map yet/)).toBeInTheDocument();
+  });
+
+  it("treats an event outside Greater Melbourne as unplaceable: no pin, Locate disabled, counted", async () => {
+    await renderMap([withPhoto, interstate]);
+
+    await markerButton("Photo Night");
+    expect(screen.getByRole("link", { name: "Sydney Show" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Locate Sydney Show on the map" })).toBeDisabled();
     expect(screen.getByText(/1 event can.t be placed on the map yet/)).toBeInTheDocument();
   });
 

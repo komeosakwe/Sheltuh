@@ -57,3 +57,13 @@ export function isInMelbourneMetro(coords: Coordinates): boolean {
   const b = MELBOURNE_METRO_BOUNDS;
   return coords.lat >= b.south && coords.lat <= b.north && coords.lng >= b.west && coords.lng <= b.east;
 }
+
+/**
+ * Where an event goes on the map: its coordinates when they fall inside
+ * Greater Melbourne, otherwise null. Events outside are not pinned, so the
+ * list, Locate and the "can't be placed" count treat them as unplaceable too.
+ */
+export function resolveMapCoordinates(event: SheltuhEvent): Coordinates | null {
+  const coords = resolveEventCoordinates(event);
+  return coords && isInMelbourneMetro(coords) ? coords : null;
+}

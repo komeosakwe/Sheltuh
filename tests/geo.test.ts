@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveEventCoordinates } from "../lib/geo";
+import { resolveEventCoordinates, resolveMapCoordinates } from "../lib/geo";
 import { sampleEvents } from "../lib/sample-events";
 import type { SheltuhEvent } from "../lib/types";
 
@@ -38,5 +38,23 @@ describe("resolveEventCoordinates", () => {
     for (const event of sampleEvents) {
       expect(resolveEventCoordinates(event)).not.toBeNull();
     }
+  });
+});
+
+describe("resolveMapCoordinates", () => {
+  it("returns coordinates inside Greater Melbourne", () => {
+    const event = findEvent("neon-static");
+    expect(resolveMapCoordinates(event)).toEqual(resolveEventCoordinates(event));
+  });
+
+  it("returns null for coordinates outside Greater Melbourne", () => {
+    const event = { ...findEvent("neon-static"), coordinates: { lat: -33.8861, lng: 151.2111 } };
+    expect(resolveEventCoordinates(event)).not.toBeNull();
+    expect(resolveMapCoordinates(event)).toBeNull();
+  });
+
+  it("returns null when the event can't be located at all", () => {
+    const event = { ...findEvent("neon-static"), coordinates: undefined, suburb: "Nowhereville" };
+    expect(resolveMapCoordinates(event)).toBeNull();
   });
 });

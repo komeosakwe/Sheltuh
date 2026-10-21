@@ -12,7 +12,7 @@ import { listPublicEvents } from "@/lib/api/public-events";
 import { adaptPublicEvent } from "@/lib/live/adapt";
 import { getEventCategories, getEvents } from "@/lib/data";
 import { formatEventDateShort, formatEventTime } from "@/lib/format";
-import { resolveEventCoordinates } from "@/lib/geo";
+import { resolveMapCoordinates } from "@/lib/geo";
 import { formatFeedPrice } from "@/lib/pricing";
 import {
   distinctSuburbs,
@@ -133,7 +133,7 @@ function SceneMapView({
       .filter((event) => matchesSearch(event, filters.search))
       .filter((event) => {
         if (!areaBounds) return true;
-        const coords = resolveEventCoordinates(event);
+        const coords = resolveMapCoordinates(event);
         if (!coords) return false;
         return (
           coords.lat <= areaBounds.north &&
@@ -172,7 +172,7 @@ function SceneMapView({
     }
   }, [initialSelected, status, filtered]);
 
-  const withoutLocationCount = filtered.filter((event) => resolveEventCoordinates(event) === null).length;
+  const withoutLocationCount = filtered.filter((event) => resolveMapCoordinates(event) === null).length;
 
   const hasActiveFilters =
     filters.category !== "all" ||
@@ -400,7 +400,7 @@ function SceneMapView({
                         event={event}
                         selected={event.id === selectedEventId}
                         onLocate={handleLocate}
-                        hasLocation={resolveEventCoordinates(event) !== null}
+                        hasLocation={resolveMapCoordinates(event) !== null}
                         detailsHref={`/events/${event.slug}`}
                       />
                     </div>

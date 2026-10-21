@@ -13,8 +13,7 @@ import {
   MELBOURNE_DEFAULT_ZOOM,
   MELBOURNE_METRO_BOUNDS,
   MELBOURNE_MIN_ZOOM,
-  isInMelbourneMetro,
-  resolveEventCoordinates,
+  resolveMapCoordinates,
 } from "@/lib/geo";
 import type { Coordinates, SheltuhEvent } from "@/lib/types";
 import { usePrefersReducedMotion } from "@/lib/use-reduced-motion";
@@ -268,9 +267,9 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
 
   const markers = useMemo<MarkerDatum[]>(() => {
     return events.flatMap((event) => {
-      const coords = resolveEventCoordinates(event);
       // Outside Greater Melbourne = not pinned (the map is Melbourne-only).
-      return coords && isInMelbourneMetro(coords) ? [{ event, lat: coords.lat, lng: coords.lng }] : [];
+      const coords = resolveMapCoordinates(event);
+      return coords ? [{ event, lat: coords.lat, lng: coords.lng }] : [];
     });
   }, [events]);
 
