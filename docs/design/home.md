@@ -64,8 +64,14 @@ This replaces the split home: `PhoneHome` below `sm` plus the desktop tree (`Int
 | Community line (`display-lg font-display`) | `display-lg` | | | | 0.9 | display token | upper | display token |
 | Community body | 16px | `sm:text-lg` | | | 24 / 28 | 0 | sentence | 400 |
 
+**Compact hero (owner decision 7, overrides the h1 sizes in the table above):** events must be visible immediately, without scrolling.
+- h1 at most 36px on phones, 44px from `sm`, 56px from `lg` (`display-lg`, not `display-xl`), leading 0.9; two lines on desktop ("WHERE IS ÜR / SHELTÜH?"), at most three on phones.
+- Hero vertical padding at most 24px phones / 32px `sm` / 40px `lg`; intro line one sentence; one CTA row; search and categories on one row from `lg`.
+- From `lg` the hero is a single band no taller than ~360px including the Up next card (landscape card, not 4:5), so the next section's heading and the top of its first row of cards show above the fold.
+- Acceptance (Playwright, demo data): at 1440×900 and 1280×800 the first event card of the first section below the hero starts above the fold line; at 390×844 the Up next card's image and title, plus the next section's heading, are visible without scrolling.
+
 **Hero h1 acceptance:**
-- Copy is pending owner question 1 in `brand-direction-one.md`.
+- Copy: the brand line was approved (owner decision, `brand-direction-one.md`).
 - If the brand line is approved, the h1 is "WHERE / IS ÜR / SHELTÜH?": exactly 3 lines at 320, 375, 430, 640, 768, 1024 and 1280, and "SHELTÜH?" never breaks.
 - If it isn't approved, keep "Find your room. Find your people.", where "Find your" sets on one line and the h1 is exactly 4 lines at those widths.
 - If a line overflows the 7-column hero at 1024, lower the `sm:` clamp maximum to `5.5rem`.
@@ -545,3 +551,4 @@ All in Australia/Melbourne wall-clock time, DST-safe. Build it with the `Intl` a
 4. Unknown ticket sites show "Tickets on the organiser's site", not the bare hostname.
 5. This weekend includes any event open during the window (exhibitions every weekend they're open), events starting in the window sorted first. Confirmed.
 6. WCAG 2.2.2 (manager decision): the photo push-in runs once, finishes within 5 seconds and holds its end frame. It never loops, and it stays off under reduced motion. That needs no pause control.
+7. Compact hero (21 Oct 2026): the hero is smaller so events are visible immediately on desktop and phone; see "Compact hero" in §2. This overrides the earlier h1 sizes (up to 96px) and the 4:5 Up next card in the hero.
