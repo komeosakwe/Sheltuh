@@ -102,7 +102,7 @@ on the return from Stripe Checkout) rather than flashing the offline page.
 | A page already on screen when the connection drops | It stays on screen. Anything that needs the server (loading events, Who's Going, sending a message, checkout, ticket codes) fails with that screen's existing error message. |
 | Browsing, search, map, event details | Need a connection. |
 | Buying tickets, Stripe Checkout | Needs a connection. Nothing is queued. |
-| Your tickets / ticket codes | Need a connection (`/checkout/success`, account). The confirmation email lists the codes, and an email app may have it saved offline. |
+| Your tickets / ticket codes | Need a connection (`/checkout/success`, account). Your ticket QR codes are in your confirmation email, and an email app may have it saved offline. |
 | Messages | Need a connection to read or send. A typed draft stays in the box on screen; it is not sent later. |
 | First visit ever, or browser storage cleared | No service worker yet, so the browser's own offline error appears. |
 

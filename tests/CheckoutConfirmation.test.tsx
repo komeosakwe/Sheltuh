@@ -59,6 +59,37 @@ describe("CheckoutConfirmation", () => {
     expect(screen.queryByRole("link", { name: "Add yourself to Who’s Going" })).toBeNull();
   });
 
+  it("shows a QR and the text code for each ticket, numbered as in the email, with the door advice", async () => {
+    getOrderBySession.mockResolvedValue({
+      ...ORDER,
+      tickets: [
+        { ticketCode: "7KQM-2HXD", ticketTypeName: "General admission" },
+        { ticketCode: "A2B3-C4D5", ticketTypeName: "General admission" },
+      ],
+    });
+    render(<CheckoutConfirmation />);
+    expect(await screen.findByRole("img", { name: "QR code for ticket 7KQM-2HXD" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "QR code for ticket A2B3-C4D5" })).toBeInTheDocument();
+    expect(screen.getByText("7KQM-2HXD")).toBeInTheDocument();
+    expect(screen.getByText("A2B3-C4D5")).toBeInTheDocument();
+    expect(screen.getByText("Ticket 1 of 2 · General admission")).toBeInTheDocument();
+    expect(screen.getByText("Ticket 2 of 2 · General admission")).toBeInTheDocument();
+    expect(screen.getAllByText("Turn your brightness up at the door.")).toHaveLength(2);
+    expect(screen.getByText("Show a QR code at the door, from this page or your ticket email.")).toBeInTheDocument();
+    expect(
+      screen.getByText("This page needs a connection. If signal at the venue is patchy, take a screenshot first."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Each code gets in once, so don’t post or share it.")).toBeInTheDocument();
+    expect(screen.queryByText("Show this page or your ticket email at the door.")).toBeNull();
+  });
+
+  it("shows a code that isn't a real one as text only, with no QR", async () => {
+    getOrderBySession.mockResolvedValue(ORDER);
+    render(<CheckoutConfirmation />);
+    expect(await screen.findByText("ABC123")).toBeInTheDocument();
+    expect(screen.queryByRole("img")).toBeNull();
+  });
+
   it("tells the buyer a paid order was refunded and shows no codes", async () => {
     getOrderBySession.mockResolvedValue({ ...ORDER, status: "refunded", refundReason: "refunded", tickets: [] });
     render(<CheckoutConfirmation />);
@@ -66,6 +97,20 @@ describe("CheckoutConfirmation", () => {
     expect(screen.getByText(/tickets for this order are no longer valid/)).toBeInTheDocument();
     expect(screen.queryByText(/no tickets were issued/)).toBeNull();
     expect(screen.queryByText("ABC123")).toBeNull();
+  });
+
+  it("shows no QR or code for a refunded order, even if a response still carried its tickets", async () => {
+    getOrderBySession.mockResolvedValue({
+      ...ORDER,
+      status: "refunded",
+      refundReason: "refunded",
+      tickets: [{ ticketCode: "7KQM-2HXD", ticketTypeName: "General admission" }],
+    });
+    render(<CheckoutConfirmation />);
+    expect(await screen.findByText("This order has been refunded")).toBeInTheDocument();
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.queryByText("7KQM-2HXD")).toBeNull();
+    expect(screen.queryByText(/Show a QR code at the door/)).toBeNull();
   });
 
   it("keeps the sold-out wording for an oversold refund", async () => {

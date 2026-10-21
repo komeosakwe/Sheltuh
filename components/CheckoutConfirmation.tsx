@@ -152,14 +152,26 @@ export default function CheckoutConfirmation() {
         )}
       </div>
 
-      <div className="bg-surface p-4">
+      <div className="bg-surface p-4 print:bg-transparent">
         <h2 className="font-heading text-xl text-foreground">Your tickets</h2>
         <ul className="mt-3 flex flex-col gap-3">
-          {order.tickets.map((ticket) => (
-            <TicketStub key={ticket.ticketCode} code={ticket.ticketCode} typeName={ticket.ticketTypeName} />
+          {/* Numbered as in the ticket email and at the door: both order an order's
+              tickets by ticket type, then code, as the API returns them. */}
+          {order.tickets.map((ticket, i) => (
+            <TicketStub
+              key={ticket.ticketCode}
+              code={ticket.ticketCode}
+              typeName={ticket.ticketTypeName}
+              ticketNumber={i + 1}
+              ticketCount={order.tickets.length}
+            />
           ))}
         </ul>
-        <p className="mt-3 text-xs text-muted">Show this page or your ticket email at the door.</p>
+        <p className="mt-3 text-xs text-muted">Show a QR code at the door, from this page or your ticket email.</p>
+        <p className="mt-1 text-xs text-muted">
+          This page needs a connection. If signal at the venue is patchy, take a screenshot first.
+        </p>
+        <p className="mt-1 text-xs text-muted">Each code gets in once, so don&rsquo;t post or share it.</p>
         <p className="mt-1 text-xs text-muted">Order reference {order.reference}</p>
       </div>
 
