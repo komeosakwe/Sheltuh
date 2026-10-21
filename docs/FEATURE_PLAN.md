@@ -49,7 +49,8 @@ Migration `20261022000100`.
 - Admin UI `/admin/events/new` and `/admin/events/{id}/edit`, reusing
   `EventEditor`.
 - Moderation log actions `created`, `edited`, `curated`.
-- Platform-managed organisers cannot sell paid Sheltüh tickets or use check-in.
+- Platform-managed organisers cannot sell paid Sheltüh tickets. Their events'
+  free tickets are checked in by admins (owner decision below; built 21 Oct).
 
 ## B4: trending
 
@@ -132,3 +133,17 @@ Events under a platform-managed organiser (no organiser account) can issue
 free Sheltüh tickets. Admins may run the door scanner for those events only:
 same atomic check-in, rate limit and audit log, with the admin recorded as the
 scanner. Admins still cannot check in for organiser-owned events.
+
+### Manager decisions while the owner is away (21 Oct 2026)
+
+- Trending eligibility counts distinct people, not actions: at least 3 different
+  members (by account or email) must have engaged, so one person can't make an
+  event trend alone.
+- Events page opens on the map (Map first, List second); `?view=list` still
+  opens the list.
+- Card and list quick-buy reads "Buy tickets" (paid) or "Get free tickets".
+- Loading states show the two-dot loader with an estimated percentage that
+  only reaches 100% when data arrives.
+- Curation (boost/exclude) entries are hidden from organisers' moderation log.
+- Unpublished events: ticket pages and resent emails drop the venue and time
+  and say the event is no longer listed.
