@@ -15,7 +15,9 @@ export interface EventInput {
   /** At least one for a Sheltüh-ticketed event; must be empty for an external one. */
   ticketTypes: TicketTypeInput[];
   /**
-   * Where tickets are sold (absent means `sheltuh`). Once the event has been
+   * Where tickets are sold. Absent: `sheltuh` when creating; when editing,
+   * the stored ticketing is kept (and its link and free flag, unless sent).
+   * Once the event has been
    * approved (`EventRecord.ticketingLocked`), changing it or the link is
    * ApiError 409 with fieldErrors on the changed field; only an admin can.
    */

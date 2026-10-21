@@ -6,7 +6,10 @@ import type { EventCategory } from "@/lib/types";
 
 export type { EventCategory, FeePolicy } from "@/lib/types";
 export type {
+  AdminCreateOrganiserInput,
   AdminEmailJob,
+  AdminEventRecord,
+  EventEditChanges,
   AdminSetEventTicketingInput,
   AdminOrganiserRecord,
   OrganiserEditChange,

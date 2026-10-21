@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import PrivateEventImage from "@/components/admin/PrivateEventImage";
 import { adminApproveEvent, adminListEvents, adminRejectEvent, adminUnpublishEvent } from "@/lib/api/admin";
@@ -105,6 +106,9 @@ export default function EventQueue() {
 
   return (
     <div className="flex flex-col gap-4">
+      <Link href="/admin/events/new" className="btn btn-solid w-fit">
+        New event
+      </Link>
       <div className="flex flex-wrap gap-2">
         {STATUSES.map((s) => (
           <button
@@ -152,7 +156,14 @@ export default function EventQueue() {
                   <p className="mt-1 text-xs text-muted">Rejection reason: {item.rejectionReason}</p>
                 )}
               </div>
-              <div className="flex shrink-0 gap-2">
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <Link
+                  href={`/admin/events/${encodeURIComponent(item.eventId)}/edit`}
+                  className="btn btn-outline"
+                  aria-label={`Edit ${item.title}`}
+                >
+                  Edit
+                </Link>
                 {status === "pending_review" && (
                   <>
                     <button

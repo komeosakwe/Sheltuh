@@ -99,8 +99,10 @@ alter table public.events
   add constraint events_external_ticket_url_valid check (
     external_ticket_url is null or private.external_ticket_url_ok(external_ticket_url));
 
--- Admin-only context for each log entry, e.g. the old and new ticketing
--- values of a 'ticketing_changed' entry. Null for the other actions.
+-- Context for a log entry, e.g. the old and new ticketing values of a
+-- 'ticketing_changed' entry. Null for the other actions. Shown to admins and
+-- to the event's organiser (EventRecord.moderationLog[].changes), never
+-- publicly.
 alter table public.event_moderation_log
   add column details jsonb,
   add constraint event_moderation_log_details_object check (details is null or jsonb_typeof(details) = 'object');

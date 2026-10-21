@@ -30,8 +30,13 @@ function parseDescription(value: unknown, errors: Record<string, string>): strin
   });
 }
 
-/** `existing`: the rejected application being resubmitted, if any (its stored website is kept as it is). */
-function parseApplication(body: Record<string, unknown>, existing?: OrganiserRecord) {
+/**
+ * An organiser application's fields (also an admin's platform-managed
+ * organiser: lib/server/handlers/admin-authoring.ts). `existing`: the
+ * rejected application being resubmitted, if any (its stored website is
+ * kept as it is).
+ */
+export function parseApplication(body: Record<string, unknown>, existing?: OrganiserRecord) {
   const errors: Record<string, string> = {};
   const displayName = requireString(body.displayName, "displayName", errors, 120);
   const contactEmail = requireEmail(body.contactEmail, "contactEmail", errors);

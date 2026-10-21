@@ -49,6 +49,9 @@ const ACCEPTED: [input: string, stored: string][] = [
   ["https://t.com.au/tickets", "https://t.com.au/tickets"],
   // example.com is a normal (documentation) domain; only the .example TLD is reserved.
   ["https://www.example.com/rsvp", "https://www.example.com/rsvp"],
+  // Digits or "0x" inside a label are fine; only a numeric last label is an address.
+  ["https://events.0xfoo.com/1", "https://events.0xfoo.com/1"],
+  ["https://123tix.com.au/1", "https://123tix.com.au/1"],
   // Exactly at the length cap.
   [
     `https://a.com/${"x".repeat(MAX_EXTERNAL_TICKET_URL_LENGTH - "https://a.com/".length)}`,
@@ -79,7 +82,11 @@ const REFUSED: [input: string, problem: ExternalTicketUrlProblem][] = [
   ["https://10.0.0.1/tickets", "ip_address"],
   ["https://2130706433/", "ip_address"],
   ["https://0x7f.1/", "ip_address"],
+  ["https://0x7f.0.0.1/", "ip_address"],
   ["https://0177.0.0.1/", "ip_address"],
+  // A numeric last label makes the parser read the host as IPv4, and fail.
+  ["https://foo.0x7f/", "invalid"],
+  ["https://example.123/", "invalid"],
   ["https://[::1]/", "ip_address"],
   ["https://[2001:db8::1]/tickets", "ip_address"],
   ["https://[::ffff:127.0.0.1]/", "ip_address"],
@@ -202,6 +209,14 @@ describe("the database's check agrees with the API's", () => {
       "https://humanitix.com:8443/",
       "https://127.0.0.1/",
       "https://10.0.0.1/tickets",
+      // IPv4 in hex, octal or mixed forms, or a numeric last label: written
+      // around the API (whose parser normalises or rejects them).
+      "https://0x7f.1/",
+      "https://0x7f.0.0.1/",
+      "https://0177.0.0.1/",
+      "https://foo.0x7f/",
+      "https://foo.0x/",
+      "https://example.123/",
       "https://[::1]/",
       "https://localhost/",
       "https://tickets/",

@@ -25,9 +25,14 @@ export const MAX_EXTERNAL_TICKET_URL_LENGTH = 2048;
 export const URL_DISALLOWED = /[\p{Cc}\p{Cf}\p{Z}\s\\]/u;
 
 /**
- * Redirect services: a link through one could be pointed somewhere else after
- * an admin approved it, so the reviewed URL wouldn't be where buyers go.
- * Matched on the host and any subdomain of it.
+ * Redirect services (shorteners, link-in-bio and smart-link pages): a link
+ * through one could be pointed somewhere else after an admin approved it, so
+ * the reviewed URL wouldn't be where buyers go. Matched on the host and any
+ * subdomain of it. Only a speed bump: any domain an organiser controls can be
+ * re-pointed too, so admin review and unpublishing are the real control
+ * (docs/architecture.md, "Accepted risks (external ticketing)"). The same
+ * list is in private.external_ticket_url_ok
+ * (supabase/migrations/20261022000200_external_ticketing_hardening.sql).
  */
 export const LINK_SHORTENER_HOSTS: readonly string[] = [
   "adf.ly",
@@ -37,20 +42,31 @@ export const LINK_SHORTENER_HOSTS: readonly string[] = [
   "bl.ink",
   "buff.ly",
   "cutt.ly",
+  "dlvr.it",
   "dub.sh",
   "fb.me",
+  "ffm.to",
   "goo.gl",
+  "ht.ly",
+  "ift.tt",
   "is.gd",
+  "j.mp",
+  "linktr.ee",
+  "lnk.to",
   "lnkd.in",
   "ow.ly",
+  "qrco.de",
   "rb.gy",
   "rebrand.ly",
+  "rotf.lol",
   "s.id",
   "short.io",
   "shorturl.at",
+  "smarturl.it",
   "t.co",
   "t.ly",
   "tiny.cc",
+  "tiny.one",
   "tinyurl.com",
   "trib.al",
   "v.gd",
@@ -152,7 +168,7 @@ const MESSAGES: Record<ExternalTicketUrlProblem, string> = {
   ip_address: "Use the ticket site's name, not an IP address.",
   localhost: "Enter a public ticket page.",
   single_label: "Enter the ticket site's full name, e.g. www.example.com.au.",
-  shortener: "Link shorteners can't be used. Paste the ticket page's full address.",
+  shortener: "Link shorteners and link-in-bio pages can't be used. Paste the ticket page's full address.",
 };
 
 function refuse(problem: ExternalTicketUrlProblem): ExternalTicketUrlCheck {

@@ -1,3 +1,5 @@
+import type { TicketingMode } from "./ticketing";
+
 export type EventCategory =
   | "live-music"
   | "art"
@@ -89,7 +91,7 @@ export interface SheltuhEvent {
    * `external` (on another site, at `externalTicketUrl`: no Sheltüh checkout,
    * booking fee, Who's Going or check-in, and no price shown).
    */
-  ticketingMode?: "sheltuh" | "external";
+  ticketingMode?: TicketingMode;
   /** External events only: the ticket page. */
   externalTicketUrl?: string;
   /** External events only: the organiser says entry is free. */

@@ -76,8 +76,14 @@ an admin: no API route or form can grant it.
 npm run seed-dev-data   # needs DATABASE_URL in .env.local
 ```
 
-This loads the eight fictional sample events as published events. Only run it
-against a dev project, never production.
+This loads the fictional sample events as published events, under
+platform-managed organisers (no owner account). Those can't sell paid Sheltüh
+tickets (`20261022000100_admin_event_authoring.sql`), so the sample events
+with a paid ticket type are skipped; the free and external ones are loaded.
+Only run it against a dev project, never production.
+
+Paid ticket types seeded before that migration stay as they are, but checkout
+refuses them (409) and they can't be saved again with a price.
 
 ### Who's Going moderation
 

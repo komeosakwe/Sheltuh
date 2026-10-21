@@ -412,7 +412,7 @@ async function buildOverview(db: Db, organiserId: string, qs: URLSearchParams): 
   const { range, compare } = parseAnalyticsQuery(qs, { from: addDays(today, -(DEFAULT_RANGE_DAYS - 1)), today });
   const previousRange = compare ? previousPeriod(range) : undefined;
 
-  const [since, period, previous, events, outbound, previousOutbound, [{ has_external }]] = await Promise.all([
+  const [since, period, previous, events, outbound, previousOutbound] = await Promise.all([
     viewsTrackedSince(db),
     organiserPeriod(db, organiserId, range),
     previousRange ? organiserPeriod(db, organiserId, previousRange) : undefined,
@@ -424,8 +424,12 @@ async function buildOverview(db: Db, organiserId: string, qs: URLSearchParams): 
       status: EventStatus;
       starts_at: string | Date;
       ticketing_mode: TicketingMode;
+      has_external: boolean;
     }>(
-      `select e.id, e.title, e.slug, e.status::text as status, e.starts_at, e.ticketing_mode
+      // has_external: any of the organiser's events (not just this page) is
+      // external. A window aggregate is computed before the limit.
+      `select e.id, e.title, e.slug, e.status::text as status, e.starts_at, e.ticketing_mode,
+              bool_or(e.ticketing_mode = 'external') over () as has_external
          from public.events e
         where e.organiser_id = $1
         order by e.ends_at < now(), case when e.ends_at >= now() then e.starts_at end, e.starts_at desc, e.id
@@ -434,11 +438,8 @@ async function buildOverview(db: Db, organiserId: string, qs: URLSearchParams): 
     ),
     organiserOutbound(db, organiserId, range),
     previousRange ? organiserOutbound(db, organiserId, previousRange) : undefined,
-    db.query<{ has_external: boolean }>(
-      `select exists (select 1 from public.events e where e.organiser_id = $1 and e.ticketing_mode = 'external') as has_external`,
-      [organiserId],
-    ),
   ]);
+  const hasExternal = events[0]?.has_external === true;
 
   const complete = viewsComplete(range, since);
   const previousComplete = previousRange ? viewsComplete(previousRange, since) : false;
@@ -486,7 +487,7 @@ async function buildOverview(db: Db, organiserId: string, qs: URLSearchParams): 
     ...(previous && previousRange ? { previous: overviewPeriod(previous, previousRange, since) } : {}),
     // Null when the organiser has no external event (and no clicks from one that has since changed back).
     outboundClicks:
-      has_external || outbound.any || previousOutbound?.any
+      hasExternal || outbound.any || previousOutbound?.any
         ? { ...outbound.stats, ...(previousOutbound ? { previous: previousOutbound.stats } : {}) }
         : null,
   };

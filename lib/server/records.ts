@@ -6,6 +6,7 @@
 import type { Db } from "./db";
 import type {
   AdminEmailJob,
+  AdminEventRecord,
   AdminOrganiserRecord,
   AdminReport,
   BlockRecord,
@@ -187,8 +188,8 @@ export function toPublicOrganiserProfile(
 // Events
 // ---------------------------------------------------------------------------
 
-export const EVENT_SELECT = `
-  select e.id, e.organiser_id, e.slug, e.title, e.description, e.category::text as category,
+const EVENT_COLUMNS = `
+         e.id, e.organiser_id, e.slug, e.title, e.description, e.category::text as category,
          e.venue_name, e.venue_address, e.suburb, e.starts_at, e.ends_at,
          e.status::text as status, e.rejection_reason, e.created_at, e.updated_at,
          e.ticketing_mode, e.external_ticket_url, e.external_free,
@@ -207,24 +208,54 @@ export const EVENT_SELECT = `
                     'action', l.action, 'by', coalesce(l.actor_id::text, 'system'),
                     'at', l.created_at, 'reason', l.reason, 'changes', l.details)) order by l.id)
            from public.event_moderation_log l where l.event_id = e.id
-         ), '[]'::json) as moderation_log
+         ), '[]'::json) as moderation_log`;
+
+const EVENT_FROM = `
   from public.events e
   join public.organisers o on o.id = e.organiser_id`;
+
+export const EVENT_SELECT = `
+  select ${EVENT_COLUMNS}${EVENT_FROM}`;
+
+/** EVENT_SELECT plus whether the organiser is platform-managed (no owner account). Admin only. */
+export const ADMIN_EVENT_SELECT = `
+  select ${EVENT_COLUMNS},
+         o.owner_user_id is null as organiser_platform_managed${EVENT_FROM}`;
+
+/** The fields a log entry's `changes` can name (ModerationLogEntry.changes). */
+const LOG_CHANGE_FIELDS = [
+  "ticketingMode",
+  "externalTicketUrl",
+  "externalFree",
+  "title",
+  "description",
+  "category",
+  "venueName",
+  "venueAddress",
+  "suburb",
+  "startsAt",
+  "endsAt",
+  "ticketTypes",
+  "image",
+] as const satisfies readonly (keyof NonNullable<ModerationLogEntry["changes"]>)[];
+
+/** One change as stored: json_strip_nulls has dropped a side that was null. */
+type StoredChange = { old?: unknown; new?: unknown } | undefined;
 
 /**
  * A moderation log entry from EVENT_SELECT. json_strip_nulls also strips the
  * nulls inside `changes` (an old value that was null, e.g. no link before),
- * so each change is rebuilt with both sides.
+ * so each known field's change is rebuilt with both sides; anything else
+ * stored there is dropped.
  */
-function toModerationLogEntry(entry: ModerationLogEntry): ModerationLogEntry {
-  const result: ModerationLogEntry = { ...entry, at: iso(entry.at) };
-  if (entry.changes) {
-    const changes: NonNullable<ModerationLogEntry["changes"]> = {};
-    for (const [field, change] of Object.entries(entry.changes) as [
-      keyof NonNullable<ModerationLogEntry["changes"]>,
-      { old?: unknown; new?: unknown },
-    ][]) {
-      (changes as Record<string, { old: unknown; new: unknown }>)[field] = { old: change.old ?? null, new: change.new ?? null };
+function toModerationLogEntry(entry: Omit<ModerationLogEntry, "changes"> & { changes?: Record<string, StoredChange> }): ModerationLogEntry {
+  const { changes: stored, ...rest } = entry;
+  const result: ModerationLogEntry = { ...rest, at: iso(entry.at) };
+  if (stored) {
+    const changes: Record<string, { old: unknown; new: unknown }> = {};
+    for (const field of LOG_CHANGE_FIELDS) {
+      const change = stored[field];
+      if (change) changes[field] = { old: change.old ?? null, new: change.new ?? null };
     }
     result.changes = changes;
   }
@@ -232,7 +263,7 @@ function toModerationLogEntry(entry: ModerationLogEntry): ModerationLogEntry {
 }
 
 export function toEvent(row: Row): EventRecord {
-  const log = row.moderation_log as ModerationLogEntry[];
+  const log = row.moderation_log as Parameters<typeof toModerationLogEntry>[0][];
   const ticketingMode = (row.ticketing_mode ?? "sheltuh") as TicketingMode;
   const externalTicketUrl = ticketingMode === "external" ? opt<string>(row.external_ticket_url) : undefined;
   return {
@@ -262,6 +293,11 @@ export function toEvent(row: Row): EventRecord {
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };
+}
+
+/** For rows of ADMIN_EVENT_SELECT. */
+export function toAdminEvent(row: Row): AdminEventRecord {
+  return { ...toEvent(row), organiserPlatformManaged: row.organiser_platform_managed === true };
 }
 
 /** The only event fields the public (unauthenticated) routes may expose. */

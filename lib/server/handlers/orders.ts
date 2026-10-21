@@ -201,6 +201,9 @@ function parseBuyerEmail(body: Record<string, unknown>, required: boolean): stri
   return email;
 }
 
+/** A platform-managed organiser's event has no paid Sheltüh tickets (only free ones, or external ticketing). */
+export const PLATFORM_PAID_CHECKOUT_REFUSED = "Paid tickets for this event aren't sold on Sheltüh.";
+
 /** Tickets for an external event are sold on another site: no Sheltüh checkout. */
 export const EXTERNAL_CHECKOUT_REFUSED = "Tickets for this event are sold on another site, not on Sheltüh.";
 
@@ -281,6 +284,9 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
     );
 
   const organiser = await findOrganiserById(db, event.organiserId);
+  // A platform-managed organiser (no owner account) sells no paid Sheltüh
+  // tickets: the database refuses its paid ticket types and orders too.
+  if (organiser && !organiser.ownerUserId) throw new HttpError(409, PLATFORM_PAID_CHECKOUT_REFUSED);
   if (!organiser?.stripeAccountId || !organiser.payoutsEnabled) {
     throw new HttpError(409, "This organiser hasn't finished setting up payouts yet — ticket sales aren't open.");
   }

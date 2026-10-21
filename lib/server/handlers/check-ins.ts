@@ -11,7 +11,7 @@ import {
 } from "@/lib/api/types";
 import { parseTicketCode } from "@/lib/ticket-code";
 import { requireCaller } from "../auth";
-import type { Db } from "../db";
+import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
 import type { Deps } from "../deps";
 import { HttpError, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
@@ -61,9 +61,10 @@ export const EXTERNAL_CHECK_IN_REFUSED =
 
 /**
  * 409 for the organiser's own external event. Anything else (not theirs, no
- * such event) is left to the caller's own 404. An external event can't have
- * tickets (the database refuses its orders), so this is a clear answer
- * rather than a guard: every scan would be `invalid` anyway.
+ * such event) is left to the caller's own 404. Only read once an undo has
+ * found nothing (an external event has no admissions), so it costs nothing
+ * on the normal path; a scan of an external event is refused by the
+ * ticket_check_ins_guard trigger instead.
  */
 async function refuseExternalEvent(db: Db, organiserId: string, eventId: string): Promise<void> {
   const [row] = await db.query<{ ticketing_mode: string }>(
@@ -131,22 +132,31 @@ export const checkInTicket: Handler<{ eventId: string }> = async (req, { eventId
   if (typeof body.code !== "string") errors.code = "Scan or enter a ticket code.";
   if (typeof body.requestId !== "string" || !isUuid(body.requestId)) errors.requestId = "Invalid request id.";
   if (Object.keys(errors).length > 0) fail(errors);
-  await refuseExternalEvent(deps.db, organiser.organiserId, eventId);
 
-  const [row] = await deps.db.query<CheckInRow>(
-    `select result, admission_id::text as admission_id, ticket_type_name, ticket_number, ticket_count, code_last4,
-            first_checked_in_at, other_event_title
-       from private.check_in_ticket($1, $2, $3, $4, $5::uuid, $6, $7::interval)`,
-    [
-      eventId,
-      organiser.organiserId,
-      caller.userId,
-      parseTicketCode(body.code),
-      body.requestId,
-      CHECK_IN_LIMIT.limit,
-      CHECK_IN_LIMIT.window,
-    ],
-  );
+  let row: CheckInRow;
+  try {
+    [row] = await deps.db.query<CheckInRow>(
+      `select result, admission_id::text as admission_id, ticket_type_name, ticket_number, ticket_count, code_last4,
+              first_checked_in_at, other_event_title
+         from private.check_in_ticket($1, $2, $3, $4, $5::uuid, $6, $7::interval)`,
+      [
+        eventId,
+        organiser.organiserId,
+        caller.userId,
+        parseTicketCode(body.code),
+        body.requestId,
+        CHECK_IN_LIMIT.limit,
+        CHECK_IN_LIMIT.window,
+      ],
+    );
+  } catch (err) {
+    // The ticket_check_ins_guard trigger: the organiser's event is external.
+    // Nothing was logged or counted (the whole call rolled back).
+    if (pgErrorCode(err) === PG_CHECK_VIOLATION && pgConstraint(err) === "ticket_check_ins_sheltuh_only") {
+      throw new HttpError(409, EXTERNAL_CHECK_IN_REFUSED);
+    }
+    throw err;
+  }
   if (row.result === "not_found") throw new HttpError(404, EVENT_NOT_FOUND);
   if (row.result === "rate_limited") throw new HttpError(429, RATE_LIMITED);
   if (row.result === "conflict") throw new HttpError(409, REQUEST_CONFLICT);
@@ -182,7 +192,6 @@ export const undoCheckIn: Handler<{ eventId: string; checkInId: string }> = asyn
   }
   if (Object.keys(errors).length > 0) fail(errors);
   if (!isUuid(checkInId)) throw new HttpError(404, "Check-in not found.");
-  await refuseExternalEvent(deps.db, organiser.organiserId, eventId);
 
   const [row] = await deps.db.query<{
     result: UndoCheckInOutcome | "not_found" | "rate_limited";
@@ -194,7 +203,11 @@ export const undoCheckIn: Handler<{ eventId: string; checkInId: string }> = asyn
        from private.undo_check_in($1, $2, $3, $4::uuid, $5, $6, $7::interval)`,
     [eventId, organiser.organiserId, caller.userId, checkInId, reason, CHECK_IN_LIMIT.limit, CHECK_IN_LIMIT.window],
   );
-  if (row.result === "not_found") throw new HttpError(404, "Check-in not found.");
+  if (row.result === "not_found") {
+    // An external event has no admissions: say why, rather than "not found".
+    await refuseExternalEvent(deps.db, organiser.organiserId, eventId);
+    throw new HttpError(404, "Check-in not found.");
+  }
   if (row.result === "rate_limited") throw new HttpError(429, RATE_LIMITED);
   const result: UndoCheckInResult = {
     outcome: row.result,

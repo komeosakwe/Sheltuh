@@ -4,7 +4,14 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import InlineReauth from "@/components/auth/InlineReauth";
 import { ApiError, type GetToken } from "@/lib/api/client";
+import AdminOrganiserPicker, { type PickedOrganiser } from "@/components/admin/AdminOrganiserPicker";
 import EventImageField from "@/components/dashboard/EventImageField";
+import {
+  adminCreateEvent,
+  adminDeleteEventImage,
+  adminUpdateEvent,
+  adminUploadEventImage,
+} from "@/lib/api/admin";
 import {
   createEventDraft,
   deleteEventImage,
@@ -13,16 +20,33 @@ import {
   uploadEventImage,
   type EventInput,
 } from "@/lib/api/events";
-import type { EventRecord, TicketTypeInput } from "@/lib/api/types";
+import type { AdminEventRecord, EventRecord, TicketTypeInput } from "@/lib/api/types";
 import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
 import { calculateOrderSummary, MIN_PAID_TICKET_CENTS } from "@/lib/fees";
 import { formatAud, toMelbourneDateTimeInputParts } from "@/lib/format";
+import { checkExternalTicketUrl, type TicketingMode } from "@/lib/ticketing";
 import { EVENT_CATEGORIES } from "@/lib/types";
 
 interface Props {
   getToken: GetToken;
-  initial?: EventRecord;
+  initial?: EventRecord | AdminEventRecord;
   onSaved: (record: EventRecord) => void;
+  /**
+   * Admin authoring (/admin/events/new and /admin/events/[eventId]/edit): any
+   * status is editable, a new event picks its organiser (or creates a
+   * platform-managed one), ticketing is editable, saving can publish, and an
+   * edit carries the version it started from (a conflict is reported, with
+   * `onReload` to fetch the latest version).
+   */
+  mode?: "organiser" | "admin";
+  /** Admin mode: fetch the latest version after a save conflict (remount the editor with it). */
+  onReload?: () => void;
+}
+
+const PLATFORM_FREE_ONLY = "A platform-managed organiser can only offer free tickets here, or link to another site.";
+
+function isPlatformManaged(record: EventRecord | AdminEventRecord | undefined): boolean {
+  return Boolean(record && "organiserPlatformManaged" in record && record.organiserPlatformManaged);
 }
 
 function newTicketType(): TicketTypeInput {
@@ -35,14 +59,15 @@ function newTicketType(): TicketTypeInput {
   };
 }
 
-export default function EventEditor({ getToken, initial, onSaved }: Props) {
+export default function EventEditor({ getToken, initial, onSaved, mode = "organiser", onReload }: Props) {
   const router = useRouter();
   const auth = useAuth();
+  const isAdmin = mode === "admin";
   // Captured once at mount: the account this draft belongs to, so that if
   // the session expires mid-edit, recovery only accepts signing back in as
   // this same account — never a different one saving over it.
   const [ownerEmail] = useState(() => auth.email);
-  const locked = initial ? initial.status === "pending_review" || initial.status === "published" : false;
+  const locked = !isAdmin && initial ? initial.status === "pending_review" || initial.status === "published" : false;
 
   const [title, setTitle] = useState(initial?.title ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
@@ -55,6 +80,19 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
   const [ticketTypes, setTicketTypes] = useState<TicketTypeInput[]>(
     initial?.ticketTypes && initial.ticketTypes.length > 0 ? initial.ticketTypes : [newTicketType()],
   );
+
+  const [ticketingMode, setTicketingMode] = useState<TicketingMode>(initial?.ticketingMode ?? "sheltuh");
+  const [externalTicketUrl, setExternalTicketUrl] = useState(initial?.externalTicketUrl ?? "");
+  const [externalFree, setExternalFree] = useState(initial?.externalFree === true);
+
+  // Admin mode only.
+  const [organiser, setOrganiser] = useState<PickedOrganiser | null>(null);
+  const platformManaged = initial ? isPlatformManaged(initial) : organiser?.platformManaged === true;
+  const [publish, setPublish] = useState(false);
+  const [reason, setReason] = useState("");
+  // The version being edited (expectedUpdatedAt): the loaded one, then each save's.
+  const [version, setVersion] = useState(initial?.updatedAt);
+  const [conflict, setConflict] = useState(false);
 
   const [imageFile, setImageFile] = useState<Blob | null>(null);
   const [imageRemoved, setImageRemoved] = useState(false);
@@ -72,6 +110,11 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
     if (err instanceof SessionExpiredError) {
       setSessionExpired(true);
       setSubmitError(err.message);
+      return;
+    }
+    if (isAdmin && err instanceof ApiError && err.status === 409 && err.fieldErrors?.expectedUpdatedAt) {
+      setConflict(true);
+      setSubmitError(null);
       return;
     }
     if (err instanceof ApiError && err.fieldErrors) setErrors((prev) => ({ ...prev, ...err.fieldErrors }));
@@ -95,19 +138,31 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
     if (!suburb.trim()) nextErrors.suburb = "Enter a suburb.";
     if (!start.date || !start.time) nextErrors.start = "Enter a start date and time.";
     if (!end.date || !end.time) nextErrors.end = "Enter an end date and time.";
-    if (ticketTypes.length === 0) nextErrors.ticketTypes = "Add at least one ticket type.";
-    ticketTypes.forEach((t, i) => {
-      if (!t.name.trim()) nextErrors[`ticket-${i}-name`] = "Enter a ticket name.";
-      if (!Number.isInteger(t.priceCents) || t.priceCents < 0) nextErrors[`ticket-${i}-price`] = "Enter a valid price.";
-      else if (t.priceCents > 0 && t.priceCents < MIN_PAID_TICKET_CENTS)
-        nextErrors[`ticket-${i}-price`] = `A paid ticket must cost at least ${formatAud(MIN_PAID_TICKET_CENTS)} (or make it free).`;
-      if (!Number.isInteger(t.quantityAvailable) || t.quantityAvailable < 1)
-        nextErrors[`ticket-${i}-qty`] = "Enter how many are available.";
-    });
+    if (isAdmin && !initial && !createdId && !organiser) nextErrors.organiserId = "Choose an organiser.";
+    const external = ticketingMode === "external";
+    if (external) {
+      // Only an admin edits the link here; an organiser's external event keeps its stored one.
+      if (isAdmin) {
+        const checked = checkExternalTicketUrl(externalTicketUrl.trim());
+        if (!externalTicketUrl.trim()) nextErrors.externalTicketUrl = "Enter the address of the page where tickets are sold.";
+        else if (!checked.ok) nextErrors.externalTicketUrl = checked.message;
+      }
+    } else {
+      if (ticketTypes.length === 0) nextErrors.ticketTypes = "Add at least one ticket type.";
+      ticketTypes.forEach((t, i) => {
+        if (!t.name.trim()) nextErrors[`ticket-${i}-name`] = "Enter a ticket name.";
+        if (!Number.isInteger(t.priceCents) || t.priceCents < 0) nextErrors[`ticket-${i}-price`] = "Enter a valid price.";
+        else if (t.priceCents > 0 && platformManaged) nextErrors[`ticket-${i}-price`] = PLATFORM_FREE_ONLY;
+        else if (t.priceCents > 0 && t.priceCents < MIN_PAID_TICKET_CENTS)
+          nextErrors[`ticket-${i}-price`] = `A paid ticket must cost at least ${formatAud(MIN_PAID_TICKET_CENTS)} (or make it free).`;
+        if (!Number.isInteger(t.quantityAvailable) || t.quantityAvailable < 1)
+          nextErrors[`ticket-${i}-qty`] = "Enter how many are available.";
+      });
+    }
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return null;
 
-    return {
+    const input: EventInput = {
       title: title.trim(),
       description: description.trim(),
       category,
@@ -116,22 +171,50 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
       suburb: suburb.trim(),
       start,
       end,
-      ticketTypes,
+      ticketTypes: external ? [] : ticketTypes,
     };
+    // Ticketing is sent by an admin, and for an organiser's external event
+    // (unchanged, so saving never turns it back into a Sheltüh-ticketed one).
+    if (isAdmin || external) {
+      input.ticketingMode = ticketingMode;
+      input.externalTicketUrl = external ? (isAdmin ? externalTicketUrl.trim() : (initial?.externalTicketUrl ?? null)) : null;
+      input.externalFree = external && externalFree;
+    }
+    return input;
   }
 
   /** Applies a pending photo change to a saved event; returns the latest record. */
   async function syncImage(record: EventRecord): Promise<EventRecord> {
     if (imageFile) {
-      const updated = await uploadEventImage(record.eventId, imageFile, getToken);
+      const upload = isAdmin ? adminUploadEventImage : uploadEventImage;
+      const updated = await upload(record.eventId, imageFile, getToken);
       setImageFile(null);
       return updated;
     }
     if (imageRemoved && record.imageUrl) {
-      const updated = await deleteEventImage(record.eventId, getToken);
+      const remove = isAdmin ? adminDeleteEventImage : deleteEventImage;
+      const updated = await remove(record.eventId, getToken);
       setImageRemoved(false);
       return updated;
     }
+    return record;
+  }
+
+  /** Admin mode: creates the event, or saves the whole of it against the version being edited. */
+  async function adminSave(input: EventInput): Promise<EventRecord> {
+    const existingId = initial?.eventId ?? createdId;
+    if (existingId) {
+      const record = await adminUpdateEvent(
+        existingId,
+        { ...input, ticketingMode, expectedUpdatedAt: version ?? "", publish, reason: reason.trim() || null },
+        getToken,
+      );
+      setVersion(record.updatedAt);
+      return record;
+    }
+    const record = await adminCreateEvent({ ...input, organiserId: organiser?.organiserId ?? "", publish }, getToken);
+    setCreatedId(record.eventId);
+    setVersion(record.updatedAt);
     return record;
   }
 
@@ -143,17 +226,25 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
     if (!input) return;
 
     setSaving(true);
+    setConflict(false);
     try {
       const existingId = initial?.eventId ?? createdId;
-      let record = existingId
-        ? await updateEventDraft(existingId, input, getToken)
-        : await createEventDraft(input, getToken);
-      if (!existingId) setCreatedId(record.eventId);
+      let record: EventRecord;
+      if (isAdmin) {
+        record = await adminSave(input);
+        setPublish(false);
+      } else {
+        record = existingId
+          ? await updateEventDraft(existingId, input, getToken)
+          : await createEventDraft(input, getToken);
+        if (!existingId) setCreatedId(record.eventId);
+      }
       record = await syncImage(record);
       if (!initial) {
-        router.push(`/dashboard/${record.eventId}`);
+        router.push(isAdmin ? `/admin/events/${encodeURIComponent(record.eventId)}/edit` : `/dashboard/${record.eventId}`);
         return;
       }
+      setReason("");
       onSaved(record);
     } catch (err) {
       // Never clears title/description/tickets/etc. above — a failed save
@@ -206,6 +297,38 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
           <p className="font-medium">Not approved — reviewer note:</p>
           <p className="mt-1 text-muted">{initial.rejectionReason}</p>
         </div>
+      )}
+
+      {isAdmin && (initial || createdId) && (
+        <div className="flex flex-col gap-1 bg-surface p-4 text-sm text-foreground">
+          <p>
+            <span className="font-medium">Organiser:</span> {initial?.organiserName ?? organiser?.displayName}
+            {platformManaged && " (platform-managed)"}
+          </p>
+          {initial?.status === "published" && (
+            <p className="text-muted">This event is published: your changes go live as soon as you save.</p>
+          )}
+        </div>
+      )}
+      {isAdmin && !initial && !createdId && (
+        <AdminOrganiserPicker
+          getToken={getToken}
+          value={organiser}
+          onChange={(picked) => {
+            setOrganiser(picked);
+            setErrors((prev) => {
+              const next = { ...prev };
+              delete next.organiserId;
+              return next;
+            });
+          }}
+          error={errors.organiserId}
+        />
+      )}
+      {isAdmin && platformManaged && (
+        <p className="border-l-2 border-foreground px-4 py-2 text-sm text-muted">
+          {PLATFORM_FREE_ONLY} There&rsquo;s no check-in at the door for its events.
+        </p>
       )}
 
       <div className="flex flex-col gap-1">
@@ -344,6 +467,72 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
         error={errors.image}
       />
 
+      {isAdmin && (
+        <fieldset className="flex flex-col gap-3">
+          <legend className="font-heading text-xl text-foreground">Where are tickets sold?</legend>
+          <div className="flex flex-wrap gap-5 text-sm text-foreground">
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="ticketingMode"
+                value="sheltuh"
+                checked={ticketingMode === "sheltuh"}
+                onChange={() => setTicketingMode("sheltuh")}
+              />
+              On Sheltüh
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="ticketingMode"
+                value="external"
+                checked={ticketingMode === "external"}
+                onChange={() => setTicketingMode("external")}
+              />
+              On another site
+            </label>
+          </div>
+          {errors.ticketingMode && <p className="text-sm text-danger">{errors.ticketingMode}</p>}
+          {ticketingMode === "external" && (
+            <>
+              <div className="flex flex-col gap-1">
+                <label htmlFor="externalTicketUrl" className="text-sm font-medium text-foreground">
+                  Ticket page address
+                </label>
+                <input
+                  id="externalTicketUrl"
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://"
+                  value={externalTicketUrl}
+                  onChange={(e) => setExternalTicketUrl(e.target.value)}
+                  aria-invalid={Boolean(errors.externalTicketUrl)}
+                  aria-describedby={errors.externalTicketUrl ? "externalTicketUrl-error" : undefined}
+                  className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+                />
+                {errors.externalTicketUrl && (
+                  <p id="externalTicketUrl-error" className="text-sm text-danger">
+                    {errors.externalTicketUrl}
+                  </p>
+                )}
+              </div>
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <input type="checkbox" checked={externalFree} onChange={(e) => setExternalFree(e.target.checked)} />
+                Entry is free
+              </label>
+            </>
+          )}
+        </fieldset>
+      )}
+
+      {!isAdmin && ticketingMode === "external" && (
+        <div className="bg-surface p-4 text-sm text-foreground">
+          <p className="font-medium">Tickets are sold on {initial?.externalProvider ?? "the organiser\u2019s site"}</p>
+          <p className="mt-1 break-all text-muted">{initial?.externalTicketUrl}</p>
+        </div>
+      )}
+
+      {ticketingMode === "sheltuh" && (
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h2 className="font-heading text-xl text-foreground">Ticket types</h2>
@@ -430,7 +619,11 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
                 {ticket.priceCents === 0
                   ? "Free — no booking fee."
                   : `Buyer pays ${formatAud(summary.totalCents)} total (${formatAud(ticket.priceCents)} ticket${
-                      summary.buyerFeeCents > 0 ? ` + ${formatAud(summary.buyerFeeCents)} booking fee` : ", fee absorbed by you"
+                      summary.buyerFeeCents > 0
+                        ? ` + ${formatAud(summary.buyerFeeCents)} booking fee`
+                        : isAdmin
+                          ? ", fee absorbed by the organiser"
+                          : ", fee absorbed by you"
                     }).`}
               </p>
               {ticketTypes.length > 1 && (
@@ -446,6 +639,55 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
           );
         })}
       </div>
+      )}
+
+      {isAdmin && initial && (
+        <div className="flex flex-col gap-1">
+          <label htmlFor="admin-reason" className="text-sm font-medium text-foreground">
+            Note for the event&rsquo;s log (optional; the organiser sees it)
+          </label>
+          <textarea
+            id="admin-reason"
+            rows={2}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            aria-invalid={Boolean(errors.reason)}
+            aria-describedby={errors.reason ? "admin-reason-error" : "admin-reason-hint"}
+            className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+          />
+          {errors.reason ? (
+            <p id="admin-reason-error" className="text-sm text-danger">
+              {errors.reason}
+            </p>
+          ) : (
+            <p id="admin-reason-hint" className="text-xs text-muted">
+              Needed to change where an approved event&rsquo;s tickets are sold.
+            </p>
+          )}
+        </div>
+      )}
+
+      {isAdmin && initial?.status !== "published" && (
+        <label className="flex items-center gap-2 text-sm text-foreground">
+          <input type="checkbox" checked={publish} onChange={(e) => setPublish(e.target.checked)} />
+          {initial || createdId ? "Publish when saved" : "Publish straight away"}
+        </label>
+      )}
+
+      {conflict && (
+        <div role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
+          <p className="font-medium">Someone else changed this event since you opened it.</p>
+          <p className="mt-1 text-muted">
+            Your changes haven&rsquo;t been saved. Reload to see the latest version, then make your changes again
+            (reloading discards what you&rsquo;ve typed here).
+          </p>
+          {onReload && (
+            <button type="button" onClick={onReload} className="btn btn-outline btn-sm mt-3 w-fit">
+              Reload latest version
+            </button>
+          )}
+        </div>
+      )}
 
       {submitError && sessionExpired && (
         <div role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
@@ -471,9 +713,9 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
           disabled={saving}
           className="btn btn-solid w-fit"
         >
-          {saving ? "Saving…" : "Save draft"}
+          {saving ? "Saving…" : isAdmin ? (initial || createdId ? "Save changes" : "Create event") : "Save draft"}
         </button>
-        {initial && (
+        {initial && !isAdmin && (
           <button
             type="button"
             onClick={handleSubmitForReview}

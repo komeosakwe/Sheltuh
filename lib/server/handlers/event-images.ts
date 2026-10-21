@@ -53,15 +53,12 @@ async function readCapped(req: Request, max: number): Promise<Uint8Array | null>
   return out;
 }
 
-/** PUT /api/events/[eventId]/image — raw image bytes; only while the event is a draft or rejected. */
-export const putEventImage: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
-  const caller = await requireCaller(req, verifyAccessToken);
-  const organiser = await requireApprovedOrganiser(db, caller);
-  const event = await requireOwnEvent(db, organiser.organiserId, eventId);
-  if (event.status !== "draft" && event.status !== "rejected") {
-    throw new HttpError(409, EDIT_LOCKED_MESSAGE);
-  }
-
+/**
+ * The uploaded image: raw bytes of at most MAX_EVENT_IMAGE_BYTES (413
+ * otherwise), whose own bytes are a JPEG, PNG or WebP (400 otherwise).
+ * Shared with the admin's upload (admin-authoring.ts).
+ */
+export async function readEventImage(req: Request): Promise<{ bytes: Uint8Array; contentType: ImageType }> {
   const tooLarge = () =>
     new HttpError(413, "That image is too large.", { image: "Use an image under 2 MB." });
   const declared = Number(req.headers.get("content-length"));
@@ -75,6 +72,19 @@ export const putEventImage: Handler<{ eventId: string }> = async (req, { eventId
   if (!contentType) {
     throw new HttpError(400, "That file isn't a supported image.", { image: "Upload a JPEG, PNG or WebP image." });
   }
+  return { bytes, contentType };
+}
+
+/** PUT /api/events/[eventId]/image — raw image bytes; only while the event is a draft or rejected. */
+export const putEventImage: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
+  const caller = await requireCaller(req, verifyAccessToken);
+  const organiser = await requireApprovedOrganiser(db, caller);
+  const event = await requireOwnEvent(db, organiser.organiserId, eventId);
+  if (event.status !== "draft" && event.status !== "rejected") {
+    throw new HttpError(409, EDIT_LOCKED_MESSAGE);
+  }
+
+  const { bytes, contentType } = await readEventImage(req);
 
   // Ownership and "still a draft/rejected" are re-checked inside the write
   // itself (with the event row share-locked), not just before the body was

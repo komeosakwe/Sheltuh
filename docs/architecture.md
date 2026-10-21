@@ -47,12 +47,12 @@ Stripe ──webhook──▶ /api/stripe/webhook
 
 | Table | Key | Notes |
 |---|---|---|
-| `organisers` | `id` | `owner_user_id` is unique, one application per account. It's null for platform-managed organisers (events Sheltüh lists on someone's behalf, and seed data). `status`: pending → approved / rejected. Also holds the Stripe Connect account id and `payouts_enabled`. Optional social handles (`instagram_handle`, `tiktok_handle`, `facebook_page`, `x_handle`), stored without `@` and pattern-checked by the database; `website_url` must be http(s), at most 2048 characters (check constraint; the API only takes new `https://` addresses, see "Organiser profiles"). An admin takedown sets `rejected` (see "Organiser profiles"). |
+| `organisers` | `id` | `owner_user_id` is unique, one application per account. It's null for platform-managed organisers (events Sheltüh lists on someone's behalf, and seed data), which admins create (`POST /admin/organisers`) and which sell no paid Sheltüh tickets and have no check-in (see "Admin authoring"); check constraint `organisers_platform_no_payouts`: such an organiser has no Stripe account and no payouts. `status`: pending → approved / rejected. Also holds the Stripe Connect account id and `payouts_enabled`. Optional social handles (`instagram_handle`, `tiktok_handle`, `facebook_page`, `x_handle`), stored without `@` and pattern-checked by the database; `website_url` must be http(s), at most 2048 characters (check constraint; the API only takes new `https://` addresses, see "Organiser profiles"). An admin takedown sets `rejected` (see "Organiser profiles"). |
 | `private.organiser_profile_edits` | `id` (identity) | Append-only log per organiser: each profile edit made without review (`profile_edit`: old and new value of each changed field, by the owner) and each admin takedown (`suspended`, with the admin and reason). A trigger refuses updates (except the `actor_id` foreign key's own set-null when that account is deleted). Admins see the newest 20 per organiser. Kept while the organiser exists; deleted with it. |
 | `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected; unpublish returns it to draft. `is_free` (true only when the event has ticket types and all are free; for an external event, `external_free`) is kept up to date by `replace_ticket_types` for the feed's free filter. `whos_going_enabled` (default true) is an admin-only kill switch for that event's Who's Going, set in SQL (`docs/supabase-setup.md`). `ticketing_mode` (`sheltuh`, the default, or `external`), `external_ticket_url` and `external_free`: see "External ticketing". Check constraints: an external event has a link that passes `private.external_ticket_url_ok`, a Sheltüh-ticketed one has no link and isn't `external_free`, and an external event's `is_free` equals `external_free`. Triggers refuse ticket types and orders for an external event, and switching an event with ticket types to external. |
-| `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. `quantity_sold` only ever goes up in `fulfil_order`, and down only in `record_payment_refund` (a paid order refunded in full). |
+| `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. A trigger refuses a price above 0 for a platform-managed organiser's event (`ticket_types_platform_free_only`). `quantity_sold` only ever goes up in `fulfil_order`, and down only in `record_payment_refund` (a paid order refunded in full). |
 | `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Public via `GET /api/events/[id]/image` once published (cached for a day, versioned URL); before that only the owner/admins with a token. Move to Storage/CDN if volume grows. |
-| `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished / ticketing_changed, by whom, and why. `details` (jsonb object, null for the other actions): for `ticketing_changed`, the old and new value of each ticketing field the admin changed (full ticket links: see "External ticketing"). Shown to the event's organiser and to admins (`moderationLog[].changes`), never publicly. |
+| `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished / ticketing_changed / created / edited (and `curated`, reserved for admin curation, not written yet), by whom, and why. `details` (jsonb object, null for the other actions): for `ticketing_changed`, the old and new value of each ticketing field the admin changed (full ticket links: see "External ticketing"); for `edited`, the old and new value of each other field an admin changed (see "Admin authoring"). Shown to the event's organiser and to admins (`moderationLog[].changes`), never publicly. |
 | `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed / oversold_refund_required; oversold_refund_required → refunded (our automatic refund); paid → refunded (refunded in full in Stripe, see "Refunds made in Stripe"). `amount_refunded_cents` (≥ 0, default 0) is Stripe's cumulative refunded amount, recorded only for paid orders (a partial refund leaves the order paid). Indexed on `stripe_payment_intent_id` (partial, not null) for the refund webhook. `tickets_emailed_at` records the ticket email. `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). |
 | `tickets` | `code` | One row per admitted person. Rows are kept when their order is refunded, but only a `paid` order's tickets are valid: check-in checks the order's status. `checked_in_at`: when the ticket was admitted at the door (null until then, and again after an undo; cleared 25 months after the event ends). Indexed on `(event_id, ticket_type_id)` for the check-in counts. |
 | `ticket_check_ins` | `id` (identity) | The check-in log (see "Check-in"): one row per scan or undo, with a random `public_id` (uuid, unique: the only id the API shows, as `checkInId`; the sequential `id` stays internal, so ids don't reveal platform-wide scan volume), the event scanned for, the ticket `code` (null for an `invalid` scan: what was scanned is never stored), the acting account, the client's `request_id` (unique per event: the idempotency key), the `result` and, for an undo only, its `reason` (3–200 characters). Check constraints tie `invalid` to a null code and `undone` to a reason. Deleted with the event or the ticket, and by `purge_analytics` 25 months after the event ends. No buyer data. |
@@ -84,7 +84,10 @@ times, which are converted to instants honouring daylight saving
 
 | Function | What it guarantees |
 |---|---|
-| `create_event_draft`, `edit_event_draft` | Event row (ticketing fields included) and ticket types saved together. `edit_event_draft` locks the event row, and only succeeds while the event is draft or rejected (`not_editable`) and owned by the caller's organiser (`not_found`); once the event has ever been approved, a change to its ticketing mode or link is `ticketing_frozen` (409) and nothing is saved. Switching to external removes the ticket types first. (`update_event_draft`, the earlier boolean form, is kept for the deploy window and no longer called.) |
+| `create_event_draft`, `edit_event_draft` | Event row (ticketing fields included) and ticket types saved together. `edit_event_draft` locks the event row, and only succeeds while the event is draft or rejected (`not_editable`) and owned by the caller's organiser (`not_found`); once the event has ever been approved, a change to its ticketing mode or link is `ticketing_frozen` (409) and nothing is saved. Switching to external removes the ticket types first. (`update_event_draft`, the earlier boolean form, is kept for the deploy window and no longer called; drop it once that's over: see "Not built yet".) |
+| `admin_create_event` | An admin's new event (see "Admin authoring"): share-locks the organiser, which must exist and be approved; refuses a paid Sheltüh ticket type for a platform-managed organiser (`platform_paid`); then `create_event_draft`, a `created` log entry and, if asked, `transition_event` to published (`approved`), in one step. Nothing is written on a refusal. |
+| `admin_edit_event` | An admin's edit of any event, any status: share-locks the organiser, then locks the event; refuses (`stale`) unless its `updated_at` still equals the version the admin edited (to the millisecond); computes each changed field; decides every refusal (`platform_paid`, `has_orders`, `reason_required`, `organiser_not_approved`) before writing; then ticketing through `admin_set_event_ticketing`, the other fields, `replace_ticket_types`, one `edited` entry with old and new values, and the optional publish. Nothing changing is `unchanged` (nothing written). |
+| `admin_put_event_image`, `admin_delete_event_image` | An admin's photo change on any event, any status, with an `edited` entry (`{"image": {old, new}}`, `"set"` or null). Deleting when there's no photo is `unchanged`, not logged. |
 | `admin_set_event_ticketing` | An admin's change to an event's ticketing, any status: locks the event row; nothing changing is `unchanged` (nothing logged); switching to external an event with any order is `has_orders` (409), otherwise its ticket types are deleted; then the update and a `ticketing_changed` moderation log entry with the reason and the old and new values, in one step. |
 | `external_ticket_url_ok` | Immutable check behind `events_external_ticket_url_valid`: the stored ticket link's rules (see "External ticketing"). Its shortener and non-public-name lists mirror `lib/ticketing.ts`; `tests/server/ticketing-url.test.ts` checks they agree. |
 | `replace_ticket_types` | Upserts by id and removes ticket types that were dropped. Refuses to remove one with sales, or to cut a quantity below what's already sold. |
@@ -99,7 +102,7 @@ times, which are converted to instants honouring daylight saving
 | `resolve_report` | Closes an open report only (a second admin gets 409); `suspend` also records the suspension in the same step. |
 | `add_favourite` | Favourites a published event, idempotently, within the per-account cap (favourites of published events only: hidden ones don't count). A transaction-scoped advisory lock on the account serialises one member's adds, so concurrent requests can't both take the last slot. Returns `added`, `exists`, `not_found` or `limit`. |
 | `take_event_rate_limit` | `take_rate_limit`'s fixed-window counter, keyed on an event instead of a member. Once a live window is over the limit it refuses with a plain read and writes nothing, so a flood isn't a write per request. |
-| `record_outbound_click` | Counts one click on an external event's ticket link: the event must be published and external (`not_found` otherwise); then the event's per-minute cap (`take_event_rate_limit`, bucket `outbound`; a refused click flags the day `cap_reached`, written once); then one upsert increment. Like `record_view`, no row lock on the event and no exception block. Returns `recorded`, `not_found` or `rate_limited`. |
+| `record_outbound_click` | Counts one click on an external event's ticket link: the event must be published and external (`not_found` otherwise); then the event's per-minute cap (`take_event_rate_limit`, bucket `outbound`; a refused click flags the day `cap_reached`: the first refusal writes the flag, and every later one is plain reads, the cap's counter and then the flag, with no write, row lock or transaction id, `20261022000200_external_ticketing_hardening.sql`); then one upsert increment. Like `record_view`, no row lock on the event and no exception block. Returns `recorded`, `not_found` or `rate_limited`. |
 | `record_view` | Counts one view: the event must be published; the source is bucketed (unknown → `other`); a code that's one of the event's tracking codes makes it `tracking` under that code (any other code is ignored); then the event's per-minute cap (a refused view records the day in `event_view_cap_days`; after the first, that's a no-op); then one upsert increment. No row lock on the event and no exception block, to keep the hot path to two small upserts. Returns `recorded`, `not_found` or `rate_limited`. |
 | `create_tracking_link` | Adds a link to an event the organiser owns, under an advisory lock on the event (so the 20-link cap holds under concurrency, without locking the events row that checkouts share-lock). Returns `created`, `not_found`, `limit`, `label_taken`, or `code_taken` (the API retries with a fresh code). |
 | `purge_analytics` | Retention: deletes view and outbound-click counters for days over 25 months ago and per-event rate-limit rows idle for a day, and, for events that ended over 25 months ago, the check-in log and the tickets' `checked_in_at`. Idempotent. Scheduled daily with Supabase Cron (`docs/supabase-setup.md`). |
@@ -685,12 +688,19 @@ scanner at `/dashboard/[eventId]/check-in` (`components/check-in/*`,
   own event, and is rate-limited.
 - **External events** have no Sheltüh tickets: a scan, an undo and the
   summary are a 409 for the owning organiser (anyone else still gets 404).
+  A scan isn't preceded by a read of the event: the `ticket_check_ins_guard`
+  trigger refuses the log row, so the whole call rolls back (nothing logged,
+  no allowance used) and the API answers 409. An undo reads the event only
+  after `undo_check_in` found nothing (it has taken one allowance hit by
+  then).
 - **Who.** The approved organiser who owns the event (`requireApprovedOrganiser`;
   ownership is checked again inside `check_in_ticket`). Anyone else's event is
   a 404; an admin with no organiser of their own a 403; signed out a 401.
   Admins can't check people in. Platform-managed organisers (no owner
-  account) can't be checked in by anyone for now: a per-event staff table
-  (scanner or supervisor) is the planned way to add door staff.
+  account) can't be checked in by anyone for now (the database refuses a
+  check-in row for their events: `ticket_check_ins_owned_organiser_only`): a
+  per-event staff table (scanner or supervisor) is the planned way to add
+  door staff.
 - **Outcomes** (`POST …/check-ins {code, requestId}`, always 200):
   `admitted` (the ticket is now checked in; carries the `checkInId` to undo),
   `already_checked_in` (with the first check-in time, and the `checkInId` of
@@ -792,14 +802,17 @@ to (`lib/ticketing.ts`, `lib/server/event-input.ts`,
 - **The link's rules** (`checkExternalTicketUrl`, and the
   `events_external_ticket_url_valid` check over the stored form): typed with
   `https://`; at most 2048 characters; no username or password; no IP
-  address (any IPv4 form the parser accepts, or IPv6); no port, not even
+  address (any IPv4 form the parser accepts, or IPv6; the database also
+  refuses any host whose last label is all digits or starts with `0x`, the
+  forms a parser reads as IPv4, such as `0x7f.1`); no port, not even
   `:443`; a plain DNS host (letters, digits and hyphens, at least two
   labels, no trailing dot); not localhost or another non-public name
   (`.local`, `.internal`, `.localdomain`, `home.arpa`, `.lan`, `.test`,
-  `.invalid`, `.example`, `.onion`); not a link shortener (`bit.ly`,
-  `tinyurl.com`, `t.co`, `goo.gl`, `ow.ly`, `buff.ly`, `rebrand.ly`,
-  `is.gd`, `cutt.ly`, `shorturl.at`, `lnkd.in` and others, with their
-  subdomains); none of `URL_DISALLOWED` (whitespace, control and invisible
+  `.invalid`, `.example`, `.onion`); not a link shortener or link-in-bio
+  redirector (`bit.ly`, `tinyurl.com`, `t.co`, `goo.gl`, `ow.ly`, `buff.ly`,
+  `rebrand.ly`, `is.gd`, `cutt.ly`, `shorturl.at`, `lnkd.in`, `j.mp`,
+  `linktr.ee`, `lnk.to`, `ffm.to`, `smarturl.it` and others, with their
+  subdomains: `LINK_SHORTENER_HOSTS`); none of `URL_DISALLOWED` (whitespace, control and invisible
   characters, backslashes). It's stored as the URL parser writes it: host
   lower case, an international name in punycode (so a lookalike shows as
   `xn--…` to the reviewing admin), non-ASCII percent-encoded; the database
@@ -822,7 +835,11 @@ to (`lib/ticketing.ts`, `lib/server/event-input.ts`,
   longer change its mode or link, even after it's unpublished
   (`edit_event_draft` → `ticketing_frozen`, 409 with fieldErrors);
   everything else, `externalFree` included, stays editable on a draft and is
-  reviewed again on resubmission. Only an admin can change them:
+  reviewed again on resubmission. An edit that leaves `ticketingMode` out
+  keeps the stored ticketing (mode, and link and free flag unless sent), so
+  an older client never converts an external event or trips the freeze; it
+  can't send ticket types for one (400). Switching mode is always explicit.
+  Only an admin can change them:
   `PATCH /admin/events/{id}/ticketing`, any status, logged as
   `ticketing_changed` with the admin, the reason, and in `details` the old
   and new value of each changed field. The log keeps **full links**, not
@@ -839,6 +856,11 @@ to (`lib/ticketing.ts`, `lib/server/event-input.ts`,
   Shorteners are refused for that reason; other redirectors aren't
   detected. Admins should check the link at review; a bad one is fixed with
   the admin PATCH, or the event unpublished.
+- **The shortener list is only a speed bump.** Any domain an organiser
+  controls (their own site, a page on a link-in-bio service not on the list)
+  can be re-pointed after approval just as a shortener can, and new
+  shorteners appear all the time. Admin review, and unpublishing when a link
+  goes bad, are the real control.
 - **Any public site is allowed.** Not just the known ticketing sites:
   organisers often sell on their own site. Phishing is mitigated by admin
   review, punycode display and the freeze, not prevented. The UI should open
@@ -854,11 +876,90 @@ to (`lib/ticketing.ts`, `lib/server/event-input.ts`,
   it published with no ticket types (listed, neither free nor paid, not on
   sale). The organiser can add ticket types only after an unpublish.
   Switching the other way is refused while the event has any order.
+- **Switching back to Sheltüh ticketing hides the event's click history in
+  its own report.** The per-event report's `outboundClicks` is null for a
+  Sheltüh-ticketed event, so clicks counted while it was external aren't
+  shown there any more (they're kept, and still count in the overview's
+  organiser-wide totals until the 25-month purge).
 - **Concurrency is enforced in the database** (row locks in
   `edit_event_draft` and `admin_set_event_ticketing`, the share lock in the
   orders trigger), but the tests exercise the race only sequentially (a
   stale read, then the switch, then the order); run the suite on a real
   Postgres before go-live.
+
+## Admin authoring
+
+Admins create events themselves, for any organiser
+(`lib/server/handlers/admin-authoring.ts`,
+`supabase/migrations/20261022000100_admin_event_authoring.sql`; UI at
+`/admin/events/new` and `/admin/events/[eventId]/edit`, the organiser's
+`EventEditor` with `mode="admin"`).
+
+- **Platform-managed organisers** (`POST /admin/organisers`): no owner
+  account, approved straight away with the admin as reviewer. The fields and
+  rules are an organiser application's (same parser). Their profile is public
+  like any approved organiser's. Nobody can edit them through the API yet.
+- **What they can't do.** No paid Sheltüh tickets: only free ones, or
+  external ticketing. Enforced by the database whatever the code does: a
+  ticket type with a price (`ticket_types_platform_free_only`), an order with
+  a price (`orders_platform_free_only`), a Stripe account or payouts
+  (`organisers_platform_no_payouts`), moving an event with paid ticket types
+  to such an organiser or removing an organiser's owner while it has some
+  (`events_platform_free_only`, `organisers_platform_free_only`). The API
+  refuses first: 400 with `fieldErrors.ticketTypes` on admin create and edit,
+  and checkout is a 409 for a paid line. No check-in either: there's no owner
+  to sign in, and the database refuses a check-in row for their events
+  (`ticket_check_ins_owned_organiser_only`). Paid ticket types stored before
+  the migration (dev seed data) are left, but checkout refuses them and they
+  can't be saved again with a price; `npm run seed-dev-data` now skips the
+  paid sample events.
+- **Creating** (`POST /admin/events`): the organiser's event body and rules
+  (`parseEventInput`, external ticketing included), plus `organiserId` (any
+  approved organiser) and optional `publish`. Logged `created` by the admin;
+  `publish: true` also publishes it in the same transaction through
+  `transition_event` (`approved`, so its ticketing is then frozen for the
+  organiser, as after a review). An organiser's own events list shows events
+  an admin created for them, and they can edit them while they're drafts.
+- **Editing** (`PATCH /admin/events/{id}`): the whole event, any status
+  (published events change live), with `ticketingMode` required (as on
+  `PATCH …/ticketing`) and `expectedUpdatedAt`, the `updatedAt` the admin
+  loaded. Optimistic concurrency: the event row is locked and its
+  `updated_at` compared to the millisecond; a different version (another
+  admin, the organiser, a ticketing change) is a 409 with
+  `fieldErrors.expectedUpdatedAt`, and nothing is saved. The editor then says
+  so and offers to reload (discarding what was typed). Ticketing changes go
+  through `admin_set_event_ticketing` (logged `ticketing_changed`, same
+  `has_orders` rule; `PATCH …/ticketing` is unchanged and still works); a
+  change of mode or link on an event approved before needs a `reason`
+  (400 otherwise), like that endpoint. Every other changed field goes in one
+  `edited` entry (`changes`: old and new values; dates as ISO instants with
+  an offset, ticket types as the whole list before and after), with the
+  optional `reason`. Removing a sold ticket type or cutting it below what's
+  sold is a 409, as for organisers. `publish: true` publishes a draft,
+  pending or rejected event in the same step (409 if the organiser isn't
+  approved); unpublishing stays `POST …/unpublish`. The event's organiser
+  can't be changed. Saving nothing new is a 200 with nothing logged.
+- **Photos** (`PUT` / `DELETE /admin/events/{id}/image`): the organiser
+  upload's rules (2 MB, JPEG/PNG/WebP sniffed from the bytes), any status,
+  logged `edited` with `changes.image`.
+- **Audit.** `created`, `edited` and `ticketing_changed` entries carry the
+  admin's user id; the event's organiser sees them in their event's
+  `moderationLog` (the public never does). `curated` is reserved for admin
+  curation (B4).
+- **Responses** are `AdminEventRecord`: an `EventRecord` plus
+  `organiserPlatformManaged`.
+
+### Accepted limits (admin authoring)
+
+- **Millisecond versions.** `updatedAt` is sent to the millisecond, so two
+  saves whose transactions start within the same millisecond, the second
+  made from the first's version, can't be told apart. Not a practical risk
+  for human edits.
+- **Photo changes don't change `updatedAt`**, so they never make an edit
+  stale (and a photo change isn't checked against a version either: last
+  write wins).
+- **Admin edits to a published event aren't reviewed again.** The admin is
+  the reviewer; the `edited` entry is the record.
 
 ## Organiser profiles
 
@@ -939,7 +1040,7 @@ application is approved.
 |---|---|
 | `GET /events?q&category&pricing&onOrAfter&upcoming&cursor&limit` | public (published only), soonest first. `upcoming=1` (or `true`): only events that haven't ended (`ends_at > now()`, in progress included); the home page and /events always send it. `pricing=free`: has ticket types, all free, or is external with `externalFree`; `paid`: has a paid ticket type (an event with no ticket types is neither, and so is an external event that isn't free: its price isn't known). 400 for an unknown `category`, `pricing` or `upcoming` value. Every item carries `ticketingMode`, `externalFree`, `externalProvider` and, for external events only, `externalTicketUrl` (see "External ticketing") |
 | `GET /events/slug/{slug}` | public (published only); same shape as a list item |
-| `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). 409 for an external event, before anything else is read. 201 `{url}`; 202 free order waiting on its emailed link; 400 (incl. over 4 free tickets in any order, paid or free); 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance; 503 free bookings busy or the confirmation email failed |
+| `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). 409 for an external event, before anything else is read; 409 for a paid order from a platform-managed organiser. 201 `{url}`; 202 free order waiting on its emailed link; 400 (incl. over 4 free tickets in any order, paid or free); 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance; 503 free bookings busy or the confirmation email failed |
 | `POST /orders/confirm` `{token}` | public (the emailed token is the credential). 200 `{url}` (also when already confirmed, within 24 hours); 400 malformed; 404 unknown; 410 expired (confirmed or not); 409 sold out, allowance used, or a ticket type no longer free |
 | `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store` |
 | `GET /cron/email-outbox` | Vercel Cron (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due ticket emails, returns counts |
@@ -948,9 +1049,9 @@ application is approved.
 | `POST /organisers/apply` · `GET /organisers/me` · `PATCH /organisers/me` | signed in. PATCH: a rejected application is resubmitted in full (back to pending); an approved organiser edits their profile (see "Organiser profiles"); pending is a 409 |
 | `GET /organisers/{organiserId}/profile` | public (approved organisers only; anything else, or a non-uuid id, is a 404) |
 | `POST /organisers/me/connect/onboard` · `…/connect/refresh` | organiser |
-| `POST /events` · `PATCH /events/{id}` · `POST /events/{id}/submit` | organiser (own events). Body adds `ticketingMode` (absent = `sheltuh`), `externalTicketUrl`, `externalFree` (see "External ticketing"). PATCH: 409 unless draft or rejected; 409 (fieldErrors on the field) changing the mode or link of an event that has been approved before |
+| `POST /events` · `PATCH /events/{id}` · `POST /events/{id}/submit` | organiser (own events). Body adds `ticketingMode` (absent: `sheltuh` on POST; on PATCH, the stored ticketing is kept), `externalTicketUrl`, `externalFree` (see "External ticketing"). PATCH: 409 unless draft or rejected; 409 (fieldErrors on the field) changing the mode or link of an event that has been approved before |
 | `GET /organisers/me/events` · `GET /organisers/me/events/{id}` | organiser (own events) |
-| `PUT /events/{id}/image` · `DELETE /events/{id}/image` | organiser (own events, while draft or rejected) |
+| `PUT /events/{id}/image` · `DELETE /events/{id}/image` | organiser (own events, while draft or rejected). Admins: `…/admin/events/{id}/image` |
 | `GET /events/{id}/image` | public once published; before that, the owning organiser or an admin |
 | `GET /events/{id}/going` | public (published only): `{count, closed, countHidden}` |
 | `GET /events/{id}/going/attendees?cursor` | verified email with a profile that isn't suspended (403 otherwise); published only; 429 when rate-limited |
@@ -979,6 +1080,9 @@ application is approved.
 | `GET /admin/organisers?status` · `POST /admin/organisers/{id}/approve` · `…/reject` | admin. Items (and the decision responses) are `AdminOrganiserRecord`: the full record plus `recentEdits` (newest 20 log entries). Approve/reject: 409 unless pending |
 | `POST /admin/organisers/{id}/suspend` `{reason}` | admin. Takedown of an approved organiser (see "Organiser profiles"). 200 `{organiser, eventsUnpublished, submissionsRejected}`; 400 reason missing, over 500 characters or with control/invisible characters; 404 unknown; 409 not approved |
 | `GET /admin/events?status` · `POST /admin/events/{id}/approve` · `…/reject` · `…/unpublish` | admin. Approve: 409 if the event's organiser isn't approved. Items are `EventRecord`s, so the review queue shows `ticketingMode`, `externalTicketUrl`, `externalProvider` and `ticketingLocked` |
+| `POST /admin/organisers` | admin. A platform-managed organiser (see "Admin authoring"): the application's fields and rules. 201 `AdminOrganiserRecord`; 400 fieldErrors |
+| `GET /admin/events/{id}` · `POST /admin/events` · `PATCH /admin/events/{id}` | admin (see "Admin authoring"). `AdminEventRecord`. POST: the event body plus `organiserId`, `publish?`; 201; 400 fieldErrors (`organiserId` unknown; `ticketTypes` paid for a platform-managed organiser); 409 organiser not approved. PATCH: the event body with `ticketingMode` required, `expectedUpdatedAt`, `publish?`, `reason?` (≤500); 200 (unchanged if nothing changes); 400 fieldErrors (incl. `reason` to change an approved event's mode or link); 404; 409 stale version (`fieldErrors.expectedUpdatedAt`), orders on a switch to external, sold ticket types, or organiser not approved when publishing |
+| `PUT /admin/events/{id}/image` · `DELETE /admin/events/{id}/image` | admin, any status. As the organiser's (413, 400), logged `edited`; 404 |
 | `PATCH /admin/events/{id}/ticketing` `{ticketingMode, externalTicketUrl?, externalFree?, reason}` | admin. Any status. 200 with the event (logged as `ticketing_changed`; unchanged, and nothing logged, if nothing would change); 400 fields (`ticketingMode` is required) or reason (1–500 characters); 404; 409 switching to external an event with orders |
 
 Lists are paginated with an opaque `cursor` (`nextCursor` in the
@@ -1013,6 +1117,11 @@ is `cache-control: private, no-store`.
 
 ## Not built yet
 
+- Drop `private.update_event_draft` (superseded by `edit_event_draft` in
+  `20261022000000_external_ticketing.sql`, kept only so a deploy still
+  running the previous app version works) in a migration once that deploy
+  window is over, and remove it from the unpinned list in
+  `tests/server/schema-grants.test.ts`.
 - Per-event door staff accounts for check-in (everyone on the door shares
   the organiser's login; see "Accepted limits (check-in)"), and an offline
   mode for the scanner.

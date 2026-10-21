@@ -280,8 +280,9 @@ describe("editing a draft's ticketing", () => {
     expect(freeNow.status).toBe(200);
     expect(await eventRow(draft.eventId)).toMatchObject({ external_ticket_url: OWN_SITE, external_free: true, is_free: true });
 
-    expect((await patch(organiser.token, draft.eventId, eventInput({ ticketTypes: [] }))).status).toBe(400);
-    const back = await patch(organiser.token, draft.eventId, eventInput());
+    // Switching back is explicit (without ticketingMode, an edit keeps the stored ticketing).
+    expect((await patch(organiser.token, draft.eventId, eventInput({ ticketingMode: "sheltuh", ticketTypes: [] }))).status).toBe(400);
+    const back = await patch(organiser.token, draft.eventId, eventInput({ ticketingMode: "sheltuh" }));
     expect(back.status).toBe(200);
     expect(back.body).toMatchObject({ ticketingMode: "sheltuh", externalFree: false });
     expect(back.body).not.toHaveProperty("externalTicketUrl");
@@ -334,7 +335,7 @@ describe("the ticketing freezes once approved", () => {
 
   it("nor its mode, either way", async () => {
     const ext = await approvedThenUnpublished();
-    const toSheltuh = await patch(organiser.token, ext.eventId, eventInput());
+    const toSheltuh = await patch(organiser.token, ext.eventId, eventInput({ ticketingMode: "sheltuh" }));
     expect(toSheltuh.status).toBe(409);
     expect(Object.keys(toSheltuh.body.fieldErrors).sort()).toEqual(["externalTicketUrl", "ticketingMode"]);
 
@@ -342,6 +343,30 @@ describe("the ticketing freezes once approved", () => {
     const toExternal = await patch(organiser.token, sheltuh.eventId, eventInput(external()));
     expect(toExternal.status).toBe(409);
     expect(await eventRow(sheltuh.eventId)).toMatchObject({ ticketing_mode: "sheltuh", ticket_types: 1 });
+  });
+
+  it("an edit that leaves out ticketingMode keeps the stored ticketing: no 409, no conversion", async () => {
+    const event = await approvedThenUnpublished(external({ externalFree: true }));
+    // An older client: no ticketing fields at all.
+    const renamed = await patch(organiser.token, event.eventId, eventInput({ title: "Renamed", ticketTypes: [] }));
+    expect(renamed.status).toBe(200);
+    expect(renamed.body).toMatchObject({ title: "Renamed", ticketingMode: "external", externalTicketUrl: HUMANITIX, externalFree: true });
+    // Sending Sheltüh ticket types for it is a 400 (never a quiet switch), and nothing changes.
+    const withTickets = await patch(organiser.token, event.eventId, eventInput({ title: "Again" }));
+    expect(withTickets.status).toBe(400);
+    expect(withTickets.body.fieldErrors).toHaveProperty("ticketTypes");
+    expect(await eventRow(event.eventId)).toMatchObject({ ticketing_mode: "external", external_ticket_url: HUMANITIX, external_free: true });
+    // The free flag can still be changed without sending the mode.
+    const notFree = await patch(organiser.token, event.eventId, eventInput({ ticketTypes: [], externalFree: false }));
+    expect(notFree.status).toBe(200);
+    expect(await eventRow(event.eventId)).toMatchObject({ external_free: false, is_free: false });
+  });
+
+  it("an unfrozen external draft is kept too when ticketingMode is left out", async () => {
+    const draft = await draftEvent(api, organiser, external());
+    const res = await patch(organiser.token, draft.eventId, eventInput({ title: "Renamed", ticketTypes: null }));
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ticketingMode: "external", externalTicketUrl: HUMANITIX });
   });
 
   it("everything else stays editable, the free flag included, and the same link can be sent back", async () => {
@@ -588,6 +613,8 @@ describe("refusals for external events", () => {
     });
     expect(scan.status).toBe(409);
     expect(scan.body.error).toBe(EXTERNAL_CHECK_IN_REFUSED);
+    // The refused scan rolled back whole (ticket_check_ins_guard): no check-in allowance used either.
+    expect(await api.db.query(`select 1 from private.rate_limits where bucket = 'check_in'`)).toEqual([]);
     expect((await api.call(getCheckInSummary, { token: organiser.token, params })).status).toBe(409);
     const undo = await api.call(undoCheckIn, {
       token: organiser.token,
@@ -683,6 +710,23 @@ describe("POST /events/{id}/outbound", () => {
     expect((await click(event.eventId, {}, "")).status).toBe(204);
     expect((await click(event.eventId, {}, JSON.stringify({ url: "https://evil.example", email: "a@b.c" }))).status).toBe(204);
     expect(await clicks(event.eventId)).toEqual([{ day: today(), clicks: 3, cap_reached: false }]);
+  });
+
+  it("once the day is flagged, a refused click writes nothing (no transaction id)", async () => {
+    const limit = 2;
+    // Counted, counted, then refused: the first refusal flags the day (a write).
+    const outbound = () =>
+      api.db.query<{ result: string; xid: string | null }>(
+        `with r as (select private.record_outbound_click($1, $2, '1 minute'::interval) as result)
+         select r.result, pg_current_xact_id_if_assigned()::text as xid from r`,
+        [event.eventId, limit],
+      );
+    expect((await outbound())[0]).toEqual({ result: "recorded", xid: expect.any(String) });
+    expect((await outbound())[0]).toEqual({ result: "recorded", xid: expect.any(String) });
+    expect((await outbound())[0]).toEqual({ result: "rate_limited", xid: expect.any(String) });
+    // Every refusal after that is plain reads: no row lock, no transaction id.
+    for (let i = 0; i < 3; i++) expect((await outbound())[0]).toEqual({ result: "rate_limited", xid: null });
+    expect(await clicks(event.eventId)).toEqual([{ day: today(), clicks: 2, cap_reached: true }]);
   });
 
   it("past the per-event cap, clicks aren't counted and the day is flagged (once)", async () => {

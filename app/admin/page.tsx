@@ -22,7 +22,16 @@ export default function AdminHomePage() {
             className="flex-1 border border-surface-border bg-surface p-4 hover:border-accent"
           >
             <p className="font-heading text-2xl text-foreground">Event submissions</p>
-            <p className="mt-1 text-sm text-muted">Review, publish, reject or unpublish events.</p>
+            <p className="mt-1 text-sm text-muted">Review, edit, publish, reject or unpublish events.</p>
+          </Link>
+          <Link
+            href="/admin/events/new"
+            className="flex-1 border border-surface-border bg-surface p-4 hover:border-accent"
+          >
+            <p className="font-heading text-2xl text-foreground">New event</p>
+            <p className="mt-1 text-sm text-muted">
+              Create an event for any organiser, or a platform-managed one, and publish it.
+            </p>
           </Link>
           <Link
             href="/admin/reports"

@@ -127,14 +127,47 @@ export interface TicketingChanges {
   externalFree?: TicketingFieldChange<boolean>;
 }
 
+/**
+ * What an admin's edit changed (`edited`): only the fields that did. Dates
+ * are ISO instants with an offset; ticket types are the whole list before
+ * and after. `image` is "set" while there's a photo, null otherwise (set →
+ * set is a replaced photo).
+ */
+export interface EventEditChanges {
+  title?: TicketingFieldChange<string>;
+  description?: TicketingFieldChange<string>;
+  category?: TicketingFieldChange<EventCategory>;
+  venueName?: TicketingFieldChange<string>;
+  venueAddress?: TicketingFieldChange<string>;
+  suburb?: TicketingFieldChange<string>;
+  startsAt?: TicketingFieldChange<string>;
+  endsAt?: TicketingFieldChange<string>;
+  ticketTypes?: TicketingFieldChange<TicketTypeInput[]>;
+  image?: TicketingFieldChange<"set">;
+}
+
 export interface ModerationLogEntry {
-  /** `ticketing_changed`: an admin changed the event's ticketing (PATCH /admin/events/{id}/ticketing). */
-  action: "submitted" | "approved" | "rejected" | "unpublished" | "ticketing_changed";
+  /**
+   * `ticketing_changed`: an admin changed the event's ticketing (PATCH
+   * /admin/events/{id}/ticketing, or the ticketing part of PATCH
+   * /admin/events/{id}). `created`: an admin created the event (POST
+   * /admin/events). `edited`: an admin changed anything else, its photo
+   * included. `curated`: reserved for admin curation (not written yet).
+   */
+  action:
+    | "submitted"
+    | "approved"
+    | "rejected"
+    | "unpublished"
+    | "ticketing_changed"
+    | "created"
+    | "edited"
+    | "curated";
   by: string;
   at: string;
   reason?: string;
-  /** For `ticketing_changed` only: the old and new value of each field that changed. */
-  changes?: TicketingChanges;
+  /** For `ticketing_changed` and `edited` only: the old and new value of each field that changed. */
+  changes?: TicketingChanges & EventEditChanges;
 }
 
 export interface EventRecord {
@@ -197,6 +230,33 @@ export interface AdminSetEventTicketingInput {
   externalFree?: boolean;
   /** 1–500 characters, shown in the event's moderation log (the organiser sees it). */
   reason: string;
+}
+
+/** An event as the admin authoring routes return it (GET, POST and PATCH /admin/events…). */
+export interface AdminEventRecord extends EventRecord {
+  /**
+   * The organiser has no owner account: it can only have free Sheltüh
+   * tickets or external ticketing, and no check-in.
+   */
+  organiserPlatformManaged: boolean;
+}
+
+/**
+ * POST /api/admin/organisers: a platform-managed organiser (no owner
+ * account), approved straight away. The fields and their rules are an
+ * organiser application's.
+ */
+export interface AdminCreateOrganiserInput {
+  displayName: string;
+  contactEmail: string;
+  description: string;
+  categories: EventCategory[];
+  /** https:// only. */
+  websiteUrl?: string | null;
+  instagramHandle?: string | null;
+  tiktokHandle?: string | null;
+  facebookPage?: string | null;
+  xHandle?: string | null;
 }
 
 export interface Paginated<T> {

@@ -1,6 +1,9 @@
 import { apiFetch, type GetToken } from "./client";
+import type { EventInput } from "./events";
 import type {
+  AdminCreateOrganiserInput,
   AdminEmailJob,
+  AdminEventRecord,
   AdminOrganiserRecord,
   AdminReport,
   AdminSetEventTicketingInput,
@@ -12,7 +15,35 @@ import type {
   ReportStatus,
   ResolveReportInput,
   SuspendOrganiserResult,
+  TicketingMode,
 } from "./types";
+
+/** POST /api/admin/events: an organiser's event body plus the organiser and an optional publish. */
+export interface AdminCreateEventInput extends EventInput {
+  /** Any approved organiser, platform-managed or not. */
+  organiserId: string;
+  /** Publish straight away (logged `created`, then `approved`). Default false: a draft. */
+  publish?: boolean;
+}
+
+/**
+ * PATCH /api/admin/events/{eventId}: the whole event, as POST (it stays with
+ * its organiser), whatever its status. `ticketingMode` is required, so an
+ * external event is never quietly turned back.
+ */
+export interface AdminUpdateEventInput extends EventInput {
+  ticketingMode: TicketingMode;
+  /** The `updatedAt` of the version being edited: ApiError 409 with fieldErrors.expectedUpdatedAt if it has changed since. */
+  expectedUpdatedAt: string;
+  /** Publish it if it isn't published yet. Unpublishing is adminUnpublishEvent. */
+  publish?: boolean;
+  /**
+   * Up to 500 characters, shown in the moderation log (the organiser sees
+   * it). Required to change the mode or link of an event that has been
+   * approved before (ApiError 400, fieldErrors.reason).
+   */
+  reason?: string | null;
+}
 
 /**
  * Organisers in one status, most recently updated first. Each item carries
@@ -96,6 +127,67 @@ export async function adminSetEventTicketing(eventId: string, input: AdminSetEve
     body: input,
     token,
   });
+}
+
+/**
+ * Creates a platform-managed organiser (no owner account), approved straight
+ * away. Same fields and rules as an organiser application (ApiError 400 with
+ * fieldErrors). Its events can only have free Sheltüh tickets or external
+ * ticketing, and no check-in.
+ */
+export async function adminCreateOrganiser(input: AdminCreateOrganiserInput, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminOrganiserRecord>("/admin/organisers", { method: "POST", body: input, token });
+}
+
+/** Any event, any status, for the admin editor. ApiError 404 unknown. */
+export async function adminGetEvent(eventId: string, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminEventRecord>(`/admin/events/${encodeURIComponent(eventId)}`, { token });
+}
+
+/**
+ * Creates an event for any approved organiser (logged `created`), and
+ * publishes it straight away with `publish: true`. ApiError 400 (fieldErrors,
+ * including organiserId, and ticketTypes for a paid ticket of a
+ * platform-managed organiser), 409 organiser not approved.
+ */
+export async function adminCreateEvent(input: AdminCreateEventInput, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminEventRecord>("/admin/events", { method: "POST", body: input, token });
+}
+
+/**
+ * Saves the whole event, whatever its status (logged `edited`, and
+ * `ticketing_changed` for its ticketing). ApiError 409 with
+ * fieldErrors.expectedUpdatedAt when someone else changed it since
+ * `expectedUpdatedAt` (reload, then edit again); 409 also for a sold ticket
+ * type removed or cut below what's sold, switching to external an event with
+ * orders, or publishing for an organiser who isn't approved. 400 fieldErrors.
+ */
+export async function adminUpdateEvent(eventId: string, input: AdminUpdateEventInput, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminEventRecord>(`/admin/events/${encodeURIComponent(eventId)}`, {
+    method: "PATCH",
+    body: input,
+    token,
+  });
+}
+
+/** Uploads (or replaces) any event's photo (logged `edited`). Returns the event, whose `imageUrl` is the new version. */
+export async function adminUploadEventImage(eventId: string, image: Blob, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminEventRecord>(`/admin/events/${encodeURIComponent(eventId)}/image`, {
+    method: "PUT",
+    body: image,
+    token,
+  });
+}
+
+/** Removes any event's photo (logged `edited` if it had one). */
+export async function adminDeleteEventImage(eventId: string, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminEventRecord>(`/admin/events/${encodeURIComponent(eventId)}/image`, { method: "DELETE", token });
 }
 
 /** Member reports, oldest first for `open`, most recently resolved first otherwise. */

@@ -239,6 +239,8 @@ export const MAX_TICKETING_REASON_LENGTH = 500;
  */
 export const adminSetEventTicketing: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const admin = await requireAdmin(req, deps.verifyAccessToken);
+  // An id that can't be an event is a 404 before the body is even read.
+  if (!isUuid(eventId)) throw new HttpError(404, "Event not found.");
   const body = await readJson(req);
   const errors: Record<string, string> = {};
   // Required here (the organiser's form defaults it to sheltuh): an admin
@@ -253,7 +255,6 @@ export const adminSetEventTicketing: Handler<{ eventId: string }> = async (req, 
     maxLength: MAX_TICKETING_REASON_LENGTH,
   });
   if (Object.keys(errors).length > 0) fail(errors);
-  if (!isUuid(eventId)) throw new HttpError(404, "Event not found.");
 
   const [row] = await deps.db.query<{ result: "updated" | "unchanged" | "not_found" | "has_orders" }>(
     `select private.admin_set_event_ticketing($1, $2, $3, $4, $5, $6) as result`,
