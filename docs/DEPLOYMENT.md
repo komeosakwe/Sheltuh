@@ -96,13 +96,15 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       (`openssl rand -hex 32`). Without it `/api/cron/email-outbox` and
       `/api/cron/trending` refuse every call: failed ticket emails are never
       retried and Trending stays empty.
-- [ ] **Cron schedules.** `vercel.json` runs both crons once a day, the
-      Hobby plan's limit. Once on **Vercel Pro**, change them to
-      `*/5 * * * *` (`/api/cron/email-outbox`) and `*/15 * * * *`
-      (`/api/cron/trending`). Until then, Supabase Cron can run the trending
-      refresh every 15 minutes instead
-      (`select cron.schedule('refresh-trending', '*/15 * * * *', $$select private.refresh_trending()$$);`,
-      `supabase-setup.md` §3).
+- [ ] **Cron schedules.** See [`schedules.md`](schedules.md) for every
+      timed job (Vercel and Supabase), its time in Melbourne, and how to run
+      it more often. `vercel.json` runs both crons once a day (17:00 and
+      17:20 UTC: 4:00 and 4:20 am AEDT, 3:00 and 3:20 am AEST), the Hobby
+      plan's limit. Moving to **Vercel Pro** changes nothing by itself: edit
+      `vercel.json` (`*/5 * * * *` for `/api/cron/email-outbox`,
+      `*/15 * * * *` for `/api/cron/trending`) and redeploy. On Hobby,
+      Supabase Cron can run the trending refresh directly or call the outbox
+      route through `pg_net` (`schedules.md`, option 2).
 - [ ] **Stripe webhook `charge.refunded`** on the endpoint, in test **and**
       live mode (configured separately), alongside the checkout and refund
       events listed in `supabase-setup.md` §2. Without it a refund made in
