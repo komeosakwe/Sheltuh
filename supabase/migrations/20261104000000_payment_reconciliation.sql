@@ -43,15 +43,25 @@
 --    refund for a partial one). An automatically resolved refund exception
 --    reopens if the refund later fails; one an admin resolved stays resolved.
 --    Events older than the last one applied to an exception are ignored
---    (Stripe doesn't guarantee delivery order). Nothing here ever restores
+--    (Stripe doesn't guarantee delivery order), and so is a refund event
+--    older than the newest one already recorded for the same refund
+--    (private.refund_status_marks: one row per refund of ours, its latest
+--    status and Stripe event time). So a `succeeded` delivered before an
+--    older `requires_action` or `failed` leaves nothing open: the old one is
+--    'stale'. (The app also asks Stripe for the refund's current status
+--    before reporting a failure; this mark is what holds when Stripe can't
+--    be reached.) Nothing here ever restores
 --    tickets or asks Stripe for a refund (D4): an admin re-refunds in the
 --    Stripe dashboard and resolves the exception.
 --    `details` holds amounts and statuses only (no buyer data).
 --    private.record_refund_status records a refund.updated / refund.failed /
 --    charge.refund.updated (and the refund our own refund call returns): our
 --    automatic refund's settlement on an oversold order (as the app did
---    before), then the exception raised or resolved. A refund of a payment
---    with no order on record (and no early row) writes nothing.
+--    before), then the exception raised or resolved. The refund's
+--    metadata.orderId is trusted only when that order's payment intent is
+--    the refund's own (otherwise the order is found by payment intent, as
+--    for a dashboard refund). A refund of a payment with no order on record
+--    (and no early row) writes nothing.
 --
 -- 3. Ops alerts: a new outbox kind, `ops_alert`, keyed on
 --    payment_exception_id, queued when an exception is opened or reopened,
@@ -62,10 +72,16 @@
 --    ops_alert jobs alone unless asked for that kind, so the previous app
 --    version, during the deploy window, never claims one it can't send.
 --
--- Retention (private.purge_operational_data, drop and create: two more
--- counts): early refund rows 35 days after their last update (Stripe retries
--- for 3 days, dashboard resends reach 30 days back), resolved exceptions 2
--- years after resolution; open exceptions are never deleted (D11).
+-- 4. private.fulfil_order_detailed: fulfil_order's body, also reporting
+--    whether it queued an ops alert (an early partial refund applied), so
+--    the webhook drains the alert outbox only then. private.fulfil_order
+--    (same signature, used by the free paths too) returns its status.
+--
+-- Retention (private.purge_operational_data, drop and create: three more
+-- counts): early refund rows and refund status marks 35 days after their
+-- last update (Stripe retries for 3 days, dashboard resends reach 30 days
+-- back), resolved exceptions 2 years after resolution; open exceptions are
+-- never deleted (D11).
 --
 -- Access model as everywhere else: RLS on, no policies, no grants to anon or
 -- authenticated; every new or redefined function pins its search_path and
@@ -87,18 +103,22 @@
 --     payment_exceptions_order_idx (order_id): the orders foreign key and a
 --     partial refund's auto-resolution. payment_exceptions_unmatched_idx
 --     (payment_intent_id) where no order yet: fulfil_order's backfill.
+--   * refund_status_marks_pkey (refund_id): the only lookup. No index on
+--     updated_at: one row per refund of ours that Stripe sent a status event
+--     for (rare next to orders), so the daily purge's scan is tiny.
 --   * email_outbox_ops_alert_active_key (payment_exception_id), unique while
 --     pending or sending (one alert waiting per exception), and
 --     email_outbox_payment_exception_idx for the cascade.
 --
 -- Reversible, not destructive of anything but this migration's own data:
--- restore private.fulfil_order and private.record_payment_refund (3 args)
--- from 20261101000100_seat_holds.sql, private.claim_email_outbox from
--- 20261024000200_organiser_follows.sql and private.purge_operational_data
--- (drop and create) from 20261103000000_seat_hold_client_limits.sql; delete
--- the ops_alert outbox jobs, restore the outbox's kind checks and drop its
--- payment_exception_id column; drop the new functions (the 6-argument
--- record_payment_refund included) and the two tables. Dropping
+-- restore private.fulfil_order (plpgsql) and private.record_payment_refund
+-- (3 args) from 20261101000100_seat_holds.sql, private.claim_email_outbox
+-- from 20261024000200_organiser_follows.sql and
+-- private.purge_operational_data (drop and create) from
+-- 20261103000000_seat_hold_client_limits.sql; delete the ops_alert outbox
+-- jobs, restore the outbox's kind checks and drop its payment_exception_id
+-- column; drop the new functions (the 6-argument record_payment_refund and
+-- fulfil_order_detailed included) and the three tables. Dropping
 -- payment_exceptions discards the exception history (export it first);
 -- orders already voided by an early refund stay `refunded`.
 
@@ -183,6 +203,25 @@ create trigger payment_exceptions_set_updated_at before update on private.paymen
 alter table private.payment_exceptions enable row level security;
 revoke all on private.payment_exceptions from public, anon, authenticated;
 
+-- The newest Stripe refund event applied per refund of ours (its status and
+-- creation time): an older event for the same refund, delivered later, is
+-- stale. Statuses only; written by record_refund_status for events (never
+-- for our own refund call's answer, which has no event time).
+create table private.refund_status_marks (
+  refund_id text primary key check (char_length(refund_id) between 1 and 255),
+  status text not null check (char_length(status) between 1 and 40),
+  last_event_at timestamptz not null,
+  stripe_event_id text check (char_length(stripe_event_id) between 1 and 255),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create trigger refund_status_marks_set_updated_at before update on private.refund_status_marks
+  for each row execute function public.set_updated_at();
+
+alter table private.refund_status_marks enable row level security;
+revoke all on private.refund_status_marks from public, anon, authenticated;
+
 -- The outbox's fourth kind: an ops alert about one payment exception.
 alter table private.email_outbox
   add column payment_exception_id uuid references private.payment_exceptions (id) on delete cascade,
@@ -234,10 +273,12 @@ $$;
 -- p_order_id (one open per order). p_details is merged into the stored
 -- details (amounts and statuses only). The caller holds the locks that
 -- order the exception (the payment intent, or the order row).
+-- alert_queued: whether this call queued an ops alert (opened or reopened,
+-- within the daily cap), so the caller knows to drain the outbox.
 create function private.raise_payment_exception(
   p_kind text, p_order_id text, p_payment_intent_id text, p_refund_id text,
   p_event_id text, p_event_created timestamptz, p_details jsonb,
-  out exception_id uuid, out outcome text)
+  out exception_id uuid, out outcome text, out alert_queued boolean)
 language plpgsql
 set search_path = ''
 as $$
@@ -245,6 +286,7 @@ declare
   v_ex private.payment_exceptions;
   v_details jsonb := coalesce(p_details, '{}'::jsonb);
 begin
+  alert_queued := false;
   if p_kind is null or p_kind not in ('refund_not_completed', 'partial_refund', 'manual_refund_required')
      or (p_kind = 'refund_not_completed') <> (p_refund_id is not null)
      or (p_refund_id is null and p_order_id is null)
@@ -331,6 +373,7 @@ begin
   if private.take_platform_rate_limit('ops_alerts', 20, interval '24 hours') then
     insert into private.email_outbox (kind, payment_exception_id) values ('ops_alert', exception_id)
     on conflict do nothing;
+    alert_queued := found;
     update private.payment_exceptions e set alerted_at = now() where e.id = exception_id;
   end if;
 end;
@@ -506,32 +549,40 @@ $$;
 -- A refund's status, from refund.updated, refund.failed or
 -- charge.refund.updated (or the refund our own refund call returned).
 -- p_order_id is the refund's metadata.orderId (only our automatic refunds
--- carry one); otherwise the order is found by payment intent. Our automatic
--- refund of an oversold order is recorded on it first (its id; `refunded`
--- once it succeeded), as the app did before. Then:
+-- carry one): trusted only when that order's payment intent is the refund's
+-- own (p_payment_intent_id); otherwise the order is found by payment
+-- intent. For an event (p_event_created set), the refund's status mark
+-- first: an event older than the newest already recorded for this refund is
+-- 'stale' (nothing else written). Then our automatic refund of an oversold
+-- order is recorded on it (its id; `refunded` once it succeeded), as the app
+-- did before. Then:
 --   failed, canceled, requires_action: a refund_not_completed exception for
 --     p_refund_id (raise_payment_exception's outcome is the result)
 --   succeeded: that exception, if open, resolved automatically ('resolved')
 --     unless the event is no newer than the last applied ('unchanged')
--- p_event_created: the Stripe event's creation time; null when the status
--- came from our own refund call rather than an event.
 --   anything else: 'unchanged'
+-- p_event_created: the Stripe event's creation time; null when the status
+-- came from our own refund call rather than an event (no mark, never stale).
 -- 'not_found' (nothing written): no order, and no early refund row either,
--- for the payment. Returns the order's id and status when found.
+-- for the payment. Returns the order's id and status when found, and
+-- alert_queued (an ops alert was queued).
 create function private.record_refund_status(
   p_refund_id text, p_payment_intent_id text, p_order_id text, p_status text, p_amount_cents integer,
   p_event_id text, p_event_created timestamptz,
-  out result text, out order_id text, out order_status text)
+  out result text, out order_id text, out order_status text, out alert_queued boolean)
 language plpgsql
 set search_path = ''
 as $$
 declare
   v_order public.orders;
   v_found boolean := false;
+  v_ours boolean := false;
   v_order_id text;
   v_order_status text;
   v_raised record;
+  v_newest boolean;
 begin
+  alert_queued := false;
   if p_refund_id is null or p_status is null then
     raise exception 'record_refund_status: refund id and status are required' using errcode = '22023';
   end if;
@@ -539,16 +590,13 @@ begin
     perform private.lock_payment_intent(p_payment_intent_id);
   end if;
 
-  if p_order_id is not null then
-    select * into v_order from public.orders o where o.id = p_order_id for update;
+  -- Our automatic refund: its metadata names the order, but only an order paid with this very payment counts.
+  if p_order_id is not null and p_payment_intent_id is not null then
+    select * into v_order from public.orders o
+     where o.id = p_order_id and o.stripe_payment_intent_id = p_payment_intent_id
+       for update;
     v_found := found;
-    if v_found and v_order.status = 'oversold_refund_required' then
-      update public.orders o
-         set stripe_refund_id = p_refund_id,
-             status = case when p_status = 'succeeded' then 'refunded'::public.order_status else o.status end
-       where o.id = v_order.id
-      returning o.status into v_order.status;
-    end if;
+    v_ours := v_found;
   end if;
   if not v_found and p_payment_intent_id is not null then
     select * into v_order from public.orders o
@@ -569,6 +617,31 @@ begin
     return;
   end if;
   order_id := v_order_id;
+
+  -- Stripe doesn't guarantee delivery order: only the newest event per refund counts (a tie goes through: fail safe).
+  -- Checked before anything else is written, so a stale event changes nothing at all.
+  if p_event_created is not null then
+    insert into private.refund_status_marks as m (refund_id, status, last_event_at, stripe_event_id)
+    values (p_refund_id, p_status, p_event_created, p_event_id)
+    on conflict (refund_id) do update
+       set status = excluded.status, last_event_at = excluded.last_event_at, stripe_event_id = excluded.stripe_event_id
+     where m.last_event_at <= excluded.last_event_at
+    returning true into v_newest;
+    if v_newest is null then
+      result := 'stale';
+      order_status := v_order_status;
+      return;
+    end if;
+  end if;
+
+  -- Our automatic refund of an oversold order: recorded on it (refunded once it succeeded), as before.
+  if v_ours and v_order.status = 'oversold_refund_required' then
+    update public.orders o
+       set stripe_refund_id = p_refund_id,
+           status = case when p_status = 'succeeded' then 'refunded'::public.order_status else o.status end
+     where o.id = v_order.id
+    returning o.status::text into v_order_status;
+  end if;
   order_status := v_order_status;
 
   if p_status in ('failed', 'canceled', 'requires_action') then
@@ -576,8 +649,9 @@ begin
       'refund_not_completed', v_order_id, p_payment_intent_id, p_refund_id, p_event_id, p_event_created,
       jsonb_strip_nulls(jsonb_build_object(
         'refundStatus', p_status, 'refundAmountCents', p_amount_cents, 'orderStatus', v_order_status,
-        'source', case when p_order_id is not null then 'sheltuh' else 'stripe' end)));
+        'source', case when v_ours then 'sheltuh' else 'stripe' end)));
     result := v_raised.outcome;
+    alert_queued := v_raised.alert_queued;
   elsif p_status = 'succeeded' then
     update private.payment_exceptions e
        set status = 'resolved', resolution = 'auto', resolved_at = now(),
@@ -599,17 +673,20 @@ $$;
 -- Fulfilment
 -- ---------------------------------------------------------------------------
 
--- As in 20261101000100_seat_holds.sql, plus (paid orders only: a payment
--- intent is given) the payment intent's lock first, and, after the pending
+-- fulfil_order's body: as in 20261101000100_seat_holds.sql, plus (paid
+-- orders only: a payment intent is given) the payment intent's lock first, and, after the pending
 -- check, an early refund recorded for the payment applied once: in full, the
 -- order becomes `refunded` with nothing taken or issued (seat holds
 -- cleared); in part, the order is fulfilled, then the amount recorded and a
 -- partial_refund exception opened. A refund exception raised for the payment
--- before it had an order gets the order. Returns 'refunded' in the first
--- case; otherwise as before.
-create or replace function private.fulfil_order(
-  p_order_id text, p_buyer_email text, p_payment_intent_id text, p_tickets jsonb
-) returns public.order_status
+-- before it had an order gets the order. order_status is 'refunded' in the
+-- first case; otherwise fulfil_order's result as before (null: no such
+-- order). alert_queued: an ops alert was queued (the partial case, within
+-- the daily cap), so the caller drains the alert outbox only then.
+create function private.fulfil_order_detailed(
+  p_order_id text, p_buyer_email text, p_payment_intent_id text, p_tickets jsonb,
+  out order_status public.order_status, out alert_queued boolean
+)
 language plpgsql
 set search_path = ''
 as $$
@@ -623,6 +700,7 @@ declare
   v_result public.order_status;
   v_raised record;
 begin
+  alert_queued := false;
   if p_payment_intent_id is not null then
     perform private.lock_payment_intent(p_payment_intent_id);
   end if;
@@ -630,7 +708,7 @@ begin
   -- event_id and seat_ids never change: safe to read before the lock order starts.
   select o.event_id, o.seat_ids into v_pre from public.orders o where o.id = p_order_id;
   if not found then
-    return null;
+    return;
   end if;
   if v_pre.seat_ids is not null then
     perform private.lock_event_seats(v_pre.event_id);
@@ -638,10 +716,11 @@ begin
 
   select * into v_order from public.orders where id = p_order_id for update;
   if not found then
-    return null;
+    return;
   end if;
   if v_order.status <> 'pending' then
-    return v_order.status;
+    order_status := v_order.status;
+    return;
   end if;
 
   if p_payment_intent_id is not null then
@@ -773,14 +852,26 @@ begin
         'partial_refund', p_order_id, p_payment_intent_id, null, v_early.last_event_id, null,
         jsonb_build_object('amountRefundedCents', v_early.amount_refunded_cents, 'totalCents', v_order.total_cents,
                            'orderStatus', 'paid'));
+      alert_queued := v_raised.alert_queued;
     end if;
     -- A refund problem reported before the payment had an order: now it has one.
     update private.payment_exceptions e
        set order_id = p_order_id, details = e.details || jsonb_build_object('orderStatus', v_result::text)
      where e.payment_intent_id = p_payment_intent_id and e.order_id is null;
   end if;
-  return v_result;
+  order_status := v_result;
 end;
+$$;
+
+-- As in 20261101000100_seat_holds.sql (same signature: the free paths and
+-- the previous app version call it): fulfil_order_detailed's status.
+create or replace function private.fulfil_order(
+  p_order_id text, p_buyer_email text, p_payment_intent_id text, p_tickets jsonb
+) returns public.order_status
+language sql
+set search_path = ''
+as $$
+  select f.order_status from private.fulfil_order_detailed(p_order_id, p_buyer_email, p_payment_intent_id, p_tickets) f;
 $$;
 
 -- ---------------------------------------------------------------------------
@@ -832,15 +923,15 @@ $$;
 -- ---------------------------------------------------------------------------
 
 -- As in 20261103000000_seat_hold_client_limits.sql, plus early refund rows
--- 35 days after their last update and resolved payment exceptions 2 years
--- after resolution (open ones are never deleted).
+-- and refund status marks 35 days after their last update and resolved
+-- payment exceptions 2 years after resolution (open ones are never deleted).
 drop function private.purge_operational_data();
 
 create function private.purge_operational_data(
   out unconfirmed_orders_deleted integer, out platform_rate_limits_deleted integer,
   out free_order_refusals_deleted integer, out email_jobs_deleted integer,
   out client_rate_limits_deleted integer, out early_charge_refunds_deleted integer,
-  out payment_exceptions_deleted integer)
+  out payment_exceptions_deleted integer, out refund_status_marks_deleted integer)
 language plpgsql
 set search_path = ''
 as $$
@@ -872,6 +963,9 @@ begin
   delete from private.payment_exceptions e
    where e.status = 'resolved' and e.resolved_at < now() - interval '2 years';
   get diagnostics payment_exceptions_deleted = row_count;
+
+  delete from private.refund_status_marks m where m.updated_at < now() - interval '35 days';
+  get diagnostics refund_status_marks_deleted = row_count;
 end;
 $$;
 
@@ -887,6 +981,7 @@ revoke all on function private.record_payment_refund(text, integer, boolean, tex
 revoke all on function private.record_payment_refund(text, integer, boolean) from public, anon, authenticated;
 revoke all on function private.record_refund_status(text, text, text, text, integer, text, timestamptz)
   from public, anon, authenticated;
+revoke all on function private.fulfil_order_detailed(text, text, text, jsonb) from public, anon, authenticated;
 revoke all on function private.fulfil_order(text, text, text, jsonb) from public, anon, authenticated;
 revoke all on function private.claim_email_outbox(integer, interval, integer, text, text) from public, anon, authenticated;
 revoke all on function private.purge_operational_data() from public, anon, authenticated;

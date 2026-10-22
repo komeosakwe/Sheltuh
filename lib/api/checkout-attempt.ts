@@ -11,8 +11,11 @@
  * - A request already in flight for the attempt is shared: a double click
  *   gets the same promise, and only one request is sent.
  * - Retries with the same key: a network failure or 503 once; a 409
- *   `checkout_in_progress` up to 3 times, after its Retry-After (at most 5
- *   seconds).
+ *   `checkout_in_progress` after its Retry-After (each wait at most 5
+ *   seconds), up to 20 times and 35 seconds of waiting in all: longer than
+ *   the server's worst case for the first request (a 15-second Stripe call
+ *   and its one network retry, about 30 seconds), so a double click or a
+ *   slow first try isn't reported as a failure while it's still being made.
  * - The key is dropped (the next press starts afresh) after a success, and
  *   after any 4xx except an in-progress 409 (the basket was refused, or the
  *   attempt ended). A 5xx or network failure keeps it, so the next press
@@ -25,8 +28,8 @@ import type { CheckoutErrorCode } from "./types";
 
 /** A key older than this isn't reused, even for the same basket. */
 export const CHECKOUT_KEY_TTL_MS = 30 * 60_000;
-const IN_PROGRESS_RETRIES = 3;
-const MAX_WAIT_MS = 5_000;
+/** In-progress retries: bounded in number and in total waiting (see the top of this file). */
+export const IN_PROGRESS_RETRY = { maxRetries: 20, maxWaitMs: 5_000, budgetMs: 35_000 } as const;
 
 interface Attempt {
   key: string;
@@ -63,15 +66,27 @@ function sleep(ms: number) {
 async function sendWithRetries<T>(key: string, send: (key: string) => Promise<T>): Promise<T> {
   let transientRetried = false;
   let inProgressRetries = 0;
+  let waitedMs = 0;
   for (;;) {
     try {
       return await send(key);
     } catch (err) {
       if (!(err instanceof ApiError)) throw err;
-      if (err.status === 409 && checkoutErrorCode(err) === "checkout_in_progress" && inProgressRetries < IN_PROGRESS_RETRIES) {
+      if (
+        err.status === 409 &&
+        checkoutErrorCode(err) === "checkout_in_progress" &&
+        inProgressRetries < IN_PROGRESS_RETRY.maxRetries &&
+        waitedMs < IN_PROGRESS_RETRY.budgetMs
+      ) {
         inProgressRetries += 1;
         const seconds = Number((err.body as { retryAfterSeconds?: unknown } | undefined)?.retryAfterSeconds);
-        await sleep(Math.min(Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 1000, MAX_WAIT_MS));
+        const wait = Math.min(
+          Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 1000,
+          IN_PROGRESS_RETRY.maxWaitMs,
+          IN_PROGRESS_RETRY.budgetMs - waitedMs,
+        );
+        waitedMs += wait;
+        await sleep(wait);
         continue;
       }
       if ((err.status === 0 || err.status === 503) && !transientRetried) {

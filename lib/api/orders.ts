@@ -38,8 +38,8 @@ export interface CheckoutLineItemInput {
  * free tickets for the event, 429 too many free bookings today (members),
  * 503 free bookings busy (the link is emailed after the answer, so a failed
  * send isn't reported here). Paid checkouts also have the CheckoutErrorCode
- * codes (`checkoutErrorCode(err)`): e.g. 429 `client_rate_limited` or
- * `rate_limited`, 409 `checkout_expired` (press again: a new attempt).
+ * codes (`checkoutErrorCode(err)`): e.g. 429 `client_rate_limited`, 409
+ * `checkout_expired` or `checkout_other_client` (press again: a new attempt).
  */
 export async function createCheckoutSession(
   eventId: string,

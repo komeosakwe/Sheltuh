@@ -151,18 +151,44 @@ describe("checkout attempts", () => {
     expect(new Set([0, 1, 2].map((i) => keyOf(fetch, i))).size).toBe(1);
   });
 
-  it("gives up on an in-progress 409 after 3 retries, keeping the key for the next press", async () => {
+  const busy = (retryAfterSeconds: number): [number, unknown] => [
+    409,
+    { error: "still being set up", code: "checkout_in_progress", retryAfterSeconds },
+  ];
+
+  it("waits out the server's worst case (a slow Stripe call and its retry, about 30 seconds) with the same key", async () => {
     vi.useFakeTimers();
-    const busy: [number, unknown] = [409, { error: "still being set up", code: "checkout_in_progress", retryAfterSeconds: 1 }];
-    const fetch = fetchSequence(busy, busy, busy, busy, [200, { url: "u" }]);
+    // 15 answers of "in progress, retry in 2 seconds": 30 seconds of waiting, then the first request's answer.
+    const fetch = fetchSequence(...Array.from({ length: 15 }, () => busy(2)), [200, { url: "u", orderId: "o" }]);
+    const result = createCheckoutSession("evt-1", GA);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(await result).toEqual({ url: "u", orderId: "o" });
+    expect(fetch).toHaveBeenCalledTimes(16);
+    expect(new Set(Array.from({ length: 16 }, (_, i) => keyOf(fetch, i))).size).toBe(1);
+  });
+
+  it("gives up on an in-progress 409 after 35 seconds of waiting, keeping the key for the next press", async () => {
+    vi.useFakeTimers();
+    const fetch = fetchSequence(...Array.from({ length: 19 }, () => busy(2)), [200, { url: "u" }]);
     const result = createCheckoutSession("evt-1", GA).catch((err: unknown) => err);
-    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(34_999);
+    expect(fetch).toHaveBeenCalledTimes(18); // 17 waits of 2 seconds, then a last one cut to the second left
+    await vi.advanceTimersByTimeAsync(1);
     const err = await result;
     expect(checkoutErrorCode(err)).toBe("checkout_in_progress");
-    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(fetch).toHaveBeenCalledTimes(19);
     expect(currentCheckoutKey("evt-1")).toBe(keyOf(fetch, 0));
     expect(await createCheckoutSession("evt-1", GA)).toEqual({ url: "u" });
-    expect(keyOf(fetch, 4)).toBe(keyOf(fetch, 0));
+    expect(keyOf(fetch, 19)).toBe(keyOf(fetch, 0));
+  });
+
+  it("gives up after 20 in-progress retries even with short waits", async () => {
+    vi.useFakeTimers();
+    const fetch = fetchSequence(...Array.from({ length: 21 }, () => busy(1)));
+    const result = createCheckoutSession("evt-1", GA).catch((err: unknown) => err);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(checkoutErrorCode(await result)).toBe("checkout_in_progress");
+    expect(fetch).toHaveBeenCalledTimes(21);
   });
 
   it("drops the key after a refusal (any other 4xx), so the next press is a new attempt", async () => {

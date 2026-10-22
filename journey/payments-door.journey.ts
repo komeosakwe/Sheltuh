@@ -254,6 +254,13 @@ describe.skipIf(!journeyEnabled)("payments and the door (journey harness)", () =
     expect(reused).toMatchObject({ status: 422, body: { code: "idempotency_key_reused" } });
     expect(await j.sql`select 1 from public.orders where event_id = ${event.eventId}`).toHaveLength(1);
 
+    // The same key and basket from another connection: refused, giving away neither the order nor the session.
+    const elsewhere = await checkout(j, event.eventId, { quantity: 2, buyerEmail, key, ip: "198.51.100.77" });
+    expect(elsewhere).toMatchObject({ status: 409, body: { code: "checkout_other_client" } });
+    expect(JSON.stringify(elsewhere.body)).not.toContain(orderId);
+    expect(JSON.stringify(elsewhere.body)).not.toContain(url);
+    expect(j.stripe.sessionsCreated - sessionsBefore).toBe(1);
+
     // Paid: the key is spent; the page is told the checkout completed rather than making another.
     const { event: completed } = pay(j, orderId);
     expect((await j.webhook(completed)).status).toBe(200);

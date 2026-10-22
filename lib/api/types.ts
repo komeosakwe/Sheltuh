@@ -1506,17 +1506,22 @@ export interface CheckoutSeatsInput {
  *   (also the Retry-After header) with the same Idempotency-Key.
  * - `checkout_expired` (409): this attempt's checkout ended (cancelled, failed or its session expired): start a
  *   new checkout (a new key).
- * - `checkout_completed` (409): this attempt is already paid.
+ * - `checkout_completed` (409): this attempt's order was paid (its message says whether it was then refunded,
+ *   or is being refunded because the tickets sold out first).
+ * - `checkout_other_client` (409): the key belongs to a checkout started from another connection; nothing about it
+ *   is returned. Start a new checkout (a new key).
  * - `idempotency_key_reused` (422): the key was used for a different basket, buyer or event.
- * - `invalid_idempotency_key` (400): the Idempotency-Key header isn't a UUID.
- * - `client_rate_limited` (429): this client started too many checkouts; `rate_limited` (429): too many people
- *   are checking out for the event (a seated checkout also has `hold_cap`).
+ * - `invalid_idempotency_key` (400): the Idempotency-Key header isn't a random (version 4) UUID.
+ * - `client_rate_limited` (429): this client started too many checkouts; `rate_limited` (429, seated only): too
+ *   many seat holds for the event (a seated checkout also has `hold_cap`). General admission has no event-wide
+ *   refusal: past its threshold the server only alerts.
  * - `payment_provider_unavailable` (503): Stripe didn't answer; retry with the same key.
  */
 export type CheckoutErrorCode =
   | "checkout_in_progress"
   | "checkout_expired"
   | "checkout_completed"
+  | "checkout_other_client"
   | "idempotency_key_reused"
   | "invalid_idempotency_key"
   | "client_rate_limited"

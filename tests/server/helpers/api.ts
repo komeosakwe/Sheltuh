@@ -28,7 +28,12 @@ export function createFakeStripe() {
         retrieve: vi.fn().mockResolvedValue({ id: "cs_test_1", status: "open" }),
       },
     },
-    refunds: { create: vi.fn().mockResolvedValue({ id: "re_test_1", status: "succeeded" }) },
+    refunds: {
+      create: vi.fn().mockResolvedValue({ id: "re_test_1", status: "succeeded" }),
+      // Asked before a refund is reported as not completed. By default Stripe "can't be reached", so the
+      // reported status stands; a test that needs Stripe's current answer mocks it.
+      retrieve: vi.fn().mockRejectedValue(new Stripe.errors.StripeConnectionError({ message: "not mocked" })),
+    },
     webhooks: realStripe.webhooks,
   };
 }

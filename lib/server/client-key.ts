@@ -26,10 +26,13 @@ export function clientIp(req: Request): string | undefined {
 }
 
 /**
- * One client, one key: an IPv4 address as is; an IPv6 address by its /64
- * (one household or phone usually has a whole /64, so keying on the full
- * address would let it rotate through endless keys); an IPv4-mapped IPv6
- * address as its IPv4 address. Undefined for anything that isn't an IP.
+ * One client, one key: an IPv4 address as is; an IPv6 address by its /56
+ * (a household or phone usually has a whole /64, and many ISPs delegate a
+ * /56 or more to one customer, so keying on anything narrower would let one
+ * client rotate through 256 or more keys); an IPv4-mapped IPv6 address as
+ * its IPv4 address. Undefined for anything that isn't an IP. A /56 can be
+ * shared by a few customers of some ISPs: they share the per-client limits,
+ * as people behind one IPv4 address do.
  */
 export function normaliseIp(value: string): string | undefined {
   const ip = value.replace(/%.*$/, ""); // an IPv6 zone id ("fe80::1%eth0") says nothing about the client
@@ -54,7 +57,8 @@ export function normaliseIp(value: string): string | undefined {
   if (words.slice(0, 5).every((w) => w === 0) && words[5] === 0xffff) {
     return [words[6] >> 8, words[6] & 0xff, words[7] >> 8, words[7] & 0xff].join(".");
   }
-  return `${words.slice(0, 4).map((w) => w.toString(16)).join(":")}::/64`;
+  const prefix = [words[0], words[1], words[2], words[3] & 0xff00];
+  return `${prefix.map((w) => w.toString(16)).join(":")}::/56`;
 }
 
 /** Labels the salt so it can't be confused with anything else derived from the same secret. */

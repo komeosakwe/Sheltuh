@@ -657,6 +657,7 @@ describe("retention (purge_operational_data)", () => {
       // Payment reconciliation's retention (tests/server/payment-reconciliation.test.ts).
       early_charge_refunds_deleted: 0,
       payment_exceptions_deleted: 0,
+      refund_status_marks_deleted: 0,
       // Checkout attempts' retention (tests/server/checkout-attempts.test.ts).
       checkout_attempts_deleted: 0,
     });
@@ -666,7 +667,7 @@ describe("retention (purge_operational_data)", () => {
       ["recent@example.com", "pending"],
     ]);
     const [again] = await api.db.query(`select * from private.purge_operational_data()`);
-    expect(Object.values(again)).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(Object.values(again)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 });
 

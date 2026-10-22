@@ -519,6 +519,188 @@ describe("a dashboard refund that doesn't complete after its order was voided (D
   });
 });
 
+async function marks() {
+  return api.db.query<{ refund_id: string; status: string; stripe_event_id: string | null }>(
+    `select refund_id, status, stripe_event_id from private.refund_status_marks order by refund_id`,
+  );
+}
+
+describe("refund statuses out of order, and confirmed with Stripe before a failure is reported", () => {
+  it("a succeeded delivered before an older requires_action or failed opens nothing and alerts no one (Stripe unreachable)", async () => {
+    const orderId = await voidedOrder("pi_ooo");
+    // The newest first: nothing open to resolve, but the refund's mark remembers it.
+    await refundStatus("refund.updated", "re_ooo", "succeeded", "pi_ooo", { created: 300, eventId: "evt_new" });
+    expect(await marks()).toEqual([{ refund_id: "re_ooo", status: "succeeded", stripe_event_id: "evt_new" }]);
+    // Then the older ones, delivered late. Stripe can't be asked (the fake's default), so the database decides.
+    await refundStatus("refund.updated", "re_ooo", "requires_action", "pi_ooo", { created: 100, eventId: "evt_old_a" });
+    await refundStatus("refund.failed", "re_ooo", "failed", "pi_ooo", { created: 200, eventId: "evt_old_b" });
+    await refundStatus("charge.refund.updated", "re_ooo", "failed", "pi_ooo", { created: 299, eventId: "evt_old_c" });
+    expect(api.stripe.refunds.retrieve).toHaveBeenCalledTimes(3);
+    expect(api.stripe.refunds.retrieve).toHaveBeenCalledWith("re_ooo");
+
+    expect(await exceptions()).toEqual([]);
+    expect(await alertJobs()).toEqual([]);
+    expect(await marks()).toEqual([{ refund_id: "re_ooo", status: "succeeded", stripe_event_id: "evt_new" }]);
+    expect(error).not.toHaveBeenCalled();
+    expect(logged(info)).toContain("Stripe evt_old_b: an older refund status (failed) than one already recorded for the refund; ignored.");
+    expect(logged(warn)).toContain("couldn't confirm the refund's status with Stripe (StripeConnectionError)");
+    expect(await internal(orderId)).toMatchObject({ status: "refunded" });
+    await api.runDeferred();
+    expect(api.sendEmail).not.toHaveBeenCalled();
+
+    // A genuinely newer failure still opens one (a card refund can fail after succeeding).
+    await refundStatus("refund.failed", "re_ooo", "failed", "pi_ooo", { created: 400, eventId: "evt_newer" });
+    expect(await exceptions()).toEqual([expect.objectContaining({ kind: "refund_not_completed", status: "open", refund_id: "re_ooo" })]);
+    expectLogHygiene(orderId, "pi_ooo");
+  });
+
+  it("a reported failure that Stripe says has since succeeded is recorded as succeeded: no exception, no alert", async () => {
+    await voidedOrder("pi_confirm");
+    api.stripe.refunds.retrieve.mockResolvedValue({ id: "re_confirm", object: "refund", status: "succeeded", amount: 3170 });
+    await refundStatus("refund.updated", "re_confirm", "requires_action", "pi_confirm", { created: 100, eventId: "evt_ra" });
+    expect(await exceptions()).toEqual([]);
+    expect(await alertJobs()).toEqual([]);
+    expect(await marks()).toEqual([{ refund_id: "re_confirm", status: "succeeded", stripe_event_id: "evt_ra" }]);
+
+    // Stripe confirms a failure: it's reported.
+    api.stripe.refunds.retrieve.mockResolvedValue({ id: "re_confirm", object: "refund", status: "failed", amount: 3170 });
+    await refundStatus("refund.failed", "re_confirm", "failed", "pi_confirm", { created: 200, eventId: "evt_f" });
+    expect(await exceptions()).toEqual([expect.objectContaining({ status: "open", refund_id: "re_confirm" })]);
+    expect(await alertJobs()).toHaveLength(1);
+    // A Stripe answer about another refund isn't used.
+    api.stripe.refunds.retrieve.mockResolvedValue({ id: "re_other", object: "refund", status: "succeeded" });
+    await refundStatus("refund.failed", "re_confirm", "failed", "pi_confirm", { created: 300, eventId: "evt_g" });
+    expect((await exceptions())[0].status).toBe("open");
+    expect(logged(warn)).toContain("Stripe's answer for the refund had no usable status");
+  });
+
+  it("our own refund call's answer (no event): confirmed with Stripe, and recorded with no Stripe event id", async () => {
+    const { second, pay: paySecond } = await oversold();
+    // Stripe's idempotent replay of an older answer; the refund has since succeeded.
+    api.stripe.refunds.create.mockResolvedValue({ id: "re_mine", status: "requires_action", payment_intent: "pi_second", amount: 8000 });
+    api.stripe.refunds.retrieve.mockResolvedValue({ id: "re_mine", object: "refund", status: "succeeded", amount: 8000 });
+    await paySecond();
+    expect(await internal(second)).toMatchObject({ status: "refunded", tickets: 0 });
+    expect(await exceptions()).toEqual([]);
+    // Our call's answer has no event time: it leaves no mark (a later event isn't judged against it).
+    expect(await marks()).toEqual([]);
+
+  });
+
+  it("our own refund call's unconfirmed failure opens an exception without the checkout webhook's event id (L1)", async () => {
+    const { pay: paySecond } = await oversold();
+    // Stripe unreachable for the confirmation (the fake's default).
+    api.stripe.refunds.create.mockResolvedValue({ id: "re_mine_2", status: "failed", payment_intent: "pi_second", amount: 8000 });
+    await paySecond();
+    const [row] = await api.db.query<{ stripe_event_id: string | null; last_event_at: string | null }>(
+      `select stripe_event_id, last_event_at from private.payment_exceptions where refund_id = 're_mine_2'`,
+    );
+    expect(row).toEqual({ stripe_event_id: null, last_event_at: null });
+    expect(await marks()).toEqual([]);
+  });
+
+  it("a refund's metadata.orderId is trusted only for an order paid with that refund's own payment", async () => {
+    const { first, second } = await oversold();
+    api.stripe.refunds.create.mockRejectedValue(Object.assign(new Error("down"), { code: "api_connection_error" }));
+    await api.send(stripeWebhook, completed(second, "pi_second"));
+    expect(await internal(second)).toMatchObject({ status: "oversold_refund_required" });
+
+    // A refund of another payment (the first order's) claiming to be the second order's: not ours, nothing settled.
+    await refundStatus("refund.updated", "re_forged", "succeeded", "pi_first", { orderId: second, created: 100 });
+    expect(await internal(second)).toMatchObject({ status: "oversold_refund_required" });
+    expect(await internal(first)).toMatchObject({ status: "paid" });
+    // A failure for it lands on the order its payment belongs to, as a dashboard refund (source stripe).
+    await refundStatus("refund.failed", "re_forged", "failed", "pi_first", { orderId: second, created: 200 });
+    const [row] = await exceptions();
+    expect(row).toMatchObject({ order_id: first, refund_id: "re_forged" });
+    expect(row.details).toMatchObject({ source: "stripe", orderStatus: "paid" });
+    // With no payment intent at all, the metadata alone settles nothing.
+    await refundStatus("refund.updated", "re_none", "succeeded", null, { orderId: second, created: 300 });
+    expect(await internal(second)).toMatchObject({ status: "oversold_refund_required" });
+  });
+
+  it("a stale event changes nothing on our oversold order either", async () => {
+    const { second } = await oversold();
+    api.stripe.refunds.create.mockRejectedValue(Object.assign(new Error("down"), { code: "api_connection_error" }));
+    await api.send(stripeWebhook, completed(second, "pi_second"));
+    await refundStatus("refund.failed", "re_auto2", "failed", "pi_second", { orderId: second, created: 500 });
+    // An older `succeeded`, delivered late: the order isn't marked refunded.
+    await refundStatus("refund.updated", "re_auto2", "succeeded", "pi_second", { orderId: second, created: 400 });
+    expect(await internal(second)).toMatchObject({ status: "oversold_refund_required" });
+    expect(await exceptions()).toEqual([expect.objectContaining({ status: "open", refund_id: "re_auto2" })]);
+  });
+});
+
+describe("early refunds meeting other outcomes at fulfilment", () => {
+  it("an early partial refund, then the order oversold: refunded in full by us, no partial_refund exception or alert", async () => {
+    const { second, pay: paySecond } = await oversold();
+    await refund("pi_second", 3000, false, { eventId: "evt_early_part" });
+    expect(await earlyRows()).toEqual([
+      { payment_intent_id: "pi_second", amount_refunded_cents: 3000, fully_refunded: false, applied_order_id: null },
+    ]);
+    api.deferred.length = 0;
+    await paySecond();
+
+    // Oversold: our automatic refund (of what's left) settles it.
+    expect(api.stripe.refunds.create).toHaveBeenCalledTimes(1);
+    expect(api.stripe.refunds.create.mock.calls[0][0]).toMatchObject({ payment_intent: "pi_second", reverse_transfer: true });
+    expect(await internal(second)).toMatchObject({ status: "refunded", tickets: 0 });
+    expect(await sold()).toEqual({ ga: 0, vip: 1 });
+    expect((await earlyRows())[0].applied_order_id).toBe(second);
+    expect(await exceptions()).toEqual([]);
+    expect(await alertJobs()).toEqual([]);
+    // L2: no alert was queued, so no ops-alert run was deferred either.
+    expect(api.deferred).toHaveLength(0);
+    expect(await lookup(second)).toMatchObject({ status: "refunded" });
+    expectLogHygiene(second, "pi_second");
+  });
+
+  it("a normal payment defers the ticket email only, not an ops-alert run", async () => {
+    const orderId = await checkout([{ ticketTypeId: "ga", quantity: 1 }]);
+    api.deferred.length = 0;
+    await pay(orderId, "pi_plain");
+    expect(api.deferred).toHaveLength(1);
+    await api.runDeferred();
+    expect(api.sendEmail.mock.calls.map(([m]) => m.to)).toEqual(["buyer@example.com"]);
+  });
+
+  it("an early full refund for an order that had already failed: it stays failed, nothing issued, no exception", async () => {
+    const orderId = await checkout([{ ticketTypeId: "ga", quantity: 1 }]);
+    await api.db.query(`update public.orders set status = 'failed' where id = $1`, [orderId]);
+    await refund("pi_failed_early", 3170, true);
+    expect(await earlyRows()).toHaveLength(1);
+
+    // The payment arrives: our refund finds it already refunded in full (done, not a 500).
+    api.stripe.refunds.create.mockRejectedValue(Object.assign(new Error("already"), { code: "charge_already_refunded" }));
+    await pay(orderId, "pi_failed_early");
+    await pay(orderId, "pi_failed_early"); // redelivered
+    expect(await internal(orderId)).toMatchObject({ status: "failed", tickets: 0, payment_intent: "pi_failed_early" });
+    expect(await sold()).toEqual({ ga: 0, vip: 0 });
+    expect(await ticketJobs(orderId)).toEqual([]);
+    expect(await exceptions()).toEqual([]);
+    expect(await alertJobs()).toEqual([]);
+    // The early row is never applied to a failed order (it's purged with the rest after 35 days).
+    expect((await earlyRows())[0].applied_order_id).toBeNull();
+    expectLogHygiene(orderId, "pi_failed_early");
+  });
+
+  it("an early partial refund for an order that had already failed: the rest is refunded once, it stays failed", async () => {
+    const orderId = await checkout([{ ticketTypeId: "ga", quantity: 1 }]);
+    await api.db.query(`update public.orders set status = 'failed' where id = $1`, [orderId]);
+    await refund("pi_failed_part", 1000, false);
+    api.stripe.refunds.create.mockResolvedValue({ id: "re_rest", status: "succeeded", payment_intent: "pi_failed_part", amount: 2170 });
+    await pay(orderId, "pi_failed_part");
+    await pay(orderId, "pi_failed_part");
+    expect(api.stripe.refunds.create).toHaveBeenCalledTimes(1);
+    expect(await internal(orderId)).toMatchObject({ status: "failed", tickets: 0, payment_intent: "pi_failed_part" });
+    expect(await exceptions()).toEqual([]);
+    // The full charge.refunded that follows changes nothing (only paid orders are voided).
+    await refund("pi_failed_part", 3170, true);
+    expect(await internal(orderId)).toMatchObject({ status: "failed" });
+    expect(await exceptions()).toEqual([]);
+  });
+});
+
 /** Two buyers for the one VIP: the second payment can't be fulfilled and is refunded automatically. */
 async function oversold(paymentIntent: string | null = "pi_second") {
   const first = await checkout([{ ticketTypeId: "vip", quantity: 1 }]);
@@ -752,10 +934,15 @@ describe("GET /api/admin/payment-exceptions and POST …/{id}/resolve", () => {
 // ---------------------------------------------------------------------------
 
 describe("retention (purge_operational_data)", () => {
-  it("early refunds after 35 days, resolved exceptions after 2 years; open exceptions never", async () => {
+  it("early refunds and refund status marks after 35 days, resolved exceptions after 2 years; open exceptions never", async () => {
     await api.db.query(
       `insert into private.early_charge_refunds (payment_intent_id, destination_account_id, amount_refunded_cents, fully_refunded, updated_at)
        values ('pi_old', 'acct_test_1', 100, true, now() - interval '36 days'), ('pi_recent', 'acct_test_1', 100, true, now() - interval '34 days')`,
+    );
+    await api.db.query(
+      `insert into private.refund_status_marks (refund_id, status, last_event_at, updated_at)
+       values ('re_old', 'succeeded', now() - interval '40 days', now() - interval '36 days'),
+              ('re_recent', 'succeeded', now() - interval '40 days', now() - interval '34 days')`,
     );
     const old = await openException();
     const recent = await openException();
@@ -774,8 +961,11 @@ describe("retention (purge_operational_data)", () => {
       ancient.exceptionId,
     ]);
 
-    const [counts] = await api.db.query(`select early_charge_refunds_deleted, payment_exceptions_deleted from private.purge_operational_data()`);
-    expect(counts).toEqual({ early_charge_refunds_deleted: 1, payment_exceptions_deleted: 1 });
+    const [counts] = await api.db.query(
+      `select early_charge_refunds_deleted, payment_exceptions_deleted, refund_status_marks_deleted from private.purge_operational_data()`,
+    );
+    expect(counts).toEqual({ early_charge_refunds_deleted: 1, payment_exceptions_deleted: 1, refund_status_marks_deleted: 1 });
+    expect(await api.db.query(`select refund_id from private.refund_status_marks`)).toEqual([{ refund_id: "re_recent" }]);
     expect((await earlyRows()).map((r) => r.payment_intent_id)).toEqual(["pi_recent"]);
     expect((await exceptions()).map((r) => r.id).sort()).toEqual([recent.exceptionId, ancient.exceptionId].sort());
   });

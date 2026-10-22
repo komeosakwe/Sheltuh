@@ -200,6 +200,14 @@ export class FakeStripe {
         return reply(200, this.publicSession(session));
       }
       if (route === "POST /v1/refunds") return reply(...this.createRefund(params, idempotencyKey));
+      // Asked before the app reports a refund as not completed (its current status).
+      if ((m = route.match(/^GET \/v1\/refunds\/([^/]+)$/))) {
+        const refundId = m[1];
+        const refund = this.refunds.find((r) => r.id === refundId);
+        if (!refund) return reply(404, { error: { type: "invalid_request_error", message: "No such refund" } });
+        const { id, object, amount, status, charge, payment_intent, metadata } = refund;
+        return reply(200, { id, object, amount, status, charge, payment_intent, metadata });
+      }
       return reply(404, { error: { type: "invalid_request_error", message: `Unrecognized request URL (${method}: ${path}).` } });
     } catch (err) {
       return reply(500, { error: { type: "api_error", message: err instanceof Error ? err.message : "fake failure" } });

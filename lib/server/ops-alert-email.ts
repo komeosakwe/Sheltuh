@@ -85,3 +85,43 @@ export function buildOpsAlertEmail(to: string, alert: OpsAlert, siteUrl: string)
     `<p>${escapeHtml(action)}</p><p>${escapeHtml(where)}</p>`;
   return { to, subject, text, html };
 }
+
+/**
+ * The ops alert about a surge of paid checkouts for one event (the
+ * alert-only circuit breaker, CHECKOUT_LIMITS.perEventAlert): the event's
+ * title and id (both public), the threshold and when the alert was queued.
+ * No client data: the per-client counters only hold keyed hashes.
+ */
+export interface CheckoutSurgeAlert {
+  eventId: string;
+  eventTitle: string;
+  /** The event page's slug, when it has one. */
+  eventSlug?: string;
+  threshold: number;
+  window: string;
+  queuedAt: Date;
+}
+
+export function buildCheckoutSurgeAlertEmail(to: string, alert: CheckoutSurgeAlert, siteUrl: string): EmailMessage {
+  const title = "Checkout surge";
+  const subject = subjectLine(`Sheltüh ops alert: ${title} for ${alert.eventTitle}`);
+  const lines = [
+    `Event: ${alert.eventTitle} (${alert.eventId})`,
+    `More than ${alert.threshold} new paid checkouts were started for it within ${alert.window}.`,
+    `Queued: ${alert.queuedAt.toISOString()}`,
+  ];
+  const action =
+    "Nobody was refused: this limit only alerts (per-client limits still apply). If it isn't a real on-sale, " +
+    "someone may be starting unpaid checkouts from many addresses: unpaid Stripe sessions hold no general " +
+    "admission tickets and expire on their own. Check the event's pending orders and the hosting logs, and " +
+    "block abusive traffic at the firewall if needed. At most one alert per event per window.";
+  const where = alert.eventSlug
+    ? `Event page: ${siteUrl}/events/${encodeURIComponent(alert.eventSlug)}`
+    : "The event has no public page right now.";
+  const text = [title, "", ...lines, "", action, "", where, ""].join("\n");
+  const html =
+    `<p><strong>${escapeHtml(title)}</strong></p>` +
+    `<ul>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` +
+    `<p>${escapeHtml(action)}</p><p>${escapeHtml(where)}</p>`;
+  return { to, subject, text, html };
+}

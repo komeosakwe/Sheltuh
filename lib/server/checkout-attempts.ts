@@ -5,6 +5,7 @@ import { formatSeatLine } from "@/lib/seating/format";
 import { clientIp, clientKey } from "./client-key";
 import type { Db } from "./db";
 import type { Deps } from "./deps";
+import { sendOpsAlertsSoon } from "./email-outbox";
 import { HttpError, PRIVATE_NO_STORE, createdPrivate } from "./http";
 import { orderReference } from "./order-reference";
 import type { CheckoutResult, EventRecord, OrderLineItem, TicketSeat } from "./types";
@@ -22,6 +23,13 @@ import type { CheckoutResult, EventRecord, OrderLineItem, TicketSeat } from "./t
  * fresh one made up here, so it behaves exactly as before (a new order per
  * request). The header is optional for now (owner decision D8); the next
  * release is meant to require it.
+ *
+ * An attempt is bound to the client that made it (its keyed IP hash, as for
+ * the per-client limits): a request with the same key from another client
+ * key gets a 409 `checkout_other_client` that names neither the order nor
+ * the session, and can't retry or take over the attempt. Without a usable
+ * IP header (never on Vercel) the client key is null, and null matches only
+ * null: such requests are bound to each other, not to an address.
  */
 
 /** The request header (any case). A UUID, one per checkout attempt (lib/api/checkout-attempt.ts). */
@@ -59,13 +67,16 @@ export const CHECKOUT_ATTEMPT = {
  * private.take_checkout_attempt when a new order is about to be made (never
  * for replays, in-progress answers or refusals decided before it): per client
  * (its keyed IP hash, lib/server/client-key.ts), 20 per event and 60 across
- * all events; per event, 600 across all clients; each per 10 minutes. Seated
- * checkouts keep SEAT_HOLD_LIMITS (orders.ts) instead: nothing is counted
- * twice.
+ * all events, each per 10 minutes (a 429 over either). Per event, across
+ * all clients, 600 per 10 minutes is a circuit breaker that only alerts
+ * (a manager decision: as a refusal, about 30 addresses could use it up and
+ * block real buyers): crossing it queues an ops alert, at most one per event
+ * per window, and every buyer is still served. Seated checkouts keep
+ * SEAT_HOLD_LIMITS (orders.ts) instead: nothing is counted twice.
  */
 export const CHECKOUT_LIMITS = {
   perClient: { event: 20, allEvents: 60 },
-  perEvent: 600,
+  perEventAlert: 600,
   window: "10 minutes",
 } as const;
 
@@ -79,15 +90,18 @@ export const CHECKOUT_LIMITS = {
  */
 export const STRIPE_SESSION_REQUEST = { timeout: 15_000, maxNetworkRetries: 1 } as const;
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** A random (version 4, RFC 9562 variant) UUID: what crypto.randomUUID() makes. Never the nil UUID or a guessable one. */
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-/** The request's Idempotency-Key (lowercased), or a fresh one when there's none. 400 if it isn't a UUID. */
+/** The request's Idempotency-Key (lowercased), or a fresh one when there's none. 400 if it isn't a random (v4) UUID. */
 export function idempotencyKey(req: Request): string {
   const raw = req.headers.get(IDEMPOTENCY_KEY_HEADER);
   if (raw === null) return crypto.randomUUID();
   const key = raw.trim().toLowerCase();
-  if (!UUID_PATTERN.test(key)) {
-    throw new HttpError(400, "The Idempotency-Key header must be a UUID.", undefined, { code: "invalid_idempotency_key" });
+  if (!UUID_V4_PATTERN.test(key)) {
+    throw new HttpError(400, "The Idempotency-Key header must be a random (version 4) UUID.", undefined, {
+      code: "invalid_idempotency_key",
+    });
   }
   return key;
 }
@@ -126,7 +140,7 @@ export function checkoutFingerprint(basket: CheckoutBasket): string {
   return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
 
-type AttemptState = "mismatch" | "in_progress" | "completed" | "replay" | "expired" | "retry";
+type AttemptState = "mismatch" | "other_client" | "in_progress" | "completed" | "replay" | "expired" | "retry";
 
 interface AttemptRow {
   state: AttemptState;
@@ -134,22 +148,25 @@ interface AttemptRow {
   session_url: string | null;
   hold_expires_at: string | Date | null;
   retry_after_seconds: number | null;
+  /** The attempt's order's status (read for `completed`, to word the answer truthfully). */
+  order_status: string | null;
 }
 
 /**
- * The attempt for this key, if any, as the request should see it: read
- * before the request's own checks, so a replay isn't refused for seats its
- * own order holds or tickets sold since. Plain read; begin_checkout_attempt
- * decides again under the row lock.
+ * The attempt for this key, if any, as this client (`clientKey`, see
+ * requestClientKey) should see it: read before the request's own checks, so
+ * a replay isn't refused for seats its own order holds or tickets sold
+ * since. Plain read; begin_checkout_attempt decides again under the row lock.
  */
-export async function peekCheckoutAttempt(db: Db, key: string, fingerprint: string) {
+export async function peekCheckoutAttempt(db: Db, key: string, fingerprint: string, clientKey: string | null) {
   // By key alone: a key reused for another event is found too (its fingerprint, which covers the event, differs).
   const [row] = await db.query<AttemptRow>(
-    `select private.checkout_attempt_state(a, $2) as state, a.order_id, a.session_url, a.hold_expires_at,
-            greatest(1, ceil(extract(epoch from a.lease_expires_at - now())))::integer as retry_after_seconds
+    `select private.checkout_attempt_state(a, $2, $3) as state, a.order_id, a.session_url, a.hold_expires_at,
+            greatest(1, ceil(extract(epoch from a.lease_expires_at - now())))::integer as retry_after_seconds,
+            (select o.status::text from public.orders o where o.id = a.order_id) as order_status
        from private.checkout_attempts a
       where a.idempotency_key = $1::uuid`,
-    [key, fingerprint],
+    [key, fingerprint, clientKey],
   );
   return row;
 }
@@ -173,17 +190,43 @@ const CHECKOUT_EXPIRED = (): HttpError =>
   new HttpError(409, "This checkout has ended. Start a new checkout.", undefined, { code: "checkout_expired" });
 
 /**
+ * `checkout_completed`, worded for what happened to the order: only a paid
+ * order has tickets to look for. One that couldn't be fulfilled after
+ * payment (sold out, or the event closed) is being refunded or was; one
+ * refunded in Stripe has no tickets either.
+ */
+function checkoutCompleted(orderStatus: string | null): HttpError {
+  const message =
+    orderStatus === "paid"
+      ? "This checkout is already complete. Check your email for your tickets."
+      : orderStatus === "oversold_refund_required"
+        ? "This checkout was paid, but the tickets were gone before the payment came through, so it's being refunded in full. Start a new checkout if tickets are still available."
+        : orderStatus === "refunded"
+          ? "This checkout's payment was refunded, so it has no tickets. Start a new checkout if you still want tickets."
+          : "This checkout has already finished. Start a new checkout if you still want tickets.";
+  return new HttpError(409, message, undefined, { code: "checkout_completed" });
+}
+
+/** A key used from another client: nothing about the attempt (its order or session) is given out. */
+const CHECKOUT_OTHER_CLIENT = (): HttpError =>
+  new HttpError(409, "This checkout was started from another connection. Start a new checkout.", undefined, {
+    code: "checkout_other_client",
+  });
+
+/**
  * The answer for an attempt that's settled (anything but `retry`): the same
  * order and session again (200, `Idempotent-Replayed: true`), or an error.
  * Undefined for `retry` (go ahead).
  */
 export function settledAttemptResponse(row: Omit<AttemptRow, "state"> & { state: string }): Response | undefined {
   switch (row.state) {
-    case "replay":
-      return Response.json(checkoutResult(row.session_url!, row.order_id!, row.hold_expires_at), {
+    case "replay": {
+      if (!row.session_url || !row.order_id) throw new Error("A replayed checkout attempt has no order or session.");
+      return Response.json(checkoutResult(row.session_url, row.order_id, row.hold_expires_at), {
         status: 200,
         headers: { ...PRIVATE_NO_STORE, "idempotent-replayed": "true" },
       });
+    }
     case "in_progress":
       throw inProgress(row.retry_after_seconds);
     case "mismatch":
@@ -193,33 +236,46 @@ export function settledAttemptResponse(row: Omit<AttemptRow, "state"> & { state:
         undefined,
         { code: "idempotency_key_reused" },
       );
+    case "other_client":
+      throw CHECKOUT_OTHER_CLIENT();
     case "expired":
       throw CHECKOUT_EXPIRED();
     case "completed":
-      throw new HttpError(409, "This checkout is already complete. Check your email for your tickets.", undefined, {
-        code: "checkout_completed",
-      });
+      throw checkoutCompleted(row.order_status);
     default:
       return undefined;
   }
 }
 
+/** The request's client key (null when there's none) and, if none, why. */
+export interface RequestClient {
+  key: string | null;
+  missing?: "ip" | "secret";
+}
+
 /**
- * The client's key for per-client limits, or null (fail open, logged without
- * any request detail) when the request has no usable client IP (always set
- * on Vercel) or the secret the key is salted with isn't configured.
+ * The client's key for per-client limits and for binding an attempt to its
+ * client, or null (fail open) when the request has no usable client IP
+ * (always set on Vercel) or the secret the key is salted with isn't
+ * configured. Silent: runPaidCheckout logs the fail-open once a paid
+ * checkout actually uses it.
  */
-export function requestClientKey(req: Request, deps: Deps, labels: { subject: string; limit: string }): string | null {
+export function requestClientKey(req: Request, deps: Deps): RequestClient {
   const ip = clientIp(req);
-  if (!ip) {
-    console.warn(`${labels.subject} without a client IP header: the per-client ${labels.limit} limit was skipped.`);
-    return null;
-  }
+  if (!ip) return { key: null, missing: "ip" };
   try {
-    return clientKey(ip, deps.stripeWebhookSecret());
+    return { key: clientKey(ip, deps.stripeWebhookSecret()) };
   } catch {
+    return { key: null, missing: "secret" };
+  }
+}
+
+/** Logs a per-client limit skipped for want of a client key, without any request detail. */
+function logClientKeyMissing(client: RequestClient, labels: { subject: string; limit: string }) {
+  if (client.missing === "ip") {
+    console.warn(`${labels.subject} without a client IP header: the per-client ${labels.limit} limit was skipped.`);
+  } else if (client.missing === "secret") {
     console.error(`STRIPE_WEBHOOK_SECRET isn't set: the per-client ${labels.limit} limit was skipped.`);
-    return null;
   }
 }
 
@@ -229,16 +285,21 @@ export interface PaidCheckout {
   event: EventRecord;
   key: string;
   fingerprint: string;
-  clientKey: string | null;
-  /** Per-client limits passed to begin_checkout_attempt (seated: SEAT_HOLD_LIMITS.perClient). */
-  limits: { clientEvent: number; clientAll: number; event: number | null; window: string };
+  client: RequestClient;
+  /** How the fail-open log line names this checkout and its limit. */
+  clientLabels: { subject: string; limit: string };
+  /**
+   * Per-client limits passed to begin_checkout_attempt (seated: SEAT_HOLD_LIMITS.perClient), and the
+   * event's alert-only circuit breaker (general admission only; null: none).
+   */
+  limits: { clientEvent: number; clientAll: number; eventAlert: number | null; window: string };
   stripeAccountId: string;
   /** Seated: Stripe's page closes this many seconds after the order was made (31 minutes). */
   sessionSeconds?: number;
   /** Makes pending order `orderId` (and, seated, its holds): throws on a refusal, having written nothing. */
   createOrder(orderId: string): Promise<void>;
-  /** The 429 for a refused limit. */
-  limitError(scope: "client" | "event"): HttpError;
+  /** The 429 for a refused per-client limit. */
+  limitError(): HttpError;
 }
 
 interface BeginRow {
@@ -248,6 +309,8 @@ interface BeginRow {
   attempt_session_url: string | null;
   attempt_hold_expires_at: string | Date | null;
   retry_after_seconds: number | null;
+  attempt_order_status: string | null;
+  alert_queued: boolean;
 }
 
 interface SessionOrder {
@@ -330,6 +393,19 @@ function sessionParams(
 }
 
 /**
+ * What may be logged about a Stripe error: its type and code, never its
+ * message (Stripe's messages can quote our idempotency key, and with it the
+ * order id, the confirmation page's credential).
+ */
+export function stripeErrorLabel(err: unknown): string {
+  if (typeof err !== "object" || err === null) return "unknown error";
+  const { type, code, statusCode } = err as { type?: unknown; code?: unknown; statusCode?: unknown };
+  const safe = (value: unknown) => (typeof value === "string" && /^[A-Za-z0-9_]{1,64}$/.test(value) ? value : undefined);
+  const parts = [safe(type), safe(code), typeof statusCode === "number" ? String(statusCode) : undefined].filter(Boolean);
+  return parts.length > 0 ? parts.join("/") : "unknown error";
+}
+
+/**
  * Stripe may have made the session although we got no answer: the request
  * timed out or the connection failed, Stripe rate-limited us, or another
  * request with the same idempotency key was still running there (409). A
@@ -372,9 +448,11 @@ async function failAttempt(db: Db, checkout: PaidCheckout, lease: string, releas
  */
 export async function runPaidCheckout(deps: Deps, checkout: PaidCheckout): Promise<Response> {
   const { db } = deps;
+  logClientKeyMissing(checkout.client, checkout.clientLabels);
   const lease = crypto.randomUUID();
   const [begun] = await db.query<BeginRow>(
-    `select result, attempt_order_id, reused, attempt_session_url, attempt_hold_expires_at, retry_after_seconds
+    `select result, attempt_order_id, reused, attempt_session_url, attempt_hold_expires_at, retry_after_seconds,
+            attempt_order_status, alert_queued
        from private.begin_checkout_attempt($1, $2::uuid, $3, $4, $5, $6::uuid, $7::interval, $8::interval,
                                            $9, $10, $11, $12, $13::interval)`,
     [
@@ -386,21 +464,24 @@ export async function runPaidCheckout(deps: Deps, checkout: PaidCheckout): Promi
       lease,
       CHECKOUT_ATTEMPT.lease,
       checkout.kind === "seated" ? CHECKOUT_ATTEMPT.seatedReuseWithin : CHECKOUT_ATTEMPT.gaReuseWithin,
-      checkout.clientKey,
+      checkout.client.key,
       checkout.limits.clientEvent,
       checkout.limits.clientAll,
-      checkout.limits.event,
+      checkout.limits.eventAlert,
       checkout.limits.window,
     ],
   );
+  // The event's circuit breaker tripped: an ops alert was queued (at most one per event per window). Nobody is refused.
+  if (begun.alert_queued) {
+    console.warn(`Checkout surge on event ${checkout.event.eventId}: over its alert threshold; an ops alert was queued.`);
+    sendOpsAlertsSoon(deps);
+  }
   switch (begun.result) {
     case "create":
       break;
     case "client_event_limit":
     case "client_all_limit":
-      throw checkout.limitError("client");
-    case "event_limit":
-      throw checkout.limitError("event");
+      throw checkout.limitError();
     default: {
       const settled = settledAttemptResponse({
         state: begun.result,
@@ -408,13 +489,18 @@ export async function runPaidCheckout(deps: Deps, checkout: PaidCheckout): Promi
         session_url: begun.attempt_session_url,
         hold_expires_at: begun.attempt_hold_expires_at,
         retry_after_seconds: begun.retry_after_seconds,
+        order_status: begun.attempt_order_status,
       });
       if (settled) return settled;
       throw new Error(`Unexpected begin_checkout_attempt result: ${begun.result}`);
     }
   }
 
-  const orderId = begun.attempt_order_id!;
+  const orderId = begun.attempt_order_id;
+  if (!orderId) {
+    await failAttempt(db, checkout, lease, false);
+    throw new Error("begin_checkout_attempt said create without an order id.");
+  }
   if (!begun.reused) {
     // The order exists before Stripe does, so no payment can ever arrive without an order to attach it to.
     try {
@@ -453,7 +539,8 @@ export async function runPaidCheckout(deps: Deps, checkout: PaidCheckout): Promi
     }
     // Nobody can pay for this order: release it (and its seats) now, so a retry makes a new one.
     await failAttempt(db, checkout, lease, true);
-    throw err;
+    // Not Stripe's message: it can quote our idempotency key (checkout-session-<order id>). Type and code only.
+    throw new Error(`Stripe refused the Checkout Session (${stripeErrorLabel(err)}).`);
   }
   if (!session.url) {
     await failAttempt(db, checkout, lease, true);

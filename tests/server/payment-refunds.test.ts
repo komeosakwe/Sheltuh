@@ -379,7 +379,7 @@ describe("the oversold refund path is unchanged", () => {
       stripeWebhook,
       stripeWebhookRequest({
         type: "refund.updated",
-        data: { object: { id: "re_auto", object: "refund", status: "succeeded", metadata: { orderId: second } } },
+        data: { object: { id: "re_auto", object: "refund", status: "succeeded", payment_intent: "pi_second", metadata: { orderId: second } } },
       }),
     );
     expect(await internal(second)).toEqual({ status: "refunded", amount_refunded_cents: 0, tickets: 0 });

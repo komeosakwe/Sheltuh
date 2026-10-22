@@ -2,9 +2,10 @@ import Stripe from "stripe";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { clientKey } from "@/lib/server/client-key";
 import { CHECKOUT_LIMITS, checkoutFingerprint, STRIPE_SESSION_REQUEST } from "@/lib/server/checkout-attempts";
+import { drainEmailOutbox } from "@/lib/server/email-outbox";
 import { cancelPendingOrder, createCheckout, SEAT_HOLD_LIMITS, stripeWebhook } from "@/lib/server/handlers/orders";
 import type { EventRecord } from "@/lib/server/types";
-import { stripeWebhookRequest, TestApi, WEBHOOK_SECRET } from "./helpers/api";
+import { OPS_ALERT_EMAIL, stripeWebhookRequest, TestApi, WEBHOOK_SECRET } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { seatedEvent, seatStates } from "./helpers/seating";
 import { createTestDb } from "./helpers/test-db";
@@ -39,13 +40,21 @@ let event: EventRecord;
 function fakeStripeSessions() {
   const sessions = new Map<string, { id: string; url: string }>();
   let made = 0;
-  let next: "refused" | "unreachable" | "lost" | undefined;
+  let next: "refused" | "unreachable" | "lost" | "idempotency" | undefined;
   let gate: Promise<void> | undefined;
   api.stripe.checkout.sessions.create.mockImplementation(async (_params: unknown, options?: { idempotencyKey?: string }) => {
     const mode = next;
     next = undefined;
     if (gate) await gate;
     if (mode === "refused") throw new Stripe.errors.StripeAPIError({ message: "Something went wrong.", statusCode: 500 });
+    if (mode === "idempotency") {
+      // Stripe's real wording quotes the key, and with it the order id.
+      throw new Stripe.errors.StripeIdempotencyError({
+        message: `Keys for idempotent requests can only be used with the same parameters they were first used with. Try using a key other than '${options?.idempotencyKey}' if you meant to execute a different request.`,
+        type: "idempotency_error",
+        statusCode: 400,
+      });
+    }
     if (mode === "unreachable") throw new Stripe.errors.StripeConnectionError({ message: "connect ECONNREFUSED" });
     const key = options?.idempotencyKey;
     let session = key ? sessions.get(key) : undefined;
@@ -61,7 +70,7 @@ function fakeStripeSessions() {
   });
   return {
     made: () => made,
-    failNext(mode: "refused" | "unreachable" | "lost") {
+    failNext(mode: "refused" | "unreachable" | "lost" | "idempotency") {
       next = mode;
     },
     /** Holds every Stripe call until the returned function is called. */
@@ -176,13 +185,72 @@ describe("the same Idempotency-Key and basket", () => {
     expect(retried.body).toEqual(done.body);
   });
 
+  it("a replay from another client: 409 checkout_other_client with no URL or order id; the attempt is untouched", async () => {
+    const first = await checkout(BASKET, { ip: IP });
+    expect(first.status).toBe(201);
+    const [before] = await api.db.query(`select * from private.checkout_attempts`);
+    for (const ip of [OTHER_IP, "2001:db8:aa:bb::1", undefined]) {
+      const res = await checkout(BASKET, { ip });
+      expect([res.status, res.body.code]).toEqual([409, "checkout_other_client"]);
+      expect(res.body.error).toBe("This checkout was started from another connection. Start a new checkout.");
+      expect(res.headers.get("cache-control")).toBe("private, no-store");
+      const text = JSON.stringify(res.body);
+      expect(text).not.toContain(first.body.orderId as string);
+      expect(text).not.toContain("checkout.stripe.test");
+      expect(res.body).not.toHaveProperty("url");
+      expect(res.body).not.toHaveProperty("orderId");
+    }
+    expect(createCalls()).toHaveLength(1);
+    expect(await api.db.query(`select * from private.checkout_attempts`)).toEqual([before]);
+    // Its own client still gets the replay.
+    const mine = await checkout(BASKET, { ip: IP });
+    expect([mine.status, mine.body]).toEqual([200, first.body]);
+  });
+
+  it("no client IP binds to no client IP: such a replay works, one with an IP is another client", async () => {
+    const first = await checkout();
+    expect(first.status).toBe(201);
+    expect((await checkout()).status).toBe(200);
+    expect((await checkout(BASKET, { ip: IP })).body.code).toBe("checkout_other_client");
+  });
+
+  it("under the row lock too (begin_checkout_attempt, when the first look missed): other_client, and completed worded from the order", async () => {
+    const first = await checkout(BASKET, { ip: IP });
+    // The first look (peekCheckoutAttempt) sees nothing, as for a request that read just before the first one committed.
+    const query = api.db.query.bind(api.db);
+    vi.spyOn(api.db, "query").mockImplementation(((sql: string, params?: unknown[]) =>
+      sql.includes("checkout_attempt_state(a, $2, $3)") ? Promise.resolve([]) : query(sql, params)) as typeof api.db.query);
+
+    const other = await checkout(BASKET, { ip: OTHER_IP });
+    expect([other.status, other.body.code]).toEqual([409, "checkout_other_client"]);
+    expect(JSON.stringify(other.body)).not.toContain(first.body.orderId as string);
+
+    await query(`update public.orders set status = 'refunded' where id = $1`, [first.body.orderId]);
+    const refunded = await checkout(BASKET, { ip: IP });
+    expect([refunded.status, refunded.body.code]).toEqual([409, "checkout_completed"]);
+    expect(refunded.body.error).toMatch(/refunded, so it has no tickets/);
+
+    // And an in-progress answer from there carries the lease's time left (1 second: not the default of 2).
+    await query(
+      `update private.checkout_attempts set status = 'in_progress', lease_token = gen_random_uuid(), lease_expires_at = now() + interval '500 milliseconds'`,
+    );
+    const busy = await checkout(BASKET, { ip: IP });
+    expect([busy.status, busy.body.code]).toEqual([409, "checkout_in_progress"]);
+    expect(busy.body.retryAfterSeconds).toBe(1);
+    expect(createCalls()).toHaveLength(1);
+  });
+
   it("no key: every request makes its own order and session, as before; a malformed key is a 400 that writes nothing", async () => {
     expect((await checkout(BASKET, { key: null })).status).toBe(201);
     expect((await checkout(BASKET, { key: null })).status).toBe(201);
     expect(createCalls()).toHaveLength(2);
     expect(await orders()).toHaveLength(2);
 
-    for (const bad of ["", "not-a-uuid", `${KEY}x`]) {
+    // Only random (v4) UUIDs: not the nil UUID, another version, or another variant.
+    const nil = "00000000-0000-0000-0000-000000000000";
+    const v1 = "6f0d7a52-3b1c-1e8f-9a2d-1c5b7e9f0a11";
+    const otherVariant = "6f0d7a52-3b1c-4e8f-7a2d-1c5b7e9f0a11";
+    for (const bad of ["", "not-a-uuid", `${KEY}x`, nil, v1, otherVariant]) {
       const res = await checkout(BASKET, { key: bad });
       expect(res.status).toBe(400);
       expect(res.body.code).toBe("invalid_idempotency_key");
@@ -272,6 +340,24 @@ describe("after the checkout ended", () => {
     );
     expect(begun.result).toBe("completed");
     expect((await attempts())[0]).toMatchObject({ status: "completed", lease_token: null });
+    expect((await checkout()).body.error).toBe("This checkout is already complete. Check your email for your tickets.");
+  });
+
+  it("checkout_completed is worded truthfully when the order has no tickets: refunded, or being refunded after selling out", async () => {
+    const first = await checkout();
+    const orderId = first.body.orderId as string;
+    await api.db.query(`update public.orders set status = 'oversold_refund_required' where id = $1`, [orderId]);
+    const beingRefunded = await checkout();
+    expect([beingRefunded.status, beingRefunded.body.code]).toEqual([409, "checkout_completed"]);
+    expect(beingRefunded.body.error).toMatch(/being refunded in full/);
+    expect(beingRefunded.body.error).not.toMatch(/email|your tickets/);
+
+    await api.db.query(`update public.orders set status = 'refunded' where id = $1`, [orderId]);
+    const refunded = await checkout();
+    expect([refunded.status, refunded.body.code]).toEqual([409, "checkout_completed"]);
+    expect(refunded.body.error).toMatch(/refunded, so it has no tickets/);
+    expect(refunded.body.error).not.toMatch(/email|your tickets\./);
+    expect(refunded.body).not.toHaveProperty("orderId");
   });
 });
 
@@ -323,6 +409,20 @@ describe("Stripe failures and retries", () => {
     expect(keys).toEqual([`checkout-session-${failed.id}`, `checkout-session-${retry.body.orderId}`]);
   });
 
+  it("a Stripe error quoting our idempotency key is logged by type and code only: never the order id", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    stripe.failNext("idempotency");
+    const res = await checkout();
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: "Something went wrong." });
+    const [order] = await orders();
+    const logged = error.mock.calls.flat().map(String).join("\n");
+    expect(logged).toContain("Stripe refused the Checkout Session (StripeIdempotencyError/400)");
+    expect(logged).not.toContain(order.id);
+    expect(logged).not.toMatch(/ord_[0-9a-f]{32}/);
+    expect(logged).not.toContain("Keys for idempotent requests");
+  });
+
   it("a retry after the reuse window makes a new order and fails the kept one", async () => {
     stripe.failNext("unreachable");
     await checkout();
@@ -350,8 +450,8 @@ describe("Stripe failures and retries", () => {
 });
 
 describe("general admission paid checkout limits", () => {
-  it("20 per event and 60 in all per client, 600 per event, per 10 minutes", () => {
-    expect(CHECKOUT_LIMITS).toEqual({ perClient: { event: 20, allEvents: 60 }, perEvent: 600, window: "10 minutes" });
+  it("20 per event and 60 in all per client, an alert (never a refusal) past 600 per event, per 10 minutes", () => {
+    expect(CHECKOUT_LIMITS).toEqual({ perClient: { event: 20, allEvents: 60 }, perEventAlert: 600, window: "10 minutes" });
   });
 
   it("20 new checkouts per event from one client, then 429 client_rate_limited writing nothing; replays don't count", async () => {
@@ -388,19 +488,72 @@ describe("general admission paid checkout limits", () => {
     expect(await orders()).toEqual([]);
   });
 
-  it("600 per event across clients: 429 rate_limited (a code the page can tell apart), keeping no client hit", async () => {
+  it("past 600 per event across clients: every buyer is still served, and one ops alert is queued per event per window", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await api.db.query(
       `insert into private.event_rate_limits (event_id, bucket, window_started_at, hits) values ($1, 'checkouts', now(), 600)`,
       [event.eventId],
     );
-    const res = await checkout(BASKET, { ip: IP });
-    expect([res.status, res.body.code]).toEqual([429, "rate_limited"]);
-    expect(res.body.error).toMatch(/A lot of people/);
-    expect(await api.db.query(`select * from private.client_rate_limits`)).toEqual([]);
-    expect(await attempts()).toEqual([]);
+    const surgeJobs = () =>
+      api.db.query<{ status: string }>(`select status from private.email_outbox where kind = 'ops_alert' and ops_event_id = $1`, [
+        event.eventId,
+      ]);
+    // Over the threshold: served (201), and the first one queues the alert.
+    const first = await checkout(BASKET, { ip: IP });
+    expect(first.status).toBe(201);
+    expect(await surgeJobs()).toEqual([{ status: "pending" }]);
+    expect(warn).toHaveBeenCalledWith(`Checkout surge on event ${event.eventId}: over its alert threshold; an ops alert was queued.`);
+    // More over the threshold, from other clients: served too, no second alert in the window.
+    expect((await checkout(BASKET, { key: OTHER_KEY, ip: OTHER_IP })).status).toBe(201);
+    expect((await checkout(BASKET, { key: crypto.randomUUID(), ip: "192.0.2.1" })).status).toBe(201);
+    expect(await surgeJobs()).toEqual([{ status: "pending" }]);
+    // The per-client limits still count as usual.
+    const [hits] = await api.db.query<{ hits: number }>(
+      `select hits from private.client_rate_limits where client_key = $1 and bucket = 'checkouts'`,
+      [clientKey(IP, WEBHOOK_SECRET)],
+    );
+    expect(hits.hits).toBe(1);
+
+    // Straight after the response: emailed to OPS_ALERT_EMAIL with the event's title and id, nothing about clients.
+    await api.runDeferred();
+    expect(await surgeJobs()).toEqual([{ status: "sent" }]);
+    expect(api.sendEmail).toHaveBeenCalledTimes(1);
+    const [message] = api.sendEmail.mock.calls[0];
+    expect(message.to).toBe(OPS_ALERT_EMAIL);
+    expect(message.subject).toBe(`Sheltüh ops alert: Checkout surge for ${event.title}`);
+    expect(message.text).toContain(`Event: ${event.title} (${event.eventId})`);
+    expect(message.text).toContain("More than 600 new paid checkouts");
+    expect(message.text).toContain("Nobody was refused");
+    for (const ip of [IP, OTHER_IP, clientKey(IP, WEBHOOK_SECRET)]) expect(message.text).not.toContain(ip);
+
+    // The next window: another alert.
+    await api.db.query(`update private.event_rate_limits set window_started_at = now() - interval '11 minutes' where event_id = $1`, [
+      event.eventId,
+    ]);
+    await api.db.query(`update private.event_rate_limits set hits = 601, window_started_at = now() where event_id = $1 and bucket = 'checkouts'`, [
+      event.eventId,
+    ]);
+    expect((await checkout(BASKET, { key: crypto.randomUUID(), ip: IP })).status).toBe(201);
+    expect((await surgeJobs()).map((j) => j.status).sort()).toEqual(["pending", "sent"]);
   });
 
-  it("fails open without a client IP (logged without request details): only the event's limit counts", async () => {
+  it("surge alerts are capped at 10 a day platform-wide, apart from the payment exceptions' 20", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await api.db.query(
+      `insert into private.platform_rate_limits (bucket, window_started_at, hits) values ('ops_alerts_checkout_surge', now(), 10)`,
+    );
+    await api.db.query(
+      `insert into private.event_rate_limits (event_id, bucket, window_started_at, hits) values ($1, 'checkouts', now(), 600)`,
+      [event.eventId],
+    );
+    expect((await checkout(BASKET, { ip: IP })).status).toBe(201);
+    expect(await api.db.query(`select 1 from private.email_outbox where kind = 'ops_alert'`)).toEqual([]);
+    // The payment exceptions' own allowance is untouched.
+    expect(await api.db.query(`select bucket from private.platform_rate_limits where bucket = 'ops_alerts'`)).toEqual([]);
+    expect(await drainEmailOutbox(api.deps, { kind: "ops_alert" })).toMatchObject({ claimed: 0 });
+  });
+
+  it("fails open without a client IP (logged without request details): only the event's alert counter counts", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     expect((await checkout()).status).toBe(201);
     expect(warn).toHaveBeenCalledWith("Checkout without a client IP header: the per-client checkout limit was skipped.");

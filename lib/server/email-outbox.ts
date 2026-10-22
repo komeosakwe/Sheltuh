@@ -4,7 +4,8 @@ import type { Deps } from "./deps";
 import { redactForLog } from "./email-address";
 import { buildFollowerNewEventsEmail, FOLLOWER_EMAIL_MAX_EVENTS, followerUnsubscribeLink } from "./follower-email";
 import { findEventById } from "./handlers/event-queries";
-import { buildOpsAlertEmail } from "./ops-alert-email";
+import { CHECKOUT_LIMITS } from "./checkout-attempts";
+import { buildCheckoutSurgeAlertEmail, buildOpsAlertEmail } from "./ops-alert-email";
 import { orderReference } from "./order-reference";
 import { EVENT_SELECT, ORDER_SELECT, paymentExceptionDetails, toEvent, toOrder } from "./records";
 import { buildTicketEmail } from "./ticket-email";
@@ -21,8 +22,11 @@ import { buildWaitlistAvailableEmail, waitlistEventLink, waitlistLeaveLink } fro
  *   (with notifications on) when an organiser they follow publishes a new
  *   event, at most one a day each (docs/architecture.md, "Following organisers").
  * - `ops_alert`: private.raise_payment_exception queues one when a payment
- *   exception is opened or reopened (at most 20 a day), sent to
- *   OPS_ALERT_EMAIL (docs/architecture.md, "Refunds made in Stripe").
+ *   exception is opened or reopened (at most 20 a day), and
+ *   private.queue_checkout_surge_alert one when an event's paid checkouts
+ *   cross the alert-only circuit breaker (at most one per event per window,
+ *   10 a day), sent to OPS_ALERT_EMAIL (docs/architecture.md, "Refunds made
+ *   in Stripe", "Checkout idempotency").
  * This module delivers them: once straight after the response (Deps.defer)
  * and then from the cron route until it's sent or has failed 6 times. The
  * cron route is called by Vercel Cron (daily on Hobby, every 5 minutes on
@@ -262,22 +266,58 @@ async function deliverFollowerEmail(deps: Deps, followId: string): Promise<Outco
 }
 
 /**
- * Sends one ops alert about a payment exception to OPS_ALERT_EMAIL: the
- * order's short reference, amounts, statuses and Stripe's event id only.
- * Skipped (never retried) when OPS_ALERT_EMAIL isn't set, logged loudly: the
- * exception itself is still listed for admins. Skipped too if the exception
- * was resolved (or deleted) before the alert went out. Never throws.
+ * Sends one ops alert about a checkout surge (an event's paid checkouts over
+ * the alert-only circuit breaker): the event's title and id only.
+ */
+async function deliverCheckoutSurgeAlert(deps: Deps, to: string, jobId: string): Promise<Outcome> {
+  const [row] = await deps.db.query<{ event_id: string; title: string; slug: string | null; created_at: string | Date }>(
+    `select e.id as event_id, e.title, e.slug, j.created_at
+       from private.email_outbox j
+       join public.events e on e.id = j.ops_event_id
+      where j.id = $1::bigint`,
+    [jobId],
+  );
+  if (!row) return skip("the event no longer exists");
+  await deps.sendEmail(
+    buildCheckoutSurgeAlertEmail(
+      to,
+      {
+        eventId: row.event_id,
+        eventTitle: row.title,
+        eventSlug: row.slug ?? undefined,
+        threshold: CHECKOUT_LIMITS.perEventAlert,
+        window: CHECKOUT_LIMITS.window,
+        queuedAt: new Date(row.created_at),
+      },
+      deps.siteUrl(),
+    ),
+  );
+  return { sent: true };
+}
+
+/**
+ * Sends one ops alert to OPS_ALERT_EMAIL: about a payment exception (the
+ * order's short reference, amounts, statuses and Stripe's event id only), or
+ * about a checkout surge (deliverCheckoutSurgeAlert). Skipped (never
+ * retried) when OPS_ALERT_EMAIL isn't set, logged loudly: a payment
+ * exception is still listed for admins. Skipped too if the exception was
+ * resolved (or deleted) before the alert went out. Never throws.
  */
 async function deliverOpsAlert(deps: Deps, jobId: string): Promise<Outcome> {
   try {
     const to = deps.opsAlertEmail();
     if (!to) {
       console.error(
-        `Ops alert job ${jobId} not emailed: OPS_ALERT_EMAIL isn't set. A payment exception needs a person: ` +
-          "see GET /api/admin/payment-exceptions.",
+        `Ops alert job ${jobId} not emailed: OPS_ALERT_EMAIL isn't set. A payment exception or checkout surge may ` +
+          "need a person: see GET /api/admin/payment-exceptions.",
       );
       return skip("OPS_ALERT_EMAIL isn't set");
     }
+    const [job] = await deps.db.query<{ about_event: boolean }>(
+      `select j.ops_event_id is not null as about_event from private.email_outbox j where j.id = $1::bigint`,
+      [jobId],
+    );
+    if (job?.about_event) return await deliverCheckoutSurgeAlert(deps, to, jobId);
     const [row] = await deps.db.query<{
       kind: "refund_not_completed" | "partial_refund" | "manual_refund_required";
       status: string;
