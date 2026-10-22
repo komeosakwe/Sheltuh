@@ -8,32 +8,35 @@ import BackLink from "@/components/ui/BackLink";
 import EventTile from "@/components/ui/EventTile";
 import Strap from "@/components/ui/Strap";
 import { SectionHeader } from "@/components/ui/Section";
-import type { PublicOrganiserProfile } from "@/lib/api/types";
 import { formatDayWithYear } from "@/lib/format";
-import { adaptPublicEvent } from "@/lib/live/adapt";
-import { formatMemberSince } from "@/lib/organiser-profile";
-import { EVENT_CATEGORIES } from "@/lib/types";
+import { formatMemberSince, type OrganiserProfileDetails } from "@/lib/organiser-profile";
+import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 
 const countFormatter = new Intl.NumberFormat("en-AU");
 
 /**
  * An approved organiser's public profile: who they are, Follow, their
  * numbers (followers once there are 10, events hosted), their links and
- * featured video, then their events. `headingRef` makes the h1 focusable
- * from script (tabIndex -1), for a caller that moves focus to it.
+ * featured video, then their events: `upcoming` (soonest first) and `past`
+ * (most recent first), already in the screens' shape (a live profile's
+ * events adapted by LiveOrganiserProfile, or the demo's sample events).
+ * `headingRef` makes the h1 focusable from script (tabIndex -1), for a caller
+ * that moves focus to it.
  */
 export default function OrganiserProfileView({
   profile,
+  upcoming,
+  past,
   headingRef,
 }: {
-  profile: PublicOrganiserProfile;
+  profile: OrganiserProfileDetails;
+  upcoming: readonly SheltuhEvent[];
+  past: readonly SheltuhEvent[];
   headingRef?: Ref<HTMLHeadingElement>;
 }) {
   const categoryLabels = profile.categories.map(
     (value) => EVENT_CATEGORIES.find((category) => category.value === value)?.label ?? value,
   );
-  const upcoming = profile.upcomingEvents.map(adaptPublicEvent);
-  const past = profile.recentEvents.map(adaptPublicEvent);
   const hasLinks = Boolean(profile.websiteUrl) || Object.values(profile.socialLinks).some(Boolean);
 
   return (

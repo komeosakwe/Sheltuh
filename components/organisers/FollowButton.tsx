@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
+import DemoNotice from "@/components/DemoNotice";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
 import { SESSION_EXPIRED_MESSAGE } from "@/components/whos-going/shared";
-import { ApiError } from "@/lib/api/client";
+import { ApiError, isApiConfigured } from "@/lib/api/client";
 import { followOrganiser, getFollowStatus, unfollowOrganiser } from "@/lib/api/follows";
 import type { FollowStatus } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/AuthContext";
@@ -27,7 +28,8 @@ function errorMessage(err: unknown): string {
  * tick it: consent under the Spam Act, so the request always says which;
  * changeable while following; every such email can be unsubscribed
  * from at /following/unsubscribe). Signed out: a link to sign in that comes
- * back here. Nobody sees who follows whom.
+ * back here. Nobody sees who follows whom. In the demo (no API): an
+ * unavailable Follow, still focusable, described by a note, and no request.
  */
 export default function FollowButton({ organiserId, organiserName }: { organiserId: string; organiserName: string }) {
   const auth = useOptionalAuth();
@@ -39,10 +41,11 @@ export default function FollowButton({ organiserId, organiserName }: { organiser
   const [busy, setBusy] = useState<"follow" | "notify" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  const demoNoteId = useId();
   const returnTo = `/organisers/${encodeURIComponent(organiserId)}`;
 
   useEffect(() => {
-    if (!getToken) return;
+    if (!getToken || !isApiConfigured) return;
     let cancelled = false;
     getFollowStatus(organiserId, getToken).then(
       (follow) => {
@@ -61,6 +64,22 @@ export default function FollowButton({ organiserId, organiserName }: { organiser
       cancelled = true;
     };
   }, [organiserId, getToken]);
+
+  if (!isApiConfigured) {
+    return (
+      <div className="flex flex-col items-start gap-3">
+        {/* aria-disabled, not disabled: it stays in the tab order, so the note is heard with it. */}
+        <Button variant="solid" size="lg" aria-disabled="true" aria-describedby={demoNoteId} className="w-full sm:w-auto">
+          <span>
+            Follow <span className="sr-only">{organiserName}</span>
+          </span>
+        </Button>
+        <div id={demoNoteId}>
+          <DemoNotice>Following works once you&rsquo;re signed in on the live site.</DemoNotice>
+        </div>
+      </div>
+    );
+  }
 
   if (!auth || auth.status === "loading") return null;
 

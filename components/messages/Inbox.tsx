@@ -140,7 +140,7 @@ export default function Inbox({ getToken }: { getToken: GetToken }) {
   );
 }
 
-function ConversationRow({ conversation, index }: { conversation: ConversationSummary; index: number }) {
+export function ConversationRow({ conversation, index }: { conversation: ConversationSummary; index: number }) {
   const { otherDisplayName, status, event, lastMessage, unread } = conversation;
   const label = STATUS_LABEL[status];
   return (

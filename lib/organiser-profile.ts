@@ -1,4 +1,11 @@
-import type { OrganiserSocialLinks } from "@/lib/api/types";
+import type { OrganiserSocialLinks, PublicOrganiserProfile } from "@/lib/api/types";
+
+/**
+ * An organiser profile's own fields, without its event lists: what the
+ * profile page shows above the events, which it's given separately, already
+ * in the screens' shape (a live profile's adapted, or the demo's samples).
+ */
+export type OrganiserProfileDetails = Omit<PublicOrganiserProfile, "upcomingEvents" | "recentEvents">;
 
 /** Longest bio the API accepts (organisers.description). */
 export const MAX_BIO_LENGTH = 2000;

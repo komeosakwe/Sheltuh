@@ -21,7 +21,20 @@ import { useVisibleInterval } from "@/lib/use-visible-interval";
 import Composer, { type SendOutcome } from "./Composer";
 import MessageList from "./MessageList";
 import ReportDialog, { type ReportOutcome } from "./ReportDialog";
-import { BLOCK_EFFECT, errorText, loadErrorMessage, messagingError, tallInlineLinkClass, THREAD_POLL_MS, threadHref } from "./shared";
+import {
+  BLOCK_EFFECT,
+  COMPOSER_BAR_CLASS,
+  errorText,
+  loadErrorMessage,
+  messagingError,
+  tallInlineLinkClass,
+  THREAD_HEADER_CLASS,
+  THREAD_MESSAGES_CLASS,
+  THREAD_PAGE_CLASS,
+  THREAD_POLL_MS,
+  threadHref,
+} from "./shared";
+import ThreadTitle from "./ThreadTitle";
 import { useUnread } from "./UnreadProvider";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 import BackLink from "@/components/ui/BackLink";
@@ -520,26 +533,11 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
   const status = conversation.status;
 
   return (
-    <div ref={rootRef} className="mx-auto flex min-h-[calc(100dvh-var(--header-h))] w-full max-w-6xl *:max-w-2xl flex-col px-5 sm:px-8">
-      <header className="flex flex-col gap-3 border-b border-surface-border pt-4 pb-4 sm:pt-8">
+    <div ref={rootRef} className={THREAD_PAGE_CLASS}>
+      <header className={THREAD_HEADER_CLASS}>
         {backLink}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div className="min-w-0">
-            <h1 ref={headingRef} tabIndex={-1} className="display-md break-words outline-offset-2">
-              {other}
-            </h1>
-            {conversation.event && (
-              <p className="mt-1 flex flex-wrap items-center gap-x-1 text-sm text-muted">
-                Going to
-                <Link
-                  href={`/events/${conversation.event.slug}`}
-                  className={`${tallInlineLinkClass} min-w-0 break-words text-foreground`}
-                >
-                  {conversation.event.title}
-                </Link>
-              </p>
-            )}
-          </div>
+          <ThreadTitle name={other} event={conversation.event} headingRef={headingRef} />
           {renderSafetyButtons({ block: true })}
         </div>
         {confirming === "block" && renderBlockConfirm(other)}
@@ -547,7 +545,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
         {renderReported(other)}
       </header>
 
-      <section aria-labelledby="thread-messages-title" className="flex flex-1 flex-col gap-4 py-6">
+      <section aria-labelledby="thread-messages-title" className={THREAD_MESSAGES_CLASS}>
         <h2 id="thread-messages-title" className="sr-only">
           Messages
         </h2>
@@ -564,7 +562,7 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
         {pollError && <p className="text-xs text-muted">{pollError}</p>}
       </section>
 
-      <div className="sticky bottom-0 -mx-5 border-t border-foreground bg-background px-5 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8">
+      <div className={COMPOSER_BAR_CLASS}>
         <Composer
           otherName={other}
           mode={status === "request_sent" ? "waiting" : status === "request_received" ? "accept" : "reply"}

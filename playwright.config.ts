@@ -4,6 +4,8 @@ import { defineConfig, devices } from "@playwright/test";
 const PINNED_CHROMIUM = "/opt/pw-browsers/chromium";
 
 const PORT = 3177;
+/** The demo build (no Supabase env, sample data only), for e2e/demo.spec.ts. */
+const DEMO_PORT = 3178;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -18,6 +20,8 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
+      // The demo spec runs against the demo build (the "demo" project below).
+      testIgnore: /demo\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         // Claude Code's cloud environment pins a pre-installed Chromium
@@ -41,17 +45,41 @@ export default defineConfig({
         launchOptions: existsSync(PINNED_CHROMIUM) ? { executablePath: PINNED_CHROMIUM } : {},
       },
     },
+    {
+      // The site as the Vercel preview runs it: a production build with no
+      // Supabase env (demo mode), so every page uses the sample data and
+      // nothing may call the API.
+      name: "demo",
+      testMatch: /demo\.spec\.ts/,
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: `http://127.0.0.1:${DEMO_PORT}`,
+        launchOptions: existsSync(PINNED_CHROMIUM) ? { executablePath: PINNED_CHROMIUM } : {},
+      },
+    },
   ],
-  webServer: {
-    // Placeholder Supabase settings switch the app into live mode; every
-    // request to the app's own /api/* routes is then intercepted by each
-    // test's page.route(), so nothing here ever reaches a real Supabase
-    // project or database.
-    command:
-      `NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:${PORT}/supabase-mock ` +
-      `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=e2e-placeholder npx next dev -p ${PORT}`,
-    url: `http://127.0.0.1:${PORT}`,
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      // Placeholder Supabase settings switch the app into live mode; every
+      // request to the app's own /api/* routes is then intercepted by each
+      // test's page.route(), so nothing here ever reaches a real Supabase
+      // project or database.
+      command:
+        `NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:${PORT}/supabase-mock ` +
+        `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=e2e-placeholder npx next dev -p ${PORT}`,
+      url: `http://127.0.0.1:${PORT}`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
+      // Empty values win over any .env.local, so this is always the demo.
+      // A build of its own (next build writes .next, next dev .next/dev, so
+      // it can run beside the dev server above), served by next start.
+      command: `npx next build && npx next start -p ${DEMO_PORT}`,
+      env: { NEXT_PUBLIC_SUPABASE_URL: "", NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "" },
+      url: `http://127.0.0.1:${DEMO_PORT}`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 600_000,
+    },
+  ],
 });

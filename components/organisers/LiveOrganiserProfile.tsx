@@ -8,6 +8,7 @@ import { LoadingIndicator } from "@/components/ui/ProgressLoader";
 import { ApiError } from "@/lib/api/client";
 import { getOrganiserProfile } from "@/lib/api/organisers";
 import type { PublicOrganiserProfile } from "@/lib/api/types";
+import { adaptPublicEvent } from "@/lib/live/adapt";
 import { ORGANISER_PAGE_TITLE, ORGANISER_UNAVAILABLE_TITLE, organiserPageTitle } from "@/lib/organiser-profile";
 
 /** A settled state remembers which load (`attempt`) it came from, so a retry focuses only on its own result. */
@@ -119,5 +120,12 @@ export default function LiveOrganiserProfile({ organiserId }: { organiserId: str
     );
   }
 
-  return <OrganiserProfileView profile={state.profile} headingRef={headingRef} />;
+  return (
+    <OrganiserProfileView
+      profile={state.profile}
+      upcoming={state.profile.upcomingEvents.map(adaptPublicEvent)}
+      past={state.profile.recentEvents.map(adaptPublicEvent)}
+      headingRef={headingRef}
+    />
+  );
 }

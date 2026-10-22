@@ -93,11 +93,20 @@ describe("EventDetailsView organiser", () => {
     expect(link.closest("dd")).toHaveTextContent("Organised by Northside Noise");
   });
 
-  it("keeps the organiser as plain text when there's no organiserId (demo events)", () => {
-    const event = findEvent("neon-static");
+  it("in the demo, links a sample event's organiser to the sample organiser's profile", () => {
+    const event = findEvent("dead-letter-office");
+    expect(event.organiserId).toBeUndefined();
     render(<EventDetailsView event={event} demo />);
-    expect(screen.getByText(`Organised by ${event.organiserName}`).tagName).toBe("DD");
-    expect(screen.queryByRole("link", { name: event.organiserName })).not.toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "Small Hours Theatre" });
+    expect(link).toHaveAttribute("href", "/organisers/small-hours-theatre");
+    expect(link.closest("dd")).toHaveTextContent("Organised by Small Hours Theatre");
+  });
+
+  it("keeps the organiser as plain text when there's no profile to link to", () => {
+    const event = { ...findEvent("neon-static"), organiserName: "Nobody In The Samples" };
+    render(<EventDetailsView event={event} demo />);
+    expect(screen.getByText("Organised by Nobody In The Samples").tagName).toBe("DD");
+    expect(screen.queryByRole("link", { name: "Nobody In The Samples" })).not.toBeInTheDocument();
   });
 });
 

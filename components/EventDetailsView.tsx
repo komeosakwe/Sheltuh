@@ -21,6 +21,7 @@ import { isSafeTicketUrl } from "@/lib/event-url";
 import { formatEventDateShort, formatEventDateTimeRange, formatEventTime } from "@/lib/format";
 import { externalProviderLabel, formatFeedPriceParts, isSoldOut } from "@/lib/pricing";
 import { goesToSeatPage, quickBuyLabel } from "@/lib/quick-buy";
+import { organiserProfileHref } from "@/lib/sample-organisers";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 
 const asideRowClass = "border-t border-foreground py-3";
@@ -68,6 +69,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
   const seatPage = goesToSeatPage(event) && !ended;
   const shareText = `${event.title} · ${formatEventDateShort(event.startsAt)}, ${formatEventTime(event.startsAt)} · ${event.venueName}`;
   const saveTarget = { id: event.id, title: event.title, slug: event.slug };
+  const organiserHref = organiserProfileHref(event);
   const outboundLink = (className: string) => (
     <ExternalTicketLink eventId={event.id} url={ticketUrl} provider={provider} className={className} />
   );
@@ -188,12 +190,9 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                 <dt className="eyebrow text-muted">Organiser</dt>
                 <dd className="mt-1 text-base leading-6">
                   Organised by{" "}
-                  {/* Only live events have an organiser (and so a profile) to link to. */}
-                  {event.organiserId ? (
-                    <Link
-                      href={`/organisers/${encodeURIComponent(event.organiserId)}`}
-                      className="underline underline-offset-4"
-                    >
+                  {/* A live event's organiser profile, or in the demo the sample organiser's. */}
+                  {organiserHref ? (
+                    <Link href={organiserHref} className="underline underline-offset-4">
                       {event.organiserName}
                     </Link>
                   ) : (

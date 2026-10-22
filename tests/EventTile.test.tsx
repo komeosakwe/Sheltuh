@@ -67,8 +67,22 @@ describe("EventTile organiser link", () => {
     expect(name).not.toHaveClass("truncate");
   });
 
-  it("has no organiser link for a demo event (no organiserId) or with showOrganiser={false}", () => {
-    render(<EventTile event={sampleEvents[0]} />);
+  it("in the demo, links a sample event's organiser to the sample organiser's profile", () => {
+    const sample = sampleEvents.find((e) => e.slug === "dead-letter-office");
+    if (!sample) throw new Error("no sample dead-letter-office");
+    expect(sample.organiserId).toBeUndefined();
+    render(<EventTile event={sample} />);
+    expect(screen.getByRole("link", { name: "By Small Hours Theatre" })).toHaveAttribute(
+      "href",
+      "/organisers/small-hours-theatre",
+    );
+  });
+
+  it("has no organiser link without a profile to link to, or with showOrganiser={false}", () => {
+    render(<EventTile event={{ ...sampleEvents[0], organiserName: "Nobody In The Samples" }} />);
+    expect(screen.queryByRole("link", { name: /^By / })).not.toBeInTheDocument();
+    cleanup();
+    render(<EventTile event={sampleEvents[0]} showOrganiser={false} />);
     expect(screen.queryByRole("link", { name: /^By / })).not.toBeInTheDocument();
     cleanup();
     render(<EventTile event={liveEvent} showOrganiser={false} />);

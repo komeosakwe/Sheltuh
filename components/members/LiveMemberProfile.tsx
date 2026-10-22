@@ -3,17 +3,18 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, ButtonLink } from "@/components/ui/Button";
-import BackLink from "@/components/ui/BackLink";
 import { LoadingIndicator } from "@/components/ui/ProgressLoader";
 import { EmptyState, Notice } from "@/components/ui/Section";
 import SuspendedNotice from "@/components/whos-going/SuspendedNotice";
 import { ApiError } from "@/lib/api/client";
 import { getMemberProfile } from "@/lib/api/profiles";
+import { adaptPublicEvent } from "@/lib/live/adapt";
 import type { MemberProfile } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { isSessionExpired } from "@/components/messages/shared";
 import { useProfile } from "@/lib/auth/useProfile";
 import { withNext } from "@/lib/safe-next-path";
+import MemberPageShell from "./MemberPageShell";
 import MemberProfileView from "./MemberProfileView";
 
 type Load =
@@ -89,12 +90,7 @@ export default function LiveMemberProfile({ profileId }: { profileId: string }) 
     setAttempt((n) => n + 1);
   }
 
-  const shell = (children: React.ReactNode) => (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-5 pt-2 pb-12 sm:gap-10 sm:px-8 sm:py-14">
-      <BackLink href="/events">All events</BackLink>
-      {children}
-    </div>
-  );
+  const shell = (children: React.ReactNode) => <MemberPageShell>{children}</MemberPageShell>;
 
   const loading = (
     <div className="flex flex-col items-center py-12">
@@ -237,15 +233,18 @@ export default function LiveMemberProfile({ profileId }: { profileId: string }) 
       return shell(
         <MemberProfileView
           profile={load.profile}
-          getToken={getToken}
+          events={load.profile.upcomingEvents.map(adaptPublicEvent)}
           headingRef={headingRef}
-          onGone={() => {
-            focusHeading.current = true;
-            setAfter({ kind: "gone" });
-          }}
-          onBlocked={(name) => {
-            focusHeading.current = true;
-            setAfter({ kind: "blocked", name });
+          live={{
+            getToken,
+            onGone: () => {
+              focusHeading.current = true;
+              setAfter({ kind: "gone" });
+            },
+            onBlocked: (name) => {
+              focusHeading.current = true;
+              setAfter({ kind: "blocked", name });
+            },
           }}
         />,
       );

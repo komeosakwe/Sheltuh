@@ -5,6 +5,7 @@ import SaveButton from "@/components/favourites/SaveButton";
 import CardPrice from "@/components/home/CardPrice";
 import QuickBuyLink from "@/components/QuickBuyLink";
 import { formatEventDateShort, formatEventTime } from "@/lib/format";
+import { organiserProfileHref } from "@/lib/sample-organisers";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 
 /**
@@ -15,9 +16,9 @@ import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
  * the page beneath.
  *
  * Reading and tab order: the card's link, the save heart, the orange "Buy
- * tickets" (owner decision 6; to the event page's tickets), then (live
- * events, which carry an organiserId) a "By {organiser}" link to the
- * organiser's profile. All are siblings of the card's link, never inside it
+ * tickets" (owner decision 6; to the event page's tickets), then a
+ * "By {organiser}" link to the organiser's profile (a live event's, or in
+ * the demo the sample organiser's: lib/sample-organisers.ts). All are siblings of the card's link, never inside it
  * (no buttons or links within a link). The heart is absolutely positioned
  * over the photo's top-right corner, so its place in the DOM doesn't move it
  * on screen. `showOrganiser={false}` drops the organiser link where the
@@ -37,6 +38,7 @@ export default function EventTile({
   const categoryLabel =
     EVENT_CATEGORIES.find((category) => category.value === event.category)?.label ?? event.category;
   const place = [event.venueName, event.suburb].filter(Boolean).join(" · ");
+  const organiserHref = showOrganiser ? organiserProfileHref(event) : null;
   // The link's name starts with the title, then date, place, price and category.
   const id = useId();
   const ids = { title: `${id}-title`, date: `${id}-date`, place: `${id}-place`, price: `${id}-price`, chip: `${id}-chip` };
@@ -84,9 +86,9 @@ export default function EventTile({
       )}
       {/* mt-auto lines the buttons up along a grid row; pt-3 keeps them clear of the text. */}
       <QuickBuyLink event={event} narrow className="mt-auto pt-3" />
-      {showOrganiser && event.organiserId && (
+      {showOrganiser && organiserHref && (
         <Link
-          href={`/organisers/${encodeURIComponent(event.organiserId)}`}
+          href={organiserHref}
           className="inline-flex min-h-11 max-w-full items-center text-sm text-muted underline underline-offset-4 hover:text-foreground"
         >
           {/* A long name wraps to a second line, then is cut short. */}

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, type Ref } from "react";
+import DemoNotice from "@/components/DemoNotice";
 import { RESULTS_GRID } from "@/components/EventResults";
 import { ComposeRequestForm } from "@/components/messages/ComposeRequest";
 import ReportDialog, { type ReportOutcome } from "@/components/messages/ReportDialog";
@@ -14,7 +15,8 @@ import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
 import type { GetToken } from "@/lib/api/client";
 import { blockMember, reportMember } from "@/lib/api/messages";
 import type { ConversationSummary, MemberProfile, ReportReason } from "@/lib/api/types";
-import { adaptPublicEvent } from "@/lib/live/adapt";
+import { endSentence } from "@/lib/display-name";
+import type { SheltuhEvent } from "@/lib/types";
 import MemberAvatar from "./MemberAvatar";
 
 const REPORT_ERROR = "Couldn’t send your report. Try again.";
@@ -31,25 +33,28 @@ type Focus = "compose-open" | "sent" | "block-cancel" | "block-open" | "reported
  * no actions. Everything is the member's own text, shown as text (a bio's
  * links aren't made clickable).
  *
- * `onGone`: the member can no longer be seen (a block's or message's 404);
- * `onBlocked`: the caller blocked them.
+ * `events`: their upcoming events, already in the screens' shape (a live
+ * profile's adapted by LiveMemberProfile, or the demo's samples).
+ *
+ * `live`: the API's side. `onGone`: the member can no longer be seen (a
+ * block's or message's 404); `onBlocked`: the caller blocked them. Without
+ * it (the demo, lib/sample-member-profiles.ts) nothing calls the API:
+ * Message opens the demo conversation, and Block and Report say what they
+ * would do on the live site.
  */
 export default function MemberProfileView({
   profile,
-  getToken,
+  events,
   headingRef,
-  onGone,
-  onBlocked,
+  live,
 }: {
-  profile: MemberProfile;
-  getToken: GetToken;
+  profile: Omit<MemberProfile, "upcomingEvents">;
+  events: readonly SheltuhEvent[];
   headingRef?: Ref<HTMLHeadingElement>;
-  onGone: () => void;
-  onBlocked: (name: string) => void;
+  live?: { getToken: GetToken; onGone: () => void; onBlocked: (name: string) => void };
 }) {
   const name = profile.displayName;
   const returnTo = `/members/${encodeURIComponent(profile.profileId)}`;
-  const events = profile.upcomingEvents.map(adaptPublicEvent);
   const [composing, setComposing] = useState(false);
   const [sent, setSent] = useState<ConversationSummary | null>(null);
   const [confirmingBlock, setConfirmingBlock] = useState(false);
@@ -77,23 +82,30 @@ export default function MemberProfileView({
   });
 
   async function block() {
-    if (blockBusy) return;
+    if (blockBusy || !live) return;
     setBlockBusy(true);
     setActionError(null);
     try {
-      await blockMember({ profileId: profile.profileId }, getToken);
-      onBlocked(name);
+      await blockMember({ profileId: profile.profileId }, live.getToken);
+      live.onBlocked(name);
     } catch (err) {
       const mapped = messagingError(err, { rateLimited: BLOCK_RATE_LIMITED, fallback: "Couldn’t block. Try again." });
-      if (mapped.kind === "unavailable") onGone();
+      if (mapped.kind === "unavailable") live.onGone();
       else setActionError(errorText(mapped, "Couldn’t block. Try again."));
       setBlockBusy(false);
     }
   }
 
   async function report(reason: ReportReason, details: string | undefined): Promise<ReportOutcome> {
+    if (!live) {
+      // The demo: nothing is sent. The notice says what would happen.
+      setReportOpen(false);
+      setReported(true);
+      pendingFocus.current = "reported";
+      return { ok: true };
+    }
     try {
-      await reportMember({ profileId: profile.profileId, reason, details }, getToken);
+      await reportMember({ profileId: profile.profileId, reason, details }, live.getToken);
       setReportOpen(false);
       setReported(true);
       pendingFocus.current = "reported";
@@ -102,7 +114,7 @@ export default function MemberProfileView({
       const mapped = messagingError(err, { rateLimited: REPORT_RATE_LIMITED, fallback: REPORT_ERROR });
       if (mapped.kind === "unavailable") {
         setReportOpen(false);
-        onGone();
+        live.onGone();
         return { ok: false, gone: true };
       }
       if (mapped.kind === "session") return { ok: false, session: true };
@@ -121,12 +133,18 @@ export default function MemberProfileView({
   return (
     <div className="flex flex-col gap-10 sm:gap-14">
       <header className="flex flex-col gap-6 sm:flex-row sm:items-start">
-        <MemberAvatar name={name} url={profile.hasAvatar ? profile.avatarUrl : undefined} getToken={getToken} size="lg" />
+        <MemberAvatar
+          name={name}
+          url={profile.hasAvatar ? profile.avatarUrl : undefined}
+          getToken={live?.getToken}
+          size="lg"
+        />
         <div className="flex min-w-0 flex-col gap-4">
           <Strap label="Member" rule={false} />
           <h1 ref={headingRef} tabIndex={-1} className="display-lg break-words outline-offset-2">
             {name}
           </h1>
+          {!live && <DemoNotice>A fictional member, made up for this demo.</DemoNotice>}
           {profile.isYou && (
             <Notice>
               This is how members see you.{" "}
@@ -163,7 +181,7 @@ export default function MemberProfileView({
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
             {conversationId ? (
               <ButtonLink href={threadHref(conversationId)} variant="solid" size="lg" className="w-full sm:w-auto">
-                {sent ? "View conversation" : "Open your conversation"}
+                {!live ? "Message" : sent ? "View conversation" : "Open your conversation"}
               </ButtonLink>
             ) : profile.canMessage ? (
               <Button
@@ -212,13 +230,13 @@ export default function MemberProfileView({
             </p>
           )}
 
-          {composing && !conversationId && (
+          {composing && !conversationId && live && (
             <div className="rounded-card border border-foreground bg-card p-4 sm:p-5">
               <ComposeRequestForm
                 id="member-compose"
                 name={name}
                 to={{ profileId: profile.profileId }}
-                getToken={getToken}
+                getToken={live.getToken}
                 returnTo={returnTo}
                 onCancel={() => {
                   setComposing(false);
@@ -246,10 +264,13 @@ export default function MemberProfileView({
                 {BLOCK_EFFECT} You also won&rsquo;t see each other&rsquo;s profiles or appear on each other&rsquo;s
                 Who&rsquo;s Going lists. You can unblock them later.
               </p>
+              {!live && <DemoNotice>Blocking isn&rsquo;t available in this demo, so nothing changes.</DemoNotice>}
               <div className="flex flex-col gap-3 sm:flex-row">
-                <Button variant="danger" size="lg" busy={blockBusy} onClick={block} className="w-full sm:w-auto">
-                  {blockBusy ? "Blocking…" : "Yes, block"}
-                </Button>
+                {live && (
+                  <Button variant="danger" size="lg" busy={blockBusy} onClick={block} className="w-full sm:w-auto">
+                    {blockBusy ? "Blocking…" : "Yes, block"}
+                  </Button>
+                )}
                 <Button
                   id="member-block-cancel"
                   variant="outline"
@@ -262,7 +283,7 @@ export default function MemberProfileView({
                   }}
                   className="w-full sm:w-auto"
                 >
-                  Cancel
+                  {live ? "Cancel" : "Close"}
                 </Button>
               </div>
             </div>
@@ -272,7 +293,14 @@ export default function MemberProfileView({
 
           {reported && (
             <div ref={reportedRef} tabIndex={-1} className="outline-offset-2">
-              <Notice>Thanks. Your report has been sent and our team will review it. We won&rsquo;t tell {name}.</Notice>
+              {live ? (
+                <Notice>Thanks. Your report has been sent and our team will review it. We won&rsquo;t tell {name}.</Notice>
+              ) : (
+                <DemoNotice>
+                  On the live site, our team would review your report, and we wouldn&rsquo;t tell {endSentence(name)} Nothing was
+                  sent in this demo.
+                </DemoNotice>
+              )}
             </div>
           )}
 

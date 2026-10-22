@@ -4,7 +4,7 @@ import { ButtonLink } from "@/components/ui/Button";
 
 /**
  * An organiser profile that can't be shown: unknown, not (or no longer)
- * approved, or (`demo`) a prototype with no live organisers at all.
+ * approved, or (`demo`) not one of the demo's sample organisers.
  * `headingRef` makes the h1 focusable from script (tabIndex -1).
  */
 export default function OrganiserUnavailable({
@@ -20,7 +20,7 @@ export default function OrganiserUnavailable({
         This organiser isn&rsquo;t available
       </h1>
       {demo ? (
-        <DemoNotice>Organiser profiles come from the live service, which isn&rsquo;t connected here.</DemoNotice>
+        <DemoNotice>This demo only has the organisers of its sample events.</DemoNotice>
       ) : (
         <p className="text-muted">
           The link may be out of date, or the organiser&rsquo;s profile isn&rsquo;t public right now.

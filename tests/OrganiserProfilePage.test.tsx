@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import OrganiserProfilePage from "@/app/organisers/[organiserId]/page";
+import OrganiserProfilePage, { generateMetadata } from "@/app/organisers/[organiserId]/page";
 import { ApiError } from "@/lib/api/client";
 import type { PublicEvent } from "@/lib/api/public-events";
 import type { PublicOrganiserProfile } from "@/lib/api/types";
@@ -18,11 +18,19 @@ const getOrganiserProfile = vi.fn();
 vi.mock("@/lib/api/organisers", () => ({
   getOrganiserProfile: (...args: unknown[]) => getOrganiserProfile(...args),
 }));
+// Any follow request at all (the demo must make none).
+const followApi = vi.fn();
+vi.mock("@/lib/api/follows", () => ({
+  getFollowStatus: (...args: unknown[]) => followApi(...args),
+  followOrganiser: (...args: unknown[]) => followApi(...args),
+  unfollowOrganiser: (...args: unknown[]) => followApi(...args),
+}));
 
 afterEach(cleanup);
 beforeEach(() => {
   apiConfigured = true;
   getOrganiserProfile.mockReset();
+  followApi.mockReset();
 });
 
 const ORGANISER_ID = "8c4f6f8e-0d5b-4a51-9a3e-2f6f0b0d1a11";
@@ -296,13 +304,96 @@ describe("/organisers/[organiserId] (live)", () => {
 });
 
 describe("/organisers/[organiserId] (demo)", () => {
-  it("explains organiser profiles aren't available, without calling the API", async () => {
+  // Only Date is faked (so promises and testing-library's timers run as usual): 1 Oct 2026, Melbourne.
+  beforeEach(() => {
     apiConfigured = false;
-    await renderPage();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-01T00:00:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("shows a sample organiser's profile, built from their sample events, without calling the API", async () => {
+    await renderPage("small-hours-theatre");
+
+    expect(screen.getByRole("heading", { level: 1, name: "Small Hours Theatre" })).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByText("Member since October 2026")).toBeInTheDocument();
+    expect(screen.getByText(/Small Hours Theatre is a fictional organiser, made up for this demo\./)).toBeInTheDocument();
+    const categories = screen.getByRole("list", { name: "Categories" });
+    expect(within(categories).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Theatre"]);
+    // A made-up website on the reserved .example domain.
+    expect(screen.getByRole("link", { name: /^Website: smallhourstheatre\.example/ })).toHaveAttribute(
+      "href",
+      "https://smallhourstheatre.example",
+    );
+
+    const upcoming = screen.getByRole("heading", { level: 2, name: "Upcoming events" }).closest("section");
+    if (!upcoming) throw new Error("upcoming section not rendered");
+    expect(within(upcoming).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual([
+      "Dead Letter Office",
+    ]);
+    expect(within(upcoming).getByRole("link", { name: /^Dead Letter Office/ })).toHaveAttribute(
+      "href",
+      "/events/dead-letter-office",
+    );
+    expect(screen.queryByRole("heading", { level: 2, name: "Past events" })).not.toBeInTheDocument();
+    expect(screen.getByText("Events hosted").nextElementSibling).toHaveTextContent("0");
+    expect(getOrganiserProfile).not.toHaveBeenCalled();
+  });
+
+  it("lists an organiser's ended sample events as past, counted as hosted", async () => {
+    await renderPage("static-collective");
+
+    expect(screen.getByRole("heading", { level: 1, name: "Static Collective" })).toBeInTheDocument();
+    expect(screen.getByText("Member since September 2026")).toBeInTheDocument();
+    expect(screen.getByText("No upcoming events right now.", { exact: false })).toBeInTheDocument();
+    const past = screen.getByRole("heading", { level: 2, name: "Past events" }).closest("section");
+    if (!past) throw new Error("past section not rendered");
+    expect(within(past).getByRole("link", { name: /Neon Static/ })).toHaveAttribute("href", "/events/neon-static");
+    expect(screen.getByText("Events hosted").nextElementSibling).toHaveTextContent("1");
+  });
+
+  it("offers Follow only as unavailable, with a note, and makes no follow request", async () => {
+    await renderPage("small-hours-theatre");
+
+    const follow = screen.getByRole("button", { name: "Follow Small Hours Theatre" });
+    expect(follow).toHaveAttribute("aria-disabled", "true");
+    expect(follow).toHaveAccessibleDescription(/Following works once you’re signed in on the live site\./);
+    fireEvent.click(follow);
+    expect(screen.queryByRole("link", { name: "Sign in to follow" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(followApi).not.toHaveBeenCalled();
+  });
+
+  it("an unknown id: the demo's unavailable state, without calling the API", async () => {
+    await renderPage("no-such-organiser");
 
     expect(screen.getByRole("heading", { level: 1, name: "This organiser isn’t available" })).toBeInTheDocument();
     expect(screen.getByRole("note")).toHaveTextContent("Demo");
+    expect(screen.getByRole("note")).toHaveTextContent("This demo only has the organisers of its sample events.");
     expect(screen.getByRole("link", { name: "Browse all events" })).toHaveAttribute("href", "/events");
     expect(getOrganiserProfile).not.toHaveBeenCalled();
+  });
+});
+
+describe("/organisers/[organiserId] title", () => {
+  async function title(organiserId: string) {
+    const metadata = await generateMetadata({
+      params: Promise.resolve({ organiserId }),
+      searchParams: Promise.resolve({}),
+    });
+    return metadata.title;
+  }
+
+  it("live: the plain title (LiveOrganiserProfile names the organiser once loaded)", async () => {
+    expect(await title(ORGANISER_ID)).toBe("Organiser — Sheltüh");
+  });
+
+  it("demo: the sample organiser's name, or not available for an unknown id", async () => {
+    apiConfigured = false;
+    expect(await title("small-hours-theatre")).toBe("Small Hours Theatre — Sheltüh");
+    expect(await title("no-such-organiser")).toBe("Organiser not available — Sheltüh");
   });
 });

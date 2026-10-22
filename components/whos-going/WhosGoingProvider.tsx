@@ -199,7 +199,10 @@ export function WhosGoingProvider({
         closed: false,
         count: sample.count,
         countHidden: sample.count < COUNT_THRESHOLD,
-        attendees: sample.attendees,
+        // The sample members' profiles exist only in the demo: with an API, every name is plain text.
+        attendees: isApiConfigured
+          ? sample.attendees.map(({ attendeeId, displayName }) => ({ attendeeId, displayName, isYou: false }))
+          : sample.attendees,
         viewer: { kind: "signed-out" },
       },
     };
