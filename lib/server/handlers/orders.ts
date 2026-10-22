@@ -2,7 +2,7 @@ import type Stripe from "stripe";
 import { calculateBookingFeeCents, calculateOrderSummary } from "@/lib/fees";
 import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
 import type { Deps } from "../deps";
-import { sendTicketEmailSoon, sendWaitlistEmailsSoon } from "../email-outbox";
+import { sendOpsAlertsSoon, sendTicketEmailSoon, sendWaitlistEmailsSoon } from "../email-outbox";
 import { formatSeatLine } from "@/lib/seating/format";
 import { MAX_SEATS_PER_ORDER } from "@/lib/seating/template";
 import { REMAINING_SHOWN_AT_MOST } from "@/lib/api/public-events";
@@ -92,23 +92,115 @@ async function fulfilOrder(
   });
 }
 
+/** Postgres `integer`: an amount beyond it can't be a real charge's. */
+const MAX_INT4 = 2_147_483_647;
+
+/** A Stripe id we store (refund, payment intent, charge, account, event): a non-empty string of at most 255 characters. */
+function stripeId(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 && value.length <= 255 ? value : undefined;
+}
+
+/** An id or an expanded object's id. */
+function expandableId(value: unknown): string | undefined {
+  if (typeof value === "string") return stripeId(value);
+  if (value && typeof value === "object" && "id" in value) return stripeId((value as { id: unknown }).id);
+  return undefined;
+}
+
 /**
- * Records a refund's current state on its order. Only a refund Stripe says
- * has succeeded marks the order `refunded`; a pending one is tracked until a
- * refund.updated webhook settles it, and a failed or cancelled one leaves the
- * order `oversold_refund_required` so it shows up for manual action.
+ * Stripe's answer to refunding a charge that's already refunded in full
+ * (someone refunded it in the dashboard first, or an earlier attempt of ours
+ * did). Nothing more can be refunded, so it's done: not an error to retry.
  */
-async function recordRefund(db: Db, orderId: string, refund: Pick<Stripe.Refund, "id" | "status">) {
-  await db.query(
-    `update public.orders
-     set stripe_refund_id = $2,
-         status = case when $3 = 'succeeded' then 'refunded'::public.order_status else status end
-     where id = $1 and status = 'oversold_refund_required'`,
-    [orderId, refund.id, refund.status],
-  );
-  if (refund.status === "failed" || refund.status === "canceled") {
-    console.error(`Refund ${refund.id} for order ${orderReference(orderId)} ${refund.status} — refund it manually.`);
+function isChargeAlreadyRefunded(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "code" in err && (err as { code: unknown }).code === "charge_already_refunded";
+}
+
+type RefundStatusResult = "opened" | "reopened" | "updated" | "unchanged" | "stale" | "resolved" | "not_found";
+
+/** Where a refund's status came from: a webhook event (its id and creation time), or our own refund call. */
+interface RefundStatusSource {
+  eventId?: string;
+  /** Stripe's event `created` (Unix seconds): events older than the last applied are ignored. */
+  eventCreated?: number;
+  /** Our automatic refunds carry the order id in their metadata. */
+  orderId?: string;
+}
+
+/**
+ * A refund's status (refund.updated, refund.failed, charge.refund.updated, or
+ * what our own refund call returned): private.record_refund_status records
+ * our automatic refund on its oversold order (refunded once it succeeded),
+ * then opens a payment exception for a refund that failed, was canceled or
+ * requires action (above all a refund that failed after its order was
+ * already voided: the buyer has neither tickets nor their money), and
+ * resolves it if the same refund later succeeds. Nothing is ever restored or
+ * refunded again automatically. An opened exception queues an ops alert.
+ * A refund of a payment that isn't ours writes nothing. Logged by Stripe's
+ * event id and the order's short reference: never the order id, the buyer or
+ * the payment intent. Never throws for a payment that isn't ours.
+ */
+async function recordRefundStatus(deps: Deps, refund: Stripe.Refund, source: RefundStatusSource) {
+  const label = source.eventId ? `Stripe ${source.eventId}` : "Our refund call";
+  const refundId = stripeId(refund.id);
+  if (!refundId) {
+    console.warn(`${label}: a refund without a usable id; ignored.`);
+    return;
   }
+  const paymentIntentId = expandableId(refund.payment_intent);
+  const status = typeof refund.status === "string" ? refund.status.replace(/[^a-z_]/g, "").slice(0, 40) || "unknown" : "unknown";
+  const amount = Number.isSafeInteger(refund.amount) && refund.amount >= 0 && refund.amount <= MAX_INT4 ? refund.amount : null;
+  const metadataOrderId = source.orderId && ORDER_ID_PATTERN.test(source.orderId) ? source.orderId : null;
+  const created =
+    source.eventCreated !== undefined && Number.isSafeInteger(source.eventCreated) && source.eventCreated > 0
+      ? new Date(source.eventCreated * 1000).toISOString()
+      : null;
+  const [row] = await deps.db.query<{ result: RefundStatusResult; order_id: string | null; order_status: OrderStatus | null }>(
+    `select result, order_id, order_status
+       from private.record_refund_status($1, $2, $3, $4, $5, $6, $7::text::timestamptz)`,
+    [refundId, paymentIntentId ?? null, metadataOrderId, status, amount, source.eventId ?? null, created],
+  );
+  const needsPerson = status === "failed" || status === "canceled" || status === "requires_action";
+  const exception =
+    row.result === "opened" || row.result === "reopened" ? ` Payment exception ${row.result}.` : "";
+  if (row.result === "opened" || row.result === "reopened") sendOpsAlertsSoon(deps);
+
+  if (metadataOrderId) {
+    // Our own automatic refund.
+    if (needsPerson) {
+      console.error(`${label}: refund for order ${orderReference(metadataOrderId)} ${status} — refund it manually.${exception}`);
+    }
+    return;
+  }
+  const reference = row.order_id ? orderReference(row.order_id) : undefined;
+  const subject = reference
+    ? `a refund of order ${reference}`
+    : row.result === "not_found"
+      ? "a refund of a payment with no order on record"
+      : "a refund of a payment not yet matched to an order";
+  if (needsPerson) {
+    const voided = row.order_status === "refunded" ? " The order was already voided: the buyer has neither tickets nor their money." : "";
+    console.error(
+      `${label}: ${subject} (made outside Sheltüh) has status ${status}. Check it in the Stripe dashboard.${voided}${exception}`,
+    );
+  } else {
+    console.info(`${label}: ${subject} (made outside Sheltüh) has status ${status}; charge.refunded records it.`);
+  }
+}
+
+/**
+ * An automatic refund we couldn't even ask for (no payment intent on record):
+ * a `manual_refund_required` payment exception (one open per order) and an
+ * ops alert. Logged by short reference.
+ */
+async function raiseManualRefund(deps: Deps, orderId: string, eventId: string | undefined, message: string) {
+  console.error(message);
+  const [row] = await deps.db.query<{ outcome: string }>(
+    `select outcome from private.raise_payment_exception('manual_refund_required', $1, null, null, $2, null,
+       jsonb_build_object('reason', 'no_payment_intent', 'orderStatus', (select o.status::text from public.orders o where o.id = $1)))`,
+    [orderId, eventId ?? null],
+  );
+  if (row.outcome === "opened") sendOpsAlertsSoon(deps);
 }
 
 /**
@@ -116,26 +208,40 @@ async function recordRefund(db: Db, orderId: string, refund: Pick<Stripe.Refund,
  * was unpublished, before payment confirmed) — including Sheltüh's fee and
  * the organiser's transfer. Stripe's idempotency key makes a retry (e.g.
  * Stripe redelivering the webhook after an earlier attempt failed) refund at
- * most once. Throws on failure so the webhook returns 500 and Stripe tries
- * again later.
+ * most once. A charge already refunded in full (e.g. in the dashboard) is
+ * done: the order is marked refunded. Throws on any other failure so the
+ * webhook returns 500 and Stripe tries again later.
  */
-async function refundOversoldOrder(deps: Deps, orderId: string, paymentIntentId: string | undefined) {
+async function refundOversoldOrder(deps: Deps, orderId: string, paymentIntentId: string | undefined, eventId?: string) {
   if (!paymentIntentId) {
-    console.error(
+    await raiseManualRefund(
+      deps,
+      orderId,
+      eventId,
       `Order ${orderReference(orderId)} couldn't be fulfilled and has no payment intent on record — refund it manually.`,
     );
     return;
   }
-  const refund = await deps.stripe().refunds.create(
-    {
-      payment_intent: paymentIntentId,
-      reverse_transfer: true,
-      refund_application_fee: true,
-      metadata: { orderId, reason: "could_not_fulfil_after_payment" },
-    },
-    { idempotencyKey: `oversold-refund-${orderId}` },
-  );
-  await recordRefund(deps.db, orderId, refund);
+  let refund: Stripe.Refund;
+  try {
+    refund = await deps.stripe().refunds.create(
+      {
+        payment_intent: paymentIntentId,
+        reverse_transfer: true,
+        refund_application_fee: true,
+        metadata: { orderId, reason: "could_not_fulfil_after_payment" },
+      },
+      { idempotencyKey: `oversold-refund-${orderId}` },
+    );
+  } catch (err) {
+    if (!isChargeAlreadyRefunded(err)) throw err;
+    await deps.db.query(`update public.orders set status = 'refunded' where id = $1 and status = 'oversold_refund_required'`, [
+      orderId,
+    ]);
+    console.info(`Order ${orderReference(orderId)} couldn't be fulfilled; its payment was already refunded in full in Stripe: marked refunded.`);
+    return;
+  }
+  await recordRefundStatus(deps, refund, { orderId, eventId });
 }
 
 /**
@@ -146,14 +252,25 @@ async function refundOversoldOrder(deps: Deps, orderId: string, paymentIntentId:
  * order's seats were released), so it's refunded in full, Sheltüh's fee and
  * the organiser's transfer included, as for an oversold order. Stripe's
  * idempotency key (per order) and the refund id recorded on the order make a
- * redelivery refund at most once. The order stays `failed`. Logged by the
- * order's short reference only. Throws on a Stripe error so the webhook
- * returns 500 and Stripe redelivers.
+ * redelivery refund at most once; a charge already refunded in full is done.
+ * The order stays `failed`. Logged by the order's short reference only.
+ * Throws on any other Stripe error so the webhook returns 500 and Stripe
+ * redelivers.
  */
-async function refundPaymentForFailedOrder(deps: Deps, orderId: string, paymentIntentId: string | undefined) {
+async function refundPaymentForFailedOrder(
+  deps: Deps,
+  orderId: string,
+  paymentIntentId: string | undefined,
+  eventId?: string,
+) {
   const reference = orderReference(orderId);
   if (!paymentIntentId) {
-    console.error(`Order ${reference} was paid after it failed, with no payment intent on record — refund it manually.`);
+    await raiseManualRefund(
+      deps,
+      orderId,
+      eventId,
+      `Order ${reference} was paid after it failed, with no payment intent on record — refund it manually.`,
+    );
     return;
   }
   const [row] = await deps.db.query<{ stripe_refund_id: string | null }>(
@@ -162,15 +279,27 @@ async function refundPaymentForFailedOrder(deps: Deps, orderId: string, paymentI
   );
   if (row?.stripe_refund_id) return;
   console.warn(`Order ${reference} was paid after it failed: refunding the payment.`);
-  const refund = await deps.stripe().refunds.create(
-    {
-      payment_intent: paymentIntentId,
-      reverse_transfer: true,
-      refund_application_fee: true,
-      metadata: { orderId, reason: "paid_after_order_failed" },
-    },
-    { idempotencyKey: `failed-order-refund-${orderId}` },
-  );
+  let refund: Stripe.Refund;
+  try {
+    refund = await deps.stripe().refunds.create(
+      {
+        payment_intent: paymentIntentId,
+        reverse_transfer: true,
+        refund_application_fee: true,
+        metadata: { orderId, reason: "paid_after_order_failed" },
+      },
+      { idempotencyKey: `failed-order-refund-${orderId}` },
+    );
+  } catch (err) {
+    if (!isChargeAlreadyRefunded(err)) throw err;
+    // Refunded in full already (e.g. in the dashboard): nothing more to ask for.
+    await deps.db.query(
+      `update public.orders set stripe_payment_intent_id = coalesce(stripe_payment_intent_id, $2) where id = $1 and status = 'failed'`,
+      [orderId, paymentIntentId],
+    );
+    console.info(`Order ${reference}'s payment was already refunded in full in Stripe.`);
+    return;
+  }
   // Recorded so a redelivery doesn't ask again, and charge.refunded finds the order (it changes only paid ones).
   await deps.db.query(
     `update public.orders
@@ -178,58 +307,25 @@ async function refundPaymentForFailedOrder(deps: Deps, orderId: string, paymentI
       where id = $1 and status = 'failed'`,
     [orderId, refund.id, paymentIntentId],
   );
-  if (refund.status === "failed" || refund.status === "canceled") {
-    console.error(`Refund ${refund.id} for order ${reference} ${refund.status} — refund it manually.`);
-  }
+  await recordRefundStatus(deps, refund, { orderId, eventId });
 }
 
-/**
- * refund.updated / refund.failed for a refund we didn't create (no
- * metadata.orderId): usually one made in the Stripe dashboard. Its success is
- * recorded through charge.refunded; this only makes the rest visible, above
- * all a dashboard refund that failed after its order was already voided (the
- * buyer got nothing back, and the order stays `refunded`). Logged by Stripe's
- * event id and, when the payment intent is one of ours, the order's short
- * reference: never the order id, the buyer or the payment intent. Changes
- * nothing and never throws for a payment that isn't ours.
- */
-async function logUnmatchedRefund(db: Db, eventId: string, refund: Stripe.Refund) {
-  const paymentIntentId = typeof refund.payment_intent === "string" ? refund.payment_intent : refund.payment_intent?.id;
-  let reference: string | undefined;
-  if (paymentIntentId) {
-    const [row] = await db.query<{ id: string }>(
-      `select id from public.orders where stripe_payment_intent_id = $1 limit 1`,
-      [paymentIntentId],
-    );
-    if (row) reference = orderReference(row.id);
-  }
-  const subject = reference ? `a refund of order ${reference}` : "a refund of a payment with no order on record";
-  const status = typeof refund.status === "string" ? refund.status.replace(/[^a-z_]/g, "") : "unknown";
-  if (status === "failed" || status === "canceled" || status === "requires_action") {
-    // Needs a person, like a failed automatic refund.
-    console.error(`Stripe ${eventId}: ${subject} (made outside Sheltüh) has status ${status}. Check it in the Stripe dashboard.`);
-  } else {
-    console.info(`Stripe ${eventId}: ${subject} (made outside Sheltüh) has status ${status}; charge.refunded records it.`);
-  }
-}
-
-type PaymentRefundResult = "refunded" | "partial" | "unchanged" | "not_found";
-
-/** Postgres `integer`: an amount beyond it can't be a real charge's. */
-const MAX_INT4 = 2_147_483_647;
+type PaymentRefundResult = "refunded" | "partial" | "unchanged" | "deferred" | "not_found";
 
 /**
  * charge.refunded: a refund of one of our payments, whoever made it (usually
  * the Stripe dashboard). charge.amount_refunded is cumulative and
  * charge.refunded is true once it covers the whole charge. A full refund of a
  * paid order voids it (`refunded`, tickets void, inventory released); a
- * partial one is only recorded and logged for manual follow-up
- * (private.record_payment_refund). Never throws for a payment that isn't
- * ours: Stripe would retry it for days. Returns the result (undefined when
- * the charge was unusable).
+ * partial one is recorded and opens a payment exception for a person
+ * (private.record_payment_refund). One that arrives before its order's
+ * payment is recorded, for a payment to one of our organisers' accounts, is
+ * held for fulfilment (`deferred`): the order is then voided, or flagged if
+ * partial. Never throws for a payment that isn't ours: Stripe would retry it
+ * for days. Returns the result (undefined when the charge was unusable).
  */
-async function recordPaymentRefund(db: Db, eventId: string, charge: Stripe.Charge): Promise<PaymentRefundResult | undefined> {
-  const paymentIntentId = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
+async function recordPaymentRefund(deps: Deps, eventId: string, charge: Stripe.Charge): Promise<PaymentRefundResult | undefined> {
+  const paymentIntentId = expandableId(charge.payment_intent);
   const amount = charge.amount_refunded;
   if (
     !paymentIntentId ||
@@ -241,19 +337,24 @@ async function recordPaymentRefund(db: Db, eventId: string, charge: Stripe.Charg
     console.warn(`Stripe ${eventId}: charge.refunded without a usable payment intent or amount; ignored.`);
     return undefined;
   }
-  const [row] = await db.query<{ result: PaymentRefundResult; order_id: string | null }>(
-    `select result, order_id from private.record_payment_refund($1, $2, $3)`,
-    [paymentIntentId, amount, charge.refunded],
+  const destination = expandableId(charge.transfer_data?.destination);
+  const [row] = await deps.db.query<{ result: PaymentRefundResult; order_id: string | null }>(
+    `select result, order_id from private.record_payment_refund($1, $2, $3, $4, $5, $6)`,
+    [paymentIntentId, amount, charge.refunded, stripeId(charge.id) ?? null, destination ?? null, stripeId(eventId) ?? null],
   );
   // Logs name the order by its short reference only: never its id (the confirmation page's credential) or the buyer.
   const reference = row.order_id ? orderReference(row.order_id) : undefined;
   if (row.result === "refunded") {
     console.info(`Order ${reference} was refunded in full in Stripe: marked refunded, tickets void, inventory released.`);
   } else if (row.result === "partial") {
-    // Needs a person, like a failed automatic refund (console.error, as recordRefund does).
+    // Needs a person: a payment exception (and an ops alert) as well as the log line.
     console.error(`Order ${reference} was partly refunded in Stripe; it stays paid and its tickets stay valid. Review it manually.`);
+    sendOpsAlertsSoon(deps);
+  } else if (row.result === "deferred") {
+    console.warn(
+      `Stripe ${eventId}: charge.refunded arrived before its payment was recorded; held for the payment (a full refund voids the order, a partial one is flagged).`,
+    );
   } else if (row.result === "not_found") {
-    // Not ours, or (rarely) a refund delivered before its payment was fulfilled: see docs/architecture.md.
     console.warn(`Stripe ${eventId}: charge.refunded for a payment with no order on record; ignored.`);
   }
   return row.result;
@@ -458,18 +559,20 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
 
   const received = ok({ received: true });
 
-  // A refund we issued has settled (or failed) after we created it.
-  if (event.type === "refund.updated" || event.type === "refund.failed") {
+  // A refund's status changed: ours (metadata.orderId) or one made in the Stripe dashboard.
+  if (event.type === "refund.updated" || event.type === "refund.failed" || event.type === "charge.refund.updated") {
     const refund = event.data.object as Stripe.Refund;
-    const orderId = refund.metadata?.orderId;
-    if (orderId) await recordRefund(deps.db, orderId, refund);
-    else await logUnmatchedRefund(deps.db, event.id, refund);
+    await recordRefundStatus(deps, refund, {
+      eventId: event.id,
+      eventCreated: event.created,
+      orderId: refund.metadata?.orderId,
+    });
     return received;
   }
 
   // Any refund of a charge, including ones made in the Stripe dashboard.
   if (event.type === "charge.refunded") {
-    const result = await recordPaymentRefund(deps.db, event.id, event.data.object as Stripe.Charge);
+    const result = await recordPaymentRefund(deps, event.id, event.data.object as Stripe.Charge);
     // The released tickets may have queued waitlist emails (private.notify_waitlist, at commit): send them now.
     if (result === "refunded") sendWaitlistEmailsSoon(deps);
     return received;
@@ -487,7 +590,7 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
   if (!order) return received;
   // A redelivery after a refund attempt failed: try the refund again.
   if (order.status === "oversold_refund_required" && isPaymentEvent) {
-    await refundOversoldOrder(deps, order.orderId, order.stripePaymentIntentId);
+    await refundOversoldOrder(deps, order.orderId, order.stripePaymentIntentId, event.id);
     return received;
   }
   // Paid for an order that had already failed (cancelled, expired or a checkout error): refund it.
@@ -495,7 +598,7 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
     if (session.payment_status === "paid") {
       const paymentIntentId =
         typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
-      await refundPaymentForFailedOrder(deps, order.orderId, paymentIntentId);
+      await refundPaymentForFailedOrder(deps, order.orderId, paymentIntentId, event.id);
     }
     return received;
   }
@@ -523,9 +626,14 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
   if (status === "paid") {
     // Queued by fulfil_order in the same transaction; this is just the first try.
     sendTicketEmailSoon(deps, order.orderId);
+    // A partial refund recorded before the payment opens a payment exception (and queues its alert) here.
+    sendOpsAlertsSoon(deps);
   } else if (status === "oversold_refund_required") {
     // Charged, but the last tickets went to someone else first.
-    await refundOversoldOrder(deps, order.orderId, paymentIntentId);
+    await refundOversoldOrder(deps, order.orderId, paymentIntentId, event.id);
+  } else if (status === "refunded") {
+    // Refunded in full in Stripe before this payment was recorded (or, for a redelivery, since): nothing to issue or refund.
+    console.info(`Order ${orderReference(order.orderId)} is refunded in Stripe: nothing issued for this payment.`);
   }
   return received;
 };

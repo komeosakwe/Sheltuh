@@ -4,7 +4,7 @@ import Stripe from "stripe";
 import type { VerifyAccessToken } from "./auth";
 import { createPostgresDb, type Db } from "./db";
 import { createSmtpSender, type SendEmail } from "./email";
-import { redactForLog } from "./email-address";
+import { isPlainEmailAddress, redactForLog } from "./email-address";
 
 /**
  * Everything a handler needs from the outside world. Route files get the
@@ -28,6 +28,12 @@ export interface Deps {
   defer(task: () => Promise<void>): void;
   /** The shared secret Vercel Cron sends as `Authorization: Bearer …`; undefined when unset (cron routes then refuse everything). */
   cronSecret(): string | undefined;
+  /**
+   * Where ops alerts (payment exceptions) are emailed: OPS_ALERT_EMAIL, one
+   * plain address. Undefined when unset or invalid: alerts are then logged
+   * and skipped (the exceptions are still listed for admins).
+   */
+  opsAlertEmail(): string | undefined;
 }
 
 function requireEnv(name: string): string {
@@ -87,6 +93,15 @@ export function getDeps(): Deps {
       });
     },
     cronSecret: () => process.env.CRON_SECRET || undefined,
+    opsAlertEmail() {
+      const address = process.env.OPS_ALERT_EMAIL?.trim();
+      if (!address) return undefined;
+      if (!isPlainEmailAddress(address)) {
+        console.error("OPS_ALERT_EMAIL isn't one plain email address: ops alerts aren't being emailed.");
+        return undefined;
+      }
+      return address;
+    },
   };
   return cached;
 }

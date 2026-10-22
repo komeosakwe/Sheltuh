@@ -114,6 +114,7 @@ describe("Data API lock-out", () => {
       { table_name: "analytics_settings", rls: true },
       { table_name: "client_rate_limits", rls: true },
       { table_name: "conversation_pairs", rls: true },
+      { table_name: "early_charge_refunds", rls: true },
       { table_name: "email_outbox", rls: true },
       { table_name: "event_curation", rls: true },
       { table_name: "event_rate_limits", rls: true },
@@ -124,6 +125,7 @@ describe("Data API lock-out", () => {
       { table_name: "organiser_event_announcements", rls: true },
       { table_name: "organiser_follow_tokens", rls: true },
       { table_name: "organiser_profile_edits", rls: true },
+      { table_name: "payment_exceptions", rls: true },
       { table_name: "platform_rate_limits", rls: true },
       { table_name: "profile_avatars", rls: true },
       { table_name: "profile_moderation_log", rls: true },
@@ -316,6 +318,39 @@ describe("Data API lock-out", () => {
       `select count(*)::int as n from pg_policy p join pg_class c on c.oid = p.polrelid
         where c.relname in ('profile_avatars', 'profile_moderation_log', 'organiser_follows',
                             'organiser_follow_tokens', 'organiser_event_announcements')`,
+    );
+    expect(policies.n).toBe(0);
+  });
+
+  it("the payment reconciliation functions exist (both record_payment_refund forms), pin search_path and aren't client-executable", async () => {
+    const names = [
+      "claim_email_outbox",
+      "fulfil_order",
+      "lock_payment_intent",
+      "purge_operational_data",
+      "raise_payment_exception",
+      "record_payment_refund",
+      "record_refund_status",
+      "resolve_payment_exception",
+    ];
+    const rows = await db.query<{ fn: string; forms: number; pinned: boolean; client: boolean }>(
+      `select p.proname as fn, count(*)::int as forms,
+              bool_and(exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c = 'search_path=""')) as pinned,
+              bool_or(has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
+                or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                            where a.grantee = 0 and a.privilege_type = 'EXECUTE')) as client
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'private' and p.proname = any($1::text[]) group by p.proname order by 1`,
+      [names],
+    );
+    expect(rows).toEqual(
+      names.map((fn) => ({ fn, forms: fn === "record_payment_refund" ? 2 : 1, pinned: true, client: false })),
+    );
+    // The new tables: RLS on, no policies.
+    const [policies] = await db.query<{ n: number }>(
+      `select count(*)::int as n from pg_policy p join pg_class c on c.oid = p.polrelid
+         join pg_namespace s on s.oid = c.relnamespace
+        where s.nspname = 'private' and c.relname in ('payment_exceptions', 'early_charge_refunds')`,
     );
     expect(policies.n).toBe(0);
   });

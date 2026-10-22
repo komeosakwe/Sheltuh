@@ -9,6 +9,7 @@ import { runHandler, type Handler } from "@/lib/server/route";
 export const WEBHOOK_SECRET = "whsec_test_secret";
 export const CRON_SECRET = "cron-test-secret";
 export const SITE_URL = "https://sheltuh.test";
+export const OPS_ALERT_EMAIL = "ops@sheltuh.test";
 
 /** Stripe's own offline signing/verification, for realistic webhook tests. */
 const realStripe = new Stripe("sk_test_not_a_real_key");
@@ -35,7 +36,10 @@ export function createFakeStripe() {
 export type FakeStripe = ReturnType<typeof createFakeStripe>;
 
 /** A signed webhook request exactly as Stripe would send it. */
-export function stripeWebhookRequest(event: { type: string; data: { object: unknown } }, secret = WEBHOOK_SECRET) {
+export function stripeWebhookRequest(
+  event: { type: string; data: { object: unknown }; id?: string; created?: number },
+  secret = WEBHOOK_SECRET,
+) {
   const payload = JSON.stringify({ id: "evt_test", object: "event", ...event });
   const signature = realStripe.webhooks.generateTestHeaderString({ payload, secret });
   return new Request(`${SITE_URL}/api/stripe/webhook`, {
@@ -53,6 +57,8 @@ export class TestApi {
   readonly deferred: (() => Promise<void>)[] = [];
   /** The cron secret this API is configured with; undefined to simulate CRON_SECRET being unset. */
   cronSecret: string | undefined = CRON_SECRET;
+  /** Where ops alerts go; undefined to simulate OPS_ALERT_EMAIL being unset. */
+  opsAlertEmail: string | undefined = OPS_ALERT_EMAIL;
   private readonly callers = new Map<string, Caller>();
 
   constructor(readonly db: Db) {}
@@ -69,6 +75,7 @@ export class TestApi {
         this.deferred.push(task);
       },
       cronSecret: () => this.cronSecret,
+      opsAlertEmail: () => this.opsAlertEmail,
     };
   }
 

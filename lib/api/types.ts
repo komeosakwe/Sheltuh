@@ -541,6 +541,75 @@ export interface AdminEmailJob {
 }
 
 // ---------------------------------------------------------------------------
+// Payment exceptions (admin)
+// ---------------------------------------------------------------------------
+
+/**
+ * - `refund_not_completed`: Stripe reported a refund failed, canceled or
+ *   requires_action. With `urgent`, the order was already voided (its tickets
+ *   are void) but the buyer hasn't been repaid: re-refund in the Stripe
+ *   dashboard.
+ * - `partial_refund`: a paid order was partly refunded; its tickets stand.
+ * - `manual_refund_required`: an automatic refund couldn't be requested (no
+ *   payment on record): refund it in the Stripe dashboard.
+ */
+export type PaymentExceptionKind = "refund_not_completed" | "partial_refund" | "manual_refund_required";
+
+export type PaymentExceptionStatus = "open" | "resolved";
+
+export const PAYMENT_EXCEPTION_STATUSES: readonly PaymentExceptionStatus[] = ["open", "resolved"];
+
+/**
+ * GET /api/admin/payment-exceptions. Something about a payment that needs a
+ * person (docs/architecture.md, "Refunds made in Stripe"). Nothing is ever
+ * restored or refunded automatically: an admin acts in the Stripe dashboard,
+ * then resolves it with a note. The order is shown by its short reference
+ * only, never its id; no buyer data.
+ */
+export interface AdminPaymentException {
+  /** POST /api/admin/payment-exceptions/{exceptionId}/resolve. */
+  exceptionId: string;
+  kind: PaymentExceptionKind;
+  status: PaymentExceptionStatus;
+  /** The order was voided but the refund didn't complete: the buyer has neither tickets nor their money. */
+  urgent: boolean;
+  /** Unset while the payment isn't matched to an order yet. */
+  orderReference?: string;
+  orderStatus?: OrderStatus;
+  eventTitle?: string;
+  /** To find the payment (and refund) in the Stripe dashboard. */
+  paymentIntentId?: string;
+  refundId?: string;
+  /** The latest Stripe event that changed it. */
+  stripeEventId?: string;
+  /** Amounts and statuses only. */
+  details: PaymentExceptionDetails;
+  /** When an ops alert was last queued (unset: none, e.g. over the daily cap). */
+  alertedAt?: string;
+  /** When it was opened, or last reopened. */
+  openedAt: string;
+  createdAt: string;
+  resolvedAt?: string;
+  /** `auto`: Stripe reported the refund succeeded (or the order was then refunded in full). */
+  resolution?: "auto" | "admin";
+  /** The resolving admin's account id. */
+  resolvedBy?: string;
+  resolutionNote?: string;
+}
+
+export interface PaymentExceptionDetails {
+  refundStatus?: string;
+  refundAmountCents?: number;
+  amountRefundedCents?: number;
+  totalCents?: number;
+  /** The order's status when the exception was last updated. */
+  orderStatus?: string;
+  /** `sheltuh`: our automatic refund; `stripe`: one made in the Stripe dashboard. */
+  source?: string;
+  reason?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Who's Going
 // ---------------------------------------------------------------------------
 

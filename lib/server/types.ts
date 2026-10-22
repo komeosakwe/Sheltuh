@@ -8,6 +8,10 @@ export type { EventCategory, FeePolicy } from "@/lib/types";
 export type {
   AdminCreateOrganiserInput,
   AdminEmailJob,
+  AdminPaymentException,
+  PaymentExceptionKind,
+  PaymentExceptionStatus,
+  PaymentExceptionDetails,
   AdminEventRecord,
   EventEditChanges,
   AdminSetEventTicketingInput,
