@@ -63,6 +63,7 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | `private.early_charge_refunds` | `payment_intent_id` | A `charge.refunded` that arrived before its order's payment was recorded, for a payment to one of our organisers' Stripe accounts (any other payment writes nothing): charge, destination, cumulative amount (the greatest seen), full flag (OR-ed), last Stripe event, and `applied_at` / `applied_order_id` once `fulfil_order` acted on it. No buyer data. Deleted 35 days after its last update (`purge_operational_data`). See "Refunds made in Stripe". |
 | `private.payment_exceptions` | `id` | Payment problems that need a person (see "Refunds made in Stripe"): `kind` `refund_not_completed` (keyed on the refund id, unique), `partial_refund` or `manual_refund_required` (one open per order); `status` open → resolved (`resolution` `auto` or `admin`, with the admin and a 1–500 character note); order (null until a payment is matched to one; set null if the order is deleted), payment intent, refund and latest Stripe event ids and that event's time (older events are ignored); `details`: amounts and statuses only; `alerted_at` (an ops alert queued). Resolved ones are deleted 2 years after resolution; open ones never. |
 | `private.email_outbox` | `id` | Transactional email jobs of four kinds (the fourth, `ops_alert`, keyed on `payment_exception_id`: see "Refunds made in Stripe"): `ticket_email`, one per paid order (`(order_id, kind)` unique), `waitlist_available`, one per person told that tickets are available again (`waitlist_entry_id`; at most one pending or sending per entry), and `organiser_new_events`, a follower's new-event email (`follow_id`; at most one pending or sending per follow; see "Following organisers"). A check ties each kind to its key. Status, attempts, next attempt, lease, redacted last error. No address or content (read from the order, the waitlist entry or the follow, at send time). Deleted with the order, the entry or the follow. |
+| `private.cron_runs` | `name` | One row per cron route (only `email_outbox` so far): when its last run finished and that run's counts (claimed, sent, retrying, failed), written by the route. Read by `GET /api/admin/emails/health`. Nothing personal. |
 | `private.event_waitlist` | `id` | One entry per `(event_id, email_key)` (see "Waitlist"): the address as typed and `private.email_key` of it, `user_id` (only when a member joined with their own verified email; deleted with the account), `confirmed_at` (on the list from then: join order), `unsubscribed_at` (left), `notified_at` and `notify_count`. Deleted with the event, and by `purge_social_data` 30 days after the event ends. Never shown to organisers except as a count. |
 | `private.event_waitlist_tokens` | `token_hash` | SHA-256 hashes of emailed waitlist tokens, never the tokens: `confirm` (a guest's join link, 24 hours, used once) and `leave` (one per notification email, valid while the entry exists). Deleted with the entry; expired confirmation links a week after expiry. |
 | `profiles` | `user_id` | A member's social identity: `display_name` (1–40 characters), `adult_confirmed_at` (required: no profile without an 18+ confirmation). Deleted with the Supabase account. `social_suspended_at` is deprecated and ignored (see `private.social_suspensions`). Member profile fields (see "Member profiles"): `public_id` (random uuid, unique: the opaque `profileId`, never the user id; a recreated profile gets a new one), `profile_visible` (opt-in, default false), `bio` (1–200 characters) and `instagram_handle` (Instagram's username pattern, check constraint), both optional. |
@@ -131,6 +132,7 @@ times, which are converted to instants honouring daylight saving
 | `confirm_free_order` | Confirms by token hash: locks the order, then (event, person), then the event (share) to check every ticket type is still free, then `fulfil_order`'s locks. Idempotent within the link's 24 hours. Returns `confirmed`, `already_confirmed`, `expired_confirmed`, `not_found`, `expired`, `unavailable`, `person_event_limit`, `no_longer_free`, `seats_taken` (a seated order's seats went to someone else since the link was sent) or `sold_out` (the last four mark the order `failed`). A seated order takes the seat lock before the order row. |
 | `purge_operational_data` | Retention for free-ticket and outbox data (see "Free tickets" and "Payment flow"); sent outbox jobs after 90 days, failed ones after a year; per-client counters (`client_rate_limits`) idle for a day; early refund rows 35 days after their last update; resolved payment exceptions 2 years after resolution (open ones never). Idempotent; Supabase Cron daily. |
 | `claim_outbox_jobs`, `finish_email_job`, `resend_email_job`, `admin_resend_email_job` | The email outbox: lease due jobs of any kind (optionally one order's, or one kind) with `skip locked` (an expired lease is taken again; one that expired on the 6th attempt fails), record an outcome only for the current lease holder, and an admin resend of a ticket email (not while leased, not twice in 5 minutes; a waitlist email is `not_found`). `admin_resend_email_job` takes a hit on the admin's hourly allowance only when the resend is queued, in the same transaction (over it: `rate_limited`, nothing changed). `claim_email_jobs`, the earlier form, now claims ticket emails only and is kept for the deploy window (see "Not built yet"). |
+| `email_outbox_health(p_overdue_after)` | Per outbox kind: due, overdue (due, or leased by a worker that died, for longer than `p_overdue_after`), the oldest overdue job's age in seconds, waiting, sending, expired leases, failed and failed in the last 7 days. Sent jobs aren't read. Counts only; `GET /api/admin/emails/health` and the SQL editor (`20261104000100_email_outbox_health.sql`). |
 | `waitlist_join_state` | Whether an event's waitlist takes joins: `open` (published, Sheltüh-ticketed, not ended, has ticket types and every one is sold out), else `not_found` (missing or not published), `external`, `ended` or `not_sold_out`. |
 | `join_waitlist` | A member's join with their own verified email (the API checks it's theirs): on the list at once, idempotently (`already_joined`); someone who left, or never confirmed, joins again at the back. An entry already on the list is linked to the member's account only if its address is exactly theirs (ignoring case), never by a normalised match (`+tag`, Gmail dots). Returns `joined`, `already_joined` or a `waitlist_join_state` refusal. |
 | `request_waitlist_join` | Anyone else's join: the event's state; the platform's hourly and daily caps (read-only, before anything about the address); then under an advisory lock on the address: already on the list (`already_joined`, nothing recorded), the address's hourly cap (`address_limited`), taking both platform caps, and a pending entry with the confirmation token's hash. Returns `requested`, `already_joined`, `address_limited`, `platform_limited`, `platform_daily_limited` or a state refusal. |
@@ -219,20 +221,44 @@ times, which are converted to instants honouring daylight saving
      order paid, so it can't be lost; a redelivered webhook never reaches
      that point again, and `(order_id, kind)` is unique.
    - The first attempt runs straight after the response (`Deps.defer`, Next's
-     `after()`), for that order only. `GET /api/cron/email-outbox` (Vercel
-     Cron, `vercel.json`: daily at 17:00 UTC on the Hobby plan, so ticket
-     emails still send right after purchase and only retries wait; every 5
-     minutes once on Pro; bearer `CRON_SECRET` compared in constant time)
-     sends everything else that's due. A run stops claiming
-     jobs after 30 seconds, so the last one claimed can still be sent within
-     the route's 60-second `maxDuration`.
+     `after()`), for that order only. `GET /api/cron/email-outbox` (bearer
+     `CRON_SECRET` compared in constant time) sends everything else that's
+     due, and records the run in `private.cron_runs`. Two schedulers call it:
+     Vercel Cron (`vercel.json`: daily at 17:00 UTC, the Hobby plan's limit;
+     every 5 minutes once on Pro, which needs `vercel.json` edited and
+     redeployed: the plan change alone does nothing) and, on Hobby, Supabase
+     Cron with `pg_net` every 5 minutes, with the secret in Supabase Vault,
+     set up by the owner (`docs/supabase-setup.md` §3; no migration schedules
+     it). Calling it every 5 minutes, or from both at once, is safe: a run
+     takes at most 100 jobs, stops claiming after 30 seconds (so the last
+     one claimed can still be sent within the route's 60-second
+     `maxDuration`), and with nothing due is two indexed claims and one
+     upsert. There's no in-request retry: a second SMTP attempt inside
+     `after()` would share the route's `maxDuration` with the first (each can
+     take about 20 seconds of timeouts), a failure after the server accepted
+     the message would mean a duplicate email, and the 5-minute runner
+     already retries within minutes.
    - Workers lease one job at a time (`claim_email_jobs`, `for update skip
      locked`, 2-minute lease), so concurrent workers never take the same job;
      only the lease holder can record the outcome (`finish_email_job`). A
      worker that dies leaves a lease that expires and is retried.
    - Retries after 1 min, 5 min, 30 min, 2 h and 6 h (±20% jitter); the 6th
-     failed attempt is final (`failed`). An order that's no longer paid, or
-     has no address, fails at once.
+     failed attempt is final (`failed`, the dead letter an admin resends). An
+     order that's no longer paid, or has no address, fails at once. A delay
+     is the earliest the next attempt can run; it runs on the next call of
+     the cron route. Retry timeline after a failed first send:
+
+     | Runner | 2nd attempt | 3rd attempt | 6th (last) attempt |
+     | --- | --- | --- | --- |
+     | every 5 minutes | within about 6 min | within about 17 min | 7 to 11 hours later |
+     | daily Vercel Cron only | up to about 24 hours | at the next day's run | 4 to 5 days later |
+   - `GET /api/admin/emails/health` (admin) shows whether it's working:
+     per kind and in total, due, overdue (more than 15 minutes), the oldest
+     overdue age, waiting, sending, expired leases and failed jobs, when the
+     cron route last finished a run, and whether `CRON_SECRET` is set. Counts
+     only. Overdue or failed jobs don't raise an ops alert (alerts are tied
+     to payment exceptions); check the endpoint after go-live and when
+     buyers report a missing email.
    - Delivery is at-least-once: a crash between SMTP accepting the message
      and recording it means it's sent again.
    - A mail failure never touches the order. `tickets_emailed_at` is set when
@@ -627,8 +653,9 @@ UI states in `docs/design/brand-direction-one.md` §6.11).
 - **No reservation.** The email is a heads-up; someone not on the list can
   buy the freed ticket first. The email says so.
 - **Delay on Hobby.** Emails the after-response run doesn't send within 30
-  seconds wait for the cron, which is daily on Vercel's Hobby plan (every 5
-  minutes on Pro). A burst of 100 is normally sent in that time.
+  seconds wait for the cron, which is daily on Vercel's Hobby plan unless
+  the Supabase 5-minute runner is set up (every 5 minutes on Pro). A burst
+  of 100 is normally sent in that time.
 - **Cooldown without an email.** A queued email that's skipped (sold out
   again, or the event closed) still counts as the person's notification for
   the 12-hour window.
@@ -1851,10 +1878,11 @@ application is approved.
 | `POST /orders/by-session/{orderId}/cancel` | public (the order id is the credential; only the client that made the order gets it: the checkout's 201 and Stripe's URLs): expires the Stripe session, then cancels the order and releases its seats; a paid order is never changed. 200 `{status: "released" \| "paid" \| "processing", eventTitle, eventSlug?}`; 404; 409 still being set up |
 | `POST /orders/confirm` `{token}` | public (the emailed token is the credential). 200 `{url}` (also when already confirmed, within 24 hours); 400 malformed; 404 unknown; 410 expired (confirmed or not); 409 sold out, allowance used, or a ticket type no longer free |
 | `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store` |
-| `GET /cron/email-outbox` | Vercel Cron (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due ticket emails, returns counts |
+| `GET /cron/email-outbox` | Vercel Cron, and on Hobby Supabase Cron + `pg_net` (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due outbox jobs, records the run, returns counts `{claimed, sent, retrying, failed}` |
 | `GET /cron/trending` | Vercel Cron (same secret, 401 otherwise): rebuilds the trending snapshot, returns `{eligible, ranked}` |
 | `GET /events/trending` | public: `{items: [{event, label, goingCount?}]}` (see "Trending"), at most 24, best first; `items: []` with fewer than 3. `cache-control: public, max-age=0, s-maxage=300, stale-while-revalidate=600` |
 | `GET /admin/emails?status&cursor` · `POST /admin/emails/{jobId}/resend` | admin. Status `failed` (default), `pending`, `sending`, `sent`. Resend: 404 unknown, 409 being sent, 429 resent in the last 5 minutes or over 20 an hour |
+| `GET /admin/emails/health` | admin. `EmailOutboxHealth`: counts per kind and in total (due, overdue after 15 minutes, `oldestOverdueSeconds`, waiting, sending, expired leases, failed, failed in 7 days), `lastCronRun` (time and counts), `cronSecretConfigured`. No addresses, orders or tokens. `private, no-store`. No UI yet |
 | `POST /stripe/webhook` | Stripe (signature-verified) |
 | `GET /admin/payment-exceptions?status&cursor&limit` · `POST /admin/payment-exceptions/{exceptionId}/resolve` `{note}` | admin. `AdminPaymentException` (see "Refunds made in Stripe"): status `open` (default, oldest first) or `resolved` (newest resolution first); order by short reference only, no buyer data; `urgent` for a refund that didn't complete after its order was voided. Resolve: note 1–500 characters (400), 404 unknown, 409 already resolved. No UI yet |
 | `POST /organisers/apply` · `GET /organisers/me` · `PATCH /organisers/me` | signed in. PATCH: a rejected application is resubmitted in full (back to pending); an approved organiser edits their profile (see "Organiser profiles"); pending is a 409 |

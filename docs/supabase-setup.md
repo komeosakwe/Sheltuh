@@ -672,23 +672,180 @@ the confirmation email just now"). Members booking with their own verified
 email still get theirs.
 
 **Retries.** Every ticket email goes through an outbox: it's tried straight
-after the order is paid, then by a cron job every 5 minutes (1 min, 5 min,
-30 min, 2 h and 6 h after each failure; after the 6th it's marked failed).
+after the order is paid, and if that fails, again by whatever calls
+`GET /api/cron/email-outbox` (1 min, 5 min, 30 min, 2 h and 6 h after each
+failure, ±20%; after the 6th it's marked failed and waits for an admin
+resend). Those delays are the *earliest* a retry can run. It actually runs on
+the next call of the cron route, so how often something calls it decides how
+soon a buyer gets their tickets after a failed send:
+
+| Runner | 2nd attempt | 3rd attempt | 6th (last) attempt |
+| --- | --- | --- | --- |
+| every 5 minutes (Supabase Cron on Hobby, or Vercel Cron on Pro) | within about 6 min | within about 17 min | 7 to 11 hours after the first failure |
+| daily Vercel Cron only (Hobby, nothing else set up) | up to about 24 hours | at the next day's run | 4 to 5 days later |
+
 Set it up once:
 
 1. Generate a secret (`openssl rand -hex 32`) and add it to Vercel as
-   `CRON_SECRET` (Production). Without it the cron route refuses every
-   request and nothing is retried.
+   `CRON_SECRET` (Production), then redeploy. Without it the cron route
+   refuses every request and nothing is retried.
 2. `vercel.json` schedules `GET /api/cron/email-outbox` once a day
    (17:00 UTC, early morning in Melbourne), because the project is on the
    Hobby plan, which refuses deployments with more frequent crons. Vercel
-   sends the secret as a bearer token. Ticket emails still go out right
-   after each purchase; only retries of failed sends wait for the daily run.
-   On the **Pro** plan, change the schedule back to every 5 minutes
-   (`*/5 * * * *`). On Hobby, Supabase Cron with `pg_net` calling the URL with
-   the header can retry more often.
-3. Check it under Vercel → Project → Settings → Cron Jobs (each run returns
-   counts: `claimed`, `sent`, `retrying`, `failed`).
+   sends the secret as a bearer token. Keep it: it's the backstop.
+3. **On Hobby, add the 5-minute runner in Supabase** (below). **On Pro**,
+   use Vercel instead (see "Switching to Vercel Pro").
+4. Check it: as an admin, `GET /api/admin/emails/health` (counts only, see
+   below), and Vercel → Project → Settings → Cron Jobs for the daily run.
+
+#### The 5-minute runner on Hobby (Supabase Cron + pg_net)
+
+Supabase Cron (`pg_cron`) calls the route every 5 minutes through `pg_net`,
+with the secret kept in Supabase Vault. Nothing in the migrations schedules
+this: it only exists once you run the steps below, and you can pause or
+remove it at any time.
+
+> **Check in the Supabase docs at setup:** the exact signatures of
+> `vault.create_secret`, `vault.update_secret`, `vault.decrypted_secrets`,
+> `net.http_get` (its `timeout_milliseconds` parameter) and
+> `net._http_response`, and `cron.alter_job`. They're written here as
+> Supabase documents them at the time of writing, but nothing in this repo
+> (or its dependencies) can confirm them.
+
+1. **Enable the extensions:** Database → Extensions → `pg_net` on (Cron
+   should already be on for the retention jobs; if not, Integrations →
+   **Cron**).
+2. **Store the secret and the URL in Vault.** Prefer the dashboard
+   (Integrations → **Vault** → Add new secret), so the value never appears
+   in an SQL statement: name `sheltuh_cron_secret`, value the same string as
+   Vercel's `CRON_SECRET`; and `sheltuh_email_outbox_url`, value
+   `https://YOUR-PRODUCTION-DOMAIN/api/cron/email-outbox` (the production
+   domain, never a preview URL: previews are behind Vercel's login). The SQL
+   equivalent, if you must (the value then sits in the SQL editor's
+   history, so clear that snippet afterwards):
+
+   ```sql
+   -- Check in the Supabase docs at setup: vault.create_secret(secret, name, description).
+   select vault.create_secret('PASTE-CRON-SECRET', 'sheltuh_cron_secret', 'Bearer for /api/cron/email-outbox');
+   select vault.create_secret('https://YOUR-PRODUCTION-DOMAIN/api/cron/email-outbox', 'sheltuh_email_outbox_url',
+                              'Email outbox cron route');
+   ```
+
+3. **Schedule the job** (SQL editor). The command reads both values from
+   Vault each time it runs, so the job's stored text holds no secret:
+
+   ```sql
+   -- Check in the Supabase docs at setup: net.http_get(url, params, headers, timeout_milliseconds).
+   select cron.schedule(
+     'email-outbox-retry',
+     '*/5 * * * *',
+     $$
+     select net.http_get(
+       url := (select decrypted_secret from vault.decrypted_secrets where name = 'sheltuh_email_outbox_url'),
+       headers := jsonb_build_object(
+         'Authorization',
+         'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'sheltuh_cron_secret')
+       ),
+       timeout_milliseconds := 60000
+     );
+     $$
+   );
+   ```
+
+   It's a `GET`, like Vercel's own call: the route has no `POST`. The
+   60-second timeout matches the route's `maxDuration`; a run stops taking
+   new emails after 30 seconds.
+
+4. **Check it's working**, after 5 to 10 minutes:
+
+   ```sql
+   -- The job ran (this only shows the request was queued, not its answer):
+   select j.jobname, d.status, d.start_time from cron.job_run_details d join cron.job j using (jobid)
+    where j.jobname = 'email-outbox-retry' order by d.start_time desc limit 5;
+   -- The route's answer (pg_net keeps these for a few hours; check the table name at setup):
+   select status_code, timed_out, error_msg, created from net._http_response order by created desc limit 5;
+   ```
+
+   `200` with `{"claimed":…}` is right. `401` means the Vault secret doesn't
+   match Vercel's `CRON_SECRET`. Then `GET /api/admin/emails/health` as an
+   admin: `lastCronRun.finishedAt` should never be more than about 10 minutes
+   old, and `totals.overdue` should be 0.
+
+5. **Pause, resume or remove:**
+
+   ```sql
+   -- Pause / resume (check cron.alter_job's parameters at setup):
+   select cron.alter_job((select jobid from cron.job where jobname = 'email-outbox-retry'), active := false);
+   select cron.alter_job((select jobid from cron.job where jobname = 'email-outbox-retry'), active := true);
+   -- Remove for good (and then, if nothing else uses them, delete the two Vault secrets in the dashboard):
+   select cron.unschedule('email-outbox-retry');
+   ```
+
+**Security.**
+
+- The secret lives in Vault (encrypted at rest) and in Vercel's environment,
+  nowhere else: not in the job's text, not in a migration, not in the repo.
+  Creating it through the dashboard keeps it out of SQL history. While a
+  request is queued, `pg_net` holds its headers (the bearer token included)
+  in its own request queue table for a moment; like Vault, that's readable
+  only by the database's privileged roles, never by the Data API.
+- The route only sends emails that are already due and returns counts. A
+  leaked secret lets someone call it more often, which at worst sends due
+  emails sooner; it can't read data or send anything new. Rotate it anyway
+  if you suspect a leak.
+- **Rotation:** generate a new value; set it as `CRON_SECRET` in Vercel and
+  redeploy; then update Vault straight away (dashboard, or
+  `select vault.update_secret((select id from vault.secrets where name = 'sheltuh_cron_secret'), 'NEW-VALUE');`,
+  checking the signature at setup). Calls between the two steps get a `401`
+  and simply retry 5 minutes later; nothing is lost.
+- **Two runs at once** (the 5-minute job and the daily Vercel run, or a run
+  that overlaps the next) are safe: each email is leased to one run at a
+  time (`for update skip locked`, a 2-minute lease), so it's never sent
+  twice by two runs. Delivery is still at-least-once: a run killed between
+  the mail server accepting an email and recording it sends that one again
+  once its lease expires.
+
+#### Switching to Vercel Pro
+
+**Upgrading the Vercel plan does not change the schedule by itself.** Cron
+schedules come from `vercel.json`, which stays Hobby-compatible (daily) until
+you edit it and redeploy:
+
+1. Edit `vercel.json` (trending as in "Trending" below):
+
+   ```json
+   {
+     "$schema": "https://openapi.vercel.sh/vercel.json",
+     "crons": [
+       { "path": "/api/cron/email-outbox", "schedule": "*/5 * * * *" },
+       { "path": "/api/cron/trending", "schedule": "*/15 * * * *" }
+     ]
+   }
+   ```
+
+2. Commit, deploy, and check Vercel → Project → Settings → Cron Jobs shows
+   every 5 minutes.
+3. Then remove the Supabase job (`select cron.unschedule('email-outbox-retry');`)
+   and its two Vault secrets, and the `refresh-trending` job if you made one.
+   Running both for a while is harmless (see "Two runs at once").
+
+#### Is it working? (`GET /api/admin/emails/health`)
+
+Admins only; counts and times, never an address or an order. Per kind
+(`ticket_email`, `waitlist_available`, `organiser_new_events`, `ops_alert`)
+and in total: `due`, `overdue` (due for more than 15 minutes, or leased by a
+run that died that long ago: no run has picked it up), `oldestOverdueSeconds`,
+`waiting` (a retry scheduled for later), `sending`, `expiredLeases`, `failed`
+(the dead letters, to resend from `/admin/emails`) and `failedLast7Days`;
+plus `lastCronRun` (when the cron route last finished a run, from any
+scheduler, and its counts) and `cronSecretConfigured`. With only the daily
+Vercel run, every pending retry shows as overdue until that day's run: that's
+the gap the 5-minute runner closes. From SQL:
+
+```sql
+select * from private.email_outbox_health('15 minutes');
+select * from private.cron_runs;
+```
 
 **Trending.** `vercel.json` also runs `GET /api/cron/trending` once a day
 (17:20 UTC), with the same `CRON_SECRET`: it rebuilds the home page's

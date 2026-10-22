@@ -51,7 +51,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       `supabase/migrations/` in filename order that the project doesn't have
       yet, one SQL Editor query per file (or `npx supabase db push`), up to
       and including the newest, currently
-      `20261103000000_seat_hold_client_limits.sql`. Never skip one or change
+      `20261104000100_email_outbox_health.sql`. Never skip one or change
       the order: later files rely on earlier ones (`20261023000100_review_hardening.sql`
       stops with a list of event ids if a stored ticket link breaks a newer
       rule; fix those and re-run it). Check with
@@ -76,17 +76,36 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           it: the previous version keeps working against it, but only this
           one sends ops alerts and records refunds that arrive before their
           payment)
+      16. `20261104000100_email_outbox_health.sql` (schedules nothing:
+          the admin health endpoint and the cron route's last-run record.
+          Run it before deploying the app that uses it, which otherwise
+          answers the cron route with a 500 after sending)
 - [ ] **`CRON_SECRET`** in Vercel (Production): a long random string
       (`openssl rand -hex 32`). Without it `/api/cron/email-outbox` and
       `/api/cron/trending` refuse every call: failed ticket emails are never
       retried and Trending stays empty.
 - [ ] **Cron schedules.** `vercel.json` runs both crons once a day, the
-      Hobby plan's limit. Once on **Vercel Pro**, change them to
-      `*/5 * * * *` (`/api/cron/email-outbox`) and `*/15 * * * *`
-      (`/api/cron/trending`). Until then, Supabase Cron can run the trending
-      refresh every 15 minutes instead
-      (`select cron.schedule('refresh-trending', '*/15 * * * *', $$select private.refresh_trending()$$);`,
-      `supabase-setup.md` §3).
+      Hobby plan's limit, and stays that way. **Upgrading to Vercel Pro does
+      not change the schedule by itself**: the schedule only changes when
+      `vercel.json` is edited and redeployed.
+      - **On Hobby:** set up the 5-minute email retry runner in Supabase
+        (Supabase Cron + `pg_net`, `CRON_SECRET` in Supabase Vault:
+        `supabase-setup.md` §3, "The 5-minute runner on Hobby"). Without it,
+        a ticket email whose first send failed waits up to about 24 hours
+        for its retry. Keep the daily Vercel run as a backstop; two runs at
+        once never send an email twice. Supabase Cron can also refresh
+        Trending every 15 minutes
+        (`select cron.schedule('refresh-trending', '*/15 * * * *', $$select private.refresh_trending()$$);`).
+      - **On Pro:** change `vercel.json` to
+        `{ "path": "/api/cron/email-outbox", "schedule": "*/5 * * * *" }` and
+        `{ "path": "/api/cron/trending", "schedule": "*/15 * * * *" }` (full
+        file in `supabase-setup.md` §3, "Switching to Vercel Pro"), commit,
+        redeploy, confirm in Vercel → Settings → Cron Jobs, then
+        `select cron.unschedule('email-outbox-retry');` (and
+        `refresh-trending`) in Supabase and delete the two Vault secrets.
+      - **Either way, check** `GET /api/admin/emails/health` as an admin:
+        `lastCronRun.finishedAt` no more than about 10 minutes old and
+        `totals.overdue` 0.
 - [ ] **Stripe webhook `charge.refunded`** on the endpoint, in test **and**
       live mode (configured separately), alongside the checkout and refund
       events listed in `supabase-setup.md` §2. Without it a refund made in
@@ -174,7 +193,9 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        `OPS_ALERT_EMAIL` (ops alerts about payment exceptions; unset = logged
        only).
        **Never** add `SUPABASE_SECRET_KEY` (local script only).
-2. [ ] Pro plan once you sell tickets (Hobby is non-commercial).
+2. [ ] Pro plan once you sell tickets (Hobby is non-commercial). The plan
+       change alone doesn't touch the cron schedules: edit `vercel.json` and
+       redeploy as in "Cron schedules" above.
 3. [ ] Domain: attach `sheltuh.com.au` (see PROJECT_CONTEXT for the Cloudflare
        notes). The landing page currently lives on a Cloudflare Worker; decide
        when the app replaces it.
