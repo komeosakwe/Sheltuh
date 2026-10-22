@@ -715,7 +715,27 @@ remove it at any time.
 1. **Enable the extensions:** Database → Extensions → `pg_net` on (Cron
    should already be on for the retention jobs; if not, Integrations →
    **Cron**).
-2. **Store the secret and the URL in Vault.** Prefer the dashboard
+2. **Check `pg_net` is closed to clients** before anything is queued
+   through it (its request queue briefly holds the bearer token):
+
+   ```sql
+   -- Neither client role may read pg_net's request queue or its responses (expect every can_read false):
+   select r.rolname, t.tbl, has_table_privilege(r.rolname, t.tbl, 'select') as can_read
+     from (values ('anon'), ('authenticated')) r(rolname),
+          (values ('net.http_request_queue'), ('net._http_response')) t(tbl);
+   -- Nor use the schema at all (expect both false):
+   select r.rolname, has_schema_privilege(r.rolname, 'net', 'usage') as can_use
+     from (values ('anon'), ('authenticated')) r(rolname);
+   ```
+
+   Then Project Settings → **Data API** → *Exposed schemas*: only `public`
+   (and Supabase's `graphql_public`), never `net`, `vault` or `cron`. If any
+   check fails, stop and close it before step 3 (check the Supabase docs for
+   pg_net's grants at setup; for example `revoke usage on schema net from
+   anon, authenticated;` and `revoke all on all tables in schema net from
+   anon, authenticated;`), then run the checks again. Run them again after
+   any Supabase upgrade of `pg_net`.
+3. **Store the secret and the URL in Vault.** Prefer the dashboard
    (Integrations → **Vault** → Add new secret), so the value never appears
    in an SQL statement: name `sheltuh_cron_secret`, value the same string as
    Vercel's `CRON_SECRET`; and `sheltuh_email_outbox_url`, value
@@ -731,7 +751,7 @@ remove it at any time.
                               'Email outbox cron route');
    ```
 
-3. **Schedule the job** (SQL editor). The command reads both values from
+4. **Schedule the job** (SQL editor). The command reads both values from
    Vault each time it runs, so the job's stored text holds no secret:
 
    ```sql
@@ -756,7 +776,7 @@ remove it at any time.
    60-second timeout matches the route's `maxDuration`; a run stops taking
    new emails after 30 seconds.
 
-4. **Check it's working**, after 5 to 10 minutes:
+5. **Check it's working**, after 5 to 10 minutes:
 
    ```sql
    -- The job ran (this only shows the request was queued, not its answer):
@@ -771,7 +791,7 @@ remove it at any time.
    admin: `lastCronRun.finishedAt` should never be more than about 10 minutes
    old, and `totals.overdue` should be 0.
 
-5. **Pause, resume or remove:**
+6. **Pause, resume or remove:**
 
    ```sql
    -- Pause / resume (check cron.alter_job's parameters at setup):
@@ -787,8 +807,9 @@ remove it at any time.
   nowhere else: not in the job's text, not in a migration, not in the repo.
   Creating it through the dashboard keeps it out of SQL history. While a
   request is queued, `pg_net` holds its headers (the bearer token included)
-  in its own request queue table for a moment; like Vault, that's readable
-  only by the database's privileged roles, never by the Data API.
+  in its own request queue table (`net.http_request_queue`) for a moment;
+  like Vault, that's readable only by the database's privileged roles, never
+  by the Data API, as long as step 2's checks pass.
 - The route only sends emails that are already due and returns counts. A
   leaked secret lets someone call it more often, which at worst sends due
   emails sooner; it can't read data or send anything new. Rotate it anyway

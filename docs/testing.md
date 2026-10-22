@@ -77,7 +77,9 @@ $env:JOURNEY="1"; $env:TEST_DATABASE_URL="postgres://postgres@127.0.0.1:5432/pos
   a ticket QR's modules back from the PNG's pixels without knowing how the
   image was made.
 - **Fake Stripe API** (`fake-stripe.ts`): Connect accounts and links,
-  Checkout Sessions (create, retrieve, expire) and refunds. It applies
+  Checkout Sessions (create, retrieve, expire) and refunds (create, and
+  retrieve: the app asks for a refund's current status before reporting it
+  as not completed). It applies
   Stripe's idempotency rules (the same key replays the response; the same
   key with other parameters is an error) and refuses a destination that
   can't take charges. On the test side it plays the buyer paying, the
@@ -109,7 +111,7 @@ journeys run at the HTTP level against the real route modules. Pages,
 | 4 | Another organiser's event, dashboard, analytics, CSV and door → 404; a member → 403; no or expired token → 401 (`social-access`) | `check-ins`, `events`, `analytics` (per handler) | One sweep across the real routes. An expired session comes from the auth stub. The other organiser's own door shows the ticket as an indistinguishable `invalid`, and nothing is checked in by the refusals. |
 | 5 | A lost scan response, then the retry; the same scan twice at once (`payments-door`) | `check-ins` "retries" | The connection really drops after the server answered. The concurrent duplicate goes over separate connections. One admission is shown in the summary. |
 | 6 | Sold-out race: 5 payments for 2 tickets delivered at once, then redelivered at once (`payments-door`) | `orders` (sequential), `seating-races` (seated, real Postgres) | General admission over concurrent HTTP and a postgres.js pool. Three refunds are sent to Stripe with `reverse_transfer`, `refund_application_fee` and per-order idempotency keys. Exactly two ticket emails go out, and nothing more on redelivery. |
-| 7 | Checkout double click (5 identical requests at once), a retry, a reused key, after payment (`payments-door`) | `checkout-attempts` (incl. real-Postgres concurrency) | One session created at the Stripe API (replays counted separately). The `Idempotency-Key` header is read off real requests, and `idempotent-replayed` is set on the reply. |
+| 7 | Checkout double click (5 identical requests at once), a retry, a reused key, the key from another connection, after payment (`payments-door`) | `checkout-attempts` (incl. real-Postgres concurrency) | One session created at the Stripe API (replays counted separately). The `Idempotency-Key` header is read off real requests, and `idempotent-replayed` is set on the reply. The same key from another `x-forwarded-for` gets 409 `checkout_other_client` with neither the order id nor the URL. |
 
 **Not journeyed yet:** email retries (sink refuses → `GET /api/cron/email-outbox` delivers),
 refund-failure alerts (`refund.failed` → ops alert email), seated checkout
@@ -140,7 +142,7 @@ Supabase project before go-live, never against live keys.
 - [ ] Buy with `4242 4242 4242 4242`. Check the order is paid, the ticket email arrives, the application fee is on the platform and the transfer goes to the connected account.
 - [ ] Buy with a 3-D Secure card (`4000 0025 0000 3155`), and with a declined card (`4000 0000 0000 9995`). Check no tickets are issued for the decline.
 - [ ] Refund in full from the dashboard: `charge.refunded` arrives, the order is refunded, and the door refuses the tickets. Then refund partially: a `partial_refund` exception and an ops alert.
-- [ ] Refund failure with card `4000 0000 0000 5126`. Record **which** events Stripe sends (`refund.failed`, `refund.updated`, `charge.refund.updated`). An exception opens, and the alert email arrives. (Plan risk: unverified.)
+- [ ] Refund failure with card `4000 0000 0000 5126`. Record **which** events Stripe sends (`refund.failed`, `refund.updated`, `charge.refund.updated`), and in what order they arrive. An exception opens, and the alert email arrives. (Plan risk: unverified.) Then resend an older event for the same refund (`stripe events resend`) after a newer one: it's logged as stale and opens nothing.
 - [ ] Event ordering: resend events with `stripe events resend <evt_id>` to check redeliveries are harmless.
 - [ ] Double click Checkout and use Back from Stripe on a phone: one order, and the seats are released.
 
@@ -177,6 +179,8 @@ Supabase project before go-live, never against live keys.
 | Lost scan response, retry | ✓ | ✓ (dropped connection) | – | – | ☐ flaky network |
 | Early refund (before payment) | ✓ | ✓ | – | ☐ ordering via resend | – |
 | Refund failure, exception, ops alert | ✓ | – (not journeyed yet) | – | ☐ card 5126 | – |
+| Refund events out of order, Stripe confirmation | ✓ (`payment-reconciliation`) | – | – | ☐ resend an older event | – |
+| Checkout surge alert (alert-only, nobody refused), replay from another client | ✓ (`checkout-attempts`) | ✓ (another client) | – | – | – |
 | Who's Going, messages, block, report | ✓ | ✓ (two accounts) | ✓ (profile UI) | – | ☐ |
 | Unauthorised access (404/403/401) | ✓ | ✓ | – | ☐ real Supabase tokens | – |
 | Sold-out race | ✓ | ✓ (concurrent webhooks) | – | – | – |
