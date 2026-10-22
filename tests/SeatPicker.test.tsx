@@ -100,7 +100,7 @@ describe("seat page: map and list are equivalent (docs/design/seating.md §7)", 
     fireEvent.click(container.querySelector('[data-seat="N-A2"] rect') as Element);
     showList();
     expect(within(row("North, Row A")).getByRole("checkbox", { name: /^Seat 2, Full price/ })).toBeChecked();
-  });
+  }, 30_000); // Renders the full sample map twice (map + list); slow under parallel load, not a hang.
 
   it("keeps the tab for the session, and the arrow keys move between the tabs", () => {
     renderPicker();

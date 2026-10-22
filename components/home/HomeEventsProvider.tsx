@@ -79,3 +79,8 @@ export function useHomeEvents(): HomeEventsValue {
   if (!value) throw new Error("useHomeEvents must be used inside HomeEventsProvider");
   return value;
 }
+
+/** The same, or null outside a HomeEventsProvider (a section that can show without the events). */
+export function useOptionalHomeEvents(): HomeEventsValue | null {
+  return useContext(HomeEventsContext);
+}

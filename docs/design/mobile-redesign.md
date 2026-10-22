@@ -1,10 +1,27 @@
 # Mobile UI/UX redesign: implementation spec
 
-Status: P0 and P1 shipped (e16f18c); P2 and the review fixes implemented · Owner: ui-design-director · Date: 22 Oct 2026 · Branch `claude/wizardly-darwin-v2c9n2`
+Status: P0 and P1 shipped (e16f18c); P2, the review fixes and the Refinement of 22 Oct 2026 implemented · Owner: ui-design-director · Date: 22 Oct 2026 · Branch `claude/wizardly-darwin-v2c9n2`
 
 **P1 decisions (manager, 22 Oct 2026):** the §10.3 behaviour changes are accepted; "Only in the city" moves to the end of `/events`; the free label stays "Get free tickets"; "WHERE IS ÜR SHELTÜH?" is the footer's campaign line. Three fixes from the P0 screenshots are folded in: phone rail cards are smaller (§2.3, §5), a section's mono eyebrow never repeats its h2 and the h2 is one step smaller (§3.2.1, §6.3.3, now P1), and an ended event's buy bar shows no price (§6.5).
 
 **Owner feedback round (22 Oct 2026, after P2; this document reflects it):** search is the hero's main action, with "Explore all events" a text link under it and a one-line demo label (§6.1); the six category buttons move straight under the hero, above This weekend (§6.3.1, §6.3.6); cards get 18px titles, 14px details at every width, 8px between lines, and a foot (price + ticket action) pinned to the bottom so prices and buttons line up across a row (§3.2, §6.2.1); rails don't scroll vertically and are checked as carousels at 320–430 (§4, §8.2); the Find your people copy now matches who can see what (§6.4.4); the event page's facts get more room (§6.5); the footer is shorter and the install offer is a quiet text line (§6.6). The floating dark circle seen on preview deployments is the Vercel Toolbar, not this app; no fixed element of ours overlaps navigation or ticket actions.
+
+**Refinement, 22 Oct 2026 (owner brief; this section wins over everything below it where they differ).** The site read as templated: heavy uppercase heads everywhere, bordered boxes, too much scrolling before the events. One pass through the shared tokens and components, not per-page overrides. Superseded rules below are marked *[Superseded: Refinement]*.
+
+| Area | Now | Where |
+| --- | --- | --- |
+| Type | Heavy uppercase (`display-lg`) is a page's main headline only (the home's h1, page headers). Base `h1`–`h4` are sentence case (700, -0.015em, 1.2). `display-md` (section heads) is sentence case 20/24, 22/28 `sm`, 24/30 `lg`. New `title-lg` for the event title: sentence case 28/32, 36/40, 44/48, calmer than the hero. `eyebrow` tracking 0.04 → 0.02em; `meta` is no longer uppercase or tracked. Card and event-page dates are Instrument `text-sm`/`text-base`, not mono. | `app/globals.css` |
+| Brand dots | At most one signature use per page: the home hero's eyebrow; the event page's Who's going title (it joins when you're going); `PageHeader`'s strap elsewhere. Gone from `SectionHead`, the event category line, the going summary link and cards. | `ui/SectionHead`, `EventDetailsView`, `WhosGoingSummaryLink` |
+| Section head | No rule, no dots: a calm h2, optional note (`text-sm text-muted`), link on the baseline. | `ui/SectionHead` |
+| Home | Hero: eyebrow, h1, one short line (`HOME_INTRO`), search. "Explore all events" and the hero's demo label are gone. The search's field has one magnifier (its submit button), and the header leaves its search icon out on `/` (as the desktop field already was), so the home has one search. The six category boxes become one chip row (`nav` "Browse by category", `filterChipClass`, 44px, "All events" first, then the six filters), scrolling inside its own container below 640px and wrapping from 640px. Sections `mt-6 sm:mt-10 lg:mt-12`. At 390×844 the first card's image and title are on the first screen (e2e). | `home/HomeHero`, `home/CategoryRow`, `SearchBar`, `Nav`, `home/Home`, `home/HomeEventSections` |
+| Cards | Order: image (rail 4:3 on phones, square from `sm`; grid square) → title → date · time (`text-sm` medium) → venue · suburb → one small secondary line (`text-xs text-muted`: category, trending qualifier, "Reserved seating", count) → foot: all-inclusive price ("incl. booking fee") → action. Attendance is a count only, never faces (list payloads have no photos); a demo count reads "N going (sample)"; nothing below 3 (`GOING_COUNT_MIN`, shared with Who's Going). `data-card-state` = paid / free / sold-out / external / seated / ended / coming-soon; ended greys the image. `GoingStack` is deleted. | `ui/EventCard`, `lib/event-card.ts` (`cardGoing`, `cardState`) |
+| Community band | "See who’s going before you book" as a section head, one benefit line (`COMMUNITY_BENEFIT`: the count from three people for everyone, names with a free profile), a compact example drawn from the page (a live trending count, or the demo sample's count labelled "(sample)"; nothing when there's none) and one action ("Sign up free" / "Find an event"). The steps moved to the event page. | `home/CommunitySection` |
+| Who's going panel | "How Who’s Going works" (`details`/`summary`, 44px, page focus ring) at the panel's foot: the count from three; names and faces with a free profile and a verified email, no ticket needed; add yourself after a ticket; say hi once on the list. | `whos-going/HowItWorks`, `WhosGoing` |
+| Event page | Photo → category → title (`title-lg`) → one facts block (When with time zone + Add to calendar on one row; Where with Get directions; Organised by + More from) → going count link (below `lg`) → one secondary row, Save + Share (`secondaryActionClass`: soft fill, no border, 44px). Then Tickets, then Who's going (the right-hand sticky column from `lg`), then About this event and Good to know. The old aside When/Where/Organiser list and the phone facts under the title are merged into that one block. **One Save**: in the action row, at every width, ended or not; the buy bar has none (`SaveButton` `pill` and `onDark` replaced by `action`). Buy bar: compact (`min-h-16`, `--buybar-h: 4rem`), price + one action, safe-area bottom padding, settles under the content at the page end, and focus scrolls clear of it (`scroll-padding-bottom`; e2e tabs through the page at 390). Phone photo max 32svh. | `EventDetailsView`, `favourites/SaveButton`, `ShareButton`, `ui/Button` |
+| Footer | Restrained wordmark (`h-7 sm:h-8`), the campaign line small (`text-base` semibold, not `display-lg`), one note, the quiet install line. Fan support always open (a wrapping row on phones); Explore and Our company are disclosures below 640px (`FooterGroup`: button + `aria-expanded` + `aria-controls`, closed at first), columns from 640px. Legal links and © always visible. | `Footer`, `FooterGroup` |
+| Demo | One sample-data disclosure per page: `DemoBanner`, a slim strip at the top of `main` (root layout, demo only): "Demo · Sample events, people and counts. No real bookings." `DemoNotice` is a quiet one-line note with a small "Demo" tag, kept only where something won't happen (checkout, waitlist, adding yourself, follow, messages, accounts). Removed: the hero's label, the event page's "fictional sample data" note, the /events and /map "Sample listings" notes, the footer's demo note. Demo counts and names stay labelled. | `DemoBanner`, `DemoNotice`, `app/layout.tsx`, `EventFeed`, `SceneMap`, `Footer` |
+
+Measured in the demo at 390 (CSS px, page height): home 3663 → 2554, event 3613 → 3209; at 1280: home 4059 → 2994. Tests: `tests/EventCard.test.tsx` (order, states, count fallback and threshold), `tests/HomeStatic.test.tsx` (hero, single search icon, category row links, community), `tests/Nav.test.tsx` (no header search on `/`), `tests/SavePlacements.test.tsx` (one Save), `tests/brand-components.test.tsx` (footer disclosures, keyboard), `tests/DemoBanner.test.tsx`, `tests/WhosGoing.test.tsx` (How it works), `tests/brand-tokens.test.ts` (type rules); e2e `home.spec.ts`, `responsive.spec.ts` (first card at 390×844, chip row, footer by keyboard, buy bar vs focus), `event-page.spec.ts`, `demo.spec.ts` (one banner).
 
 **P2 and review fixes (manager list, 22 Oct 2026):** accessibility findings A1–A11 and visual-QA findings V1–V16 are folded into the sections below; where an item left the choice open, the choice is recorded where it lands. In short: an external card says "Get tickets"; an ended event page has no buy bar at all; the demo closes Who's Going once an event has ended, as live does; refunds show only where a paid purchase is possible; the age restriction shows once; one section head, one back link and one demo label site-wide; the footer is compact with support first. The `row` card variant for the map list is **deferred** (§9).
 
@@ -99,7 +116,7 @@ Code repeated across them:
 
 No new colour tokens. No gradients: the featured-card scrim goes with `FeaturedEventCard`.
 
-### 3.2 Type scale (roles → existing utilities)
+### 3.2 Type scale (roles → existing utilities) *[Superseded in part: Refinement — section h2, card category/date/title order, event title, footer campaign line, `meta`]*
 
 Sizes are base (320–639) / `sm` 640 / `lg` 1024; leading is in px.
 
@@ -126,7 +143,7 @@ Sizes are base (320–639) / `sm` 640 / `lg` 1024; leading is in px.
 | Back link (`ui/BackLink`, site-wide) | `text-sm leading-5 font-semibold underline`, decorative "←" | 14/20 | | | 0 | sentence | 600 |
 | Section h2 (`ui/SectionHead`) | `display-md`, title `text-balance`; dots in an `h-lh` box so they centre on line 1 (V7) | 20/22 | 24/26 | 28/30 | -0.03em | upper | 700 |
 
-#### 3.2.1 `display-md` change (done in P1, `app/globals.css`)
+#### 3.2.1 `display-md` change (done in P1, `app/globals.css`) *[Superseded: Refinement — sentence case, 20/24 → 24/30]*
 
 ```css
 @utility display-md {
@@ -214,7 +231,7 @@ Unchanged values. `.ken-burns` (one 4.5s cycle) stays on the desktop hero photo 
 
 ## 6. Components
 
-### 6.1 Hero (`components/home/HomeHero.tsx`, server; `Home.tsx`)
+### 6.1 Hero (`components/home/HomeHero.tsx`, server; `Home.tsx`) *[Superseded in part: Refinement — intro copy, no "Explore all events" link, no demo label]*
 
 **Copy (from the brief, exact):**
 - Eyebrow: "Melbourne • What’s on" (rendered uppercase by `eyebrow`; U+2022 bullet), preceded by `DotsMark size="xs" className="text-signal"`.
@@ -270,7 +287,7 @@ section[aria-labelledby=home-title].lg:grid.lg:grid-cols-12.lg:items-start.lg:ga
 
 ### 6.2 `EventCard` (`components/ui/EventCard.tsx`)
 
-#### 6.2.1 Anatomy (both variants)
+#### 6.2.1 Anatomy (both variants) *[Superseded: Refinement — order and media ratios]*
 
 ```
 div.group/card.relative.flex.min-w-0.flex-col[data-event-card][data-variant]   (rail: w-[min(62vw,15rem)] shrink-0 sm:w-full)
@@ -372,7 +389,7 @@ div.group/card.relative.flex.min-w-0.flex-col[data-event-card][data-variant]   (
 - The note never wraps under the amount at 375 for "A$31.70 incl. booking fee" (14px ≈ 170px at 232 wide). On a 134px `grid` card it wraps after the amount, which is acceptable: the amount stays first.
 - **The note's last two words never split (V15):** they sit in one `whitespace-nowrap` span ("incl. <nowrap>booking fee</nowrap>"), so "fee" is never alone on a line. Choice: not a whole-note `nowrap`, which would overflow a 134px card with "Paid tickets incl. booking fee"; and ordinary spaces, not a no-break space, so the text and accessible names read exactly as before.
 
-#### 6.2.5 Going on cards (`cardGoing`)
+#### 6.2.5 Going on cards (`cardGoing`) *[Superseded: Refinement — a count only, "(sample)" in the demo, threshold 3]*
 
 | Situation | Shown | Source |
 | --- | --- | --- |
@@ -410,7 +427,7 @@ div.group/card.relative.flex.min-w-0.flex-col[data-event-card][data-variant]   (
 - `shownEventIds` follows the new shape. `lib/home-events.ts` is unchanged (demo trending still ranks by sample count, labelled `going`).
 - The weekend window logic and `formatWeekendRange` are unchanged.
 
-#### 6.3.3 `SectionHead` (simplified; the site's one section head since P2)
+#### 6.3.3 `SectionHead` (simplified; the site's one section head since P2) *[Superseded in part: Refinement — no rule, no dots, sentence case]*
 
 The strap that repeated the h2 goes (it cost 28px per section and read the title twice). The new head:
 
@@ -454,7 +471,7 @@ There is no city-guide route, and its only content is a static card pointing at 
 - **P1 (done, manager decision):** `GuideCard` leaves the home and is mounted at the end of `/events` (`app/events/page.tsx`, after `EventFeed`, `mt-12 sm:mt-16`), linking to `/map`. It shows whatever state the feed is in (loading, empty, error).
 - Don't build a new Explore route until there's real editorial content to fill it.
 
-#### 6.3.6 Explore by category (`CategoryRow.tsx`)
+#### 6.3.6 Explore by category (`CategoryRow.tsx`) *[Superseded: Refinement — a chip row, not six tiles]*
 
 - `section[aria-labelledby="home-cats"]` with `SectionHead id="home-cats" title="Explore by category"`, **directly after the hero and before the first event section** (owner, 22 Oct 2026; it was after the event sections). The owner kept the six tiles (not a chip row).
 - Links are unchanged (`HOME_CATEGORIES`, six, to `/events?category=…` / `?pricing=free`). It stays a `nav`? No: it becomes a `section` with a `ul`, since a heading plus a list is enough and there's one fewer landmark.
@@ -540,7 +557,7 @@ Action row (unchanged logic: demo disabled "Add yourself" + DemoNotice; signed-o
 5. Suspended members never appear (server). The viewer's own suspended state shows `SuspendedNotice` (unchanged).
 6. External events: nothing, anywhere.
 
-#### 6.4.4 Home "Find your people" band (`CommunitySection.tsx`)
+#### 6.4.4 Home "Find your people" band (`CommunitySection.tsx`) *[Superseded: Refinement — benefit, example, one action; steps moved to the panel]*
 
 - Kept: full-bleed `data-surface="signal"`, `id="find-your-people"`, `tabIndex={-1}`, `aria-labelledby="home-people"`. No orange button inside.
 - **Eyebrow:** `p.eyebrow` "Find your people" above the h2 (the band's name, and the `#find-your-people` target's visible label; it doesn't repeat the h2).
@@ -563,7 +580,7 @@ Action row (unchanged logic: demo disabled "Add yourself" + DemoNotice; signed-o
 - **`/signup` intro (A1), from what the code does:** "An account lets you add yourself to an event’s Who’s Going list, see who else is going, message people going to the same event, and apply as an organiser. You don’t need one to browse events or buy tickets." (Checkout takes a guest's email; names, messaging and organiser applications need an account.)
 - **Layout:** phones stacked; `sm:grid sm:grid-cols-2 sm:gap-x-8`, with the h2 and avatars left and the body, steps and CTA right. Padding `py-10 sm:py-16` (was `py-12`).
 
-### 6.5 Event details (`components/EventDetailsView.tsx`)
+### 6.5 Event details (`components/EventDetailsView.tsx`) *[Superseded in part: Refinement — order, one facts block, one Save, compact buy bar]*
 
 **Phone order (unchanged except where noted):**
 1. Back link (`ui/BackLink`, "Back to all events")
@@ -639,7 +656,7 @@ Action row (unchanged logic: demo disabled "Add yourself" + DemoNotice; signed-o
 
 **Breathing room (owner, 22 Oct 2026):** the When/Where/Organiser rows are `py-4` (was `py-3`); the phone facts under the title are `gap-2` (was `gap-1`), the venue staying `text-sm leading-5` so the title, date and venue still clear the buy bar at 375×667; Good to know is `gap-5 text-sm leading-6` with `gap-2` between a label and its value (was `gap-4`, `gap-1`).
 
-### 6.6 Footer (`components/Footer.tsx`, done in P2; shortened after the owner's feedback of 22 Oct 2026)
+### 6.6 Footer (`components/Footer.tsx`, done in P2; shortened after the owner's feedback of 22 Oct 2026) *[Superseded: Refinement — restrained wordmark, disclosures]*
 
 Every existing link stays, plus "Contact support". It's compact, with clearer hierarchy. The orange wordmark is unchanged (the owner: "it works"); the height comes out of the gaps and the install banner:
 
@@ -678,7 +695,7 @@ footer[data-surface=ink][data-page-end]
 - **No header search on the home (V16, choice: hide):** the hero has the page's search, so the desktop row leaves its "Search the site" field out on `/` (every other page keeps it; below `lg` the header only ever had the search icon link).
 - **Search fields are named by their placeholder (A3, WCAG 2.5.3):** `SearchBar`'s hidden label is the placeholder, so the hero's and header's fields are "Search events" (the visible words); `/search` keeps "Search by event, venue or suburb", its placeholder.
 
-### 6.8 Demo label (`components/DemoNotice.tsx`, V11)
+### 6.8 Demo label (`components/DemoNotice.tsx`, V11) *[Superseded: Refinement — one DemoBanner per page; DemoNotice is a quiet note]*
 
 "Demo — sample events" is a black-edged white badge (`border border-foreground bg-card text-foreground`, 21:1), no longer orange: it stays clearly visible without spending the orange budget. Every demo label stays where it was.
 

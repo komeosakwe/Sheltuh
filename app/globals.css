@@ -45,7 +45,7 @@
   --display-tracking: -0.045em;
   --display-leading: 0.88;
   --header-h: 3.5rem; /* 56px compact header, < lg */
-  --buybar-h: 4.5rem; /* 72px sticky event-page buy bar, < lg */
+  --buybar-h: 4rem; /* 64px sticky event-page buy bar, < lg (before the safe area) */
   --seatbar-h: 5.5rem; /* 88px phone summary bar on /events/[slug]/seats (before safe area) */
 }
 
@@ -178,7 +178,8 @@ body {
   padding-right: env(safe-area-inset-right);
 }
 
-/* Headings: a tight uppercase grotesk (Instrument Sans 700), as the brand book sets them. */
+/* Headings: Instrument Sans 700 in sentence case (docs/design/mobile-redesign.md, Refinement
+   22 Oct). Heavy uppercase is kept for a page's main headline only (display-lg). */
 @layer base {
 h1,
 h2,
@@ -186,9 +187,8 @@ h3,
 h4 {
   font-family: var(--face-sans);
   font-weight: 700;
-  letter-spacing: -0.025em;
-  text-transform: uppercase;
-  line-height: 0.95;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
 }
 }
 
@@ -206,7 +206,8 @@ h4 {
   letter-spacing: -0.025em;
 }
 
-/* Page h1 and event titles: Instrument Sans 700, 32–40px on phones, 56–72px from lg. */
+/* A page's main headline (the home's h1, page headers): the one heavy uppercase style.
+   Instrument Sans 700, 32–40px on phones, 56–72px from lg. Event titles use title-lg. */
 @utility display-lg {
   font-family: var(--face-sans);
   font-weight: 700;
@@ -222,22 +223,39 @@ h4 {
   }
 }
 
-/* Section h2 and empty-state titles, one smaller step (docs/design/mobile-redesign.md §3.2.1):
-   20/22, 24/26 from sm, 28/30 from lg. */
+/* Section h2 and empty-state titles (docs/design/mobile-redesign.md, Refinement 22 Oct): calm,
+   sentence case, 20/24, 22/28 from sm, 24/30 from lg. Only a page's main headline is uppercase. */
 @utility display-md {
   font-family: var(--face-sans);
   font-weight: 700;
   font-size: 1.25rem;
-  line-height: 1.375rem;
-  letter-spacing: -0.03em;
-  text-transform: uppercase;
+  line-height: 1.5rem;
+  letter-spacing: -0.02em;
   @media (width >= 40rem) {
-    font-size: 1.5rem;
-    line-height: 1.625rem;
+    font-size: 1.375rem;
+    line-height: 1.75rem;
   }
   @media (width >= 64rem) {
-    font-size: 1.75rem;
+    font-size: 1.5rem;
     line-height: 1.875rem;
+  }
+}
+
+/* An event page's title: bold and large, but sentence case and calmer than the home's
+   uppercase display headline. 28/32, 36/40 from sm, 44/48 from lg. */
+@utility title-lg {
+  font-family: var(--face-sans);
+  font-weight: 700;
+  font-size: 1.75rem;
+  line-height: 2rem;
+  letter-spacing: -0.025em;
+  @media (width >= 40rem) {
+    font-size: 2.25rem;
+    line-height: 2.5rem;
+  }
+  @media (width >= 64rem) {
+    font-size: 2.75rem;
+    line-height: 3rem;
   }
 }
 
@@ -252,24 +270,23 @@ h4 {
   }
 }
 
-/* Labels, straps, categories, field labels: IBM Plex Mono 500, 12/16. */
+/* Labels, straps, field labels: IBM Plex Mono 500, 12/16, light tracking. */
 @utility eyebrow {
   font-family: var(--face-mono);
   font-size: 0.75rem;
   line-height: 1rem;
   font-weight: 500;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
 }
 
-/* Dates and times on cards, timestamps, references: IBM Plex Mono 400, 12/16. */
+/* Timestamps, notes, references: IBM Plex Mono 400, 12/16, as written (sentence case, no
+   tracking) so dates read as dates. Card and event-page dates are Instrument (text-sm). */
 @utility meta {
   font-family: var(--face-mono);
   font-size: 0.75rem;
   line-height: 1rem;
   font-weight: 400;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
 }
 
 /* The active-nav "umlaut" (brand-direction-one.md §5 #2): two rounded squares over the label,

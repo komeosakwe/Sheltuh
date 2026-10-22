@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import GoingStack from "@/components/ui/GoingStack";
 import SceneMapFilterBar from "@/components/SceneMapFilterBar";
 import InitialsAvatar from "@/components/ui/InitialsAvatar";
 import { ProgressLoader } from "@/components/ui/ProgressLoader";
@@ -10,27 +9,6 @@ import { EVENT_CATEGORIES } from "@/lib/types";
 /* Visual-QA corrections (21 Oct 2026) that are about markup, not layout. */
 
 afterEach(cleanup);
-
-describe("GoingStack", () => {
-  it("with no initials (live), shows the two dots and 'N going', never blank tiles", () => {
-    const { container } = render(<GoingStack count={6} />);
-    expect(screen.getByText("6 going")).toBeInTheDocument();
-    expect(container.querySelectorAll(".size-6")).toHaveLength(0);
-    expect(container.querySelector("svg")).not.toBeNull();
-  });
-
-  it("with initials (demo), shows one tile per initial, up to three", () => {
-    const { container } = render(<GoingStack count={9} initials={["AL", "LV", "MN", "SH"]} />);
-    const tiles = container.querySelectorAll(".size-6");
-    expect(tiles).toHaveLength(3);
-    expect(Array.from(tiles).map((t) => t.textContent)).toEqual(["A", "L", "M"]);
-  });
-
-  it("the big stack only shows with initials", () => {
-    const { container } = render(<GoingStack size="lg" />);
-    expect(container).toBeEmptyDOMElement();
-  });
-});
 
 describe("InitialsAvatar", () => {
   it("is a rounded square; yours is orange with black initials, the rest take turns", () => {

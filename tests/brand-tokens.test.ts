@@ -171,9 +171,25 @@ describe("type scale clean-up (docs/design/mobile-redesign.md P2)", () => {
     for (const { file, text } of sources) expect(text, file).not.toMatch(/\bdisplay-xl\b/);
   });
 
-  it("keeps the demo label off the orange: a black-edged white badge, still clearly marked (V11)", () => {
-    const demo = sources.find((s) => s.file === path.join("components", "DemoNotice.tsx"));
-    expect(demo?.text).toMatch(/border border-foreground bg-card[^"]*text-foreground/);
-    expect(demo?.text).not.toMatch(/bg-signal/);
+  // Refinement (22 Oct 2026): the bordered badge was one of the repeated bulky notices. A small "Demo"
+  // tag on the soft fill, still black text and still never orange; the page's disclosure is DemoBanner.
+  it("keeps the demo labels off the orange: a quiet 'Demo' tag at the booking points, one slim banner per page", () => {
+    const notice = sources.find((s) => s.file === path.join("components", "DemoNotice.tsx"));
+    expect(notice?.text).toMatch(/bg-surface[^"]*text-foreground/);
+    expect(notice?.text).toContain("Demo");
+    const banner = sources.find((s) => s.file === path.join("components", "DemoBanner.tsx"));
+    expect(banner?.text).toContain("No real bookings.");
+    for (const file of [notice, banner]) expect(file?.text).not.toMatch(/bg-signal|text-signal/);
+  });
+
+  it("keeps heavy uppercase for a page's main headline: section heads, headings and metadata aren't uppercased", () => {
+    const utility = (name: string) => css.slice(css.indexOf(`@utility ${name} {`), css.indexOf("}", css.indexOf(`@utility ${name} {`) + 20));
+    expect(css.slice(css.indexOf("@utility display-lg {"), css.indexOf("@utility display-md {"))).toContain("text-transform: uppercase;");
+    for (const name of ["display-md", "title-lg", "meta"]) expect(utility(name)).not.toContain("uppercase");
+    const headings = css.slice(css.indexOf("h1,\nh2,\nh3,\nh4 {"), css.indexOf("}", css.indexOf("h1,\nh2,\nh3,\nh4 {")));
+    expect(headings).toContain("font-weight: 700;");
+    expect(headings).not.toContain("uppercase");
+    // Less tracking on labels than before (0.04em).
+    expect(utility("eyebrow")).toContain("letter-spacing: 0.02em;");
   });
 });

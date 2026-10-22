@@ -5,6 +5,7 @@ import EventDetailsView from "@/components/EventDetailsView";
 import { ApiError } from "@/lib/api/client";
 import type { GoingAttendee, MyGoingStatus, Paginated, ProfileRecord } from "@/lib/api/types";
 import { SessionExpiredError, type AuthContextValue } from "@/lib/auth/AuthContext";
+import { HOW_IT_WORKS_STEPS } from "@/components/whos-going/HowItWorks";
 import { getSampleGoing } from "@/lib/sample-going";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
@@ -130,8 +131,9 @@ function liveRegion(region: HTMLElement) {
   return within(region).getByRole("status");
 }
 
+/** The phone summary link: "14 going", or in the demo "20 going (sample)". */
 function summaryLink() {
-  return screen.queryByRole("link", { name: /^\d+ going$/ });
+  return screen.queryByRole("link", { name: /^\d+ going( \(sample\))?$/ });
 }
 
 /**
@@ -147,6 +149,38 @@ function names(region: HTMLElement) {
   const list = within(region).queryByRole("list", { name: "People going" });
   return list ? within(list).getAllByRole("listitem").map((li) => li.textContent) : [];
 }
+
+// Refinement (22 Oct 2026): the step-by-step left the home's band and lives here, where you act on it.
+describe("Who's Going — how it works, in the panel", () => {
+  it("is a closed native disclosure at the panel's foot, with the accurate steps in the order access opens up", async () => {
+    renderEvent(DEMO_EVENT, signedOut());
+    const region = await panel();
+    const details = region.querySelector("details[data-how-it-works]");
+    if (!(details instanceof HTMLDetailsElement)) throw new Error("no How it works disclosure");
+    expect(details.open).toBe(false);
+    const summary = details.querySelector("summary");
+    expect(summary).toHaveTextContent("How Who’s Going works");
+    // A 44px target with the page's focus ring (no outline override).
+    expect(summary).toHaveClass("min-h-11");
+    expect(summary?.className).not.toMatch(/outline-none/);
+    const steps = within(details as HTMLElement).getAllByRole("listitem", { hidden: true }).map((li) => li.textContent);
+    expect(steps).toEqual([...HOW_IT_WORKS_STEPS]);
+    // The facts: the count from three, names and faces with a free verified profile (no ticket),
+    // adding yourself after a ticket, messaging once on the list.
+    expect(steps[0]).toMatch(/three or more/);
+    expect(steps[1]).toMatch(/free profile with a verified email.*names and faces.*No ticket needed/);
+    expect(steps[2]).toMatch(/^Got a ticket\? Add yourself/);
+    expect(steps[3]).toMatch(/on the list/);
+  });
+
+  it("isn't shown for an external event (no Who's Going there)", async () => {
+    const external = sampleEvents.find((e) => e.ticketingMode === "external");
+    if (!external) throw new Error("no external sample");
+    const { container } = renderEvent(external, signedOut());
+    await act(async () => {});
+    expect(container.querySelector("[data-how-it-works]")).toBeNull();
+  });
+});
 
 describe("Who's Going — demo", () => {
   it("shows the fixed sample names and count, with opting in disabled, and never calls the API", async () => {
@@ -166,8 +200,9 @@ describe("Who's Going — demo", () => {
     expect(add).toHaveClass("btn", "btn-lg");
     expect(within(region).getByRole("note")).toHaveTextContent("These names are samples.");
     expect(summaryLink()).toHaveAttribute("href", "#whos-going");
-    expect(summaryLink()?.closest("p")).toHaveClass("lg:hidden");
-    expect(summaryLink()).toHaveTextContent(`${sampleData.count} going`);
+    expect(summaryLink()?.closest("div")).toHaveClass("lg:hidden");
+    // A demo count is labelled as a sample (docs/design/mobile-redesign.md, Refinement 22 Oct 2026).
+    expect(summaryLink()).toHaveTextContent(`${sampleData.count} going (sample)`);
 
     // "Show more" works locally.
     fireEvent.click(within(region).getByRole("button", { name: "Show more" }));
@@ -244,7 +279,8 @@ describe("Who's Going — signed out", () => {
     const region = await panel();
 
     expect(within(region).getByText("14").closest("p")).toHaveTextContent("14 going");
-    expect(within(region).queryByRole("list")).toBeNull();
+    // The names list (the panel also holds "How Who's Going works", an ordered list of steps).
+    expect(within(region).queryByRole("list", { name: "People going" })).toBeNull();
     expect(within(region).getByRole("link", { name: "Sign in to see who’s going" })).toHaveAttribute(
       "href",
       `/login?next=${encodeURIComponent(`/events/${LIVE_EVENT.slug}`)}`,
@@ -304,7 +340,8 @@ describe("Who's Going — signed in", () => {
     renderEvent(LIVE_EVENT);
     region = await panel();
     expect(within(region).getByText("No one’s added themselves yet.")).toBeInTheDocument();
-    expect(within(region).queryByRole("list")).toBeNull();
+    // The names list (the panel also holds "How Who's Going works", an ordered list of steps).
+    expect(within(region).queryByRole("list", { name: "People going" })).toBeNull();
   });
 
   it("explains that names need a verified email when the API refuses them (403) and there is a profile", async () => {
@@ -312,7 +349,8 @@ describe("Who's Going — signed in", () => {
     api.listGoingAttendees.mockReset().mockRejectedValue(new ApiError(403, "Verify your email address first."));
     renderEvent(LIVE_EVENT);
     const region = await panel();
-    expect(within(region).queryByRole("list")).toBeNull();
+    // The names list (the panel also holds "How Who's Going works", an ordered list of steps).
+    expect(within(region).queryByRole("list", { name: "People going" })).toBeNull();
     expect(region).toHaveTextContent("Verify your email address to see who’s going and add yourself.");
     expect(within(region).getByText("4").closest("p")).toHaveTextContent("4 going");
   });
@@ -322,7 +360,8 @@ describe("Who's Going — signed in", () => {
     api.listGoingAttendees.mockReset().mockRejectedValue(new ApiError(403, "Create a profile to see who's going."));
     renderEvent(LIVE_EVENT);
     const region = await panel();
-    expect(within(region).queryByRole("list")).toBeNull();
+    // The names list (the panel also holds "How Who's Going works", an ordered list of steps).
+    expect(within(region).queryByRole("list", { name: "People going" })).toBeNull();
     expect(within(region).getByText("4").closest("p")).toHaveTextContent("4 going");
     expect(region).toHaveTextContent("Names are shown to members with a Who’s Going profile.");
     expect(within(region).getByRole("link", { name: "Set up your profile" })).toHaveAttribute("href", "/account");
@@ -472,7 +511,8 @@ describe("Who's Going — signed in", () => {
       api.listGoingAttendees.mockReset().mockRejectedValue(new ApiError(403, "Create a profile to see who's going."));
       renderEvent(LIVE_EVENT);
       const region = await panel();
-      expect(within(region).queryByRole("list")).toBeNull();
+      // The names list (the panel also holds "How Who's Going works", an ordered list of steps).
+    expect(within(region).queryByRole("list", { name: "People going" })).toBeNull();
       expect(region).toHaveTextContent("Want people to know you’re going? Add yourself to see who else is.");
       expect(within(region).getByRole("button", { name: "Add yourself" })).toBeInTheDocument();
       expect(region).not.toHaveTextContent("Verify your email");

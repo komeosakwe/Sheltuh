@@ -3,8 +3,10 @@ import {
   cardCta,
   cardDateLabel,
   cardGoing,
+  cardState,
   categoryLabel,
   demoGoing,
+  GOING_COUNT_MIN,
   hasEnded,
   placeLabel,
   signalLabel,
@@ -115,23 +117,41 @@ describe("cardCta (§6.2.3: the first matching row wins)", () => {
   });
 });
 
-describe("cardGoing (§6.2.5): real or absent", () => {
-  it("demo: the fictional sample's count and first three initials", () => {
+describe("cardGoing (§6.2.5; Refinement 22 Oct 2026): a count, real or a labelled sample, or absent", () => {
+  it("demo: the fictional sample's count, flagged as a sample, and no names or initials", () => {
     const sample = getSampleGoing("e");
-    expect(cardGoing(event(), "demo")).toEqual(demoGoing("e"));
-    expect(demoGoing("e").count).toBe(sample.count);
-    expect(demoGoing("e").initials).toHaveLength(Math.min(3, sample.attendees.length));
+    expect(demoGoing("e")).toEqual({ count: sample.count });
+    expect(cardGoing(event(), "demo")).toEqual({ count: sample.count, sample: true });
   });
 
   it("live: only the server's thresholded trending count, with no names", () => {
     expect(cardGoing(event(), "live")).toBeNull();
     expect(cardGoing(event(), "live", { kind: "popular" })).toBeNull();
-    expect(cardGoing(event(), "live", { kind: "going", count: 12 })).toEqual({ count: 12 });
+    expect(cardGoing(event(), "live", { kind: "going", count: 12 })).toEqual({ count: 12, sample: false });
+  });
+
+  it("never a number below the privacy threshold of three", () => {
+    expect(GOING_COUNT_MIN).toBe(3);
+    expect(cardGoing(event(), "live", { kind: "going", count: 2 })).toBeNull();
+    expect(cardGoing(event(), "live", { kind: "going", count: 3 })).toEqual({ count: 3, sample: false });
   });
 
   it("external: never, demo included", () => {
     expect(cardGoing(external(false), "demo")).toBeNull();
     expect(cardGoing(external(false), "live", { kind: "going", count: 12 })).toBeNull();
+  });
+});
+
+describe("cardState: one distinct state per card", () => {
+  const AFTER = new Date("2100-01-01T00:00:00.000Z");
+  it("reads ended, external, coming soon, sold out, seated, free and paid from the data", () => {
+    expect(cardState(event(), AFTER)).toBe("ended");
+    expect(cardState(external(false), BEFORE)).toBe("external");
+    expect(cardState(event({ ticketTypes: [] }), BEFORE)).toBe("coming-soon");
+    expect(cardState(event({ soldOut: true, ticketTypes: [ticket(3000, { soldOut: true, remaining: 0 })] }), BEFORE)).toBe("sold-out");
+    expect(cardState(event({ seating: { version: 1 }, ticketTypes: [ticket(3000, { seated: true })] }), BEFORE)).toBe("seated");
+    expect(cardState(event({ ticketTypes: [ticket(0)] }), BEFORE)).toBe("free");
+    expect(cardState(event(), BEFORE)).toBe("paid");
   });
 });
 

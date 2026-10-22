@@ -1,6 +1,6 @@
 import { formatEventDateKey, formatEventDateShort, formatEventTime } from "./format";
 import type { TrendingSignal } from "./home-sections";
-import { initialsFor } from "./initials";
+import { isSoldOut, pricedTicketTypes } from "./pricing";
 import { quickBuyHref, quickBuyLabel, type QuickBuyLabel } from "./quick-buy";
 import { getSampleGoing } from "./sample-going";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "./types";
@@ -65,28 +65,57 @@ export function cardCta(event: SheltuhEvent, now: Date): CardCta | null {
   return { label, href: quickBuyHref(event), tone: label === "Join waitlist" ? "outline" : "signal" };
 }
 
-/** Demo "N going": the fictional sample list's count and its first three initials. */
-export function demoGoing(eventId: string): { count: number; initials: string[] } {
-  const sample = getSampleGoing(eventId);
-  return { count: sample.count, initials: sample.attendees.slice(0, 3).map((a) => initialsFor(a.displayName)) };
+/**
+ * Below this many people no number is shown anywhere (the API withholds it:
+ * lib/server/handlers/going.ts). Cards apply it too, so a demo sample or a
+ * trending count can never show "1 going".
+ */
+export const GOING_COUNT_MIN = 3;
+
+/** Demo "N going": the fictional sample list's count (always labelled as a sample where it shows). */
+export function demoGoing(eventId: string): { count: number } {
+  return { count: getSampleGoing(eventId).count };
+}
+
+export interface CardGoing {
+  count: number;
+  /** A demo sample, never real attendance: the card says so. */
+  sample: boolean;
 }
 
 /**
- * The going row on a card (§6.2.5), or null for none (no reserved space).
- * An external event has no Who's Going. Demo cards show the fictional sample
- * (the pages carry a demo notice). Live cards show only the server's
- * thresholded trending count, with no avatars: list payloads carry no names
- * and no per-event count.
+ * The attendance on a card (§6.2.5 and its Refinement, 22 Oct 2026): a
+ * count only, or null for none (no reserved space). Never faces: list
+ * payloads carry no names or profile photos, so a card has nothing real to
+ * draw them from. An external event has no Who's Going. Demo cards show the
+ * fictional sample's count, flagged `sample`. Live cards show only the
+ * server's thresholded trending count. Below GOING_COUNT_MIN, nothing.
  */
-export function cardGoing(
-  event: SheltuhEvent,
-  mode: "demo" | "live",
-  signal?: TrendingSignal,
-): { count: number; initials?: string[] } | null {
+export function cardGoing(event: SheltuhEvent, mode: "demo" | "live", signal?: TrendingSignal): CardGoing | null {
   if (event.ticketingMode === "external") return null;
-  if (mode === "demo") return demoGoing(event.id);
-  if (signal?.kind === "going") return { count: signal.count };
-  return null;
+  const going =
+    mode === "demo"
+      ? { count: demoGoing(event.id).count, sample: true }
+      : signal?.kind === "going"
+        ? { count: signal.count, sample: false }
+        : null;
+  return going && going.count >= GOING_COUNT_MIN ? going : null;
+}
+
+/**
+ * The card's ticket state, from real data only, so each one looks and reads
+ * differently: ended, external (sold on another site), coming soon (no
+ * tiers yet), sold out (waitlist), seated, free, or paid.
+ */
+export type CardState = "ended" | "external" | "coming-soon" | "sold-out" | "seated" | "free" | "paid";
+
+export function cardState(event: SheltuhEvent, now: Date): CardState {
+  if (hasEnded(event, now)) return "ended";
+  if (event.ticketingMode === "external") return "external";
+  if (event.ticketTypes.length === 0) return "coming-soon";
+  if (isSoldOut(event)) return "sold-out";
+  if (event.seating) return "seated";
+  return pricedTicketTypes(event).every((ticket) => ticket.priceCents === 0) ? "free" : "paid";
 }
 
 /**

@@ -204,10 +204,14 @@ describe("SaveButton — live", () => {
     expect(bar()).toBeNull();
   });
 
-  it("the pill keeps its visible 'Save' label inside the name", async () => {
-    const button = await readyHeart([], undefined, "pill");
+  it("the event page's action keeps its visible 'Save' label inside the name, as a quiet unbordered 44px control", async () => {
+    const button = await readyHeart([], undefined, "action");
     expect(button).toHaveTextContent("Save");
     expect(button).toHaveAccessibleName("Save Night Market");
+    expect(button).toHaveClass("min-h-11", "bg-surface");
+    // No border class (hover:bg-surface-border is a fill) and not the boxed .btn.
+    expect(button.className.split(/\s+/)).not.toContain("border");
+    expect(button.className).not.toMatch(/(?:^|\s)btn(?:-|\s|$)/);
   });
 });
 

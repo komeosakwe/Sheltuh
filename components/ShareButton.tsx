@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { buttonClass } from "@/components/ui/Button";
+import { buttonClass, secondaryActionClass } from "@/components/ui/Button";
 import { PHONE_QUERY } from "@/components/ui/useIsPhone";
 import { publicEventUrl } from "@/lib/event-url";
 
@@ -188,11 +188,11 @@ export default function ShareButton({
         aria-label={`Share ${title}`}
         aria-expanded={open ? true : undefined}
         aria-controls={open ? popoverId : undefined}
-        className={buttonClass("outline", "sm", "min-h-11 min-w-11 px-3")}
+        className={secondaryActionClass}
       >
         <ShareIcon />
-        {/* Icon-only below 375px; the name "Share {title}" starts with what's shown. */}
-        <span className="hidden min-[375px]:inline">Share</span>
+        {/* The name "Share {title}" starts with what's shown. */}
+        <span>Share</span>
       </button>
       {/* Beside the button, and always in the page so the change is announced. */}
       <p role="status" className="text-sm whitespace-nowrap">

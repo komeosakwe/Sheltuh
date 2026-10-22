@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import Link from "next/link";
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import DotsMark, { DotsLoader } from "@/components/brand/DotsMark";
 import UMark from "@/components/brand/UMark";
@@ -110,13 +110,15 @@ describe("DotsMark", () => {
 });
 
 describe("Footer", () => {
-  it("is an ink section closing on the decorative orange wordmark; the © line carries the name", () => {
+  // Refinement (owner, 22 Oct 2026): the wordmark stays, at a restrained size (it was full width).
+  it("is an ink section with the decorative orange wordmark at a restrained size; the © line carries the name", () => {
     const { container } = render(<Footer />);
     const footer = container.querySelector("footer");
     expect(footer).toHaveAttribute("data-surface", "ink");
     const wordmark = footer?.querySelector(`svg[viewBox="${WORDMARK.viewBox}"]`);
     expect(wordmark).toHaveAttribute("aria-hidden", "true");
-    expect(wordmark).toHaveClass("text-signal", "w-full", "h-auto");
+    expect(wordmark).toHaveClass("text-signal", "h-7", "w-auto", "sm:h-8");
+    expect(wordmark).not.toHaveClass("w-full");
     expect(screen.getByText(`© ${new Date().getFullYear()} Sheltüh`)).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Legal" })).toBeInTheDocument();
   });
@@ -159,22 +161,61 @@ describe("Footer", () => {
     }
   });
 
-  it("keeps the campaign line (heard as one sentence) with leading that clears the Ü dots, above the oversized wordmark", () => {
+  it("keeps the campaign line (heard as one sentence), small, under the wordmark", () => {
     const { container } = render(<Footer />);
     const line = screen.getByText("Where is your Sheltüh?").closest("p");
-    expect(line).toHaveClass("display-lg", "leading-[1.05]");
+    expect(line).toHaveClass("text-base", "font-semibold");
+    expect(line).not.toHaveClass("display-lg");
     const wordmark = container.querySelector(`svg[viewBox="${WORDMARK.viewBox}"]`);
     if (!line || !wordmark) throw new Error("campaign line or wordmark missing");
-    expect(line.compareDocumentPosition(wordmark) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(wordmark.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
-  // Owner feedback (22 Oct 2026): a shorter footer (the wordmark unchanged), and the install offer a quiet
-  // secondary action rather than a banner at the top.
-  it("is compact: tight gaps between the link groups and around the full-width wordmark", () => {
-    const { container } = render(<Footer />);
-    const groups = screen.getByRole("navigation", { name: "Fan support" }).parentElement;
-    expect(groups).toHaveClass("mt-6", "gap-y-5");
-    const wordmark = container.querySelector(`svg[viewBox="${WORDMARK.viewBox}"]`);
-    expect(wordmark).toHaveClass("mt-8", "sm:mt-12", "w-full");
+
+  it("keeps support and legal links visible without expanding anything", () => {
+    render(<Footer />);
+    const support = screen.getByRole("navigation", { name: "Fan support" });
+    // Not a disclosure: no toggle, and its list is never hidden.
+    expect(within(support).queryByRole("button")).toBeNull();
+    expect(within(support).getByRole("list").className).not.toMatch(/(?:^|\s)hidden(?:\s|$)/);
+    const legal = screen.getByRole("navigation", { name: "Legal" });
+    expect(within(legal).queryByRole("button")).toBeNull();
+    expect(within(legal).getAllByRole("link")).toHaveLength(3);
+  });
+
+  it("groups Explore and Our company in disclosures on phones: a button with aria-expanded, closed at first, its list hidden until opened", () => {
+    render(<Footer />);
+    for (const name of ["Explore", "Our company"]) {
+      const nav = screen.getByRole("navigation", { name });
+      const toggle = within(nav).getByRole("button", { name });
+      expect(toggle).toHaveAttribute("type", "button");
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(toggle).toHaveClass("min-h-11", "sm:hidden");
+      const list = document.getElementById(toggle.getAttribute("aria-controls") ?? "");
+      expect(list).toBe(within(nav).getByRole("list"));
+      // Hidden on phones while closed; always shown from 640px, where the heading is a plain label.
+      expect(list).toHaveClass("hidden", "sm:flex");
+    }
+  });
+
+  it("opens and closes a group from the keyboard: the native button keeps focus and says its state", () => {
+    render(<Footer />);
+    const nav = screen.getByRole("navigation", { name: "Explore" });
+    const toggle = within(nav).getByRole("button", { name: "Explore" });
+    toggle.focus();
+    expect(toggle).toHaveFocus();
+    // Enter and Space on a native button fire click (jsdom doesn't synthesise that step).
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveFocus();
+    const list = within(nav).getByRole("list");
+    expect(list).toHaveClass("flex");
+    expect(list).not.toHaveClass("hidden");
+    expect(within(list).getByRole("link", { name: "All events" })).toHaveAttribute("href", "/events");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(list).toHaveClass("hidden");
+    // The chevron is decorative.
+    expect(toggle.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
   });
 
   describe("the install action", () => {

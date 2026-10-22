@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import DemoNotice from "@/components/DemoNotice";
 import EventBrowser from "@/components/EventBrowser";
 import FeedLoading from "@/components/FeedLoading";
 import { useLoadingProgress } from "@/components/ui/ProgressLoader";
@@ -39,7 +38,6 @@ function DemoEventFeed({ query, initialCategory, initialPricing }: FeedProps) {
 
   return (
     <div className="flex flex-col gap-4 sm:gap-6">
-      <DemoNotice>Sample listings — buttons open the sample event; nothing is sold.</DemoNotice>
       {/* Always mounted: screen readers announce text that changes inside a live region,
           not one that appears already holding its text. It says the load's start, then its
           result (the browser's summary, also on every filter change). The loader shows the progress. */}

@@ -11,10 +11,13 @@ import type { SheltuhEvent } from "@/lib/types";
 import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
 
 /*
- * The one event card (docs/design/mobile-redesign.md §6.2), both variants:
- * its anatomy and reading order, the stretched link with Save and the
- * ticket action outside it, every ticket state of §6.2.3 from real data,
- * and going counts that are real or (in the demo) labelled samples.
+ * The one event card (docs/design/mobile-redesign.md §6.2 and its
+ * Refinement, 22 Oct 2026), both variants: its anatomy and reading order
+ * (image, title, date, place, a small secondary line, then price and the
+ * ticket action), the stretched link with Save and the ticket action outside
+ * it, every ticket state of §6.2.3 from real data (each with its own
+ * `data-card-state`), and going counts that are real or (in the demo)
+ * labelled samples, never faces.
  */
 
 vi.mock("next/navigation", () => ({
@@ -105,37 +108,36 @@ const cardLink = (e: SheltuhEvent) => screen.getByRole("link", { name: new RegEx
 const cardRoot = (container: HTMLElement) => container.querySelector<HTMLElement>("[data-event-card]") as HTMLElement;
 
 describe("EventCard anatomy (§6.2.1)", () => {
+  // Refinement (owner, 22 Oct 2026): image, title, date, place, then the category and the count,
+  // small; the price and the action last. Shorter: a 4:3 phone rail image and tighter lines.
   it.each(["rail", "grid"] as const)(
-    "%s: image first, then category, date and time, title, venue and going; the all-inclusive price in the foot",
+    "%s: image first, then the title, date and time, venue, a small category · going line; the all-inclusive price, then the action, in the foot",
     (variant) => {
       const { container } = render(<EventCard event={event} variant={variant} mode="demo" />);
       const root = cardRoot(container);
       expect(root).toHaveAttribute("data-variant", variant);
       const media = root.firstElementChild as HTMLElement;
-      // A rounded photo with nothing on it: the decorative art alone, no chip or badge. 4:5, except a
-      // phone rail card, which is square so a card fits one screen with the next one peeking.
+      // A rounded photo with nothing on it: the decorative art alone, no chip or badge.
       expect(media).toHaveClass("rounded-card", "overflow-hidden");
       expect(media.children).toHaveLength(1);
       expect(media.firstElementChild).toHaveAttribute("aria-hidden", "true");
-      if (variant === "rail") expect(media.firstElementChild).toHaveClass("aspect-square", "sm:aspect-[4/5]");
-      else expect(media.firstElementChild).toHaveClass("aspect-[4/5]");
+      if (variant === "rail") expect(media.firstElementChild).toHaveClass("aspect-[4/3]", "sm:aspect-square");
+      else expect(media.firstElementChild).toHaveClass("aspect-square");
       const text = media.nextElementSibling as HTMLElement;
-      // 8px between the lines (the owner's "breathing room", 22 Oct 2026).
-      expect(text).toHaveClass("gap-2");
       const lines = Array.from(text.children).map((el) => el.textContent);
-      expect(lines.slice(0, 4)).toEqual([
-        "Live music",
-        "Sun 18 Oct · 7:00 pm",
+      expect(lines).toEqual([
         "Glasshouse Sessions",
+        "Sun 18 Oct · 7:00 pm",
         "The Conservatory · Carlton",
+        `Live music · ${getSampleGoing(event.id).count} going (sample)`,
       ]);
-      // The going row last in the text (its avatars' initials, then the count).
-      expect(lines).toHaveLength(5);
-      expect(lines[4]).toMatch(new RegExp(`${getSampleGoing(event.id).count} going$`));
-      expect(within(text).getByRole("heading", { level: 3 })).toHaveTextContent("Glasshouse Sessions");
-      // The price leads the card's foot, above the ticket action.
+      expect(text.firstElementChild?.tagName).toBe("H3");
+      // The secondary line is small and quiet.
+      expect(text.lastElementChild).toHaveClass("text-xs", "text-muted");
+      // The price leads the card's foot, then the ticket action.
       const foot = root.querySelector("[data-card-foot]") as HTMLElement;
       expect(foot.firstElementChild).toHaveTextContent("From A$36.90 incl. booking fee");
+      expect(within(foot.children[1] as HTMLElement).getByRole("link", { name: "Buy tickets for Glasshouse Sessions" })).toBeInTheDocument();
       // No description on cards.
       expect(root).not.toHaveTextContent("Acoustic sets");
     },
@@ -146,7 +148,7 @@ describe("EventCard anatomy (§6.2.1)", () => {
   it("names the card's link title first, then the date, place, price and going count (not the category)", () => {
     render(<EventCard event={event} variant="rail" mode="demo" />);
     expect(cardLink(event)).toHaveAccessibleName(
-      `Glasshouse Sessions Sun 18 Oct · 7:00 pm The Conservatory · Carlton From A$36.90 incl. booking fee ${getSampleGoing(event.id).count} going`,
+      `Glasshouse Sessions Sun 18 Oct · 7:00 pm The Conservatory · Carlton From A$36.90 incl. booking fee ${getSampleGoing(event.id).count} going (sample)`,
     );
     expect(cardLink(event)).not.toHaveAccessibleName(/Live music/);
     expect(cardLink(event)).toHaveAttribute("href", "/events/glass-sessions");
@@ -180,7 +182,8 @@ describe("EventCard anatomy (§6.2.1)", () => {
 
   it("keeps the date's separator with the time, so a wrapped line never ends on '·' (V8)", () => {
     const { container } = render(<EventCard event={event} variant="grid" mode="live" />);
-    const parts = Array.from(container.querySelectorAll("p.meta > .whitespace-nowrap")).map((el) => el.textContent);
+    const date = container.querySelector("[id$='-date']") as HTMLElement;
+    const parts = Array.from(date.querySelectorAll(".whitespace-nowrap")).map((el) => el.textContent);
     expect(parts).toEqual(["Sun 18 Oct", "· 7:00 pm"]);
   });
 
@@ -196,7 +199,7 @@ describe("EventCard anatomy (§6.2.1)", () => {
     vi.setSystemTime(new Date("2026-10-20T00:00:00.000Z"));
     const running: SheltuhEvent = { ...event, startsAt: "2026-10-15T00:00:00.000Z", endsAt: "2026-11-01T08:00:00.000Z" };
     render(<EventCard event={running} variant="rail" mode="live" />);
-    expect(screen.getByText("Now on · until Sun 1 Nov")).toHaveClass("meta");
+    expect(screen.getByText("Now on · until Sun 1 Nov")).toHaveClass("text-sm", "font-medium");
     expect(document.body).not.toHaveTextContent(/today|left|hurry/i);
   });
 });
@@ -214,7 +217,7 @@ describe("EventCard: the whole card is one link, with Save and the ticket action
     const organiser = screen.getByRole("link", { name: "By Northside Noise" });
     for (const control of [save, buy, organiser]) expect(link.contains(control)).toBe(false);
     expect(save).toHaveClass("absolute", "top-1", "right-1", "z-10");
-    expect(buy.parentElement).toHaveClass("relative", "z-10", "pt-3");
+    expect(buy.parentElement).toHaveClass("relative", "z-10", "pt-2");
     expect(organiser).toHaveClass("relative", "z-10", "min-h-11");
     // Nothing interactive inside the link.
     expect(link.querySelector("a, button")).toBeNull();
@@ -311,7 +314,7 @@ describe("EventCard variants", () => {
   it("grid: fills its cell; 16px titles on the phone grid, 18px from 640px, 14px details; a full-width CTA on phones whose label wraps rather than overflows", () => {
     const { container } = render(<EventCard event={event} variant="grid" mode="live" />);
     expect(cardRoot(container)).toHaveClass("w-full");
-    expect(screen.getByRole("heading", { level: 3 })).toHaveClass("text-base", "leading-6", "sm:text-lg");
+    expect(screen.getByRole("heading", { level: 3 })).toHaveClass("text-base", "leading-[1.375rem]", "sm:text-lg");
     // 14px at every width (it was 12px on the phone grid).
     expect(screen.getByText("The Conservatory · Carlton")).toHaveClass("text-sm");
     expect(screen.getByText("The Conservatory · Carlton").className).not.toMatch(/text-xs/);
@@ -338,12 +341,12 @@ describe("EventCard variants", () => {
     expect(screen.getByRole("link", { name: "By Small Hours Theatre" })).toHaveAttribute("href", "/organisers/small-hours-theatre");
   });
 
-  it("placeholder: the variant's width and media box (rail: square on phones, 4:5 from 640px) and flat bars, hidden from screen readers", () => {
+  it("placeholder: the variant's width and media box (rail: 4:3 on phones, square from 640px) and flat bars, hidden from screen readers", () => {
     const { container } = render(<EventCardPlaceholder variant="rail" />);
     const root = container.firstElementChild as HTMLElement;
     expect(root).toHaveAttribute("aria-hidden", "true");
     expect(root).toHaveClass("w-[min(62vw,15rem)]");
-    expect(root.querySelector(".aspect-square.sm\\:aspect-\\[4\\/5\\].bg-surface")).not.toBeNull();
+    expect(root.querySelector(".aspect-\\[4\\/3\\].sm\\:aspect-square.bg-surface")).not.toBeNull();
     expect(root.className).not.toMatch(/animate/);
   });
 });
@@ -357,7 +360,7 @@ describe("EventCard media: organiser artwork on a phone rail card", () => {
     });
   }
 
-  it("rail: a portrait poster in the square box is shown whole on black, not cropped (fit auto)", () => {
+  it("rail: a portrait poster in the 4:3 box is shown whole on black, not cropped (fit auto)", () => {
     const { container } = render(<EventCard event={{ ...event, imageUrl: "/poster.jpg" }} variant="rail" mode="live" />);
     const img = container.querySelector("img");
     if (!img) throw new Error("no photo");
@@ -365,7 +368,7 @@ describe("EventCard media: organiser artwork on a phone rail card", () => {
     expect(img).toHaveClass("object-contain");
   });
 
-  it("grid: always cropped to fill its 4:5 box", () => {
+  it("grid: always cropped to fill its square box", () => {
     const { container } = render(<EventCard event={{ ...event, imageUrl: "/poster.jpg" }} variant="grid" mode="live" />);
     const img = container.querySelector("img");
     if (!img) throw new Error("no photo");
@@ -427,31 +430,41 @@ describe("EventCard ticket states, from real data only (§6.2.3)", () => {
   });
 });
 
-describe("EventCard going row and category qualifiers (§6.2.2, §6.2.5)", () => {
-  it("demo: the sample's count with one-letter avatars", () => {
-    render(<EventCard event={event} variant="rail" mode="demo" />);
-    expect(screen.getByText(`${getSampleGoing(event.id).count} going`)).toBeInTheDocument();
+describe("EventCard attendance and category qualifiers (§6.2.2, §6.2.5; Refinement 22 Oct 2026)", () => {
+  const secondary = (container: HTMLElement) => container.querySelector("[data-card-secondary]") as HTMLElement;
+
+  it("demo: the sample's count only, labelled a sample; no faces (no real profile photos on a card)", () => {
+    const { container } = render(<EventCard event={event} variant="rail" mode="demo" />);
+    expect(screen.getByText(`${getSampleGoing(event.id).count} going (sample)`)).toBeInTheDocument();
+    expect(container.querySelector(".rounded-dot, img[alt]")).toBeNull();
   });
 
-  it("live: no going row and no reserved space without a server count", () => {
+  it("live: no count and no reserved space without a server count", () => {
     const { container } = render(<EventCard event={event} variant="rail" mode="live" />);
     expect(screen.queryByText(/going/)).toBeNull();
     expect(container.querySelector("[id$='-going']")).toBeNull();
+    expect(secondary(container)).toHaveTextContent(/^Live music$/);
   });
 
-  it("live, trending by going: the server's count, no avatars; the category line keeps only the category", () => {
+  it("live, trending by going: the server's count, as plain text after the category", () => {
     const { container } = render(<EventCard event={event} variant="rail" mode="live" signal={{ kind: "going", count: 14 }} />);
     expect(screen.getByText("14 going")).toBeInTheDocument();
     expect(container.querySelector(".rounded-dot")).toBeNull();
-    expect(container.querySelector("p.eyebrow")).toHaveTextContent(/^Live music$/);
+    expect(secondary(container)).toHaveTextContent(/^Live music · 14 going$/);
     expect(cardLink(event)).toHaveAccessibleName(/ incl\. booking fee 14 going$/);
   });
 
-  it("external: never a going row, demo included; a going signal reads 'Popular'", () => {
+  it("respects the privacy threshold: below three going, no number at all", () => {
+    render(<EventCard event={event} variant="rail" mode="live" signal={{ kind: "going", count: 2 }} />);
+    expect(screen.queryByText(/going/)).toBeNull();
+    expect(cardLink(event)).toHaveAccessibleName(/ incl\. booking fee$/);
+  });
+
+  it("external: never a count, demo included; a going signal reads 'Popular'", () => {
     const { container } = render(<EventCard event={external} variant="rail" mode="demo" signal={{ kind: "going", count: 14 }} />);
     expect(screen.queryByText(/going/)).toBeNull();
     // V9: "Popular" (was "Popular this week").
-    expect(container.querySelector("p.eyebrow")).toHaveTextContent(/^Live music · Popular$/);
+    expect(secondary(container)).toHaveTextContent(/^Live music · Popular$/);
   });
 
   it.each([
@@ -459,9 +472,47 @@ describe("EventCard going row and category qualifiers (§6.2.2, §6.2.5)", () =>
     [{ signal: { kind: "popular" } as const }, "Live music · Popular"],
   ])("one qualifier on the category line: %o", (extra, line) => {
     const { container } = render(<EventCard event={event} variant="rail" mode="live" {...extra} />);
-    expect(container.querySelector("p.eyebrow")).toHaveTextContent(new RegExp(`^${line}$`));
+    expect(secondary(container)).toHaveTextContent(new RegExp(`^${line}$`));
     // Seen, not repeated in the link's name (A10).
     expect(cardLink(event)).not.toHaveAccessibleName(new RegExp(line));
+  });
+});
+
+describe("EventCard states are distinct (Refinement, 22 Oct 2026)", () => {
+  it.each<[string, SheltuhEvent, string, string, string | null]>([
+    ["paid", event, "paid", "From A$36.90 incl. booking fee", "Buy tickets"],
+    ["free", allFree, "free", "Free No booking fee", "Get free tickets"],
+    ["sold out (waitlist)", soldOut, "sold-out", "Sold out", "Join waitlist"],
+    ["external", external, "external", "Tickets on Humanitix", "Get tickets"],
+    ["seated", seated, "seated", "From A$36.90 incl. booking fee", "Choose seats"],
+  ])("%s: its own state, price line and action", (_label, e, state, price, action) => {
+    const { container } = render(<EventCard event={e} variant="rail" mode="live" />);
+    const root = cardRoot(container);
+    expect(root).toHaveAttribute("data-card-state", state);
+    expect(root.querySelector("[data-card-foot]")?.firstElementChild).toHaveTextContent(price);
+    expect(screen.getByRole("link", { name: `${action} for ${e.title}` })).toBeInTheDocument();
+    // Seated says so in the secondary line too.
+    if (state === "seated") expect(root.querySelector("[data-card-secondary]")).toHaveTextContent("Reserved seating");
+  });
+
+  it("ended: its own state, 'Ended', no action and a greyed image", () => {
+    vi.setSystemTime(new Date("2026-10-18T11:00:00.000Z"));
+    const { container } = render(<EventCard event={event} variant="rail" mode="live" />);
+    const root = cardRoot(container);
+    expect(root).toHaveAttribute("data-card-state", "ended");
+    expect(screen.getByText("Ended")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: / for / })).toBeNull();
+    expect(root.querySelector("[data-card-media] > *")).toHaveClass("grayscale");
+  });
+
+  it("the five live states are all different from one another", () => {
+    const states = [event, allFree, soldOut, external, seated].map((e) => {
+      const { container, unmount } = render(<EventCard event={e} variant="grid" mode="live" />);
+      const value = cardRoot(container).getAttribute("data-card-state");
+      unmount();
+      return value;
+    });
+    expect(new Set(states).size).toBe(5);
   });
 });
 

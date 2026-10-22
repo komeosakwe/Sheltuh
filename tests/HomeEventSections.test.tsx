@@ -78,10 +78,10 @@ describe("the home's event sections", () => {
     loadHomeEvents.mockReturnValue(new Promise(() => {}));
     const { container } = renderHome();
     expect(screen.getByRole("status")).toHaveTextContent("Loading events…");
-    const skeleton = container.querySelector("[aria-hidden='true'].mt-8");
+    const skeleton = container.querySelector("[aria-hidden='true'].mt-6");
     // Four placeholders (the fourth from 1024px, where the grid is four across: V10), each with the
-    // rail card's media box (square on phones, 4:5 from 640px).
-    expect(skeleton?.querySelectorAll(".aspect-square.sm\\:aspect-\\[4\\/5\\]")).toHaveLength(4);
+    // rail card's media box (4:3 on phones, square from 640px: the Refinement of 22 Oct 2026).
+    expect(skeleton?.querySelectorAll(".aspect-\\[4\\/3\\].sm\\:aspect-square")).toHaveLength(4);
     expect(screen.queryByRole("heading", { name: "This weekend" })).not.toBeInTheDocument();
     expect(cardHrefs()).toEqual([]);
     expect(container.querySelectorAll("section[data-home-section]")).toHaveLength(0);

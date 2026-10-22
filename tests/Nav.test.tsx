@@ -42,7 +42,8 @@ function linkHrefs(container: HTMLElement) {
 }
 
 describe("Nav — phone menu", () => {
-  it("is a popover invoked by the Menu button, next to a Search link", () => {
+  it("is a popover invoked by the Menu button, next to a Search link (off the home)", () => {
+    pathname = "/events";
     const { menu } = renderNav(fakeAuthValue({ status: "signed-out", configured: true }));
     expect(menu).toHaveAttribute("popover", "auto");
     const button = screen.getByRole("button", { name: "Menu" });
@@ -226,6 +227,7 @@ describe("Nav — desktop row", () => {
 
 describe("Nav — Saved", () => {
   it("puts a Saved heart in the compact bar, between Search and Menu, in every auth state", () => {
+    pathname = "/events";
     for (const auth of [fakeAuthValue({ status: "signed-out" }), fakeAuthValue(), fakeAuthValue({ configured: false, status: "signed-out" })]) {
       const { container } = renderNav(auth);
       const bar = container.querySelector<HTMLElement>("header > div.lg\\:hidden");
@@ -297,13 +299,18 @@ describe("Nav — header", () => {
     expect(search).toHaveAttribute("placeholder", "Search events");
   });
 
-  it("has no header search on the home, where the hero's search is (V16); every other page keeps it", () => {
-    renderNav(fakeAuthValue());
+  // Refinement (22 Oct 2026): the phone bar's search icon goes on the home too, so the hero's field is
+  // the page's one search (no duplicate magnifier).
+  it("has no header search on the home, field or icon, where the hero's search is (V16); every other page keeps both", () => {
+    const { container } = renderNav(fakeAuthValue());
     expect(screen.queryByRole("search")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Search" })).toBeNull();
+    expect(container.querySelector("a[href='/search']")).toBeNull();
     cleanup();
     pathname = "/map";
     renderNav(fakeAuthValue());
     expect(screen.getByRole("search", { name: "Search the site" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Search" })).toHaveAttribute("href", "/search");
   });
 
   it("names its two navigation landmarks distinctly: the desktop row's Primary, the phone menu's Site menu (A11)", () => {

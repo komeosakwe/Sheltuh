@@ -1,6 +1,6 @@
 import Link from "next/link";
+import { filterChipClass } from "@/components/ui/FilterChip";
 import CategoryIcon, { type CategoryIconName } from "./CategoryIcon";
-import SectionHead from "@/components/ui/SectionHead";
 
 /** Every link opens /events with that filter already applied (see app/events/page.tsx). */
 export const HOME_CATEGORIES: { label: string; href: string; icon: CategoryIconName }[] = [
@@ -13,29 +13,33 @@ export const HOME_CATEGORIES: { label: string; href: string; icon: CategoryIconN
 ];
 
 /**
- * "Explore by category" (docs/design/mobile-redesign.md §6.3.6): its own
- * section straight under the hero, above the first event rail, so visitors
- * can narrow down early: six bordered buttons in a grid (three across on
- * phones, so two rows and no sideways scroll; one row from 640px), each
- * opening /events with that filter applied. No "See all": it's the index.
+ * Browse by category (docs/design/mobile-redesign.md, Refinement 22 Oct
+ * 2026; it replaces the six category boxes): one compact row of chips under
+ * the hero's search, "All events" first, then each category, each opening
+ * /events with that filter applied. On a phone the row scrolls sideways
+ * inside its own container (bleeding to the screen edges, so the page never
+ * does); from 640px it wraps. Chips are 44px tall on phones (40px from
+ * 640px), in the /events filter chips' look. A labelled nav, no heading: the
+ * chips say what they are.
  */
 export default function CategoryRow({ className = "" }: { className?: string }) {
   return (
-    <section aria-labelledby="home-cats" className={className}>
-      <SectionHead id="home-cats" title="Explore by category" />
-      <ul className="grid grid-cols-3 gap-2 sm:grid-cols-6 sm:gap-3">
+    <nav aria-label="Browse by category" className={className}>
+      <ul className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto overscroll-x-contain px-5 py-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
+        <li className="flex shrink-0">
+          <Link href="/events" className={filterChipClass(false, "font-semibold")}>
+            All events
+          </Link>
+        </li>
         {HOME_CATEGORIES.map((item) => (
-          <li key={item.href} className="flex">
-            <Link
-              href={item.href}
-              className="flex min-h-18 w-full flex-col items-center justify-center gap-2 rounded-control border border-foreground bg-card px-2 py-3 text-center transition duration-150 hover:bg-surface motion-safe:active:scale-95"
-            >
-              <CategoryIcon name={item.icon} />
-              <span className="text-xs leading-4 font-semibold">{item.label}</span>
+          <li key={item.href} className="flex shrink-0">
+            <Link href={item.href} className={filterChipClass(false)}>
+              <CategoryIcon name={item.icon} className="h-4 w-4" />
+              {item.label}
             </Link>
           </li>
         ))}
       </ul>
-    </section>
+    </nav>
   );
 }

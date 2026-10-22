@@ -105,6 +105,44 @@ for (const vp of [
       checkNoApiCalls();
     });
 
+    // Refinement (owner, 22 Oct 2026): one clear sample-data disclosure per page (the slim banner at the
+    // top), plus the existing non-booking notices where you'd book; no repeated bulky notices.
+    test("one sample-data banner per page, and the non-booking notices at the booking points", async ({ page }) => {
+      const checkNoApiCalls = noApiCalls(page);
+      await page.goto("/");
+      await expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 60_000 });
+      const banner = page.locator("[data-demo-banner]");
+      await expect(banner).toHaveCount(1);
+      await expect(banner).toBeVisible();
+      await expect(banner).toContainText("No real bookings.");
+      // Directly under the header, inside main, and the page's only demo note.
+      expect(await banner.evaluate((el) => el.parentElement?.id)).toBe("main");
+      await expect(page.locator("main [role='note']")).toHaveCount(1);
+      // Demo counts on cards stay labelled.
+      await expect(page.locator("[data-event-card] [data-card-secondary]").filter({ hasText: /going/ }).first()).toContainText("(sample)");
+
+      const now = Date.now();
+      const event = sampleEvents.find(
+        (e) =>
+          (e.ticketingMode ?? "sheltuh") === "sheltuh" &&
+          !e.seating &&
+          !e.soldOut &&
+          e.ticketTypes.some((t) => t.priceCents > 0) &&
+          Date.parse(e.startsAt) > now,
+      );
+      test.skip(!event, "no upcoming paid sample event left to check");
+      if (!event) return;
+      await page.goto(`/events/${event.slug}`);
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 60_000 });
+      await expect(page.locator("[data-demo-banner]")).toHaveCount(1);
+      await expect(page.getByText(/fictional sample data/)).toHaveCount(0);
+      // The booking points still say nothing is booked here.
+      await expect(page.locator("#tickets")).toContainText(/Checkout unavailable in this demo/i);
+      await expect(page.getByRole("region", { name: "Who's going" }).getByRole("note")).toContainText("These names are samples.");
+      await noSidewaysScroll(page);
+      checkNoApiCalls();
+    });
+
     test("Add to calendar's Apple link is the event's .ics, served inline as text/calendar", async ({ page }) => {
       const checkNoApiCalls = noApiCalls(page);
       await page.goto("/events/thornbury-dub-session");

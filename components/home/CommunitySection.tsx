@@ -1,49 +1,67 @@
 "use client";
 
-import Link from "next/link";
 import { ButtonLink } from "@/components/ui/Button";
-import GoingStack from "@/components/ui/GoingStack";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
-import { initialsFor } from "@/lib/initials";
-import { getSampleGoing } from "@/lib/sample-going";
-import { isApiConfigured } from "@/lib/api/client";
-
-/** Demo only: fictional initials. Live shows no stack (no blank tiles), since signed-out visitors never receive names. */
-const DEMO_INITIALS = isApiConfigured
-  ? undefined
-  : getSampleGoing("home-community").attendees.slice(0, 5).map((a) => initialsFor(a.displayName));
+import { cardGoing } from "@/lib/event-card";
+import { popularEvents, type TrendingSignal } from "@/lib/home-sections";
+import type { SheltuhEvent } from "@/lib/types";
+import { useOptionalHomeEvents } from "./HomeEventsProvider";
 
 /**
- * What Who's Going shows whom, in order (mobile-redesign.md §6.4.4), as the
- * code does it: anyone sees the count (from three people up); a signed-in
- * member with a verified email and a free profile sees the names, ticket or
- * not; adding yourself needs a ticket booked with that email; and messaging
- * needs you on the same list.
+ * The benefit, as the code does it (docs/design/mobile-redesign.md,
+ * Refinement 22 Oct 2026): anyone sees the count from three people; names
+ * and faces need a free profile with a verified email. How to add yourself
+ * (after getting a ticket) is explained where you'd do it: the event page's
+ * Who's Going panel ("How Who's Going works").
  */
-export const COMMUNITY_INTRO =
-  "Anyone can see how many are going, once there are three or more. Make a free profile and you’ll see who.";
-export const COMMUNITY_STEPS = [
-  "Sign up and make a free profile to see who’s going.",
-  "Got a ticket? Add yourself to the list, only if you want to.",
-  "Once you’re on the list, say hi to others going before the night.",
-] as const;
+export const COMMUNITY_BENEFIT =
+  "Every event shows how many are going once three people have added themselves. Make a free profile to see who.";
+
+interface Example {
+  title: string;
+  count: number;
+  sample: boolean;
+}
 
 /**
- * "Find your people" (docs/design/mobile-redesign.md §6.4.4): the page's one
- * orange band, full-bleed (so the caller places it outside the page
- * container). Its promise is the real access rule: the names are visible to
- * members before they book (a profile is free and needs no ticket); a
- * ticket lets you add yourself, and being on the list lets you message the
- * others on it. It never shows a community size.
- * `#find-your-people` links land here, focus included (tabIndex -1). The CTA
- * sends signed-in members to find an event and everyone else (including
- * while auth is still loading, which is also the server render) to sign up,
- * with "Browse events" beside it, since buying a ticket needs no account.
+ * One real example for the band, or none: the first event on the page that
+ * has a count to show (the same rule as the cards: live, the server's
+ * thresholded trending count; demo, the sample's count, labelled as one).
+ * Never an invented number, and never faces (the home has no names).
+ */
+function pickExample(mode: "demo" | "live", candidates: { event: SheltuhEvent; signal?: TrendingSignal }[]): Example | null {
+  for (const { event, signal } of candidates) {
+    const going = cardGoing(event, mode, signal);
+    if (going) return { title: event.title, count: going.count, sample: going.sample };
+  }
+  return null;
+}
+
+/**
+ * "Find your people" (docs/design/mobile-redesign.md §6.4.4, compressed in
+ * the Refinement of 22 Oct 2026): the page's one orange band, full-bleed (the
+ * caller places it outside the page container). A calm heading, one benefit
+ * line, a compact example (a real count from an event on this page, or the
+ * demo's sample count, labelled; nothing when there's none) and one action:
+ * sign up free (or, signed in, find an event). Buying a ticket needs no
+ * account; the hero's search and the cards are the way to events. The step-by-step lives in the
+ * event page's Who's Going panel, where you'd act on it.
+ * `#find-your-people` links land here, focus included (tabIndex -1).
  * Black on orange throughout (6.18:1); never an orange button here.
  */
 export default function CommunitySection({ className = "" }: { className?: string }) {
   const auth = useOptionalAuth();
   const signedIn = auth?.status === "signed-in";
+  const home = useOptionalHomeEvents();
+  const sections = home?.state.status === "ready" ? home.state.sections : null;
+  const example = home && sections
+    ? pickExample(home.mode, [
+        ...(sections.popular?.kind === "popular"
+          ? sections.popular.items.map(({ event, signal }) => ({ event, signal }))
+          : popularEvents(sections.popular).map((event) => ({ event }))),
+        ...(sections.weekend.status === "cards" ? sections.weekend.items.map((event) => ({ event })) : []),
+      ])
+    : null;
 
   return (
     <section
@@ -53,48 +71,31 @@ export default function CommunitySection({ className = "" }: { className?: strin
       data-surface="signal"
       className={`focus:outline-none ${className}`.trim()}
     >
-      <div className="mx-auto max-w-6xl px-5 py-10 sm:grid sm:grid-cols-2 sm:gap-x-8 sm:px-8 sm:py-16">
+      <div className="mx-auto max-w-6xl px-5 py-8 sm:grid sm:grid-cols-[1fr_auto] sm:items-end sm:gap-x-10 sm:px-8 sm:py-10">
         <div>
-          <p className="eyebrow">Find your people</p>
-          <h2 id="home-people" className="display-lg font-display mt-3">
-            See who’s going before you book.
+          <h2 id="home-people" className="display-md">
+            See who’s going before you book
           </h2>
-          <GoingStack size="lg" initials={DEMO_INITIALS} className="mt-6" />
-        </div>
-        <div className="mt-6 sm:mt-0">
-          <p className="max-w-md text-base leading-6 sm:text-lg sm:leading-7">
-            {COMMUNITY_INTRO}
-          </p>
-          <ol className="mt-5 grid gap-3 sm:grid-cols-3 sm:gap-6">
-            {COMMUNITY_STEPS.map((step, i) => (
-              <li key={step} className="border-t border-foreground pt-3">
-                {/* The list's own order is what's read; the number is for the eye. */}
-                <span aria-hidden="true" data-step-number="" className="meta">
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-                <p className="mt-1 text-sm leading-5">{step}</p>
-              </li>
-            ))}
-          </ol>
-          {signedIn ? (
-            <ButtonLink href="/events" variant="solid" size="lg" className="mt-6 w-full sm:w-auto">
-              Find an event
-            </ButtonLink>
-          ) : (
-            // Signing up isn't needed to book: the way to events stays one tap away.
-            <div className="mt-6 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-6">
-              <ButtonLink href="/signup" variant="solid" size="lg" className="w-full sm:w-auto">
-                Join the community
-              </ButtonLink>
-              <Link
-                href="/events"
-                className="inline-flex min-h-11 items-center text-base leading-6 font-semibold underline underline-offset-4 hover:decoration-2"
-              >
-                Browse events
-              </Link>
-            </div>
+          <p className="mt-2 max-w-md text-base leading-6">{COMMUNITY_BENEFIT}</p>
+          {example && (
+            <p data-community-example="" className="mt-4 flex flex-wrap items-baseline gap-x-2 text-sm leading-5">
+              <span className="font-heading text-2xl leading-none tabular-nums">{example.count}</span>{" "}
+              <span>
+                going to <span className="font-semibold">{example.title}</span>
+                {example.sample && " (sample)"}
+              </span>
+            </p>
           )}
         </div>
+        {/* The one action: signed out (or while auth loads, the server render), sign up; signed in, find an event. */}
+        <ButtonLink
+          href={signedIn ? "/events" : "/signup"}
+          variant="solid"
+          size="lg"
+          className="mt-5 w-full sm:mt-0 sm:w-auto"
+        >
+          {signedIn ? "Find an event" : "Sign up free"}
+        </ButtonLink>
       </div>
     </section>
   );

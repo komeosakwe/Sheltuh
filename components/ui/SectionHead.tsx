@@ -1,17 +1,17 @@
 import Link from "next/link";
-import DotsMark from "@/components/brand/DotsMark";
 import { ArrowRightIcon } from "@/components/home/icons";
 
 /**
- * The site's one section head (docs/design/mobile-redesign.md §6.3.3), on
- * the home, profiles and Saved alike: a black rule, then the h2 (the brand
- * dots before it, centred on its first line) and an optional link beside it,
- * on the h2's baseline. There's no mono strap repeating the title: the only
- * line under the h2 is an optional `note` with real context (This weekend's
- * dates), read after the heading. A long title wraps in balanced lines. The
- * h2 can take focus from script (tabIndex -1: the home's Try again moves
- * focus to the first section's heading, and #anchors land on it), never
- * from Tab.
+ * The site's one section head (docs/design/mobile-redesign.md §6.3.3 and its
+ * Refinement, 22 Oct 2026), on the home, profiles and Saved alike: a calm
+ * sentence-case h2 (display-md) and an optional link beside it, on the h2's
+ * first-line baseline. No rule and no brand dots: the space above a section
+ * separates it, and heavy uppercase is kept for the page's main headline.
+ * The only line under the h2 is an optional `note` with real context (This
+ * weekend's dates), read after the heading. A long title wraps in balanced
+ * lines. The h2 can take focus from script (tabIndex -1: the home's Try
+ * again moves focus to the first section's heading, and #anchors land on
+ * it), never from Tab.
  *
  * `link`: "See all" by default, named for screen readers by `srLabel`
  * ("See all organisers you follow"). Where the target isn't this section's
@@ -31,16 +31,12 @@ export default function SectionHead({
 }) {
   const label = link?.label ?? "See all";
   return (
-    <div className="mb-3 flex items-baseline justify-between gap-4 border-t border-foreground pt-3 sm:mb-5">
+    <div className="mb-3 flex items-baseline justify-between gap-4 sm:mb-4">
       <div className="min-w-0">
-        {/* The title alone sets the baseline (the dots' box is self-start, out of it), so the link lines up with its first line. */}
-        <h2 id={id} tabIndex={-1} className="display-md flex items-baseline gap-2">
-          <span className="flex h-lh shrink-0 items-center self-start">
-            <DotsMark size="xs" className="text-signal" />
-          </span>
-          <span className="min-w-0 break-words text-balance">{title}</span>
+        <h2 id={id} tabIndex={-1} className="display-md break-words text-balance">
+          {title}
         </h2>
-        {note && <p className="meta mt-1 text-muted">{note}</p>}
+        {note && <p className="mt-0.5 text-sm leading-5 text-muted">{note}</p>}
       </div>
       {link && (
         <Link

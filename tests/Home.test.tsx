@@ -25,34 +25,32 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
     // The brief's order (mobile-redesign.md §6.3.1): Trending and Coming up are one slot, and Free &
     // low-cost and Only in the city have left the home (the latter is at the end of /events).
-    // Owner feedback (22 Oct 2026): the category buttons sit straight under the hero, above This weekend.
+    // Refinement (22 Oct 2026): the category chips are a labelled nav under the search, with no heading.
     expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
-      "Explore by category",
       "This weekend",
       "Popular right now",
-      "See who’s going before you book.",
+      "See who’s going before you book",
       "Bring your event to life",
     ]);
-    // Find your people is the band's name for sighted readers (its eyebrow) and its jump target.
-    expect(screen.getByText("Find your people").closest("#find-your-people")).not.toBeNull();
+    expect(screen.getByRole("heading", { level: 2, name: "See who’s going before you book" }).closest("#find-your-people")).not.toBeNull();
     expect(screen.getByRole("search", { name: "Search events" })).toBeInTheDocument();
   });
 
-  it("puts the six category buttons between the hero and the first event section, each to its /events filter", async () => {
+  it("puts the category row between the hero and the first event section, each chip to its /events filter", async () => {
     render(<Home />);
     await settle();
     const hero = screen.getByRole("region", { name: "Find your next thing." });
-    const categories = screen.getByRole("region", { name: "Explore by category" });
+    const categories = screen.getByRole("navigation", { name: "Browse by category" });
     const weekend = screen.getByRole("region", { name: "This weekend" });
     expect(hero.compareDocumentPosition(categories) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(categories.compareDocumentPosition(weekend) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // Nothing else in between: the next section after the categories is This weekend.
-    const sections = Array.from(document.querySelectorAll("main section, section")).filter((el) =>
-      el.hasAttribute("aria-labelledby"),
-    );
-    expect(sections.indexOf(weekend) - sections.indexOf(categories)).toBe(1);
+    // Nothing else in between: the next section after the hero is This weekend.
+    const sections = Array.from(document.querySelectorAll("section")).filter((el) => el.hasAttribute("aria-labelledby"));
+    expect(sections.indexOf(weekend) - sections.indexOf(hero)).toBe(1);
+    expect(hero.nextElementSibling).toBe(categories);
     const links = within(categories).getAllByRole("link");
     expect(links.map((l) => l.getAttribute("href"))).toEqual([
+      "/events",
       "/events?category=live-music",
       "/events?category=art",
       "/events?category=workshop",
@@ -91,10 +89,16 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     expect(new Set(hrefs).size).toBe(hrefs.length);
   });
 
-  it("says the listings are samples, and every quick-buy link says 'Buy tickets' ('Get free tickets', or an external event's 'Get tickets'), as live", async () => {
-    render(<Home />);
+  it("labels every demo count a sample, repeats no page-level demo notice, and every quick-buy link says 'Buy tickets' ('Get free tickets', or an external event's 'Get tickets'), as live", async () => {
+    const { container } = render(<Home />);
     await settle();
-    expect(screen.getByRole("note")).toHaveTextContent("Demo — sample events");
+    // The page's one sample-data disclosure is the layout's DemoBanner (not rendered here): no other notice.
+    expect(screen.queryByRole("note")).toBeNull();
+    const counts = Array.from(container.querySelectorAll("[data-event-card] [id$='-going']"));
+    expect(counts.length).toBeGreaterThan(3);
+    for (const count of counts) expect(count).toHaveTextContent(/^\d+ going \(sample\)$/);
+    // The band's example is a real sample count from a card on the page, labelled too.
+    expect(container.querySelector("[data-community-example]")).toHaveTextContent(/^\d+ going to .+ \(sample\)$/);
     const quick = screen.getAllByRole("link", { name: /tickets for/ });
     expect(quick.length).toBeGreaterThan(5);
     for (const link of quick) {

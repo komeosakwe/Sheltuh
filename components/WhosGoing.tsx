@@ -16,6 +16,7 @@ import { endSentence } from "@/lib/display-name";
 import { withNext } from "@/lib/safe-next-path";
 import ActionErrorNotice from "./whos-going/ActionErrorNotice";
 import ConsentCopy from "./whos-going/ConsentCopy";
+import HowItWorks from "./whos-going/HowItWorks";
 import GoingFaces, { facesSummary } from "./whos-going/GoingFaces";
 import NameList from "./whos-going/NameList";
 import OptInForm, { type OptInResult } from "./whos-going/OptInForm";
@@ -313,6 +314,9 @@ export default function WhosGoing() {
 
         {data && renderReady(data)}
 
+        {/* The how-to, here where you'd act on it (it left the home's band). */}
+        {data && <HowItWorks />}
+
         {/* One polite live region for the panel, always mounted. */}
         <p role="status" className="sr-only">
           {state.status === "error" ? LOAD_ERROR : announcement}
@@ -350,7 +354,7 @@ export default function WhosGoing() {
             {countShown && (
               <p className="flex items-baseline gap-2">
                 <span className="font-heading text-2xl leading-none font-bold tabular-nums">{d.count}</span>{" "}
-                <span className="eyebrow text-muted">going</span>
+                <span className="text-sm text-muted">going</span>
               </p>
             )}
           </div>

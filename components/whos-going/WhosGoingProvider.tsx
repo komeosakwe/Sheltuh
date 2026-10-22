@@ -6,11 +6,12 @@ import { getGoingSummary, getMyGoingStatus, listGoingAttendees } from "@/lib/api
 import type { GoingAttendee, MyGoingStatus, ProfileRecord } from "@/lib/api/types";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { fetchMyProfile } from "@/lib/auth/useProfile";
+import { GOING_COUNT_MIN } from "@/lib/event-card";
 import { getSampleGoing } from "@/lib/sample-going";
 import type { TicketingMode } from "@/lib/ticketing";
 
-/** Below this many people, no number is shown anywhere (honest at small numbers). */
-export const COUNT_THRESHOLD = 3;
+/** Below this many people, no number is shown anywhere (honest at small numbers). Cards share it. */
+export const COUNT_THRESHOLD = GOING_COUNT_MIN;
 
 export type GoingViewer =
   | { kind: "signed-out" }
