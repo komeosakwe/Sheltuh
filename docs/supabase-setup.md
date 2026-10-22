@@ -493,8 +493,10 @@ have recorded.
 
 Guest free orders that were never confirmed are deleted a week after their
 link expired, along with idle platform counters, free-booking refusal counts
-older than 13 months, and ticket-email jobs (sent ones after 90 days, failed
-ones after a year), by `private.purge_operational_data()`:
+older than 13 months, email jobs (sent ones after 90 days, failed ones
+after a year), refunds Stripe reported before their payment was recorded
+(after 35 days) and resolved payment exceptions (2 years after resolution;
+open ones are never deleted), by `private.purge_operational_data()`:
 
 ```sql
 select cron.schedule('purge-operational-data', '37 3 * * *', $$select private.purge_operational_data()$$);
@@ -554,7 +556,8 @@ where website_url ~* '^http://' or website_url ~ '^[A-Za-z]+://[^/?#]*@';
    - Events: `checkout.session.completed`,
      `checkout.session.async_payment_succeeded`,
      `checkout.session.async_payment_failed`, `checkout.session.expired`,
-     `refund.updated`, `refund.failed`, `charge.refunded`
+     `refund.updated`, `refund.failed`, `charge.refunded`,
+     `charge.refund.updated`
    - Its signing secret (`whsec_…`) → `STRIPE_WEBHOOK_SECRET`
 
    For local testing: `stripe listen --forward-to localhost:3000/api/stripe/webhook`
@@ -569,14 +572,31 @@ each. An endpoint created before this event was handled must have it added
 Without it, a refund made in the Stripe dashboard leaves the order `paid`
 and its tickets valid.
 
+**Payment exceptions.** Anything about a payment that needs a person is
+recorded in `private.payment_exceptions` and listed by
+`GET /api/admin/payment-exceptions` (admin; `?status=resolved` for closed
+ones): a refund Stripe reports `failed`, `canceled` or `requires_action`
+(`urgent` when its order was already voided: the buyer has neither tickets
+nor their money), a partial refund, or an automatic refund the app couldn't
+request. Each new one emails an ops alert to `OPS_ALERT_EMAIL` (at most 20 a
+day; unset: logged only). Nothing is ever restored or refunded again
+automatically: refund again in the Stripe dashboard if needed, then close it
+with `POST /api/admin/payment-exceptions/{exceptionId}/resolve {"note": "…"}`.
+A refund that later succeeds closes its exception by itself.
+
 **Refunding a paid order.** Refund it from the Stripe dashboard (Payments →
 the payment → Refund). For a destination charge, choose whether to reverse
 the organiser's transfer and refund Sheltüh's application fee there; the app
 doesn't decide. A **full** refund marks the order `refunded`: its tickets are
 void (the confirmation page no longer shows them) and they go back on sale.
 A **partial** refund is only recorded: the order stays `paid` and its tickets
-stay valid, and the server logs `Order #… was partly refunded in Stripe …
-Review it manually.` Refunding the rest voids the whole order. Disputes
+stay valid, the server logs `Order #… was partly refunded in Stripe …
+Review it manually.` and a `partial_refund` payment exception is opened.
+Refunding the rest voids the whole order (and closes the exception). A
+refund made before the order's payment webhook was processed (only if that
+webhook failed and is waiting for Stripe's retry) is held until the payment
+arrives: in full, the order becomes `refunded` with no tickets ever issued;
+in part, the tickets are issued and the exception opened. Disputes
 aren't handled automatically (docs/architecture.md, "Refunds made in
 Stripe"). Partly refunded orders:
 

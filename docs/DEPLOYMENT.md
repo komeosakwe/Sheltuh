@@ -72,6 +72,10 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       12. `20261102000000_seating_hardening.sql`
       13. `20261102000100_social_hardening.sql`
       14. `20261103000000_seat_hold_client_limits.sql`
+      15. `20261104000000_payment_reconciliation.sql` (deploy the app with
+          it: the previous version keeps working against it, but only this
+          one sends ops alerts and records refunds that arrive before their
+          payment)
 - [ ] **`CRON_SECRET`** in Vercel (Production): a long random string
       (`openssl rand -hex 32`). Without it `/api/cron/email-outbox` and
       `/api/cron/trending` refuse every call: failed ticket emails are never
@@ -88,6 +92,15 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       events listed in `supabase-setup.md` §2. Without it a refund made in
       the Stripe dashboard leaves the order paid and its tickets valid at the
       door.
+- [ ] **Stripe webhook `charge.refund.updated`** too (with `refund.updated`
+      and `refund.failed`): how a dashboard refund that fails after its order
+      was voided becomes a payment exception and an ops alert.
+- [ ] **`OPS_ALERT_EMAIL`** (optional) in Vercel (Production): where ops
+      alerts go (e.g. `support@sheltuh.com.au`). Without it, alerts are only
+      logged; check `GET /api/admin/payment-exceptions` instead. Before go-live,
+      in Stripe test mode, refund a payment made with card
+      `4000 0000 0000 5126` (its refund fails after succeeding) and confirm an
+      exception and an alert appear.
 - [ ] **Email footer banner** hosted at exactly
       `https://sheltuh.com.au/images/email-footer.png` (the ticket email
       links this fixed URL, `EMAIL_FOOTER_IMAGE_URL` in
@@ -157,7 +170,9 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        `NEXT_PUBLIC_SITE_URL`, `DATABASE_URL` (transaction pooler, port 6543),
        `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SMTP_*`, `EMAIL_FROM`.
        Optional: `NEXT_PUBLIC_DISABLE_SERVICE_WORKER=1` turns the offline
-       service worker off (needs a fresh build; see `docs/pwa.md`).
+       service worker off (needs a fresh build; see `docs/pwa.md`);
+       `OPS_ALERT_EMAIL` (ops alerts about payment exceptions; unset = logged
+       only).
        **Never** add `SUPABASE_SECRET_KEY` (local script only).
 2. [ ] Pro plan once you sell tickets (Hobby is non-commercial).
 3. [ ] Domain: attach `sheltuh.com.au` (see PROJECT_CONTEXT for the Cloudflare
