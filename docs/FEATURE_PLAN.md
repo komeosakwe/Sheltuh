@@ -206,3 +206,36 @@ edits; admin removal). An approved organiser's video edit isn't reviewed
 2026):** Follow button with the email choice, the home rail, the organiser
 page's click-to-load video and counts, `/following/unsubscribe`, the video
 field in the profile form and the admin "remove video" action.
+
+### Owner decisions (22 Oct 2026): payment and operations audit
+
+The owner confirmed the recommended defaults for all twelve audit decisions
+(plan: payments reconciliation, refund exceptions, email retries, checkout
+idempotency, journey harness):
+
+1. A full refund recorded before the payment is fulfilled leaves the order
+   `refunded`: no tickets, no inventory taken.
+2. An early partial refund still issues tickets, records the amount and opens a
+   payment exception for review.
+3. A full `charge.refunded` voids tickets and releases inventory immediately,
+   even while the refund is still pending.
+4. A refund that fails or is cancelled after the void opens a payment exception
+   and an alert. No automatic ticket restore and no automatic re-refund: any
+   re-refund is done by hand in Stripe, any restore through a reviewed runbook.
+5. Ops alerts go to `OPS_ALERT_EMAIL` (recommended value
+   support@sheltuh.com.au), at most 20 a day, with no buyer data.
+6. On Hobby, email retries run every 5 minutes from Supabase Cron + pg_net,
+   scheduled by the owner (docs/supabase-setup.md §3). On Pro, `vercel.json`
+   moves to `*/5` and the Supabase job is unscheduled.
+7. Paid GA checkout: per client 20 per event and 60 in total per 10 minutes.
+   The per-event figure (600 per 10 minutes) is an alert-only circuit breaker
+   (security review), never a 429 to buyers.
+8. `Idempotency-Key` is optional now and becomes required one release later.
+9. The journey harness may use a local fake Stripe API, only with `sk_test_`
+   keys.
+10. The owner runs the Stripe test-mode checks (including the refund-failure
+    card 4000 0000 0000 5126) and the real-phone checklist (docs/testing.md)
+    before go-live.
+11. Retention: early refunds 35 days, checkout attempts 2 days, resolved
+    payment exceptions 2 years, open ones never deleted.
+12. Disputes stay manual for launch.
