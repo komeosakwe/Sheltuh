@@ -191,7 +191,8 @@ describe("profile photo", () => {
     resolve({ ...PROFILE, hasAvatar: true, avatarUrl: "/api/profiles/me/avatar?v=2" });
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ hasAvatar: true })));
     expect(screen.getAllByRole("status").some((s) => s.textContent === "Photo saved.")).toBe(true);
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:1");
+    // The preview is revoked by an effect cleanup after the busy state clears, a render after onSaved.
+    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:1"));
   });
 
   it("explains a refused upload (413)", async () => {
