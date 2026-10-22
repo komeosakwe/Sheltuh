@@ -59,6 +59,8 @@ describe("Who's Going names (demo)", () => {
         <EventDetailsView event={event} demo />
       </FakeAuthProvider>,
     );
+    // The panel opens on a preview; the names are behind "See who's going" (mobile-redesign.md §6.4.2).
+    fireEvent.click(await screen.findByRole("button", { name: "See who’s going" }));
     const list = await screen.findByRole("list", { name: "People going" });
     const shown = sample.attendees.slice(0, 6);
     const members = shown.filter((a) => a.profileId);

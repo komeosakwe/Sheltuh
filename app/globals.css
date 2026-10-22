@@ -235,21 +235,22 @@ h4 {
   }
 }
 
-/* Section h2 and empty-state titles: 24/26, 28/30 from sm, 32/34 from lg. */
+/* Section h2 and empty-state titles, one smaller step (docs/design/mobile-redesign.md §3.2.1):
+   20/22, 24/26 from sm, 28/30 from lg. */
 @utility display-md {
   font-family: var(--face-sans);
   font-weight: 700;
-  font-size: 1.5rem;
-  line-height: 1.625rem;
+  font-size: 1.25rem;
+  line-height: 1.375rem;
   letter-spacing: -0.03em;
   text-transform: uppercase;
   @media (width >= 40rem) {
-    font-size: 1.75rem;
-    line-height: 1.875rem;
+    font-size: 1.5rem;
+    line-height: 1.625rem;
   }
   @media (width >= 64rem) {
-    font-size: 2rem;
-    line-height: 2.125rem;
+    font-size: 1.75rem;
+    line-height: 1.875rem;
   }
 }
 

@@ -71,7 +71,7 @@ async function settle() {
 }
 
 describe("home: From organisers you follow", () => {
-  it("signed in with follows: right after This weekend, before Trending, linking to the follows page", async () => {
+  it("signed in with follows: right after This weekend, before Popular right now, linking to the follows page", async () => {
     loadHomeFollowing.mockResolvedValue([FOLLOWED, T[0]]);
     render(
       <FakeAuthProvider value={fakeAuthValue({ email: "mia@example.com" })}>
@@ -84,11 +84,11 @@ describe("home: From organisers you follow", () => {
     const rail = await screen.findByRole("region", { name: "From organisers you follow" });
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
     expect(headings.indexOf("From organisers you follow")).toBe(headings.indexOf("This weekend") + 1);
-    expect(headings.indexOf("Trending")).toBe(headings.indexOf("From organisers you follow") + 1);
+    expect(headings.indexOf("Popular right now")).toBe(headings.indexOf("From organisers you follow") + 1);
     expect(within(rail).getByRole("link", { name: /^Event followed/ })).toBeInTheDocument();
     expect(within(rail).getByRole("link", { name: "See all organisers you follow" })).toHaveAttribute("href", "/following");
-    // T0 moved up into the rail: Trending doesn't repeat it.
-    const trending = screen.getByRole("region", { name: "Trending" });
+    // T0 moved up into the rail: Popular right now doesn't repeat it.
+    const trending = screen.getByRole("region", { name: "Popular right now" });
     expect(within(trending).queryByRole("link", { name: /^Event t0/ })).toBeNull();
   });
 
@@ -102,7 +102,7 @@ describe("home: From organisers you follow", () => {
       </FakeAuthProvider>,
     );
     await settle();
-    await screen.findByRole("region", { name: "Trending" });
+    await screen.findByRole("region", { name: "Popular right now" });
     expect(screen.queryByRole("region", { name: "From organisers you follow" })).toBeNull();
   });
 
@@ -115,7 +115,7 @@ describe("home: From organisers you follow", () => {
       </FakeAuthProvider>,
     );
     await settle();
-    await screen.findByRole("region", { name: "Trending" });
+    await screen.findByRole("region", { name: "Popular right now" });
     expect(loadHomeFollowing).not.toHaveBeenCalled();
   });
 

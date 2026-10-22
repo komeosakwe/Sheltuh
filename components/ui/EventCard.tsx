@@ -27,6 +27,16 @@ const SMALL: Record<EventCardVariant, string> = {
   rail: "text-sm leading-5",
   grid: "text-xs leading-4 sm:text-sm sm:leading-5",
 };
+/**
+ * The media box. A phone rail card is square, so the photo and the text fit
+ * one screen with the next card peeking (a 4:5 rail card ran too tall);
+ * portrait posters show whole there (`fit="auto"` letterboxes them on black
+ * rather than cropping). Everywhere else, 4:5.
+ */
+const MEDIA: Record<EventCardVariant, string> = {
+  rail: "aspect-square sm:aspect-[4/5]",
+  grid: "aspect-[4/5]",
+};
 
 /**
  * The one event card (docs/design/mobile-redesign.md §6.2), image first with
@@ -45,15 +55,13 @@ const SMALL: Record<EventCardVariant, string> = {
  * {organiser}". Keyboard focus rings the whole card (the link's own ring is
  * suppressed in globals.css, only where `:has()` works).
  *
- * `signal` (Trending) and `badge` (Free & low-cost) add one qualifier to the
- * category line. `mode` decides the going row (default: the app's mode).
+ * `signal` (Popular right now) adds one qualifier to the category line. `mode` decides the going row (default: the app's mode).
  */
 export default function EventCard({
   event,
   variant,
   mode = isApiConfigured ? "live" : "demo",
   signal,
-  badge,
   showSave = true,
   showOrganiser = true,
   now = new Date(),
@@ -63,7 +71,6 @@ export default function EventCard({
   variant: EventCardVariant;
   mode?: "demo" | "live";
   signal?: TrendingSignal;
-  badge?: "free" | "low-cost";
   showSave?: boolean;
   /** `grid` only: "By {organiser}", where the organiser has a profile (off on their own profile). */
   showOrganiser?: boolean;
@@ -72,7 +79,7 @@ export default function EventCard({
 }) {
   const href = `/events/${event.slug}`;
   const external = event.ticketingMode === "external";
-  const qualifier = signal ? signalLabel(signal, external) : badge ? (badge === "free" ? "Free" : "Under A$20") : null;
+  const qualifier = signal ? signalLabel(signal, external) : null;
   const category = [categoryLabel(event), qualifier].filter(Boolean).join(" · ");
   const date = cardDateLabel(event, now);
   const place = placeLabel(event);
@@ -103,7 +110,8 @@ export default function EventCard({
           poster={event.poster}
           imageUrl={event.imageUrl}
           title={event.title}
-          className="aspect-[4/5] w-full motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out motion-safe:group-hover/card:scale-[1.03]"
+          fit={variant === "rail" ? "auto" : "cover"}
+          className={`${MEDIA[variant]} w-full motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out motion-safe:group-hover/card:scale-[1.03]`}
         />
       </div>
       <div className="flex min-w-0 flex-col gap-1 pt-3">
@@ -170,11 +178,11 @@ export default function EventCard({
   );
 }
 
-/** A card's shape while events load: 4:5 media and four text bars. No shimmer. */
+/** A card's shape while events load: the variant's media box and four text bars. No shimmer. */
 export function EventCardPlaceholder({ variant, className = "" }: { variant: EventCardVariant; className?: string }) {
   return (
     <div aria-hidden="true" className={`flex flex-col ${WIDTH[variant]} ${className}`.trim()}>
-      <div className="aspect-[4/5] rounded-card bg-surface" />
+      <div className={`${MEDIA[variant]} rounded-card bg-surface`} />
       <div className="flex flex-col gap-2 pt-3">
         <div className="h-3 w-16 max-w-full bg-surface" />
         <div className="h-3 w-24 max-w-full bg-surface" />

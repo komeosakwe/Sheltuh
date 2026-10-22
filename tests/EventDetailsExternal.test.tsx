@@ -83,6 +83,15 @@ describe("external event: the tickets section", () => {
     expect(container).not.toHaveTextContent(/incl\. booking fee/);
   });
 
+  it("has no Sheltüh booking info (their terms apply), but still offers directions once", () => {
+    const { container } = render(<EventDetailsView event={HUMANITIX} demo={false} />);
+    const { tickets } = parts(container);
+    expect(within(tickets).queryByRole("link", { name: "Request a refund" })).toBeNull();
+    expect(within(tickets).queryByRole("link", { name: "Purchase Terms" })).toBeNull();
+    expect(tickets).toHaveTextContent("Their terms apply.");
+    expect(within(container).getAllByRole("link", { name: /^Get directions to / })).toHaveLength(1);
+  });
+
   it("counts the click with the beacon, without stopping the link", () => {
     const { container } = render(<EventDetailsView event={HUMANITIX} demo={false} />);
     const link = within(parts(container).tickets).getByRole("link", { name: /^Get tickets on Humanitix/ });

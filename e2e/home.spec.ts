@@ -47,7 +47,11 @@ function fixtures(now: number): PublicEvent[] {
   });
 }
 
-async function mockApi(page: Page) {
+/**
+ * `trending`: serve the trending list (the last few events, labelled
+ * "popular"); otherwise it's a 404 and the home's third slot is Coming up.
+ */
+async function mockApi(page: Page, { trending = false }: { trending?: boolean } = {}) {
   const events = fixtures(Date.now()).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   await page.route("**/api/**", (route) => {
     const url = new URL(route.request().url());
@@ -55,12 +59,15 @@ async function mockApi(page: Page) {
       expect(url.searchParams.get("upcoming")).toBe("1");
       return route.fulfill({ json: { items: events, nextCursor: undefined } });
     }
+    if (trending && url.pathname === "/api/events/trending") {
+      return route.fulfill({ json: { items: events.slice(-4).map((event) => ({ event, label: "popular" })) } });
+    }
     return route.fulfill({ status: 404, json: { error: "not mocked in e2e" } });
   });
 }
 
-async function openHome(page: Page) {
-  await mockApi(page);
+async function openHome(page: Page, options?: { trending?: boolean }) {
+  await mockApi(page, options);
   await page.goto("/");
   await expect(page.locator("[data-home-section]").first()).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
@@ -114,8 +121,9 @@ for (const vp of VIEWPORTS) {
       );
       expect(overflow).toBeLessThanOrEqual(0);
 
-      // The trending request isn't mocked here (404): the page shows no Trending, and no error.
-      await expect(page.getByRole("heading", { name: "Trending" })).toHaveCount(0);
+      // The trending request isn't mocked here (404): the third slot is Coming up, never "Popular", and no error.
+      await expect(page.getByRole("heading", { name: "Popular right now" })).toHaveCount(0);
+      await expect(page.getByRole("heading", { level: 2, name: "Coming up", exact: true })).toBeVisible();
       await expect(page.locator("main").getByRole("alert")).toHaveCount(0);
     });
   });
@@ -171,7 +179,7 @@ test.describe("keyboard", () => {
 
   test("at 390px, a card reached with Tab is brought fully into view in its rail", async ({ page }) => {
     await openHome(page);
-    const section = page.locator("[data-home-section]").filter({ has: page.getByRole("heading", { name: "Coming up near you" }) });
+    const section = page.locator("[data-home-section]").filter({ has: page.getByRole("heading", { name: "Coming up", exact: true }) });
     const items = section.getByRole("listitem");
     expect(await items.count()).toBeGreaterThan(2);
     // Start on the first card's link, then Tab through the next two cards (link, Save, Buy tickets each).
@@ -189,5 +197,90 @@ test.describe("keyboard", () => {
     }
     // It got past the cards that were on screen to begin with.
     await expect(items.nth(2).locator(":focus")).toHaveCount(1);
+  });
+});
+
+// The brief's order (docs/design/mobile-redesign.md §6.3.1), at a phone and a desktop width.
+for (const width of [375, 1280]) {
+  test.describe(`home order at ${width}px`, () => {
+    test.use({ viewport: { width, height: width < 768 ? 812 : 800 } });
+
+    test("hero, This weekend, Popular right now, Explore by category, Find your people, For organisers, footer", async ({ page }) => {
+      await openHome(page, { trending: true });
+      await expect(page.getByRole("heading", { level: 2, name: "Popular right now" })).toBeVisible();
+      const headings = await page.locator("main h2").allTextContents();
+      expect(headings.map((h) => h.trim())).toEqual([
+        "This weekend",
+        "Popular right now",
+        "Explore by category",
+        "See who’s going before you book.",
+        "Bring your event to life",
+      ]);
+      // The hero comes first, the footer last.
+      const h1 = await page.getByRole("heading", { level: 1 }).boundingBox();
+      const first = await page.locator("main h2").first().boundingBox();
+      expect((h1?.y ?? Infinity) < (first?.y ?? -1)).toBe(true);
+      await expect(page.locator("footer")).toBeAttached();
+      // Gone from the home: Trending and Coming up as separate sections, Free & low-cost, Only in the city.
+      for (const name of ["Trending", "Coming up near you", "Free & low-cost", "Only in the city"]) {
+        await expect(page.getByRole("heading", { name, exact: true })).toHaveCount(0);
+      }
+      // Each event section has a clear See all.
+      for (const section of await page.locator("[data-home-section]").all()) {
+        await expect(section.getByRole("link", { name: /^See all / })).toHaveAttribute("href", /^\/(events|following)$/);
+      }
+      // Section heads never repeat the h2 in a strap: each head says its title once.
+      const repeats = await page.locator("[data-home-section]").evaluateAll((sections) =>
+        sections.map((section) => {
+          const title = section.querySelector("h2")?.textContent?.trim() ?? "";
+          const head = section.firstElementChild?.textContent ?? "";
+          return head.split(title).length - 1;
+        }),
+      );
+      expect(repeats.length).toBeGreaterThan(1);
+      for (const n of repeats) expect(n).toBe(1);
+      // Find your people uses the brief's copy.
+      const band = page.locator("#find-your-people");
+      await expect(band).toContainText("Discover events through the people and creative communities around you.");
+    });
+  });
+}
+
+test.describe("rail cards on a phone (375×667)", () => {
+  test.use({ viewport: { width: 375, height: 667 } });
+
+  test("a card fits one screen, image to CTA, and the next card peeks", async ({ page }) => {
+    await openHome(page);
+    const section = page.locator("[data-home-section]").filter({ has: page.getByRole("heading", { name: "Coming up", exact: true }) });
+    const cards = section.locator("[data-event-card]");
+    const first = await cards.nth(0).boundingBox();
+    const second = await cards.nth(1).boundingBox();
+    if (!first || !second) throw new Error("cards not laid out");
+    // Under the header (56px), the whole card fits: far from the 1,000px it once ran to.
+    expect(first.height).toBeLessThanOrEqual(667 - 56);
+    expect(first.width).toBeLessThanOrEqual(375 * 0.68);
+    // A sliver of the next card shows at the right edge.
+    expect(second.x).toBeLessThan(375);
+    expect(second.x + 24).toBeLessThanOrEqual(375);
+  });
+});
+
+test.describe("/events", () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  test("ends with Only in the city (moved off the home), pointing at the map", async ({ page }) => {
+    const events = fixtures(Date.now()).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+    await page.route("**/api/**", (route) =>
+      new URL(route.request().url()).pathname === "/api/events"
+        ? route.fulfill({ json: { items: events, nextCursor: undefined } })
+        : route.fulfill({ status: 404, json: { error: "not mocked in e2e" } }),
+    );
+    await page.goto("/events");
+    const guide = page.getByRole("region", { name: "Only in the city" });
+    await expect(guide).toBeVisible({ timeout: 30_000 });
+    await expect(guide.getByRole("link", { name: "Open the map" })).toHaveAttribute("href", "/map");
+    const feed = await page.getByRole("list", { name: "Events" }).boundingBox();
+    const box = await guide.boundingBox();
+    expect((box?.y ?? -1) > (feed?.y ?? Infinity)).toBe(true);
   });
 });

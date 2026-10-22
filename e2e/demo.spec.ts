@@ -70,6 +70,11 @@ for (const vp of [
       if (!member?.profileId) throw new Error("no sample member in Neon Static's first six names");
 
       await page.goto(`/events/${event.slug}`);
+      // The panel opens on a preview; the names are behind "See who's going" (mobile-redesign.md §6.4.2).
+      const seeWho = page.getByRole("button", { name: "See who’s going" });
+      await expect(seeWho).toHaveAttribute("aria-expanded", "false", { timeout: 60_000 });
+      await seeWho.click();
+      await expect(seeWho).toHaveAttribute("aria-expanded", "true");
       const names = page.getByRole("list", { name: "People going" });
       await expect(names).toBeVisible({ timeout: 60_000 });
       await names.getByRole("link", { name: member.displayName }).click();

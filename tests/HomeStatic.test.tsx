@@ -132,24 +132,29 @@ describe("SectionHead", () => {
     expect(screen.getByRole("link", { name: "See all free events" })).toHaveAttribute("href", "/events?pricing=free");
   });
 
-  it("has a ruled strap whose label repeats the h2 for sighted readers only, and a readable note", () => {
-    const { container } = render(
-      <SectionHead id="w" title="Coming up near you" strap="Coming up" note={{ text: "Fri 23 – Sun 25 Oct" }} />,
-    );
-    const strap = container.querySelector(".border-t.border-foreground");
-    expect(strap).not.toBeNull();
-    expect(within(strap as HTMLElement).getByText("Coming up").closest("[aria-hidden='true']")).not.toBeNull();
-    expect(screen.getByText("Fri 23 – Sun 25 Oct").closest("[aria-hidden='true']")).toBeNull();
+  it("never repeats the h2 in a strap: a black rule, then the h2 (dots first, hidden), and nothing else saying the title", () => {
+    const { container } = render(<SectionHead id="w" title="Popular right now" seeAll={{ href: "/events", srLabel: "events" }} />);
+    const root = container.firstElementChild as HTMLElement;
+    expect(root).toHaveClass("border-t", "border-foreground");
+    const h2 = screen.getByRole("heading", { level: 2, name: "Popular right now" });
+    expect(h2).toHaveClass("display-md");
+    expect(h2.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    // The title's words appear once in the head (the old mono strap said them twice).
+    expect(root.textContent?.match(/Popular right now/g)).toHaveLength(1);
+    expect(root.querySelector(".eyebrow")).toBeNull();
   });
 
-  it("puts the note after the h2 in reading order, while it shows on the strap's row", () => {
-    render(<SectionHead id="w" title="This weekend" note={{ text: "Fri 23 – Sun 25 Oct" }} seeAll={{ href: "/events", srLabel: "events" }} />);
+  it("puts the note (real context, e.g. the weekend's dates) after the h2 in reading order", () => {
+    render(<SectionHead id="w" title="This weekend" note="Fri 23 – Sun 25 Oct" seeAll={{ href: "/events", srLabel: "events" }} />);
     const h2 = screen.getByRole("heading", { level: 2, name: "This weekend" });
     const note = screen.getByText("Fri 23 – Sun 25 Oct");
+    expect(note).toHaveClass("meta", "text-muted");
+    expect(note.closest("[aria-hidden='true']")).toBeNull();
     expect(h2.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // Visually on the strap: the grid's first row, right-hand column.
-    expect(note.parentElement).toHaveClass("row-start-1", "col-start-2");
-    expect(h2.parentElement).toHaveClass("row-start-2");
+    // See all after both, with a 44px target.
+    const seeAll = screen.getByRole("link", { name: "See all events" });
+    expect(note.compareDocumentPosition(seeAll) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(seeAll).toHaveClass("min-h-11");
   });
 
   it("has no link without seeAll", () => {
@@ -256,8 +261,10 @@ describe("GuideCard and CreatorsCard", () => {
     expect(container.querySelector(".bg-card.border-foreground")).not.toBeNull();
   });
 
-  it("the creators card is an ink card pointing at the organiser application", () => {
+  it("the For organisers card is an ink card pointing at the organiser application, with a short 2:1 photo on phones", () => {
     const { container } = render(<CreatorsCard />);
+    expect(screen.getByText("For organisers")).toHaveClass("eyebrow");
+    expect(container.querySelector("[aria-hidden='true'].aspect-\\[2\\/1\\]")).not.toBeNull();
     expect(screen.getByRole("region", { name: "Bring your event to life" })).toBeInTheDocument();
     const cta = screen.getByRole("link", { name: "List your event" });
     expect(cta).toHaveAttribute("href", "/organisers/apply");
@@ -276,7 +283,12 @@ describe("CommunitySection", () => {
     const section = container.querySelector("#find-your-people");
     expect(section).toHaveAttribute("tabindex", "-1");
     expect(section).toHaveAttribute("data-surface", "signal");
-    expect(screen.getByRole("region", { name: "Find your people" })).toBe(section);
+    // The brief's copy: the h2 names the band; "Find your people" is its eyebrow.
+    expect(screen.getByRole("region", { name: "See who’s going before you book." })).toBe(section);
+    expect(screen.getByText("Find your people")).toHaveClass("eyebrow");
+    expect(
+      screen.getByText("Discover events through the people and creative communities around you."),
+    ).toBeInTheDocument();
     const cta = screen.getByRole("link", { name: "Join the community" });
     expect(cta).toHaveAttribute("href", "/signup");
     // Never an orange button on the orange band.
@@ -303,8 +315,23 @@ describe("CommunitySection", () => {
     expect(screen.getByRole("link", { name: "Join the community" })).toHaveAttribute("href", "/signup");
   });
 
+  it("explains how it works in three real steps, an ordered list (the numbers are for the eye only)", () => {
+    render(<CommunitySection />);
+    const steps = screen.getByRole("list");
+    expect(steps.tagName).toBe("OL");
+    expect(within(steps).getAllByRole("listitem").map((li) => li.querySelector("p")?.textContent)).toEqual([
+      "Get a ticket on Sheltüh.",
+      "Add yourself to the guest list, only if you want to.",
+      "See who else is going, and say hi before the night.",
+    ]);
+    for (const n of steps.querySelectorAll("[data-step-number]")) expect(n).toHaveAttribute("aria-hidden", "true");
+  });
+
   it("never shows a community size", () => {
     const { container } = render(<CommunitySection />);
-    expect(container.textContent).not.toMatch(/\d/);
+    // The steps' "01"–"03" are ordinal labels, not counts: read everything else.
+    const clone = container.cloneNode(true) as HTMLElement;
+    for (const n of clone.querySelectorAll("[data-step-number]")) n.remove();
+    expect(clone.textContent).not.toMatch(/\d/);
   });
 });

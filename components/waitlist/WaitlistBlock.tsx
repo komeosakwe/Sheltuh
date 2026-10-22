@@ -276,7 +276,8 @@ export default function WaitlistBlock({
         Sold out. Join the waitlist.
       </h3>
       <p className="text-sm text-foreground">
-        We&rsquo;ll email you if tickets are released. Joining doesn&rsquo;t reserve a ticket or charge you.
+        We&rsquo;ll email you if tickets are released. Joining doesn&rsquo;t reserve a ticket or charge you. If
+        tickets come up, it&rsquo;s first come, first served.
       </p>
       {statusError && (
         <p className="text-xs text-muted">

@@ -129,6 +129,15 @@ describe("TicketSelector, one tier sold out, or few left", () => {
 });
 
 describe("WaitlistBlock (signed out)", () => {
+  it("explains the waitlist before you join: no reservation, no charge, first come first served", () => {
+    render(<WaitlistBlock eventId="evt-1" />);
+    expect(
+      screen.getByText(
+        "We’ll email you if tickets are released. Joining doesn’t reserve a ticket or charge you. If tickets come up, it’s first come, first served.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("joins with a typed email and says to check the inbox (focused, announced)", async () => {
     joinWaitlist.mockResolvedValue({ status: "confirmation_sent", expiresInHours: 24 });
     render(<WaitlistBlock eventId="evt-1" />);

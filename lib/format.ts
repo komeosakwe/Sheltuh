@@ -154,3 +154,16 @@ export function formatDateBadge(isoLike: string, endIsoLike?: string): { range: 
   if (endKey.slice(0, 7) === startKey.slice(0, 7)) return { range: `${startDay}–${endDay}`, month: startMonth };
   return { range: `${startDay} ${startMonth}–${endDay}`, month: badgeMonthFormatter.format(end).toUpperCase() };
 }
+
+const timeZoneNameFormatter = new Intl.DateTimeFormat("en-AU", { timeZone: MELBOURNE_TZ, timeZoneName: "short" });
+
+/**
+ * The event page's time zone label (docs/design/mobile-redesign.md §6.5):
+ * "Melbourne time (AEDT)" or "(AEST)", whichever is in effect at the start.
+ * A runtime whose time zone data names it otherwise (e.g. "GMT+11") gets
+ * plain "Melbourne time" rather than a cryptic offset.
+ */
+export function formatTimeZoneLabel(isoLike: string): string {
+  const zone = timeZoneNameFormatter.formatToParts(new Date(isoLike)).find((part) => part.type === "timeZoneName")?.value;
+  return zone === "AEST" || zone === "AEDT" ? `Melbourne time (${zone})` : "Melbourne time";
+}

@@ -40,9 +40,8 @@ const SAT = event("sat", "2026-10-24T08:00:00.000Z");
 const SUN = event("sun", "2026-10-25T02:00:00.000Z", 0);
 const COMING = Array.from({ length: 7 }, (_, i) => event(`c${i}`, `2026-11-0${i + 1}T08:00:00.000Z`));
 const T = Array.from({ length: 3 }, (_, i) => event(`t${i}`, `2026-11-2${i}T08:00:00.000Z`));
-const FREE = [event("free-a", "2026-12-01T08:00:00.000Z", 0), event("free-b", "2026-12-02T08:00:00.000Z", 1000)];
 const ENDED = event("ended", "2026-10-01T08:00:00.000Z", 0);
-const EVENTS = [ENDED, NEXT, SAT, SUN, ...COMING, ...T, ...FREE];
+const EVENTS = [ENDED, NEXT, SAT, SUN, ...COMING, ...T];
 // Trending lists a weekend event too: de-duplication drops it.
 const TRENDING: TrendingItem[] = [NEXT, SAT, ...T].map((e) => ({ event: e, signal: { kind: "going", count: 15 } }));
 
@@ -62,7 +61,7 @@ const flush = () => act(() => Promise.resolve());
 function renderHome() {
   return render(
     <HomeEventsProvider>
-      <HomeEventSections guide={<p>Guide slot</p>} />
+      <HomeEventSections />
     </HomeEventsProvider>,
   );
 }
@@ -75,19 +74,19 @@ const cardHrefs = () =>
     .filter((href) => /^\/events\/[^?#]+$/.test(href));
 
 describe("the home's event sections", () => {
-  it("while loading: announces it, holds one skeleton section of rail cards, and shows the static slot", () => {
+  it("while loading: announces it and holds one skeleton section of rail cards", () => {
     loadHomeEvents.mockReturnValue(new Promise(() => {}));
     const { container } = renderHome();
     expect(screen.getByRole("status")).toHaveTextContent("Loading events…");
     const skeleton = container.querySelector("[aria-hidden='true'].mt-8");
-    expect(skeleton?.querySelectorAll("[data-variant], .aspect-\\[4\\/5\\]")).toHaveLength(3);
+    // Three placeholders, each with the rail card's media box (square on phones, 4:5 from 640px).
+    expect(skeleton?.querySelectorAll(".aspect-square.sm\\:aspect-\\[4\\/5\\]")).toHaveLength(3);
     expect(screen.queryByRole("heading", { name: "This weekend" })).not.toBeInTheDocument();
     expect(cardHrefs()).toEqual([]);
     expect(container.querySelectorAll("section[data-home-section]")).toHaveLength(0);
-    expect(screen.getByText("Guide slot")).toBeInTheDocument();
   });
 
-  it("when loaded: This weekend, Trending, Coming up, the guide, Free & low-cost, in order; no Up next", async () => {
+  it("when loaded: This weekend, then Popular right now (trending merged with Coming up), in order; no Up next", async () => {
     loadHomeEvents.mockResolvedValue(EVENTS);
     loadHomeTrending.mockResolvedValue(TRENDING);
     const { container } = renderHome();
@@ -99,7 +98,7 @@ describe("the home's event sections", () => {
     expect(screen.getByRole("link", { name: "Buy tickets for Event next" })).toHaveAttribute("href", "/events/next#tickets");
     // Every card is the rail EventCard.
     const cards = container.querySelectorAll("[data-event-card]");
-    expect(cards.length).toBeGreaterThan(10);
+    expect(cards.length).toBe(6);
     for (const card of cards) expect(card).toHaveAttribute("data-variant", "rail");
 
     const weekend = screen.getByRole("region", { name: "This weekend" });
@@ -107,23 +106,24 @@ describe("the home's event sections", () => {
     const weekendList = screen.getByRole("list", { name: "This weekend" });
     expect(within(weekendList).getAllByRole("listitem")).toHaveLength(2);
 
-    // The soonest event (no longer Up next's) stays trending; the weekend one is claimed above.
-    const trending = screen.getByRole("list", { name: "Trending" });
-    expect(within(trending).getAllByRole("listitem")).toHaveLength(4);
+    // The soonest event (no longer Up next's) stays popular; the weekend one is claimed above.
+    const popular = screen.getByRole("region", { name: "Popular right now" });
+    const popularList = screen.getByRole("list", { name: "Popular right now" });
+    expect(within(popularList).getAllByRole("listitem")).toHaveLength(4);
+    expect(within(popular).getByRole("link", { name: "See all events" })).toHaveAttribute("href", "/events");
     // Demo cards show the labelled sample's count (mobile-redesign.md §6.2.5; demo trending ranks by
     // that same count). Live cards show the server's count: tests/EventCard.test.tsx.
-    expect(trending).toHaveTextContent(`${getSampleGoing("t0").count} going`);
+    expect(popularList).toHaveTextContent(`${getSampleGoing("t0").count} going`);
 
-    const coming = screen.getByRole("list", { name: "Coming up near you" });
-    expect(within(coming).getAllByRole("listitem")).toHaveLength(6);
-    const free = screen.getByRole("list", { name: "Free & low-cost" });
-    expect(within(free).getAllByRole("listitem").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByRole("link", { name: "See all free events" })).toHaveAttribute("href", "/events?pricing=free");
-
-    const order = [weekend, trending, coming, screen.getByText("Guide slot"), free];
-    for (let i = 1; i < order.length; i++) {
-      expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Trending and Coming up are one slot now; Free & low-cost has left the home (§6.3.1).
+    for (const name of ["Trending", "Coming up near you", "Coming up", "Free & low-cost"]) {
+      expect(screen.queryByRole("heading", { name })).not.toBeInTheDocument();
     }
+    expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
+      "This weekend",
+      "Popular right now",
+    ]);
+    expect(weekend.compareDocumentPosition(popular) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByText("Event ended")).not.toBeInTheDocument();
   });
 
@@ -133,28 +133,57 @@ describe("the home's event sections", () => {
     renderHome();
     await flush();
     const hrefs = cardHrefs();
-    expect(hrefs.length).toBeGreaterThan(10);
+    // Two sections now (This weekend, Popular right now): 2 + 4 cards.
+    expect(hrefs).toHaveLength(6);
     expect(new Set(hrefs).size).toBe(hrefs.length);
   });
 
-  it("hides Trending when there's no trending data (live has no API yet), silently", async () => {
+  it("titles the slot Coming up when trending data is missing or thin, silently, and never calls those events popular", async () => {
     loadHomeEvents.mockResolvedValue(EVENTS);
     loadHomeTrending.mockRejectedValue(new Error("no such endpoint"));
-    renderHome();
+    const { container } = renderHome();
     await flush();
-    expect(screen.queryByRole("heading", { name: "Trending" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Popular right now" })).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByRole("list", { name: "Coming up near you" })).toBeInTheDocument();
+    const coming = screen.getByRole("list", { name: "Coming up" });
+    expect(within(coming).getAllByRole("listitem")).toHaveLength(6);
+    // No trending signal on any card ("Popular this week", "Just announced", a going count).
+    expect(container).not.toHaveTextContent(/Popular this week|Just announced/);
   });
 
-  it("This weekend with nothing on (before the weekend): the heading, See all and a note, no cards", async () => {
+  it("dedupes across sections: an event shown in This weekend isn't repeated in Popular", async () => {
+    loadHomeEvents.mockResolvedValue(EVENTS);
+    // Every trending item is also a weekend event or the soonest: only NEXT and T are left for Popular.
+    loadHomeTrending.mockResolvedValue(TRENDING);
+    renderHome();
+    await flush();
+    const weekend = screen.getByRole("list", { name: "This weekend" });
+    const popular = screen.getByRole("list", { name: "Popular right now" });
+    expect(within(weekend).getByRole("link", { name: /^Event sat / })).toBeInTheDocument();
+    expect(within(popular).queryByRole("link", { name: /^Event sat / })).toBeNull();
+  });
+
+  it("hides a section with no cards: nothing renders for an empty Popular / Coming up slot", async () => {
+    // One weekend event, one more later: too few for Coming up (needs two), and no trending.
+    loadHomeEvents.mockResolvedValue([SAT, COMING[0]]);
+    const { container } = renderHome();
+    await flush();
+    expect(container.querySelectorAll("section[data-home-section]")).toHaveLength(1);
+    expect(screen.queryByRole("heading", { name: /Coming up|Popular/ })).not.toBeInTheDocument();
+    // No empty lists anywhere.
+    for (const list of screen.getAllByRole("list")) expect(within(list).queryAllByRole("listitem").length).toBeGreaterThan(0);
+  });
+
+  it("This weekend with nothing on (before the weekend): the heading and a note, no cards and so no See all", async () => {
     loadHomeEvents.mockResolvedValue([NEXT, ...COMING]);
     renderHome();
     await flush();
     const weekend = screen.getByRole("region", { name: "This weekend" });
     expect(weekend).toHaveTextContent("Nothing listed for this weekend yet. New events are added through the week.");
     expect(within(weekend).queryByRole("list")).not.toBeInTheDocument();
-    expect(within(weekend).getByRole("link", { name: "See all events" })).toHaveAttribute("href", "/events");
+    // "See all" shows only beside cards (mobile-redesign.md §6.3.4); the dates note stays.
+    expect(within(weekend).queryByRole("link")).toBeNull();
+    expect(weekend).toHaveTextContent("Fri 23 – Sun 25 Oct");
   });
 
   it("on error: an alert with Try again in the first section's place, which loads again; the event sections are hidden", async () => {
@@ -164,10 +193,7 @@ describe("the home's event sections", () => {
 
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("Couldn’t load events. Check your connection and try again.");
-    // The alert comes before the static guide slot (the first slot).
-    expect(alert.compareDocumentPosition(screen.getByText("Guide slot")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "Coming up near you" })).not.toBeInTheDocument();
-    expect(screen.getByText("Guide slot")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 2 })).not.toBeInTheDocument();
 
     loadHomeEvents.mockResolvedValueOnce(EVENTS);
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
@@ -175,7 +201,7 @@ describe("the home's event sections", () => {
     await flush();
     expect(loadHomeEvents).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByRole("list", { name: "Coming up near you" })).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Coming up" })).toBeInTheDocument();
   });
 
   it("Try again keeps the error box and its focused button (busy) while loading, then moves focus to the first section's heading", async () => {
@@ -240,7 +266,7 @@ describe("the home's event sections", () => {
     renderHome();
     await flush();
     expect(screen.getByText("No events have been published yet. Check back soon.")).toBeInTheDocument();
-    for (const name of ["This weekend", "Coming up near you", "Trending", "Free & low-cost"]) {
+    for (const name of ["This weekend", "Coming up", "Popular right now"]) {
       expect(screen.queryByRole("heading", { name })).not.toBeInTheDocument();
     }
   });

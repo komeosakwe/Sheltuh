@@ -7,6 +7,7 @@ import DemoNotice from "@/components/DemoNotice";
 import EventArt from "@/components/EventArt";
 import ExternalTicketLink from "@/components/ExternalTicketLink";
 import SaveButton from "@/components/favourites/SaveButton";
+import { ArrowRightIcon, ExternalIcon } from "@/components/home/icons";
 import SaveOnReturn from "@/components/favourites/SaveOnReturn";
 import SeatedTicketsPanel from "@/components/seating/SeatedTicketsPanel";
 import ShareButton from "@/components/ShareButton";
@@ -18,13 +19,54 @@ import WhosGoing from "@/components/WhosGoing";
 import { WhosGoingProvider } from "@/components/whos-going/WhosGoingProvider";
 import WhosGoingSummaryLink from "@/components/whos-going/WhosGoingSummaryLink";
 import { isSafeTicketUrl } from "@/lib/event-url";
-import { formatEventDateShort, formatEventDateTimeRange, formatEventTime } from "@/lib/format";
+import { formatEventDateShort, formatEventDateTimeRange, formatEventTime, formatTimeZoneLabel } from "@/lib/format";
+import { directionsHref } from "@/lib/maps";
 import { externalProviderLabel, formatFeedPriceParts, isSoldOut } from "@/lib/pricing";
 import { goesToSeatPage, quickBuyLabel } from "@/lib/quick-buy";
 import { organiserProfileHref } from "@/lib/sample-organisers";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 
 const asideRowClass = "border-t border-foreground py-3";
+/** The aside's secondary actions (Get directions, More from): 44px tall, underlined. */
+const asideActionClass =
+  "inline-flex min-h-11 items-center gap-1 text-sm leading-5 font-semibold underline underline-offset-4 hover:decoration-2";
+
+/** An ended event, in the buy bar and the Tickets panel alike. */
+const ENDED_TEXT = "This event has ended.";
+
+/**
+ * Restrictions and refunds beside the tickets (docs/design/mobile-redesign.md
+ * §6.5), for Sheltüh-ticketed events only (an external event's own site has
+ * its terms). It links the existing refund and purchase-terms pages and
+ * invents no policy.
+ */
+function BookingInfo({ ageRestriction }: { ageRestriction?: string }) {
+  const linkClass = "underline underline-offset-4 hover:decoration-2";
+  return (
+    <dl className="mt-4 flex flex-col gap-2 border-t border-surface-border pt-4 text-sm leading-5">
+      {ageRestriction && (
+        <div>
+          <dt className="eyebrow text-muted">Age restriction</dt>
+          <dd className="mt-1">{ageRestriction}</dd>
+        </div>
+      )}
+      <div>
+        <dt className="eyebrow text-muted">Refunds</dt>
+        <dd className="mt-1">
+          See{" "}
+          <Link href="/refunds" className={linkClass}>
+            Request a refund
+          </Link>{" "}
+          and our{" "}
+          <Link href="/purchase-terms" className={linkClass}>
+            Purchase Terms
+          </Link>
+          .
+        </dd>
+      </div>
+    </dl>
+  );
+}
 
 /**
  * "Fri 25 Sep, 8:00 pm – Sat 26 Sep, midnight": the shared range, with
@@ -72,6 +114,8 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
   const shareText = `${event.title} · ${formatEventDateShort(event.startsAt)}, ${formatEventTime(event.startsAt)} · ${event.venueName}`;
   const saveTarget = { id: event.id, title: event.title, slug: event.slug };
   const organiserHref = organiserProfileHref(event);
+  const directions = directionsHref(event);
+  const address = [event.venueName, event.venueAddress].filter(Boolean).join(", ");
   const outboundLink = (className: string) => (
     <ExternalTicketLink eventId={event.id} url={ticketUrl} provider={provider} className={className} />
   );
@@ -177,7 +221,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                 <dt className="eyebrow text-muted">When</dt>
                 <dd className="mt-1 text-base leading-6">
                   {when}
-                  <span className="block text-sm text-muted">Melbourne time</span>
+                  <span className="block text-sm text-muted">{formatTimeZoneLabel(event.startsAt)}</span>
                 </dd>
                 <dd>
                   <AddToCalendar event={event} />
@@ -185,9 +229,30 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
               </div>
               <div className={asideRowClass}>
                 <dt className="eyebrow text-muted">Where</dt>
-                <dd className="mt-1 text-base leading-6">
-                  {event.venueName}, {event.venueAddress}
-                </dd>
+                {directions ? (
+                  // One link for the whole place: the address, then the obvious action. It opens
+                  // the maps app where there is one (lib/maps.ts), in a new tab otherwise.
+                  <dd className="mt-1">
+                    <a
+                      href={directions}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-directions=""
+                      // Spelled out: it starts with the action, holds the visible address, and says
+                      // where it goes and that it opens a new tab.
+                      aria-label={`Get directions to ${address} (opens Google Maps in a new tab)`}
+                      className="flex w-fit max-w-full flex-col"
+                    >
+                      <span className="text-base leading-6 break-words">{address}</span>
+                      <span className={asideActionClass}>
+                        Get directions
+                        <ExternalIcon />
+                      </span>
+                    </a>
+                  </dd>
+                ) : (
+                  <dd className="mt-1 text-base leading-6">{address}</dd>
+                )}
               </div>
               <div className={asideRowClass}>
                 <dt className="eyebrow text-muted">Organiser</dt>
@@ -202,6 +267,15 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                     event.organiserName
                   )}
                 </dd>
+                {organiserHref && (
+                  // Their other events: the "Upcoming events" section of the same profile.
+                  <dd>
+                    <Link href={`${organiserHref}#organiser-upcoming`} className={asideActionClass}>
+                      More from {event.organiserName}
+                      <ArrowRightIcon />
+                    </Link>
+                  </dd>
+                )}
               </div>
             </dl>
 
@@ -225,17 +299,26 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                       <p className="text-sm text-foreground">The ticket link isn&rsquo;t available right now.</p>
                     )}
                   </div>
-                ) : event.ticketTypes.length === 0 ? (
-                  // Nothing on sale yet: no fee to explain and nothing to select.
-                  <p className="text-sm text-muted">Tickets coming soon.</p>
-                ) : event.seating ? (
-                  // Reserved seating: tiers are chosen on the seat page, never as quantities here.
-                  <SeatedTicketsPanel event={event} demo={demo} />
-                ) : ended && !soldOut ? (
-                  // Nothing left to choose. (Sold out keeps its tiers and the closed waitlist.)
-                  <p className="text-sm">This event has ended.</p>
                 ) : (
-                  <TicketSelector event={event} />
+                  <>
+                    {/* Ended: said the same way as in the buy bar, first. A sold-out event keeps its
+                        tiers and the closed waitlist below it; anything else has nothing to choose. */}
+                    {ended && <p className="text-sm font-semibold">{ENDED_TEXT}</p>}
+                    {ended && !soldOut ? null : event.ticketTypes.length === 0 ? (
+                      // Nothing on sale yet: no fee to explain and nothing to select.
+                      <p className="text-sm text-muted">Tickets coming soon.</p>
+                    ) : event.seating ? (
+                      // Reserved seating: tiers are chosen on the seat page, never as quantities here.
+                      <div className={ended ? "mt-4" : undefined}>
+                        <SeatedTicketsPanel event={event} demo={demo} />
+                      </div>
+                    ) : (
+                      <div className={ended ? "mt-4" : undefined}>
+                        <TicketSelector event={event} />
+                      </div>
+                    )}
+                    <BookingInfo ageRestriction={event.ageRestriction} />
+                  </>
                 )}
               </Panel>
             </div>
@@ -254,14 +337,22 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
               className="sticky bottom-0 z-20 -mx-5 flex min-h-18 items-center justify-between gap-4 px-5 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden"
             >
               <div className="min-w-0">
-                <p className="text-base leading-5 font-semibold tabular-nums">{price.amount}</p>
-                {price.note && <p className="text-xs leading-4 text-muted">{price.note}</p>}
+                {ended ? (
+                  // No price once it's over: nothing's for sale. When it was, instead.
+                  <>
+                    <p className="text-sm leading-5 font-semibold">{ENDED_TEXT}</p>
+                    <p className="text-xs leading-4 text-muted">{formatEventDateShort(event.startsAt)}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-base leading-5 font-semibold tabular-nums">{price.amount}</p>
+                    {price.note && <p className="text-xs leading-4 text-muted">{price.note}</p>}
+                  </>
+                )}
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <SaveButton event={saveTarget} variant="onDark" className="hidden min-[375px]:flex" />
-                {buyBarLabel === null ? (
-                  <p className="text-sm leading-5 font-semibold">Event ended</p>
-                ) : seatPage ? (
+                {buyBarLabel === null ? null : seatPage ? (
                   // A seated event's buy bar goes straight to its seat page (manager decision 2,
                   // docs/design/seating.md).
                   <Link href={`/events/${event.slug}/seats`} className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}>

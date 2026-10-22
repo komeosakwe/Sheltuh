@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
@@ -112,11 +112,13 @@ describe("EventCard anatomy (§6.2.1)", () => {
       const root = cardRoot(container);
       expect(root).toHaveAttribute("data-variant", variant);
       const media = root.firstElementChild as HTMLElement;
-      // A 4:5 rounded photo with nothing on it: the decorative art alone, no chip or badge.
+      // A rounded photo with nothing on it: the decorative art alone, no chip or badge. 4:5, except a
+      // phone rail card, which is square so a card fits one screen with the next one peeking.
       expect(media).toHaveClass("rounded-card", "overflow-hidden");
       expect(media.children).toHaveLength(1);
       expect(media.firstElementChild).toHaveAttribute("aria-hidden", "true");
-      expect(media.firstElementChild).toHaveClass("aspect-[4/5]");
+      if (variant === "rail") expect(media.firstElementChild).toHaveClass("aspect-square", "sm:aspect-[4/5]");
+      else expect(media.firstElementChild).toHaveClass("aspect-[4/5]");
       const text = media.nextElementSibling as HTMLElement;
       const lines = Array.from(text.children).map((el) => el.textContent);
       expect(lines.slice(0, 5)).toEqual([
@@ -251,13 +253,39 @@ describe("EventCard variants", () => {
     expect(screen.getByRole("link", { name: "By Small Hours Theatre" })).toHaveAttribute("href", "/organisers/small-hours-theatre");
   });
 
-  it("placeholder: the variant's width, a 4:5 media box and flat bars, hidden from screen readers", () => {
+  it("placeholder: the variant's width and media box (rail: square on phones, 4:5 from 640px) and flat bars, hidden from screen readers", () => {
     const { container } = render(<EventCardPlaceholder variant="rail" />);
     const root = container.firstElementChild as HTMLElement;
     expect(root).toHaveAttribute("aria-hidden", "true");
     expect(root).toHaveClass("w-[min(62vw,15rem)]");
-    expect(root.querySelector(".aspect-\\[4\\/5\\].bg-surface")).not.toBeNull();
+    expect(root.querySelector(".aspect-square.sm\\:aspect-\\[4\\/5\\].bg-surface")).not.toBeNull();
     expect(root.className).not.toMatch(/animate/);
+  });
+});
+
+describe("EventCard media: organiser artwork on a phone rail card", () => {
+  function loadPortrait(img: HTMLImageElement) {
+    Object.defineProperty(img, "naturalWidth", { value: 800 });
+    Object.defineProperty(img, "naturalHeight", { value: 1131 });
+    act(() => {
+      img.dispatchEvent(new Event("load"));
+    });
+  }
+
+  it("rail: a portrait poster in the square box is shown whole on black, not cropped (fit auto)", () => {
+    const { container } = render(<EventCard event={{ ...event, imageUrl: "/poster.jpg" }} variant="rail" mode="live" />);
+    const img = container.querySelector("img");
+    if (!img) throw new Error("no photo");
+    loadPortrait(img);
+    expect(img).toHaveClass("object-contain");
+  });
+
+  it("grid: always cropped to fill its 4:5 box", () => {
+    const { container } = render(<EventCard event={{ ...event, imageUrl: "/poster.jpg" }} variant="grid" mode="live" />);
+    const img = container.querySelector("img");
+    if (!img) throw new Error("no photo");
+    loadPortrait(img);
+    expect(img).toHaveClass("object-cover");
   });
 });
 
@@ -342,8 +370,6 @@ describe("EventCard going row and category qualifiers (§6.2.2, §6.2.5)", () =>
   it.each([
     [{ signal: { kind: "just-announced" } as const }, "Live music · Just announced"],
     [{ signal: { kind: "popular" } as const }, "Live music · Popular this week"],
-    [{ badge: "free" as const }, "Live music · Free"],
-    [{ badge: "low-cost" as const }, "Live music · Under A$20"],
   ])("one qualifier on the category line: %o", (extra, line) => {
     const { container } = render(<EventCard event={event} variant="rail" mode="live" {...extra} />);
     expect(container.querySelector("p.eyebrow")).toHaveTextContent(line);

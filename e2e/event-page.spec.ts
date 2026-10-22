@@ -262,3 +262,84 @@ for (const width of [320, 375]) {
     });
   });
 }
+
+// The event page's P1 items (docs/design/mobile-redesign.md §6.4.2, §6.5), at a phone and a desktop width.
+for (const width of [375, 1280]) {
+  test.describe(`event details at ${width}px`, () => {
+    test.use({ viewport: { width, height: width < 768 ? 812 : 800 } });
+
+    test("directions, the time zone, More from the organiser, Who's Going preview and booking info", async ({ page }) => {
+      await page.route("**/api/**", (route) => {
+        const url = new URL(route.request().url());
+        if (/^\/api\/events\/slug\//.test(url.pathname)) return route.fulfill({ json: asPublic("neon-static") });
+        if (/\/going$/.test(url.pathname)) return route.fulfill({ json: { count: 14, countHidden: false, closed: false } });
+        return route.fulfill({ status: 204 });
+      });
+      await page.goto("/events/neon-static");
+      await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
+      const event = sampleEvents.find((e) => e.slug === "neon-static");
+      if (!event) throw new Error("no sample");
+      const address = `${event.venueName}, ${event.venueAddress}`;
+
+      // Get directions: the address and the action, one link, out to Google Maps in a new tab.
+      const directions = page.getByRole("link", { name: `Get directions to ${address} (opens Google Maps in a new tab)` });
+      await expect(directions).toHaveAttribute("href", `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`);
+      await expect(directions).toHaveAttribute("target", "_blank");
+      await expect(directions).toHaveAttribute("rel", "noopener noreferrer");
+      await expect(directions).toContainText(address);
+
+      // The zone in effect at the start (a week out from now: AEST or AEDT).
+      await expect(page.getByText(/^Melbourne time \((AEST|AEDT)\)$/)).toBeVisible();
+
+      // The organiser's other events.
+      await expect(page.getByRole("link", { name: `More from ${event.organiserName}` })).toHaveAttribute(
+        "href",
+        "/organisers/org-demo#organiser-upcoming",
+      );
+
+      // Who's Going, signed out: the count, no names or faces, and no list to open.
+      const going = page.getByRole("region", { name: "Who's going" });
+      await expect(going).toContainText("14");
+      await expect(going.locator("[data-going-faces]")).toHaveCount(0);
+      await expect(going.getByRole("button", { name: "See who’s going" })).toHaveCount(0);
+
+      // Fees and refunds beside the tickets, linking the existing pages.
+      const tickets = page.locator("#tickets");
+      await expect(tickets.getByText("A$31.70 incl. booking fee")).toBeVisible();
+      // (Live, the selector's own "By booking you agree to the Purchase Terms" line links them too:
+      // that's consent at checkout; this is where refund conditions are.)
+      const refunds = tickets.locator("dl").filter({ hasText: "Refunds" });
+      await expect(refunds.getByRole("link", { name: "Request a refund" })).toHaveAttribute("href", "/refunds");
+      await expect(refunds.getByRole("link", { name: "Purchase Terms" })).toHaveAttribute("href", "/purchase-terms");
+
+      await noSidewaysScroll(page);
+    });
+  });
+}
+
+test.describe("ended event at 375px", () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  test("the buy bar says it has ended, with no price and no action, and the tickets panel agrees", async ({ page }) => {
+    const ended = { ...asPublic("neon-static"), startsAt: new Date(Date.now() - 2 * DAY).toISOString(), endsAt: new Date(Date.now() - 2 * DAY + 4 * 3600_000).toISOString() };
+    await page.route("**/api/**", (route) => {
+      const url = new URL(route.request().url());
+      if (/^\/api\/events\/slug\//.test(url.pathname)) return route.fulfill({ json: ended });
+      if (/\/going$/.test(url.pathname)) return route.fulfill({ json: { count: 0, countHidden: false, closed: true } });
+      return route.fulfill({ status: 204 });
+    });
+    await page.goto("/events/neon-static");
+    const bar = page.locator("[data-buy-bar]");
+    await expect(bar).toContainText("This event has ended.", { timeout: 30_000 });
+    await expect(bar).not.toContainText("A$");
+    // No ticket action (signed out, Save is a sign-in link, and it stays).
+    await expect(bar.locator('a[href="#tickets"], a[href*="/seats"]')).toHaveCount(0);
+    await expect(bar.getByRole("link")).toHaveCount(1);
+    await expect(bar.getByRole("link", { name: "Sign in to save Neon Static" })).toBeVisible();
+    await expect(page.locator("#tickets")).toContainText("This event has ended.");
+    // The bar's contents stay inside the screen.
+    const box = await bar.boundingBox();
+    expect((box?.x ?? -1) >= 0 && (box?.x ?? 0) + (box?.width ?? Infinity) <= 375).toBe(true);
+    await noSidewaysScroll(page);
+  });
+});

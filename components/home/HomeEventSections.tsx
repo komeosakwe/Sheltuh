@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import DotsMark from "@/components/brand/DotsMark";
 import { Button } from "@/components/ui/Button";
 import EventCard, { EventCardPlaceholder } from "@/components/ui/EventCard";
@@ -20,9 +20,10 @@ const SECTION = "mt-8 sm:mt-12 lg:mt-16";
  * The home's event sections below the hero (docs/design/mobile-redesign.md
  * §6.3), in order: This weekend, From organisers you follow (signed-in
  * members who follow someone, when any of their events are left to show),
- * Trending, Coming up near you, the static `guide` slot, then Free &
- * low-cost. Each event appears once on the page (the provider's sections are
- * already de-duplicated). A section with too few events renders nothing.
+ * then Popular right now (real trending data), titled "Coming up" when that's
+ * too thin to fill it. Each event appears once on the page (the provider's
+ * sections are already de-duplicated). A section with no cards renders
+ * nothing, and "See all" shows only beside cards.
  * Every card is the `rail` EventCard, and every section is visible from the
  * start: nothing waits for a scroll to appear.
  *
@@ -32,7 +33,7 @@ const SECTION = "mt-8 sm:mt-12 lg:mt-16";
  * loads; when the events arrive, focus moves to the first section's heading,
  * since the button it was on has gone (only if focus went down with it).
  */
-export default function HomeEventSections({ guide }: { guide?: ReactNode }) {
+export default function HomeEventSections() {
   const { mode, state, retry } = useHomeEvents();
   const loading = state.status === "loading";
   const retrying = state.status === "error" && state.retrying;
@@ -41,6 +42,7 @@ export default function HomeEventSections({ guide }: { guide?: ReactNode }) {
   const sections = state.status === "ready" ? state.sections : null;
   const now = state.status === "ready" ? state.now : undefined;
   const weekend = sections?.anyUpcoming && sections.weekend.status !== "hidden" ? sections.weekend : null;
+  const popular = sections?.popular ?? null;
   const rootRef = useRef<HTMLDivElement>(null);
   const retried = useRef(false);
 
@@ -109,8 +111,8 @@ export default function HomeEventSections({ guide }: { guide?: ReactNode }) {
           <SectionHead
             id="home-weekend"
             title="This weekend"
-            note={{ text: formatWeekendRange(weekend.window) }}
-            seeAll={{ href: "/events", srLabel: "events" }}
+            note={formatWeekendRange(weekend.window)}
+            seeAll={weekend.status === "cards" ? { href: "/events", srLabel: "events" } : undefined}
           />
           {weekend.status === "cards" ? (
             <HomeRail labelledBy="home-weekend">
@@ -133,7 +135,6 @@ export default function HomeEventSections({ guide }: { guide?: ReactNode }) {
           <SectionHead
             id="home-following"
             title="From organisers you follow"
-            strap="Following"
             seeAll={{ href: "/following", srLabel: "organisers you follow" }}
           />
           <HomeRail labelledBy="home-following">
@@ -146,55 +147,25 @@ export default function HomeEventSections({ guide }: { guide?: ReactNode }) {
         </section>
       )}
 
-      {sections && sections.trending.length > 0 && (
-        <section aria-labelledby="home-trending" data-home-section className={SECTION}>
-          <SectionHead id="home-trending" title="Trending" />
-          <HomeRail labelledBy="home-trending">
-            {sections.trending.map(({ event, signal }) => (
-              <HomeRailItem key={event.id}>
-                <EventCard event={event} variant="rail" mode={mode} signal={signal} now={now} />
-              </HomeRailItem>
-            ))}
-          </HomeRail>
-        </section>
-      )}
-
-      {sections && sections.comingUp.length > 0 && (
-        <section aria-labelledby="home-coming" data-home-section className={SECTION}>
+      {popular && (
+        <section aria-labelledby="home-popular" data-home-section className={SECTION}>
           <SectionHead
-            id="home-coming"
-            title="Coming up near you"
-            strap="Coming up"
+            id="home-popular"
+            title={popular.kind === "popular" ? "Popular right now" : "Coming up"}
             seeAll={{ href: "/events", srLabel: "events" }}
           />
-          <p className="hidden max-w-xl text-sm leading-5 text-muted sm:-mt-3 sm:mb-6 sm:block">
-            The most interesting live music, art, workshops and pop-ups in your city — curated, not scraped.
-          </p>
-          <HomeRail labelledBy="home-coming">
-            {sections.comingUp.map((event) => (
-              <HomeRailItem key={event.id}>
-                <EventCard event={event} variant="rail" mode={mode} now={now} />
-              </HomeRailItem>
-            ))}
-          </HomeRail>
-        </section>
-      )}
-
-      {guide}
-
-      {sections && sections.lowCost.length > 0 && (
-        <section aria-labelledby="home-free" data-home-section className={SECTION}>
-          <SectionHead
-            id="home-free"
-            title="Free & low-cost"
-            seeAll={{ href: "/events?pricing=free", srLabel: "free events" }}
-          />
-          <HomeRail labelledBy="home-free">
-            {sections.lowCost.map(({ event, badge }) => (
-              <HomeRailItem key={event.id}>
-                <EventCard event={event} variant="rail" mode={mode} badge={badge} now={now} />
-              </HomeRailItem>
-            ))}
+          <HomeRail labelledBy="home-popular">
+            {popular.kind === "popular"
+              ? popular.items.map(({ event, signal }) => (
+                  <HomeRailItem key={event.id}>
+                    <EventCard event={event} variant="rail" mode={mode} signal={signal} now={now} />
+                  </HomeRailItem>
+                ))
+              : popular.items.map((event) => (
+                  <HomeRailItem key={event.id}>
+                    <EventCard event={event} variant="rail" mode={mode} now={now} />
+                  </HomeRailItem>
+                ))}
           </HomeRail>
         </section>
       )}

@@ -1,20 +1,18 @@
 import { isUpcomingEvent } from "@/lib/data";
-import { getMinBuyerTotalCents } from "@/lib/pricing";
 import type { SheltuhEvent } from "@/lib/types";
 
 /**
- * The home page's sections (docs/design/home.md §6): which events each
- * section shows, so that every event appears at most once on the page.
+ * The home page's sections (docs/design/mobile-redesign.md §6.3): which
+ * events each section shows, so that every event appears at most once on the
+ * page.
  */
 
 /** Cards per section at most (grids fill 3×2 or 2×3). */
 const SECTION_MAX = 6;
-/** "Free & low-cost": the cheapest all-inclusive ticket is at most this (A$20). */
-export const LOW_COST_MAX_CENTS = 2000;
-/** Trending shows only with at least this many events left after de-duplication. */
+/** "Popular right now" shows only with at least this many trending events left after de-duplication. */
 export const TRENDING_MIN = 3;
-/** Coming up and Free & low-cost show only with at least this many events. */
-const RAIL_MIN = 2;
+/** Its "Coming up" fallback shows only with at least this many events. */
+export const COMING_MIN = 2;
 
 /** Why an event is trending. Never a raw view count, and a going count only when the server sends one. */
 export type TrendingSignal = { kind: "going"; count: number } | { kind: "just-announced" } | { kind: "popular" };
@@ -24,10 +22,12 @@ export interface TrendingItem {
   signal: TrendingSignal;
 }
 
-export interface LowCostItem {
-  event: SheltuhEvent;
-  badge: "free" | "low-cost";
-}
+/**
+ * The home's third slot (mobile-redesign.md §6.3.1): "Popular right now" from
+ * real trending data, or, when that's too thin, "Coming up" with the soonest
+ * events not yet started. Events that aren't trending are never called popular.
+ */
+export type PopularSection = { kind: "popular"; items: TrendingItem[] } | { kind: "coming"; items: SheltuhEvent[] };
 
 /** Australia/Melbourne wall-clock weekend, as UTC instants (ms). */
 export interface WeekendWindow {
@@ -52,12 +52,8 @@ export interface HomeSections {
    * there are none (hidden).
    */
   following: SheltuhEvent[];
-  /** Empty when hidden (fewer than three after de-duplication). */
-  trending: TrendingItem[];
-  /** Empty when hidden (fewer than two). */
-  comingUp: SheltuhEvent[];
-  /** Empty when hidden (fewer than two). */
-  lowCost: LowCostItem[];
+  /** Popular right now, or its Coming up fallback; null when hidden (neither has enough events). */
+  popular: PopularSection | null;
 }
 
 const MELBOURNE_TZ = "Australia/Melbourne";
@@ -169,11 +165,11 @@ export const bySoonest = (a: SheltuhEvent, b: SheltuhEvent) => startMs(a) - star
 
 /**
  * Splits the home page's events into its sections (docs/design/home.md §6.2,
- * docs/design/mobile-redesign.md §6.3.2: no Up next). Ended events are
- * dropped first. Sections then claim events in priority order (This weekend,
- * From organisers you follow, Trending, Coming up, Free & low-cost), and a
- * later section never shows an event an earlier one did. A section that's hidden for having too few events claims nothing,
- * so its events stay available to the sections after it. `following`: the
+ * docs/design/mobile-redesign.md §6.3.2). Ended events are dropped first.
+ * Sections then claim events in priority order (This weekend, From
+ * organisers you follow, then Popular right now or its Coming up fallback),
+ * and a later section never shows an event an earlier one did. A section
+ * that's hidden for having too few events claims nothing. `following`: the
  * signed-in member's followed organisers' upcoming events (empty otherwise).
  */
 export function selectHomeSections(
@@ -211,38 +207,24 @@ export function selectHomeSections(
     .slice(0, SECTION_MAX);
   claim(followingItems);
 
-  // 2. Trending, in the server's order.
+  // 2. Popular right now: trending, in the server's order, with three or more left. Otherwise the
+  // same slot is "Coming up": not yet started, soonest first, with two or more.
   const trendingLeft = trending
     .filter(({ event }) => isUpcomingEvent(event, now) && unclaimed(event))
     .slice(0, SECTION_MAX);
-  const trendingItems = trendingLeft.length >= TRENDING_MIN ? trendingLeft : [];
-  claim(trendingItems.map(({ event }) => event));
-
-  // 3. Coming up: not yet started, soonest first.
   const comingLeft = notStarted.filter(unclaimed).slice(0, SECTION_MAX);
-  const comingUp = comingLeft.length >= RAIL_MIN ? comingLeft : [];
-  claim(comingUp);
-
-  // 4. Free & low-cost: an all-inclusive A$20 or less, or an external event its organiser says is
-  // free. An external paid event has no price we can vouch for, so it's never "low-cost".
-  const lowLeft = upcoming
-    .filter(unclaimed)
-    .flatMap((event): LowCostItem[] => {
-      if (event.ticketingMode === "external") return event.externalFree ? [{ event, badge: "free" }] : [];
-      const cents = getMinBuyerTotalCents(event);
-      if (cents === null || cents > LOW_COST_MAX_CENTS) return [];
-      return [{ event, badge: cents === 0 ? "free" : "low-cost" }];
-    })
-    .slice(0, SECTION_MAX);
-  const lowCost = lowLeft.length >= RAIL_MIN ? lowLeft : [];
+  const popular: PopularSection | null =
+    trendingLeft.length >= TRENDING_MIN
+      ? { kind: "popular", items: trendingLeft }
+      : comingLeft.length >= COMING_MIN
+        ? { kind: "coming", items: comingLeft }
+        : null;
 
   return {
     anyUpcoming: upcoming.length > 0,
     weekend: { window, status: weekendStatus, items: weekendItems },
     following: followingItems,
-    trending: trendingItems,
-    comingUp,
-    lowCost,
+    popular,
   };
 }
 
@@ -251,8 +233,12 @@ export function shownEventIds(sections: HomeSections): string[] {
   return [
     ...sections.weekend.items.map((event) => event.id),
     ...sections.following.map((event) => event.id),
-    ...sections.trending.map(({ event }) => event.id),
-    ...sections.comingUp.map((event) => event.id),
-    ...sections.lowCost.map(({ event }) => event.id),
+    ...popularEvents(sections.popular).map((event) => event.id),
   ];
+}
+
+/** The events in the popular slot, whichever kind it is. */
+export function popularEvents(popular: PopularSection | null): SheltuhEvent[] {
+  if (!popular) return [];
+  return popular.kind === "popular" ? popular.items.map(({ event }) => event) : popular.items;
 }

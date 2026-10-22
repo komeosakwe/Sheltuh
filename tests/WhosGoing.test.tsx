@@ -127,6 +127,15 @@ function summaryLink() {
   return screen.queryByRole("link", { name: /^\d+ going$/ });
 }
 
+/**
+ * Opens the full list ("See who's going"): the panel is collapsed to a preview
+ * by default (docs/design/mobile-redesign.md §6.4.2).
+ */
+function openList(region: HTMLElement) {
+  const toggle = within(region).getByRole("button", { name: "See who’s going" });
+  if (toggle.getAttribute("aria-expanded") !== "true") fireEvent.click(toggle);
+}
+
 function names(region: HTMLElement) {
   const list = within(region).queryByRole("list", { name: "People going" });
   return list ? within(list).getAllByRole("listitem").map((li) => li.textContent) : [];
@@ -137,6 +146,7 @@ describe("Who's Going — demo", () => {
     renderEvent(DEMO_EVENT, signedOut());
     const sampleData = getSampleGoing(DEMO_EVENT.id);
     const region = await panel();
+    openList(region);
 
     expect(within(region).getByText(String(sampleData.count)).closest("p")).toHaveTextContent(
       `${sampleData.count} going`,
@@ -241,6 +251,7 @@ describe("Who's Going — signed in", () => {
     member({ count: 5, attendees: people(5) });
     renderEvent(LIVE_EVENT);
     const region = await panel();
+    openList(region);
 
     expect(names(region)).toHaveLength(5);
     expect(within(region).getByRole("link", { name: "Get a ticket" })).toHaveAttribute("href", "#tickets");
@@ -255,6 +266,7 @@ describe("Who's Going — signed in", () => {
     member({ count: 2, attendees: people(2) });
     renderEvent(LIVE_EVENT);
     let region = await panel();
+    openList(region);
     expect(names(region)).toHaveLength(2);
     expect(within(region).queryByText("2")).toBeNull();
     expect(summaryLink()).toBeNull();
@@ -303,7 +315,9 @@ describe("Who's Going — signed in", () => {
 
     api.listGoingAttendees.mockResolvedValue({ items: people(4) });
     fireEvent.click(within(region).getByRole("button", { name: "Try again" }));
-    await waitFor(() => expect(names(region)).toHaveLength(4));
+    await waitFor(() => expect(within(region).getByRole("button", { name: "See who’s going" })).toBeInTheDocument());
+    openList(region);
+    expect(names(region)).toHaveLength(4);
     expect(region).not.toHaveTextContent("Lots of people are looking");
   });
 
@@ -545,6 +559,7 @@ describe("Who's Going — signed in", () => {
     api.unsetGoing.mockResolvedValue(status({ going: false, eligible: true, hasProfile: true }));
     renderEvent(LIVE_EVENT);
     const region = await panel();
+    openList(region);
 
     const rows = names(region);
     expect(rows).toHaveLength(4); // You + three others, no duplicate of the viewer
@@ -571,6 +586,7 @@ describe("Who's Going — signed in", () => {
       });
       renderEvent(LIVE_EVENT);
       const region = await panel();
+      openList(region);
       const buttons = within(region).getAllByRole("button", { name: /^Message / });
       expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
         "Message Person A.",
@@ -588,6 +604,7 @@ describe("Who's Going — signed in", () => {
       member({ count: 3, attendees: people(3), me: status({ eligible: true, hasProfile: true }), profile: PROFILE });
       renderEvent(LIVE_EVENT);
       const region = await panel();
+      openList(region);
       expect(names(region)).toHaveLength(3);
       expect(within(region).queryAllByRole("button", { name: /^Message / })).toHaveLength(0);
     });
@@ -693,6 +710,7 @@ describe("Who's Going — signed in", () => {
     member({ count: 30, attendees: people(8), nextCursor: "c2" });
     renderEvent(LIVE_EVENT);
     const region = await panel();
+    openList(region);
     expect(names(region)).toHaveLength(6);
 
     api.listGoingAttendees.mockResolvedValueOnce({ items: people(12, "More") });
@@ -714,6 +732,7 @@ describe("Who's Going — signed in", () => {
     member({ count: 30, attendees: people(6), nextCursor: "c2" });
     renderEvent(LIVE_EVENT);
     const region = await panel();
+    openList(region);
     api.listGoingAttendees.mockRejectedValueOnce(new ApiError(429, "Too many requests."));
     fireEvent.click(within(region).getByRole("button", { name: "Show more" }));
     expect(
@@ -726,6 +745,7 @@ describe("Who's Going — signed in", () => {
     member({ count: 30, attendees: people(6), nextCursor: "c2" });
     renderEvent(LIVE_EVENT);
     const region = await panel();
+    openList(region);
     api.listGoingAttendees.mockRejectedValueOnce(new ApiError(500, "nope"));
     fireEvent.click(within(region).getByRole("button", { name: "Show more" }));
     expect(await within(region).findByText("Couldn’t load more names.")).toBeInTheDocument();

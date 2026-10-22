@@ -3,7 +3,11 @@ import { ButtonLink } from "@/components/ui/Button";
 import { HOME_CREATORS } from "./home-content";
 import { ArrowRightIcon } from "./icons";
 
-/** The organiser pitch: an ink card (the scope inverts its text and outline button), the guide's split mirrored. */
+/**
+ * For organisers (mobile-redesign.md §6.3.1): an ink card (the scope inverts
+ * its text and outline button). A 2:1 photo on phones keeps it short; from
+ * 640px the photo is the right half.
+ */
 export default function CreatorsCard({ className = "" }: { className?: string }) {
   return (
     <section aria-labelledby="home-creators" className={className}>
@@ -11,11 +15,11 @@ export default function CreatorsCard({ className = "" }: { className?: string })
         <EventArt
           poster={HOME_CREATORS.poster}
           imageUrl={HOME_CREATORS.imageUrl}
-          title="For creators"
-          className="aspect-video sm:order-last sm:aspect-auto sm:h-full sm:min-h-64"
+          title="For organisers"
+          className="aspect-[2/1] sm:order-last sm:aspect-auto sm:h-full sm:min-h-64"
         />
         <div className="flex flex-col gap-2 p-5 sm:self-center sm:p-8">
-          <p className="eyebrow text-muted">For creators</p>
+          <p className="eyebrow text-muted">For organisers</p>
           <h2 id="home-creators" className="display-md">
             Bring your event to life
           </h2>

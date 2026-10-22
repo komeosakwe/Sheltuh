@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   formatWeekendRange,
+  popularEvents,
   selectHomeSections,
   shownEventIds,
   weekendWindow,
@@ -115,8 +116,9 @@ describe("selectHomeSections", () => {
     expect(sections).not.toHaveProperty("upNext");
     expect(sections.anyUpcoming).toBe(true);
     expect(shownEventIds(sections)).not.toContain("ended");
-    // The soonest event is in Coming up, like any other.
-    expect(sections.comingUp.map((e) => e.id)).toEqual(["thu", "fri"]);
+    // The soonest event is in Coming up (no trending data), like any other.
+    expect(sections.popular?.kind).toBe("coming");
+    expect(popularEvents(sections.popular).map((e) => e.id)).toEqual(["thu", "fri"]);
   });
 
   it("says when nothing at all is upcoming", () => {
@@ -186,79 +188,61 @@ describe("selectHomeSections", () => {
     expect(on.weekend.items.map((e) => e.id)).toEqual(["sat"]);
   });
 
-  it("each priority claims its events: This weekend, Trending, Coming up, Free & low-cost", () => {
+  it("each priority claims its events: This weekend, then Popular right now in the server's order (mobile-redesign.md §6.3.2)", () => {
     const events = [
       event("next", day(22)),
       event("sat", day(24), { priceCents: 0 }),
       ...[27, 28, 29, 30].map((d) => event(`t${d}`, day(d))),
       ...Array.from({ length: 8 }, (_, i) => event(`c${i}`, `2026-11-0${i + 1}T08:00:00.000Z`)),
-      event("free-late", "2026-11-20T08:00:00.000Z", { priceCents: 0 }),
-      event("cheap-late", "2026-11-21T08:00:00.000Z", { priceCents: 1000 }),
     ];
     const trending = [events[0], events[1], ...events.slice(2, 6)].map((e) => trend(e));
     const sections = selectHomeSections(events, trending, NOW);
 
     expect(sections.weekend.items.map((e) => e.id)).toEqual(["sat"]);
-    // Trending keeps the server's order, minus what's already shown (the weekend's).
-    expect(sections.trending.map(({ event: e }) => e.id)).toEqual(["next", "t27", "t28", "t29", "t30"]);
-    expect(sections.comingUp.map((e) => e.id)).toEqual(["c0", "c1", "c2", "c3", "c4", "c5"]);
-    // The free Saturday event is already in This weekend, so Free & low-cost takes the later ones.
-    expect(sections.lowCost).toEqual([
-      { event: events.find((e) => e.id === "free-late"), badge: "free" },
-      { event: events.find((e) => e.id === "cheap-late"), badge: "low-cost" },
-    ]);
+    // Popular keeps the server's order, minus what's already shown (the weekend's), with its signals.
+    expect(sections.popular?.kind).toBe("popular");
+    if (sections.popular?.kind !== "popular") throw new Error("expected popular");
+    expect(sections.popular.items.map(({ event: e }) => e.id)).toEqual(["next", "t27", "t28", "t29", "t30"]);
+    expect(sections.popular.items[0].signal).toEqual({ kind: "going", count: 20 });
+    // There's no Free & low-cost or separate Coming up on the home any more (§6.3.1).
+    expect(sections).not.toHaveProperty("lowCost");
+    expect(sections).not.toHaveProperty("comingUp");
+    expect(sections).not.toHaveProperty("trending");
 
     const ids = shownEventIds(sections);
     expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toEqual(["sat", "next", "t27", "t28", "t29", "t30"]);
   });
 
-  it("Trending needs three after de-duplication; when hidden, its events stay available to Coming up", () => {
-    // The Saturday event is This weekend's, leaving Trending two.
+  it("Popular needs three after de-duplication; otherwise the slot is Coming up with the soonest not yet started", () => {
+    // The Saturday event is This weekend's, leaving trending two.
     const events = [event("sat", day(24)), event("a", day(27)), event("b", day(28)), event("c", day(29))];
     const sections = selectHomeSections(events, [trend(events[0]), trend(events[1]), trend(events[2])], NOW);
-    expect(sections.trending).toEqual([]);
-    expect(sections.comingUp.map((e) => e.id)).toEqual(["a", "b", "c"]);
+    expect(sections.popular).toEqual({ kind: "coming", items: [events[1], events[2], events[3]] });
+    // Non-trending events are never labelled popular.
+    expect(sections.popular?.kind).not.toBe("popular");
   });
 
-  it("Trending drops ended events", () => {
+  it("Popular drops ended trending events (then falls back to Coming up)", () => {
     const events = [event("next", day(22)), event("a", day(27)), event("b", day(28))];
     const ended = event("old", "2026-10-01T08:00:00.000Z");
     const sections = selectHomeSections(events, [trend(ended), trend(events[1]), trend(events[2])], NOW);
-    expect(sections.trending).toEqual([]);
+    expect(sections.popular?.kind).toBe("coming");
+    expect(shownEventIds(sections)).not.toContain("old");
   });
 
-  it("Coming up and Free & low-cost need two each; a lone one releases its event", () => {
-    const sections = selectHomeSections([event("free", day(27), { priceCents: 0 })], [], NOW);
-    expect(sections.comingUp).toEqual([]);
-    expect(sections.lowCost).toEqual([]);
+  it("Coming up needs two not yet started; with fewer the slot is hidden (null)", () => {
+    expect(selectHomeSections([event("only", day(27))], [], NOW).popular).toBeNull();
+    // In progress (not yet ended, but started) doesn't count as coming up.
+    const running = event("running", "2026-10-20T08:00:00.000Z", { endsAt: "2026-10-29T08:00:00.000Z" });
+    expect(selectHomeSections([running, event("only", day(27))], [], at("2026-10-26T01:00:00.000Z")).popular).toBeNull();
   });
 
-  it("Free & low-cost: free external events count as free; paid external events never count (no known price)", () => {
-    const external = (id: string, d: number, externalFree: boolean) =>
-      event(id, day(d), {
-        ticketTypes: [],
-        ticketingMode: "external",
-        externalTicketUrl: "https://events.humanitix.com/x",
-        externalFree,
-        externalProvider: "Humanitix",
-      });
-    // Mon 26 Oct: these three are in progress (so Coming up, which is not-yet-started only, skips
-    // them) and end before Friday (so This weekend doesn't take them).
-    const open = (e: SheltuhEvent): SheltuhEvent => ({ ...e, startsAt: "2026-10-25T22:00:00.000Z", endsAt: "2026-10-28T08:00:00.000Z" });
-    const sections = selectHomeSections(
-      [event("next", day(27)), open(external("ext-free", 27, true)), open(external("ext-paid", 27, false)), open(event("cheap", day(27), { priceCents: 1500 }))],
-      [],
-      at("2026-10-26T01:00:00.000Z"),
-    );
-    expect(sections.lowCost.map(({ event: e, badge }) => [e.id, badge])).toEqual([
-      ["cheap", "low-cost"],
-      ["ext-free", "free"],
-    ]);
-  });
-
-  it("caps every section at six", () => {
+  it("caps the slot at six", () => {
     const events = [event("next", day(22)), ...Array.from({ length: 10 }, (_, i) => event(`c${i}`, `2026-11-1${i}T08:00:00.000Z`))];
-    expect(selectHomeSections(events, [], NOW).comingUp).toHaveLength(6);
+    expect(popularEvents(selectHomeSections(events, [], NOW).popular)).toHaveLength(6);
+    const trending = events.map((e) => trend(e));
+    expect(popularEvents(selectHomeSections(events, trending, NOW).popular)).toHaveLength(6);
   });
 });
 
@@ -269,14 +253,15 @@ describe("selectHomeSections: From organisers you follow", () => {
   const later = Array.from({ length: 4 }, (_, i) => event(`l${i}`, `2026-11-0${i + 1}T08:00:00.000Z`));
   const followedOnly = event("followed", "2026-11-10T08:00:00.000Z");
 
-  it("comes after This weekend and before Trending, without repeating what's above, and claims its events", () => {
+  it("comes after This weekend and before Popular right now, without repeating what's above, and claims its events", () => {
     const following = [sat, thursday, later[0], followedOnly];
     const trending = [later[0], later[1], later[2], later[3]].map((e) => trend(e));
     const sections = selectHomeSections([thursday, sat, ...later], trending, NOW, following);
     // Soonest first; the weekend's event is already shown above.
     expect(sections.following.map((e) => e.id)).toEqual(["next", "l0", "followed"]);
-    // Trending no longer shows l0 (claimed by the rail above it).
-    expect(sections.trending.map(({ event }) => event.id)).toEqual(["l1", "l2", "l3"]);
+    // Popular no longer shows l0 (claimed by the rail above it).
+    expect(sections.popular?.kind).toBe("popular");
+    expect(popularEvents(sections.popular).map((event) => event.id)).toEqual(["l1", "l2", "l3"]);
     const ids = shownEventIds(sections);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids.indexOf("followed")).toBeLessThan(ids.indexOf("l1"));

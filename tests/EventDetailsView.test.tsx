@@ -2,9 +2,11 @@
 import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventDetailsView from "@/components/EventDetailsView";
+import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
 import { describeBookingFee } from "@/lib/fees";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
+import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
 
 // The sample events are dated Sept–Nov 2026, and an ended event has nothing to buy: read them before then.
 beforeEach(() => {
@@ -84,13 +86,26 @@ describe("EventDetailsView buy bar (phones and tablets)", () => {
 });
 
 describe("EventDetailsView once the event has ended (mobile-redesign.md §6.5, §10.3 #2)", () => {
-  it("the buy bar says Event ended, with no action; the tickets section says so in place of the selector", () => {
+  it("the buy bar says the event has ended, with its date and no price or action; the tickets section says so too", () => {
     vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));
-    const { container } = render(<EventDetailsView event={findEvent("neon-static")} demo={false} />);
+    // Demo favourites (accounts not configured), so the bar's Save heart renders.
+    const { container } = render(
+      <FakeAuthProvider value={fakeAuthValue({ configured: false, status: "signed-out" })}>
+        <FavouritesProvider>
+          <EventDetailsView event={findEvent("neon-static")} demo={false} />
+        </FavouritesProvider>
+      </FakeAuthProvider>,
+    );
     const bar = buyBar(container);
     if (!bar) throw new Error("buy bar not rendered");
-    expect(within(bar).getByText("Event ended")).toBeInTheDocument();
+    expect(within(bar).getByText("This event has ended.")).toBeInTheDocument();
+    // When it was, never what it cost: nothing's for sale (coordinator, 22 Oct 2026).
+    expect(within(bar).getByText(/^Fri 25 Sept?$/)).toBeInTheDocument();
+    expect(bar).not.toHaveTextContent("A$");
+    expect(bar).not.toHaveTextContent("booking fee");
     expect(within(bar).queryByRole("link")).toBeNull();
+    // Save stays.
+    expect(within(bar).getByRole("button", { name: "Save Neon Static" })).toBeInTheDocument();
     const tickets = container.querySelector<HTMLElement>("#tickets");
     if (!tickets) throw new Error("#tickets not rendered");
     expect(within(tickets).getByText("This event has ended.")).toBeInTheDocument();
@@ -103,7 +118,8 @@ describe("EventDetailsView once the event has ended (mobile-redesign.md §6.5, �
     const bar = buyBar(container);
     if (!bar) throw new Error("buy bar not rendered");
     expect(within(bar).queryByRole("link", { name: /tickets/i })).toBeNull();
-    expect(within(bar).getByText("Event ended")).toBeInTheDocument();
+    expect(within(bar).getByText("This event has ended.")).toBeInTheDocument();
+    expect(bar).not.toHaveTextContent("Free");
   });
 
   it("sold out and ended: See tickets, to the closed waitlist", () => {
@@ -114,6 +130,22 @@ describe("EventDetailsView once the event has ended (mobile-redesign.md §6.5, �
     if (!bar) throw new Error("buy bar not rendered");
     expect(within(bar).getByRole("link", { name: "See tickets" })).toHaveAttribute("href", "#tickets");
     expect(within(bar).queryByRole("link", { name: "Join waitlist" })).toBeNull();
+    expect(bar).not.toHaveTextContent("A$");
+    // The tickets panel says it has ended too, above the sold-out tiers and the closed waitlist.
+    const tickets = container.querySelector<HTMLElement>("#tickets");
+    if (!tickets) throw new Error("#tickets not rendered");
+    expect(within(tickets).getByText("This event has ended.")).toBeInTheDocument();
+  });
+
+  it("a seated event that's ended (not sold out): the same words in the panel, no seat picking", () => {
+    vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));
+    const seated = sampleEvents.find((e) => e.seating && !e.soldOut);
+    if (!seated) throw new Error("no seated sample");
+    const { container } = render(<EventDetailsView event={seated} demo />);
+    const tickets = container.querySelector<HTMLElement>("#tickets");
+    if (!tickets) throw new Error("#tickets not rendered");
+    expect(within(tickets).getByText("This event has ended.")).toBeInTheDocument();
+    expect(within(tickets).queryByRole("link", { name: /Choose seats/ })).toBeNull();
   });
 });
 
@@ -223,14 +255,14 @@ describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => 
     expect(screen.getByRole("region", { name: "Good to know" })).toBeInTheDocument();
   });
 
-  it("says the time is Melbourne time, and midnight in words", () => {
-    // Neon Static: 8:00 pm Fri 25 Sep to midnight, Melbourne time.
+  it("says the time is Melbourne time with the zone in effect, and midnight in words", () => {
+    // Neon Static: 8:00 pm Fri 25 Sep to midnight, Melbourne time (AEST: daylight saving starts 4 Oct).
     render(<EventDetailsView event={findEvent("neon-static")} demo />);
     const when = screen.getByText("When").closest("div");
     if (!when) throw new Error("When row not rendered");
     // (Node's ICU writes September as "Sep" or "Sept".)
     expect(within(when).getAllByRole("definition")[0]).toHaveTextContent(
-      /^Fri 25 Sept?, 8:00 pm – Sat 26 Sept?, midnightMelbourne time$/,
+      /^Fri 25 Sept?, 8:00 pm – Sat 26 Sept?, midnightMelbourne time \(AEST\)$/,
     );
     expect(document.body).not.toHaveTextContent("12:00 am");
   });
@@ -240,5 +272,75 @@ describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => 
     const when = screen.getByText("When").closest("div");
     if (!when) throw new Error("When row not rendered");
     expect(within(when).getByRole("button", { name: "Add to calendar" })).toHaveAttribute("aria-expanded", "false");
+  });
+});
+
+describe("EventDetailsView Where: Get directions (mobile-redesign.md §6.5)", () => {
+  it("makes the address one link to directions, opening Google Maps in a new tab with a clear name", () => {
+    const event = findEvent("neon-static");
+    render(<EventDetailsView event={event} demo />);
+    const where = screen.getByText("Where").closest("div");
+    if (!where) throw new Error("Where row not rendered");
+    const links = within(where).getAllByRole("link");
+    expect(links).toHaveLength(1);
+    const link = links[0];
+    const address = `${event.venueName}, ${event.venueAddress}`;
+    expect(link).toHaveAccessibleName(`Get directions to ${address} (opens Google Maps in a new tab)`);
+    expect(link).toHaveTextContent(`${address}Get directions`);
+    expect(link).toHaveAttribute(
+      "href",
+      `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`,
+    );
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    // The action itself is a 44px target.
+    expect(within(link).getByText("Get directions")).toHaveClass("min-h-11");
+  });
+});
+
+describe("EventDetailsView More from the organiser", () => {
+  it("live: links to the organiser profile's upcoming events", () => {
+    const event = { ...findEvent("neon-static"), organiserId: "org 1", organiserName: "Northside Noise" };
+    render(<EventDetailsView event={event} demo={false} />);
+    expect(screen.getByRole("link", { name: "More from Northside Noise" })).toHaveAttribute(
+      "href",
+      "/organisers/org%201#organiser-upcoming",
+    );
+  });
+
+  it("demo: links to the sample organiser's page", () => {
+    render(<EventDetailsView event={findEvent("dead-letter-office")} demo />);
+    expect(screen.getByRole("link", { name: "More from Small Hours Theatre" })).toHaveAttribute(
+      "href",
+      "/organisers/small-hours-theatre#organiser-upcoming",
+    );
+  });
+
+  it("isn't offered when there's no profile to link to", () => {
+    render(<EventDetailsView event={{ ...findEvent("neon-static"), organiserName: "Nobody In The Samples" }} demo />);
+    expect(screen.queryByRole("link", { name: /^More from/ })).toBeNull();
+  });
+});
+
+describe("EventDetailsView booking info beside the tickets", () => {
+  it("links the existing refund and purchase-terms pages (no invented policy), and repeats an age restriction", () => {
+    const { container } = render(
+      <EventDetailsView event={{ ...findEvent("neon-static"), ageRestriction: "18+ (ID checked)" }} demo />,
+    );
+    const tickets = container.querySelector<HTMLElement>("#tickets");
+    if (!tickets) throw new Error("#tickets not rendered");
+    expect(within(tickets).getByRole("link", { name: "Request a refund" })).toHaveAttribute("href", "/refunds");
+    expect(within(tickets).getByRole("link", { name: "Purchase Terms" })).toHaveAttribute("href", "/purchase-terms");
+    const age = within(tickets).getByText("Age restriction");
+    expect(age.tagName).toBe("DT");
+    expect(age.nextElementSibling).toHaveTextContent("18+ (ID checked)");
+  });
+
+  it("has no age line without a restriction", () => {
+    const { container } = render(<EventDetailsView event={{ ...findEvent("neon-static"), ageRestriction: undefined }} demo />);
+    const tickets = container.querySelector<HTMLElement>("#tickets");
+    if (!tickets) throw new Error("#tickets not rendered");
+    expect(within(tickets).queryByText("Age restriction")).toBeNull();
+    expect(within(tickets).getByText("Refunds")).toBeInTheDocument();
   });
 });

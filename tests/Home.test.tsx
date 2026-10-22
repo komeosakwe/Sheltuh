@@ -23,30 +23,35 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
 
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
+    // The brief's order (mobile-redesign.md §6.3.1): Trending and Coming up are one slot, and Free &
+    // low-cost and Only in the city have left the home (the latter is at the end of /events).
     expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
       "This weekend",
-      "Trending",
-      "Coming up near you",
-      "Only in the city",
-      // With no Up next claiming one, two cheap events are left for Free & low-cost.
-      "Free & low-cost",
+      "Popular right now",
       "Explore by category",
-      "Find your people",
+      "See who’s going before you book.",
       "Bring your event to life",
     ]);
+    // Find your people is the band's name for sighted readers (its eyebrow) and its jump target.
+    expect(screen.getByText("Find your people").closest("#find-your-people")).not.toBeNull();
     expect(screen.getByRole("search", { name: "Search events" })).toBeInTheDocument();
   });
 
-  it("has no Up next: the soonest event is a card in the sections; ended events are nowhere (demo data includes them)", async () => {
+  it("has no Up next; every card is an upcoming event (demo data includes ended ones, which are nowhere)", async () => {
     render(<Home />);
     await settle();
     const now = Date.now();
-    const soonest = [...sampleEvents]
-      .filter((e) => Date.parse(e.startsAt) > now)
-      .sort((a, b) => a.startsAt.localeCompare(b.startsAt))[0];
     expect(screen.queryByRole("region", { name: "Up next" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: new RegExp(`^${soonest.title} `) })).toHaveAttribute("href", `/events/${soonest.slug}`);
     expect(screen.queryByText("Neon Static")).not.toBeInTheDocument();
+    const slugs = screen
+      .getAllByRole("link")
+      .map((a) => /^\/events\/([^?#/]+)$/.exec(a.getAttribute("href") ?? "")?.[1])
+      .filter((slug): slug is string => slug !== undefined);
+    expect(slugs.length).toBeGreaterThan(5);
+    for (const slug of slugs) {
+      const sample = sampleEvents.find((e) => e.slug === slug);
+      expect(Date.parse(sample?.endsAt ?? sample?.startsAt ?? "")).toBeGreaterThan(now);
+    }
   });
 
   it("shows each event at most once", async () => {
@@ -56,16 +61,9 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
       .getAllByRole("link")
       .map((a) => a.getAttribute("href") ?? "")
       .filter((href) => /^\/events\/[^?#]+$/.test(href));
-    expect(hrefs.length).toBeGreaterThan(8);
+    // This weekend's cards plus Popular right now's six.
+    expect(hrefs.length).toBeGreaterThan(6);
     expect(new Set(hrefs).size).toBe(hrefs.length);
-  });
-
-  it("labels the external demo events by where tickets are sold", async () => {
-    render(<Home />);
-    await settle();
-    expect(screen.getByText("Tickets on Humanitix")).toBeInTheDocument();
-    // A free external event: "Free", then where (mobile-redesign.md §6.2.3 row 2).
-    expect(screen.getByText("Tickets on the organiser's site").previousElementSibling).toHaveTextContent("Free");
   });
 
   it("says the listings are samples, and every quick-buy link says 'Buy tickets' (or 'Get free tickets'), as live", async () => {
