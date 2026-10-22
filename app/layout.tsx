@@ -5,7 +5,6 @@ import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
 import { UnreadProvider } from "@/components/messages/UnreadProvider";
 import Nav from "@/components/Nav";
 import ServiceWorkerRegistration from "@/components/pwa/ServiceWorkerRegistration";
-import RevealObserver from "@/components/RevealObserver";
 import RouteProgress from "@/components/RouteProgress";
 import { isApiConfigured } from "@/lib/api/client";
 import { AuthProvider } from "@/lib/auth/AuthContext";
@@ -81,7 +80,6 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           </UnreadProvider>
         </AuthProvider>
         <ServiceWorkerRegistration />
-        <RevealObserver />
       </body>
     </html>
   );

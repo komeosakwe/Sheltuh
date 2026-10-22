@@ -5,7 +5,7 @@ import OrganiserLinks from "@/components/organisers/OrganiserLinks";
 import VideoFacade from "@/components/organisers/VideoFacade";
 import { RESULTS_GRID } from "@/components/EventResults";
 import BackLink from "@/components/ui/BackLink";
-import EventTile from "@/components/ui/EventTile";
+import EventCard from "@/components/ui/EventCard";
 import Strap from "@/components/ui/Strap";
 import { SectionHeader } from "@/components/ui/Section";
 import { formatDayWithYear } from "@/lib/format";
@@ -115,10 +115,10 @@ export default function OrganiserProfileView({
       <section aria-labelledby="organiser-upcoming">
         <SectionHeader id="organiser-upcoming" title="Upcoming events" />
         {upcoming.length > 0 ? (
-          <ul data-reveal-stagger className={RESULTS_GRID}>
+          <ul className={RESULTS_GRID}>
             {upcoming.map((event) => (
               <li key={event.id} className="flex min-w-0">
-                <EventTile event={event} showOrganiser={false} className="w-full" />
+                <EventCard event={event} variant="grid" showOrganiser={false} />
               </li>
             ))}
           </ul>

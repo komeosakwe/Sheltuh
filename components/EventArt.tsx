@@ -179,6 +179,7 @@ export default function EventArt({
   children,
   priority = false,
   motion = false,
+  fit = "cover",
 }: {
   poster: EventPoster;
   title: string;
@@ -195,15 +196,34 @@ export default function EventArt({
   priority?: boolean | "when-shown";
   /** Slowly pushes the photo in and back (reduced-motion safe). For hero and feature images only. */
   motion?: boolean;
+  /**
+   * `auto` (the event page): a portrait poster (at least 1.2 times as tall as
+   * it is wide) in a landscape or square box is shown whole on black rather
+   * than cropped to a strip; anything else is cropped to fill (`cover`, the
+   * default). The box never changes size, so nothing shifts. A client-side
+   * guess from the image's own size, until events carry image metadata.
+   */
+  fit?: "cover" | "auto";
 }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const [containedUrl, setContainedUrl] = useState<string | null>(null);
   const showImage = Boolean(imageUrl) && failedUrl !== imageUrl;
+  const contain = showImage && fit === "auto" && containedUrl === imageUrl;
+
+  /** `auto`: a loaded portrait poster in a box that isn't portrait is contained, not cropped. */
+  function fitLoaded(img: HTMLImageElement) {
+    if (fit !== "auto" || !img.naturalWidth || !img.naturalHeight) return;
+    const box = img.parentElement?.getBoundingClientRect();
+    const portraitPoster = img.naturalHeight / img.naturalWidth >= 1.2;
+    const boxNotPortrait = !box || box.height <= box.width;
+    setContainedUrl(portraitPoster && boxNotPortrait ? (imageUrl ?? null) : null);
+  }
 
   return (
     <div
       aria-hidden="true"
       className={`relative overflow-hidden ${className ?? ""}`}
-      style={{ backgroundColor: poster.background }}
+      style={{ backgroundColor: contain ? "var(--ink)" : poster.background }}
     >
       {showImage ? (
         // eslint-disable-next-line @next/next/no-img-element -- remote/organiser-supplied URLs; sized by the parent
@@ -216,10 +236,13 @@ export default function EventArt({
           // On a server-rendered page the image can fail before React attaches
           // onError; catch that here so the poster art still shows.
           ref={(img) => {
-            if (img && img.complete && img.currentSrc && img.naturalWidth === 0) setFailedUrl(imageUrl ?? null);
+            if (!img || !img.complete || !img.currentSrc) return;
+            if (img.naturalWidth === 0) setFailedUrl(imageUrl ?? null);
+            else fitLoaded(img);
           }}
           onError={() => setFailedUrl(imageUrl ?? null)}
-          className={`absolute inset-0 h-full w-full object-cover ${motion ? "ken-burns" : ""}`.trim()}
+          onLoad={(event) => fitLoaded(event.currentTarget)}
+          className={`absolute inset-0 h-full w-full ${contain ? "object-contain" : "object-cover"} ${motion ? "ken-burns" : ""}`.trim()}
         />
       ) : (
       <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" className="absolute inset-0 h-full w-full">

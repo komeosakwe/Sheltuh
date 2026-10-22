@@ -11,22 +11,23 @@ export type QuickBuyLabel = "Buy tickets" | "Get free tickets" | "Join waitlist"
  *
  * "Get free tickets" when every tier is free, otherwise "Buy tickets", in
  * demo mode too (its event page explains nothing is bookable). An external
- * event says "Buy tickets" and still goes to the event page, whose ticket
- * section (like its phone buy bar) is the "Get tickets on {provider}" link
- * out, with its click beacon; the card itself never links out. Sold out
- * (every tier, from the server's `soldOut`): "Join waitlist", to the same
- * section, where the waitlist block is (§6.5, §6.11). Still orange (owner
- * decision 6). A seated event (reserved seating) still on sale: "Choose
- * seats", straight to its seat page (quickBuyHref).
+ * event says "Buy tickets" ("Get free tickets" when its organiser says entry
+ * is free: docs/design/mobile-redesign.md §6.2.3) and still goes to the
+ * event page, whose ticket section (like its phone buy bar) is the "Get
+ * tickets on {provider}" link out, with its click beacon; the card itself
+ * never links out. Sold out (every tier, from the server's `soldOut`): "Join
+ * waitlist", to the same section, where the waitlist block is (§6.5, §6.11).
+ * A seated event (reserved seating) still on sale: "Choose seats", straight
+ * to its seat page (quickBuyHref).
  */
 export function quickBuyLabel(event: SheltuhEvent, now?: Date): QuickBuyLabel | null {
   if (now && Date.parse(event.endsAt ?? event.startsAt) <= now.getTime()) return null;
-  const external = event.ticketingMode === "external";
-  if (!external && event.ticketTypes.length === 0) return null;
+  if (event.ticketingMode === "external") return event.externalFree ? "Get free tickets" : "Buy tickets";
+  if (event.ticketTypes.length === 0) return null;
   if (isSoldOut(event)) return "Join waitlist";
-  if (!external && event.seating) return "Choose seats";
+  if (event.seating) return "Choose seats";
   // The tiers still on sale decide: a sold-out paid tier leaves free tickets only.
-  if (!external && pricedTicketTypes(event).every((ticket) => ticket.priceCents === 0)) return "Get free tickets";
+  if (pricedTicketTypes(event).every((ticket) => ticket.priceCents === 0)) return "Get free tickets";
   return "Buy tickets";
 }
 

@@ -22,9 +22,9 @@ const HomeEventsContext = createContext<HomeEventsValue | null>(null);
 
 /**
  * Loads the home page's events once and splits them into sections, for the
- * hero's Up next and the event sections below it (docs/design/home.md §5.9).
- * A trending failure only hides Trending; an events failure is the page's
- * one error, shown in Up next with Try again.
+ * event sections below the hero (docs/design/home.md §5.9). A trending
+ * failure only hides Trending; an events failure is the page's one error,
+ * shown in the first section's place with Try again.
  *
  * Live and signed in, it also loads the followed organisers' events for "From
  * organisers you follow" (a failure only hides that rail). It waits for the

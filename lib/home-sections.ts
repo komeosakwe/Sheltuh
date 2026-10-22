@@ -38,8 +38,8 @@ export interface WeekendWindow {
 }
 
 export interface HomeSections {
-  /** "Up next": the soonest event that hasn't started, else the soonest in progress. */
-  upNext?: SheltuhEvent;
+  /** Any event at all hasn't ended (false: the site has nothing upcoming, so the page says so). */
+  anyUpcoming: boolean;
   weekend: {
     window: WeekendWindow;
     /** `cards`: show them. `empty`: the heading and "Nothing listed" (before the weekend only). `hidden`: render nothing. */
@@ -168,11 +168,11 @@ const endMs = (event: SheltuhEvent) => Date.parse(event.endsAt ?? event.startsAt
 export const bySoonest = (a: SheltuhEvent, b: SheltuhEvent) => startMs(a) - startMs(b) || a.id.localeCompare(b.id);
 
 /**
- * Splits the home page's events into its sections (docs/design/home.md §6.2).
- * Ended events are dropped first. Sections then claim events in priority
- * order (Up next, This weekend, From organisers you follow, Trending, Coming
- * up, Free & low-cost), and a later section never shows an event an earlier
- * one did. A section that's hidden for having too few events claims nothing,
+ * Splits the home page's events into its sections (docs/design/home.md §6.2,
+ * docs/design/mobile-redesign.md §6.3.2: no Up next). Ended events are
+ * dropped first. Sections then claim events in priority order (This weekend,
+ * From organisers you follow, Trending, Coming up, Free & low-cost), and a
+ * later section never shows an event an earlier one did. A section that's hidden for having too few events claims nothing,
  * so its events stay available to the sections after it. `following`: the
  * signed-in member's followed organisers' upcoming events (empty otherwise).
  */
@@ -190,11 +190,7 @@ export function selectHomeSections(
   const unclaimed = (event: SheltuhEvent) => !claimed.has(event.id);
   const claim = (list: SheltuhEvent[]) => list.forEach((event) => claimed.add(event.id));
 
-  // 1. Up next: not yet started first, so a long-running exhibition doesn't win it for weeks.
-  const upNext = notStarted[0] ?? upcoming[0];
-  if (upNext) claim([upNext]);
-
-  // 2. This weekend: anything open during the window (owner decision 5). Events starting inside
+  // 1. This weekend: anything open during the window (owner decision 5). Events starting inside
   // it come first, by start; then events already running when it opens (exhibitions), by start.
   const window = weekendWindow(now);
   const overlapping = upcoming.filter((event) => startMs(event) <= window.end && endMs(event) >= window.start);
@@ -203,12 +199,11 @@ export function selectHomeSections(
     .filter(unclaimed)
     .sort((a, b) => alreadyRunning(a) - alreadyRunning(b) || bySoonest(a, b))
     .slice(0, SECTION_MAX);
-  // All of the weekend already in Up next: it's on screen above, so hide. Nothing on and the
-  // weekend has started: hide (Coming up shows what's next). Nothing on yet: say so.
-  const weekendStatus = weekendItems.length > 0 ? "cards" : overlapping.length > 0 || window.during ? "hidden" : "empty";
+  // Nothing on and the weekend has started: hide (Coming up shows what's next). Nothing on yet: say so.
+  const weekendStatus = weekendItems.length > 0 ? "cards" : window.during ? "hidden" : "empty";
   claim(weekendItems);
 
-  // 2b. From organisers you follow: soonest first, shown with even one event (the member asked for them).
+  // 1b. From organisers you follow: soonest first, shown with even one event (the member asked for them).
   const followingItems = following
     .filter((event) => isUpcomingEvent(event, now) && unclaimed(event))
     .sort(bySoonest)
@@ -216,19 +211,19 @@ export function selectHomeSections(
     .slice(0, SECTION_MAX);
   claim(followingItems);
 
-  // 3. Trending, in the server's order.
+  // 2. Trending, in the server's order.
   const trendingLeft = trending
     .filter(({ event }) => isUpcomingEvent(event, now) && unclaimed(event))
     .slice(0, SECTION_MAX);
   const trendingItems = trendingLeft.length >= TRENDING_MIN ? trendingLeft : [];
   claim(trendingItems.map(({ event }) => event));
 
-  // 4. Coming up: not yet started, soonest first.
+  // 3. Coming up: not yet started, soonest first.
   const comingLeft = notStarted.filter(unclaimed).slice(0, SECTION_MAX);
   const comingUp = comingLeft.length >= RAIL_MIN ? comingLeft : [];
   claim(comingUp);
 
-  // 5. Free & low-cost: an all-inclusive A$20 or less, or an external event its organiser says is
+  // 4. Free & low-cost: an all-inclusive A$20 or less, or an external event its organiser says is
   // free. An external paid event has no price we can vouch for, so it's never "low-cost".
   const lowLeft = upcoming
     .filter(unclaimed)
@@ -242,7 +237,7 @@ export function selectHomeSections(
   const lowCost = lowLeft.length >= RAIL_MIN ? lowLeft : [];
 
   return {
-    upNext,
+    anyUpcoming: upcoming.length > 0,
     weekend: { window, status: weekendStatus, items: weekendItems },
     following: followingItems,
     trending: trendingItems,
@@ -254,17 +249,10 @@ export function selectHomeSections(
 /** Every event id the sections show, in page order (for checks that nothing repeats). */
 export function shownEventIds(sections: HomeSections): string[] {
   return [
-    ...(sections.upNext ? [sections.upNext.id] : []),
     ...sections.weekend.items.map((event) => event.id),
     ...sections.following.map((event) => event.id),
     ...sections.trending.map(({ event }) => event.id),
     ...sections.comingUp.map((event) => event.id),
     ...sections.lowCost.map(({ event }) => event.id),
   ];
-}
-
-/** The wide card's one-line description: up to the first sentence break. */
-export function firstSentence(description: string): string {
-  const end = description.indexOf(". ");
-  return end === -1 ? description : description.slice(0, end + 1);
 }

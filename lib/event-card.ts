@@ -1,0 +1,101 @@
+import { formatEventDateKey, formatEventDateShort, formatEventTime } from "./format";
+import type { TrendingSignal } from "./home-sections";
+import { initialsFor } from "./initials";
+import { quickBuyHref, quickBuyLabel, type QuickBuyLabel } from "./quick-buy";
+import { getSampleGoing } from "./sample-going";
+import { EVENT_CATEGORIES, type SheltuhEvent } from "./types";
+
+/**
+ * The pure parts of every event card (docs/design/mobile-redesign.md §2.3,
+ * §6.2): EventCard, the map card and the map list row read their labels
+ * here, so none keeps its own copy.
+ */
+
+/** The category's display label ("Live music"), or its raw value if it's unknown. */
+export function categoryLabel(event: SheltuhEvent): string {
+  return EVENT_CATEGORIES.find((category) => category.value === event.category)?.label ?? event.category;
+}
+
+/** "The Depot Theatre · Coburg": the parts that exist, never a dangling separator. Empty when neither does. */
+export function placeLabel(event: SheltuhEvent): string {
+  return [event.venueName, event.suburb].filter(Boolean).join(" · ");
+}
+
+export type CardDateLabel = { date: string; time: string } | { running: string };
+
+/**
+ * The card's date line, in Melbourne time. An event already under way that
+ * ends after `now` says so ("Now on · until Sun 1 Nov", or "Now on · until
+ * 11:00 pm" when it ends today), since its start date has passed; anything
+ * else is the start's date and time. Never "Today!" or a countdown.
+ */
+export function cardDateLabel(event: SheltuhEvent, now: Date): CardDateLabel {
+  const start = Date.parse(event.startsAt);
+  const end = event.endsAt ? Date.parse(event.endsAt) : Number.NaN;
+  const nowMs = now.getTime();
+  if (event.endsAt && start <= nowMs && end > nowMs) {
+    const endsToday = formatEventDateKey(event.endsAt) === formatEventDateKey(now.toISOString());
+    return { running: `Now on · until ${endsToday ? formatEventTime(event.endsAt) : formatEventDateShort(event.endsAt)}` };
+  }
+  return { date: formatEventDateShort(event.startsAt), time: formatEventTime(event.startsAt) };
+}
+
+/** Whether `event` has ended by `now` (an event with no end time ends when it starts). */
+export function hasEnded(event: SheltuhEvent, now: Date): boolean {
+  return Date.parse(event.endsAt ?? event.startsAt) <= now.getTime();
+}
+
+export interface CardCta {
+  label: QuickBuyLabel;
+  href: string;
+  /** `outline` for Join waitlist: a waitlist isn't a purchase, so it doesn't share the orange. */
+  tone: "signal" | "outline";
+}
+
+/**
+ * A card's ticket action from real data only (§6.2.3), or null for none:
+ * ended, or no ticket types yet. External events go to the event page's
+ * ticket section (which holds the outbound link and its beacon); a seated
+ * event on sale goes to its seat page; sold out (and not ended) is Join
+ * waitlist. Never a remaining count or any urgency.
+ */
+export function cardCta(event: SheltuhEvent, now: Date): CardCta | null {
+  const label = quickBuyLabel(event, now);
+  if (!label) return null;
+  return { label, href: quickBuyHref(event), tone: label === "Join waitlist" ? "outline" : "signal" };
+}
+
+/** Demo "N going": the fictional sample list's count and its first three initials. */
+export function demoGoing(eventId: string): { count: number; initials: string[] } {
+  const sample = getSampleGoing(eventId);
+  return { count: sample.count, initials: sample.attendees.slice(0, 3).map((a) => initialsFor(a.displayName)) };
+}
+
+/**
+ * The going row on a card (§6.2.5), or null for none (no reserved space).
+ * An external event has no Who's Going. Demo cards show the fictional sample
+ * (the pages carry a demo notice). Live cards show only the server's
+ * thresholded trending count, with no avatars: list payloads carry no names
+ * and no per-event count.
+ */
+export function cardGoing(
+  event: SheltuhEvent,
+  mode: "demo" | "live",
+  signal?: TrendingSignal,
+): { count: number; initials?: string[] } | null {
+  if (event.ticketingMode === "external") return null;
+  if (mode === "demo") return demoGoing(event.id);
+  if (signal?.kind === "going") return { count: signal.count };
+  return null;
+}
+
+/**
+ * The trending qualifier on a card's category line: "Just announced", or
+ * "Popular this week" for a "popular" label or an external event's going
+ * signal (it has no Who's Going to count). A going signal on a Sheltüh event
+ * returns null: its count shows in the going row instead.
+ */
+export function signalLabel(signal: TrendingSignal, external: boolean): string | null {
+  if (signal.kind === "going") return external ? "Popular this week" : null;
+  return signal.kind === "just-announced" ? "Just announced" : "Popular this week";
+}

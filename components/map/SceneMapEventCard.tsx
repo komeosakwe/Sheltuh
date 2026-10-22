@@ -1,12 +1,13 @@
 import Link from "next/link";
 import type { Ref } from "react";
 import EventArt from "@/components/EventArt";
-import CardPrice from "@/components/home/CardPrice";
 import QuickBuyLink from "@/components/QuickBuyLink";
 import { buttonClass } from "@/components/ui/Button";
+import CardPrice from "@/components/ui/CardPrice";
+import { categoryLabel, placeLabel } from "@/lib/event-card";
 import { formatEventDateShort, formatEventTime } from "@/lib/format";
 import { resolveEventCoordinates } from "@/lib/geo";
-import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
+import type { SheltuhEvent } from "@/lib/types";
 
 interface SceneMapEventCardProps {
   event: SheltuhEvent;
@@ -29,7 +30,7 @@ interface SceneMapEventCardProps {
  * clear of it while it's open (WCAG 2.4.11).
  */
 export default function SceneMapEventCard({ event, detailsHref, onDismiss, variant, className, ref }: SceneMapEventCardProps) {
-  const categoryLabel = EVENT_CATEGORIES.find((c) => c.value === event.category)?.label ?? event.category;
+  const place = placeLabel(event);
   const pinned = resolveEventCoordinates(event);
   const locationNote = !pinned
     ? "Not on the map yet: no venue location on file."
@@ -69,16 +70,14 @@ export default function SceneMapEventCard({ event, detailsHref, onDismiss, varia
           className={sheet ? "h-20 w-20 shrink-0 overflow-hidden rounded-control" : "aspect-[3/2] w-full"}
         />
         <div className={`min-w-0 ${sheet ? "flex-1 pr-1" : "px-4 pt-3"}`}>
-          <p className="eyebrow text-muted">{categoryLabel}</p>
+          <p className="eyebrow text-muted">{categoryLabel(event)}</p>
           <p className="meta mt-1">
             {formatEventDateShort(event.startsAt)}, {formatEventTime(event.startsAt)}
           </p>
           <p className="mt-1 line-clamp-2 text-base leading-[1.375rem] font-semibold break-words text-foreground">
             {event.title}
           </p>
-          <p className="truncate text-sm leading-5 text-muted">
-            {event.venueName} &middot; {event.suburb}
-          </p>
+          {place && <p className="truncate text-sm leading-5 text-muted">{place}</p>}
           <CardPrice event={event} className="mt-1 text-sm leading-5" />
           {locationNote && <p className="mt-1 text-xs leading-4 text-muted">{locationNote}</p>}
         </div>

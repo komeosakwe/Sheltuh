@@ -3,7 +3,6 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import LegalNote from "@/components/auth/LegalNote";
 import NotFoundMessage from "@/components/NotFoundMessage";
-import RevealObserver, { STAGGER_MS, staggerDelay } from "@/components/RevealObserver";
 import { navigationTarget } from "@/components/RouteProgress";
 import FilterChip, { filterChipClass } from "@/components/ui/FilterChip";
 import { EmptyState, PageHeader, Panel } from "@/components/ui/Section";
@@ -163,82 +162,5 @@ describe("RouteProgress navigationTarget", () => {
     expect(navigationTarget(anchor("https://sheltuh.com.au/map", { target: "_blank" }), here)).toBeNull();
     expect(navigationTarget(anchor("https://sheltuh.com.au/a.ics", { download: "" }), here)).toBeNull();
     expect(navigationTarget(anchor("https://sheltuh.com.au/api/orders/x"), here)).toBeNull();
-  });
-});
-
-describe("RevealObserver", () => {
-  it("staggers a row of cards 60ms apart, in runs of four", () => {
-    expect([0, 1, 2, 3, 4, 5].map(staggerDelay)).toEqual([0, STAGGER_MS, 2 * STAGGER_MS, 3 * STAGGER_MS, 0, STAGGER_MS]);
-  });
-
-  function stubMotion(reduce: boolean) {
-    vi.stubGlobal(
-      "matchMedia",
-      vi.fn((query: string) => ({
-        matches: reduce && query.includes("reduce"),
-        addEventListener() {},
-        removeEventListener() {},
-      })),
-    );
-    const observed: Element[] = [];
-    vi.stubGlobal(
-      "IntersectionObserver",
-      class {
-        observe(el: Element) {
-          observed.push(el);
-        }
-        unobserve() {}
-        disconnect() {}
-      },
-    );
-    return observed;
-  }
-
-  it("arms content below the fold to rise in (staggered), leaves what's already on screen alone, and arms content added later", async () => {
-    const observed = stubMotion(false);
-    const rect = (top: number) => ({ top, bottom: top + 100, left: 0, right: 100, width: 100, height: 100, x: 0, y: top, toJSON() {} });
-    const spy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
-      return rect(this.getAttribute("data-testid") === "seen" ? 10 : 5000) as DOMRect;
-    });
-    try {
-      render(
-        <>
-          <section data-reveal data-testid="seen" />
-          <ul data-reveal-stagger>
-            <li data-testid="a" />
-            <li data-testid="b" />
-          </ul>
-          <RevealObserver />
-        </>,
-      );
-      expect(screen.getByTestId("seen")).not.toHaveClass("reveal-pending");
-      expect(screen.getByTestId("a")).toHaveClass("reveal-pending");
-      expect(screen.getByTestId("b")).toHaveClass("reveal-pending");
-      expect(screen.getByTestId("b").style.getPropertyValue("--reveal-d")).toBe(`${STAGGER_MS}ms`);
-      expect(observed).toEqual([screen.getByTestId("a"), screen.getByTestId("b")]);
-
-      // A feed's results arrive after load: armed even on screen, so they come in.
-      spy.mockImplementation(() => rect(10) as DOMRect);
-      const late = document.createElement("div");
-      late.setAttribute("data-reveal", "");
-      document.body.append(late);
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(late).toHaveClass("reveal-pending");
-      late.remove();
-    } finally {
-      spy.mockRestore();
-    }
-  });
-
-  it("does nothing at all for people who prefer reduced motion", () => {
-    const observed = stubMotion(true);
-    render(
-      <>
-        <section data-reveal data-testid="seen" />
-        <RevealObserver />
-      </>,
-    );
-    expect(screen.getByTestId("seen")).not.toHaveAttribute("data-reveal-armed");
-    expect(observed).toHaveLength(0);
   });
 });

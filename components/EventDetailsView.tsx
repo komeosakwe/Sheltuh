@@ -62,10 +62,12 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
   const price = external ? null : formatFeedPriceParts(event);
   const when = whenLabel(event.startsAt, event.endsAt);
   // The buy bar's action: to #tickets, where a sold-out event has its waitlist
-  // (§6.10, §6.11). Once a sold-out event has ended there's nothing to join.
+  // (§6.10, §6.11). Once an event has ended there's nothing to buy: the bar says
+  // so, with no action (docs/design/mobile-redesign.md §6.5), except a sold-out
+  // one's "See tickets", to the closed waitlist.
   const soldOut = isSoldOut(event);
   const ended = Date.parse(event.endsAt ?? event.startsAt) <= new Date().getTime();
-  const buyBarLabel = (soldOut || event.seating) && ended ? "See tickets" : (quickBuyLabel(event) ?? "Buy tickets");
+  const buyBarLabel = ended ? (soldOut ? "See tickets" : null) : (quickBuyLabel(event) ?? "Buy tickets");
   const seatPage = goesToSeatPage(event) && !ended;
   const shareText = `${event.title} · ${formatEventDateShort(event.startsAt)}, ${formatEventTime(event.startsAt)} · ${event.venueName}`;
   const saveTarget = { id: event.id, title: event.title, slug: event.slug };
@@ -142,6 +144,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
               imageUrl={event.imageUrl}
               title={event.title}
               priority
+              fit="auto"
               className="order-first -mx-5 aspect-[4/3] max-h-[36svh] w-[calc(100%+2.5rem)] sm:mx-0 sm:aspect-[3/2] sm:max-h-none sm:w-full sm:rounded-card lg:order-none"
             />
 
@@ -228,6 +231,9 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                 ) : event.seating ? (
                   // Reserved seating: tiers are chosen on the seat page, never as quantities here.
                   <SeatedTicketsPanel event={event} demo={demo} />
+                ) : ended && !soldOut ? (
+                  // Nothing left to choose. (Sold out keeps its tiers and the closed waitlist.)
+                  <p className="text-sm">This event has ended.</p>
                 ) : (
                   <TicketSelector event={event} />
                 )}
@@ -253,7 +259,9 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <SaveButton event={saveTarget} variant="onDark" className="hidden min-[375px]:flex" />
-                {seatPage ? (
+                {buyBarLabel === null ? (
+                  <p className="text-sm leading-5 font-semibold">Event ended</p>
+                ) : seatPage ? (
                   // A seated event's buy bar goes straight to its seat page (manager decision 2,
                   // docs/design/seating.md).
                   <Link href={`/events/${event.slug}/seats`} className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}>

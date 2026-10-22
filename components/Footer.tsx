@@ -1,4 +1,5 @@
 import Link from "next/link";
+import BrandU from "@/components/brand/BrandU";
 import Wordmark from "@/components/brand/Wordmark";
 import InstallPrompt from "@/components/pwa/InstallPrompt";
 import { isApiConfigured } from "@/lib/api/client";
@@ -37,8 +38,10 @@ const LEGAL_LINKS = [
 
 /**
  * Site footer: an ink section (data-surface="ink" re-skins everything inside
- * it), closing on the full-width orange wordmark (brand-direction-one.md
- * §6.13). The wordmark is decorative; the © line carries the name.
+ * it), closing on the campaign line "WHERE IS ÜR SHELTÜH?" (a brand line, not
+ * a heading; heard as "Where is your Sheltüh?") answered by the full-width
+ * orange wordmark (brand-direction-one.md §6.13, mobile-redesign.md §6.1).
+ * The wordmark is decorative; the © line carries the name.
  * `data-page-end`: the page's last block, which gains bottom room while the
  * map's phone sheet is open (globals.css), so nothing ends up under it.
  */
@@ -79,7 +82,12 @@ export default function Footer() {
           )}
         </div>
 
-        <Wordmark className="mt-12 block h-auto w-full text-signal sm:mt-24" />
+        <p className="display-lg mt-12 sm:mt-24">
+          <BrandU spoken="Where is your Sheltüh?">
+            <span className="block">Where is ÜR</span> <span className="block">Sheltüh?</span>
+          </BrandU>
+        </p>
+        <Wordmark className="mt-4 block h-auto w-full text-signal sm:mt-6" />
 
         <div className="eyebrow mt-6 flex flex-col gap-1 border-t border-foreground/20 pt-4 text-muted sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <p className="py-3 sm:py-0">© {new Date().getFullYear()} Sheltüh</p>

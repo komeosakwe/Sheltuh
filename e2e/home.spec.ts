@@ -4,8 +4,8 @@ import { weekendWindow } from "@/lib/home-sections";
 import { sampleEvents } from "@/lib/sample-events";
 
 /**
- * The home page in a real browser (docs/design/home.md, owner decision 7:
- * the compact hero). The e2e server runs in live mode with every /api/*
+ * The home page in a real browser (docs/design/mobile-redesign.md §6.1,
+ * §6.3: the one-message hero, no Up next). The e2e server runs in live mode with every /api/*
  * request intercepted here, so the events are the demo sample events served
  * as the live list API would, re-timed relative to the real clock (so the
  * spec never goes stale), two of them inside this weekend's window.
@@ -76,17 +76,13 @@ for (const vp of VIEWPORTS) {
   test.describe(`home at ${vp.name}`, () => {
     test.use({ viewport: { width: vp.width, height: vp.height } });
 
-    test("one h1, Up next, events visible without scrolling, each event once, no sideways scroll", async ({ page }) => {
+    test("one h1, the first section's events above the fold, each event once, no sideways scroll", async ({ page }) => {
       await openHome(page);
 
       await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
-      await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("Where is your Sheltüh?");
-
-      const upNext = page.getByRole("region", { name: "Up next" });
-      await expect(upNext).toBeVisible();
-      const upNextCard = upNext.getByRole("link").first();
-      const upNextTitle = upNext.getByRole("heading", { level: 3 });
-      await expect(upNextTitle).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
+      // No Up next any more (docs/design/mobile-redesign.md §6.1).
+      await expect(page.getByRole("region", { name: "Up next" })).toHaveCount(0);
 
       const fold = vp.height;
       const box = async (locator: ReturnType<Page["locator"]>) => {
@@ -95,28 +91,15 @@ for (const vp of VIEWPORTS) {
         return b;
       };
 
-      // Up next's image (the card) and title are on screen without scrolling.
-      expect((await box(upNextCard)).y).toBeLessThan(fold);
-      // The photo is seen: on top, in the open, at least 40% of the card's height.
-      const photoShare = await upNextCard.evaluate(
-        (link) => (link.firstElementChild?.getBoundingClientRect().height ?? 0) / link.getBoundingClientRect().height,
-      );
-      expect(photoShare).toBeGreaterThanOrEqual(0.4);
-      expect((await box(upNextTitle)).y + (await box(upNextTitle)).height).toBeLessThanOrEqual(fold);
-
+      // §6.1 acceptance: the first section's heading and the top of its first card are above the fold.
       const firstSection = page.locator("[data-home-section]").first();
-      if (vp.phone) {
-        // The next section's heading is visible too.
-        const heading = firstSection.getByRole("heading", { level: 2 });
-        const h = await box(heading);
-        expect(h.y + h.height).toBeLessThanOrEqual(fold);
-      } else {
-        // The first section's first card starts above the fold.
-        const firstCard = firstSection.getByRole("listitem").first();
-        expect((await box(firstCard)).y).toBeLessThan(fold);
-      }
+      const heading = firstSection.getByRole("heading", { level: 2 });
+      const h = await box(heading);
+      expect(h.y + h.height).toBeLessThanOrEqual(fold);
+      const firstCard = firstSection.locator("[data-event-card]").first();
+      expect((await box(firstCard)).y).toBeLessThan(fold);
 
-      // Each event at most once across every section, Up next included.
+      // Each event at most once across every section.
       const hrefs = await page
         .locator("main a[href^='/events/']")
         .evaluateAll((links) =>
@@ -138,8 +121,8 @@ for (const vp of VIEWPORTS) {
   });
 }
 
-test.describe("the photo push-in", () => {
-  test.use({ viewport: { width: 390, height: 844 } });
+test.describe("the photo push-in (the hero photo shows from 1024px)", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
 
   test("runs one cycle of 5s or less", async ({ page }) => {
     await openHome(page);
@@ -186,15 +169,6 @@ test("a card's Buy tickets lands on the event page with focus on the tickets", a
 test.describe("keyboard", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("the hero's Find your people jumps to the community band and puts focus on it", async ({ page }) => {
-    await openHome(page);
-    const link = page.getByRole("link", { name: "Find your people" });
-    await link.focus();
-    await page.keyboard.press("Enter");
-    await expect(page).toHaveURL(/#find-your-people$/);
-    await expect(page.locator("#find-your-people")).toBeFocused();
-  });
-
   test("at 390px, a card reached with Tab is brought fully into view in its rail", async ({ page }) => {
     await openHome(page);
     const section = page.locator("[data-home-section]").filter({ has: page.getByRole("heading", { name: "Coming up near you" }) });
@@ -217,65 +191,3 @@ test.describe("keyboard", () => {
     await expect(items.nth(2).locator(":focus")).toHaveCount(1);
   });
 });
-
-for (const width of [1024, 1100]) {
-  test.describe(`Up next at ${width}px`, () => {
-    test.use({ viewport: { width, height: 800 } });
-
-    async function card(page: Page) {
-      const upNext = page.getByRole("region", { name: "Up next" });
-      const link = upNext.getByRole("link").first();
-      const box = async (l: ReturnType<Page["locator"]>) => {
-        const b = await l.boundingBox();
-        if (!b) throw new Error("not rendered");
-        return b;
-      };
-      return {
-        link: await box(link),
-        chip: await box(link.getByText("Up next", { exact: true })),
-        title: await box(upNext.getByRole("heading", { level: 3 })),
-        panel: await box(link.locator("[data-surface='ink']")),
-        texts: await link.locator("[data-surface='ink'] h3, [data-surface='ink'] p").evaluateAll((els) =>
-          els.map((el) => {
-            const r = el.getBoundingClientRect();
-            return { top: r.top, bottom: r.bottom };
-          }),
-        ),
-        panelBackground: await link
-          .locator("[data-surface='ink']")
-          .evaluate((el) => getComputedStyle(el).backgroundColor),
-      };
-    }
-
-    function expectReadable(c: Awaited<ReturnType<typeof card>>) {
-      // The chip sits above the title, never over it.
-      expect(c.chip.y + c.chip.height).toBeLessThanOrEqual(c.title.y);
-      // Nothing is clipped: chip and text are inside the card.
-      expect(c.chip.y).toBeGreaterThanOrEqual(c.link.y);
-      expect(c.title.y + c.title.height).toBeLessThanOrEqual(c.link.y + c.link.height + 0.5);
-      // Every line of text sits on the opaque black panel (cream 20:1, muted 7.9:1), never on the fade
-      // or the photo: the scrim is ≥ 4.5:1 behind all of it.
-      expect(c.panelBackground).toBe("rgb(0, 0, 0)");
-      for (const t of c.texts) {
-        expect(t.top).toBeGreaterThanOrEqual(c.panel.y - 0.5);
-        expect(t.bottom).toBeLessThanOrEqual(c.panel.y + c.panel.height + 0.5);
-      }
-    }
-
-    test("the chip and the title don't overlap, and all text is on the black panel", async ({ page }) => {
-      await openHome(page);
-      expectReadable(await card(page));
-    });
-
-    test("at 200% text the card grows instead of clipping", async ({ page }) => {
-      await openHome(page);
-      const before = await card(page);
-      await page.evaluate(() => {
-        document.documentElement.style.fontSize = "200%";
-      });
-      const after = await card(page);
-      expect(after.link.height).toBeGreaterThan(before.link.height);
-      expectReadable(after);
-    });
-  });
-}

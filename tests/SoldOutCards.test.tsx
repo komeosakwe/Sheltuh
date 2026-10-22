@@ -2,11 +2,9 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventDetailsView from "@/components/EventDetailsView";
-import FeaturedEventCard from "@/components/home/FeaturedEventCard";
-import HomeEventCard from "@/components/home/HomeEventCard";
 import SceneEventRow from "@/components/SceneEventRow";
 import SceneMapEventCard from "@/components/map/SceneMapEventCard";
-import EventTile from "@/components/ui/EventTile";
+import EventCard from "@/components/ui/EventCard";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
 
@@ -34,29 +32,21 @@ function expectSoldOutCard() {
   const price = screen.getByText("Sold out");
   expect(price).toHaveClass("font-semibold");
   expect(screen.queryByText(/incl\. booking fee/)).toBeNull();
-  // Quick buy: "Join waitlist", still orange (owner decision 6), to the tickets section.
+  // Quick buy: "Join waitlist", to the tickets section. The outline button, not orange: a
+  // waitlist isn't a purchase (mobile-redesign.md §6.2.3, manager decision 22 Oct 2026).
   const join = screen.getByRole("link", { name: `Join waitlist for ${soldOut.title}` });
   expect(join).toHaveAttribute("href", `/events/${soldOut.slug}#tickets`);
-  expect(join).toHaveClass("btn-signal");
+  expect(join).toHaveClass("btn-outline");
+  expect(join).not.toHaveClass("btn-signal");
   return join;
 }
 
 describe("sold-out cards (brand-direction-one.md §6.5)", () => {
-  it("EventTile", () => {
-    render(<EventTile event={soldOut} showSave={false} />);
+  it.each(["grid", "rail"] as const)("EventCard %s", (variant) => {
+    render(<EventCard event={soldOut} variant={variant} showSave={false} />);
     expectSoldOutCard();
     // The card link's name carries the price line, so "Sold out" is heard with the title.
     expect(screen.getByRole("link", { name: /^Dead Letter Office .*Sold out/ })).toBeInTheDocument();
-  });
-
-  it.each(["standard", "wide", "compact"] as const)("HomeEventCard %s", (variant) => {
-    render(<HomeEventCard event={soldOut} variant={variant} mode="demo" />);
-    expectSoldOutCard();
-  });
-
-  it("FeaturedEventCard says Sold out on its price line", () => {
-    render(<FeaturedEventCard event={soldOut} mode="demo" />);
-    expect(screen.getByText("Sold out")).toBeInTheDocument();
   });
 
   it("the map list row and the map card", () => {
@@ -71,17 +61,19 @@ describe("sold-out cards (brand-direction-one.md §6.5)", () => {
     expectSoldOutCard();
   });
 
-  it("no badge on the media (no colour-only signal): it says nothing about selling out", () => {
-    const { container } = render(<EventTile event={soldOut} showSave={false} />);
+  it("no badge on the media (no colour-only signal): only the art is there; the category is below it", () => {
+    const { container } = render(<EventCard event={soldOut} variant="grid" showSave={false} />);
     const media = container.querySelector(".rounded-card");
-    expect(media).not.toHaveTextContent(/sold out/i);
-    expect(media).toHaveTextContent("Theatre");
+    expect(media?.children).toHaveLength(1);
+    expect(media?.firstElementChild).toHaveAttribute("aria-hidden", "true");
+    expect(container.querySelector("p.eyebrow")).toHaveTextContent("Theatre");
   });
 
-  it("an ended sold-out event has no Join waitlist", () => {
+  it("an ended sold-out event has no Join waitlist: its price line says Ended (§6.2.3 row 1)", () => {
     vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));
-    render(<EventTile event={soldOut} showSave={false} />);
-    expect(screen.getByText("Sold out")).toBeInTheDocument();
+    render(<EventCard event={soldOut} variant="grid" showSave={false} />);
+    expect(screen.getByText("Ended")).toBeInTheDocument();
+    expect(screen.queryByText("Sold out")).toBeNull();
     expect(screen.queryByRole("link", { name: /Join waitlist/ })).toBeNull();
   });
 
@@ -93,7 +85,7 @@ describe("sold-out cards (brand-direction-one.md §6.5)", () => {
       externalTicketUrl: "https://events.humanitix.com/x",
       externalProvider: "Humanitix",
     };
-    render(<EventTile event={external} showSave={false} />);
+    render(<EventCard event={external} variant="grid" showSave={false} />);
     expect(screen.queryByText("Sold out")).toBeNull();
     expect(screen.getByText("Tickets on Humanitix")).toBeInTheDocument();
   });

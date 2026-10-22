@@ -44,7 +44,7 @@ export default function ContentPage({
 /** One titled block on a content page. `id` makes it a link target (e.g. /privacy#whos-going). */
 export function ContentSection({ title, id, children }: { title: string; id?: string; children: ReactNode }) {
   return (
-    <section id={id} data-reveal className="border-t border-foreground pt-6">
+    <section id={id} className="border-t border-foreground pt-6">
       <h2 className="display-md">{title}</h2>
       {children}
     </section>

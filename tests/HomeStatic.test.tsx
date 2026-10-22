@@ -4,11 +4,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import CategoryRow from "@/components/home/CategoryRow";
 import CommunitySection from "@/components/home/CommunitySection";
 import CreatorsCard from "@/components/home/CreatorsCard";
-import GoingStack from "@/components/home/GoingStack";
 import GuideCard from "@/components/home/GuideCard";
 import HomeHero from "@/components/home/HomeHero";
 import HomeRail, { HomeRailItem } from "@/components/home/HomeRail";
 import SectionHead from "@/components/home/SectionHead";
+import GoingStack from "@/components/ui/GoingStack";
 import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
 
 afterEach(() => {
@@ -29,97 +29,81 @@ function tabTo(el: HTMLElement) {
   el.focus();
 }
 
-describe("HomeHero", () => {
-  it("has one h1, the brand question, which screen readers hear as 'Where is your Sheltüh?'", () => {
-    render(<HomeHero upNext={<p>Up next slot</p>} />);
+describe("HomeHero (mobile-redesign.md §6.1)", () => {
+  it("has one h1, 'Find your next thing.', on two lines that may wrap (never nowrap), in the display face", () => {
+    render(<HomeHero />);
     const h1 = screen.getByRole("heading", { level: 1 });
-    expect(h1).toHaveAccessibleName("Where is your Sheltüh?");
-    // One hidden visual line ("WHERE IS ÜR / SHELTÜH?") and one sr-only span with the whole sentence,
-    // so screen readers read it as one phrase, not "Where is", "your", "Sheltüh?".
-    expect(h1.children).toHaveLength(2);
-    const [visual, spoken] = Array.from(h1.children);
-    expect(visual).toHaveAttribute("aria-hidden", "true");
-    expect(visual).toHaveTextContent("Where is ÜRSheltüh?");
-    expect(spoken).toHaveClass("sr-only");
-    expect(spoken).toHaveTextContent(/^Where is your Sheltüh\?$/);
-    // The display token, compact sizes (owner decision 7): at most 36px on phones, 44px from sm, 56px from lg.
-    expect(h1).toHaveClass("font-display", "sm:text-[2.75rem]", "lg:text-[3.5rem]");
-    expect(h1.className).toMatch(/text-\[clamp\(2rem,9\.25vw,2\.25rem\)\]/);
+    expect(h1).toHaveAccessibleName("Find your next thing.");
+    expect(Array.from(h1.children).map((line) => line.textContent)).toEqual(["Find your", "next thing."]);
+    for (const line of h1.children) expect(line).toHaveClass("block");
+    expect(h1.innerHTML).not.toMatch(/nowrap/);
+    expect(h1).toHaveClass("display-lg", "font-display");
   });
 
-  it("explains what Sheltüh does in one plain sentence", () => {
-    render(<HomeHero upNext={null} />);
+  it("has the eyebrow and one plain sentence", () => {
+    render(<HomeHero />);
+    expect(screen.getByText("Melbourne • What’s on")).toHaveClass("eyebrow");
     expect(
-      screen.getByText("Live music, art, workshops and pop-ups in Melbourne, curated, with the people going."),
+      screen.getByText("Discover Melbourne’s music, art, workshops and pop-ups. See who’s going before you book."),
     ).toBeInTheDocument();
   });
 
-  it("has one orange CTA to /events and an outline one, 'Find your people', to the community band", () => {
-    render(<HomeHero upNext={null} />);
+  it("has one action: the orange Explore events, to /events, with its arrow at every width", () => {
+    const { container } = render(<HomeHero />);
     const explore = screen.getByRole("link", { name: "Explore events" });
     expect(explore).toHaveAttribute("href", "/events");
-    expect(explore).toHaveClass("btn-signal", "btn-lg");
-    const people = screen.getByRole("link", { name: "Find your people" });
-    expect(people).toHaveAttribute("href", "#find-your-people");
-    expect(people).toHaveClass("btn", "btn-outline", "btn-lg");
-    // Not the band's sign-up CTA's name.
-    expect(screen.queryByRole("link", { name: "Join the community" })).not.toBeInTheDocument();
-    expect(document.querySelectorAll(".btn-signal")).toHaveLength(1);
+    expect(explore).toHaveClass("btn-signal", "btn-lg", "w-full", "sm:w-auto");
+    expect(explore.querySelector("svg")).not.toHaveClass("hidden");
+    expect(screen.getAllByRole("link")).toEqual([explore]);
+    expect(container.querySelectorAll(".btn-signal")).toHaveLength(1);
+    // The old second CTA and the categories have left the hero.
+    expect(screen.queryByRole("link", { name: "Find your people" })).toBeNull();
+    expect(screen.queryByRole("navigation")).toBeNull();
   });
 
-  it("gives the search a short placeholder (it fits a phone); the label is unchanged", () => {
-    render(<HomeHero upNext={null} />);
-    const search = within(screen.getByRole("search", { name: "Search events" })).getByRole("searchbox");
-    expect(search).toHaveAttribute("placeholder", "Search events");
-  });
-
-  it("holds search, the categories, the demo note and then the Up next slot, in that order", () => {
-    render(<HomeHero upNext={<p>Up next slot</p>} />);
-    const order = [
-      screen.getByRole("search", { name: "Search events" }),
-      screen.getByRole("navigation", { name: "Browse by category" }),
-      screen.getByRole("note"),
-      screen.getByText("Up next slot"),
-    ];
-    for (let i = 1; i < order.length; i++) {
-      expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    }
+  it("has the search after the CTA, with a short placeholder (it fits a phone), then the demo note", () => {
+    render(<HomeHero />);
+    const search = screen.getByRole("search", { name: "Search events" });
+    expect(within(search).getByRole("searchbox")).toHaveAttribute("placeholder", "Search events");
+    const explore = screen.getByRole("link", { name: "Explore events" });
+    expect(explore.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Tests run without Supabase settings: demo mode.
-    expect(screen.getByRole("note")).toHaveTextContent("Demo — sample events");
+    const note = screen.getByRole("note");
+    expect(note).toHaveTextContent("Demo — sample events");
+    expect(search.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("never animates the h1 in (it's the LCP element), only the rest of the hero", () => {
-    render(<HomeHero upNext={null} />);
-    expect(screen.getByRole("heading", { level: 1 }).className).not.toMatch(/\brise\b/);
-    expect(screen.getByText("Melbourne · What’s on").className).toMatch(/\brise\b/);
-    expect(screen.getByRole("link", { name: "Explore events" }).parentElement?.className).toMatch(/\brise\b/);
+  it("nothing animates in: the hero reads at once", () => {
+    const { container } = render(<HomeHero />);
+    expect(container.querySelector(".rise")).toBeNull();
   });
 
-  it("keeps the photo cell below lg only, with the one-cycle push-in", () => {
-    const { container } = render(<HomeHero upNext={null} />);
+  it("shows the photo from lg only, beside the text, with the one-cycle push-in", () => {
+    const { container } = render(<HomeHero />);
     const img = container.querySelector("img");
     expect(img).toHaveClass("ken-burns");
-    expect(img?.closest(".lg\\:hidden")).not.toBeNull();
+    expect(img?.closest(".hidden.lg\\:block")).not.toBeNull();
   });
 
-  it("never fetches the photo where it's hidden (lg): lazy, with a high fetch priority where it shows", () => {
-    const { container } = render(<HomeHero upNext={null} />);
+  it("never fetches the photo where it's hidden (below lg): lazy, with a high fetch priority where it shows", () => {
+    const { container } = render(<HomeHero />);
     const img = container.querySelector("img");
     expect(img).toHaveAttribute("loading", "lazy");
     expect(img).toHaveAttribute("fetchpriority", "high");
   });
 
   it("has no sticker graphics", () => {
-    const { container } = render(<HomeHero upNext={null} />);
+    const { container } = render(<HomeHero />);
     expect(container.innerHTML).not.toMatch(/scribble|marquee|float|spin/i);
   });
 });
 
-describe("CategoryRow", () => {
-  it("is a named navigation of six links, each to /events with that filter", () => {
+describe("CategoryRow: Explore by category (§6.3.6)", () => {
+  it("is a section with its own head and a list of six tiles, each to /events with that filter", () => {
     render(<CategoryRow />);
-    const nav = screen.getByRole("navigation", { name: "Browse by category" });
-    const links = within(nav).getAllByRole("link");
+    const section = screen.getByRole("region", { name: "Explore by category" });
+    expect(within(section).getByRole("heading", { level: 2, name: "Explore by category" })).toBeInTheDocument();
+    const links = within(within(section).getByRole("list")).getAllByRole("link");
     expect(links.map((l) => [l.textContent, l.getAttribute("href")])).toEqual([
       ["Live music", "/events?category=live-music"],
       ["Art", "/events?category=art"],
@@ -128,19 +112,16 @@ describe("CategoryRow", () => {
       ["Theatre", "/events?category=theatre"],
       ["Free", "/events?pricing=free"],
     ]);
-    // Icons are decorative; the label names the link. Discs are rounded squares, not circles.
-    for (const svg of nav.querySelectorAll("svg")) expect(svg).toHaveAttribute("aria-hidden", "true");
-    expect(nav.querySelector(".rounded-full")).toBeNull();
-    expect(nav.querySelectorAll(".rounded-dot")).toHaveLength(6);
+    // Icons are decorative; the label names the link. No See all: it's the index.
+    for (const svg of section.querySelectorAll("svg")) expect(svg).toHaveAttribute("aria-hidden", "true");
+    expect(screen.queryByRole("link", { name: /See all/ })).toBeNull();
   });
 
-  it("brings a keyboard-focused category fully into view in its row", () => {
-    const scrollIntoView = vi.fn();
-    Element.prototype.scrollIntoView = scrollIntoView;
+  it("is a grid, three across on phones and six from 640px (no sideways rail); bordered 72px tiles", () => {
     render(<CategoryRow />);
-    tabTo(screen.getByRole("link", { name: "Theatre" }));
-    expect(scrollIntoView).toHaveBeenCalledTimes(1);
-    expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole("link", { name: "Theatre" }).closest("li"));
+    expect(screen.getByRole("list")).toHaveClass("grid", "grid-cols-3", "sm:grid-cols-6");
+    expect(screen.getByRole("list").className).not.toMatch(/overflow-x|snap-x/);
+    expect(screen.getByRole("link", { name: "Theatre" })).toHaveClass("min-h-18", "rounded-control", "border", "border-foreground");
   });
 });
 
@@ -182,7 +163,7 @@ describe("HomeRail", () => {
     render(
       <>
         <h2 id="rail-title">Coming up</h2>
-        <HomeRail labelledBy="rail-title" grid="cards">
+        <HomeRail labelledBy="rail-title">
           <HomeRailItem>
             <button type="button">A</button>
           </HomeRailItem>
@@ -199,6 +180,15 @@ describe("HomeRail", () => {
     expect(list).toHaveClass("snap-x", "sm:grid", "sm:grid-cols-2", "md:grid-cols-3");
   });
 
+  it("keeps a 20px end gutter on phones (the gap plus an 8px spacer), and none in the grid", () => {
+    render(
+      <HomeRail labelledBy="x">
+        <HomeRailItem>a</HomeRailItem>
+      </HomeRail>,
+    );
+    expect(screen.getByRole("list")).toHaveClass("gap-3", "after:block", "after:w-2", "after:shrink-0", "sm:after:hidden");
+  });
+
   it.each([
     ["no preference", false, "smooth"],
     ["reduced motion", true, "auto"],
@@ -207,7 +197,7 @@ describe("HomeRail", () => {
     Element.prototype.scrollIntoView = scrollIntoView;
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: reduce }));
     render(
-      <HomeRail labelledBy="x" grid="cards">
+      <HomeRail labelledBy="x">
         <HomeRailItem>
           <a href="#a">A</a>
           <button type="button">Save A</button>
@@ -225,7 +215,7 @@ describe("HomeRail", () => {
     const scrollIntoView = vi.fn();
     Element.prototype.scrollIntoView = scrollIntoView;
     render(
-      <HomeRail labelledBy="x" grid="cards">
+      <HomeRail labelledBy="x">
         <HomeRailItem>
           <a href="#a">A</a>
         </HomeRailItem>
@@ -237,14 +227,6 @@ describe("HomeRail", () => {
     expect(scrollIntoView).not.toHaveBeenCalled();
   });
 
-  it("compact: 3 columns only from lg", () => {
-    render(
-      <HomeRail labelledBy="x" grid="compact">
-        <HomeRailItem>a</HomeRailItem>
-      </HomeRail>,
-    );
-    expect(screen.getByRole("list")).toHaveClass("sm:grid-cols-2", "lg:grid-cols-3");
-  });
 });
 
 describe("GoingStack", () => {
@@ -285,7 +267,7 @@ describe("GuideCard and CreatorsCard", () => {
 });
 
 describe("CommunitySection", () => {
-  it("is the page's orange band and the hero's jump target, sending signed-out visitors to sign up", () => {
+  it("is the page's orange band and a jump target (#find-your-people), sending signed-out visitors to sign up", () => {
     const { container } = render(
       <FakeAuthProvider value={fakeAuthValue({ status: "signed-out" })}>
         <CommunitySection />

@@ -202,7 +202,7 @@ export default function DashboardContent() {
 
       {events !== null && events.length > 0 && (
         <>
-          <ul data-reveal-stagger className="flex flex-col border-b border-foreground">
+          <ul className="flex flex-col border-b border-foreground">
             {events.map((event) => {
               const title = event.title || "Untitled event";
               const canCheckIn = event.status === "published";

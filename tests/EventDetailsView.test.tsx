@@ -1,12 +1,20 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventDetailsView from "@/components/EventDetailsView";
 import { describeBookingFee } from "@/lib/fees";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
 
-afterEach(cleanup);
+// The sample events are dated Sept–Nov 2026, and an ended event has nothing to buy: read them before then.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
+});
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 function findEvent(slug: string): SheltuhEvent {
   const event = sampleEvents.find((e) => e.slug === slug);
@@ -72,6 +80,56 @@ describe("EventDetailsView buy bar (phones and tablets)", () => {
     expect(within(tickets).getByRole("heading", { name: "Tickets" })).toBeInTheDocument();
     // Arriving there shows the (global) focus-visible ring: nothing removes it.
     expect(tickets.className).not.toMatch(/outline-none/);
+  });
+});
+
+describe("EventDetailsView once the event has ended (mobile-redesign.md §6.5, §10.3 #2)", () => {
+  it("the buy bar says Event ended, with no action; the tickets section says so in place of the selector", () => {
+    vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));
+    const { container } = render(<EventDetailsView event={findEvent("neon-static")} demo={false} />);
+    const bar = buyBar(container);
+    if (!bar) throw new Error("buy bar not rendered");
+    expect(within(bar).getByText("Event ended")).toBeInTheDocument();
+    expect(within(bar).queryByRole("link")).toBeNull();
+    const tickets = container.querySelector<HTMLElement>("#tickets");
+    if (!tickets) throw new Error("#tickets not rendered");
+    expect(within(tickets).getByText("This event has ended.")).toBeInTheDocument();
+    expect(within(tickets).queryByRole("button", { name: /Increase quantity|Checkout/ })).toBeNull();
+  });
+
+  it("a free event too: no Get free tickets once it's over", () => {
+    vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));
+    const { container } = render(<EventDetailsView event={findEvent("brunswick-zine-fair")} demo />);
+    const bar = buyBar(container);
+    if (!bar) throw new Error("buy bar not rendered");
+    expect(within(bar).queryByRole("link", { name: /tickets/i })).toBeNull();
+    expect(within(bar).getByText("Event ended")).toBeInTheDocument();
+  });
+
+  it("sold out and ended: See tickets, to the closed waitlist", () => {
+    vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));
+    const soldOut = findEvent("dead-letter-office");
+    const { container } = render(<EventDetailsView event={soldOut} demo />);
+    const bar = buyBar(container);
+    if (!bar) throw new Error("buy bar not rendered");
+    expect(within(bar).getByRole("link", { name: "See tickets" })).toHaveAttribute("href", "#tickets");
+    expect(within(bar).queryByRole("link", { name: "Join waitlist" })).toBeNull();
+  });
+});
+
+describe("EventDetailsView photo", () => {
+  it("keeps an organiser's portrait poster whole on the event page (fit auto), never cropped to a strip", () => {
+    const { container } = render(<EventDetailsView event={{ ...findEvent("neon-static"), imageUrl: "/poster.jpg" }} demo />);
+    const img = container.querySelector("img");
+    if (!img) throw new Error("no photo");
+    expect(img).toHaveClass("object-cover");
+    Object.defineProperty(img, "naturalWidth", { value: 800 });
+    Object.defineProperty(img, "naturalHeight", { value: 1131 });
+    act(() => {
+      img.dispatchEvent(new Event("load"));
+    });
+    expect(img).toHaveClass("object-contain");
+    expect(img.parentElement).toHaveStyle({ backgroundColor: "var(--ink)" });
   });
 });
 

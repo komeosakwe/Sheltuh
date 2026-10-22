@@ -1,89 +1,63 @@
-import type { ReactNode } from "react";
-import BrandU from "@/components/brand/BrandU";
 import DotsMark from "@/components/brand/DotsMark";
 import DemoNotice from "@/components/DemoNotice";
 import EventArt from "@/components/EventArt";
 import SearchBar from "@/components/SearchBar";
-import { buttonClass, ButtonLink } from "@/components/ui/Button";
+import { ButtonLink } from "@/components/ui/Button";
 import { isApiConfigured } from "@/lib/api/client";
-import CategoryRow from "./CategoryRow";
 import { HOME_HERO } from "./home-content";
 import { ArrowRightIcon } from "./icons";
 
-/** Hero buttons share a row at every width: content-sized, a size smaller below 640px. */
-const CTA = "flex-auto px-3 text-[0.8125rem] sm:flex-none sm:px-6 sm:text-sm";
-
 /**
- * The home's compact hero (docs/design/home.md §5.2 and owner decision 7):
- * the brand question, one plain sentence on what Sheltüh does, the CTAs,
- * search and categories, then `upNext`. Small enough that events show
- * without scrolling: from 1024px Up next is the right-hand column; below
- * that it follows in the single column.
+ * The home's hero (docs/design/mobile-redesign.md §6.1): one message and one
+ * orange action. The eyebrow, the h1 "Find your next thing." (two lines at
+ * every width, each free to wrap at large text sizes: never `nowrap`), one
+ * sentence, then "Explore events" and the search. Nothing animates in: the
+ * hero reads instantly. "WHERE IS ÜR SHELTÜH?" is the footer's campaign
+ * line now.
  *
- * The h1 is the LCP element, so it never animates in (`.rise` is on the
- * rest). Screen readers hear "Where is your Sheltüh?".
- *
- * The photo cell is hidden from 1024px, so it isn't loaded eagerly: it's
- * lazy (never fetched while hidden) with a high fetch priority (first in the
- * queue where it shows).
+ * The photo shows from 1024px only, beside the text; it's lazy (a hidden
+ * image is never fetched) with a high fetch priority where it shows.
  */
-export default function HomeHero({ upNext }: { upNext: ReactNode }) {
+export default function HomeHero() {
   return (
     <section aria-labelledby="home-title" className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-8">
-      <div className="lg:col-span-8">
-        <p className="eyebrow rise flex items-center gap-2 text-muted">
+      <div className="lg:col-span-7">
+        <p className="eyebrow flex items-center gap-2 text-muted">
           <DotsMark size="xs" className="text-signal" />
-          Melbourne · What’s on
+          Melbourne • What’s on
         </p>
-        <div className="mt-2 grid grid-cols-[auto_minmax(5.5rem,1fr)] items-stretch gap-x-3 sm:mt-3 sm:grid-cols-[auto_minmax(10rem,1fr)] sm:gap-x-6 lg:grid-cols-1">
-          <h1
-            id="home-title"
-            className="font-display text-[clamp(2rem,9.25vw,2.25rem)] leading-[1.02] [word-spacing:0.15em] uppercase sm:text-[2.75rem] lg:text-[3.5rem]"
-          >
-            <BrandU spoken="Where is your Sheltüh?">
-              <span className="block whitespace-nowrap">Where is ÜR</span>
-              <span className="block whitespace-nowrap">Sheltüh?</span>
-            </BrandU>
-          </h1>
-          <div className="rise min-h-16 [--d:120ms] lg:hidden">
-            <EventArt
-              poster={HOME_HERO.poster}
-              imageUrl={HOME_HERO.imageUrl}
-              title="Sheltüh"
-              priority="when-shown"
-              motion
-              className="h-full w-full rounded-card"
-            />
-          </div>
-        </div>
-        <p className="rise mt-3 max-w-[40ch] text-base leading-6 [--d:200ms] sm:mt-4 sm:text-lg sm:leading-7 lg:max-w-[48ch]">
-          Live music, art, workshops and pop-ups in Melbourne, curated, with the people going.
+        <h1 id="home-title" className="display-lg mt-3 font-display sm:mt-4">
+          {/* The literal space keeps the accessible name "Find your next thing.". */}
+          <span className="block">Find your</span> <span className="block">next thing.</span>
+        </h1>
+        <p className="mt-3 max-w-[40ch] text-base leading-6 sm:mt-4 sm:text-lg sm:leading-7 lg:max-w-[44ch]">
+          Discover Melbourne’s music, art, workshops and pop-ups. See who’s going before you book.
         </p>
-        {/* One row from 375px: below 640px the labels are a size smaller and the arrow drops, so both
-            fit. Narrower than that (320), they stack, full width, rather than squeeze. */}
-        <div className="rise mt-4 flex flex-col gap-2 [--d:300ms] min-[375px]:flex-row sm:mt-5 sm:gap-3">
-          <ButtonLink href="/events" variant="signal" size="lg" className={CTA}>
+        <div className="mt-5 flex flex-col gap-3 sm:mt-6 sm:flex-row sm:items-center">
+          <ButtonLink href="/events" variant="signal" size="lg" className="w-full sm:w-auto sm:px-6">
             Explore events
-            <ArrowRightIcon className="hidden h-4 w-4 sm:block" />
+            <ArrowRightIcon />
           </ButtonLink>
-          {/* A plain anchor, not next/link: the browser's own fragment jump moves focus to the band (tabIndex -1). */}
-          <a href="#find-your-people" className={buttonClass("outline", "lg", CTA)}>
-            Find your people
-          </a>
-        </div>
-        <div className="rise mt-3 [--d:400ms] sm:mt-6 lg:flex lg:items-center lg:gap-6">
-          <div className="sm:max-w-xl lg:min-w-0 lg:flex-1">
+          <div className="sm:max-w-[26rem] sm:min-w-0 sm:flex-1">
             <SearchBar size="lg" submit label="Search events" placeholder="Search events" />
           </div>
-          <CategoryRow className="mt-3 sm:mt-6 lg:mt-0 lg:shrink-0" />
         </div>
         {!isApiConfigured && (
-          <div className="mt-3 sm:mt-6">
+          <div className="mt-3 sm:mt-4">
             <DemoNotice>Not real bookings.</DemoNotice>
           </div>
         )}
       </div>
-      <div className="mt-3 sm:mt-8 lg:col-span-4 lg:col-start-9 lg:mt-0 lg:pt-7">{upNext}</div>
+      <div className="hidden lg:col-span-5 lg:col-start-8 lg:block">
+        <EventArt
+          poster={HOME_HERO.poster}
+          imageUrl={HOME_HERO.imageUrl}
+          title="Sheltüh"
+          priority="when-shown"
+          motion
+          className="aspect-[4/3] w-full rounded-card"
+        />
+      </div>
     </section>
   );
 }

@@ -36,7 +36,8 @@ describe("quickBuyLabel (brand-direction-one.md §6.6; owner wording, 21 Oct 202
     ["all free", event({ ticketTypes: [ticket(0), ticket(0)] }), "Get free tickets"],
     ["free and paid tiers", event({ ticketTypes: [ticket(0), ticket(1500)] }), "Buy tickets"],
     ["external, paid", external(false), "Buy tickets"],
-    ["external, free", external(true), "Buy tickets"],
+    // mobile-redesign.md §6.2.3 row 2 (manager decision, 22 Oct 2026): the organiser says entry is free.
+    ["external, free", external(true), "Get free tickets"],
   ])("%s: %s", (_label, e, expected) => {
     expect(quickBuyLabel(e)).toBe(expected);
   });
@@ -51,9 +52,10 @@ describe("quickBuyLabel (brand-direction-one.md §6.6; owner wording, 21 Oct 202
     expect(quickBuyLabel(event({ ticketTypes: [] }))).toBeNull();
   });
 
-  it("no link once the event has ended", () => {
+  it("no link once the event has ended, an external one included", () => {
     expect(quickBuyLabel(event(), new Date("2026-11-01T11:00:00.000Z"))).toBeNull();
     expect(quickBuyLabel(event(), new Date("2026-11-01T10:59:59.000Z"))).toBe("Buy tickets");
+    expect(quickBuyLabel(external(true), new Date("2026-11-01T11:00:00.000Z"))).toBeNull();
   });
 });
 

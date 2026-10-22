@@ -8,6 +8,8 @@ import { ArrowRightIcon } from "./icons";
  * right), then the h2 and an optional "See all" link named for screen
  * readers by `srLabel`. The strap label repeats the h2, so it's hidden from
  * screen readers; the note isn't, and comes after the h2 in reading order.
+ * The h2 can take focus from script (tabIndex -1: the home's Try again moves
+ * focus to the first section's heading), never from Tab.
  */
 export default function SectionHead({
   id,
@@ -34,7 +36,7 @@ export default function SectionHead({
         </span>
       </div>
       <div className="col-span-2 row-start-2 mt-3 flex items-end justify-between gap-4">
-        <h2 id={id} className="display-md">
+        <h2 id={id} tabIndex={-1} className="display-md">
           {title}
         </h2>
         {seeAll && (

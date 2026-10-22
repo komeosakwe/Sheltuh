@@ -1,6 +1,6 @@
 import Link from "next/link";
 import CategoryIcon, { type CategoryIconName } from "./CategoryIcon";
-import RailItem from "./RailItem";
+import SectionHead from "./SectionHead";
 
 /** Every link opens /events with that filter already applied (see app/events/page.tsx). */
 export const HOME_CATEGORIES: { label: string; href: string; icon: CategoryIconName }[] = [
@@ -13,32 +13,28 @@ export const HOME_CATEGORIES: { label: string; href: string; icon: CategoryIconN
 ];
 
 /**
- * Category links as rounded-square discs: a thumb-scrolled row below 640px,
- * a plain row from there (six fit without scrolling), narrower from 1024px
- * so it shares a row with the hero's search.
+ * "Explore by category" (docs/design/mobile-redesign.md §6.3.6): its own
+ * section after the event sections, six bordered tiles in a grid (three
+ * across on phones, so two rows and no sideways scroll; one row from 640px).
+ * No "See all": it's the index.
  */
 export default function CategoryRow({ className = "" }: { className?: string }) {
   return (
-    <nav aria-labelledby="home-cats" className={className}>
-      <h2 id="home-cats" className="sr-only">
-        Browse by category
-      </h2>
-      {/* py-1.5 keeps the focus ring clear of the scroll container's clip. */}
-      <ul className="no-scrollbar -mx-5 -my-1.5 flex snap-x snap-proximity scroll-px-5 gap-2 overflow-x-auto px-5 py-1.5 sm:mx-0 sm:snap-none sm:gap-3 sm:overflow-visible sm:px-0 lg:gap-1">
+    <section aria-labelledby="home-cats" className={className}>
+      <SectionHead id="home-cats" title="Explore by category" />
+      <ul className="grid grid-cols-3 gap-2 sm:grid-cols-6 sm:gap-3">
         {HOME_CATEGORIES.map((item) => (
-          <RailItem key={item.href} className="shrink-0 snap-start">
+          <li key={item.href} className="flex">
             <Link
               href={item.href}
-              className="group flex w-18 flex-col items-center gap-2 motion-safe:transition-transform motion-safe:duration-150 motion-safe:active:scale-95 lg:w-16"
+              className="flex min-h-18 w-full flex-col items-center justify-center gap-2 rounded-control border border-foreground bg-card px-2 py-3 text-center transition duration-150 hover:bg-surface motion-safe:active:scale-95"
             >
-              <span className="flex size-12 items-center justify-center rounded-dot border border-foreground bg-card transition-colors duration-150 group-hover:bg-surface">
-                <CategoryIcon name={item.icon} />
-              </span>
-              <span className="text-center text-xs leading-4 font-medium">{item.label}</span>
+              <CategoryIcon name={item.icon} />
+              <span className="text-xs leading-4 font-semibold">{item.label}</span>
             </Link>
-          </RailItem>
+          </li>
         ))}
       </ul>
-    </nav>
+    </section>
   );
 }

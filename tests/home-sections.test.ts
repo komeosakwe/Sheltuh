@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  firstSentence,
   formatWeekendRange,
   selectHomeSections,
   shownEventIds,
@@ -102,28 +101,27 @@ const NOW = at("2026-10-21T01:00:00.000Z");
 const day = (d: number, hourUtc = 8) => `2026-10-${String(d).padStart(2, "0")}T${String(hourUtc).padStart(2, "0")}:00:00.000Z`;
 
 describe("selectHomeSections", () => {
-  it("drops ended events, and features the soonest one that hasn't started", () => {
+  it("drops ended events; there's no Up next claiming the soonest (mobile-redesign.md §6.3.2)", () => {
     const sections = selectHomeSections(
       [
         event("ended", "2026-10-01T08:00:00.000Z"),
-        // An exhibition open for weeks, in progress now: it no longer wins Up next.
         event("exhibition", "2026-10-10T00:00:00.000Z", { endsAt: "2026-11-30T08:00:00.000Z" }),
         event("thu", day(22)),
+        event("fri", day(23, 1)),
       ],
       [],
       NOW,
     );
-    expect(sections.upNext?.id).toBe("thu");
+    expect(sections).not.toHaveProperty("upNext");
+    expect(sections.anyUpcoming).toBe(true);
     expect(shownEventIds(sections)).not.toContain("ended");
+    // The soonest event is in Coming up, like any other.
+    expect(sections.comingUp.map((e) => e.id)).toEqual(["thu", "fri"]);
   });
 
-  it("falls back to the soonest in-progress event when nothing is still to start", () => {
-    const sections = selectHomeSections(
-      [event("exhibition", "2026-10-10T00:00:00.000Z", { endsAt: "2026-11-30T08:00:00.000Z" })],
-      [],
-      NOW,
-    );
-    expect(sections.upNext?.id).toBe("exhibition");
+  it("says when nothing at all is upcoming", () => {
+    expect(selectHomeSections([event("ended", "2026-10-01T08:00:00.000Z")], [], NOW).anyUpcoming).toBe(false);
+    expect(selectHomeSections([], [], NOW).anyUpcoming).toBe(false);
   });
 
   it("This weekend: anything open in the window; events starting in it first, then those already running (owner decision 5)", () => {
@@ -171,11 +169,11 @@ describe("selectHomeSections", () => {
       [],
       sat,
     );
-    expect(sections.upNext?.id).toBe("up");
-    expect(sections.weekend.items.map((e) => e.id)).toEqual(["on-now"]);
+    // Starting inside the window first, then already running.
+    expect(sections.weekend.items.map((e) => e.id)).toEqual(["up", "on-now"]);
   });
 
-  it("This weekend: empty state before the weekend, hidden during it, hidden when Up next took it", () => {
+  it("This weekend: empty state before the weekend, hidden during it", () => {
     const empty = selectHomeSections([event("a", day(28)), event("b", day(29))], [], NOW);
     expect(empty.weekend.status).toBe("empty");
     expect(empty.weekend.items).toEqual([]);
@@ -183,12 +181,12 @@ describe("selectHomeSections", () => {
     const during = selectHomeSections([event("a", day(28))], [], at("2026-10-24T01:00:00.000Z"));
     expect(during.weekend.status).toBe("hidden");
 
-    const taken = selectHomeSections([event("sat", day(24)), event("b", day(29))], [], NOW);
-    expect(taken.upNext?.id).toBe("sat");
-    expect(taken.weekend.status).toBe("hidden");
+    const on = selectHomeSections([event("sat", day(24)), event("b", day(29))], [], NOW);
+    expect(on.weekend.status).toBe("cards");
+    expect(on.weekend.items.map((e) => e.id)).toEqual(["sat"]);
   });
 
-  it("each priority claims its events: Up next, This weekend, Trending, Coming up, Free & low-cost", () => {
+  it("each priority claims its events: This weekend, Trending, Coming up, Free & low-cost", () => {
     const events = [
       event("next", day(22)),
       event("sat", day(24), { priceCents: 0 }),
@@ -200,10 +198,9 @@ describe("selectHomeSections", () => {
     const trending = [events[0], events[1], ...events.slice(2, 6)].map((e) => trend(e));
     const sections = selectHomeSections(events, trending, NOW);
 
-    expect(sections.upNext?.id).toBe("next");
     expect(sections.weekend.items.map((e) => e.id)).toEqual(["sat"]);
-    // Trending keeps the server's order, minus what's already shown.
-    expect(sections.trending.map(({ event: e }) => e.id)).toEqual(["t27", "t28", "t29", "t30"]);
+    // Trending keeps the server's order, minus what's already shown (the weekend's).
+    expect(sections.trending.map(({ event: e }) => e.id)).toEqual(["next", "t27", "t28", "t29", "t30"]);
     expect(sections.comingUp.map((e) => e.id)).toEqual(["c0", "c1", "c2", "c3", "c4", "c5"]);
     // The free Saturday event is already in This weekend, so Free & low-cost takes the later ones.
     expect(sections.lowCost).toEqual([
@@ -216,7 +213,8 @@ describe("selectHomeSections", () => {
   });
 
   it("Trending needs three after de-duplication; when hidden, its events stay available to Coming up", () => {
-    const events = [event("next", day(22)), event("a", day(27)), event("b", day(28)), event("c", day(29))];
+    // The Saturday event is This weekend's, leaving Trending two.
+    const events = [event("sat", day(24)), event("a", day(27)), event("b", day(28)), event("c", day(29))];
     const sections = selectHomeSections(events, [trend(events[0]), trend(events[1]), trend(events[2])], NOW);
     expect(sections.trending).toEqual([]);
     expect(sections.comingUp.map((e) => e.id)).toEqual(["a", "b", "c"]);
@@ -230,7 +228,7 @@ describe("selectHomeSections", () => {
   });
 
   it("Coming up and Free & low-cost need two each; a lone one releases its event", () => {
-    const sections = selectHomeSections([event("next", day(22)), event("free", day(27), { priceCents: 0 })], [], NOW);
+    const sections = selectHomeSections([event("free", day(27), { priceCents: 0 })], [], NOW);
     expect(sections.comingUp).toEqual([]);
     expect(sections.lowCost).toEqual([]);
   });
@@ -252,7 +250,6 @@ describe("selectHomeSections", () => {
       [],
       at("2026-10-26T01:00:00.000Z"),
     );
-    expect(sections.upNext?.id).toBe("next");
     expect(sections.lowCost.map(({ event: e, badge }) => [e.id, badge])).toEqual([
       ["cheap", "low-cost"],
       ["ext-free", "free"],
@@ -265,25 +262,19 @@ describe("selectHomeSections", () => {
   });
 });
 
-describe("firstSentence", () => {
-  it("cuts at the first sentence break", () => {
-    expect(firstSentence("One. Two.")).toBe("One.");
-    expect(firstSentence("No break")).toBe("No break");
-  });
-});
-
 describe("selectHomeSections: From organisers you follow", () => {
   const NOW = at("2026-10-21T01:00:00.000Z"); // Wed 21 Oct, 12:00 AEDT
-  const upNext = event("next", "2026-10-22T08:00:00.000Z");
+  const thursday = event("next", "2026-10-22T08:00:00.000Z");
   const sat = event("sat", "2026-10-24T08:00:00.000Z");
   const later = Array.from({ length: 4 }, (_, i) => event(`l${i}`, `2026-11-0${i + 1}T08:00:00.000Z`));
   const followedOnly = event("followed", "2026-11-10T08:00:00.000Z");
 
   it("comes after This weekend and before Trending, without repeating what's above, and claims its events", () => {
-    const following = [sat, upNext, later[0], followedOnly];
+    const following = [sat, thursday, later[0], followedOnly];
     const trending = [later[0], later[1], later[2], later[3]].map((e) => trend(e));
-    const sections = selectHomeSections([upNext, sat, ...later], trending, NOW, following);
-    expect(sections.following.map((e) => e.id)).toEqual(["l0", "followed"]);
+    const sections = selectHomeSections([thursday, sat, ...later], trending, NOW, following);
+    // Soonest first; the weekend's event is already shown above.
+    expect(sections.following.map((e) => e.id)).toEqual(["next", "l0", "followed"]);
     // Trending no longer shows l0 (claimed by the rail above it).
     expect(sections.trending.map(({ event }) => event.id)).toEqual(["l1", "l2", "l3"]);
     const ids = shownEventIds(sections);
@@ -293,13 +284,13 @@ describe("selectHomeSections: From organisers you follow", () => {
   });
 
   it("is empty (hidden) with no follows, or when everything is already shown above, and drops ended events", () => {
-    expect(selectHomeSections([upNext, sat], [], NOW).following).toEqual([]);
-    expect(selectHomeSections([upNext, sat], [], NOW, [upNext, sat]).following).toEqual([]);
+    expect(selectHomeSections([thursday, sat], [], NOW).following).toEqual([]);
+    expect(selectHomeSections([thursday, sat], [], NOW, [sat]).following).toEqual([]);
     const ended = event("old", "2026-10-01T08:00:00.000Z");
-    expect(selectHomeSections([upNext], [], NOW, [ended]).following).toEqual([]);
+    expect(selectHomeSections([thursday], [], NOW, [ended]).following).toEqual([]);
   });
 
   it("shows even one event (the member asked for them)", () => {
-    expect(selectHomeSections([upNext], [], NOW, [followedOnly]).following.map((e) => e.id)).toEqual(["followed"]);
+    expect(selectHomeSections([thursday], [], NOW, [followedOnly]).following.map((e) => e.id)).toEqual(["followed"]);
   });
 });

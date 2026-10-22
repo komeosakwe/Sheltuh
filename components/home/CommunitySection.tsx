@@ -1,11 +1,11 @@
 "use client";
 
 import { ButtonLink } from "@/components/ui/Button";
+import GoingStack from "@/components/ui/GoingStack";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { initialsFor } from "@/lib/initials";
 import { getSampleGoing } from "@/lib/sample-going";
 import { isApiConfigured } from "@/lib/api/client";
-import GoingStack from "./GoingStack";
 
 /** Demo only: fictional initials. Live shows no stack (no blank tiles), since signed-out visitors never receive names. */
 const DEMO_INITIALS = isApiConfigured
@@ -14,8 +14,8 @@ const DEMO_INITIALS = isApiConfigured
 
 /**
  * "Find your people": the page's one orange band, full-bleed (so the caller
- * places it outside the page container). The hero's "Find your people"
- * jumps here (a plain anchor, so focus lands on this section too). The CTA sends signed-in members to find an event and everyone
+ * places it outside the page container). `#find-your-people` links land
+ * here, focus included (tabIndex -1). The CTA sends signed-in members to find an event and everyone
  * else (including while auth is still loading, which is also the server
  * render) to sign up. Black on orange throughout (6.18:1); never an orange
  * button here.

@@ -3,9 +3,9 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 /*
- * globals.css rules that keep content reachable: the reveal entrance never
- * hides anything in print (WCAG 1.3.1), and the map's phone sheet never
- * covers keyboard focus (2.4.11).
+ * globals.css rules that keep content reachable: nothing is hidden until a
+ * scroll reveals it (docs/design/mobile-redesign.md §8.1), and the map's
+ * phone sheet never covers keyboard focus (2.4.11).
  */
 const css = readFileSync(path.resolve(import.meta.dirname, "..", "app/globals.css"), "utf8");
 
@@ -32,27 +32,16 @@ function declarations(body: string, selector: string): string {
   return body.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
 }
 
-describe("reveal entrances in globals.css", () => {
-  it("has one reveal system: no CSS scroll-timeline .reveal class beside RevealObserver's", () => {
-    expect(css).not.toMatch(/\.reveal\s*\{/);
+describe("no scroll-reveal in globals.css (mobile-redesign.md §8.1)", () => {
+  it("has no class that hides content until it scrolls into view", () => {
+    expect(css).not.toMatch(/\.reveal(-pending)?\b/);
     expect(css).not.toMatch(/animation-timeline/);
   });
 
-  it("hides .reveal-pending only on screens, for people who haven't asked for less motion", () => {
-    const hiding = mediaBlocks().filter(({ body }) => /\.reveal-pending\s*\{[^}]*opacity:\s*0/.test(body));
-    expect(hiding).toHaveLength(1);
-    expect(hiding[0].query).toBe("screen and (prefers-reduced-motion: no-preference)");
-    // Never outside a media query, where it would apply to print too.
-    const outside = css.replace(/@media[^{]+\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, "");
-    expect(outside).not.toMatch(/\.reveal-pending/);
-  });
-
-  it("shows everything in print, whatever an entrance was doing", () => {
-    const print = mediaBlocks().find(({ query }) => query === "print");
-    expect(print).toBeDefined();
-    const rule = declarations(print?.body ?? "", ".reveal-pending");
-    expect(rule).toMatch(/opacity:\s*1\s*!important/);
-    expect(rule).toMatch(/transform:\s*none\s*!important/);
+  it("never hides a page's overflow sideways: causes are fixed instead (§8.2)", () => {
+    const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(declarations(withoutComments, "body")).toMatch(/padding-left:\s*env\(safe-area-inset-left\)/);
+    expect(declarations(withoutComments, "body")).not.toMatch(/overflow-x:\s*hidden/);
   });
 });
 

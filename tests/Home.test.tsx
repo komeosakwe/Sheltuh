@@ -22,29 +22,30 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     await settle();
 
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
-    expect(screen.getByRole("heading", { level: 1 })).toHaveAccessibleName("Where is your Sheltüh?");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
     expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
-      "Browse by category",
-      "Up next",
       "This weekend",
       "Trending",
       "Coming up near you",
       "Only in the city",
-      // Free & low-cost is hidden: fewer than two cheap events are left after the sections above.
+      // With no Up next claiming one, two cheap events are left for Free & low-cost.
+      "Free & low-cost",
+      "Explore by category",
       "Find your people",
       "Bring your event to life",
     ]);
     expect(screen.getByRole("search", { name: "Search events" })).toBeInTheDocument();
   });
 
-  it("features the soonest event that hasn't started (demo data includes past events)", async () => {
+  it("has no Up next: the soonest event is a card in the sections; ended events are nowhere (demo data includes them)", async () => {
     render(<Home />);
     await settle();
     const now = Date.now();
     const soonest = [...sampleEvents]
       .filter((e) => Date.parse(e.startsAt) > now)
       .sort((a, b) => a.startsAt.localeCompare(b.startsAt))[0];
-    expect(screen.getByRole("region", { name: "Up next" })).toHaveTextContent(soonest.title);
+    expect(screen.queryByRole("region", { name: "Up next" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: new RegExp(`^${soonest.title} `) })).toHaveAttribute("href", `/events/${soonest.slug}`);
     expect(screen.queryByText("Neon Static")).not.toBeInTheDocument();
   });
 
@@ -63,7 +64,8 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     render(<Home />);
     await settle();
     expect(screen.getByText("Tickets on Humanitix")).toBeInTheDocument();
-    expect(screen.getByText("Free · Tickets on the organiser's site")).toBeInTheDocument();
+    // A free external event: "Free", then where (mobile-redesign.md §6.2.3 row 2).
+    expect(screen.getByText("Tickets on the organiser's site").previousElementSibling).toHaveTextContent("Free");
   });
 
   it("says the listings are samples, and every quick-buy link says 'Buy tickets' (or 'Get free tickets'), as live", async () => {
@@ -78,15 +80,24 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     }
   });
 
+  it("shows every section at load: nothing waits for a scroll to appear", async () => {
+    const { container } = render(<Home />);
+    await settle();
+    expect(container.querySelector("[data-reveal], [data-reveal-stagger], .reveal-pending")).toBeNull();
+  });
+
   it("puts the orange community band outside the page container; orange buttons are the hero CTA and the cards' quick buy only", async () => {
     const { container } = render(<Home />);
     await settle();
     const band = container.querySelector("[data-surface='signal']");
     expect(band?.closest(".max-w-6xl")).toBeNull();
-    // The sold-out demo event's quick buy is "Join waitlist", the seated one's "Choose seats" (still orange, owner decision 6).
-    const quickBuy = screen.getAllByRole("link", { name: /(?:tickets|Join waitlist|Choose seats) for/ });
+    // The seated demo event's quick buy is "Choose seats" (orange). The sold-out one's "Join waitlist" is the
+    // outline button: a waitlist isn't a purchase (mobile-redesign.md §6.2.3).
+    const quickBuy = screen.getAllByRole("link", { name: /(?:tickets|Choose seats) for/ });
+    const waitlist = screen.getAllByRole("link", { name: /Join waitlist for/ });
+    for (const link of waitlist) expect(link).toHaveClass("btn-outline");
     const orange = Array.from(container.querySelectorAll(".btn-signal"));
-    // Owner decision 6: every card quick-buy is orange (black label); otherwise only Explore events.
+    // Every other card quick-buy is orange (black label); otherwise only Explore events.
     expect(orange).toHaveLength(quickBuy.length + 1);
     expect(orange.filter((el) => !quickBuy.includes(el as HTMLElement)).map((el) => el.textContent)).toEqual([
       "Explore events",

@@ -6,7 +6,7 @@ import { ArrowRightIcon } from "./icons";
 /** The organiser pitch: an ink card (the scope inverts its text and outline button), the guide's split mirrored. */
 export default function CreatorsCard({ className = "" }: { className?: string }) {
   return (
-    <section aria-labelledby="home-creators" data-reveal className={className}>
+    <section aria-labelledby="home-creators" className={className}>
       <div data-surface="ink" className="overflow-hidden rounded-card sm:grid sm:grid-cols-2">
         <EventArt
           poster={HOME_CREATORS.poster}

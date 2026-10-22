@@ -8,7 +8,7 @@ import { ComposeRequestForm } from "@/components/messages/ComposeRequest";
 import ReportDialog, { type ReportOutcome } from "@/components/messages/ReportDialog";
 import { BLOCK_EFFECT, errorText, messagingError, tallInlineLinkClass, threadHref } from "@/components/messages/shared";
 import { Button, ButtonLink } from "@/components/ui/Button";
-import EventTile from "@/components/ui/EventTile";
+import EventCard from "@/components/ui/EventCard";
 import { EmptyState, Notice, SectionHeader } from "@/components/ui/Section";
 import Strap from "@/components/ui/Strap";
 import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
@@ -325,7 +325,7 @@ export default function MemberProfileView({
           <ul className={RESULTS_GRID}>
             {events.map((event) => (
               <li key={event.id} className="flex min-w-0">
-                <EventTile event={event} className="w-full" />
+                <EventCard event={event} variant="grid" />
               </li>
             ))}
           </ul>

@@ -40,9 +40,18 @@ describe("EventResults (brand-direction-one.md §7: one grid of 4:5 tiles)", () 
     expect(screen.queryByRole("button", { name: /Pause|Play|Next events|Previous events/ })).toBeNull();
   });
 
-  it("marks the grid for the staggered scroll entrance", () => {
+  it("shows every card from the start: nothing waits for a scroll (mobile-redesign.md §8.1)", () => {
     render(<EventResults events={events(2)} />);
-    expect(screen.getByRole("list", { name: "Events" })).toHaveAttribute("data-reveal-stagger");
+    const list = screen.getByRole("list", { name: "Events" });
+    expect(list).not.toHaveAttribute("data-reveal-stagger");
+    expect(list.querySelector("[data-reveal]")).toBeNull();
+  });
+
+  it("uses the one card, its grid variant", () => {
+    const { container } = render(<EventResults events={events(2)} />);
+    const cards = container.querySelectorAll("[data-event-card]");
+    expect(cards).toHaveLength(2);
+    for (const card of cards) expect(card).toHaveAttribute("data-variant", "grid");
   });
 
   it("gives each tile its orange Buy tickets link to the event's tickets", () => {

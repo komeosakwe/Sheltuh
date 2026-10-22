@@ -143,7 +143,7 @@ export default function EventQueue() {
       {loading && items.length === 0 && <LoadingState text="Loading…" />}
       {!loading && items.length === 0 && <p className="text-sm text-muted">No events with this status.</p>}
 
-      <ul data-reveal-stagger className="flex flex-col border-b border-foreground">
+      <ul className="flex flex-col border-b border-foreground">
         {items.map((item) => (
           <li key={item.eventId} className="border-t border-foreground py-4">
             {item.imageUrl && <PrivateEventImage imageUrl={item.imageUrl} getToken={getToken} />}

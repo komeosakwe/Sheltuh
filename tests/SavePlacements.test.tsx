@@ -5,9 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventDetailsView from "@/components/EventDetailsView";
 import EventResults from "@/components/EventResults";
 import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
-import FeaturedEventCard from "@/components/home/FeaturedEventCard";
-import HomeEventCard from "@/components/home/HomeEventCard";
-import EventTile from "@/components/ui/EventTile";
+import EventCard from "@/components/ui/EventCard";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
@@ -55,9 +53,9 @@ function withHearts(children: ReactNode) {
 const heartFor = (event: SheltuhEvent) => screen.getByRole("button", { name: `Save ${event.title}` });
 
 describe("heart placements", () => {
-  it("EventTile: a sibling of the link (never inside it), right after it in tab order", () => {
-    const { container } = withHearts(<EventTile event={EVENT} />);
-    // The tile's main link (the other is its quick-buy link, also a sibling of the heart).
+  it.each(["grid", "rail"] as const)("EventCard %s: a sibling of the link (never inside it), right after it in tab order", (variant) => {
+    const { container } = withHearts(<EventCard event={EVENT} variant={variant} />);
+    // The card's main link (the other is its quick-buy link, also a sibling of the heart).
     const link = screen.getAllByRole("link").find((a) => a.getAttribute("href") === `/events/${EVENT.slug}`);
     if (!link) throw new Error("no main link");
     const heart = heartFor(EVENT);
@@ -67,23 +65,16 @@ describe("heart placements", () => {
     expect(container.firstElementChild).toHaveClass("relative");
   });
 
-  it("EventTile: showSave={false} leaves the heart off", () => {
-    withHearts(<EventTile event={EVENT} showSave={false} />);
+  it("EventCard: showSave={false} leaves the heart off", () => {
+    withHearts(<EventCard event={EVENT} variant="grid" showSave={false} />);
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it.each(["standard", "wide", "compact"] as const)("HomeEventCard %s has a heart beside its link", (variant) => {
-    withHearts(<HomeEventCard event={EVENT} variant={variant} mode="demo" />);
+  it.each(["grid", "rail"] as const)("EventCard %s: the overlay heart, above the card's stretched link", (variant) => {
+    withHearts(<EventCard event={EVENT} variant={variant} />);
     const heart = heartFor(EVENT);
-    // The card's main link (the other is its quick-buy link, also a sibling of the heart).
-    const card = screen.getAllByRole("link").find((a) => a.getAttribute("href") === `/events/${EVENT.slug}`);
-    expect(card?.contains(heart)).toBe(false);
-    expect(heart).toHaveAttribute("data-save-variant", variant === "compact" ? "plain" : "overlay");
-  });
-
-  it("FeaturedEventCard has an overlay heart", () => {
-    withHearts(<FeaturedEventCard event={EVENT} mode="demo" />);
-    expect(heartFor(EVENT)).toHaveAttribute("data-save-variant", "overlay");
+    expect(heart).toHaveAttribute("data-save-variant", "overlay");
+    expect(heart).toHaveClass("z-10");
   });
 
   it("event page: a Save pill by the title, and a buy-bar heart from 375px", () => {

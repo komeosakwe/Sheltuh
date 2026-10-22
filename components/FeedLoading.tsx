@@ -1,5 +1,5 @@
 import { RESULTS_GRID } from "@/components/EventResults";
-import { EventTilePlaceholder } from "@/components/ui/EventTile";
+import { EventCardPlaceholder } from "@/components/ui/EventCard";
 import { ProgressLoader } from "@/components/ui/ProgressLoader";
 
 /**
@@ -13,13 +13,13 @@ export default function FeedLoading({ percent, done }: { percent: number; done: 
     <div className="flex flex-col gap-6">
       <ProgressLoader percent={percent} done={done} label="Loading events" />
       <div aria-hidden="true" className={RESULTS_GRID}>
-        <EventTilePlaceholder />
-        <EventTilePlaceholder />
+        <EventCardPlaceholder variant="grid" />
+        <EventCardPlaceholder variant="grid" />
         <div className="hidden sm:block">
-          <EventTilePlaceholder />
+          <EventCardPlaceholder variant="grid" />
         </div>
         <div className="hidden lg:block">
-          <EventTilePlaceholder />
+          <EventCardPlaceholder variant="grid" />
         </div>
       </div>
     </div>

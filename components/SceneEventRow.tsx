@@ -1,9 +1,9 @@
 import Link from "next/link";
 import EventArt from "@/components/EventArt";
-import CardPrice from "@/components/home/CardPrice";
 import QuickBuyLink from "@/components/QuickBuyLink";
+import CardPrice from "@/components/ui/CardPrice";
+import { categoryLabel } from "@/lib/event-card";
 import { formatEventDateShort, formatEventTime } from "@/lib/format";
-import { EVENT_CATEGORIES } from "@/lib/types";
 import type { SheltuhEvent } from "@/lib/types";
 
 interface SceneEventRowProps {
@@ -25,8 +25,6 @@ interface SceneEventRowProps {
  * the word "Selected", never colour alone.
  */
 export default function SceneEventRow({ event, selected, onLocate, hasLocation, detailsHref }: SceneEventRowProps) {
-  const categoryLabel = EVENT_CATEGORIES.find((c) => c.value === event.category)?.label ?? event.category;
-
   return (
     <div
       className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 border-b border-l-2 border-b-surface-border px-4 py-3 last:border-b-0 ${
@@ -60,7 +58,7 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
           {event.venueName} &middot; {event.suburb}
         </p>
         <p className="text-sm leading-5 text-muted">
-          {categoryLabel}
+          {categoryLabel(event)}
           {!hasLocation && <> &middot; not shown on map</>}
         </p>
         <CardPrice event={event} className="text-sm leading-5" />
