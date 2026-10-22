@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { buildIcs, googleCalendarUrl, icsFilename, type CalendarEvent } from "@/lib/calendar";
-import { publicEventUrl } from "@/lib/event-url";
+import { googleCalendarUrl, icsFilename, outlookCalendarUrl, type CalendarEvent } from "@/lib/calendar";
+import { eventCalendarPath, publicEventUrl } from "@/lib/event-url";
 
 function ChevronIcon({ open }: { open: boolean }) {
   return (
@@ -24,20 +24,31 @@ function ChevronIcon({ open }: { open: boolean }) {
 const itemClass =
   "flex min-h-11 w-full items-center px-4 text-sm text-foreground underline-offset-4 hover:bg-surface hover:underline";
 
+type Links = { google: string; outlook: string };
+
 /**
  * "Add to calendar" (docs/design/brand-direction-one.md §6.7): a disclosure
- * with two plain links, an `.ics` download (Apple Calendar, Outlook and most
- * others) and Google Calendar. Both are built only when it's opened, in the
- * browser: the file is stamped with the current time and the page's own
- * origin, neither of which the server render could know.
+ * with plain links.
  *
- * The file is a Blob object URL rather than a `data:` URI, which in-app
- * browsers (Instagram's, Facebook's) are likelier to download; it's revoked
- * when the menu closes. If the event's date can't be read, there's nothing to
- * add, and a short message says so instead.
+ * - **Apple Calendar** goes to the event's `.ics` URL on this site
+ *   (`/events/{slug}/calendar.ics`, served inline as text/calendar), so
+ *   iPhone Safari opens its own "Add to Calendar" sheet and a desktop browser
+ *   hands the file to the calendar app. No `download` attribute or Blob: a
+ *   phone treats those as a file to save. Not `webcal://`, which subscribes
+ *   to a calendar feed rather than adding one event.
+ * - **Google Calendar** and **Outlook** open their own "new event" pages,
+ *   prefilled, in a new tab.
+ * - **Download .ics** is the same file, saved, for any other calendar app.
+ *
+ * Android lists Google first, everything else Apple. That's read from the
+ * browser when the menu opens (it's never in the server render, so it can't
+ * mismatch hydration), as is the page's origin for the Google and Outlook
+ * links. If the event's date can't be read, there's nothing to add, and a
+ * short message says so instead.
  */
 export default function AddToCalendar({ event, className = "" }: { event: CalendarEvent; className?: string }) {
-  const [links, setLinks] = useState<{ ics: string; google: string } | null>(null);
+  const [links, setLinks] = useState<Links | null>(null);
+  const [android, setAndroid] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -53,32 +64,49 @@ export default function AddToCalendar({ event, className = "" }: { event: Calend
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [open]);
 
-  // Each opening makes a fresh file; it's released once the menu closes (or the page goes).
-  useEffect(() => {
-    if (!links) return;
-    return () => URL.revokeObjectURL(links.ics);
-  }, [links]);
-
   function toggle() {
     if (open) {
       setLinks(null);
       return;
     }
     const url = publicEventUrl(event.slug, window.location.origin);
-    const ics = buildIcs(event, { url });
     const google = googleCalendarUrl(event, url);
-    if (ics === null || google === null) {
+    const outlook = outlookCalendarUrl(event, url);
+    if (google === null || outlook === null) {
       setUnavailable(true);
       return;
     }
     setUnavailable(false);
-    setLinks({ ics: URL.createObjectURL(new Blob([ics], { type: "text/calendar;charset=utf-8" })), google });
+    setAndroid(/Android/i.test(navigator.userAgent));
+    setLinks({ google, outlook });
   }
 
   function close() {
     setLinks(null);
     buttonRef.current?.focus();
   }
+
+  const ics = eventCalendarPath(event.slug);
+  const apple = (
+    <li key="apple">
+      <a href={ics} className={itemClass}>
+        Apple Calendar
+      </a>
+    </li>
+  );
+  const google = links && (
+    <li key="google">
+      <a
+        href={links.google}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Google Calendar (opens in a new tab)"
+        className={itemClass}
+      >
+        Google Calendar
+      </a>
+    </li>
+  );
 
   return (
     <div
@@ -115,20 +143,21 @@ export default function AddToCalendar({ event, className = "" }: { event: Calend
           id={menuId}
           className="absolute top-full left-0 z-30 mt-1 w-64 max-w-[calc(100vw-2.5rem)] rounded-control border border-foreground bg-card py-1"
         >
+          {android ? [google, apple] : [apple, google]}
           <li>
-            <a href={links.ics} download={icsFilename(event)} className={itemClass}>
-              Apple / Outlook (.ics)
+            <a
+              href={links.outlook}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Outlook (opens in a new tab)"
+              className={itemClass}
+            >
+              Outlook
             </a>
           </li>
           <li>
-            <a
-              href={links.google}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Google Calendar (opens in a new tab)"
-              className={itemClass}
-            >
-              Google Calendar
+            <a href={ics} download={icsFilename(event)} className={itemClass}>
+              Download .ics (other apps)
             </a>
           </li>
         </ul>

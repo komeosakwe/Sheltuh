@@ -7,10 +7,12 @@ import {
   foldIcsLine,
   googleCalendarUrl,
   icsFilename,
+  outlookCalendarUrl,
   toIcsUtc,
+  toIsoUtcSeconds,
   type CalendarEvent,
 } from "@/lib/calendar";
-import { publicEventUrl } from "@/lib/event-url";
+import { eventCalendarPath, publicEventUrl } from "@/lib/event-url";
 import { melbourneLocalToUtcIso } from "@/lib/server/melbourne-time";
 
 const NOW = new Date("2026-10-21T01:02:03.456Z");
@@ -162,6 +164,48 @@ describe("calendar helpers", () => {
     expect(url.searchParams.get("location")).toBe("The Bluestone Hall, 800 High Street, Thornbury VIC 3071");
     // The dates' slash is literal, not %2F.
     expect(url.search).toContain("dates=20261107T083000Z/20261107T130000Z");
+  });
+});
+
+describe("outlookCalendarUrl", () => {
+  it("prefills subject, ISO UTC start and end, place and details on outlook.live.com", () => {
+    const href = outlookCalendarUrl(event(), URL) ?? "";
+    const url = new globalThis.URL(href);
+    expect(url.origin + url.pathname).toBe("https://outlook.live.com/calendar/0/action/compose");
+    expect([...url.searchParams.keys()]).toEqual(["subject", "startdt", "enddt", "location", "body"]);
+    expect(url.searchParams.get("subject")).toBe("Thornbury Dub Session");
+    // 7:30 pm to midnight AEDT, as UTC with a Z.
+    expect(url.searchParams.get("startdt")).toBe("2026-11-07T08:30:00Z");
+    expect(url.searchParams.get("enddt")).toBe("2026-11-07T13:00:00Z");
+    expect(url.searchParams.get("location")).toBe("The Bluestone Hall, 800 High Street, Thornbury VIC 3071");
+    expect(url.searchParams.get("body")).toBe(`A long night of dub and roots, on a hand-built sound system.\n\n${URL}`);
+    // Spaces are %20, never "+" (which Outlook would show as a plus).
+    expect(href).toContain("subject=Thornbury%20Dub%20Session&");
+    expect(href).not.toContain("+");
+  });
+
+  it("uses start + 2 hours without an end, and escapes &, # and = in text", () => {
+    const url = new globalThis.URL(
+      outlookCalendarUrl(event({ endsAt: undefined, title: "Dub & Bass #2 = loud" }), URL) ?? "",
+    );
+    expect(url.searchParams.get("enddt")).toBe("2026-11-07T10:30:00Z");
+    expect(url.searchParams.get("subject")).toBe("Dub & Bass #2 = loud");
+    expect(url.hash).toBe("");
+  });
+
+  it("is null when the start can't be read", () => {
+    expect(outlookCalendarUrl(event({ startsAt: "soon" }), URL)).toBeNull();
+  });
+
+  it("toIsoUtcSeconds drops milliseconds", () => {
+    expect(toIsoUtcSeconds(NOW)).toBe("2026-10-21T01:02:03Z");
+  });
+});
+
+describe("eventCalendarPath", () => {
+  it("is the event's .ics route on this site", () => {
+    expect(eventCalendarPath("neon-static")).toBe("/events/neon-static/calendar.ics");
+    expect(eventCalendarPath("a b")).toBe("/events/a%20b/calendar.ics");
   });
 });
 

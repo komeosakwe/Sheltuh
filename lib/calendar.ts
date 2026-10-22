@@ -1,7 +1,8 @@
 /**
  * "Add to calendar" for an event (docs/design/brand-direction-one.md §6.7): an
- * RFC 5545 `.ics` file and a Google Calendar link, both built in the browser
- * from the event's own data. Times are the event's real instants (stored in
+ * RFC 5545 `.ics` file (served by `GET /events/{slug}/calendar.ics`,
+ * lib/server/handlers/event-calendar.ts), and Google Calendar and Outlook
+ * links, all built from the event's own data. Times are the event's real instants (stored in
  * UTC from the organiser's Australia/Melbourne wall-clock time, daylight
  * saving included) written as UTC with a `Z`, so every calendar app shows them
  * at the right local time without needing a VTIMEZONE block.
@@ -162,4 +163,29 @@ export function googleCalendarUrl(event: CalendarEvent, url: string): string | n
     .map(([key, value]) => `${key}=${key === "dates" ? value : encodeURIComponent(value)}`)
     .join("&");
   return `https://calendar.google.com/calendar/render?${query}`;
+}
+
+/** An instant as ISO 8601 UTC to the second: `2026-11-07T08:30:00Z`. */
+export function toIsoUtcSeconds(date: Date): string {
+  return date.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+/**
+ * Outlook on the web's "new event" page (outlook.live.com: personal Microsoft
+ * accounts; a work account's Outlook opens the `.ics` instead), prefilled with
+ * UTC times. Null when the event's start can't be read.
+ */
+export function outlookCalendarUrl(event: CalendarEvent, url: string): string | null {
+  const times = calendarTimes(event);
+  if (!times) return null;
+  const params = [
+    ["subject", event.title],
+    ["startdt", toIsoUtcSeconds(times.start)],
+    ["enddt", toIsoUtcSeconds(times.end)],
+    ["location", location(event)],
+    ["body", details(event, url)],
+  ];
+  // encodeURIComponent, not URLSearchParams: a space must be %20, never "+".
+  const query = params.map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join("&");
+  return `https://outlook.live.com/calendar/0/action/compose?${query}`;
 }

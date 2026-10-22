@@ -105,6 +105,32 @@ for (const vp of [
       checkNoApiCalls();
     });
 
+    test("Add to calendar's Apple link is the event's .ics, served inline as text/calendar", async ({ page }) => {
+      const checkNoApiCalls = noApiCalls(page);
+      await page.goto("/events/thornbury-dub-session");
+      const trigger = page.getByRole("button", { name: "Add to calendar" });
+      await expect(trigger).toBeVisible({ timeout: 60_000 });
+      await trigger.click();
+      const apple = page.getByRole("link", { name: "Apple Calendar" });
+      await expect(apple).toHaveAttribute("href", "/events/thornbury-dub-session/calendar.ics");
+      expect(await apple.getAttribute("download")).toBeNull();
+
+      const href = await apple.getAttribute("href");
+      const res = await page.request.get(href ?? "");
+      expect(res.status()).toBe(200);
+      expect(res.headers()["content-type"]).toBe("text/calendar; charset=utf-8");
+      expect(res.headers()["content-disposition"]).toBe('inline; filename="thornbury-dub-session.ics"');
+      expect(res.headers()["cache-control"]).toBe("public, max-age=300");
+      const ics = await res.text();
+      expect(ics.startsWith("BEGIN:VCALENDAR\r\n")).toBe(true);
+      expect(ics).toContain("UID:evt-thornbury-dub-session@sheltuh.com.au\r\n");
+      expect(ics).toContain("DTSTART:20261107T083000Z\r\n");
+
+      const missing = await page.request.get("/events/never-existed/calendar.ics");
+      expect(missing.status()).toBe(404);
+      checkNoApiCalls();
+    });
+
     test("the inbox lists the sample conversations, each opening its thread", async ({ page }) => {
       const checkNoApiCalls = noApiCalls(page);
       await page.goto("/messages");

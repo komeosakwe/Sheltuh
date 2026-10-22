@@ -263,6 +263,61 @@ for (const width of [320, 375]) {
   });
 }
 
+// Add to calendar (docs/design/brand-direction-one.md §6.7): plain links, the Apple one to the
+// event's .ics route on this site (served inline as text/calendar: e2e/demo.spec.ts fetches it).
+test.describe("add to calendar at 375px", () => {
+  test.use({ viewport: { width: 375, height: 740 } });
+
+  test("Apple Calendar is a plain link to the .ics route; the menu stays in the viewport", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/events/neon-static");
+    const trigger = page.getByRole("button", { name: "Add to calendar" });
+    await expect(trigger).toBeVisible({ timeout: 30_000 });
+    await trigger.click();
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const menu = page.locator(`#${await trigger.getAttribute("aria-controls")}`);
+    await expect(menu.getByRole("link")).toHaveText([
+      "Apple Calendar",
+      "Google Calendar",
+      "Outlook",
+      "Download .ics (other apps)",
+    ]);
+    const apple = menu.getByRole("link", { name: "Apple Calendar" });
+    await expect(apple).toHaveAttribute("href", "/events/neon-static/calendar.ics");
+    expect(await apple.getAttribute("download")).toBeNull();
+    await expect(menu.getByRole("link", { name: "Outlook (opens in a new tab)" })).toHaveAttribute(
+      "href",
+      /^https:\/\/outlook\.live\.com\/calendar\/0\/action\/compose\?subject=Neon%20Static&startdt=/,
+    );
+    const box = await menu.boundingBox();
+    if (!box) throw new Error("menu not laid out");
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(375);
+    await noSidewaysScroll(page);
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+  });
+
+  test.describe("on Android", () => {
+    test.use({
+      userAgent:
+        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36",
+    });
+
+    test("Google Calendar comes first", async ({ page }) => {
+      await mockApi(page);
+      await page.goto("/events/neon-static");
+      const trigger = page.getByRole("button", { name: "Add to calendar" });
+      await expect(trigger).toBeVisible({ timeout: 30_000 });
+      await trigger.click();
+      const menu = page.locator(`#${await trigger.getAttribute("aria-controls")}`);
+      await expect(menu.getByRole("link").first()).toHaveText("Google Calendar");
+      await expect(menu.getByRole("link").nth(1)).toHaveAttribute("href", "/events/neon-static/calendar.ics");
+    });
+  });
+});
+
 // The event page's P1 items (docs/design/mobile-redesign.md §6.4.2, §6.5), at a phone and a desktop width.
 for (const width of [375, 1280]) {
   test.describe(`event details at ${width}px`, () => {

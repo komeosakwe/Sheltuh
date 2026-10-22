@@ -499,19 +499,23 @@ div.relative.flex.flex-col                                   (grid cell / rail i
 - **Event page:** directly under the "When" `dd`.
 - **Checkout success:** under the event title.
 
-*Trigger:* a text button, `inline-flex min-h-11 items-center gap-1 text-sm font-semibold underline underline-offset-4`, reading "Add to calendar" with a chevron, `aria-expanded`. It opens a popover menu (`rounded-control border border-foreground bg-card py-1`) with two `min-h-11 px-4` items:
-1. **"Apple / Outlook (.ics)"** downloads `{slug}.ics`, built client-side as a `Blob`:
+*Trigger:* a text button, `inline-flex min-h-11 items-center gap-1 text-sm font-semibold underline underline-offset-4`, reading "Add to calendar" with a chevron, `aria-expanded`. It opens a popover menu (`rounded-control border border-foreground bg-card py-1`) of plain `min-h-11 px-4` links:
+1. **"Apple Calendar"** is a plain link (no `download` attribute, no Blob) to `/events/{slug}/calendar.ics` (`lib/server/handlers/event-calendar.ts`), served as `text/calendar; charset=utf-8` with `Content-Disposition: inline; filename="{slug}.ics"` and `Cache-Control: public, max-age=300`, so iPhone Safari opens its own "Add to Calendar" sheet and a desktop browser hands the file to the calendar app. A Blob with `download` made phones save a file instead. Not `webcal://`: that subscribes to a feed rather than adding one event. Only published events (demo: the sample events), otherwise 404. The file:
    - `VCALENDAR` / `VEVENT`
    - `UID:{eventId}@sheltuh.com.au`
-   - `DTSTAMP` now
+   - `DTSTAMP`: the response time
    - `DTSTART` / `DTEND` as UTC `YYYYMMDDTHHMMSSZ` from `startsAt` / `endsAt`. With no `endsAt`, use start + 2h.
    - `SUMMARY`: title
    - `LOCATION`: venue, address
-   - `URL` and `DESCRIPTION`: the first sentence, then the URL
+   - `URL` (the configured site URL; in the demo, the request's origin) and `DESCRIPTION`: the first sentence, then the URL
    - Escape `,` `;` `\` and newlines, and fold lines at 75 octets.
-2. **"Google Calendar"** opens `https://calendar.google.com/calendar/render?action=TEMPLATE&text=…&dates={start}/{end}&details=…&location=…` with `target="_blank" rel="noopener noreferrer"`, plus sr-only "(opens in a new tab)".
+2. **"Google Calendar"** opens `https://calendar.google.com/calendar/render?action=TEMPLATE&text=…&dates={start}/{end}&details=…&location=…` with `target="_blank" rel="noopener noreferrer"`, and an accessible name ending "(opens in a new tab)".
+3. **"Outlook"** opens `https://outlook.live.com/calendar/0/action/compose?subject=…&startdt=…&enddt=…&location=…&body=…` (ISO UTC times), in a new tab like Google.
+4. **"Download .ics (other apps)"**: the same URL, with `download="{slug}.ics"`.
 
-*Keyboard:* Escape closes and returns focus. Arrow keys aren't required: these are two plain links in a disclosure, not an ARIA menu.
+*Order:* Apple, Google, Outlook, Download; on Android (user agent contains "Android") Google comes first. Read in the browser when the menu opens, so it never affects the server render.
+
+*Keyboard:* Escape closes and returns focus. Arrow keys aren't required: these are plain links in a disclosure, not an ARIA menu.
 
 *Data:* the confirmation page lacks the event's date and venue (`CustomerOrder` has `eventTitle` and `eventSlug` only); see §10.
 

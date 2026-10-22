@@ -10,6 +10,15 @@ export function publicEventUrl(slug: string, origin: string): string {
 }
 
 /**
+ * Where an event's `.ics` is served (`app/events/[slug]/calendar.ics/route.ts`):
+ * a same-origin path, so a phone opens it with its own "Add to Calendar"
+ * sheet instead of saving a file. Same visibility as the event page.
+ */
+export function eventCalendarPath(slug: string): string {
+  return `/events/${encodeURIComponent(slug)}/calendar.ics`;
+}
+
+/**
  * An external event's ticket link may be rendered: only an https link ever
  * is. The API already refuses anything else (lib/ticketing.ts,
  * checkExternalTicketUrl, and a database check), so this is defence in

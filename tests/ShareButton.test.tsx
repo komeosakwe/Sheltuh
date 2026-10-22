@@ -188,65 +188,93 @@ describe("ShareButton", () => {
 describe("AddToCalendar", () => {
   const event = sampleEvents.find((e) => e.slug === "thornbury-dub-session");
   if (!event) throw new Error("fixture missing");
+  const ICS_PATH = "/events/thornbury-dub-session/calendar.ics";
 
-  const created: Blob[] = [];
-  const revoked: string[] = [];
-  beforeEach(() => {
-    created.length = 0;
-    revoked.length = 0;
-    Object.defineProperty(URL, "createObjectURL", {
-      configurable: true,
-      writable: true,
-      value: (blob: Blob) => {
-        created.push(blob);
-        return `blob:${ORIGIN}/file-${created.length}`;
-      },
-    });
-    Object.defineProperty(URL, "revokeObjectURL", {
-      configurable: true,
-      writable: true,
-      value: (url: string) => revoked.push(url),
-    });
-  });
+  function setUserAgent(value: string) {
+    Object.defineProperty(navigator, "userAgent", { value, configurable: true });
+  }
+  const IPHONE =
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
+  const ANDROID =
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36";
+  const jsdomUserAgent = navigator.userAgent;
+  afterEach(() => setUserAgent(jsdomUserAgent));
 
-  it("is a disclosure with an .ics download and a Google Calendar link; Escape closes it", async () => {
+  const menuLabels = () => screen.getAllByRole("link").map((link) => link.textContent);
+
+  it("is a disclosure of plain links: Apple is the .ics URL (no download, no blob); Escape closes it", () => {
+    setUserAgent(IPHONE);
+    const createObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, writable: true, value: createObjectURL });
     render(<AddToCalendar event={event} />);
     const trigger = screen.getByRole("button", { name: "Add to calendar" });
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("link")).toBeNull();
     fireEvent.click(trigger);
     expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(trigger).toHaveAttribute("aria-controls", screen.getByRole("list").id);
 
-    const ics = screen.getByRole("link", { name: "Apple / Outlook (.ics)" });
-    expect(ics).toHaveAttribute("download", "thornbury-dub-session.ics");
-    // A Blob object URL, not a data: URI (in-app browsers handle it better).
-    expect(ics).toHaveAttribute("href", `blob:${ORIGIN}/file-1`);
-    expect(created).toHaveLength(1);
-    expect(created[0].type).toBe("text/calendar;charset=utf-8");
-    const file = await created[0].text();
-    expect(file).toContain("UID:evt-thornbury-dub-session@sheltuh.com.au\r\n");
-    expect(file).toContain("DTSTART:20261107T083000Z\r\n");
-    expect(file).toContain(`URL:${ORIGIN}/events/thornbury-dub-session\r\n`);
-    expect(file).not.toContain("ref=");
+    expect(menuLabels()).toEqual(["Apple Calendar", "Google Calendar", "Outlook", "Download .ics (other apps)"]);
+    const apple = screen.getByRole("link", { name: "Apple Calendar" });
+    // A real URL on this site, opened (not saved): no download attribute, no target.
+    expect(apple).toHaveAttribute("href", ICS_PATH);
+    expect(apple).not.toHaveAttribute("download");
+    expect(apple).not.toHaveAttribute("target");
+    expect(createObjectURL).not.toHaveBeenCalled();
 
     const google = screen.getByRole("link", { name: "Google Calendar (opens in a new tab)" });
     expect(google).toHaveAttribute("target", "_blank");
     expect(google).toHaveAttribute("rel", "noopener noreferrer");
     expect(google.getAttribute("href")).toMatch(/^https:\/\/calendar\.google\.com\/calendar\/render\?action=TEMPLATE&/);
 
+    const outlook = screen.getByRole("link", { name: "Outlook (opens in a new tab)" });
+    expect(outlook).toHaveAttribute("target", "_blank");
+    expect(outlook).toHaveAttribute("rel", "noopener noreferrer");
+    const outlookUrl = new URL(outlook.getAttribute("href") ?? "");
+    expect(outlookUrl.origin + outlookUrl.pathname).toBe("https://outlook.live.com/calendar/0/action/compose");
+    expect(outlookUrl.searchParams.get("startdt")).toBe("2026-11-07T08:30:00Z");
+    // The event's bare URL, from the page's origin: never the address bar's ?ref= or hash.
+    expect(outlookUrl.searchParams.get("body")).toContain(`${ORIGIN}/events/thornbury-dub-session`);
+    expect(outlook.getAttribute("href")).not.toContain("ref%3D");
+
+    const download = screen.getByRole("link", { name: "Download .ics (other apps)" });
+    expect(download).toHaveAttribute("href", ICS_PATH);
+    expect(download).toHaveAttribute("download", "thornbury-dub-session.ics");
+
     fireEvent.keyDown(google, { key: "Escape" });
     expect(screen.queryByRole("link")).toBeNull();
     expect(trigger).toHaveFocus();
     expect(nav.share).toBeUndefined();
-    // The file is released once the menu closes.
-    expect(revoked).toEqual([`blob:${ORIGIN}/file-1`]);
   });
 
-  it("releases the file when the page goes with the menu open", () => {
-    const { unmount } = render(<AddToCalendar event={event} />);
+  it("puts Google first on Android", () => {
+    setUserAgent(ANDROID);
+    render(<AddToCalendar event={event} />);
     fireEvent.click(screen.getByRole("button", { name: "Add to calendar" }));
-    unmount();
-    expect(revoked).toEqual([`blob:${ORIGIN}/file-1`]);
+    expect(menuLabels()).toEqual(["Google Calendar", "Apple Calendar", "Outlook", "Download .ics (other apps)"]);
+  });
+
+  it("puts Apple first on desktop", () => {
+    render(<AddToCalendar event={event} />);
+    fireEvent.click(screen.getByRole("button", { name: "Add to calendar" }));
+    expect(menuLabels()[0]).toBe("Apple Calendar");
+  });
+
+  it("closes when the trigger is pressed again or on a click outside", () => {
+    render(
+      <>
+        <AddToCalendar event={event} />
+        <p>Elsewhere</p>
+      </>,
+    );
+    const trigger = screen.getByRole("button", { name: "Add to calendar" });
+    fireEvent.click(trigger);
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("link")).toBeNull();
+    fireEvent.click(trigger);
+    fireEvent.pointerDown(screen.getByText("Elsewhere"));
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 
   it("says so, instead of doing nothing, when the event's date can't be read", () => {
@@ -257,6 +285,5 @@ describe("AddToCalendar", () => {
     expect(screen.getByRole("status")).toHaveTextContent("This event’s date can’t be added to a calendar.");
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("link")).toBeNull();
-    expect(created).toHaveLength(0);
   });
 });

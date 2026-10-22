@@ -34,7 +34,7 @@ The brand rollout is in progress, following the increments in `brand-direction-o
 | `Panel`, `EmptyState`, `Notice` | Ruled sections, empty states with `DotsMark`, inline errors/info | §6.4, §6.14 |
 | `EventCard` (`rail`, `grid`), `EventCardPlaceholder`, `CardPrice`, `GoingStack` | The one event card: image first, then category, date · time, title, venue · suburb (two lines at most), the all-inclusive price, going, the ticket action ("Buy tickets", "Get free tickets", "Get tickets" for external, "Choose seats", outline "Join waitlist"). The whole card opens the event; its link is named title, date, place, price, going. Labels from `lib/event-card.ts`. Replaced `EventTile`, the home cards and `Carousel` (P0). | `mobile-redesign.md` §6.2 |
 | `Wordmark`, `UMark`, `DotsMark`, `DotsLoader` (new, `components/brand/`) | Official logo vectors; the two-dot motif and loader | §4, §5 |
-| `ShareButton`, `AddToCalendar` (new) | Web Share with a copy-link fallback; `.ics` and Google Calendar | §6.7 |
+| `ShareButton`, `AddToCalendar` (new) | Web Share with a copy-link fallback; Apple Calendar (`/events/{slug}/calendar.ics`), Google Calendar and Outlook | §6.7 |
 | `Sticker` (`RoundBadge`, `Burst`, `Marquee`, `Scribble`) | **Retiring.** Not part of the brand; delete with their last users. | §8.4 |
 
 Home (`components/home/`, spec `docs/design/mobile-redesign.md`, which supersedes `home.md` and `mobile-home.md` for the hero, section order and cards): `HomeHero`, `HomeEventSections`, `HomeRail` (a rail on phones; 2 / 3 / 4 columns from 640 / 768 / 1024px), `CategoryRow`, `CommunitySection`, `CreatorsCard`. Shared loaders: `lib/home-events.ts`, `lib/home-sections.ts`.
