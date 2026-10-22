@@ -1,20 +1,29 @@
-import type { Metadata } from "next";
+import type { Metadata, ResolvingMetadata } from "next";
 import LiveOrganiserProfile from "@/components/organisers/LiveOrganiserProfile";
 import OrganiserProfileView from "@/components/organisers/OrganiserProfileView";
 import OrganiserUnavailable from "@/components/organisers/OrganiserUnavailable";
 import { isApiConfigured } from "@/lib/api/client";
-import { ORGANISER_PAGE_TITLE, ORGANISER_UNAVAILABLE_TITLE, organiserPageTitle } from "@/lib/organiser-profile";
 import { getSampleOrganiser } from "@/lib/sample-organisers";
+import { liveOrganiserMetadata } from "@/lib/server/share-metadata";
+import { inheritedShareImages, ORGANISER_NOT_FOUND_METADATA, organiserMetadata, siteOrigin } from "@/lib/share-metadata";
 
-// Live: the profile is fetched client-side from this app's own API (as on the
-// event page), so the server doesn't know the organiser's name for the title:
-// LiveOrganiserProfile sets "{name} — Sheltüh" once it's loaded. Demo: the
-// sample organiser's name, or the same "not available" title live mode sets.
-export async function generateMetadata({ params }: PageProps<"/organisers/[organiserId]">): Promise<Metadata> {
-  if (isApiConfigured) return { title: ORGANISER_PAGE_TITLE };
+// Live: the profile itself is fetched client-side from this app's own API (as
+// on the event page), but the metadata is read server-side
+// (lib/server/share-metadata.ts, an approved organiser only), so a shared link
+// has the organiser's name, bio and canonical URL. Anything else is the same
+// noindex "not available"; a database error the plain "Organiser" title.
+// Demo: the sample organiser's, the same way.
+export async function generateMetadata(
+  { params }: PageProps<"/organisers/[organiserId]">,
+  parent: ResolvingMetadata,
+): Promise<Metadata> {
   const { organiserId } = await params;
+  const fallback = await inheritedShareImages(parent);
+  if (isApiConfigured) return liveOrganiserMetadata(organiserId, fallback);
   const sample = getSampleOrganiser(organiserId);
-  return { title: sample ? organiserPageTitle(sample.profile.displayName) : ORGANISER_UNAVAILABLE_TITLE };
+  return sample
+    ? organiserMetadata({ ...sample.profile, organiserId }, siteOrigin(), fallback)
+    : ORGANISER_NOT_FOUND_METADATA;
 }
 
 export default async function OrganiserProfilePage({ params }: PageProps<"/organisers/[organiserId]">) {

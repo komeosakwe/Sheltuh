@@ -1,8 +1,21 @@
-import type { Metadata } from "next";
+import type { Metadata, ResolvingMetadata } from "next";
 import ContentPage, { ContentSection } from "@/components/ContentPage";
 import { ButtonLink } from "@/components/ui/Button";
+import { inheritedShareImages, pageShareMetadata, siteOrigin } from "@/lib/share-metadata";
 
-export const metadata: Metadata = { title: "Become a partner — Sheltüh" };
+/** Title, canonical URL and link preview: this page is the one shared with venues and promoters. */
+export async function generateMetadata(_props: PageProps<"/partners">, parent: ResolvingMetadata): Promise<Metadata> {
+  return pageShareMetadata(
+    {
+      title: "Become a partner — Sheltüh",
+      description:
+        "List your events on Sheltüh: reviewed listings, ticketing with payouts to your own Stripe account, and free events listed for free.",
+      path: "/partners",
+    },
+    siteOrigin(),
+    await inheritedShareImages(parent),
+  );
+}
 
 export default function PartnersPage() {
   return (

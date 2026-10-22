@@ -1950,6 +1950,18 @@ is `cache-control: private, no-store`, and so is every admin response
   the demo's seated sample.
 - `components/tickets/TicketQr.tsx` / `lib/ticket-qr.ts`: the ticket QR,
   as inline SVG on `/checkout/success` and as a PNG in the ticket email.
+- Link previews: `lib/share-metadata.ts` builds title, description,
+  canonical, Open Graph and Twitter/X metadata from public fields only;
+  `lib/server/share-metadata.ts` is live mode's server-side read for
+  `generateMetadata` on `/events/[slug]` (`status = 'published'`, as
+  `GET /api/events/slug/{slug}`) and `/organisers/[organiserId]`
+  (`status = 'approved'`). The page bodies still load client-side. Anything
+  not public gets one noindex "not found"; a database error gets a generic
+  title, never a 500. Absolute URLs come from `NEXT_PUBLIC_SITE_URL`, never
+  the Host header. An event's `og:image` is its reviewed cover at
+  `/api/events/{id}/image?v=…` (public for published events), or the site's
+  `app/opengraph-image.tsx` (inherited from the parent segment, since a
+  page's `openGraph` replaces the parent's whole object).
 
 ## Not built yet
 

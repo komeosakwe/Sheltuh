@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ResolvingMetadata } from "next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import OrganiserProfilePage, { generateMetadata } from "@/app/organisers/[organiserId]/page";
 import { ApiError } from "@/lib/api/client";
@@ -17,6 +18,12 @@ vi.mock("@/lib/api/client", async (importOriginal) => ({
 const getOrganiserProfile = vi.fn();
 vi.mock("@/lib/api/organisers", () => ({
   getOrganiserProfile: (...args: unknown[]) => getOrganiserProfile(...args),
+}));
+// No server deps (no DATABASE_URL etc.), as in a test run: the live metadata read fails.
+vi.mock("@/lib/server/deps", () => ({
+  getDeps: () => {
+    throw new Error("Missing required environment variable: DATABASE_URL");
+  },
 }));
 // Any follow request at all (the demo must make none).
 const followApi = vi.fn();
@@ -396,15 +403,20 @@ describe("/organisers/[organiserId] (demo)", () => {
 
 describe("/organisers/[organiserId] title", () => {
   async function title(organiserId: string) {
-    const metadata = await generateMetadata({
-      params: Promise.resolve({ organiserId }),
-      searchParams: Promise.resolve({}),
-    });
+    const metadata = await generateMetadata(
+      { params: Promise.resolve({ organiserId }), searchParams: Promise.resolve({}) },
+      Promise.resolve({}) as unknown as ResolvingMetadata,
+    );
     return metadata.title;
   }
 
-  it("live: the plain title (LiveOrganiserProfile names the organiser once loaded)", async () => {
+  it("live, when the server can't read the organiser: the plain title (LiveOrganiserProfile names them once loaded)", async () => {
+    // No database configured in this test: generic metadata, not an error.
+    // The database-backed metadata is covered in tests/server/share-metadata.test.ts.
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(await title(ORGANISER_ID)).toBe("Organiser — Sheltüh");
+    expect(error).toHaveBeenCalledWith("Organiser metadata unavailable:", expect.any(String));
+    error.mockRestore();
   });
 
   it("demo: the sample organiser's name, or not available for an unknown id", async () => {
