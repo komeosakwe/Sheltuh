@@ -13,6 +13,7 @@ import type { Handler } from "../route";
 import { issueTickets } from "../ticket-issuance";
 import type { CheckoutResult, EventRecord, IssuedTicket, OrderLineItem, SeatErrorDetails, TicketSeat } from "../types";
 import { fail } from "../validation";
+import { EVENT_ENDED } from "./event-queries";
 
 /**
  * Free tickets (docs/architecture.md, "Free tickets"). A signed-in member
@@ -237,8 +238,9 @@ async function sendFreeConfirmation(deps: Deps, orderId: string, message: EmailM
  * emailed link (its URL fragment). Issues the tickets and returns the
  * confirmation page's URL; a second confirmation returns the same URL.
  * 400 malformed token; 404 unknown; 410 expired (confirmed or not); 409 sold
- * out, the address already has its free tickets for the event, or a ticket
- * type is no longer free.
+ * out, the address already has its free tickets for the event, a ticket
+ * type is no longer free, or the event has ended (nothing issued: a link
+ * confirmed after the end issues no tickets).
  */
 export const confirmFreeOrder: Handler = async (req, _params, deps) => {
   const body = await readJson(req);
@@ -277,6 +279,8 @@ export const confirmFreeOrder: Handler = async (req, _params, deps) => {
       throw new HttpError(409, SOLD_OUT);
     case "seats_taken":
       throw new HttpError(409, SEATS_GONE_AT_CONFIRM, undefined, await seatsGone(deps, order.event_id, order.seat_ids ?? []));
+    case "ended":
+      throw new HttpError(409, EVENT_ENDED);
     case "no_longer_free":
       throw new HttpError(409, "These tickets aren't free any more. Book again from the event page.");
     case "unavailable":

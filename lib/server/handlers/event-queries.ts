@@ -30,3 +30,16 @@ export async function requireOwnEvent(db: Db, organiserId: string, eventId: stri
   if (!event || event.organiserId !== organiserId) throw new HttpError(404, "Event not found.");
   return event;
 }
+
+/** The checkout's and free-ticket confirmation's refusal for an event that has ended (409). */
+export const EVENT_ENDED = "This event has ended.";
+
+/**
+ * No new orders or seat holds once an event has ended: `ends_at <= now`, the
+ * definition the database uses everywhere (the orders_not_ended trigger and
+ * private.confirm_free_order are the binding checks; this is the early 409).
+ * A payment for an order made before the end is still fulfilled.
+ */
+export function refuseEndedEvent(event: Pick<EventRecord, "endsAt">, now = Date.now()): void {
+  if (Date.parse(event.endsAt) <= now) throw new HttpError(409, EVENT_ENDED);
+}

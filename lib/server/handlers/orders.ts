@@ -27,7 +27,7 @@ import type {
   TicketSeat,
 } from "../types";
 import { fail, requireEmail } from "../validation";
-import { findEventById } from "./event-queries";
+import { EVENT_ENDED, findEventById, refuseEndedEvent } from "./event-queries";
 import { assertFreeTicketsPerOrder, createFreeOrder, withTicketCodes } from "./free-orders";
 import { findOrganiserById } from "./organiser-guard";
 
@@ -277,16 +277,20 @@ export const PLATFORM_PAID_CHECKOUT_REFUSED = "Paid tickets for this event aren'
 export const EXTERNAL_CHECKOUT_REFUSED = "Tickets for this event are sold on another site, not on Sheltüh.";
 
 /**
- * The orders_sheltuh_only trigger refused an order because the event became
- * external since it was read (an admin's change racing the checkout): the
- * same 409 as the early check. Anything else is rethrown.
+ * A database trigger refused a new order: orders_sheltuh_only because the
+ * event became external since it was read (an admin's change racing the
+ * checkout), or orders_not_ended because the event has ended (the end passed,
+ * or its time was changed, since it was read). The same 409s as the early
+ * checks. Anything else is rethrown.
  */
-async function refuseIfExternal<T>(work: () => Promise<T>): Promise<T> {
+async function refuseIfClosed<T>(work: () => Promise<T>): Promise<T> {
   try {
     return await work();
   } catch (err) {
-    if (pgErrorCode(err) === PG_CHECK_VIOLATION && pgConstraint(err) === "orders_sheltuh_only") {
-      throw new HttpError(409, EXTERNAL_CHECKOUT_REFUSED);
+    if (pgErrorCode(err) === PG_CHECK_VIOLATION) {
+      const constraint = pgConstraint(err);
+      if (constraint === "orders_sheltuh_only") throw new HttpError(409, EXTERNAL_CHECKOUT_REFUSED);
+      if (constraint === "orders_not_ended") throw new HttpError(409, EVENT_ENDED);
     }
     throw err;
   }
@@ -302,7 +306,9 @@ async function refuseIfExternal<T>(work: () => Promise<T>): Promise<T> {
  * never touches Stripe (./free-orders.ts): 201 with the confirmation page's
  * URL for a member's own verified email, otherwise 202, the confirmation
  * link being emailed straight after the response. Any order, paid or free, holds at most 4 free
- * tickets (400, fieldErrors.lineItems).
+ * tickets (400, fieldErrors.lineItems). An event that has ended takes no new
+ * order or seat hold, paid or free (409 "This event has ended."; the
+ * database refuses the order too: orders_not_ended).
  */
 export const createCheckout: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const { db } = deps;
@@ -310,6 +316,8 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   if (!event || event.status !== "published") throw new HttpError(404, "This event isn't available for booking.");
   // External ticketing: no Sheltüh checkout, free or paid (the database refuses the order too).
   if (event.ticketingMode === "external") throw new HttpError(409, EXTERNAL_CHECKOUT_REFUSED);
+  // Ended: no new orders or holds (seated included). A payment for an earlier order is still fulfilled (stripeWebhook).
+  refuseEndedEvent(event);
 
   const body = await readJson(req);
   // Reserved seating: seats chosen on the map (and any general admission lines with them).
@@ -323,7 +331,7 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
     const buyerEmail = parseBuyerEmail(body, true);
     await assertFreeTicketsPerOrder(deps, lineItems);
     await assertAvailable(db, eventId, lineItems);
-    return refuseIfExternal(() =>
+    return refuseIfClosed(() =>
       createFreeOrder(req, deps, { event, lineItems, buyerEmail, trackingCode: parseTrackingCode(body.trackingCode) }),
     );
   }
@@ -368,7 +376,7 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
 
   // The order exists before Stripe does, so no payment can ever arrive
   // without an order to attach it to.
-  await refuseIfExternal(insertOrder);
+  await refuseIfClosed(insertOrder);
   const siteUrl = deps.siteUrl();
   let session: Stripe.Checkout.Session;
   try {
@@ -679,7 +687,7 @@ async function createSeatedCheckout(
     const buyerEmail = parseBuyerEmail(body, true);
     await assertFreeTicketsPerOrder(deps, lineItems);
     await assertAvailable(db, event.eventId, lineItems);
-    return refuseIfExternal(() =>
+    return refuseIfClosed(() =>
       createFreeOrder(req, deps, { event, lineItems, buyerEmail, trackingCode, seats: { seatIds, labels } }),
     );
   }
@@ -695,7 +703,7 @@ async function createSeatedCheckout(
 
   await takeClientHoldAttempt(req, deps, event.eventId, seatIds);
   const orderId = `ord_${crypto.randomUUID().replace(/-/g, "")}`;
-  const [hold] = await refuseIfExternal(() =>
+  const [hold] = await refuseIfClosed(() =>
     db.query<{ result: string; hold_expires_at: string | Date | null; unavailable_seat_ids: string[] | null }>(
       `select result, hold_expires_at, unavailable_seat_ids
          from private.hold_seats($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11, $12, $13::text[],

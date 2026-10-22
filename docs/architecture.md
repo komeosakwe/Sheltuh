@@ -126,7 +126,7 @@ times, which are converted to instants honouring daylight saving
 | `undo_check_in` | Reverses an admission (an `admitted` log row of the event, by its `public_id`) with a reason: same ownership check, allowance and locks as `check_in_ticket`. Returns `undone` (clears `checked_in_at`, logs an `undone` row with the reason), `not_found`, `not_checked_in` (already undone), `superseded` (admitted again since: undo the newer one) or `rate_limited`. Only `undone` logs a row. |
 | `place_free_order` | A member's free order, created and fulfilled in one step under an advisory lock on (event, person): the per-person cap, then the daily allowance, then `fulfil_order`. A refusal or sell-out writes nothing (beyond a refusal count). Returns `paid`, `person_event_limit`, `member_daily_limit` or `sold_out`. |
 | `request_free_order` | A guest's pending free order: the platform's hourly and 24-hour caps (read-only), then, under an advisory lock on the address, the hourly link limit, then a hit on each platform cap. Returns `requested`, `address_limited`, `platform_limited` or `platform_daily_limited`. (The previous 13-argument form delegates to it with the same daily cap, for the deploy window; the app doesn't call it.) |
-| `confirm_free_order` | Confirms by token hash: locks the order, then (event, person), then the event (share) to check every ticket type is still free, then `fulfil_order`'s locks. Idempotent within the link's 24 hours. Returns `confirmed`, `already_confirmed`, `expired_confirmed`, `not_found`, `expired`, `unavailable`, `person_event_limit`, `no_longer_free`, `seats_taken` (a seated order's seats went to someone else since the link was sent) or `sold_out` (the last four mark the order `failed`). A seated order takes the seat lock before the order row. |
+| `confirm_free_order` | Confirms by token hash: locks the order, then (event, person), then the event (share) to check every ticket type is still free, then `fulfil_order`'s locks. Idempotent within the link's 24 hours. Returns `confirmed`, `already_confirmed`, `expired_confirmed`, `not_found`, `expired`, `unavailable`, `ended` (the event ended before the link was confirmed: read before the allowance, and again under the event's share lock), `person_event_limit`, `no_longer_free`, `seats_taken` (a seated order's seats went to someone else since the link was sent) or `sold_out` (the last five mark the order `failed`). A seated order takes the seat lock before the order row. |
 | `purge_operational_data` | Retention for free-ticket and outbox data (see "Free tickets" and "Payment flow"); sent outbox jobs after 90 days, failed ones after a year; per-client counters (`client_rate_limits`) idle for a day. Idempotent; Supabase Cron daily. |
 | `claim_outbox_jobs`, `finish_email_job`, `resend_email_job`, `admin_resend_email_job` | The email outbox: lease due jobs of any kind (optionally one order's, or one kind) with `skip locked` (an expired lease is taken again; one that expired on the 6th attempt fails), record an outcome only for the current lease holder, and an admin resend of a ticket email (not while leased, not twice in 5 minutes; a waitlist email is `not_found`). `admin_resend_email_job` takes a hit on the admin's hourly allowance only when the resend is queued, in the same transaction (over it: `rate_limited`, nothing changed). `claim_email_jobs`, the earlier form, now claims ticket emails only and is kept for the deploy window (see "Not built yet"). |
 | `waitlist_join_state` | Whether an event's waitlist takes joins: `open` (published, Sheltüh-ticketed, not ended, has ticket types and every one is sold out), else `not_found` (missing or not published), `external`, `ended` or `not_sold_out`. |
@@ -161,6 +161,17 @@ times, which are converted to instants honouring daylight saving
 
 1. `POST /api/events/[eventId]/checkout` (guest, no account):
    - Prices come from the database, never the client.
+   - An event that has ended (`ends_at <= now()`, the definition used
+     everywhere) takes no new order or seat hold, paid or free: 409 "This
+     event has ended." The database enforces it for every caller: the
+     `orders_not_ended` trigger refuses any insert into `orders` for an
+     ended event (share-locking the event row, as `orders_sheltuh_only`
+     does), which covers this insert, `hold_seats`, `place_free_order`,
+     `request_free_order` and their seated forms, and the API maps it to the
+     same 409 (`supabase/migrations/20261103000100_refuse_ended_event_orders.sql`).
+     `fulfil_order` doesn't check it: a payment Stripe confirms after the
+     end, for an order made before it, is still fulfilled (the buyer was
+     charged).
    - An optional `trackingCode` is stored on the order only if it's one of
      the event's tracking codes (anything else is silently ignored). It's
      attribution only: it never changes the price, the status, or what's
@@ -375,7 +386,9 @@ people behind one address) and without a CAPTCHA
   returns the same URL. Expired after 24 hours (410), confirmed or not.
   Confirmation re-checks that every ticket type is still free (price 0) and
   still exists; if not, nothing is issued, the order is marked failed and
-  the answer is 409.
+  the answer is 409. A link confirmed after the event ended issues nothing
+  either (409 "This event has ended.", the order marked failed); one
+  confirmed before the end still answers with the same URL afterwards.
 - **Caps**: 4 free tickets per order (400, `fieldErrors.lineItems`), in any
   order: a paid order with free lines is held to it too. A paid order is
   identified by its Stripe payment, so it gets no emailed confirmation and
@@ -1677,6 +1690,10 @@ unchanged.
   changed map) is decided before the counter and writes nothing, so only
   real holds count: refused attempts can't use up the allowance and lock
   buyers out.
+  An event that has ended takes no hold (409 "This event has ended.", before
+  the client's allowance is touched; `orders_not_ended` refuses the order in
+  `hold_seats` too), but seats held before the end and paid for after it
+  are still sold (see "Payment flow").
 - **Per-client hold limit** (a manager decision;
   `20261103000000_seat_hold_client_limits.sql`, `lib/server/client-key.ts`,
   `SEAT_HOLD_LIMITS.perClient`). Before `hold_seats`, every paid seated
