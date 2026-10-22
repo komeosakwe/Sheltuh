@@ -248,7 +248,12 @@ times, which are converted to instants honouring daylight saving
      over a thousand codes, as matrices, PNGs and rendered email, with two
      independent decoders (jsQR, ZXing) outside the repo; the tests check the
      symbol's structure against the standard and pin a decoder-verified
-     matrix. Email clients themselves aren't tested.
+     matrix. Email clients themselves aren't tested. Every transactional
+     email (tickets, free-ticket confirmation, waitlist, follower) is built
+     on one layout, `lib/server/email-layout.ts` (Brand Direction One:
+     cream page, white card, black text, Signal Orange only on the one
+     button, with black text on it), so they can't drift apart;
+     `tests/server/email-brand.test.ts` holds every builder to it.
    Free orders require the buyer's email address at checkout; for paid
    orders, Stripe collects it. The same outbox carries waitlist emails
    (see "Waitlist"), claimed by the same workers (`claim_outbox_jobs`).

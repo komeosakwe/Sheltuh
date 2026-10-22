@@ -1,6 +1,9 @@
 /**
  * Writes the ticket confirmation email to local HTML/text files with synthetic
- * data, for eyeballing in a browser. Sends nothing and touches no service.
+ * data, for eyeballing in a browser, plus one of each other transactional
+ * email (free-ticket confirmation, waitlist, follower) so the shared brand
+ * layout (lib/server/email-layout.ts) can be compared side by side. Sends
+ * nothing and touches no service.
  *
  *   node --import tsx scripts/preview-ticket-email.ts [siteUrl]
  *
@@ -14,8 +17,12 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { EmailMessage } from "../lib/server/email";
+import { CREAM } from "../lib/server/email-layout";
+import { buildFollowerNewEventsEmail } from "../lib/server/follower-email";
+import { buildFreeConfirmationEmail } from "../lib/server/free-confirmation-email";
 import { buildTicketEmail } from "../lib/server/ticket-email";
 import type { EventRecord, OrderRecord } from "../lib/server/types";
+import { buildWaitlistAvailableEmail, buildWaitlistConfirmationEmail } from "../lib/server/waitlist-email";
 import { ticketQrLabel, ticketQrMatrix, ticketQrSvgPath } from "../lib/ticket-qr";
 
 const siteUrl = process.argv[2] ?? "http://127.0.0.1:3111";
@@ -83,7 +90,7 @@ function qrSvgPage(code: string, email: EmailMessage): string {
   const png = email.inlineImages?.[0];
   const pngTag = png ? `<img src="data:${png.contentType};base64,${png.content.toString("base64")}" width="174" height="174" alt="PNG">` : "";
   return `<!DOCTYPE html><html lang="en-AU"><head><meta charset="utf-8"><title>QR ${code}</title></head>
-<body style="font-family:sans-serif;background:#f3f0e8;padding:24px">
+<body style="font-family:sans-serif;background:${CREAM};padding:24px">
 <p>SVG (ticketQrSvgPath) and the email's PNG for ${code}</p>
 <svg role="img" aria-label="${ticketQrLabel(code)}" viewBox="0 0 ${size} ${size}" width="174" height="174" shape-rendering="crispEdges"><rect width="${size}" height="${size}" fill="#fff"/><path d="${d}" fill="#000"/></svg>
 ${pngTag}
@@ -95,6 +102,38 @@ let written = 0;
 for (const [name, { order, event }] of Object.entries(scenarios)) {
   const email = buildTicketEmail(order, event, siteUrl);
   writeFileSync(path.join(outDir, `${name}.html`), withDataUris(email));
+  writeFileSync(path.join(outDir, `${name}.txt`), email.text);
+  written += 2;
+}
+// The other emails, in the same layout.
+const otherEvent = { ...baseEvent, slug: "neon-static", suburb: "Melbourne" } as EventRecord;
+const others: Record<string, EmailMessage> = {
+  "7-free-confirmation": buildFreeConfirmationEmail(
+    "fan@example.com",
+    otherEvent,
+    [{ ticketTypeId: "t", ticketTypeName: "General admission", unitPriceCents: 0, feePolicy: "buyer-pays", quantity: 2 }],
+    `${siteUrl}/checkout/confirm#token=preview`,
+    24,
+  ),
+  "8-waitlist-confirmation": buildWaitlistConfirmationEmail("fan@example.com", otherEvent, `${siteUrl}/waitlist/confirm#token=preview`, 24),
+  "9-waitlist-available": buildWaitlistAvailableEmail(
+    "fan@example.com",
+    otherEvent,
+    `${siteUrl}/events/neon-static#tickets`,
+    `${siteUrl}/waitlist/leave#token=preview`,
+  ),
+  "10-follower-new-events": buildFollowerNewEventsEmail({
+    to: "fan@example.com",
+    organiserName: "Cellar Door Sound",
+    organiserId: "org_preview",
+    events: [otherEvent],
+    total: 1,
+    siteUrl,
+    unsubscribeLink: `${siteUrl}/following/unsubscribe#token=preview`,
+  }),
+};
+for (const [name, email] of Object.entries(others)) {
+  writeFileSync(path.join(outDir, `${name}.html`), email.html);
   writeFileSync(path.join(outDir, `${name}.txt`), email.text);
   written += 2;
 }

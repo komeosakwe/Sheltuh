@@ -35,7 +35,7 @@ These principles come from the pages themselves, not from the brief.
 8. **Sticker graphics that aren't the brand** (`Burst`, `RoundBadge`, `Scribble`). The brand's own graphic device is the two dots, and it's never used.
 9. **Fallback poster art is off-palette.** `lib/sample-events.ts` uses neon blue, teal and pink, and live events reuse it via `assignPoster`.
 10. **No question-led voice.** Headlines are generic ("All events", "Find your room. Find your people.").
-11. **Off-brand transactional email** (`lib/server/ticket-email.ts`: electric blue `#2b3cff` button). This is out of scope for the web pass and flagged in §11.
+11. **Off-brand transactional email** (`lib/server/ticket-email.ts`: electric blue `#2b3cff` button). Resolved 22 Oct 2026: every transactional email is now built on `lib/server/email-layout.ts` (§9, "Transactional emails").
 
 ## 2. Tokens (`app/globals.css`)
 
@@ -255,7 +255,7 @@ Brand lines use "ür" and "ü" for "your" and "you". To keep screen readers sayi
 
 | Asset | Where | Size on screen | Colour treatments |
 | --- | --- | --- | --- |
-| **Uppercase wordmark** (primary), `sheltuh-wordmark.svg`, ratio 4.41:1 | Nav (all widths); OG image; email header (later) | Nav: **20px tall (88px wide) below lg, 24px (106px) at lg**. **Minimum 16px tall (71px).** | Black on Cream or White · Cream or White on Black · **Orange on Black** · Black on Orange · Orange on Cream or White (non-text graphic, 3.25:1) |
+| **Uppercase wordmark** (primary), `sheltuh-wordmark.svg`, ratio 4.41:1 | Nav (all widths); OG image; email header once a PNG export exists (§11 #6) | Nav: **20px tall (88px wide) below lg, 24px (106px) at lg**. **Minimum 16px tall (71px).** | Black on Cream or White · Cream or White on Black · **Orange on Black** · Black on Orange · Orange on Cream or White (non-text graphic, 3.25:1) |
 | **Lowercase wordmark** (secondary), ratio 3.69:1 | Informal and expressive moments only: the footer sign-off (below) | Minimum 20px tall | Same treatments |
 | **Secondary ü**, `sheltuh-u.svg`, ratio 0.665:1 | Favicon, app icons, PWA splash; Sheltüh system avatar in Messages; the ticket's `UBarcode` (already a ü, keep it) | Minimum 16px tall | Black on Orange (icons) · any brand pair above |
 | **Two-dot mark**, `sheltuh-dots.svg`, ratio 3.15:1 | The motif (§5): loader, markers, empty states, connection states | Minimum 12px wide | Orange, Black or Cream; follows `currentColor` |
@@ -794,7 +794,7 @@ The initial letter keeps 8% opacity in `var(--face-display)`.
 | 10 | **Remaining pages:** auth, account, saved, messages, organiser, dashboard and analytics, admin, help and legal, 404 | as listed | class-pinning tests in `DashboardContent`, `PublicProfileForm`, `AnalyticsParts`, `OrganiserQueue` (the `p.eyebrow` selector is kept) |
 | 11 | **Cleanup:** remove the `--highlight`/`--pop`/`--shadow-card` aliases, unused `Sticker` exports, `.float`/`.spin-slow`/`marquee` | `globals.css`, `ui/Sticker.tsx` | `brand-tokens.test.ts` part 2: the aliases are absent from `globals.css` |
 | 12 | **Waitlist UI** (after the B-WL contract) | `TicketSelector`, cards, buy bar | New component tests for each §6.11 state |
-| — | Later: brand the transactional emails | `lib/server/ticket-email.ts`, `free-confirmation-email.ts` | `tests/server/ticket-email.test.ts:56,59,87,212` pin `#f3f0e8`, `#2b3cff` and `#0b0b0b` |
+| — | **Transactional emails** (done 22 Oct 2026): one shared layout, `lib/server/email-layout.ts` (`EMAIL_COLOURS` cream `#fffae7`, white card `#ffffff` with a 1px black hairline and 12px radius, ink `#000000`, muted `#6b675e`, divider `#ddd5ba`, Signal Orange `#ff4800`; `page()`, `heading()`, `eventTitle()`, `eventBlock()`, `button()`, `supportFooter`). Signal Orange is only the fill of the one button per email, with a black label and a black hairline; event titles are black. Light only (`color-scheme: light only`), tables, inline styles and `bgcolor`. | `ticket-email.ts`, `free-confirmation-email.ts`, `waitlist-email.ts`, `follower-email.ts` | `tests/server/email-brand.test.ts`: every builder uses only the shared colours (none of `#2b3cff`, `#f3f0e8`, `#0b0b0b`), orange only on its one button, black text on it, the shared card, heading and support line |
 
 **Gates for every increment:** `npx next typegen`, `npx tsc --noEmit`, `npm run lint`, `npm test`, and `npm run build` for increments 1, 5 and 7 (fonts, routes, OG). Run `npm run test:e2e` after increments 1 and 8. Hand off to `visual-qa` at 320, 375, 430, 640, 768, 1024 and 1280, in demo and live mode, after increments 2, 5, 7 and 10.
 
@@ -816,7 +816,7 @@ The initial letter keeps 8% opacity in `var(--face-display)`.
 - Card overflow "More" menu (Share, Add to calendar).
 - Category chips (a radio group) replacing the /events category `select`. Same behaviour; it needs `EventFilterBar.test.tsx` query updates.
 
-**Out of scope:** the door check-in palette, transactional email redesign (listed), the landing page on Cloudflare (not in this repo), illustration and icon-set redesign (keep the stroke icons, 1.75–2px), and personalisation.
+**Out of scope:** the door check-in palette, the landing page on Cloudflare (not in this repo), illustration and icon-set redesign (keep the stroke icons, 1.75–2px), and personalisation.
 
 ## 11. Missing assets
 
@@ -827,7 +827,7 @@ The initial letter keeps 8% opacity in `var(--face-display)`.
 5. **Photography:**
    - The home hero, guide, creators and community images (`HOME_HERO`, `HOME_GUIDE`, `HOME_CREATORS`), and any `InlinePhoto` sources.
    - Usage rights and model releases. That includes the brand book's own photos (pp. 25–26), if they're to be reused.
-6. **Brand guidance for transactional email** (later).
+6. **The uppercase wordmark as a PNG for email** (black on transparent or cream, about 2× a 24px-tall header, so ~212×48). Email clients don't render SVG, so until it exists the ticket email's header shows the app icon (`public/icons/icon-192.png`, the orange ü, decorative, empty alt) beside the text "Sheltüh", which also covers blocked images. The other emails have no header.
 
 ## Owner questions
 

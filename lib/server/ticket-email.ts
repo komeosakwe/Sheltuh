@@ -3,6 +3,7 @@ import { formatAud } from "@/lib/format";
 import { formatSeatLine, speakSeatLine } from "@/lib/seating/format";
 import { QR_QUIET_ZONE_MODULES, ticketQrLabel, ticketQrMatrix } from "@/lib/ticket-qr";
 import { subjectLine, type EmailMessage, type InlineImage } from "./email";
+import { button, CREAM, escapeHtml, eventTitle, heading, INK, LINE, MONO, MUTED, page, SANS } from "./email-layout";
 import { orderReference } from "./order-reference";
 import { encodePng } from "./png";
 import type { EventRecord, OrderRecord, TicketSeat } from "./types";
@@ -17,11 +18,15 @@ export const EMAIL_FOOTER_IMAGE_URL = "https://sheltuh.com.au/images/email-foote
 /**
  * The buyer's tickets email, sent once an order is paid (free orders included).
  *
- * Table-based markup with inline styles so it holds up in Gmail, Apple Mail and
- * Outlook. Everything essential (event, when, where, every ticket code, the
- * total) is real text, so it reads the same with images blocked.
+ * The shared brand layout (lib/server/email-layout.ts: table markup, inline
+ * styles, cream page, one white card, Signal Orange only on the button) so it
+ * holds up in Gmail, Apple Mail and Outlook and matches every other email.
+ * Everything essential (event, when, where, every ticket code, the total) is
+ * real text, so it reads the same with images blocked.
  *
- * Images: the logo mark (remote, decorative) and, for each ticket whose code
+ * Images: the logo mark (remote, decorative: the "Sheltüh" text beside it
+ * names the brand, so it has empty alt text and a blocked logo leaves the
+ * text wordmark on its own), the footer banner and, for each ticket whose code
  * is a real one (`TICKET_CODE_PATTERN`), its QR code (lib/ticket-qr.ts) as an
  * inline PNG attachment (`cid:`), so it shows even where remote images are
  * blocked. The code stays printed beneath it for the door to type in. The
@@ -29,17 +34,6 @@ export const EMAIL_FOOTER_IMAGE_URL = "https://sheltuh.com.au/images/email-foote
  * whole message from the order on every attempt (lib/server/email-outbox.ts),
  * so nothing is stored. No event artwork, no barcode.
  */
-
-// Palette. The blue is the electric blue used across the site's poster art.
-const CREAM = "#f3f0e8";
-const CARD = "#ffffff";
-const INK = "#0b0b0b";
-const MUTED = "#5b574e";
-const LINE = "#e3ded1";
-const BLUE = "#2b3cff";
-
-const SANS = `'Helvetica Neue', Helvetica, Arial, sans-serif`;
-const MONO = `'SFMono-Regular', Menlo, Consolas, 'Courier New', monospace`;
 
 const MELBOURNE_TZ = "Australia/Melbourne";
 
@@ -50,10 +44,6 @@ const MELBOURNE_TZ = "Australia/Melbourne";
  */
 const QR_DISPLAY_PX_PER_MODULE = 6;
 const QR_PNG_PX_PER_MODULE = 12;
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-}
 
 // --- Dates and times (all Melbourne local time, the platform's timezone) ---
 
@@ -219,61 +209,30 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
     ? `Show ${one ? "this QR code" : "these QR codes"} at the door. Turn your screen brightness up. If ${one ? "it" : "one"} won&rsquo;t scan, door staff can type in ${one ? "the" : "its"} code.`
     : `Show ${one ? "this code" : "these codes"} at the door.`;
 
-  const html = `<!DOCTYPE html>
-<html lang="en-AU" xmlns="http://www.w3.org/1999/xhtml">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="x-apple-disable-message-reformatting">
-<meta name="color-scheme" content="light only">
-<meta name="supported-color-schemes" content="light only">
-<title>${escapeHtml(`You're in: ${event.title}`)}</title>
-<style>
-  @media only screen and (max-width: 620px) {
-    .px { padding-left: 18px !important; padding-right: 18px !important; }
-    .h1 { font-size: 34px !important; line-height: 38px !important; }
-    .code { font-size: 24px !important; letter-spacing: 2px !important; }
-  }
-</style>
-</head>
-<body style="margin:0;padding:0;background-color:${CREAM};-webkit-text-size-adjust:100%">
-<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:${CREAM};font-size:1px;line-height:1px">${escapeHtml(preheader)}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${CREAM}" style="background-color:${CREAM}">
-<tr><td align="center" style="padding:24px 12px">
-<!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px">
-  <tr><td align="left" style="padding:0 4px 16px 4px">
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
-      <td valign="middle" style="padding-right:10px"><img src="${escapeHtml(logoUrl)}" width="40" height="40" alt="" style="display:block;border:0;border-radius:9px"></td>
+  // The logo mark is decorative: the text beside it is the wordmark, so with
+  // images blocked the header still reads "Sheltüh" and nothing is lost.
+  const header = `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+      <td valign="middle" width="40" style="padding-right:10px"><img src="${escapeHtml(logoUrl)}" width="40" height="40" alt="" style="display:block;border:0;border-radius:9px"></td>
       <td valign="middle" style="font-family:${SANS};font-size:26px;line-height:30px;font-weight:bold;letter-spacing:-0.5px;color:${INK}">Sheltüh</td>
-    </tr></table>
-  </td></tr>
-  <tr><td bgcolor="${CARD}" class="px" style="background-color:${CARD};border:1px solid ${LINE};border-radius:14px;padding:32px 30px">
-    <h1 class="h1" style="margin:0 0 8px 0;font-family:${SANS};font-size:42px;line-height:46px;font-weight:bold;letter-spacing:-1px;color:${INK}">You&rsquo;re in.</h1>
-    <p style="margin:0 0 24px 0;font-family:${SANS};font-size:22px;line-height:28px;font-weight:bold;color:${BLUE}">${escapeHtml(event.title)}</p>
+    </tr></table>`;
+  const body = `    ${heading("You&rsquo;re in.", 8)}
+    ${eventTitle(event.title, 24)}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid ${LINE};border-bottom:1px solid ${LINE};margin:0 0 28px 0">${details}</table>
     <p style="margin:0 0 6px 0;font-family:${SANS};font-size:18px;line-height:26px;font-weight:bold;color:${INK}">Your ${order.tickets.length === 1 ? "ticket" : "tickets"}</p>
     <p style="margin:0 0 16px 0;font-family:${SANS};font-size:16px;line-height:24px;color:${INK}">${instructions}</p>
 ${tickets}
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:14px 0 28px 0"><tr>
-      <td bgcolor="${BLUE}" align="center" style="background-color:${BLUE};border-radius:10px"><a href="${escapeHtml(link)}" style="display:block;padding:14px 30px;min-height:20px;font-family:${SANS};font-size:16px;line-height:20px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:10px">${escapeHtml(buttonLabel)}</a></td>
-    </tr></table>
+    ${button(buttonLabel, link, "14px 0 28px 0")}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid ${LINE}">
       <tr><td style="padding:14px 12px 4px 0;font-family:${SANS};font-size:14px;line-height:20px;color:${MUTED};white-space:nowrap">Order reference</td><td align="right" style="padding:14px 0 4px 0;font-family:${MONO};font-size:14px;line-height:20px;color:${INK}">${escapeHtml(reference)}</td></tr>
       <tr><td valign="top" style="padding:4px 12px 0 0;font-family:${SANS};font-size:16px;line-height:24px;font-weight:bold;color:${INK};white-space:nowrap">Total paid</td><td align="right" valign="top" style="padding:4px 0 0 0;font-family:${SANS};font-size:16px;line-height:24px;font-weight:bold;color:${INK}">${escapeHtml(order.totalCents === 0 ? "Free" : formatAud(order.totalCents))}${order.totalCents === 0 ? "" : `<br><span style="font-size:13px;line-height:18px;font-weight:normal;color:${MUTED}">incl. booking fees</span>`}</td></tr>
-    </table>
-  </td></tr>
-  <tr><td align="center" style="padding:20px 12px 0 12px;font-family:${SANS};font-size:13px;line-height:20px;color:${MUTED}">
-    Need help? Email <a href="mailto:${escapeHtml(SUPPORT_EMAIL)}" style="color:${MUTED};text-decoration:underline">${escapeHtml(SUPPORT_EMAIL)}</a><br>
-    Sheltüh &middot; Melbourne
-  </td></tr>
-  <tr><td style="padding:20px 0 0 0"><img src="${EMAIL_FOOTER_IMAGE_URL}" width="600" alt="Sheltüh. Music. Art. Fashion. Culture." style="display:block;border:0;width:100%;max-width:600px;height:auto"></td></tr>
-</table>
-<!--[if mso]></td></tr></table><![endif]-->
-</td></tr>
-</table>
-</body>
-</html>`;
+    </table>`;
+  const html = page({
+    title: `You're in: ${event.title}`,
+    preheader,
+    header,
+    body,
+    after: `<img src="${EMAIL_FOOTER_IMAGE_URL}" width="600" alt="Sheltüh. Music. Art. Fashion. Culture." style="display:block;border:0;width:100%;max-width:600px;height:auto">`,
+  });
 
   const inlineImages = qrs.flatMap((qr) => (qr ? [qr.image] : []));
   return {

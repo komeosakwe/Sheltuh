@@ -1,18 +1,9 @@
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { formatSeatLine } from "@/lib/seating/format";
 import { subjectLine, type EmailMessage } from "./email";
+import { button, escapeHtml, eventBlock, heading, INK, MUTED, page, SANS } from "./email-layout";
 import { formatTicketDate, formatTicketTime } from "./ticket-email";
 import type { EventRecord, OrderLineItem, TicketSeat } from "./types";
-
-const SANS = `'Helvetica Neue', Helvetica, Arial, sans-serif`;
-const CREAM = "#f3f0e8";
-const INK = "#0b0b0b";
-const MUTED = "#5b574e";
-const BLUE = "#2b3cff";
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-}
 
 /**
  * The link a guest must follow before free tickets are issued. The token is
@@ -33,8 +24,9 @@ function summarise(lineItems: OrderLineItem[]): string {
 export const SEATS_NOT_HELD_NOTE = "Your seats are only held once you confirm, if they're still free.";
 
 /**
- * The confirm-your-free-tickets email (plain text plus a simple HTML
- * version). `seats`: a seated booking's seats, one line each.
+ * The confirm-your-free-tickets email (plain text plus HTML in the shared
+ * brand layout, lib/server/email-layout.ts). `seats`: a seated booking's
+ * seats, one line each.
  */
 export function buildFreeConfirmationEmail(
   to: string,
@@ -64,25 +56,20 @@ export function buildFreeConfirmationEmail(
     "Sheltüh, Melbourne",
   ].join("\n");
 
-  const html = `<!DOCTYPE html>
-<html lang="en-AU">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Confirm your free tickets</title></head>
-<body style="margin:0;padding:24px 12px;background-color:${CREAM};font-family:${SANS};color:${INK}">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;margin:0 auto;background-color:#ffffff;border-radius:14px">
-<tr><td style="padding:32px 30px">
-<h1 style="margin:0 0 12px 0;font-size:30px;line-height:36px">Confirm your free tickets</h1>
-<p style="margin:0 0 4px 0;font-size:20px;line-height:26px;font-weight:bold;color:${BLUE}">${escapeHtml(event.title)}</p>
-<p style="margin:0 0 4px 0;font-size:16px;line-height:24px">${escapeHtml(when)}</p>
-<p style="margin:0 0 ${seatLines.length > 0 ? 8 : 24}px 0;font-size:16px;line-height:24px">Tickets: ${escapeHtml(tickets)}</p>${seatLines.length > 0 ? `\n<p style="margin:0 0 4px 0;font-size:16px;line-height:24px;font-weight:bold">${seatLines.map(escapeHtml).join("<br>")}</p>\n<p style="margin:0 0 24px 0;font-size:15px;line-height:22px;color:${MUTED}">${escapeHtml(SEATS_NOT_HELD_NOTE)}</p>` : ""}
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px 0"><tr>
-<td bgcolor="${BLUE}" style="background-color:${BLUE};border-radius:10px"><a href="${escapeHtml(link)}" style="display:block;padding:14px 30px;font-size:16px;line-height:20px;font-weight:bold;color:#ffffff;text-decoration:none">Confirm my tickets</a></td>
-</tr></table>
-<p style="margin:0 0 8px 0;font-size:15px;line-height:22px">The link works for ${hoursValid} hours. Open it and press Confirm: your tickets are issued then, and emailed to you.</p>
-<p style="margin:0;font-size:15px;line-height:22px;color:${MUTED}">Didn&rsquo;t ask for this? Ignore this email: no tickets will be issued.</p>
-</td></tr></table>
-<p style="text-align:center;font-size:13px;line-height:20px;color:${MUTED}">Need help? Email <a href="mailto:${escapeHtml(SUPPORT_EMAIL)}" style="color:${MUTED}">${escapeHtml(SUPPORT_EMAIL)}</a><br>Sheltüh &middot; Melbourne</p>
-</body>
-</html>`;
+  const seated = seatLines.length > 0;
+  const html = page({
+    title: "Confirm your free tickets",
+    body:
+      heading("Confirm your free tickets") +
+      eventBlock(event.title, [when, `Tickets: ${tickets}`], seated ? 8 : 24) +
+      (seated
+        ? `<p style="margin:0 0 4px 0;font-family:${SANS};font-size:16px;line-height:24px;font-weight:bold;color:${INK}">${seatLines.map(escapeHtml).join("<br>")}</p>` +
+          `<p style="margin:0 0 24px 0;font-family:${SANS};font-size:15px;line-height:22px;color:${MUTED}">${escapeHtml(SEATS_NOT_HELD_NOTE)}</p>`
+        : "") +
+      button("Confirm my tickets", link) +
+      `<p style="margin:0 0 8px 0;font-family:${SANS};font-size:15px;line-height:22px;color:${INK}">The link works for ${hoursValid} hours. Open it and press Confirm: your tickets are issued then, and emailed to you.</p>` +
+      `<p style="margin:0;font-family:${SANS};font-size:15px;line-height:22px;color:${MUTED}">Didn&rsquo;t ask for this? Ignore this email: no tickets will be issued.</p>`,
+  });
 
   return { to, subject: subjectLine(`Confirm your free tickets: ${event.title}`), text, html };
 }

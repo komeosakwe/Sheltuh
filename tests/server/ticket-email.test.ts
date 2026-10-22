@@ -50,16 +50,25 @@ describe("buildTicketEmail", () => {
 
   // --- redesign: layout, content and edge cases ---
 
-  it("is a 600px-max centred card with cream background, a heading, the event name and the blue button", () => {
+  it("is a 600px-max centred card in the brand layout: cream page, white card, black title, Signal Orange button with black text", () => {
     const { html } = buildTicketEmail(order, event, "https://sheltuh.com.au");
     expect(html).toContain("max-width:600px");
-    expect(html).toContain("#f3f0e8"); // cream page background
-    expect(html).toContain("#ffffff"); // white card
+    expect(html).toContain('bgcolor="#fffae7"'); // cream page background
+    expect(html).toContain("background-color:#ffffff;border:1px solid #000000"); // white card, black hairline
     expect(html).toMatch(/You&rsquo;re in\./);
-    expect(html).toContain("#2b3cff"); // electric blue button
+    expect(html).toMatch(/<p style="[^"]*font-weight:bold;color:#000000">Paint &#38; &#60;Sip&#62;<\/p>/); // event title in black
+    expect(html).toMatch(/<td bgcolor="#ff4800" style="background-color:#ff4800;border:1px solid #000000[^"]*"><a href="[^"]*checkout\/success/);
     const button = html.match(/<a href="[^"]*checkout\/success[^"]*" style="([^"]*)"/)?.[1] ?? "";
-    expect(button).toContain("padding:14px 30px"); // 20px line + 28px padding = 48px tall (>= 44px)
+    expect(button).toContain("padding:14px 28px"); // 20px line + 28px padding + border = 50px tall (>= 44px)
     expect(button).toContain("font-size:16px");
+    expect(button).toContain("color:#000000"); // black on orange (6.18:1), never white
+  });
+
+  it("has a header with the logo mark beside a text wordmark, so it still reads Sheltüh with images blocked", () => {
+    const { html } = buildTicketEmail(order, event, "https://x");
+    const header = html.slice(0, html.indexOf('class="px"'));
+    expect(header).toMatch(/<img src="https:\/\/x\/icons\/icon-192\.png" width="40" height="40" alt=""/); // decorative: the text names it
+    expect(header.replace(/<img[^>]*>/g, "")).toMatch(/>Sheltüh<\/td>/);
   });
 
   it("labels the button by what the destination shows: ticket for one, tickets for several", () => {
@@ -84,7 +93,7 @@ describe("buildTicketEmail", () => {
       expect(html).toContain(code);
       expect(text).toContain(`Entry code: ${code}`);
     }
-    expect(html.match(/border:2px solid #0b0b0b/g)).toHaveLength(4);
+    expect(html.match(/border:2px solid #000000/g)).toHaveLength(4);
     expect(html).toContain("Ticket 1 of 4");
     expect(html).toContain("Ticket 4 of 4");
     expect(html).toContain("VIP");
@@ -213,7 +222,7 @@ describe("buildTicketEmail", () => {
 
   it("keeps each code as text beneath its QR, inside the same card", () => {
     const { html } = buildTicketEmail(order, event, "https://x");
-    const cards = html.split("border:2px solid #0b0b0b").slice(1);
+    const cards = html.split("border:2px solid #000000").slice(1);
     expect(cards).toHaveLength(2);
     for (const [i, code] of ["ABCD-EFGH", "JKLM-NPQR"].entries()) {
       const qrAt = cards[i].indexOf(`cid:ticket-qr-${i + 1}@`);
