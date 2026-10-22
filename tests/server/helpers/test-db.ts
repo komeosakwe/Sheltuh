@@ -6,7 +6,8 @@ import { createPostgresDb, type Db } from "@/lib/server/db";
 
 const SUPABASE_DIR = path.resolve(import.meta.dirname, "../../../supabase");
 
-function setupSql(): string[] {
+/** Supabase's auth stubs, then every migration in order: what a test database is built from (also the journey harness, journey/). */
+export function setupSql(): string[] {
   const migrationsDir = path.join(SUPABASE_DIR, "migrations");
   return [
     readFileSync(path.join(SUPABASE_DIR, "test/supabase-stubs.sql"), "utf8"),

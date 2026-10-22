@@ -62,6 +62,7 @@ npm run build          # typecheck + production build
 npm run lint           # eslint
 npm test               # unit + API tests (API tests run against in-process Postgres)
 npm run test:e2e       # Playwright browser tests
+npm run test:journey   # opt-in end-to-end journeys over HTTP (JOURNEY=1 + TEST_DATABASE_URL; docs/testing.md)
 npm run promote-admin -- you@example.com   # grant admin (needs SUPABASE_SECRET_KEY)
 npm run seed-dev-data  # load sample events into a dev database
 ```
@@ -69,6 +70,9 @@ npm run seed-dev-data  # load sample events into a dev database
 `TEST_DATABASE_URL=postgres://user@host:port/db npm test` runs the API tests
 against a real Postgres server through the production driver instead of
 PGlite. Each test file creates its own throwaway database.
+
+What each test layer covers, and the checks that still need a person
+(Stripe test mode, real email, real phones): `docs/testing.md`.
 
 ## Layout
 

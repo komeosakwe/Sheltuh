@@ -2087,6 +2087,9 @@ is `cache-control: private, no-store`, and so is every admin response
 - `tests/server/*`: API tests against a real Postgres. By default that's
   PGlite in-process. With `TEST_DATABASE_URL=postgres://…` set, they run
   against a real server through the production driver.
+- `journey/`: the opt-in journey harness (`npm run test:journey`): the real
+  route modules over HTTP with local stand-ins for Supabase Auth, SMTP and
+  Stripe. What each test layer covers: `docs/testing.md`.
 - `app/dashboard/[eventId]/check-in/page.tsx` → `components/check-in/*`: the
   door scanner (`DoorConsole` wires the summary, `useDoorScan`'s scan rules,
   the camera, `ResultPanel`, `RecentScans` and `UndoCheckInDialog`).
