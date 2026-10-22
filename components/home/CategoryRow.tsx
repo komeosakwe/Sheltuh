@@ -14,9 +14,10 @@ export const HOME_CATEGORIES: { label: string; href: string; icon: CategoryIconN
 
 /**
  * "Explore by category" (docs/design/mobile-redesign.md §6.3.6): its own
- * section after the event sections, six bordered tiles in a grid (three
- * across on phones, so two rows and no sideways scroll; one row from 640px).
- * No "See all": it's the index.
+ * section straight under the hero, above the first event rail, so visitors
+ * can narrow down early: six bordered buttons in a grid (three across on
+ * phones, so two rows and no sideways scroll; one row from 640px), each
+ * opening /events with that filter applied. No "See all": it's the index.
  */
 export default function CategoryRow({ className = "" }: { className?: string }) {
   return (

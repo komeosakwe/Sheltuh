@@ -48,29 +48,35 @@ describe("HomeHero (mobile-redesign.md §6.1)", () => {
     ).toBeInTheDocument();
   });
 
-  it("has one action: the orange Explore events, to /events, with its arrow at every width", () => {
+  // Owner feedback (22 Oct 2026): search is the hero's main action; "Explore events" was a full-width
+  // orange button and is now a text link under the search, so the first screen reaches the categories.
+  it("makes search the main action, with 'Explore all events' a text link under it (no orange button)", () => {
     const { container } = render(<HomeHero />);
-    const explore = screen.getByRole("link", { name: "Explore events" });
+    const search = screen.getByRole("search", { name: "Search events" });
+    // A3 (WCAG 2.5.3): the field's name is the words it shows, so "Search events" works by voice too.
+    expect(within(search).getByRole("searchbox", { name: "Search events" })).toHaveAttribute("placeholder", "Search events");
+    const explore = screen.getByRole("link", { name: "Explore all events" });
     expect(explore).toHaveAttribute("href", "/events");
-    expect(explore).toHaveClass("btn-signal", "btn-lg", "w-full", "sm:w-auto");
-    expect(explore.querySelector("svg")).not.toHaveClass("hidden");
+    expect(explore).toHaveClass("underline", "min-h-11");
+    expect(explore.className).not.toMatch(/\bbtn/);
+    expect(explore.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(search.compareDocumentPosition(explore) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getAllByRole("link")).toEqual([explore]);
-    expect(container.querySelectorAll(".btn-signal")).toHaveLength(1);
+    expect(container.querySelector(".btn-signal")).toBeNull();
     // The old second CTA and the categories have left the hero.
     expect(screen.queryByRole("link", { name: "Find your people" })).toBeNull();
     expect(screen.queryByRole("navigation")).toBeNull();
   });
 
-  it("has the search after the CTA, with a short placeholder (it fits a phone), then the demo note", () => {
+  it("ends with the demo label, compact (one short line), after the search", () => {
     render(<HomeHero />);
     const search = screen.getByRole("search", { name: "Search events" });
-    // A3 (WCAG 2.5.3): the field's name is the words it shows, so "Search events" works by voice too.
-    expect(within(search).getByRole("searchbox", { name: "Search events" })).toHaveAttribute("placeholder", "Search events");
-    const explore = screen.getByRole("link", { name: "Explore events" });
-    expect(explore.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Tests run without Supabase settings: demo mode.
     const note = screen.getByRole("note");
     expect(note).toHaveTextContent("Demo — sample events");
+    expect(note).toHaveTextContent("Not real bookings.");
+    expect(note).toHaveAttribute("data-compact");
+    expect(note).toHaveClass("text-xs");
     expect(search.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
@@ -308,11 +314,15 @@ describe("CommunitySection", () => {
     const section = container.querySelector("#find-your-people");
     expect(section).toHaveAttribute("tabindex", "-1");
     expect(section).toHaveAttribute("data-surface", "signal");
-    // The brief's copy: the h2 names the band; "Find your people" is its eyebrow.
+    // The h2 names the band; "Find your people" is its eyebrow.
     expect(screen.getByRole("region", { name: "See who’s going before you book." })).toBe(section);
     expect(screen.getByText("Find your people")).toHaveClass("eyebrow");
+    // What's open before buying, as the API allows it: the count to anyone (from three), the names to
+    // members with a free profile, no ticket needed (lib/server/handlers/going.ts).
     expect(
-      screen.getByText("Discover events through the people and creative communities around you."),
+      screen.getByText(
+        "Anyone can see how many are going, once there are three or more. Make a free profile and you’ll see who.",
+      ),
     ).toBeInTheDocument();
     const cta = screen.getByRole("link", { name: "Join the community" });
     expect(cta).toHaveAttribute("href", "/signup");
@@ -347,15 +357,19 @@ describe("CommunitySection", () => {
     expect(screen.getByRole("link", { name: "Join the community" })).toHaveAttribute("href", "/signup");
   });
 
-  it("explains how it works in three real steps, an ordered list (the numbers are for the eye only)", () => {
+  // The steps used to start with "Get a ticket", which contradicted the heading: names are visible to
+  // members with a profile before they book. Now: see (profile), add yourself (ticket), message (on the list).
+  it("explains how it works in three real steps, in the order access opens up (the numbers are for the eye only)", () => {
     render(<CommunitySection />);
     const steps = screen.getByRole("list");
     expect(steps.tagName).toBe("OL");
     expect(within(steps).getAllByRole("listitem").map((li) => li.querySelector("p")?.textContent)).toEqual([
-      "Get a ticket on Sheltüh.",
-      "Add yourself to the guest list, only if you want to.",
-      "See who else is going, and say hi before the night.",
+      "Sign up and make a free profile to see who’s going.",
+      "Got a ticket? Add yourself to the list, only if you want to.",
+      "Once you’re on the list, say hi to others going before the night.",
     ]);
+    // Seeing comes before the ticket; the ticket only gates adding yourself.
+    expect(screen.queryByText(/^Get a ticket/)).toBeNull();
     for (const n of steps.querySelectorAll("[data-step-number]")) expect(n).toHaveAttribute("aria-hidden", "true");
   });
 

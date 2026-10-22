@@ -27,7 +27,8 @@ import { goesToSeatPage, quickBuyLabel } from "@/lib/quick-buy";
 import { organiserProfileHref } from "@/lib/sample-organisers";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 
-const asideRowClass = "border-t border-foreground py-3";
+/** 16px above and below each fact, so When, Where and Organiser read as separate blocks. */
+const asideRowClass = "border-t border-foreground py-4";
 /** The aside's secondary actions (Get directions, More from): 44px tall, underlined. */
 const asideActionClass =
   "inline-flex min-h-11 items-center gap-1 text-sm leading-5 font-semibold underline underline-offset-4 hover:decoration-2";
@@ -162,9 +163,9 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
               <h1 className="display-lg max-w-[20ch] break-words">{event.title}</h1>
               {/* Below lg the When/Where aside comes much later, so the key facts sit
                   under the title (desktop shows them in the aside beside it). */}
-              <p className="flex flex-col items-start gap-1 lg:hidden">
+              <p className="flex flex-col items-start gap-2 lg:hidden">
                 <span className="meta text-foreground">{when}</span>
-                <span className="text-sm text-muted">
+                <span className="text-sm leading-5 text-muted">
                   {event.venueName} · {event.suburb}
                 </span>
                 <WhosGoingSummaryLink />
@@ -193,9 +194,9 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
 
             {goodToKnow.length > 0 && (
               <Panel title="Good to know" titleId="good-to-know-title">
-                <dl className="flex flex-col gap-4 text-sm">
+                <dl className="flex flex-col gap-5 text-sm leading-6">
                   {goodToKnow.map((item) => (
-                    <div key={item.label} className="grid grid-cols-1 gap-1 sm:grid-cols-[10rem_1fr]">
+                    <div key={item.label} className="grid grid-cols-1 gap-2 sm:grid-cols-[10rem_1fr]">
                       <dt className="eyebrow text-muted">{item.label}</dt>
                       <dd>{item.value}</dd>
                     </div>

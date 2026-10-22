@@ -119,7 +119,7 @@ for (const width of [375, 1280]) {
   test.describe(`home hero at ${width}px`, () => {
     test.use({ viewport: { width, height: 800 } });
 
-    test("the brief's copy and one orange action", async ({ page }) => {
+    test("the brief's copy, search as the main action and no orange button", async ({ page }) => {
       await mockApi(page);
       await page.goto("/");
       const hero = page.getByRole("region", { name: "Find your next thing." });
@@ -128,12 +128,17 @@ for (const width of [375, 1280]) {
       await expect(
         hero.getByText("Discover Melbourne’s music, art, workshops and pop-ups. See who’s going before you book."),
       ).toBeVisible();
-      // One primary CTA: the hero's only orange button, and its only link.
-      const orange = hero.locator(".btn-signal");
-      await expect(orange).toHaveCount(1);
-      await expect(orange).toHaveAccessibleName("Explore events");
-      await expect(orange).toHaveAttribute("href", "/events");
+      // Owner feedback (22 Oct 2026): search is the main action; "Explore all events" is a text link
+      // under it (it was a full-width orange button), and it's the hero's only link.
+      await expect(hero.getByRole("search", { name: "Search events" })).toBeVisible();
+      await expect(hero.locator(".btn-signal")).toHaveCount(0);
+      const explore = hero.getByRole("link", { name: "Explore all events" });
+      await expect(explore).toHaveAttribute("href", "/events");
       await expect(hero.getByRole("link")).toHaveCount(1);
+      const search = await hero.getByRole("search").boundingBox();
+      const link = await explore.boundingBox();
+      expect((link?.y ?? -1) >= (search?.y ?? Infinity) + (search?.height ?? 0) - 0.5).toBe(true);
+      expect(link?.height ?? 0).toBeGreaterThanOrEqual(44);
       // The h1 is two lines at 100% text size, never more.
       const lines = await hero.getByRole("heading", { level: 1 }).evaluate((h1) => {
         const lineHeight = parseFloat(getComputedStyle(h1).lineHeight);
@@ -174,6 +179,84 @@ test.describe("home at 375px, without scrolling", () => {
     });
     const right = await rail.locator("[data-event-card]").last().evaluate((card) => card.getBoundingClientRect().right);
     expect(375 - right).toBeGreaterThanOrEqual(20 - 0.5);
+  });
+});
+
+// Owner feedback (22 Oct 2026), the top priority: rails behave as carousels on every phone width.
+for (const width of [320, 375, 390, 430]) {
+  test.describe(`home rails at ${width}px`, () => {
+    test.use({ viewport: { width, height: 844 } });
+
+    test("snap to each card's start at the page gutter, show the next card, never move up and down, and keep the page still", async ({ page }) => {
+      await mockApi(page);
+      await page.goto("/");
+      const rail = page.locator("[data-home-section] ul").filter({ has: page.locator("[data-event-card]") }).first();
+      await expect(rail).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => document.fonts.ready);
+
+      const style = await rail.evaluate((ul) => {
+        const s = getComputedStyle(ul);
+        const first = ul.querySelector("li");
+        return {
+          snapType: s.scrollSnapType,
+          snapAlign: first ? getComputedStyle(first).scrollSnapAlign : "",
+          overflowX: s.overflowX,
+          overflowY: s.overflowY,
+          // Nothing to scroll vertically inside the rail: no jitter on a diagonal swipe.
+          verticalSlack: ul.scrollHeight - ul.clientHeight,
+        };
+      });
+      expect(style.snapType).toMatch(/^x mandatory/);
+      expect(style.snapAlign).toMatch(/start/);
+      expect(style.overflowX).toBe("auto");
+      expect(style.overflowY).toBe("hidden");
+      expect(style.verticalSlack).toBeLessThanOrEqual(0);
+
+      // The first card starts on the page gutter (20px), like the heading above it.
+      const cards = rail.locator("[data-event-card]");
+      const heading = await page.locator("[data-home-section]").first().getByRole("heading", { level: 2 }).boundingBox();
+      const first = await cards.nth(0).boundingBox();
+      const second = await cards.nth(1).boundingBox();
+      if (!first || !second || !heading) throw new Error("rail not laid out");
+      expect(Math.round(first.x)).toBe(20);
+      expect(Math.abs(first.x - heading.x)).toBeLessThanOrEqual(1);
+      // The next card peeks in: some of it is on screen, not all.
+      expect(second.x).toBeLessThan(width);
+      expect(second.x + second.width).toBeGreaterThan(width);
+      // Every card in the rail is the same height (equal-height cards: the prices and buttons line up).
+      const heights = await cards.evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().height)));
+      expect(new Set(heights).size).toBe(1);
+
+      // Scrolling most of the way to the next card settles with it on the gutter (start-aligned snap),
+      // and the page never scrolls sideways.
+      const step = second.x - first.x;
+      await rail.evaluate((ul, left) => ul.scrollTo({ left, behavior: "instant" }), step - 30);
+      await expect
+        .poll(async () => Math.round((await cards.nth(1).boundingBox())?.x ?? -1))
+        .toBe(20);
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
+    });
+  });
+}
+
+test.describe("home first screen at 390×844", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("shows the category buttons, then This weekend's heading and the top of its first card", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/");
+    await expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 30_000 });
+    await page.evaluate(() => document.fonts.ready);
+    const categories = page.getByRole("region", { name: "Explore by category" });
+    for (const link of await categories.getByRole("link").all()) {
+      const b = await link.boundingBox();
+      expect((b?.y ?? Infinity) + (b?.height ?? 0)).toBeLessThanOrEqual(844);
+    }
+    const weekend = page.getByRole("region", { name: "This weekend" });
+    const h2 = await weekend.getByRole("heading", { level: 2 }).boundingBox();
+    const card = await weekend.locator("[data-event-card]").first().boundingBox();
+    expect((h2?.y ?? Infinity) + (h2?.height ?? 0)).toBeLessThanOrEqual(844);
+    expect(card?.y ?? Infinity).toBeLessThan(844);
   });
 });
 

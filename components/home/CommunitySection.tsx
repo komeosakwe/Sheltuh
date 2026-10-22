@@ -13,18 +13,28 @@ const DEMO_INITIALS = isApiConfigured
   ? undefined
   : getSampleGoing("home-community").attendees.slice(0, 5).map((a) => initialsFor(a.displayName));
 
-/** How Who's Going works: every step is a real feature (mobile-redesign.md §6.4.4). */
+/**
+ * What Who's Going shows whom, in order (mobile-redesign.md §6.4.4), as the
+ * code does it: anyone sees the count (from three people up); a signed-in
+ * member with a verified email and a free profile sees the names, ticket or
+ * not; adding yourself needs a ticket booked with that email; and messaging
+ * needs you on the same list.
+ */
+export const COMMUNITY_INTRO =
+  "Anyone can see how many are going, once there are three or more. Make a free profile and you’ll see who.";
 export const COMMUNITY_STEPS = [
-  "Get a ticket on Sheltüh.",
-  "Add yourself to the guest list, only if you want to.",
-  "See who else is going, and say hi before the night.",
+  "Sign up and make a free profile to see who’s going.",
+  "Got a ticket? Add yourself to the list, only if you want to.",
+  "Once you’re on the list, say hi to others going before the night.",
 ] as const;
 
 /**
  * "Find your people" (docs/design/mobile-redesign.md §6.4.4): the page's one
  * orange band, full-bleed (so the caller places it outside the page
- * container). It says what Who's Going is for, in the brief's words, and how
- * it works in three real steps; it never shows a community size.
+ * container). Its promise is the real access rule: the names are visible to
+ * members before they book (a profile is free and needs no ticket); a
+ * ticket lets you add yourself, and being on the list lets you message the
+ * others on it. It never shows a community size.
  * `#find-your-people` links land here, focus included (tabIndex -1). The CTA
  * sends signed-in members to find an event and everyone else (including
  * while auth is still loading, which is also the server render) to sign up,
@@ -53,7 +63,7 @@ export default function CommunitySection({ className = "" }: { className?: strin
         </div>
         <div className="mt-6 sm:mt-0">
           <p className="max-w-md text-base leading-6 sm:text-lg sm:leading-7">
-            Discover events through the people and creative communities around you.
+            {COMMUNITY_INTRO}
           </p>
           <ol className="mt-5 grid gap-3 sm:grid-cols-3 sm:gap-6">
             {COMMUNITY_STEPS.map((step, i) => (

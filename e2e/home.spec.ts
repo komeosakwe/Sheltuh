@@ -205,14 +205,15 @@ for (const width of [375, 1280]) {
   test.describe(`home order at ${width}px`, () => {
     test.use({ viewport: { width, height: width < 768 ? 812 : 800 } });
 
-    test("hero, This weekend, Popular right now, Explore by category, Find your people, For organisers, footer", async ({ page }) => {
+    test("hero, Explore by category, This weekend, Popular right now, Find your people, For organisers, footer", async ({ page }) => {
       await openHome(page, { trending: true });
       await expect(page.getByRole("heading", { level: 2, name: "Popular right now" })).toBeVisible();
       const headings = await page.locator("main h2").allTextContents();
+      // The category buttons sit straight under the hero (owner feedback, 22 Oct 2026).
       expect(headings.map((h) => h.trim())).toEqual([
+        "Explore by category",
         "This weekend",
         "Popular right now",
-        "Explore by category",
         "See who’s going before you book.",
         "Bring your event to life",
       ]);
@@ -243,9 +244,10 @@ for (const width of [375, 1280]) {
       );
       expect(repeats.length).toBeGreaterThan(1);
       for (const n of repeats) expect(n).toBe(1);
-      // Find your people uses the brief's copy.
+      // Find your people says what's visible before buying, as the API allows it.
       const band = page.locator("#find-your-people");
-      await expect(band).toContainText("Discover events through the people and creative communities around you.");
+      await expect(band).toContainText("Make a free profile and you’ll see who.");
+      await expect(band.getByRole("listitem").first()).toHaveText(/Sign up and make a free profile to see who’s going\./);
     });
   });
 }

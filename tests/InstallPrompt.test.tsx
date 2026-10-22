@@ -66,9 +66,13 @@ describe("InstallPrompt on Chrome (beforeinstallprompt)", () => {
     expect(group()).toHaveTextContent("Get Sheltüh on your home screen");
     const install = screen.getByRole("button", { name: "Install" });
     const noThanks = screen.getByRole("button", { name: "No thanks" });
-    // 48px pill and a 44px text button.
-    expect(install.className).toContain("btn-lg");
-    expect(noThanks.className).toContain("min-h-11");
+    // Owner feedback (22 Oct 2026): a quiet secondary action, not a banner. Two 44px text buttons
+    // (no filled or outlined button, no bordered box).
+    for (const button of [install, noThanks]) {
+      expect(button).toHaveClass("min-h-11", "underline");
+      expect(button.className).not.toMatch(/\bbtn/);
+    }
+    expect(group()?.className).not.toMatch(/border|rounded-card|p-5/);
   });
 
   it("opens the browser's install dialog and goes away once accepted", async () => {
@@ -138,11 +142,18 @@ describe("InstallPrompt: No thanks", () => {
 });
 
 describe("InstallPrompt on iOS", () => {
-  it("shows the Add to Home Screen steps in Safari", () => {
+  it("offers the Add to Home Screen steps in Safari, behind 'Show me how' (a quiet line until asked)", () => {
     useUserAgent(UA.iphoneSafari);
     render(<InstallPrompt />);
     expect(group()).toHaveTextContent("Add Sheltüh to your Home Screen");
-    expect(screen.getByRole("list")).toHaveTextContent("Add to Home Screen");
+    const how = screen.getByRole("button", { name: "Show me how" });
+    expect(how).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("list")).toBeNull();
+    fireEvent.click(how);
+    expect(how).toHaveAttribute("aria-expanded", "true");
+    const steps = screen.getByRole("list");
+    expect(how).toHaveAttribute("aria-controls", steps.id);
+    expect(steps).toHaveTextContent("Add to Home Screen");
     // There's no install API on iOS, so no Install button.
     expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
     expect(screen.getByRole("button", { name: "No thanks" })).toBeInTheDocument();

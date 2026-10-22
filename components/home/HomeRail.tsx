@@ -12,12 +12,20 @@ import RailItem from "./RailItem";
  * end padding: engines disagree on whether a flex scroller's end padding
  * counts (Safari has dropped it, Chromium adds it), so relying on the spacer
  * alone makes it 20px in every engine.
+ *
+ * Snapping is start-aligned (each item `snap-start`) at the page gutter
+ * (`scroll-px-5`, the same 20px as the first card's start), so a swipe
+ * always settles with a card's left edge on the gutter and the next card
+ * peeking. `overflow-y-hidden`: a sideways scroller is otherwise a vertical
+ * one too (overflow-x: auto makes overflow-y auto), and a pixel of overhang
+ * let a diagonal swipe nudge the rail up and down. The cells stretch to the
+ * tallest card, so every card in a row is the same height.
  */
 export default function HomeRail({ children, labelledBy }: { children: ReactNode; labelledBy: string }) {
   return (
     <ul
       aria-labelledby={labelledBy}
-      className="no-scrollbar -mx-5 -my-4 flex snap-x snap-mandatory scroll-px-5 gap-3 overflow-x-auto overscroll-x-contain ps-5 pe-0 py-4 after:block after:w-2 after:shrink-0 after:content-[''] sm:mx-0 sm:my-0 sm:grid sm:snap-none sm:grid-cols-2 sm:gap-x-6 sm:gap-y-8 sm:overflow-visible sm:ps-0 sm:py-0 sm:after:hidden md:grid-cols-3 lg:grid-cols-4"
+      className="no-scrollbar -mx-5 -my-4 flex snap-x snap-mandatory scroll-px-5 gap-3 overflow-x-auto overflow-y-hidden overscroll-x-contain ps-5 pe-0 py-4 after:block after:w-2 after:shrink-0 after:content-[''] sm:mx-0 sm:my-0 sm:grid sm:snap-none sm:grid-cols-2 sm:gap-x-6 sm:gap-y-8 sm:overflow-visible sm:ps-0 sm:py-0 sm:after:hidden md:grid-cols-3 lg:grid-cols-4"
     >
       {children}
     </ul>

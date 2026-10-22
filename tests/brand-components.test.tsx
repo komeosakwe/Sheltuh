@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import Link from "next/link";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import DotsMark, { DotsLoader } from "@/components/brand/DotsMark";
 import UMark from "@/components/brand/UMark";
@@ -10,6 +10,8 @@ import Wordmark from "@/components/brand/Wordmark";
 import { DOTS_MARK, U_MARK, WORDMARK, WORDMARK_LOWERCASE, type BrandMark } from "@/components/brand/marks";
 import Footer from "@/components/Footer";
 import { SUPPORT_EMAIL } from "@/lib/contact";
+import { resetInstallDismissedForTests } from "@/lib/pwa/install";
+import { UA } from "./test-utils/user-agents";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/" }));
 
@@ -164,5 +166,52 @@ describe("Footer", () => {
     const wordmark = container.querySelector(`svg[viewBox="${WORDMARK.viewBox}"]`);
     if (!line || !wordmark) throw new Error("campaign line or wordmark missing");
     expect(line.compareDocumentPosition(wordmark) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+  // Owner feedback (22 Oct 2026): a shorter footer (the wordmark unchanged), and the install offer a quiet
+  // secondary action rather than a banner at the top.
+  it("is compact: tight gaps between the link groups and around the full-width wordmark", () => {
+    const { container } = render(<Footer />);
+    const groups = screen.getByRole("navigation", { name: "Fan support" }).parentElement;
+    expect(groups).toHaveClass("mt-6", "gap-y-5");
+    const wordmark = container.querySelector(`svg[viewBox="${WORDMARK.viewBox}"]`);
+    expect(wordmark).toHaveClass("mt-8", "sm:mt-12", "w-full");
+  });
+
+  describe("the install action", () => {
+    afterEach(() => {
+      resetInstallDismissedForTests();
+      window.localStorage.clear();
+      vi.restoreAllMocks();
+      Reflect.deleteProperty(window, "matchMedia");
+    });
+
+    it("is one quiet line under the brand note, after it and before the link groups, with text buttons", () => {
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })) as unknown as typeof window.matchMedia;
+      vi.spyOn(navigator, "userAgent", "get").mockReturnValue(UA.androidChrome);
+      render(<Footer />);
+      act(() => {
+        window.dispatchEvent(
+          Object.assign(new Event("beforeinstallprompt", { cancelable: true }), {
+            prompt: vi.fn(async () => undefined),
+            userChoice: Promise.resolve({ outcome: "dismissed", platform: "web" }),
+          }),
+        );
+      });
+      const offer = screen.getByRole("group", { name: "Get Sheltüh on your home screen" });
+      const note = screen.getByText(/Sample events only|Curated creative events/);
+      const firstGroup = screen.getByRole("navigation", { name: "Fan support" });
+      expect(note.compareDocumentPosition(offer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(offer.compareDocumentPosition(firstGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      for (const name of ["Install", "No thanks"]) {
+        const button = within(offer).getByRole("button", { name });
+        expect(button).toHaveClass("min-h-11", "text-sm", "underline");
+        expect(button.className).not.toMatch(/\bbtn/);
+      }
+    });
   });
 });

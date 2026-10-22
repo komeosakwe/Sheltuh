@@ -2,7 +2,6 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
-import { Button } from "@/components/ui/Button";
 import {
   detectInstallPlatform,
   getInstallDismissed,
@@ -25,15 +24,20 @@ function subscribePlatform(onChange: () => void) {
 const getPlatform = (): InstallPlatform => detectInstallPlatform(window);
 const getServerPlatform = (): InstallPlatform => "standalone";
 
+/** Text buttons, 44px tall: the offer is a secondary action, never a banner or a filled button. */
+const actionButtonClass =
+  "inline-flex min-h-11 items-center text-sm leading-5 font-semibold text-foreground underline underline-offset-4 hover:decoration-2";
 const dismissButtonClass =
-  "min-h-11 px-2 text-sm font-semibold text-foreground underline underline-offset-4 hover:no-underline";
+  "inline-flex min-h-11 items-center text-sm leading-5 text-muted underline underline-offset-4 hover:text-foreground";
 
 /**
- * "Add Sheltüh to your home screen", at the top of the footer on browsing
- * pages (see lib/pwa/install.ts for where). Android/desktop Chrome: only
+ * "Add Sheltüh to your home screen": a quiet line in the footer, under the
+ * brand note, on browsing pages (see lib/pwa/install.ts for where). One line
+ * of muted text and two text buttons, no box. Android/desktop Chrome: only
  * once the browser says the app is installable (beforeinstallprompt), with
- * an Install button. iOS Safari: the Add to Home Screen steps. Never when
- * already installed, and "No thanks" is remembered. No animation.
+ * Install. iOS Safari (no install API): "Show me how" opens the Add to Home
+ * Screen steps. Never when already installed, and "No thanks" is
+ * remembered. No animation.
  */
 export default function InstallPrompt() {
   const pathname = usePathname();
@@ -45,7 +49,9 @@ export default function InstallPrompt() {
   // Where "No thanks" was chosen: the confirmation shows there, so focus has somewhere to go.
   const [dismissedOn, setDismissedOn] = useState<string | null>(null);
   const confirmationRef = useRef<HTMLParagraphElement>(null);
+  const [stepsOpen, setStepsOpen] = useState(false);
   const titleId = useId();
+  const stepsId = useId();
 
   useEffect(() => {
     function handleBeforeInstall(event: Event) {
@@ -78,7 +84,7 @@ export default function InstallPrompt() {
         ref={confirmationRef}
         tabIndex={-1}
         role="status"
-        className="mb-10 text-sm text-muted focus:outline-none"
+        className="mt-3 max-w-sm text-sm leading-5 text-muted focus:outline-none"
       >
         Okay, we won&rsquo;t suggest this again. You can still add Sheltüh from your browser&rsquo;s menu.
       </p>
@@ -96,7 +102,7 @@ export default function InstallPrompt() {
   }
 
   async function install() {
-    if (!deferred) return;
+    if (!deferred || prompting) return;
     setPrompting(true);
     try {
       await deferred.prompt();
@@ -113,44 +119,47 @@ export default function InstallPrompt() {
   }
 
   return (
-    <div
-      role="group"
-      aria-labelledby={titleId}
-      data-install-prompt={mode}
-      className="mb-10 flex flex-col gap-4 rounded-card border border-foreground/30 p-5 sm:flex-row sm:items-center sm:justify-between sm:gap-8"
-    >
-      <div className="min-w-0 max-w-xl">
-        <p id={titleId} className="text-base font-semibold">
+    <div role="group" aria-labelledby={titleId} data-install-prompt={mode} className="mt-3 max-w-sm">
+      <div className="flex flex-wrap items-center gap-x-4">
+        <p id={titleId} className="text-sm leading-5 text-muted">
           {mode === "prompt" ? "Get Sheltüh on your home screen" : "Add Sheltüh to your Home Screen"}
         </p>
-        {mode === "prompt" ? (
-          <p className="mt-1 text-sm text-muted">It opens full screen, like an app. No app store needed.</p>
-        ) : (
-          <ol className="mt-2 flex list-decimal flex-col gap-1 pl-5 text-sm text-muted">
-            <li>
-              Tap the Share button
-              <ShareIcon />
-              in Safari. If you can&rsquo;t see it, tap the &middot;&middot;&middot; button first.
-            </li>
-            <li>
-              Choose <span className="font-semibold text-foreground">Add to Home Screen</span>.
-            </li>
-            <li>
-              Tap <span className="font-semibold text-foreground">Add</span>.
-            </li>
-          </ol>
-        )}
+        <div className="flex items-center gap-x-4">
+          {mode === "prompt" ? (
+            <button type="button" aria-busy={prompting || undefined} onClick={install} className={actionButtonClass}>
+              Install
+            </button>
+          ) : (
+            <button
+              type="button"
+              aria-expanded={stepsOpen}
+              aria-controls={stepsOpen ? stepsId : undefined}
+              onClick={() => setStepsOpen((open) => !open)}
+              className={actionButtonClass}
+            >
+              Show me how
+            </button>
+          )}
+          <button type="button" onClick={dismiss} className={dismissButtonClass}>
+            No thanks
+          </button>
+        </div>
       </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-3">
-        {mode === "prompt" && (
-          <Button variant="outline" size="lg" busy={prompting} onClick={install}>
-            Install
-          </Button>
-        )}
-        <button type="button" onClick={dismiss} className={dismissButtonClass}>
-          No thanks
-        </button>
-      </div>
+      {mode === "ios" && stepsOpen && (
+        <ol id={stepsId} className="mt-1 flex list-decimal flex-col gap-1 pl-5 text-sm leading-5 text-muted">
+          <li>
+            Tap the Share button
+            <ShareIcon />
+            in Safari. If you can&rsquo;t see it, tap the &middot;&middot;&middot; button first.
+          </li>
+          <li>
+            Choose <span className="font-semibold text-foreground">Add to Home Screen</span>.
+          </li>
+          <li>
+            Tap <span className="font-semibold text-foreground">Add</span>.
+          </li>
+        </ol>
+      )}
     </div>
   );
 }

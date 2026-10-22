@@ -4,7 +4,9 @@ Status: P0 and P1 shipped (e16f18c); P2 and the review fixes implemented · Owne
 
 **P1 decisions (manager, 22 Oct 2026):** the §10.3 behaviour changes are accepted; "Only in the city" moves to the end of `/events`; the free label stays "Get free tickets"; "WHERE IS ÜR SHELTÜH?" is the footer's campaign line. Three fixes from the P0 screenshots are folded in: phone rail cards are smaller (§2.3, §5), a section's mono eyebrow never repeats its h2 and the h2 is one step smaller (§3.2.1, §6.3.3, now P1), and an ended event's buy bar shows no price (§6.5).
 
-**P2 and review fixes (manager list, 22 Oct 2026; final state, this document reflects it):** accessibility findings A1–A11 and visual-QA findings V1–V16 are folded into the sections below; where an item left the choice open, the choice is recorded where it lands. In short: an external card says "Get tickets"; an ended event page has no buy bar at all; the demo closes Who's Going once an event has ended, as live does; refunds show only where a paid purchase is possible; the age restriction shows once; one section head, one back link and one demo label site-wide; the footer is compact with support first. The `row` card variant for the map list is **deferred** (§9).
+**Owner feedback round (22 Oct 2026, after P2; this document reflects it):** search is the hero's main action, with "Explore all events" a text link under it and a one-line demo label (§6.1); the six category buttons move straight under the hero, above This weekend (§6.3.1, §6.3.6); cards get 18px titles, 14px details at every width, 8px between lines, and a foot (price + ticket action) pinned to the bottom so prices and buttons line up across a row (§3.2, §6.2.1); rails don't scroll vertically and are checked as carousels at 320–430 (§4, §8.2); the Find your people copy now matches who can see what (§6.4.4); the event page's facts get more room (§6.5); the footer is shorter and the install offer is a quiet text line (§6.6). The floating dark circle seen on preview deployments is the Vercel Toolbar, not this app; no fixed element of ours overlaps navigation or ticket actions.
+
+**P2 and review fixes (manager list, 22 Oct 2026):** accessibility findings A1–A11 and visual-QA findings V1–V16 are folded into the sections below; where an item left the choice open, the choice is recorded where it lands. In short: an external card says "Get tickets"; an ended event page has no buy bar at all; the demo closes Who's Going once an event has ended, as live does; refunds show only where a paid purchase is possible; the age restriction shows once; one section head, one back link and one demo label site-wide; the footer is compact with support first. The `row` card variant for the map list is **deferred** (§9).
 
 Source of intent: the owner's brief of 22 Oct 2026 (mobile redesign and optimisation). **The brief wins over `home.md`, `mobile-home.md`, `mobile.md` and `brand-direction-one.md` where they conflict**: hero copy, home order, Up next, card anatomy and the section heads change here. Everything else in `brand-direction-one.md` (colour tokens, the orange budget, radii, no shadows, the fonts) still applies. Once this ships, add a line to the top of `home.md` and `mobile-home.md`: "Superseded for the hero, section order and cards by `mobile-redesign.md`."
 
@@ -15,7 +17,7 @@ Source of intent: the owner's brief of 22 Oct 2026 (mobile redesign and optimisa
 ## 1. Principles
 
 1. **Improve, don't rebuild.** Same routes, APIs, auth, Stripe, external ticketing, demo mode, brand tokens and fonts. Every change below is presentational unless it's flagged as a behaviour change (§10.3).
-2. **One message per screen on a phone.** The hero says one thing (find your next thing) and offers one orange action. Everything else is a field (search), a list, or the next section.
+2. **One message per screen on a phone.** The hero says one thing (find your next thing) and offers one main action: the search (since the owner's 22 Oct feedback; it was an orange "Explore events" button). Everything else is a field (search), a list, or the next section.
 3. **One card, the brief's order.** Image, category, date and time, title, venue, price with fees, going, then the action. The same component, spacing and button position everywhere. Only the width changes between variants.
 4. **Real or absent.** Prices are all-inclusive. Going counts, avatars, waitlists and "N left" come only from data that exists. Demo samples stay labelled. Nothing invents urgency.
 5. **Content is never hidden by default.** Nothing on the home waits for a scroll to become visible: that is the cause of the empty cream band (§8.1). Motion is only for feedback (press, hover) and the one photo push-in.
@@ -111,9 +113,9 @@ Sizes are base (320–639) / `sm` 640 / `lg` 1024; leading is in px.
 | See all | `text-sm leading-5 font-semibold underline` | 14/20 | | | 0 | sentence | 600 |
 | Card category | `eyebrow text-muted` | 12/16 | | | 0.04em | upper | 500 |
 | Card date | `meta text-foreground` | 12/16 | | | 0.02em | upper | 400 |
-| Card title, `rail` | `font-sans normal-case text-base leading-[1.375rem] tracking-[-0.01em] font-semibold` | 16/22 | | | -0.01em | sentence | 600 |
-| Card title, `grid` | `… text-sm leading-5 sm:text-base sm:leading-[1.375rem]` | 14/20 | 16/22 | | -0.01em | sentence | 600 |
-| Card venue, price, going | `text-xs leading-4 sm:text-sm sm:leading-5` (`rail`: `text-sm leading-5` at every width) | 12/16 (`rail` 14/20) | 14/20 | | 0 | sentence | 400 (price amount 600) |
+| Card title, `rail` | `font-sans normal-case text-lg leading-6 tracking-[-0.01em] font-semibold` (owner, 22 Oct: was 16/22) | 18/24 | | | -0.01em | sentence | 600 |
+| Card title, `grid` | `… text-base leading-6 sm:text-lg` (16 on the two-column phone grid: at 18px a 134px card fits ≈11 characters a line) | 16/24 | 18/24 | | -0.01em | sentence | 600 |
+| Card venue, price, going | `text-sm leading-5` on both variants at every width (owner, 22 Oct: the phone grid was 12/16) | 14/20 | 14/20 | | 0 | sentence | 400 (price amount 600) |
 | Card CTA | `.btn` md (`grid` on phones: 12/16, `px-2`) | 13/16 | 13/16 | | 0.02em | upper | 600 |
 | Event title (event page) | `display-lg` | 32–40 | 40–56 | 56–72 | -0.035em | upper | 700 |
 | Panel title (Who's going, Tickets) | `font-heading text-xl leading-6` (Panel) | 20/24 | | | -0.025em | upper | 700 |
@@ -157,10 +159,11 @@ This applies site-wide (section h2s, empty-state titles), which is what the brie
 | Section head → content | 12 `mb-3` | 20 `sm:mb-5` | |
 | Rail gap / grid gap | 12 `gap-3` | `sm:gap-x-6 sm:gap-y-8` | |
 | Card media → text | 12 `pt-3` | | |
-| Card text lines | 4 `gap-1` | | |
-| Card text → CTA | 12 `pt-3` (`mt-auto` aligns rows) | | |
+| Card text lines | 8 `gap-2` (owner, 22 Oct: was 4) | | |
+| Card text → foot (price) | ≥ 12 `pt-3`, then `mt-auto` (the foot sits at the card's bottom) | | |
+| Price → CTA | 12 `pt-3` | | |
 | Card container padding | **0** (image-first, no container, everywhere) | | |
-| Footer top / wordmark top | `pt-10` / `mt-10` | `sm:pt-16` / `sm:mt-16` | |
+| Footer top / wordmark top | `pt-8` / `mt-8` (owner, 22 Oct: were 40/40) | `sm:pt-12` / `sm:mt-12` | |
 | Event page side column (aside) | 24 `gap-6` at every width (was `sm:gap-8`; V13) | | |
 
 ### 3.4 Radii, borders, elevation
@@ -177,10 +180,10 @@ Unchanged values. `.ken-burns` (one 4.5s cycle) stays on the desktop hero photo 
 
 - **Container:** `mx-auto max-w-6xl px-5 sm:px-8`. Content width is 280 / 335 / 350 (390) / 390 / 704 / 960 / 1088 at 320 / 375 / 390 / 430 / 768 / 1024 / ≥1152.
 - **Breakpoints:** Tailwind defaults (`sm` 640, `md` 768, `lg` 1024). Mobile-first from 320.
-- **Home rails (<640):** horizontal, bleeding to the screen edges with `-mx-5 px-5 scroll-px-5`, `snap-x snap-mandatory`, `gap-3`, and `py-4 -my-4` so focus rings aren't clipped. The end padding is fixed per §8 item 4.
+- **Home rails (<640):** horizontal, bleeding to the screen edges with `-mx-5 ps-5 scroll-px-5`, `snap-x snap-mandatory` with `snap-start` items (a swipe settles with a card's left edge on the 20px gutter, level with the section head), `gap-3`, and `py-4 -my-4` so focus rings aren't clipped. **`overflow-y-hidden`** (owner, 22 Oct): `overflow-x: auto` makes the rail a vertical scroller too, and a pixel of overhang let a diagonal swipe nudge it up and down. Cells stretch, so every card in a rail is the same height. Keyboard focus brings the whole card into view (`RailItem`, instant under reduced motion). The end padding is fixed per §8 item 4. `e2e/responsive.spec.ts` checks snap type and alignment, the gutter, the peek, equal heights, no vertical slack and no page overflow at 320, 375, 390 and 430.
 - **Home grids (≥640):** the same `ul` becomes `sm:grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4` (4 from 1024 since V10: 3 columns made desktop cards oversized), capped at 6 cards. A short last row stays short and left-aligned, at card size: cards never stretch to fill the row, so 2 cards read as 2 cards, not as empty columns. The loading skeleton shows a fourth placeholder from `lg`.
 - **Results grid** (`RESULTS_GRID`, unchanged): `grid-cols-2 gap-x-3 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4 lg:gap-x-8`. Grid card widths are 134 / 161 / 189 at 320 / 375 / 430, 176 at 640, 216 at 1024 and 248 at 1280.
-- **Category tiles:** `grid grid-cols-3 gap-2 sm:grid-cols-6 sm:gap-3`. Tiles are 88 / 106 / 125px wide at 320 / 375 / 430.
+- **Category tiles:** `grid grid-cols-3 gap-2 sm:grid-cols-6 sm:gap-3`. Tiles are 88 / 106 / 125px wide at 320 / 375 / 430. Kept as tiles by the owner (22 Oct: "clear on mobile"), not chips.
 - **Hero:** one column below `lg`. From `lg`: `lg:grid lg:grid-cols-12 lg:gap-x-8 lg:items-start`, with the text in `lg:col-span-7` and the photo in `lg:col-span-5 lg:col-start-8` (381px wide @1024, 435px @1280).
 - **Event page:** unchanged grid (`lg:grid-cols-12`, main 7, aside 5).
 - **Footer:** §6.6.
@@ -217,7 +220,8 @@ Unchanged values. `.ken-burns` (one 4.5s cycle) stays on the desktop hero photo 
 - Eyebrow: "Melbourne • What’s on" (rendered uppercase by `eyebrow`; U+2022 bullet), preceded by `DotsMark size="xs" className="text-signal"`.
 - h1: "Find your next thing." Written as `<span className="block">Find your</span>{" "}<span className="block">next thing.</span>`. The literal space keeps the accessible name "Find your next thing.". Two lines at every width, and each line may wrap at 200% zoom: **no `whitespace-nowrap`**.
 - Intro: "Discover Melbourne’s music, art, workshops and pop-ups. See who’s going before you book."
-- One CTA: "Explore events" + `ArrowRightIcon` (16px, shown at every width) → `/events`.
+- **Main action: the search** ("Search events", `SearchBar size="lg"`). Owner, 22 Oct: the full-width orange "Explore events" button, the search and the demo label took half a phone's first screen.
+- Then **"Explore all events"** + `ArrowRightIcon` → `/events`, an underlined 14px text link (44px tall) under the search. No orange button in the hero any more.
 
 **Removed from the hero:**
 - The second CTA ("Find your people"), so there is one dominant action. The band keeps `id="find-your-people"`.
@@ -233,16 +237,16 @@ Unchanged values. `.ken-burns` (one 4.5s cycle) stays on the desktop hero photo 
 section[aria-labelledby=home-title].lg:grid.lg:grid-cols-12.lg:items-start.lg:gap-x-8
 ├─ div.lg:col-span-7
 │  ├─ p.eyebrow.flex.items-center.gap-2.text-muted          DotsMark + "Melbourne • What’s on"
-│  ├─ h1#home-title.mt-3.display-lg.font-display.sm:mt-4    "Find your / next thing."
-│  ├─ p.mt-3.max-w-[40ch].text-base.leading-6.sm:mt-4.sm:text-lg.sm:leading-7.lg:max-w-[44ch]
-│  ├─ div.mt-5.flex.flex-col.gap-3.sm:mt-6.sm:flex-row.sm:items-center
-│  │  ├─ ButtonLink variant=signal size=lg href=/events className="w-full sm:w-auto sm:px-6"
-│  │  └─ div.sm:min-w-0.sm:max-w-[26rem].sm:flex-1   SearchBar size=lg submit label="Search events" placeholder="Search events"
-│  └─ (demo) div.mt-3.sm:mt-4  DemoNotice "Not real bookings."
+│  ├─ h1#home-title.mt-2.display-lg.font-display.sm:mt-4    "Find your / next thing."
+│  ├─ p.mt-2.max-w-[40ch].text-base.leading-6.sm:mt-4.sm:text-lg.sm:leading-7.lg:max-w-[44ch]
+│  ├─ div.mt-4.sm:mt-6.sm:max-w-xl   SearchBar size=lg submit label="Search events" placeholder="Search events"
+│  └─ div.mt-1.flex.flex-wrap.items-center.gap-x-6
+│     ├─ Link.inline-flex.min-h-11.items-center.gap-1.text-sm.leading-5.font-semibold.underline  "Explore all events" + ArrowRightIcon
+│     └─ (demo) DemoNotice compact "Not real bookings."   (one line: slimmer badge, 12px note)
 └─ div.hidden.lg:col-span-5.lg:col-start-8.lg:block
    └─ EventArt HOME_HERO, priority="when-shown", motion, className="aspect-[4/3] w-full rounded-card"
 ```
-`Home.tsx` wrapper top padding: `pt-5 sm:pt-8 lg:pt-10` (was `pt-4`).
+`Home.tsx` wrapper top padding: `pt-4 sm:pt-8 lg:pt-10` (owner, 22 Oct: was `pt-5`).
 
 **Per width:**
 
@@ -256,11 +260,11 @@ section[aria-labelledby=home-title].lg:grid.lg:grid-cols-12.lg:items-start.lg:ga
 | 1280 | 7 + 5 cols | 64 | 2 lines | one row | 435×326 | ≈ 340 |
 
 **Acceptance:**
-- At 390×844, the "This weekend" h2 (or the first section's h2) and the top of its first card are above the fold.
+- At 390×844, the category buttons, the "This weekend" h2 (or the first section's h2) and the top of its first card are above the fold (`e2e/responsive.spec.ts`, `e2e/home.spec.ts`).
 - At 1280×800 and 1440×900, the first section's first card starts above the fold.
 - There is no horizontal overflow at 320.
 - The h1 is never more than 2 lines at 100% text size.
-- The 5-second test: eyebrow, h1, one sentence and one orange button are the only things above the search on a phone.
+- The 5-second test: eyebrow, h1 and one sentence are the only things above the search on a phone; nothing orange but the dots.
 
 **States:** the hero is static. The CTA and search use their existing hover, focus-visible, active and disabled states. Search submit keeps `SearchBar`'s behaviour.
 
@@ -279,7 +283,7 @@ div.group/card.relative.flex.min-w-0.flex-col[data-event-card][data-variant]   (
 │     EventArt w-full, aspect per variant (rail: aspect-square sm:aspect-[4/5], fit=auto; grid: aspect-[4/5]),
 │     motion-safe:transition-transform duration-300 ease-out
 │     motion-safe:group-hover/card:scale-[1.03]
-├─ div.flex.min-w-0.flex-col.gap-1.pt-3
+├─ div.flex.min-w-0.flex-col.gap-2.pt-3                                     (8px between lines; owner, 22 Oct)
 │  ├─ 2 p.eyebrow.text-muted.truncate          "Theatre" [+ " · Just announced" | " · Popular"]
 │  ├─ 3 p#date.meta                            <nowrap>Sat 24 Oct</nowrap> <nowrap>· 7:30 pm</nowrap>  | "Now on · until Sun 1 Nov"
 │  │     (the separator sits in the time's span, so a wrapped line never ends on "·": V8)
@@ -288,17 +292,22 @@ div.group/card.relative.flex.min-w-0.flex-col[data-event-card][data-variant]   (
 │  │       .after:absolute.after:inset-0.after:z-0.after:content-['']
 │  │       .focus-visible:outline-none.underline-offset-4.group-hover/card:underline
 │  ├─ 5 p#place.line-clamp-2.break-words.text-muted   "The Depot Theatre · Coburg"  (omitted when empty; two lines so the suburb isn't cut off at 320: A2)
-│  ├─ 6 CardPrice#price                        §6.2.4
-│  └─ 7 div#going.mt-1  GoingStack sm         §6.2.5 (omitted when null; reserves no space)
+│  └─ 6 div#going  GoingStack sm               §6.2.5 (omitted when null)
 ├─   SaveButton variant=overlay, className="absolute right-1 top-1 z-10"     (after the text in the DOM, on the media visually)
-├─ 8 CTA row: div.relative.z-10.mt-auto.flex.pt-3   QuickBuyLink (§6.2.3)      (no row when cardCta is null)
-└─   grid only, showOrganiser: Link.relative.z-10.inline-flex.min-h-11 "By {organiser}" (unchanged)
+└─ div[data-card-foot].mt-auto.flex.flex-col.pt-3                           the foot, pinned to the card's bottom (not z-10: a tap on the price opens the event)
+   ├─ 7 CardPrice#price                        §6.2.4 (grid: min-h-10 below 640, two lines' room)
+   ├─ 8 CTA row: div.relative.z-10.flex.pt-3   QuickBuyLink (§6.2.3)
+   │      no ticket action (cardCta null): div[data-cta-placeholder][aria-hidden].pt-3 > div.min-h-11.sm:min-h-10 (the button's room)
+   └─   grid only, showOrganiser: Link.relative.z-10.inline-flex.min-h-11 "By {organiser}";
+          no profile: the same row as plain text (p.min-h-11 "By {organiser}")
 ```
+
+**Prices and buttons line up across a row (owner, 22 Oct 2026).** Rail and grid cells stretch to the row's tallest card and the card is a flex column, so `mt-auto` on the foot puts every card's price and button at the same height whatever the title's length. The going row moved up into the text block (above the foot), and anything only some cards have keeps its room in the foot (the button's room when there's no ticket action; the organiser row as text without a profile; two lines for the price on the phone grid, where it nearly always wraps), so the foot is the same height on siblings. Limits: a price that wraps on one rail card and not its neighbour (at 320, "From A$36.90 incl. booking fee" on a 198px card) or a grid button whose label wraps ("GET FREE TICKETS" at 134px) moves that card's price up by a line; the button still lines up.
 
 **Whole-card click (the stretched link):**
 - The title's `a` has an `::after` covering the whole card (`absolute inset-0`), so a tap anywhere on the image, text or empty space opens the event.
 - Save, the CTA row and the organiser link are `relative z-10`, so they sit above the stretched area and keep their own targets. Nothing interactive is nested inside the link.
-- **Accessible name:** the link is named by `aria-labelledby` = title, date, place, price, going (in that order, skipping absent parts), so it starts with the title. **The category is not in it (A10):** it's on screen above the title, and repeating it in every card's name slowed scanning a long list.
+- **Accessible name:** the link is named by `aria-labelledby` = title, date, place, price, going (in that order, skipping absent parts), so it starts with the title. Unchanged by the foot (the going row now sits above the price on screen; the name keeps its order). **The category is not in it (A10):** it's on screen above the title, and repeating it in every card's name slowed scanning a long list.
 - Save keeps "Save {title}" with `aria-pressed`. The CTA keeps the sr-only "{label} for {title}".
 - **Tab order:** card link → Save → CTA → By organiser (unchanged).
 - **Focus-visible:** the outline is drawn on the card root (the `has-[]` classes above), so the ring wraps the whole card. The link's own outline is suppressed. Save and the CTA keep their own rings.
@@ -312,13 +321,13 @@ div.group/card.relative.flex.min-w-0.flex-col[data-event-card][data-variant]   (
 | --- | --- | --- |
 | Width | `w-[min(62vw,15rem)]` <640, then `sm:w-full` | `w-full` (cell) |
 | Media | `aspect-square` <640 with `fit="auto"`, then `sm:aspect-[4/5]` | `aspect-[4/5]`, cover |
-| Title | 16/22 | 14/20, `sm:` 16/22 |
-| Venue / price / going | 14/20 | 12/16, `sm:` 14/20 |
+| Title | 18/24 | 16/24, `sm:` 18/24 |
+| Venue / price / going | 14/20 | 14/20 |
 | CTA | `QuickBuyLink` default (self-start, `px-4`, 44px phones / 40px `sm`) | `narrow` (full width below 640, 12/16 label, arrow hidden <640, the label may wrap to 2 lines: never truncated) |
-| Organiser link | never | `showOrganiser` (default true; false on the organiser's own profile) |
+| Organiser row | never | `showOrganiser` (default true; false on the organiser's own profile): a link where there's a profile, plain text otherwise |
 | Save | always | `showSave` (default true) |
 
-**Sizes at 375:** a `rail` card is 232 wide; media 232×232 (square on phones), text ≈ 136 (category 16, date 16, title ≤44, venue 20, price 20, going 24, gaps), CTA row 56. Total ≈ 424. The next card starts at x = 264, so ≈ 111px of it shows. A `grid` card is 161 wide; media 161×201, total ≈ 400 with a two-line date and CTA.
+**Sizes at 375:** a `rail` card is 232 wide; media 232×232 (square on phones), text ≈ 160 (category 16, date 16, title ≤48, venue 20, going 24, 8px gaps), foot ≈ 88 (price 20, CTA row 56, plus 12). Total ≈ 480 (was ≈ 424), still well inside one 667px screen. The next card starts at x = 264, so ≈ 111px of it shows. A `grid` card is 161 wide; media 161×201, total ≈ 400 with a two-line date and CTA.
 
 **Placeholder (`EventCardPlaceholder`, replaces all three):**
 - `div[aria-hidden]` with the variant's width.
@@ -381,13 +390,13 @@ div.group/card.relative.flex.min-w-0.flex-col[data-event-card][data-variant]   (
 
 | # | Section (brief) | From today | Action | Hidden when |
 | --- | --- | --- | --- | --- |
-| 1 | Hero + event search | `HomeHero` (+ `UpNext`, `CategoryRow`) | **Keep, slimmed** (§6.1). Up next **removed**; categories **moved** to #4 | never |
+| 1 | Hero + event search | `HomeHero` (+ `UpNext`, `CategoryRow`) | **Keep, slimmed** (§6.1). Up next **removed**; categories **moved** to #1b | never |
+| 1b | Explore by category | `CategoryRow` | **Owner, 22 Oct: straight under the hero, above This weekend** (was #4, after the event sections), so visitors can narrow down early. `mt-6 sm:mt-8 lg:mt-10` | never (static) |
 | 2 | This weekend | This weekend (`wide`) | **Keep**, `rail` cards | `weekend.status === "hidden"` |
 | 2b | From organisers you follow (signed-in, live) | Following | **Keep**, right after This weekend (personal, conditional; not in the brief's list, but it's the most relevant rail for a member who follows someone) | no followed events left after dedupe |
 | 3 | Popular right now | Trending + Coming up near you | **Merge**: one slot. "Popular right now" when trending has ≥3 events left; otherwise the same slot is titled **"Coming up"** with the soonest not-yet-started events (≥2). Non-trending events are never labelled popular. | neither threshold met |
 | — | Only in the city | `GuideCard` | **Remove from the home** (§6.3.5) | — |
 | — | Free & low-cost | Free & low-cost (`compact`) | **Remove** (P1). It overlaps "Free" in Explore by category and This weekend. | — |
-| 4 | Explore by category | `CategoryRow` (was in the hero) | **Move**: own section with a section head | never (static) |
 | 5 | Find your people | `CommunitySection` | **Keep, new copy** (§6.4.4) | never |
 | 6 | For organisers | `CreatorsCard` | **Keep**, 2:1 image on phones | never |
 | 7 | Footer | `Footer` | **Compact** (§6.6) | — |
@@ -447,7 +456,7 @@ There is no city-guide route, and its only content is a static card pointing at 
 
 #### 6.3.6 Explore by category (`CategoryRow.tsx`)
 
-- `section[aria-labelledby="home-cats"]` with `SectionHead id="home-cats" title="Explore by category"`.
+- `section[aria-labelledby="home-cats"]` with `SectionHead id="home-cats" title="Explore by category"`, **directly after the hero and before the first event section** (owner, 22 Oct 2026; it was after the event sections). The owner kept the six tiles (not a chip row).
 - Links are unchanged (`HOME_CATEGORIES`, six, to `/events?category=…` / `?pricing=free`). It stays a `nav`? No: it becomes a `section` with a `ul`, since a heading plus a list is enough and there's one fewer landmark.
 - **List:** `ul.grid.grid-cols-3.gap-2.sm:grid-cols-6.sm:gap-3` (no rail, no `RailItem`).
 - **Tile:** `Link.flex.min-h-18.flex-col.items-center.justify-center.gap-2.rounded-control.border.border-foreground.bg-card.px-2.py-3.text-center` with `CategoryIcon` (24px) and the label `text-xs leading-4 font-semibold`. Black on white is 21:1.
@@ -535,13 +544,19 @@ Action row (unchanged logic: demo disabled "Add yourself" + DemoNotice; signed-o
 
 - Kept: full-bleed `data-surface="signal"`, `id="find-your-people"`, `tabIndex={-1}`, `aria-labelledby="home-people"`. No orange button inside.
 - **Eyebrow:** `p.eyebrow` "Find your people" above the h2 (the band's name, and the `#find-your-people` target's visible label; it doesn't repeat the h2).
-- **h2:** "See who’s going before you book." (`display-lg font-display`; the hero h1 is the other display use, never in the same viewport).
-- **Body:** "Discover events through the people and creative communities around you." (`text-base leading-6 sm:text-lg sm:leading-7 max-w-md`).
-- **How it works** (explains the value; every step is a real feature):
+- **What's actually visible (read from `lib/server/handlers/going.ts`, `WhosGoingProvider`, `WhosGoing`, `docs/architecture.md` "Who's Going"; owner, 22 Oct 2026):**
+  - **Signed out:** the count only, and only from 3 opted-in people (`countHidden` below that). No names, no faces.
+  - **Signed in, no profile or unverified email:** the same count; the panel says names need a Who's Going profile (or a verified email).
+  - **Signed in, verified email, a profile (free, made on /account with no ticket needed, or on the event page while adding yourself):** the opted-in members' display names, faces (photo or initials), and profile links where the member made theirs visible. So "see who's going before you book" is true for members.
+  - **Ticket booked with that verified email, then opted in:** you appear on the list ("Show me as going"/"Add yourself"), and you can send a message request to others on the same list (and receive them).
+- **h2:** "See who’s going before you book." (kept: true for members with a profile; `display-lg font-display`; the hero h1 is the other display use, never in the same viewport).
+- **Body:** "Anyone can see how many are going, once there are three or more. Make a free profile and you’ll see who." (`text-base leading-6 sm:text-lg sm:leading-7 max-w-md`; was "Discover events through the people and creative communities around you.").
+- **How it works**, in the order access opens up (the old first step, "Get a ticket on Sheltüh.", contradicted the h2):
   - Markup: `ol.mt-5.grid.gap-3.sm:grid-cols-3.sm:gap-6`. Each `li.border-t.border-foreground.pt-3` holds a `span.meta` number ("01", "02", "03") and a `p.text-sm.leading-5.mt-1`:
-  1. "Get a ticket on Sheltüh."
-  2. "Add yourself to the guest list, only if you want to."
-  3. "See who else is going, and say hi before the night."
+  1. "Sign up and make a free profile to see who’s going."
+  2. "Got a ticket? Add yourself to the list, only if you want to."
+  3. "Once you’re on the list, say hi to others going before the night."
+- **The event page's own copy was checked and matches** (signed out: "Sign in to see who’s going"; no profile: "Names are shown to members with a Who’s Going profile"; no ticket: "Get a ticket to add yourself"); no change there.
 - **Avatars:** `GoingStack lg` with the demo initials (demo only; live shows none).
 - **CTA (unchanged logic):** signed-in → "Find an event" (`/events`); otherwise → "Join the community" (`/signup`). `ButtonLink variant="solid" size="lg" className="w-full sm:w-auto"`.
 - **Secondary (A1, signed-out only):** "Browse events" (`/events`), an underlined 44px text link beside the button (`mt-6 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-6`), because buying needs no account.
@@ -622,24 +637,26 @@ Action row (unchanged logic: demo disabled "Add yourself" + DemoNotice; signed-o
 
 **Side column:** `gap-6` (24px) between the When/Where/Organiser list, Who's going and Tickets at every width (V13).
 
-### 6.6 Footer (`components/Footer.tsx`, done in P2)
+**Breathing room (owner, 22 Oct 2026):** the When/Where/Organiser rows are `py-4` (was `py-3`); the phone facts under the title are `gap-2` (was `gap-1`), the venue staying `text-sm leading-5` so the title, date and venue still clear the buy bar at 375×667; Good to know is `gap-5 text-sm leading-6` with `gap-2` between a label and its value (was `gap-4`, `gap-1`).
 
-Every existing link stays, plus "Contact support". It's compact, with clearer hierarchy:
+### 6.6 Footer (`components/Footer.tsx`, done in P2; shortened after the owner's feedback of 22 Oct 2026)
+
+Every existing link stays, plus "Contact support". It's compact, with clearer hierarchy. The orange wordmark is unchanged (the owner: "it works"); the height comes out of the gaps and the install banner:
 
 ```
 footer[data-surface=ink][data-page-end]
-└─ div.mx-auto.max-w-6xl.px-5.pt-10.pb-[calc(1.5rem+env(safe-area-inset-bottom))].sm:px-8.sm:pt-16
-   ├─ InstallPrompt (unchanged, mb-10 when shown)
+└─ div.mx-auto.max-w-6xl.px-5.pt-8.pb-[calc(1.25rem+env(safe-area-inset-bottom))].sm:px-8.sm:pt-12
    ├─ div.lg:grid.lg:grid-cols-12.lg:gap-x-8
    │  ├─ div.lg:col-span-5
    │  │  ├─ p.display-lg.leading-[1.05]  <BrandU spoken="Where is your Sheltüh?">Where is ÜR / Sheltüh?</BrandU>   (cream; a p, not a heading; V1)
-   │  │  └─ p.mt-3.max-w-sm.text-sm.leading-5.text-muted   live: "Curated creative events in Melbourne." / demo: "A local prototype. Sample events only — nothing here is a real booking."
-   │  └─ div.mt-8.grid.grid-cols-2.gap-x-6.gap-y-8.sm:grid-cols-3.lg:col-span-7.lg:mt-0
+   │  │  ├─ p.mt-2.max-w-sm.text-sm.leading-5.text-muted   live: "Curated creative events in Melbourne." / demo: "A local prototype. Sample events only — nothing here is a real booking."
+   │  │  └─ InstallPrompt: a quiet line, mt-3 (below)
+   │  └─ div.mt-6.grid.grid-cols-2.gap-x-6.gap-y-5.sm:grid-cols-3.lg:col-span-7.lg:mt-0   (nav.flex.flex-col, no gap: links are 32px rows)
    │     ├─ nav "Fan support":   Help & FAQs · Request a refund · Contact support (a plain <a href="mailto:SUPPORT_EMAIL">, lib/contact.ts)
    │     ├─ nav "Explore" (was "Resources"; same links): All events · Map · Search · For organisers
    │     └─ nav "Our company":   About Sheltüh · Become a partner
-   ├─ Wordmark.mt-10.block.h-auto.w-full.text-signal.sm:mt-16   (kept, oversized, decorative)
-   └─ div.mt-6.flex.flex-col.gap-2.border-t.border-foreground/20.pt-4.sm:flex-row.sm:items-center.sm:justify-between.sm:gap-4
+   ├─ Wordmark.mt-8.block.h-auto.w-full.text-signal.sm:mt-12   (kept, oversized, decorative)
+   └─ div.mt-5.flex.flex-col.gap-2.border-t.border-foreground/20.pt-4.sm:flex-row.sm:items-center.sm:justify-between.sm:gap-4
       ├─ p.eyebrow.text-muted  "© 2026 Sheltüh"
       └─ nav "Legal": Privacy Policy · Terms of Use · Purchase Terms
             Link.flex.min-h-11.items-center.text-sm.leading-5.text-muted.underline.underline-offset-4.hover:text-foreground.sm:min-h-8
@@ -651,7 +668,8 @@ footer[data-surface=ink][data-page-end]
 - **Order:** "Fan support" comes first, so support and refunds are the first links a phone sees.
 - **Support email:** live used to show "Questions? support@sheltuh.com.au" in the note; it's now the "Contact support" link in Fan support, in demo and live alike (the address is a real alias in both). `/help` and `/refunds` still print it.
 - At 320 the 2-column grid puts "Our company" on row 2. At 375–639 it's the same. 3 columns from `sm`; from `lg` the campaign line and note take 5 columns and the groups 7.
-- **Vertical budget at 375:** ≈ 40 + campaign 2 lines × 34 = 68 + 12 + note 40 + 32 + links ≈ 270 + 40 + wordmark ≈ 80 + legal ≈ 110, for ≈ 690 total, down from ≈ 860.
+- **Vertical budget at 375:** ≈ 32 + campaign 2 lines × 34 = 68 + 8 + note 40 + 24 + links ≈ 250 + 32 + wordmark ≈ 76 + legal ≈ 105, for ≈ 635 total (was ≈ 690 in P2, plus ≈ 150–200 more whenever the install banner showed).
+- **Install offer (`components/pwa/InstallPrompt.tsx`, owner, 22 Oct 2026): a quiet secondary action**, not a banner. `div[role=group][aria-labelledby][data-install-prompt].mt-3.max-w-sm`: a muted `text-sm` line ("Get Sheltüh on your home screen" / iOS "Add Sheltüh to your Home Screen", the group's name) and two 44px underlined text buttons, "Install" (iOS: "Show me how", `aria-expanded`, which opens the three Add to Home Screen steps) and "No thanks" (muted). No border, no filled button. Behaviour unchanged: only where the browser can install it (or iOS Safari), never when installed, never on event, checkout, message, form or dashboard pages, "No thanks" remembered with the focused confirmation in its place.
 - `display-lg` here is Instrument Sans, so `font-display` is still used at most once per view.
 
 ### 6.7 Header (`components/Nav.tsx`, P2 fixes)
@@ -713,7 +731,7 @@ Run at **320, 375, 390, 430, 768, 1024, 1280**, in demo and live (e2e mocks), on
 | 5 | Button overflow | `grid` CTA at 134px: "GET FREE TICKETS" at 12px is ≈122px + 16px padding | The label wraps to 2 lines inside `min-h-11` (`text-center text-balance`), never truncates, never overflows. The hero CTA is full width <640. |
 | 6 | Image cropping | Event photo `max-h-[36svh]` crops portrait posters to a strip | `fit="auto"` (§5). Cards: 4:5 cover. |
 | 7 | Sticky bars | The buy bar sits mid-page in full-page screenshots (sticky artefact, not a bug). At the end of the page it must settle below the Tickets panel and never cover the last focusable control. | Keep the structure. Add the side safe-area padding (§6.5). The e2e check scrolls to the bottom: the bar's top ≥ the Tickets panel's bottom. |
-| 8 | Floating widgets | **None persistent in the code.** RouteProgress is `fixed`, top, `pointer-events-none`; the map sheet is `fixed` bottom with safe-area offsets; `InstallPrompt` is inline in the footer. The Next.js dev indicator (dev only) floats bottom-left in `next dev` screenshots and can overlap the buy bar's price. Ignore it in QA; it isn't in production. | Rule for any future third-party widget (chat, accessibility overlay): `bottom: calc(var(--buybar-h) + env(safe-area-inset-bottom) + 0.75rem)` on pages with `[data-buy-bar]` (`--seatbar-h` on the seat page), never over the header or a CTA. An accessibility overlay is not recommended (WCAG is met in the markup). |
+| 8 | Floating widgets | **None persistent in the code.** The dark floating circle on Vercel preview deployments is the **Vercel Toolbar**, injected by Vercel, not this app (owner, 22 Oct: nothing to do in the app; it isn't on production). RouteProgress is `fixed`, top, `pointer-events-none`; the map sheet is `fixed` bottom with safe-area offsets; `InstallPrompt` is inline in the footer. The Next.js dev indicator (dev only) floats bottom-left in `next dev` screenshots and can overlap the buy bar's price. Ignore it in QA; it isn't in production. | Rule for any future third-party widget (chat, accessibility overlay): `bottom: calc(var(--buybar-h) + env(safe-area-inset-bottom) + 0.75rem)` on pages with `[data-buy-bar]` (`--seatbar-h` on the seat page), never over the header or a CTA. An accessibility overlay is not recommended (WCAG is met in the markup). |
 | 9 | Safe areas | Header `pt-[env(safe-area-inset-top)]` ✓; buy bar bottom ✓ (sides added); footer bottom ✓; body sides ✓; map sheet ✓ | Test in iOS Safari landscape (notch) and as an installed PWA (`viewport-fit=cover`). |
 | 10 | Footer alignment | Columns uneven at 320 (2 + 1) | §6.6: groups left-aligned to the gutter, a 2-col grid, the wordmark full width, legal links wrapping with `gap-x-6`. |
 | 11 | Focus not obscured (WCAG 2.4.11) | Rails clip rings; the buy bar covers focus | Rails keep `py-4 -my-4`; card ring on the root with `outline-offset-4` stays inside the rail's 16px padding. `scroll-padding-bottom` (existing) for the buy bar. |
@@ -760,6 +778,19 @@ Gates per batch: `npx next typegen`, `npx tsc --noEmit`, `npm run lint`, `npm te
 | Map row | `SceneEventRow` → `EventCard variant="row"` | **Deferred.** It would move the map list onto the stretched-link card (its title link, Locate button and selection state change), with `tests/SceneMap*.test.tsx` and the discovery e2e to rework: not low-risk in a fix batch. The row now uses the shared `placeLabel` (no dangling "·") and the card's date separator. |
 | Reveal elsewhere | owner choice (open question 4) | Not changed |
 | Docs | header lines in `home.md` and `mobile-home.md`; `docs/design-system.md` components | Done |
+
+### Owner feedback round (22 Oct 2026, after P2)
+
+| Area | Files |
+| --- | --- |
+| Hero: search first, text link, compact demo label | `components/home/HomeHero.tsx`, `components/DemoNotice.tsx` (`compact`), `components/home/Home.tsx` |
+| Categories under the hero | `components/home/Home.tsx`, `CategoryRow.tsx` (doc only; the tiles are unchanged) |
+| Cards: type, room, aligned feet | `components/ui/EventCard.tsx` |
+| Carousels | `components/home/HomeRail.tsx` (`overflow-y-hidden`) |
+| Event page room | `components/EventDetailsView.tsx` |
+| Social copy | `components/home/CommunitySection.tsx` |
+| Footer, install offer | `components/Footer.tsx`, `components/pwa/InstallPrompt.tsx` |
+| Tests | `tests/EventCard.test.tsx` (foot, placeholders, sizes), `tests/HomeStatic.test.tsx` (hero action, demo label, social copy), `tests/Home.test.tsx` (order, categories before This weekend, no orange outside cards), `tests/InstallPrompt.test.tsx` (text buttons, iOS "Show me how"), `tests/brand-components.test.tsx` (compact footer, install line placement); `e2e/home.spec.ts` (order, band copy), `e2e/responsive.spec.ts` (hero action, rails at 320–430, first screen at 390×844) |
 
 Hand-offs: `ux-accessibility-reviewer` after P0 and P1 (the card's stretched link and the Who's Going disclosure), then `visual-qa` at every width in §8 after each batch.
 

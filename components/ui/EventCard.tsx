@@ -6,7 +6,7 @@ import QuickBuyLink from "@/components/QuickBuyLink";
 import CardPrice from "@/components/ui/CardPrice";
 import GoingStack from "@/components/ui/GoingStack";
 import { isApiConfigured } from "@/lib/api/client";
-import { cardDateLabel, cardGoing, categoryLabel, placeLabel, signalLabel } from "@/lib/event-card";
+import { cardCta, cardDateLabel, cardGoing, categoryLabel, placeLabel, signalLabel } from "@/lib/event-card";
 import type { TrendingSignal } from "@/lib/home-sections";
 import { organiserProfileHref } from "@/lib/sample-organisers";
 import type { SheltuhEvent } from "@/lib/types";
@@ -18,14 +18,25 @@ const WIDTH: Record<EventCardVariant, string> = {
   rail: "w-[min(62vw,15rem)] shrink-0 sm:w-full",
   grid: "w-full",
 };
+/**
+ * 18/24 titles. The two-column phone grid (cards 134–189px wide) is 16/24 until
+ * 640px: at 18px a 134px card fits about eleven characters a line, so most
+ * titles would be cut at two lines.
+ */
 const TITLE: Record<EventCardVariant, string> = {
-  rail: "text-base leading-[1.375rem]",
-  grid: "text-sm leading-5 sm:text-base sm:leading-[1.375rem]",
+  rail: "text-lg leading-6",
+  grid: "text-base leading-6 sm:text-lg",
 };
-/** Venue, price and going. */
-const SMALL: Record<EventCardVariant, string> = {
-  rail: "text-sm leading-5",
-  grid: "text-xs leading-4 sm:text-sm sm:leading-5",
+/** Venue, price and going: 14/20 on every card, at every width. */
+const SMALL = "text-sm leading-5";
+/**
+ * The price line's box. The phone grid's price nearly always wraps to two
+ * lines ("From A$36.90 incl. / booking fee" at 134px), so there it keeps two
+ * lines' room whatever it says, and "Sold out" lines up with its neighbours.
+ */
+const PRICE_BOX: Record<EventCardVariant, string> = {
+  rail: "",
+  grid: "min-h-10 sm:min-h-0",
 };
 /**
  * The media box. A phone rail card is square, so the photo and the text fit
@@ -41,9 +52,9 @@ const MEDIA: Record<EventCardVariant, string> = {
 /**
  * The one event card (docs/design/mobile-redesign.md §6.2), image first with
  * no container: the 4:5 photo or poster (only the Save heart on it), then
- * the category, date and time, title, venue · suburb, the all-inclusive
- * price, who's going (real or demo-sample, else nothing), then the ticket
- * action. `rail` is the home's sideways rails (a fixed width on phones, the
+ * the category, date and time, title, venue · suburb and who's going (real
+ * or demo-sample, else nothing); then, pinned to the card's foot, the
+ * all-inclusive price and the ticket action. `rail` is the home's sideways rails (a fixed width on phones, the
  * grid cell from 640px); `grid` is the results grids (/events, /search,
  * /saved, profiles).
  *
@@ -54,6 +65,14 @@ const MEDIA: Record<EventCardVariant, string> = {
  * (the category line is seen, not repeated in every link's name). Tab order: the card's link, Save, the ticket action, then "By
  * {organiser}". Keyboard focus rings the whole card (the link's own ring is
  * suppressed in globals.css, only where `:has()` works).
+ *
+ * Sibling cards line up: a rail's or grid's cells stretch to the row's
+ * height, the card is a flex column, and its foot (price, ticket action, "By
+ * {organiser}") is pushed to the bottom with `mt-auto`, so the prices and
+ * buttons share a line whatever the titles' lengths. Rows that only some
+ * cards have keep their room in the foot (no ticket action yet: an empty
+ * button-high row; a grid organiser without a profile: the name as text), so
+ * nothing in the foot moves up on one card and not its neighbours.
  *
  * `signal` (Popular right now) adds one qualifier to the category line. `mode` decides the going row (default: the app's mode).
  */
@@ -84,7 +103,9 @@ export default function EventCard({
   const date = cardDateLabel(event, now);
   const place = placeLabel(event);
   const going = cardGoing(event, mode, signal);
-  const organiserHref = variant === "grid" && showOrganiser ? organiserProfileHref(event) : null;
+  const showOrganiserRow = variant === "grid" && showOrganiser;
+  const organiserHref = showOrganiserRow ? organiserProfileHref(event) : null;
+  const hasCta = cardCta(event, now) !== null;
 
   const id = useId();
   const ids = {
@@ -113,10 +134,9 @@ export default function EventCard({
           className={`${MEDIA[variant]} w-full motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out motion-safe:group-hover/card:scale-[1.03]`}
         />
       </div>
-      <div className="flex min-w-0 flex-col gap-1 pt-3">
-        <p className="eyebrow truncate text-muted">
-          {category}
-        </p>
+      {/* 8px between the lines (category, date, title, place, going): room to read each one. */}
+      <div className="flex min-w-0 flex-col gap-2 pt-3">
+        <p className="eyebrow truncate text-muted">{category}</p>
         <p id={ids.date} className="meta">
           {"running" in date ? (
             date.running
@@ -145,14 +165,13 @@ export default function EventCard({
         </h3>
         {place && (
           // Two lines at most, so a narrow card shows the suburb rather than cutting it off.
-          <p id={ids.place} className={`line-clamp-2 break-words text-muted ${SMALL[variant]}`}>
+          <p id={ids.place} className={`line-clamp-2 break-words text-muted ${SMALL}`}>
             {place}
           </p>
         )}
-        <CardPrice id={ids.price} event={event} now={now} className={SMALL[variant]} />
         {going && (
-          <div id={ids.going} className="mt-1">
-            <GoingStack count={going.count} initials={going.initials} textClassName={SMALL[variant]} />
+          <div id={ids.going}>
+            <GoingStack count={going.count} initials={going.initials} textClassName={SMALL} />
           </div>
         )}
       </div>
@@ -164,17 +183,38 @@ export default function EventCard({
           className="absolute top-1 right-1 z-10"
         />
       )}
-      {/* mt-auto lines the buttons up along a grid row; pt-3 keeps them clear of the text. */}
-      <QuickBuyLink event={event} now={now} narrow={variant === "grid"} className="relative z-10 mt-auto pt-3" />
-      {organiserHref && (
-        <Link
-          href={organiserHref}
-          className="relative z-10 inline-flex min-h-11 max-w-full items-center self-start text-sm text-muted underline underline-offset-4 hover:text-foreground"
-        >
-          {/* A long name wraps to a second line, then is cut short. */}
-          <span className="line-clamp-2 min-w-0 break-words">By {event.organiserName}</span>
-        </Link>
-      )}
+      {/* The foot: mt-auto pins it to the bottom of an equal-height card, so the price and the
+          button line up across a rail or grid row. Not z-10 itself: a tap on the price still
+          opens the event; only the button and the organiser link sit above the card's link. */}
+      <div data-card-foot="" className="mt-auto flex flex-col pt-3">
+        <CardPrice id={ids.price} event={event} now={now} className={`${SMALL} ${PRICE_BOX[variant]}`.trim()} />
+        {hasCta ? (
+          <QuickBuyLink event={event} now={now} narrow={variant === "grid"} className="relative z-10 pt-3" />
+        ) : (
+          // No ticket action (none on sale yet, or ended): the button's room stays, so this
+          // card's price sits level with its neighbours'.
+          <div aria-hidden="true" data-cta-placeholder="" className="pt-3">
+            <div className="min-h-11 sm:min-h-10" />
+          </div>
+        )}
+        {organiserHref ? (
+          <Link
+            href={organiserHref}
+            className="relative z-10 inline-flex min-h-11 max-w-full items-center self-start text-sm text-muted underline underline-offset-4 hover:text-foreground"
+          >
+            {/* A long name wraps to a second line, then is cut short. */}
+            <span className="line-clamp-2 min-w-0 break-words">By {event.organiserName}</span>
+          </Link>
+        ) : (
+          showOrganiserRow &&
+          event.organiserName && (
+            // No profile to link to: the name as plain text, in the same row, so the cards' feet match.
+            <p className="flex min-h-11 max-w-full items-center text-sm text-muted">
+              <span className="line-clamp-2 min-w-0 break-words">By {event.organiserName}</span>
+            </p>
+          )
+        )}
+      </div>
     </div>
   );
 }

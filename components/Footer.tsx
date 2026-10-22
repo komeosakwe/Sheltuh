@@ -55,13 +55,16 @@ const linkClass = "self-start py-1 text-[0.9375rem] leading-6 underline-offset-4
  * The wordmark is decorative; the © line carries the name.
  * `data-page-end`: the page's last block, which gains bottom room while the
  * map's phone sheet is open (globals.css), so nothing ends up under it.
+ *
+ * Kept short: tight gaps between the link groups and around the wordmark
+ * (the wordmark itself is unchanged, full width), and the "add to home
+ * screen" offer is a one-line text action under the note, not a banner.
  */
 export default function Footer() {
   return (
     <footer data-surface="ink" data-page-end="">
       {/* The bottom padding clears the home indicator in an installed iPhone app; it's 0 elsewhere. */}
-      <div className="mx-auto max-w-6xl px-5 pt-10 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:px-8 sm:pt-16">
-        <InstallPrompt />
+      <div className="mx-auto max-w-6xl px-5 pt-8 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:px-8 sm:pt-12">
         <div className="lg:grid lg:grid-cols-12 lg:gap-x-8">
           <div className="lg:col-span-5">
             {/* Leading opened up from display-lg's 0.95 so the second line's Ü dots clear the first line. */}
@@ -70,15 +73,17 @@ export default function Footer() {
                 <span className="block">Where is ÜR</span> <span className="block">Sheltüh?</span>
               </BrandU>
             </p>
-            <p className="mt-3 max-w-sm text-sm leading-5 text-muted">
+            <p className="mt-2 max-w-sm text-sm leading-5 text-muted">
               {isApiConfigured
                 ? "Curated creative events in Melbourne."
                 : "A local prototype. Sample events only — nothing here is a real booking."}
             </p>
+            {/* A quiet secondary action under the note, only where the browser can install the app. */}
+            <InstallPrompt />
           </div>
-          <div className="mt-8 grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 lg:col-span-7 lg:mt-0">
+          <div className="mt-6 grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-3 lg:col-span-7 lg:mt-0">
             {COLUMNS.map((column) => (
-              <nav key={column.heading} aria-label={column.heading} className="flex flex-col gap-1">
+              <nav key={column.heading} aria-label={column.heading} className="flex flex-col">
                 <p className="eyebrow pb-1 text-muted">{column.heading}</p>
                 {column.links.map((link) =>
                   link.href.startsWith("mailto:") ? (
@@ -96,9 +101,9 @@ export default function Footer() {
           </div>
         </div>
 
-        <Wordmark className="mt-10 block h-auto w-full text-signal sm:mt-16" />
+        <Wordmark className="mt-8 block h-auto w-full text-signal sm:mt-12" />
 
-        <div className="mt-6 flex flex-col gap-2 border-t border-foreground/20 pt-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="mt-5 flex flex-col gap-2 border-t border-foreground/20 pt-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <p className="eyebrow text-muted">© {new Date().getFullYear()} Sheltüh</p>
           <nav aria-label="Legal" className="flex flex-wrap gap-x-6">
             {LEGAL_LINKS.map((link) => (

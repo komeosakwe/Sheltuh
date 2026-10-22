@@ -106,7 +106,7 @@ const cardRoot = (container: HTMLElement) => container.querySelector<HTMLElement
 
 describe("EventCard anatomy (§6.2.1)", () => {
   it.each(["rail", "grid"] as const)(
-    "%s: image first, then category, date and time, title, venue, the all-inclusive price and going",
+    "%s: image first, then category, date and time, title, venue and going; the all-inclusive price in the foot",
     (variant) => {
       const { container } = render(<EventCard event={event} variant={variant} mode="demo" />);
       const root = cardRoot(container);
@@ -120,18 +120,22 @@ describe("EventCard anatomy (§6.2.1)", () => {
       if (variant === "rail") expect(media.firstElementChild).toHaveClass("aspect-square", "sm:aspect-[4/5]");
       else expect(media.firstElementChild).toHaveClass("aspect-[4/5]");
       const text = media.nextElementSibling as HTMLElement;
+      // 8px between the lines (the owner's "breathing room", 22 Oct 2026).
+      expect(text).toHaveClass("gap-2");
       const lines = Array.from(text.children).map((el) => el.textContent);
-      expect(lines.slice(0, 5)).toEqual([
+      expect(lines.slice(0, 4)).toEqual([
         "Live music",
         "Sun 18 Oct · 7:00 pm",
         "Glasshouse Sessions",
         "The Conservatory · Carlton",
-        "From A$36.90 incl. booking fee",
       ]);
-      // The going row last (its avatars' initials, then the count).
-      expect(lines).toHaveLength(6);
-      expect(lines[5]).toMatch(new RegExp(`${getSampleGoing(event.id).count} going$`));
+      // The going row last in the text (its avatars' initials, then the count).
+      expect(lines).toHaveLength(5);
+      expect(lines[4]).toMatch(new RegExp(`${getSampleGoing(event.id).count} going$`));
       expect(within(text).getByRole("heading", { level: 3 })).toHaveTextContent("Glasshouse Sessions");
+      // The price leads the card's foot, above the ticket action.
+      const foot = root.querySelector("[data-card-foot]") as HTMLElement;
+      expect(foot.firstElementChild).toHaveTextContent("From A$36.90 incl. booking fee");
       // No description on cards.
       expect(root).not.toHaveTextContent("Acoustic sets");
     },
@@ -210,7 +214,7 @@ describe("EventCard: the whole card is one link, with Save and the ticket action
     const organiser = screen.getByRole("link", { name: "By Northside Noise" });
     for (const control of [save, buy, organiser]) expect(link.contains(control)).toBe(false);
     expect(save).toHaveClass("absolute", "top-1", "right-1", "z-10");
-    expect(buy.parentElement).toHaveClass("relative", "z-10", "mt-auto", "pt-3");
+    expect(buy.parentElement).toHaveClass("relative", "z-10", "pt-3");
     expect(organiser).toHaveClass("relative", "z-10", "min-h-11");
     // Nothing interactive inside the link.
     expect(link.querySelector("a, button")).toBeNull();
@@ -243,20 +247,74 @@ describe("EventCard: the whole card is one link, with Save and the ticket action
   });
 });
 
+describe("EventCard: prices and buttons line up across sibling cards (owner feedback, 22 Oct 2026)", () => {
+  const foot = (container: HTMLElement) => container.querySelector<HTMLElement>("[data-card-foot]") as HTMLElement;
+
+  it.each(["rail", "grid"] as const)(
+    "%s: a flex column whose foot (price, then the ticket action) is pushed to the bottom with mt-auto",
+    (variant) => {
+      const { container } = render(<EventCard event={event} variant={variant} mode="live" />);
+      const root = cardRoot(container);
+      expect(root).toHaveClass("flex", "flex-col");
+      // The foot is the card's last flow child after the text (Save is absolutely placed).
+      expect(foot(container)).toHaveClass("mt-auto", "flex", "flex-col");
+      expect(root.lastElementChild).toBe(foot(container));
+      const [price, cta] = Array.from(foot(container).children);
+      expect(price).toHaveTextContent("From A$36.90 incl. booking fee");
+      expect(within(cta as HTMLElement).getByRole("link", { name: "Buy tickets for Glasshouse Sessions" })).toBeInTheDocument();
+      // The foot isn't raised above the card's link: a tap on the price still opens the event.
+      expect(foot(container)).not.toHaveClass("z-10");
+    },
+  );
+
+  it("keeps the button's room when there's no ticket action, so this card's price stays level with its neighbours'", () => {
+    const { container } = render(<EventCard event={{ ...event, ticketTypes: [] }} variant="rail" mode="live" />);
+    expect(screen.queryByRole("link", { name: /for Glasshouse Sessions$/ })).toBeNull();
+    const placeholder = foot(container).querySelector("[data-cta-placeholder]");
+    expect(placeholder).toHaveAttribute("aria-hidden", "true");
+    expect(placeholder?.firstElementChild).toHaveClass("min-h-11", "sm:min-h-10");
+  });
+
+  it("grid: keeps two lines' room for the price on phones (it nearly always wraps there), so 'Sold out' lines up too", () => {
+    render(<EventCard event={soldOut} variant="grid" mode="live" />);
+    expect(screen.getByText("Sold out")).toHaveClass("min-h-10", "sm:min-h-0");
+  });
+
+  it("grid: an organiser without a profile still fills the organiser row, as plain text, so the feet match", () => {
+    const { container } = render(
+      <EventCard event={{ ...sampleEvents[0], organiserName: "Nobody In The Samples" }} variant="grid" mode="live" />,
+    );
+    expect(screen.queryByRole("link", { name: /^By / })).toBeNull();
+    const row = screen.getByText("By Nobody In The Samples").parentElement;
+    expect(row).toHaveClass("min-h-11");
+    expect(foot(container).contains(row)).toBe(true);
+  });
+
+  it("puts nothing interactive between the stretched link and the foot, and keeps the link's name", () => {
+    render(<EventCard event={event} variant="rail" mode="live" />);
+    expect(cardLink(event)).toHaveAccessibleName("Glasshouse Sessions Sun 18 Oct · 7:00 pm The Conservatory · Carlton From A$36.90 incl. booking fee");
+  });
+});
+
 describe("EventCard variants", () => {
-  it("rail: a fixed width on phones, its grid cell from 640px; 16px title; the CTA sized to its label; no organiser link", () => {
+  it("rail: a fixed width on phones, its grid cell from 640px; 18px title, 14px details; the CTA sized to its label; no organiser link", () => {
     const { container } = render(<EventCard event={event} variant="rail" mode="live" />);
     expect(cardRoot(container)).toHaveClass("w-[min(62vw,15rem)]", "shrink-0", "sm:w-full");
-    expect(screen.getByRole("heading", { level: 3 })).toHaveClass("text-base", "line-clamp-2", "break-words");
+    expect(screen.getByRole("heading", { level: 3 })).toHaveClass("text-lg", "leading-6", "line-clamp-2", "break-words");
+    expect(screen.getByText("The Conservatory · Carlton")).toHaveClass("text-sm", "leading-5");
+    expect(screen.getByText("From A$36.90").parentElement).toHaveClass("text-sm", "leading-5");
     const buy = screen.getByRole("link", { name: "Buy tickets for Glasshouse Sessions" });
     expect(buy).toHaveClass("self-start", "px-4", "min-h-11", "sm:min-h-10");
     expect(screen.queryByRole("link", { name: /^By / })).toBeNull();
   });
 
-  it("grid: fills its cell; a full-width CTA on phones whose label wraps rather than overflows", () => {
+  it("grid: fills its cell; 16px titles on the phone grid, 18px from 640px, 14px details; a full-width CTA on phones whose label wraps rather than overflows", () => {
     const { container } = render(<EventCard event={event} variant="grid" mode="live" />);
     expect(cardRoot(container)).toHaveClass("w-full");
-    expect(screen.getByRole("heading", { level: 3 })).toHaveClass("text-sm", "sm:text-base");
+    expect(screen.getByRole("heading", { level: 3 })).toHaveClass("text-base", "leading-6", "sm:text-lg");
+    // 14px at every width (it was 12px on the phone grid).
+    expect(screen.getByText("The Conservatory · Carlton")).toHaveClass("text-sm");
+    expect(screen.getByText("The Conservatory · Carlton").className).not.toMatch(/text-xs/);
     const buy = screen.getByRole("link", { name: "Buy tickets for Glasshouse Sessions" });
     expect(buy).toHaveClass("w-full", "sm:w-auto", "px-2", "text-xs", "text-balance");
     expect(buy.className).not.toMatch(/truncate|whitespace-nowrap/);
