@@ -468,8 +468,8 @@ export interface LeaveWaitlistResult {
  * GET /api/orders/by-session/{orderId}: what the buyer's confirmation page
  * needs, and nothing more. The order id in the URL is the only credential, so
  * this never carries the order, event or organiser ids, the fee split, Stripe
- * ids, line items, timestamps or the full email address. A pending order is
- * `{ status: "pending" }` only.
+ * ids, line items, the order's own timestamps, the venue's street address or
+ * the full email address. A pending order is `{ status: "pending" }` only.
  */
 export interface CustomerOrder {
   status: Exclude<OrderStatus, "pending">;
@@ -489,14 +489,49 @@ export interface CustomerOrder {
   eventTitle: string;
   /** The event's current slug, for linking back to /events/{eventSlug}. Unset if the event is gone. */
   eventSlug?: string;
+  /**
+   * Only for a `paid` order: whether the event is still published. `false`
+   * when it's been unpublished, sent back to draft or review, rejected or
+   * removed: its date and venue are then left out, and the tickets say it's
+   * no longer listed. Unset for any other status (and from an older API,
+   * where a missing value means listed).
+   */
+  eventListed?: boolean;
+  /**
+   * The event's current start and end (ISO instants), venue name and suburb,
+   * as shown on its public page, for the tickets. Only for a `paid` order
+   * whose event is published (`eventListed`); unset otherwise (and from an
+   * older API).
+   */
+  eventStartsAt?: string;
+  eventEndsAt?: string;
+  venueName?: string;
+  suburb?: string;
   /** The buyer's address, masked: "m***@example.com". Unset if none is on record. */
   maskedEmail?: string;
   subtotalCents: number;
   /** Booking fees the buyer paid (not any the organiser absorbed). */
   buyerFeeCents: number;
   totalCents: number;
-  /** Only for a `paid` order; empty for every other status (a refunded order's tickets are void). */
-  tickets: { ticketCode: string; ticketTypeName: string; seat?: TicketSeat }[];
+  /**
+   * Only for a `paid` order; empty for every other status (a refunded order's
+   * tickets are void). In the ticket email's order (ticket type, then code).
+   */
+  tickets: CustomerTicket[];
+}
+
+export interface CustomerTicket {
+  /** The ticket's code (`7KQM-2HXD`): its QR carries `SH1:` plus this, and the door can type it in. */
+  ticketCode: string;
+  ticketTypeName: string;
+  /** Its seat, for a reserved-seating event; unset for general admission. */
+  seat?: TicketSeat;
+  /**
+   * When the ticket was checked in at the door (ISO instant), or null if it
+   * hasn't been (or its check-in was undone). Optional only for responses
+   * from an older API, which didn't send it: treat a missing one as null.
+   */
+  checkedInAt?: string | null;
 }
 
 export type CustomerOrderLookup = CustomerOrder | { status: "pending" };

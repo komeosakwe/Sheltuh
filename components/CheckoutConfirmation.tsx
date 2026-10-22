@@ -9,7 +9,7 @@ import { LoadingState } from "@/components/ui/ProgressLoader";
 import Strap from "@/components/ui/Strap";
 import { ApiError } from "@/lib/api/client";
 import { getOrderBySession } from "@/lib/api/orders";
-import { formatAud } from "@/lib/format";
+import { formatAud, formatEventDateTimeRange } from "@/lib/format";
 import { compareSeats } from "@/lib/seating/format";
 import { forgetPendingCheckout } from "@/lib/seating/pending-checkout";
 import type { CustomerOrder } from "@/lib/api/types";
@@ -151,7 +151,16 @@ export default function CheckoutConfirmation() {
   }
 
   const { order } = state;
-  const eventPath = order.eventSlug ? `/events/${encodeURIComponent(order.eventSlug)}` : null;
+  // An event that's no longer published: no date or venue (the API leaves them out too), and no links to
+  // its page, which would be a 404. Unset (an older API) counts as listed.
+  const unlisted = order.eventListed === false;
+  const eventPath = order.eventSlug && !unlisted ? `/events/${encodeURIComponent(order.eventSlug)}` : null;
+  // Each ticket repeats the event, so a screenshot of one says what it's for. Unset from an older API.
+  const when =
+    order.eventStartsAt && !unlisted ? formatEventDateTimeRange(order.eventStartsAt, order.eventEndsAt) : undefined;
+  const where = unlisted
+    ? undefined
+    : [order.venueName, order.suburb].filter((part) => !!part?.trim()).join(", ") || undefined;
   return (
     <div className="flex flex-col gap-8 py-10 sm:py-14">
       <div className="flex flex-col gap-3">
@@ -179,6 +188,11 @@ export default function CheckoutConfirmation() {
               ticketNumber={number}
               ticketCount={order.tickets.length}
               seat={ticket.seat}
+              eventTitle={order.eventTitle}
+              when={when}
+              where={where}
+              eventUnlisted={unlisted}
+              checkedInAt={ticket.checkedInAt}
             />
           ))}
         </ul>

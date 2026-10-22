@@ -243,15 +243,34 @@ times, which are converted to instants honouring daylight saving
    - Errors are stored and logged with addresses redacted, and logs name an
      order by its short reference (`#7C1F2E0A`), never its id.
    - The email (`lib/server/ticket-email.ts`) is rebuilt from the order on
-     every attempt, images included, so the outbox stores no content. Each
+     every attempt, images included, so the outbox stores no content. It's
+     on the shared layout (below): the official uppercase wordmark above the
+     card, "You're in.", the event's date, time, venue and address, a card
+     per ticket (number and type, seat for reserved seating, QR, backup
+     code), a "View your ticket(s)" button (black on Signal Orange) to
+     `/checkout/success` for the order (the same link as ever), the order
+     reference and total, support, and a decorative brand banner. For an
+     event that's no longer published (unpublished, back in draft or review,
+     rejected) the date, time, venue and address are replaced by "This event
+     is no longer listed. Contact support@…" (the ticket page's rule, and
+     the public routes' `status = 'published'`); the tickets still go out,
+     and a resend follows the event's status at the time. The wordmark is a
+     PNG (black on cream, 212×48 shown at 106×24, brand-direction-one.md §11
+     #6, about 4 KB) rendered from `public/brand/sheltuh-wordmark.svg`
+     (`scripts/render-email-wordmark.ts`: `public/brand/sheltuh-wordmark-email.png`,
+     embedded as base64 in `lib/server/email-wordmark.ts`) and attached
+     inline (`cid:`) like the QR codes, so it shows where Outlook blocks
+     remote images; alt text "SHELTÜH". The banner
+     (`EMAIL_FOOTER_IMAGE_URL`, `public/images/email-footer.png`) is the only
+     remote image: the same for everyone, no order data. Each
      ticket whose code matches `TICKET_CODE_PATTERN` gets a QR code
      (`SH1:` + code, level Q, version 1: `lib/ticket-qr.ts` over the vendored
      encoder `lib/qr/qrcodegen.ts`) as a 1-bit PNG (`lib/server/png.ts`, about
      300 bytes, 348 px shown at 174 px) attached inline (`cid:`, a
      multipart/related part, `EmailMessage.inlineImages`, named
      `ticket-<n>-qr.png`, never after the code), so it shows even where
-     remote images are blocked. Alt text names the ticket, the code is
-     printed beneath it, and the plain-text part lists every code and tells
+     remote images are blocked. Alt text names the ticket and points at the
+     backup code printed beneath it, and the plain-text part lists every code and tells
      text-only readers to show the entry code (the QR is in the full email). A code
      that doesn't match the pattern gets no QR. Emails sent before QR codes
      (and the plain-text part) rely on the door typing in the code, which
@@ -263,7 +282,9 @@ times, which are converted to instants honouring daylight saving
      email (tickets, free-ticket confirmation, waitlist, follower) is built
      on one layout, `lib/server/email-layout.ts` (Brand Direction One:
      cream page, white card, black text, Signal Orange only on the one
-     button, with black text on it), so they can't drift apart;
+     button, with black text on it; the button keeps its size in Outlook
+     for Windows via `mso-padding-alt`, and the preheader is hidden there
+     with `mso-hide:all`), so they can't drift apart;
      `tests/server/email-brand.test.ts` holds every builder to it.
    Free orders require the buyer's email address at checkout; for paid
    orders, Stripe collects it. The same outbox carries waitlist emails
@@ -272,12 +293,19 @@ times, which are converted to instants honouring daylight saving
    `GET /api/orders/by-session/<id>`. The unguessable order id is the
    credential, so the response is only what that page shows: status, short
    reference, event title and slug, a masked email (`m***@example.com`),
-   subtotal, buyer fee, total, ticket codes with type names (only while the
-   order is `paid`), and, for a refunded or refund-pending order,
-   `refundReason`: `oversold` (no tickets were ever issued) or `refunded`
-   (paid, then refunded in full; its tickets are void). Never the
-   order, event or organiser ids, fee split, Stripe ids, line items or
-   timestamps. Every response is `private, no-store`, an id that isn't shaped
+   subtotal, buyer fee, total; only while the order is `paid`, `eventListed`
+   (whether the event is still published) and, only while it is, the
+   event's current start and end, venue name and suburb (public event
+   details; never the street address), and the ticket codes with type
+   names, seat (reserved seating) and each ticket's `checkedInAt` (when it
+   was admitted at the door, or null), so each ticket on the page shows the
+   event (or, once it's unlisted, "This event is no longer listed" with the
+   support address and no link to its page), its QR and backup code, and
+   "Ready to scan" or "Checked in 8:42 pm"; and, for a refunded or
+   refund-pending order, `refundReason`: `oversold` (no tickets were ever
+   issued) or `refunded` (paid, then refunded in full; its tickets are void).
+   Never the order, event or organiser ids, fee split, Stripe ids, line
+   items or the order's own timestamps. Every response is `private, no-store`, an id that isn't shaped
    like one (`ord_` + 32 hex) is a 404 without a query, and a pending order
    reveals only its status. `/checkout/*` pages send `Referrer-Policy:
    no-referrer` and `X-Robots-Tag: noindex, nofollow` (`next.config.ts`).
@@ -1159,7 +1187,10 @@ scanner at `/dashboard/[eventId]/check-in` (`components/check-in/*`,
   check-in" for the ticket's current admission (the result's `checkInId`),
   as well as Undo on undoable rows in Recent scans.
 - **The code is the ticket.** A ticket code is 8 characters from a 32-letter
-  alphabet without 0/O/1/I, split 4-4 (`7KQM-2HXD`): 40 random bits. The QR
+  alphabet without 0/O/1/I, split 4-4 (`7KQM-2HXD`): 40 random bits, one
+  `crypto.getRandomValues` byte per character (32 divides 256, so
+  `byte % 32` has no bias), unique as `tickets`' primary key (a clash is
+  retried with fresh codes). The QR
   carries `SH1:` plus the code. Check-in accepts either form, in any case,
   with surrounding whitespace (`parseTicketCode`); anything else is an
   `invalid` scan, not an error. No separate token: the only way to test a

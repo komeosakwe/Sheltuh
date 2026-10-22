@@ -9,7 +9,9 @@ import { SUPPORT_EMAIL } from "@/lib/contact";
  * follower emails, so they can't drift apart again.
  *
  * Email-client safe: table layout, inline styles, `bgcolor` attributes beside
- * `background-color`, an Outlook (mso) width wrapper, no web fonts (the stack
+ * `background-color` (the body's too), an Outlook (mso) width wrapper, a
+ * button that keeps its size in Outlook for Windows (`mso-padding-alt`), a
+ * preheader hidden there as well (`mso-hide:all`), no web fonts (the stack
  * names Instrument Sans for anyone who has it installed and falls back to
  * system faces), and light only (`color-scheme: light only`, as the site).
  */
@@ -73,11 +75,15 @@ export function eventBlock(title: string, lines: string[], gapAfterPx = 24): str
 /**
  * The one call-to-action: Signal Orange fill, black label, black hairline.
  * 14px padding on a 20px line plus the border makes it 50px tall (≥44px).
+ * Outlook for Windows ignores padding on an <a>, so the cell carries the same
+ * padding as `mso-padding-alt` (read by Outlook only) and the button keeps
+ * its size there; everywhere else the padding is on the block-level <a>, so
+ * the whole button is the link.
  */
 export function button(label: string, href: string, margin = "0 0 24px 0"): string {
   return (
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:${margin}"><tr>` +
-    `<td bgcolor="${SIGNAL}" style="background-color:${SIGNAL};border:1px solid ${INK};border-radius:8px">` +
+    `<td bgcolor="${SIGNAL}" style="background-color:${SIGNAL};border:1px solid ${INK};border-radius:8px;mso-padding-alt:14px 28px">` +
     `<a href="${escapeHtml(href)}" style="display:block;padding:14px 28px;font-family:${SANS};font-size:16px;line-height:20px;font-weight:bold;color:${INK};text-decoration:none">${escapeHtml(label)}</a>` +
     `</td></tr></table>`
   );
@@ -91,7 +97,7 @@ export interface PageInput {
   title: string;
   /** The card's contents (trusted markup). */
   body: string;
-  /** Inbox preview text (plain text), hidden in the body. */
+  /** Inbox preview text (plain text), hidden in the body (Outlook desktop included: it needs `mso-hide:all`). */
   preheader?: string;
   /** Markup above the card, e.g. the ticket email's logo row. */
   header?: string;
@@ -119,8 +125,8 @@ export function page({ title, body, preheader, header, footer = supportFooter, a
   }
 </style>
 </head>
-<body style="margin:0;padding:0;background-color:${CREAM};font-family:${SANS};color:${INK};-webkit-text-size-adjust:100%">
-${preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:${CREAM};font-size:1px;line-height:1px">${escapeHtml(preheader)}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>\n` : ""}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${CREAM}" style="background-color:${CREAM}">
+<body bgcolor="${CREAM}" style="margin:0;padding:0;background-color:${CREAM};font-family:${SANS};color:${INK};-webkit-text-size-adjust:100%">
+${preheader ? `<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;color:${CREAM};font-size:1px;line-height:1px">${escapeHtml(preheader)}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>\n` : ""}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${CREAM}" style="background-color:${CREAM}">
 <tr><td align="center" style="padding:24px 12px">
 <!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px">

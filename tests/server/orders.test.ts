@@ -537,7 +537,7 @@ describe("guest order lookup (GET /api/orders/by-session/{orderId})", () => {
     return { event, orderId };
   }
 
-  it("returns only what the confirmation page shows: no ids, fee split, Stripe ids, line items, timestamps or full email", async () => {
+  it("returns only what the confirmation page shows: no ids, fee split, Stripe ids, line items, order timestamps, street address or full email", async () => {
     const { event, orderId } = await paidOrderId();
     await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId, { customer_details: { email: "mia@example.com" } })));
 
@@ -550,14 +550,35 @@ describe("guest order lookup (GET /api/orders/by-session/{orderId})", () => {
       reference: orderReference(orderId),
       eventTitle: "Neon Static",
       eventSlug: event.slug,
+      // The event's public details, for the tickets (8:00 pm – 11:30 pm AEDT), while it's published.
+      eventListed: true,
+      eventStartsAt: "2027-03-06T09:00:00.000Z",
+      eventEndsAt: "2027-03-06T12:30:00.000Z",
+      venueName: "The Tote",
+      suburb: "Collingwood",
       maskedEmail: "m***@example.com",
       subtotalCents: 6000,
       buyerFeeCents: 340,
       totalCents: 6340,
-      tickets: codes.map((c) => ({ ticketCode: c.code, ticketTypeName: "GA" })),
+      tickets: codes.map((c) => ({ ticketCode: c.code, ticketTypeName: "GA", checkedInAt: null })),
     });
     const raw = JSON.stringify(res.body);
-    for (const secret of [orderId, organiser.organiserId, event.eventId, "mia@example.com", "cs_test_1", "pi_test_1"]) {
+    const [{ created_at: createdAt }] = await api.db.query<{ created_at: Date | string }>(
+      `select created_at from public.orders where id = $1`,
+      [orderId],
+    );
+    for (const secret of [
+      orderId,
+      organiser.organiserId,
+      event.eventId,
+      "mia@example.com",
+      "cs_test_1",
+      "pi_test_1",
+      "71 Johnston St", // the venue's street address
+      new Date(createdAt).toISOString(),
+      "applicationFee",
+      "lineItems",
+    ]) {
       expect(raw).not.toContain(secret);
     }
   });

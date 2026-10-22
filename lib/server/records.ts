@@ -28,6 +28,7 @@ import type {
   ProfileRecord,
   PublicEvent,
   PublicOrganiserProfile,
+  TicketSeat,
   TicketTypeInput,
 } from "./types";
 import { REMAINING_SHOWN_AT_MOST, type PublicTicketType } from "@/lib/api/public-events";
@@ -495,23 +496,34 @@ export function toOrder(row: Row): OrderRecord {
 
 /**
  * The buyer's confirmation-page view of an order (`where o.id = $1`). Only the
- * columns CustomerOrder needs: no ids, fee split, Stripe ids or timestamps.
- * Ticket codes only while the order is paid: a refunded order's tickets are
- * void. `tickets_issued` tells a paid-then-refunded order (it had tickets)
- * from one refunded because it couldn't be fulfilled (it never did).
+ * columns CustomerOrder needs: no ids, fee split, Stripe ids or order
+ * timestamps. Ticket codes (with each ticket's check-in time) only while the
+ * order is paid: a refunded order's tickets are void. The event's current
+ * times, venue name and suburb are public event details (never the street
+ * address), shown on the tickets; the mapper drops them for any order that
+ * isn't paid, and for any event that isn't published (unpublished, back in
+ * draft or review, rejected, or gone): those details are no longer public,
+ * so the order only says the event is no longer listed (`eventListed`).
+ * `tickets_issued` tells a paid-then-refunded order (it had tickets) from one
+ * refunded because it couldn't be fulfilled (it never did). Reads the event
+ * by primary key and the tickets by tickets_order_idx.
  */
 export const CUSTOMER_ORDER_SELECT = `
   select o.id, o.status::text as status, o.event_title, o.buyer_email,
          o.subtotal_cents, o.buyer_fee_cents, o.total_cents,
-         (select e.slug from public.events e where e.id = o.event_id) as event_slug,
+         e.slug as event_slug, e.status::text as event_status,
+         e.starts_at as event_starts_at, e.ends_at as event_ends_at,
+         e.venue_name as event_venue_name, e.suburb as event_suburb,
          coalesce((
            select json_agg(json_strip_nulls(json_build_object('ticketCode', t.code, 'ticketTypeName', t.ticket_type_name,
-                                                              'seat', ${TICKET_SEAT_JSON}))
+                                                              'seat', ${TICKET_SEAT_JSON},
+                                                              'checkedInAt', t.checked_in_at))
                            order by t.ticket_type_id, t.code)
            from public.tickets t where t.order_id = o.id and o.status = 'paid'
          ), '[]'::json) as tickets,
          exists (select 1 from public.tickets t where t.order_id = o.id) as tickets_issued
-  from public.orders o`;
+  from public.orders o
+  left join public.events e on e.id = o.event_id`;
 
 /** Why a refunded (or refund-pending) order was refunded; undefined for any other status. */
 function refundReason(status: CustomerOrder["status"], ticketsIssued: boolean): CustomerOrder["refundReason"] {
@@ -520,21 +532,42 @@ function refundReason(status: CustomerOrder["status"], ticketsIssued: boolean): 
   return undefined;
 }
 
+// json_strip_nulls drops a missing seat (general admission) and a null check-in time.
+type CustomerTicketRow = { ticketCode: string; ticketTypeName: string; seat?: TicketSeat; checkedInAt?: string | null };
+
 export function toCustomerOrder(row: Row): CustomerOrder {
   const email = opt<string>(row.buyer_email);
   const status = row.status as CustomerOrder["status"];
+  const paid = status === "paid";
+  // The event's details are public only while it's published; a missing event (left join) isn't listed either.
+  const listed = row.event_status === "published";
+  const details = paid && listed;
+  // Belt and braces with the SQL: never a code for an order that isn't paid.
+  const tickets = paid
+    ? (row.tickets as CustomerTicketRow[]).map((t) => ({
+        ticketCode: t.ticketCode,
+        ticketTypeName: t.ticketTypeName,
+        ...(t.seat ? { seat: t.seat } : {}),
+        checkedInAt: t.checkedInAt ? iso(t.checkedInAt) : null,
+      }))
+    : [];
   return {
     status,
     refundReason: refundReason(status, row.tickets_issued === true),
     reference: orderReference(row.id as string),
     eventTitle: row.event_title as string,
     eventSlug: opt(row.event_slug),
+    // What the tickets show: only while they're valid, and only while the event is published.
+    eventListed: paid ? listed : undefined,
+    eventStartsAt: details && row.event_starts_at ? iso(row.event_starts_at) : undefined,
+    eventEndsAt: details && row.event_ends_at ? iso(row.event_ends_at) : undefined,
+    venueName: details ? opt(row.event_venue_name) : undefined,
+    suburb: details ? opt(row.event_suburb) : undefined,
     maskedEmail: email ? maskEmail(email) : undefined,
     subtotalCents: row.subtotal_cents as number,
     buyerFeeCents: row.buyer_fee_cents as number,
     totalCents: row.total_cents as number,
-    // Belt and braces with the SQL: never a code for an order that isn't paid.
-    tickets: status === "paid" ? (row.tickets as CustomerOrder["tickets"]) : [],
+    tickets,
   };
 }
 

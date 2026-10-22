@@ -7,9 +7,11 @@ import {
   MAX_EMAIL_ATTEMPTS,
   retryDelaySeconds,
 } from "@/lib/server/email-outbox";
+import { adminUnpublishEvent } from "@/lib/server/handlers/admin";
 import { adminListEmailJobs, adminResendEmailJob, runEmailOutboxCron } from "@/lib/server/handlers/email-outbox";
 import { createCheckout, stripeWebhook } from "@/lib/server/handlers/orders";
 import { orderReference } from "@/lib/server/order-reference";
+import { EVENT_UNLISTED_TEXT } from "@/lib/server/ticket-email";
 import { CRON_SECRET, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
@@ -93,6 +95,14 @@ async function jobs(orderId?: string): Promise<JobRow[]> {
 /** Makes every pending job due now (time travel for the retry schedule). */
 async function makeDue() {
   await api.db.query(`update private.email_outbox set next_attempt_at = now() - interval '1 second' where status = 'pending'`);
+}
+
+/** A ticket email for an event that's no longer published: the no-longer-listed line, and none of its details. */
+function expectUnlisted(email: { text: string; html: string }) {
+  expect(email.text).toContain(EVENT_UNLISTED_TEXT);
+  for (const body of [email.text, email.html]) {
+    for (const detail of ["The Tote", "71 Johnston St", "8:00 pm", "March 2027"]) expect(body).not.toContain(detail);
+  }
 }
 
 function cron(authorization?: string) {
@@ -223,12 +233,32 @@ describe("SMTP failures", () => {
     await makeDue();
     await drainEmailOutbox(api.deps);
     const [first, retry] = api.sendEmail.mock.calls.map(([m]) => m);
-    expect(retry.inlineImages).toHaveLength(1);
-    expect(retry.inlineImages![0].contentType).toBe("image/png");
-    expect(retry.html).toContain(`src="cid:${retry.inlineImages![0].cid}"`);
-    expect(retry.inlineImages![0].content.equals(first.inlineImages![0].content)).toBe(true);
+    // The wordmark, then the ticket's QR.
+    expect(retry.inlineImages).toHaveLength(2);
+    expect(retry.inlineImages!.map((i) => i.cid)).toEqual(["sheltuh-wordmark@sheltuh.com.au", "ticket-qr-1@sheltuh.com.au"]);
+    expect(retry.inlineImages!.map((i) => i.cid)).toEqual(first.inlineImages!.map((i) => i.cid));
+    for (const [i, image] of retry.inlineImages!.entries()) {
+      expect(image.contentType).toBe("image/png");
+      expect(retry.html).toContain(`src="cid:${image.cid}"`);
+      expect(image.content.equals(first.inlineImages![i].content)).toBe(true);
+    }
     const [code] = await api.db.query<{ code: string }>(`select code from public.tickets`);
-    expect(retry.html).toContain(`alt="QR code for ticket ${code.code}"`);
+    expect(retry.html).toContain(`alt="QR code for ticket ${code.code}.`);
+  });
+
+  it("a retry after the event is unpublished still sends the tickets, but no date, time or venue", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    api.sendEmail.mockRejectedValueOnce(new Error("timeout"));
+    const orderId = await paidOrder("fan@example.com", { runDeferred: true });
+    expect((await api.call(adminUnpublishEvent, { token: admin.token, params: { eventId }, method: "POST" })).status).toBe(200);
+    await makeDue();
+    await drainEmailOutbox(api.deps);
+    expect(await jobs(orderId)).toMatchObject([{ status: "sent", attempts: 2 }]);
+    const [first, retry] = api.sendEmail.mock.calls.map(([m]) => m);
+    expect(first.text).toContain("Venue: The Tote");
+    expectUnlisted(retry);
+    const [code] = await api.db.query<{ code: string }>(`select code from public.tickets where order_id = $1`, [orderId]);
+    expect(retry.text).toContain(`Entry code: ${code.code}`);
   });
 
   it("are logged and stored without the address or the order id", async () => {
@@ -416,6 +446,15 @@ describe("admin", () => {
     expect(again.status).toBe(429);
     await api.db.query(`update private.email_outbox set last_resend_at = now() - interval '6 minutes'`);
     expect((await resend(jobId, admin.token)).status).toBe(200);
+  });
+
+  it("a resend after the event is unpublished rebuilds the email without its date, time or venue", async () => {
+    const { jobId } = await failedJob();
+    expect((await api.call(adminUnpublishEvent, { token: admin.token, params: { eventId }, method: "POST" })).status).toBe(200);
+    expect((await resend(jobId, admin.token)).status).toBe(200);
+    await api.runDeferred();
+    expect(await jobs()).toMatchObject([{ status: "sent" }]);
+    expectUnlisted(api.sendEmail.mock.calls.at(-1)![0]);
   });
 
   it("refuses a job that's being sent, and unknown or malformed ids", async () => {

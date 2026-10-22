@@ -1,8 +1,21 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import nodemailer from "nodemailer";
 import { describe, expect, it } from "vitest";
 import { mailOptions } from "@/lib/server/email";
+import { EMAIL_COLOURS } from "@/lib/server/email-layout";
+import { EMAIL_WORDMARK } from "@/lib/server/email-wordmark";
 import { encodePng } from "@/lib/server/png";
-import { buildTicketEmail, formatTicketDate, formatTicketTime, orderReference } from "@/lib/server/ticket-email";
+import {
+  buildTicketEmail,
+  EMAIL_FOOTER_IMAGE_URL,
+  EVENT_UNLISTED_TEXT,
+  formatTicketDate,
+  formatTicketTime,
+  orderReference,
+  ticketPageLink,
+  ticketQrAlt,
+} from "@/lib/server/ticket-email";
 import type { EventRecord, OrderRecord } from "@/lib/server/types";
 import { ticketQrMatrix } from "@/lib/ticket-qr";
 
@@ -12,6 +25,7 @@ const event = {
   venueAddress: "5 Smith St, Fitzroy",
   startsAt: "2027-03-06T09:00:00.000Z",
   endsAt: "2027-03-06T11:00:00.000Z",
+  status: "published",
 } as EventRecord;
 
 const order = {
@@ -23,6 +37,16 @@ const order = {
     { ticketCode: "JKLM-NPQR", ticketTypeId: "ga", ticketTypeName: "GA" },
   ],
 } as OrderRecord;
+
+/** The brand's four colours (docs/design/brand-direction-one.md), lower case as the email writes them. */
+const BRAND = { black: "#000000", white: "#ffffff", cream: "#fffae7", orange: "#ff4800" };
+/** Each ticket card's border, so cards can be counted and split. */
+const CARD = "border:2px solid #000000;border-radius:10px";
+const WORDMARK_CID = "sheltuh-wordmark@sheltuh.com.au";
+
+/** Every QR (not the wordmark) the email attaches. */
+const qrImages = (email: ReturnType<typeof buildTicketEmail>) =>
+  (email.inlineImages ?? []).filter((image) => image.cid.startsWith("ticket-qr-"));
 
 describe("buildTicketEmail", () => {
   it("lists every ticket code, the Melbourne time, the venue and a link back to the order", () => {
@@ -64,19 +88,57 @@ describe("buildTicketEmail", () => {
     expect(button).toContain("color:#000000"); // black on orange (6.18:1), never white
   });
 
-  it("has a header with the logo mark beside a text wordmark, so it still reads Sheltüh with images blocked", () => {
+  it("has the official wordmark above the card (replacing the app icon), as an inline image with SHELTÜH as its alt text", () => {
     const { html } = buildTicketEmail(order, event, "https://x");
-    const header = html.slice(0, html.indexOf('class="px"'));
-    expect(header).toMatch(/<img src="https:\/\/x\/icons\/icon-192\.png" width="40" height="40" alt=""/); // decorative: the text names it
-    expect(header.replace(/<img[^>]*>/g, "")).toMatch(/>Sheltüh<\/td>/);
+    const header = html.slice(html.indexOf("<body"), html.indexOf('class="px"'));
+    expect(header).toMatch(new RegExp(`<img src="cid:${WORDMARK_CID}"[^>]* alt="SHELT&Uuml;H"`));
+    expect(header).not.toContain("icon-192.png");
+    expect(html).not.toContain("/icons/");
   });
 
-  it("labels the button by what the destination shows: ticket for one, tickets for several", () => {
-    expect(buildTicketEmail({ ...order, tickets: [order.tickets[0]] }, event, "https://x").html).toContain(">View your ticket<");
-    const many = buildTicketEmail(order, event, "https://x");
-    expect(many.html).toContain(">View your tickets<");
-    expect(many.text).toContain("View your tickets: https://x/checkout/success?session_id=ord_abc");
-    expect(many.text).not.toContain("View your order");
+  it("uses only the shared brand colours, with backgrounds as bgcolor attributes too", () => {
+    const { html } = buildTicketEmail(order, event, "https://sheltuh.com.au");
+    const colours = new Set(html.match(/#[0-9a-fA-F]{6}\b/g)?.map((c) => c.toLowerCase()));
+    for (const colour of colours) expect(Object.values<string>(EMAIL_COLOURS)).toContain(colour);
+    for (const colour of Object.values(BRAND)) expect(colours).toContain(colour);
+    // Backgrounds are set as bgcolor attributes as well as inline styles (clients that drop one keep the other).
+    expect(html).toContain(`<body bgcolor="${BRAND.cream}"`);
+    expect(html).toContain(`bgcolor="${BRAND.white}" class="px"`);
+    // The old palette is gone.
+    for (const old of ["#f3f0e8", "#2b3cff", "#0b0b0b", "#5b574e", "#e3ded1"]) expect(html).not.toContain(old);
+  });
+
+  it("opens with You're in. (the shared heading), then the event name", () => {
+    const { html } = buildTicketEmail(order, event, "https://sheltuh.com.au");
+    const h1 = html.match(/<h1[^>]*style="([^"]*)"[^>]*>([^<]*)<\/h1>/);
+    expect(h1?.[2]).toBe("You&rsquo;re in.");
+    const h1End = html.indexOf("</h1>");
+    expect(html.slice(h1End, h1End + 400)).toContain(">Paint &#38; &#60;Sip&#62;</p>");
+  });
+
+  it("has one button, labelled by what the page shows: black text on Signal Orange, at least 44px tall, Outlook-safe, to the order's ticket page", () => {
+    for (const [tickets, buttonLabel] of [
+      [[order.tickets[0]], "View your ticket"],
+      [order.tickets, "View your tickets"],
+    ] as const) {
+      const { html, text } = buildTicketEmail({ ...order, tickets: [...tickets] }, event, "https://x");
+      const buttons = [...html.matchAll(/<td bgcolor="([^"]+)"[^>]*style="([^"]*)"><a href="([^"]+)" style="([^"]*)">([^<]+)<\/a><\/td>/g)];
+      expect(buttons).toHaveLength(1);
+      const [, bg, cellStyle, href, style, label] = buttons[0];
+      expect(label).toBe(buttonLabel);
+      expect(bg).toBe(BRAND.orange);
+      // Outlook for Windows ignores padding on an <a>: the cell carries it there, so the button keeps its size.
+      expect(cellStyle).toContain("mso-padding-alt:14px 28px");
+      expect(cellStyle).toContain(`background-color:${BRAND.orange}`);
+      expect(style).toContain(`color:${BRAND.black}`); // 6.18:1; white on orange would fail for 16px text
+      expect(style).toContain("padding:14px 28px"); // 20px line + 28px padding + border = 50px tall (>= 44px)
+      expect(style).toContain("display:block");
+      // The order's existing ticket link, unchanged: the same URL earlier emails carried.
+      expect(href).toBe("https://x/checkout/success?session_id=ord_abc");
+      expect(href).toBe(ticketPageLink("https://x", "ord_abc"));
+      expect(text).toContain(`${buttonLabel}: https://x/checkout/success?session_id=ord_abc`);
+      expect(text).not.toContain("View your order");
+    }
   });
 
   it("gives every ticket its own card with a numbered label, type and code (none dropped)", () => {
@@ -93,7 +155,7 @@ describe("buildTicketEmail", () => {
       expect(html).toContain(code);
       expect(text).toContain(`Entry code: ${code}`);
     }
-    expect(html.match(/border:2px solid #000000/g)).toHaveLength(4);
+    expect(html.split(CARD)).toHaveLength(5);
     expect(html).toContain("Ticket 1 of 4");
     expect(html).toContain("Ticket 4 of 4");
     expect(html).toContain("VIP");
@@ -103,14 +165,14 @@ describe("buildTicketEmail", () => {
   // Updated deliberately for QR check-in: each ticket now has a QR image, but
   // it encodes only the code printed beneath it, so the rule still holds that
   // nothing is carried by an image alone (and there's still no barcode).
-  it("keeps the essentials as real text (the only images are the logo, a QR per ticket and the footer banner)", () => {
+  it("keeps the essentials as real text (images: the wordmark and a QR per ticket inline, plus the footer banner)", () => {
     const { html } = buildTicketEmail(order, event, "https://x");
-    expect(html.match(/<img /g)).toHaveLength(2 + order.tickets.length);
-    expect(html.match(/<img src="cid:/g)).toHaveLength(order.tickets.length);
-    expect(html).toContain('src="https://x/icons/icon-192.png"');
-    expect(html).toContain('src="https://sheltuh.com.au/images/email-footer.png"');
-    expect(html).toMatch(/<img src="https:\/\/sheltuh\.com\.au\/images\/email-footer\.png"[^>]* alt="[^"]+"/);
-    expect(html).not.toMatch(/barcode/i);
+    expect(html.match(/<img /g)).toHaveLength(1 + order.tickets.length + 1);
+    expect(html.match(/<img src="cid:/g)).toHaveLength(1 + order.tickets.length);
+    // The only remote image is the decorative footer banner on our own domain: no hosted QR, no third-party QR service.
+    const remote = [...html.matchAll(/(?:src|background)=["']?((?:https?:)?\/\/[^"' >]+)/g)].map((m) => m[1]);
+    expect(remote).toEqual([EMAIL_FOOTER_IMAGE_URL]);
+    expect(html).not.toMatch(/ barcode/i);
     const withoutImages = html.replace(/<img[^>]*>/g, "");
     for (const needle of ["Paint &#38; &#60;Sip&#62;", "Studio 5", "5 Smith St, Fitzroy", "ABCD-EFGH", "JKLM-NPQR", "A$64", "#ABC"]) {
       expect(withoutImages).toContain(needle);
@@ -166,6 +228,30 @@ describe("buildTicketEmail", () => {
     expect(html).not.toContain("&middot; </td>");
   });
 
+  it("for an event that's no longer published, sends no date, time, venue or address: a no-longer-listed line instead, and the tickets", () => {
+    for (const status of ["draft", "pending_review", "rejected"] as const) {
+      const email = buildTicketEmail(order, { ...event, status }, "https://x");
+      for (const body of [email.text, email.html]) {
+        for (const detail of ["Saturday 6 March", "8:00 pm", "AEDT", "Studio 5", "Smith St", "Fitzroy"]) expect(body).not.toContain(detail);
+        expect(body).toContain("ABCD-EFGH");
+        expect(body).toContain("JKLM-NPQR");
+        expect(body).toContain("https://x/checkout/success?session_id=ord_abc");
+      }
+      for (const label of ["Date", "Time", "Venue", "Address"]) expect(email.html).not.toContain(`>${label}</td>`);
+      expect(email.text).not.toMatch(/^(Date|Time|Venue|Address):/m);
+      expect(email.text).toContain(EVENT_UNLISTED_TEXT);
+      expect(EVENT_UNLISTED_TEXT).toBe("This event is no longer listed. Contact support@sheltuh.com.au if you have questions.");
+      expect(email.html).toContain(
+        'This event is no longer listed. Contact <a href="mailto:support@sheltuh.com.au" style="color:#000000;text-decoration:underline">support@sheltuh.com.au</a> if you have questions.',
+      );
+      expect(qrImages(email)).toHaveLength(2);
+    }
+    // A published event never gets the line.
+    const listed = buildTicketEmail(order, event, "https://x");
+    expect(listed.text).not.toContain("no longer listed");
+    expect(listed.html).not.toContain("no longer listed");
+  });
+
   it("escapes every dynamic value, including ticket codes and the venue", () => {
     const { html } = buildTicketEmail(
       { ...order, tickets: [{ ticketCode: 'A<B>"1"&', ticketTypeId: "t", ticketTypeName: "<i>VIP</i>" }] } as OrderRecord,
@@ -192,23 +278,113 @@ describe("buildTicketEmail", () => {
     const { html, text } = buildTicketEmail(order, event, "https://x");
     expect(text).toContain("YOU'RE IN.");
     expect(text).toContain("support@sheltuh.com.au");
+    // The shared support line (lib/server/email-layout.ts supportFooter), the same in both parts.
+    expect(text).toContain("Need help? Email support@sheltuh.com.au");
+    expect(html).toContain('href="mailto:support@sheltuh.com.au"');
     expect(text.toLowerCase()).not.toContain("reply");
     expect(html.toLowerCase()).not.toContain("just reply");
-    expect(html).toContain("display:none"); // preheader
+    // The preheader: hidden everywhere, Outlook desktop included (it ignores display:none alone).
+    const preheader = html.match(/<body[^>]*>\n<div style="([^"]*)">([^<]*)</);
+    expect(preheader?.[2]).toContain("Your tickets for Paint &#38; &#60;Sip&#62;.");
+    for (const rule of ["display:none", "mso-hide:all", "max-height:0", "overflow:hidden", "opacity:0"]) {
+      expect(preheader?.[1]).toContain(rule);
+    }
     expect(html).toContain('lang="en-AU"');
+  });
+
+  it("plain text: every fact in the HTML, in reading order, with no HTML or image references", () => {
+    const { text } = buildTicketEmail(order, event, "https://x");
+    const lines = [
+      "SHELTÜH",
+      "YOU'RE IN.",
+      "Paint & <Sip>",
+      "Date: Saturday 6 March 2027",
+      "Time: 8:00 pm – 10:00 pm AEDT",
+      "Venue: Studio 5",
+      "Address: 5 Smith St, Fitzroy",
+      "YOUR TICKETS",
+      "Ticket 1 of 2 - GA",
+      "Entry code: ABCD-EFGH",
+      "Ticket 2 of 2 - GA",
+      "Entry code: JKLM-NPQR",
+      "View your tickets: https://x/checkout/success?session_id=ord_abc",
+      "Order reference: #ABC",
+      "Total paid: A$64 (incl. booking fees)",
+      "Sheltüh, Melbourne",
+    ];
+    let at = -1;
+    for (const line of lines) {
+      const next = text.indexOf(line, at + 1);
+      expect(next, line).toBeGreaterThan(at);
+      at = next;
+    }
+    // (The title's own "<Sip>" is the organiser's text, shown as written.)
+    expect(text).not.toMatch(/<\/?(?:td|tr|table|img|a|br|p|h1|span|div)\b|cid:|&#|&rsquo;|&middot;/i);
+  });
+
+  it("ends with the brand banner from sheltuh.com.au, after the support info, full width with alt text", () => {
+    const email = buildTicketEmail(order, event, "https://x");
+    const { html } = email;
+    expect(EMAIL_FOOTER_IMAGE_URL).toBe("https://sheltuh.com.au/images/email-footer.png");
+    const tag = html.match(/<img src="https:\/\/sheltuh\.com\.au\/images\/email-footer\.png"[^>]*>/)?.[0] ?? "";
+    expect(tag).toContain('width="600"');
+    expect(tag).toContain('alt="Sheltüh. Music. Art. Fashion. Culture."');
+    expect(tag).toContain('style="display:block;border:0;width:100%;max-width:600px;height:auto"');
+    // The last row of the email, after the support line.
+    expect(html.indexOf(tag)).toBeGreaterThan(html.indexOf("mailto:support@sheltuh.com.au"));
+    expect(html.slice(html.indexOf(tag))).toMatch(/^<img[^>]*><\/td><\/tr>\n<\/table>\n<!--\[if mso\]><\/td><\/tr><\/table><!\[endif\]-->/);
+    // Not an attachment, and the URL carries nothing about the order.
+    expect(email.inlineImages?.some((i) => i.filename?.includes("footer"))).toBe(false);
+    expect(EMAIL_FOOTER_IMAGE_URL).not.toMatch(/ord_|\?/);
+  });
+
+  // --- The wordmark ---
+
+  it("shows the official wordmark as an inline PNG (cid), with SHELTÜH as alt text styled for blocked images", () => {
+    const email = buildTicketEmail(order, event, "https://x");
+    const wordmark = email.inlineImages?.[0];
+    expect(wordmark?.cid).toBe(WORDMARK_CID);
+    expect(wordmark?.contentType).toBe("image/png");
+    expect(wordmark?.filename).toBe("sheltuh.png");
+    expect(wordmark?.content.equals(Buffer.from(EMAIL_WORDMARK.pngBase64, "base64"))).toBe(true);
+    const tag = email.html.match(new RegExp(`<img src="cid:${WORDMARK_CID}"[^>]*>`))?.[0] ?? "";
+    expect(tag).toContain('alt="SHELT&Uuml;H"');
+    expect(tag).toContain(`width="${EMAIL_WORDMARK.displayWidth}" height="${EMAIL_WORDMARK.displayHeight}"`);
+    // With images off, the alt text shows in black on the cream page (Signal Orange is only for the button).
+    expect(tag).toContain(`color:${BRAND.black}`);
+    expect(tag).toContain("font-size:20px");
+    // Shown at the brand's 24px header height (docs/design/brand-direction-one.md §11 #6).
+    expect(EMAIL_WORDMARK.displayHeight).toBe(24);
+  });
+
+  it("the wordmark is the PNG shipped in public/brand (rendered from the official SVG), at 2x its shown size", () => {
+    const shipped = readFileSync(path.join(process.cwd(), "public/brand/sheltuh-wordmark-email.png"));
+    const png = Buffer.from(EMAIL_WORDMARK.pngBase64, "base64");
+    expect(png.equals(shipped)).toBe(true);
+    expect(png.subarray(1, 4).toString("ascii")).toBe("PNG");
+    // IHDR: width and height, big-endian, at bytes 16 and 20.
+    expect(png.readUInt32BE(16)).toBe(EMAIL_WORDMARK.displayWidth * 2);
+    expect(png.readUInt32BE(20)).toBe(EMAIL_WORDMARK.displayHeight * 2);
+    // The SVG's aspect ratio (435.523 x 98.749), and the brand's 16px minimum height.
+    expect(EMAIL_WORDMARK.displayWidth / EMAIL_WORDMARK.displayHeight).toBeCloseTo(435.523 / 98.749, 1);
+    expect(EMAIL_WORDMARK.displayHeight).toBeGreaterThanOrEqual(16);
+    expect(png.length).toBeLessThan(16 * 1024);
   });
 
   // --- QR codes ---
 
-  it("gives each real ticket code a ~180px QR, attached inline under a matching cid, with the code as alt text", () => {
+  it("gives each real ticket code a ~180px QR, attached inline under a matching cid, with alt text pointing at the backup code", () => {
     const email = buildTicketEmail(order, event, "https://x");
-    const images = email.inlineImages ?? [];
+    const images = qrImages(email);
     expect(images.map((i) => i.cid)).toEqual(["ticket-qr-1@sheltuh.com.au", "ticket-qr-2@sheltuh.com.au"]);
-    const tags = [...email.html.matchAll(/<img src="cid:([^"]+)"[^>]*>/g)];
+    const tags = [...email.html.matchAll(/<img src="cid:(ticket-qr-[^"]+)"[^>]*>/g)];
     expect(tags.map((t) => t[1])).toEqual(images.map((i) => i.cid));
     for (const [i, code] of ["ABCD-EFGH", "JKLM-NPQR"].entries()) {
       const tag = tags[i][0];
-      expect(tag).toContain(`alt="QR code for ticket ${code}"`);
+      expect(tag).toContain(`alt="QR code for ticket ${code}. If it doesn&#39;t show, use the backup code below."`);
+      expect(ticketQrAlt(code)).toBe(`QR code for ticket ${code}. If it doesn't show, use the backup code below.`);
+      // Alt text styled to be readable in the image's box when images are blocked.
+      expect(tag).toMatch(/font-size:13px;line-height:18px;color:#000000/);
       expect(tag).toContain('width="174" height="174"');
       expect(images[i].contentType).toBe("image/png");
       // Numbered, never named after the code (the code is the ticket; file names leak into previews and downloads).
@@ -220,20 +396,57 @@ describe("buildTicketEmail", () => {
     }
   });
 
-  it("keeps each code as text beneath its QR, inside the same card", () => {
+  it("keeps each code as text beneath its QR, labelled as the backup code, inside the same card", () => {
     const { html } = buildTicketEmail(order, event, "https://x");
-    const cards = html.split("border:2px solid #000000").slice(1);
+    const cards = html.split(CARD).slice(1);
     expect(cards).toHaveLength(2);
     for (const [i, code] of ["ABCD-EFGH", "JKLM-NPQR"].entries()) {
       const qrAt = cards[i].indexOf(`cid:ticket-qr-${i + 1}@`);
       expect(qrAt).toBeGreaterThan(-1);
-      expect(cards[i].indexOf(`>${code}</td>`)).toBeGreaterThan(qrAt);
+      const labelAt = cards[i].indexOf(">Backup code</td>");
+      expect(labelAt).toBeGreaterThan(qrAt);
+      expect(cards[i].indexOf(`>${code}</td>`)).toBeGreaterThan(labelAt);
+      // Each card holds exactly its own QR.
+      expect(cards[i].match(/<img src="cid:ticket-qr-/g)).toHaveLength(1);
     }
+  });
+
+  it("a seated ticket's card has its seat under the type, before the QR and backup code (HTML and plain text)", () => {
+    const seated = {
+      ...order,
+      tickets: [{ ...order.tickets[0], seat: { section: "Stalls", row: "F", seat: "12", kind: "standard" } }],
+    } as OrderRecord;
+    const { html, text } = buildTicketEmail(seated, event, "https://x");
+    const card = html.split(CARD)[1];
+    const seatAt = card.indexOf(">Stalls · Row F · Seat 12</td>");
+    expect(seatAt).toBeGreaterThan(card.indexOf("Your ticket &middot; GA"));
+    expect(card.indexOf("cid:ticket-qr-1@")).toBeGreaterThan(seatAt);
+    expect(card.indexOf(">Backup code</td>")).toBeGreaterThan(seatAt);
+    expect(text).toContain("Your ticket - GA\nSeat: Stalls, Row F, Seat 12\nEntry code: ABCD-EFGH");
+  });
+
+  it("multiple tickets: one QR each, each a different image of its own code", () => {
+    const codes = ["K7QM-2XPD", "R4TN-9WJC", "B8VF-3HLZ", "M2GD-6SYA"];
+    const many = {
+      ...order,
+      tickets: codes.map((code) => ({ ticketCode: code, ticketTypeId: "ga", ticketTypeName: "GA" })),
+    } as OrderRecord;
+    const email = buildTicketEmail(many, event, "https://x");
+    const images = qrImages(email);
+    expect(images).toHaveLength(4);
+    expect(new Set(images.map((i) => i.content.toString("base64"))).size).toBe(4);
+    expect(new Set(images.map((i) => i.cid)).size).toBe(4);
+    for (const [i, code] of codes.entries()) {
+      expect(images[i].content.equals(encodePng(ticketQrMatrix(code)!, 12, 4))).toBe(true);
+      expect(email.html).toContain(`alt="QR code for ticket ${code}.`);
+    }
+    expect(email.html.split(CARD)).toHaveLength(5);
   });
 
   it("tells the buyer how to use the QR, in the HTML and the plain text", () => {
     const one = buildTicketEmail({ ...order, tickets: [order.tickets[0]] }, event, "https://x");
     expect(one.html).toContain("Show this QR code at the door. Turn your screen brightness up.");
+    expect(one.html).toContain("door staff can type in the backup code.");
     expect(one.html).toContain("Show your QR code at the door."); // preheader
     // The plain text can't show a QR: it points at the entry code, and at the full email for the QR.
     expect(one.text).toContain("YOUR TICKET\nShow your entry code at the door (the QR code is in the full email).");
@@ -248,9 +461,11 @@ describe("buildTicketEmail", () => {
   it("gives a malformed code no QR, no attachment and the old wording", () => {
     const bad = { ...order, tickets: [{ ticketCode: "abcd-efgh", ticketTypeId: "t", ticketTypeName: "GA" }] } as OrderRecord;
     const email = buildTicketEmail(bad, event, "https://x");
-    expect(email.inlineImages).toBeUndefined();
-    expect(email.html).not.toContain("cid:");
+    expect(email.inlineImages?.map((i) => i.cid)).toEqual([WORDMARK_CID]); // the wordmark only
+    expect(email.html).not.toContain("cid:ticket-qr");
     expect(email.html).not.toMatch(/qr code/i);
+    expect(email.html).toContain(">Entry code</td>");
+    expect(email.html).not.toContain(">Backup code</td>");
     expect(email.html).toContain("Show this code at the door.");
     expect(email.text).toContain("YOUR TICKETS (show these codes at the door)");
     expect(email.html).toContain("abcd-efgh");
@@ -265,9 +480,9 @@ describe("buildTicketEmail", () => {
       ],
     } as OrderRecord;
     const email = buildTicketEmail(mixed, event, "https://x");
-    expect(email.inlineImages?.map((i) => i.cid)).toEqual(["ticket-qr-2@sheltuh.com.au"]);
+    expect(qrImages(email).map((i) => i.cid)).toEqual(["ticket-qr-2@sheltuh.com.au"]);
     expect(email.html).not.toContain("QR code for ticket AAAA-1111");
-    expect(email.html).toContain('alt="QR code for ticket BBBB-2222"');
+    expect(email.html).toContain('alt="QR code for ticket BBBB-2222. If it doesn&#39;t show, use the backup code below."');
   });
 
   it("an escaped hostile code still gets no QR (only real codes are encoded)", () => {
@@ -276,7 +491,7 @@ describe("buildTicketEmail", () => {
       event,
       "https://x",
     );
-    expect(email.inlineImages).toBeUndefined();
+    expect(qrImages(email)).toEqual([]);
     expect(email.html).not.toContain('A<B>"1"&');
     expect(email.html).toContain("A&#60;B&#62;&#34;1&#34;&#38;");
   });
@@ -288,7 +503,7 @@ describe("buildTicketEmail", () => {
     expect(second.inlineImages).toEqual(first.inlineImages);
   });
 
-  it("sends the QR codes as inline parts of a multipart/related message", async () => {
+  it("sends the wordmark and the QR codes as inline parts of a multipart/related message", async () => {
     const transport = nodemailer.createTransport({ streamTransport: true, buffer: true, newline: "\n" });
     const email = buildTicketEmail(order, event, "https://x");
     const info = await transport.sendMail(mailOptions("tickets@sheltuh.com.au", email));
@@ -298,7 +513,8 @@ describe("buildTicketEmail", () => {
       expect(raw).toContain(`Content-ID: <${image.cid}>`);
       expect(raw).toContain(image.content.toString("base64").slice(0, 60));
     }
-    expect(raw.match(/Content-Disposition: inline/g)?.length).toBe(2);
+    expect(raw).toContain(`Content-ID: <${WORDMARK_CID}>`);
+    expect(raw.match(/Content-Disposition: inline/g)?.length).toBe(1 + order.tickets.length);
     expect(raw).not.toMatch(/Content-Disposition: attachment/);
   });
 

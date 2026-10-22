@@ -23,6 +23,8 @@ const event = {
   venueAddress: "12 Hosier Lane, Melbourne VIC 3000",
   startsAt: "2027-03-06T09:00:00.000Z",
   endsAt: "2027-03-06T13:00:00.000Z",
+  // Published, so the ticket email shows its date and venue (an unlisted event's would say it's no longer listed).
+  status: "published",
 } as EventRecord;
 
 const lineItems: OrderLineItem[] = [
@@ -115,7 +117,10 @@ describe("every transactional email uses the shared brand layout", () => {
 
   it("keeps each email's own content: QR tickets, seat lines, totals with booking fees, footer banner", () => {
     const paid = emails.ticketPaid();
-    expect(paid.html.match(/<img src="cid:/g)).toHaveLength(2);
+    // One inline QR per ticket, plus the inline wordmark header (the only other cid image).
+    expect(paid.html.match(/<img src="cid:ticket-qr-/g)).toHaveLength(2);
+    expect(paid.html.match(/<img src="cid:/g)).toHaveLength(3);
+    expect(paid.html).toContain('<img src="cid:sheltuh-wordmark@sheltuh.com.au"');
     expect(paid.html).toContain("incl. booking fees");
     expect(paid.html).toContain('src="https://sheltuh.com.au/images/email-footer.png"');
     expect(emails.ticketSeated().html).toContain("Stalls · Row A · Seat 2");

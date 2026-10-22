@@ -831,7 +831,7 @@ The initial letter keeps 8% opacity in `var(--face-display)`.
 5. **Photography:**
    - The home hero, guide, creators and community images (`HOME_HERO`, `HOME_GUIDE`, `HOME_CREATORS`), and any `InlinePhoto` sources.
    - Usage rights and model releases. That includes the brand book's own photos (pp. 25–26), if they're to be reused.
-6. **The uppercase wordmark as a PNG for email** (black on transparent or cream, about 2× a 24px-tall header, so ~212×48). Email clients don't render SVG, so until it exists the ticket email's header shows the app icon (`public/icons/icon-192.png`, the orange ü, decorative, empty alt) beside the text "Sheltüh", which also covers blocked images. The other emails have no header.
+6. **The uppercase wordmark as a PNG for email** (black on transparent or cream, about 2× a 24px-tall header, so ~212×48). Done 22 Oct 2026: `public/brand/sheltuh-wordmark-email.png` (black on cream, 212×48, shown at 106×24), rendered from `sheltuh-wordmark.svg` by `scripts/render-email-wordmark.ts` and attached inline (`cid:`, about 4 KB, so it shows where Outlook blocks remote images) as the ticket email's header, alt text "SHELTÜH" (it replaced the app icon beside the text "Sheltüh"). The other emails have no header. Owner to confirm the export.
 
 ## Owner questions
 
