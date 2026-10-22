@@ -29,9 +29,11 @@ yet: treat the first pass as **test mode**, and only then go live.
   protection on seat holds (Turnstile or a Vercel WAF rule), keep seating
   off for real on-sales by not approving seated events. The per-visitor
   hold limit needs `STRIPE_WEBHOOK_SECRET` set (it fails open without it).
-- The owner ran migrations 20261001 to 20261004 in the Supabase SQL editor
-  and saw "Success" for each; the first five were already present. Retention
-  cron is scheduled (job id 1).
+- **Owner's report, not verified here:** the owner ran migrations 20261001
+  to 20261004 in the Supabase SQL editor and saw "Success" for each, the
+  first five were already present, and a retention cron is scheduled (job
+  id 1). Nothing in this repo proves which migrations production has: check
+  before deploying (the "Migrations" item in the Go-live checklist).
 - **Not done, needs you:** legal sign-off, photo licences (see
   `public/events/README.md`), Supabase/Stripe/Vercel setup below.
 - **Known gaps (deliberate):** no per-person "already talking" state on the
@@ -47,17 +49,31 @@ seating). Tick each one on the test setup first, then on
 live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 [`architecture.md`](architecture.md).
 
-- [ ] **Migrations, in order, up to the newest.** Run every file in
-      `supabase/migrations/` in filename order that the project doesn't have
-      yet, one SQL Editor query per file (or `npx supabase db push`), up to
-      and including the newest, currently
-      `20261103000000_seat_hold_client_limits.sql`. Never skip one or change
-      the order: later files rely on earlier ones (`20261023000100_review_hardening.sql`
-      stops with a list of event ids if a stored ticket link breaks a newer
-      rule; fix those and re-run it). Check with
-      `select max(version) from supabase_migrations.schema_migrations;` when
-      using the CLI. The files on this branch that aren't on `main` yet, in
-      order:
+- [ ] **Migrations, in order, up to the newest.**
+      **First check what the project has**; don't assume (see Status).
+      - If migrations were applied with the Supabase CLI
+        (`npx supabase db push`), it recorded them:
+        `select version from supabase_migrations.schema_migrations order by version;`
+        Compare that list with the files in `supabase/migrations/`.
+      - If any were run in the SQL editor (which records nothing, and is how
+        the owner reports running them), that table is missing or incomplete.
+        Run [`scripts/check-applied-migrations.sql`](../scripts/check-applied-migrations.sql)
+        in the SQL editor instead. It's read-only and returns one row per
+        migration file with `applied` true or false, judged by an object that
+        file creates (`tests/server/applied-migrations-check.test.ts` checks
+        each row turns true with its file and not before). The rows should be
+        true up to some file and false after it; anything else (a false
+        between trues) means a file was skipped, so stop and investigate.
+
+      Then run every file that's missing, in filename order, one SQL Editor
+      query per file (or `npx supabase db push`), up to and including the
+      newest, currently `20261103000100_refuse_ended_event_orders.sql`. Never
+      skip one or change the order: later files rely on earlier ones
+      (`20261023000100_review_hardening.sql` stops with a list of event ids
+      if a stored ticket link breaks a newer rule; fix those and re-run it).
+      Re-run the check afterwards. The files on this branch that aren't on
+      `main` (`git diff --name-only --diff-filter=A origin/main HEAD -- supabase/migrations`;
+      PR #12 added none), in order:
       1. `20261022000000_external_ticketing.sql`
       2. `20261022000100_admin_event_authoring.sql`
       3. `20261022000200_external_ticketing_hardening.sql`
@@ -72,6 +88,10 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       12. `20261102000000_seating_hardening.sql`
       13. `20261102000100_social_hardening.sql`
       14. `20261103000000_seat_hold_client_limits.sql`
+      15. `20261103000100_refuse_ended_event_orders.sql`
+
+      The 21 files before these are on `main`. Whether production has them
+      all is also unverified: the check above covers every file.
 - [ ] **`CRON_SECRET`** in Vercel (Production): a long random string
       (`openssl rand -hex 32`). Without it `/api/cron/email-outbox` and
       `/api/cron/trending` refuse every call: failed ticket emails are never
@@ -93,7 +113,13 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       links this fixed URL, `EMAIL_FOOTER_IMAGE_URL` in
       `lib/server/ticket-email.ts`). The file is `public/images/email-footer.png`;
       while `sheltuh.com.au` is still the Cloudflare Worker landing page,
-      upload it there too. Open the URL in a private window to check.
+      upload it there too. Open the URL in a private window to check. This is
+      the only remote image in any email: the free-ticket confirmation,
+      waitlist and follower emails have none.
+- **Email wordmark: nothing to host.** The ticket email's header wordmark
+  (`lib/server/email-wordmark.ts`, from `public/brand/sheltuh-wordmark-email.png`)
+  is attached to each email inline (`cid:`), like the QR codes, so it shows
+  even when a mail client blocks remote images.
 - [ ] **Privacy Policy wording** (owner to approve; drafts in
       `architecture.md`, "Trending" and "Check-in"):
   - Trending and favourites: saved events, Who's Going and ticket orders are
