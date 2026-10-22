@@ -105,6 +105,13 @@ for (const vp of VIEWPORTS) {
       expect(h.y + h.height).toBeLessThanOrEqual(fold);
       const firstCard = firstSection.locator("[data-event-card]").first();
       expect((await box(firstCard)).y).toBeLessThan(fold);
+      // Refinement (owner, 22 Oct 2026): on the phone, the first card's whole image and its title too.
+      if (vp.phone) {
+        const image = await box(firstCard.locator("[data-card-media]"));
+        expect(image.y + image.height).toBeLessThanOrEqual(fold);
+        const title = await box(firstCard.getByRole("heading", { level: 3 }));
+        expect(title.y + title.height).toBeLessThanOrEqual(fold);
+      }
 
       // Each event at most once across every section.
       const hrefs = await page
@@ -205,18 +212,21 @@ for (const width of [375, 1280]) {
   test.describe(`home order at ${width}px`, () => {
     test.use({ viewport: { width, height: width < 768 ? 812 : 800 } });
 
-    test("hero, Explore by category, This weekend, Popular right now, Find your people, For organisers, footer", async ({ page }) => {
+    test("hero, the category row, This weekend, Popular right now, Find your people, For organisers, footer", async ({ page }) => {
       await openHome(page, { trending: true });
       await expect(page.getByRole("heading", { level: 2, name: "Popular right now" })).toBeVisible();
       const headings = await page.locator("main h2").allTextContents();
-      // The category buttons sit straight under the hero (owner feedback, 22 Oct 2026).
+      // Refinement (22 Oct 2026): the categories are a chip row (a labelled nav, no heading) under the search.
       expect(headings.map((h) => h.trim())).toEqual([
-        "Explore by category",
         "This weekend",
         "Popular right now",
-        "See who’s going before you book.",
+        "See who’s going before you book",
         "Bring your event to life",
       ]);
+      const hero = await page.getByRole("search", { name: "Search events" }).boundingBox();
+      const chips = await page.getByRole("navigation", { name: "Browse by category" }).boundingBox();
+      const weekend = await page.getByRole("heading", { level: 2, name: "This weekend" }).boundingBox();
+      expect((hero?.y ?? Infinity) < (chips?.y ?? -1) && (chips?.y ?? Infinity) < (weekend?.y ?? -1)).toBe(true);
       // The hero comes first, the footer last.
       const h1 = await page.getByRole("heading", { level: 1 }).boundingBox();
       const first = await page.locator("main h2").first().boundingBox();
@@ -244,10 +254,12 @@ for (const width of [375, 1280]) {
       );
       expect(repeats.length).toBeGreaterThan(1);
       for (const n of repeats) expect(n).toBe(1);
-      // Find your people says what's visible before buying, as the API allows it.
+      // Find your people: one benefit line (what's visible, as the API allows it) and one action; the
+      // step-by-step is on the event page's Who's Going panel.
       const band = page.locator("#find-your-people");
-      await expect(band).toContainText("Make a free profile and you’ll see who.");
-      await expect(band.getByRole("listitem").first()).toHaveText(/Sign up and make a free profile to see who’s going\./);
+      await expect(band).toContainText("once three people have added themselves. Make a free profile to see who.");
+      await expect(band.getByRole("link")).toHaveCount(1);
+      await expect(band.getByRole("listitem")).toHaveCount(0);
     });
   });
 }

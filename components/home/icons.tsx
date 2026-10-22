@@ -53,3 +53,13 @@ export function ExternalIcon({ className = "size-4 shrink-0" }: { className?: st
     </svg>
   );
 }
+
+/** A person (head and shoulders): the event page's organiser line. */
+export function PersonIcon({ className = "h-3 w-3" }: { className?: string }) {
+  return (
+    <svg {...common} strokeWidth={2} className={className}>
+      <circle cx="12" cy="8" r="3.5" />
+      <path d="M5 20.5c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5" />
+    </svg>
+  );
+}

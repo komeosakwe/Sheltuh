@@ -2,13 +2,13 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import CategoryRow from "@/components/home/CategoryRow";
-import CommunitySection from "@/components/home/CommunitySection";
+import CommunitySection, { COMMUNITY_BENEFIT } from "@/components/home/CommunitySection";
 import CreatorsCard from "@/components/home/CreatorsCard";
 import GuideCard from "@/components/home/GuideCard";
 import HomeHero from "@/components/home/HomeHero";
+import { HOME_INTRO } from "@/components/home/home-content";
 import HomeRail, { HomeRailItem } from "@/components/home/HomeRail";
 import SectionHead from "@/components/ui/SectionHead";
-import GoingStack from "@/components/ui/GoingStack";
 import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
 
 afterEach(() => {
@@ -40,44 +40,33 @@ describe("HomeHero (mobile-redesign.md §6.1)", () => {
     expect(h1).toHaveClass("display-lg", "font-display");
   });
 
-  it("has the eyebrow and one plain sentence", () => {
-    render(<HomeHero />);
+  // Refinement (owner, 22 Oct 2026): a shorter hero, so the first event's image and title reach a
+  // phone's first screen.
+  it("has the eyebrow (the page's one use of the brand dots) and one short sentence", () => {
+    const { container } = render(<HomeHero />);
     expect(screen.getByText("Melbourne • What’s on")).toHaveClass("eyebrow");
-    expect(
-      screen.getByText("Discover Melbourne’s music, art, workshops and pop-ups. See who’s going before you book."),
-    ).toBeInTheDocument();
+    expect(screen.getByText(HOME_INTRO)).toBeInTheDocument();
+    expect(HOME_INTRO.length).toBeLessThanOrEqual(60);
+    expect(container.querySelectorAll("p.eyebrow svg")).toHaveLength(1);
   });
 
-  // Owner feedback (22 Oct 2026): search is the hero's main action; "Explore events" was a full-width
-  // orange button and is now a text link under the search, so the first screen reaches the categories.
-  it("makes search the main action, with 'Explore all events' a text link under it (no orange button)", () => {
+  it("makes search the main action, with one search icon (the submit button) and no orange button or link", () => {
     const { container } = render(<HomeHero />);
     const search = screen.getByRole("search", { name: "Search events" });
     // A3 (WCAG 2.5.3): the field's name is the words it shows, so "Search events" works by voice too.
     expect(within(search).getByRole("searchbox", { name: "Search events" })).toHaveAttribute("placeholder", "Search events");
-    const explore = screen.getByRole("link", { name: "Explore all events" });
-    expect(explore).toHaveAttribute("href", "/events");
-    expect(explore).toHaveClass("underline", "min-h-11");
-    expect(explore.className).not.toMatch(/\bbtn/);
-    expect(explore.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
-    expect(search.compareDocumentPosition(explore) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getAllByRole("link")).toEqual([explore]);
+    expect(within(search).getByRole("button", { name: "Search" })).toHaveAttribute("type", "submit");
+    // No second magnifier at the field's start: the submit button's is the only one.
+    expect(search.querySelectorAll("svg")).toHaveLength(1);
     expect(container.querySelector(".btn-signal")).toBeNull();
-    // The old second CTA and the categories have left the hero.
-    expect(screen.queryByRole("link", { name: "Find your people" })).toBeNull();
+    // Browsing is the category row under the hero; the hero itself has no links.
+    expect(screen.queryAllByRole("link")).toEqual([]);
     expect(screen.queryByRole("navigation")).toBeNull();
   });
 
-  it("ends with the demo label, compact (one short line), after the search", () => {
+  it("carries no demo label of its own: the page's one sample-data disclosure is the banner (DemoBanner)", () => {
     render(<HomeHero />);
-    const search = screen.getByRole("search", { name: "Search events" });
-    // Tests run without Supabase settings: demo mode.
-    const note = screen.getByRole("note");
-    expect(note).toHaveTextContent("Demo — sample events");
-    expect(note).toHaveTextContent("Not real bookings.");
-    expect(note).toHaveAttribute("data-compact");
-    expect(note).toHaveClass("text-xs");
-    expect(search.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole("note")).toBeNull();
   });
 
   it("nothing animates in: the hero reads at once", () => {
@@ -105,13 +94,13 @@ describe("HomeHero (mobile-redesign.md §6.1)", () => {
   });
 });
 
-describe("CategoryRow: Explore by category (§6.3.6)", () => {
-  it("is a section with its own head and a list of six tiles, each to /events with that filter", () => {
+describe("CategoryRow: browse by category (Refinement, 22 Oct 2026)", () => {
+  it("is a labelled nav of chips, All events first, then each category, each to /events with that filter", () => {
     render(<CategoryRow />);
-    const section = screen.getByRole("region", { name: "Explore by category" });
-    expect(within(section).getByRole("heading", { level: 2, name: "Explore by category" })).toBeInTheDocument();
-    const links = within(within(section).getByRole("list")).getAllByRole("link");
+    const nav = screen.getByRole("navigation", { name: "Browse by category" });
+    const links = within(within(nav).getByRole("list")).getAllByRole("link");
     expect(links.map((l) => [l.textContent, l.getAttribute("href")])).toEqual([
+      ["All events", "/events"],
       ["Live music", "/events?category=live-music"],
       ["Art", "/events?category=art"],
       ["Workshops", "/events?category=workshop"],
@@ -119,16 +108,19 @@ describe("CategoryRow: Explore by category (§6.3.6)", () => {
       ["Theatre", "/events?category=theatre"],
       ["Free", "/events?pricing=free"],
     ]);
-    // Icons are decorative; the label names the link. No See all: it's the index.
-    for (const svg of section.querySelectorAll("svg")) expect(svg).toHaveAttribute("aria-hidden", "true");
-    expect(screen.queryByRole("link", { name: /See all/ })).toBeNull();
+    // Icons are decorative; the label names the link.
+    for (const svg of nav.querySelectorAll("svg")) expect(svg).toHaveAttribute("aria-hidden", "true");
+    // No heading: the chips say what they are.
+    expect(screen.queryByRole("heading")).toBeNull();
   });
 
-  it("is a grid, three across on phones and six from 640px (no sideways rail); bordered 72px tiles", () => {
+  it("is one compact row that scrolls sideways inside its own container on phones and wraps from 640px; 44px chips", () => {
     render(<CategoryRow />);
-    expect(screen.getByRole("list")).toHaveClass("grid", "grid-cols-3", "sm:grid-cols-6");
-    expect(screen.getByRole("list").className).not.toMatch(/overflow-x|snap-x/);
-    expect(screen.getByRole("link", { name: "Theatre" })).toHaveClass("min-h-18", "rounded-control", "border", "border-foreground");
+    const list = screen.getByRole("list");
+    expect(list).toHaveClass("flex", "overflow-x-auto", "-mx-5", "px-5", "sm:flex-wrap", "sm:overflow-visible");
+    expect(list.className).not.toMatch(/\bgrid\b/);
+    for (const item of within(list).getAllByRole("listitem")) expect(item).toHaveClass("shrink-0");
+    expect(screen.getByRole("link", { name: "Theatre" })).toHaveClass("h-11", "sm:h-10", "rounded-control");
   });
 });
 
@@ -148,34 +140,25 @@ describe("SectionHead", () => {
     expect(link).toHaveTextContent(/^All events$/);
   });
 
-  it("never repeats the h2 in a strap: a black rule, then the h2 (dots first, hidden), and nothing else saying the title", () => {
+  // Refinement (owner, 22 Oct 2026): calmer section heads, no rule and no orange dots.
+  it("is a calm sentence-case h2 with no rule, no dots and no strap repeating it", () => {
     const { container } = render(<SectionHead id="w" title="Popular right now" link={{ href: "/events", label: "All events" }} />);
     const root = container.firstElementChild as HTMLElement;
-    expect(root).toHaveClass("border-t", "border-foreground");
+    expect(root.className).not.toMatch(/border-t/);
     const h2 = screen.getByRole("heading", { level: 2, name: "Popular right now" });
-    expect(h2).toHaveClass("display-md");
-    expect(h2.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
-    // The title's words appear once in the head (the old mono strap said them twice).
+    expect(h2).toHaveClass("display-md", "text-balance");
+    expect(h2.querySelector("svg")).toBeNull();
     expect(root.textContent?.match(/Popular right now/g)).toHaveLength(1);
     expect(root.querySelector(".eyebrow")).toBeNull();
-  });
-
-  it("balances a long title's lines, keeps the dots on its first line, and lines the link up on the h2's baseline (V7, V14)", () => {
-    const { container } = render(<SectionHead id="w" title="From organisers you follow" link={{ href: "/following", srLabel: "organisers you follow" }} />);
-    const root = container.firstElementChild as HTMLElement;
+    // The link sits on the h2's baseline.
     expect(root).toHaveClass("items-baseline");
-    const h2 = screen.getByRole("heading", { level: 2 });
-    expect(h2).toHaveClass("items-baseline");
-    expect(within(h2).getByText("From organisers you follow")).toHaveClass("text-balance");
-    // The dots sit in a one-line-tall box at the top, out of the baseline.
-    expect(h2.querySelector("svg")?.parentElement).toHaveClass("h-lh", "items-center", "self-start");
   });
 
   it("puts the note (real context, e.g. the weekend's dates) after the h2 in reading order", () => {
     render(<SectionHead id="w" title="This weekend" note="Fri 23 – Sun 25 Oct" link={{ href: "/events", label: "All events" }} />);
     const h2 = screen.getByRole("heading", { level: 2, name: "This weekend" });
     const note = screen.getByText("Fri 23 – Sun 25 Oct");
-    expect(note).toHaveClass("meta", "text-muted");
+    expect(note).toHaveClass("text-sm", "text-muted");
     expect(note.closest("[aria-hidden='true']")).toBeNull();
     expect(h2.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The link after both, with a 44px target.
@@ -265,24 +248,6 @@ describe("HomeRail", () => {
 
 });
 
-describe("GoingStack", () => {
-  it("sm: shows the count as text and hides the avatars, which carry one initial each", () => {
-    const { container } = render(<GoingStack count={12} initials={["MA", "LB", "TC"]} />);
-    expect(screen.getByText("12 going")).toBeInTheDocument();
-    const avatars = container.querySelector("[aria-hidden='true']");
-    expect(avatars?.children).toHaveLength(3);
-    expect(avatars?.textContent).toBe("MLT");
-    for (const avatar of avatars?.children ?? []) expect(avatar).toHaveClass("rounded-dot");
-  });
-
-  it("lg: five avatars and never a number", () => {
-    const { container } = render(<GoingStack size="lg" initials={["A", "B", "C", "D", "E"]} />);
-    expect(container.firstElementChild).toHaveAttribute("aria-hidden", "true");
-    expect(container.firstElementChild?.children).toHaveLength(5);
-    expect(container.textContent).not.toMatch(/\d|going/);
-  });
-});
-
 describe("GuideCard and CreatorsCard", () => {
   it("the guide is a white, black-bordered card pointing at the map", () => {
     const { container } = render(<GuideCard />);
@@ -304,8 +269,8 @@ describe("GuideCard and CreatorsCard", () => {
   });
 });
 
-describe("CommunitySection", () => {
-  it("is the page's orange band and a jump target (#find-your-people), sending signed-out visitors to sign up", () => {
+describe("CommunitySection (compressed in the Refinement, 22 Oct 2026)", () => {
+  it("is the page's orange band and a jump target (#find-your-people): a calm heading, one benefit line, one action", () => {
     const { container } = render(
       <FakeAuthProvider value={fakeAuthValue({ status: "signed-out" })}>
         <CommunitySection />
@@ -314,26 +279,25 @@ describe("CommunitySection", () => {
     const section = container.querySelector("#find-your-people");
     expect(section).toHaveAttribute("tabindex", "-1");
     expect(section).toHaveAttribute("data-surface", "signal");
-    // The h2 names the band; "Find your people" is its eyebrow.
-    expect(screen.getByRole("region", { name: "See who’s going before you book." })).toBe(section);
-    expect(screen.getByText("Find your people")).toHaveClass("eyebrow");
+    const h2 = screen.getByRole("heading", { level: 2, name: "See who’s going before you book" });
+    expect(screen.getByRole("region", { name: "See who’s going before you book" })).toBe(section);
+    // A section heading, not a second display headline.
+    expect(h2).toHaveClass("display-md");
+    expect(h2).not.toHaveClass("display-lg");
     // What's open before buying, as the API allows it: the count to anyone (from three), the names to
-    // members with a free profile, no ticket needed (lib/server/handlers/going.ts).
-    expect(
-      screen.getByText(
-        "Anyone can see how many are going, once there are three or more. Make a free profile and you’ll see who.",
-      ),
-    ).toBeInTheDocument();
-    const cta = screen.getByRole("link", { name: "Join the community" });
-    expect(cta).toHaveAttribute("href", "/signup");
-    // Never an orange button on the orange band.
-    expect(cta).toHaveClass("btn-solid");
+    // members with a free profile (lib/server/handlers/going.ts).
+    expect(screen.getByText(COMMUNITY_BENEFIT)).toBeInTheDocument();
+    expect(COMMUNITY_BENEFIT).toMatch(/three/);
+    expect(COMMUNITY_BENEFIT).toMatch(/free profile/);
+    // One action, never orange on the orange band.
+    const links = screen.getAllByRole("link");
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAccessibleName("Sign up free");
+    expect(links[0]).toHaveAttribute("href", "/signup");
+    expect(links[0]).toHaveClass("btn-solid");
     expect(container.querySelector(".btn-signal")).toBeNull();
-    // A1: buying needs no account, so the way to events is right beside it, after it in reading order.
-    const browse = screen.getByRole("link", { name: "Browse events" });
-    expect(browse).toHaveAttribute("href", "/events");
-    expect(browse).toHaveClass("min-h-11");
-    expect(cta.compareDocumentPosition(browse) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The step-by-step lives on the event page's Who's Going panel now.
+    expect(screen.queryByRole("list")).toBeNull();
   });
 
   it("sends signed-in members to find an event", () => {
@@ -343,9 +307,7 @@ describe("CommunitySection", () => {
       </FakeAuthProvider>,
     );
     expect(screen.getByRole("link", { name: "Find an event" })).toHaveAttribute("href", "/events");
-    expect(screen.queryByRole("link", { name: "Join the community" })).not.toBeInTheDocument();
-    // One way to events is enough here.
-    expect(screen.queryByRole("link", { name: "Browse events" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Sign up free" })).not.toBeInTheDocument();
   });
 
   it("treats loading auth (and the server render) as signed out", () => {
@@ -354,30 +316,12 @@ describe("CommunitySection", () => {
         <CommunitySection />
       </FakeAuthProvider>,
     );
-    expect(screen.getByRole("link", { name: "Join the community" })).toHaveAttribute("href", "/signup");
+    expect(screen.getByRole("link", { name: "Sign up free" })).toHaveAttribute("href", "/signup");
   });
 
-  // The steps used to start with "Get a ticket", which contradicted the heading: names are visible to
-  // members with a profile before they book. Now: see (profile), add yourself (ticket), message (on the list).
-  it("explains how it works in three real steps, in the order access opens up (the numbers are for the eye only)", () => {
-    render(<CommunitySection />);
-    const steps = screen.getByRole("list");
-    expect(steps.tagName).toBe("OL");
-    expect(within(steps).getAllByRole("listitem").map((li) => li.querySelector("p")?.textContent)).toEqual([
-      "Sign up and make a free profile to see who’s going.",
-      "Got a ticket? Add yourself to the list, only if you want to.",
-      "Once you’re on the list, say hi to others going before the night.",
-    ]);
-    // Seeing comes before the ticket; the ticket only gates adding yourself.
-    expect(screen.queryByText(/^Get a ticket/)).toBeNull();
-    for (const n of steps.querySelectorAll("[data-step-number]")) expect(n).toHaveAttribute("aria-hidden", "true");
-  });
-
-  it("never shows a community size", () => {
+  it("invents nothing: with no events to draw on, no example and no number at all", () => {
     const { container } = render(<CommunitySection />);
-    // The steps' "01"–"03" are ordinal labels, not counts: read everything else.
-    const clone = container.cloneNode(true) as HTMLElement;
-    for (const n of clone.querySelectorAll("[data-step-number]")) n.remove();
-    expect(clone.textContent).not.toMatch(/\d/);
+    expect(container.querySelector("[data-community-example]")).toBeNull();
+    expect(container.textContent).not.toMatch(/\d/);
   });
 });

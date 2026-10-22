@@ -34,7 +34,8 @@ function setPageInert(inert: boolean) {
 }
 
 /**
- * Site header. Below `lg` it is one 56px bar (wordmark, search link, Menu button)
+ * Site header. Below `lg` it is one 56px bar (wordmark, search link except on the
+ * home, whose hero has the search; Saved; Menu button)
  * whose menu is a native popover: Escape and outside taps close it, and focus
  * returns to the Menu button. From `lg` up it is the one-row desktop header.
  */
@@ -108,25 +109,28 @@ export default function Nav() {
           <Wordmark className="h-5 w-auto" />
         </Link>
         <div className="flex items-center">
-          <Link
-            href="/search"
-            aria-label="Search"
-            aria-current={pathname === "/search" ? "page" : undefined}
-            className="flex size-11 items-center justify-center"
-          >
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              className="h-5 w-5 text-foreground"
+          {/* Not on the home: its hero holds the page's one search (as the desktop row leaves its field out there). */}
+          {pathname !== "/" && (
+            <Link
+              href="/search"
+              aria-label="Search"
+              aria-current={pathname === "/search" ? "page" : undefined}
+              className="flex size-11 items-center justify-center"
             >
-              <circle cx="11" cy="11" r="7" />
-              <path d="m20 20-3.5-3.5" />
-            </svg>
-          </Link>
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                className="h-5 w-5 text-foreground"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg>
+            </Link>
+          )}
           <SavedNavLink size="compact" />
           <button
             ref={menuButtonRef}

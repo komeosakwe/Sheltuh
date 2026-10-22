@@ -11,6 +11,9 @@ export interface HomeArt {
   imageUrl?: string;
 }
 
+/** The hero's one short sentence under the h1 (mobile-redesign.md, Refinement 22 Oct 2026). */
+export const HOME_INTRO = "Music, art, workshops and pop-ups. See who’s going.";
+
 /** Photo shown in the hero box (public/events/vintage-market-stall.jpg). */
 export const HOME_HERO: HomeArt = {
   imageUrl: "/events/vintage-market-stall.jpg",

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { PublicEvent } from "@/lib/api/public-events";
+import { HOME_INTRO } from "@/components/home/home-content";
 import { weekendWindow } from "@/lib/home-sections";
 import { sampleEvents } from "@/lib/sample-events";
 
@@ -119,26 +120,22 @@ for (const width of [375, 1280]) {
   test.describe(`home hero at ${width}px`, () => {
     test.use({ viewport: { width, height: 800 } });
 
-    test("the brief's copy, search as the main action and no orange button", async ({ page }) => {
+    test("short copy, search as the main action, the page's only search, and no orange button", async ({ page }) => {
       await mockApi(page);
       await page.goto("/");
       const hero = page.getByRole("region", { name: "Find your next thing." });
       await expect(hero.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
       await expect(hero.getByText("Melbourne • What’s on")).toBeVisible();
-      await expect(
-        hero.getByText("Discover Melbourne’s music, art, workshops and pop-ups. See who’s going before you book."),
-      ).toBeVisible();
-      // Owner feedback (22 Oct 2026): search is the main action; "Explore all events" is a text link
-      // under it (it was a full-width orange button), and it's the hero's only link.
+      await expect(hero.getByText(HOME_INTRO)).toBeVisible();
       await expect(hero.getByRole("search", { name: "Search events" })).toBeVisible();
       await expect(hero.locator(".btn-signal")).toHaveCount(0);
-      const explore = hero.getByRole("link", { name: "Explore all events" });
-      await expect(explore).toHaveAttribute("href", "/events");
-      await expect(hero.getByRole("link")).toHaveCount(1);
-      const search = await hero.getByRole("search").boundingBox();
-      const link = await explore.boundingBox();
-      expect((link?.y ?? -1) >= (search?.y ?? Infinity) + (search?.height ?? 0) - 0.5).toBe(true);
-      expect(link?.height ?? 0).toBeGreaterThanOrEqual(44);
+      // Refinement (22 Oct 2026): browsing is the category row under the hero; the hero has no links.
+      await expect(hero.getByRole("link")).toHaveCount(0);
+      // One search on the home: no header field (desktop) or search icon (phones), and the hero's field
+      // has one magnifier (its submit button).
+      await expect(page.getByRole("search")).toHaveCount(1);
+      await expect(page.locator("header a[href='/search']")).toHaveCount(0);
+      await expect(hero.getByRole("search").locator("svg")).toHaveCount(1);
       // The h1 is two lines at 100% text size, never more.
       const lines = await hero.getByRole("heading", { level: 1 }).evaluate((h1) => {
         const lineHeight = parseFloat(getComputedStyle(h1).lineHeight);
@@ -242,26 +239,124 @@ for (const width of [320, 375, 390, 430]) {
 test.describe("home first screen at 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("shows the category buttons, then This weekend's heading and the top of its first card", async ({ page }) => {
+  // Refinement (owner, 22 Oct 2026): the first event's image and title on a typical phone's first screen.
+  test("shows the search, the category row, then This weekend's heading and its first card's image and title", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
     await expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 30_000 });
     await page.evaluate(() => document.fonts.ready);
-    const categories = page.getByRole("region", { name: "Explore by category" });
-    for (const link of await categories.getByRole("link").all()) {
-      const b = await link.boundingBox();
-      expect((b?.y ?? Infinity) + (b?.height ?? 0)).toBeLessThanOrEqual(844);
-    }
+    const inView = async (locator: ReturnType<Page["locator"]>) => {
+      const b = await locator.boundingBox();
+      if (!b) throw new Error("not rendered");
+      expect(b.y).toBeGreaterThanOrEqual(0);
+      expect(b.y + b.height).toBeLessThanOrEqual(844);
+    };
+    await inView(page.getByRole("search", { name: "Search events" }));
+    await inView(page.getByRole("navigation", { name: "Browse by category" }).getByRole("link").first());
     const weekend = page.getByRole("region", { name: "This weekend" });
-    const h2 = await weekend.getByRole("heading", { level: 2 }).boundingBox();
-    const card = await weekend.locator("[data-event-card]").first().boundingBox();
-    expect((h2?.y ?? Infinity) + (h2?.height ?? 0)).toBeLessThanOrEqual(844);
-    expect(card?.y ?? Infinity).toBeLessThan(844);
+    await inView(weekend.getByRole("heading", { level: 2 }));
+    const card = weekend.locator("[data-event-card]").first();
+    await inView(card.locator("[data-card-media]"));
+    await inView(card.getByRole("heading", { level: 3 }));
+  });
+
+  test("the category row scrolls inside its own container with 44px chips, and the page doesn't move sideways", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/");
+    const row = page.getByRole("navigation", { name: "Browse by category" }).getByRole("list");
+    await expect(row).toBeVisible({ timeout: 30_000 });
+    const scroller = await row.evaluate((ul) => ({ overflowX: getComputedStyle(ul).overflowX, scrolls: ul.scrollWidth > ul.clientWidth }));
+    expect(scroller.overflowX).toBe("auto");
+    expect(scroller.scrolls).toBe(true);
+    for (const link of await row.getByRole("link").all()) {
+      expect((await link.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+    await row.evaluate((ul) => ul.scrollTo({ left: ul.scrollWidth, behavior: "instant" }));
+    expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
+    await expect(row.getByRole("link", { name: "Free" })).toHaveAttribute("href", "/events?pricing=free");
+  });
+});
+
+test.describe("footer on a phone (375px)", () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  test("support and legal links are visible; Explore and Our company open and close from the keyboard", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/");
+    await expect(page.locator("[data-home-section]").first()).toBeVisible({ timeout: 30_000 });
+    const footer = page.locator("footer");
+    await expect(footer.getByRole("link", { name: "Help & FAQs" })).toBeVisible();
+    await expect(footer.getByRole("link", { name: "Contact support" })).toBeVisible();
+    await expect(footer.getByRole("navigation", { name: "Legal" }).getByRole("link", { name: "Privacy Policy" })).toBeVisible();
+    const toggle = footer.getByRole("button", { name: "Explore" });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(footer.getByRole("link", { name: "All events" })).toBeHidden();
+    // Tab onto it from the last support link, as a keyboard user would.
+    await footer.getByRole("link", { name: "Contact support" }).focus();
+    await page.keyboard.press("Tab");
+    await expect(toggle).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(footer.getByRole("link", { name: "All events" })).toBeVisible();
+    // The next Tab goes into the opened group.
+    await page.keyboard.press("Tab");
+    await expect(footer.getByRole("link", { name: "All events" })).toBeFocused();
+    await toggle.focus();
+    await page.keyboard.press("Space");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(footer.getByRole("link", { name: "All events" })).toBeHidden();
+    // A visible focus ring on the toggle.
+    expect(await toggle.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe("none");
   });
 });
 
 test.describe("event page at 390px", () => {
   test.use({ viewport: { width: 390, height: 844 } });
+
+  // WCAG 2.4.11 (focus not obscured): the sticky buy bar never covers what has keyboard focus.
+  test("the sticky buy bar never covers a control focused by keyboard", async ({ page }) => {
+    await mockApi(page);
+    await page.goto(`/events/${EVENT_SLUG}`);
+    const bar = page.locator("[data-buy-bar]");
+    await expect(bar).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("Loading who’s going…")).toHaveCount(0);
+    await page.evaluate(() => document.fonts.ready);
+    let checked = 0;
+    for (let i = 0; i < 40; i++) {
+      await page.keyboard.press("Tab");
+      // The page scrolls smoothly to the focused control: measure once it has settled.
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            let last = -1;
+            let still = 0;
+            const tick = () => {
+              const y = window.scrollY;
+              if (y === last) still += 1;
+              else {
+                still = 0;
+                last = y;
+              }
+              if (still >= 5) resolve();
+              else requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+          }),
+      );
+      const result = await page.evaluate(() => {
+        const el = document.activeElement;
+        const barEl = document.querySelector("[data-buy-bar]");
+        if (!(el instanceof HTMLElement) || !barEl || barEl.contains(el) || !el.closest("main")) return null;
+        const box = el.getBoundingClientRect();
+        if (box.height === 0) return null;
+        return { name: el.textContent?.trim().slice(0, 40) ?? el.tagName, bottom: box.bottom, barTop: barEl.getBoundingClientRect().top };
+      });
+      if (!result) continue;
+      checked += 1;
+      expect(result.bottom, `"${result.name}" is under the buy bar`).toBeLessThanOrEqual(result.barTop + 0.5);
+    }
+    expect(checked).toBeGreaterThan(5);
+  });
 
   test("the buy bar settles below the Tickets panel at the end of the page", async ({ page }) => {
     await mockApi(page);

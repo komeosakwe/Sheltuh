@@ -61,12 +61,12 @@ describe("sold-out cards (brand-direction-one.md §6.5)", () => {
     expectSoldOutCard();
   });
 
-  it("no badge on the media (no colour-only signal): only the art is there; the category is below it", () => {
+  it("no badge on the media (no colour-only signal): only the art is there; the category is in the small line below", () => {
     const { container } = render(<EventCard event={soldOut} variant="grid" showSave={false} />);
     const media = container.querySelector(".rounded-card");
     expect(media?.children).toHaveLength(1);
     expect(media?.firstElementChild).toHaveAttribute("aria-hidden", "true");
-    expect(container.querySelector("p.eyebrow")).toHaveTextContent("Theatre");
+    expect(container.querySelector("[data-card-secondary]")).toHaveTextContent(/^Theatre/);
   });
 
   it("an ended sold-out event has no Join waitlist: its price line says Ended (§6.2.3 row 1)", () => {

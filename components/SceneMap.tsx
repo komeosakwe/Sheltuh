@@ -4,7 +4,6 @@ import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import BrandU from "@/components/brand/BrandU";
-import DemoNotice from "@/components/DemoNotice";
 import SceneEventRow from "@/components/SceneEventRow";
 import SceneMapFilterBar from "@/components/SceneMapFilterBar";
 import SceneMapEventCard from "@/components/map/SceneMapEventCard";
@@ -144,7 +143,6 @@ interface SceneMapViewProps {
   hasMore?: boolean;
   loadingMore?: boolean;
   onLoadMore?: () => void;
-  demo?: boolean;
 }
 
 function SceneMapView({
@@ -156,7 +154,6 @@ function SceneMapView({
   hasMore,
   loadingMore,
   onLoadMore,
-  demo,
 }: SceneMapViewProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -406,8 +403,6 @@ function SceneMapView({
         intro="Events on the map. Tap a spot to see what’s on there."
       />
 
-      {demo && <DemoNotice>Sample listings — buttons open the sample event; nothing is sold.</DemoNotice>}
-
       <SceneMapFilterBar
         search={filters.search}
         onSearchChange={(search) => setFilters((f) => ({ ...f, search }))}
@@ -628,7 +623,6 @@ function SceneMapDemo() {
       events={events ?? []}
       categories={categories}
       status={events === null ? "loading" : "loaded"}
-      demo
     />
   );
 }

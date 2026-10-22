@@ -88,7 +88,7 @@ describe("EventDetailsView buy bar (phones and tablets)", () => {
 describe("EventDetailsView once the event has ended (mobile-redesign.md §6.5, §10.3 #2)", () => {
   // A7 (accessibility review, 22 Oct 2026): the buy bar is gone entirely once an event has ended (it
   // used to say "This event has ended." with Save, or "See tickets" when sold out). Nothing's for sale;
-  // the Tickets panel says so, and Save stays by the title.
+  // the Tickets panel says so, and Save stays in the row under the title.
   it("no buy bar at all; the tickets section says it has ended, and Save stays by the title", () => {
     vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));
     // Demo favourites (accounts not configured), so the Save hearts render.
@@ -162,12 +162,47 @@ describe("EventDetailsView photo", () => {
   });
 });
 
-describe("EventDetailsView key facts under the title", () => {
-  it("shows the date range and venue · suburb (hidden from lg, where the aside has them)", () => {
+describe("EventDetailsView key facts under the title (Refinement, 22 Oct 2026)", () => {
+  it("says the date and the venue once, in one facts block straight after the title, at every width", () => {
+    const event = findEvent("neon-static");
+    const { container } = render(<EventDetailsView event={event} demo />);
+    const facts = container.querySelector<HTMLElement>("[data-event-facts]");
+    if (!facts) throw new Error("facts not rendered");
+    expect(facts.className).not.toMatch(/lg:hidden|hidden/);
+    const heading = screen.getByRole("heading", { level: 1, name: event.title });
+    expect(heading.compareDocumentPosition(facts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // No second When/Where further down, and no "venue · suburb" copy under the title.
+    expect(screen.getAllByText("When")).toHaveLength(1);
+    expect(screen.getAllByText("Where")).toHaveLength(1);
+    expect(screen.queryByText(`${event.venueName} · ${event.suburb}`)).toBeNull();
+    const address = `${event.venueName}, ${event.venueAddress}`;
+    expect(container.textContent?.split(address)).toHaveLength(2);
+    // The time zone, Add to calendar, directions and the organiser all stay.
+    expect(within(facts).getByText(/^Melbourne time/)).toBeInTheDocument();
+    expect(within(facts).getByRole("button", { name: "Add to calendar" })).toBeInTheDocument();
+    expect(within(facts).getByRole("link", { name: /^Get directions to / })).toBeInTheDocument();
+    expect(within(facts).getByText(/^Organised by/)).toBeInTheDocument();
+  });
+
+  it("keeps each time whole ('8:00 pm', 'midnight'), so a narrow screen never splits one, but lets the rest wrap", () => {
+    const { container } = render(<EventDetailsView event={findEvent("neon-static")} demo />);
+    const parts = Array.from(container.querySelectorAll("[data-event-facts] .whitespace-nowrap")).map((el) => el.textContent);
+    expect(parts).toEqual(["8:00 pm", "midnight"]);
+  });
+
+  it("puts the tickets before About on phones (reading order: title, facts, tickets, then the description)", () => {
     const event = findEvent("neon-static");
     render(<EventDetailsView event={event} demo />);
-    const venue = screen.getByText(`${event.venueName} · ${event.suburb}`);
-    expect(venue.closest("p")).toHaveClass("lg:hidden");
+    const tickets = screen.getByRole("region", { name: "Tickets" });
+    const about = screen.getByRole("region", { name: "About this event" });
+    expect(tickets.compareDocumentPosition(about) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(about).getByText(event.description)).toBeInTheDocument();
+  });
+
+  it("repeats no page-level demo notice (the layout's banner is the one); the ticket panel still says nothing can be booked", () => {
+    render(<EventDetailsView event={findEvent("neon-static")} demo />);
+    expect(screen.queryByText(/fictional sample data/)).toBeNull();
+    expect(within(screen.getByRole("region", { name: "Tickets" })).getByText(/Checkout unavailable in this demo/i)).toBeInTheDocument();
   });
 });
 
@@ -192,7 +227,7 @@ describe("EventDetailsView organiser", () => {
   it("keeps the organiser as plain text when there's no profile to link to", () => {
     const event = { ...findEvent("neon-static"), organiserName: "Nobody In The Samples" };
     render(<EventDetailsView event={event} demo />);
-    expect(screen.getByText("Organised by Nobody In The Samples").tagName).toBe("DD");
+    expect(screen.getByText("Organised by Nobody In The Samples").closest("dd")).not.toBeNull();
     expect(screen.queryByRole("link", { name: "Nobody In The Samples" })).not.toBeInTheDocument();
   });
 });
@@ -237,13 +272,32 @@ describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => 
     expect(tickets.querySelector(".btn-signal")).toBeNull();
   });
 
-  it("has a category · suburb strap with Save and Share, then the title", () => {
+  // Refinement (22 Oct 2026): image, title, facts, then Save and Share in one quiet secondary row.
+  it("puts the photo first, then the category and the title (sentence case, calmer than the home's headline), then Save and Share in one row", () => {
     const event = findEvent("neon-static");
-    render(<EventDetailsView event={event} demo />);
+    // Demo favourites (accounts not configured), so the Save button renders.
+    const { container } = render(
+      <FakeAuthProvider value={fakeAuthValue({ configured: false, status: "signed-out" })}>
+        <FavouritesProvider>
+          <EventDetailsView event={event} demo />
+        </FavouritesProvider>
+      </FakeAuthProvider>,
+    );
     const heading = screen.getByRole("heading", { level: 1, name: event.title });
-    const share = screen.getByRole("button", { name: `Share ${event.title}` });
-    expect(screen.getByText(`Live music · ${event.suburb}`)).toBeInTheDocument();
-    expect(share.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(heading).toHaveClass("title-lg");
+    expect(heading).not.toHaveClass("display-lg");
+    const photo = container.querySelector("img, [aria-hidden='true'] svg");
+    if (!photo) throw new Error("no photo");
+    expect(photo.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("Live music")).toBeInTheDocument();
+    const row = container.querySelector<HTMLElement>("[data-event-actions]");
+    if (!row) throw new Error("no action row");
+    const share = within(row).getByRole("button", { name: `Share ${event.title}` });
+    expect(within(row).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
+      `Save ${event.title}`,
+      `Share ${event.title}`,
+    ]);
+    expect(heading.compareDocumentPosition(share) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("names the Tickets and Good to know sections by their headings (region landmarks)", () => {
@@ -259,7 +313,7 @@ describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => 
     if (!when) throw new Error("When row not rendered");
     // (Node's ICU writes September as "Sep" or "Sept".)
     expect(within(when).getAllByRole("definition")[0]).toHaveTextContent(
-      /^Fri 25 Sept?, 8:00 pm – Sat 26 Sept?, midnightMelbourne time \(AEST\)$/,
+      /^Fri 25 Sept?, 8:00 pm – Sat 26 Sept?, midnightMelbourne time \(AEST\)Add to calendar$/,
     );
     expect(document.body).not.toHaveTextContent("12:00 am");
   });

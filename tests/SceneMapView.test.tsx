@@ -281,9 +281,11 @@ describe("/map results and controls", () => {
     expect(label).not.toHaveClass("sr-only");
   });
 
-  it("demo: lists upcoming events only, under a notice that says the buttons open sample events", async () => {
+  // Refinement (22 Oct 2026): the page's one sample-data disclosure is the layout's DemoBanner, so the map
+  // no longer repeats its own; each event page's ticket panel still says nothing can be booked.
+  it("demo: lists upcoming events only, with no second demo notice of its own", async () => {
     await renderMap();
     expect(screen.queryByRole("link", { name: "Ended Night" })).toBeNull();
-    expect(screen.getByRole("note")).toHaveTextContent("Sample listings — buttons open the sample event; nothing is sold.");
+    expect(screen.queryByRole("note")).toBeNull();
   });
 });

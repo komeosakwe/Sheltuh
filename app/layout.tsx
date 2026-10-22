@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
+import DemoBanner from "@/components/DemoBanner";
 import Footer from "@/components/Footer";
 import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
 import { UnreadProvider } from "@/components/messages/UnreadProvider";
@@ -73,6 +74,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 <RouteProgress />
               </Suspense>
               <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
+                {/* The demo's one sample-data disclosure, at the top of every page. */}
+                {!isApiConfigured && <DemoBanner />}
                 {children}
               </main>
               <Footer />

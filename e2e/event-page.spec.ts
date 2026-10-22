@@ -175,11 +175,13 @@ for (const vp of [
         expect((box?.y ?? 0) + (box?.height ?? Infinity)).toBeLessThanOrEqual(bottom);
 
         if (vp.phone) {
-          // The key facts under the title (the When/Where aside comes much later on phones).
-          const facts = h1.locator("xpath=following-sibling::p[1]");
-          const factsBox = await facts.boundingBox();
-          expect(factsBox).not.toBeNull();
-          expect((factsBox?.y ?? 0) + (factsBox?.height ?? Infinity)).toBeLessThanOrEqual(bottom);
+          // The one facts block under the title (Refinement, 22 Oct 2026): the date and the venue.
+          const facts = page.locator("[data-event-facts]");
+          for (const fact of [facts.locator("dd").first().locator("p").first(), facts.locator("[data-directions] > span").first()]) {
+            const factBox = await fact.boundingBox();
+            expect(factBox).not.toBeNull();
+            expect((factBox?.y ?? 0) + (factBox?.height ?? Infinity)).toBeLessThanOrEqual(bottom);
+          }
         }
       });
     }

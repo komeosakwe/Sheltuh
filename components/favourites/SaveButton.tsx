@@ -2,38 +2,31 @@
 
 import Link from "next/link";
 import type { MouseEvent } from "react";
-import { buttonClass } from "@/components/ui/Button";
+import { secondaryActionClass } from "@/components/ui/Button";
 import { withNext } from "@/lib/safe-next-path";
 import type { SaveTarget } from "./favourites-store";
 import { useFavourites } from "./FavouritesProvider";
 import HeartIcon from "./HeartIcon";
 
-export type SaveButtonVariant = "overlay" | "plain" | "onDark" | "pill";
+export type SaveButtonVariant = "overlay" | "plain" | "action";
 
 const discBase = "flex size-9 items-center justify-center rounded-control border motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90";
 
 /** The 44px hit area and the visible mark, per variant and state. */
 function classes(variant: SaveButtonVariant, saved: boolean) {
   switch (variant) {
-    case "pill":
+    // The event page's secondary action row, beside Share: the page's one Save.
+    case "action":
       return {
-        target: buttonClass("outline", "md", "min-h-11 gap-2"),
+        target: `group/save ${secondaryActionClass}`,
         mark: null,
-        icon: "size-4",
+        icon: "size-4 motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90",
       };
     case "plain":
       return {
         target: "group/save flex size-11 items-center justify-center text-foreground",
         mark: null,
         icon: "size-5 motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90",
-      };
-    // Inside a `data-surface="ink"` section (the event page's buy bar), where
-    // foreground is cream and background black, so it inverts with the scope.
-    case "onDark":
-      return {
-        target: "group/save flex size-11 shrink-0 items-center justify-center rounded-control",
-        mark: `${discBase} border-foreground ${saved ? "bg-foreground text-background" : "text-foreground"}`,
-        icon: "size-4.5",
       };
     // On a photo, which can be dark: the page's black outline could vanish into it, so
     // keyboard focus rings the 36px mark instead, black on a cream gap that shows on any
@@ -82,7 +75,7 @@ export default function SaveButton({
       ) : (
         <HeartIcon filled={saved} className={c.icon} />
       )}
-      {variant === "pill" && "Save"}
+      {variant === "action" && "Save"}
     </>
   );
 

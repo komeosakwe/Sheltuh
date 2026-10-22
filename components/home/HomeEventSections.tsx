@@ -13,8 +13,8 @@ import SectionHead from "@/components/ui/SectionHead";
 /** The page's one load error (docs/design/mobile-redesign.md §6.3.4). */
 export const HOME_LOAD_ERROR = "Couldn’t load events. Check your connection and try again.";
 
-/** Every home section's spacing, the first after the hero included. */
-const SECTION = "mt-8 sm:mt-12 lg:mt-16";
+/** Every home section's spacing, the first after the category row included (Refinement, 22 Oct 2026: tighter). */
+const SECTION = "mt-6 sm:mt-10 lg:mt-12";
 
 /**
  * The home's event sections below the hero (docs/design/mobile-redesign.md
@@ -77,9 +77,7 @@ export default function HomeEventSections() {
 
       {loading && (
         <div aria-hidden="true" className={SECTION}>
-          <div className="border-t border-foreground pt-3">
-            <div className="mb-3 h-6 w-40 bg-surface sm:mb-5" />
-          </div>
+          <div className="mb-3 h-6 w-40 bg-surface sm:mb-4" />
           <div className="-mx-5 -my-4 flex gap-3 overflow-hidden px-5 py-4 sm:mx-0 sm:my-0 sm:grid sm:grid-cols-2 sm:gap-x-6 sm:px-0 sm:py-0 md:grid-cols-3 lg:grid-cols-4">
             <EventCardPlaceholder variant="rail" />
             <EventCardPlaceholder variant="rail" />
