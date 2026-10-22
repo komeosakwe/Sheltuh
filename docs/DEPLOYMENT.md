@@ -51,7 +51,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       `supabase/migrations/` in filename order that the project doesn't have
       yet, one SQL Editor query per file (or `npx supabase db push`), up to
       and including the newest, currently
-      `20261104000100_email_outbox_health.sql`. Never skip one or change
+      `20261104000200_checkout_attempts.sql`. Never skip one or change
       the order: later files rely on earlier ones (`20261023000100_review_hardening.sql`
       stops with a list of event ids if a stored ticket link breaks a newer
       rule; fix those and re-run it). Check with
@@ -80,6 +80,12 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           the admin health endpoint and the cron route's last-run record.
           Run it before deploying the app that uses it, which otherwise
           answers the cron route with a 500 after sending)
+      17. `20261104000200_checkout_attempts.sql` (paid checkout
+          idempotency and the general admission checkout limits. Run it
+          before deploying the app that uses it: that app refuses every paid
+          checkout (500) without it. The previous app keeps working against
+          it. Retention rides on the existing daily
+          `purge_operational_data` job: nothing new to schedule)
 - [ ] **`CRON_SECRET`** in Vercel (Production): a long random string
       (`openssl rand -hex 32`). Without it `/api/cron/email-outbox` and
       `/api/cron/trending` refuse every call: failed ticket emails are never

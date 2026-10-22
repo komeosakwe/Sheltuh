@@ -84,7 +84,8 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | `event_view_counts` | `(event_id, day, source, coalesce(link_code, ''))` (unique index) | Aggregate page-view counters, one row per event, Melbourne day, source bucket and tracking code: no visitor data of any kind. `link_code` is a plain copy of the code (no foreign key), so a deleted link's counts are kept. Deleted with the event, and by `purge_analytics` after 25 months. |
 | `event_outbound_clicks` | `(event_id, day)` | Clicks on an external event's ticket link, one row per event and Melbourne day: `clicks` (≥ 0) and `cap_reached` (the per-minute click cap was reached that day, so `clicks` is a lower bound). No visitor data of any kind. Deleted with the event, and by `purge_analytics` after 25 months. |
 | `private.event_rate_limits` | `(event_id, bucket)` | Fixed-window counters keyed on an event, never a person (`take_event_rate_limit`): caps the views (bucket `views`) and ticket-link clicks (`outbound`) counted per event per minute. Deleted with the event; idle rows purged daily. |
-| `private.client_rate_limits` | `(client_key, bucket)` | Fixed-window counters keyed on a client (`take_client_rate_limit`): the per-client seat-hold limit (buckets `seat_holds:<event id>` and `seat_holds`, see "Reserved seating"). `client_key` is the API's keyed SHA-256 (HMAC) of the client's IP address (an IPv6 address's /64), salted with a value derived from `STRIPE_WEBHOOK_SECRET` (`lib/server/client-key.ts`); the raw address is never stored or sent to the database (check constraint: 64 hex characters). Idle rows purged daily (`purge_operational_data`). |
+| `private.client_rate_limits` | `(client_key, bucket)` | Fixed-window counters keyed on a client (`take_client_rate_limit`): the per-client seat-hold limit (buckets `seat_holds:<event id>` and `seat_holds`, see "Reserved seating") and general admission paid checkout limit (buckets `checkouts:<event id>` and `checkouts`, see "Checkout idempotency"). `client_key` is the API's keyed SHA-256 (HMAC) of the client's IP address (an IPv6 address's /64), salted with a value derived from `STRIPE_WEBHOOK_SECRET` (`lib/server/client-key.ts`); the raw address is never stored or sent to the database (check constraint: 64 hex characters). Idle rows purged daily (`purge_operational_data`). |
+| `private.checkout_attempts` | `idempotency_key` | One paid checkout attempt per `Idempotency-Key` (see "Checkout idempotency"): event, kind (`ga` or `seated`), `fingerprint` (SHA-256 hex of the event, kind, canonical basket, normalised buyer email and tracking code: no email is stored), status (`in_progress` with a lease, `open` with the session URL and expiry and, seated, the hold's expiry, `failed`, `completed`), the order id (chosen before the order exists, so no foreign key). Deleted 2 days after creation (`purge_operational_data`; `checkout_attempts_created_idx` serves it). |
 | `private.event_view_cap_days` | `(event_id, day)` | A marker that the event's view cap was reached on that Melbourne day, so reports can flag the day's views as a lower bound. No visitor data. Deleted with the event, and by `purge_analytics` after 25 months. |
 | `private.event_curation` | `event_id` | An admin's trending curation (see "Trending"): `boost` (0.5 to 2, default 1, check constraint) and `excluded`, with who changed it last and when (null until changed). Written only by `set_event_curation`. Deleted with the event. |
 | `private.trending_snapshot` | `rank` | The ranked trending list (at most 24): rank, event (unique), score and when it was computed. Rebuilt as a whole by `refresh_trending`; holds no counts. Deleted with the event. |
@@ -130,7 +131,10 @@ times, which are converted to instants honouring daylight saving
 | `place_free_order` | A member's free order, created and fulfilled in one step under an advisory lock on (event, person): the per-person cap, then the daily allowance, then `fulfil_order`. A refusal or sell-out writes nothing (beyond a refusal count). Returns `paid`, `person_event_limit`, `member_daily_limit` or `sold_out`. |
 | `request_free_order` | A guest's pending free order: the platform's hourly and 24-hour caps (read-only), then, under an advisory lock on the address, the hourly link limit, then a hit on each platform cap. Returns `requested`, `address_limited`, `platform_limited` or `platform_daily_limited`. (The previous 13-argument form delegates to it with the same daily cap, for the deploy window; the app doesn't call it.) |
 | `confirm_free_order` | Confirms by token hash: locks the order, then (event, person), then the event (share) to check every ticket type is still free, then `fulfil_order`'s locks. Idempotent within the link's 24 hours. Returns `confirmed`, `already_confirmed`, `expired_confirmed`, `not_found`, `expired`, `unavailable`, `person_event_limit`, `no_longer_free`, `seats_taken` (a seated order's seats went to someone else since the link was sent) or `sold_out` (the last four mark the order `failed`). A seated order takes the seat lock before the order row. |
-| `purge_operational_data` | Retention for free-ticket and outbox data (see "Free tickets" and "Payment flow"); sent outbox jobs after 90 days, failed ones after a year; per-client counters (`client_rate_limits`) idle for a day; early refund rows 35 days after their last update; resolved payment exceptions 2 years after resolution (open ones never). Idempotent; Supabase Cron daily. |
+| `purge_operational_data` | Retention for free-ticket and outbox data (see "Free tickets" and "Payment flow"); sent outbox jobs after 90 days, failed ones after a year; per-client counters (`client_rate_limits`) idle for a day; early refund rows 35 days after their last update; resolved payment exceptions 2 years after resolution (open ones never); checkout attempts 2 days after creation, first failing any order a failed attempt kept pending with no session recorded (no Checkout Session lives that long). Idempotent; Supabase Cron daily. |
+| `begin_checkout_attempt` | Claims an `Idempotency-Key` for one request (see "Checkout idempotency"): insert-or-lock the attempt row, then `mismatch`, `in_progress` (live lease; seconds left), `replay` (order, URL, hold expiry), `expired`, `completed`, or `create` under a 90-second lease (a new key, or a retry of a failed one). A new key's row and its limits are one subtransaction, so a limit refusal (`client_event_limit`, `client_all_limit`, `event_limit`) writes nothing. A retry reuses a still-pending order with no session that's young enough (`reused`), else takes the limits again and releases the old pending order (seats freed). Lock order: the attempt row, the limit counters, then the seat lock and the order when releasing. |
+| `finish_checkout_attempt` / `fail_checkout_attempt` | Lease-checked (`lost` otherwise, changing nothing). Finish locks the attempt, then the order: records the session on the still-pending order and opens the attempt (`open`), or fails the attempt if the order stopped being pending (`order_closed`). Fail releases the lease and, when asked, the order (`release_checkout_order`: a seated order through `release_seat_holds`, a general admission one directly). |
+| `take_checkout_attempt` | General admission paid checkout limits: per client (skipped for a null key) 'checkouts:<event id>' then 'checkouts', then the event's 'checkouts' bucket (`take_event_rate_limit`). Returns `ok`, `event`, `all` or `busy`; a refusal keeps no hit. `take_checkout_limits` picks it or (seated) `take_seat_hold_attempt`. |
 | `claim_outbox_jobs`, `finish_email_job`, `resend_email_job`, `admin_resend_email_job` | The email outbox: lease due jobs of any kind (optionally one order's, or one kind) with `skip locked` (an expired lease is taken again; one that expired on the 6th attempt fails), record an outcome only for the current lease holder, and an admin resend of a ticket email (not while leased, not twice in 5 minutes; a waitlist email is `not_found`). `admin_resend_email_job` takes a hit on the admin's hourly allowance only when the resend is queued, in the same transaction (over it: `rate_limited`, nothing changed). `claim_email_jobs`, the earlier form, now claims ticket emails only and is kept for the deploy window (see "Not built yet"). |
 | `email_outbox_health(p_overdue_after)` | Per outbox kind: due, overdue (due, or leased by a worker that died, for longer than `p_overdue_after`), the oldest overdue job's age in seconds, waiting, sending, expired leases, failed and failed in the last 7 days. Sent jobs aren't read. Counts only; `GET /api/admin/emails/health` and the SQL editor (`20261104000100_email_outbox_health.sql`). |
 | `waitlist_join_state` | Whether an event's waitlist takes joins: `open` (published, Sheltüh-ticketed, not ended, has ticket types and every one is sold out), else `not_found` (missing or not published), `external`, `ended` or `not_sold_out`. |
@@ -174,6 +178,9 @@ times, which are converted to instants honouring daylight saving
      sent to Stripe.
    - The order is inserted as `pending` *before* Stripe is called, so a
      payment can never arrive without an order to attach it to.
+   - A paid checkout is one attempt per `Idempotency-Key`: a repeat gets the
+     same order and session, never a second one, and Stripe is asked with a
+     per-order idempotency key (see "Checkout idempotency" below).
    - A Checkout Session is created as a destination charge to the
      organiser's Express account, with `application_fee_amount` set to the
      booking fee.
@@ -303,6 +310,128 @@ times, which are converted to instants honouring daylight saving
    like one (`ord_` + 32 hex) is a 404 without a query, and a pending order
    reveals only its status. `/checkout/*` pages send `Referrer-Policy:
    no-referrer` and `X-Robots-Tag: noindex, nofollow` (`next.config.ts`).
+
+## Checkout idempotency
+
+Payment audit item 4 (`supabase/migrations/20261104000200_checkout_attempts.sql`,
+`lib/server/checkout-attempts.ts`, `lib/api/checkout-attempt.ts`). Before it,
+every paid checkout request made a new pending order and a new Stripe Checkout
+Session, so a double click or a retry after a lost response made two of each
+(and, seated, a second hold attempt).
+
+- **The key.** Every checkout request may send an `Idempotency-Key` header: a
+  UUID the client keeps for one attempt at one basket (lowercased; anything
+  else is a 400 `invalid_idempotency_key`). It's **optional for now** (owner
+  decision D8): without it, the server makes one up, so the request behaves
+  exactly as before (a new order every time). Our own client always sends
+  one. Free checkouts ignore it. Plan for the next release: require it on
+  paid checkouts (a 400 without it) once the current client has been live
+  long enough that no cached old page still posts without it.
+- **The attempt** (`private.checkout_attempts`, one row per key; the key is
+  unique on its own, so a key reused for another event is caught). Its
+  fingerprint is a SHA-256 of the event, kind, the canonical basket (ticket
+  type ids and quantities, map version and seat ids, sorted), the
+  normalised buyer email (trimmed, lowercased) and the tracking code.
+  Prices aren't in it: they come from the database, and a replay returns
+  the order as it was made.
+- **Answers for a key already used:**
+  - the same basket while its session is open (order pending, session and
+    any hold unexpired): **200** with the same `{url, orderId}` (seated also
+    `holdExpiresAt`), `Idempotent-Replayed: true`, `private, no-store`;
+  - still being made by another request (a live lease): **409**
+    `checkout_in_progress`, `Retry-After` and `retryAfterSeconds` (2);
+  - a different basket, buyer, tracking code or event: **422**
+    `idempotency_key_reused`;
+  - its checkout ended (the order was cancelled, Back from Stripe, or
+    failed, or the session or hold expired): **409** `checkout_expired`,
+    "start a new checkout" (the client then uses a new key);
+  - its order is paid (or was paid and refunded): **409**
+    `checkout_completed`;
+  - its last try failed: tried again (below).
+  The first look is a plain read, before the request's own checks, so a
+  replay isn't refused for seats its own order holds or tickets sold since.
+  A seated request refused for taken seats looks again, so a double click
+  racing its twin gets the twin's answer rather than "taken".
+  `begin_checkout_attempt` then decides again under the row lock.
+- **Concurrency.** Two requests with one new key both insert; the second's
+  `on conflict` waits for the first to commit and then sees its live lease
+  (409). The lease is 90 seconds, above the route's `maxDuration` (60), so
+  it only lapses once its request is gone; a later request then takes over.
+  Lock order: the attempt row, the limit counters, then (releasing an old
+  order) the seat lock and the order. Nothing that holds a seat lock or an
+  order row goes on to lock an attempt. Finishing locks the attempt, then
+  the order.
+- **Stripe.** `checkout.sessions.create` gets `idempotencyKey:
+  checkout-session-<orderId>`, a 15-second timeout and one network retry.
+  The session is built from the order as stored (lines, fee, email, title;
+  seated: the seats, and `expires_at` = the order's creation + 31 minutes),
+  so a call repeated for the same order sends the same parameters. Failures:
+  - **No answer** (connection error or timeout, Stripe's 429, or a 409
+    because the same key is still running there): the outcome is unknown, so
+    the order (and its holds) is kept and the attempt marked failed: **503**
+    `payment_provider_unavailable`. A retry with the same key reuses the
+    order and repeats the call with the same Stripe key, so if the first
+    call did make a session, Stripe returns that one. Reuse needs the order
+    still pending, with no session recorded, and younger than 10 minutes
+    (general admission: just a bound on reusing an old price snapshot) or 45
+    seconds (seated: Stripe refuses an `expires_at` less than 30 minutes
+    ahead, and it's fixed at creation + 31). Otherwise the old order is
+    released (seats freed) and a new one made, with a new Stripe key.
+  - **Anything else** (an API error, which Stripe replays for the same key,
+    or an invalid request): the order is released (failed, seats freed),
+    **500**; a retry with the same key makes a new order.
+  A session Stripe made for an order we then released is an orphan nobody
+  has the URL of; it expires on its own (24 hours, seated 31 minutes). A
+  duplicate session isn't a duplicate charge in itself: a buyer pays only on
+  a session's page, through the one URL we return, and a payment for a
+  failed order is refunded automatically ("Payment flow" step 3).
+- **Limits** (owner decision D7), general admission paid checkouts only,
+  taken only when a new order is about to be made (never for replays,
+  in-progress answers, reused orders or refusals decided earlier: sold out,
+  bad input, payouts not set up), in the same subtransaction as a new
+  attempt's row, so a refusal writes nothing: per client (its keyed IP hash,
+  as for seat holds, `lib/server/client-key.ts`) 20 per event and 60 across
+  events, and 600 per event across clients, each per 10 minutes. **429**
+  `client_rate_limited` ("You've started a lot of checkouts…") or
+  `rate_limited` ("A lot of people are checking out…"). Per client fails
+  open, with a log line and no request detail, when there's no IP header or
+  `STRIPE_WEBHOOK_SECRET` isn't set; the per-event limit still applies.
+  Seated checkouts keep their own limits (`SEAT_HOLD_LIMITS`: per client in
+  `begin_checkout_attempt`, per event in `hold_seats`): nothing is counted
+  twice.
+- **Client** (`lib/api/checkout-attempt.ts`, used by `createCheckoutSession`
+  and `createSeatedCheckout`; components unchanged): one key per event and
+  basket (`crypto.randomUUID()`), at most 30 minutes old; a request in
+  flight is shared, so a double click sends one request; a network failure
+  or 503 is retried once and an in-progress 409 up to 3 times (after its
+  Retry-After, at most 5 seconds), all with the same key. The key is dropped
+  after a success and after any other 4xx; a 5xx or network failure keeps
+  it, so the next press resumes the same attempt. `checkoutErrorCode(err)`
+  reads the code (`CheckoutErrorCode`, `lib/api/types.ts`).
+- **Retention** (D11): attempts are deleted 2 days after creation
+  (`purge_operational_data`); first, an order a failed attempt kept pending
+  with no session recorded is marked failed.
+- **Tests**: `tests/server/checkout-attempts.test.ts` (replay, double click,
+  mismatch, in progress, expired, completed, Stripe failures and retries
+  with the Stripe key checked, limits, no key, seated double click and
+  retries, purge; its concurrency cases need `TEST_DATABASE_URL`), and
+  `tests/api-orders.test.ts` (the client's key lifecycle).
+
+### Accepted limits (checkout idempotency)
+
+- **The header is optional.** Until it's required, a client that sends no
+  key (an old cached page, a script) still makes a new order per request;
+  the per-client and per-event limits bound it.
+- **A big on-sale can hit the event-wide limit.** 600 general admission
+  checkouts per event per 10 minutes is shared by every buyer; raise
+  `CHECKOUT_LIMITS.perEvent` if it bites. Shared addresses share the
+  per-client 20 (as for seat holds).
+- **A kept order can sit pending.** After a 503, if the buyer never retries,
+  a general admission order stays `pending` (holding nothing) until the
+  daily purge fails it after 2 days; seated holds lapse after 35 minutes.
+- **A reload loses the key.** Keys live in page memory, so a reload starts a
+  new attempt; a seated buyer may then see their own earlier hold as
+  "taken" until it's released (Back from Stripe) or lapses.
 
 ## Refunds made in Stripe
 
@@ -1747,9 +1876,10 @@ unchanged.
 - **Per-client hold limit** (a manager decision;
   `20261103000000_seat_hold_client_limits.sql`, `lib/server/client-key.ts`,
   `SEAT_HOLD_LIMITS.perClient`). Before `hold_seats`, every paid seated
-  checkout takes one attempt from its client's allowance
-  (`take_seat_hold_attempt`): 20 per event and 60 across all events per 10
-  minutes (fixed windows). Over either is a 429 `client_rate_limited` with
+  checkout that makes a new order takes one attempt from its client's
+  allowance (`take_seat_hold_attempt`, inside `begin_checkout_attempt`: a
+  replay or a reused order takes none; see "Checkout idempotency"): 20 per
+  event and 60 across all events per 10 minutes (fixed windows). Over either is a 429 `client_rate_limited` with
   the seats asked for ("You've started a lot of checkouts…"), and nothing
   else is written. Unlike the event's counter, every attempt that reaches
   `hold_seats` counts, refused or not: this is the bound on refused attempts
@@ -1869,8 +1999,8 @@ application is approved.
 | `POST /events/{eventId}/waitlist` `{email?}` · `DELETE /events/{eventId}/waitlist` | POST: public (a member's token is read, optionally). 201/200 `{status: "joined", maskedEmail, alreadyJoined}` for a member's own verified email; 202 `{status: "confirmation_sent", expiresInHours}` for anyone else, whatever the address's history; 400 email; 404 not published; 409 external, ended or not sold out; 503 busy (the platform caps; the link is emailed after the response, so a failed send isn't reported). DELETE: signed in, leaves (204, idempotent) |
 | `GET /events/{eventId}/waitlist/status` | signed in: `{joined, maskedEmail?}`; 404 not published |
 | `POST /waitlist/confirm` `{token}` · `POST /waitlist/leave` `{token}` | public (the emailed token is the credential). Confirm: 200 `{status: "joined", eventTitle, eventSlug, ticketsAvailable}` (also when already on the list); 400; 404; 410 expired or used; 409 closed. Leave: 200 `{status: "left", eventTitle?}` (the title only while the event is published; idempotent); 400; 404 |
-| `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). 409 for an external event, before anything else is read; 409 for a paid order from a platform-managed organiser. 201 `{url}` (a paid order: `{url, orderId}`, `private, no-store`; see "Reserved seating", "Back from Stripe"); 202 free order waiting on its emailed link; 400 (incl. over 4 free tickets in any order, paid or free); 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance; 503 free bookings busy (the guest's link is emailed after the response). 409 for too many of a ticket type names the number left only when it's 10 or fewer |
-| `POST /events/{eventId}/checkout` with `seats: {mapVersion, seatIds}` | public: a seated checkout (see "Reserved seating"). Paid: 201 `{url, holdExpiresAt, orderId}` (private, no-store). Free: as above (201 member, 202 guest). 400 (bad seats, over 10, a seated tier in `lineItems`, no map); 404; 409 `seats` taken (body `code`, `seatIds`) or `seatMapVersion` changed; 429 too many seats held or hold attempts for the event, or this client's hold attempts used up (`code: "client_rate_limited"`; body `seatIds`) |
+| `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). Optional `Idempotency-Key` header (a UUID; see "Checkout idempotency"). 409 for an external event, before anything else is read; 409 for a paid order from a platform-managed organiser. 201 `{url}` (a paid order: `{url, orderId}`, `private, no-store`; see "Reserved seating", "Back from Stripe"); a paid order's key again: 200 the same `{url, orderId}` while its session is open, 409 `checkout_in_progress` (Retry-After) / `checkout_expired` / `checkout_completed`, 422 `idempotency_key_reused`; 400 `invalid_idempotency_key`; 429 `client_rate_limited` or `rate_limited` (paid: 20 per event and 60 in all per client, 600 per event, per 10 minutes); 503 `payment_provider_unavailable` (retry with the same key); 202 free order waiting on its emailed link; 400 (incl. over 4 free tickets in any order, paid or free); 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance; 503 free bookings busy (the guest's link is emailed after the response). 409 for too many of a ticket type names the number left only when it's 10 or fewer |
+| `POST /events/{eventId}/checkout` with `seats: {mapVersion, seatIds}` | public: a seated checkout (see "Reserved seating"). Paid: 201 `{url, holdExpiresAt, orderId}` (private, no-store). Free: as above (201 member, 202 guest). 400 (bad seats, over 10, a seated tier in `lineItems`, no map); 404; 409 `seats` taken (body `code`, `seatIds`) or `seatMapVersion` changed; 429 too many seats held or hold attempts for the event, or this client's hold attempts used up (`code: "client_rate_limited"`; body `seatIds`); the `Idempotency-Key` answers as above (200 replay with `holdExpiresAt`) |
 | `GET /events/{eventId}/seat-map?v=` | public once published (`public, max-age=31536000, immutable`, only at the current `v`; any other `v` or none is a `307` to `?v={current}`, `no-store`, no body); before that the owning organiser or an admin (bearer), private. `SeatMapRecord`. 404 no map or not visible |
 | `GET /events/{eventId}/seat-availability` | as above: `SeatAvailability` (the bitmap), `public, max-age=0, s-maxage=5` once published |
 | `PUT /events/{eventId}/seat-map` `{template}` · `DELETE …` | organiser (own event, draft or rejected, never approved). Up to 1 MB. 200 `SeatMapRecord` / 204; 400 `fieldErrors["template.…"]`; 404; 409 not editable, locked, external or has orders |
