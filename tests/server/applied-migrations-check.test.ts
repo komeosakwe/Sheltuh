@@ -25,7 +25,8 @@ const parts = (file: string) => {
 };
 
 describe("scripts/check-applied-migrations.sql", () => {
-  it("has one row per migration file, in order", async () => {
+  // Booting PGlite can take seconds on a busy machine (parallel workers, CI).
+  it("has one row per migration file, in order", { timeout: 60_000 }, async () => {
     const pg = new PGlite();
     await pg.exec(readFileSync(path.join(ROOT, "supabase/test/supabase-stubs.sql"), "utf8"));
     const { rows } = await pg.query<{ version: string; file: string }>(CHECK_SQL);
