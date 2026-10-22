@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import type { EmailOutboxKind } from "@/lib/api/types";
 import type { Deps } from "./deps";
 import { redactForLog } from "./email-address";
 import { buildFollowerNewEventsEmail, FOLLOWER_EMAIL_MAX_EVENTS, followerUnsubscribeLink } from "./follower-email";
@@ -23,15 +24,26 @@ import { buildWaitlistAvailableEmail, waitlistEventLink, waitlistLeaveLink } fro
  *   exception is opened or reopened (at most 20 a day), sent to
  *   OPS_ALERT_EMAIL (docs/architecture.md, "Refunds made in Stripe").
  * This module delivers them: once straight after the response (Deps.defer)
- * and then from the cron route until it's sent or has failed 6 times.
+ * and then from the cron route until it's sent or has failed 6 times. The
+ * cron route is called by Vercel Cron (daily on Hobby, every 5 minutes on
+ * Pro) and, on Hobby, by Supabase Cron every 5 minutes once the owner has
+ * scheduled it (docs/supabase-setup.md §3).
  * Delivery is at-least-once: a worker that dies between SMTP accepting the
  * message and recording it leaves a lease that expires, and the job is sent
  * again. A mail failure never touches the order or the waitlist entry.
  */
 
-export type EmailJobKind = "ticket_email" | "waitlist_available" | "organiser_new_events" | "ops_alert";
+export type EmailJobKind = EmailOutboxKind;
 
-/** Delays after the 1st … 5th failed attempt: 1 min, 5 min, 30 min, 2 h, 6 h. */
+/**
+ * Delays after the 1st … 5th failed attempt: 1 min, 5 min, 30 min, 2 h, 6 h.
+ * A delay is the earliest the next attempt can run: the job is then sent by
+ * the next run of the cron route. With a runner every 5 minutes (Supabase
+ * Cron, or Vercel Cron on Pro), the 2nd attempt runs within about 6 minutes
+ * of the first failure, the 3rd within about 17, and the 6th and last 7 to 11
+ * hours after it. With only the daily Vercel Cron (Hobby), each retry waits
+ * for the next daily run.
+ */
 export const EMAIL_RETRY_DELAYS_SECONDS = [60, 300, 1800, 7200, 21600] as const;
 /** The 6th failure is final: the job is `failed` and waits for an admin resend. */
 export const MAX_EMAIL_ATTEMPTS = 6;

@@ -540,6 +540,52 @@ export interface AdminEmailJob {
   maskedEmail?: string;
 }
 
+/** Every kind of outbox job (private.email_outbox's kind check). */
+export type EmailOutboxKind = "ticket_email" | "waitlist_available" | "organiser_new_events" | "ops_alert";
+
+export const EMAIL_OUTBOX_KINDS: readonly EmailOutboxKind[] = [
+  "ticket_email",
+  "waitlist_available",
+  "organiser_new_events",
+  "ops_alert",
+];
+
+/** One kind's (or every kind's) outbox counts in EmailOutboxHealth. Sent jobs aren't counted. */
+export interface EmailOutboxHealthCounts {
+  /** Waiting for a worker right now. */
+  due: number;
+  /** Due (or leased by a worker that died) for longer than `overdueAfterMinutes`: no run has picked them up. */
+  overdue: number;
+  /** How long the oldest overdue job has been waiting. Unset when none is overdue. */
+  oldestOverdueSeconds?: number;
+  /** A retry (or a follower email) scheduled for later. */
+  waiting: number;
+  /** Being sent right now. */
+  sending: number;
+  /** Leased by a worker that never finished: taken again by the next run. */
+  expiredLeases: number;
+  /** Gave up after the last attempt, or couldn't be sent at all: the dead letters. */
+  failed: number;
+  failedLast7Days: number;
+}
+
+/**
+ * GET /api/admin/emails/health. Whether the email outbox is being worked
+ * (docs/architecture.md, "Payment flow"). Counts and times only: never an
+ * address, an order or a token.
+ */
+export interface EmailOutboxHealth {
+  checkedAt: string;
+  overdueAfterMinutes: number;
+  /** The last run of GET /api/cron/email-outbox that finished, from any scheduler. Unset: none recorded yet. */
+  lastCronRun?: { finishedAt: string; claimed: number; sent: number; retrying: number; failed: number };
+  /** CRON_SECRET is set. Without it the cron route refuses every call and nothing is retried. */
+  cronSecretConfigured: boolean;
+  totals: EmailOutboxHealthCounts;
+  /** Every kind, in EMAIL_OUTBOX_KINDS order (zeros included). */
+  byKind: (EmailOutboxHealthCounts & { kind: EmailOutboxKind })[];
+}
+
 // ---------------------------------------------------------------------------
 // Payment exceptions (admin)
 // ---------------------------------------------------------------------------
