@@ -3,12 +3,19 @@ import { calculateBookingFeeCents, calculateOrderSummary } from "@/lib/fees";
 import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
 import type { Deps } from "../deps";
 import { sendOpsAlertsSoon, sendTicketEmailSoon, sendWaitlistEmailsSoon } from "../email-outbox";
-import { formatSeatLine } from "@/lib/seating/format";
 import { MAX_SEATS_PER_ORDER } from "@/lib/seating/template";
 import { REMAINING_SHOWN_AT_MOST } from "@/lib/api/public-events";
 import { SEAT_HOLD } from "@/lib/api/types";
-import { clientIp, clientKey } from "../client-key";
-import { createdPrivate, HttpError, ok, okPrivate, readJson } from "../http";
+import {
+  CHECKOUT_LIMITS,
+  checkoutFingerprint,
+  idempotencyKey,
+  peekCheckoutAttempt,
+  requestClientKey,
+  runPaidCheckout,
+  settledAttemptResponse,
+} from "../checkout-attempts";
+import { HttpError, ok, okPrivate, readJson } from "../http";
 import { parseCheckoutLineItems } from "../order-input";
 import { parseCheckoutSeats } from "../seat-map-input";
 import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
@@ -17,7 +24,6 @@ import type { Handler } from "../route";
 import { parseTrackingCode } from "../tracking-codes";
 import type {
   CancelOrderResult,
-  CheckoutResult,
   CustomerOrderLookup,
   EventRecord,
   OrderLineItem,
@@ -399,7 +405,15 @@ async function refuseIfExternal<T>(work: () => Promise<T>): Promise<T> {
  * account, fulfilled by the webhook: 201 `{url, orderId}` (private,
  * no-store; the order id lets the page cancel it, POST
  * /orders/by-session/{orderId}/cancel, if the buyer comes Back from
- * Stripe). A wholly free order
+ * Stripe). A paid checkout is idempotent per `Idempotency-Key` header
+ * (optional for now; ../checkout-attempts.ts): the same key and basket again
+ * is a 200 with the same `{url, orderId}` while the session is open; 409
+ * `checkout_in_progress` (Retry-After), `checkout_expired` or
+ * `checkout_completed`; 422 `idempotency_key_reused`; 400
+ * `invalid_idempotency_key`; 429 `client_rate_limited` (20 per event, 60 in
+ * all, per client per 10 minutes) or `rate_limited` (600 per event per 10
+ * minutes); 503 `payment_provider_unavailable` (Stripe didn't answer: retry
+ * with the same key). A wholly free order
  * never touches Stripe (./free-orders.ts): 201 with the confirmation page's
  * URL for a member's own verified email, otherwise 202, the confirmation
  * link being emailed straight after the response. Any order, paid or free, holds at most 4 free
@@ -413,8 +427,10 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   if (event.ticketingMode === "external") throw new HttpError(409, EXTERNAL_CHECKOUT_REFUSED);
 
   const body = await readJson(req);
+  // Paid checkouts only (free ones ignore it); a malformed one is a 400 on any checkout.
+  const key = idempotencyKey(req);
   // Reserved seating: seats chosen on the map (and any general admission lines with them).
-  if (body.seats !== undefined && body.seats !== null) return createSeatedCheckout(req, deps, event, body);
+  if (body.seats !== undefined && body.seats !== null) return createSeatedCheckout(req, deps, event, body, key);
   const lineItems = parseCheckoutLineItems(body, event.ticketTypes);
   refuseSeatedLines(event, lineItems);
   const totals = orderTotals(lineItems);
@@ -430,15 +446,26 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   }
 
   const buyerEmail = parseBuyerEmail(body, false);
+  // Attribution only (never affects price or status): kept if it's one of the event's tracking codes, else null.
+  const trackingCode = parseTrackingCode(body.trackingCode);
+  // The same key and basket again: the same order and session, before any other check (./checkout-attempts.ts).
+  const fingerprint = checkoutFingerprint({
+    kind: "ga",
+    eventId: event.eventId,
+    lines: lineItems,
+    buyerEmail: body.buyerEmail,
+    trackingCode,
+  });
+  const peeked = await peekCheckoutAttempt(db, key, fingerprint);
+  const settled = peeked && settledAttemptResponse(peeked);
+  if (settled) return settled;
+
   // Free lines in a paid order: the same per-order cap. The Stripe payment identifies the buyer, so there's
   // no emailed confirmation or per-person allowance (those count wholly free orders only).
   await assertFreeTicketsPerOrder(deps, lineItems);
   await assertAvailable(db, eventId, lineItems);
-  // Attribution only (never affects price or status): kept if it's one of the event's tracking codes, else null.
-  const trackingCode = parseTrackingCode(body.trackingCode);
-  const orderId = `ord_${crypto.randomUUID().replace(/-/g, "")}`;
 
-  const insertOrder = () =>
+  const insertOrder = (orderId: string) =>
     db.query(
       `insert into public.orders (id, event_id, organiser_id, event_title, line_items, subtotal_cents,
          buyer_fee_cents, total_cents, application_fee_cents, buyer_email, tracking_code)
@@ -467,58 +494,27 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
     throw new HttpError(409, "This organiser hasn't finished setting up payouts yet — ticket sales aren't open.");
   }
 
-  // The order exists before Stripe does, so no payment can ever arrive
-  // without an order to attach it to.
-  await refuseIfExternal(insertOrder);
-  const siteUrl = deps.siteUrl();
-  let session: Stripe.Checkout.Session;
-  try {
-    session = await deps.stripe().checkout.sessions.create({
-      mode: "payment",
-      client_reference_id: orderId,
-      ...(buyerEmail ? { customer_email: buyerEmail } : {}),
-      line_items: lineItems.flatMap((line) => {
-        const items: Stripe.Checkout.SessionCreateParams.LineItem[] = [
-          {
-            price_data: {
-              currency: "aud",
-              product_data: { name: `${line.ticketTypeName} — ${event.title}` },
-              unit_amount: line.unitPriceCents,
-            },
-            quantity: line.quantity,
-          },
-        ];
-        if (line.feePolicy === "buyer-pays" && line.unitPriceCents > 0) {
-          items.push({
-            price_data: {
-              currency: "aud",
-              product_data: { name: "Booking fee" },
-              unit_amount: calculateBookingFeeCents(line.unitPriceCents),
-            },
-            quantity: line.quantity,
-          });
-        }
-        return items;
-      }),
-      payment_intent_data: {
-        application_fee_amount: totals.applicationFeeCents,
-        transfer_data: { destination: organiser.stripeAccountId },
-      },
-      success_url: `${siteUrl}/checkout/success?session_id=${orderId}`,
-      cancel_url: `${siteUrl}/events/${event.slug}`,
-      metadata: { orderId, eventId },
-    });
-  } catch (err) {
-    await db.query(`update public.orders set status = 'failed' where id = $1`, [orderId]);
-    throw err;
-  }
-  if (!session.url) throw new Error("Stripe did not return a Checkout Session URL.");
-
-  await db.query(`update public.orders set stripe_checkout_session_id = $2 where id = $1`, [orderId, session.id]);
-  // The order id goes back only to the client that made the order (it's in Stripe's success and cancel URLs
-  // anyway), so the page can cancel it if the buyer comes Back from Stripe: never cached.
-  const result: CheckoutResult = { url: session.url, orderId };
-  return createdPrivate(result);
+  return runPaidCheckout(deps, {
+    kind: "ga",
+    event,
+    key,
+    fingerprint,
+    clientKey: requestClientKey(req, deps, { subject: "Checkout", limit: "checkout" }),
+    limits: {
+      clientEvent: CHECKOUT_LIMITS.perClient.event,
+      clientAll: CHECKOUT_LIMITS.perClient.allEvents,
+      event: CHECKOUT_LIMITS.perEvent,
+      window: CHECKOUT_LIMITS.window,
+    },
+    stripeAccountId: organiser.stripeAccountId,
+    createOrder: async (orderId) => {
+      await refuseIfExternal(() => insertOrder(orderId));
+    },
+    limitError: (scope) =>
+      scope === "client"
+        ? new HttpError(429, CLIENT_BUSY, undefined, { code: "client_rate_limited" })
+        : new HttpError(429, BUSY, undefined, { code: "rate_limited" }),
+  });
 };
 
 const ORDER_NOT_FOUND = "Order not found.";
@@ -683,34 +679,6 @@ function refuseSeatedLines(event: EventRecord, lineItems: OrderLineItem[]) {
   if (line) fail({ lineItems: `"${line.ticketTypeName}" seats are chosen on the seat map.` });
 }
 
-/**
- * One hold attempt against the client's own allowance (SEAT_HOLD_LIMITS.perClient,
- * private.take_seat_hold_attempt): 429 `client_rate_limited` when it's used
- * up, nothing else written. Fails open, with a log line (never the request's
- * headers), when the request has no usable client IP (always set on Vercel)
- * or the secret the key is salted with isn't configured.
- */
-async function takeClientHoldAttempt(req: Request, deps: Deps, eventId: string, seatIds: string[]) {
-  const ip = clientIp(req);
-  if (!ip) {
-    console.warn("Seat hold without a client IP header: the per-client hold limit was skipped.");
-    return;
-  }
-  let secret: string;
-  try {
-    secret = deps.stripeWebhookSecret();
-  } catch {
-    console.error("STRIPE_WEBHOOK_SECRET isn't set: the per-client hold limit was skipped.");
-    return;
-  }
-  const { event, allEvents, window } = SEAT_HOLD_LIMITS.perClient;
-  const [row] = await deps.db.query<{ result: "ok" | "event" | "all" }>(
-    `select private.take_seat_hold_attempt($1, $2, $3, $4, $5::interval) as result`,
-    [clientKey(ip, secret), eventId, event, allEvents, window],
-  );
-  if (row.result !== "ok") throw seatError(429, CLIENT_BUSY, "seats", { code: "client_rate_limited", seatIds });
-}
-
 interface ChosenSeat extends TicketSeat {
   id: string;
   ticketTypeId: string;
@@ -730,23 +698,29 @@ function seatLines(event: EventRecord, seats: ChosenSeat[]): OrderLineItem[] {
  * POST …/checkout with `seats: {mapVersion, seatIds}` (and optional
  * `lineItems` for the event's general admission tiers, which don't count
  * towards the 10 seats). Prices come from each seat's tier.
- * - Paid: one attempt against the client's own hold allowance, then the
- *   pending order and its 35-minute holds in one step (private.hold_seats),
- *   then Stripe (expires in 31 minutes; a Stripe error releases the holds).
- *   201 `{url, holdExpiresAt, orderId}`.
+ * - Paid: an attempt per Idempotency-Key (../checkout-attempts.ts: a repeat
+ *   gets the same order, holds and session back, never a second hold), then
+ *   one attempt against the client's own hold allowance
+ *   (SEAT_HOLD_LIMITS.perClient, take_seat_hold_attempt, in
+ *   begin_checkout_attempt), the pending order and its 35-minute holds in one
+ *   step (private.hold_seats), then Stripe (expires 31 minutes after the
+ *   order was made; a Stripe error releases the holds, no answer from Stripe
+ *   keeps them for a retry with the same key). 201 `{url, holdExpiresAt,
+ *   orderId}`.
  * - Free: a member's own verified email gets the seats at once; anyone else
  *   an emailed link, holding nothing until it's confirmed.
  * Refusals write nothing (only a hold counts towards the event's hold
  * attempts): 400 bad input; 409 `seats` taken or unknown (body `seatIds`),
  * `seatMapVersion` changed; 429 too many seats held or holds made for the
  * event, or too many attempts by this client (`client_rate_limited`; body
- * `seatIds`).
+ * `seatIds`); the attempt's own answers as for general admission.
  */
 async function createSeatedCheckout(
   req: Request,
   deps: Deps,
   event: EventRecord,
   body: Record<string, unknown>,
+  key: string,
 ): Promise<Response> {
   const { db } = deps;
   if (!event.seating) fail({ seats: "This event doesn't have reserved seating." });
@@ -764,23 +738,44 @@ async function createSeatedCheckout(
   if (mapVersion !== event.seating.version) {
     throw seatError(409, SEAT_MAP_CHANGED, "seatMapVersion", { code: "seat_map_changed" });
   }
+  const trackingCode = parseTrackingCode(body.trackingCode);
+  // The same key and basket again: the same order and holds, before the seat check (which would see them held).
+  const fingerprint = checkoutFingerprint({
+    kind: "seated",
+    eventId: event.eventId,
+    lines: gaLines,
+    seats: { mapVersion, seatIds },
+    buyerEmail: body.buyerEmail,
+    trackingCode,
+  });
+  const peeked = await peekCheckoutAttempt(db, key, fingerprint);
+  const settled = peeked && settledAttemptResponse(peeked);
+  if (settled) return settled;
+
+  // A retry's own earlier order may still hold these seats: not "taken" (begin_checkout_attempt reuses or releases it).
+  const ownOrderId = peeked?.order_id ?? null;
   const seats = await db.query<ChosenSeat & { unavailable: boolean }>(
     `select s.id, s.ticket_type_id as "ticketTypeId", s.section_label as section, s.row_label as "row",
             s.seat_label as seat, s.kind,
             (s.blocked or s.sold_order_id is not null
-              or (s.hold_order_id is not null and s.hold_expires_at > now())) as unavailable
+              or (s.hold_order_id is not null and s.hold_order_id is distinct from $3 and s.hold_expires_at > now())) as unavailable
        from public.event_seats s
       where s.event_id = $1 and s.id = any($2::text[])
       order by s.position`,
-    [event.eventId, seatIds],
+    [event.eventId, seatIds, ownOrderId],
   );
   const found = new Set(seats.map((seat) => seat.id));
   const gone = [...seatIds.filter((id) => !found.has(id)), ...seats.filter((seat) => seat.unavailable).map((seat) => seat.id)].sort();
-  if (gone.length > 0) throw seatError(409, SEATS_TAKEN, "seats", { code: "seats_unavailable", seatIds: gone });
+  if (gone.length > 0) {
+    // A duplicate of a request that held these seats since our first look (a double click): its answer, not "taken".
+    const now = await peekCheckoutAttempt(db, key, fingerprint);
+    const answer = now && settledAttemptResponse(now);
+    if (answer) return answer;
+    throw seatError(409, SEATS_TAKEN, "seats", { code: "seats_unavailable", seatIds: gone });
+  }
 
   const lineItems = [...seatLines(event, seats), ...gaLines];
   const totals = orderTotals(lineItems);
-  const trackingCode = parseTrackingCode(body.trackingCode);
   const labels = seats.map(({ section, row, seat, kind }) => ({ section, row, seat, kind }));
 
   if (totals.totalCents === 0) {
@@ -801,116 +796,73 @@ async function createSeatedCheckout(
     throw new HttpError(409, "This organiser hasn't finished setting up payouts yet — ticket sales aren't open.");
   }
 
-  await takeClientHoldAttempt(req, deps, event.eventId, seatIds);
-  const orderId = `ord_${crypto.randomUUID().replace(/-/g, "")}`;
-  const [hold] = await refuseIfExternal(() =>
-    db.query<{ result: string; hold_expires_at: string | Date | null; unavailable_seat_ids: string[] | null }>(
-      `select result, hold_expires_at, unavailable_seat_ids
-         from private.hold_seats($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11, $12, $13::text[],
-                                 $14::interval, $15, $16::interval, $17, $18)`,
-      [
-        orderId,
-        event.eventId,
-        event.organiserId,
-        event.title,
-        JSON.stringify(lineItems),
-        totals.subtotalCents,
-        totals.buyerFeeCents,
-        totals.totalCents,
-        totals.applicationFeeCents,
-        buyerEmail,
-        trackingCode,
-        mapVersion,
-        seatIds,
-        SEAT_HOLD_LIMITS.hold,
-        SEAT_HOLD_LIMITS.attempts.limit,
-        SEAT_HOLD_LIMITS.attempts.window,
-        SEAT_HOLD_LIMITS.capMin,
-        SEAT_HOLD_LIMITS.capShare,
-      ],
-    ),
-  );
-  switch (hold.result) {
-    case "held":
-      break;
-    case "rate_limited":
-      throw seatError(429, BUSY, "seats", { code: "rate_limited", seatIds });
-    case "hold_cap":
-      throw seatError(429, BUSY, "seats", { code: "hold_cap", seatIds });
-    case "seats_unavailable":
-      throw seatError(409, SEATS_TAKEN, "seats", { code: "seats_unavailable", seatIds: hold.unavailable_seat_ids ?? seatIds });
-    case "version":
-    case "tier_mismatch":
-      throw seatError(409, SEAT_MAP_CHANGED, "seatMapVersion", { code: "seat_map_changed" });
-    case "not_on_sale":
-      throw new HttpError(404, "This event isn't available for booking.");
-    default:
-      throw new Error(`Unexpected hold_seats result: ${hold.result}`);
-  }
-
-  const siteUrl = deps.siteUrl();
-  let session: Stripe.Checkout.Session;
-  try {
-    session = await deps.stripe().checkout.sessions.create({
-      mode: "payment",
-      client_reference_id: orderId,
-      ...(buyerEmail ? { customer_email: buyerEmail } : {}),
-      expires_at: Math.floor(Date.now() / 1000) + SEAT_HOLD_LIMITS.stripeSessionMinutes * 60,
-      line_items: lineItems.flatMap((line) => {
-        const lineSeats = seats.filter((seat) => seat.ticketTypeId === line.ticketTypeId);
-        const items: Stripe.Checkout.SessionCreateParams.LineItem[] = [
-          {
-            price_data: {
-              currency: "aud",
-              product_data: {
-                name: `${line.ticketTypeName} — ${event.title}`,
-                ...(lineSeats.length > 0 ? { description: lineSeats.map(formatSeatLine).join("; ") } : {}),
-              },
-              unit_amount: line.unitPriceCents,
-            },
-            quantity: line.quantity,
-          },
-        ];
-        if (line.feePolicy === "buyer-pays" && line.unitPriceCents > 0) {
-          items.push({
-            price_data: {
-              currency: "aud",
-              product_data: { name: "Booking fee" },
-              unit_amount: calculateBookingFeeCents(line.unitPriceCents),
-            },
-            quantity: line.quantity,
-          });
-        }
-        return items;
-      }),
-      payment_intent_data: {
-        application_fee_amount: totals.applicationFeeCents,
-        transfer_data: { destination: organiser.stripeAccountId },
-      },
-      success_url: `${siteUrl}/checkout/success?session_id=${orderId}`,
-      // The cancelled page releases the seats at once (POST /orders/by-session/{id}/cancel).
-      cancel_url: `${siteUrl}/checkout/cancelled?order=${orderId}`,
-      metadata: { orderId, eventId: event.eventId },
-    });
-  } catch (err) {
-    // Nobody can pay for these seats: give them back now, not in 35 minutes.
-    await db.query(`select private.release_seat_holds($1)`, [orderId]);
-    throw err;
-  }
-  if (!session.url) {
-    await db.query(`select private.release_seat_holds($1)`, [orderId]);
-    throw new Error("Stripe did not return a Checkout Session URL.");
-  }
-
-  await db.query(`update public.orders set stripe_checkout_session_id = $2 where id = $1`, [orderId, session.id]);
-  const result: CheckoutResult = {
-    url: session.url,
-    holdExpiresAt: new Date(hold.hold_expires_at as string).toISOString(),
-    // Only to the client that made the order (as for general admission): the seat page keeps it so Back from
-    // Stripe can release the seats at once.
-    orderId,
+  const createOrder = async (orderId: string) => {
+    const [hold] = await refuseIfExternal(() =>
+      db.query<{ result: string; unavailable_seat_ids: string[] | null }>(
+        `select result, unavailable_seat_ids
+           from private.hold_seats($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11, $12, $13::text[],
+                                   $14::interval, $15, $16::interval, $17, $18)`,
+        [
+          orderId,
+          event.eventId,
+          event.organiserId,
+          event.title,
+          JSON.stringify(lineItems),
+          totals.subtotalCents,
+          totals.buyerFeeCents,
+          totals.totalCents,
+          totals.applicationFeeCents,
+          buyerEmail,
+          trackingCode,
+          mapVersion,
+          seatIds,
+          SEAT_HOLD_LIMITS.hold,
+          SEAT_HOLD_LIMITS.attempts.limit,
+          SEAT_HOLD_LIMITS.attempts.window,
+          SEAT_HOLD_LIMITS.capMin,
+          SEAT_HOLD_LIMITS.capShare,
+        ],
+      ),
+    );
+    switch (hold.result) {
+      case "held":
+        return;
+      case "rate_limited":
+        throw seatError(429, BUSY, "seats", { code: "rate_limited", seatIds });
+      case "hold_cap":
+        throw seatError(429, BUSY, "seats", { code: "hold_cap", seatIds });
+      case "seats_unavailable":
+        throw seatError(409, SEATS_TAKEN, "seats", { code: "seats_unavailable", seatIds: hold.unavailable_seat_ids ?? seatIds });
+      case "version":
+      case "tier_mismatch":
+        throw seatError(409, SEAT_MAP_CHANGED, "seatMapVersion", { code: "seat_map_changed" });
+      case "not_on_sale":
+        throw new HttpError(404, "This event isn't available for booking.");
+      default:
+        throw new Error(`Unexpected hold_seats result: ${hold.result}`);
+    }
   };
-  return createdPrivate(result);
+
+  // The response's order id goes only to the client that made the order (as for general admission): the seat
+  // page keeps it so Back from Stripe can release the seats at once.
+  return runPaidCheckout(deps, {
+    kind: "seated",
+    event,
+    key,
+    fingerprint,
+    clientKey: requestClientKey(req, deps, { subject: "Seat hold", limit: "hold" }),
+    limits: {
+      clientEvent: SEAT_HOLD_LIMITS.perClient.event,
+      clientAll: SEAT_HOLD_LIMITS.perClient.allEvents,
+      event: null,
+      window: SEAT_HOLD_LIMITS.perClient.window,
+    },
+    stripeAccountId: organiser.stripeAccountId,
+    sessionSeconds: SEAT_HOLD_LIMITS.stripeSessionMinutes * 60,
+    createOrder,
+    // Seated: only the per-client limit is taken before the hold (hold_seats refuses the event's itself).
+    limitError: () => seatError(429, CLIENT_BUSY, "seats", { code: "client_rate_limited", seatIds }),
+  });
 }
 
 /** Stripe's answer to expiring a session that can't be expired (already complete or expired). */

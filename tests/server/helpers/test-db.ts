@@ -18,7 +18,7 @@ function setupSql(): string[] {
 }
 
 const RESET_SQL = `truncate private.user_reports, private.report_photos, public.messages, public.conversations, private.conversation_pairs, public.user_blocks,
-  private.rate_limits, private.platform_rate_limits, private.client_rate_limits, private.free_order_refusals, private.social_suspensions, public.event_attendees, public.profiles,
+  private.rate_limits, private.platform_rate_limits, private.client_rate_limits, private.checkout_attempts, private.free_order_refusals, private.social_suspensions, public.event_attendees, public.profiles,
   public.event_favourites, public.event_view_counts, public.event_outbound_clicks, public.event_tracking_links, private.event_rate_limits, private.event_view_cap_days,
   private.trending_snapshot, private.event_curation, private.event_waitlist_tokens, private.event_waitlist,
   private.profile_avatars, private.profile_moderation_log, private.organiser_follow_tokens, private.organiser_event_announcements,

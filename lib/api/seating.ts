@@ -3,6 +3,7 @@
  * The map's shape and validator: lib/seating/template.ts; the availability
  * bitmap: lib/seating/availability.ts; seat wording: lib/seating/format.ts.
  */
+import { runCheckoutAttempt } from "./checkout-attempt";
 import { ApiError, apiFetch, type GetToken } from "./client";
 import type {
   CancelOrderResult,
@@ -103,20 +104,26 @@ export interface SeatedCheckoutInput {
  * free booking (nothing is held until the emailed link is confirmed).
  * ApiError: 400; 404; 409 seats taken (seatErrorDetails(err).seatIds) or the
  * map changed (fieldErrors.seatMapVersion: reload it); 429 too many people
- * checking out (try again in a minute); 503 free bookings busy.
+ * checking out (try again in a minute); 503 free bookings busy. Sent with
+ * an `Idempotency-Key` like createCheckoutSession (lib/api/checkout-attempt.ts):
+ * a double click or a retry never holds the seats twice; the attempt's own
+ * codes are in seatErrorDetails(err).code.
  */
 export async function createSeatedCheckout(eventId: string, input: SeatedCheckoutInput, getToken?: GetToken) {
-  const token = await optionalToken(getToken);
-  return apiFetch<CheckoutResult>(`/events/${eventId}/checkout`, {
-    method: "POST",
-    body: {
-      seats: input.seats,
-      ...(input.lineItems && input.lineItems.length > 0 ? { lineItems: input.lineItems } : {}),
-      ...(input.buyerEmail ? { buyerEmail: input.buyerEmail } : {}),
-      ...(input.trackingCode ? { trackingCode: input.trackingCode } : {}),
-    },
-    token,
-  });
+  const body = {
+    seats: input.seats,
+    ...(input.lineItems && input.lineItems.length > 0 ? { lineItems: input.lineItems } : {}),
+    ...(input.buyerEmail ? { buyerEmail: input.buyerEmail } : {}),
+    ...(input.trackingCode ? { trackingCode: input.trackingCode } : {}),
+  };
+  return runCheckoutAttempt(eventId, body, async (key) =>
+    apiFetch<CheckoutResult>(`/events/${eventId}/checkout`, {
+      method: "POST",
+      body,
+      token: await optionalToken(getToken),
+      headers: { "idempotency-key": key },
+    }),
+  );
 }
 
 /**

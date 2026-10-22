@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/supabase/config", () => ({ isSupabaseConfigured: true }));
 
 const { confirmFreeOrder, createCheckoutSession, getOrderBySession } = await import("@/lib/api/orders");
+const { createSeatedCheckout } = await import("@/lib/api/seating");
+const { checkoutErrorCode, currentCheckoutKey, resetCheckoutAttempt } = await import("@/lib/api/checkout-attempt");
 
 function stubFetch(body: unknown, status = 200) {
   const fetch = vi.fn().mockResolvedValue(
@@ -62,5 +64,128 @@ describe("getOrderBySession", () => {
     const fetch = stubFetch({ status: "pending" });
     expect(await getOrderBySession("ord_a/b")).toEqual({ status: "pending" });
     expect(fetch.mock.calls[0][0]).toBe("/api/orders/by-session/ord_a%2Fb");
+  });
+});
+
+// The Idempotency-Key (lib/api/checkout-attempt.ts; docs/architecture.md, "Checkout idempotency").
+describe("checkout attempts", () => {
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+  const GA = [{ ticketTypeId: "ga", quantity: 2 }];
+
+  /** A fetch answering each call in turn (a status and body, or an Error for a network failure). */
+  function fetchSequence(...answers: ([number, unknown] | Error)[]) {
+    const fetch = vi.fn(async () => {
+      const answer = answers.shift() ?? [201, { url: "https://checkout.example/x", orderId: "ord_x" }];
+      if (answer instanceof Error) throw answer;
+      return new Response(JSON.stringify(answer[1]), { status: answer[0], headers: { "content-type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetch);
+    return fetch;
+  }
+  const keyOf = (fetch: ReturnType<typeof fetchSequence>, call: number) =>
+    (fetch.mock.calls[call] as unknown as [string, { headers: Record<string, string> }])[1].headers["idempotency-key"];
+
+  afterEach(() => {
+    resetCheckoutAttempt();
+    vi.useRealTimers();
+  });
+
+  it("sends a UUID key, keeps it after a server error, and starts a new one after success or a changed basket", async () => {
+    const fetch = fetchSequence([500, { error: "Something went wrong." }], [201, { url: "u", orderId: "o" }], [201, { url: "u2" }], [201, {}]);
+    await expect(createCheckoutSession("evt-1", GA, "fan@example.com")).rejects.toMatchObject({ status: 500 });
+    const first = keyOf(fetch, 0);
+    expect(first).toMatch(UUID);
+    expect(currentCheckoutKey("evt-1")).toBe(first);
+
+    // Pressed again: the same key (the server replays or retries the same attempt).
+    expect(await createCheckoutSession("evt-1", GA, "fan@example.com")).toEqual({ url: "u", orderId: "o" });
+    expect(keyOf(fetch, 1)).toBe(first);
+    // Body as before; the key is only a header.
+    expect(JSON.parse((fetch.mock.calls[1] as unknown as [string, { body: string }])[1].body)).toEqual({
+      lineItems: GA,
+      buyerEmail: "fan@example.com",
+    });
+    expect(currentCheckoutKey("evt-1")).toBeUndefined();
+
+    // After success, a new attempt.
+    await createCheckoutSession("evt-1", GA, "fan@example.com");
+    expect(keyOf(fetch, 2)).toMatch(UUID);
+    expect(keyOf(fetch, 2)).not.toBe(first);
+    // A different basket, a different key.
+    await createCheckoutSession("evt-1", [{ ticketTypeId: "ga", quantity: 3 }], "fan@example.com");
+    expect(keyOf(fetch, 3)).not.toBe(keyOf(fetch, 2));
+  });
+
+  it("a double click shares one request", async () => {
+    const fetch = fetchSequence([201, { url: "u", orderId: "o" }]);
+    const [a, b] = await Promise.all([createCheckoutSession("evt-1", GA), createCheckoutSession("evt-1", GA)]);
+    expect(a).toEqual({ url: "u", orderId: "o" });
+    expect(b).toBe(a);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("a changed basket while one is in flight is its own attempt", async () => {
+    const fetch = fetchSequence([201, { url: "u1" }], [201, { url: "u2" }]);
+    const [a, b] = await Promise.all([
+      createCheckoutSession("evt-1", GA),
+      createCheckoutSession("evt-1", [{ ticketTypeId: "vip", quantity: 1 }]),
+    ]);
+    expect([a, b]).toEqual([{ url: "u1" }, { url: "u2" }]);
+    expect(keyOf(fetch, 0)).not.toBe(keyOf(fetch, 1));
+  });
+
+  it("retries a network failure once and an in-progress 409 after its Retry-After, all with the same key", async () => {
+    vi.useFakeTimers();
+    const fetch = fetchSequence(
+      new TypeError("Failed to fetch"),
+      [409, { error: "still being set up", code: "checkout_in_progress", retryAfterSeconds: 2 }],
+      [200, { url: "u", orderId: "o" }],
+    );
+    const result = createCheckoutSession("evt-1", GA);
+    await vi.advanceTimersByTimeAsync(1000); // the network retry
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(fetch).toHaveBeenCalledTimes(2); // still waiting out Retry-After
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await result).toEqual({ url: "u", orderId: "o" });
+    expect(new Set([0, 1, 2].map((i) => keyOf(fetch, i))).size).toBe(1);
+  });
+
+  it("gives up on an in-progress 409 after 3 retries, keeping the key for the next press", async () => {
+    vi.useFakeTimers();
+    const busy: [number, unknown] = [409, { error: "still being set up", code: "checkout_in_progress", retryAfterSeconds: 1 }];
+    const fetch = fetchSequence(busy, busy, busy, busy, [200, { url: "u" }]);
+    const result = createCheckoutSession("evt-1", GA).catch((err: unknown) => err);
+    await vi.advanceTimersByTimeAsync(3000);
+    const err = await result;
+    expect(checkoutErrorCode(err)).toBe("checkout_in_progress");
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(currentCheckoutKey("evt-1")).toBe(keyOf(fetch, 0));
+    expect(await createCheckoutSession("evt-1", GA)).toEqual({ url: "u" });
+    expect(keyOf(fetch, 4)).toBe(keyOf(fetch, 0));
+  });
+
+  it("drops the key after a refusal (any other 4xx), so the next press is a new attempt", async () => {
+    const fetch = fetchSequence(
+      [409, { error: "This checkout has ended. Start a new checkout.", code: "checkout_expired" }],
+      [429, { error: "busy", code: "client_rate_limited" }],
+      [201, { url: "u" }],
+    );
+    const expired = await createCheckoutSession("evt-1", GA).catch((err: unknown) => err);
+    expect(checkoutErrorCode(expired)).toBe("checkout_expired");
+    const limited = await createCheckoutSession("evt-1", GA).catch((err: unknown) => err);
+    expect(checkoutErrorCode(limited)).toBe("client_rate_limited");
+    await createCheckoutSession("evt-1", GA);
+    expect(new Set([0, 1, 2].map((i) => keyOf(fetch, i))).size).toBe(3);
+  });
+
+  it("seated checkouts send a key too, with the body unchanged", async () => {
+    const fetch = fetchSequence([201, { url: "u", holdExpiresAt: "2026-10-22T10:00:00.000Z", orderId: "o" }]);
+    await createSeatedCheckout("evt-2", { seats: { mapVersion: 3, seatIds: ["A1"] }, buyerEmail: "fan@example.com" });
+    expect(keyOf(fetch, 0)).toMatch(UUID);
+    expect(JSON.parse((fetch.mock.calls[0] as unknown as [string, { body: string }])[1].body)).toEqual({
+      seats: { mapVersion: 3, seatIds: ["A1"] },
+      buyerEmail: "fan@example.com",
+    });
   });
 });

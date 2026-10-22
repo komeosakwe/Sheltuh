@@ -112,6 +112,7 @@ describe("Data API lock-out", () => {
     );
     expect(tables).toEqual([
       { table_name: "analytics_settings", rls: true },
+      { table_name: "checkout_attempts", rls: true },
       { table_name: "client_rate_limits", rls: true },
       { table_name: "conversation_pairs", rls: true },
       { table_name: "cron_runs", rls: true },
@@ -368,6 +369,34 @@ describe("Data API lock-out", () => {
     expect(rows).toEqual([{ pinned: true, client: false }]);
     const [policies] = await db.query<{ n: number }>(
       `select count(*)::int as n from pg_policy p where p.polrelid = 'private.cron_runs'::regclass`,
+    );
+    expect(policies.n).toBe(0);
+  });
+
+  it("the checkout attempt functions exist, pin search_path and aren't client-executable; checkout_attempts has no policies", async () => {
+    const names = [
+      "begin_checkout_attempt",
+      "checkout_attempt_state",
+      "fail_checkout_attempt",
+      "finish_checkout_attempt",
+      "purge_operational_data",
+      "release_checkout_order",
+      "take_checkout_attempt",
+      "take_checkout_limits",
+    ];
+    const rows = await db.query<{ fn: string; forms: number; pinned: boolean; client: boolean }>(
+      `select p.proname as fn, count(*)::int as forms,
+              bool_and(exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c = 'search_path=""')) as pinned,
+              bool_or(has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
+                or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                            where a.grantee = 0 and a.privilege_type = 'EXECUTE')) as client
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'private' and p.proname = any($1::text[]) group by p.proname order by 1`,
+      [names],
+    );
+    expect(rows).toEqual(names.map((fn) => ({ fn, forms: 1, pinned: true, client: false })));
+    const [policies] = await db.query<{ n: number }>(
+      `select count(*)::int as n from pg_policy p where p.polrelid = 'private.checkout_attempts'::regclass`,
     );
     expect(policies.n).toBe(0);
   });

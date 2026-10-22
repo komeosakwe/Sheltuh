@@ -257,7 +257,10 @@ describe("per-client hold attempts", () => {
     });
     expect((await hold(["A1"], { headers: { "x-forwarded-for": IP }, on: free })).status).toBe(400); // no email
     const key = clientKey(IP, WEBHOOK_SECRET);
-    expect((await counters()).filter((c) => c.client_key === key)).toEqual([]);
+    const mine = (await counters()).filter((c) => c.client_key === key);
+    expect(mine.filter((c) => c.bucket.startsWith("seat_holds"))).toEqual([]);
+    // General admission paid checkouts have their own per-client buckets (tests/server/checkout-attempts.test.ts).
+    expect(mine.map((c) => c.bucket).sort()).toEqual(["checkouts", `checkouts:${ga.eventId}`]);
   });
 });
 
