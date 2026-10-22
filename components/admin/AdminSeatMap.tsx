@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ImportDialog from "@/components/seating/editor/ImportExport";
 import SeatMapEditor from "@/components/seating/editor/SeatMapEditor";
 import SeatDialog from "@/components/seating/SeatDialog";
+import { backLinkClass } from "@/components/ui/BackLink";
 import { Button } from "@/components/ui/Button";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 import { Notice } from "@/components/ui/Section";
@@ -98,7 +99,7 @@ export default function AdminSeatMap({ eventId }: { eventId: string }) {
   return (
     <div className="flex flex-col">
       <div className="flex flex-wrap items-center gap-3 px-4 pt-3">
-        <Link href={`/admin/events/${encodeURIComponent(eventId)}/edit`} className="eyebrow inline-flex min-h-11 items-center underline underline-offset-4">
+        <Link href={`/admin/events/${encodeURIComponent(eventId)}/edit`} className={backLinkClass}>
           &larr; {event.title}
         </Link>
         <span className="flex-1" />

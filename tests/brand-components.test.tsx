@@ -2,13 +2,14 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import Link from "next/link";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import DotsMark, { DotsLoader } from "@/components/brand/DotsMark";
 import UMark from "@/components/brand/UMark";
 import Wordmark from "@/components/brand/Wordmark";
 import { DOTS_MARK, U_MARK, WORDMARK, WORDMARK_LOWERCASE, type BrandMark } from "@/components/brand/marks";
 import Footer from "@/components/Footer";
+import { SUPPORT_EMAIL } from "@/lib/contact";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/" }));
 
@@ -116,5 +117,52 @@ describe("Footer", () => {
     expect(wordmark).toHaveClass("text-signal", "w-full", "h-auto");
     expect(screen.getByText(`© ${new Date().getFullYear()} Sheltüh`)).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Legal" })).toBeInTheDocument();
+  });
+
+  it("keeps every support, explore, company and legal link, support first, with a way to reach a person (mobile-redesign.md §6.6)", () => {
+    render(<Footer />);
+    const groups = screen.getAllByRole("navigation").map((nav) => nav.getAttribute("aria-label"));
+    expect(groups).toEqual(["Fan support", "Explore", "Our company", "Legal"]);
+    const links = (name: string) =>
+      within(screen.getByRole("navigation", { name }))
+        .getAllByRole("link")
+        .map((a) => [a.textContent, a.getAttribute("href")]);
+    expect(links("Fan support")).toEqual([
+      ["Help & FAQs", "/help"],
+      ["Request a refund", "/refunds"],
+      ["Contact support", `mailto:${SUPPORT_EMAIL}`],
+    ]);
+    expect(links("Explore")).toEqual([
+      ["All events", "/events"],
+      ["Map", "/map"],
+      ["Search", "/search"],
+      ["For organisers", "/organisers/apply"],
+    ]);
+    expect(links("Our company")).toEqual([
+      ["About Sheltüh", "/about"],
+      ["Become a partner", "/partners"],
+    ]);
+    expect(links("Legal")).toEqual([
+      ["Privacy Policy", "/privacy"],
+      ["Terms of Use", "/terms"],
+      ["Purchase Terms", "/purchase-terms"],
+    ]);
+  });
+
+  it("sets the legal links in readable sentence-case Instrument (not mono), 44px tall on phones", () => {
+    render(<Footer />);
+    for (const link of within(screen.getByRole("navigation", { name: "Legal" })).getAllByRole("link")) {
+      expect(link).toHaveClass("text-sm", "leading-5", "min-h-11", "underline");
+      expect(link.closest(".eyebrow")).toBeNull();
+    }
+  });
+
+  it("keeps the campaign line (heard as one sentence) with leading that clears the Ü dots, above the oversized wordmark", () => {
+    const { container } = render(<Footer />);
+    const line = screen.getByText("Where is your Sheltüh?").closest("p");
+    expect(line).toHaveClass("display-lg", "leading-[1.05]");
+    const wordmark = container.querySelector(`svg[viewBox="${WORDMARK.viewBox}"]`);
+    if (!line || !wordmark) throw new Error("campaign line or wordmark missing");
+    expect(line.compareDocumentPosition(wordmark) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

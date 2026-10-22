@@ -50,8 +50,8 @@ const MEDIA: Record<EventCardVariant, string> = {
  * The whole card opens the event: the title's link stretches over the card
  * (`::after`), and Save, the ticket action and the organiser link sit above
  * it (z-10) as siblings, so nothing interactive is nested in a link. The
- * link is named title first, then the date, place, price, category line and
- * going count. Tab order: the card's link, Save, the ticket action, then "By
+ * link is named title first, then the date, place, price and going count
+ * (the category line is seen, not repeated in every link's name). Tab order: the card's link, Save, the ticket action, then "By
  * {organiser}". Keyboard focus rings the whole card (the link's own ring is
  * suppressed in globals.css, only where `:has()` works).
  *
@@ -92,10 +92,9 @@ export default function EventCard({
     date: `${id}-date`,
     place: `${id}-place`,
     price: `${id}-price`,
-    category: `${id}-category`,
     going: `${id}-going`,
   };
-  const labelledBy = [ids.title, ids.date, place ? ids.place : null, ids.price, ids.category, going ? ids.going : null]
+  const labelledBy = [ids.title, ids.date, place ? ids.place : null, ids.price, going ? ids.going : null]
     .filter(Boolean)
     .join(" ");
 
@@ -115,17 +114,18 @@ export default function EventCard({
         />
       </div>
       <div className="flex min-w-0 flex-col gap-1 pt-3">
-        <p id={ids.category} className="eyebrow truncate text-muted">
+        <p className="eyebrow truncate text-muted">
           {category}
         </p>
         <p id={ids.date} className="meta">
           {"running" in date ? (
             date.running
           ) : (
-            // Each part stays whole: a narrow card wraps between them, never inside "7:00 pm".
+            // Each part stays whole: a narrow card wraps between them, never inside "7:00 pm",
+            // and the separator goes down with the time, so no line ends on "·".
             <>
-              <span className="whitespace-nowrap">{date.date}</span> ·{" "}
-              <span className="whitespace-nowrap">{date.time}</span>
+              <span className="whitespace-nowrap">{date.date}</span>{" "}
+              <span className="whitespace-nowrap">· {date.time}</span>
             </>
           )}
         </p>
@@ -144,7 +144,8 @@ export default function EventCard({
           </Link>
         </h3>
         {place && (
-          <p id={ids.place} className={`truncate text-muted ${SMALL[variant]}`}>
+          // Two lines at most, so a narrow card shows the suburb rather than cutting it off.
+          <p id={ids.place} className={`line-clamp-2 break-words text-muted ${SMALL[variant]}`}>
             {place}
           </p>
         )}

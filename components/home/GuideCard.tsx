@@ -2,7 +2,7 @@ import EventArt from "@/components/EventArt";
 import { ButtonLink } from "@/components/ui/Button";
 import { HOME_GUIDE } from "./home-content";
 import { ArrowRightIcon } from "./icons";
-import SectionHead from "./SectionHead";
+import SectionHead from "@/components/ui/SectionHead";
 
 /** "Only in the city": one static editorial card, white with a black border (not itself a link; its button is). */
 export default function GuideCard({ className = "" }: { className?: string }) {

@@ -67,19 +67,24 @@ export default function SeatedTicketsPanel({ event, demo }: { event: SheltuhEven
           const tierSoldOut = ticket.soldOut === true;
           const breakdown = formatTicketBreakdown(ticket);
           return (
+            // The standard ticket row (as TicketSelector's): the name, the all-inclusive price
+            // under it at every width, then what makes it up, quieter and in sentence case.
             <li
               key={ticket.id}
-              className="grid grid-cols-[1rem_1fr] items-start gap-x-3 border-t border-surface-border py-3 first:border-t-0 first:pt-0 sm:grid-cols-[1rem_1fr_auto]"
+              className="grid grid-cols-[1rem_1fr] items-start gap-x-3 border-t border-surface-border py-3 first:border-t-0 first:pt-0"
             >
               <span className="mt-1">
                 {ticket.seated && <SeatSwatch size={16} treatment={treatments.get(ticket.id) ?? "outline"} patterns={patterns} />}
               </span>
               <div className="min-w-0">
                 <p className="text-base leading-snug font-semibold">{ticket.name}</p>
+                <p className={`mt-1 text-base leading-6 font-semibold tabular-nums ${tierSoldOut ? "text-muted" : ""}`.trim()}>
+                  {formatTicketHeadline(ticket)}
+                </p>
                 {ticket.seated ? (
-                  breakdown && <p className="meta text-muted tabular-nums">{breakdown}</p>
+                  breakdown && <p className="mt-1 text-xs text-muted tabular-nums">{breakdown}</p>
                 ) : (
-                  <p className="meta text-muted">Standing · chosen on the next page</p>
+                  <p className="mt-1 text-xs text-muted">Standing · chosen on the next page</p>
                 )}
                 {tierSoldOut ? (
                   <p className="eyebrow mt-1">Sold out</p>
@@ -92,12 +97,6 @@ export default function SeatedTicketsPanel({ event, demo }: { event: SheltuhEven
                   )
                 )}
               </div>
-              {/* Phones: the price under the name (as TicketSelector's rows); from sm, on the right. */}
-              <p
-                className={`col-start-2 text-base leading-6 font-semibold tabular-nums sm:col-start-3 sm:row-start-1 ${tierSoldOut ? "text-muted" : ""}`}
-              >
-                {formatTicketHeadline(ticket)}
-              </p>
             </li>
           );
         })}

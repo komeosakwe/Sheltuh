@@ -43,11 +43,18 @@ vi.mock("@/lib/api/profiles", () => ({
 }));
 
 beforeEach(() => {
+  // The sample events are dated Sept–Nov 2026, and an ended demo event's Who's Going is closed (V4) and
+  // has no buy bar (A7): read them before they end, whatever the real clock says. Only Date is faked.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
   for (const fn of Object.values(api)) fn.mockReset();
   api.fetchAvatar.mockResolvedValue(new Blob(["x"], { type: "image/webp" }));
   Object.assign(URL, { createObjectURL: vi.fn(() => "blob:photo"), revokeObjectURL: vi.fn() });
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 const DEMO_EVENT = sampleEvents.find((e) => e.slug === "neon-static") as SheltuhEvent;
 const LIVE_EVENT: SheltuhEvent = { ...DEMO_EVENT, id: "evt-live-1", organiserId: "org-1" };
@@ -190,6 +197,44 @@ describe("Who's Going preview: only real, permitted data (§6.4.3)", () => {
     expect(faces(region)?.children).toHaveLength(2);
     expect(region).not.toHaveTextContent(/\d going/);
     expect(toggle(region)).toBeInTheDocument();
+  });
+
+  // A5 (accessibility review, 22 Oct 2026): the faces are aria-hidden, and with fewer than three
+  // there's no count beside them, so a screen reader heard nothing. It now hears the same names.
+  it("signed in, one or two people: screen readers get who the faces are (the names already sent), never a number", async () => {
+    member({ count: 2, attendees: people(2) });
+    renderEvent(LIVE_EVENT);
+    const region = await panel();
+    const said = within(region).getByText("Going: Person A. and Person B.");
+    expect(said).toHaveClass("sr-only");
+    expect(said.closest("[aria-hidden='true']")).toBeNull();
+    expect(said).not.toHaveTextContent(/\d/);
+  });
+
+  it("the viewer alone: 'Going: you.'; with a count shown there's no extra line (the count says it)", async () => {
+    const you: GoingAttendee = { attendeeId: "me", displayName: "Mia T.", isYou: true };
+    member({ count: 1, attendees: [you], me: { going: true, eligible: true, hasProfile: true }, profile: PROFILE });
+    renderEvent(LIVE_EVENT);
+    let region = await panel();
+    expect(within(region).getByText("Going: you.")).toHaveClass("sr-only");
+    cleanup();
+
+    member({ count: 5, attendees: people(5) });
+    renderEvent(LIVE_EVENT);
+    region = await panel();
+    expect(within(region).queryByText(/^Going: /)).toBeNull();
+  });
+
+  it("overlaps the faces by 4px, so two-letter initials stay readable (A4)", async () => {
+    member({ count: 5, attendees: people(5) });
+    renderEvent(LIVE_EVENT);
+    const region = await panel();
+    const [first, ...rest] = Array.from(faces(region)?.children ?? []);
+    expect(first).not.toHaveClass("-ml-1");
+    for (const face of rest) {
+      expect(face).toHaveClass("-ml-1");
+      expect(face).not.toHaveClass("-ml-2");
+    }
   });
 
   it("signed in, nobody: no faces, no toggle, and says so", async () => {

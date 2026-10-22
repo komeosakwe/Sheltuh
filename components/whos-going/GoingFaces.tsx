@@ -15,7 +15,9 @@ export const FACES_MAX = 5;
  * viewer (or the demo's samples), never invented. A photo shows only for a
  * member with a visible profile who has one (`profileId` and `hasAvatar`),
  * fetched with the bearer token by MemberAvatar; everyone else is initials.
- * Decorative (aria-hidden): the count and the list carry the meaning.
+ * Decorative (aria-hidden): the count and the list carry the meaning (and,
+ * when there's no count, the panel's screen-reader line: `facesSummary`).
+ * They overlap by 4px, so two-letter initials stay readable.
  */
 export default function GoingFaces({
   attendees,
@@ -41,7 +43,7 @@ export default function GoingFaces({
         <span
           key={attendee.attendeeId}
           data-going-face=""
-          className={`flex rounded-dot ring-2 ring-background ${index > 0 || youName !== undefined ? "-ml-2" : ""}`.trim()}
+          className={`flex rounded-dot ring-2 ring-background ${index > 0 || youName !== undefined ? "-ml-1" : ""}`.trim()}
         >
           <MemberAvatar
             name={attendee.displayName}
@@ -53,4 +55,20 @@ export default function GoingFaces({
       ))}
     </span>
   );
+}
+
+/**
+ * What the faces show, for screen readers, where no count is shown (fewer
+ * than three going, so the faces are all a sighted viewer gets): the same
+ * names, in the same order, that this viewer was already sent. Never a number.
+ */
+export function facesSummary(attendees: GoingAttendee[], youName?: string): string {
+  const names = [
+    ...(youName !== undefined ? ["you"] : []),
+    ...attendees.slice(0, youName !== undefined ? FACES_MAX - 1 : FACES_MAX).map((a) => a.displayName),
+  ];
+  if (names.length === 0) return "";
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  // Names like "Mia T." already end the sentence.
+  return `Going: ${list}${list.endsWith(".") ? "" : "."}`;
 }

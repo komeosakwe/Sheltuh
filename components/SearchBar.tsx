@@ -4,6 +4,9 @@ import { useId } from "react";
  * Site search: a plain GET form to /search?q=… so it works without JS and
  * needs no client state. `size="lg"` is the big version used on the search page.
  * `submit` adds a square search button inside the field (the home hero).
+ * The field is named by its placeholder, the only words it shows, so what a
+ * sighted visitor reads is what speech control and screen readers hear
+ * (WCAG 2.5.3).
  */
 export default function SearchBar({
   defaultValue = "",
@@ -33,7 +36,7 @@ export default function SearchBar({
   return (
     <form action="/search" method="get" role="search" aria-label={label} className="w-full">
       <label htmlFor={inputId} className="sr-only">
-        Search by event, venue or suburb
+        {placeholder}
       </label>
       <div className="relative">
         <svg

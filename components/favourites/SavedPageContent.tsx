@@ -5,7 +5,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import DemoNotice from "@/components/DemoNotice";
 import EventResults from "@/components/EventResults";
 import { Button, ButtonLink } from "@/components/ui/Button";
-import { EmptyState, Notice, SectionHeader } from "@/components/ui/Section";
+import { EmptyState, Notice } from "@/components/ui/Section";
+import SectionHead from "@/components/ui/SectionHead";
 import { listFavourites } from "@/lib/api/favourites";
 import { MAX_FAVOURITES } from "@/lib/api/types";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
@@ -228,7 +229,7 @@ function SavedList({
     <>
       <CountLine count={count} />
       <section aria-labelledby="saved-upcoming" className="flex flex-col">
-        <SectionHeader title="Coming up" id="saved-upcoming" />
+        <SectionHead title="Coming up" id="saved-upcoming" />
         {upcoming.length > 0 ? (
           <EventResults events={upcoming} />
         ) : (

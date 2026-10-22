@@ -8,7 +8,7 @@ import { Notice } from "@/components/ui/Section";
 import { formatWeekendRange } from "@/lib/home-sections";
 import { useHomeEvents } from "./HomeEventsProvider";
 import HomeRail, { HomeRailItem } from "./HomeRail";
-import SectionHead from "./SectionHead";
+import SectionHead from "@/components/ui/SectionHead";
 
 /** The page's one load error (docs/design/mobile-redesign.md §6.3.4). */
 export const HOME_LOAD_ERROR = "Couldn’t load events. Check your connection and try again.";
@@ -23,7 +23,7 @@ const SECTION = "mt-8 sm:mt-12 lg:mt-16";
  * then Popular right now (real trending data), titled "Coming up" when that's
  * too thin to fill it. Each event appears once on the page (the provider's
  * sections are already de-duplicated). A section with no cards renders
- * nothing, and "See all" shows only beside cards.
+ * nothing, and a section's link shows only beside cards.
  * Every card is the `rail` EventCard, and every section is visible from the
  * start: nothing waits for a scroll to appear.
  *
@@ -80,10 +80,11 @@ export default function HomeEventSections() {
           <div className="border-t border-foreground pt-3">
             <div className="mb-3 h-6 w-40 bg-surface sm:mb-5" />
           </div>
-          <div className="-mx-5 -my-4 flex gap-3 overflow-hidden px-5 py-4 sm:mx-0 sm:my-0 sm:grid sm:grid-cols-2 sm:gap-x-6 sm:px-0 sm:py-0 md:grid-cols-3">
+          <div className="-mx-5 -my-4 flex gap-3 overflow-hidden px-5 py-4 sm:mx-0 sm:my-0 sm:grid sm:grid-cols-2 sm:gap-x-6 sm:px-0 sm:py-0 md:grid-cols-3 lg:grid-cols-4">
             <EventCardPlaceholder variant="rail" />
             <EventCardPlaceholder variant="rail" />
             <EventCardPlaceholder variant="rail" className="hidden md:flex" />
+            <EventCardPlaceholder variant="rail" className="hidden lg:flex" />
           </div>
         </div>
       )}
@@ -112,7 +113,8 @@ export default function HomeEventSections() {
             id="home-weekend"
             title="This weekend"
             note={formatWeekendRange(weekend.window)}
-            seeAll={weekend.status === "cards" ? { href: "/events", srLabel: "events" } : undefined}
+            // /events isn't filtered to the weekend, so the link says where it goes.
+            link={weekend.status === "cards" ? { href: "/events", label: "All events" } : undefined}
           />
           {weekend.status === "cards" ? (
             <HomeRail labelledBy="home-weekend">
@@ -135,7 +137,7 @@ export default function HomeEventSections() {
           <SectionHead
             id="home-following"
             title="From organisers you follow"
-            seeAll={{ href: "/following", srLabel: "organisers you follow" }}
+            link={{ href: "/following", srLabel: "organisers you follow" }}
           />
           <HomeRail labelledBy="home-following">
             {sections.following.map((event) => (
@@ -152,7 +154,8 @@ export default function HomeEventSections() {
           <SectionHead
             id="home-popular"
             title={popular.kind === "popular" ? "Popular right now" : "Coming up"}
-            seeAll={{ href: "/events", srLabel: "events" }}
+            // Nor sorted by popularity: "All events", as This weekend.
+            link={{ href: "/events", label: "All events" }}
           />
           <HomeRail labelledBy="home-popular">
             {popular.kind === "popular"

@@ -32,10 +32,17 @@ vi.mock("@/lib/api/going", () => ({
 }));
 
 beforeEach(() => {
+  // The sample events are dated Sept–Nov 2026, and an ended demo event's Who's Going is closed (V4) and
+  // has no buy bar (A7): read them before they end, whatever the real clock says. Only Date is faked.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
   recordOutboundClick.mockReset();
   for (const fn of Object.values(going)) fn.mockReset();
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 function sample(slug: string): SheltuhEvent {
   const event = sampleEvents.find((e) => e.slug === slug);

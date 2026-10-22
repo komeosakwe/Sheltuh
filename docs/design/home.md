@@ -1,5 +1,7 @@
 # Home page (all widths) design spec
 
+> **Superseded for the hero, section order and cards by [`mobile-redesign.md`](mobile-redesign.md)** (22 Oct 2026).
+
 Status: proposed · Owner: ui-design-director · Scope: `/` from 320px up.
 
 > **Visual layer updated 21 Oct 2026 for `docs/design/brand-direction-one.md` (Brand Direction One).** The tokens, type, radii, colours and motion in §1.4, §2, §4, §5 and §8 below follow that spec, and it wins on any visual conflict. Structure, order, de-duplication (§6), the weekend window, Trending, external-ticketing cards, accessibility (§7, plus quick buy) and owner decisions 2–6 are unchanged. Decision 1 (soft cards with pink accents) is superseded: pink is replaced by Signal Orange, and cards follow the brand's rounded-square, image-first card.

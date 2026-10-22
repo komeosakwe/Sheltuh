@@ -225,9 +225,13 @@ for (const width of [375, 1280]) {
       for (const name of ["Trending", "Coming up near you", "Free & low-cost", "Only in the city"]) {
         await expect(page.getByRole("heading", { name, exact: true })).toHaveCount(0);
       }
-      // Each event section has a clear See all.
+      // Each event section has a clear link onward, named for where it goes: "All events" where the
+      // target isn't the section's own list (A8), "See all …" where it is.
       for (const section of await page.locator("[data-home-section]").all()) {
-        await expect(section.getByRole("link", { name: /^See all / })).toHaveAttribute("href", /^\/(events|following)$/);
+        await expect(section.getByRole("link", { name: /^(?:See all .+|All events)$/ })).toHaveAttribute(
+          "href",
+          /^\/(events|following)$/,
+        );
       }
       // Section heads never repeat the h2 in a strap: each head says its title once.
       const repeats = await page.locator("[data-home-section]").evaluateAll((sections) =>

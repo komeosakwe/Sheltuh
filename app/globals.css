@@ -206,19 +206,6 @@ h4 {
   letter-spacing: -0.025em;
 }
 
-/* Home hero h1 only: the display token. 32–42px on phones, up to 96px. */
-@utility display-xl {
-  font-family: var(--face-display);
-  font-weight: var(--display-weight);
-  font-size: clamp(2rem, 10vw, 2.625rem);
-  line-height: var(--display-leading);
-  letter-spacing: var(--display-tracking);
-  text-transform: uppercase;
-  @media (width >= 40rem) {
-    font-size: clamp(3.375rem, 8.5vw, 6rem);
-  }
-}
-
 /* Page h1 and event titles: Instrument Sans 700, 32–40px on phones, 56–72px from lg. */
 @utility display-lg {
   font-family: var(--face-sans);

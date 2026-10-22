@@ -13,6 +13,7 @@ import SeatedTicketsPanel from "@/components/seating/SeatedTicketsPanel";
 import ShareButton from "@/components/ShareButton";
 import TicketSelector from "@/components/TicketSelector";
 import TicketsHashFocus from "@/components/TicketsHashFocus";
+import BackLink from "@/components/ui/BackLink";
 import { buttonClass } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Section";
 import WhosGoing from "@/components/WhosGoing";
@@ -31,35 +32,30 @@ const asideRowClass = "border-t border-foreground py-3";
 const asideActionClass =
   "inline-flex min-h-11 items-center gap-1 text-sm leading-5 font-semibold underline underline-offset-4 hover:decoration-2";
 
-/** An ended event, in the buy bar and the Tickets panel alike. */
+/** An ended event, at the top of the Tickets panel (there is no buy bar then). */
 const ENDED_TEXT = "This event has ended.";
 
 /**
- * Restrictions and refunds beside the tickets (docs/design/mobile-redesign.md
- * §6.5), for Sheltüh-ticketed events only (an external event's own site has
- * its terms). It links the existing refund and purchase-terms pages and
- * invents no policy.
+ * Refunds beside the tickets (docs/design/mobile-redesign.md §6.5), only
+ * where a paid purchase on Sheltüh is possible: an external event's own site
+ * has its terms, and nothing is refunded on a free-only or ended event. It
+ * points at the existing Purchase Terms and refund pages and invents no
+ * policy. (The age restriction is in Good to know, once.)
  */
-function BookingInfo({ ageRestriction }: { ageRestriction?: string }) {
+function BookingInfo() {
   const linkClass = "underline underline-offset-4 hover:decoration-2";
   return (
-    <dl className="mt-4 flex flex-col gap-2 border-t border-surface-border pt-4 text-sm leading-5">
-      {ageRestriction && (
-        <div>
-          <dt className="eyebrow text-muted">Age restriction</dt>
-          <dd className="mt-1">{ageRestriction}</dd>
-        </div>
-      )}
+    <dl data-booking-info="" className="mt-4 flex flex-col gap-2 border-t border-surface-border pt-4 text-sm leading-5">
       <div>
         <dt className="eyebrow text-muted">Refunds</dt>
         <dd className="mt-1">
-          See{" "}
-          <Link href="/refunds" className={linkClass}>
-            Request a refund
-          </Link>{" "}
-          and our{" "}
+          Refund conditions are in our{" "}
           <Link href="/purchase-terms" className={linkClass}>
             Purchase Terms
+          </Link>
+          . To ask for one, use{" "}
+          <Link href="/refunds" className={linkClass}>
+            Request a refund
           </Link>
           .
         </dd>
@@ -104,13 +100,14 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
   const price = external ? null : formatFeedPriceParts(event);
   const when = whenLabel(event.startsAt, event.endsAt);
   // The buy bar's action: to #tickets, where a sold-out event has its waitlist
-  // (§6.10, §6.11). Once an event has ended there's nothing to buy: the bar says
-  // so, with no action (docs/design/mobile-redesign.md §6.5), except a sold-out
-  // one's "See tickets", to the closed waitlist.
+  // (§6.10, §6.11). Once an event has ended there's nothing to buy, so there's
+  // no bar (docs/design/mobile-redesign.md §6.5).
   const soldOut = isSoldOut(event);
   const ended = Date.parse(event.endsAt ?? event.startsAt) <= new Date().getTime();
-  const buyBarLabel = ended ? (soldOut ? "See tickets" : null) : (quickBuyLabel(event) ?? "Buy tickets");
+  const buyBarLabel = quickBuyLabel(event) ?? "Buy tickets";
   const seatPage = goesToSeatPage(event) && !ended;
+  // Refunds only matter where someone can pay: a paid tier, not ended (external has no Booking info at all).
+  const paidPurchasePossible = !ended && event.ticketTypes.some((ticket) => ticket.priceCents > 0);
   const shareText = `${event.title} · ${formatEventDateShort(event.startsAt)}, ${formatEventTime(event.startsAt)} · ${event.venueName}`;
   const saveTarget = { id: event.id, title: event.title, slug: event.slug };
   const organiserHref = organiserProfileHref(event);
@@ -124,13 +121,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
     // Phones: tight above the photo, so the title, date and venue are on the first screen,
     // above the sticky buy bar (owner request, 21 Oct 2026; e2e/event-page.spec.ts).
     <div className="mx-auto flex max-w-6xl flex-col gap-2 px-5 pb-12 sm:gap-10 sm:px-8 sm:py-14">
-      {/* 44px tap target below lg; the desktop link keeps its original height. */}
-      <Link
-        href="/"
-        className="eyebrow inline-flex min-h-11 w-fit items-center underline underline-offset-4 lg:min-h-0"
-      >
-        &larr; Back to all events
-      </Link>
+      <BackLink href="/">Back to all events</BackLink>
 
       {/* Live only: one cookie-free view count per session, and finishing a save
           started before signing in. Neither renders anything. */}
@@ -149,6 +140,8 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
           title: event.title,
           organiserId: event.organiserId,
           ticketingMode: event.ticketingMode,
+          startsAt: event.startsAt,
+          endsAt: event.endsAt,
         }}
       >
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-14">
@@ -215,7 +208,8 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
 
           {/* Unstuck while Who's Going is expanded, so a tall aside can't hide the
               tickets below the fold. */}
-          <aside className="flex flex-col gap-6 sm:gap-8 lg:col-span-5 lg:sticky lg:top-24 lg:self-start lg:has-[[data-wg-expanded]]:static">
+          {/* 24px between every block of the side column, at every width. */}
+          <aside className="flex flex-col gap-6 lg:col-span-5 lg:sticky lg:top-24 lg:self-start lg:has-[[data-wg-expanded]]:static">
             <dl className="flex flex-col">
               <div className={asideRowClass}>
                 <dt className="eyebrow text-muted">When</dt>
@@ -317,7 +311,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                         <TicketSelector event={event} />
                       </div>
                     )}
-                    <BookingInfo ageRestriction={event.ageRestriction} />
+                    {paidPurchasePossible && <BookingInfo />}
                   </>
                 )}
               </Panel>
@@ -329,30 +323,21 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
               under the tickets at the very end rather than parking mid-page (focus
               scrolls clear of it: globals.css pads by --buybar-h). The page wrapper's
               padding is what -mx bleeds it across. At 320 the heart doesn't fit: the
-              one by the title stays. */}
-          {price && (
+              one by the title stays. Once the event has ended there's no bar at all:
+              nothing's for sale, the Tickets panel says so, and Save stays by the title. */}
+          {price && !ended && (
             <div
               data-buy-bar
               data-surface="ink"
               className="sticky bottom-0 z-20 -mx-5 flex min-h-18 items-center justify-between gap-4 px-5 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden"
             >
               <div className="min-w-0">
-                {ended ? (
-                  // No price once it's over: nothing's for sale. When it was, instead.
-                  <>
-                    <p className="text-sm leading-5 font-semibold">{ENDED_TEXT}</p>
-                    <p className="text-xs leading-4 text-muted">{formatEventDateShort(event.startsAt)}</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-base leading-5 font-semibold tabular-nums">{price.amount}</p>
-                    {price.note && <p className="text-xs leading-4 text-muted">{price.note}</p>}
-                  </>
-                )}
+                <p className="text-base leading-5 font-semibold tabular-nums">{price.amount}</p>
+                {price.note && <p className="text-xs leading-4 text-muted">{price.note}</p>}
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <SaveButton event={saveTarget} variant="onDark" className="hidden min-[375px]:flex" />
-                {buyBarLabel === null ? null : seatPage ? (
+                {seatPage ? (
                   // A seated event's buy bar goes straight to its seat page (manager decision 2,
                   // docs/design/seating.md).
                   <Link href={`/events/${event.slug}/seats`} className={buttonClass("signal", "lg", "shrink-0 px-5 sm:px-7")}>
@@ -369,8 +354,8 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
             </div>
           )}
           {/* An external event's buy bar: where tickets are sold (never a price), and
-              the outbound link itself, not a jump to #tickets. */}
-          {ticketUrl && (
+              the outbound link itself, not a jump to #tickets. None once it has ended. */}
+          {ticketUrl && !ended && (
             <div
               data-buy-bar
               data-surface="ink"

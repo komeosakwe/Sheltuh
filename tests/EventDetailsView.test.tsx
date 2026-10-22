@@ -86,9 +86,12 @@ describe("EventDetailsView buy bar (phones and tablets)", () => {
 });
 
 describe("EventDetailsView once the event has ended (mobile-redesign.md §6.5, §10.3 #2)", () => {
-  it("the buy bar says the event has ended, with its date and no price or action; the tickets section says so too", () => {
+  // A7 (accessibility review, 22 Oct 2026): the buy bar is gone entirely once an event has ended (it
+  // used to say "This event has ended." with Save, or "See tickets" when sold out). Nothing's for sale;
+  // the Tickets panel says so, and Save stays by the title.
+  it("no buy bar at all; the tickets section says it has ended, and Save stays by the title", () => {
     vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));
-    // Demo favourites (accounts not configured), so the bar's Save heart renders.
+    // Demo favourites (accounts not configured), so the Save hearts render.
     const { container } = render(
       <FakeAuthProvider value={fakeAuthValue({ configured: false, status: "signed-out" })}>
         <FavouritesProvider>
@@ -96,42 +99,30 @@ describe("EventDetailsView once the event has ended (mobile-redesign.md §6.5, �
         </FavouritesProvider>
       </FakeAuthProvider>,
     );
-    const bar = buyBar(container);
-    if (!bar) throw new Error("buy bar not rendered");
-    expect(within(bar).getByText("This event has ended.")).toBeInTheDocument();
-    // When it was, never what it cost: nothing's for sale (coordinator, 22 Oct 2026).
-    expect(within(bar).getByText(/^Fri 25 Sept?$/)).toBeInTheDocument();
-    expect(bar).not.toHaveTextContent("A$");
-    expect(bar).not.toHaveTextContent("booking fee");
-    expect(within(bar).queryByRole("link")).toBeNull();
-    // Save stays.
-    expect(within(bar).getByRole("button", { name: "Save Neon Static" })).toBeInTheDocument();
+    expect(buyBar(container)).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Save Neon Static" })).toHaveLength(1);
     const tickets = container.querySelector<HTMLElement>("#tickets");
     if (!tickets) throw new Error("#tickets not rendered");
     expect(within(tickets).getByText("This event has ended.")).toBeInTheDocument();
     expect(within(tickets).queryByRole("button", { name: /Increase quantity|Checkout/ })).toBeNull();
   });
 
-  it("a free event too: no Get free tickets once it's over", () => {
+  it("a free event and an external one too: no bar once it's over", () => {
     vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));
     const { container } = render(<EventDetailsView event={findEvent("brunswick-zine-fair")} demo />);
-    const bar = buyBar(container);
-    if (!bar) throw new Error("buy bar not rendered");
-    expect(within(bar).queryByRole("link", { name: /tickets/i })).toBeNull();
-    expect(within(bar).getByText("This event has ended.")).toBeInTheDocument();
-    expect(bar).not.toHaveTextContent("Free");
+    expect(buyBar(container)).toBeNull();
+    cleanup();
+    const external = sampleEvents.find((e) => e.ticketingMode === "external" && e.externalTicketUrl);
+    if (!external) throw new Error("no external sample");
+    const other = render(<EventDetailsView event={external} demo />);
+    expect(buyBar(other.container)).toBeNull();
   });
 
-  it("sold out and ended: See tickets, to the closed waitlist", () => {
+  it("sold out and ended: no bar; the panel says it has ended, above the sold-out tiers and the closed waitlist", () => {
     vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));
     const soldOut = findEvent("dead-letter-office");
     const { container } = render(<EventDetailsView event={soldOut} demo />);
-    const bar = buyBar(container);
-    if (!bar) throw new Error("buy bar not rendered");
-    expect(within(bar).getByRole("link", { name: "See tickets" })).toHaveAttribute("href", "#tickets");
-    expect(within(bar).queryByRole("link", { name: "Join waitlist" })).toBeNull();
-    expect(bar).not.toHaveTextContent("A$");
-    // The tickets panel says it has ended too, above the sold-out tiers and the closed waitlist.
+    expect(buyBar(container)).toBeNull();
     const tickets = container.querySelector<HTMLElement>("#tickets");
     if (!tickets) throw new Error("#tickets not rendered");
     expect(within(tickets).getByText("This event has ended.")).toBeInTheDocument();
@@ -146,6 +137,12 @@ describe("EventDetailsView once the event has ended (mobile-redesign.md §6.5, �
     if (!tickets) throw new Error("#tickets not rendered");
     expect(within(tickets).getByText("This event has ended.")).toBeInTheDocument();
     expect(within(tickets).queryByRole("link", { name: /Choose seats/ })).toBeNull();
+    expect(buyBar(container)).toBeNull();
+  });
+
+  it("before it ends, the bar is there (control)", () => {
+    const { container } = render(<EventDetailsView event={findEvent("neon-static")} demo />);
+    expect(buyBar(container)).not.toBeNull();
   });
 });
 
@@ -323,24 +320,53 @@ describe("EventDetailsView More from the organiser", () => {
 });
 
 describe("EventDetailsView booking info beside the tickets", () => {
-  it("links the existing refund and purchase-terms pages (no invented policy), and repeats an age restriction", () => {
+  function tickets(container: HTMLElement): HTMLElement {
+    const el = container.querySelector<HTMLElement>("#tickets");
+    if (!el) throw new Error("#tickets not rendered");
+    return el;
+  }
+
+  // A6 (accessibility review, 22 Oct 2026): one plain sentence, linking the existing pages.
+  it("where a paid purchase is possible: refund conditions are in the Purchase Terms, and how to ask for one", () => {
+    const { container } = render(<EventDetailsView event={findEvent("neon-static")} demo />);
+    const info = tickets(container).querySelector<HTMLElement>("[data-booking-info]");
+    if (!info) throw new Error("no booking info");
+    expect(within(info).getByText("Refunds").tagName).toBe("DT");
+    expect(info.querySelector("dd")).toHaveTextContent(
+      "Refund conditions are in our Purchase Terms. To ask for one, use Request a refund.",
+    );
+    expect(within(info).getByRole("link", { name: "Purchase Terms" })).toHaveAttribute("href", "/purchase-terms");
+    expect(within(info).getByRole("link", { name: "Request a refund" })).toHaveAttribute("href", "/refunds");
+  });
+
+  it("no refunds row where nothing can be paid for: free-only, ended, or external", () => {
+    const free = findEvent("brunswick-zine-fair");
+    expect(free.ticketTypes.every((t) => t.priceCents === 0)).toBe(true);
+    const external = sampleEvents.find((e) => e.ticketingMode === "external");
+    if (!external) throw new Error("no external sample");
+    for (const event of [free, external]) {
+      const { container, unmount } = render(<EventDetailsView event={event} demo />);
+      expect(container.querySelector("[data-booking-info]")).toBeNull();
+      expect(within(tickets(container)).queryByText("Refunds")).toBeNull();
+      unmount();
+    }
+    vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));
+    const { container } = render(<EventDetailsView event={findEvent("neon-static")} demo />);
+    expect(container.querySelector("[data-booking-info]")).toBeNull();
+  });
+
+  it("a sold-out paid event keeps it (tickets can come back through the waitlist)", () => {
+    const { container } = render(<EventDetailsView event={findEvent("dead-letter-office")} demo />);
+    expect(container.querySelector("[data-booking-info]")).not.toBeNull();
+  });
+
+  // V5 (visual QA, 22 Oct 2026): the age restriction was shown twice. It stays in Good to know only.
+  it("shows an age restriction once, in Good to know, never again beside the tickets", () => {
     const { container } = render(
       <EventDetailsView event={{ ...findEvent("neon-static"), ageRestriction: "18+ (ID checked)" }} demo />,
     );
-    const tickets = container.querySelector<HTMLElement>("#tickets");
-    if (!tickets) throw new Error("#tickets not rendered");
-    expect(within(tickets).getByRole("link", { name: "Request a refund" })).toHaveAttribute("href", "/refunds");
-    expect(within(tickets).getByRole("link", { name: "Purchase Terms" })).toHaveAttribute("href", "/purchase-terms");
-    const age = within(tickets).getByText("Age restriction");
-    expect(age.tagName).toBe("DT");
-    expect(age.nextElementSibling).toHaveTextContent("18+ (ID checked)");
-  });
-
-  it("has no age line without a restriction", () => {
-    const { container } = render(<EventDetailsView event={{ ...findEvent("neon-static"), ageRestriction: undefined }} demo />);
-    const tickets = container.querySelector<HTMLElement>("#tickets");
-    if (!tickets) throw new Error("#tickets not rendered");
-    expect(within(tickets).queryByText("Age restriction")).toBeNull();
-    expect(within(tickets).getByText("Refunds")).toBeInTheDocument();
+    expect(screen.getAllByText("Age restriction")).toHaveLength(1);
+    expect(within(tickets(container)).queryByText("Age restriction")).toBeNull();
+    expect(screen.getByRole("region", { name: "Good to know" })).toHaveTextContent("18+ (ID checked)");
   });
 });

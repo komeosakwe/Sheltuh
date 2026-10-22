@@ -159,9 +159,12 @@ export default function Nav() {
         <Link href="/" aria-label="Sheltüh home" className="flex items-center py-1">
           <Wordmark className="h-6 w-auto" />
         </Link>
-        <div className="order-last w-full lg:order-none lg:max-w-sm lg:flex-1">
-          <SearchBar label="Search the site" placeholder="Search events" />
-        </div>
+        {/* The home's hero has the page's search; a second field beside it would only compete. */}
+        {pathname !== "/" && (
+          <div className="order-last w-full lg:order-none lg:max-w-sm lg:flex-1">
+            <SearchBar label="Search the site" placeholder="Search events" />
+          </div>
+        )}
         <nav aria-label="Primary" className="ml-auto flex flex-wrap items-center gap-x-1 gap-y-1 sm:gap-x-3">
           {PRIMARY_LINKS.map((link) => (
             <Link
@@ -194,7 +197,8 @@ export default function Nav() {
         className="inset-x-0 top-[calc(var(--header-h)+env(safe-area-inset-top))] bottom-auto m-0 h-[calc(100dvh-var(--header-h)-env(safe-area-inset-top))] w-full max-w-none overflow-y-auto overscroll-contain border-0 border-t border-foreground bg-background py-0 pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] text-foreground lg:hidden"
       >
         <nav
-          aria-label="Primary"
+          // Its own name: the desktop row's nav is "Primary", and two landmarks shouldn't share one.
+          aria-label="Site menu"
           onClick={closeMenuOnAction}
           className="flex min-h-full flex-col px-5 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-6 sm:px-8"
         >

@@ -61,13 +61,19 @@ for (const vp of [
       page,
     }) => {
       const checkNoApiCalls = noApiCalls(page);
-      const event = sampleEvents.find((e) => e.slug === "neon-static");
-      if (!event) throw new Error("no sample neon-static");
-      // The first sample member among the six names shown before "Show more".
-      const member = getSampleGoing(event.id)
-        .attendees.slice(0, 6)
-        .find((attendee) => attendee.profileId);
-      if (!member?.profileId) throw new Error("no sample member in Neon Static's first six names");
+      // A sample event that hasn't ended (its list closes once it has, as in live: V4), with a sample
+      // member among the six names shown before "Show more". The samples have fixed dates, so pick one
+      // that's still a day away rather than a fixed slug.
+      const firstMember = (eventId: string) => getSampleGoing(eventId).attendees.slice(0, 6).find((a) => a.profileId);
+      const event = sampleEvents.find(
+        (e) =>
+          e.ticketingMode !== "external" &&
+          Date.parse(e.endsAt ?? e.startsAt) > Date.now() + 24 * 3600_000 &&
+          firstMember(e.id) !== undefined,
+      );
+      if (!event) throw new Error("no upcoming sample event with a sample member in its first six names");
+      const member = firstMember(event.id);
+      if (!member?.profileId) throw new Error("no sample member in the first six names");
 
       await page.goto(`/events/${event.slug}`);
       // The panel opens on a preview; the names are behind "See who's going" (mobile-redesign.md §6.4.2).

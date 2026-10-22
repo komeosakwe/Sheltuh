@@ -2,7 +2,7 @@ import Link from "next/link";
 import EventArt from "@/components/EventArt";
 import QuickBuyLink from "@/components/QuickBuyLink";
 import CardPrice from "@/components/ui/CardPrice";
-import { categoryLabel } from "@/lib/event-card";
+import { categoryLabel, placeLabel } from "@/lib/event-card";
 import { formatEventDateShort, formatEventTime } from "@/lib/format";
 import type { SheltuhEvent } from "@/lib/types";
 
@@ -25,6 +25,7 @@ interface SceneEventRowProps {
  * the word "Selected", never colour alone.
  */
 export default function SceneEventRow({ event, selected, onLocate, hasLocation, detailsHref }: SceneEventRowProps) {
+  const place = placeLabel(event);
   return (
     <div
       className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 border-b border-l-2 border-b-surface-border px-4 py-3 last:border-b-0 ${
@@ -45,8 +46,8 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
           </p>
         )}
         <p className="meta">
-          <span className="whitespace-nowrap">{formatEventDateShort(event.startsAt)}</span> ·{" "}
-          <span className="whitespace-nowrap">{formatEventTime(event.startsAt)}</span>
+          <span className="whitespace-nowrap">{formatEventDateShort(event.startsAt)}</span>{" "}
+          <span className="whitespace-nowrap">· {formatEventTime(event.startsAt)}</span>
         </p>
         <Link
           href={detailsHref}
@@ -54,9 +55,7 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
         >
           {event.title}
         </Link>
-        <p className="truncate text-sm leading-5 text-muted">
-          {event.venueName} &middot; {event.suburb}
-        </p>
+        {place && <p className="line-clamp-2 text-sm leading-5 break-words text-muted">{place}</p>}
         <p className="text-sm leading-5 text-muted">
           {categoryLabel(event)}
           {!hasLocation && <> &middot; not shown on map</>}

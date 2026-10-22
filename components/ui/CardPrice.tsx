@@ -56,7 +56,25 @@ export default function CardPrice({
   return (
     <p id={id} className={className}>
       <span className="font-semibold tabular-nums">{parts.amount}</span>{" "}
-      <span className="text-muted">{parts.note}</span>
+      <span className="text-muted">
+        <LastWordsTogether text={parts.note} />
+      </span>
     </p>
+  );
+}
+
+/**
+ * The note with its last two words kept on one line, so "fee" never sits
+ * alone ("incl. booking fee" wraps as "incl. / booking fee"). The rest can
+ * still wrap: a whole-note nowrap would overflow a 134px grid card. The
+ * spaces stay ordinary spaces, so the text reads (and matches) as before.
+ */
+function LastWordsTogether({ text }: { text: string }) {
+  const words = text.split(" ");
+  if (words.length < 3) return <span className="whitespace-nowrap">{text}</span>;
+  return (
+    <>
+      {words.slice(0, -2).join(" ")} <span className="whitespace-nowrap">{words.slice(-2).join(" ")}</span>
+    </>
   );
 }

@@ -79,6 +79,24 @@ describe("event page for a seated event (docs/design/seating.md §5.1)", () => {
   });
 });
 
+describe("seated panel tier rows (V6: the standard ticket row)", () => {
+  it("each tier: the name, the all-inclusive price under it, then the fee breakdown in quiet sentence case", () => {
+    const { container } = render(<SeatedTicketsPanel event={seated} demo />);
+    const rows = container.querySelectorAll("ul > li");
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      const lines = Array.from(row.querySelectorAll(":scope > div > p"));
+      // Name, then the price (never in a separate right-hand column).
+      expect(lines[1]).toHaveClass("text-base", "font-semibold", "tabular-nums");
+      expect(lines[1]).toHaveTextContent(/A\$|Free/);
+      // The breakdown (or the standing note) under it: 12px muted, not mono.
+      expect(lines[2]).toHaveClass("text-xs", "text-muted");
+      expect(lines[2]).not.toHaveClass("meta");
+    }
+    expect(within(container).getAllByText(/ ticket \+ A\$[\d.]+ booking fee$/).length).toBeGreaterThan(0);
+  });
+});
+
 describe("seated panel once the event has ended (§5.1)", () => {
   it("no Choose your seats: says sales have ended", () => {
     vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));

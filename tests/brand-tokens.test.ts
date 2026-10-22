@@ -164,3 +164,16 @@ describe("current page in the nav", () => {
     expect(current).toContain("text-decoration-thickness: 2px;");
   });
 });
+
+describe("type scale clean-up (docs/design/mobile-redesign.md P2)", () => {
+  it("has no display-xl any more: nothing used it once the hero moved to display-lg", () => {
+    expect(css).not.toMatch(/@utility display-xl\b/);
+    for (const { file, text } of sources) expect(text, file).not.toMatch(/\bdisplay-xl\b/);
+  });
+
+  it("keeps the demo label off the orange: a black-edged white badge, still clearly marked (V11)", () => {
+    const demo = sources.find((s) => s.file === path.join("components", "DemoNotice.tsx"));
+    expect(demo?.text).toMatch(/border border-foreground bg-card[^"]*text-foreground/);
+    expect(demo?.text).not.toMatch(/bg-signal/);
+  });
+});

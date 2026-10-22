@@ -44,8 +44,15 @@ vi.mock("@/lib/api/orders", () => ({
   createCheckoutSession: (...args: unknown[]) => api.createCheckoutSession(...args),
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 beforeEach(() => {
+  // The sample events are dated Sept–Nov 2026, and an ended demo event's Who's Going is closed (V4) and
+  // has no buy bar (A7): read them before they end, whatever the real clock says. Only Date is faked.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
   for (const fn of Object.values(api)) fn.mockReset();
 });
 
@@ -170,6 +177,27 @@ describe("Who's Going — demo", () => {
     expect(document.activeElement).toHaveTextContent(sampleData.attendees[6].displayName);
 
     for (const fn of Object.values(api)) expect(fn).not.toHaveBeenCalled();
+  });
+
+  // V4 (visual QA, 22 Oct 2026): the demo kept showing an ended event's sample list. The live API
+  // closes a list once the event has ended (endsAt, or startsAt with no end); the demo now does too.
+  it("closes once the event has ended, as live does: no panel, no summary link, still no API call", () => {
+    vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));
+    renderEvent(DEMO_EVENT, signedOut());
+    expect(screen.queryByRole("region", { name: "Who's going" })).toBeNull();
+    expect(summaryLink()).toBeNull();
+    for (const fn of Object.values(api)) expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("an event with no end time closes once it has started", () => {
+    const start = Date.parse(DEMO_EVENT.startsAt);
+    vi.setSystemTime(new Date(start - 60_000));
+    renderEvent({ ...DEMO_EVENT, endsAt: undefined }, signedOut());
+    expect(screen.getByRole("region", { name: "Who's going" })).toBeInTheDocument();
+    cleanup();
+    vi.setSystemTime(new Date(start + 60_000));
+    renderEvent({ ...DEMO_EVENT, endsAt: undefined }, signedOut());
+    expect(screen.queryByRole("region", { name: "Who's going" })).toBeNull();
   });
 });
 

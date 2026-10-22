@@ -99,7 +99,7 @@ describe("cardCta (§6.2.3: the first matching row wins)", () => {
     ["1 ended", event({ endsAt: "2026-10-19T00:00:00.000Z", startsAt: "2026-10-18T00:00:00.000Z" }), null],
     ["1 ended, sold out", soldOut({ endsAt: "2026-10-19T00:00:00.000Z", startsAt: "2026-10-18T00:00:00.000Z" }), null],
     ["2 external, free", external(true), { label: "Get free tickets", href: "/events/e#tickets", tone: "signal" }],
-    ["3 external, paid", external(false), { label: "Buy tickets", href: "/events/e#tickets", tone: "signal" }],
+    ["3 external, paid", external(false), { label: "Get tickets", href: "/events/e#tickets", tone: "signal" }],
     ["4 no tiers yet", event({ ticketTypes: [] }), null],
     ["5 sold out", soldOut(), { label: "Join waitlist", href: "/events/e#tickets", tone: "outline" }],
     ["5 sold out, seated", seated({ soldOut: true, ticketTypes: [ticket(3000, { seated: true, soldOut: true })] }), { label: "Join waitlist", href: "/events/e#tickets", tone: "outline" }],
@@ -138,8 +138,9 @@ describe("cardGoing (§6.2.5): real or absent", () => {
 describe("signalLabel", () => {
   it("labels the signal; a going count shows in the going row instead, except on an external event", () => {
     expect(signalLabel({ kind: "going", count: 9 }, false)).toBeNull();
-    expect(signalLabel({ kind: "going", count: 9 }, true)).toBe("Popular this week");
+    // V9 (visual QA, 22 Oct 2026): the shorter "Popular" (was "Popular this week").
+    expect(signalLabel({ kind: "going", count: 9 }, true)).toBe("Popular");
     expect(signalLabel({ kind: "just-announced" }, false)).toBe("Just announced");
-    expect(signalLabel({ kind: "popular" }, false)).toBe("Popular this week");
+    expect(signalLabel({ kind: "popular" }, false)).toBe("Popular");
   });
 });

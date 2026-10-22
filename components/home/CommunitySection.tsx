@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ButtonLink } from "@/components/ui/Button";
 import GoingStack from "@/components/ui/GoingStack";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
@@ -26,7 +27,8 @@ export const COMMUNITY_STEPS = [
  * it works in three real steps; it never shows a community size.
  * `#find-your-people` links land here, focus included (tabIndex -1). The CTA
  * sends signed-in members to find an event and everyone else (including
- * while auth is still loading, which is also the server render) to sign up.
+ * while auth is still loading, which is also the server render) to sign up,
+ * with "Browse events" beside it, since buying a ticket needs no account.
  * Black on orange throughout (6.18:1); never an orange button here.
  */
 export default function CommunitySection({ className = "" }: { className?: string }) {
@@ -69,9 +71,18 @@ export default function CommunitySection({ className = "" }: { className?: strin
               Find an event
             </ButtonLink>
           ) : (
-            <ButtonLink href="/signup" variant="solid" size="lg" className="mt-6 w-full sm:w-auto">
-              Join the community
-            </ButtonLink>
+            // Signing up isn't needed to book: the way to events stays one tap away.
+            <div className="mt-6 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-6">
+              <ButtonLink href="/signup" variant="solid" size="lg" className="w-full sm:w-auto">
+                Join the community
+              </ButtonLink>
+              <Link
+                href="/events"
+                className="inline-flex min-h-11 items-center text-base leading-6 font-semibold underline underline-offset-4 hover:decoration-2"
+              >
+                Browse events
+              </Link>
+            </div>
           )}
         </div>
       </div>

@@ -81,43 +81,6 @@ export function PageHeader({
   );
 }
 
-/**
- * A section's head (§6.4): the strap (a black rule, the dots and a short
- * label, hidden from screen readers since it repeats the h2), then the h2
- * with its intro on the left and an optional action on the right.
- */
-export function SectionHeader({
-  title,
-  intro,
-  action,
-  id,
-  strap = title,
-}: {
-  title: string;
-  intro?: string;
-  action?: ReactNode;
-  id?: string;
-  /** The strap's short form of the title. */
-  strap?: string;
-}) {
-  return (
-    <div className="mb-5 sm:mb-8">
-      <div aria-hidden="true">
-        <Strap label={strap} />
-      </div>
-      <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="max-w-xl">
-          <h2 id={id} className="display-md">
-            {title}
-          </h2>
-          {intro && <p className="mt-2 text-sm leading-5 text-muted sm:mt-3 sm:text-base sm:leading-6">{intro}</p>}
-        </div>
-        {action}
-      </div>
-    </div>
-  );
-}
-
 /** A black-ruled section (§6.4): grouped content on the page, never a rounded box. */
 export function Panel({
   children,

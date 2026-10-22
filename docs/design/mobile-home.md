@@ -1,5 +1,7 @@
 # Phone home page (< 640px) design spec
 
+> **Superseded for the hero, section order and cards by [`mobile-redesign.md`](mobile-redesign.md)** (22 Oct 2026).
+
 Status: proposed · Owner: ui-design-director · Scope: `/` below Tailwind `sm` (320–639px). At ≥640px the home page renders and behaves exactly as today.
 
 **Reference:** the owner's phone mockup (`images/17.webp`).

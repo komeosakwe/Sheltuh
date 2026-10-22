@@ -1,7 +1,7 @@
 import { isSoldOut, pricedTicketTypes } from "./pricing";
 import type { SheltuhEvent } from "./types";
 
-export type QuickBuyLabel = "Buy tickets" | "Get free tickets" | "Join waitlist" | "Choose seats";
+export type QuickBuyLabel = "Buy tickets" | "Get tickets" | "Get free tickets" | "Join waitlist" | "Choose seats";
 
 /**
  * The visible label of a card's quick-buy link to `/events/{slug}#tickets`
@@ -11,9 +11,9 @@ export type QuickBuyLabel = "Buy tickets" | "Get free tickets" | "Join waitlist"
  *
  * "Get free tickets" when every tier is free, otherwise "Buy tickets", in
  * demo mode too (its event page explains nothing is bookable). An external
- * event says "Buy tickets" ("Get free tickets" when its organiser says entry
- * is free: docs/design/mobile-redesign.md §6.2.3) and still goes to the
- * event page, whose ticket section (like its phone buy bar) is the "Get
+ * event says "Get tickets" (nothing is bought on Sheltüh; "Get free tickets"
+ * when its organiser says entry is free: docs/design/mobile-redesign.md
+ * §6.2.3) and still goes to the event page, whose ticket section (like its phone buy bar) is the "Get
  * tickets on {provider}" link out, with its click beacon; the card itself
  * never links out. Sold out (every tier, from the server's `soldOut`): "Join
  * waitlist", to the same section, where the waitlist block is (§6.5, §6.11).
@@ -22,7 +22,7 @@ export type QuickBuyLabel = "Buy tickets" | "Get free tickets" | "Join waitlist"
  */
 export function quickBuyLabel(event: SheltuhEvent, now?: Date): QuickBuyLabel | null {
   if (now && Date.parse(event.endsAt ?? event.startsAt) <= now.getTime()) return null;
-  if (event.ticketingMode === "external") return event.externalFree ? "Get free tickets" : "Buy tickets";
+  if (event.ticketingMode === "external") return event.externalFree ? "Get free tickets" : "Get tickets";
   if (event.ticketTypes.length === 0) return null;
   if (isSoldOut(event)) return "Join waitlist";
   if (event.seating) return "Choose seats";

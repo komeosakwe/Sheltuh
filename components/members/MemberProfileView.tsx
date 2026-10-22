@@ -9,7 +9,8 @@ import ReportDialog, { type ReportOutcome } from "@/components/messages/ReportDi
 import { BLOCK_EFFECT, errorText, messagingError, tallInlineLinkClass, threadHref } from "@/components/messages/shared";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import EventCard from "@/components/ui/EventCard";
-import { EmptyState, Notice, SectionHeader } from "@/components/ui/Section";
+import { EmptyState, Notice } from "@/components/ui/Section";
+import SectionHead from "@/components/ui/SectionHead";
 import Strap from "@/components/ui/Strap";
 import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
 import type { GetToken } from "@/lib/api/client";
@@ -316,11 +317,7 @@ export default function MemberProfileView({
       )}
 
       <section aria-labelledby="member-events">
-        <SectionHeader
-          id="member-events"
-          title={profile.isYou ? "Events you’re going to" : `Events ${name} is going to`}
-          strap="Going to"
-        />
+        <SectionHead id="member-events" title={profile.isYou ? "Events you’re going to" : `Events ${name} is going to`} />
         {events.length > 0 ? (
           <ul className={RESULTS_GRID}>
             {events.map((event) => (

@@ -37,7 +37,10 @@ beforeEach(() => {
   sessionStorage.clear();
   localStorage.clear();
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 const EVENT = sampleEvents[0];
 
@@ -78,6 +81,9 @@ describe("heart placements", () => {
   });
 
   it("event page: a Save pill by the title, and a buy-bar heart from 375px", () => {
+    // Before the sample event ends: an ended event has no buy bar (A7). Only Date is faked.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
     const { container } = withHearts(<EventDetailsView event={EVENT} demo />);
     const hearts = screen.getAllByRole("button", { name: `Save ${EVENT.title}` });
     expect(hearts.map((h) => h.getAttribute("data-save-variant"))).toEqual(["pill", "onDark"]);

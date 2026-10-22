@@ -13,7 +13,7 @@ export default async function SignupPage({ searchParams }: PageProps<"/signup">)
           flush
           eyebrow="Account"
           title="Create an account"
-          intro="An account lets you apply as an organiser. Browsing and (later) buying tickets never requires one."
+          intro="An account lets you add yourself to an event’s Who’s Going list, see who else is going, message people going to the same event, and apply as an organiser. You don’t need one to browse events or buy tickets."
         />
         {/* The privacy line is inside the form, above Sign up. */}
         <SignupForm next={Array.isArray(next) ? next[0] : next} />

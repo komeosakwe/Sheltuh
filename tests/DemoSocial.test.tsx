@@ -53,6 +53,8 @@ describe("Who's Going names (demo)", () => {
   it("links each sample member to their profile; anyone else stays plain text", async () => {
     const event = sampleEvents.find((e) => e.slug === "neon-static");
     if (!event) throw new Error("no sample neon-static");
+    // Before it ends (25 Sept): an ended demo event's Who's Going is closed, as in live (V4).
+    vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
     const sample = getSampleGoing(event.id);
     render(
       <FakeAuthProvider value={demoAuth()}>

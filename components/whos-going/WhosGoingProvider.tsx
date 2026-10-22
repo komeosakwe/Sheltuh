@@ -151,13 +151,23 @@ async function loadGoing(eventId: string, getToken: GetToken | undefined, email:
  * Demo mode (no API, or a sample event with no organiser, the same gate as
  * TicketSelector) uses fixed sample names and never calls the API. An
  * external event (tickets sold on another site) is closed in both modes,
- * with no request.
+ * with no request. So is a demo event once it has ended (its `endsAt`, or
+ * `startsAt` with no end), as the live API closes a real one.
  */
 export function WhosGoingProvider({
   event,
   children,
 }: {
-  event: { id: string; slug: string; title: string; organiserId?: string; ticketingMode?: TicketingMode };
+  event: {
+    id: string;
+    slug: string;
+    title: string;
+    organiserId?: string;
+    ticketingMode?: TicketingMode;
+    /** Demo only (live asks the API): an ended event's list is closed. */
+    startsAt?: string;
+    endsAt?: string;
+  };
   children: ReactNode;
 }) {
   const external = event.ticketingMode === "external";
@@ -190,8 +200,13 @@ export function WhosGoingProvider({
     };
   }, [fetches, authStatus, key, event.id, getToken, email]);
 
+  // The time of the first render: a demo list closes on the next visit after its event ends, never mid-view.
+  const [mountedAt] = useState(() => Date.now());
+  const endMs = Date.parse(event.endsAt ?? event.startsAt ?? "");
+  const ended = Number.isFinite(endMs) && endMs <= mountedAt;
+
   const demoState = useMemo<GoingLoadState>(() => {
-    if (external) return CLOSED;
+    if (external || ended) return CLOSED;
     const sample = getSampleGoing(event.id);
     return {
       status: "ready",
@@ -206,7 +221,7 @@ export function WhosGoingProvider({
         viewer: { kind: "signed-out" },
       },
     };
-  }, [event.id, external]);
+  }, [event.id, external, ended]);
 
   const state: GoingLoadState = !live
     ? demoState

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import CategoryIcon, { type CategoryIconName } from "./CategoryIcon";
-import SectionHead from "./SectionHead";
+import SectionHead from "@/components/ui/SectionHead";
 
 /** Every link opens /events with that filter already applied (see app/events/page.tsx). */
 export const HOME_CATEGORIES: { label: string; href: string; icon: CategoryIconName }[] = [

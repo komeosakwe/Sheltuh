@@ -178,6 +178,22 @@ describe("/organisers/[organiserId] (live)", () => {
     expect(pastLink).toHaveTextContent("2025"); // a past date carries its year
   });
 
+  // V3 (visual QA, 22 Oct 2026): the old section header drew a mono strap repeating each h2. The
+  // site's one section head says the title once, after a black rule.
+  it("heads each events section once: no strap repeating 'Upcoming events' or 'Past events'", async () => {
+    getOrganiserProfile.mockResolvedValue(profile());
+    await renderPage();
+    for (const name of ["Upcoming events", "Past events"]) {
+      const heading = await screen.findByRole("heading", { level: 2, name });
+      const section = heading.closest("section");
+      if (!section) throw new Error(`${name} section not rendered`);
+      expect(screen.getAllByText(name)).toHaveLength(1);
+      expect(section.querySelector(".eyebrow")?.textContent ?? "").not.toContain(name);
+      // The #organiser-upcoming target (the event page's "More from") is the heading itself.
+      if (name === "Upcoming events") expect(heading).toHaveAttribute("id", "organiser-upcoming");
+    }
+  });
+
   it("says when there are no upcoming events, and leaves out past events when there are none", async () => {
     getOrganiserProfile.mockResolvedValue(profile({ upcomingEvents: [], recentEvents: [] }));
     await renderPage();

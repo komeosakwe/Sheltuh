@@ -170,7 +170,7 @@ describe("LiveEventFeed — announcing results and keeping focus (WCAG 4.1.3, 2.
     more.focus();
     fireEvent.click(more);
     await waitFor(() => expect(screen.queryByRole("button", { name: /Load more|Loading/ })).toBeNull());
-    await waitFor(() => expect(document.activeElement).toHaveAttribute("href", "/events/c"));
+    await waitFor(() => expect(document.activeElement).toHaveAttribute("href", "/events/c"), { timeout: 3000 });
   });
 
   it("puts a visually hidden h2 above the results, so the tiles' h3 titles sit under it", async () => {

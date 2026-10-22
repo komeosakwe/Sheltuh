@@ -66,7 +66,7 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     expect(new Set(hrefs).size).toBe(hrefs.length);
   });
 
-  it("says the listings are samples, and every quick-buy link says 'Buy tickets' (or 'Get free tickets'), as live", async () => {
+  it("says the listings are samples, and every quick-buy link says 'Buy tickets' ('Get free tickets', or an external event's 'Get tickets'), as live", async () => {
     render(<Home />);
     await settle();
     expect(screen.getByRole("note")).toHaveTextContent("Demo — sample events");
@@ -74,7 +74,8 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     expect(quick.length).toBeGreaterThan(5);
     for (const link of quick) {
       expect(link.getAttribute("href")).toMatch(/^\/events\/[^/]+#tickets$/);
-      expect(link).toHaveAccessibleName(/^(?:Buy tickets|Get free tickets) for /);
+      // A9: an external event's card says "Get tickets" (nothing is bought on Sheltüh).
+      expect(link).toHaveAccessibleName(/^(?:Buy tickets|Get free tickets|Get tickets) for /);
     }
   });
 

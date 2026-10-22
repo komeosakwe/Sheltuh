@@ -76,7 +76,8 @@ for (const vp of VIEWPORTS) {
       const columns = await grid.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length);
       expect(columns).toBe(vp.phone ? 2 : 4);
 
-      const quickBuys = grid.getByRole("link", { name: /^(?:Buy tickets|Get free tickets) for / });
+      // An external event's card says "Get tickets" (A9): nothing is bought on Sheltüh.
+      const quickBuys = grid.getByRole("link", { name: /^(?:Buy tickets|Get free tickets|Get tickets) for / });
       expect(await quickBuys.count()).toBeGreaterThanOrEqual(sampleEvents.length - 2);
       const first = quickBuys.first();
       await expect(first).toBeVisible();
@@ -114,7 +115,7 @@ for (const vp of VIEWPORTS) {
         await expect(group).toBeHidden();
       }
 
-      const rowBuy = page.getByRole("link", { name: /^(?:Buy tickets|Get free tickets) for / }).first();
+      const rowBuy = page.getByRole("link", { name: /^(?:Buy tickets|Get free tickets|Get tickets) for / }).first();
       await expect(rowBuy).toBeVisible();
       await expect(rowBuy).toHaveAttribute("href", /#tickets$/);
       await noSidewaysScroll(page);

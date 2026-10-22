@@ -16,7 +16,7 @@ import { endSentence } from "@/lib/display-name";
 import { withNext } from "@/lib/safe-next-path";
 import ActionErrorNotice from "./whos-going/ActionErrorNotice";
 import ConsentCopy from "./whos-going/ConsentCopy";
-import GoingFaces from "./whos-going/GoingFaces";
+import GoingFaces, { facesSummary } from "./whos-going/GoingFaces";
 import NameList from "./whos-going/NameList";
 import OptInForm, { type OptInResult } from "./whos-going/OptInForm";
 import { COUNT_THRESHOLD, splitSelf, useWhosGoing, type GoingData } from "./whos-going/WhosGoingProvider";
@@ -345,6 +345,8 @@ export default function WhosGoing() {
             {listShown && others && (
               <GoingFaces attendees={others} youName={youName} getToken={mode === "live" ? getToken : undefined} />
             )}
+            {/* The faces are hidden from screen readers; with no count beside them, say who they are. */}
+            {listShown && others && !countShown && <p className="sr-only">{facesSummary(others, youName)}</p>}
             {countShown && (
               <p className="flex items-baseline gap-2">
                 <span className="font-heading text-2xl leading-none font-bold tabular-nums">{d.count}</span>{" "}

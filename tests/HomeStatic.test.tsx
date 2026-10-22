@@ -7,7 +7,7 @@ import CreatorsCard from "@/components/home/CreatorsCard";
 import GuideCard from "@/components/home/GuideCard";
 import HomeHero from "@/components/home/HomeHero";
 import HomeRail, { HomeRailItem } from "@/components/home/HomeRail";
-import SectionHead from "@/components/home/SectionHead";
+import SectionHead from "@/components/ui/SectionHead";
 import GoingStack from "@/components/ui/GoingStack";
 import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
 
@@ -64,7 +64,8 @@ describe("HomeHero (mobile-redesign.md §6.1)", () => {
   it("has the search after the CTA, with a short placeholder (it fits a phone), then the demo note", () => {
     render(<HomeHero />);
     const search = screen.getByRole("search", { name: "Search events" });
-    expect(within(search).getByRole("searchbox")).toHaveAttribute("placeholder", "Search events");
+    // A3 (WCAG 2.5.3): the field's name is the words it shows, so "Search events" works by voice too.
+    expect(within(search).getByRole("searchbox", { name: "Search events" })).toHaveAttribute("placeholder", "Search events");
     const explore = screen.getByRole("link", { name: "Explore events" });
     expect(explore.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Tests run without Supabase settings: demo mode.
@@ -127,13 +128,22 @@ describe("CategoryRow: Explore by category (§6.3.6)", () => {
 
 describe("SectionHead", () => {
   it("names its See all link for screen readers", () => {
-    render(<SectionHead id="x" title="Free & low-cost" seeAll={{ href: "/events?pricing=free", srLabel: "free events" }} />);
+    render(<SectionHead id="x" title="Free & low-cost" link={{ href: "/events?pricing=free", srLabel: "free events" }} />);
     expect(screen.getByRole("heading", { level: 2, name: "Free & low-cost" })).toHaveAttribute("id", "x");
     expect(screen.getByRole("link", { name: "See all free events" })).toHaveAttribute("href", "/events?pricing=free");
   });
 
+  it("says where a link goes when it isn't the section's own list (A8: 'All events')", () => {
+    render(<SectionHead id="w" title="This weekend" link={{ href: "/events", label: "All events" }} />);
+    const link = screen.getByRole("link", { name: "All events" });
+    expect(link).toHaveAttribute("href", "/events");
+    // The visible words are the whole name (WCAG 2.5.3), with no hidden variant.
+    expect(link.querySelector(".sr-only")).toBeNull();
+    expect(link).toHaveTextContent(/^All events$/);
+  });
+
   it("never repeats the h2 in a strap: a black rule, then the h2 (dots first, hidden), and nothing else saying the title", () => {
-    const { container } = render(<SectionHead id="w" title="Popular right now" seeAll={{ href: "/events", srLabel: "events" }} />);
+    const { container } = render(<SectionHead id="w" title="Popular right now" link={{ href: "/events", label: "All events" }} />);
     const root = container.firstElementChild as HTMLElement;
     expect(root).toHaveClass("border-t", "border-foreground");
     const h2 = screen.getByRole("heading", { level: 2, name: "Popular right now" });
@@ -144,20 +154,31 @@ describe("SectionHead", () => {
     expect(root.querySelector(".eyebrow")).toBeNull();
   });
 
+  it("balances a long title's lines, keeps the dots on its first line, and lines the link up on the h2's baseline (V7, V14)", () => {
+    const { container } = render(<SectionHead id="w" title="From organisers you follow" link={{ href: "/following", srLabel: "organisers you follow" }} />);
+    const root = container.firstElementChild as HTMLElement;
+    expect(root).toHaveClass("items-baseline");
+    const h2 = screen.getByRole("heading", { level: 2 });
+    expect(h2).toHaveClass("items-baseline");
+    expect(within(h2).getByText("From organisers you follow")).toHaveClass("text-balance");
+    // The dots sit in a one-line-tall box at the top, out of the baseline.
+    expect(h2.querySelector("svg")?.parentElement).toHaveClass("h-lh", "items-center", "self-start");
+  });
+
   it("puts the note (real context, e.g. the weekend's dates) after the h2 in reading order", () => {
-    render(<SectionHead id="w" title="This weekend" note="Fri 23 – Sun 25 Oct" seeAll={{ href: "/events", srLabel: "events" }} />);
+    render(<SectionHead id="w" title="This weekend" note="Fri 23 – Sun 25 Oct" link={{ href: "/events", label: "All events" }} />);
     const h2 = screen.getByRole("heading", { level: 2, name: "This weekend" });
     const note = screen.getByText("Fri 23 – Sun 25 Oct");
     expect(note).toHaveClass("meta", "text-muted");
     expect(note.closest("[aria-hidden='true']")).toBeNull();
     expect(h2.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // See all after both, with a 44px target.
-    const seeAll = screen.getByRole("link", { name: "See all events" });
-    expect(note.compareDocumentPosition(seeAll) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(seeAll).toHaveClass("min-h-11");
+    // The link after both, with a 44px target.
+    const link = screen.getByRole("link", { name: "All events" });
+    expect(note.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(link).toHaveClass("min-h-11");
   });
 
-  it("has no link without seeAll", () => {
+  it("has no link without one", () => {
     render(<SectionHead id="x" title="Only in the city" />);
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
@@ -181,17 +202,21 @@ describe("HomeRail", () => {
     const list = screen.getByRole("list", { name: "Coming up" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(2);
     expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["A", "B"]);
-    // A snapping rail on phones, a grid from 640px.
-    expect(list).toHaveClass("snap-x", "sm:grid", "sm:grid-cols-2", "md:grid-cols-3");
+    // A snapping rail on phones, a grid from 640px: 2, 3, then 4 across from 1024px (V10).
+    expect(list).toHaveClass("snap-x", "sm:grid", "sm:grid-cols-2", "md:grid-cols-3", "lg:grid-cols-4");
   });
 
-  it("keeps a 20px end gutter on phones (the gap plus an 8px spacer), and none in the grid", () => {
+  it("keeps a 20px end gutter on phones (the gap plus an 8px spacer, and no end padding), and none in the grid", () => {
     render(
       <HomeRail labelledBy="x">
         <HomeRailItem>a</HomeRailItem>
       </HomeRail>,
     );
-    expect(screen.getByRole("list")).toHaveClass("gap-3", "after:block", "after:w-2", "after:shrink-0", "sm:after:hidden");
+    const list = screen.getByRole("list");
+    expect(list).toHaveClass("gap-3", "after:block", "after:w-2", "after:shrink-0", "sm:after:hidden");
+    // V12: Chromium counted the end padding on top of the spacer (40px). With none, it's 20px in every engine.
+    expect(list).toHaveClass("ps-5", "pe-0");
+    expect(list).not.toHaveClass("px-5");
   });
 
   it.each([
@@ -294,6 +319,11 @@ describe("CommunitySection", () => {
     // Never an orange button on the orange band.
     expect(cta).toHaveClass("btn-solid");
     expect(container.querySelector(".btn-signal")).toBeNull();
+    // A1: buying needs no account, so the way to events is right beside it, after it in reading order.
+    const browse = screen.getByRole("link", { name: "Browse events" });
+    expect(browse).toHaveAttribute("href", "/events");
+    expect(browse).toHaveClass("min-h-11");
+    expect(cta.compareDocumentPosition(browse) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("sends signed-in members to find an event", () => {
@@ -304,6 +334,8 @@ describe("CommunitySection", () => {
     );
     expect(screen.getByRole("link", { name: "Find an event" })).toHaveAttribute("href", "/events");
     expect(screen.queryByRole("link", { name: "Join the community" })).not.toBeInTheDocument();
+    // One way to events is enough here.
+    expect(screen.queryByRole("link", { name: "Browse events" })).not.toBeInTheDocument();
   });
 
   it("treats loading auth (and the server render) as signed out", () => {

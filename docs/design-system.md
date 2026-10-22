@@ -28,15 +28,16 @@ The brand rollout is in progress, following the increments in `brand-direction-o
 | --- | --- | --- |
 | `Button`, `ButtonLink`, `buttonClass` | `signal` (new, orange, max one per view, never in checkout), `solid` (black), `outline`, `danger`; sizes `sm` 32 / `md` 40 / `lg` 48px. CSS in `.btn*`. | §6.1 |
 | `Field`, `fieldClass`, `SearchBar` | White, 1px black, `rounded-control`, mono labels | §6.2 |
-| `Page`, `PageHeader`, `SectionHeader`, `Strap` (new) | Page container; rule + mono strap + display title | §6.4 |
+| `Page`, `PageHeader`, `Strap` | Page container; page header (mono strap + display h1) | §6.4 |
+| `SectionHead` | The one section head, site-wide (home, profiles, Saved): black rule, dots + `display-md` h2 (balanced), optional note, optional link on the h2's baseline ("See all …", or "All events" where the target isn't the section's own list). No strap repeating the title. Replaced `SectionHeader` in P2. | `mobile-redesign.md` §6.3.3 |
+| `BackLink`, `backLinkClass` | The one back link: Instrument 14/20 semibold, underlined, 44px tall, decorative arrow | `mobile-redesign.md` §3.2 |
 | `Panel`, `EmptyState`, `Notice` | Ruled sections, empty states with `DotsMark`, inline errors/info | §6.4, §6.14 |
-| `EventTile` (+ home cards) | Image-first card: 4:5 rounded media, mono date, title, venue, all-inclusive price, quick-buy link | §6.5, §6.6 |
-| `Carousel`, `CarouselItem` | Horizontal rail on `/events` (drift removal proposed) | §10 |
+| `EventCard` (`rail`, `grid`), `EventCardPlaceholder`, `CardPrice`, `GoingStack` | The one event card: image first, then category, date · time, title, venue · suburb (two lines at most), the all-inclusive price, going, the ticket action ("Buy tickets", "Get free tickets", "Get tickets" for external, "Choose seats", outline "Join waitlist"). The whole card opens the event; its link is named title, date, place, price, going. Labels from `lib/event-card.ts`. Replaced `EventTile`, the home cards and `Carousel` (P0). | `mobile-redesign.md` §6.2 |
 | `Wordmark`, `UMark`, `DotsMark`, `DotsLoader` (new, `components/brand/`) | Official logo vectors; the two-dot motif and loader | §4, §5 |
 | `ShareButton`, `AddToCalendar` (new) | Web Share with a copy-link fallback; `.ics` and Google Calendar | §6.7 |
 | `Sticker` (`RoundBadge`, `Burst`, `Marquee`, `Scribble`) | **Retiring.** Not part of the brand; delete with their last users. | §8.4 |
 
-Phone home (`components/home/`, spec `docs/design/home.md`, visual layer per the brand spec): `HomeRail`, `HomeEventCard` (`standard`/`wide`/`compact`), `FeaturedEventCard`, `GoingStack`, `SectionHead`, `CategoryRow`. Shared loaders: `lib/home-events.ts`, `lib/home-sections.ts`.
+Home (`components/home/`, spec `docs/design/mobile-redesign.md`, which supersedes `home.md` and `mobile-home.md` for the hero, section order and cards): `HomeHero`, `HomeEventSections`, `HomeRail` (a rail on phones; 2 / 3 / 4 columns from 640 / 768 / 1024px), `CategoryRow`, `CommunitySection`, `CreatorsCard`. Shared loaders: `lib/home-events.ts`, `lib/home-sections.ts`.
 
 `components/EventResults.tsx` lays out feed results (the first 24 in a carousel, later pages in a grid; `layout="grid"` puts everything in the grid, as on `/saved`). The map uses Esri light-gray tiles. Markers are `rounded-dot` with a black ring, orange when selected; category colours are retired (§2.7, §6.15).
 

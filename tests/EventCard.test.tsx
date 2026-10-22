@@ -137,11 +137,14 @@ describe("EventCard anatomy (§6.2.1)", () => {
     },
   );
 
-  it("names the card's link title first, then the date, place, price, category line and going count", () => {
+  // A10 (accessibility review, 22 Oct 2026): the category is no longer in the link's name. It's on
+  // screen above the title, and repeating it in every card's name made a long list slower to scan.
+  it("names the card's link title first, then the date, place, price and going count (not the category)", () => {
     render(<EventCard event={event} variant="rail" mode="demo" />);
     expect(cardLink(event)).toHaveAccessibleName(
-      `Glasshouse Sessions Sun 18 Oct · 7:00 pm The Conservatory · Carlton From A$36.90 incl. booking fee Live music ${getSampleGoing(event.id).count} going`,
+      `Glasshouse Sessions Sun 18 Oct · 7:00 pm The Conservatory · Carlton From A$36.90 incl. booking fee ${getSampleGoing(event.id).count} going`,
     );
+    expect(cardLink(event)).not.toHaveAccessibleName(/Live music/);
     expect(cardLink(event)).toHaveAttribute("href", "/events/glass-sessions");
     // The heading itself is named by the title alone, for heading navigation.
     expect(screen.getByRole("heading", { level: 3 })).toHaveAccessibleName("Glasshouse Sessions");
@@ -149,7 +152,7 @@ describe("EventCard anatomy (§6.2.1)", () => {
 
   it("skips an empty place line in the name and on screen", () => {
     const { container } = render(<EventCard event={{ ...event, venueName: "", suburb: "" }} variant="grid" mode="live" />);
-    expect(cardLink(event)).toHaveAccessibleName("Glasshouse Sessions Sun 18 Oct · 7:00 pm From A$36.90 incl. booking fee Live music");
+    expect(cardLink(event)).toHaveAccessibleName("Glasshouse Sessions Sun 18 Oct · 7:00 pm From A$36.90 incl. booking fee");
     expect(container).not.toHaveTextContent(/ · $/);
   });
 
@@ -159,6 +162,30 @@ describe("EventCard anatomy (§6.2.1)", () => {
     expect(amount).toHaveClass("font-semibold");
     expect(amount.nextElementSibling).toHaveTextContent("incl. booking fee");
     expect(amount.nextElementSibling).toHaveClass("text-muted");
+  });
+
+  it("keeps the fee note's last two words together, so 'fee' never sits alone on a line (V15)", () => {
+    render(<EventCard event={event} variant="grid" mode="live" />);
+    const note = screen.getByText("From A$36.90").nextElementSibling as HTMLElement;
+    const together = note.querySelector(".whitespace-nowrap");
+    expect(together).toHaveTextContent(/^booking fee$/);
+    // Only those two words: the rest can still wrap on a narrow card (no whole-line nowrap).
+    expect(note).not.toHaveClass("whitespace-nowrap");
+    expect(note.textContent).toBe("incl. booking fee");
+  });
+
+  it("keeps the date's separator with the time, so a wrapped line never ends on '·' (V8)", () => {
+    const { container } = render(<EventCard event={event} variant="grid" mode="live" />);
+    const parts = Array.from(container.querySelectorAll("p.meta > .whitespace-nowrap")).map((el) => el.textContent);
+    expect(parts).toEqual(["Sun 18 Oct", "· 7:00 pm"]);
+  });
+
+  it("lets the venue · suburb line wrap to two lines rather than cutting the suburb off (A2)", () => {
+    const long = { ...event, venueName: "The Very Long Name Of A Community Hall And Garden", suburb: "Brunswick East" };
+    render(<EventCard event={long} variant="grid" mode="live" />);
+    const place = screen.getByText(`${long.venueName} · ${long.suburb}`);
+    expect(place).toHaveClass("line-clamp-2", "break-words");
+    expect(place).not.toHaveClass("truncate");
   });
 
   it("says an in-progress multi-day event is on now, until when; never a countdown", () => {
@@ -297,13 +324,14 @@ describe("EventCard ticket states, from real data only (§6.2.3)", () => {
     ["seated, on sale", seated, "From A$36.90 incl. booking fee", "Choose seats", "/events/glass-sessions/seats", "btn-signal"],
     ["sold out, waitlist open", soldOut, "Sold out", "Join waitlist", "/events/glass-sessions#tickets", "btn-outline"],
     ["seated and sold out", { ...seated, soldOut: true, ticketTypes: soldOut.ticketTypes.map((t) => ({ ...t, seated: true })) }, "Sold out", "Join waitlist", "/events/glass-sessions#tickets", "btn-outline"],
-    ["external, paid", external, "Tickets on Humanitix", "Buy tickets", "/events/dub-session#tickets", "btn-signal"],
+    // A9: an external event's tickets aren't bought on Sheltüh, so "Get tickets"; the provider stays in the price line.
+    ["external, paid", external, "Tickets on Humanitix", "Get tickets", "/events/dub-session#tickets", "btn-signal"],
     ["external, free", externalFree, "Free Tickets on the organiser's site", "Get free tickets", "/events/open-studios#tickets", "btn-signal"],
     ["no ticket types yet", { ...event, ticketTypes: [] }, "Tickets coming soon", null, null, null],
   ])("%s", (_label, e, price, label, href, tone) => {
     render(<EventCard event={e} variant="grid" mode="live" />);
-    // The price line is part of the card link's name, just before the category.
-    expect(cardLink(e)).toHaveAccessibleName(new RegExp(` ${price.replace(/[$.]/g, "\\$&")} Live music$`));
+    // The price line ends the card link's name (no going row in live without a signal; no category: A10).
+    expect(cardLink(e)).toHaveAccessibleName(new RegExp(` ${price.replace(/[$.]/g, "\\$&")}$`));
     const cta = screen.queryByRole("link", { name: new RegExp(`for ${e.title}$`) });
     if (!label) {
       expect(cta).toBeNull();
@@ -358,22 +386,24 @@ describe("EventCard going row and category qualifiers (§6.2.2, §6.2.5)", () =>
     expect(screen.getByText("14 going")).toBeInTheDocument();
     expect(container.querySelector(".rounded-dot")).toBeNull();
     expect(container.querySelector("p.eyebrow")).toHaveTextContent(/^Live music$/);
-    expect(cardLink(event)).toHaveAccessibleName(/ Live music 14 going$/);
+    expect(cardLink(event)).toHaveAccessibleName(/ incl\. booking fee 14 going$/);
   });
 
-  it("external: never a going row, demo included; a going signal reads 'Popular this week'", () => {
+  it("external: never a going row, demo included; a going signal reads 'Popular'", () => {
     const { container } = render(<EventCard event={external} variant="rail" mode="demo" signal={{ kind: "going", count: 14 }} />);
     expect(screen.queryByText(/going/)).toBeNull();
-    expect(container.querySelector("p.eyebrow")).toHaveTextContent("Live music · Popular this week");
+    // V9: "Popular" (was "Popular this week").
+    expect(container.querySelector("p.eyebrow")).toHaveTextContent(/^Live music · Popular$/);
   });
 
   it.each([
     [{ signal: { kind: "just-announced" } as const }, "Live music · Just announced"],
-    [{ signal: { kind: "popular" } as const }, "Live music · Popular this week"],
+    [{ signal: { kind: "popular" } as const }, "Live music · Popular"],
   ])("one qualifier on the category line: %o", (extra, line) => {
     const { container } = render(<EventCard event={event} variant="rail" mode="live" {...extra} />);
-    expect(container.querySelector("p.eyebrow")).toHaveTextContent(line);
-    expect(cardLink(event)).toHaveAccessibleName(new RegExp(` ${line.replace(/[$]/g, "\\$&")}$`));
+    expect(container.querySelector("p.eyebrow")).toHaveTextContent(new RegExp(`^${line}$`));
+    // Seen, not repeated in the link's name (A10).
+    expect(cardLink(event)).not.toHaveAccessibleName(new RegExp(line));
   });
 });
 

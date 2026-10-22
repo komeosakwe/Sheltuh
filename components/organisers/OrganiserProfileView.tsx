@@ -7,7 +7,7 @@ import { RESULTS_GRID } from "@/components/EventResults";
 import BackLink from "@/components/ui/BackLink";
 import EventCard from "@/components/ui/EventCard";
 import Strap from "@/components/ui/Strap";
-import { SectionHeader } from "@/components/ui/Section";
+import SectionHead from "@/components/ui/SectionHead";
 import { formatDayWithYear } from "@/lib/format";
 import { formatMemberSince, type OrganiserProfileDetails } from "@/lib/organiser-profile";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
@@ -113,7 +113,7 @@ export default function OrganiserProfileView({
       </div>
 
       <section aria-labelledby="organiser-upcoming">
-        <SectionHeader id="organiser-upcoming" title="Upcoming events" />
+        <SectionHead id="organiser-upcoming" title="Upcoming events" />
         {upcoming.length > 0 ? (
           <ul className={RESULTS_GRID}>
             {upcoming.map((event) => (
@@ -123,7 +123,7 @@ export default function OrganiserProfileView({
             ))}
           </ul>
         ) : (
-          <p className="border-t border-foreground pt-5 text-sm text-muted">
+          <p className="text-sm text-muted">
             No upcoming events right now.{" "}
             <Link href="/events" className="text-foreground underline underline-offset-4">
               Browse all events
@@ -134,7 +134,7 @@ export default function OrganiserProfileView({
 
       {past.length > 0 && (
         <section aria-labelledby="organiser-past">
-          <SectionHeader id="organiser-past" title="Past events" />
+          <SectionHead id="organiser-past" title="Past events" />
           <ul className="flex flex-col border-t border-surface-border">
             {past.map((event) => (
               <li key={event.id} className="border-b border-surface-border">

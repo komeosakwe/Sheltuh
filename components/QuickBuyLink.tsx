@@ -8,9 +8,9 @@ import type { SheltuhEvent } from "@/lib/types";
  * A card's or list row's ticket button (docs/design/mobile-redesign.md
  * §6.2.3): a sibling of the card's main link, to the event page's ticket
  * section (a seated event's seat page). The label, target and tone come
- * from `cardCta` (lib/event-card.ts), from real data only: "Buy tickets" and
- * "Get free tickets" (an external event's too: the page holds the link out),
- * "Choose seats", and "Join waitlist" when sold out.
+ * from `cardCta` (lib/event-card.ts), from real data only: "Buy tickets",
+ * "Get free tickets", "Get tickets" for an external event (the page holds
+ * the link out), "Choose seats", and "Join waitlist" when sold out.
  *
  * Signal Orange with a black label (6.18:1, never white) for a purchase;
  * Join waitlist is the outline button (black on cream), since a waitlist

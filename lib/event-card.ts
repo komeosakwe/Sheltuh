@@ -91,11 +91,11 @@ export function cardGoing(
 
 /**
  * The trending qualifier on a card's category line: "Just announced", or
- * "Popular this week" for a "popular" label or an external event's going
+ * "Popular" for a "popular" label or an external event's going
  * signal (it has no Who's Going to count). A going signal on a Sheltüh event
  * returns null: its count shows in the going row instead.
  */
 export function signalLabel(signal: TrendingSignal, external: boolean): string | null {
-  if (signal.kind === "going") return external ? "Popular this week" : null;
-  return signal.kind === "just-announced" ? "Just announced" : "Popular this week";
+  if (signal.kind === "going") return external ? "Popular" : null;
+  return signal.kind === "just-announced" ? "Just announced" : "Popular";
 }

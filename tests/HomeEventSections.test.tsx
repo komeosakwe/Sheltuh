@@ -79,8 +79,9 @@ describe("the home's event sections", () => {
     const { container } = renderHome();
     expect(screen.getByRole("status")).toHaveTextContent("Loading events…");
     const skeleton = container.querySelector("[aria-hidden='true'].mt-8");
-    // Three placeholders, each with the rail card's media box (square on phones, 4:5 from 640px).
-    expect(skeleton?.querySelectorAll(".aspect-square.sm\\:aspect-\\[4\\/5\\]")).toHaveLength(3);
+    // Four placeholders (the fourth from 1024px, where the grid is four across: V10), each with the
+    // rail card's media box (square on phones, 4:5 from 640px).
+    expect(skeleton?.querySelectorAll(".aspect-square.sm\\:aspect-\\[4\\/5\\]")).toHaveLength(4);
     expect(screen.queryByRole("heading", { name: "This weekend" })).not.toBeInTheDocument();
     expect(cardHrefs()).toEqual([]);
     expect(container.querySelectorAll("section[data-home-section]")).toHaveLength(0);
@@ -105,12 +106,16 @@ describe("the home's event sections", () => {
     expect(weekend).toHaveTextContent("Fri 23 – Sun 25 Oct");
     const weekendList = screen.getByRole("list", { name: "This weekend" });
     expect(within(weekendList).getAllByRole("listitem")).toHaveLength(2);
+    // A8: /events isn't filtered to the weekend, so the link says where it goes.
+    expect(within(weekend).getByRole("link", { name: "All events" })).toHaveAttribute("href", "/events");
+    expect(within(weekend).queryByRole("link", { name: /^See all/ })).toBeNull();
 
     // The soonest event (no longer Up next's) stays popular; the weekend one is claimed above.
     const popular = screen.getByRole("region", { name: "Popular right now" });
     const popularList = screen.getByRole("list", { name: "Popular right now" });
     expect(within(popularList).getAllByRole("listitem")).toHaveLength(4);
-    expect(within(popular).getByRole("link", { name: "See all events" })).toHaveAttribute("href", "/events");
+    // Nor sorted by popularity: "All events" too (A8).
+    expect(within(popular).getByRole("link", { name: "All events" })).toHaveAttribute("href", "/events");
     // Demo cards show the labelled sample's count (mobile-redesign.md §6.2.5; demo trending ranks by
     // that same count). Live cards show the server's count: tests/EventCard.test.tsx.
     expect(popularList).toHaveTextContent(`${getSampleGoing("t0").count} going`);

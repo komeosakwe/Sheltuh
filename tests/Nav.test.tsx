@@ -208,6 +208,8 @@ describe("Nav — desktop row", () => {
   });
 
   it("keeps the inline site search and the same destinations", () => {
+    // Off the home: the home's hero has the page's search (V16).
+    pathname = "/events";
     renderNav(fakeAuthValue({ status: "signed-out" }));
     expect(screen.getByRole("search", { name: "Search the site" })).toBeInTheDocument();
     const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
@@ -284,11 +286,31 @@ describe("Nav — header", () => {
     expect(renderNav(fakeAuthValue()).container.querySelector("header")).toHaveClass("sticky");
   });
 
-  it("gives the desktop search a short placeholder (the label is unchanged)", () => {
+  // A3 (WCAG 2.5.3, accessibility review 22 Oct 2026): the field was named "Search by event, venue or
+  // suburb" while it showed "Search events". Its name is now the words it shows.
+  it("gives the desktop search a short placeholder, which is also the field's name", () => {
+    pathname = "/events";
     renderNav(fakeAuthValue());
     const search = within(screen.getByRole("search", { name: "Search the site" })).getByRole("searchbox", {
-      name: "Search by event, venue or suburb",
+      name: "Search events",
     });
     expect(search).toHaveAttribute("placeholder", "Search events");
+  });
+
+  it("has no header search on the home, where the hero's search is (V16); every other page keeps it", () => {
+    renderNav(fakeAuthValue());
+    expect(screen.queryByRole("search")).toBeNull();
+    cleanup();
+    pathname = "/map";
+    renderNav(fakeAuthValue());
+    expect(screen.getByRole("search", { name: "Search the site" })).toBeInTheDocument();
+  });
+
+  it("names its two navigation landmarks distinctly: the desktop row's Primary, the phone menu's Site menu (A11)", () => {
+    const { menu } = renderNav(fakeAuthValue({ status: "signed-out" }));
+    const primary = screen.getAllByRole("navigation", { name: "Primary", hidden: true });
+    expect(primary).toHaveLength(1);
+    expect(primary[0].closest("#site-menu")).toBeNull();
+    expect(within(menu).getByRole("navigation", { name: "Site menu", hidden: true })).toBeInTheDocument();
   });
 });
