@@ -30,7 +30,8 @@ export default function HomeHero() {
           {/* The literal space keeps the accessible name "Find your new thing.". */}
           <span className="block">Find your</span> <span className="block">new thing.</span>
         </h1>
-        <p className="mt-2 max-w-[40ch] text-base leading-6 text-muted sm:mt-3 sm:text-lg sm:leading-7">{HOME_INTRO}</p>
+        {/* Not on phones (owner, 23 Oct 2026): the headline and search say enough there. */}
+        <p className="mt-3 hidden max-w-[40ch] text-lg leading-7 text-muted sm:block">{HOME_INTRO}</p>
         {/* Search is the hero's main action: full width on phones, a comfortable field from 640px. */}
         <div className="mt-4 sm:mt-5 sm:max-w-xl">
           <SearchBar size="lg" submit label="Search events" placeholder="Search events" />

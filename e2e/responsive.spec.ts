@@ -126,7 +126,8 @@ for (const width of [375, 1280]) {
       const hero = page.getByRole("region", { name: "Find your new thing." });
       await expect(hero.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your new thing.");
       await expect(hero.getByText("Melbourne • What’s on")).toBeVisible();
-      await expect(hero.getByText(HOME_INTRO)).toBeVisible();
+      // The intro line is for tablets and up; phones go straight from the headline to the search.
+      await expect(hero.getByText(HOME_INTRO)).toBeVisible({ visible: width >= 640 });
       await expect(hero.getByRole("search", { name: "Search events" })).toBeVisible();
       await expect(hero.locator(".btn-signal")).toHaveCount(0);
       // Refinement (22 Oct 2026): browsing is the category row under the hero; the hero has no links.

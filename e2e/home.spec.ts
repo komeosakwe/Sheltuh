@@ -228,6 +228,8 @@ for (const width of [375, 1280]) {
         "See who’s going. Find your people.",
         "Bring your event to life",
       ]);
+      // What else? is in the page from 640px only (owner, 23 Oct 2026): hidden, not removed, on phones.
+      await expect(page.locator("[data-what-else]")).toBeVisible({ visible: width >= 640 });
       const hero = await page.getByRole("search", { name: "Search events" }).boundingBox();
       const chips = await page.getByRole("navigation", { name: "Browse by category" }).boundingBox();
       const weekend = await page.getByRole("heading", { level: 2, name: "This weekend" }).boundingBox();
@@ -413,10 +415,15 @@ for (const vp of [
   test.describe(`What else? at ${vp.width}px`, () => {
     test.use({ viewport: { width: vp.width, height: vp.height } });
 
-    test("lights each promise in turn as it crosses the middle of the screen; the rest stay readable", async ({ page }) => {
+    test("on desktop, lights each promise in turn as it crosses the middle of the screen (the rest stay readable); not on phones", async ({ page }) => {
       await openHome(page);
       // No collage on phones: the hero stays short.
       await expect(page.locator("[data-hero-collage]")).toBeVisible({ visible: vp.desktop });
+      if (!vp.desktop) {
+        // Not on phones at all (owner, 23 Oct 2026).
+        await expect(page.locator("[data-what-else]")).toBeHidden();
+        return;
+      }
       const section = page.getByRole("region", { name: "What else?" });
       const items = section.getByRole("listitem");
       await expect(items).toHaveCount(3);
@@ -432,8 +439,7 @@ for (const vp of [
       await expect(items.nth(0)).toHaveAttribute("data-active", "false");
       // The photo beside the list from 1024px, following the highlight.
       const photo = section.locator("[data-what-else-photo='active']");
-      if (vp.desktop) await expect(photo.locator("img")).toHaveAttribute("src", "/events/jazz-drummer.webp");
-      else await expect(photo).toBeHidden();
+      await expect(photo.locator("img")).toHaveAttribute("src", "/events/jazz-drummer.webp");
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow).toBeLessThanOrEqual(0);
     });
