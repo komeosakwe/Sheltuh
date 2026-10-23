@@ -270,9 +270,15 @@ for (const width of [375, 1280]) {
       await expect(band.getByRole("link")).toHaveCount(1);
       await expect(band.getByRole("link", { name: "Create profile now" })).toHaveAttribute("href", "/signup");
       await expect(band.getByRole("listitem")).toHaveCount(0);
-      // Live, with a trending list but no going counts in it: no example card, so no number at all.
+      // Live with no going counts: the card still shows the illustrative faces, but no event and no number.
+      const card = band.locator("[data-community-card]");
+      await expect(card).toBeVisible();
       await expect(band.locator("[data-community-example]")).toHaveCount(0);
-      // Two columns would need the card; the pitch's heading is two lines at every width.
+      await expect(card).toContainText("Know who’ll be there");
+      await expect(card.locator("[data-community-note]")).toHaveText("Illustrative photos");
+      await expect(card.locator("[data-community-faces] img")).toHaveCount(5);
+      expect(await band.textContent()).not.toMatch(/\d/);
+      // The pitch's heading is two lines at every width.
       const lines = await band.getByRole("heading", { level: 2 }).evaluate((h2) => {
         const lineHeight = parseFloat(getComputedStyle(h2).lineHeight);
         return Math.round(h2.getBoundingClientRect().height / lineHeight);
@@ -282,7 +288,8 @@ for (const width of [375, 1280]) {
   });
 }
 
-// Owner mockup (23 Oct 2026): the pitch, and a white "A look inside" card from a real count.
+// Owner mockup (23 Oct 2026): the pitch, and a white "A look inside" card from a real count, with the
+// owner's illustrative portraits (always labelled as such).
 for (const vp of [
   { width: 1280, height: 800, desktop: true },
   { width: 390, height: 844, desktop: false },
@@ -290,27 +297,42 @@ for (const vp of [
   test.describe(`Find your people at ${vp.width}px`, () => {
     test.use({ viewport: { width: vp.width, height: vp.height } });
 
-    test("shows a trending event's real count in the card, with plain circles and an honest note", async ({ page }) => {
+    test("shows a trending event's real count in the card, with the illustrative faces and an honest note", async ({ page }) => {
       await openHome(page, { trending: true, going: 22 });
       const band = page.locator("#find-your-people");
-      const card = band.locator("[data-community-example]");
+      const card = band.locator("[data-community-card][data-community-example]");
       await expect(card).toBeVisible();
       await expect(card.getByText("A look inside")).toBeVisible();
       await expect(card.locator("[data-community-count]")).toHaveText("22 people going");
-      await expect(card).toContainText("Popular right now · Real count");
+      await expect(card.locator("[data-community-note]")).toHaveText("Popular right now · Real count · Illustrative photos");
       await expect(card).not.toContainText(/sample/i);
-      // Four round circles, hidden from assistive tech, with no initials (live never shows anyone).
+      // Five round portraits, hidden from assistive tech, empty alt, and actually loaded.
       const faces = card.locator("[data-community-faces]");
       await expect(faces).toHaveAttribute("aria-hidden", "true");
+      await faces.scrollIntoViewIfNeeded();
+      await expect
+        .poll(() => faces.locator("img").evaluateAll((imgs) => imgs.filter((img) => (img as HTMLImageElement).naturalWidth > 0).length))
+        .toBe(5);
       const circles = await faces.locator(":scope > span").evaluateAll((spans) =>
-        spans.map((span) => ({ text: span.textContent, size: span.getBoundingClientRect().width, radius: getComputedStyle(span).borderRadius })),
+        spans.map((span) => ({
+          text: span.textContent,
+          alt: span.querySelector("img")?.getAttribute("alt"),
+          size: span.getBoundingClientRect().width,
+          radius: getComputedStyle(span).borderRadius,
+        })),
       );
-      expect(circles).toHaveLength(4);
+      expect(circles).toHaveLength(5);
       for (const circle of circles) {
         expect(circle.text).toBe("");
-        expect(circle.size).toBe(vp.desktop ? 80 : 64);
+        expect(circle.alt).toBe("");
+        expect(circle.size).toBe(vp.desktop ? 80 : 56);
         expect(parseFloat(circle.radius)).toBeGreaterThanOrEqual(circle.size / 2);
       }
+      // The faces stay inside the card.
+      const cardBox = await card.boundingBox();
+      const facesBox = await faces.boundingBox();
+      if (!cardBox || !facesBox) throw new Error("card not laid out");
+      expect(facesBox.x + facesBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
       // Side by side on a desktop, stacked on a phone.
       const pitch = await band.getByRole("heading", { level: 2 }).boundingBox();
       const box = await card.boundingBox();
@@ -328,6 +350,29 @@ for (const vp of [
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow).toBeLessThanOrEqual(0);
     });
+  });
+}
+
+// The band's card at the narrowest phone, the tightest two-column width and a wide desktop: the five
+// faces stay inside the card and nothing scrolls sideways, with or without a real example.
+for (const width of [320, 1024, 1440]) {
+  test.describe(`Find your people's card at ${width}px`, () => {
+    test.use({ viewport: { width, height: 800 } });
+
+    for (const going of [undefined, 22]) {
+      test(`fits ${going === undefined ? "without" : "with"} a real example`, async ({ page }) => {
+        await openHome(page, { trending: true, going });
+        const card = page.locator("#find-your-people [data-community-card]");
+        await card.scrollIntoViewIfNeeded();
+        await expect(card.locator("[data-community-note]")).toContainText("Illustrative photos");
+        const cardBox = await card.boundingBox();
+        const facesBox = await card.locator("[data-community-faces]").boundingBox();
+        if (!cardBox || !facesBox) throw new Error("card not laid out");
+        expect(facesBox.x + facesBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        expect(overflow).toBeLessThanOrEqual(0);
+      });
+    }
   });
 }
 

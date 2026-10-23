@@ -83,12 +83,10 @@ export const HOME_CREATORS: HomeArt = {
 };
 
 /**
- * Photos for the four circles in Find your people's "A look inside" card
- * (components/home/CommunitySection.tsx), shown in the demo only, beside
- * "Sample attendees". Drop licensed portraits in public/home/ (square, at
- * least 160px; see its README) and list up to four paths here, e.g.
- * `"/home/face-1.jpg"`. Empty (as now), the circles show the sample
- * attendees' initials. Live mode never shows them: there the circles are
- * plain shapes, since the home page names and shows no real members.
+ * The portraits in Find your people's "A look inside" card
+ * (components/home/CommunitySection.tsx): the owner's five illustrative photos
+ * (public/home/people/, see public/home/README.md), shown in demo and live
+ * alike as overlapping circles. They're illustration, never attendees: the
+ * card's footnote always says "Illustrative photos".
  */
-export const COMMUNITY_SAMPLE_FACES: readonly string[] = [];
+export const COMMUNITY_SAMPLE_FACES: readonly string[] = [1, 2, 3, 4, 5].map((n) => `/home/people/person-${n}.webp`);
