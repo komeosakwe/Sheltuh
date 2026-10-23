@@ -220,6 +220,25 @@ describe("retired accents and motion (brand-direction-one.md §9, cleanup)", () 
     expect(badge).not.toMatch(/(?<!motion-safe:)\banimate-spin\b/);
     expect(badge).toMatch(/HERO_BADGE_TURN = "30s"/);
   });
+
+  // The second, also at the owner's request (23 Oct 2026, "make them automatically scroll"): the home
+  // rails step on by a card every 4 seconds, from one shared hook, only for people who haven't asked
+  // for less motion, with a Pause/Play button (tests/HomeRailAutoScroll.test.tsx covers the behaviour).
+  it("allows one auto-scroll, the home rails': one hook, motion-gated, with a Pause/Play control", () => {
+    const users = sources.filter(({ text }) => /\buseRailAutoScroll\(/.test(text)).map(({ file }) => file);
+    expect(users.sort()).toEqual(
+      [path.join("components", "home", "HomeRailSection.tsx"), path.join("components", "home", "useRailAutoScroll.ts")].sort(),
+    );
+    const hook = sources.find(({ file }) => file === path.join("components", "home", "useRailAutoScroll.ts"))?.text ?? "";
+    expect(hook).toMatch(/useMotionOk\(\)/);
+    expect(hook).toMatch(/AUTO_SCROLL_INTERVAL = 4000/);
+    const section = sources.find(({ file }) => file === path.join("components", "home", "HomeRailSection.tsx"))?.text ?? "";
+    expect(section).toMatch(/<RailAutoScrollButton\b/);
+    // The stepping itself lives in the hook only.
+    expect(sources.filter(({ text }) => /\badvanceRail\(/.test(text)).map(({ file }) => file)).toEqual([
+      path.join("components", "home", "useRailAutoScroll.ts"),
+    ]);
+  });
 });
 
 describe("brand faces", () => {

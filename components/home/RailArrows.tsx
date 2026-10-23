@@ -69,8 +69,11 @@ export function railPageStep(el: HTMLElement): number {
   return whole * (card + gap);
 }
 
-const ARROW =
-  "hidden size-11 shrink-0 items-center justify-center rounded-control border border-foreground bg-card text-foreground transition-colors hover:bg-surface aria-disabled:cursor-default aria-disabled:border-surface-border aria-disabled:text-muted aria-disabled:hover:bg-card sm:flex";
+/** A rail control in the section head: a 44px outlined square (the arrows and the auto-scroll Pause/Play). */
+export const RAIL_BUTTON =
+  "size-11 shrink-0 items-center justify-center rounded-control border border-foreground bg-card text-foreground transition-colors hover:bg-surface";
+
+const ARROW = `hidden ${RAIL_BUTTON} aria-disabled:cursor-default aria-disabled:border-surface-border aria-disabled:text-muted aria-disabled:hover:bg-card sm:flex`;
 
 /**
  * A rail's Previous and Next buttons (the original carousel's arrows, now in
@@ -78,13 +81,15 @@ const ARROW =
  * only: on phones a swipe is the control. Shown only while the rail
  * overflows. At an end the button is `aria-disabled` rather than `disabled`,
  * so a keyboard user who pages to the end keeps focus on it. A press pages
- * by the cards wholly in view, instantly under reduced motion.
+ * by the cards wholly in view, instantly under reduced motion, and calls
+ * `onPage` (the visitor scrolled the rail: its auto-scroll stops).
  */
 export default function RailArrows({
   railRef,
   controls,
   title,
   scroll,
+  onPage,
 }: {
   railRef: RefObject<HTMLElement | null>;
   /** The rail's id (aria-controls). */
@@ -92,12 +97,15 @@ export default function RailArrows({
   /** The section's title, so each section's buttons have their own names. */
   title: string;
   scroll: RailScroll;
+  /** Called when a press scrolls the rail. */
+  onPage?: () => void;
 }) {
   if (!scroll.canPrev && !scroll.canNext) return null;
 
   function page(sign: 1 | -1, enabled: boolean) {
     const el = railRef.current;
     if (!el || !enabled) return;
+    onPage?.();
     const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     el.scrollBy({ left: sign * railPageStep(el), behavior: reduce ? "auto" : "smooth" });
   }

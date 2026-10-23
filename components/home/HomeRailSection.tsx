@@ -4,6 +4,8 @@ import { useRef, type ReactNode } from "react";
 import SectionHead from "@/components/ui/SectionHead";
 import HomeRail, { HOME_CONTAINER, isPairRail } from "./HomeRail";
 import RailArrows, { useRailScroll } from "./RailArrows";
+import RailAutoScrollButton from "./RailAutoScrollButton";
+import { useRailAutoScroll } from "./useRailAutoScroll";
 
 /**
  * A rail with five or more cards overflows at every width up to about
@@ -21,6 +23,11 @@ const SURELY_OVERFLOWS = 5;
  * two-column grid from 1024px (`isPairRail`; the caller gives those cards
  * EventCard's `wide`). `data-home-section` marks it for Try again's focus
  * move and the e2e suite.
+ *
+ * A rail that overflows (not a pair) scrolls itself, a card every 4 seconds
+ * (`useRailAutoScroll`), with a Pause/Play button in the head before the
+ * arrows, at every width; never under reduced motion. A pair never does, at
+ * any width: from 1024px it's a grid, and below it there's one step to make.
  */
 export default function HomeRailSection({
   id,
@@ -43,25 +50,37 @@ export default function HomeRailSection({
   className?: string;
   children?: ReactNode;
 }) {
+  const rootRef = useRef<HTMLElement>(null);
   const railRef = useRef<HTMLUListElement>(null);
   const railId = `${id}-rail`;
   const scroll = useRailScroll(railRef, !empty && count >= SURELY_OVERFLOWS, empty ? -1 : count);
   const overflows = !empty && (scroll.canPrev || scroll.canNext);
+  const pair = isPairRail(count);
+  const auto = useRailAutoScroll({ rootRef, railRef, enabled: overflows && !pair });
 
   return (
-    <section aria-labelledby={id} data-home-section className={className}>
+    <section ref={rootRef} aria-labelledby={id} data-home-section className={className}>
       <div className={HOME_CONTAINER}>
         <SectionHead
           id={id}
           title={title}
           note={note}
           link={link}
-          actions={overflows ? <RailArrows railRef={railRef} controls={railId} title={title} scroll={scroll} /> : undefined}
+          actions={
+            overflows ? (
+              <>
+                {auto.showControl && (
+                  <RailAutoScrollButton playing={auto.playing} onToggle={auto.toggle} controls={railId} title={title} />
+                )}
+                <RailArrows railRef={railRef} controls={railId} title={title} scroll={scroll} onPage={auto.stop} />
+              </>
+            ) : undefined
+          }
         />
         {empty}
       </div>
       {!empty && (
-        <HomeRail ref={railRef} id={railId} labelledBy={id} pair={isPairRail(count)}>
+        <HomeRail ref={railRef} id={railId} labelledBy={id} pair={pair}>
           {children}
         </HomeRail>
       )}

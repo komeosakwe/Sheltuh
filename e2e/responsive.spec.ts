@@ -181,6 +181,8 @@ test.describe("home at 375px, without scrolling", () => {
   });
 
   test("a rail scrolled to its end leaves its last card 20px or more from the screen's edge", async ({ page }) => {
+    // A still rail: the auto-scroll (e2e/home-autoscroll.spec.ts) would loop it back to the start.
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await mockApi(page);
     await page.goto("/");
     const rail = page.locator("[data-home-section] ul").filter({ has: page.locator("[data-event-card]") }).last();
@@ -258,6 +260,8 @@ for (const width of [390, 768, 1280, 1440]) {
 
     test("scroll sideways from the column's edge, with fixed-width cards, a peek, working arrows, and a still page", async ({ page }) => {
       test.skip(width < 640, "the 640px-and-up rail (the phone rails are checked above)");
+      // A still rail, so the positions measured below hold: the auto-scroll is e2e/home-autoscroll.spec.ts's.
+      await page.emulateMedia({ reducedMotion: "reduce" });
       await mockApi(page);
       await page.goto("/");
       const section = page.locator("[data-home-section]").filter({ has: page.getByRole("heading", { name: "Coming up", exact: true }) });

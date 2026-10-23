@@ -33,6 +33,24 @@ export function ChevronLeftIcon({ className = "h-5 w-5" }: { className?: string 
   );
 }
 
+/** Pause (two bars): a home rail's auto-scroll control while it plays. */
+export function PauseIcon({ className = "h-5 w-5" }: { className?: string }) {
+  return (
+    <svg {...common} strokeWidth={2} className={className}>
+      <path d="M9 6v12M15 6v12" />
+    </svg>
+  );
+}
+
+/** Play (a triangle): a home rail's auto-scroll control while it's paused. */
+export function PlayIcon({ className = "h-5 w-5" }: { className?: string }) {
+  return (
+    <svg {...common} strokeWidth={2} className={className}>
+      <path d="M8 5.5v13l10-6.5z" />
+    </svg>
+  );
+}
+
 export function CalendarIcon({ className = "h-3 w-3" }: { className?: string }) {
   return (
     <svg {...common} strokeWidth={2} className={className}>
