@@ -1,7 +1,7 @@
 import DotsMark from "@/components/brand/DotsMark";
-import EventArt from "@/components/EventArt";
 import SearchBar from "@/components/SearchBar";
-import { HOME_HERO, HOME_INTRO } from "./home-content";
+import HeroCollage from "./HeroCollage";
+import { HOME_INTRO } from "./home-content";
 
 /**
  * The home's hero (docs/design/mobile-redesign.md §6.1 and its Refinement,
@@ -13,8 +13,10 @@ import { HOME_HERO, HOME_INTRO } from "./home-content";
  * the page's only search on the home (the header leaves its own out here).
  * The category row under it is the way to browse. Nothing animates in.
  *
- * The photo shows from 1024px only, beside the text; it's lazy (a hidden
- * image is never fetched) with a high fetch priority where it shows.
+ * The photo collage (`HeroCollage`, with its slowly turning badge) shows from
+ * 1024px only, beside the text; its lead photo is lazy (a hidden image is
+ * never fetched) with a high fetch priority where it shows. Phones get no
+ * collage: the first event must reach their first screen.
  */
 export default function HomeHero() {
   return (
@@ -34,16 +36,7 @@ export default function HomeHero() {
           <SearchBar size="lg" submit label="Search events" placeholder="Search events" />
         </div>
       </div>
-      <div className="hidden lg:col-span-5 lg:col-start-8 lg:block">
-        <EventArt
-          poster={HOME_HERO.poster}
-          imageUrl={HOME_HERO.imageUrl}
-          title="Sheltüh"
-          priority="when-shown"
-          motion
-          className="aspect-[4/3] w-full rounded-card"
-        />
-      </div>
+      <HeroCollage className="hidden lg:col-span-5 lg:col-start-8 lg:block" />
     </section>
   );
 }

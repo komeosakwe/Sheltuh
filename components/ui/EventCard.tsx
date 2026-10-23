@@ -12,9 +12,13 @@ import type { SheltuhEvent } from "@/lib/types";
 
 export type EventCardVariant = "rail" | "grid";
 
-/** Phones: a fixed-width rail item (198 / 232 / 240px at 320 / 375 / 430); from 640px it fills its grid cell. */
+/**
+ * A rail card is a fixed width at every size, never stretched to fill a row
+ * (the home's rails scroll sideways at every width: owner, 23 Oct 2026):
+ * 198 / 232 / 240px at 320 / 375 / 430, then 256px from 640px.
+ */
 const WIDTH: Record<EventCardVariant, string> = {
-  rail: "w-[min(62vw,15rem)] shrink-0 sm:w-full",
+  rail: "w-[min(62vw,15rem)] shrink-0 sm:w-64",
   grid: "w-full",
 };
 /**
@@ -60,7 +64,7 @@ const MEDIA: Record<EventCardVariant, string> = {
  * orange; free says "Free"; sold out says so with an outline "Join
  * waitlist"; external names where tickets are sold; ended says "Ended", has
  * no action and a greyed image. `rail` is the home's sideways rails (a fixed
- * width on phones, the grid cell from 640px); `grid` is the results grids
+ * width at every size); `grid` is the results grids
  * (/events, /search, /saved, profiles).
  *
  * Attendance is a count only, never faces: list payloads carry no names or

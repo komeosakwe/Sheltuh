@@ -2,14 +2,12 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import CategoryRow from "@/components/home/CategoryRow";
-import CommunitySection, { COMMUNITY_BENEFIT } from "@/components/home/CommunitySection";
 import CreatorsCard from "@/components/home/CreatorsCard";
 import GuideCard from "@/components/home/GuideCard";
 import HomeHero from "@/components/home/HomeHero";
 import { HOME_INTRO } from "@/components/home/home-content";
-import HomeRail, { HomeRailItem } from "@/components/home/HomeRail";
+import HomeRail, { HOME_CONTAINER, HomeRailItem } from "@/components/home/HomeRail";
 import SectionHead from "@/components/ui/SectionHead";
-import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
 
 afterEach(() => {
   cleanup();
@@ -191,18 +189,37 @@ describe("HomeRail", () => {
     const list = screen.getByRole("list", { name: "Coming up" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(2);
     expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["A", "B"]);
-    // A snapping rail on phones, a grid from 640px: 2, 3, then 4 across from 1024px (V10).
-    expect(list).toHaveClass("snap-x", "sm:grid", "sm:grid-cols-2", "md:grid-cols-3", "lg:grid-cols-4");
+    // A snapping horizontal rail at every width (owner, 23 Oct 2026): never a grid.
+    expect(list).toHaveClass("flex", "snap-x", "snap-mandatory", "overflow-x-auto", "overflow-y-hidden");
+    expect(list.className).not.toMatch(/\bgrid\b|grid-cols|sm:snap-none|sm:overflow-visible/);
+    expect(within(list).getAllByRole("listitem")[0]).toHaveClass("snap-start", "shrink-0");
   });
 
-  it("keeps a 20px end gutter on phones (the gap plus an 8px spacer, and no end padding), and none in the grid", () => {
+  it("starts its first card on the page column's edge (the gutter on phones), and snaps to the same line", () => {
     render(
       <HomeRail labelledBy="x">
         <HomeRailItem>a</HomeRailItem>
       </HomeRail>,
     );
     const list = screen.getByRole("list");
-    expect(list).toHaveClass("gap-3", "after:block", "after:w-2", "after:shrink-0", "sm:after:hidden");
+    expect(list).toHaveClass(
+      "ps-5",
+      "scroll-px-5",
+      "sm:ps-[max(2rem,(100%_-_72rem)/2_+_2rem)]",
+      "sm:scroll-ps-[max(2rem,(100%_-_72rem)/2_+_2rem)]",
+    );
+    // The page column it lines up with: 72rem wide, 1.25rem gutters, 2rem from 640px.
+    expect(HOME_CONTAINER).toBe("mx-auto max-w-6xl px-5 sm:px-8");
+  });
+
+  it("keeps an end gutter (the gap plus a spacer, and no end padding): 20px on phones, the page column's edge from 640px", () => {
+    render(
+      <HomeRail labelledBy="x">
+        <HomeRailItem>a</HomeRailItem>
+      </HomeRail>,
+    );
+    const list = screen.getByRole("list");
+    expect(list).toHaveClass("gap-3", "sm:gap-6", "after:block", "after:w-2", "after:shrink-0", "sm:after:w-[max(0.5rem,100%_-_69.5rem)]");
     // V12: Chromium counted the end padding on top of the spacer (40px). With none, it's 20px in every engine.
     expect(list).toHaveClass("ps-5", "pe-0");
     expect(list).not.toHaveClass("px-5");
@@ -266,62 +283,5 @@ describe("GuideCard and CreatorsCard", () => {
     expect(cta).toHaveAttribute("href", "/organisers/apply");
     expect(cta).toHaveClass("btn-outline");
     expect(container.querySelector("[data-surface='ink']")).not.toBeNull();
-  });
-});
-
-describe("CommunitySection (compressed in the Refinement, 22 Oct 2026)", () => {
-  it("is the page's orange band and a jump target (#find-your-people): a calm heading, one benefit line, one action", () => {
-    const { container } = render(
-      <FakeAuthProvider value={fakeAuthValue({ status: "signed-out" })}>
-        <CommunitySection />
-      </FakeAuthProvider>,
-    );
-    const section = container.querySelector("#find-your-people");
-    expect(section).toHaveAttribute("tabindex", "-1");
-    expect(section).toHaveAttribute("data-surface", "signal");
-    const h2 = screen.getByRole("heading", { level: 2, name: "See who’s going before you book" });
-    expect(screen.getByRole("region", { name: "See who’s going before you book" })).toBe(section);
-    // A section heading, not a second display headline.
-    expect(h2).toHaveClass("display-md");
-    expect(h2).not.toHaveClass("display-lg");
-    // What's open before buying, as the API allows it: the count to anyone (from three), the names to
-    // members with a free profile (lib/server/handlers/going.ts).
-    expect(screen.getByText(COMMUNITY_BENEFIT)).toBeInTheDocument();
-    expect(COMMUNITY_BENEFIT).toMatch(/three/);
-    expect(COMMUNITY_BENEFIT).toMatch(/free profile/);
-    // One action, never orange on the orange band.
-    const links = screen.getAllByRole("link");
-    expect(links).toHaveLength(1);
-    expect(links[0]).toHaveAccessibleName("Sign up free");
-    expect(links[0]).toHaveAttribute("href", "/signup");
-    expect(links[0]).toHaveClass("btn-solid");
-    expect(container.querySelector(".btn-signal")).toBeNull();
-    // The step-by-step lives on the event page's Who's Going panel now.
-    expect(screen.queryByRole("list")).toBeNull();
-  });
-
-  it("sends signed-in members to find an event", () => {
-    render(
-      <FakeAuthProvider value={fakeAuthValue()}>
-        <CommunitySection />
-      </FakeAuthProvider>,
-    );
-    expect(screen.getByRole("link", { name: "Find an event" })).toHaveAttribute("href", "/events");
-    expect(screen.queryByRole("link", { name: "Sign up free" })).not.toBeInTheDocument();
-  });
-
-  it("treats loading auth (and the server render) as signed out", () => {
-    render(
-      <FakeAuthProvider value={fakeAuthValue({ status: "loading" })}>
-        <CommunitySection />
-      </FakeAuthProvider>,
-    );
-    expect(screen.getByRole("link", { name: "Sign up free" })).toHaveAttribute("href", "/signup");
-  });
-
-  it("invents nothing: with no events to draw on, no example and no number at all", () => {
-    const { container } = render(<CommunitySection />);
-    expect(container.querySelector("[data-community-example]")).toBeNull();
-    expect(container.textContent).not.toMatch(/\d/);
   });
 });

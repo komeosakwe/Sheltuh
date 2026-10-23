@@ -51,7 +51,7 @@ function fixtures(now: number): PublicEvent[] {
  * `trending`: serve the trending list (the last few events, labelled
  * "popular"); otherwise it's a 404 and the home's third slot is Coming up.
  */
-async function mockApi(page: Page, { trending = false }: { trending?: boolean } = {}) {
+async function mockApi(page: Page, { trending = false, going }: { trending?: boolean; going?: number } = {}) {
   const events = fixtures(Date.now()).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   await page.route("**/api/**", (route) => {
     const url = new URL(route.request().url());
@@ -60,13 +60,17 @@ async function mockApi(page: Page, { trending = false }: { trending?: boolean } 
       return route.fulfill({ json: { items: events, nextCursor: undefined } });
     }
     if (trending && url.pathname === "/api/events/trending") {
-      return route.fulfill({ json: { items: events.slice(-4).map((event) => ({ event, label: "popular" })) } });
+      // `going`: the first trending event carries a real (thresholded) going count.
+      const items = events.slice(-4).map((event, i) =>
+        going !== undefined && i === 0 ? { event, label: "going", goingCount: going } : { event, label: "popular" },
+      );
+      return route.fulfill({ json: { items } });
     }
     return route.fulfill({ status: 404, json: { error: "not mocked in e2e" } });
   });
 }
 
-async function openHome(page: Page, options?: { trending?: boolean }) {
+async function openHome(page: Page, options?: { trending?: boolean; going?: number }) {
   await mockApi(page, options);
   await page.goto("/");
   await expect(page.locator("[data-home-section]").first()).toBeVisible();
@@ -212,7 +216,7 @@ for (const width of [375, 1280]) {
   test.describe(`home order at ${width}px`, () => {
     test.use({ viewport: { width, height: width < 768 ? 812 : 800 } });
 
-    test("hero, the category row, This weekend, Popular right now, Find your people, For organisers, footer", async ({ page }) => {
+    test("hero, the category row, This weekend, Popular right now, What else?, Find your people, For organisers, footer", async ({ page }) => {
       await openHome(page, { trending: true });
       await expect(page.getByRole("heading", { level: 2, name: "Popular right now" })).toBeVisible();
       const headings = await page.locator("main h2").allTextContents();
@@ -220,7 +224,8 @@ for (const width of [375, 1280]) {
       expect(headings.map((h) => h.trim())).toEqual([
         "This weekend",
         "Popular right now",
-        "See who’s going before you book",
+        "What else?",
+        "See who’s going. Find your people.",
         "Bring your event to life",
       ]);
       const hero = await page.getByRole("search", { name: "Search events" }).boundingBox();
@@ -254,12 +259,72 @@ for (const width of [375, 1280]) {
       );
       expect(repeats.length).toBeGreaterThan(1);
       for (const n of repeats) expect(n).toBe(1);
-      // Find your people: one benefit line (what's visible, as the API allows it) and one action; the
-      // step-by-step is on the event page's Who's Going panel.
+      // Find your people (owner mockup, 23 Oct 2026): the pitch and one action; the step-by-step is on
+      // the event page's Who's Going panel.
       const band = page.locator("#find-your-people");
-      await expect(band).toContainText("once three people have added themselves. Make a free profile to see who.");
+      await expect(band.getByText("Better together")).toBeVisible();
+      await expect(band).toContainText("Discover the crowd before you book.");
+      await expect(band).toContainText("Create a free profile to see who’s going.");
       await expect(band.getByRole("link")).toHaveCount(1);
+      await expect(band.getByRole("link", { name: "Create profile now" })).toHaveAttribute("href", "/signup");
       await expect(band.getByRole("listitem")).toHaveCount(0);
+      // Live, with a trending list but no going counts in it: no example card, so no number at all.
+      await expect(band.locator("[data-community-example]")).toHaveCount(0);
+      // Two columns would need the card; the pitch's heading is two lines at every width.
+      const lines = await band.getByRole("heading", { level: 2 }).evaluate((h2) => {
+        const lineHeight = parseFloat(getComputedStyle(h2).lineHeight);
+        return Math.round(h2.getBoundingClientRect().height / lineHeight);
+      });
+      expect(lines).toBe(2);
+    });
+  });
+}
+
+// Owner mockup (23 Oct 2026): the pitch, and a white "A look inside" card from a real count.
+for (const vp of [
+  { width: 1280, height: 800, desktop: true },
+  { width: 390, height: 844, desktop: false },
+]) {
+  test.describe(`Find your people at ${vp.width}px`, () => {
+    test.use({ viewport: { width: vp.width, height: vp.height } });
+
+    test("shows a trending event's real count in the card, with plain circles and an honest note", async ({ page }) => {
+      await openHome(page, { trending: true, going: 22 });
+      const band = page.locator("#find-your-people");
+      const card = band.locator("[data-community-example]");
+      await expect(card).toBeVisible();
+      await expect(card.getByText("A look inside")).toBeVisible();
+      await expect(card.locator("[data-community-count]")).toHaveText("22 people going");
+      await expect(card).toContainText("Popular right now · Real count");
+      await expect(card).not.toContainText(/sample/i);
+      // Four round circles, hidden from assistive tech, with no initials (live never shows anyone).
+      const faces = card.locator("[data-community-faces]");
+      await expect(faces).toHaveAttribute("aria-hidden", "true");
+      const circles = await faces.locator(":scope > span").evaluateAll((spans) =>
+        spans.map((span) => ({ text: span.textContent, size: span.getBoundingClientRect().width, radius: getComputedStyle(span).borderRadius })),
+      );
+      expect(circles).toHaveLength(4);
+      for (const circle of circles) {
+        expect(circle.text).toBe("");
+        expect(circle.size).toBe(vp.desktop ? 80 : 64);
+        expect(parseFloat(circle.radius)).toBeGreaterThanOrEqual(circle.size / 2);
+      }
+      // Side by side on a desktop, stacked on a phone.
+      const pitch = await band.getByRole("heading", { level: 2 }).boundingBox();
+      const box = await card.boundingBox();
+      if (!pitch || !box) throw new Error("band not laid out");
+      if (vp.desktop) expect(box.x).toBeGreaterThan(pitch.x + pitch.width - 1);
+      else expect(box.y).toBeGreaterThan(pitch.y + pitch.height);
+      // The focus ring shows on the orange (black, never orange), and the action is reachable.
+      const action = band.getByRole("link", { name: "Create profile now" });
+      await action.focus();
+      await page.keyboard.press("Shift+Tab");
+      await page.keyboard.press("Tab");
+      await expect(action).toBeFocused();
+      expect(await action.evaluate((a) => getComputedStyle(a).outlineColor)).toBe("rgb(0, 0, 0)");
+      expect((await action.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(56);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(0);
     });
   });
 }
@@ -302,3 +367,75 @@ test.describe("/events", () => {
     expect((box?.y ?? -1) > (feed?.y ?? Infinity)).toBe(true);
   });
 });
+
+// Owner (23 Oct 2026): "keep this as well and the motion in the picture": the desktop hero collage with
+// its turning badge, and What else? with its highlight that follows the scroll.
+test.describe("hero collage at 1280px", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("shows three photos and the badge, which turns slowly and can be paused", async ({ page }) => {
+    await openHome(page);
+    const collage = page.locator("[data-hero-collage]");
+    await expect(collage).toBeVisible();
+    await expect(collage.locator("img")).toHaveCount(3);
+    const badge = page.getByRole("button", { name: "Pause the badge animation" });
+    await expect(badge).toBeVisible();
+    // Its name changes with its state, so find the drawing by its own marker.
+    const art = page.locator("[data-hero-badge-art]");
+    const spin = await art.evaluate((svg) => {
+      const style = getComputedStyle(svg);
+      return { name: style.animationName, duration: style.animationDuration, count: style.animationIterationCount, state: style.animationPlayState };
+    });
+    expect(spin).toEqual({ name: "spin", duration: "30s", count: "infinite", state: "running" });
+    // Keyboard: Tab reaches it, and Enter pauses it.
+    await badge.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("button", { name: "Play the badge animation" })).toBeFocused();
+    expect(await art.evaluate((svg) => getComputedStyle(svg).animationPlayState)).toBe("paused");
+    // The first section still starts above the fold.
+    const heading = await page.locator("[data-home-section]").first().getByRole("heading", { level: 2 }).boundingBox();
+    expect((heading?.y ?? Infinity) + (heading?.height ?? 0)).toBeLessThanOrEqual(800);
+  });
+
+  test("holds still, and isn't a control, under reduced motion", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await openHome(page);
+    await expect(page.locator("[data-hero-collage]")).toBeVisible();
+    await expect(page.getByRole("button", { name: /badge animation/ })).toHaveCount(0);
+    expect(await page.locator("[data-hero-badge-art]").evaluate((svg) => getComputedStyle(svg).animationName)).toBe("none");
+  });
+});
+
+for (const vp of [
+  { width: 1280, height: 800, desktop: true },
+  { width: 390, height: 844, desktop: false },
+]) {
+  test.describe(`What else? at ${vp.width}px`, () => {
+    test.use({ viewport: { width: vp.width, height: vp.height } });
+
+    test("lights each promise in turn as it crosses the middle of the screen; the rest stay readable", async ({ page }) => {
+      await openHome(page);
+      // No collage on phones: the hero stays short.
+      await expect(page.locator("[data-hero-collage]")).toBeVisible({ visible: vp.desktop });
+      const section = page.getByRole("region", { name: "What else?" });
+      const items = section.getByRole("listitem");
+      await expect(items).toHaveCount(3);
+      await expect(items.nth(0)).toHaveAttribute("data-active", "true");
+      // Inactive items: the muted token (5.39:1 on cream), fully opaque.
+      const inactive = await items.nth(1).evaluate((li) => ({ color: getComputedStyle(li).color, opacity: getComputedStyle(li).opacity }));
+      expect(inactive).toEqual({ color: "rgb(107, 103, 94)", opacity: "1" });
+      await items.nth(2).evaluate((li) => {
+        const box = li.getBoundingClientRect();
+        window.scrollBy({ top: box.top + box.height / 2 - window.innerHeight / 2, behavior: "instant" });
+      });
+      await expect(items.nth(2)).toHaveAttribute("data-active", "true");
+      await expect(items.nth(0)).toHaveAttribute("data-active", "false");
+      // The photo beside the list from 1024px, following the highlight.
+      const photo = section.locator("[data-what-else-photo='active']");
+      if (vp.desktop) await expect(photo.locator("img")).toHaveAttribute("src", "/events/jazz-drummer.webp");
+      else await expect(photo).toBeHidden();
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(0);
+    });
+  });
+}

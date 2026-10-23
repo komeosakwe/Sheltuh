@@ -7,8 +7,8 @@ import EventCard, { EventCardPlaceholder } from "@/components/ui/EventCard";
 import { Notice } from "@/components/ui/Section";
 import { formatWeekendRange } from "@/lib/home-sections";
 import { useHomeEvents } from "./HomeEventsProvider";
-import HomeRail, { HomeRailItem } from "./HomeRail";
-import SectionHead from "@/components/ui/SectionHead";
+import { HOME_CONTAINER, HomeRailItem, RAIL_SKELETON } from "./HomeRail";
+import HomeRailSection from "./HomeRailSection";
 
 /** The page's one load error (docs/design/mobile-redesign.md §6.3.4). */
 export const HOME_LOAD_ERROR = "Couldn’t load events. Check your connection and try again.";
@@ -25,7 +25,10 @@ const SECTION = "mt-6 sm:mt-10 lg:mt-12";
  * sections are already de-duplicated). A section with no cards renders
  * nothing, and a section's link shows only beside cards.
  * Every card is the `rail` EventCard, and every section is visible from the
- * start: nothing waits for a scroll to appear.
+ * start: nothing waits for a scroll to appear. Each section's head sits in
+ * the page column and its cards run full width as a horizontal rail at
+ * every width (`HomeRailSection`, `HomeRail`), so the caller places this
+ * outside the page column.
  *
  * The first slot holds the page's loading skeleton, its one load error (with
  * Try again), or, with nothing upcoming at all, a note saying so. Try again
@@ -77,98 +80,103 @@ export default function HomeEventSections() {
 
       {loading && (
         <div aria-hidden="true" className={SECTION}>
-          <div className="mb-3 h-6 w-40 bg-surface sm:mb-4" />
-          <div className="-mx-5 -my-4 flex gap-3 overflow-hidden px-5 py-4 sm:mx-0 sm:my-0 sm:grid sm:grid-cols-2 sm:gap-x-6 sm:px-0 sm:py-0 md:grid-cols-3 lg:grid-cols-4">
-            <EventCardPlaceholder variant="rail" />
-            <EventCardPlaceholder variant="rail" />
-            <EventCardPlaceholder variant="rail" className="hidden md:flex" />
-            <EventCardPlaceholder variant="rail" className="hidden lg:flex" />
+          <div className={HOME_CONTAINER}>
+            <div className="mb-3 h-6 w-40 bg-surface sm:mb-4" />
+          </div>
+          {/* As many as the widest screen shows; the row clips the rest. */}
+          <div className={RAIL_SKELETON}>
+            {Array.from({ length: 6 }, (_, i) => (
+              <EventCardPlaceholder key={i} variant="rail" />
+            ))}
           </div>
         </div>
       )}
 
       {state.status === "error" && (
-        <div className={`${SECTION} rounded-card bg-surface p-5 sm:p-8`}>
-          <Notice key={failures} tone="danger" role="alert">
-            {HOME_LOAD_ERROR}
-          </Notice>
-          <Button variant="outline" size="lg" className="mt-3" busy={retrying} onClick={handleRetry}>
-            {retrying ? "Trying again…" : "Try again"}
-          </Button>
+        <div className={`${HOME_CONTAINER} ${SECTION}`}>
+          <div className="rounded-card bg-surface p-5 sm:p-8">
+            <Notice key={failures} tone="danger" role="alert">
+              {HOME_LOAD_ERROR}
+            </Notice>
+            <Button variant="outline" size="lg" className="mt-3" busy={retrying} onClick={handleRetry}>
+              {retrying ? "Trying again…" : "Try again"}
+            </Button>
+          </div>
         </div>
       )}
 
       {sections && !sections.anyUpcoming && (
-        <div data-home-empty="" tabIndex={-1} className={`${SECTION} rounded-card bg-surface p-5 sm:p-8`}>
-          <DotsMark size="lg" className="text-foreground" />
-          <p className="mt-6 text-base leading-6">No events have been published yet. Check back soon.</p>
+        <div className={`${HOME_CONTAINER} ${SECTION}`}>
+          <div data-home-empty="" tabIndex={-1} className="rounded-card bg-surface p-5 sm:p-8">
+            <DotsMark size="lg" className="text-foreground" />
+            <p className="mt-6 text-base leading-6">No events have been published yet. Check back soon.</p>
+          </div>
         </div>
       )}
 
       {weekend && (
-        <section aria-labelledby="home-weekend" data-home-section className={SECTION}>
-          <SectionHead
-            id="home-weekend"
-            title="This weekend"
-            note={formatWeekendRange(weekend.window)}
-            // /events isn't filtered to the weekend, so the link says where it goes.
-            link={weekend.status === "cards" ? { href: "/events", label: "All events" } : undefined}
-          />
-          {weekend.status === "cards" ? (
-            <HomeRail labelledBy="home-weekend">
-              {weekend.items.map((event) => (
-                <HomeRailItem key={event.id}>
-                  <EventCard event={event} variant="rail" mode={mode} now={now} />
-                </HomeRailItem>
-              ))}
-            </HomeRail>
-          ) : (
-            <p className="text-sm leading-5 text-muted">
-              Nothing listed for this weekend yet. New events are added through the week.
-            </p>
-          )}
-        </section>
-      )}
-
-      {sections && sections.following.length > 0 && (
-        <section aria-labelledby="home-following" data-home-section className={SECTION}>
-          <SectionHead
-            id="home-following"
-            title="From organisers you follow"
-            link={{ href: "/following", srLabel: "organisers you follow" }}
-          />
-          <HomeRail labelledBy="home-following">
-            {sections.following.map((event) => (
+        <HomeRailSection
+          id="home-weekend"
+          title="This weekend"
+          note={formatWeekendRange(weekend.window)}
+          // /events isn't filtered to the weekend, so the link says where it goes.
+          link={weekend.status === "cards" ? { href: "/events", label: "All events" } : undefined}
+          count={weekend.status === "cards" ? weekend.items.length : 0}
+          empty={
+            weekend.status === "cards" ? undefined : (
+              <p className="text-sm leading-5 text-muted">
+                Nothing listed for this weekend yet. New events are added through the week.
+              </p>
+            )
+          }
+          className={SECTION}
+        >
+          {weekend.status === "cards" &&
+            weekend.items.map((event) => (
               <HomeRailItem key={event.id}>
                 <EventCard event={event} variant="rail" mode={mode} now={now} />
               </HomeRailItem>
             ))}
-          </HomeRail>
-        </section>
+        </HomeRailSection>
+      )}
+
+      {sections && sections.following.length > 0 && (
+        <HomeRailSection
+          id="home-following"
+          title="From organisers you follow"
+          link={{ href: "/following", srLabel: "organisers you follow" }}
+          count={sections.following.length}
+          className={SECTION}
+        >
+          {sections.following.map((event) => (
+            <HomeRailItem key={event.id}>
+              <EventCard event={event} variant="rail" mode={mode} now={now} />
+            </HomeRailItem>
+          ))}
+        </HomeRailSection>
       )}
 
       {popular && (
-        <section aria-labelledby="home-popular" data-home-section className={SECTION}>
-          <SectionHead
-            id="home-popular"
-            title={popular.kind === "popular" ? "Popular right now" : "Coming up"}
-            // Nor sorted by popularity: "All events", as This weekend.
-            link={{ href: "/events", label: "All events" }}
-          />
-          <HomeRail labelledBy="home-popular">
-            {popular.kind === "popular"
-              ? popular.items.map(({ event, signal }) => (
-                  <HomeRailItem key={event.id}>
-                    <EventCard event={event} variant="rail" mode={mode} signal={signal} now={now} />
-                  </HomeRailItem>
-                ))
-              : popular.items.map((event) => (
-                  <HomeRailItem key={event.id}>
-                    <EventCard event={event} variant="rail" mode={mode} now={now} />
-                  </HomeRailItem>
-                ))}
-          </HomeRail>
-        </section>
+        <HomeRailSection
+          id="home-popular"
+          title={popular.kind === "popular" ? "Popular right now" : "Coming up"}
+          // Nor sorted by popularity: "All events", as This weekend.
+          link={{ href: "/events", label: "All events" }}
+          count={popular.items.length}
+          className={SECTION}
+        >
+          {popular.kind === "popular"
+            ? popular.items.map(({ event, signal }) => (
+                <HomeRailItem key={event.id}>
+                  <EventCard event={event} variant="rail" mode={mode} signal={signal} now={now} />
+                </HomeRailItem>
+              ))
+            : popular.items.map((event) => (
+                <HomeRailItem key={event.id}>
+                  <EventCard event={event} variant="rail" mode={mode} now={now} />
+                </HomeRailItem>
+              ))}
+        </HomeRailSection>
       )}
     </div>
   );

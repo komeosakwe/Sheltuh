@@ -129,6 +129,18 @@ describe("retired accents and motion (brand-direction-one.md §9, cleanup)", () 
     const looping = /className=["'`{][^"'`]*(?:\bfloat\b|\bspin-slow\b|animate-\[spin)/;
     expect(sources.filter(({ text }) => looping.test(text)).map(({ file }) => file)).toEqual([]);
   });
+
+  // The one exception, at the owner's request (23 Oct 2026): the desktop hero collage's round badge
+  // turns, slowly, only for people who haven't asked for less motion, and it can be paused
+  // (tests/HeroCollage.test.tsx covers the control).
+  it("allows one looping turn, the hero badge's: motion-safe, slow and nowhere else", () => {
+    const spinning = sources.filter(({ text }) => /\banimate-spin\b/.test(text));
+    expect(spinning.map(({ file }) => file)).toEqual([path.join("components", "home", "HeroBadge.tsx")]);
+    const badge = spinning[0]?.text ?? "";
+    expect(badge).toMatch(/motion-safe:animate-spin/);
+    expect(badge).not.toMatch(/(?<!motion-safe:)\banimate-spin\b/);
+    expect(badge).toMatch(/HERO_BADGE_TURN = "30s"/);
+  });
 });
 
 describe("brand faces", () => {

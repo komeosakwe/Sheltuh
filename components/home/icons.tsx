@@ -25,6 +25,14 @@ export function ChevronRightIcon({ className = "h-5 w-5" }: { className?: string
   );
 }
 
+export function ChevronLeftIcon({ className = "h-5 w-5" }: { className?: string }) {
+  return (
+    <svg {...common} strokeWidth={2} className={className}>
+      <path d="m15 5-7 7 7 7" />
+    </svg>
+  );
+}
+
 export function CalendarIcon({ className = "h-3 w-3" }: { className?: string }) {
   return (
     <svg {...common} strokeWidth={2} className={className}>
