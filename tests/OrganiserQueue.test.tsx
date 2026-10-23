@@ -12,11 +12,18 @@ const adminListOrganisers = vi.fn();
 const adminApproveOrganiser = vi.fn();
 const adminRejectOrganiser = vi.fn();
 const adminSuspendOrganiser = vi.fn();
+const adminRemoveOrganiserLogo = vi.fn();
 vi.mock("@/lib/api/admin", () => ({
   adminListOrganisers: (...args: unknown[]) => adminListOrganisers(...args),
   adminApproveOrganiser: (...args: unknown[]) => adminApproveOrganiser(...args),
   adminRejectOrganiser: (...args: unknown[]) => adminRejectOrganiser(...args),
   adminSuspendOrganiser: (...args: unknown[]) => adminSuspendOrganiser(...args),
+  adminRemoveFeaturedVideo: vi.fn(),
+  adminRemoveOrganiserLogo: (...args: unknown[]) => adminRemoveOrganiserLogo(...args),
+}));
+const fetchOrganiserLogo = vi.fn();
+vi.mock("@/lib/api/organisers", () => ({
+  fetchOrganiserLogo: (...args: unknown[]) => fetchOrganiserLogo(...args),
 }));
 
 // jsdom has no modal dialogs: give <dialog> what a browser would.
@@ -35,6 +42,10 @@ beforeEach(() => {
   adminApproveOrganiser.mockReset();
   adminRejectOrganiser.mockReset();
   adminSuspendOrganiser.mockReset();
+  adminRemoveOrganiserLogo.mockReset();
+  fetchOrganiserLogo.mockReset();
+  fetchOrganiserLogo.mockResolvedValue(new Blob(["logo"], { type: "image/webp" }));
+  Object.assign(URL, { createObjectURL: vi.fn(() => "blob:logo"), revokeObjectURL: vi.fn() });
 });
 afterEach(cleanup);
 
@@ -810,5 +821,110 @@ describe("Admin organisers: loading", () => {
     fireEvent.click(screen.getByRole("button", { name: "Load more" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Org p2" })).toHaveFocus());
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("Admin organisers: logo", () => {
+  const LOGO_URL = "/api/organisers/a1/logo?v=1730000000000";
+
+  it("shows the logo (fetched with the admin's token, whatever their status), or None", async () => {
+    listing("pending", [organiser("p1", { status: "pending", logoUrl: "/api/organisers/p1/logo?v=1" }), organiser("p2", { status: "pending" })]);
+    renderQueue();
+    await screen.findByRole("heading", { name: "Org p1" });
+
+    const logo = await within(articleOf("Org p1")).findByRole("img", { name: "Org p1’s logo" });
+    expect(logo).toHaveAttribute("src", "blob:logo");
+    expect(fetchOrganiserLogo).toHaveBeenCalledWith("/api/organisers/p1/logo?v=1", expect.any(Function), expect.any(AbortSignal));
+    const term = within(articleOf("Org p1")).getByText("Logo", { selector: "dt" });
+    expect(term.nextElementSibling).toContainElement(logo);
+
+    const none = within(articleOf("Org p2")).getByText("Logo", { selector: "dt" }).nextElementSibling;
+    expect(none).toHaveTextContent("None");
+    expect(within(articleOf("Org p2")).queryByRole("button", { name: "Remove logo…" })).toBeNull();
+  });
+
+  it("says when the logo can't be loaded", async () => {
+    fetchOrganiserLogo.mockRejectedValue(new ApiError(404, "Not found."));
+    listing("approved", [organiser("a1", { logoUrl: LOGO_URL })]);
+    await showApproved();
+    expect(await within(articleOf("Org a1")).findByText("Couldn’t load the logo.")).toBeInTheDocument();
+  });
+
+  it("names logo changes on the log, as when each was uploaded", async () => {
+    listing("approved", [
+      organiser("a1", {
+        recentEdits: [
+          {
+            kind: "profile_edit",
+            at: "2026-09-20T02:30:00.000Z",
+            changes: { logo: { old: null, new: "1758335400000" } },
+          },
+        ],
+      }),
+    ]);
+    await showApproved();
+    const log = within(articleOf("Org a1")).getByText(/Recent changes \(1\)/).closest("details") as HTMLElement;
+    expect(within(log).getByText("Logo", { selector: "dt" })).toBeInTheDocument();
+    expect(log).toHaveTextContent(`After: Uploaded ${formatDayTime("2025-09-20T02:30:00.000Z")}`);
+  });
+
+  it("Remove logo… asks for a reason (required, up to 500), removes it, says so and focuses the organiser", async () => {
+    const before = organiser("a1", { logoUrl: LOGO_URL });
+    const after = organiser("a1", {
+      recentEdits: [
+        {
+          kind: "profile_edit",
+          at: "2026-10-21T00:00:00.000Z",
+          byStaff: true,
+          reason: "Not their logo.",
+          changes: { logo: { old: "1730000000000", new: null } },
+        },
+      ],
+    });
+    adminRemoveOrganiserLogo.mockResolvedValue(after);
+    listing("approved", [before]);
+    await showApproved();
+    const article = articleOf("Org a1");
+
+    fireEvent.click(within(article).getByRole("button", { name: "Remove logo…" }));
+    const group = within(article).getByRole("group", { name: "Remove Org a1’s logo?" });
+    const reason = within(group).getByLabelText("Reason (kept on their log)");
+    await waitFor(() => expect(reason).toHaveFocus());
+    expect(group).toHaveTextContent("0/500");
+
+    fireEvent.click(within(group).getByRole("button", { name: "Remove logo" }));
+    expect(reason).toHaveAttribute("aria-invalid", "true");
+    fireEvent.change(reason, { target: { value: "x".repeat(501) } });
+    fireEvent.click(within(group).getByRole("button", { name: "Remove logo" }));
+    expect(reason).toHaveAttribute("aria-invalid", "true");
+    expect(adminRemoveOrganiserLogo).not.toHaveBeenCalled();
+
+    fireEvent.change(reason, { target: { value: "Not their logo." } });
+    fireEvent.click(within(group).getByRole("button", { name: "Remove logo" }));
+    await waitFor(() => expect(adminRemoveOrganiserLogo).toHaveBeenCalledWith("a1", "Not their logo.", expect.any(Function)));
+    await waitFor(() => expect(actionStatus()).toHaveTextContent("Removed Org a1’s logo."));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Org a1" })).toHaveFocus());
+    const updated = articleOf("Org a1");
+    expect(within(updated).queryByRole("button", { name: "Remove logo…" })).toBeNull();
+    // The profile's Logo row (the log below names the field too).
+    expect(within(updated).getAllByText("Logo", { selector: "dt" })[0].nextElementSibling).toHaveTextContent("None");
+    expect(within(updated).getByText("Edit by the Sheltüh team")).toBeInTheDocument();
+  });
+
+  it("Cancel closes it and returns focus to Remove logo…; a failure is shown in place", async () => {
+    adminRemoveOrganiserLogo.mockRejectedValue(new ApiError(500, "Boom."));
+    listing("approved", [organiser("a1", { logoUrl: LOGO_URL })]);
+    await showApproved();
+    const article = articleOf("Org a1");
+
+    fireEvent.click(within(article).getByRole("button", { name: "Remove logo…" }));
+    fireEvent.click(within(article).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(within(article).getByRole("button", { name: "Remove logo…" })).toHaveFocus());
+
+    fireEvent.click(within(article).getByRole("button", { name: "Remove logo…" }));
+    fireEvent.change(within(article).getByLabelText("Reason (kept on their log)"), { target: { value: "Spam." } });
+    fireEvent.click(within(article).getByRole("button", { name: "Remove logo" }));
+    expect(await within(article).findByRole("alert")).toHaveTextContent("Couldn’t remove the logo. Try again.");
+    expect(within(article).getByRole("img", { name: "Org a1’s logo" })).toBeInTheDocument();
   });
 });

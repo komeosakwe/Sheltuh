@@ -17,6 +17,8 @@ export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
     startsAt: event.startsAt,
     endsAt: event.endsAt,
     organiserName: event.organiserName,
+    // Only while the organiser has a logo (and is approved): absent means initials.
+    ...(event.organiserLogoThumbUrl ? { organiserLogoThumbUrl: event.organiserLogoThumbUrl } : {}),
     poster: assignPoster(event.slug),
     imageUrl: event.imageUrl,
     // Only the fields the UI knows: what's left comes from the server's own

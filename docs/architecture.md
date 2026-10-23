@@ -1616,6 +1616,13 @@ Admins create events themselves, for any organiser
   idempotent). **Privacy**: a logo is business content, public once
   approved; the Organiser Agreement should say uploads are public and kept
   until removed (deleted with the organiser).
+  **UI**: the organiser picks it on Dashboard → Public profile
+  (`components/dashboard/OrganiserLogoField.tsx`, approved only; shrunk in
+  the browser by `lib/image.ts` first, saved at once); the event page shows
+  the thumbnail in the organiser's avatar square and the profile shows the
+  logo beside the name (`components/organisers/OrganiserLogo.tsx`: initials,
+  or nothing on the profile, when there's none or it fails to load); the
+  admin queue shows it with "Remove logo…". The demo has no logos.
 - **Public profile** (`GET /organisers/{id}/profile`): only approved
   organisers. Only `organiserId`, `displayName`, `description`,
   `categories`, `websiteUrl`, `socialLinks`, `memberSince` (Melbourne

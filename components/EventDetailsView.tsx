@@ -4,6 +4,7 @@ import AddToCalendar from "@/components/AddToCalendar";
 import EventViewBeacon from "@/components/analytics/EventViewBeacon";
 import EventArt from "@/components/EventArt";
 import ExternalTicketLink from "@/components/ExternalTicketLink";
+import OrganiserLogo from "@/components/organisers/OrganiserLogo";
 import SaveButton from "@/components/favourites/SaveButton";
 import { ArrowRightIcon, CalendarIcon, ExternalIcon, PinIcon } from "@/components/home/icons";
 import SaveOnReturn from "@/components/favourites/SaveOnReturn";
@@ -12,7 +13,6 @@ import ShareButton from "@/components/ShareButton";
 import TicketSelector from "@/components/TicketSelector";
 import TicketsHashFocus from "@/components/TicketsHashFocus";
 import BackLink from "@/components/ui/BackLink";
-import InitialsAvatar from "@/components/ui/InitialsAvatar";
 import { buttonClass } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Section";
 import WhosGoing from "@/components/WhosGoing";
@@ -236,15 +236,16 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                 </div>
                 <div className={factRowClass}>
                   <dt>
-                    {/* Their profile mark: initials in the avatar square (organisers have no photo
-                        yet). Decorative and out of the tab order: the name beside it is the link. */}
+                    {/* Their profile mark: their logo in the avatar square, or their initials (no
+                        logo, the demo, or it didn't load). Decorative and out of the tab order: the
+                        name beside it is the link. */}
                     {organiserHref ? (
                       <Link href={organiserHref} aria-hidden="true" tabIndex={-1} data-organiser-avatar="" className="flex">
-                        <InitialsAvatar name={event.organiserName} />
+                        <OrganiserLogo name={event.organiserName} url={event.organiserLogoThumbUrl} size="md" fallback="initials" />
                       </Link>
                     ) : (
                       <span data-organiser-avatar="" className="flex">
-                        <InitialsAvatar name={event.organiserName} />
+                        <OrganiserLogo name={event.organiserName} url={event.organiserLogoThumbUrl} size="md" fallback="initials" />
                       </span>
                     )}
                     <span className="sr-only">Organiser</span>

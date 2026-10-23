@@ -243,6 +243,52 @@ describe("EventDetailsView organiser", () => {
     expect(avatar?.tagName).toBe("SPAN");
   });
 
+  it("shows a live organiser's logo in the avatar slot, still decorative and out of the tab order", () => {
+    const event = {
+      ...findEvent("fitzroy-poetry-and-noise"),
+      organiserId: "org-1",
+      organiserLogoThumbUrl: "/api/organisers/org-1/logo?size=thumb&v=17",
+    };
+    const { container } = render(<EventDetailsView event={event} demo={false} />);
+    const avatar = container.querySelector("[data-organiser-avatar]");
+    if (!avatar) throw new Error("avatar not rendered");
+    expect(avatar).toHaveAttribute("aria-hidden", "true");
+    expect(avatar).toHaveAttribute("tabindex", "-1");
+    const img = avatar.querySelector("img");
+    expect(img).toHaveAttribute("src", "/api/organisers/org-1/logo?size=thumb&v=17");
+    expect(img).toHaveAttribute("alt", "");
+    expect(img).toHaveAttribute("width", "32");
+    expect(img).toHaveAttribute("height", "32");
+    expect(avatar).not.toHaveTextContent(/\S/); // no initials beside it
+    // Decorative: it adds nothing to the accessibility tree, and the name stays the one link.
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.getAllByRole("link", { name: event.organiserName })).toHaveLength(1);
+  });
+
+  it("falls back to the organiser's initials when the logo fails to load", () => {
+    const event = {
+      ...findEvent("fitzroy-poetry-and-noise"),
+      organiserId: "org-1",
+      organiserLogoThumbUrl: "/api/organisers/org-1/logo?size=thumb&v=17",
+    };
+    const { container } = render(<EventDetailsView event={event} demo={false} />);
+    const img = container.querySelector("[data-organiser-avatar] img");
+    if (!img) throw new Error("logo not rendered");
+    act(() => {
+      img.dispatchEvent(new Event("error"));
+    });
+    const avatar = container.querySelector("[data-organiser-avatar]");
+    expect(avatar?.querySelector("img")).toBeNull();
+    expect(avatar?.textContent).toMatch(/^[A-Z]{1,2}$/);
+  });
+
+  it("shows initials without a logo URL (the demo has none)", () => {
+    const { container } = render(<EventDetailsView event={findEvent("dead-letter-office")} demo />);
+    const avatar = container.querySelector("[data-organiser-avatar]");
+    expect(avatar?.querySelector("img")).toBeNull();
+    expect(avatar).toHaveTextContent("ST");
+  });
+
   it("keeps the organiser as plain text when there's no profile to link to", () => {
     const event = { ...findEvent("neon-static"), organiserName: "Nobody In The Samples" };
     render(<EventDetailsView event={event} demo />);

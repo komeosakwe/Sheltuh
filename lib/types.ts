@@ -103,6 +103,12 @@ export interface SheltuhEvent {
   startsAt: string;
   endsAt?: string;
   organiserName: string;
+  /**
+   * The organiser's logo thumbnail (96 px square, public, versioned), only on
+   * a live event whose organiser has a logo and is approved. Absent in the
+   * demo and otherwise: the event page shows their initials instead.
+   */
+  organiserLogoThumbUrl?: string;
   poster: EventPoster;
   /** Optional event photo/poster (path under /public or absolute URL). Falls back to `poster` art when absent or failing to load. */
   imageUrl?: string;

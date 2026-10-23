@@ -92,13 +92,15 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+function renderTree(organiserId = ORGANISER_ID) {
+  return OrganiserProfilePage({
+    params: Promise.resolve({ organiserId }),
+    searchParams: Promise.resolve({}),
+  });
+}
+
 async function renderPage(organiserId = ORGANISER_ID) {
-  render(
-    await OrganiserProfilePage({
-      params: Promise.resolve({ organiserId }),
-      searchParams: Promise.resolve({}),
-    }),
-  );
+  render(await renderTree(organiserId));
 }
 
 describe("/organisers/[organiserId] (live)", () => {
@@ -113,6 +115,42 @@ describe("/organisers/[organiserId] (live)", () => {
     const categories = screen.getByRole("list", { name: "Categories" });
     expect(within(categories).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Live music", "Pop-up"]);
     expect(screen.getByText(/Loud nights in small rooms\./)).toBeInTheDocument();
+  });
+
+  it("shows the organiser's logo (decorative) beside the strap and name when they have one", async () => {
+    getOrganiserProfile.mockResolvedValue(profile({ logoUrl: `/api/organisers/${ORGANISER_ID}/logo?v=42` }));
+    const { container } = render(await renderTree());
+    const heading = await screen.findByRole("heading", { level: 1, name: "Northside Noise" });
+    const logo = container.querySelector("[data-organiser-logo]");
+    if (!logo) throw new Error("logo not rendered");
+    expect(logo).toHaveAttribute("aria-hidden", "true");
+    expect(logo.querySelector("img")).toHaveAttribute("src", `/api/organisers/${ORGANISER_ID}/logo?v=42`);
+    expect(logo.querySelector("img")).toHaveAttribute("alt", "");
+    // In the same row as the title block: stacked on phones, side by side from sm.
+    const row = logo.parentElement;
+    expect(row).toHaveClass("flex-col", "sm:flex-row");
+    expect(row).toContainElement(heading);
+    expect(screen.queryByRole("img")).toBeNull();
+  });
+
+  it("leaves the logo out when it fails to load, and has none without a logoUrl", async () => {
+    getOrganiserProfile.mockResolvedValue(profile({ logoUrl: `/api/organisers/${ORGANISER_ID}/logo?v=42` }));
+    const { container } = render(await renderTree());
+    await screen.findByRole("heading", { level: 1, name: "Northside Noise" });
+    const img = container.querySelector("[data-organiser-logo] img");
+    if (!img) throw new Error("logo not rendered");
+    act(() => {
+      img.dispatchEvent(new Event("error"));
+    });
+    expect(container.querySelector("[data-organiser-logo]")).toBeNull();
+    expect(screen.queryByText("NN")).toBeNull(); // no initials stand-in
+    cleanup();
+
+    getOrganiserProfile.mockResolvedValue(profile());
+    const second = render(await renderTree());
+    await screen.findByRole("heading", { level: 1, name: "Northside Noise" });
+    expect(second.container.querySelector("[data-organiser-logo]")).toBeNull();
+    expect(second.container.querySelector("header img")).toBeNull();
   });
 
   it("links the website by hostname only, in a new tab, as nofollow user content", async () => {
@@ -363,6 +401,9 @@ describe("/organisers/[organiserId] (demo)", () => {
     );
     expect(screen.queryByRole("heading", { level: 2, name: "Past events" })).not.toBeInTheDocument();
     expect(screen.getByText("Events hosted").nextElementSibling).toHaveTextContent("0");
+    // The demo has no logos: the header is just the strap and name.
+    expect(document.querySelector("[data-organiser-logo]")).toBeNull();
+    expect(document.querySelector("header img")).toBeNull();
     expect(getOrganiserProfile).not.toHaveBeenCalled();
   });
 
