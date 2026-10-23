@@ -81,8 +81,8 @@ describe("the home's event sections", () => {
     const skeleton = container.querySelector("[aria-hidden='true'].mt-6");
     // A rail of placeholders like the loaded rails (owner, 23 Oct 2026: rails at every width): six,
     // enough for a wide screen, clipped rather than scrolled; each with the rail card's media box (4:3
-    // on phones, square from 640px: the Refinement of 22 Oct 2026).
-    expect(skeleton?.querySelectorAll(".aspect-\\[4\\/3\\].sm\\:aspect-square")).toHaveLength(6);
+    // at every width since the owner's "the pictures still way too big", 23 Oct 2026).
+    expect(skeleton?.querySelectorAll(".aspect-\\[4\\/3\\]")).toHaveLength(6);
     expect(skeleton?.querySelector(".overflow-hidden")).toHaveClass("flex");
     expect(screen.queryByRole("heading", { name: "This weekend" })).not.toBeInTheDocument();
     expect(cardHrefs()).toEqual([]);

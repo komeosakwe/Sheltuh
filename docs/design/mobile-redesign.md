@@ -26,6 +26,11 @@ Status: P0 and P1 shipped (e16f18c); P2, the review fixes and the Refinement of 
 - **Reduced motion:** never moves, and no button (`motion-reduce:hidden` from the first paint, then removed once the script knows). The arrows stay as they were.
 - Tests: `tests/HomeRailAutoScroll.test.tsx` (fake timers), `e2e/home-autoscroll.spec.ts` (390 and 1440), the motion gate in `tests/brand-tokens.test.ts`. The rail-geometry e2e checks in `e2e/responsive.spec.ts` run under reduced motion so the rail stays where they measure it. Limitation: a script setting `scrollLeft` (not a person) doesn't count as the visitor scrolling.
 
+**Owner round, 23 Oct 2026, smaller card images (wins over the rounds above where they differ; "and the pictures still way too big"):**
+- **Rail cards are 4:3 at every width** (`EventCard` `rail`: `aspect-[4/3]`, no longer square from 640px): the 256px card's image is 192px tall (was 256); phones unchanged (149 / 174 / 180px at 320 / 375 / 430). The loading skeleton follows.
+- **A pair's wide cards (from 1024px) are a 12:5 strip capped at 200px** (`lg:aspect-[12/5] lg:max-h-50`, was 16:9 at 263–299px): 195px at 1024, 200px from about 1100, the full column width, so the row reads as compact, about a rail card's image height.
+- Unchanged: each event's own image, photos cropped to cover, portrait posters shown whole on ink (`fit="auto"`, §5), and the foot pinned to the card's bottom so prices and buttons line up. Home rails only: the `grid` card (/events, organiser and member profiles) stays square.
+
 **Refinement, 22 Oct 2026 (owner brief; this section wins over everything below it where they differ).** The site read as templated: heavy uppercase heads everywhere, bordered boxes, too much scrolling before the events. One pass through the shared tokens and components, not per-page overrides. Superseded rules below are marked *[Superseded: Refinement]*.
 
 | Area | Now | Where |

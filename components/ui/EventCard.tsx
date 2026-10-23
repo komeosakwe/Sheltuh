@@ -42,23 +42,28 @@ const PRICE_BOX: Record<EventCardVariant, string> = {
   grid: "min-h-10 sm:min-h-0",
 };
 /**
- * The media box (Refinement, 22 Oct 2026: shorter cards). A phone rail card
- * is 4:3, so a card's image and title fit a phone's first screen under the
- * hero; portrait posters show whole there (`fit="auto"` letterboxes them on
- * black rather than cropping). Square everywhere else.
+ * The media box (Refinement, 22 Oct 2026: shorter cards). A rail card is
+ * 4:3 at every width (owner, 23 Oct 2026: "the pictures still way too big";
+ * it was square from 640px): 149 / 174 / 180px tall at 320 / 375 / 430, and
+ * 192px for the 256px card from 640px, so a card's image and title fit a
+ * phone's first screen under the hero. Portrait posters show whole
+ * (`fit="auto"` letterboxes them on black rather than cropping them to a
+ * strip); photos cover. A grid card (/events, profiles) stays square.
  */
 const MEDIA: Record<EventCardVariant, string> = {
-  rail: "aspect-[4/3] sm:aspect-square",
+  rail: "aspect-[4/3]",
   grid: "aspect-square",
 };
 /**
  * `wide` (a `rail` card in a home rail of one or two, HomeRail's pair): from
  * 1024px the card fills its half of the page column (468–532px) and its
- * image turns landscape, 16:9 (263–299px tall, about a square rail card's
- * 256px), so the row reads as two balanced cards rather than two small ones
- * and an empty half. Below 1024px it's an ordinary rail card.
+ * image is a wide landscape strip, 12:5 (2.4:1) and never taller than 200px
+ * (195px at 1024, 200px from about 1100; owner, 23 Oct 2026: "the pictures
+ * still way too big", it was 16:9 and up to 299px), so the pair reads as a
+ * compact row, not a hero, at about a rail card's image height (192px).
+ * Below 1024px it's an ordinary rail card.
  */
-const WIDE = { width: "lg:w-full", media: "lg:aspect-video" } as const;
+const WIDE = { width: "lg:w-full", media: "lg:aspect-[12/5] lg:max-h-50" } as const;
 
 /**
  * The one event card (docs/design/mobile-redesign.md §6.2 and its
@@ -95,7 +100,7 @@ const WIDE = { width: "lg:w-full", media: "lg:aspect-video" } as const;
  * button-high row; a grid organiser without a profile: the name as text).
  *
  * `signal` (Popular right now) adds one qualifier to the secondary line. `mode` decides the going count (default: the app's mode).
- * `wide` (rail only) is a pair's card: full cell width and a 16:9 image from 1024px (`WIDE`).
+ * `wide` (rail only) is a pair's card: full cell width and a 12:5 image, at most 200px tall, from 1024px (`WIDE`).
  */
 export default function EventCard({
   event,

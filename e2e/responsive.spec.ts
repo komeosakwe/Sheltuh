@@ -359,10 +359,12 @@ for (const width of [390, 768, 1280, 1440]) {
         const column = Math.min(width, 1152) - 64;
         for (const box of boxes) expect(Math.abs(box.w - (column - 24) / 2)).toBeLessThanOrEqual(1);
         expect(Math.abs(boxes[1].x + boxes[1].w - (width - inset))).toBeLessThanOrEqual(1);
-        // Landscape 16:9 images, no taller than 300px.
+        // Wide landscape strips (owner, 23 Oct 2026: "the pictures still way too big"): 12:5 and never
+        // taller than 200px (wider than 12:5 where the cap bites), full column width.
         for (const box of boxes) {
-          expect(Math.abs(box.mw / box.mh - 16 / 9)).toBeLessThan(0.02);
-          expect(box.mh).toBeLessThanOrEqual(300);
+          expect(box.mh).toBeLessThanOrEqual(200 + 0.5);
+          expect(box.mw / box.mh).toBeGreaterThanOrEqual(12 / 5 - 0.02);
+          expect(Math.abs(box.mw - box.w)).toBeLessThanOrEqual(1);
         }
       } else if (width >= 640) {
         expect(layout.display).toBe("flex");

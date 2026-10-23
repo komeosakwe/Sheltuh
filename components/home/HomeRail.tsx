@@ -35,7 +35,7 @@ const END_GUTTER = "after:block after:w-2 after:shrink-0 after:content-[''] sm:a
  * layout polish: "This weekend" with two cards left most of a desktop row
  * empty). Below 1024px it's the same carousel as any rail; from 1024px it's a
  * two-column grid in the page column, each card filling its column with a
- * landscape (16:9) image (EventCard `wide`). One card takes one column: the
+ * wide landscape image, 12:5 and at most 200px tall (EventCard `wide`). One card takes one column: the
  * page never repeats or invents events to fill the other.
  */
 export const PAIR_MAX = 2;
