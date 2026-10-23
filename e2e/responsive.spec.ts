@@ -201,6 +201,9 @@ for (const width of [320, 375, 390, 430]) {
     test.use({ viewport: { width, height: 844 } });
 
     test("snap to each card's start at the page gutter, show the next card, never move up and down, and keep the page still", async ({ page }) => {
+      // A still rail, with its own snapping: the auto-scroll's drift turns snapping off and moves it
+      // from the first frame on screen (e2e/home-autoscroll.spec.ts covers that).
+      await page.emulateMedia({ reducedMotion: "reduce" });
       await mockApi(page);
       await page.goto("/");
       const rail = page.locator("[data-home-section] ul").filter({ has: page.locator("[data-event-card]") }).first();

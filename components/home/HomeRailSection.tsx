@@ -24,10 +24,12 @@ const SURELY_OVERFLOWS = 5;
  * EventCard's `wide`). `data-home-section` marks it for Try again's focus
  * move and the e2e suite.
  *
- * A rail that overflows (not a pair) scrolls itself, a card every 4 seconds
+ * A rail that overflows (not a pair) drifts by itself, slowly and
+ * continuously, back to the start after a hold at the far end
  * (`useRailAutoScroll`), with a Pause/Play button in the head before the
  * arrows, at every width; never under reduced motion. A pair never does, at
- * any width: from 1024px it's a grid, and below it there's one step to make.
+ * any width: from 1024px it's a grid, and below it there's barely anything to
+ * scroll.
  */
 export default function HomeRailSection({
   id,

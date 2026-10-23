@@ -69,9 +69,10 @@ const PAIR =
  *
  * Native scrolling: start-aligned mandatory snap (a swipe, wheel or arrow
  * press settles with a card's left edge on the inset line). A rail that
- * overflows also steps on by itself, one card every 4 seconds, with a
- * Pause/Play button and never under reduced motion (owner, 23 Oct 2026:
- * `useRailAutoScroll`, via `HomeRailSection`). From 640px the section head's
+ * overflows also drifts by itself, a slow continuous slide like the original
+ * carousel's (snapping off while it drifts), with a Pause/Play button and
+ * never under reduced motion (owner, 23 Oct 2026: `useRailAutoScroll`, via
+ * `HomeRailSection`). From 640px the section head's
  * Previous/Next buttons page it (`RailArrows`); keyboard focus anywhere in
  * a card brings the whole card into view (`RailItem`).
  * `overflow-y-hidden`: a sideways scroller is otherwise a vertical one too,

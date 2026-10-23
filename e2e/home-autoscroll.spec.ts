@@ -5,10 +5,12 @@ import { sampleEvents } from "@/lib/sample-events";
 
 /**
  * The home rails' auto-scroll in a real browser (owner, 23 Oct 2026: "make
- * them automatically scroll to the left or right"; components/home/
- * useRailAutoScroll.ts). Live mode with /api/* answered here: two events this
- * weekend (a pair, which never auto-scrolls) and eight more in Coming up,
- * which overflows at both widths.
+ * them automatically scroll", then "as smooth as the very initial one done to
+ * simulate DICE"; components/home/useRailAutoScroll.ts): the original
+ * carousel's continuous 60px/s drift, a 2s hold at the far end and an eased
+ * glide back. Live mode with /api/* answered here: two events this weekend (a
+ * pair, which never auto-scrolls) and eight more in Coming up, which
+ * overflows at both widths.
  */
 
 const HOUR = 3600_000;
@@ -64,16 +66,35 @@ async function openHome(page: Page, reducedMotion: "reduce" | "no-preference") {
   return { section, rail };
 }
 
-const scrollLeft = (rail: Locator) => rail.evaluate((ul) => Math.round(ul.scrollLeft));
+const scrollLeft = (rail: Locator) => rail.evaluate((ul) => ul.scrollLeft);
+const snapType = (rail: Locator) => rail.evaluate((ul) => getComputedStyle(ul).scrollSnapType);
 const pageOverflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+
+/** The rail's scrollLeft every `every` ms for `ms`, sampled in the page (no round trips between samples). */
+function sample(rail: Locator, ms: number, every: number): Promise<number[]> {
+  return rail.evaluate(
+    (ul, [total, step]) =>
+      new Promise<number[]>((resolve) => {
+        const out = [ul.scrollLeft];
+        const timer = setInterval(() => {
+          out.push(ul.scrollLeft);
+          if (out.length > total / step) {
+            clearInterval(timer);
+            resolve(out);
+          }
+        }, step);
+      }),
+    [ms, every] as const,
+  );
+}
+const steps = (values: number[]) => values.slice(1).map((value, i) => value - values[i]);
 
 for (const width of [390, 1440]) {
   test.describe(`home rail auto-scroll at ${width}px`, () => {
     test.use({ viewport: { width, height: width < 768 ? 844 : 900 } });
 
-    test("moves on by itself within about 5 seconds, a card at a time, and Pause stops it", async ({ page }) => {
+    test("drifts on by itself, smoothly, a few pixels at a time with snapping off, and Pause stops it on a card", async ({ page }) => {
       const { section, rail } = await openHome(page, "no-preference");
-      expect(await scrollLeft(rail)).toBe(0);
       const pause = section.getByRole("button", { name: "Pause auto-scroll: Coming up" });
       // A visible 44px control at every width (on phones the arrows are hidden, the Pause button isn't).
       await expect(pause).toBeVisible();
@@ -82,30 +103,115 @@ for (const width of [390, 1440]) {
       expect(Math.round(box?.height ?? 0)).toBe(44);
       await expect(section.getByRole("button", { name: "Next events: Coming up" })).toBeVisible({ visible: width >= 640 });
 
-      // It moves on, and settles on a card's start (snap), one card along.
-      await expect.poll(() => scrollLeft(rail), { timeout: 6_000, intervals: [250] }).toBeGreaterThan(0);
-      const step = await rail.evaluate((ul) => {
-        const cards = ul.querySelectorAll("li");
-        return Math.round(cards[1].getBoundingClientRect().left - cards[0].getBoundingClientRect().left);
-      });
-      await expect.poll(() => scrollLeft(rail), { timeout: 3_000 }).toBe(step);
+      // Snapping is off while it drifts (it would pull the rail back to a card).
+      await expect.poll(() => snapType(rail)).toBe("none");
+      // About 60px a second, continuously: every 100ms a few pixels on, never a card-sized jump.
+      const samples = await sample(rail, 2000, 100);
+      const moves = steps(samples);
+      expect(moves.length).toBeGreaterThanOrEqual(19);
+      expect(moves.filter((d) => d > 0).length).toBeGreaterThanOrEqual(moves.length - 1);
+      expect(Math.min(...moves)).toBeGreaterThanOrEqual(0);
+      expect(Math.max(...moves)).toBeLessThan(20);
+      const travelled = samples[samples.length - 1] - samples[0];
+      expect(travelled).toBeGreaterThan(80);
+      expect(travelled).toBeLessThan(160);
       expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
 
-      // Pause: it stays where it is, and the button now offers Play.
+      // Pause: it settles on a card (snapping back on), then stays there; the button now offers Play.
       await pause.click();
       const play = section.getByRole("button", { name: "Play auto-scroll: Coming up" });
       await expect(play).toBeVisible();
+      await expect.poll(() => snapType(rail), { timeout: 3_000 }).toContain("mandatory");
+      const onCard = await rail.evaluate((ul) => {
+        const inset = parseFloat(getComputedStyle(ul).paddingInlineStart) || 0;
+        const start = ul.getBoundingClientRect().left + ul.clientLeft + inset;
+        return Array.from(ul.querySelectorAll(":scope > li")).some((li) => Math.abs(li.getBoundingClientRect().left - start) < 2);
+      });
+      expect(onCard).toBe(true);
       const held = await scrollLeft(rail);
-      await page.waitForTimeout(5_000);
+      await page.waitForTimeout(3_000);
       expect(await scrollLeft(rail)).toBe(held);
       expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
+    });
+
+    test("at the far end it holds, glides smoothly back to the start, and drifts on", async ({ page }) => {
+      const { rail } = await openHome(page, "no-preference");
+      await expect.poll(() => snapType(rail)).toBe("none");
+      // A script (not a person) moves it near the end: the drift carries on from there.
+      const max = await rail.evaluate((ul) => {
+        const end = ul.scrollWidth - ul.clientWidth;
+        ul.scrollLeft = end - 20;
+        return end;
+      });
+      await expect.poll(() => scrollLeft(rail), { timeout: 3_000 }).toBeGreaterThanOrEqual(max - 1);
+      // The hold: about 2 seconds at the end.
+      const hold = await sample(rail, 1400, 100);
+      expect(Math.min(...hold)).toBeGreaterThanOrEqual(max - 1);
+      // The glide back: many small steps, all heading back, then on again from the start.
+      const glide = await sample(rail, 3000, 50);
+      const back = steps(glide).filter((d) => d < 0);
+      expect(back.length).toBeGreaterThanOrEqual(15);
+      expect(Math.max(...back.map(Math.abs))).toBeLessThan(max / 3);
+      expect(Math.min(...glide)).toBeLessThan(40);
+      await expect.poll(() => scrollLeft(rail), { timeout: 3_000 }).toBeGreaterThan(Math.min(...glide) + 10);
+      expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
+    });
+
+    test("a sideways wheel over the rail is the visitor taking over: it stops, with snapping back on", async ({ page }) => {
+      const { section, rail } = await openHome(page, "no-preference");
+      await expect.poll(() => snapType(rail)).toBe("none");
+      const box = await rail.boundingBox();
+      await page.mouse.move((box?.x ?? 0) + 100, (box?.y ?? 0) + 100);
+      await page.mouse.wheel(300, 0);
+      await expect(section.getByRole("button", { name: "Play auto-scroll: Coming up" })).toBeVisible();
+      await expect.poll(() => snapType(rail)).toContain("mandatory");
+      await page.mouse.move(1, 1);
+      await page.waitForTimeout(1_000);
+      const held = await scrollLeft(rail);
+      await page.waitForTimeout(2_000);
+      expect(await scrollLeft(rail)).toBe(held);
+    });
+
+    test("Next pressed mid-drift pages smoothly onto a card, never jumping back first", async ({ page }) => {
+      test.skip(width < 640, "the arrows are from 640px");
+      const { section, rail } = await openHome(page, "no-preference");
+      await expect.poll(() => snapType(rail)).toBe("none");
+      // Between two cards (the drift has been going for a moment).
+      await expect.poll(() => scrollLeft(rail), { timeout: 5_000 }).toBeGreaterThan(40);
+      const frames = rail.evaluate(
+        (ul) =>
+          new Promise<number[]>((resolve) => {
+            const out: number[] = [];
+            const start = performance.now();
+            const frame = (now: number) => {
+              out.push(ul.scrollLeft);
+              if (now - start < 2000) requestAnimationFrame(frame);
+              else resolve(out);
+            };
+            requestAnimationFrame(frame);
+          }),
+      );
+      await section.getByRole("button", { name: "Next events: Coming up" }).click();
+      const seen = await frames;
+      expect(Math.min(...steps(seen))).toBeGreaterThanOrEqual(-1);
+      await expect(section.getByRole("button", { name: "Play auto-scroll: Coming up" })).toBeVisible();
+      await expect.poll(() => snapType(rail)).toContain("mandatory");
+      // On a card's start, or at the rail's end (where the last card meets the column's edge).
+      const landed = await rail.evaluate((ul) => {
+        const inset = parseFloat(getComputedStyle(ul).paddingInlineStart) || 0;
+        const start = ul.getBoundingClientRect().left + ul.clientLeft + inset;
+        const onCard = Array.from(ul.querySelectorAll(":scope > li")).some((li) => Math.abs(li.getBoundingClientRect().left - start) < 2);
+        return { onCard, atEnd: ul.scrollLeft >= ul.scrollWidth - ul.clientWidth - 1, left: ul.scrollLeft };
+      });
+      expect(landed.onCard || landed.atEnd, JSON.stringify(landed)).toBe(true);
     });
 
     test("under reduced motion it never moves, and there's no Pause button", async ({ page }) => {
       const { section, rail } = await openHome(page, "reduce");
       await expect(section.getByRole("button", { name: /auto-scroll/ })).toHaveCount(0);
-      await page.waitForTimeout(5_000);
+      await page.waitForTimeout(3_000);
       expect(await scrollLeft(rail)).toBe(0);
+      expect(await snapType(rail)).toContain("mandatory");
       expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
     });
   });
