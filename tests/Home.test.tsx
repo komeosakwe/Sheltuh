@@ -29,10 +29,10 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
       "This weekend",
       "Popular right now",
-      "See who’s going before you book",
+      "See who’s going. Find your people.",
       "Bring your event to life",
     ]);
-    expect(screen.getByRole("heading", { level: 2, name: "See who’s going before you book" }).closest("#find-your-people")).not.toBeNull();
+    expect(screen.getByRole("heading", { level: 2, name: "See who’s going. Find your people." }).closest("#find-your-people")).not.toBeNull();
     expect(screen.getByRole("search", { name: "Search events" })).toBeInTheDocument();
   });
 
@@ -98,7 +98,9 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     expect(counts.length).toBeGreaterThan(3);
     for (const count of counts) expect(count).toHaveTextContent(/^\d+ going \(sample\)$/);
     // The band's example is a real sample count from a card on the page, labelled too.
-    expect(container.querySelector("[data-community-example]")).toHaveTextContent(/^\d+ going to .+ \(sample\)$/);
+    const example = container.querySelector("[data-community-example]");
+    expect(example?.querySelector("[data-community-count]")).toHaveTextContent(/^\d+ people going$/);
+    expect(example).toHaveTextContent(/Example event · Sample attendees$/);
     const quick = screen.getAllByRole("link", { name: /tickets for/ });
     expect(quick.length).toBeGreaterThan(5);
     for (const link of quick) {

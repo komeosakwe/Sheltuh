@@ -300,9 +300,10 @@ describe("EventCard: prices and buttons line up across sibling cards (owner feed
 });
 
 describe("EventCard variants", () => {
-  it("rail: a fixed width on phones, its grid cell from 640px; 18px title, 14px details; the CTA sized to its label; no organiser link", () => {
+  it("rail: a fixed width at every size (256px from 640px, never stretched); 18px title, 14px details; the CTA sized to its label; no organiser link", () => {
     const { container } = render(<EventCard event={event} variant="rail" mode="live" />);
-    expect(cardRoot(container)).toHaveClass("w-[min(62vw,15rem)]", "shrink-0", "sm:w-full");
+    expect(cardRoot(container)).toHaveClass("w-[min(62vw,15rem)]", "shrink-0", "sm:w-64");
+    expect(cardRoot(container)).not.toHaveClass("sm:w-full");
     expect(screen.getByRole("heading", { level: 3 })).toHaveClass("text-lg", "leading-6", "line-clamp-2", "break-words");
     expect(screen.getByText("The Conservatory · Carlton")).toHaveClass("text-sm", "leading-5");
     expect(screen.getByText("From A$36.90").parentElement).toHaveClass("text-sm", "leading-5");

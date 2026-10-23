@@ -1,36 +1,81 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import RailItem from "./RailItem";
 
 /**
- * A section's list of cards: below 640px a horizontal rail (native
- * scroll-snap only: no arrows, no drift, nothing moves unless the thumb does)
- * that bleeds to the screen edges so the next card peeks; from 640px the same
- * list is a grid, 2 columns, 3 from 768px and 4 from 1024px (cards stay
- * card-sized on a wide screen; a short row stays short and left-aligned). The
- * vertical padding keeps focus rings unclipped in the rail. The end gutter
- * comes from an 8px spacer after the last card (plus the 12px gap), with no
- * end padding: engines disagree on whether a flex scroller's end padding
- * counts (Safari has dropped it, Chromium adds it), so relying on the spacer
- * alone makes it 20px in every engine.
- *
- * Snapping is start-aligned (each item `snap-start`) at the page gutter
- * (`scroll-px-5`, the same 20px as the first card's start), so a swipe
- * always settles with a card's left edge on the gutter and the next card
- * peeking. `overflow-y-hidden`: a sideways scroller is otherwise a vertical
- * one too (overflow-x: auto makes overflow-y auto), and a pixel of overhang
- * let a diagonal swipe nudge the rail up and down. The cells stretch to the
- * tallest card, so every card in a row is the same height.
+ * The home's page column: the hero's, the section heads' and the For
+ * organisers card's. The rails' start inset (`INSET`) is derived from these
+ * numbers (72rem wide, 1.25rem gutters, 2rem from 640px), so change them
+ * together.
  */
-export default function HomeRail({ children, labelledBy }: { children: ReactNode; labelledBy: string }) {
+export const HOME_CONTAINER = "mx-auto max-w-6xl px-5 sm:px-8";
+
+/**
+ * Where a rail's first card starts, so it lines up with the section head
+ * above it: the page gutter (20px) on phones; from 640px the page column's
+ * content edge, `max(2rem, (100% - 72rem) / 2 + 2rem)` of the full-width
+ * rail (32px up to 1152, 96px at 1280, 176px at 1440).
+ */
+const INSET = "ps-5 sm:ps-[max(2rem,(100%_-_72rem)/2_+_2rem)]";
+/** Snapping uses the same inset, so a card always settles on that line. */
+const SNAP_INSET = "scroll-px-5 sm:scroll-ps-[max(2rem,(100%_-_72rem)/2_+_2rem)]";
+
+/**
+ * The end gutter: a spacer after the last card (plus the gap) rather than
+ * end padding, which engines disagree on for a flex scroller (Safari drops
+ * it, Chromium adds it). 8px + the 12px gap = 20px on phones. From 640px the
+ * last card ends on the page column's right edge, as the first starts on
+ * its left: the spacer's percentage is of the rail's content box (the full
+ * width less `INSET`), which makes it `max(0.5rem, 100% - 69.5rem)`, plus
+ * the 24px gap.
+ */
+const END_GUTTER = "after:block after:w-2 after:shrink-0 after:content-[''] sm:after:w-[max(0.5rem,100%_-_69.5rem)]";
+
+/**
+ * A section's cards as a horizontal rail at every width (owner, 23 Oct 2026:
+ * "keep using the horizontal scrolling", reinstating the original
+ * carousel's scrolling; docs/design/mobile-redesign.md §4). The caller
+ * places it full width, outside the page column: it runs to both screen
+ * edges, its first card starts on the column's edge (`INSET`) and the cards
+ * run off the right edge, so a partly visible card says there's more.
+ * Fixed-width cards (EventCard `rail`: 62vw up to 240px on phones, 256px
+ * from 640px), never stretched to fill a row; the cells stretch to the
+ * tallest card, so every card's price and button sit at the same height.
+ *
+ * Native scrolling only: start-aligned mandatory snap (a swipe, wheel or
+ * arrow press settles with a card's left edge on the inset line), and
+ * nothing moves by itself (no drift). From 640px the section head's
+ * Previous/Next buttons page it (`RailArrows`); keyboard focus anywhere in
+ * a card brings the whole card into view (`RailItem`).
+ * `overflow-y-hidden`: a sideways scroller is otherwise a vertical one too,
+ * and a pixel of overhang let a diagonal swipe nudge the rail up and down.
+ * The vertical padding (cancelled by the negative margin) keeps focus rings
+ * unclipped.
+ */
+export default function HomeRail({
+  children,
+  labelledBy,
+  id,
+  ref,
+}: {
+  children: ReactNode;
+  labelledBy: string;
+  id?: string;
+  ref?: Ref<HTMLUListElement>;
+}) {
   return (
     <ul
+      ref={ref}
+      id={id}
       aria-labelledby={labelledBy}
-      className="no-scrollbar -mx-5 -my-4 flex snap-x snap-mandatory scroll-px-5 gap-3 overflow-x-auto overflow-y-hidden overscroll-x-contain ps-5 pe-0 py-4 after:block after:w-2 after:shrink-0 after:content-[''] sm:mx-0 sm:my-0 sm:grid sm:snap-none sm:grid-cols-2 sm:gap-x-6 sm:gap-y-8 sm:overflow-visible sm:ps-0 sm:py-0 sm:after:hidden md:grid-cols-3 lg:grid-cols-4"
+      className={`no-scrollbar -my-4 flex snap-x snap-mandatory gap-3 overflow-x-auto overflow-y-hidden overscroll-x-contain py-4 pe-0 sm:gap-6 ${INSET} ${SNAP_INSET} ${END_GUTTER}`}
     >
       {children}
     </ul>
   );
 }
+
+/** The loading skeleton's row: the rail's inset and gaps, clipped (it never scrolls). */
+export const RAIL_SKELETON = `-my-4 flex gap-3 overflow-hidden py-4 sm:gap-6 ${INSET}`;
 
 /** One card's cell. Keyboard focus anywhere in the card brings the whole card into view (RailItem). */
 export function HomeRailItem({ children }: { children: ReactNode }) {

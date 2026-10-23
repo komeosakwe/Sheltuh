@@ -236,6 +236,105 @@ for (const width of [320, 375, 390, 430]) {
   });
 }
 
+// Owner (23 Oct 2026): "keep using the horizontal scrolling". From 640px too, the rails scroll sideways:
+// fixed 256px cards from the page column's edge, running off the right edge, with Previous/Next buttons.
+for (const width of [768, 1280, 1440]) {
+  test.describe(`home rails at ${width}px`, () => {
+    test.use({ viewport: { width, height: 900 } });
+
+    test("scroll sideways from the column's edge, with fixed-width cards, a peek, working arrows, and a still page", async ({ page }) => {
+      await mockApi(page);
+      await page.goto("/");
+      const section = page.locator("[data-home-section]").filter({ has: page.getByRole("heading", { name: "Coming up", exact: true }) });
+      const rail = section.getByRole("list");
+      await expect(rail).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => document.fonts.ready);
+
+      const style = await rail.evaluate((ul) => {
+        const s = getComputedStyle(ul);
+        return { snapType: s.scrollSnapType, overflowX: s.overflowX, overflowY: s.overflowY, display: s.display, scrolls: ul.scrollWidth > ul.clientWidth };
+      });
+      expect(style.display).toBe("flex");
+      expect(style.snapType).toMatch(/^x mandatory/);
+      expect(style.overflowX).toBe("auto");
+      expect(style.overflowY).toBe("hidden");
+      expect(style.scrolls).toBe(true);
+
+      // The rail runs edge to edge; its first card starts level with the section's heading.
+      const railBox = await rail.boundingBox();
+      const heading = await section.getByRole("heading", { level: 2 }).boundingBox();
+      const cards = rail.locator("[data-event-card]");
+      const first = await cards.first().boundingBox();
+      if (!railBox || !heading || !first) throw new Error("rail not laid out");
+      expect(Math.round(railBox.x)).toBe(0);
+      expect(Math.round(railBox.width)).toBe(width);
+      expect(Math.abs(first.x - heading.x)).toBeLessThanOrEqual(1);
+      const inset = width >= 1152 ? (width - 1152) / 2 + 32 : 32;
+      expect(Math.round(first.x)).toBe(inset);
+
+      // Fixed-width cards (not stretched), all the same height, so prices and buttons line up.
+      const sizes = await cards.evaluateAll((els) => els.map((el) => el.getBoundingClientRect()).map((r) => ({ w: Math.round(r.width), h: Math.round(r.height), x: r.x })));
+      expect(new Set(sizes.map((size) => size.w))).toEqual(new Set([256]));
+      expect(new Set(sizes.map((size) => size.h)).size).toBe(1);
+      // A card is cut by the right edge: there's more.
+      expect(sizes.some((size) => size.x < width && size.x + size.w > width)).toBe(true);
+      const prices = await cards.evaluateAll((els) => els.map((el) => Math.round(el.querySelector("[id$='-price']")?.getBoundingClientRect().top ?? -1)));
+      expect(new Set(prices).size).toBe(1);
+
+      // Previous is disabled at the start (still focusable); Next pages so the peeking card lands on the inset line.
+      const prev = section.getByRole("button", { name: "Previous events: Coming up" });
+      const next = section.getByRole("button", { name: "Next events: Coming up" });
+      await expect(prev).toHaveAttribute("aria-disabled", "true");
+      await expect(next).toHaveAttribute("aria-disabled", "false");
+      // (Unless the rail's end comes first: then it stops there.)
+      const peeking = sizes.findIndex((size) => size.x + size.w > width);
+      const max = await rail.evaluate((ul) => ul.scrollWidth - ul.clientWidth);
+      const landing = Math.round(sizes[peeking].x - Math.min(sizes[peeking].x - inset, max));
+      await next.focus();
+      await page.keyboard.press("Enter");
+      await expect.poll(async () => Math.round((await cards.nth(peeking).boundingBox())?.x ?? -1)).toBe(landing);
+      await expect(prev).toHaveAttribute("aria-disabled", "false");
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
+
+      // Scrolled to the end, the last card ends on the page column's right edge, and Next is disabled.
+      await rail.evaluate((ul) => ul.scrollTo({ left: ul.scrollWidth, behavior: "instant" }));
+      await expect(next).toHaveAttribute("aria-disabled", "true");
+      const last = await cards.last().boundingBox();
+      expect(Math.abs(width - inset - ((last?.x ?? 0) + (last?.width ?? 0)))).toBeLessThanOrEqual(1);
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
+    });
+
+    test("a rail that fits has no arrows (two cards), and every rail has them exactly when it overflows", async ({ page }) => {
+      // Only the two weekend events: This weekend's rail of two fits at every width from 640px.
+      const two = fixtures(Date.now()).slice(0, 2);
+      await page.route("**/api/**", (route) =>
+        new URL(route.request().url()).pathname === "/api/events"
+          ? route.fulfill({ json: { items: two, nextCursor: undefined } })
+          : route.fulfill({ status: 404, json: { error: "not mocked in e2e" } }),
+      );
+      await page.goto("/");
+      const weekend = page.getByRole("region", { name: "This weekend" });
+      await expect(weekend.locator("[data-event-card]")).toHaveCount(2, { timeout: 30_000 });
+      await page.evaluate(() => document.fonts.ready);
+      await expect(weekend.getByRole("button", { name: /events: This weekend/ })).toHaveCount(0);
+      expect(await weekend.getByRole("list").evaluate((ul) => ul.scrollWidth > ul.clientWidth)).toBe(false);
+
+      // The full sample: whatever the day's split, arrows show exactly on the rails that overflow.
+      await page.unrouteAll();
+      await mockApi(page);
+      await page.reload();
+      await expect(page.locator("[data-home-section] [data-event-card]").first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => document.fonts.ready);
+      for (const section of await page.locator("[data-home-section]").all()) {
+        const list = section.getByRole("list");
+        if ((await list.count()) === 0) continue;
+        const overflows = await list.evaluate((ul) => ul.scrollWidth > ul.clientWidth + 4);
+        await expect(section.getByRole("button", { name: /^(?:Previous|Next) events: / })).toHaveCount(overflows ? 2 : 0);
+      }
+    });
+  });
+}
+
 test.describe("home first screen at 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
