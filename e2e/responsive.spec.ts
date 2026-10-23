@@ -123,8 +123,8 @@ for (const width of [375, 1280]) {
     test("short copy, search as the main action, the page's only search, and no orange button", async ({ page }) => {
       await mockApi(page);
       await page.goto("/");
-      const hero = page.getByRole("region", { name: "Find your next thing." });
-      await expect(hero.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
+      const hero = page.getByRole("region", { name: "Find your new thing." });
+      await expect(hero.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your new thing.");
       await expect(hero.getByText("Melbourne • What’s on")).toBeVisible();
       await expect(hero.getByText(HOME_INTRO)).toBeVisible();
       await expect(hero.getByRole("search", { name: "Search events" })).toBeVisible();

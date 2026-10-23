@@ -87,7 +87,7 @@ for (const vp of VIEWPORTS) {
       await openHome(page);
 
       await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
-      await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your new thing.");
       // No Up next any more (docs/design/mobile-redesign.md §6.1).
       await expect(page.getByRole("region", { name: "Up next" })).toHaveCount(0);
 

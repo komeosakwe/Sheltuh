@@ -30,11 +30,11 @@ function tabTo(el: HTMLElement) {
 }
 
 describe("HomeHero (mobile-redesign.md §6.1)", () => {
-  it("has one h1, 'Find your next thing.', on two lines that may wrap (never nowrap), in the display face", () => {
+  it("has one h1, 'Find your new thing.', on two lines that may wrap (never nowrap), in the display face", () => {
     render(<HomeHero />);
     const h1 = screen.getByRole("heading", { level: 1 });
-    expect(h1).toHaveAccessibleName("Find your next thing.");
-    expect(Array.from(h1.children).map((line) => line.textContent)).toEqual(["Find your", "next thing."]);
+    expect(h1).toHaveAccessibleName("Find your new thing.");
+    expect(Array.from(h1.children).map((line) => line.textContent)).toEqual(["Find your", "new thing."]);
     for (const line of h1.children) expect(line).toHaveClass("block");
     expect(h1.innerHTML).not.toMatch(/nowrap/);
     expect(h1).toHaveClass("display-lg", "font-display");

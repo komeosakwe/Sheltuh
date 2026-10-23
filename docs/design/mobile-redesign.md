@@ -34,7 +34,7 @@ Source of intent: the owner's brief of 22 Oct 2026 (mobile redesign and optimisa
 ## 1. Principles
 
 1. **Improve, don't rebuild.** Same routes, APIs, auth, Stripe, external ticketing, demo mode, brand tokens and fonts. Every change below is presentational unless it's flagged as a behaviour change (§10.3).
-2. **One message per screen on a phone.** The hero says one thing (find your next thing) and offers one main action: the search (since the owner's 22 Oct feedback; it was an orange "Explore events" button). Everything else is a field (search), a list, or the next section.
+2. **One message per screen on a phone.** The hero says one thing (find your new thing) and offers one main action: the search (since the owner's 22 Oct feedback; it was an orange "Explore events" button). Everything else is a field (search), a list, or the next section.
 3. **One card, the brief's order.** Image, category, date and time, title, venue, price with fees, going, then the action. The same component, spacing and button position everywhere. Only the width changes between variants.
 4. **Real or absent.** Prices are all-inclusive. Going counts, avatars, waitlists and "N left" come only from data that exists. Demo samples stay labelled. Nothing invents urgency.
 5. **Content is never hidden by default.** Nothing on the home waits for a scroll to become visible: that is the cause of the empty cream band (§8.1). Motion is only for feedback (press, hover) and the one photo push-in.
@@ -235,7 +235,7 @@ Unchanged values. `.ken-burns` (one 4.5s cycle) stays on the desktop hero photo 
 
 **Copy (from the brief, exact):**
 - Eyebrow: "Melbourne • What’s on" (rendered uppercase by `eyebrow`; U+2022 bullet), preceded by `DotsMark size="xs" className="text-signal"`.
-- h1: "Find your next thing." Written as `<span className="block">Find your</span>{" "}<span className="block">next thing.</span>`. The literal space keeps the accessible name "Find your next thing.". Two lines at every width, and each line may wrap at 200% zoom: **no `whitespace-nowrap`**.
+- h1: "Find your new thing." Written as `<span className="block">Find your</span>{" "}<span className="block">new thing.</span>`. The literal space keeps the accessible name "Find your new thing.". Two lines at every width, and each line may wrap at 200% zoom: **no `whitespace-nowrap`**.
 - Intro: "Discover Melbourne’s music, art, workshops and pop-ups. See who’s going before you book."
 - **Main action: the search** ("Search events", `SearchBar size="lg"`). Owner, 22 Oct: the full-width orange "Explore events" button, the search and the demo label took half a phone's first screen.
 - Then **"Explore all events"** + `ArrowRightIcon` → `/events`, an underlined 14px text link (44px tall) under the search. No orange button in the hero any more.
@@ -254,7 +254,7 @@ Unchanged values. `.ken-burns` (one 4.5s cycle) stays on the desktop hero photo 
 section[aria-labelledby=home-title].lg:grid.lg:grid-cols-12.lg:items-start.lg:gap-x-8
 ├─ div.lg:col-span-7
 │  ├─ p.eyebrow.flex.items-center.gap-2.text-muted          DotsMark + "Melbourne • What’s on"
-│  ├─ h1#home-title.mt-2.display-lg.font-display.sm:mt-4    "Find your / next thing."
+│  ├─ h1#home-title.mt-2.display-lg.font-display.sm:mt-4    "Find your / new thing."
 │  ├─ p.mt-2.max-w-[40ch].text-base.leading-6.sm:mt-4.sm:text-lg.sm:leading-7.lg:max-w-[44ch]
 │  ├─ div.mt-4.sm:mt-6.sm:max-w-xl   SearchBar size=lg submit label="Search events" placeholder="Search events"
 │  └─ div.mt-1.flex.flex-wrap.items-center.gap-x-6
@@ -771,7 +771,7 @@ Gates per batch: `npx next typegen`, `npx tsc --noEmit`, `npm run lint`, `npm te
 | Cards | new `components/ui/EventCard.tsx`, new `lib/event-card.ts`; `git mv` `home/CardPrice.tsx` and `home/GoingStack.tsx` → `ui/`; delete `ui/EventTile.tsx` and `home/HomeEventCard.tsx`; call sites `EventResults.tsx`, `FeedLoading.tsx`, `organisers/OrganiserProfileView.tsx`, `members/MemberProfileView.tsx`, `home/HomeEventSections.tsx` (every section `rail`, the P0 Free & low-cost rail shows its badge in the category line), `home/CommunitySection.tsx`, `map/SceneMapEventCard.tsx`, `SceneEventRow.tsx` (imports only); `lib/quick-buy.ts` (external-free label), `QuickBuyLink.tsx` (`tone`); `home/HomeRail.tsx` (end spacer); `components/EventArt.tsx` (`fit`) |
 | CTA clarity, event page | `components/EventDetailsView.tsx` (buy bar ended state, side safe areas, `fit="auto"`) |
 | Overflow | delete `components/ui/Carousel.tsx`; `app/globals.css` (remove `body` `overflow-x: hidden`, last) |
-| Tests | `tests/EventTile.test.tsx` + card parts of `tests/HomeEventCard.test.tsx` → `tests/EventCard.test.tsx` (name order, tab order, stretched link `data-card-link`, Save and CTA outside the link, every §6.2.3 row, "Ended", demo vs live going); `tests/SoldOutCards.test.tsx`, `tests/SavePlacements.test.tsx` (new component), `tests/quick-buy.test.ts` (external free), new `tests/event-card.test.ts` (helpers); `tests/HomeStatic.test.tsx`, `tests/Home.test.tsx`, `tests/HomeEventSections.test.tsx`, `tests/home-sections.test.ts` (new hero copy, one CTA, no Up next, categories section, error/empty in the first slot); delete `tests/Carousel.test.tsx` with `Carousel`; `tests/BrandDetails.test.tsx` (GoingStack path); `e2e/home.spec.ts` (h1 name "Find your next thing.", remove the Up next and "Find your people" link tests, rail Tab test targets the "Coming up" section, keep the overflow, dedupe and push-in tests, push-in at 1280 since the photo is `lg` only); new `e2e/responsive.spec.ts` (§8: overflow at 320–1280 on `/`, `/events` and an event page, no `.reveal-pending` on the home without scrolling, rail end gutter, buy bar settles below tickets) |
+| Tests | `tests/EventTile.test.tsx` + card parts of `tests/HomeEventCard.test.tsx` → `tests/EventCard.test.tsx` (name order, tab order, stretched link `data-card-link`, Save and CTA outside the link, every §6.2.3 row, "Ended", demo vs live going); `tests/SoldOutCards.test.tsx`, `tests/SavePlacements.test.tsx` (new component), `tests/quick-buy.test.ts` (external free), new `tests/event-card.test.ts` (helpers); `tests/HomeStatic.test.tsx`, `tests/Home.test.tsx`, `tests/HomeEventSections.test.tsx`, `tests/home-sections.test.ts` (new hero copy, one CTA, no Up next, categories section, error/empty in the first slot); delete `tests/Carousel.test.tsx` with `Carousel`; `tests/BrandDetails.test.tsx` (GoingStack path); `e2e/home.spec.ts` (h1 name "Find your new thing.", remove the Up next and "Find your people" link tests, rail Tab test targets the "Coming up" section, keep the overflow, dedupe and push-in tests, push-in at 1280 since the photo is `lg` only); new `e2e/responsive.spec.ts` (§8: overflow at 320–1280 on `/`, `/events` and an event page, no `.reveal-pending` on the home without scrolling, rail end gutter, buy bar settles below tickets) |
 
 ### P1: home restructure, Who's Going, event-detail booking UX
 
