@@ -76,6 +76,21 @@ describe("WhatElse", () => {
     expect(items()[2]).toHaveClass("text-muted");
   });
 
+  it("goes back to the item the scroll picked when the pointer leaves, and keeps following the scroll", () => {
+    render(<WhatElse />);
+    act(() => notify?.([{ target: items()[2], isIntersecting: true }]));
+    fireEvent.mouseEnter(items()[0]);
+    expect(items().map((li) => li.getAttribute("data-active"))).toEqual(["true", "false", "false"]);
+    fireEvent.mouseLeave(items()[0]);
+    expect(items().map((li) => li.getAttribute("data-active"))).toEqual(["false", "false", "true"]);
+    // Scrolling while the pointer rests on an item: the hover wins until it leaves.
+    fireEvent.mouseEnter(items()[0]);
+    act(() => notify?.([{ target: items()[1], isIntersecting: true }]));
+    expect(items()[0]).toHaveAttribute("data-active", "true");
+    fireEvent.mouseLeave(items()[0]);
+    expect(items()[1]).toHaveAttribute("data-active", "true");
+  });
+
   it("shows the highlighted item's photo beside the list from 1024px (decorative), easing only when motion is welcome", () => {
     const { container } = render(<WhatElse />);
     const panel = container.querySelector("[aria-hidden='true']");
