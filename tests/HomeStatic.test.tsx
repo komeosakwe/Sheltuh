@@ -6,7 +6,7 @@ import CreatorsCard from "@/components/home/CreatorsCard";
 import GuideCard from "@/components/home/GuideCard";
 import HomeHero from "@/components/home/HomeHero";
 import { HOME_INTRO } from "@/components/home/home-content";
-import HomeRail, { HOME_CONTAINER, HomeRailItem } from "@/components/home/HomeRail";
+import HomeRail, { HOME_CONTAINER, HomeRailItem, isPairRail, PAIR_MAX } from "@/components/home/HomeRail";
 import SectionHead from "@/components/ui/SectionHead";
 
 afterEach(() => {
@@ -43,7 +43,11 @@ describe("HomeHero (mobile-redesign.md §6.1)", () => {
   it("has the eyebrow (the page's one use of the brand dots) and one short sentence", () => {
     const { container } = render(<HomeHero />);
     expect(screen.getByText("Melbourne • What’s on")).toHaveClass("eyebrow");
-    expect(screen.getByText(HOME_INTRO)).toBeInTheDocument();
+    // Owner (23 Oct 2026, layout polish): these words, muted, at every width (no longer hidden on phones).
+    expect(HOME_INTRO).toBe("Music, art and pop-ups. See who’s going.");
+    const intro = screen.getByText(HOME_INTRO);
+    expect(intro).toHaveClass("text-muted", "mt-2");
+    expect(intro.className).not.toMatch(/\bhidden\b/);
     expect(HOME_INTRO.length).toBeLessThanOrEqual(60);
     expect(container.querySelectorAll("p.eyebrow svg")).toHaveLength(1);
   });
@@ -193,6 +197,40 @@ describe("HomeRail", () => {
     expect(list).toHaveClass("flex", "snap-x", "snap-mandatory", "overflow-x-auto", "overflow-y-hidden");
     expect(list.className).not.toMatch(/\bgrid\b|grid-cols|sm:snap-none|sm:overflow-visible/);
     expect(within(list).getAllByRole("listitem")[0]).toHaveClass("snap-start", "shrink-0");
+  });
+
+  // Owner (23 Oct 2026, layout polish): one or two cards left most of a desktop row empty.
+  it("a pair (one or two cards) is the same rail below 1024px and a two-column grid in the page column from 1024px", () => {
+    expect(PAIR_MAX).toBe(2);
+    expect([0, 1, 2, 3, 5].map(isPairRail)).toEqual([false, true, true, false, false]);
+    render(
+      <HomeRail labelledBy="x" pair>
+        <HomeRailItem>a</HomeRailItem>
+        <HomeRailItem>b</HomeRailItem>
+      </HomeRail>,
+    );
+    const list = screen.getByRole("list");
+    expect(list).toHaveAttribute("data-rail-layout", "pair");
+    // Below 1024px: the carousel, untouched.
+    expect(list).toHaveClass("flex", "snap-x", "snap-mandatory", "overflow-x-auto", "ps-5", "pe-0", "after:block");
+    // From 1024px: two columns between the column's edges, nothing to scroll or snap, no end spacer.
+    expect(list).toHaveClass(
+      "lg:grid",
+      "lg:grid-cols-2",
+      "lg:overflow-visible",
+      "lg:snap-none",
+      "sm:ps-[max(2rem,(100%_-_72rem)/2_+_2rem)]",
+      "lg:pe-[max(2rem,(100%_-_72rem)/2_+_2rem)]",
+      "lg:after:hidden",
+    );
+    cleanup();
+    render(
+      <HomeRail labelledBy="x">
+        <HomeRailItem>a</HomeRailItem>
+      </HomeRail>,
+    );
+    expect(screen.getByRole("list")).toHaveAttribute("data-rail-layout", "rail");
+    expect(screen.getByRole("list").className).not.toMatch(/lg:/);
   });
 
   it("starts its first card on the page column's edge (the gutter on phones), and snaps to the same line", () => {

@@ -31,6 +31,32 @@ const SNAP_INSET = "scroll-px-5 sm:scroll-ps-[max(2rem,(100%_-_72rem)/2_+_2rem)]
 const END_GUTTER = "after:block after:w-2 after:shrink-0 after:content-[''] sm:after:w-[max(0.5rem,100%_-_69.5rem)]";
 
 /**
+ * A rail of this many cards or fewer is a "pair" (owner, 23 Oct 2026,
+ * layout polish: "This weekend" with two cards left most of a desktop row
+ * empty). Below 1024px it's the same carousel as any rail; from 1024px it's a
+ * two-column grid in the page column, each card filling its column with a
+ * landscape (16:9) image (EventCard `wide`). One card takes one column: the
+ * page never repeats or invents events to fill the other.
+ */
+export const PAIR_MAX = 2;
+
+/** Whether a rail of `count` cards is laid out as a pair from 1024px (see `PAIR_MAX`). */
+export function isPairRail(count: number): boolean {
+  return count > 0 && count <= PAIR_MAX;
+}
+
+/**
+ * From 1024px a pair is a grid, not a scroller: two equal columns between the
+ * page column's edges (the end padding mirrors `INSET`), no snapping and no
+ * end spacer (it would be a grid cell). Below 1024px nothing changes.
+ * Why 1024 and not 768: at 768 two 256px cards fill three quarters of the
+ * column and tablets are touch screens, where a rail like every other reads
+ * best; from 1024 the empty half of the row is what the owner saw.
+ */
+const PAIR =
+  "lg:grid lg:grid-cols-2 lg:overflow-visible lg:snap-none lg:pe-[max(2rem,(100%_-_72rem)/2_+_2rem)] lg:after:hidden";
+
+/**
  * A section's cards as a horizontal rail at every width (owner, 23 Oct 2026:
  * "keep using the horizontal scrolling", reinstating the original
  * carousel's scrolling; docs/design/mobile-redesign.md §4). The caller
@@ -49,25 +75,28 @@ const END_GUTTER = "after:block after:w-2 after:shrink-0 after:content-[''] sm:a
  * `overflow-y-hidden`: a sideways scroller is otherwise a vertical one too,
  * and a pixel of overhang let a diagonal swipe nudge the rail up and down.
  * The vertical padding (cancelled by the negative margin) keeps focus rings
- * unclipped.
+ * unclipped. `pair`: one or two cards, a grid from 1024px (`PAIR`).
  */
 export default function HomeRail({
   children,
   labelledBy,
   id,
   ref,
+  pair = false,
 }: {
   children: ReactNode;
   labelledBy: string;
   id?: string;
   ref?: Ref<HTMLUListElement>;
+  pair?: boolean;
 }) {
   return (
     <ul
       ref={ref}
       id={id}
       aria-labelledby={labelledBy}
-      className={`no-scrollbar -my-4 flex snap-x snap-mandatory gap-3 overflow-x-auto overflow-y-hidden overscroll-x-contain py-4 pe-0 sm:gap-6 ${INSET} ${SNAP_INSET} ${END_GUTTER}`}
+      data-rail-layout={pair ? "pair" : "rail"}
+      className={`no-scrollbar -my-4 flex snap-x snap-mandatory gap-3 overflow-x-auto overflow-y-hidden overscroll-x-contain py-4 pe-0 sm:gap-6 ${INSET} ${SNAP_INSET} ${END_GUTTER} ${pair ? PAIR : ""}`.trim()}
     >
       {children}
     </ul>

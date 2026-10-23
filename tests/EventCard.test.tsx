@@ -312,6 +312,27 @@ describe("EventCard variants", () => {
     expect(screen.queryByRole("link", { name: /^By / })).toBeNull();
   });
 
+  // Owner (23 Oct 2026, layout polish): a home rail of one or two is a two-column grid from 1024px.
+  it("rail, wide: a rail card below 1024px; from 1024px it fills its cell with a 16:9 image", () => {
+    const { container } = render(<EventCard event={event} variant="rail" wide mode="live" />);
+    const root = cardRoot(container);
+    expect(root).toHaveAttribute("data-wide", "");
+    expect(root).toHaveClass("w-[min(62vw,15rem)]", "shrink-0", "sm:w-64", "lg:w-full");
+    expect(root.querySelector("[data-card-media] > div")).toHaveClass("aspect-[4/3]", "sm:aspect-square", "lg:aspect-video");
+    // The same foot (price, then the action), so the pair's prices and buttons line up.
+    expect(root.querySelector("[data-card-foot]")).toHaveClass("mt-auto");
+    expect(screen.getByRole("link", { name: "Buy tickets for Glasshouse Sessions" })).toBeInTheDocument();
+    cleanup();
+    // Not wide: no lg: overrides. And `wide` means nothing to a grid card.
+    const plain = cardRoot(render(<EventCard event={event} variant="rail" mode="live" />).container);
+    expect(plain).not.toHaveAttribute("data-wide");
+    expect(plain.className).not.toMatch(/lg:/);
+    cleanup();
+    const grid = cardRoot(render(<EventCard event={event} variant="grid" wide mode="live" />).container);
+    expect(grid).not.toHaveAttribute("data-wide");
+    expect(grid.querySelector("[data-card-media] > div")?.className).not.toMatch(/aspect-video/);
+  });
+
   it("grid: fills its cell; 16px titles on the phone grid, 18px from 640px, 14px details; a full-width CTA on phones whose label wraps rather than overflows", () => {
     const { container } = render(<EventCard event={event} variant="grid" mode="live" />);
     expect(cardRoot(container)).toHaveClass("w-full");

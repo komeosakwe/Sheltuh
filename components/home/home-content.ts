@@ -11,26 +11,42 @@ export interface HomeArt {
   imageUrl?: string;
 }
 
-/** The hero's one short sentence under the h1 (mobile-redesign.md, Refinement 22 Oct 2026). */
-export const HOME_INTRO = "Music, art, workshops and pop-ups. See who’s going.";
+/**
+ * The hero's one short sentence under the h1, at every width (owner, 23 Oct
+ * 2026, layout polish: back on phones, in these words).
+ */
+export const HOME_INTRO = "Music, art and pop-ups. See who’s going.";
 
-/** The desktop hero collage's lead photo (public/events/vintage-market-stall.jpg). */
+/*
+ * Promotional photos (owner, 23 Oct 2026: "avoid reusing the same DJ and
+ * market photos across the hero, event listings and organiser section").
+ * public/events/ has six photos and each is also a sample event's own image
+ * (lib/sample-photos.ts), so each promo photo is used once on the home, and
+ * only photos the home's event rails don't show: street-market (no upcoming
+ * sample event uses it) is the For organisers card, the one promo photo
+ * phones see; gallery-opening (the upcoming art events' photo, none of which
+ * is on the home's rails at present) leads the desktop hero collage. The
+ * other promo slots show their brand poster art until the owner supplies
+ * photos of their own (public/home/README.md lists what's needed). Events
+ * always keep their own image.
+ */
+
+/** The desktop hero collage's lead photo (public/events/gallery-opening.jpg). */
 export const HOME_HERO: HomeArt = {
-  imageUrl: "/events/vintage-market-stall.jpg",
+  imageUrl: "/events/gallery-opening.jpg",
   poster: { pattern: "burst", background: "#000000", primary: "#ff4800", secondary: "#fffae7" },
 };
 
 /**
- * The collage's two smaller photos, beside and under the lead (the original
- * collage's, restored at the owner's request, 23 Oct 2026).
+ * The collage's two smaller tiles, beside and under the lead (restored at the
+ * owner's request, 23 Oct 2026). Poster art for now: their photos were
+ * record-shop-dj (an event's) and gallery-opening (now the lead).
  */
 export const HOME_HERO_TILES: readonly [HomeArt, HomeArt] = [
   {
-    imageUrl: "/events/record-shop-dj.jpg",
     poster: { pattern: "halftone", background: "#fffae7", primary: "#000000", secondary: "#000000" },
   },
   {
-    imageUrl: "/events/gallery-opening.jpg",
     poster: { pattern: "waves", background: "#ff4800", primary: "#000000", secondary: "#fffae7" },
   },
 ];
@@ -39,25 +55,24 @@ export const HOME_HERO_TILES: readonly [HomeArt, HomeArt] = [
  * "What else?" (owner, 23 Oct 2026: kept from the original home): three
  * promises the product keeps (manual curation, all-inclusive prices, no fee
  * on free tickets), each with the photo that shows beside the list while
- * it's the highlighted one.
+ * it's the highlighted one. Poster art for now (owner, 23 Oct 2026): its
+ * photos were also the hero's and the listings' (gallery-opening,
+ * street-market, jazz-drummer).
  */
 export const HOME_WHAT_ELSE: readonly (HomeArt & { title: string; note: string })[] = [
   {
     title: "Every event reviewed by a person",
     note: "Curated, not scraped.",
-    imageUrl: "/events/gallery-opening.jpg",
     poster: { pattern: "rings", background: "#000000", primary: "#fffae7", secondary: "#ff4800" },
   },
   {
     title: "The price you see is the price you pay",
     note: "Booking fees shown up front.",
-    imageUrl: "/events/street-market.jpg",
     poster: { pattern: "halftone", background: "#ff4800", primary: "#000000", secondary: "#000000" },
   },
   {
     title: "Free events stay free",
     note: "No fee on free tickets.",
-    imageUrl: "/events/jazz-drummer.webp",
     poster: { pattern: "waves", background: "#fffae7", primary: "#000000", secondary: "#ff4800" },
   },
 ];
@@ -77,8 +92,9 @@ export const HOME_GUIDE: HomeArt & {
   poster: { pattern: "grid", background: "#fffae7", primary: "#000000", secondary: "#ff4800" },
 };
 
+/** For organisers: a street market (no upcoming sample event uses it; see above). */
 export const HOME_CREATORS: HomeArt = {
-  imageUrl: "/events/record-shop-dj.jpg",
+  imageUrl: "/events/street-market.jpg",
   poster: { pattern: "curtain", background: "#000000", primary: "#ff4800", secondary: "#000000" },
 };
 

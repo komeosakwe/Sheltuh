@@ -420,11 +420,14 @@ test.describe("/events", () => {
 test.describe("hero collage at 1280px", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
-  test("shows three photos and the badge, which turns slowly and can be paused", async ({ page }) => {
+  test("shows its lead photo, two poster tiles and the badge, which turns slowly and can be paused", async ({ page }) => {
     await openHome(page);
     const collage = page.locator("[data-hero-collage]");
     await expect(collage).toBeVisible();
-    await expect(collage.locator("img")).toHaveCount(3);
+    // Owner (23 Oct 2026, layout polish): one promo photo that no listing repeats; the tiles are poster art.
+    await expect(collage.locator("img")).toHaveCount(1);
+    await expect(collage.locator("img")).toHaveAttribute("src", "/events/gallery-opening.jpg");
+    await expect(collage.locator(":scope > [aria-hidden='true'] svg text")).toHaveCount(2);
     const badge = page.getByRole("button", { name: "Pause the badge animation" });
     await expect(badge).toBeVisible();
     // Its name changes with its state, so find the drawing by its own marker.
@@ -482,9 +485,12 @@ for (const vp of [
       });
       await expect(items.nth(2)).toHaveAttribute("data-active", "true");
       await expect(items.nth(0)).toHaveAttribute("data-active", "false");
-      // The photo beside the list from 1024px, following the highlight.
+      // The art beside the list from 1024px, following the highlight: poster art until the owner supplies
+      // photos (23 Oct 2026: its photos repeated the hero's and the listings').
       const photo = section.locator("[data-what-else-photo='active']");
-      await expect(photo.locator("img")).toHaveAttribute("src", "/events/jazz-drummer.webp");
+      await expect(section.locator("[data-what-else-photo='active']")).toHaveCount(1);
+      await expect(photo.locator("svg")).toBeVisible();
+      await expect(section.locator("img")).toHaveCount(0);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow).toBeLessThanOrEqual(0);
     });

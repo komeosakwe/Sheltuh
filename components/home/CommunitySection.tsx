@@ -58,7 +58,7 @@ function pickExample(mode: "demo" | "live", candidates: { event: SheltuhEvent; s
  */
 function Faces() {
   return (
-    <div aria-hidden="true" data-community-faces="" className="mt-5 flex sm:mt-6">
+    <div aria-hidden="true" data-community-faces="" className="mt-4 flex sm:mt-6">
       {COMMUNITY_SAMPLE_FACES.map((photo, i) => (
         <span
           key={photo}
@@ -106,6 +106,9 @@ function NoteParts({ note }: { note: string }) {
  * Black on orange (6.18:1); never an orange button here. The band looks the
  * same in Light and Dark: the signal scope pins --card and --surface to
  * their Light values, so the card stays white with black text.
+ * Phones are compact (owner, 23 Oct 2026, layout polish): 40px band padding,
+ * 32px between the pitch, the action and the card, 20px card padding;
+ * from 640px the spacing is as before.
  */
 export default function CommunitySection({ className = "" }: { className?: string }) {
   const auth = useOptionalAuth();
@@ -130,15 +133,15 @@ export default function CommunitySection({ className = "" }: { className?: strin
       className={`focus:outline-none ${className}`.trim()}
     >
       <div
-        className={`${HOME_CONTAINER} py-12 sm:py-16 lg:grid lg:grid-cols-12 lg:items-center lg:gap-x-8 lg:py-20`}
+        className={`${HOME_CONTAINER} py-10 sm:py-16 lg:grid lg:grid-cols-12 lg:items-center lg:gap-x-8 lg:py-20`}
       >
         <div className="lg:col-span-7">
           <p className="eyebrow tracking-widest">Better together</p>
           {/* The literal spaces keep the heading's name "See who’s going. Find your people." (and the body's) as sentences. */}
-          <h2 id="home-people" className="mt-4 text-4xl leading-none font-bold tracking-tighter sm:mt-5 sm:text-5xl lg:text-6xl">
+          <h2 id="home-people" className="mt-3 text-4xl leading-none font-bold tracking-tighter sm:mt-5 sm:text-5xl lg:text-6xl">
             <span className="block">See who’s going.</span> <span className="block">Find your people.</span>
           </h2>
-          <p className="mt-5 text-lg leading-7 sm:mt-6 sm:text-xl sm:leading-8">
+          <p className="mt-4 text-lg leading-7 sm:mt-6 sm:text-xl sm:leading-8">
             <span className="block">Discover the crowd before you book.</span>{" "}
             <span className="block">
               {signedIn ? "Open an event to see who’s going." : "Create a free profile to see who’s going."}
@@ -158,7 +161,7 @@ export default function CommunitySection({ className = "" }: { className?: strin
         <div
           data-community-card=""
           data-community-example={example ? "" : undefined}
-          className="mt-10 rounded-2xl bg-card p-6 text-foreground sm:max-w-md sm:p-8 lg:col-span-5 lg:mt-0 lg:max-w-none"
+          className="mt-8 rounded-2xl bg-card p-5 text-foreground sm:mt-10 sm:max-w-md sm:p-8 lg:col-span-5 lg:mt-0 lg:max-w-none"
         >
           <p className={`eyebrow tracking-widest ${CARD_MUTED}`}>A look inside</p>
           <p className="mt-3 text-2xl leading-8 font-bold tracking-tight break-words sm:text-3xl sm:leading-9">
@@ -166,12 +169,12 @@ export default function CommunitySection({ className = "" }: { className?: strin
           </p>
           <Faces />
           {example ? (
-            <p data-community-count="" className="mt-5 flex flex-wrap items-baseline gap-x-2 sm:mt-6">
+            <p data-community-count="" className="mt-4 flex flex-wrap items-baseline gap-x-2 sm:mt-6">
               <span className="text-5xl leading-none font-bold tracking-tighter tabular-nums sm:text-6xl">{example.count}</span>{" "}
               <span className="text-lg leading-7 font-semibold">people going</span>
             </p>
           ) : (
-            <p className="mt-5 text-lg leading-7 sm:mt-6">{COMMUNITY_TEASER.body}</p>
+            <p className="mt-4 text-lg leading-7 sm:mt-6">{COMMUNITY_TEASER.body}</p>
           )}
           <p data-community-note="" className={`mt-3 text-sm leading-5 ${CARD_MUTED}`}>
             <NoteParts note={example ? (example.sample ? COMMUNITY_DEMO_NOTE : COMMUNITY_LIVE_NOTE) : COMMUNITY_TEASER.note} />

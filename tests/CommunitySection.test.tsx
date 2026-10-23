@@ -84,6 +84,24 @@ describe("CommunitySection: the pitch", () => {
     expect(container.querySelector(".btn-signal")).toBeNull();
   });
 
+  // Owner (23 Oct 2026, layout polish): compact on phones (about 32px between the blocks, 20–24px card
+  // padding); from 640px as before.
+  it("is compact on phones: 40px band padding, 32px around the action and the card, 20px card padding", () => {
+    const { container } = render(
+      <FakeAuthProvider value={fakeAuthValue({ status: "signed-out" })}>
+        <CommunitySection />
+      </FakeAuthProvider>,
+    );
+    const inner = container.querySelector("#find-your-people > div");
+    expect(inner).toHaveClass("py-10", "sm:py-16", "lg:py-20");
+    expect(screen.getByRole("link", { name: "Create profile now" })).toHaveClass("mt-8");
+    const card = container.querySelector("[data-community-card]");
+    expect(card).toHaveClass("mt-8", "sm:mt-10", "lg:mt-0", "p-5", "sm:p-8");
+    expect(container.querySelector("[data-community-faces]")).toHaveClass("mt-4", "sm:mt-6");
+    // The footnote stays readable: 14px, #666 on white (5.74:1).
+    expect(container.querySelector("[data-community-note]")).toHaveClass("text-sm", "text-foreground/60");
+  });
+
   it("sends signed-in members to find an event, in the same style", () => {
     render(
       <FakeAuthProvider value={fakeAuthValue()}>

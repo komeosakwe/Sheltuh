@@ -66,17 +66,17 @@ describe("HeroBadge", () => {
 });
 
 describe("HeroCollage", () => {
-  it("has three decorative photos (the lead with its one-off push-in), the asterisk and the badge", () => {
+  // Owner (23 Oct 2026, layout polish): no promo photo repeats an event's or another promo's. The lead
+  // is the one photo; the two tiles are brand poster art until the owner supplies photos.
+  it("has three decorative tiles (a lead photo with its one-off push-in, two posters), the asterisk and the badge", () => {
     stubMotion(false);
     const { container } = render(<HeroCollage />);
     const collage = container.querySelector("[data-hero-collage]");
     const art = collage?.querySelector(":scope > [aria-hidden='true']");
-    expect(art?.querySelectorAll("img")).toHaveLength(3);
     expect(Array.from(art?.querySelectorAll("img") ?? []).map((img) => img.getAttribute("src"))).toEqual([
-      "/events/vintage-market-stall.jpg",
-      "/events/record-shop-dj.jpg",
       "/events/gallery-opening.jpg",
     ]);
+    expect(art?.querySelectorAll("svg[viewBox='0 0 100 100'] text")).toHaveLength(2);
     expect(art?.querySelectorAll("img.ken-burns")).toHaveLength(1);
     // The gaps between the photos are the page's own background, whatever colour the site is.
     expect(art?.querySelectorAll(".border-background")).toHaveLength(2);

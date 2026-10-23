@@ -51,6 +51,14 @@ const MEDIA: Record<EventCardVariant, string> = {
   rail: "aspect-[4/3] sm:aspect-square",
   grid: "aspect-square",
 };
+/**
+ * `wide` (a `rail` card in a home rail of one or two, HomeRail's pair): from
+ * 1024px the card fills its half of the page column (468–532px) and its
+ * image turns landscape, 16:9 (263–299px tall, about a square rail card's
+ * 256px), so the row reads as two balanced cards rather than two small ones
+ * and an empty half. Below 1024px it's an ordinary rail card.
+ */
+const WIDE = { width: "lg:w-full", media: "lg:aspect-video" } as const;
 
 /**
  * The one event card (docs/design/mobile-redesign.md §6.2 and its
@@ -87,6 +95,7 @@ const MEDIA: Record<EventCardVariant, string> = {
  * button-high row; a grid organiser without a profile: the name as text).
  *
  * `signal` (Popular right now) adds one qualifier to the secondary line. `mode` decides the going count (default: the app's mode).
+ * `wide` (rail only) is a pair's card: full cell width and a 16:9 image from 1024px (`WIDE`).
  */
 export default function EventCard({
   event,
@@ -95,6 +104,7 @@ export default function EventCard({
   signal,
   showSave = true,
   showOrganiser = true,
+  wide = false,
   now = new Date(),
   className = "",
 }: {
@@ -103,6 +113,8 @@ export default function EventCard({
   mode?: "demo" | "live";
   signal?: TrendingSignal;
   showSave?: boolean;
+  /** `rail` only: a card in a rail of one or two, which fills its grid cell with a landscape image from 1024px. */
+  wide?: boolean;
   /** `grid` only: "By {organiser}", where the organiser has a profile (off on their own profile). */
   showOrganiser?: boolean;
   now?: Date;
@@ -119,6 +131,7 @@ export default function EventCard({
   const showOrganiserRow = variant === "grid" && showOrganiser;
   const organiserHref = showOrganiserRow ? organiserProfileHref(event) : null;
   const hasCta = cardCta(event, now) !== null;
+  const isWide = wide && variant === "rail";
 
   const id = useId();
   const ids = {
@@ -136,8 +149,9 @@ export default function EventCard({
     <div
       data-event-card=""
       data-variant={variant}
+      data-wide={isWide ? "" : undefined}
       data-card-state={state}
-      className={`group/card relative flex min-w-0 flex-col has-[[data-card-link]:focus-visible]:rounded-card has-[[data-card-link]:focus-visible]:outline-2 has-[[data-card-link]:focus-visible]:outline-offset-4 has-[[data-card-link]:focus-visible]:outline-foreground motion-safe:transition-transform motion-safe:duration-150 motion-safe:has-[[data-card-link]:active]:scale-[0.98] ${WIDTH[variant]} ${className}`.trim()}
+      className={`group/card relative flex min-w-0 flex-col has-[[data-card-link]:focus-visible]:rounded-card has-[[data-card-link]:focus-visible]:outline-2 has-[[data-card-link]:focus-visible]:outline-offset-4 has-[[data-card-link]:focus-visible]:outline-foreground motion-safe:transition-transform motion-safe:duration-150 motion-safe:has-[[data-card-link]:active]:scale-[0.98] ${WIDTH[variant]} ${isWide ? WIDE.width : ""} ${className}`.replace(/\s+/g, " ").trim()}
     >
       <div data-card-media="" className="relative overflow-hidden rounded-card">
         <EventArt
@@ -146,7 +160,7 @@ export default function EventCard({
           title={event.title}
           fit={variant === "rail" ? "auto" : "cover"}
           // An ended event's image is greyed: it's still there to look at, but nothing's on.
-          className={`${MEDIA[variant]} w-full motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out motion-safe:group-hover/card:scale-[1.03] ${state === "ended" ? "grayscale" : ""}`.trim()}
+          className={`${MEDIA[variant]} ${isWide ? WIDE.media : ""} w-full motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out motion-safe:group-hover/card:scale-[1.03] ${state === "ended" ? "grayscale" : ""}`.replace(/\s+/g, " ").trim()}
         />
       </div>
       <div className="flex min-w-0 flex-col pt-3">
