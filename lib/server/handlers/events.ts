@@ -11,6 +11,7 @@ import { created, HttpError, ok, readJson } from "../http";
 import { decodeCursor, parseLimit, toPage } from "../pagination";
 import { EVENT_SELECT, toEvent } from "../records";
 import type { Handler } from "../route";
+import type { EventRecord } from "../types";
 import { slugify } from "../validation";
 import { requireEvent, requireOwnEvent } from "./event-queries";
 import { requireApprovedOrganiser } from "./organiser-guard";
@@ -18,14 +19,21 @@ import { requireApprovedOrganiser } from "./organiser-guard";
 const SLUG_ATTEMPTS = 5;
 
 /** Everything but the ticket types, which are stored in their own table. */
-function eventFields(input: EventInput): Omit<EventInput, "ticketTypes"> {
+export function eventFields(input: EventInput): Omit<EventInput, "ticketTypes"> {
   const fields: Partial<EventInput> = { ...input };
   delete fields.ticketTypes;
   return fields as Omit<EventInput, "ticketTypes">;
 }
 
 /** Turns the database's inventory guards into messages an organiser can act on. */
-function ticketTypeConflict(err: unknown): never {
+export function ticketTypeConflict(err: unknown): never {
+  if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION && pgConstraint(err) === "event_seats_ticket_type_fkey") {
+    throw new HttpError(
+      409,
+      "A ticket type with seats on the seat map can't be removed. Move its seats to another ticket type first.",
+      { ticketTypes: "A ticket type with seats on the seat map can't be removed." },
+    );
+  }
   if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION && pgConstraint(err)?.startsWith("tickets_")) {
     throw new HttpError(409, "A ticket type that has already sold tickets can't be removed.");
   }
@@ -35,48 +43,112 @@ function ticketTypeConflict(err: unknown): never {
   throw err;
 }
 
+/**
+ * A seated tier's capacity is set by the seat map (its unblocked seats; the
+ * database's ticket_types_seated_capacity trigger enforces it whatever is
+ * sent). An edit's quantity for such a tier is replaced by the stored one,
+ * so the editor's stale number neither errors nor shows up as an admin
+ * "change".
+ */
+export function withSeatedCapacity(input: EventInput, current: EventRecord): EventInput {
+  const seated = new Map(current.ticketTypes.filter((t) => t.seated).map((t) => [t.id, t.quantityAvailable]));
+  if (seated.size === 0) return input;
+  return {
+    ...input,
+    ticketTypes: input.ticketTypes.map((t) => (seated.has(t.id) ? { ...t, quantityAvailable: seated.get(t.id) as number } : t)),
+  };
+}
+
 /** POST /api/events — creates a draft owned by the caller's organisation. */
 export const createEventDraft: Handler = async (req, _params, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
   const organiser = await requireApprovedOrganiser(db, caller);
   const input = parseEventInput(await readJson(req));
 
-  // Globally unique slug: the title's, or with a short random suffix on collision.
-  const base = slugify(input.title) || "event";
+  const id = await withUniqueSlug(input.title, async (slug) => {
+    const [row] = await db.query<{ id: string }>(
+      `select private.create_event_draft($1, $2, $3::text::jsonb, $4::text::jsonb) as id`,
+      [organiser.organiserId, slug, JSON.stringify(eventFields(input)), JSON.stringify(input.ticketTypes)],
+    );
+    return row.id;
+  });
+  return created(await requireEvent(db, id));
+};
+
+/**
+ * Runs `insert` with a globally unique slug: the title's, or with a short
+ * random suffix when that's taken (events_slug_key). 500 after
+ * SLUG_ATTEMPTS collisions.
+ */
+export async function withUniqueSlug<T>(title: string, insert: (slug: string) => Promise<T>): Promise<T> {
+  const base = slugify(title) || "event";
   for (let attempt = 0; attempt < SLUG_ATTEMPTS; attempt += 1) {
     const slug = attempt === 0 ? base : `${base}-${crypto.randomUUID().slice(0, 6)}`;
     try {
-      const [row] = await db.query<{ id: string }>(
-        `select private.create_event_draft($1, $2, $3::text::jsonb, $4::text::jsonb) as id`,
-        [organiser.organiserId, slug, JSON.stringify(eventFields(input)), JSON.stringify(input.ticketTypes)],
-      );
-      return created(await requireEvent(db, row.id));
+      return await insert(slug);
     } catch (err) {
       if (pgErrorCode(err) === PG_UNIQUE_VIOLATION && pgConstraint(err) === "events_slug_key") continue;
       throw err;
     }
   }
   throw new HttpError(500, "Could not allocate a unique event URL — try a different title.");
-};
+}
 
-/** PATCH /api/events/[eventId] — only while the event is a draft or rejected. */
+/**
+ * An edit that doesn't send `ticketingMode` keeps the event's stored
+ * ticketing: its mode, and its link and free flag unless those are sent.
+ * So a client that predates external ticketing can never turn an external
+ * event into a Sheltüh-ticketed one (or trip the freeze) by leaving the
+ * field out; sending ticket types for an external event is still a 400.
+ */
+function withStoredTicketing(body: Record<string, unknown>, current: EventRecord): Record<string, unknown> {
+  if (body.ticketingMode !== undefined && body.ticketingMode !== null) return body;
+  return {
+    ...body,
+    ticketingMode: current.ticketingMode ?? "sheltuh",
+    externalTicketUrl: body.externalTicketUrl === undefined ? (current.externalTicketUrl ?? null) : body.externalTicketUrl,
+    externalFree: body.externalFree === undefined ? current.externalFree === true : body.externalFree,
+  };
+}
+
+/** Shown when an organiser tries to change an approved event's ticketing. */
+export const TICKETING_FROZEN =
+  "This event's ticketing was approved, so where tickets are sold and the ticket link can't be changed here. Contact Sheltüh to change them.";
+
+/**
+ * PATCH /api/events/[eventId] — only while the event is a draft or rejected
+ * (409 otherwise). Once the event has ever been approved, its ticketing mode
+ * and ticket link are frozen: a change to either is a 409 with fieldErrors
+ * (only an admin can change them: PATCH /api/admin/events/[eventId]/ticketing).
+ * The free flag of an external event, and everything else, stay editable.
+ * Without `ticketingMode`, the stored ticketing is kept (withStoredTicketing).
+ */
 export const updateEventDraft: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
   const organiser = await requireApprovedOrganiser(db, caller);
-  await requireOwnEvent(db, organiser.organiserId, eventId);
-  const input = parseEventInput(await readJson(req));
+  const current = await requireOwnEvent(db, organiser.organiserId, eventId);
+  const input = withSeatedCapacity(parseEventInput(withStoredTicketing(await readJson(req), current)), current);
 
-  let updated: boolean;
+  let result: string;
   try {
-    const [row] = await db.query<{ updated: boolean }>(
-      `select private.update_event_draft($1, $2, $3::text::jsonb, $4::text::jsonb) as updated`,
+    const [row] = await db.query<{ result: "updated" | "not_found" | "not_editable" | "ticketing_frozen" }>(
+      `select private.edit_event_draft($1, $2, $3::text::jsonb, $4::text::jsonb) as result`,
       [eventId, organiser.organiserId, JSON.stringify(eventFields(input)), JSON.stringify(input.ticketTypes)],
     );
-    updated = row.updated;
+    result = row.result;
   } catch (err) {
     ticketTypeConflict(err);
   }
-  if (!updated) throw new HttpError(409, "This event can't be edited while it's pending review or published.");
+  if (result === "not_found") throw new HttpError(404, "Event not found.");
+  if (result === "not_editable") {
+    throw new HttpError(409, "This event can't be edited while it's pending review or published.");
+  }
+  if (result === "ticketing_frozen") {
+    const fieldErrors: Record<string, string> = {};
+    if ((current.ticketingMode ?? "sheltuh") !== input.ticketingMode) fieldErrors.ticketingMode = TICKETING_FROZEN;
+    if ((current.externalTicketUrl ?? null) !== input.externalTicketUrl) fieldErrors.externalTicketUrl = TICKETING_FROZEN;
+    throw new HttpError(409, TICKETING_FROZEN, fieldErrors);
+  }
   return ok(await requireEvent(db, eventId));
 };
 

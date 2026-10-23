@@ -8,6 +8,7 @@ import {
   formatEventDateShort,
   formatEventDateTimeRange,
   formatEventTime,
+  formatTimeZoneLabel,
   toMelbourneDateTimeInputParts,
 } from "../lib/format";
 
@@ -168,5 +169,16 @@ describe("formatDayTime (Melbourne time, always with the day)", () => {
     expect(formatDayTime(sameDay, now)).toMatch(/^Sat 26 Sept?, 9:05 am$/);
     const lastYear = "2025-09-25T13:30:00.000Z";
     expect(formatDayTime(lastYear, now)).toBe(`${formatEventDateShort(lastYear)} 2025, 11:30 pm`);
+  });
+});
+
+describe("formatTimeZoneLabel (the event page's zone, at the event's start)", () => {
+  it("AEST before daylight saving starts (4 Oct 2026), AEDT after", () => {
+    expect(formatTimeZoneLabel("2026-09-25T10:00:00.000Z")).toBe("Melbourne time (AEST)");
+    expect(formatTimeZoneLabel("2026-10-24T08:00:00.000Z")).toBe("Melbourne time (AEDT)");
+  });
+
+  it("AEST again once daylight saving ends (5 Apr 2026)", () => {
+    expect(formatTimeZoneLabel("2026-04-10T08:00:00.000Z")).toBe("Melbourne time (AEST)");
   });
 });

@@ -2,42 +2,61 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import { ApiError } from "@/lib/api/client";
 import { confirmFreeOrder } from "@/lib/api/orders";
+import { seatErrorDetails } from "@/lib/api/seating";
+import { compareSeats, formatSeatLine } from "@/lib/seating/format";
+import { useFragmentToken } from "@/lib/link-token";
+
+type Action =
+  | { status: "idle" }
+  | { status: "confirming" }
+  /** `retry`: the same link may work if pressed again (anything but a refusal). `seatsHref`: choose seats again. */
+  | { status: "error"; title: string; message: string; retry: boolean; seatsHref?: string };
 
 type State =
   | { status: "loading" }
   | { status: "ready"; token: string }
   | { status: "confirming"; token: string }
   | { status: "missing" }
-  | { status: "error"; title: string; message: string; token?: string };
+  | { status: "error"; title: string; message: string; token?: string; seatsHref?: string };
 
-/** The token from a `#token=…` fragment, if it's there. */
-function tokenFromHash(hash: string): string | null {
-  const token = new URLSearchParams(hash.replace(/^#/, "")).get("token");
-  return token && /^[A-Za-z0-9_-]{43}$/.test(token) ? token : null;
-}
-
-function errorState(err: unknown, token: string): State {
+function errorAction(err: unknown): Action {
   if (err instanceof ApiError) {
     if (err.status === 410) {
-      return { status: "error", title: "This link has expired", message: err.message || "Book again from the event page to get a new one." };
+      return { status: "error", title: "This link has expired", message: err.message || "Book again from the event page to get a new one.", retry: false };
     }
     if (err.status === 404 || err.status === 400) {
       return {
         status: "error",
         title: "This link isn’t valid",
         message: "Open it straight from your email, making sure the whole link is used.",
+        retry: false,
       };
     }
-    if (err.status === 409) return { status: "error", title: "We couldn’t issue these tickets", message: err.message };
+    if (err.status === 409) {
+      // A seated guest booking whose seats went to someone else before the link was confirmed
+      // (docs/design/seating.md §5.11).
+      const seats = seatErrorDetails(err);
+      if (seats?.code === "seats_taken") {
+        const lines = [...(seats.seats ?? [])].sort(compareSeats).map(formatSeatLine).join(", ");
+        return {
+          status: "error",
+          title: "Those seats have gone",
+          message: `Some of your seats were booked by someone else before you confirmed${lines ? `: ${lines}` : ""}. Nothing was booked.`,
+          retry: false,
+          ...(seats.eventSlug ? { seatsHref: `/events/${encodeURIComponent(seats.eventSlug)}/seats` } : {}),
+        };
+      }
+      return { status: "error", title: "We couldn’t issue these tickets", message: err.message, retry: false };
+    }
   }
   return {
     status: "error",
     title: "Something went wrong",
     message: "We couldn’t confirm your tickets just now. Try again in a moment.",
-    token,
+    retry: true,
   };
 }
 
@@ -46,41 +65,38 @@ function errorState(err: unknown, token: string): State {
  * tickets. Nothing happens until the button is pressed, so a mail scanner
  * opening the link can't confirm it. The token lives in the URL fragment
  * (never sent to any server); it's removed from the address bar as soon as
- * it's read, so it doesn't linger in history or get shared by accident.
+ * it's read (lib/link-token.ts), so it doesn't linger in history or get
+ * shared by accident.
  */
 export default function FreeOrderConfirm() {
-  const [state, setState] = useState<State>({ status: "loading" });
+  const fragment = useFragmentToken();
+  const [action, setAction] = useState<Action>({ status: "idle" });
   const headingRef = useRef<HTMLHeadingElement>(null);
-  // The token, once read (null: there wasn't a valid one). Kept in a ref so
-  // the read happens once per mount: StrictMode re-runs this effect after the
-  // fragment has already been removed, and a second read would find nothing.
-  // (Read in an effect, not a useState initialiser, so the server render and
-  // hydration agree.)
-  const capturedToken = useRef<{ token: string | null } | null>(null);
 
-  useEffect(() => {
-    if (!capturedToken.current) {
-      capturedToken.current = { token: tokenFromHash(window.location.hash) };
-      if (window.location.hash) {
-        window.history.replaceState(null, "", window.location.pathname + window.location.search);
-      }
-    }
-    const { token } = capturedToken.current;
-    // Deferred so the effect body itself never calls setState.
-    queueMicrotask(() => setState(token ? { status: "ready", token } : { status: "missing" }));
-  }, []);
+  const state: State =
+    fragment.status !== "ready"
+      ? fragment
+      : action.status === "error"
+        ? {
+            status: "error",
+            title: action.title,
+            message: action.message,
+            token: action.retry ? fragment.token : undefined,
+            seatsHref: action.seatsHref,
+          }
+        : { status: action.status === "confirming" ? "confirming" : "ready", token: fragment.token };
 
   useEffect(() => {
     if (state.status === "error" || state.status === "missing") headingRef.current?.focus();
   }, [state.status]);
 
   async function confirm(token: string) {
-    setState({ status: "confirming", token });
+    setAction({ status: "confirming" });
     try {
       const { url } = await confirmFreeOrder(token);
       window.location.assign(url);
     } catch (err) {
-      setState(errorState(err, token));
+      setAction(errorAction(err));
     }
   }
 
@@ -99,6 +115,7 @@ export default function FreeOrderConfirm() {
         ? "Open the link straight from your email, making sure the whole link is used."
         : state.message;
     const retryToken = state.status === "error" ? state.token : undefined;
+    const seatsHref = state.status === "error" ? state.seatsHref : undefined;
     return (
       <div className="flex flex-col items-center gap-3 py-16 text-center">
         {/* No role="alert" on the message: focus moves to the heading, which
@@ -114,6 +131,11 @@ export default function FreeOrderConfirm() {
         <p id="free-order-message" className="max-w-md text-sm text-muted">
           {message}
         </p>
+        {seatsHref && (
+          <ButtonLink variant="solid" size="lg" href={seatsHref} className="mt-2 w-full sm:w-auto">
+            Choose seats again
+          </ButtonLink>
+        )}
         {retryToken && (
           <Button variant="outline" size="lg" className="mt-2" onClick={() => confirm(retryToken)}>
             Try again

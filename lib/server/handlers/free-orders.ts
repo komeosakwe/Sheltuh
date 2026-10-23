@@ -3,6 +3,7 @@ import { MAX_FREE_TICKETS_PER_ORDER } from "@/lib/api/types";
 import type { Caller } from "../auth";
 import { pgConstraint, pgErrorCode, PG_UNIQUE_VIOLATION } from "../db";
 import type { Deps } from "../deps";
+import type { EmailMessage } from "../email";
 import { redactForLog } from "../email-address";
 import { sendTicketEmailSoon } from "../email-outbox";
 import { buildFreeConfirmationEmail, freeOrderConfirmLink } from "../free-confirmation-email";
@@ -10,8 +11,9 @@ import { HttpError, PRIVATE_NO_STORE, readJson } from "../http";
 import { orderReference } from "../order-reference";
 import type { Handler } from "../route";
 import { issueTickets } from "../ticket-issuance";
-import type { CheckoutResult, EventRecord, IssuedTicket, OrderLineItem } from "../types";
+import type { CheckoutResult, EventRecord, IssuedTicket, OrderLineItem, SeatErrorDetails, TicketSeat } from "../types";
 import { fail } from "../validation";
+import { EVENT_ENDED } from "./event-queries";
 
 /**
  * Free tickets (docs/architecture.md, "Free tickets"). A signed-in member
@@ -64,7 +66,7 @@ async function recordRefusal(deps: Deps, reason: string) {
 }
 
 /** The caller, if the request carries a valid token; a bad or missing one just means "guest". */
-async function optionalCaller(req: Request, deps: Deps): Promise<Caller | null> {
+export async function optionalCaller(req: Request, deps: Deps): Promise<Caller | null> {
   const token = req.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
   return token ? deps.verifyAccessToken(token) : null;
 }
@@ -94,7 +96,13 @@ interface FreeOrderInput {
   lineItems: OrderLineItem[];
   buyerEmail: string;
   trackingCode: string | null;
+  /** A seated order's seats (reserved seating): taken at once for a member, at confirmation for a guest. */
+  seats?: { seatIds: string[]; labels: TicketSeat[] };
 }
+
+/** The seats of a free seated order went to someone else (409; the body names them, SeatErrorDetails). */
+const SEATS_GONE = "Some of your seats were booked by someone else just now. Choose other seats.";
+const SEATS_GONE_AT_CONFIRM = "Some of your seats were booked by someone else before you confirmed. Nothing was booked.";
 
 /**
  * The free branch of POST /api/events/[eventId]/checkout, after the line
@@ -102,7 +110,7 @@ interface FreeOrderInput {
  * have been checked.
  */
 export async function createFreeOrder(req: Request, deps: Deps, input: FreeOrderInput): Promise<Response> {
-  const { event, lineItems, buyerEmail, trackingCode } = input;
+  const { event, lineItems, buyerEmail, trackingCode, seats } = input;
   const orderId = `ord_${crypto.randomUUID().replace(/-/g, "")}`;
   const caller = await optionalCaller(req, deps);
   const isOwnVerifiedEmail =
@@ -111,7 +119,10 @@ export async function createFreeOrder(req: Request, deps: Deps, input: FreeOrder
   if (caller && isOwnVerifiedEmail) {
     const result = await withTicketCodes(lineItems, async (tickets) => {
       const [row] = await deps.db.query<{ result: string }>(
-        `select private.place_free_order($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9::text::jsonb, $10, $11, $12::interval) as result`,
+        seats
+          ? `select private.place_free_seated_order($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9::text::jsonb, $10, $11,
+               $12::interval, $13::text[]) as result`
+          : `select private.place_free_order($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9::text::jsonb, $10, $11, $12::interval) as result`,
         [
           orderId,
           event.eventId,
@@ -125,6 +136,7 @@ export async function createFreeOrder(req: Request, deps: Deps, input: FreeOrder
           FREE_LIMITS.perPersonPerEvent,
           FREE_LIMITS.memberDaily.hits,
           FREE_LIMITS.memberDaily.window,
+          ...(seats ? [seats.seatIds] : []),
         ],
       );
       return row.result;
@@ -139,6 +151,11 @@ export async function createFreeOrder(req: Request, deps: Deps, input: FreeOrder
         throw new HttpError(429, "You've booked a lot of free tickets today. Try again tomorrow.");
       case "sold_out":
         throw new HttpError(409, SOLD_OUT);
+      case "seats_unavailable":
+        throw new HttpError(409, SEATS_GONE, { seats: SEATS_GONE }, {
+          code: "seats_unavailable",
+          seatIds: seats?.seatIds,
+        } satisfies SeatErrorDetails);
       default:
         throw new Error(`Unexpected place_free_order result: ${result}`);
     }
@@ -146,8 +163,11 @@ export async function createFreeOrder(req: Request, deps: Deps, input: FreeOrder
 
   const token = randomBytes(32).toString("base64url");
   const [{ result }] = await deps.db.query<{ result: string }>(
-    `select private.request_free_order($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9::interval, $10, $11::interval,
-       $12, $13::interval, $14, $15::interval) as result`,
+    seats
+      ? `select private.request_free_seated_order($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9::interval, $10, $11::interval,
+           $12, $13::interval, $14, $15::interval, $16::text[]) as result`
+      : `select private.request_free_order($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9::interval, $10, $11::interval,
+           $12, $13::interval, $14, $15::interval) as result`,
     [
       orderId,
       event.eventId,
@@ -164,6 +184,7 @@ export async function createFreeOrder(req: Request, deps: Deps, input: FreeOrder
       FREE_LIMITS.platformHourly.window,
       FREE_LIMITS.platformDaily.hits,
       FREE_LIMITS.platformDaily.window,
+      ...(seats ? [seats.seatIds] : []),
     ],
   );
   const sent: CheckoutResult = { status: "confirmation_sent", expiresInHours: FREE_LIMITS.confirmHours };
@@ -181,19 +202,35 @@ export async function createFreeOrder(req: Request, deps: Deps, input: FreeOrder
       throw new Error(`Unexpected request_free_order result: ${result}`);
   }
 
+  // Sent after the response, so a real link's 202 takes as long as an address-limited one (no SMTP round
+  // trip to time). Nobody can confirm a link that never arrived: a failed send drops the order (it holds nothing).
+  const message = buildFreeConfirmationEmail(
+    buyerEmail,
+    event,
+    lineItems,
+    freeOrderConfirmLink(deps.siteUrl(), token),
+    FREE_LIMITS.confirmHours,
+    seats?.labels,
+  );
+  deps.defer(() => sendFreeConfirmation(deps, orderId, message));
+  return Response.json(sent, { status: 202, headers: PRIVATE_NO_STORE });
+}
+
+/** A guest's confirmation link, after the response. Never throws: logged by short reference, never the address. */
+async function sendFreeConfirmation(deps: Deps, orderId: string, message: EmailMessage) {
   try {
-    const link = freeOrderConfirmLink(deps.siteUrl(), token);
-    await deps.sendEmail(buildFreeConfirmationEmail(buyerEmail, event, lineItems, link, FREE_LIMITS.confirmHours));
+    await deps.sendEmail(message);
   } catch (err) {
-    // Nobody can confirm a link that never arrived: drop the order (it holds nothing).
-    await deps.db.query(`delete from public.orders where id = $1 and status = 'pending'`, [orderId]);
     console.error(
       `Free order ${orderReference(orderId)} confirmation email failed:`,
       redactForLog(err instanceof Error ? err.message : "unknown error"),
     );
-    throw new HttpError(503, "We couldn't send the confirmation email just now. Try again in a few minutes.");
+    try {
+      await deps.db.query(`delete from public.orders where id = $1 and status = 'pending'`, [orderId]);
+    } catch {
+      console.error(`Free order ${orderReference(orderId)} could not be dropped after its email failed.`);
+    }
   }
-  return Response.json(sent, { status: 202, headers: PRIVATE_NO_STORE });
 }
 
 /**
@@ -201,8 +238,9 @@ export async function createFreeOrder(req: Request, deps: Deps, input: FreeOrder
  * emailed link (its URL fragment). Issues the tickets and returns the
  * confirmation page's URL; a second confirmation returns the same URL.
  * 400 malformed token; 404 unknown; 410 expired (confirmed or not); 409 sold
- * out, the address already has its free tickets for the event, or a ticket
- * type is no longer free.
+ * out, the address already has its free tickets for the event, a ticket
+ * type is no longer free, or the event has ended (nothing issued: a link
+ * confirmed after the end issues no tickets).
  */
 export const confirmFreeOrder: Handler = async (req, _params, deps) => {
   const body = await readJson(req);
@@ -210,8 +248,8 @@ export const confirmFreeOrder: Handler = async (req, _params, deps) => {
   if (!TOKEN_PATTERN.test(token)) fail({ token: "This link is incomplete. Open it from your email again." });
 
   const tokenHash = hashToken(token);
-  const [order] = await deps.db.query<{ line_items: OrderLineItem[] }>(
-    `select line_items from public.orders where confirmation_token_hash = $1`,
+  const [order] = await deps.db.query<{ line_items: OrderLineItem[]; event_id: string; seat_ids: string[] | null }>(
+    `select line_items, event_id, seat_ids from public.orders where confirmation_token_hash = $1`,
     [tokenHash],
   );
   if (!order) throw new HttpError(404, LINK_NOT_FOUND);
@@ -239,6 +277,10 @@ export const confirmFreeOrder: Handler = async (req, _params, deps) => {
       throw new HttpError(409, PERSON_LIMIT);
     case "sold_out":
       throw new HttpError(409, SOLD_OUT);
+    case "seats_taken":
+      throw new HttpError(409, SEATS_GONE_AT_CONFIRM, undefined, await seatsGone(deps, order.event_id, order.seat_ids ?? []));
+    case "ended":
+      throw new HttpError(409, EVENT_ENDED);
     case "no_longer_free":
       throw new HttpError(409, "These tickets aren't free any more. Book again from the event page.");
     case "unavailable":
@@ -248,3 +290,22 @@ export const confirmFreeOrder: Handler = async (req, _params, deps) => {
   }
   return Response.json({ url: successUrl(deps, row.confirmed_order_id as string) }, { status: 200, headers: PRIVATE_NO_STORE });
 };
+
+/** SeatErrorDetails for a guest's free seated order whose seats went before it was confirmed. */
+async function seatsGone(deps: Deps, eventId: string, seatIds: string[]): Promise<Record<string, unknown>> {
+  const rows = await deps.db.query<TicketSeat>(
+    `select s.section_label as section, s.row_label as "row", s.seat_label as seat, s.kind
+       from public.event_seats s
+      where s.event_id = $1 and s.id = any($2::text[])
+        and (s.blocked or s.sold_order_id is not null or (s.hold_order_id is not null and s.hold_expires_at > now()))
+      order by s.position`,
+    [eventId, seatIds],
+  );
+  const [event] = await deps.db.query<{ slug: string }>(`select slug from public.events where id = $1`, [eventId]);
+  const details: SeatErrorDetails = {
+    code: "seats_taken",
+    seats: rows.map(({ section, row, seat, kind }) => ({ section, row, seat, kind })),
+    ...(event ? { eventSlug: event.slug } : {}),
+  };
+  return { ...details };
+}

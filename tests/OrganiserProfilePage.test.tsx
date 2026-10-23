@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ResolvingMetadata } from "next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import OrganiserProfilePage from "@/app/organisers/[organiserId]/page";
+import OrganiserProfilePage, { generateMetadata } from "@/app/organisers/[organiserId]/page";
 import { ApiError } from "@/lib/api/client";
 import type { PublicEvent } from "@/lib/api/public-events";
 import type { PublicOrganiserProfile } from "@/lib/api/types";
@@ -18,11 +19,25 @@ const getOrganiserProfile = vi.fn();
 vi.mock("@/lib/api/organisers", () => ({
   getOrganiserProfile: (...args: unknown[]) => getOrganiserProfile(...args),
 }));
+// No server deps (no DATABASE_URL etc.), as in a test run: the live metadata read fails.
+vi.mock("@/lib/server/deps", () => ({
+  getDeps: () => {
+    throw new Error("Missing required environment variable: DATABASE_URL");
+  },
+}));
+// Any follow request at all (the demo must make none).
+const followApi = vi.fn();
+vi.mock("@/lib/api/follows", () => ({
+  getFollowStatus: (...args: unknown[]) => followApi(...args),
+  followOrganiser: (...args: unknown[]) => followApi(...args),
+  unfollowOrganiser: (...args: unknown[]) => followApi(...args),
+}));
 
 afterEach(cleanup);
 beforeEach(() => {
   apiConfigured = true;
   getOrganiserProfile.mockReset();
+  followApi.mockReset();
 });
 
 const ORGANISER_ID = "8c4f6f8e-0d5b-4a51-9a3e-2f6f0b0d1a11";
@@ -64,6 +79,17 @@ function profile(overrides: Partial<PublicOrganiserProfile> = {}): PublicOrganis
     recentEvents: [publicEvent("gone", { startsAt: "2025-08-01T09:00:00.000Z", endsAt: "2025-08-01T12:00:00.000Z" })],
     ...overrides,
   };
+}
+
+/** A promise the test settles itself. */
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {};
+  let reject: (reason: unknown) => void = () => {};
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 async function renderPage(organiserId = ORGANISER_ID) {
@@ -144,7 +170,12 @@ describe("/organisers/[organiserId] (live)", () => {
       "Event soon",
       "Event later",
     ]);
-    expect(within(upcoming).getByRole("link", { name: /Event soon/ })).toHaveAttribute("href", "/events/soon");
+    // The card's own link (its name starts with the title); its quick buy is a separate link to the tickets.
+    expect(within(upcoming).getByRole("link", { name: /^Event soon/ })).toHaveAttribute("href", "/events/soon");
+    expect(within(upcoming).getByRole("link", { name: /tickets for Event soon$/ })).toHaveAttribute(
+      "href",
+      "/events/soon#tickets",
+    );
     expect(within(upcoming).queryByRole("link", { name: /^By / })).not.toBeInTheDocument();
 
     const past = screen.getByRole("heading", { level: 2, name: "Past events" }).closest("section");
@@ -152,6 +183,22 @@ describe("/organisers/[organiserId] (live)", () => {
     const pastLink = within(past).getByRole("link", { name: /Event gone/ });
     expect(pastLink).toHaveAttribute("href", "/events/gone");
     expect(pastLink).toHaveTextContent("2025"); // a past date carries its year
+  });
+
+  // V3 (visual QA, 22 Oct 2026): the old section header drew a mono strap repeating each h2. The
+  // site's one section head says the title once, after a black rule.
+  it("heads each events section once: no strap repeating 'Upcoming events' or 'Past events'", async () => {
+    getOrganiserProfile.mockResolvedValue(profile());
+    await renderPage();
+    for (const name of ["Upcoming events", "Past events"]) {
+      const heading = await screen.findByRole("heading", { level: 2, name });
+      const section = heading.closest("section");
+      if (!section) throw new Error(`${name} section not rendered`);
+      expect(screen.getAllByText(name)).toHaveLength(1);
+      expect(section.querySelector(".eyebrow")?.textContent ?? "").not.toContain(name);
+      // The #organiser-upcoming target (the event page's "More from") is the heading itself.
+      if (name === "Upcoming events") expect(heading).toHaveAttribute("id", "organiser-upcoming");
+    }
   });
 
   it("says when there are no upcoming events, and leaves out past events when there are none", async () => {
@@ -175,13 +222,15 @@ describe("/organisers/[organiserId] (live)", () => {
   });
 
   it("shows other errors, and loads again on 'Try again', focusing the loaded profile's heading", async () => {
-    getOrganiserProfile
-      .mockRejectedValueOnce(new ApiError(429, "Too many requests. Try again shortly."))
-      .mockResolvedValueOnce(profile());
+    const firstLoad = deferred<never>();
+    getOrganiserProfile.mockReturnValueOnce(firstLoad.promise).mockResolvedValueOnce(profile());
     await renderPage();
 
     expect(screen.getByRole("status")).toHaveTextContent("Loading organiser");
-    expect(await screen.findByRole("alert")).toHaveTextContent("Too many requests. Try again shortly.");
+    // Fail inside act() so the error state settles (render and effects) before the click: see
+    // "focuses the error heading again when a retry fails too".
+    await act(async () => firstLoad.reject(new ApiError(429, "Too many requests. Try again shortly.")));
+    expect(screen.getByRole("alert")).toHaveTextContent("Too many requests. Try again shortly.");
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     const heading = await screen.findByRole("heading", { level: 1, name: "Northside Noise" });
     // The button is gone: focus goes to the new heading, not <body>.
@@ -194,9 +243,12 @@ describe("/organisers/[organiserId] (live)", () => {
     getOrganiserProfile
       .mockRejectedValueOnce(new ApiError(0, "Couldn't reach the server. Check your connection and try again."))
       .mockRejectedValueOnce(new ApiError(404, "Organiser not found."));
-    await renderPage();
+    // Settle the first failure before the click: see "focuses the error heading again when a retry fails too".
+    await act(async () => {
+      await renderPage();
+    });
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach the server.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't reach the server.");
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     const heading = await screen.findByRole("heading", { level: 1, name: "This organiser isn’t available" });
     await waitFor(() => expect(heading).toHaveFocus());
@@ -204,9 +256,15 @@ describe("/organisers/[organiserId] (live)", () => {
 
   it("focuses the error heading again when a retry fails too", async () => {
     getOrganiserProfile.mockRejectedValue(new ApiError(0, "Couldn't reach the server."));
-    await renderPage();
+    // Let the first failure settle completely (its render *and* its effects) before clicking, as
+    // a person would. Settled outside act(), React leaves that render's effects for a later task,
+    // and under load the click could land first: the stale focus effect then consumed the
+    // "focus after retry" flag on the old heading, so the retry's heading was never focused.
+    await act(async () => {
+      await renderPage();
+    });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(getOrganiserProfile).toHaveBeenCalledTimes(2));
     // Re-query on every attempt: the first error heading is replaced while the retry loads.
     await waitFor(() =>
@@ -269,13 +327,101 @@ describe("/organisers/[organiserId] (live)", () => {
 });
 
 describe("/organisers/[organiserId] (demo)", () => {
-  it("explains organiser profiles aren't available, without calling the API", async () => {
+  // Only Date is faked (so promises and testing-library's timers run as usual): 1 Oct 2026, Melbourne.
+  beforeEach(() => {
     apiConfigured = false;
-    await renderPage();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-01T00:00:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("shows a sample organiser's profile, built from their sample events, without calling the API", async () => {
+    await renderPage("small-hours-theatre");
+
+    expect(screen.getByRole("heading", { level: 1, name: "Small Hours Theatre" })).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByText("Member since October 2026")).toBeInTheDocument();
+    expect(screen.getByText(/Small Hours Theatre is a fictional organiser, made up for this demo\./)).toBeInTheDocument();
+    const categories = screen.getByRole("list", { name: "Categories" });
+    expect(within(categories).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Theatre"]);
+    // A made-up website on the reserved .example domain.
+    expect(screen.getByRole("link", { name: /^Website: smallhourstheatre\.example/ })).toHaveAttribute(
+      "href",
+      "https://smallhourstheatre.example",
+    );
+
+    const upcoming = screen.getByRole("heading", { level: 2, name: "Upcoming events" }).closest("section");
+    if (!upcoming) throw new Error("upcoming section not rendered");
+    expect(within(upcoming).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual([
+      "Dead Letter Office",
+    ]);
+    expect(within(upcoming).getByRole("link", { name: /^Dead Letter Office/ })).toHaveAttribute(
+      "href",
+      "/events/dead-letter-office",
+    );
+    expect(screen.queryByRole("heading", { level: 2, name: "Past events" })).not.toBeInTheDocument();
+    expect(screen.getByText("Events hosted").nextElementSibling).toHaveTextContent("0");
+    expect(getOrganiserProfile).not.toHaveBeenCalled();
+  });
+
+  it("lists an organiser's ended sample events as past, counted as hosted", async () => {
+    await renderPage("static-collective");
+
+    expect(screen.getByRole("heading", { level: 1, name: "Static Collective" })).toBeInTheDocument();
+    expect(screen.getByText("Member since September 2026")).toBeInTheDocument();
+    expect(screen.getByText("No upcoming events right now.", { exact: false })).toBeInTheDocument();
+    const past = screen.getByRole("heading", { level: 2, name: "Past events" }).closest("section");
+    if (!past) throw new Error("past section not rendered");
+    expect(within(past).getByRole("link", { name: /Neon Static/ })).toHaveAttribute("href", "/events/neon-static");
+    expect(screen.getByText("Events hosted").nextElementSibling).toHaveTextContent("1");
+  });
+
+  it("offers Follow only as unavailable, with a note, and makes no follow request", async () => {
+    await renderPage("small-hours-theatre");
+
+    const follow = screen.getByRole("button", { name: "Follow Small Hours Theatre" });
+    expect(follow).toHaveAttribute("aria-disabled", "true");
+    expect(follow).toHaveAccessibleDescription(/Following works once you’re signed in on the live site\./);
+    fireEvent.click(follow);
+    expect(screen.queryByRole("link", { name: "Sign in to follow" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(followApi).not.toHaveBeenCalled();
+  });
+
+  it("an unknown id: the demo's unavailable state, without calling the API", async () => {
+    await renderPage("no-such-organiser");
 
     expect(screen.getByRole("heading", { level: 1, name: "This organiser isn’t available" })).toBeInTheDocument();
     expect(screen.getByRole("note")).toHaveTextContent("Demo");
+    expect(screen.getByRole("note")).toHaveTextContent("This demo only has the organisers of its sample events.");
     expect(screen.getByRole("link", { name: "Browse all events" })).toHaveAttribute("href", "/events");
     expect(getOrganiserProfile).not.toHaveBeenCalled();
+  });
+});
+
+describe("/organisers/[organiserId] title", () => {
+  async function title(organiserId: string) {
+    const metadata = await generateMetadata(
+      { params: Promise.resolve({ organiserId }), searchParams: Promise.resolve({}) },
+      Promise.resolve({}) as unknown as ResolvingMetadata,
+    );
+    return metadata.title;
+  }
+
+  it("live, when the server can't read the organiser: the plain title (LiveOrganiserProfile names them once loaded)", async () => {
+    // No database configured in this test: generic metadata, not an error.
+    // The database-backed metadata is covered in tests/server/share-metadata.test.ts.
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await title(ORGANISER_ID)).toBe("Organiser — Sheltüh");
+    expect(error).toHaveBeenCalledWith("Organiser metadata unavailable:", expect.any(String));
+    error.mockRestore();
+  });
+
+  it("demo: the sample organiser's name, or not available for an unknown id", async () => {
+    apiConfigured = false;
+    expect(await title("small-hours-theatre")).toBe("Small Hours Theatre — Sheltüh");
+    expect(await title("no-such-organiser")).toBe("Organiser not available — Sheltüh");
   });
 });

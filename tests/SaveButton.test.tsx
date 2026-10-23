@@ -204,10 +204,42 @@ describe("SaveButton — live", () => {
     expect(bar()).toBeNull();
   });
 
-  it("the pill keeps its visible 'Save' label inside the name", async () => {
-    const button = await readyHeart([], undefined, "pill");
+  it("the event page's action keeps its visible 'Save' label inside the name, as a quiet unbordered 44px control", async () => {
+    const button = await readyHeart([], undefined, "action");
     expect(button).toHaveTextContent("Save");
     expect(button).toHaveAccessibleName("Save Night Market");
+    expect(button).toHaveClass("min-h-11", "bg-surface");
+    // No border class (hover:bg-surface-border is a fill) and not the boxed .btn.
+    expect(button.className.split(/\s+/)).not.toContain("border");
+    expect(button.className).not.toMatch(/(?:^|\s)btn(?:-|\s|$)/);
+  });
+});
+
+describe("SaveButton — focus on a photo (overlay)", () => {
+  it("rings the 36px mark, black on a cream gap, instead of the outline that can vanish into dark art; never orange", async () => {
+    const button = await readyHeart();
+    const mark = button.firstElementChild as HTMLElement;
+    expect(button).toHaveClass("group/save", "focus-visible:outline-none");
+    expect(mark).toHaveClass(
+      "size-9",
+      "group-focus-visible/save:ring-2",
+      "group-focus-visible/save:ring-ink",
+      "group-focus-visible/save:ring-offset-2",
+      "group-focus-visible/save:ring-offset-cream",
+    );
+    expect(`${button.className} ${mark.className}`).not.toMatch(/signal|orange/);
+  });
+
+  it("does the same when it's the sign-in link (signed out)", () => {
+    renderHeart(signedOut());
+    const link = screen.getByRole("link", { name: "Sign in to save Night Market" });
+    expect(link).toHaveClass("focus-visible:outline-none");
+    expect(link.firstElementChild).toHaveClass("group-focus-visible/save:ring-ink", "group-focus-visible/save:ring-offset-cream");
+  });
+
+  it("other variants keep the page's own outline", async () => {
+    const button = await readyHeart([], undefined, "plain");
+    expect(button.className).not.toMatch(/outline-none/);
   });
 });
 

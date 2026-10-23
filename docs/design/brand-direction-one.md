@@ -35,7 +35,7 @@ These principles come from the pages themselves, not from the brief.
 8. **Sticker graphics that aren't the brand** (`Burst`, `RoundBadge`, `Scribble`). The brand's own graphic device is the two dots, and it's never used.
 9. **Fallback poster art is off-palette.** `lib/sample-events.ts` uses neon blue, teal and pink, and live events reuse it via `assignPoster`.
 10. **No question-led voice.** Headlines are generic ("All events", "Find your room. Find your people.").
-11. **Off-brand transactional email** (`lib/server/ticket-email.ts`: electric blue `#2b3cff` button). This is out of scope for the web pass and flagged in §11.
+11. **Off-brand transactional email** (`lib/server/ticket-email.ts`: electric blue `#2b3cff` button). Resolved 22 Oct 2026: every transactional email is now built on `lib/server/email-layout.ts` (§9, "Transactional emails").
 
 ## 2. Tokens (`app/globals.css`)
 
@@ -235,7 +235,7 @@ Sizes are given as base / `sm` 640 / `lg` 1024. LH is line-height.
 
 Brand lines use "ür" and "ü" for "your" and "you". To keep screen readers saying the right words, use one pattern everywhere (helper `components/brand/BrandU.tsx`):
 
-`<span aria-hidden="true">ÜR</span><span className="sr-only">your</span>`
+`<span aria-hidden="true">{the line as shown}</span><span className="sr-only">{the whole plain sentence}</span>`, e.g. `<BrandU spoken="Where is your Sheltüh?">…WHERE IS ÜR… SHELTÜH?</BrandU>`. One sr-only span holding the whole sentence (not "your" alone between visible pieces), so screen readers read it as one phrase.
 
 - In "Sheltüh", the ü is real text, unchanged.
 - Never put "ür" or "ü" in body copy, buttons, labels or errors. It's for brand lines only.
@@ -255,7 +255,7 @@ Brand lines use "ür" and "ü" for "your" and "you". To keep screen readers sayi
 
 | Asset | Where | Size on screen | Colour treatments |
 | --- | --- | --- | --- |
-| **Uppercase wordmark** (primary), `sheltuh-wordmark.svg`, ratio 4.41:1 | Nav (all widths); OG image; email header (later) | Nav: **20px tall (88px wide) below lg, 24px (106px) at lg**. **Minimum 16px tall (71px).** | Black on Cream or White · Cream or White on Black · **Orange on Black** · Black on Orange · Orange on Cream or White (non-text graphic, 3.25:1) |
+| **Uppercase wordmark** (primary), `sheltuh-wordmark.svg`, ratio 4.41:1 | Nav (all widths); OG image; email header once a PNG export exists (§11 #6) | Nav: **20px tall (88px wide) below lg, 24px (106px) at lg**. **Minimum 16px tall (71px).** | Black on Cream or White · Cream or White on Black · **Orange on Black** · Black on Orange · Orange on Cream or White (non-text graphic, 3.25:1) |
 | **Lowercase wordmark** (secondary), ratio 3.69:1 | Informal and expressive moments only: the footer sign-off (below) | Minimum 20px tall | Same treatments |
 | **Secondary ü**, `sheltuh-u.svg`, ratio 0.665:1 | Favicon, app icons, PWA splash; Sheltüh system avatar in Messages; the ticket's `UBarcode` (already a ü, keep it) | Minimum 16px tall | Black on Orange (icons) · any brand pair above |
 | **Two-dot mark**, `sheltuh-dots.svg`, ratio 3.15:1 | The motif (§5): loader, markers, empty states, connection states | Minimum 12px wide | Orange, Black or Cream; follows `currentColor` |
@@ -429,24 +429,25 @@ div.relative.flex.flex-col                                   (grid cell / rail i
 
 ### 6.6 Quick buy from cards (owner requirement 1)
 
-**Decision:** the card gets a **sibling text link** that goes straight to the event page's ticket section, `/events/{slug}#tickets`.
+**Decision:** the card gets a **sibling button-styled link** that goes straight to the event page's ticket section, `/events/{slug}#tickets`.
 - **Not a sheet.** One checkout path keeps the fee note, ticket terms, Who's Going booking email and the external-ticket beacon in one place, and it needs no new data loading on cards.
 - A sheet is listed in §10 as a later proposal.
 
-**Anatomy:**
-- `a.inline-flex.min-h-11.items-center.gap-1.self-start.-ml-0.5.px-0.5.text-sm.font-semibold.underline.underline-offset-4.decoration-1`.
-- Visible label, then `<span className="sr-only"> for {event.title}</span>`, then a 16px → arrow (`aria-hidden`).
-- Always underlined: it's a link, and quiet next to the card.
-- **It's never orange:** six orange CTAs per grid would kill the signal.
+**Anatomy** (owner decision 6 replaces the quiet underlined text link):
+- `buttonClass("signal", "md", "min-h-11 px-4 sm:min-h-10")`: Signal Orange fill, **black label** (6.18:1; never white on orange), `rounded-control`, semibold, 44px tall on phones and 40px from `sm`, the 16px → arrow kept.
+- Visible label (`aria-hidden`), plus one sr-only span with the whole name, "{label} for {event.title}".
+- Hover (hover-capable devices): the `.btn-signal` hover, black fill with an orange label. Press: the `.btn` 1px nudge, motion-safe only.
+- Focus: the page's black ring on a cream gap (`:focus-visible`, `outline-ink`); never orange.
+- It's outside the card's main link and never inside `[data-surface="signal"]`.
 
 **Placement:**
-- Its own row directly under the main link (`mt-1`). In grids, `mt-auto` aligns rows.
-- **compact:** the row is indented to the text column, `pl-[6.75rem] sm:pl-[7.75rem]`.
-- **featured:** the row sits under the card, outside it.
+- Its own row under the main link (`pt-3`). In grids, `mt-auto` aligns rows.
+- **compact:** the row is indented to the text column, `pl-27 sm:pl-31` (6.75rem / 7.75rem), and the button fills that column below `sm`.
+- **featured:** the row sits under the card, outside it (`mt-3`).
 
 **Hit area and spacing:**
-- 44px tall, and the text-width plus 4px wide.
-- At least 8px vertical separation from the card link's text (the `gap-1` plus the 44px box).
+- 44px tall on phones (40px from `sm`), the label plus 16px each side wide.
+- At least 12px vertical separation from the card link's text.
 - It never overlaps the Save heart (top-right of the media).
 
 **Label and target by event state:**
@@ -498,19 +499,23 @@ div.relative.flex.flex-col                                   (grid cell / rail i
 - **Event page:** directly under the "When" `dd`.
 - **Checkout success:** under the event title.
 
-*Trigger:* a text button, `inline-flex min-h-11 items-center gap-1 text-sm font-semibold underline underline-offset-4`, reading "Add to calendar" with a chevron, `aria-expanded`. It opens a popover menu (`rounded-control border border-foreground bg-card py-1`) with two `min-h-11 px-4` items:
-1. **"Apple / Outlook (.ics)"** downloads `{slug}.ics`, built client-side as a `Blob`:
+*Trigger:* a text button, `inline-flex min-h-11 items-center gap-1 text-sm font-semibold underline underline-offset-4`, reading "Add to calendar" with a chevron, `aria-expanded`. It opens a popover menu (`rounded-control border border-foreground bg-card py-1`) of plain `min-h-11 px-4` links:
+1. **"Apple Calendar"** is a plain link (no `download` attribute, no Blob) to `/events/{slug}/calendar.ics` (`lib/server/handlers/event-calendar.ts`), served as `text/calendar; charset=utf-8` with `Content-Disposition: inline; filename="{slug}.ics"` and `Cache-Control: public, max-age=300`, so iPhone Safari opens its own "Add to Calendar" sheet and a desktop browser hands the file to the calendar app. A Blob with `download` made phones save a file instead. Not `webcal://`: that subscribes to a feed rather than adding one event. Only published events (demo: the sample events), otherwise 404. The file:
    - `VCALENDAR` / `VEVENT`
    - `UID:{eventId}@sheltuh.com.au`
-   - `DTSTAMP` now
+   - `DTSTAMP`: the response time
    - `DTSTART` / `DTEND` as UTC `YYYYMMDDTHHMMSSZ` from `startsAt` / `endsAt`. With no `endsAt`, use start + 2h.
    - `SUMMARY`: title
    - `LOCATION`: venue, address
-   - `URL` and `DESCRIPTION`: the first sentence, then the URL
+   - `URL` (the configured site URL; in the demo, the request's origin) and `DESCRIPTION`: the first sentence, then the URL
    - Escape `,` `;` `\` and newlines, and fold lines at 75 octets.
-2. **"Google Calendar"** opens `https://calendar.google.com/calendar/render?action=TEMPLATE&text=…&dates={start}/{end}&details=…&location=…` with `target="_blank" rel="noopener noreferrer"`, plus sr-only "(opens in a new tab)".
+2. **"Google Calendar"** opens `https://calendar.google.com/calendar/render?action=TEMPLATE&text=…&dates={start}/{end}&details=…&location=…` with `target="_blank" rel="noopener noreferrer"`, and an accessible name ending "(opens in a new tab)".
+3. **"Outlook"** opens `https://outlook.live.com/calendar/0/action/compose?subject=…&startdt=…&enddt=…&location=…&body=…` (ISO UTC times), in a new tab like Google.
+4. **"Download .ics (other apps)"**: the same URL, with `download="{slug}.ics"`.
 
-*Keyboard:* Escape closes and returns focus. Arrow keys aren't required: these are two plain links in a disclosure, not an ARIA menu.
+*Order:* Apple, Google, Outlook, Download; on Android (user agent contains "Android") Google comes first. Read in the browser when the menu opens, so it never affects the server render.
+
+*Keyboard:* Escape closes and returns focus. Arrow keys aren't required: these are plain links in a disclosure, not an ARIA menu.
 
 *Data:* the confirmation page lacks the event's date and venue (`CustomerOrder` has `eventTitle` and `eventSlug` only); see §10.
 
@@ -708,7 +713,7 @@ These are tools: quiet, dense and black-structured, with **no orange except the 
 
 | Page | Direction |
 | --- | --- |
-| **Home** `/` | Follows `home.md` for structure, dedupe, windows, Trending and external cards; its visual sections are updated to this system. Hero h1 is the brand question (`display-xl`): "WHERE / IS ÜR / SHELTÜH?" (§3.3 pattern; owner Q1), with the descriptive intro directly below so it still explains the site. CTAs: `signal` "Explore events" + `outline` "Join the community". Section straps per §6.4. "Find your people" becomes the page's **one orange band**: `data-surface="signal"`, full-bleed. GuideCard is a white info card with a black border; CreatorsCard is `data-surface="ink"`. |
+| **Home** `/` | Follows `home.md` for structure, dedupe, windows, Trending and external cards; its visual sections are updated to this system. Hero h1 is the brand question (`display-xl`): "WHERE / IS ÜR / SHELTÜH?" (§3.3 pattern; owner Q1), with the descriptive intro directly below so it still explains the site. CTAs: `signal` "Explore events" + `outline` "Find your people" (jumps to the band; `home.md` §5.2). Section straps per §6.4. "Find your people" becomes the page's **one orange band**: `data-surface="signal"`, full-bleed. GuideCard is a white info card with a black border; CreatorsCard is `data-surface="ink"`. |
 | **/events, /search** | `PageHeader brand` h1 "What's on." (`display-lg font-display`), strap "Events · Melbourne", existing intro (explains filtering). Filter bar: §6.2 fields on a `border-t border-foreground pt-5` row; the count in `meta`. Results: `EventTile` 4:5, grid `grid-cols-2 gap-x-3 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4 lg:gap-x-8`, quick buy per §6.6. Empty: §6.14. /search: same, with `SearchBar size="lg"`. |
 | **Event page** | §6.7–6.11 |
 | **Map** `/map` | h1 "Sheltüh near ü." (`display-lg font-display`; sr reads "Sheltüh near you"), with an optional `InlinePhoto` before "NEAR" (§8.3). The subtitle explains: "Events on the map. Tap a spot to see what's on there." Markers per §6.15; the panel is a white card. |
@@ -793,7 +798,7 @@ The initial letter keeps 8% opacity in `var(--face-display)`.
 | 10 | **Remaining pages:** auth, account, saved, messages, organiser, dashboard and analytics, admin, help and legal, 404 | as listed | class-pinning tests in `DashboardContent`, `PublicProfileForm`, `AnalyticsParts`, `OrganiserQueue` (the `p.eyebrow` selector is kept) |
 | 11 | **Cleanup:** remove the `--highlight`/`--pop`/`--shadow-card` aliases, unused `Sticker` exports, `.float`/`.spin-slow`/`marquee` | `globals.css`, `ui/Sticker.tsx` | `brand-tokens.test.ts` part 2: the aliases are absent from `globals.css` |
 | 12 | **Waitlist UI** (after the B-WL contract) | `TicketSelector`, cards, buy bar | New component tests for each §6.11 state |
-| — | Later: brand the transactional emails | `lib/server/ticket-email.ts`, `free-confirmation-email.ts` | `tests/server/ticket-email.test.ts:56,59,87,212` pin `#f3f0e8`, `#2b3cff` and `#0b0b0b` |
+| — | **Transactional emails** (done 22 Oct 2026): one shared layout, `lib/server/email-layout.ts` (`EMAIL_COLOURS` cream `#fffae7`, white card `#ffffff` with a 1px black hairline and 12px radius, ink `#000000`, muted `#6b675e`, divider `#ddd5ba`, Signal Orange `#ff4800`; `page()`, `heading()`, `eventTitle()`, `eventBlock()`, `button()`, `supportFooter`). Signal Orange is only the fill of the one button per email, with a black label and a black hairline; event titles are black. Light only (`color-scheme: light only`), tables, inline styles and `bgcolor`. | `ticket-email.ts`, `free-confirmation-email.ts`, `waitlist-email.ts`, `follower-email.ts` | `tests/server/email-brand.test.ts`: every builder uses only the shared colours (none of `#2b3cff`, `#f3f0e8`, `#0b0b0b`), orange only on its one button, black text on it, the shared card, heading and support line |
 
 **Gates for every increment:** `npx next typegen`, `npx tsc --noEmit`, `npm run lint`, `npm test`, and `npm run build` for increments 1, 5 and 7 (fonts, routes, OG). Run `npm run test:e2e` after increments 1 and 8. Hand off to `visual-qa` at 320, 375, 430, 640, 768, 1024 and 1280, in demo and live mode, after increments 2, 5, 7 and 10.
 
@@ -815,7 +820,7 @@ The initial letter keeps 8% opacity in `var(--face-display)`.
 - Card overflow "More" menu (Share, Add to calendar).
 - Category chips (a radio group) replacing the /events category `select`. Same behaviour; it needs `EventFilterBar.test.tsx` query updates.
 
-**Out of scope:** the door check-in palette, transactional email redesign (listed), the landing page on Cloudflare (not in this repo), illustration and icon-set redesign (keep the stroke icons, 1.75–2px), and personalisation.
+**Out of scope:** the door check-in palette, the landing page on Cloudflare (not in this repo), illustration and icon-set redesign (keep the stroke icons, 1.75–2px), and personalisation.
 
 ## 11. Missing assets
 
@@ -826,7 +831,7 @@ The initial letter keeps 8% opacity in `var(--face-display)`.
 5. **Photography:**
    - The home hero, guide, creators and community images (`HOME_HERO`, `HOME_GUIDE`, `HOME_CREATORS`), and any `InlinePhoto` sources.
    - Usage rights and model releases. That includes the brand book's own photos (pp. 25–26), if they're to be reused.
-6. **Brand guidance for transactional email** (later).
+6. **The uppercase wordmark as a PNG for email** (black on transparent or cream, about 2× a 24px-tall header, so ~212×48). Done 22 Oct 2026: `public/brand/sheltuh-wordmark-email.png` (black on cream, 212×48, shown at 106×24), rendered from `sheltuh-wordmark.svg` by `scripts/render-email-wordmark.ts` and attached inline (`cid:`, about 4 KB, so it shows where Outlook blocks remote images) as the ticket email's header, alt text "SHELTÜH" (it replaced the app icon beside the text "Sheltüh"). The other emails have no header. Owner to confirm the export.
 
 ## Owner questions
 
@@ -844,3 +849,4 @@ The initial letter keeps 8% opacity in `var(--face-display)`.
 3. Per-category map colours are retired: black pins, orange when selected; category stays in text and accessible names.
 4. Quick buy goes to the event page's tickets section (`/events/{slug}#tickets`, focus lands there), not a sheet.
 5. Still needed from the owner: Bootzy font files and web licence; the closer-dots logomark variation as a vector; photography with usage rights.
+6. Card quick-buy buttons are orange (Signal, black label) — owner request 21 Oct 2026; overrides the one-orange-button budget for cards.

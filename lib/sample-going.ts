@@ -1,10 +1,13 @@
 import type { GoingAttendee } from "@/lib/api/types";
+import { sampleMemberByFirstName } from "@/lib/sample-members";
 
 /**
  * Demo-mode "Who's Going" names: fictional first names and initials, so the
  * panel can be previewed without a backend. A pure function of the event id
  * (no randomness, dates or locale), so the server render and the browser's
- * hydration always agree.
+ * hydration always agree. The first names of the demo's member profiles
+ * (lib/sample-members.ts) are always that member, with a link to their
+ * profile; everyone else is plain text, as without a visible profile.
  */
 
 const FIRST_NAMES = [
@@ -56,7 +59,14 @@ export function getSampleGoing(eventId: string): SampleGoing {
   for (let i = 0; i < count; i++) {
     const first = FIRST_NAMES[(start + i * stride) % FIRST_NAMES.length];
     const initial = LAST_INITIALS[next() % LAST_INITIALS.length];
-    attendees.push({ attendeeId: `sample-${eventId}-${i}`, displayName: `${first} ${initial}.`, isYou: false });
+    const attendeeId = `sample-${eventId}-${i}`;
+    // A sample member with a visible profile is the same person on every list, linked to it.
+    const member = sampleMemberByFirstName(first);
+    attendees.push(
+      member
+        ? { attendeeId, displayName: member.displayName, isYou: false, profileId: member.profileId, hasAvatar: false }
+        : { attendeeId, displayName: `${first} ${initial}.`, isYou: false },
+    );
   }
   return { count, attendees };
 }

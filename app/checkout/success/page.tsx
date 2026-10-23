@@ -6,10 +6,13 @@ export const metadata: Metadata = { title: "Order confirmed — Sheltüh" };
 
 export default function CheckoutSuccessPage() {
   return (
-    <div className="mx-auto flex max-w-2xl flex-col px-4 sm:px-6">
-      <Suspense fallback={<p className="py-16 text-center text-sm text-muted">Loading&hellip;</p>}>
-        <CheckoutConfirmation />
-      </Suspense>
+    // The site's page edges (max-w-6xl, px-5 / sm:px-8), with a left-aligned max-w-2xl column.
+    <div className="mx-auto max-w-6xl px-5 sm:px-8">
+      <div className="flex max-w-2xl flex-col">
+        <Suspense fallback={<p className="py-10 text-sm text-muted">Loading&hellip;</p>}>
+          <CheckoutConfirmation />
+        </Suspense>
+      </div>
     </div>
   );
 }

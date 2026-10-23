@@ -6,10 +6,12 @@ import { EmptyState } from "@/components/ui/Section";
 import { isApiConfigured, type GetToken } from "@/lib/api/client";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { withNext } from "@/lib/safe-next-path";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 /**
  * The shared front door of the messages pages. Demo mode (no API) renders
- * `demo` and never calls the API; while auth resolves it says so; signed out
+ * `demo`, which lays itself out like the live page, and never calls the
+ * API; while auth resolves it says so; signed out
  * it offers Sign in, coming back to `returnTo`. Otherwise it renders the
  * page with a token getter. Whether the member is verified is the API's call
  * (403), which each page explains.
@@ -24,19 +26,19 @@ export default function MessagesGate({
   returnTo: string;
   demo: ReactNode;
   children: (getToken: GetToken) => ReactNode;
-  /** Wraps the gate's own states (demo, loading, signed out) for a page that doesn't lay them out itself. */
+  /** Wraps the gate's own states (loading, signed out) for a page that doesn't lay them out itself. */
   frameClassName?: string;
   /** For a page with no h1 of its own: its h1 in the gate's states ("sr-only" while loading). */
   pageTitle?: string;
 }) {
   const auth = useOptionalAuth();
   const frame = (node: ReactNode) => (frameClassName ? <div className={frameClassName}>{node}</div> : <>{node}</>);
-  if (!isApiConfigured || !auth?.configured) return frame(demo);
+  if (!isApiConfigured || !auth?.configured) return <>{demo}</>;
   if (auth.status === "loading") {
     return frame(
       <>
         {pageTitle && <h1 className="sr-only">{pageTitle}</h1>}
-        <p className="text-sm text-muted">Loading…</p>
+        <LoadingState text="Loading…" />
       </>,
     );
   }

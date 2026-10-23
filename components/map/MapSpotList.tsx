@@ -52,7 +52,7 @@ export default function MapSpotList({ events, onChoose, onClose }: MapSpotListPr
           type="button"
           onClick={onClose}
           aria-label="Close list"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-surface-border font-sans text-lg text-muted"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control border border-surface-border font-sans text-lg text-muted"
         >
           <span aria-hidden="true">&times;</span>
         </button>
@@ -70,7 +70,7 @@ export default function MapSpotList({ events, onChoose, onClose }: MapSpotListPr
                 poster={event.poster}
                 title={event.title}
                 imageUrl={event.imageUrl}
-                className="h-10 w-10 shrink-0 rounded-full"
+                className="h-10 w-10 shrink-0 rounded-dot"
               />
               <span className="min-w-0">
                 <span className="block truncate font-sans text-sm font-semibold text-foreground">{event.title}</span>

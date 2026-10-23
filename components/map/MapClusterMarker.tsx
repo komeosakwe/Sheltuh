@@ -31,16 +31,18 @@ export default function MapClusterMarker({ events, stacked, expanded, onActivate
       onClick={(domEvent) => onActivate(domEvent.currentTarget)}
       aria-label={label}
       aria-expanded={stacked ? expanded : undefined}
-      className="group relative block h-12 w-12 cursor-pointer rounded-full"
+      // Its events, so focus can come back here for one of them (SceneMap's Dismiss).
+      data-event-ids={events.map((event) => event.id).join(" ")}
+      className="group relative block h-12 w-12 cursor-pointer rounded-dot"
     >
       {/* A second disc peeking out behind suggests a stack. */}
-      <span aria-hidden="true" className="absolute inset-0 translate-x-1 -translate-y-1 rounded-full border-2 border-foreground bg-surface" />
-      <span className="relative block h-full w-full rounded-full bg-foreground p-1 ring-2 ring-background motion-safe:transition-transform group-hover:scale-105">
-        <EventArt poster={lead.poster} title={lead.title} imageUrl={lead.imageUrl} className="h-full w-full rounded-full" />
+      <span aria-hidden="true" className="absolute inset-0 translate-x-1 -translate-y-1 rounded-dot border-2 border-foreground bg-surface" />
+      <span className="relative block h-full w-full rounded-dot bg-foreground p-1 ring-2 ring-background motion-safe:transition-transform group-hover:scale-105">
+        <EventArt poster={lead.poster} title={lead.title} imageUrl={lead.imageUrl} className="h-full w-full rounded-dot" />
       </span>
       <span
         aria-hidden="true"
-        className="absolute -right-2 -bottom-1 flex h-6 min-w-6 items-center justify-center rounded-full border-2 border-background bg-foreground px-1 font-sans text-xs font-semibold text-background"
+        className="absolute -right-2 -bottom-1 flex h-6 min-w-6 items-center justify-center rounded-badge border-2 border-background bg-foreground px-1 font-sans text-xs font-semibold text-background"
       >
         {count}
       </span>

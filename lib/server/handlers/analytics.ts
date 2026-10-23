@@ -6,6 +6,7 @@ import type {
   DateRange,
   EventAnalytics,
   EventStatus,
+  OutboundClickStats,
   SourceViews,
   TrackingLinkStats,
 } from "@/lib/api/types";
@@ -19,7 +20,9 @@ import {
   dailySeries,
   eventAnalyticsCsv,
   money,
+  outboundStats,
   overviewCsv,
+  type OutboundDayRow,
   ticketTypeSales,
   totals,
   viewsComplete,
@@ -31,7 +34,7 @@ import type { Db } from "../db";
 import type { Deps } from "../deps";
 import { okPrivate } from "../http";
 import type { Handler } from "../route";
-import type { EventRecord } from "../types";
+import type { EventRecord, TicketingMode } from "../types";
 import { eventAttendance } from "./check-ins";
 import { requireOwnEvent } from "./event-queries";
 import { requireApprovedOrganiser } from "./organiser-guard";
@@ -206,6 +209,30 @@ function trackingLinkStats(
   return [...links.map((l) => stats(l.code, l)), ...deleted.map((c) => stats(c))];
 }
 
+/** One event's ticket-link clicks over `range` (event_outbound_clicks, by its primary key). */
+async function eventOutbound(db: Db, eventId: string, range: DateRange): Promise<OutboundClickStats> {
+  const rows = await db.query<{ day: string; clicks: number; cap_reached: boolean }>(
+    `select c.day::text as day, c.clicks, c.cap_reached from public.event_outbound_clicks c
+      where c.event_id = $1 and c.day between $2::date and $3::date`,
+    [eventId, range.from, range.to],
+  );
+  return outboundStats(range, new Map(rows.map((r) => [r.day, { clicks: n(r.clicks), capReached: r.cap_reached }])));
+}
+
+/**
+ * People on the event's waitlist now (confirmed, not left): a count only.
+ * Organisers never see who (docs/architecture.md, "Waitlist"). An external
+ * event has no waitlist, so it's 0. event_waitlist_queue_idx.
+ */
+async function eventWaitlistCount(db: Db, eventId: string): Promise<number> {
+  const [row] = await db.query<{ count: number }>(
+    `select count(*)::int as count from private.event_waitlist w
+      where w.event_id = $1 and w.confirmed_at is not null and w.unsubscribed_at is null`,
+    [eventId],
+  );
+  return n(row?.count);
+}
+
 function periodTotals(p: EventPeriod, range: DateRange, since: string | null): AnalyticsTotals {
   return totals(p.ordersTotal, p.viewsTotal, viewsComplete(range, since), p.capDays.size > 0);
 }
@@ -215,7 +242,8 @@ async function buildEventAnalytics(db: Db, event: EventRecord, qs: URLSearchPara
   const { range, compare } = parseAnalyticsQuery(qs, { from: melbourneDateOf(event.createdAt), today });
   const previousRange = compare ? previousPeriod(range) : undefined;
 
-  const [since, period, previous, groups, links, attendance] = await Promise.all([
+  const external = event.ticketingMode === "external";
+  const [since, period, previous, groups, links, attendance, outbound, previousOutbound, waitlistCount] = await Promise.all([
     viewsTrackedSince(db),
     eventPeriod(db, event.eventId, range),
     previousRange ? eventPeriod(db, event.eventId, previousRange) : undefined,
@@ -225,6 +253,9 @@ async function buildEventAnalytics(db: Db, event: EventRecord, qs: URLSearchPara
       [event.eventId],
     ),
     eventAttendance(db, event.eventId),
+    external ? eventOutbound(db, event.eventId, range) : undefined,
+    external && previousRange ? eventOutbound(db, event.eventId, previousRange) : undefined,
+    eventWaitlistCount(db, event.eventId),
   ]);
 
   const bySource: SourceViews[] = VIEW_SOURCES.map((source) => ({ source, views: period.viewsBySource.get(source) ?? 0 }));
@@ -239,6 +270,7 @@ async function buildEventAnalytics(db: Db, event: EventRecord, qs: URLSearchPara
       endsAt: event.endsAt,
       venueName: event.venueName,
       everPublished: event.moderationLog.some((entry) => entry.action === "approved"),
+      ticketingMode: event.ticketingMode ?? "sheltuh",
     },
     range,
     viewsTrackedSince: since,
@@ -248,6 +280,9 @@ async function buildEventAnalytics(db: Db, event: EventRecord, qs: URLSearchPara
     byTicketType: ticketTypeSales(event.ticketTypes, groups, period.ordersTotal),
     trackingLinks: trackingLinkStats(links, period.viewsByCode, period.ordersByCode, period.capDays.size > 0),
     attendance,
+    // External ticketing: clicks on the ticket link (sales happen elsewhere). Null for Sheltüh-ticketed events.
+    outboundClicks: outbound ? { ...outbound, ...(previousOutbound ? { previous: previousOutbound } : {}) } : null,
+    waitlistCount,
     ...(previous && previousRange
       ? {
           previous: {
@@ -353,6 +388,33 @@ async function organiserPeriod(db: Db, organiserId: string, range: DateRange): P
   return period;
 }
 
+interface OrganiserOutbound {
+  /** Any outbound-click counter in the range, for any of the organiser's events. */
+  any: boolean;
+  byEvent: Map<string, { total: number; unreliable: boolean }>;
+  stats: OutboundClickStats;
+}
+
+/** Ticket-link clicks of all the organiser's events over `range`: per event, and per day across them. */
+async function organiserOutbound(db: Db, organiserId: string, range: DateRange): Promise<OrganiserOutbound> {
+  const rows = await db.query(
+    `select c.event_id, c.day::text as day, sum(c.clicks)::bigint as clicks, bool_or(c.cap_reached) as capped,
+            grouping(c.event_id) as g_event
+       from public.event_outbound_clicks c
+       join public.events e on e.id = c.event_id
+      where e.organiser_id = $1 and c.day between $2::date and $3::date
+      group by grouping sets ((c.event_id), (c.day))`,
+    [organiserId, range.from, range.to],
+  );
+  const byEvent = new Map<string, { total: number; unreliable: boolean }>();
+  const byDay = new Map<string, OutboundDayRow>();
+  for (const r of rows) {
+    if (n(r.g_event) === 0) byEvent.set(r.event_id as string, { total: n(r.clicks), unreliable: r.capped === true });
+    else byDay.set(r.day as string, { clicks: n(r.clicks), capReached: r.capped === true });
+  }
+  return { any: rows.length > 0, byEvent, stats: outboundStats(range, byDay) };
+}
+
 function overviewPeriod(p: OrganiserPeriod, range: DateRange, since: string | null) {
   return {
     range,
@@ -366,20 +428,38 @@ async function buildOverview(db: Db, organiserId: string, qs: URLSearchParams): 
   const { range, compare } = parseAnalyticsQuery(qs, { from: addDays(today, -(DEFAULT_RANGE_DAYS - 1)), today });
   const previousRange = compare ? previousPeriod(range) : undefined;
 
-  const [since, period, previous, events] = await Promise.all([
+  const [since, period, previous, events, outbound, previousOutbound, followers] = await Promise.all([
     viewsTrackedSince(db),
     organiserPeriod(db, organiserId, range),
     previousRange ? organiserPeriod(db, organiserId, previousRange) : undefined,
     // Upcoming (not yet ended) soonest first, then past most recent first.
-    db.query<{ id: string; title: string; slug: string; status: EventStatus; starts_at: string | Date }>(
-      `select e.id, e.title, e.slug, e.status::text as status, e.starts_at
+    db.query<{
+      id: string;
+      title: string;
+      slug: string;
+      status: EventStatus;
+      starts_at: string | Date;
+      ticketing_mode: TicketingMode;
+      has_external: boolean;
+    }>(
+      // has_external: any of the organiser's events (not just this page) is
+      // external. A window aggregate is computed before the limit.
+      `select e.id, e.title, e.slug, e.status::text as status, e.starts_at, e.ticketing_mode,
+              bool_or(e.ticketing_mode = 'external') over () as has_external
          from public.events e
         where e.organiser_id = $1
         order by e.ends_at < now(), case when e.ends_at >= now() then e.starts_at end, e.starts_at desc, e.id
         limit $2`,
       [organiserId, OVERVIEW_EVENT_LIMIT + 1],
     ),
+    organiserOutbound(db, organiserId, range),
+    previousRange ? organiserOutbound(db, organiserId, previousRange) : undefined,
+    // The exact number, for the organiser only (organiser_follows_organiser_idx).
+    db.query<{ n: number }>(`select count(*)::int as n from public.organiser_follows where organiser_id = $1`, [
+      organiserId,
+    ]),
   ]);
+  const hasExternal = events[0]?.has_external === true;
 
   const complete = viewsComplete(range, since);
   const previousComplete = previousRange ? viewsComplete(previousRange, since) : false;
@@ -405,6 +485,15 @@ async function buildOverview(db: Db, organiserId: string, qs: URLSearchParams): 
           ),
         }
       : {}),
+    ticketingMode: e.ticketing_mode,
+    ...(e.ticketing_mode === "external"
+      ? {
+          outboundClicks: {
+            ...(outbound.byEvent.get(e.id) ?? { total: 0, unreliable: false }),
+            ...(previousOutbound ? { previous: previousOutbound.byEvent.get(e.id) ?? { total: 0, unreliable: false } } : {}),
+          },
+        }
+      : {}),
   }));
 
   const current = overviewPeriod(period, range, since);
@@ -416,6 +505,12 @@ async function buildOverview(db: Db, organiserId: string, qs: URLSearchParams): 
     events: rows,
     eventsTruncated: events.length > OVERVIEW_EVENT_LIMIT,
     ...(previous && previousRange ? { previous: overviewPeriod(previous, previousRange, since) } : {}),
+    // Null when the organiser has no external event (and no clicks from one that has since changed back).
+    outboundClicks:
+      hasExternal || outbound.any || previousOutbound?.any
+        ? { ...outbound.stats, ...(previousOutbound ? { previous: previousOutbound.stats } : {}) }
+        : null,
+    followerCount: followers[0].n,
   };
 }
 

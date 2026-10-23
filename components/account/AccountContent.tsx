@@ -18,6 +18,8 @@ import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
 import { useProfile } from "@/lib/auth/useProfile";
 import { endSentence, validateDisplayName } from "@/lib/display-name";
 import { withNext } from "@/lib/safe-next-path";
+import { LoadingState } from "@/components/ui/ProgressLoader";
+import MemberProfileSettings from "./MemberProfileSettings";
 
 const pillClass = "w-full sm:w-auto";
 const linkClass = "underline underline-offset-4 hover:decoration-2";
@@ -42,7 +44,7 @@ export default function AccountContent() {
   }
 
   if (!auth.configured) return <DemoAccount />;
-  if (auth.status === "loading") return <p className="text-sm text-muted">Loading your account…</p>;
+  if (auth.status === "loading") return <LoadingState text="Loading your account…" />;
   if (auth.status === "signed-out") {
     return (
       <EmptyState
@@ -77,7 +79,7 @@ export default function AccountContent() {
 
       {state.status === "loading" && (
         <Panel title="Who's Going profile">
-          <p className="text-sm text-muted">Loading your profile…</p>
+          <LoadingState text="Loading your profile…" />
         </Panel>
       )}
 
@@ -201,6 +203,37 @@ function ProfileSections({
           }}
           getToken={getToken}
         />
+      </Panel>
+
+      <div id="member-profile" tabIndex={-1} className="scroll-mt-24 outline-offset-2">
+        <Panel title="Member profile" titleId="member-profile-title">
+          <p className="mb-5 text-sm text-muted">
+            An optional page about you that other members can open from Who&rsquo;s Going lists.{" "}
+            <Link href="/privacy#whos-going" className={linkClass}>
+              How we handle your information
+            </Link>
+          </p>
+          <MemberProfileSettings
+            profile={profile}
+            getToken={getToken}
+            onSaved={onSaved}
+            onMissing={() => {
+              onSaved(null);
+              setNotice({ kind: "missing" });
+            }}
+          />
+        </Panel>
+      </div>
+
+      <Panel title="Organisers you follow">
+        <p className="text-sm text-muted">
+          Their new events show on your home page, and you can choose an email when they announce one.
+        </p>
+        <p className="mt-2 text-sm">
+          <Link href="/following" className={`inline-flex min-h-11 items-center ${linkClass}`}>
+            Organisers you follow
+          </Link>
+        </p>
       </Panel>
 
       <Panel title="Messages">
@@ -424,9 +457,9 @@ function DeleteProfile({ getToken, onDeleted }: { getToken: () => Promise<string
   return (
     <div className="flex flex-col items-start gap-4">
       <p className="text-sm">
-        Removes your display name, takes you off every event&rsquo;s Who&rsquo;s Going list and deletes your
-        conversations, for you and the people you were talking to. Your tickets and account aren&rsquo;t
-        affected.
+        Removes your display name and member profile (bio, Instagram and photo), takes you off every event&rsquo;s
+        Who&rsquo;s Going list and deletes your conversations, for you and the people you were talking to. Your
+        tickets and account aren&rsquo;t affected.
       </p>
       {confirming ? (
         <div role="group" aria-labelledby="delete-confirm-text" className="flex w-full flex-col gap-3">

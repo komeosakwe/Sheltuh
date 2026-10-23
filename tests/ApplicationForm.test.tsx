@@ -357,3 +357,41 @@ describe("ApplicationForm — website rule and public-profile notes", () => {
     );
   });
 });
+
+describe("ApplicationForm — featured video", () => {
+  function renderApply(mode: "apply" | "resubmit" = "apply", initial?: OrganiserRecord) {
+    render(
+      <FakeAuthProvider value={fakeAuthValue()}>
+        <ApplicationForm mode={mode} getToken={vi.fn()} initial={initial} onSuccess={vi.fn()} />
+      </FakeAuthProvider>,
+    );
+  }
+
+  it("sends a valid link, and refuses another site's (focused, on the field)", async () => {
+    applyAsOrganiser.mockResolvedValue(APPROVED_RECORD);
+    renderApply();
+    fillRequiredFields();
+    const field = screen.getByLabelText("Featured video (optional)");
+    fireEvent.change(field, { target: { value: "https://dailymotion.com/video/x" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit application" }));
+    await waitFor(() => expect(field).toHaveFocus());
+    expect(applyAsOrganiser).not.toHaveBeenCalled();
+    fireEvent.change(field, { target: { value: "vimeo.com/76979871" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit application" }));
+    await waitFor(() =>
+      expect(applyAsOrganiser).toHaveBeenCalledWith(expect.objectContaining({ featuredVideoUrl: "vimeo.com/76979871" }), expect.any(Function)),
+    );
+  });
+
+  it("a resubmission with the field cleared removes the video (null)", async () => {
+    resubmitOrganiser.mockResolvedValue(APPROVED_RECORD);
+    renderApply("resubmit", { ...APPROVED_RECORD, status: "rejected", featuredVideo: { provider: "vimeo", id: "1" } });
+    const field = screen.getByLabelText("Featured video (optional)");
+    expect(field).toHaveValue("https://vimeo.com/1");
+    fireEvent.change(field, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Resubmit application" }));
+    await waitFor(() =>
+      expect(resubmitOrganiser).toHaveBeenCalledWith(expect.objectContaining({ featuredVideoUrl: null }), expect.any(Function)),
+    );
+  });
+});

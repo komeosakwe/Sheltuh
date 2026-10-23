@@ -124,6 +124,8 @@ describe("Admin organisers: statuses", () => {
     expect(await screen.findByText("Nothing to review")).toBeInTheDocument();
     expect(adminListOrganisers).toHaveBeenCalledWith("pending", expect.any(Function));
     expect(screen.getByRole("button", { name: "Pending" })).toHaveAttribute("aria-pressed", "true");
+    // Pressed shows the two dots too, not colour alone.
+    expect(screen.getByRole("button", { name: "Pending" }).querySelector("[data-selected-dots]")).not.toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Approved" }));
     expect(await screen.findByRole("heading", { name: "Org a1" })).toBeInTheDocument();
@@ -265,7 +267,10 @@ describe("Admin organisers: suspending", () => {
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Org a1" })).toBeNull());
     expect(adminSuspendOrganiser).toHaveBeenCalledWith("a1", "Selling fake tickets", auth.getAccessToken);
     expect(actionStatus()).toHaveTextContent("Suspended Org a1. 3 events unpublished.");
-    expect(screen.queryByRole("dialog")).toBeNull();
+    // The dialog is closed by an effect (dialog.close()) after the commit that removed Org a1.
+    // That commit came from a resolved promise, not an act()-wrapped event, so React runs the
+    // effect in a later scheduler task: under load the waitFor above can resolve in between.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await waitFor(() => expect(screen.getByRole("heading", { name: "Org a2" })).toHaveFocus());
   });
 

@@ -6,10 +6,12 @@ import type { ReactNode } from "react";
 import { useUnread } from "@/components/messages/UnreadProvider";
 import { useAuth } from "@/lib/auth/AuthContext";
 
+/**
+ * Desktop nav link. `umlaut` (app/globals.css) draws the brand's two dots
+ * over the label: orange on the current page (aria-current), black on hover.
+ */
 export const navLinkClass =
-  "px-2 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-foreground relative before:absolute before:inset-x-2 before:top-0 before:h-0.5 before:origin-left before:scale-x-0 before:bg-foreground before:content-[''] motion-safe:before:transition-transform motion-safe:before:duration-200 hover:before:scale-x-100";
-
-const activeClass = "before:scale-x-100";
+  "umlaut relative px-2 py-2 text-[0.8125rem] leading-4 font-semibold uppercase tracking-[0.01em] text-foreground";
 
 /**
  * The account links in the header. `className` styles every link; it
@@ -34,7 +36,7 @@ export default function AuthNavLinks({
       <Link
         href={href}
         aria-current={active ? "page" : undefined}
-        className={active && !compact ? `${linkClass} ${activeClass}` : linkClass}
+        className={linkClass}
       >
         {label}
         {extra}
@@ -85,7 +87,7 @@ function UnreadBadge({ count }: { count: number | null }) {
       <span
         aria-hidden="true"
         data-unread-badge=""
-        className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center bg-foreground px-1 align-middle text-xs leading-none font-semibold tracking-normal text-background tabular-nums normal-case"
+        className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-badge bg-foreground px-1 align-middle text-xs leading-5 font-semibold tracking-normal text-background tabular-nums normal-case"
       >
         {shown}
       </span>

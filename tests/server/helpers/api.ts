@@ -23,6 +23,8 @@ export function createFakeStripe() {
     checkout: {
       sessions: {
         create: vi.fn().mockResolvedValue({ id: "cs_test_1", url: "https://checkout.stripe.test/cs_test_1" }),
+        expire: vi.fn().mockResolvedValue({ id: "cs_test_1", status: "expired" }),
+        retrieve: vi.fn().mockResolvedValue({ id: "cs_test_1", status: "open" }),
       },
     },
     refunds: { create: vi.fn().mockResolvedValue({ id: "re_test_1", status: "succeeded" }) },
@@ -84,7 +86,13 @@ export class TestApi {
   ): Promise<{ token: string; userId: string; email: string }> {
     const userId = crypto.randomUUID();
     const email = options.email ?? `${userId.slice(0, 8)}@example.com`;
-    await this.db.query(`insert into auth.users (id, email) values ($1, $2)`, [userId, email]);
+    // app_metadata as Supabase stores it: the database reads the admin role too (ticket_check_ins_guard),
+    // and email_confirmed_at (private.notify_followers).
+    await this.db.query(
+      `insert into auth.users (id, email, raw_app_meta_data, email_confirmed_at)
+       values ($1, $2, $3::text::jsonb, case when $4 then now() end)`,
+      [userId, email, JSON.stringify(options.admin ? { role: "admin" } : {}), options.emailVerified ?? true],
+    );
     const token = `token-${userId}`;
     this.callers.set(token, {
       userId,
@@ -104,7 +112,15 @@ export class TestApi {
 
   async call<P extends Record<string, string>>(
     handler: Handler<P>,
-    options: { params?: P; token?: string; body?: unknown; query?: Record<string, string>; method?: string } = {},
+    options: {
+      params?: P;
+      token?: string;
+      body?: unknown;
+      query?: Record<string, string>;
+      method?: string;
+      /** Extra request headers, e.g. `x-forwarded-for` (none by default: no client IP). */
+      headers?: Record<string, string>;
+    } = {},
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- tests assert on arbitrary response JSON
   ): Promise<{ status: number; body: any; headers: Headers }> {
     const url = new URL(`${SITE_URL}/api/test`);
@@ -113,6 +129,7 @@ export class TestApi {
       method: options.method ?? (options.body === undefined ? "GET" : "POST"),
       headers: {
         "content-type": "application/json",
+        ...options.headers,
         ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
       },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),

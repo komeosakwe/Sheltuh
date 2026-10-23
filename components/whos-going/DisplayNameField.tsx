@@ -35,7 +35,7 @@ export default function DisplayNameField({
   const over = length > DISPLAY_NAME_MAX;
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2">
       <label htmlFor={id} className="eyebrow text-muted">
         Display name
       </label>

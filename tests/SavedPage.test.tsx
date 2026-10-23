@@ -71,7 +71,7 @@ function live(items: FavouriteEvent[], nextCursor?: string) {
 describe("/saved — live", () => {
   it("auth loading: Loading…, no requests", () => {
     renderSaved(fakeAuthValue({ status: "loading" }));
-    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Loading" })).toBeInTheDocument();
     expect(api.listFavourites).not.toHaveBeenCalled();
   });
 
@@ -86,7 +86,7 @@ describe("/saved — live", () => {
     api.listFavouriteIds.mockImplementation(() => new Promise(() => {}));
     api.listFavourites.mockImplementation(() => new Promise(() => {}));
     renderSaved();
-    const loading = screen.getByText("Loading your saved events…");
+    const loading = screen.getByRole("progressbar", { name: "Loading your saved events" });
     expect(loading.closest("[aria-busy='true']")).not.toBeNull();
     expect(api.listFavourites).toHaveBeenCalledWith(expect.any(Function), { limit: 48 });
   });

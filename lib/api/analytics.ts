@@ -48,6 +48,29 @@ export function recordEventView(eventId: string, input: RecordViewInput = {}): v
   }
 }
 
+/**
+ * Counts one click on an external event's "Get tickets on …" link (public,
+ * no account, no cookie, nothing about the visitor). Fire-and-forget: call it
+ * from the link's click handler and let the navigation go ahead; it never
+ * throws, never delays the link, and does nothing in demo mode. `keepalive`
+ * lets it finish as the page unloads. (`navigator.sendBeacon` sends
+ * text/plain, which isn't counted.)
+ */
+export function recordOutboundClick(eventId: string): void {
+  if (!isApiConfigured) return;
+  try {
+    void fetch(`/api/events/${encodeURIComponent(eventId)}/outbound`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+      keepalive: true,
+      credentials: "omit",
+    }).catch(() => {});
+  } catch {
+    // Counting a click must never break the link.
+  }
+}
+
 /** One event's analytics. By default its whole life so far (at most 2 years). */
 export async function getEventAnalytics(eventId: string, getToken: GetToken, q: AnalyticsQuery = {}) {
   const token = await getToken();

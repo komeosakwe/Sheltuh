@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import AuthNavLinks, { navLinkClass } from "@/components/AuthNavLinks";
+import Wordmark from "@/components/brand/Wordmark";
 import SearchBar from "@/components/SearchBar";
 import SavedNavLink from "@/components/favourites/SavedNavLink";
 import { useUnread } from "@/components/messages/UnreadProvider";
@@ -19,10 +20,22 @@ const PRIMARY_LINKS = [
 /** The phone menu's own primary list: the desktop links plus Saved (an icon link on desktop). */
 const MENU_PRIMARY_LINKS = [...PRIMARY_LINKS, { href: "/saved", label: "Saved" }] as const;
 
-const menuAccountLinkClass = "flex min-h-11 items-center text-base font-semibold";
+const menuAccountLinkClass = "flex min-h-11 items-center text-base leading-6 font-semibold";
 
 /**
- * Site header. Below `lg` it is one 56px bar (logo, search link, Menu button)
+ * While the phone menu is open the page behind it is inert: screen readers'
+ * virtual cursor (which ignores focus) can't wander into content the panel
+ * covers. The header stays live: it holds the menu and its Close button.
+ */
+function setPageInert(inert: boolean) {
+  for (const el of document.querySelectorAll<HTMLElement>("main, footer")) {
+    if (!el.closest("header")) el.toggleAttribute("inert", inert);
+  }
+}
+
+/**
+ * Site header. Below `lg` it is one 56px bar (wordmark, search link except on the
+ * home, whose hero has the search; Saved; Menu button)
  * whose menu is a native popover: Escape and outside taps close it, and focus
  * returns to the Menu button. From `lg` up it is the one-row desktop header.
  */
@@ -37,6 +50,9 @@ export default function Nav() {
   const atDoor = /^\/dashboard\/[^/]+\/check-in$/.test(pathname);
 
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+  // The page itself, or (Discover) the section: What's on and every event's page belong to Discover.
+  const current = (href: string): "page" | "true" | undefined =>
+    isActive(href) ? "page" : href === "/" && pathname.startsWith("/events") ? "true" : undefined;
 
   // Keep the button label in step with the popover, and move focus into the
   // menu when it opens (the browser moves it back to the button on close).
@@ -48,6 +64,7 @@ export default function Nav() {
     function handleToggle(event: ToggleEvent) {
       const open = event.newState === "open";
       setMenuOpen(open);
+      setPageInert(open);
       if (open) menu?.querySelector<HTMLElement>("a[href]")?.focus();
     }
     function handleFocusOut(event: FocusEvent) {
@@ -61,6 +78,7 @@ export default function Nav() {
     return () => {
       menu.removeEventListener("toggle", handleToggle);
       menu.removeEventListener("focusout", handleFocusOut);
+      setPageInert(false);
     };
   }, []);
 
@@ -82,39 +100,43 @@ export default function Nav() {
     // The top padding keeps it below a status bar or notch (viewport-fit=cover);
     // it's 0 on desktop and in iOS's default status-bar style.
     <header
-      className={`${atDoor ? "relative" : inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 bg-background pt-[env(safe-area-inset-top)] lg:bg-background/95`}
+      className={`${atDoor ? "relative" : inThread ? "relative lg:sticky" : "sticky"} top-0 z-30 bg-background pt-[env(safe-area-inset-top)] lg:border-b lg:border-foreground`}
     >
       {/* Compact bar (phones and tablets). */}
-      <div className="flex h-14 items-center justify-between border-b border-surface-border px-5 sm:px-8 lg:hidden">
-        <Link href="/" aria-label="Sheltüh home" className="font-heading text-3xl leading-none">
-          Shelt<span aria-hidden="true">ü</span>h
+      <div className="flex h-14 items-center justify-between border-b border-foreground px-5 sm:px-8 lg:hidden">
+        {/* The official wordmark, 20px tall (88px wide); the link carries the name. */}
+        <Link href="/" aria-label="Sheltüh home" className="flex h-11 items-center">
+          <Wordmark className="h-5 w-auto" />
         </Link>
         <div className="flex items-center">
-          <Link
-            href="/search"
-            aria-label="Search"
-            aria-current={pathname === "/search" ? "page" : undefined}
-            className="flex size-11 items-center justify-center"
-          >
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              className="h-5 w-5 text-foreground"
+          {/* Not on the home: its hero holds the page's one search (as the desktop row leaves its field out there). */}
+          {pathname !== "/" && (
+            <Link
+              href="/search"
+              aria-label="Search"
+              aria-current={pathname === "/search" ? "page" : undefined}
+              className="flex size-11 items-center justify-center"
             >
-              <circle cx="11" cy="11" r="7" />
-              <path d="m20 20-3.5-3.5" />
-            </svg>
-          </Link>
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                className="h-5 w-5 text-foreground"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg>
+            </Link>
+          )}
           <SavedNavLink size="compact" />
           <button
             ref={menuButtonRef}
             type="button"
             popoverTarget={MENU_ID}
-            className="eyebrow -mr-3 flex h-11 items-center gap-1.5 px-3"
+            className="-mr-3 flex h-11 items-center gap-2 px-3 text-[0.8125rem] leading-4 font-semibold tracking-[0.01em] uppercase"
           >
             {menuOpen ? "Close" : "Menu"}
             {/* The Messages count lives inside the menu; this says there's something in there. */}
@@ -123,7 +145,7 @@ export default function Nav() {
                 <span
                   aria-hidden="true"
                   data-menu-unread=""
-                  className="inline-flex h-5 min-w-5 items-center justify-center bg-foreground px-1 text-xs leading-none font-semibold tracking-normal text-background tabular-nums"
+                  className="inline-flex h-5 min-w-5 items-center justify-center rounded-badge bg-foreground px-1 text-xs leading-5 font-semibold tracking-normal text-background tabular-nums"
                 >
                   {unreadCount > 99 ? "99+" : unreadCount}
                 </span>
@@ -138,28 +160,31 @@ export default function Nav() {
 
       {/* Desktop row. */}
       <div className="mx-auto hidden max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4 sm:px-8 lg:flex">
-        <Link href="/" aria-label="Sheltüh home" className="font-heading text-4xl leading-none">
-          Shelt<span aria-hidden="true">ü</span>h
+        <Link href="/" aria-label="Sheltüh home" className="flex items-center py-1">
+          <Wordmark className="h-6 w-auto" />
         </Link>
-        <div className="order-last w-full lg:order-none lg:max-w-sm lg:flex-1">
-          <SearchBar label="Search the site" placeholder="Search events" />
-        </div>
+        {/* The home's hero has the page's search; a second field beside it would only compete. */}
+        {pathname !== "/" && (
+          <div className="order-last w-full lg:order-none lg:max-w-sm lg:flex-1">
+            <SearchBar label="Search the site" placeholder="Search events" />
+          </div>
+        )}
         <nav aria-label="Primary" className="ml-auto flex flex-wrap items-center gap-x-1 gap-y-1 sm:gap-x-3">
           {PRIMARY_LINKS.map((link) => (
             <Link
               key={link.href}
               href={link.href}
-              // Marks only what the pointer is on, with a bar above the word; the
-              // current page is exposed to assistive tech through aria-current.
+              // The "umlaut": two orange squares over the current page's label
+              // (from aria-current), black ones over the label under the pointer.
               className={navLinkClass}
-              aria-current={isActive(link.href) ? "page" : undefined}
+              aria-current={current(link.href)}
             >
               {link.label}
             </Link>
           ))}
           <SavedNavLink size="desktop" />
           <AuthNavLinks compact />
-          <ButtonLink href="/organisers/apply" size="sm" className="ml-1">
+          <ButtonLink href="/organisers/apply" variant="outline" size="sm" className="ml-1">
             For organisers
           </ButtonLink>
         </nav>
@@ -176,7 +201,8 @@ export default function Nav() {
         className="inset-x-0 top-[calc(var(--header-h)+env(safe-area-inset-top))] bottom-auto m-0 h-[calc(100dvh-var(--header-h)-env(safe-area-inset-top))] w-full max-w-none overflow-y-auto overscroll-contain border-0 border-t border-foreground bg-background py-0 pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] text-foreground lg:hidden"
       >
         <nav
-          aria-label="Primary"
+          // Its own name: the desktop row's nav is "Primary", and two landmarks shouldn't share one.
+          aria-label="Site menu"
           onClick={closeMenuOnAction}
           className="flex min-h-full flex-col px-5 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-6 sm:px-8"
         >
@@ -185,10 +211,9 @@ export default function Nav() {
               <li key={link.href}>
                 <Link
                   href={link.href}
-                  aria-current={isActive(link.href) ? "page" : undefined}
-                  className={`display-lg relative block py-2 before:absolute before:inset-x-0 before:top-0 before:h-1 before:origin-left before:bg-foreground before:content-[''] motion-safe:before:transition-transform motion-safe:before:duration-200 ${
-                    isActive(link.href) ? "before:scale-x-100" : "before:scale-x-0"
-                  }`}
+                  aria-current={current(link.href)}
+                  // The current page gets the orange umlaut over its first letter.
+                  className="display-lg umlaut umlaut-lg block pt-4 pb-3"
                 >
                   {link.label}
                 </Link>
@@ -198,9 +223,10 @@ export default function Nav() {
           <div className="mt-6 flex flex-col border-t border-foreground pt-6">
             <AuthNavLinks className={menuAccountLinkClass} />
           </div>
-          <ButtonLink href="/organisers/apply" size="lg" className="mt-8 w-full">
+          <ButtonLink href="/organisers/apply" variant="outline" size="lg" className="mt-8 w-full">
             For organisers
           </ButtonLink>
+          <p className="eyebrow mt-auto pt-8 text-muted">Melbourne · Australia</p>
         </nav>
       </div>
     </header>

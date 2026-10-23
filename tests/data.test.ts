@@ -25,6 +25,19 @@ describe("isFreeEvent / isPaidEvent", () => {
     expect(isFreeEvent(withTickets([]))).toBe(false);
     expect(isPaidEvent(withTickets([]))).toBe(false);
   });
+
+  it("an external event is free only when marked free, and never paid (its price isn't known)", () => {
+    const external = (externalFree: boolean): SheltuhEvent => ({
+      ...withTickets([]),
+      ticketingMode: "external",
+      externalTicketUrl: "https://events.humanitix.com/x",
+      externalFree,
+    });
+    expect(isFreeEvent(external(true))).toBe(true);
+    expect(isPaidEvent(external(true))).toBe(false);
+    expect(isFreeEvent(external(false))).toBe(false);
+    expect(isPaidEvent(external(false))).toBe(false);
+  });
 });
 
 describe("isUpcomingEvent (the API's upcoming=1 rule)", () => {

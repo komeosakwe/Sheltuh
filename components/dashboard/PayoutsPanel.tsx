@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import { connectStripeOnboarding, refreshStripeConnectStatus } from "@/lib/api/organisers";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
+import { LoadingState } from "@/components/ui/ProgressLoader";
+import StatusBadge from "@/components/ui/StatusBadge";
 
 export default function PayoutsPanel() {
   const auth = useAuth();
@@ -40,7 +42,7 @@ export default function PayoutsPanel() {
     };
   }, [returnedFromStripe, auth.status, getToken, refetch]);
 
-  if (loading) return <p className="text-sm text-muted">Loading&hellip;</p>;
+  if (loading) return <LoadingState text="Loading…" />;
   if (error) {
     return (
       <p role="alert" className="text-sm text-danger">
@@ -68,16 +70,10 @@ export default function PayoutsPanel() {
   }
 
   return (
-    <div className="flex flex-col gap-3 bg-surface p-4">
+    <div className="flex flex-col gap-3 rounded-card border border-foreground bg-card p-4">
       <div className="flex items-center justify-between gap-3">
         <h2 className="font-heading text-xl text-foreground">Payouts</h2>
-        <span
-          className={` px-2 py-1 text-xs font-medium uppercase tracking-wide ${
-            enabled ? "bg-accent/15 text-accent" : "bg-background text-muted"
-          }`}
-        >
-          {enabled ? "Connected" : "Not set up"}
-        </span>
+        <StatusBadge tone={enabled ? "approved" : "pending"}>{enabled ? "Connected" : "Not set up"}</StatusBadge>
       </div>
 
       {syncing && <p className="text-sm text-muted">Checking your Stripe status&hellip;</p>}

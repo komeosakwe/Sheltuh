@@ -5,6 +5,7 @@ import EventDetailsView from "@/components/EventDetailsView";
 import { ApiError } from "@/lib/api/client";
 import type { GoingAttendee, MyGoingStatus, Paginated, ProfileRecord } from "@/lib/api/types";
 import { SessionExpiredError, type AuthContextValue } from "@/lib/auth/AuthContext";
+import { HOW_IT_WORKS_STEPS } from "@/components/whos-going/HowItWorks";
 import { getSampleGoing } from "@/lib/sample-going";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
@@ -44,8 +45,15 @@ vi.mock("@/lib/api/orders", () => ({
   createCheckoutSession: (...args: unknown[]) => api.createCheckoutSession(...args),
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 beforeEach(() => {
+  // The sample events are dated Sept–Nov 2026, and an ended demo event's Who's Going is closed (V4) and
+  // has no buy bar (A7): read them before they end, whatever the real clock says. Only Date is faked.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
   for (const fn of Object.values(api)) fn.mockReset();
 });
 
@@ -123,8 +131,18 @@ function liveRegion(region: HTMLElement) {
   return within(region).getByRole("status");
 }
 
+/** The phone summary link: "14 going", or in the demo "20 going (sample)". */
 function summaryLink() {
-  return screen.queryByRole("link", { name: /^\d+ going$/ });
+  return screen.queryByRole("link", { name: /^\d+ going( \(sample\))?$/ });
+}
+
+/**
+ * Opens the full list ("See who's going"): the panel is collapsed to a preview
+ * by default (docs/design/mobile-redesign.md §6.4.2).
+ */
+function openList(region: HTMLElement) {
+  const toggle = within(region).getByRole("button", { name: "See who’s going" });
+  if (toggle.getAttribute("aria-expanded") !== "true") fireEvent.click(toggle);
 }
 
 function names(region: HTMLElement) {
@@ -132,11 +150,44 @@ function names(region: HTMLElement) {
   return list ? within(list).getAllByRole("listitem").map((li) => li.textContent) : [];
 }
 
+// Refinement (22 Oct 2026): the step-by-step left the home's band and lives here, where you act on it.
+describe("Who's Going — how it works, in the panel", () => {
+  it("is a closed native disclosure at the panel's foot, with the accurate steps in the order access opens up", async () => {
+    renderEvent(DEMO_EVENT, signedOut());
+    const region = await panel();
+    const details = region.querySelector("details[data-how-it-works]");
+    if (!(details instanceof HTMLDetailsElement)) throw new Error("no How it works disclosure");
+    expect(details.open).toBe(false);
+    const summary = details.querySelector("summary");
+    expect(summary).toHaveTextContent("How Who’s Going works");
+    // A 44px target with the page's focus ring (no outline override).
+    expect(summary).toHaveClass("min-h-11");
+    expect(summary?.className).not.toMatch(/outline-none/);
+    const steps = within(details as HTMLElement).getAllByRole("listitem", { hidden: true }).map((li) => li.textContent);
+    expect(steps).toEqual([...HOW_IT_WORKS_STEPS]);
+    // The facts: the count from three, names and faces with a free verified profile (no ticket),
+    // adding yourself after a ticket, messaging once on the list.
+    expect(steps[0]).toMatch(/three or more/);
+    expect(steps[1]).toMatch(/free profile with a verified email.*names and faces.*No ticket needed/);
+    expect(steps[2]).toMatch(/^Got a ticket\? Add yourself/);
+    expect(steps[3]).toMatch(/on the list/);
+  });
+
+  it("isn't shown for an external event (no Who's Going there)", async () => {
+    const external = sampleEvents.find((e) => e.ticketingMode === "external");
+    if (!external) throw new Error("no external sample");
+    const { container } = renderEvent(external, signedOut());
+    await act(async () => {});
+    expect(container.querySelector("[data-how-it-works]")).toBeNull();
+  });
+});
+
 describe("Who's Going — demo", () => {
   it("shows the fixed sample names and count, with opting in disabled, and never calls the API", async () => {
     renderEvent(DEMO_EVENT, signedOut());
     const sampleData = getSampleGoing(DEMO_EVENT.id);
     const region = await panel();
+    openList(region);
 
     expect(within(region).getByText(String(sampleData.count)).closest("p")).toHaveTextContent(
       `${sampleData.count} going`,
@@ -145,11 +196,13 @@ describe("Who's Going — demo", () => {
     expect(names(region)[0]).toContain(sampleData.attendees[0].displayName);
     const add = within(region).getByRole("button", { name: "Add yourself" });
     expect(add).toBeDisabled();
-    expect(add).toHaveAttribute("aria-disabled", "true");
+    // The shared button and its disabled style (brand-direction-one.md §6.1), not a one-off.
+    expect(add).toHaveClass("btn", "btn-lg");
     expect(within(region).getByRole("note")).toHaveTextContent("These names are samples.");
     expect(summaryLink()).toHaveAttribute("href", "#whos-going");
-    expect(summaryLink()?.closest("p")).toHaveClass("lg:hidden");
-    expect(summaryLink()).toHaveTextContent(`${sampleData.count} going`);
+    expect(summaryLink()?.closest("div")).toHaveClass("lg:hidden");
+    // A demo count is labelled as a sample (docs/design/mobile-redesign.md, Refinement 22 Oct 2026).
+    expect(summaryLink()).toHaveTextContent(`${sampleData.count} going (sample)`);
 
     // "Show more" works locally.
     fireEvent.click(within(region).getByRole("button", { name: "Show more" }));
@@ -159,6 +212,27 @@ describe("Who's Going — demo", () => {
     expect(document.activeElement).toHaveTextContent(sampleData.attendees[6].displayName);
 
     for (const fn of Object.values(api)) expect(fn).not.toHaveBeenCalled();
+  });
+
+  // V4 (visual QA, 22 Oct 2026): the demo kept showing an ended event's sample list. The live API
+  // closes a list once the event has ended (endsAt, or startsAt with no end); the demo now does too.
+  it("closes once the event has ended, as live does: no panel, no summary link, still no API call", () => {
+    vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));
+    renderEvent(DEMO_EVENT, signedOut());
+    expect(screen.queryByRole("region", { name: "Who's going" })).toBeNull();
+    expect(summaryLink()).toBeNull();
+    for (const fn of Object.values(api)) expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("an event with no end time closes once it has started", () => {
+    const start = Date.parse(DEMO_EVENT.startsAt);
+    vi.setSystemTime(new Date(start - 60_000));
+    renderEvent({ ...DEMO_EVENT, endsAt: undefined }, signedOut());
+    expect(screen.getByRole("region", { name: "Who's going" })).toBeInTheDocument();
+    cleanup();
+    vi.setSystemTime(new Date(start + 60_000));
+    renderEvent({ ...DEMO_EVENT, endsAt: undefined }, signedOut());
+    expect(screen.queryByRole("region", { name: "Who's going" })).toBeNull();
   });
 });
 
@@ -205,7 +279,8 @@ describe("Who's Going — signed out", () => {
     const region = await panel();
 
     expect(within(region).getByText("14").closest("p")).toHaveTextContent("14 going");
-    expect(within(region).queryByRole("list")).toBeNull();
+    // The names list (the panel also holds "How Who's Going works", an ordered list of steps).
+    expect(within(region).queryByRole("list", { name: "People going" })).toBeNull();
     expect(within(region).getByRole("link", { name: "Sign in to see who’s going" })).toHaveAttribute(
       "href",
       `/login?next=${encodeURIComponent(`/events/${LIVE_EVENT.slug}`)}`,
@@ -240,6 +315,7 @@ describe("Who's Going — signed in", () => {
     member({ count: 5, attendees: people(5) });
     renderEvent(LIVE_EVENT);
     const region = await panel();
+    openList(region);
 
     expect(names(region)).toHaveLength(5);
     expect(within(region).getByRole("link", { name: "Get a ticket" })).toHaveAttribute("href", "#tickets");
@@ -254,6 +330,7 @@ describe("Who's Going — signed in", () => {
     member({ count: 2, attendees: people(2) });
     renderEvent(LIVE_EVENT);
     let region = await panel();
+    openList(region);
     expect(names(region)).toHaveLength(2);
     expect(within(region).queryByText("2")).toBeNull();
     expect(summaryLink()).toBeNull();
@@ -263,7 +340,8 @@ describe("Who's Going — signed in", () => {
     renderEvent(LIVE_EVENT);
     region = await panel();
     expect(within(region).getByText("No one’s added themselves yet.")).toBeInTheDocument();
-    expect(within(region).queryByRole("list")).toBeNull();
+    // The names list (the panel also holds "How Who's Going works", an ordered list of steps).
+    expect(within(region).queryByRole("list", { name: "People going" })).toBeNull();
   });
 
   it("explains that names need a verified email when the API refuses them (403) and there is a profile", async () => {
@@ -271,7 +349,8 @@ describe("Who's Going — signed in", () => {
     api.listGoingAttendees.mockReset().mockRejectedValue(new ApiError(403, "Verify your email address first."));
     renderEvent(LIVE_EVENT);
     const region = await panel();
-    expect(within(region).queryByRole("list")).toBeNull();
+    // The names list (the panel also holds "How Who's Going works", an ordered list of steps).
+    expect(within(region).queryByRole("list", { name: "People going" })).toBeNull();
     expect(region).toHaveTextContent("Verify your email address to see who’s going and add yourself.");
     expect(within(region).getByText("4").closest("p")).toHaveTextContent("4 going");
   });
@@ -281,7 +360,8 @@ describe("Who's Going — signed in", () => {
     api.listGoingAttendees.mockReset().mockRejectedValue(new ApiError(403, "Create a profile to see who's going."));
     renderEvent(LIVE_EVENT);
     const region = await panel();
-    expect(within(region).queryByRole("list")).toBeNull();
+    // The names list (the panel also holds "How Who's Going works", an ordered list of steps).
+    expect(within(region).queryByRole("list", { name: "People going" })).toBeNull();
     expect(within(region).getByText("4").closest("p")).toHaveTextContent("4 going");
     expect(region).toHaveTextContent("Names are shown to members with a Who’s Going profile.");
     expect(within(region).getByRole("link", { name: "Set up your profile" })).toHaveAttribute("href", "/account");
@@ -302,7 +382,9 @@ describe("Who's Going — signed in", () => {
 
     api.listGoingAttendees.mockResolvedValue({ items: people(4) });
     fireEvent.click(within(region).getByRole("button", { name: "Try again" }));
-    await waitFor(() => expect(names(region)).toHaveLength(4));
+    await waitFor(() => expect(within(region).getByRole("button", { name: "See who’s going" })).toBeInTheDocument());
+    openList(region);
+    expect(names(region)).toHaveLength(4);
     expect(region).not.toHaveTextContent("Lots of people are looking");
   });
 
@@ -429,7 +511,8 @@ describe("Who's Going — signed in", () => {
       api.listGoingAttendees.mockReset().mockRejectedValue(new ApiError(403, "Create a profile to see who's going."));
       renderEvent(LIVE_EVENT);
       const region = await panel();
-      expect(within(region).queryByRole("list")).toBeNull();
+      // The names list (the panel also holds "How Who's Going works", an ordered list of steps).
+    expect(within(region).queryByRole("list", { name: "People going" })).toBeNull();
       expect(region).toHaveTextContent("Want people to know you’re going? Add yourself to see who else is.");
       expect(within(region).getByRole("button", { name: "Add yourself" })).toBeInTheDocument();
       expect(region).not.toHaveTextContent("Verify your email");
@@ -544,6 +627,7 @@ describe("Who's Going — signed in", () => {
     api.unsetGoing.mockResolvedValue(status({ going: false, eligible: true, hasProfile: true }));
     renderEvent(LIVE_EVENT);
     const region = await panel();
+    openList(region);
 
     const rows = names(region);
     expect(rows).toHaveLength(4); // You + three others, no duplicate of the viewer
@@ -570,6 +654,7 @@ describe("Who's Going — signed in", () => {
       });
       renderEvent(LIVE_EVENT);
       const region = await panel();
+      openList(region);
       const buttons = within(region).getAllByRole("button", { name: /^Message / });
       expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
         "Message Person A.",
@@ -587,6 +672,7 @@ describe("Who's Going — signed in", () => {
       member({ count: 3, attendees: people(3), me: status({ eligible: true, hasProfile: true }), profile: PROFILE });
       renderEvent(LIVE_EVENT);
       const region = await panel();
+      openList(region);
       expect(names(region)).toHaveLength(3);
       expect(within(region).queryAllByRole("button", { name: /^Message / })).toHaveLength(0);
     });
@@ -630,7 +716,7 @@ describe("Who's Going — signed in", () => {
     const region = await panel();
     fireEvent.click(within(region).getByRole("button", { name: "Show me as going" }));
     expect(await within(region).findByRole("alert")).toHaveTextContent("Set up your Who's Going profile first.");
-    expect(within(region).getByRole("button", { name: "Add yourself" })).toHaveFocus();
+    await waitFor(() => expect(within(region).getByRole("button", { name: "Add yourself" })).toHaveFocus());
   });
 
   it("keeps focus on Stop showing me when opting out fails", async () => {
@@ -692,6 +778,7 @@ describe("Who's Going — signed in", () => {
     member({ count: 30, attendees: people(8), nextCursor: "c2" });
     renderEvent(LIVE_EVENT);
     const region = await panel();
+    openList(region);
     expect(names(region)).toHaveLength(6);
 
     api.listGoingAttendees.mockResolvedValueOnce({ items: people(12, "More") });
@@ -713,6 +800,7 @@ describe("Who's Going — signed in", () => {
     member({ count: 30, attendees: people(6), nextCursor: "c2" });
     renderEvent(LIVE_EVENT);
     const region = await panel();
+    openList(region);
     api.listGoingAttendees.mockRejectedValueOnce(new ApiError(429, "Too many requests."));
     fireEvent.click(within(region).getByRole("button", { name: "Show more" }));
     expect(
@@ -725,6 +813,7 @@ describe("Who's Going — signed in", () => {
     member({ count: 30, attendees: people(6), nextCursor: "c2" });
     renderEvent(LIVE_EVENT);
     const region = await panel();
+    openList(region);
     api.listGoingAttendees.mockRejectedValueOnce(new ApiError(500, "nope"));
     fireEvent.click(within(region).getByRole("button", { name: "Show more" }));
     expect(await within(region).findByText("Couldn’t load more names.")).toBeInTheDocument();

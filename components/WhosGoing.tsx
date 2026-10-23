@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import DotsMark from "@/components/brand/DotsMark";
 import DemoNotice from "@/components/DemoNotice";
 import { AttendeeMessageAction } from "@/components/messages/ComposeRequest";
 import { Button, ButtonLink } from "@/components/ui/Button";
@@ -15,13 +16,15 @@ import { endSentence } from "@/lib/display-name";
 import { withNext } from "@/lib/safe-next-path";
 import ActionErrorNotice from "./whos-going/ActionErrorNotice";
 import ConsentCopy from "./whos-going/ConsentCopy";
+import HowItWorks from "./whos-going/HowItWorks";
+import GoingFaces, { facesSummary } from "./whos-going/GoingFaces";
 import NameList from "./whos-going/NameList";
 import OptInForm, { type OptInResult } from "./whos-going/OptInForm";
 import { COUNT_THRESHOLD, splitSelf, useWhosGoing, type GoingData } from "./whos-going/WhosGoingProvider";
 import SuspendedNotice from "./whos-going/SuspendedNotice";
 import { mutationErrorMessage, pillClass } from "./whos-going/shared";
 
-/** Three rows of two: keeps the collapsed panel short beside the tickets. */
+/** Three rows of two: keeps the opened list short beside the tickets. */
 export const FIRST_PAGE_SIZE = 6;
 export const MORE_PAGE_SIZE = 12;
 
@@ -53,9 +56,34 @@ function withStatus(data: GoingData, next: MyGoingStatus): GoingData {
   };
 }
 
+/** The disclosure's chevron (decorative). It turns over when the list is open. */
+function ChevronIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`size-4 motion-safe:transition-transform motion-safe:duration-150 motion-safe:ease-out ${open ? "rotate-180" : ""}`.trim()}
+    >
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
 /**
- * "Who's going" on the event page: a count for everyone, names for signed-in
- * members, and opting yourself in or out. Data comes from WhosGoingProvider.
+ * "Who's going" on the event page (docs/design/mobile-redesign.md §6.4.2): a
+ * count for everyone, names for signed-in members, and opting yourself in or
+ * out. Data comes from WhosGoingProvider.
+ *
+ * Collapsed by default: a compact preview (up to five faces, from names this
+ * viewer was already sent, and the count when it's three or more), then "See
+ * who's going", which opens the full list with its paging. No long lists, and
+ * nothing beyond what the data holds: only people who opted in, no
+ * "interested" and no mutuals.
  */
 export default function WhosGoing() {
   const { mode, event, state, retry, update, getToken } = useWhosGoing();
@@ -68,6 +96,8 @@ export default function WhosGoing() {
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [youIsNew, setYouIsNew] = useState(false);
+  /** The full list is open ("See who's going"). Closing it keeps what's loaded. */
+  const [listOpen, setListOpen] = useState(false);
   /** The attendee whose "Message" form is open (one at a time). */
   const [composeFor, setComposeFor] = useState<string | null>(null);
 
@@ -100,10 +130,12 @@ export default function WhosGoing() {
   const data = state.status === "ready" ? state.data : null;
   const others = data?.attendees ?? null;
   const shown = others ? Math.min(visible, others.length) : 0;
-  const expanded = formOpen || composeFor !== null || shown > FIRST_PAGE_SIZE;
+  const expanded = listOpen || formOpen || composeFor !== null;
 
   function joined(displayName: string) {
     setYouIsNew(true);
+    // Their own row confirms it (and takes focus), so the list opens.
+    setListOpen(true);
     setAnnouncement(displayName ? `You're now shown as going as ${endSentence(displayName)}` : "You're now shown as going.");
     pendingFocus.current = { kind: "you" };
   }
@@ -237,10 +269,19 @@ export default function WhosGoing() {
     if (added > 0) pendingFocus.current = { kind: "row", index: from };
   }
 
+  function toggleList() {
+    // Rows revealed earlier don't fade in again on re-opening.
+    setNewFrom(undefined);
+    setListOpen((open) => !open);
+  }
+
   function tryAgain() {
     setAnnouncement("");
     retry();
   }
+
+  const viewerListed =
+    data?.viewer.kind === "signed-in" && !data.viewer.profile?.suspended && Boolean(data.viewer.me.going);
 
   return (
     <div
@@ -250,7 +291,16 @@ export default function WhosGoing() {
       data-wg-expanded={expanded ? "" : undefined}
       aria-busy={state.status === "loading" ? true : undefined}
     >
-      <Panel title="Who's going" titleId="whos-going-title">
+      <Panel
+        title={
+          // The two dots, joined once you're on the list yourself (brand-direction-one.md §5).
+          <span className="flex items-center gap-2">
+            <DotsMark size="xs" joined={viewerListed} className="text-signal" />
+            {"Who's going"}
+          </span>
+        }
+        titleId="whos-going-title"
+      >
         {state.status === "loading" && <p className="min-h-30 text-sm text-muted">Loading who&rsquo;s going…</p>}
 
         {state.status === "error" && (
@@ -263,6 +313,9 @@ export default function WhosGoing() {
         )}
 
         {data && renderReady(data)}
+
+        {/* The how-to, here where you'd act on it (it left the home's band). */}
+        {data && <HowItWorks />}
 
         {/* One polite live region for the panel, always mounted. */}
         <p role="status" className="sr-only">
@@ -291,35 +344,68 @@ export default function WhosGoing() {
 
     return (
       <>
-        {countShown && (
-          <p className="mb-4 flex items-baseline gap-2">
-            <span className="font-heading text-4xl leading-none font-extrabold tabular-nums">{d.count}</span>{" "}
-            <span className="eyebrow text-muted">going</span>
-          </p>
+        {(countShown || (listShown && others)) && (
+          <div className="flex flex-wrap items-center gap-3">
+            {listShown && others && (
+              <GoingFaces attendees={others} youName={youName} getToken={mode === "live" ? getToken : undefined} />
+            )}
+            {/* The faces are hidden from screen readers; with no count beside them, say who they are. */}
+            {listShown && others && !countShown && <p className="sr-only">{facesSummary(others, youName)}</p>}
+            {countShown && (
+              <p className="flex items-baseline gap-2">
+                <span className="font-heading text-2xl leading-none font-bold tabular-nums">{d.count}</span>{" "}
+                <span className="text-sm text-muted">going</span>
+              </p>
+            )}
+          </div>
         )}
 
-        {listShown && others && (
-          <NameList
-            attendees={others.slice(0, shown)}
-            youName={youName}
-            youIsNew={youIsNew}
-            youRef={youRef}
-            newFrom={newFrom}
-            listRef={listRef}
-            renderAction={
-              canMessage && getToken
-                ? (attendee) => (
-                    <AttendeeMessageAction
-                      attendee={attendee}
-                      getToken={getToken}
-                      returnTo={returnTo}
-                      open={composeFor === attendee.attendeeId}
-                      onOpenChange={(open) => setComposeFor(open ? attendee.attendeeId : null)}
-                    />
-                  )
-                : undefined
-            }
-          />
+        {listShown && (
+          <Button
+            variant="outline"
+            aria-expanded={listOpen}
+            aria-controls={listOpen ? "wg-list" : undefined}
+            onClick={toggleList}
+            className={`min-h-11 w-full gap-2 sm:w-auto ${countShown || others ? "mt-4" : ""}`.trim()}
+          >
+            See who&rsquo;s going
+            <ChevronIcon open={listOpen} />
+          </Button>
+        )}
+
+        {listOpen && listShown && others && (
+          <div id="wg-list" className="mt-4">
+            <NameList
+              attendees={others.slice(0, shown)}
+              youName={youName}
+              youIsNew={youIsNew}
+              youRef={youRef}
+              newFrom={newFrom}
+              listRef={listRef}
+              getToken={mode === "live" ? getToken : undefined}
+              renderAction={
+                canMessage && getToken
+                  ? (attendee) => (
+                      <AttendeeMessageAction
+                        attendee={attendee}
+                        getToken={getToken}
+                        returnTo={returnTo}
+                        open={composeFor === attendee.attendeeId}
+                        onOpenChange={(open) => setComposeFor(open ? attendee.attendeeId : null)}
+                      />
+                    )
+                  : undefined
+              }
+            />
+            {hasMore && (
+              <div className="mt-4 flex flex-col items-start gap-3">
+                {loadMoreError && <Notice tone="danger">{loadMoreError}</Notice>}
+                <Button variant="outline" busy={loadingMore} onClick={showMore} className="min-h-11 w-full sm:w-auto">
+                  {loadingMore ? "Loading…" : "Show more"}
+                </Button>
+              </div>
+            )}
+          </div>
         )}
 
         {nobody && <p className="text-sm text-muted">No one&rsquo;s added themselves yet.</p>}
@@ -329,15 +415,6 @@ export default function WhosGoing() {
             <p className="text-sm">{RATE_LIMITED}</p>
             <Button variant="outline" size="sm" className="min-h-11" onClick={tryAgain}>
               Try again
-            </Button>
-          </div>
-        )}
-
-        {hasMore && (
-          <div className="mt-4 flex flex-col items-start gap-3">
-            {loadMoreError && <Notice tone="danger">{loadMoreError}</Notice>}
-            <Button variant="outline" busy={loadingMore} onClick={showMore} className="min-h-11 w-full sm:w-auto">
-              {loadingMore ? "Loading…" : "Show more"}
             </Button>
           </div>
         )}
@@ -358,14 +435,10 @@ export default function WhosGoing() {
   function renderDemoActions() {
     return (
       <>
-        <button
-          type="button"
-          disabled
-          aria-disabled="true"
-          className="btn btn-lg w-full cursor-not-allowed border-surface-border bg-surface-border text-muted sm:w-auto"
-        >
+        {/* The shared disabled style (§6.1). */}
+        <Button size="lg" disabled className="w-full sm:w-auto">
           Add yourself
-        </button>
+        </Button>
         <DemoNotice>These names are samples. Adding yourself isn&rsquo;t available in this demo.</DemoNotice>
       </>
     );

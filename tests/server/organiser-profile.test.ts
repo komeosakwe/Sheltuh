@@ -46,7 +46,13 @@ const PUBLIC_EVENT_KEYS = [
   "title",
   "venueAddress",
   "venueName",
-];
+  // External ticketing (B2): always sent; externalTicketUrl only for external events.
+  "ticketingMode",
+  "externalFree",
+  "externalProvider",
+  // Waitlist (B-WL): always sent.
+  "soldOut",
+].sort();
 
 function profile(organiserId: string) {
   return api.call(getPublicOrganiserProfile, { params: { organiserId } });
@@ -347,6 +353,9 @@ describe("GET /organisers/{organiserId}/profile", () => {
       "categories",
       "description",
       "displayName",
+      "eventsHosted",
+      "featuredVideo",
+      "followerCount",
       "memberSince",
       "organiserId",
       "recentEvents",
@@ -355,6 +364,9 @@ describe("GET /organisers/{organiserId}/profile", () => {
       "websiteUrl",
     ]);
     expect(res.body).toMatchObject({
+      featuredVideo: null,
+      followerCount: null,
+      eventsHosted: 0,
       organiserId: organiser.organiserId,
       displayName: application.displayName,
       description: application.description,

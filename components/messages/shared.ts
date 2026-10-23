@@ -9,6 +9,14 @@ export const THREAD_POLL_MS = 10_000;
 export const inlineLinkClass = "underline underline-offset-4 hover:decoration-2";
 export const tallInlineLinkClass = `inline-flex min-h-11 items-center ${inlineLinkClass}`;
 
+/** A conversation page's layout (live and demo): it fills the screen, with the composer stuck to its foot. */
+export const THREAD_PAGE_CLASS =
+  "mx-auto flex min-h-[calc(100dvh-var(--header-h))] w-full max-w-6xl *:max-w-2xl flex-col px-5 sm:px-8";
+export const THREAD_HEADER_CLASS = "flex flex-col gap-3 border-b border-surface-border pt-4 pb-4 sm:pt-8";
+export const THREAD_MESSAGES_CLASS = "flex flex-1 flex-col gap-4 py-6";
+export const COMPOSER_BAR_CLASS =
+  "sticky bottom-0 -mx-5 border-t border-foreground bg-background px-5 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8";
+
 export function threadHref(conversationId: string) {
   return `/messages/${encodeURIComponent(conversationId)}`;
 }

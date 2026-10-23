@@ -28,8 +28,8 @@ export function sniffImageType(bytes: Uint8Array): ImageType | null {
 
 const EDIT_LOCKED_MESSAGE = "This event can't be edited while it's pending review or published.";
 
-/** Reads a request body, returning null as soon as it exceeds `max` bytes. */
-async function readCapped(req: Request, max: number): Promise<Uint8Array | null> {
+/** Reads a request body, returning null as soon as it exceeds `max` bytes. Also used for profile photos (lib/server/avatar.ts). */
+export async function readCappedBytes(req: Request, max: number): Promise<Uint8Array | null> {
   if (!req.body) return new Uint8Array(0);
   const reader = req.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -53,6 +53,28 @@ async function readCapped(req: Request, max: number): Promise<Uint8Array | null>
   return out;
 }
 
+/**
+ * The uploaded image: raw bytes of at most MAX_EVENT_IMAGE_BYTES (413
+ * otherwise), whose own bytes are a JPEG, PNG or WebP (400 otherwise).
+ * Shared with the admin's upload (admin-authoring.ts).
+ */
+export async function readEventImage(req: Request): Promise<{ bytes: Uint8Array; contentType: ImageType }> {
+  const tooLarge = () =>
+    new HttpError(413, "That image is too large.", { image: "Use an image under 2 MB." });
+  const declared = Number(req.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_EVENT_IMAGE_BYTES) throw tooLarge();
+  // Read as a stream and stop at the cap, so a request with no Content-Length
+  // (chunked) can't make the server buffer an arbitrarily large body first.
+  const bytes = await readCappedBytes(req, MAX_EVENT_IMAGE_BYTES);
+  if (!bytes) throw tooLarge();
+
+  const contentType = sniffImageType(bytes);
+  if (!contentType) {
+    throw new HttpError(400, "That file isn't a supported image.", { image: "Upload a JPEG, PNG or WebP image." });
+  }
+  return { bytes, contentType };
+}
+
 /** PUT /api/events/[eventId]/image — raw image bytes; only while the event is a draft or rejected. */
 export const putEventImage: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
@@ -62,30 +84,22 @@ export const putEventImage: Handler<{ eventId: string }> = async (req, { eventId
     throw new HttpError(409, EDIT_LOCKED_MESSAGE);
   }
 
-  const tooLarge = () =>
-    new HttpError(413, "That image is too large.", { image: "Use an image under 2 MB." });
-  const declared = Number(req.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_EVENT_IMAGE_BYTES) throw tooLarge();
-  // Read as a stream and stop at the cap, so a request with no Content-Length
-  // (chunked) can't make the server buffer an arbitrarily large body first.
-  const bytes = await readCapped(req, MAX_EVENT_IMAGE_BYTES);
-  if (!bytes) throw tooLarge();
-
-  const contentType = sniffImageType(bytes);
-  if (!contentType) {
-    throw new HttpError(400, "That file isn't a supported image.", { image: "Upload a JPEG, PNG or WebP image." });
-  }
+  const { bytes, contentType } = await readEventImage(req);
 
   // Ownership and "still a draft/rejected" are re-checked inside the write
-  // itself (with the event row share-locked), not just before the body was
-  // read: otherwise a slow upload could land after the event was submitted and
-  // approved, putting an unreviewed image on a published event.
+  // itself (with the event row locked), not just before the body was read:
+  // otherwise a slow upload could land after the event was submitted and
+  // approved, putting an unreviewed image on a published event. The event row
+  // is locked for no key update before the image row, the order every image
+  // writer uses: the event_images_touch_event trigger then bumps the event's
+  // updated_at (20261023000100_review_hardening.sql), so an admin editing the
+  // event sees a new version.
   const written = await db.query(
     `insert into public.event_images (event_id, content_type, data)
      select e.id, $2::text, $3::bytea
        from public.events e
       where e.id = $1 and e.organiser_id = $4 and e.status in ('draft', 'rejected')
-        for share of e
+        for no key update of e
      on conflict (event_id) do update set content_type = excluded.content_type,
        data = excluded.data, updated_at = now()
      returning event_id`,
@@ -103,9 +117,15 @@ export const deleteEventImage: Handler<{ eventId: string }> = async (req, { even
   if (event.status !== "draft" && event.status !== "rejected") {
     throw new HttpError(409, EDIT_LOCKED_MESSAGE);
   }
+  // The event row first (for no key update), then the image: see putEventImage.
   const deleted = await db.query(
-    `delete from public.event_images i using public.events e
-      where i.event_id = e.id and e.id = $1 and e.organiser_id = $2 and e.status in ('draft', 'rejected')
+    `with e as (
+       select e.id from public.events e
+        where e.id = $1 and e.organiser_id = $2 and e.status in ('draft', 'rejected')
+          for no key update
+     )
+     delete from public.event_images i using e
+      where i.event_id = e.id
       returning i.event_id`,
     [eventId, organiser.organiserId],
   );

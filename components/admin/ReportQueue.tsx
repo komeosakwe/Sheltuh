@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import MessageField from "@/components/messages/MessageField";
 import { reportReasonLabel } from "@/components/messages/shared";
 import { Button } from "@/components/ui/Button";
+import { SelectedDots } from "@/components/ui/FilterChip";
 import { EmptyState, Notice } from "@/components/ui/Section";
 import { adminListReports, adminResolveReport } from "@/lib/api/admin";
 import { ApiError } from "@/lib/api/client";
@@ -11,6 +12,14 @@ import type { AdminReport, ReportStatus } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatMessageTime } from "@/lib/format";
 import { validateMessage } from "@/lib/message-text";
+import { LoadingState } from "@/components/ui/ProgressLoader";
+import ProfileReportDetails from "./ProfileReportDetails";
+
+const TARGET_LABELS: Record<NonNullable<AdminReport["targetType"]>, string> = {
+  conversation: "Messages",
+  attendee: "Who’s Going name",
+  profile: "Member profile",
+};
 
 const STATUSES: { value: ReportStatus; label: string }[] = [
   { value: "open", label: "Open" },
@@ -29,8 +38,11 @@ function errorText(err: unknown, fallback: string) {
 
 /**
  * /admin/reports: members' reports. Open ones oldest first, with Dismiss or
- * Suspend (with an optional private note); resolved ones for reference.
- * Everything a report carries is plain text, shown as text.
+ * Suspend (with an optional private note); resolved ones for reference. Each
+ * says what was reported (messages, a Who's Going name, a member profile);
+ * a profile report shows the copies taken (photo, bio, Instagram) and can
+ * remove any of them from the profile, with a reason. Everything a report
+ * carries is plain text, shown as text.
  */
 export default function ReportQueue() {
   const auth = useAuth();
@@ -128,6 +140,7 @@ export default function ReportQueue() {
               setAnnouncement("");
             }}
           >
+            {status === s.value && <SelectedDots />}
             {s.label}
           </Button>
         ))}
@@ -138,7 +151,7 @@ export default function ReportQueue() {
           {current} reports
         </h2>
 
-        {state.status === "loading" && <p className="text-sm text-muted">Loading…</p>}
+        {state.status === "loading" && <LoadingState text="Loading…" />}
 
         {state.status === "error" && (
           <div className="flex flex-col items-start gap-3">
@@ -251,6 +264,7 @@ function ReportItem({
     <li className="border-t border-foreground pt-4">
       <article aria-labelledby={`report-${report.reportId}`} className="flex flex-col gap-4">
         <header className="flex flex-col gap-1">
+          {report.targetType && <p className="eyebrow text-muted">{TARGET_LABELS[report.targetType]}</p>}
           <h3
             id={`report-${report.reportId}`}
             tabIndex={-1}
@@ -265,6 +279,8 @@ function ReportItem({
             {report.reportedSuspended && <> · Currently suspended</>}
           </p>
         </header>
+
+        {report.targetType === "profile" && <ProfileReportDetails report={report} getToken={getToken} />}
 
         {report.details && (
           <div>

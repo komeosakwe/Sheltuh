@@ -42,7 +42,8 @@ function linkHrefs(container: HTMLElement) {
 }
 
 describe("Nav — phone menu", () => {
-  it("is a popover invoked by the Menu button, next to a Search link", () => {
+  it("is a popover invoked by the Menu button, next to a Search link (off the home)", () => {
+    pathname = "/events";
     const { menu } = renderNav(fakeAuthValue({ status: "signed-out", configured: true }));
     expect(menu).toHaveAttribute("popover", "auto");
     const button = screen.getByRole("button", { name: "Menu" });
@@ -100,6 +101,16 @@ describe("Nav — phone menu", () => {
     expect(within(menu).getByRole("link", { name: "Discover", hidden: true })).not.toHaveAttribute("aria-current");
   });
 
+  it("marks Discover as the current section on an event's page (and What's on)", () => {
+    for (const path of ["/events/neon-static", "/events"]) {
+      pathname = path;
+      const { menu } = renderNav(fakeAuthValue({ status: "signed-out" }));
+      expect(within(menu).getByRole("link", { name: "Discover", hidden: true })).toHaveAttribute("aria-current", "true");
+      expect(within(menu).getByRole("link", { name: "Map", hidden: true })).not.toHaveAttribute("aria-current");
+      cleanup();
+    }
+  });
+
   it("relabels the button and focuses the first link when opened, and resets on close", () => {
     const { menu } = renderNav(fakeAuthValue({ status: "signed-out" }));
     fireToggle(menu, "open");
@@ -107,6 +118,41 @@ describe("Nav — phone menu", () => {
     expect(within(menu).getByRole("link", { name: "Discover", hidden: true })).toHaveFocus();
     fireToggle(menu, "closed");
     expect(screen.getByRole("button", { name: "Menu" })).toBeInTheDocument();
+  });
+
+  it("makes the page's main and footer inert while open, and live again on close", () => {
+    const main = document.createElement("main");
+    const footer = document.createElement("footer");
+    document.body.append(main, footer);
+    const { menu } = renderNav(fakeAuthValue({ status: "signed-out" }));
+    const header = screen.getByRole("banner");
+
+    fireToggle(menu, "open");
+    expect(main).toHaveAttribute("inert");
+    expect(footer).toHaveAttribute("inert");
+    // The header holds the menu and its Close button: never inert.
+    expect(header).not.toHaveAttribute("inert");
+    expect(menu.closest("[inert]")).toBeNull();
+
+    fireToggle(menu, "closed");
+    expect(main).not.toHaveAttribute("inert");
+    expect(footer).not.toHaveAttribute("inert");
+    main.remove();
+    footer.remove();
+  });
+
+  it("never leaves the page inert after it unmounts with the menu open", () => {
+    const main = document.createElement("main");
+    const footer = document.createElement("footer");
+    document.body.append(main, footer);
+    const { menu, unmount } = renderNav(fakeAuthValue({ status: "signed-out" }));
+    fireToggle(menu, "open");
+    expect(main).toHaveAttribute("inert");
+    unmount();
+    expect(main).not.toHaveAttribute("inert");
+    expect(footer).not.toHaveAttribute("inert");
+    main.remove();
+    footer.remove();
   });
 
   it("closes after an action inside the menu", () => {
@@ -163,6 +209,8 @@ describe("Nav — desktop row", () => {
   });
 
   it("keeps the inline site search and the same destinations", () => {
+    // Off the home: the home's hero has the page's search (V16).
+    pathname = "/events";
     renderNav(fakeAuthValue({ status: "signed-out" }));
     expect(screen.getByRole("search", { name: "Search the site" })).toBeInTheDocument();
     const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
@@ -179,6 +227,7 @@ describe("Nav — desktop row", () => {
 
 describe("Nav — Saved", () => {
   it("puts a Saved heart in the compact bar, between Search and Menu, in every auth state", () => {
+    pathname = "/events";
     for (const auth of [fakeAuthValue({ status: "signed-out" }), fakeAuthValue(), fakeAuthValue({ configured: false, status: "signed-out" })]) {
       const { container } = renderNav(auth);
       const bar = container.querySelector<HTMLElement>("header > div.lg\\:hidden");
@@ -239,11 +288,36 @@ describe("Nav — header", () => {
     expect(renderNav(fakeAuthValue()).container.querySelector("header")).toHaveClass("sticky");
   });
 
-  it("gives the desktop search a short placeholder (the label is unchanged)", () => {
+  // A3 (WCAG 2.5.3, accessibility review 22 Oct 2026): the field was named "Search by event, venue or
+  // suburb" while it showed "Search events". Its name is now the words it shows.
+  it("gives the desktop search a short placeholder, which is also the field's name", () => {
+    pathname = "/events";
     renderNav(fakeAuthValue());
     const search = within(screen.getByRole("search", { name: "Search the site" })).getByRole("searchbox", {
-      name: "Search by event, venue or suburb",
+      name: "Search events",
     });
     expect(search).toHaveAttribute("placeholder", "Search events");
+  });
+
+  // Refinement (22 Oct 2026): the phone bar's search icon goes on the home too, so the hero's field is
+  // the page's one search (no duplicate magnifier).
+  it("has no header search on the home, field or icon, where the hero's search is (V16); every other page keeps both", () => {
+    const { container } = renderNav(fakeAuthValue());
+    expect(screen.queryByRole("search")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Search" })).toBeNull();
+    expect(container.querySelector("a[href='/search']")).toBeNull();
+    cleanup();
+    pathname = "/map";
+    renderNav(fakeAuthValue());
+    expect(screen.getByRole("search", { name: "Search the site" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Search" })).toHaveAttribute("href", "/search");
+  });
+
+  it("names its two navigation landmarks distinctly: the desktop row's Primary, the phone menu's Site menu (A11)", () => {
+    const { menu } = renderNav(fakeAuthValue({ status: "signed-out" }));
+    const primary = screen.getAllByRole("navigation", { name: "Primary", hidden: true });
+    expect(primary).toHaveLength(1);
+    expect(primary[0].closest("#site-menu")).toBeNull();
+    expect(within(menu).getByRole("navigation", { name: "Site menu", hidden: true })).toBeInTheDocument();
   });
 });

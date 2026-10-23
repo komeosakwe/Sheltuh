@@ -22,9 +22,26 @@ export interface EmailMessage {
   text: string;
   html: string;
   inlineImages?: InlineImage[];
+  /**
+   * Extra message headers, e.g. `List-Unsubscribe` on waitlist emails.
+   * Values are fixed text or URLs the server built, never user input.
+   */
+  headers?: Record<string, string>;
 }
 
 export type SendEmail = (message: EmailMessage) => Promise<void>;
+
+/**
+ * A subject line, or a header-bound piece of one, from organiser-supplied
+ * text (an event title, an organiser's name): control, invisible and
+ * text-direction characters (bidi overrides and isolates, zero-width
+ * characters, line and paragraph separators) become one space, so the text
+ * can't reorder or hide what the inbox shows, or bend the header. Every email
+ * builder runs its subject through this, and mailOptions does again.
+ */
+export function subjectLine(value: string): string {
+  return value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ").replace(/ {2,}/g, " ").trim();
+}
 
 /**
  * Nodemailer's options for one message. The recipient goes in as an address
@@ -37,9 +54,11 @@ export function mailOptions(from: string, message: EmailMessage): Mail.Options {
   return {
     from,
     to: { name: "", address: message.to },
-    subject: message.subject,
+    // Already clean from every builder; again here so no subject can reach the header uncleaned.
+    subject: subjectLine(message.subject),
     text: message.text,
     html: message.html,
+    ...(message.headers ? { headers: message.headers } : {}),
     ...(message.inlineImages?.length
       ? {
           attachments: message.inlineImages.map((image) => ({

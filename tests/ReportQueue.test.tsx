@@ -71,6 +71,8 @@ describe("Admin: member reports", () => {
     expect(article).toHaveTextContent("<script>x</script>");
     expect(container.querySelector("img, script")).toBeNull();
     expect(screen.getByRole("button", { name: "Open" })).toHaveAttribute("aria-pressed", "true");
+    // Pressed shows the two dots too, not colour alone.
+    expect(screen.getByRole("button", { name: "Open" }).querySelector("[data-selected-dots]")).not.toBeNull();
   });
 
   it("Dismiss sends the note, removes the report, announces it and focuses the next", async () => {

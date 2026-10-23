@@ -24,7 +24,7 @@ test("the page links a valid manifest, icons and iOS metadata", async ({ page, r
 
   const manifestHref = await page.locator('link[rel="manifest"]').getAttribute("href");
   expect(manifestHref).toBe("/manifest.webmanifest");
-  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#f3f0e8");
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#fffae7");
   await expect(page.locator('meta[name="viewport"]')).toHaveAttribute("content", /viewport-fit=cover/);
   await expect(page.locator('meta[name="apple-mobile-web-app-title"]')).toHaveAttribute("content", "Sheltüh");
   const appleIcon = await page.locator('link[rel="apple-touch-icon"]').getAttribute("href");
@@ -81,9 +81,9 @@ test("the service worker caches static assets and the offline page, and never /a
     return all;
   });
 
-  expect(cached).toContain("sheltuh-shell-v2 /offline.html");
-  expect(cached.some((entry) => entry.startsWith("sheltuh-static-v2 /_next/static/"))).toBe(true);
-  expect(cached).toContain("sheltuh-images-v2 /icons/icon-192.png");
+  expect(cached).toContain("sheltuh-shell-v3 /offline.html");
+  expect(cached.some((entry) => entry.startsWith("sheltuh-static-v3 /_next/static/"))).toBe(true);
+  expect(cached).toContain("sheltuh-images-v3 /icons/icon-192.png");
   expect(cached.filter((entry) => entry.includes("/api"))).toEqual([]);
   // No page HTML: the only non-asset entry is the offline page.
   expect(cached.filter((entry) => !/\/_next\/static\/|\/icons\/|\.(png|svg|ico|jpe?g|webp)$|\/offline\.html$/.test(entry))).toEqual(

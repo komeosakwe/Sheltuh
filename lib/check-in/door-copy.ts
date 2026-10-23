@@ -6,6 +6,7 @@
 import { ApiError } from "@/lib/api/client";
 import type { CheckInLogEntry, CheckInResult } from "@/lib/api/types";
 import { formatDayTime, formatEventTime } from "@/lib/format";
+import { speakSeatLine } from "@/lib/seating/format";
 
 /** One scan: the canonical code and its request id (reused by its retries). */
 export interface DoorScan {
@@ -130,13 +131,15 @@ export function resultAnnouncement(result: DoorResult): string {
   if (result.kind === "foreign") return "Don’t let in. Not a Sheltüh ticket.";
   if (result.kind === "unverified") return `Not verified. Don’t let in yet. ${UNVERIFIED_SPOKEN[result.reason]}`;
   const { outcome, ticket, checkedInAt, otherEventTitle } = result.result;
+  // The seat, spoken after the rest (docs/design/seating.md §5.15): "Stalls, Row F, Seat 12."
+  const seat = ticket?.seat ? ` ${speakSeatLine(ticket.seat)}.` : "";
   switch (outcome) {
     case "admitted":
-      return ticket ? `Let in. ${ticket.ticketTypeName}, ticket ${ticket.ticketNumber} of ${ticket.ticketCount}.` : "Let in.";
+      return ticket ? `Let in. ${ticket.ticketTypeName}, ticket ${ticket.ticketNumber} of ${ticket.ticketCount}.${seat}` : "Let in.";
     case "already_checked_in":
       return checkedInAt
-        ? `Don’t let in. Already checked in at ${formatEventTime(checkedInAt)}.`
-        : "Don’t let in. Already checked in.";
+        ? `Don’t let in. Already checked in at ${formatEventTime(checkedInAt)}.${seat}`
+        : `Don’t let in. Already checked in.${seat}`;
     case "not_admissible":
       return "Don’t let in. Ticket void.";
     case "other_event":

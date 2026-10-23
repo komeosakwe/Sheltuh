@@ -9,6 +9,7 @@ import { getMyEvent } from "@/lib/api/events";
 import type { EventRecord } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 export default function EditEventPageContent() {
   const auth = useAuth();
@@ -44,12 +45,12 @@ export default function EditEventPageContent() {
   }
 
   if (auth.status === "loading" || organiserLoading) {
-    return <p className="text-sm text-muted">Loading…</p>;
+    return <LoadingState text="Loading…" />;
   }
 
   if (auth.status !== "signed-in" || !organiser || organiser.status !== "approved") {
     return (
-      <div className="bg-surface p-4">
+      <div className="rounded-card border border-foreground bg-card p-4">
         <p className="mb-3 text-foreground">You need an approved organiser application to manage events.</p>
         <Link href="/organisers/apply" className="btn btn-solid">
           Apply as an organiser
@@ -67,19 +68,32 @@ export default function EditEventPageContent() {
   }
 
   if (!event) {
-    return <p className="text-sm text-muted">Loading event…</p>;
+    return <LoadingState text="Loading event…" />;
   }
 
   return (
     <>
-      <ButtonLink
-        variant="outline"
-        size="sm"
-        className="min-h-11 w-fit"
-        href={`/dashboard/events/${encodeURIComponent(event.eventId)}/analytics`}
-      >
-        Analytics
-      </ButtonLink>
+      <div className="flex flex-wrap gap-2">
+        <ButtonLink
+          variant="outline"
+          size="sm"
+          className="min-h-11 w-fit"
+          href={`/dashboard/events/${encodeURIComponent(event.eventId)}/analytics`}
+        >
+          Analytics
+        </ButtonLink>
+        {/* Reserved seating: optional, for Sheltüh-ticketed events (docs/design/seating.md §5.13). */}
+        {event.ticketingMode !== "external" && (
+          <ButtonLink
+            variant="outline"
+            size="sm"
+            className="min-h-11 w-fit"
+            href={`/dashboard/${encodeURIComponent(event.eventId)}/seat-map`}
+          >
+            {event.seating ? `Seat map · ${event.seating.seatCount} seats` : "Add a seat map"}
+          </ButtonLink>
+        )}
+      </div>
       <EventEditor getToken={getToken} initial={event} onSaved={setEvent} />
     </>
   );

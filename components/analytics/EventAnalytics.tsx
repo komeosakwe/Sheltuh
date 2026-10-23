@@ -16,6 +16,7 @@ import Attendance from "./Attendance";
 import DataTable from "./DataTable";
 import ExportCsvButton from "./ExportCsvButton";
 import { ValueOrNoData } from "./NoData";
+import OutboundClicks from "./OutboundClicks";
 import { AnalyticsPrivacyNote, LaterStagesNote, ViewsFootnote } from "./Notes";
 import RangeControls from "./RangeControls";
 import { STATUS_LABEL, backLinkClass, buildStats, failureKind, rangeErrorMessage, useKeyedLoad } from "./shared";
@@ -26,12 +27,16 @@ import TrackingLinks from "./TrackingLinks";
 import TrackingLinkStatsTable from "./TrackingLinkStatsTable";
 import TrafficSources from "./TrafficSources";
 import { useAnalyticsRange } from "./useAnalyticsRange";
+import { LoadingState } from "@/components/ui/ProgressLoader";
+import Strap from "@/components/ui/Strap";
 
 /** /dashboard/events/[id]/analytics (docs/design/favourites-analytics.md §5.19). */
 export default function EventAnalytics({ eventId }: { eventId: string }) {
   const path = `/dashboard/events/${encodeURIComponent(eventId)}/analytics`;
   return (
-    <AnalyticsGate returnTo={path}>{(getToken) => <EventReport eventId={eventId} getToken={getToken} />}</AnalyticsGate>
+    <AnalyticsGate title="Event analytics" returnTo={path}>
+      {(getToken) => <EventReport eventId={eventId} getToken={getToken} />}
+    </AnalyticsGate>
   );
 }
 
@@ -100,10 +105,10 @@ function EventReport({ eventId, getToken }: { eventId: string; getToken: GetToke
       <BackLinks eventId={eventId} />
       <header className="mb-10 flex flex-col gap-6 sm:mb-14 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex max-w-3xl flex-col gap-3">
-          <p className="eyebrow text-muted">Event analytics</p>
-          <h1 className="display-md">{event ? event.title || "Untitled event" : "Event analytics"}</h1>
+          <Strap label="Event analytics" rule={false} />
+          <h1 className="display-md break-words">{event ? event.title || "Untitled event" : "Event analytics"}</h1>
           {event && (
-            <p className="text-sm text-muted">
+            <p className="meta text-muted">
               {[formatEventDateShort(event.startsAt), event.venueName, STATUS_LABEL[event.status]].filter(Boolean).join(" · ")}
             </p>
           )}
@@ -141,7 +146,7 @@ function EventReport({ eventId, getToken }: { eventId: string; getToken: GetToke
           </>
         ) : !data ? (
           <div aria-busy="true" className="min-h-96">
-            <p className="text-sm text-muted">Loading analytics…</p>
+            <LoadingState text="Loading analytics…" />
           </div>
         ) : !data.event.everPublished ? (
           <Notice>Analytics start when this event is published. Nothing has been counted yet.</Notice>
@@ -218,6 +223,16 @@ function ReportBody({ data, range, busy }: { data: Report; range: RangeState; bu
           />
         }
       />
+
+      {data.outboundClicks && (
+        <OutboundClicks
+          clicks={data.outboundClicks}
+          range={data.range}
+          days={days}
+          previousLabel={previousLabel}
+          intro="Clicks on this event’s “Get tickets on …” link. Its tickets are sold on that site, so orders, tickets sold and money for this event aren’t counted here."
+        />
+      )}
 
       <Attendance attendance={data.attendance} event={data.event} />
 

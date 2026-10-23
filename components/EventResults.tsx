@@ -1,53 +1,43 @@
-import EventTile from "@/components/ui/EventTile";
-import Carousel, { CarouselItem } from "@/components/ui/Carousel";
+import type { Ref } from "react";
+import EventCard from "@/components/ui/EventCard";
 import type { SheltuhEvent } from "@/lib/types";
 
-const CAROUSEL_COUNT = 24;
+/** The results grid's columns (docs/design/brand-direction-one.md §7): two on phones, then three, then four. */
+export const RESULTS_GRID =
+  "grid grid-cols-2 gap-x-3 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4 lg:gap-x-8";
 
 /**
- * Editorial results layout: the first few events lead in a horizontal
- * carousel; anything beyond that (later pages, "load more") flows into a
- * roomy grid beneath. On phones both are one plain vertical list (the carousel
- * lays itself out as a list below sm, and the grid is one column). Every event
- * renders exactly once.
+ * A list of events as a grid of image-first cards (/events, /search,
+ * /saved), every event exactly once, in the order given. Every card is
+ * visible from the start: nothing waits for a scroll to appear.
  *
- * `layout="grid"` puts every event in the grid (no carousel, no drift), for
- * lists that are for scanning, like /saved.
+ * `heading`: a visually hidden h2 above the grid, for pages whose grid has
+ * no visible section heading, so the cards' h3 titles sit under an h2
+ * rather than straight under the page's h1 (/events, /search).
  */
 export default function EventResults({
   events,
-  layout = "rail",
+  heading,
+  listRef,
 }: {
   events: SheltuhEvent[];
-  layout?: "rail" | "grid";
+  heading?: string;
+  listRef?: Ref<HTMLUListElement>;
 }) {
-  if (layout === "grid") return <ResultsGrid events={events} />;
-
-  const lead = events.slice(0, CAROUSEL_COUNT);
-  const rest = events.slice(CAROUSEL_COUNT);
-
-  return (
-    <div className="flex flex-col gap-8 sm:gap-14">
-      {/* key: a different set of events (a filter change) starts a fresh carousel, so its
-          arrows and drift position never refer to the previous set. */}
-      <Carousel key={lead.map((event) => event.id).join(",")} label="Events" autoScroll>
-        {lead.map((event) => (
-          <CarouselItem key={event.id}>
-            <EventTile event={event} />
-          </CarouselItem>
-        ))}
-      </Carousel>
-      {rest.length > 0 && <ResultsGrid events={rest} />}
-    </div>
-  );
-}
-
-function ResultsGrid({ events }: { events: SheltuhEvent[] }) {
-  return (
-    <div className="grid grid-cols-1 gap-y-8 sm:grid-cols-2 sm:gap-x-6 sm:gap-y-10 md:grid-cols-3 lg:grid-cols-4">
+  const list = (
+    <ul ref={listRef} aria-label="Events" className={RESULTS_GRID}>
       {events.map((event) => (
-        <EventTile key={event.id} event={event} />
+        <li key={event.id} className="flex min-w-0">
+          <EventCard event={event} variant="grid" />
+        </li>
       ))}
-    </div>
+    </ul>
+  );
+  if (!heading) return list;
+  return (
+    <>
+      <h2 className="sr-only">{heading}</h2>
+      {list}
+    </>
   );
 }

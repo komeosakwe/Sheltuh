@@ -173,6 +173,93 @@ describe("admin review of applications", () => {
   });
 });
 
+describe("GET /admin/organisers?q (admin search)", () => {
+  let admin: { token: string };
+
+  async function search(q: string, extra: Record<string, string> = {}) {
+    const res = await api.call(adminListOrganisers, { token: admin.token, query: { status: "approved", q, ...extra } });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    return (res.body.items as { displayName: string }[]).map((o) => o.displayName).sort();
+  }
+
+  beforeEach(async () => {
+    admin = await signUpAdmin(api);
+    await approvedOrganiser(api, admin, { displayName: "Sheltüh Presents", contactEmail: "events@sheltuh.example" });
+    await approvedOrganiser(api, admin, {
+      displayName: "Static Collective",
+      contactEmail: "bookings@warehouse.example",
+      instagramHandle: "static.gigs",
+      xHandle: "StaticGigs",
+    });
+    await approvedOrganiser(api, admin, { displayName: "100% Fun_Times", contactEmail: "hi@fun.example", tiktokHandle: "funtimes" });
+    await approvedOrganiser(api, admin, { displayName: "Café Ünder", contactEmail: "cafe@under.example", facebookPage: "cafe.under" });
+  });
+
+  it("matches name, contact email and handles, ignoring case and accents", async () => {
+    expect(await search("SHELTUH")).toEqual(["Sheltüh Presents"]);
+    expect(await search("sheltüh")).toEqual(["Sheltüh Presents"]);
+    expect(await search("cafe under")).toEqual(["Café Ünder"]);
+    expect(await search("CAFÉ")).toEqual(["Café Ünder"]);
+    expect(await search("warehouse.example")).toEqual(["Static Collective"]);
+    expect(await search("static.GIGS")).toEqual(["Static Collective"]); // Instagram
+    expect(await search("@staticgigs")).toEqual(["Static Collective"]); // X, with the "@"
+    expect(await search("@funtimes")).toEqual(["100% Fun_Times"]); // TikTok
+    expect(await search("cafe.under")).toEqual(["Café Ünder"]); // Facebook page
+    // Fullwidth letters fold to ASCII (NFKD).
+    expect(await search("ＳＴＡＴＩＣ")).toEqual(["Static Collective"]);
+  });
+
+  it("treats LIKE wildcards literally and ignores a blank query", async () => {
+    expect(await search("100%")).toEqual(["100% Fun_Times"]);
+    expect(await search("%")).toEqual(["100% Fun_Times"]);
+    // "_" would match any one character: "c_fe" would find "Café", "un_er" "Ünder".
+    expect(await search("c_fe")).toEqual([]);
+    expect(await search("un_er")).toEqual([]);
+    expect(await search("fun_")).toEqual(["100% Fun_Times"]);
+    expect(await search("\\")).toEqual([]);
+    expect(await search("nobody")).toEqual([]);
+    expect(await search("   ")).toHaveLength(4);
+    // A bare "@" is still text: every contact email has one.
+    expect(await search("@")).toHaveLength(4);
+  });
+
+  it("only searches the status asked for", async () => {
+    const user = await api.signUp();
+    await api.call(applyAsOrganiser, { token: user.token, body: { ...application, displayName: "Sheltuh Pending" } });
+    expect(await search("sheltuh")).toEqual(["Sheltüh Presents"]);
+    const pending = await api.call(adminListOrganisers, { token: admin.token, query: { status: "pending", q: "sheltuh" } });
+    expect(pending.body.items.map((o: { displayName: string }) => o.displayName)).toEqual(["Sheltuh Pending"]);
+  });
+
+  it("pages the matches, at most 50 a page, so an organiser past any first page is reachable", async () => {
+    for (let i = 0; i < 52; i += 1) {
+      await approvedOrganiser(api, admin, { displayName: `Bulk Organiser ${String(i).padStart(2, "0")}` });
+    }
+    const first = await api.call(adminListOrganisers, { token: admin.token, query: { status: "approved", limit: "500" } });
+    expect(first.body.items).toHaveLength(50);
+    expect(first.body.nextCursor).toBeTruthy();
+    // The oldest organiser isn't on the first page of everyone, but a search finds it.
+    expect(first.body.items.map((o: { displayName: string }) => o.displayName)).not.toContain("Sheltüh Presents");
+    expect(await search("presents")).toEqual(["Sheltüh Presents"]);
+
+    const bulk1 = await api.call(adminListOrganisers, { token: admin.token, query: { status: "approved", q: "bulk", limit: "50" } });
+    expect(bulk1.body.items).toHaveLength(50);
+    const bulk2 = await api.call(adminListOrganisers, {
+      token: admin.token,
+      query: { status: "approved", q: "bulk", limit: "50", cursor: bulk1.body.nextCursor },
+    });
+    expect(bulk2.body.items).toHaveLength(2);
+    expect(bulk2.body.nextCursor).toBeUndefined();
+  });
+
+  it("is admin only", async () => {
+    const user = await api.signUp();
+    expect((await api.call(adminListOrganisers, { query: { status: "approved", q: "x" } })).status).toBe(401);
+    expect((await api.call(adminListOrganisers, { token: user.token, query: { status: "approved", q: "x" } })).status).toBe(403);
+  });
+});
+
 describe("Stripe Connect onboarding", () => {
   it("requires an approved organiser", async () => {
     const user = await api.signUp();

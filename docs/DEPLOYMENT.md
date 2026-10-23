@@ -18,9 +18,22 @@ yet: treat the first pass as **test mode**, and only then go live.
   pass, plus the build and 11 browser tests. CI (production build, server
   tests on Postgres 16, browser tests) was green on that exact commit;
   re-check the run for whatever commit you merge.
-- The owner ran migrations 20261001 to 20261004 in the Supabase SQL editor
-  and saw "Success" for each; the first five were already present. Retention
-  cron is scheduled (job id 1).
+- Also on the branch since: external ticketing, admin event authoring,
+  trending, the brand redesign, waitlist, member profiles and photos,
+  organiser follows and featured video, and reserved seating (backend, UI,
+  per-visitor seat-hold limits), each with code, security, accessibility
+  and visual reviews and their fixes; then the Next.js 16.3.8 and sharp 0.35.5
+  security upgrade (a2b46d9). Re-run the gates and check CI on the head
+  commit before merging.
+- **Seating has no on/off switch.** Until the owner chooses per-visitor
+  protection on seat holds (Turnstile or a Vercel WAF rule), keep seating
+  off for real on-sales by not approving seated events. The per-visitor
+  hold limit needs `STRIPE_WEBHOOK_SECRET` set (it fails open without it).
+- **Owner's report, not verified here:** the owner ran migrations 20261001
+  to 20261004 in the Supabase SQL editor and saw "Success" for each, the
+  first five were already present, and a retention cron is scheduled (job
+  id 1). Nothing in this repo proves which migrations production has: check
+  before deploying (the "Migrations" item in the Go-live checklist).
 - **Not done, needs you:** legal sign-off, photo licences (see
   `public/events/README.md`), Supabase/Stripe/Vercel setup below.
 - **Known gaps (deliberate):** no per-person "already talking" state on the
@@ -28,12 +41,111 @@ yet: treat the first pass as **test mode**, and only then go live.
   reporting straight from the Who's Going list; evidence vanishes when a
   member deletes their profile before being reported (product decision).
 
+## Go-live checklist
+
+The items added since the steps below were written (B1 to B4, check-in,
+refunds, the brand redesign, waitlist, member profiles, follows, reserved
+seating). Tick each one on the test setup first, then on
+live. Details are in [`supabase-setup.md`](supabase-setup.md) and
+[`architecture.md`](architecture.md).
+
+- [ ] **Migrations, in order, up to the newest.**
+      **First check what the project has**; don't assume (see Status).
+      - If migrations were applied with the Supabase CLI
+        (`npx supabase db push`), it recorded them:
+        `select version from supabase_migrations.schema_migrations order by version;`
+        Compare that list with the files in `supabase/migrations/`.
+      - If any were run in the SQL editor (which records nothing, and is how
+        the owner reports running them), that table is missing or incomplete.
+        Run [`scripts/check-applied-migrations.sql`](../scripts/check-applied-migrations.sql)
+        in the SQL editor instead. It's read-only and returns one row per
+        migration file with `applied` true or false, judged by an object that
+        file creates (`tests/server/applied-migrations-check.test.ts` checks
+        each row turns true with its file and not before). The rows should be
+        true up to some file and false after it; anything else (a false
+        between trues) means a file was skipped, so stop and investigate.
+
+      Then run every file that's missing, in filename order, one SQL Editor
+      query per file (or `npx supabase db push`), up to and including the
+      newest, currently `20261105000000_organiser_logos.sql`. Never
+      skip one or change the order: later files rely on earlier ones
+      (`20261023000100_review_hardening.sql` stops with a list of event ids
+      if a stored ticket link breaks a newer rule; fix those and re-run it).
+      Re-run the check afterwards. The files on this branch that aren't on
+      `main` (`git diff --name-only --diff-filter=A origin/main HEAD -- supabase/migrations`;
+      PR #12 added none), in order:
+      1. `20261022000000_external_ticketing.sql`
+      2. `20261022000100_admin_event_authoring.sql`
+      3. `20261022000200_external_ticketing_hardening.sql`
+      4. `20261023000000_trending.sql`
+      5. `20261023000100_review_hardening.sql`
+      6. `20261023000200_trending_distinct.sql`
+      7. `20261024000000_waitlist.sql`
+      8. `20261024000100_member_profiles.sql`
+      9. `20261024000200_organiser_follows.sql`
+      10. `20261101000000_reserved_seating.sql`
+      11. `20261101000100_seat_holds.sql`
+      12. `20261102000000_seating_hardening.sql`
+      13. `20261102000100_social_hardening.sql`
+      14. `20261103000000_seat_hold_client_limits.sql`
+      15. `20261103000100_refuse_ended_event_orders.sql`
+      16. `20261105000000_organiser_logos.sql`
+
+      The 21 files before these are on `main`. Whether production has them
+      all is also unverified: the check above covers every file.
+- [ ] **`CRON_SECRET`** in Vercel (Production): a long random string
+      (`openssl rand -hex 32`). Without it `/api/cron/email-outbox` and
+      `/api/cron/trending` refuse every call: failed ticket emails are never
+      retried and Trending stays empty.
+- [ ] **Cron schedules.** See [`schedules.md`](schedules.md) for every
+      timed job (Vercel and Supabase), its time in Melbourne, and how to run
+      it more often. `vercel.json` runs both crons once a day (17:00 and
+      17:20 UTC: 4:00 and 4:20 am AEDT, 3:00 and 3:20 am AEST), the Hobby
+      plan's limit. Moving to **Vercel Pro** changes nothing by itself: edit
+      `vercel.json` (`*/5 * * * *` for `/api/cron/email-outbox`,
+      `*/15 * * * *` for `/api/cron/trending`) and redeploy. On Hobby,
+      Supabase Cron can run the trending refresh directly or call the outbox
+      route through `pg_net` (`schedules.md`, option 2).
+- [ ] **Stripe webhook `charge.refunded`** on the endpoint, in test **and**
+      live mode (configured separately), alongside the checkout and refund
+      events listed in `supabase-setup.md` §2. Without it a refund made in
+      the Stripe dashboard leaves the order paid and its tickets valid at the
+      door.
+- [ ] **Email footer banner** hosted at exactly
+      `https://sheltuh.com.au/images/email-footer.png` (the ticket email
+      links this fixed URL, `EMAIL_FOOTER_IMAGE_URL` in
+      `lib/server/ticket-email.ts`). The file is `public/images/email-footer.png`;
+      while `sheltuh.com.au` is still the Cloudflare Worker landing page,
+      upload it there too. Open the URL in a private window to check. This is
+      the only remote image in any email: the free-ticket confirmation,
+      waitlist and follower emails have none.
+- **Email wordmark: nothing to host.** The ticket email's header wordmark
+  (`lib/server/email-wordmark.ts`, from `public/brand/sheltuh-wordmark-email.png`)
+  is attached to each email inline (`cid:`), like the QR codes, so it shows
+  even when a mail client blocks remote images.
+- [ ] **Privacy Policy wording** (owner to approve; drafts in
+      `architecture.md`, "Trending" and "Check-in"):
+  - Trending and favourites: saved events, Who's Going and ticket orders are
+    counted together with other members' activity to rank a public
+    "Trending" list; it never shows who did what or how many people saved an
+    event; page views are counted without cookies or identifiers; the
+    organiser's own activity is excluded; staff can boost or remove events.
+  - Check-in: when a ticket is scanned at the door, the time (and the
+    scanning account: the organiser, or a Sheltüh admin for platform-managed
+    organisers' events) is recorded, shown with the ticket (its ticket page),
+    and deleted 25 months after the event.
+- [ ] **Bootzy font files.** The licensed display face isn't in the repo;
+      headlines fall back to Instrument Sans. Add
+      `app/fonts/bootzy/Bootzy-Regular.woff2` and its licence file, then
+      follow the three steps in `app/fonts.ts` (`brand-direction-one.md`
+      §3.4). Check the licence covers web embedding.
+
 ## What is ready in the code
 
 - Branch `claude/wizardly-darwin-v2c9n2` holds everything since PR #6:
-  redesign follow-ups, phone home, Who's Going, messaging (backend), security
-  hardening. CI (types, lint, unit + API tests, Postgres 16 API tests, build,
-  browser tests) must be green on the head commit before merging.
+  redesign follow-ups, phone home, Who's Going, messaging, security
+  hardening, and the features listed under Status. CI (types, lint, unit +
+  API tests, Postgres 16 API tests, build, browser tests) must be green on the head commit before merging.
 - Demo mode (no Supabase env) still works; live mode needs the env below.
 
 ## Before you merge
@@ -46,8 +158,8 @@ yet: treat the first pass as **test mode**, and only then go live.
 ## Supabase (test project first)
 
 1. [ ] Create the project in **Sydney (ap-southeast-2)**.
-2. [ ] Run every file in `supabase/migrations/` **in filename order** (nine
-       files, `20260925000000_init.sql` to `20261004000000_messaging_hardening.sql`).
+2. [ ] Run every file in `supabase/migrations/` **in filename order**, from
+       `20260925000000_init.sql` up to the newest (see "Go-live checklist").
 3. [ ] Auth settings: "Confirm email" **on** (Who's Going and messaging trust
        `email_confirmed_at`, so this is a security setting, not a nicety);
        OTP-style email templates; password policy; Site URL set to the real

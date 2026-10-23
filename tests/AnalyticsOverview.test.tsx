@@ -67,19 +67,23 @@ describe("AnalyticsOverview — states", () => {
   it("demo: says accounts aren't configured, and calls nothing", () => {
     renderOverview(fakeAuthValue({ configured: false, status: "signed-out" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Accounts aren’t configured in this environment yet.");
+    expect(screen.getByRole("heading", { level: 1, name: "Analytics" })).toBeInTheDocument();
     expect(api.getAnalyticsOverview).not.toHaveBeenCalled();
   });
 
   it("auth or organiser loading: Loading…", () => {
     organiserState = { loading: true, organiser: null, error: null };
     renderOverview();
-    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Loading your account" })).toBeInTheDocument();
+    // The gate is the page's whole content, so it carries the page's h1.
+    expect(screen.getByRole("heading", { level: 1, name: "Analytics" })).toBeInTheDocument();
     expect(api.getAnalyticsOverview).not.toHaveBeenCalled();
   });
 
   it("signed out: Sign in, back to analytics", () => {
     renderOverview(fakeAuthValue({ status: "signed-out", email: undefined }));
-    expect(screen.getByText("Sign in to see your analytics")).toBeInTheDocument();
+    // The prompt is the page's h1.
+    expect(screen.getByRole("heading", { level: 1, name: "Sign in to see your analytics" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login?next=%2Fdashboard%2Fanalytics");
   });
 
@@ -87,6 +91,7 @@ describe("AnalyticsOverview — states", () => {
     organiserState = { loading: false, organiser: { status: "pending" }, error: null };
     renderOverview();
     expect(screen.getByText("Your organiser application is still pending review.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Analytics" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View application" })).toHaveAttribute("href", "/organisers/apply");
     expect(api.getAnalyticsOverview).not.toHaveBeenCalled();
   });
@@ -101,7 +106,7 @@ describe("AnalyticsOverview — states", () => {
   it("first load: a busy region", () => {
     api.getAnalyticsOverview.mockImplementation(() => new Promise(() => {}));
     renderOverview();
-    expect(screen.getByText("Loading analytics…").closest("[aria-busy='true']")).not.toBeNull();
+    expect(screen.getByRole("progressbar", { name: "Loading analytics" }).closest("[aria-busy='true']")).not.toBeNull();
     expect(screen.getByRole("heading", { level: 1, name: "Analytics" })).toBeInTheDocument();
   });
 

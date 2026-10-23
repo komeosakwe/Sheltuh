@@ -113,7 +113,7 @@ describe("Thread — loading and reading", () => {
       ]),
     );
     renderThread();
-    expect(screen.getByText("Loading the conversation…")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Loading the conversation" })).toBeInTheDocument();
     const list = await ready();
     const items = within(list).getAllByRole("listitem");
     expect(items.map((li) => li.dataset.messageId)).toEqual(["1", "2", "3"]);
@@ -171,13 +171,11 @@ describe("Thread — loading and reading", () => {
     expect(api.getMessages).not.toHaveBeenCalled();
   });
 
-  it("demo mode: a sample conversation, a disabled composer, and no API calls", () => {
+  it("demo mode: an id that isn't a sample conversation isn't available, with no API calls", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     renderThread(fakeAuthValue({ configured: false, status: "signed-out" }));
-    expect(screen.getByRole("note")).toHaveTextContent("Messages aren’t available in this demo.");
-    expect(screen.getByRole("list", { name: "Messages with Priya R." })).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Your message" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(screen.getByRole("heading", { level: 1, name: "This conversation isn’t available" })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     for (const fn of Object.values(api)) expect(fn).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -858,7 +856,9 @@ describe("Thread — every state has an h1, inside the page's padding", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Conversation" }).closest("div.px-5")).not.toBeNull();
     loading.unmount();
     renderThread(fakeAuthValue({ configured: false, status: "signed-out" }));
-    expect(screen.getByRole("heading", { level: 1, name: "Messages" }).closest("div.px-5")).not.toBeNull();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "This conversation isn’t available" }).closest("div.px-5"),
+    ).not.toBeNull();
   });
 
   it("names the page after the person once loaded", async () => {

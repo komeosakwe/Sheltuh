@@ -110,6 +110,8 @@ describe("EmailOutbox", () => {
     expect(await screen.findByText("Nothing has failed")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Sent" }));
     expect(screen.getByRole("button", { name: "Sent" })).toHaveAttribute("aria-pressed", "true");
+    // Pressed shows the two dots too, not colour alone.
+    expect(screen.getByRole("button", { name: "Sent" }).querySelector("[data-selected-dots]")).not.toBeNull();
     expect(await screen.findByRole("heading", { name: "Sent ticket emails" })).toBeInTheDocument();
     expect(adminListEmailJobs).toHaveBeenLastCalledWith("sent", expect.any(Function));
   });

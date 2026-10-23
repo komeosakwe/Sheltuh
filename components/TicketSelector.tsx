@@ -1,32 +1,44 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/Button";
+import { Notice } from "@/components/ui/Section";
+import WaitlistBlock from "@/components/waitlist/WaitlistBlock";
 import { ApiError, isApiConfigured } from "@/lib/api/client";
 import { createCheckoutSession } from "@/lib/api/orders";
 import { MAX_FREE_TICKETS_PER_ORDER } from "@/lib/api/types";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
-import { calculateOrderSummary, sumOrderSummaries } from "@/lib/fees";
+import { calculateOrderSummary, describeBookingFee, sumOrderSummaries } from "@/lib/fees";
 import { formatAud } from "@/lib/format";
-import { formatTicketBreakdown, formatTicketHeadline } from "@/lib/pricing";
+import { formatTicketBreakdown, formatTicketHeadline, isSoldOut, pricedTicketTypes } from "@/lib/pricing";
+import { freeTicketsIn, isLow, ownLimit, ownLimitHint, type Quantities } from "@/lib/ticket-limits";
 import { getTrackingRef } from "@/lib/tracking-ref";
 import type { SheltuhEvent, TicketType } from "@/lib/types";
+import { stepperButtonClass } from "@/components/ui/stepper";
 
-const MAX_QUANTITY_PER_TYPE = 8;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// Phone and tablet sizing comes first in each class list below; the `lg:` classes
-// put desktop back exactly as it was (the mobile spec leaves desktop unchanged).
+function orderTotalCents(ticketTypes: TicketType[], quantities: Quantities): number {
+  return sumOrderSummaries(
+    ticketTypes.map((t) => calculateOrderSummary(t.priceCents, quantities[t.id] ?? 0, t.feePolicy)),
+  ).totalCents;
+}
 
-// The steppers use aria-disabled, not `disabled`: reaching 0 or the cap must
-// leave focus on the button rather than dropping it to <body>.
-const stepperButtonClass =
-  "flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-foreground text-lg font-semibold text-foreground transition-colors hover:border-accent hover:text-accent aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:hover:border-surface-border aria-disabled:hover:text-foreground";
-
+/**
+ * The general admission ticket selector. Never sells a seated tier (reserved
+ * seating): those are only bought by choosing seats on the seat page, so
+ * they're left out here even if an event with a seat map reaches it.
+ */
 export default function TicketSelector({ event }: { event: SheltuhEvent }) {
-  const ticketTypes = event.ticketTypes;
+  const ticketTypes = useMemo(() => event.ticketTypes.filter((ticket) => !ticket.seated), [event.ticketTypes]);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The panel's one live region: each change to the selection, and why a
+  // stepper at its limit didn't change it (brand-direction-one.md §6.9).
+  const [announcement, setAnnouncement] = useState("");
+  const idPrefix = useId();
   // Signed in: the account's email is the default, since a ticket booked
   // with it is also what lets them add themselves to Who's Going. Whatever
   // they type replaces it. (Read optionally: this also renders without auth.)
@@ -35,6 +47,9 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const [typedEmail, setTypedEmail] = useState<string | null>(null);
   const buyerEmail = typedEmail ?? accountEmail ?? "";
   const [emailError, setEmailError] = useState<string | null>(null);
+  // Bumped with every email error (even the same words again), so focus can
+  // follow each one to the field once it's rendered.
+  const [emailErrorCount, setEmailErrorCount] = useState(0);
   // A free order waiting on its emailed confirmation link: the address it went to.
   const [sentTo, setSentTo] = useState<string | null>(null);
   const sentHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -51,32 +66,71 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     }
   }, [sentTo]);
 
+  // An email error (ours or the API's) puts focus on the field it's about,
+  // after the message is in the field's description.
+  useEffect(() => {
+    if (emailErrorCount > 0) emailInputRef.current?.focus();
+  }, [emailErrorCount]);
+
+  function showEmailError(message: string) {
+    setEmailError(message);
+    setEmailErrorCount((n) => n + 1);
+  }
+
   // Only live events (which carry an organiserId) can be checked out —
   // demo sample events never have one, since there's no backend to check
   // out against.
   const canCheckout = isApiConfigured && Boolean(event.organiserId);
 
+  // Every tier sold out (the server's `soldOut`): no order summary or
+  // checkout, the waitlist instead (brand-direction-one.md §6.11). While the
+  // event hasn't ended; after that the waitlist is closed.
+  const soldOut = isSoldOut(event);
+  const ended = Date.parse(event.endsAt ?? event.startsAt) <= new Date().getTime();
+
   // Free tickets: at most MAX_FREE_TICKETS_PER_ORDER in total per booking,
   // across every free type, whether or not paid tickets are in it too (the
-  // checkout API refuses anything more with a 400).
-  const freeTypeCount = ticketTypes.filter((t) => t.priceCents === 0).length;
-  const freeChosen = ticketTypes.reduce((n, t) => n + (t.priceCents === 0 ? (quantities[t.id] ?? 0) : 0), 0);
-  const freeLimitReached = freeChosen >= MAX_FREE_TICKETS_PER_ORDER;
+  // checkout API refuses anything more with a 400). Sold-out types don't count.
+  const freeTypeCount = ticketTypes.filter((t) => t.priceCents === 0 && !t.soldOut).length;
+  const freeLimitReached = freeTicketsIn(ticketTypes, quantities) >= MAX_FREE_TICKETS_PER_ORDER;
+  const freeLimitText = `Up to ${MAX_FREE_TICKETS_PER_ORDER} free tickets per booking${freeTypeCount > 1 ? ", in total across the free ticket types" : ""}.`;
 
-  function capFor(ticket: TicketType): number {
-    const cap = Math.min(ticket.quantityAvailable, MAX_QUANTITY_PER_TYPE);
-    if (ticket.priceCents > 0) return cap;
-    return Math.min(cap, MAX_FREE_TICKETS_PER_ORDER - (freeChosen - (quantities[ticket.id] ?? 0)));
+  /** How many of `ticket` this selection can hold, and why no more. */
+  function limitFor(ticket: TicketType, selection: Quantities): { cap: number; reason: string } {
+    const own = ownLimit(ticket);
+    if (ticket.priceCents > 0) return { cap: own, reason: ownLimitHint(ticket) };
+    const freeRoom =
+      MAX_FREE_TICKETS_PER_ORDER - (freeTicketsIn(ticketTypes, selection) - (selection[ticket.id] ?? 0));
+    return freeRoom < own ? { cap: freeRoom, reason: freeLimitText } : { cap: own, reason: ownLimitHint(ticket) };
+  }
+
+  function announce(text: string) {
+    // The same words again (another press at a limit) must still be read out:
+    // a trailing no-break space changes the region's text.
+    setAnnouncement((prev) => (prev === text ? `${text}\u00a0` : text));
   }
 
   function setQuantity(ticket: TicketType, value: number) {
-    const clamped = Math.max(0, Math.min(value, capFor(ticket)));
+    const current = quantities[ticket.id] ?? 0;
+    const { cap, reason } = limitFor(ticket, quantities);
+    const clamped = Math.max(0, Math.min(value, cap));
     // A press on a stepper that's at its limit (aria-disabled, so still
-    // clickable) changes nothing, and keeps any message on screen.
-    if (clamped === (quantities[ticket.id] ?? 0)) return;
-    setQuantities((prev) => ({ ...prev, [ticket.id]: clamped }));
+    // clickable) changes nothing, and keeps any message on screen. At the
+    // top, it says why.
+    if (clamped === current) {
+      if (value > current) announce(`${ticket.name}: ${current}. ${reason}`);
+      return;
+    }
+    const next = { ...quantities, [ticket.id]: clamped };
+    setQuantities(next);
     // A refusal was about the old selection.
     setError(null);
+    const totalCents = orderTotalCents(ticketTypes, next);
+    const reachedLimit = clamped > current && clamped >= limitFor(ticket, next).cap;
+    announce(
+      `${ticket.name}: ${clamped}. Total ${formatAud(totalCents)}${totalCents > 0 ? " incl. booking fees" : ""}.` +
+        (reachedLimit ? ` ${limitFor(ticket, next).reason}` : ""),
+    );
   }
 
   const lineSummaries = useMemo(
@@ -95,16 +149,25 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const orderTotal = sumOrderSummaries(lineSummaries.map((line) => line.summary));
 
   const hasAnyTickets = lineSummaries.some((line) => line.quantity > 0);
+  // Every ticket on sale free: no payment step, but an emailed confirmation link.
+  const allFree = pricedTicketTypes({ ...event, ticketTypes }).every((t) => t.priceCents === 0);
+  const buyerPaysAFee = ticketTypes.some((t) => t.priceCents > 0 && t.feePolicy === "buyer-pays");
+  const steps = allFree
+    ? ["Choose tickets", "Confirm by email", "Tickets"]
+    : ["Choose tickets", "Pay on Stripe", "Tickets by email"];
   // Paid orders give Stripe an email at checkout; free ones skip Stripe, so
   // this is the only way their tickets can reach the buyer.
   const needsEmail = canCheckout && hasAnyTickets && orderTotal.totalCents === 0;
+  // Before anything is chosen there's no total to go by: the event's own
+  // tickets decide whether this is a free booking.
+  const freeBooking = hasAnyTickets ? orderTotal.totalCents === 0 : allFree;
 
   async function handleCheckout() {
     if (!event.organiserId) return;
     setError(null);
     setEmailError(null);
     if (needsEmail && !EMAIL_REGEX.test(buyerEmail.trim())) {
-      setEmailError("Enter the email address to send your tickets to.");
+      showEmailError("Enter the email address to send your tickets to.");
       return;
     }
     setLoading(true);
@@ -141,7 +204,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         // tickets in `lineItems`) has no field to highlight, so it's said in
         // full rather than as "fix the highlighted fields".
         const { buyerEmail: emailMessage, ...others } = err.fieldErrors;
-        if (emailMessage) setEmailError(emailMessage);
+        if (emailMessage) showEmailError(emailMessage);
         const otherMessages = Object.values(others).filter(Boolean).join(" ");
         if (otherMessages || !emailMessage) setError(otherMessages || err.message);
       } else {
@@ -152,193 +215,272 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* Before the tickets, so the limit is known before choosing. */}
-      {freeTypeCount > 0 && (
-        <p id="free-ticket-limit" aria-live="polite" className="text-xs text-muted">
+    <div className="flex flex-col gap-5 rounded-card border border-foreground bg-card p-4 sm:p-5">
+      {/* What happens next, before anything is chosen (static: no progress bar). */}
+      {canCheckout && !soldOut && (
+        <div className="flex flex-col gap-1">
+          <ol aria-label="How booking works" className="eyebrow flex flex-wrap gap-x-3 gap-y-1">
+            {steps.map((step, i) => (
+              <li
+                key={step}
+                aria-current={i === 0 ? "step" : undefined}
+                className={`flex gap-x-3 ${i === 0 ? "text-foreground" : "text-muted"}`}
+              >
+                {i > 0 && <span aria-hidden="true">&rarr;</span>}
+                <span>
+                  {i + 1} {step}
+                </span>
+              </li>
+            ))}
+          </ol>
+          {allFree && (
+            <p className="text-xs text-muted">Signed in with a verified email? Step 2 is usually skipped.</p>
+          )}
+        </div>
+      )}
+
+      {/* The fee rule only where a buyer pays it: not for free-only events, or
+          ones whose organiser absorbs every fee. */}
+      {buyerPaysAFee && (
+        <p className="text-sm text-muted">Booking fee: {describeBookingFee()}. Free tickets never carry a fee.</p>
+      )}
+
+      {/* Before the tickets, so the limit is known before choosing. Not a live
+          region: the panel's status below says when a limit is reached. */}
+      {freeTypeCount > 0 && !soldOut && (
+        <p id="free-ticket-limit" className="text-xs text-muted">
           {freeLimitReached
             ? `That's the most free tickets one booking can have (${MAX_FREE_TICKETS_PER_ORDER}${freeTypeCount > 1 ? " in total, across the free ticket types" : ""}).`
-            : `Up to ${MAX_FREE_TICKETS_PER_ORDER} free tickets per booking${freeTypeCount > 1 ? ", in total across the free ticket types" : ""}.`}
+            : freeLimitText}
         </p>
       )}
 
-      <ul className="flex flex-col gap-4">
-        {lineSummaries.map(({ ticket, quantity }) => {
-          const cap = capFor(ticket);
+      <ul className="flex flex-col">
+        {lineSummaries.map(({ ticket, quantity }, index) => {
+          const { cap } = limitFor(ticket, quantities);
           const breakdown = formatTicketBreakdown(ticket);
+          // The type's own limit, said before it's reached. A free type within
+          // the free-ticket limit has the line above instead.
+          const showOwnLimit =
+            ticket.priceCents > 0 || ownLimit(ticket) < MAX_FREE_TICKETS_PER_ORDER || isLow(ticket);
+          const ownLimitId = `${idPrefix}-limit-${index}`;
+          const describedBy =
+            [showOwnLimit ? ownLimitId : null, ticket.priceCents === 0 ? "free-ticket-limit" : null]
+              .filter(Boolean)
+              .join(" ") || undefined;
+          const tierSoldOut = ticket.soldOut === true;
           return (
             <li
               key={ticket.id}
-              className="flex flex-col gap-4 bg-surface p-4 sm:flex-row sm:items-center sm:justify-between lg:gap-3"
+              className="flex flex-col gap-3 border-t border-surface-border py-4 first:border-t-0 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
             >
-              <div className="flex-1">
-                <p className="text-base font-semibold text-foreground">{ticket.name}</p>
-                {ticket.description && (
-                  <p className="text-sm text-muted">{ticket.description}</p>
-                )}
-                {/* The all-inclusive price: the loudest thing in the row on phones. */}
-                <p className="mt-1 text-base font-semibold tabular-nums text-foreground lg:text-sm lg:font-normal lg:normal-nums">
+              <div className="min-w-0 flex-1">
+                <p className="text-base leading-snug font-semibold text-foreground">{ticket.name}</p>
+                {/* The all-inclusive price per ticket comes first and is the loudest
+                    number, at every width (ACCC: brand-direction-one.md §6.8). A sold-out
+                    tier keeps its total (it's still advertised), muted. */}
+                <p
+                  className={`mt-1 text-base leading-6 font-semibold tabular-nums ${tierSoldOut ? "text-muted" : "text-foreground"}`}
+                >
                   {formatTicketHeadline(ticket)}
                 </p>
-                {quantity > 0 && breakdown && (
-                  <p className="mt-0.5 text-xs text-muted">{breakdown}</p>
+                {ticket.description && <p className="mt-1 text-sm text-muted">{ticket.description}</p>}
+                {/* What makes up the total, before anything is chosen. Never louder than it. */}
+                {breakdown && <p className="mt-1 text-xs text-muted tabular-nums">{breakdown}</p>}
+                {showOwnLimit && !tierSoldOut && (
+                  // "Only N left" is the server's own count (10 or fewer), in black, never orange.
+                  <p
+                    id={ownLimitId}
+                    className={`mt-1 text-xs ${isLow(ticket) ? "font-semibold text-foreground" : "text-muted"}`}
+                  >
+                    {ownLimitHint(ticket)}
+                  </p>
                 )}
               </div>
-              <div
-                role="group"
-                aria-label={`Quantity for ${ticket.name}`}
-                className="flex items-center gap-2"
-              >
-                <button
-                  type="button"
-                  onClick={() => setQuantity(ticket, quantity - 1)}
-                  aria-disabled={quantity <= 0}
-                  aria-label={`Decrease quantity for ${ticket.name}`}
-                  className={stepperButtonClass}
+              {tierSoldOut ? (
+                // Words in place of the stepper: never a colour alone.
+                <p className="eyebrow shrink-0 text-foreground">Sold out</p>
+              ) : (
+                <div
+                  role="group"
+                  aria-label={`Quantity for ${ticket.name}`}
+                  className="flex shrink-0 items-center gap-2"
                 >
-                  &minus;
-                </button>
-                <span
-                  aria-live="polite"
-                  className="w-10 text-center text-lg font-medium tabular-nums text-foreground lg:w-8 lg:text-base"
-                >
-                  {quantity}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setQuantity(ticket, quantity + 1)}
-                  aria-disabled={quantity >= cap}
-                  aria-label={`Increase quantity for ${ticket.name}`}
-                  aria-describedby={ticket.priceCents === 0 ? "free-ticket-limit" : undefined}
-                  className={stepperButtonClass}
-                >
-                  +
-                </button>
-              </div>
+                  <button
+                    type="button"
+                    onClick={() => setQuantity(ticket, quantity - 1)}
+                    aria-disabled={quantity <= 0}
+                    aria-label={`Decrease quantity for ${ticket.name}`}
+                    className={stepperButtonClass}
+                  >
+                    &minus;
+                  </button>
+                  <span className="w-10 text-center text-lg leading-6 font-semibold tabular-nums text-foreground">
+                    {quantity}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setQuantity(ticket, quantity + 1)}
+                    aria-disabled={quantity >= cap}
+                    aria-label={`Increase quantity for ${ticket.name}`}
+                    aria-describedby={describedBy}
+                    className={stepperButtonClass}
+                  >
+                    +
+                  </button>
+                </div>
+              )}
             </li>
           );
         })}
       </ul>
 
-      <div className="bg-surface p-4">
-        <h3 className="font-heading text-xl text-foreground">Order summary</h3>
-        <dl className="mt-3 flex flex-col gap-2 text-sm">
-          <div className="flex justify-between">
-            <dt className="text-muted">Ticket subtotal</dt>
-            <dd className="text-foreground">{formatAud(orderTotal.subtotalCents)}</dd>
-          </div>
-          <div className="flex justify-between">
-            <dt className="text-muted">Booking fees (you pay)</dt>
-            <dd className="text-foreground">{formatAud(orderTotal.buyerFeeCents)}</dd>
-          </div>
-          <div className="flex justify-between border-t border-surface-border pt-2 text-base font-semibold lg:text-sm">
-            <dt className="text-foreground">Total</dt>
-            <dd className="text-foreground">{formatAud(orderTotal.totalCents)}</dd>
-          </div>
-        </dl>
+      {/* Each change to the selection, with the new total (and, at a limit, why). */}
+      <p role="status" className="sr-only">
+        {announcement}
+      </p>
 
-        {canCheckout && sentTo !== null ? (
-          <div className="mt-4 flex flex-col gap-2">
-            <h4 ref={sentHeadingRef} tabIndex={-1} className="font-heading text-xl text-foreground outline-offset-2">
-              Check your inbox
-            </h4>
-            <p role="status" className="text-sm text-foreground">
-              We&rsquo;ve emailed a link to <span className="break-all font-semibold">{sentTo}</span>. Open it and
-              press Confirm to get your tickets. The link works for 24 hours.
-            </p>
-            <p className="text-xs text-muted">
-              Nothing there after a few minutes? Check your spam folder. Your tickets aren&rsquo;t held until you
-              confirm.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                focusEmailField.current = true;
-                setSentTo(null);
-              }}
-              className="btn btn-outline mt-2 min-h-11 w-full lg:w-auto"
-            >
-              Use a different email
-            </button>
-          </div>
-        ) : canCheckout ? (
-          <>
-            {needsEmail && (
-              <div className="mt-4 flex flex-col gap-1">
-                <label htmlFor="buyer-email" className="text-sm font-medium text-foreground">
-                  Email for your tickets
-                </label>
-                <input
-                  ref={emailInputRef}
-                  id="buyer-email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  value={buyerEmail}
-                  onChange={(e) => setTypedEmail(e.target.value)}
-                  aria-invalid={emailError ? true : undefined}
-                  aria-describedby={emailError ? "buyer-email-hint buyer-email-error" : "buyer-email-hint"}
-                  // 16px text so iOS doesn't zoom on focus, and a 48px target.
-                  className="min-h-12 border border-foreground bg-transparent px-3 py-2 text-base text-foreground lg:min-h-0"
-                />
-                <p id="buyer-email-hint" className="text-xs text-muted">
-                  We&rsquo;ll send your tickets here. Booking with your Sheltüh account email
-                  also lets you add yourself to Who&rsquo;s Going.
-                </p>
-                {emailError && (
-                  <p id="buyer-email-error" role="alert" className="text-sm text-danger">
-                    {emailError}
+      {soldOut ? (
+        <WaitlistBlock eventId={event.id} closed={ended} demo={!canCheckout} />
+      ) : (
+        <div className="border-t border-foreground pt-4">
+          <h3 className="eyebrow text-muted">Order summary</h3>
+          <dl className="mt-3 flex flex-col gap-2 text-sm">
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted">Tickets</dt>
+              <dd className="tabular-nums text-foreground">{formatAud(orderTotal.subtotalCents)}</dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted">Booking fees</dt>
+              <dd className="tabular-nums text-foreground">{formatAud(orderTotal.buyerFeeCents)}</dd>
+            </div>
+            {/* The total is the largest number in the panel. */}
+            <div className="mt-1 flex items-baseline justify-between gap-4 border-t border-foreground pt-3">
+              <dt className="text-lg leading-6 font-bold text-foreground">Total</dt>
+              <dd className="text-xl leading-7 font-bold tabular-nums text-foreground">
+                {formatAud(orderTotal.totalCents)}
+              </dd>
+            </div>
+          </dl>
+
+          {canCheckout && sentTo !== null ? (
+            <div className="mt-4 flex flex-col gap-2">
+              <h4 ref={sentHeadingRef} tabIndex={-1} className="font-heading text-xl text-foreground outline-offset-2">
+                Check your inbox
+              </h4>
+              <p role="status" className="text-sm text-foreground">
+                We&rsquo;ve emailed a link to <span className="break-all font-semibold">{sentTo}</span>. Open it and
+                press Confirm to get your tickets. The link works for 24 hours.
+              </p>
+              <p className="text-xs text-muted">
+                Nothing there after a few minutes? Check your spam folder. Your tickets aren&rsquo;t held until you
+                confirm.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  focusEmailField.current = true;
+                  setSentTo(null);
+                }}
+                className="btn btn-outline mt-2 min-h-11 w-full lg:w-auto"
+              >
+                Use a different email
+              </button>
+            </div>
+          ) : canCheckout ? (
+            <>
+              {needsEmail && (
+                <div className="mt-4 flex flex-col gap-1">
+                  <label htmlFor="buyer-email" className="eyebrow text-muted">
+                    Email for your tickets
+                  </label>
+                  <input
+                    ref={emailInputRef}
+                    id="buyer-email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={buyerEmail}
+                    onChange={(e) => setTypedEmail(e.target.value)}
+                    aria-invalid={emailError ? true : undefined}
+                    aria-describedby={emailError ? "buyer-email-hint buyer-email-error" : "buyer-email-hint"}
+                    // 16px text so iOS doesn't zoom on focus, and a 48px target. Border, fill and the
+                    // invalid state come from the base field styles (globals.css).
+                    className="min-h-12 px-3 py-2 text-base"
+                  />
+                  <p id="buyer-email-hint" className="text-xs text-muted">
+                    We&rsquo;ll send your tickets here. Booking with your Sheltüh account email
+                    also lets you add yourself to Who&rsquo;s Going.
                   </p>
-                )}
-              </div>
-            )}
-            {orderTotal.totalCents > 0 && accountEmail && (
-              <p className="mt-4 text-xs text-muted">
-                Booking as {accountEmail}, your account email, so you can add yourself to Who&rsquo;s Going.
+                  {emailError && (
+                    <p id="buyer-email-error" role="alert" className="text-sm text-danger">
+                      {emailError}
+                    </p>
+                  )}
+                </div>
+              )}
+              {orderTotal.totalCents > 0 && accountEmail && (
+                <p className="mt-4 text-xs text-muted">
+                  Booking as {accountEmail}, your account email, so you can add yourself to Who&rsquo;s Going.
+                </p>
+              )}
+              {/* Black, not orange: checkout stays quiet (brand-direction-one.md §6.9).
+                  Busy, not disabled, while it works: focus stays on it. */}
+              <Button
+                variant="solid"
+                size="lg"
+                onClick={handleCheckout}
+                busy={loading}
+                disabled={!hasAnyTickets}
+                className="mt-4 w-full"
+              >
+                {loading
+                  ? freeBooking
+                    ? "Booking…"
+                    : "Redirecting to checkout…"
+                  : freeBooking
+                    ? "Get free tickets"
+                    : "Checkout"}
+              </Button>
+              {error && (
+                <div className="mt-3">
+                  <Notice tone="danger" role="alert">
+                    {error}
+                  </Notice>
+                </div>
+              )}
+              <p className="mt-2 text-xs text-muted">
+                By booking you agree to the{" "}
+                <Link href="/purchase-terms" className="text-foreground underline underline-offset-2">
+                  Purchase Terms
+                </Link>
+                . See our{" "}
+                <Link href="/privacy" className="text-foreground underline underline-offset-2">
+                  Privacy Policy
+                </Link>
+                .
               </p>
-            )}
-            <button
-              type="button"
-              onClick={handleCheckout}
-              disabled={!hasAnyTickets || loading}
-              className="btn btn-solid btn-lg mt-4 w-full lg:px-6 lg:py-2.5 lg:text-xs/4.5"
-            >
-              {loading
-                ? orderTotal.totalCents === 0
-                  ? "Booking…"
-                  : "Redirecting to checkout…"
-                : orderTotal.totalCents === 0
-                  ? "Get free tickets"
-                  : "Checkout"}
-            </button>
-            {error && (
-              <p role="alert" className="mt-2 text-sm text-danger">
-                {error}
+              <p className="mt-2 text-xs text-muted">
+                {!hasAnyTickets
+                  ? "Choose tickets to continue."
+                  : freeBooking
+                    ? "No payment step. We'll email you a link to confirm your tickets before they're issued. Signed in and booking with your account's verified email? That step is usually skipped."
+                    : "You'll pay securely on Stripe's own checkout page."}
               </p>
-            )}
-            <p className="mt-2 text-xs text-muted">
-              {orderTotal.totalCents === 0
-                ? "No payment step. We'll email you a link to confirm your tickets before they're issued. Signed in and booking with your account's verified email? That step is usually skipped."
-                : "You'll pay securely on Stripe's own checkout page."}
-            </p>
-          </>
-        ) : (
-          <>
-            <button
-              type="button"
-              disabled
-              aria-disabled="true"
-              className="mt-4 w-full cursor-not-allowed rounded-full bg-surface-border px-4 py-3 font-medium text-muted"
-            >
-              Checkout unavailable in this demo
-            </button>
-            <p className="mt-2 text-xs text-muted">
-              This is a local prototype. No payment information is collected and no tickets are
-              issued{hasAnyTickets ? " — the total above is a preview only." : "."}
-            </p>
-          </>
-        )}
-      </div>
+            </>
+          ) : (
+            <>
+              <button type="button" disabled aria-disabled="true" className="btn btn-lg mt-4 w-full">
+                Checkout unavailable in this demo
+              </button>
+              <p className="mt-2 text-xs text-muted">
+                This is a local prototype. No payment information is collected and no tickets are
+                issued{hasAnyTickets ? " — the total above is a preview only." : "."}
+              </p>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

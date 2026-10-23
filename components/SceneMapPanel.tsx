@@ -8,6 +8,7 @@ import EventMarkerLayer, { type MarkerDatum, type OpenSpot } from "@/components/
 import MapSpotList from "@/components/map/MapSpotList";
 import { runQuietly, stopQuietly } from "@/components/map/quiet-map";
 import { buttonClass } from "@/components/ui/Button";
+import { ProgressLoader, useLoadingProgress } from "@/components/ui/ProgressLoader";
 import {
   MELBOURNE_DEFAULT_CENTER,
   MELBOURNE_DEFAULT_ZOOM,
@@ -31,10 +32,15 @@ function MapStyles() {
         background: color-mix(in srgb, var(--background) 85%, transparent) !important; color: var(--muted) !important;
       }
       .leaflet-control-attribution a { color: var(--foreground) !important; }
+      /* Zoom: two separate 44px rounded-square controls with a black edge (§6.1), not Leaflet's grey bar. */
+      .leaflet-control-zoom.leaflet-bar { border: 0 !important; box-shadow: none !important; display: flex; flex-direction: column; gap: 0.5rem; }
       .leaflet-control-zoom a {
-        background: var(--background) !important; color: var(--foreground) !important; border-color: var(--foreground) !important;
+        width: 2.75rem !important; height: 2.75rem !important; line-height: 2.625rem !important; font-size: 1.25rem !important;
+        background: var(--card) !important; color: var(--foreground) !important;
+        border: 1px solid var(--foreground) !important; border-radius: var(--radius-control) !important;
       }
       .leaflet-control-zoom a:hover { background: var(--surface) !important; }
+      .leaflet-control-zoom a.leaflet-disabled { color: var(--muted) !important; border-color: var(--surface-border) !important; }
       @media (prefers-reduced-motion: reduce) {
         .leaflet-zoom-anim .leaflet-zoom-animated, .leaflet-fade-anim .leaflet-tile, .leaflet-fade-anim .leaflet-popup {
           transition: none !important;
@@ -187,7 +193,7 @@ function SearchThisAreaControl({
           onSearchArea(map.getBounds());
           setShowButton(false);
         }}
-        className="pointer-events-auto flex min-h-11 items-center gap-1.5 rounded-full border border-foreground bg-foreground px-4 py-2 text-sm font-medium text-background"
+        className="pointer-events-auto flex min-h-11 items-center gap-2 rounded-control border border-foreground bg-foreground px-4 py-2 text-sm font-medium text-background"
       >
         <span aria-hidden="true">⟳</span> Search this area
       </button>
@@ -242,6 +248,8 @@ interface SceneMapPanelProps {
   selectedEventId: string | null;
   onSelect: (eventId: string) => void;
   onSearchArea: (bounds: { north: number; south: number; east: number; west: number }) => void;
+  /** Phones: switch to the list (offered when the map's tiles fail to load). */
+  onShowList?: () => void;
 }
 
 const TILE_LOAD_TIMEOUT_MS = 9000;
@@ -254,7 +262,7 @@ const TILE_LOAD_TIMEOUT_MS = 9000;
  * usage terms are fine for this traffic level; a real launch should still
  * put a dedicated provider key behind this before relying on it at scale.
  */
-export default function SceneMapPanel({ events, selectedEventId, onSelect, onSearchArea }: SceneMapPanelProps) {
+export default function SceneMapPanel({ events, selectedEventId, onSelect, onSearchArea, onShowList }: SceneMapPanelProps) {
   const [status, setStatus] = useState<TileStatus>("loading");
   const [retryKey, setRetryKey] = useState(0);
   const loadedCount = useRef(0);
@@ -309,6 +317,9 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
     };
   }, [retryKey]);
 
+  // The tiles' estimated progress (the map reports no real progress until the first tile is in).
+  const tilesProgress = useLoadingProgress(status === "loading");
+
   function handleTileLoad() {
     loadedCount.current += 1;
     setStatus("loaded");
@@ -341,7 +352,9 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
           [MELBOURNE_METRO_BOUNDS.north, MELBOURNE_METRO_BOUNDS.east],
         ]}
         maxBoundsViscosity={1}
-        scrollWheelZoom
+        // The wheel scrolls the page, not the map, so a pointer passing over it never traps
+        // scrolling; the zoom buttons, keyboard (+/-), pinch and double-click still zoom.
+        scrollWheelZoom={false}
         className="h-full w-full bg-background"
       >
         <TileLayer
@@ -404,26 +417,40 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
         {announcement}
       </p>
 
-      {status === "loading" && (
-        <div className="pointer-events-none absolute inset-0 z-[1000] flex items-center justify-center bg-background/60">
-          <p className="rounded-full bg-foreground px-4 py-2 text-sm text-background">Loading map&hellip;</p>
+      {tilesProgress.visible && status !== "failed" && (
+        <div className="pointer-events-none absolute inset-0 z-[1000] flex items-center justify-center">
+          <ProgressLoader
+            percent={tilesProgress.percent}
+            done={tilesProgress.done}
+            label="Loading the map"
+            className="rounded-control border border-foreground bg-card px-3 py-2"
+          />
         </div>
       )}
 
       {status === "failed" && (
         <div className="absolute inset-0 z-[1000] flex flex-col items-center justify-center gap-3 bg-background px-6 text-center">
-          <p className="font-heading text-xl text-foreground">Map couldn&rsquo;t load</p>
-          <p className="max-w-xs text-sm text-muted">
-            The map tiles didn&rsquo;t come through &mdash; your connection or the tile provider may be
-            unreachable right now. The event list still works below.
+          <p className="font-heading text-xl text-foreground">
+            Map couldn&rsquo;t load<span className="lg:hidden"> &mdash; show the list instead</span>
           </p>
-          <button
-            type="button"
-            onClick={() => setRetryKey((k) => k + 1)}
-            className={buttonClass("solid")}
-          >
-            Retry
-          </button>
+          <p className="max-w-xs text-sm text-muted">
+            Your connection or the map provider may be down right now.
+            <span className="hidden lg:inline"> The list beside the map still works.</span>
+          </p>
+          <div className="flex flex-wrap justify-center gap-3">
+            {onShowList && (
+              <button type="button" onClick={onShowList} className={buttonClass("solid", "md", "min-h-11 lg:hidden")}>
+                Show the list
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setRetryKey((k) => k + 1)}
+              className={buttonClass(onShowList ? "outline" : "solid", "md", "min-h-11 lg:min-h-10")}
+            >
+              Retry
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -258,6 +258,12 @@ describe("listing", () => {
         "endsAt",
         "organiserName",
         "ticketTypes",
+        // External ticketing (B2): always sent; externalTicketUrl only for external events.
+        "ticketingMode",
+        "externalFree",
+        "externalProvider",
+        // Waitlist (B-WL): always sent.
+        "soldOut",
         "favouritedAt",
       ].sort(),
     );

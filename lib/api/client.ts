@@ -23,6 +23,8 @@ export class ApiError extends Error {
     public status: number,
     message: string,
     public fieldErrors?: Record<string, string>,
+    /** The whole error body, for routes that send more than `error` and `fieldErrors` (e.g. SeatErrorDetails). */
+    public body?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "ApiError";
@@ -76,7 +78,7 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
 
   if (!res.ok) {
     const message = (data && typeof data.error === "string" && data.error) || `Request failed (${res.status}).`;
-    throw new ApiError(res.status, message, data?.fieldErrors);
+    throw new ApiError(res.status, message, data?.fieldErrors, data && typeof data === "object" ? data : undefined);
   }
 
   return data as T;

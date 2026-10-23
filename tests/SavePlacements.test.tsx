@@ -5,9 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventDetailsView from "@/components/EventDetailsView";
 import EventResults from "@/components/EventResults";
 import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
-import FeaturedEventCard from "@/components/home/phone/FeaturedEventCard";
-import HomeEventCard from "@/components/home/phone/HomeEventCard";
-import EventTile from "@/components/ui/EventTile";
+import EventCard from "@/components/ui/EventCard";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
@@ -39,7 +37,10 @@ beforeEach(() => {
   sessionStorage.clear();
   localStorage.clear();
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 const EVENT = sampleEvents[0];
 
@@ -55,9 +56,11 @@ function withHearts(children: ReactNode) {
 const heartFor = (event: SheltuhEvent) => screen.getByRole("button", { name: `Save ${event.title}` });
 
 describe("heart placements", () => {
-  it("EventTile: a sibling of the link (never inside it), right after it in tab order", () => {
-    const { container } = withHearts(<EventTile event={EVENT} />);
-    const link = screen.getByRole("link");
+  it.each(["grid", "rail"] as const)("EventCard %s: a sibling of the link (never inside it), right after it in tab order", (variant) => {
+    const { container } = withHearts(<EventCard event={EVENT} variant={variant} />);
+    // The card's main link (the other is its quick-buy link, also a sibling of the heart).
+    const link = screen.getAllByRole("link").find((a) => a.getAttribute("href") === `/events/${EVENT.slug}`);
+    if (!link) throw new Error("no main link");
     const heart = heartFor(EVENT);
     expect(link.contains(heart)).toBe(false);
     expect(link.compareDocumentPosition(heart) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -65,32 +68,44 @@ describe("heart placements", () => {
     expect(container.firstElementChild).toHaveClass("relative");
   });
 
-  it("EventTile: showSave={false} leaves the heart off", () => {
-    withHearts(<EventTile event={EVENT} showSave={false} />);
+  it("EventCard: showSave={false} leaves the heart off", () => {
+    withHearts(<EventCard event={EVENT} variant="grid" showSave={false} />);
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it.each(["standard", "wide", "compact"] as const)("HomeEventCard %s has a heart beside its link", (variant) => {
-    withHearts(<HomeEventCard event={EVENT} variant={variant} mode="demo" />);
+  it.each(["grid", "rail"] as const)("EventCard %s: the overlay heart, above the card's stretched link", (variant) => {
+    withHearts(<EventCard event={EVENT} variant={variant} />);
     const heart = heartFor(EVENT);
-    expect(screen.getByRole("link").contains(heart)).toBe(false);
-    expect(heart).toHaveAttribute("data-save-variant", variant === "compact" ? "plain" : "overlay");
+    expect(heart).toHaveAttribute("data-save-variant", "overlay");
+    expect(heart).toHaveClass("z-10");
   });
 
-  it("FeaturedEventCard has an overlay heart", () => {
-    withHearts(<FeaturedEventCard event={EVENT} mode="demo" />);
-    expect(heartFor(EVENT)).toHaveAttribute("data-save-variant", "overlay");
-  });
-
-  it("event page: a Save pill by the title, and a buy-bar heart from 375px", () => {
+  // Refinement (owner, 22 Oct 2026): one Save on the event page, in the secondary row under the title,
+  // the same at every width and whether or not there's a buy bar; the bar is just the price and the action.
+  it("event page: exactly one Save control, in the Save and Share row; none in the buy bar", () => {
+    // Before the sample event ends: an ended event has no buy bar (A7). Only Date is faked.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
     const { container } = withHearts(<EventDetailsView event={EVENT} demo />);
     const hearts = screen.getAllByRole("button", { name: `Save ${EVENT.title}` });
-    expect(hearts.map((h) => h.getAttribute("data-save-variant"))).toEqual(["pill", "onDark"]);
+    expect(hearts).toHaveLength(1);
+    expect(hearts[0]).toHaveAttribute("data-save-variant", "action");
     expect(hearts[0]).toHaveTextContent("Save");
+    expect(hearts[0].closest("[data-event-actions]")).not.toBeNull();
     const buyBar = container.querySelector<HTMLElement>("[data-buy-bar]");
     if (!buyBar) throw new Error("buy bar not rendered");
-    const barHeart = within(buyBar).getByRole("button", { name: `Save ${EVENT.title}` });
-    expect(barHeart).toHaveClass("hidden", "min-[375px]:flex");
+    expect(within(buyBar).queryByRole("button")).toBeNull();
+    expect(within(buyBar).getAllByRole("link")).toHaveLength(1);
+  });
+
+  it("event page, ended: still exactly one Save, in the same row", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2027-01-01T00:00:00.000Z"));
+    const { container } = withHearts(<EventDetailsView event={EVENT} demo />);
+    expect(container.querySelector("[data-buy-bar]")).toBeNull();
+    const hearts = screen.getAllByRole("button", { name: `Save ${EVENT.title}` });
+    expect(hearts).toHaveLength(1);
+    expect(hearts[0].closest("[data-event-actions]")).not.toBeNull();
   });
 });
 
@@ -109,10 +124,10 @@ describe("event page view count", () => {
   });
 });
 
-describe("EventResults layout='grid'", () => {
+describe("EventResults", () => {
   it("puts every event in the grid, with no carousel", () => {
     const events = sampleEvents.slice(0, 5);
-    render(<EventResults events={events} layout="grid" />);
+    render(<EventResults events={events} />);
     expect(screen.queryByRole("region", { name: "Events" })).toBeNull();
     expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(5);
   });

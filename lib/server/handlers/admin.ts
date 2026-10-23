@@ -1,14 +1,16 @@
 import { requireAdmin, type Caller } from "../auth";
 import type { Db } from "../db";
 import type { Deps } from "../deps";
-import { HttpError, ok, readJson } from "../http";
+import { sendPublishEmailsSoon } from "../email-outbox";
+import { parseTicketing } from "../event-input";
+import { HttpError, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
-import { ADMIN_ORGANISER_SELECT, EVENT_SELECT, toAdminOrganiser, toEvent } from "../records";
+import { ADMIN_ORGANISER_SELECT, EVENT_SELECT, toAdminOrganiser, toEventForAdmin } from "../records";
 import type { Handler } from "../route";
 import type { AdminOrganiserRecord, EventStatus, OrganiserStatus, SuspendOrganiserResult } from "../types";
 import { fail, requireString } from "../validation";
-import { requireEvent } from "./event-queries";
+import { requireEventForAdmin } from "./event-queries";
 
 const ORGANISER_STATUSES: OrganiserStatus[] = ["pending", "approved", "rejected"];
 const EVENT_STATUSES: EventStatus[] = ["draft", "pending_review", "published", "rejected"];
@@ -31,10 +33,41 @@ async function findAdminOrganiser(db: Db, organiserId: string): Promise<AdminOrg
   return row ? toAdminOrganiser(row) : undefined;
 }
 
+/** Longest admin organiser search text (longer input is cut, as in the public event search). */
+export const MAX_ORGANISER_SEARCH_LENGTH = 100;
+
 /**
- * GET /api/admin/organisers?status=pending — most recently updated first.
- * Each item is an AdminOrganiserRecord: the full record (social handles
- * included) plus its newest 20 profile-edit and takedown log entries.
+ * Folds text for the admin organiser search: compatibility-decomposed
+ * (NFKD, so "ＣＡＦＥ" is "CAFE"), combining diacritical marks (U+0300–U+036F)
+ * removed, lower-cased. ORGANISER_SEARCH_FOLD is the same in SQL, applied to
+ * the columns; the two must stay in step.
+ */
+export function foldOrganiserSearch(text: string): string {
+  return text.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+const ORGANISER_SEARCH_FOLD = (column: string) =>
+  `lower(regexp_replace(normalize(coalesce(${column}, ''), NFKD), '[\\u0300-\\u036f]', '', 'g'))`;
+
+/** A LIKE pattern matching `text` anywhere, its wildcards (and the escape character) matched literally. */
+function containsPattern(text: string): string {
+  return `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}
+
+/**
+ * GET /api/admin/organisers?status=pending&q=&limit=&cursor= — most recently
+ * updated first. Each item is an AdminOrganiserRecord: the full record
+ * (social handles included) plus its newest 20 profile-edit and takedown log
+ * entries.
+ *
+ * `q` (optional, trimmed, at most MAX_ORGANISER_SEARCH_LENGTH characters)
+ * keeps organisers whose name, contact email or social handles (Instagram,
+ * TikTok, Facebook page, X) contain it, ignoring case and accents
+ * (foldOrganiserSearch); a leading "@" is ignored for the handles. `limit`
+ * is 20 by default, at most 50. No index serves the search (a substring of a
+ * folded expression can't use a btree, and pg_trgm isn't installed): it
+ * scans one status's organisers through organisers_status_updated_idx, a
+ * few hundred rows at most for a while.
  */
 export const adminListOrganisers: Handler = async (req, _params, { db, verifyAccessToken }) => {
   await requireAdmin(req, verifyAccessToken);
@@ -46,12 +79,33 @@ export const adminListOrganisers: Handler = async (req, _params, { db, verifyAcc
   const limit = parseLimit(qs.get("limit"));
   const offset = decodeCursor(qs.get("cursor"));
 
+  const params: unknown[] = [status];
+  const where = ["o.status = $1::public.organiser_status"];
+  const q = foldOrganiserSearch(qs.get("q")?.trim().slice(0, MAX_ORGANISER_SEARCH_LENGTH) ?? "").trim();
+  if (q) {
+    params.push(containsPattern(q));
+    const any = `$${params.length}`;
+    const handle = q.replace(/^@+/, "");
+    params.push(handle ? containsPattern(handle) : null);
+    const h = `$${params.length}`;
+    where.push(
+      `(${ORGANISER_SEARCH_FOLD("o.display_name")} like ${any}
+        or ${ORGANISER_SEARCH_FOLD("o.contact_email")} like ${any}
+        or (${h}::text is not null and (
+              ${ORGANISER_SEARCH_FOLD("o.instagram_handle")} like ${h}
+           or ${ORGANISER_SEARCH_FOLD("o.tiktok_handle")} like ${h}
+           or ${ORGANISER_SEARCH_FOLD("o.facebook_page")} like ${h}
+           or ${ORGANISER_SEARCH_FOLD("o.x_handle")} like ${h})))`,
+    );
+  }
+  params.push(limit + 1, offset);
+
   const rows = await db.query(
-    `${ADMIN_ORGANISER_SELECT} where o.status = $1::public.organiser_status
-     order by o.updated_at desc, o.id limit $2 offset $3`,
-    [status, limit + 1, offset],
+    `${ADMIN_ORGANISER_SELECT} where ${where.join(" and ")}
+     order by o.updated_at desc, o.id limit $${params.length - 1} offset $${params.length}`,
+    params,
   );
-  return ok(toPage(rows.map(toAdminOrganiser), offset, limit));
+  return okPrivate(toPage(rows.map(toAdminOrganiser), offset, limit));
 };
 
 /**
@@ -77,7 +131,7 @@ async function reviewOrganiser(
   if (rows.length === 0) {
     throw new HttpError(409, "This application is no longer pending — it may already have been reviewed.");
   }
-  return ok(await findAdminOrganiser(deps.db, organiserId));
+  return okPrivate(await findAdminOrganiser(deps.db, organiserId));
 }
 
 /** POST /api/admin/organisers/[organiserId]/approve */
@@ -137,7 +191,61 @@ export const adminSuspendOrganiser: Handler<{ organiserId: string }> = async (re
     eventsUnpublished: row.events_unpublished,
     submissionsRejected: row.submissions_rejected,
   };
-  return ok(result);
+  return okPrivate(result);
+};
+
+/**
+ * POST /api/admin/organisers/[organiserId]/remove-video — body { reason }.
+ * Removes the organiser's featured video, whatever their status
+ * (private.admin_remove_featured_video), logged on the organiser's log as a
+ * profile edit by the admin with the reason. 200 with the organiser (nothing
+ * logged when there was no video); 400 reason; 404 unknown.
+ */
+export const adminRemoveFeaturedVideo: Handler<{ organiserId: string }> = async (req, { organiserId }, deps) => {
+  const admin = await requireAdmin(req, deps.verifyAccessToken);
+  const body = await readJson(req);
+  const errors: Record<string, string> = {};
+  const reason = parseMessageText(body.reason, "reason", errors, {
+    allowLinks: true,
+    label: "Reasons",
+    maxLength: MAX_SUSPEND_REASON_LENGTH,
+  });
+  if (Object.keys(errors).length > 0) fail(errors);
+  if (!isUuid(organiserId)) throw new HttpError(404, ORGANISER_NOT_FOUND);
+
+  const [row] = await deps.db.query<{ result: "removed" | "unchanged" | "not_found" }>(
+    `select private.admin_remove_featured_video($1, $2, $3) as result`,
+    [organiserId, admin.userId, reason],
+  );
+  if (row.result === "not_found") throw new HttpError(404, ORGANISER_NOT_FOUND);
+  return okPrivate((await findAdminOrganiser(deps.db, organiserId))!);
+};
+
+/**
+ * POST /api/admin/organisers/[organiserId]/remove-logo — body { reason }.
+ * Removes the organiser's logo, whatever their status
+ * (private.admin_remove_organiser_logo), logged on the organiser's log as a
+ * profile edit by the admin with the reason. 200 with the organiser (nothing
+ * logged when there was no logo); 400 reason; 404 unknown.
+ */
+export const adminRemoveOrganiserLogo: Handler<{ organiserId: string }> = async (req, { organiserId }, deps) => {
+  const admin = await requireAdmin(req, deps.verifyAccessToken);
+  const body = await readJson(req);
+  const errors: Record<string, string> = {};
+  const reason = parseMessageText(body.reason, "reason", errors, {
+    allowLinks: true,
+    label: "Reasons",
+    maxLength: MAX_SUSPEND_REASON_LENGTH,
+  });
+  if (Object.keys(errors).length > 0) fail(errors);
+  if (!isUuid(organiserId)) throw new HttpError(404, ORGANISER_NOT_FOUND);
+
+  const [row] = await deps.db.query<{ result: "removed" | "unchanged" | "not_found" }>(
+    `select private.admin_remove_organiser_logo($1, $2, $3) as result`,
+    [organiserId, admin.userId, reason],
+  );
+  if (row.result === "not_found") throw new HttpError(404, ORGANISER_NOT_FOUND);
+  return okPrivate((await findAdminOrganiser(deps.db, organiserId))!);
 };
 
 // ---------------------------------------------------------------------------
@@ -160,7 +268,7 @@ export const adminListEvents: Handler = async (req, _params, { db, verifyAccessT
      order by e.starts_at, e.id limit $2 offset $3`,
     [status, limit + 1, offset],
   );
-  return ok(toPage(rows.map(toEvent), offset, limit));
+  return okPrivate(toPage(rows.map(toEventForAdmin), offset, limit));
 };
 
 interface Moderation {
@@ -176,7 +284,7 @@ async function moderateEvent(
   { from, to, action }: Moderation,
   reason: string | null = null,
 ) {
-  await requireEvent(deps.db, eventId);
+  await requireEventForAdmin(deps.db, eventId);
   // Publishing needs the organiser to be approved. Its row is share-locked
   // first (private.suspend_organiser locks it for update, then the events),
   // so a takedown and an approval can't interleave: an approval after a
@@ -199,7 +307,11 @@ async function moderateEvent(
   if (!row.moved) {
     throw new HttpError(409, `This event is no longer ${from.replace("_", " ")} — it may already have been reviewed.`);
   }
-  return ok(await requireEvent(deps.db, eventId));
+  // Published (again): if it has tickets left, its waitlist may have been
+  // notified (private.notify_waitlist); the first time, the organiser's
+  // followers (private.notify_followers).
+  if (to === "published") sendPublishEmailsSoon(deps);
+  return okPrivate(await requireEventForAdmin(deps.db, eventId));
 }
 
 /** POST /api/admin/events/[eventId]/approve — publishes it. */
@@ -219,4 +331,51 @@ export const adminRejectEvent: Handler<{ eventId: string }> = async (req, { even
 export const adminUnpublishEvent: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const admin = await requireAdmin(req, deps.verifyAccessToken);
   return moderateEvent(admin, eventId, deps, { from: "published", to: "draft", action: "unpublished" });
+};
+
+/** Longest reason for an admin's ticketing change (shown in the event's moderation log). */
+export const MAX_TICKETING_REASON_LENGTH = 500;
+
+/**
+ * PATCH /api/admin/events/[eventId]/ticketing — body {ticketingMode,
+ * externalTicketUrl?, externalFree?, reason}; ticketingMode is required
+ * here (unlike the organiser's form). Sets the event's ticketing
+ * whatever its status (organisers can't once the event has been approved),
+ * with the organiser's rules for the fields (lib/server/event-input.ts,
+ * parseTicketing). Logged in the moderation log as `ticketing_changed`, with
+ * the reason and the old and new value of each field changed
+ * (private.admin_set_event_ticketing). 200 with the event (unchanged, and
+ * nothing logged, when nothing would change); 400 bad fields or reason; 404
+ * unknown event; 409 switching to external an event that has orders.
+ */
+export const adminSetEventTicketing: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
+  const admin = await requireAdmin(req, deps.verifyAccessToken);
+  // An id that can't be an event is a 404 before the body is even read.
+  if (!isUuid(eventId)) throw new HttpError(404, "Event not found.");
+  const body = await readJson(req);
+  const errors: Record<string, string> = {};
+  // Required here (the organiser's form defaults it to sheltuh): an admin
+  // request without it must never quietly turn an external event back.
+  if (body.ticketingMode === undefined || body.ticketingMode === null) {
+    errors.ticketingMode = "Choose where tickets are sold.";
+  }
+  const ticketing = parseTicketing(body, errors);
+  const reason = parseMessageText(body.reason, "reason", errors, {
+    allowLinks: true,
+    label: "Reasons",
+    maxLength: MAX_TICKETING_REASON_LENGTH,
+  });
+  if (Object.keys(errors).length > 0) fail(errors);
+
+  const [row] = await deps.db.query<{ result: "updated" | "unchanged" | "not_found" | "has_orders" }>(
+    `select private.admin_set_event_ticketing($1, $2, $3, $4, $5, $6) as result`,
+    [eventId, admin.userId, ticketing.ticketingMode, ticketing.externalTicketUrl, ticketing.externalFree, reason],
+  );
+  if (row.result === "not_found") throw new HttpError(404, "Event not found.");
+  if (row.result === "has_orders") {
+    throw new HttpError(409, "This event has orders, so its tickets can't move to another site.", {
+      ticketingMode: "This event has orders.",
+    });
+  }
+  return okPrivate(await requireEventForAdmin(deps.db, eventId));
 };

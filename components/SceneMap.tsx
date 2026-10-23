@@ -3,14 +3,18 @@
 import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import DemoNotice from "@/components/DemoNotice";
+import BrandU from "@/components/brand/BrandU";
 import SceneEventRow from "@/components/SceneEventRow";
 import SceneMapFilterBar from "@/components/SceneMapFilterBar";
 import SceneMapEventCard from "@/components/map/SceneMapEventCard";
+import { Button } from "@/components/ui/Button";
+import { SelectedDots } from "@/components/ui/FilterChip";
+import { LoadingIndicator, ProgressLoader, useLoadingProgress } from "@/components/ui/ProgressLoader";
+import { EmptyState, Notice, PageHeader } from "@/components/ui/Section";
 import { isApiConfigured } from "@/lib/api/client";
 import { listPublicEvents } from "@/lib/api/public-events";
 import { adaptPublicEvent } from "@/lib/live/adapt";
-import { getEventCategories, getEvents } from "@/lib/data";
+import { getEventCategories, getUpcomingEvents } from "@/lib/data";
 import { formatEventDateShort, formatEventTime } from "@/lib/format";
 import { resolveMapCoordinates } from "@/lib/geo";
 import { formatFeedPrice } from "@/lib/pricing";
@@ -26,13 +30,59 @@ import type { EventCategory, SheltuhEvent } from "@/lib/types";
 
 const SceneMapPanel = dynamic(() => import("@/components/SceneMapPanel"), {
   ssr: false,
-  loading: () => <div className="flex h-full items-center justify-center text-sm text-muted">Loading map&hellip;</div>,
+  loading: () => (
+    <div className="flex h-full items-center justify-center">
+      <LoadingIndicator label="Loading the map" />
+    </div>
+  ),
 });
-
-const ORANGE = "#0b0b0b";
 
 type MobileView = "map" | "list";
 type Status = "loading" | "loaded" | "error";
+
+/** Where the selected-event card sits on the map instead of the phone's bottom sheet (Tailwind's lg). */
+const DESKTOP_QUERY = "(min-width: 64rem)";
+
+function isDesktop(): boolean {
+  return typeof window.matchMedia === "function" && window.matchMedia(DESKTOP_QUERY).matches;
+}
+
+/** Can take focus where it is: in the page and not hidden (e.g. a list row while the phone shows the map). */
+function isShown(element: HTMLElement | null | undefined): element is HTMLElement {
+  if (!element?.isConnected) return false;
+  return typeof element.checkVisibility === "function" ? element.checkVisibility() : true;
+}
+
+/** On the map: the event's own marker, else the cluster it's in; whichever is showing. */
+function mapFocusTarget(pane: HTMLElement | null, eventId: string): HTMLElement | undefined {
+  if (!pane) return undefined;
+  const marker = Array.from(pane.querySelectorAll<HTMLElement>("[data-event-id]")).find(
+    (el) => el.dataset.eventId === eventId,
+  );
+  const cluster = Array.from(pane.querySelectorAll<HTMLElement>("[data-event-ids]")).find((el) =>
+    (el.dataset.eventIds ?? "").split(" ").includes(eventId),
+  );
+  return [marker, cluster].find(isShown);
+}
+
+/**
+ * Focus `target` on the map, or the map itself. The map redraws its markers as the selection
+ * changes (Leaflet re-inserts or replaces marker elements, which drops their focus), so for a
+ * moment afterwards, focus that falls to the page goes back to the target, or to the map.
+ */
+function focusOnMap(pane: HTMLElement, target: HTMLElement | undefined) {
+  const map = pane.querySelector<HTMLElement>(".leaflet-container");
+  const focused = target ?? map;
+  if (!focused) return;
+  focused.focus();
+  if (focused === map || typeof MutationObserver === "undefined") return;
+  const observer = new MutationObserver(() => {
+    if (document.activeElement && document.activeElement !== document.body) return;
+    (isShown(focused) ? focused : map)?.focus();
+  });
+  observer.observe(pane, { childList: true, subtree: true });
+  window.setTimeout(() => observer.disconnect(), 1000);
+}
 
 interface MapBounds {
   north: number;
@@ -70,7 +120,7 @@ function readFiltersFromParams(params: URLSearchParams): FilterState {
   };
 }
 
-function writeFiltersToParams(filters: FilterState, selectedEventId: string | null): URLSearchParams {
+function writeFiltersToParams(filters: FilterState, selectedEventId: string | null, view: MobileView): URLSearchParams {
   const params = new URLSearchParams();
   if (filters.search) params.set("q", filters.search);
   if (filters.category !== "all") params.set("cat", filters.category);
@@ -79,6 +129,8 @@ function writeFiltersToParams(filters: FilterState, selectedEventId: string | nu
   if (filters.suburb !== "all") params.set("suburb", filters.suburb);
   if (filters.pricing !== "all") params.set("price", filters.pricing);
   if (selectedEventId) params.set("sel", selectedEventId);
+  // The map is the default view, so only the list is written.
+  if (view === "list") params.set("view", "list");
   return params;
 }
 
@@ -91,7 +143,6 @@ interface SceneMapViewProps {
   hasMore?: boolean;
   loadingMore?: boolean;
   onLoadMore?: () => void;
-  demo?: boolean;
 }
 
 function SceneMapView({
@@ -103,7 +154,6 @@ function SceneMapView({
   hasMore,
   loadingMore,
   onLoadMore,
-  demo,
 }: SceneMapViewProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -113,13 +163,28 @@ function SceneMapView({
   // not for reacting to every subsequent change (that would fight typing).
   const initial = useMemo(() => readFiltersFromParams(searchParams), []); // eslint-disable-line react-hooks/exhaustive-deps
   const initialSelected = useMemo(() => searchParams.get("sel"), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const initialView = useMemo<MobileView>(() => (searchParams.get("view") === "list" ? "list" : "map"), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [filters, setFilters] = useState<FilterState>(initial);
   const [rawSelectedEventId, setSelectedEventId] = useState<string | null>(initialSelected);
-  const [mobileView, setMobileView] = useState<MobileView>("list");
+  // Map first (owner request); a shared ?view=list still opens the list.
+  const [mobileView, setMobileView] = useState<MobileView>(initialView);
   const [areaBounds, setAreaBounds] = useState<MapBounds | null>(null);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const hasRestoredScroll = useRef(false);
+  const listRef = useRef<HTMLElement>(null);
+  const mapPaneRef = useRef<HTMLDivElement>(null);
+  const sheetRef = useRef<HTMLElement>(null);
+  const loadMoreRef = useRef<HTMLButtonElement>(null);
+  // What selected the current event (a row's Locate, a marker), for Dismiss to return focus to.
+  const openerRef = useRef<HTMLElement | null>(null);
+  // Focus to move once the next render has shown its target: the list after "Show the list",
+  // the phone's sheet after Locate.
+  const pendingFocus = useRef<"list" | "sheet" | null>(null);
+  // Dismiss: the event whose card closed, for focus to go back to once the map has re-rendered.
+  const dismissedFrom = useRef<{ eventId: string; opener: HTMLElement | null } | null>(null);
+  // The events listed before "Load more", to find the first new one if the button then goes.
+  const idsBeforeMore = useRef<Set<string> | null>(null);
 
   const now = useMemo(() => new Date(), []);
   const suburbs = useMemo(() => distinctSuburbs(events), [events]);
@@ -155,22 +220,79 @@ function SceneMapView({
   // history) so the back button from a details page returns here with
   // filters and selection intact.
   useEffect(() => {
-    const params = writeFiltersToParams(filters, rawSelectedEventId);
+    const params = writeFiltersToParams(filters, rawSelectedEventId, mobileView);
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, rawSelectedEventId, pathname]);
+  }, [filters, rawSelectedEventId, mobileView, pathname]);
+
+  // The loader's estimated progress; the results replace it once it's done.
+  const progress = useLoadingProgress(status === "loading");
 
   // On first load with a `sel` param (arriving via back-navigation), scroll
   // that row into view once the list has rendered.
   useEffect(() => {
-    if (hasRestoredScroll.current || !initialSelected || status !== "loaded") return;
+    if (hasRestoredScroll.current || !initialSelected || status !== "loaded" || progress.visible) return;
     const row = rowRefs.current.get(initialSelected);
     if (row) {
       row.scrollIntoView({ block: "center" });
       hasRestoredScroll.current = true;
     }
-  }, [initialSelected, status, filtered]);
+  }, [initialSelected, status, filtered, progress.visible]);
+
+  // After each render: move focus the user asked for once its target is showing.
+  useEffect(() => {
+    if (pendingFocus.current === "list" && mobileView === "list" && listRef.current) {
+      pendingFocus.current = null;
+      listRef.current.focus();
+    } else if (pendingFocus.current === "sheet" && sheetRef.current) {
+      pendingFocus.current = null;
+      if (isShown(sheetRef.current)) sheetRef.current.focus();
+    }
+    if (dismissedFrom.current) {
+      const { eventId, opener } = dismissedFrom.current;
+      dismissedFrom.current = null;
+      const pane = mapPaneRef.current;
+      if (isShown(opener)) opener.focus();
+      else if (pane) focusOnMap(pane, mapFocusTarget(pane, eventId));
+    }
+    // "Load more" keeps focus while it loads (busy, not disabled). If the last page took the
+    // button away with focus on it, focus goes to the first new event instead of the page.
+    if (idsBeforeMore.current && !loadingMore) {
+      const before = idsBeforeMore.current;
+      idsBeforeMore.current = null;
+      if (!loadMoreRef.current && (document.activeElement === document.body || document.activeElement === null)) {
+        const firstNew = filtered.find((event) => !before.has(event.id));
+        const link = firstNew ? rowRefs.current.get(firstNew.id)?.querySelector("a") : null;
+        if (link) link.focus();
+        else listRef.current?.focus();
+      }
+    }
+  });
+
+  // The phone's bottom sheet is fixed over the end of the page: globals.css keeps focused things
+  // clear of it (scroll-padding) and gives the page's end the same room, by its measured height.
+  const sheetShown = Boolean(selectedEvent) && mobileView === "map" && status === "loaded" && !progress.visible;
+  useEffect(() => {
+    const sheet = sheetRef.current;
+    if (!sheetShown || !sheet) return;
+    const root = document.documentElement;
+    const measure = () => {
+      const rect = sheet.getBoundingClientRect();
+      // From the sheet's top edge to the bottom of the screen: its height, gap and safe area.
+      const covered = rect.height > 0 ? Math.max(Math.ceil(window.innerHeight - rect.top), 0) : 0;
+      root.style.setProperty("--map-sheet-h", `${covered}px`);
+    };
+    measure();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
+    observer?.observe(sheet);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+      root.style.removeProperty("--map-sheet-h");
+    };
+  }, [sheetShown]);
 
   const withoutLocationCount = filtered.filter((event) => resolveMapCoordinates(event) === null).length;
 
@@ -181,15 +303,48 @@ function SceneMapView({
     filters.time !== "all" ||
     filters.search !== "" ||
     areaBounds !== null;
+  const countSentence = `${filtered.length} upcoming event${filtered.length === 1 ? "" : "s"}${
+    hasActiveFilters ? " matching your filters" : ""
+  }`;
 
   function resetFilters() {
     setFilters(DEFAULT_FILTERS);
     setAreaBounds(null);
   }
 
-  function handleLocate(eventId: string) {
+  // Phones: Locate switches to the map, hiding the row (and its button) that had focus, so focus
+  // goes to the selected event's sheet. Desktop keeps it on the row: the card is on the map beside it.
+  function handleLocate(eventId: string, opener: HTMLElement) {
+    openerRef.current = opener;
     setSelectedEventId(eventId);
     setMobileView("map");
+    if (!isDesktop()) pendingFocus.current = "sheet";
+  }
+
+  function handleMapSelect(eventId: string) {
+    // A marker, or a spot list's row (which closes): Dismiss falls back to the marker if that's gone.
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setSelectedEventId(eventId);
+    rowRefs.current.get(eventId)?.scrollIntoView({ block: "nearest" });
+  }
+
+  // Dismiss removes the focused button with the card, so focus goes back to what opened it: the
+  // row's Locate button, or the event on the map. Done after the re-render: deselecting can put
+  // the event back into a cluster, replacing its marker (see the effect below).
+  function handleDismiss() {
+    if (selectedEventId) dismissedFrom.current = { eventId: selectedEventId, opener: openerRef.current };
+    openerRef.current = null;
+    setSelectedEventId(null);
+  }
+
+  function showList() {
+    pendingFocus.current = "list";
+    setMobileView("list");
+  }
+
+  function handleLoadMore() {
+    idsBeforeMore.current = new Set(filtered.map((event) => event.id));
+    onLoadMore?.();
   }
 
   function timeLabel(): string {
@@ -223,25 +378,30 @@ function SceneMapView({
     });
   if (areaBounds) chips.push({ key: "area", label: "This area", onRemove: () => setAreaBounds(null) });
 
+  const viewButton = (view: MobileView, label: string) => (
+    <button
+      type="button"
+      aria-pressed={mobileView === view}
+      onClick={() => setMobileView(view)}
+      className={`flex min-h-11 items-center gap-2 rounded-badge px-5 text-sm leading-5 font-semibold ${
+        mobileView === view ? "bg-foreground text-background" : "text-foreground hover:bg-surface"
+      }`}
+    >
+      {mobileView === view && <SelectedDots />}
+      {label}
+    </button>
+  );
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1.5">
-        <p className="text-xs font-medium uppercase tracking-[0.16em]" style={{ color: ORANGE }}>
-          Melbourne&rsquo;s creative scene
-        </p>
-        <h1 className="display-lg max-w-3xl">
-          Find the room.
-          <br />
-          <span style={{ color: ORANGE }}>Find your people.</span>
-        </h1>
-        <p className="max-w-xl font-sans text-sm text-muted sm:text-base">
-          Discover music, art, fashion and the spaces that bring Melbourne together.
-        </p>
-      </div>
-
-      {demo && (
-        <DemoNotice>Sample listings only. No tickets on sale.</DemoNotice>
-      )}
+      {/* The brand line (owner decision 1): screen readers hear "Sheltüh near you." */}
+      <PageHeader
+        brand
+        flush
+        eyebrow="Map · Melbourne"
+        title={<BrandU spoken="Sheltüh near you.">Sheltüh near ü.</BrandU>}
+        intro="Events on the map. Tap a spot to see what’s on there."
+      />
 
       <SceneMapFilterBar
         search={filters.search}
@@ -267,8 +427,7 @@ function SceneMapView({
               key={chip.key}
               type="button"
               onClick={chip.onRemove}
-              className="flex h-8 items-center gap-1.5 rounded-full border px-3 font-sans text-xs font-medium text-foreground"
-              style={{ borderColor: "#0b0b0b", background: "#f3f0e8" }}
+              className="flex min-h-11 items-center gap-2 rounded-control border border-foreground bg-card px-3 text-sm leading-5 font-medium text-foreground hover:bg-surface sm:min-h-8"
             >
               {chip.label}
               <span aria-hidden="true" className="text-muted">
@@ -280,96 +439,70 @@ function SceneMapView({
           <button
             type="button"
             onClick={resetFilters}
-            className="h-8 rounded-full px-3 font-sans text-xs font-medium underline underline-offset-2"
-            style={{ color: ORANGE }}
+            className="min-h-11 px-2 text-sm leading-5 font-semibold underline underline-offset-4 sm:min-h-8"
           >
             Clear all
           </button>
         </div>
       )}
 
-      {status === "loading" && <p className="text-sm text-muted">Loading events&hellip;</p>}
+      {/* The polite status is always mounted, so the start of a load and its result ("12 upcoming
+          events") are both announced; the visible count below isn't a second live region. */}
+      <p role="status" className="sr-only">
+        {status === "loading" ? "Loading events…" : status === "loaded" && !progress.visible ? countSentence : ""}
+      </p>
+      {progress.visible && status !== "error" && <ProgressLoader percent={progress.percent} done={progress.done} label="Loading events" />}
 
       {status === "error" && (
-        <div className="border-l-2 border-danger p-4">
-          <p role="alert" className="text-sm text-foreground">
+        <div className="flex flex-col items-start gap-4">
+          <Notice tone="danger" role="alert">
             {error}
-          </p>
+          </Notice>
           {onRetry && (
-            <button
-              type="button"
-              onClick={onRetry}
-              className="btn btn-outline mt-3"
-            >
+            <Button variant="outline" size="sm" onClick={onRetry}>
               Try again
-            </button>
+            </Button>
           )}
         </div>
       )}
 
-      {status === "loaded" && (
+      {status === "loaded" && !progress.visible && (
         <>
-          <div className="flex items-center justify-between gap-3">
-            <p aria-live="polite" className="font-sans text-sm text-muted">
-              {filtered.length} upcoming event{filtered.length === 1 ? "" : "s"}
-              {hasActiveFilters ? " matching your filters" : ""}
-            </p>
-            <label className="flex items-center gap-1.5 font-sans text-sm text-muted">
-              Sort:
-              <select className="border border-foreground bg-transparent px-2 py-1 text-foreground" defaultValue="soonest">
-                <option value="soonest">Soonest</option>
-              </select>
-            </label>
-          </div>
+          {/* How many are listed, soonest first; the status above is what announces it. */}
+          <p className="meta border-t border-foreground pt-3 text-muted">{countSentence}</p>
 
-          {/* Mobile-only map/list toggle. Both panels are always visible from lg: up. */}
+          {/* Phones only: map or list, map first and by default (owner request). Both show from lg. */}
           <div
-            className="flex gap-1 self-start rounded-full border border-surface-border p-1 lg:hidden"
-            role="tablist"
-            aria-label="View"
+            role="group"
+            aria-label="Show events as"
+            className="flex gap-1 self-start rounded-control border border-foreground bg-card p-1 lg:hidden"
           >
-            {(["list", "map"] as const).map((view) => (
-              <button
-                key={view}
-                type="button"
-                role="tab"
-                aria-selected={mobileView === view}
-                onClick={() => setMobileView(view)}
-                className="min-h-[44px] rounded-full px-5 font-sans text-sm font-semibold capitalize transition-colors"
-                style={mobileView === view ? { background: ORANGE, color: "#f3f0e8" } : { color: "#6b675e" }}
-              >
-                {view}
-              </button>
-            ))}
+            {viewButton("map", "Map")}
+            {viewButton("list", "List")}
           </div>
 
           {filtered.length === 0 ? (
-            <div className="border-t border-foreground p-10 text-center">
-              <p className="font-heading text-2xl text-foreground">No events match your filters</p>
-              <p className="mt-2 font-sans text-sm text-muted">
-                Try a different neighbourhood, time window, category, or clearing the price filter.
-              </p>
-              <button
-                type="button"
-                onClick={resetFilters}
-                className="mt-4  px-4 py-2 font-sans text-sm font-medium"
-                style={{ background: ORANGE, color: "#f3f0e8" }}
-              >
-                Broaden search
-              </button>
-            </div>
+            <EmptyState
+              title="No events match your filters"
+              action={<Button onClick={resetFilters}>Broaden search</Button>}
+            >
+              Try a different neighbourhood, time window, category, or clearing the price filter.
+            </EmptyState>
           ) : (
             <>
-              <div className="grid overflow-hidden rounded-none border border-surface-border lg:grid-cols-[55fr_45fr]">
-                <div className={`relative h-[420px] lg:h-[600px] ${mobileView === "map" ? "block" : "hidden"} lg:block`}>
+              {/* map-bleed: wider than the page column on large screens (globals.css). */}
+              <div className="map-bleed grid overflow-hidden rounded-card border border-foreground bg-card lg:grid-cols-[55fr_45fr]">
+                {/* At most 60% of a phone's height, so there's always page to scroll by outside the map. */}
+                <div
+                  ref={mapPaneRef}
+                  className={`relative h-[min(26.25rem,60svh)] lg:h-[37.5rem] ${mobileView === "map" ? "block" : "hidden"} lg:block`}
+                >
                   <SceneMapPanel
                     events={filtered}
                     selectedEventId={selectedEventId}
-                    onSelect={(id) => {
-                      setSelectedEventId(id);
-                      rowRefs.current.get(id)?.scrollIntoView({ block: "nearest" });
-                    }}
+                    onSelect={handleMapSelect}
                     onSearchArea={setAreaBounds}
+                    onShowList={showList}
                   />
                   {/* Desktop: the selected event over the map's lower-left corner (phones get the bottom card below). */}
                   {selectedEvent && (
@@ -377,16 +510,23 @@ function SceneMapView({
                       variant="overlay"
                       event={selectedEvent}
                       detailsHref={`/events/${selectedEvent.slug}`}
-                      onDismiss={() => setSelectedEventId(null)}
-                      className="absolute bottom-3 left-3 z-10 hidden w-64 lg:block"
+                      onDismiss={handleDismiss}
+                      className="absolute bottom-3 left-3 z-10 hidden w-72 lg:block"
                     />
                   )}
                 </div>
-                <div
-                  className={`h-[420px] overflow-y-auto border-t border-surface-border lg:h-[600px] lg:border-t-0 lg:border-l ${
+                {/* Phones: the list is part of the page (no scroll box inside the page's own scroll).
+                    From lg it scrolls beside the map. Focusable, for "Show the list" to move focus to;
+                    the ring is inset, since the card clips anything outside it. `relative`: the
+                    rows' visually hidden text is positioned within the scroller, not the page,
+                    or it would stretch the page far past the footer. */}
+                <section
+                  ref={listRef}
+                  tabIndex={-1}
+                  aria-label="Events list"
+                  className={`relative h-auto overflow-visible focus-visible:-outline-offset-2 lg:h-[37.5rem] lg:overflow-y-auto lg:border-l lg:border-foreground ${
                     mobileView === "list" ? "block" : "hidden"
                   } lg:block`}
-                  style={{ background: "#f3f0e8" }}
                 >
                   {filtered.map((event) => (
                     <div
@@ -405,36 +545,49 @@ function SceneMapView({
                       />
                     </div>
                   ))}
-                </div>
+                </section>
               </div>
 
+              {/* Phones, map view: a visible way on to the list, under the map. */}
+              {mobileView === "map" && (
+                <button
+                  type="button"
+                  onClick={showList}
+                  className="inline-flex min-h-11 items-center gap-1 self-start text-sm leading-5 font-semibold underline underline-offset-4 lg:hidden"
+                >
+                  Show the list of {filtered.length} event{filtered.length === 1 ? "" : "s"}
+                </button>
+              )}
+
               {withoutLocationCount > 0 && (
-                <p className="font-sans text-xs text-muted">
+                <p className="text-xs leading-4 text-muted">
                   {withoutLocationCount} event{withoutLocationCount === 1 ? "" : "s"} can&rsquo;t be placed on the
                   map yet (no venue location on file) &mdash; still listed above.
                 </p>
               )}
 
               {hasMore && (
-                <button
-                  type="button"
-                  onClick={onLoadMore}
-                  disabled={loadingMore}
-                  className="btn btn-outline w-fit self-center font-sans"
+                <Button
+                  ref={loadMoreRef}
+                  variant="outline"
+                  onClick={handleLoadMore}
+                  busy={loadingMore}
+                  className="w-fit self-center"
                 >
                   {loadingMore ? "Loading…" : "Load more events"}
-                </button>
+                </Button>
               )}
             </>
           )}
 
-          {/* Mobile map tab only: a compact, dismissible summary for the selected event, since the highlighted list row isn't visible there. */}
+          {/* Mobile map view only: a compact, dismissible summary for the selected event, since the highlighted list row isn't visible there. */}
           {selectedEvent && mobileView === "map" && (
             <SceneMapEventCard
+              ref={sheetRef}
               variant="sheet"
               event={selectedEvent}
               detailsHref={`/events/${selectedEvent.slug}`}
-              onDismiss={() => setSelectedEventId(null)}
+              onDismiss={handleDismiss}
               className="fixed right-[calc(0.75rem+env(safe-area-inset-right))] bottom-[calc(0.75rem+env(safe-area-inset-bottom))] left-[calc(0.75rem+env(safe-area-inset-left))] z-[1200] lg:hidden"
             />
           )}
@@ -456,7 +609,8 @@ function SceneMapDemo() {
 
   useEffect(() => {
     let cancelled = false;
-    getEvents().then((loaded) => {
+    // Same rule as the live map and feeds (upcoming=1): only events that haven't ended.
+    getUpcomingEvents().then((loaded) => {
       if (!cancelled) setEvents(loaded);
     });
     return () => {
@@ -469,7 +623,6 @@ function SceneMapDemo() {
       events={events ?? []}
       categories={categories}
       status={events === null ? "loading" : "loaded"}
-      demo
     />
   );
 }

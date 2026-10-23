@@ -12,6 +12,7 @@ import type { ConversationStatus, ConversationSummary } from "@/lib/api/types";
 import { formatMessageTime } from "@/lib/format";
 import { loadErrorMessage, threadHref } from "./shared";
 import { useUnread } from "./UnreadProvider";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 const LOAD_ERROR = "Couldn’t load your messages.";
 const MORE_ERROR = "Couldn’t load more conversations.";
@@ -96,7 +97,7 @@ export default function Inbox({ getToken }: { getToken: GetToken }) {
 
   return (
     <div aria-busy={state.status === "loading" ? true : undefined}>
-      {state.status === "loading" && <p className="text-sm text-muted">Loading your messages…</p>}
+      {state.status === "loading" && <LoadingState text="Loading your messages…" />}
 
       {state.status === "error" && (
         <div className="flex flex-col items-start gap-3">
@@ -117,8 +118,8 @@ export default function Inbox({ getToken }: { getToken: GetToken }) {
       {state.status === "ready" && state.items.length > 0 && (
         <>
           <ul ref={listRef} aria-label="Conversations" className="border-t border-foreground">
-            {state.items.map((conversation) => (
-              <ConversationRow key={conversation.conversationId} conversation={conversation} />
+            {state.items.map((conversation, index) => (
+              <ConversationRow key={conversation.conversationId} conversation={conversation} index={index} />
             ))}
           </ul>
           {state.nextCursor && (
@@ -139,7 +140,7 @@ export default function Inbox({ getToken }: { getToken: GetToken }) {
   );
 }
 
-function ConversationRow({ conversation }: { conversation: ConversationSummary }) {
+export function ConversationRow({ conversation, index }: { conversation: ConversationSummary; index: number }) {
   const { otherDisplayName, status, event, lastMessage, unread } = conversation;
   const label = STATUS_LABEL[status];
   return (
@@ -148,14 +149,14 @@ function ConversationRow({ conversation }: { conversation: ConversationSummary }
         href={threadHref(conversation.conversationId)}
         className="flex min-h-11 gap-3 py-4 outline-offset-2 hover:bg-surface"
       >
-        <InitialsAvatar name={otherDisplayName} />
+        <InitialsAvatar name={otherDisplayName} index={index} />
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex items-baseline justify-between gap-3">
             <span className={`truncate text-base leading-6 ${unread ? "font-semibold" : ""}`.trim()}>
               {unread && <span className="sr-only">Unread: </span>}
               {otherDisplayName}
             </span>
-            <time dateTime={lastMessage.sentAt} className="shrink-0 text-xs text-muted">
+            <time dateTime={lastMessage.sentAt} className="meta shrink-0 text-muted">
               {formatMessageTime(lastMessage.sentAt)}
             </time>
           </span>

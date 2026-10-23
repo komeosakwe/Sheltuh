@@ -21,14 +21,20 @@ export function getEventCategories(): { value: EventCategory; label: string }[] 
 
 /**
  * Every ticket type is free. An event with no ticket types yet is neither
- * free nor paid (same rule as the API's `pricing` filter).
+ * free nor paid (same rule as the API's `pricing` filter). An external event
+ * is free when its organiser says so (`externalFree`).
  */
 export function isFreeEvent(event: SheltuhEvent): boolean {
+  if (event.ticketingMode === "external") return event.externalFree === true;
   return event.ticketTypes.length > 0 && event.ticketTypes.every((ticket) => ticket.priceCents === 0);
 }
 
-/** At least one ticket type costs money (same rule as the API's `pricing=paid`). */
+/**
+ * At least one ticket type costs money (same rule as the API's
+ * `pricing=paid`). Never an external event: its price isn't known.
+ */
 export function isPaidEvent(event: SheltuhEvent): boolean {
+  if (event.ticketingMode === "external") return false;
   return event.ticketTypes.some((ticket) => ticket.priceCents > 0);
 }
 

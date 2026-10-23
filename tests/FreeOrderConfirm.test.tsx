@@ -63,6 +63,28 @@ describe("FreeOrderConfirm", () => {
     await waitFor(() => expect(assign).toHaveBeenCalledWith("https://sheltuh.test/checkout/success?session_id=ord_1"));
   });
 
+  it("a seated booking whose seats went first: names them and offers choosing again (docs/design/seating.md §5.11)", async () => {
+    confirmFreeOrder.mockRejectedValue(
+      new ApiError(409, "Those seats have gone.", undefined, {
+        code: "seats_taken",
+        seats: [
+          { section: "Stalls", row: "F", seat: "12", kind: "standard" },
+          { section: "Stalls", row: "F", seat: "2", kind: "standard" },
+        ],
+        eventSlug: "off-kilter",
+      }),
+    );
+    render(<FreeOrderConfirm />);
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
+    const heading = await screen.findByRole("heading", { name: "Those seats have gone" });
+    await waitFor(() => expect(heading).toHaveFocus());
+    expect(heading).toHaveAccessibleDescription(
+      "Some of your seats were booked by someone else before you confirmed: Stalls · Row F · Seat 2, Stalls · Row F · Seat 12. Nothing was booked.",
+    );
+    expect(screen.getByRole("link", { name: "Choose seats again" })).toHaveAttribute("href", "/events/off-kilter/seats");
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
   it("says when the link is incomplete", async () => {
     vi.stubGlobal("location", { ...window.location, assign, hash: "#token=short", pathname: "/checkout/confirm", search: "" });
     render(<FreeOrderConfirm />);

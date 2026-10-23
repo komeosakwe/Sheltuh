@@ -1,10 +1,13 @@
 import Link from "next/link";
+import type { Ref } from "react";
 import EventArt from "@/components/EventArt";
+import QuickBuyLink from "@/components/QuickBuyLink";
 import { buttonClass } from "@/components/ui/Button";
+import CardPrice from "@/components/ui/CardPrice";
+import { categoryLabel, placeLabel } from "@/lib/event-card";
 import { formatEventDateShort, formatEventTime } from "@/lib/format";
 import { resolveEventCoordinates } from "@/lib/geo";
-import { formatFeedPrice } from "@/lib/pricing";
-import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
+import type { SheltuhEvent } from "@/lib/types";
 
 interface SceneMapEventCardProps {
   event: SheltuhEvent;
@@ -14,11 +17,20 @@ interface SceneMapEventCardProps {
   variant: "overlay" | "sheet";
   /** Must position the card (`absolute`/`fixed`/`relative`): the dismiss button is placed against it. */
   className: string;
+  ref?: Ref<HTMLElement>;
 }
 
-/** The selected event's summary on the map: photo first, then title, date, venue, all-inclusive price and a link. */
-export default function SceneMapEventCard({ event, detailsHref, onDismiss, variant, className }: SceneMapEventCardProps) {
-  const categoryLabel = EVENT_CATEGORIES.find((c) => c.value === event.category)?.label ?? event.category;
+/**
+ * The selected event's summary on the map (§6.15): a white card with a black
+ * border; photo first, then category, date, title, venue, the all-inclusive
+ * price, then the orange "Buy tickets" and "View event".
+ *
+ * The sheet takes focus (tabIndex -1) when Locate opens it on a phone, and
+ * carries `data-map-sheet`, so globals.css keeps focused things on the page
+ * clear of it while it's open (WCAG 2.4.11).
+ */
+export default function SceneMapEventCard({ event, detailsHref, onDismiss, variant, className, ref }: SceneMapEventCardProps) {
+  const place = placeLabel(event);
   const pinned = resolveEventCoordinates(event);
   const locationNote = !pinned
     ? "Not on the map yet: no venue location on file."
@@ -32,41 +44,51 @@ export default function SceneMapEventCard({ event, detailsHref, onDismiss, varia
       type="button"
       onClick={onDismiss}
       aria-label="Dismiss selected event"
-      className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-foreground bg-background font-sans text-lg text-foreground ${
+      className={`flex size-11 shrink-0 items-center justify-center rounded-control border border-foreground bg-card text-foreground hover:bg-surface ${
         sheet ? "" : "absolute top-2 right-2"
       }`}
     >
-      <span aria-hidden="true">&times;</span>
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" className="h-4 w-4">
+        <path d="M6 6l12 12M18 6 6 18" />
+      </svg>
     </button>
   );
 
   return (
-    <section aria-label="Selected event" className={`border border-foreground bg-background ${className}`}>
+    <section
+      ref={ref}
+      aria-label="Selected event"
+      tabIndex={sheet ? -1 : undefined}
+      data-map-sheet={sheet ? "" : undefined}
+      className={`overflow-hidden rounded-card border border-foreground bg-card ${className}`}
+    >
       <div className={sheet ? "flex gap-3 p-3" : "flex flex-col"}>
         <EventArt
           poster={event.poster}
           title={event.title}
           imageUrl={event.imageUrl}
-          className={sheet ? "h-20 w-20 shrink-0" : "aspect-video w-full"}
+          className={sheet ? "h-20 w-20 shrink-0 overflow-hidden rounded-control" : "aspect-[3/2] w-full"}
         />
-        <div className={`min-w-0 ${sheet ? "flex-1" : "px-4 pt-3"}`}>
-          <p className="eyebrow text-muted">{categoryLabel}</p>
-          <p className="mt-1 line-clamp-2 font-sans text-base leading-snug font-semibold text-foreground">{event.title}</p>
-          <p className="mt-1 truncate font-sans text-sm text-muted">
+        <div className={`min-w-0 ${sheet ? "flex-1 pr-1" : "px-4 pt-3"}`}>
+          <p className="eyebrow text-muted">{categoryLabel(event)}</p>
+          <p className="meta mt-1">
             {formatEventDateShort(event.startsAt)}, {formatEventTime(event.startsAt)}
           </p>
-          <p className="truncate font-sans text-sm text-muted">
-            {event.venueName} &middot; {event.suburb}
+          <p className="mt-1 line-clamp-2 text-base leading-[1.375rem] font-semibold break-words text-foreground">
+            {event.title}
           </p>
-          <p className="mt-1 font-sans text-sm font-medium text-foreground">{formatFeedPrice(event)}</p>
-          {locationNote && <p className="mt-1 font-sans text-xs text-muted">{locationNote}</p>}
+          {place && <p className="truncate text-sm leading-5 text-muted">{place}</p>}
+          <CardPrice event={event} className="mt-1 text-sm leading-5" />
+          {locationNote && <p className="mt-1 text-xs leading-4 text-muted">{locationNote}</p>}
         </div>
+        {sheet && dismiss}
       </div>
-      <div className={`flex items-center gap-2 ${sheet ? "px-3 pb-3" : "p-4 pt-3"}`}>
-        <Link href={detailsHref} className={buttonClass("solid", "lg", "flex-1")}>
+      {/* Stacked, full width: neither label is squeezed or wraps beside the other. */}
+      <div className={`flex flex-col gap-2 ${sheet ? "px-3 pb-3" : "p-4 pt-3"}`}>
+        <QuickBuyLink event={event} fill />
+        <Link href={detailsHref} className={buttonClass("outline", "md", "min-h-11 w-full sm:min-h-10")}>
           View event<span className="sr-only">: {event.title}</span>
         </Link>
-        {sheet && dismiss}
       </div>
       {!sheet && dismiss}
     </section>

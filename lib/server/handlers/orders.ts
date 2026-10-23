@@ -1,17 +1,33 @@
 import type Stripe from "stripe";
 import { calculateBookingFeeCents, calculateOrderSummary } from "@/lib/fees";
-import type { Db } from "../db";
+import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
 import type { Deps } from "../deps";
-import { sendTicketEmailSoon } from "../email-outbox";
-import { created, HttpError, ok, okPrivate, readJson } from "../http";
+import { sendTicketEmailSoon, sendWaitlistEmailsSoon } from "../email-outbox";
+import { formatSeatLine } from "@/lib/seating/format";
+import { MAX_SEATS_PER_ORDER } from "@/lib/seating/template";
+import { REMAINING_SHOWN_AT_MOST } from "@/lib/api/public-events";
+import { SEAT_HOLD } from "@/lib/api/types";
+import { clientIp, clientKey } from "../client-key";
+import { createdPrivate, HttpError, ok, okPrivate, readJson } from "../http";
 import { parseCheckoutLineItems } from "../order-input";
+import { parseCheckoutSeats } from "../seat-map-input";
 import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
 import { CUSTOMER_ORDER_SELECT, ORDER_SELECT, toCustomerOrder, toOrder } from "../records";
 import type { Handler } from "../route";
 import { parseTrackingCode } from "../tracking-codes";
-import type { CustomerOrderLookup, OrderLineItem, OrderRecord, OrderStatus } from "../types";
+import type {
+  CancelOrderResult,
+  CheckoutResult,
+  CustomerOrderLookup,
+  EventRecord,
+  OrderLineItem,
+  OrderRecord,
+  OrderStatus,
+  SeatErrorDetails,
+  TicketSeat,
+} from "../types";
 import { fail, requireEmail } from "../validation";
-import { findEventById } from "./event-queries";
+import { EVENT_ENDED, findEventById, refuseEndedEvent } from "./event-queries";
 import { assertFreeTicketsPerOrder, createFreeOrder, withTicketCodes } from "./free-orders";
 import { findOrganiserById } from "./organiser-guard";
 
@@ -48,9 +64,15 @@ async function assertAvailable(db: Db, eventId: string, lineItems: OrderLineItem
   for (const line of lineItems) {
     const remaining = left.get(line.ticketTypeId) ?? 0;
     if (line.quantity > remaining) {
+      // An exact count only when public payloads show one too (REMAINING_SHOWN_AT_MOST): a large stock, and
+      // through it sales, is never given away by asking for more than there is.
       throw new HttpError(
         409,
-        remaining === 0 ? `"${line.ticketTypeName}" is sold out.` : `Only ${remaining} of "${line.ticketTypeName}" left.`,
+        remaining <= 0
+          ? `"${line.ticketTypeName}" is sold out.`
+          : remaining <= REMAINING_SHOWN_AT_MOST
+            ? `Only ${remaining} of "${line.ticketTypeName}" left.`
+            : `There aren't that many "${line.ticketTypeName}" tickets left. Choose fewer.`,
       );
     }
   }
@@ -117,6 +139,51 @@ async function refundOversoldOrder(deps: Deps, orderId: string, paymentIntentId:
 }
 
 /**
+ * A payment for an order that had already failed: its checkout errored or was
+ * cancelled, or its session expired, before Stripe reported the payment
+ * (e.g. a delayed payment method, or a session Stripe created although the
+ * call to create it failed). There's nothing to fulfil it with (a seated
+ * order's seats were released), so it's refunded in full, Sheltüh's fee and
+ * the organiser's transfer included, as for an oversold order. Stripe's
+ * idempotency key (per order) and the refund id recorded on the order make a
+ * redelivery refund at most once. The order stays `failed`. Logged by the
+ * order's short reference only. Throws on a Stripe error so the webhook
+ * returns 500 and Stripe redelivers.
+ */
+async function refundPaymentForFailedOrder(deps: Deps, orderId: string, paymentIntentId: string | undefined) {
+  const reference = orderReference(orderId);
+  if (!paymentIntentId) {
+    console.error(`Order ${reference} was paid after it failed, with no payment intent on record — refund it manually.`);
+    return;
+  }
+  const [row] = await deps.db.query<{ stripe_refund_id: string | null }>(
+    `select stripe_refund_id from public.orders where id = $1`,
+    [orderId],
+  );
+  if (row?.stripe_refund_id) return;
+  console.warn(`Order ${reference} was paid after it failed: refunding the payment.`);
+  const refund = await deps.stripe().refunds.create(
+    {
+      payment_intent: paymentIntentId,
+      reverse_transfer: true,
+      refund_application_fee: true,
+      metadata: { orderId, reason: "paid_after_order_failed" },
+    },
+    { idempotencyKey: `failed-order-refund-${orderId}` },
+  );
+  // Recorded so a redelivery doesn't ask again, and charge.refunded finds the order (it changes only paid ones).
+  await deps.db.query(
+    `update public.orders
+        set stripe_refund_id = $2, stripe_payment_intent_id = coalesce(stripe_payment_intent_id, $3)
+      where id = $1 and status = 'failed'`,
+    [orderId, refund.id, paymentIntentId],
+  );
+  if (refund.status === "failed" || refund.status === "canceled") {
+    console.error(`Refund ${refund.id} for order ${reference} ${refund.status} — refund it manually.`);
+  }
+}
+
+/**
  * refund.updated / refund.failed for a refund we didn't create (no
  * metadata.orderId): usually one made in the Stripe dashboard. Its success is
  * recorded through charge.refunded; this only makes the rest visible, above
@@ -158,9 +225,10 @@ const MAX_INT4 = 2_147_483_647;
  * paid order voids it (`refunded`, tickets void, inventory released); a
  * partial one is only recorded and logged for manual follow-up
  * (private.record_payment_refund). Never throws for a payment that isn't
- * ours: Stripe would retry it for days.
+ * ours: Stripe would retry it for days. Returns the result (undefined when
+ * the charge was unusable).
  */
-async function recordPaymentRefund(db: Db, eventId: string, charge: Stripe.Charge) {
+async function recordPaymentRefund(db: Db, eventId: string, charge: Stripe.Charge): Promise<PaymentRefundResult | undefined> {
   const paymentIntentId = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
   const amount = charge.amount_refunded;
   if (
@@ -171,7 +239,7 @@ async function recordPaymentRefund(db: Db, eventId: string, charge: Stripe.Charg
     amount > MAX_INT4
   ) {
     console.warn(`Stripe ${eventId}: charge.refunded without a usable payment intent or amount; ignored.`);
-    return;
+    return undefined;
   }
   const [row] = await db.query<{ result: PaymentRefundResult; order_id: string | null }>(
     `select result, order_id from private.record_payment_refund($1, $2, $3)`,
@@ -188,6 +256,7 @@ async function recordPaymentRefund(db: Db, eventId: string, charge: Stripe.Charg
     // Not ours, or (rarely) a refund delivered before its payment was fulfilled: see docs/architecture.md.
     console.warn(`Stripe ${eventId}: charge.refunded for a payment with no order on record; ignored.`);
   }
+  return row.result;
 }
 
 /** A buyer email is required for free orders (nothing else delivers the tickets) and optional otherwise. */
@@ -201,22 +270,60 @@ function parseBuyerEmail(body: Record<string, unknown>, required: boolean): stri
   return email;
 }
 
+/** A platform-managed organiser's event has no paid Sheltüh tickets (only free ones, or external ticketing). */
+export const PLATFORM_PAID_CHECKOUT_REFUSED = "Paid tickets for this event aren't sold on Sheltüh.";
+
+/** Tickets for an external event are sold on another site: no Sheltüh checkout. */
+export const EXTERNAL_CHECKOUT_REFUSED = "Tickets for this event are sold on another site, not on Sheltüh.";
+
+/**
+ * A database trigger refused a new order: orders_sheltuh_only because the
+ * event became external since it was read (an admin's change racing the
+ * checkout), or orders_not_ended because the event has ended (the end passed,
+ * or its time was changed, since it was read). The same 409s as the early
+ * checks. Anything else is rethrown.
+ */
+async function refuseIfClosed<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (err) {
+    if (pgErrorCode(err) === PG_CHECK_VIOLATION) {
+      const constraint = pgConstraint(err);
+      if (constraint === "orders_sheltuh_only") throw new HttpError(409, EXTERNAL_CHECKOUT_REFUSED);
+      if (constraint === "orders_not_ended") throw new HttpError(409, EVENT_ENDED);
+    }
+    throw err;
+  }
+}
+
 /**
  * POST /api/events/[eventId]/checkout — public guest checkout. A paid order
  * becomes a Stripe Checkout Session paying out to the organiser's Connect
- * account, fulfilled by the webhook: 201 with its URL. A wholly free order
+ * account, fulfilled by the webhook: 201 `{url, orderId}` (private,
+ * no-store; the order id lets the page cancel it, POST
+ * /orders/by-session/{orderId}/cancel, if the buyer comes Back from
+ * Stripe). A wholly free order
  * never touches Stripe (./free-orders.ts): 201 with the confirmation page's
- * URL for a member's own verified email, otherwise 202 once a confirmation
- * link has been emailed. Any order, paid or free, holds at most 4 free
- * tickets (400, fieldErrors.lineItems).
+ * URL for a member's own verified email, otherwise 202, the confirmation
+ * link being emailed straight after the response. Any order, paid or free, holds at most 4 free
+ * tickets (400, fieldErrors.lineItems). An event that has ended takes no new
+ * order or seat hold, paid or free (409 "This event has ended."; the
+ * database refuses the order too: orders_not_ended).
  */
 export const createCheckout: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const { db } = deps;
   const event = await findEventById(db, eventId);
   if (!event || event.status !== "published") throw new HttpError(404, "This event isn't available for booking.");
+  // External ticketing: no Sheltüh checkout, free or paid (the database refuses the order too).
+  if (event.ticketingMode === "external") throw new HttpError(409, EXTERNAL_CHECKOUT_REFUSED);
+  // Ended: no new orders or holds (seated included). A payment for an earlier order is still fulfilled (stripeWebhook).
+  refuseEndedEvent(event);
 
   const body = await readJson(req);
+  // Reserved seating: seats chosen on the map (and any general admission lines with them).
+  if (body.seats !== undefined && body.seats !== null) return createSeatedCheckout(req, deps, event, body);
   const lineItems = parseCheckoutLineItems(body, event.ticketTypes);
+  refuseSeatedLines(event, lineItems);
   const totals = orderTotals(lineItems);
   const isFree = totals.totalCents === 0;
   // Free: tickets straight away for a member's own verified email, an emailed confirmation link for anyone else.
@@ -224,7 +331,9 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
     const buyerEmail = parseBuyerEmail(body, true);
     await assertFreeTicketsPerOrder(deps, lineItems);
     await assertAvailable(db, eventId, lineItems);
-    return createFreeOrder(req, deps, { event, lineItems, buyerEmail, trackingCode: parseTrackingCode(body.trackingCode) });
+    return refuseIfClosed(() =>
+      createFreeOrder(req, deps, { event, lineItems, buyerEmail, trackingCode: parseTrackingCode(body.trackingCode) }),
+    );
   }
 
   const buyerEmail = parseBuyerEmail(body, false);
@@ -258,13 +367,16 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
     );
 
   const organiser = await findOrganiserById(db, event.organiserId);
+  // A platform-managed organiser (no owner account) sells no paid Sheltüh
+  // tickets: the database refuses its paid ticket types and orders too.
+  if (organiser && !organiser.ownerUserId) throw new HttpError(409, PLATFORM_PAID_CHECKOUT_REFUSED);
   if (!organiser?.stripeAccountId || !organiser.payoutsEnabled) {
     throw new HttpError(409, "This organiser hasn't finished setting up payouts yet — ticket sales aren't open.");
   }
 
   // The order exists before Stripe does, so no payment can ever arrive
   // without an order to attach it to.
-  await insertOrder();
+  await refuseIfClosed(insertOrder);
   const siteUrl = deps.siteUrl();
   let session: Stripe.Checkout.Session;
   try {
@@ -310,7 +422,10 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   if (!session.url) throw new Error("Stripe did not return a Checkout Session URL.");
 
   await db.query(`update public.orders set stripe_checkout_session_id = $2 where id = $1`, [orderId, session.id]);
-  return created({ url: session.url });
+  // The order id goes back only to the client that made the order (it's in Stripe's success and cancel URLs
+  // anyway), so the page can cancel it if the buyer comes Back from Stripe: never cached.
+  const result: CheckoutResult = { url: session.url, orderId };
+  return createdPrivate(result);
 };
 
 const ORDER_NOT_FOUND = "Order not found.";
@@ -362,7 +477,9 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
 
   // Any refund of a charge, including ones made in the Stripe dashboard.
   if (event.type === "charge.refunded") {
-    await recordPaymentRefund(deps.db, event.id, event.data.object as Stripe.Charge);
+    const result = await recordPaymentRefund(deps.db, event.id, event.data.object as Stripe.Charge);
+    // The released tickets may have queued waitlist emails (private.notify_waitlist, at commit): send them now.
+    if (result === "refunded") sendWaitlistEmailsSoon(deps);
     return received;
   }
 
@@ -381,11 +498,25 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
     await refundOversoldOrder(deps, order.orderId, order.stripePaymentIntentId);
     return received;
   }
+  // Paid for an order that had already failed (cancelled, expired or a checkout error): refund it.
+  if (order.status === "failed" && isPaymentEvent) {
+    if (session.payment_status === "paid") {
+      const paymentIntentId =
+        typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
+      await refundPaymentForFailedOrder(deps, order.orderId, paymentIntentId);
+    }
+    return received;
+  }
   // Already handled (Stripe redelivers) — nothing left to do.
   if (order.status !== "pending") return received;
 
   if (isFailureEvent) {
-    await deps.db.query(`update public.orders set status = 'failed' where id = $1 and status = 'pending'`, [order.orderId]);
+    if (order.seatIds) {
+      // A seated order's holds go straight back (they'd also lapse on their own).
+      await deps.db.query(`select private.release_seat_holds($1)`, [order.orderId]);
+    } else {
+      await deps.db.query(`update public.orders set status = 'failed' where id = $1 and status = 'pending'`, [order.orderId]);
+    }
     return received;
   }
   // A completed session can still be awaiting a delayed payment method.
@@ -405,4 +536,344 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
     await refundOversoldOrder(deps, order.orderId, paymentIntentId);
   }
   return received;
+};
+
+// ---------------------------------------------------------------------------
+// Reserved seating (docs/architecture.md, "Reserved seating")
+// ---------------------------------------------------------------------------
+
+/**
+ * Seat holds (docs/SEATING_PLAN.md decisions 1 and 5): 35 minutes, Stripe's
+ * page closing at 31 (its minimum is 30, and the buyer is told 30); per event,
+ * 120 holds per 10 minutes (refused attempts don't count), and at most the
+ * larger of 20 seats or 30% of its unblocked seats held at once.
+ *
+ * Per client (keyed on its IP address, lib/server/client-key.ts; a manager
+ * decision): 20 hold attempts per event and 60 across all events per 10
+ * minutes. Every attempt that reaches private.hold_seats counts, refused or
+ * not. A buyer whose seats keep being taken retries a handful of times, so
+ * 20 leaves plenty for them and for a few people on one connection (venue
+ * wifi, a phone network's shared address), while one client can no longer
+ * use up the event's 120 alone (it takes at least six). 60 bounds a client
+ * working through many events.
+ */
+export const SEAT_HOLD_LIMITS = {
+  hold: `${SEAT_HOLD.holdMinutes} minutes`,
+  stripeSessionMinutes: SEAT_HOLD.stripeMinutes + 1,
+  attempts: { limit: 120, window: "10 minutes" },
+  perClient: { event: 20, allEvents: 60, window: "10 minutes" },
+  capMin: 20,
+  capShare: 0.3,
+} as const;
+
+const SEATS_TAKEN = "Some seats were taken while you were choosing. Choose other seats, then press Checkout again.";
+const SEAT_MAP_CHANGED = "The seat map has changed. Reload it and choose your seats again.";
+const BUSY = "A lot of people are checking out for this event right now. Try again in a minute.";
+const CLIENT_BUSY = "You've started a lot of checkouts in the last few minutes. Wait a few minutes, then try again.";
+
+function seatError(status: number, message: string, field: string, details: SeatErrorDetails): HttpError {
+  return new HttpError(status, message, { [field]: message }, { ...details });
+}
+
+/** A tier with seats is sold only by choosing seats: never as a quantity (400). */
+function refuseSeatedLines(event: EventRecord, lineItems: OrderLineItem[]) {
+  if (!event.seating) return;
+  const seated = new Set(event.ticketTypes.filter((t) => t.seated).map((t) => t.id));
+  const line = lineItems.find((l) => seated.has(l.ticketTypeId));
+  if (line) fail({ lineItems: `"${line.ticketTypeName}" seats are chosen on the seat map.` });
+}
+
+/**
+ * One hold attempt against the client's own allowance (SEAT_HOLD_LIMITS.perClient,
+ * private.take_seat_hold_attempt): 429 `client_rate_limited` when it's used
+ * up, nothing else written. Fails open, with a log line (never the request's
+ * headers), when the request has no usable client IP (always set on Vercel)
+ * or the secret the key is salted with isn't configured.
+ */
+async function takeClientHoldAttempt(req: Request, deps: Deps, eventId: string, seatIds: string[]) {
+  const ip = clientIp(req);
+  if (!ip) {
+    console.warn("Seat hold without a client IP header: the per-client hold limit was skipped.");
+    return;
+  }
+  let secret: string;
+  try {
+    secret = deps.stripeWebhookSecret();
+  } catch {
+    console.error("STRIPE_WEBHOOK_SECRET isn't set: the per-client hold limit was skipped.");
+    return;
+  }
+  const { event, allEvents, window } = SEAT_HOLD_LIMITS.perClient;
+  const [row] = await deps.db.query<{ result: "ok" | "event" | "all" }>(
+    `select private.take_seat_hold_attempt($1, $2, $3, $4, $5::interval) as result`,
+    [clientKey(ip, secret), eventId, event, allEvents, window],
+  );
+  if (row.result !== "ok") throw seatError(429, CLIENT_BUSY, "seats", { code: "client_rate_limited", seatIds });
+}
+
+interface ChosenSeat extends TicketSeat {
+  id: string;
+  ticketTypeId: string;
+}
+
+/** The seats' tiers as priced lines (prices from the database), in the event's tier order. */
+function seatLines(event: EventRecord, seats: ChosenSeat[]): OrderLineItem[] {
+  return event.ticketTypes.flatMap((tier) => {
+    const quantity = seats.filter((seat) => seat.ticketTypeId === tier.id).length;
+    return quantity > 0
+      ? [{ ticketTypeId: tier.id, ticketTypeName: tier.name, unitPriceCents: tier.priceCents, feePolicy: tier.feePolicy, quantity }]
+      : [];
+  });
+}
+
+/**
+ * POST …/checkout with `seats: {mapVersion, seatIds}` (and optional
+ * `lineItems` for the event's general admission tiers, which don't count
+ * towards the 10 seats). Prices come from each seat's tier.
+ * - Paid: one attempt against the client's own hold allowance, then the
+ *   pending order and its 35-minute holds in one step (private.hold_seats),
+ *   then Stripe (expires in 31 minutes; a Stripe error releases the holds).
+ *   201 `{url, holdExpiresAt, orderId}`.
+ * - Free: a member's own verified email gets the seats at once; anyone else
+ *   an emailed link, holding nothing until it's confirmed.
+ * Refusals write nothing (only a hold counts towards the event's hold
+ * attempts): 400 bad input; 409 `seats` taken or unknown (body `seatIds`),
+ * `seatMapVersion` changed; 429 too many seats held or holds made for the
+ * event, or too many attempts by this client (`client_rate_limited`; body
+ * `seatIds`).
+ */
+async function createSeatedCheckout(
+  req: Request,
+  deps: Deps,
+  event: EventRecord,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const { db } = deps;
+  if (!event.seating) fail({ seats: "This event doesn't have reserved seating." });
+  const { mapVersion, seatIds } = parseCheckoutSeats(body.seats);
+  if (seatIds.length > MAX_SEATS_PER_ORDER) fail({ seats: `You can choose up to ${MAX_SEATS_PER_ORDER} seats.` });
+
+  // General admission lines, if any (a seated tier here is a 400).
+  const rawLines = body.lineItems;
+  let gaLines: OrderLineItem[] = [];
+  if (rawLines !== undefined && rawLines !== null && !(Array.isArray(rawLines) && rawLines.length === 0)) {
+    gaLines = parseCheckoutLineItems(body, event.ticketTypes);
+    refuseSeatedLines(event, gaLines);
+  }
+
+  if (mapVersion !== event.seating.version) {
+    throw seatError(409, SEAT_MAP_CHANGED, "seatMapVersion", { code: "seat_map_changed" });
+  }
+  const seats = await db.query<ChosenSeat & { unavailable: boolean }>(
+    `select s.id, s.ticket_type_id as "ticketTypeId", s.section_label as section, s.row_label as "row",
+            s.seat_label as seat, s.kind,
+            (s.blocked or s.sold_order_id is not null
+              or (s.hold_order_id is not null and s.hold_expires_at > now())) as unavailable
+       from public.event_seats s
+      where s.event_id = $1 and s.id = any($2::text[])
+      order by s.position`,
+    [event.eventId, seatIds],
+  );
+  const found = new Set(seats.map((seat) => seat.id));
+  const gone = [...seatIds.filter((id) => !found.has(id)), ...seats.filter((seat) => seat.unavailable).map((seat) => seat.id)].sort();
+  if (gone.length > 0) throw seatError(409, SEATS_TAKEN, "seats", { code: "seats_unavailable", seatIds: gone });
+
+  const lineItems = [...seatLines(event, seats), ...gaLines];
+  const totals = orderTotals(lineItems);
+  const trackingCode = parseTrackingCode(body.trackingCode);
+  const labels = seats.map(({ section, row, seat, kind }) => ({ section, row, seat, kind }));
+
+  if (totals.totalCents === 0) {
+    const buyerEmail = parseBuyerEmail(body, true);
+    await assertFreeTicketsPerOrder(deps, lineItems);
+    await assertAvailable(db, event.eventId, lineItems);
+    return refuseIfClosed(() =>
+      createFreeOrder(req, deps, { event, lineItems, buyerEmail, trackingCode, seats: { seatIds, labels } }),
+    );
+  }
+
+  const buyerEmail = parseBuyerEmail(body, false);
+  await assertFreeTicketsPerOrder(deps, lineItems);
+  await assertAvailable(db, event.eventId, lineItems);
+  const organiser = await findOrganiserById(db, event.organiserId);
+  if (organiser && !organiser.ownerUserId) throw new HttpError(409, PLATFORM_PAID_CHECKOUT_REFUSED);
+  if (!organiser?.stripeAccountId || !organiser.payoutsEnabled) {
+    throw new HttpError(409, "This organiser hasn't finished setting up payouts yet — ticket sales aren't open.");
+  }
+
+  await takeClientHoldAttempt(req, deps, event.eventId, seatIds);
+  const orderId = `ord_${crypto.randomUUID().replace(/-/g, "")}`;
+  const [hold] = await refuseIfClosed(() =>
+    db.query<{ result: string; hold_expires_at: string | Date | null; unavailable_seat_ids: string[] | null }>(
+      `select result, hold_expires_at, unavailable_seat_ids
+         from private.hold_seats($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11, $12, $13::text[],
+                                 $14::interval, $15, $16::interval, $17, $18)`,
+      [
+        orderId,
+        event.eventId,
+        event.organiserId,
+        event.title,
+        JSON.stringify(lineItems),
+        totals.subtotalCents,
+        totals.buyerFeeCents,
+        totals.totalCents,
+        totals.applicationFeeCents,
+        buyerEmail,
+        trackingCode,
+        mapVersion,
+        seatIds,
+        SEAT_HOLD_LIMITS.hold,
+        SEAT_HOLD_LIMITS.attempts.limit,
+        SEAT_HOLD_LIMITS.attempts.window,
+        SEAT_HOLD_LIMITS.capMin,
+        SEAT_HOLD_LIMITS.capShare,
+      ],
+    ),
+  );
+  switch (hold.result) {
+    case "held":
+      break;
+    case "rate_limited":
+      throw seatError(429, BUSY, "seats", { code: "rate_limited", seatIds });
+    case "hold_cap":
+      throw seatError(429, BUSY, "seats", { code: "hold_cap", seatIds });
+    case "seats_unavailable":
+      throw seatError(409, SEATS_TAKEN, "seats", { code: "seats_unavailable", seatIds: hold.unavailable_seat_ids ?? seatIds });
+    case "version":
+    case "tier_mismatch":
+      throw seatError(409, SEAT_MAP_CHANGED, "seatMapVersion", { code: "seat_map_changed" });
+    case "not_on_sale":
+      throw new HttpError(404, "This event isn't available for booking.");
+    default:
+      throw new Error(`Unexpected hold_seats result: ${hold.result}`);
+  }
+
+  const siteUrl = deps.siteUrl();
+  let session: Stripe.Checkout.Session;
+  try {
+    session = await deps.stripe().checkout.sessions.create({
+      mode: "payment",
+      client_reference_id: orderId,
+      ...(buyerEmail ? { customer_email: buyerEmail } : {}),
+      expires_at: Math.floor(Date.now() / 1000) + SEAT_HOLD_LIMITS.stripeSessionMinutes * 60,
+      line_items: lineItems.flatMap((line) => {
+        const lineSeats = seats.filter((seat) => seat.ticketTypeId === line.ticketTypeId);
+        const items: Stripe.Checkout.SessionCreateParams.LineItem[] = [
+          {
+            price_data: {
+              currency: "aud",
+              product_data: {
+                name: `${line.ticketTypeName} — ${event.title}`,
+                ...(lineSeats.length > 0 ? { description: lineSeats.map(formatSeatLine).join("; ") } : {}),
+              },
+              unit_amount: line.unitPriceCents,
+            },
+            quantity: line.quantity,
+          },
+        ];
+        if (line.feePolicy === "buyer-pays" && line.unitPriceCents > 0) {
+          items.push({
+            price_data: {
+              currency: "aud",
+              product_data: { name: "Booking fee" },
+              unit_amount: calculateBookingFeeCents(line.unitPriceCents),
+            },
+            quantity: line.quantity,
+          });
+        }
+        return items;
+      }),
+      payment_intent_data: {
+        application_fee_amount: totals.applicationFeeCents,
+        transfer_data: { destination: organiser.stripeAccountId },
+      },
+      success_url: `${siteUrl}/checkout/success?session_id=${orderId}`,
+      // The cancelled page releases the seats at once (POST /orders/by-session/{id}/cancel).
+      cancel_url: `${siteUrl}/checkout/cancelled?order=${orderId}`,
+      metadata: { orderId, eventId: event.eventId },
+    });
+  } catch (err) {
+    // Nobody can pay for these seats: give them back now, not in 35 minutes.
+    await db.query(`select private.release_seat_holds($1)`, [orderId]);
+    throw err;
+  }
+  if (!session.url) {
+    await db.query(`select private.release_seat_holds($1)`, [orderId]);
+    throw new Error("Stripe did not return a Checkout Session URL.");
+  }
+
+  await db.query(`update public.orders set stripe_checkout_session_id = $2 where id = $1`, [orderId, session.id]);
+  const result: CheckoutResult = {
+    url: session.url,
+    holdExpiresAt: new Date(hold.hold_expires_at as string).toISOString(),
+    // Only to the client that made the order (as for general admission): the seat page keeps it so Back from
+    // Stripe can release the seats at once.
+    orderId,
+  };
+  return createdPrivate(result);
+}
+
+/** Stripe's answer to expiring a session that can't be expired (already complete or expired). */
+async function expireCheckoutSession(deps: Deps, sessionId: string): Promise<"expired" | "complete"> {
+  try {
+    await deps.stripe().checkout.sessions.expire(sessionId);
+    return "expired";
+  } catch (err) {
+    const session = await deps.stripe().checkout.sessions.retrieve(sessionId);
+    if (session.status === "expired") return "expired";
+    if (session.status === "complete") return "complete";
+    throw err;
+  }
+}
+
+/**
+ * POST /api/orders/by-session/[sessionId]/cancel — public, the order id is
+ * the credential (as for GET). The buyer left Stripe's page (the seated
+ * checkout's cancel_url): the Stripe session is expired first, so it can't
+ * be paid any more, then the order is cancelled and its seats released.
+ * CancelOrderResult: `released` (also when it already was), `paid`, or
+ * `processing` (Stripe already has the payment). 404 unknown or not a card
+ * checkout; 409 still being set up (try again). `private, no-store`.
+ * The id (`ord_` + 32 hex, 128 random bits) only ever reaches the client
+ * that made the order: the checkout's response and Stripe's success and
+ * cancel URLs. A paid order is never changed here, and the session is
+ * expired before anything is released, so nothing can be paid for seats
+ * that are no longer held.
+ */
+export const cancelPendingOrder: Handler<{ sessionId: string }> = async (_req, { sessionId }, deps) => {
+  if (!ORDER_ID_PATTERN.test(sessionId)) throw new HttpError(404, ORDER_NOT_FOUND);
+  const [row] = await deps.db.query<{
+    status: OrderStatus;
+    stripe_checkout_session_id: string | null;
+    free_link: boolean;
+    event_title: string;
+    event_slug: string | null;
+  }>(
+    `select o.status::text as status, o.stripe_checkout_session_id, o.confirmation_token_hash is not null as free_link,
+            o.event_title, (select e.slug from public.events e where e.id = o.event_id) as event_slug
+       from public.orders o where o.id = $1`,
+    [sessionId],
+  );
+  // A guest's free booking isn't a card checkout: nothing to cancel here.
+  if (!row || row.free_link) throw new HttpError(404, ORDER_NOT_FOUND);
+  const answer = (status: CancelOrderResult["status"]) =>
+    okPrivate({ status, eventTitle: row.event_title, ...(row.event_slug ? { eventSlug: row.event_slug } : {}) } satisfies CancelOrderResult);
+
+  if (row.status === "paid") return answer("paid");
+  if (row.status === "failed") return answer("released");
+  if (row.status !== "pending") return answer("processing");
+  if (!row.stripe_checkout_session_id) {
+    throw new HttpError(409, "This checkout is still being set up. Try again in a moment.");
+  }
+  if ((await expireCheckoutSession(deps, row.stripe_checkout_session_id)) === "complete") return answer("processing");
+  const [released] = await deps.db.query<{ result: string }>(`select private.release_seat_holds($1) as result`, [sessionId]);
+  switch (released.result) {
+    case "released":
+    case "failed":
+      return answer("released");
+    case "paid":
+      return answer("paid");
+    default:
+      return answer("processing");
+  }
 };

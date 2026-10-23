@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { SelectedDots } from "@/components/ui/FilterChip";
 import { EmptyState, Notice } from "@/components/ui/Section";
 import { adminListOrganisers, adminSuspendOrganiser } from "@/lib/api/admin";
 import { ApiError } from "@/lib/api/client";
@@ -11,6 +12,7 @@ import { SessionExpiredError } from "@/lib/auth/session-token";
 import AdminSessionExpired from "./AdminSessionExpired";
 import OrganiserItem, { actionErrorText, organiserHeadingId, suspendButtonId } from "./OrganiserItem";
 import SuspendOrganiserDialog, { type SuspendOutcome } from "./SuspendOrganiserDialog";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 const STATUSES: {
   value: OrganiserStatus;
@@ -304,6 +306,7 @@ export default function OrganiserQueue() {
               setReauthOwner(null);
             }}
           >
+            {status === s.value && <SelectedDots />}
             {s.label}
           </Button>
         ))}
@@ -344,7 +347,7 @@ export default function OrganiserQueue() {
         {current.intro && <p className="mt-2 text-sm text-muted">{current.intro}</p>}
 
         <div className="mt-4">
-          {state.status === "loading" && <p className="text-sm text-muted">Loading…</p>}
+          {state.status === "loading" && <LoadingState text="Loading…" />}
 
           {state.status === "error" && (
             <div className="flex flex-col items-start gap-3">
@@ -372,6 +375,12 @@ export default function OrganiserQueue() {
                   item={item}
                   getToken={getToken}
                   onRemoved={removed}
+                  onUpdated={(record, message) => {
+                    setItems((current) => current.map((i) => (i.organiserId === record.organiserId ? record : i)));
+                    setAnnouncement(message);
+                    setDescribedFocus(record.organiserId);
+                    pendingFocus.current = organiserHeadingId(record.organiserId);
+                  }}
                   onSuspend={openSuspend}
                   headingDescribedBy={
                     describedFocus === item.organiserId && announcement ? ANNOUNCEMENT_ID : undefined

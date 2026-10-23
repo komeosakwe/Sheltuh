@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { generatedSampleEvents } from "@/lib/sample-events-more";
 import { sampleEvents } from "@/lib/sample-events";
+import { checkExternalTicketUrl, ticketProviderName } from "@/lib/ticketing";
 
 describe("demo sample events", () => {
   it("have unique ids, slugs and ticket ids, so lists and links never collide", () => {
@@ -24,6 +25,8 @@ describe("demo sample events", () => {
   it("each end after they start, with a real price and quantity on every ticket type", () => {
     for (const event of sampleEvents) {
       expect(Date.parse(event.endsAt ?? "")).toBeGreaterThan(Date.parse(event.startsAt));
+      // External events sell elsewhere and have none (checked below).
+      if (event.ticketingMode === "external") continue;
       expect(event.ticketTypes.length).toBeGreaterThan(0);
       for (const ticket of event.ticketTypes) {
         expect(Number.isInteger(ticket.priceCents)).toBe(true);
@@ -31,6 +34,21 @@ describe("demo sample events", () => {
         expect(ticket.quantityAvailable).toBeGreaterThan(0);
       }
     }
+  });
+
+  it("include external-ticketing events that follow the API's rules (a valid link, no ticket types, provider by host)", () => {
+    const external = sampleEvents.filter((event) => event.ticketingMode === "external");
+    expect(external.length).toBeGreaterThanOrEqual(2);
+    expect(external.some((event) => event.externalFree)).toBe(true);
+    expect(external.some((event) => !event.externalFree)).toBe(true);
+    for (const event of external) {
+      expect(event.ticketTypes).toEqual([]);
+      const checked = checkExternalTicketUrl(event.externalTicketUrl ?? "");
+      expect(checked).toEqual({ ok: true, url: event.externalTicketUrl });
+      expect(event.externalProvider).toBe(ticketProviderName(event.externalTicketUrl ?? ""));
+    }
+    // One known site and one that isn't ("the organiser's site").
+    expect(external.map((event) => event.externalProvider)).toEqual(expect.arrayContaining(["Humanitix", null]));
   });
 
   it("place every generated event inside Melbourne", () => {

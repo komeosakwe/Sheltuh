@@ -6,10 +6,12 @@ import { getGoingSummary, getMyGoingStatus, listGoingAttendees } from "@/lib/api
 import type { GoingAttendee, MyGoingStatus, ProfileRecord } from "@/lib/api/types";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { fetchMyProfile } from "@/lib/auth/useProfile";
+import { GOING_COUNT_MIN } from "@/lib/event-card";
 import { getSampleGoing } from "@/lib/sample-going";
+import type { TicketingMode } from "@/lib/ticketing";
 
-/** Below this many people, no number is shown anywhere (honest at small numbers). */
-export const COUNT_THRESHOLD = 3;
+/** Below this many people, no number is shown anywhere (honest at small numbers). Cards share it. */
+export const COUNT_THRESHOLD = GOING_COUNT_MIN;
 
 export type GoingViewer =
   | { kind: "signed-out" }
@@ -63,6 +65,16 @@ interface WhosGoingContextValue {
 }
 
 const LOADING: GoingLoadState = { status: "loading" };
+
+/**
+ * An external event's Who's Going: always closed, in demo and live alike.
+ * Its tickets aren't sold here, so nobody can be eligible (the API reads it
+ * as closed too, and set_going refuses it); no request is made for it.
+ */
+const CLOSED: GoingLoadState = {
+  status: "ready",
+  data: { closed: true, count: 0, countHidden: false, attendees: null, viewer: { kind: "signed-out" } },
+};
 
 const WhosGoingContext = createContext<WhosGoingContextValue | undefined>(undefined);
 
@@ -138,16 +150,30 @@ async function loadGoing(eventId: string, getToken: GetToken | undefined, email:
  * Loads Who's Going once per event page and shares it between the panel in
  * the aside and the phone summary link under the title (no second request).
  * Demo mode (no API, or a sample event with no organiser, the same gate as
- * TicketSelector) uses fixed sample names and never calls the API.
+ * TicketSelector) uses fixed sample names and never calls the API. An
+ * external event (tickets sold on another site) is closed in both modes,
+ * with no request. So is a demo event once it has ended (its `endsAt`, or
+ * `startsAt` with no end), as the live API closes a real one.
  */
 export function WhosGoingProvider({
   event,
   children,
 }: {
-  event: { id: string; slug: string; title: string; organiserId?: string };
+  event: {
+    id: string;
+    slug: string;
+    title: string;
+    organiserId?: string;
+    ticketingMode?: TicketingMode;
+    /** Demo only (live asks the API): an ended event's list is closed. */
+    startsAt?: string;
+    endsAt?: string;
+  };
   children: ReactNode;
 }) {
+  const external = event.ticketingMode === "external";
   const live = isApiConfigured && Boolean(event.organiserId);
+  const fetches = live && !external;
   const auth = useOptionalAuth();
   const authStatus = auth?.configured ? auth.status : "signed-out";
   const email = auth?.email;
@@ -160,7 +186,7 @@ export function WhosGoingProvider({
   const [result, setResult] = useState<{ key: string; state: GoingLoadState } | null>(null);
 
   useEffect(() => {
-    if (!live || authStatus === "loading") return;
+    if (!fetches || authStatus === "loading") return;
     let cancelled = false;
     loadGoing(event.id, getToken, email).then(
       (data) => {
@@ -173,9 +199,15 @@ export function WhosGoingProvider({
     return () => {
       cancelled = true;
     };
-  }, [live, authStatus, key, event.id, getToken, email]);
+  }, [fetches, authStatus, key, event.id, getToken, email]);
+
+  // The time of the first render: a demo list closes on the next visit after its event ends, never mid-view.
+  const [mountedAt] = useState(() => Date.now());
+  const endMs = Date.parse(event.endsAt ?? event.startsAt ?? "");
+  const ended = Number.isFinite(endMs) && endMs <= mountedAt;
 
   const demoState = useMemo<GoingLoadState>(() => {
+    if (external || ended) return CLOSED;
     const sample = getSampleGoing(event.id);
     return {
       status: "ready",
@@ -183,13 +215,22 @@ export function WhosGoingProvider({
         closed: false,
         count: sample.count,
         countHidden: sample.count < COUNT_THRESHOLD,
-        attendees: sample.attendees,
+        // The sample members' profiles exist only in the demo: with an API, every name is plain text.
+        attendees: isApiConfigured
+          ? sample.attendees.map(({ attendeeId, displayName }) => ({ attendeeId, displayName, isYou: false }))
+          : sample.attendees,
         viewer: { kind: "signed-out" },
       },
     };
-  }, [event.id]);
+  }, [event.id, external, ended]);
 
-  const state: GoingLoadState = !live ? demoState : result?.key === key ? result.state : LOADING;
+  const state: GoingLoadState = !live
+    ? demoState
+    : external
+      ? CLOSED
+      : result?.key === key
+        ? result.state
+        : LOADING;
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
   const update = useCallback(

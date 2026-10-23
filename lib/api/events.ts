@@ -1,3 +1,4 @@
+import type { TicketingMode } from "@/lib/ticketing";
 import type { EventCategory } from "@/lib/types";
 import { apiFetch, type GetToken } from "./client";
 import type { EventRecord, Paginated, TicketTypeInput } from "./types";
@@ -11,7 +12,25 @@ export interface EventInput {
   suburb: string;
   start: { date: string; time: string };
   end: { date: string; time: string };
+  /** At least one for a Sheltüh-ticketed event; must be empty for an external one. */
   ticketTypes: TicketTypeInput[];
+  /**
+   * Where tickets are sold. Absent: `sheltuh` when creating; when editing,
+   * the stored ticketing is kept (and its link and free flag, unless sent).
+   * Once the event has been
+   * approved (`EventRecord.ticketingLocked`), changing it or the link is
+   * ApiError 409 with fieldErrors on the changed field; only an admin can.
+   */
+  ticketingMode?: TicketingMode;
+  /**
+   * `external`: required, the ticket page's https address (no IP address,
+   * port, username/password, localhost or link shortener; checked with
+   * lib/ticketing.ts checkExternalTicketUrl, whose messages the API returns
+   * as fieldErrors.externalTicketUrl). `sheltuh`: absent, null or "".
+   */
+  externalTicketUrl?: string | null;
+  /** `external` only: entry is free. Absent or false for `sheltuh`. */
+  externalFree?: boolean;
 }
 
 export async function createEventDraft(input: EventInput, getToken: GetToken) {

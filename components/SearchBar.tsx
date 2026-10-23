@@ -3,7 +3,11 @@ import { useId } from "react";
 /**
  * Site search: a plain GET form to /search?q=… so it works without JS and
  * needs no client state. `size="lg"` is the big version used on the search page.
- * `submit` adds a round yellow search button inside the field (phone home).
+ * `submit` adds a square search button inside the field (the home hero),
+ * which is then the field's only search icon (no second one at its start).
+ * The field is named by its placeholder, the only words it shows, so what a
+ * sighted visitor reads is what speech control and screen readers hear
+ * (WCAG 2.5.3).
  */
 export default function SearchBar({
   defaultValue = "",
@@ -26,30 +30,32 @@ export default function SearchBar({
   // Unique per instance: the page can hold more than one bar of the same size.
   const inputId = useId();
   const inputSize = submit
-    ? "h-13 py-0 pl-12 pr-14 text-base"
+    ? "h-13 py-0 pl-4 pr-14 text-base"
     : large
       ? "py-4 pl-13 pr-6 text-lg"
       : "py-2 pl-10 pr-4 text-sm";
   return (
     <form action="/search" method="get" role="search" aria-label={label} className="w-full">
       <label htmlFor={inputId} className="sr-only">
-        Search by event, venue or suburb
+        {placeholder}
       </label>
       <div className="relative">
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          className={`pointer-events-none absolute top-1/2 -translate-y-1/2 text-muted ${
-            submit ? "left-4 h-5 w-5" : large ? "left-5 h-5 w-5" : "left-4 h-4 w-4"
-          }`}
-        >
-          <circle cx="11" cy="11" r="7" />
-          <path d="m20 20-3.5-3.5" />
-        </svg>
+        {!submit && (
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            className={`pointer-events-none absolute top-1/2 -translate-y-1/2 text-muted ${
+              large ? "left-5 h-5 w-5" : "left-4 h-4 w-4"
+            }`}
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
+          </svg>
+        )}
         <input
           id={inputId}
           type="search"
@@ -59,13 +65,13 @@ export default function SearchBar({
           maxLength={100}
           placeholder={placeholder}
           autoComplete="off"
-          className={`w-full rounded-full! border-foreground! bg-surface! text-foreground placeholder:text-muted ${inputSize}`}
+          className={`w-full text-foreground placeholder:text-muted ${inputSize}`}
         />
         {submit && (
           <button
             type="submit"
             aria-label="Search"
-            className="absolute right-1 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-highlight text-foreground hover:bg-foreground hover:text-highlight"
+            className="absolute right-1 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-control bg-foreground text-background hover:bg-signal hover:text-signal-foreground"
           >
             <svg
               aria-hidden="true"

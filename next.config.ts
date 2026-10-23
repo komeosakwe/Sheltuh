@@ -41,6 +41,24 @@ const nextConfig: NextConfig = {
           { key: "X-Robots-Tag", value: "noindex, nofollow" },
         ],
       },
+      // The pages emailed links open (a waitlist confirm or leave link, a
+      // follower email's unsubscribe link) carry their token in the fragment:
+      // the same headers as /checkout, so the URL is never a Referer and the
+      // pages stay out of search indexes.
+      {
+        source: "/waitlist/:path*",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
+      {
+        source: "/following/:path*",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
       // The door scanner's self-hosted QR decoder (public/vendor/zxing-wasm/<version>/,
       // lib/check-in/detector.ts). The version is in the path and a new version gets a
       // new folder, so a file never changes at its URL: cache it for a year.

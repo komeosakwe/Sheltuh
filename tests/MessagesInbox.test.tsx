@@ -63,7 +63,7 @@ describe("Inbox", () => {
       ],
     });
     renderInbox();
-    expect(screen.getByText("Loading your messages…")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Loading your messages" })).toBeInTheDocument();
     await screen.findByRole("list", { name: "Conversations" });
     const [request, sent, active] = rows();
 
@@ -144,11 +144,12 @@ describe("Inbox", () => {
     expect(listConversations).not.toHaveBeenCalled();
   });
 
-  it("demo: a notice and a sample conversation, and never calls the API", () => {
+  it("demo: a notice and the sample conversations, and never calls the API", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     renderInbox(fakeAuthValue({ configured: false, status: "signed-out" }));
-    expect(screen.getByRole("note")).toHaveTextContent("Messages aren’t available in this demo.");
-    expect(screen.getByRole("list", { name: "Messages with Priya R." })).toBeInTheDocument();
+    expect(screen.getByRole("note")).toHaveTextContent("Messages aren’t sent in this demo.");
+    expect(rows()).toHaveLength(3);
+    expect(within(rows()[0]).getByRole("link")).toHaveAttribute("href", "/messages/priya-r");
     expect(listConversations).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
   });

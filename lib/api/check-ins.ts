@@ -3,8 +3,9 @@ import type { CheckInInput, CheckInResult, CheckInSummary, UndoCheckInInput, Und
 
 /**
  * Ticket check-in at the door (docs/architecture.md, "Check-in"). The
- * approved organiser who owns the event only: ApiError 404 for anyone else's
- * event, 403 without an approved organiser (admins included), 401 signed out.
+ * approved organiser who owns the event, or an admin for a platform-managed
+ * organiser's event: ApiError 404 for anyone else's event (admins included),
+ * 403 without an approved organiser (non-admins), 401 signed out.
  *
  * Every ticket outcome (admitted, already checked in, invalid, ...) resolves
  * normally. A thrown error means the ticket could NOT be verified and nothing

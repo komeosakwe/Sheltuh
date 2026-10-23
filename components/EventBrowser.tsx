@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import EventResults from "@/components/EventResults";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/Section";
@@ -17,6 +17,12 @@ interface EventBrowserProps {
   /** Starting filters (from /events?category=&pricing=); "Reset filters" still clears to all. */
   initialCategory?: EventCategory | "all";
   initialPricing?: PricingFilter;
+  /**
+   * Receives the results sentence ("Showing 5 of 8 events") whenever it
+   * changes, for the host's persistent status region to announce. The visible
+   * count here isn't a live region: it's mounted with its text already in it.
+   */
+  onSummaryChange?: (summary: string) => void;
 }
 
 function matchesQuery(event: SheltuhEvent, query: string) {
@@ -33,6 +39,7 @@ export default function EventBrowser({
   query = "",
   initialCategory = "all",
   initialPricing = "all",
+  onSummaryChange,
 }: EventBrowserProps) {
   const [category, setCategory] = useState<EventCategory | "all">(initialCategory);
   const [pricing, setPricing] = useState<PricingFilter>(initialPricing);
@@ -52,6 +59,11 @@ export default function EventBrowser({
   }, [events, query, category, pricing, onOrAfter]);
 
   const hasActiveFilters = category !== "all" || pricing !== "all" || onOrAfter !== "";
+  const summary = `Showing ${filteredEvents.length} of ${events.length} events`;
+
+  useEffect(() => {
+    onSummaryChange?.(summary);
+  }, [summary, onSummaryChange]);
 
   function resetFilters() {
     setCategory("all");
@@ -73,9 +85,7 @@ export default function EventBrowser({
         onReset={resetFilters}
       />
 
-      <p aria-live="polite" className="text-sm text-muted">
-        Showing {filteredEvents.length} of {events.length} events
-      </p>
+      <p className="meta text-muted">{summary}</p>
 
       {filteredEvents.length === 0 ? (
         <EmptyState
@@ -85,7 +95,7 @@ export default function EventBrowser({
           Try a different category, an earlier date, or clearing the price filter.
         </EmptyState>
       ) : (
-        <EventResults events={filteredEvents} />
+        <EventResults events={filteredEvents} heading="Events" />
       )}
     </div>
   );

@@ -6,6 +6,7 @@ import type {
   DateRange,
   EventAnalytics,
   MoneyTotals,
+  OutboundClickStats,
   TicketTypeInput,
   TicketTypeSales,
 } from "@/lib/api/types";
@@ -84,6 +85,25 @@ export function dailySeries(
       ...money(o.grossCents, o.feesCents),
     };
   });
+}
+
+/** One day's outbound-click counter as SQL returns it. */
+export interface OutboundDayRow {
+  clicks: number;
+  capReached: boolean;
+}
+
+/** Ticket-link clicks over `range`, zero-filled per day. `byDay` maps a Melbourne date to its counter. */
+export function outboundStats(range: DateRange, byDay: Map<string, OutboundDayRow>): OutboundClickStats {
+  const days = eachDay(range).map((date) => {
+    const row = byDay.get(date);
+    return { date, clicks: row?.clicks ?? 0, unreliable: row?.capReached ?? false };
+  });
+  return {
+    total: days.reduce((sum, d) => sum + d.clicks, 0),
+    unreliable: days.some((d) => d.unreliable),
+    byDay: days,
+  };
 }
 
 /** Whether every day of `range` had views counted. */
@@ -231,6 +251,8 @@ export function eventAnalyticsCsv(a: EventAnalytics): CsvCell[][] {
     rows.push([l.label ?? "(deleted link)", l.code, l.views, l.orders, l.ticketsSold, ...moneyCells(l), pct(l.conversionRate)]);
   }
 
+  if (a.outboundClicks) rows.push([], ...outboundCsv(a.outboundClicks));
+
   if (a.previous) {
     rows.push([]);
     rows.push(["Previous period", `${a.previous.range.from} to ${a.previous.range.to}`]);
@@ -239,6 +261,16 @@ export function eventAnalyticsCsv(a: EventAnalytics): CsvCell[][] {
     const p = a.previous.totals;
     rows.push(["Total", p.views, p.orders, p.ticketsSold, ...moneyCells(p)]);
   }
+  return rows;
+}
+
+/** Ticket-link clicks (external ticketing): per day, the total and any days the click cap was reached. */
+function outboundCsv(stats: OutboundClickStats): CsvCell[][] {
+  const rows: CsvCell[][] = [["Date", "Ticket link clicks"]];
+  for (const d of stats.byDay) rows.push([d.date, d.clicks]);
+  rows.push(["Total", stats.total]);
+  const capped = stats.byDay.filter((d) => d.unreliable).map((d) => d.date);
+  if (capped.length > 0) rows.push(["Clicks incomplete (click cap reached) on", capped.join(" ")]);
   return rows;
 }
 
@@ -267,5 +299,18 @@ export function overviewCsv(o: AnalyticsOverview): CsvCell[][] {
   rows.push(["Total", null, null, ...line(o.totals), ...(o.previous ? line(o.previous.totals) : [])]);
   rows.push(...unreliableNote(o.byDay));
   if (o.eventsTruncated) rows.push(["Only the first 500 events are listed; the total covers them all."]);
+
+  // External ticketing: clicks on each external event's ticket link (their sales happen elsewhere).
+  if (o.outboundClicks) {
+    rows.push([]);
+    rows.push(["Event (tickets sold elsewhere)", "Ticket link clicks", ...(compare ? ["Previous ticket link clicks"] : [])]);
+    for (const e of o.events) {
+      if (!e.outboundClicks) continue;
+      rows.push([e.title, e.outboundClicks.total, ...(compare ? [e.outboundClicks.previous?.total ?? 0] : [])]);
+    }
+    rows.push(["Total", o.outboundClicks.total, ...(compare ? [o.outboundClicks.previous?.total ?? 0] : [])]);
+    const capped = o.outboundClicks.byDay.filter((d) => d.unreliable).map((d) => d.date);
+    if (capped.length > 0) rows.push(["Clicks incomplete (click cap reached) on", capped.join(" ")]);
+  }
   return rows;
 }

@@ -39,13 +39,15 @@ export default function MessageList({
         >
           <span className="sr-only">{message.fromYou ? "You" : otherName}:</span>
           <p
-            className={`max-w-full px-3.5 py-2.5 text-base leading-6 break-words whitespace-pre-wrap sm:text-sm sm:leading-5 ${
-              message.fromYou ? "bg-foreground text-background" : "bg-surface text-foreground"
+            className={`max-w-full rounded-card px-3.5 py-2.5 text-base leading-6 break-words whitespace-pre-wrap sm:text-sm sm:leading-5 ${
+              message.fromYou
+                ? "rounded-br-badge bg-foreground text-background"
+                : "rounded-bl-badge border border-surface-border bg-card text-foreground"
             }`}
           >
             {message.body}
           </p>
-          <time dateTime={message.sentAt} className="text-xs text-muted">
+          <time dateTime={message.sentAt} className="meta text-muted">
             {formatMessageTime(message.sentAt, now)}
           </time>
         </li>

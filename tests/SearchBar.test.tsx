@@ -16,6 +16,12 @@ describe("SearchBar", () => {
     expect(input).toHaveAttribute("maxlength", "100");
   });
 
+  it("names the field by the words it shows, so a short placeholder is also its name (WCAG 2.5.3)", () => {
+    render(<SearchBar label="Search events" size="lg" submit placeholder="Search events" />);
+    const input = screen.getByRole("searchbox", { name: "Search events" });
+    expect(input).toHaveAttribute("placeholder", "Search events");
+  });
+
   it("shows the current query", () => {
     render(<SearchBar defaultValue="neon" size="lg" />);
     expect(screen.getByRole("searchbox")).toHaveValue("neon");

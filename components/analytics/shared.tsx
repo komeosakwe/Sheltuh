@@ -13,7 +13,7 @@ export const STATUS_LABEL: Record<EventStatus, string> = {
   rejected: "Rejected",
 };
 
-export const backLinkClass = "eyebrow inline-flex min-h-11 w-fit items-center underline underline-offset-4";
+export { backLinkClass } from "@/components/ui/BackLink";
 
 type Settled<T> = { key: string; ok: true; data: T } | { key: string; ok: false; error: unknown };
 

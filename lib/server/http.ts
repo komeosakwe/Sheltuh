@@ -7,6 +7,11 @@ export class HttpError extends Error {
     public statusCode: number,
     message: string,
     public fieldErrors?: Record<string, string>,
+    /**
+     * Extra fields for the error body, beside `error` and `fieldErrors` (e.g.
+     * the seat ids a seated checkout couldn't have). Never personal data.
+     */
+    public details?: Record<string, unknown>,
   ) {
     super(message);
   }

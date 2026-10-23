@@ -1,0 +1,4 @@
+import { confirmWaitlist } from "@/lib/server/handlers/waitlist";
+import { route } from "@/lib/server/route";
+
+export const POST = route(confirmWaitlist);

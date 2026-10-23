@@ -179,6 +179,7 @@ export default function EventArt({
   children,
   priority = false,
   motion = false,
+  fit = "cover",
 }: {
   poster: EventPoster;
   title: string;
@@ -186,35 +187,62 @@ export default function EventArt({
   imageUrl?: string;
   className?: string;
   children?: ReactNode;
-  /** The page's largest above-the-fold image: load it eagerly at high priority instead of lazily. */
-  priority?: boolean;
+  /**
+   * `true`: the page's largest above-the-fold image: load it eagerly at high
+   * priority instead of lazily. `"when-shown"`: the same, for an image some
+   * widths hide with `display: none`: it stays lazy (a hidden lazy image is
+   * never fetched) with a high fetch priority (where it shows, it goes first).
+   */
+  priority?: boolean | "when-shown";
   /** Slowly pushes the photo in and back (reduced-motion safe). For hero and feature images only. */
   motion?: boolean;
+  /**
+   * `auto` (the event page): a portrait poster (at least 1.2 times as tall as
+   * it is wide) in a landscape or square box is shown whole on black rather
+   * than cropped to a strip; anything else is cropped to fill (`cover`, the
+   * default). The box never changes size, so nothing shifts. A client-side
+   * guess from the image's own size, until events carry image metadata.
+   */
+  fit?: "cover" | "auto";
 }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const [containedUrl, setContainedUrl] = useState<string | null>(null);
   const showImage = Boolean(imageUrl) && failedUrl !== imageUrl;
+  const contain = showImage && fit === "auto" && containedUrl === imageUrl;
+
+  /** `auto`: a loaded portrait poster in a box that isn't portrait is contained, not cropped. */
+  function fitLoaded(img: HTMLImageElement) {
+    if (fit !== "auto" || !img.naturalWidth || !img.naturalHeight) return;
+    const box = img.parentElement?.getBoundingClientRect();
+    const portraitPoster = img.naturalHeight / img.naturalWidth >= 1.2;
+    const boxNotPortrait = !box || box.height <= box.width;
+    setContainedUrl(portraitPoster && boxNotPortrait ? (imageUrl ?? null) : null);
+  }
 
   return (
     <div
       aria-hidden="true"
       className={`relative overflow-hidden ${className ?? ""}`}
-      style={{ backgroundColor: poster.background }}
+      style={{ backgroundColor: contain ? "var(--ink)" : poster.background }}
     >
       {showImage ? (
         // eslint-disable-next-line @next/next/no-img-element -- remote/organiser-supplied URLs; sized by the parent
         <img
           src={imageUrl}
           alt=""
-          loading={priority ? "eager" : "lazy"}
+          loading={priority === true ? "eager" : "lazy"}
           fetchPriority={priority ? "high" : undefined}
           decoding="async"
           // On a server-rendered page the image can fail before React attaches
           // onError; catch that here so the poster art still shows.
           ref={(img) => {
-            if (img && img.complete && img.currentSrc && img.naturalWidth === 0) setFailedUrl(imageUrl ?? null);
+            if (!img || !img.complete || !img.currentSrc) return;
+            if (img.naturalWidth === 0) setFailedUrl(imageUrl ?? null);
+            else fitLoaded(img);
           }}
           onError={() => setFailedUrl(imageUrl ?? null)}
-          className={`absolute inset-0 h-full w-full object-cover ${motion ? "ken-burns" : ""}`.trim()}
+          onLoad={(event) => fitLoaded(event.currentTarget)}
+          className={`absolute inset-0 h-full w-full ${contain ? "object-contain" : "object-cover"} ${motion ? "ken-burns" : ""}`.trim()}
         />
       ) : (
       <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" className="absolute inset-0 h-full w-full">
@@ -223,7 +251,7 @@ export default function EventArt({
           y="78"
           textAnchor="middle"
           fontSize="95"
-          fontFamily="var(--font-heading), 'Arial Narrow', sans-serif"
+          fontFamily="var(--face-display)"
           fill="#ffffff"
           opacity="0.08"
         >
@@ -232,7 +260,16 @@ export default function EventArt({
         {renderPattern(poster)}
       </svg>
       )}
+      {/* A cream poster on the cream page would have no edge: a 1px inset black line gives it one. */}
+      {!showImage && isCream(poster.background) && (
+        <span className="pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-foreground ring-inset" />
+      )}
       {children && <div className="absolute inset-0 flex items-end p-3">{children}</div>}
     </div>
   );
+}
+
+/** The page's own colours (cream, white, sunken cream), on which a poster needs an edge. */
+function isCream(colour: string): boolean {
+  return ["#fffae7", "#ffffff", "#f2ecd6"].includes(colour.toLowerCase());
 }

@@ -78,14 +78,20 @@ test("loads more than 20 records across multiple 'Load more' clicks", async ({ p
 
   await page.goto("/events");
   await expect(page.getByText("Event 1", { exact: true })).toBeVisible();
-  await expect(page.getByText("Showing 10 events")).toBeVisible();
+  // The visible count, and the polite status that announces it (the count isn't a live region).
+  const count = (text: string) => page.locator("p.meta", { hasText: text });
+  const status = page.getByRole("status").filter({ hasText: /^Showing \d+ events$/ });
+  await expect(count("Showing 10 events")).toBeVisible();
+  await expect(status).toHaveText("Showing 10 events");
 
   await page.getByRole("button", { name: "Load more" }).click();
-  await expect(page.getByText("Showing 20 events")).toBeVisible();
+  await expect(count("Showing 20 events")).toBeVisible();
+  await expect(status).toHaveText("Showing 20 events");
   await expect(page.getByText("Event 20", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Load more" }).click();
-  await expect(page.getByText("Showing 25 events")).toBeVisible();
+  await expect(count("Showing 25 events")).toBeVisible();
+  await expect(status).toHaveText("Showing 25 events");
   await expect(page.getByText("Event 25", { exact: true })).toBeVisible();
 
   // All 25 loaded — the button disappears once nextCursor runs out.
@@ -117,8 +123,8 @@ test("skips an empty filtered page that still has a cursor, reaching matches on 
   // The empty first "art" page is skipped automatically — the real matches
   // (from the second raw page) show up without the user doing anything else,
   // and "no events match" is never shown along the way.
-  await expect(page.getByText("Art Show A")).toBeVisible();
-  await expect(page.getByText("Art Show B")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Art Show A" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Art Show B" })).toBeVisible();
   await expect(page.getByText(/no events match/i)).toHaveCount(0);
   await expect(page.getByText("Event 1", { exact: true })).toHaveCount(0); // the stale live-music page 1 is gone
 });
@@ -145,12 +151,12 @@ test("discards a stale response after the filter changes again before the first 
   await expect.poll(() => resolveSlowRequest !== undefined).toBe(true);
 
   await page.getByLabel("Category").selectOption("art");
-  await expect(page.getByText("Art Event")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Art Event" })).toBeVisible();
 
   // Now let the superseded live-music request resolve late — it must not
   // clobber the art results that are already showing.
   resolveSlowRequest?.();
   await page.waitForTimeout(200);
-  await expect(page.getByText("Art Event")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Art Event" })).toBeVisible();
   await expect(page.getByText("Music Event")).toHaveCount(0);
 });

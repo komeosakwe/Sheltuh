@@ -1,3 +1,4 @@
+import { featuredVideoKey, parseFeaturedVideoUrl, type FeaturedVideo } from "@/lib/api/featured-video";
 import { requireCaller } from "../auth";
 import { PG_UNIQUE_VIOLATION, pgErrorCode, type Db } from "../db";
 import { created, HttpError, ok, readJson } from "../http";
@@ -30,8 +31,34 @@ function parseDescription(value: unknown, errors: Record<string, string>): strin
   });
 }
 
-/** `existing`: the rejected application being resubmitted, if any (its stored website is kept as it is). */
-function parseApplication(body: Record<string, unknown>, existing?: OrganiserRecord) {
+export const FEATURED_VIDEO_ERROR =
+  "Paste a YouTube or Vimeo link: youtube.com/watch?v=…, youtu.be/…, youtube.com/shorts/… or vimeo.com/123456.";
+
+/**
+ * `featuredVideoUrl` from a request body: undefined when the field wasn't
+ * sent (unchanged), null to remove it (null or blank), otherwise the video it
+ * links to. Only the exact YouTube and Vimeo forms in
+ * lib/api/featured-video.ts are accepted (400 otherwise); only the provider
+ * and id are kept.
+ */
+export function parseFeaturedVideo(value: unknown, errors: Record<string, string>): FeaturedVideo | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || (typeof value === "string" && value.trim() === "")) return null;
+  const video = typeof value === "string" ? parseFeaturedVideoUrl(value) : null;
+  if (!video) {
+    errors.featuredVideoUrl = FEATURED_VIDEO_ERROR;
+    return undefined;
+  }
+  return video;
+}
+
+/**
+ * An organiser application's fields (also an admin's platform-managed
+ * organiser: lib/server/handlers/admin-authoring.ts). `existing`: the
+ * rejected application being resubmitted, if any (its stored website is
+ * kept as it is).
+ */
+export function parseApplication(body: Record<string, unknown>, existing?: OrganiserRecord) {
   const errors: Record<string, string> = {};
   const displayName = requireString(body.displayName, "displayName", errors, 120);
   const contactEmail = requireEmail(body.contactEmail, "contactEmail", errors);
@@ -39,8 +66,9 @@ function parseApplication(body: Record<string, unknown>, existing?: OrganiserRec
   const categories = requireCategories(body.categories, "categories", errors);
   const websiteUrl = optionalUrl(body.websiteUrl, "websiteUrl", errors, { current: existing?.websiteUrl });
   const handles = parseSocialHandles(body, errors);
+  const featuredVideo = parseFeaturedVideo(body.featuredVideoUrl, errors);
   if (Object.keys(errors).length > 0) fail(errors);
-  return { displayName, contactEmail, description, categories, websiteUrl: websiteUrl ?? null, handles };
+  return { displayName, contactEmail, description, categories, websiteUrl: websiteUrl ?? null, handles, featuredVideo };
 }
 
 /** The social-handle columns a request sets (absent fields are left as they are). */
@@ -85,6 +113,9 @@ function parseProfileEdit(body: Record<string, unknown>, current: OrganiserRecor
     ]);
   }
   assignments.push(...handleAssignments(parseSocialHandles(body, errors)));
+  // Logged and stored by private.edit_organiser_profile as "provider:id".
+  const video = parseFeaturedVideo(body.featuredVideoUrl, errors);
+  if (video !== undefined) assignments.push(["featured_video", video ? featuredVideoKey(video) : null]);
 
   if (Object.keys(errors).length > 0) fail(errors);
   return assignments;
@@ -116,9 +147,10 @@ export const applyAsOrganiser: Handler = async (req, _params, { db, verifyAccess
   try {
     const [row] = await db.query<{ id: string }>(
       `insert into public.organisers (owner_user_id, display_name, contact_email, description, categories, website_url,
-                                      instagram_handle, tiktok_handle, facebook_page, x_handle)
+                                      instagram_handle, tiktok_handle, facebook_page, x_handle,
+                                      featured_video_provider, featured_video_id)
        values ($1, $2, $3, $4, array(select jsonb_array_elements_text($5::text::jsonb))::public.event_category[], $6,
-               $7, $8, $9, $10)
+               $7, $8, $9, $10, $11, $12)
        returning id`,
       [
         caller.userId,
@@ -131,6 +163,8 @@ export const applyAsOrganiser: Handler = async (req, _params, { db, verifyAccess
         input.handles.tiktokHandle ?? null,
         input.handles.facebookPage ?? null,
         input.handles.xHandle ?? null,
+        input.featuredVideo?.provider ?? null,
+        input.featuredVideo?.id ?? null,
       ],
     );
     const [record] = await db.query(`${ORGANISER_SELECT} where o.id = $1`, [row.id]);
@@ -157,7 +191,8 @@ export const getMyOrganiser: Handler = async (req, _params, { db, verifyAccessTo
  * - rejected: edit and resubmit the whole application (back to pending).
  *   Social handles are optional; ones not sent are kept.
  * - approved: edit the public profile (description, websiteUrl, social
- *   handles) without a new review; the status doesn't change.
+ *   handles, featuredVideoUrl) without a new review (logged); the status
+ *   doesn't change.
  * - pending: 409.
  */
 export const resubmitOrganiser: Handler = async (req, _params, { db, verifyAccessToken }) => {
@@ -174,7 +209,15 @@ export const resubmitOrganiser: Handler = async (req, _params, { db, verifyAcces
   }
 
   const input = parseApplication(await readJson(req), existing);
-  const handles = setClause(handleAssignments(input.handles), 7);
+  // A video left out is kept, like a handle; null or "" removes it.
+  const videoAssignments: Assignment[] =
+    input.featuredVideo === undefined
+      ? []
+      : [
+          ["featured_video_provider", input.featuredVideo?.provider ?? null],
+          ["featured_video_id", input.featuredVideo?.id ?? null],
+        ];
+  const handles = setClause([...handleAssignments(input.handles), ...videoAssignments], 7);
   const rows = await db.query<{ id: string }>(
     `update public.organisers
      set display_name = $2, contact_email = $3, description = $4, categories = array(select jsonb_array_elements_text($5::text::jsonb))::public.event_category[],

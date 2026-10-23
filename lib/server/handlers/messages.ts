@@ -68,27 +68,35 @@ export const listConversations: Handler = async (req, _params, { db, verifyAcces
 };
 
 /**
- * POST /api/conversations {attendeeId, body} — a first message (request) to a
- * member on an event's Who's Going list. Both must be opted in to that event
- * while it's open; decided in one atomic step by private.request_conversation.
+ * POST /api/conversations {attendeeId, body} | {profileId, body} — a first
+ * message (request) to a member on an event's Who's Going list, or by their
+ * member profile. Both must be opted in to the same event while it's open;
+ * decided in one atomic step by private.request_conversation (by profile:
+ * private.request_conversation_by_profile, which finds that event first).
  */
 export const startConversation: Handler = async (req, _params, { db, verifyAccessToken }) => {
   const caller = await requireVerifiedCaller(req, verifyAccessToken);
   const input = parseStartConversation(await readJson(req));
 
-  const [{ result, new_conversation_id: conversationId }] = await db.query<{
-    result: string;
-    new_conversation_id: string | null;
-  }>(`select * from private.request_conversation($1, $2, $3, $4, $5::interval, $6, $7::interval, $8, $9::interval)`, [
-    caller.userId,
-    input.attendeeId,
-    input.body,
+  // By profileId: the same rules and the same function underneath
+  // (private.request_conversation_by_profile picks the shared open event).
+  const limits = [
     REQUEST_RATE_LIMIT.hits,
     REQUEST_RATE_LIMIT.window,
     MESSAGE_RATE_LIMIT.hits,
     MESSAGE_RATE_LIMIT.window,
     INCOMING_REQUEST_LIMIT.hits,
     INCOMING_REQUEST_LIMIT.window,
+  ];
+  const fn = input.profileId ? "private.request_conversation_by_profile" : "private.request_conversation";
+  const [{ result, new_conversation_id: conversationId }] = await db.query<{
+    result: string;
+    new_conversation_id: string | null;
+  }>(`select * from ${fn}($1, $2, $3, $4, $5::interval, $6, $7::interval, $8, $9::interval)`, [
+    caller.userId,
+    input.profileId ?? input.attendeeId,
+    input.body,
+    ...limits,
   ]);
   switch (result) {
     case "sent":

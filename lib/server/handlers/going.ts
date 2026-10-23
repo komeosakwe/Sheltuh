@@ -2,7 +2,7 @@ import { requireCaller, requireVerifiedCaller, type Caller } from "../auth";
 import type { Db } from "../db";
 import { HttpError, ok, okPrivate } from "../http";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
-import { toGoingAttendee } from "../records";
+import { avatarVersionOf, toGoingAttendee } from "../records";
 import type { Handler } from "../route";
 import type { GoingSummary, MyGoingStatus } from "../types";
 
@@ -16,11 +16,15 @@ import type { GoingSummary, MyGoingStatus } from "../types";
 
 const NOT_FOUND = "Event not found.";
 
-/** SQL for "Who's Going is open" on an events row aliased `e`. */
-const OPEN = `(e.whos_going_enabled and e.ends_at > now())`;
+/**
+ * SQL for "Who's Going is open" on an events row aliased `e`. Never for an
+ * external event (tickets sold elsewhere: nobody can show they hold one), so
+ * it reads as closed (private.set_going refuses it the same way).
+ */
+export const OPEN = `(e.whos_going_enabled and e.ends_at > now() and e.ticketing_mode = 'sheltuh')`;
 
 /** SQL: the event_attendees row aliased `a` belongs to a suspended member. */
-const SUSPENDED_ATTENDEE = `exists (select 1 from private.social_suspensions s where s.user_id = a.user_id)`;
+export const SUSPENDED_ATTENDEE = `exists (select 1 from private.social_suspensions s where s.user_id = a.user_id)`;
 
 /**
  * SQL: the event_attendees row aliased `a` and the viewer ($2) block one
@@ -65,8 +69,9 @@ export const getGoingSummary: Handler<{ eventId: string }> = async (_req, { even
  * GET /api/events/[eventId]/going/attendees?cursor — verified members with a
  * profile that isn't suspended (403 otherwise), rate-limited per member (429).
  * Display names and opaque per-event ids, oldest opt-in first, up to 50 a
- * page. An empty page once the event is closed. Members who block the viewer,
- * or whom the viewer blocks, are left out.
+ * page, with the member's profile id and photo when their profile is
+ * visible. An empty page once the event is closed. Members who block the
+ * viewer, or whom the viewer blocks, are left out.
  */
 export const listGoingAttendees: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   const caller = await requireVerifiedCaller(req, verifyAccessToken);
@@ -93,8 +98,12 @@ export const listGoingAttendees: Handler<{ eventId: string }> = async (req, { ev
 
   if (!viewer.open) return okPrivate({ items: [] });
 
+  // The profile id and photo only for a visible profile (the member opted
+  // in); blocked members and suspended ones aren't listed at all.
   const rows = await db.query(
-    `select a.id, p.display_name, a.user_id = $2 as is_you
+    `select a.id, p.display_name, a.user_id = $2 as is_you,
+            case when p.profile_visible then p.public_id end as profile_id,
+            case when p.profile_visible then ${avatarVersionOf("a.user_id")} end as avatar_version
        from public.event_attendees a
        join public.profiles p on p.user_id = a.user_id
       where a.event_id = $1 and not ${SUSPENDED_ATTENDEE} and not ${BLOCKED_WITH_VIEWER}

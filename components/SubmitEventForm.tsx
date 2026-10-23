@@ -80,7 +80,7 @@ function Field({
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-sm font-medium text-foreground">
+      <label htmlFor={id} className="eyebrow text-muted">
         {label}
       </label>
       {children}
@@ -232,9 +232,9 @@ export default function SubmitEventForm() {
       </div>
 
       <fieldset className="flex flex-col gap-1">
-        <legend className="text-sm font-medium text-foreground">Free or paid?</legend>
+        <legend className="eyebrow text-muted">Free or paid?</legend>
         <div className="flex gap-4 pt-1">
-          <label className="flex items-center gap-1.5 text-sm text-foreground">
+          <label className="flex items-center gap-2 text-sm text-foreground">
             <input
               type="radio"
               name="pricing"
@@ -245,7 +245,7 @@ export default function SubmitEventForm() {
             />
             Free
           </label>
-          <label className="flex items-center gap-1.5 text-sm text-foreground">
+          <label className="flex items-center gap-2 text-sm text-foreground">
             <input
               type="radio"
               name="pricing"

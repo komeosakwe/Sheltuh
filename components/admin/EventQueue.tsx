@@ -1,11 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import PrivateEventImage from "@/components/admin/PrivateEventImage";
+import { Button } from "@/components/ui/Button";
+import { SelectedDots } from "@/components/ui/FilterChip";
 import { adminApproveEvent, adminListEvents, adminRejectEvent, adminUnpublishEvent } from "@/lib/api/admin";
 import type { EventRecord, EventStatus } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatEventDateTimeRange } from "@/lib/format";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 const STATUSES: EventStatus[] = ["pending_review", "published", "draft", "rejected"];
 const STATUS_LABEL: Record<EventStatus, string> = {
@@ -105,18 +109,23 @@ export default function EventQueue() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap gap-2">
+      <Link href="/admin/events/new" className="btn btn-solid w-fit">
+        New event
+      </Link>
+      {/* Toggle buttons, like the other admin queues: pressed is announced and shown by more than colour. */}
+      <div role="group" aria-label="Show events" className="flex flex-wrap gap-2">
         {STATUSES.map((s) => (
-          <button
+          <Button
             key={s}
-            type="button"
+            variant={status === s ? "solid" : "outline"}
+            size="sm"
+            className="min-h-11"
+            aria-pressed={status === s}
             onClick={() => setStatus(s)}
-            className={` px-3 py-1.5 text-sm font-medium ${
-              status === s ? "bg-accent text-accent-foreground" : "border border-surface-border text-foreground"
-            }`}
           >
+            {status === s && <SelectedDots />}
             {STATUS_LABEL[s]}
-          </button>
+          </Button>
         ))}
       </div>
 
@@ -131,28 +140,49 @@ export default function EventQueue() {
         </p>
       )}
 
-      {loading && items.length === 0 && <p className="text-sm text-muted">Loading…</p>}
+      {loading && items.length === 0 && <LoadingState text="Loading…" />}
       {!loading && items.length === 0 && <p className="text-sm text-muted">No events with this status.</p>}
 
-      <ul className="flex flex-col gap-3">
+      <ul className="flex flex-col border-b border-foreground">
         {items.map((item) => (
-          <li key={item.eventId} className="bg-surface p-4">
+          <li key={item.eventId} className="border-t border-foreground py-4">
             {item.imageUrl && <PrivateEventImage imageUrl={item.imageUrl} getToken={getToken} />}
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="font-medium text-foreground">{item.title}</p>
+                <p className="font-semibold break-words text-foreground">{item.title}</p>
                 <p className="text-sm text-muted">
                   {item.organiserName} &middot; {formatEventDateTimeRange(item.startsAt, item.endsAt)}
                 </p>
                 <p className="mt-1 text-sm text-foreground">{item.description}</p>
-                <p className="mt-1 text-xs text-muted">
+                <p className="meta mt-1 text-muted">
                   {item.venueName}, {item.suburb}
                 </p>
+                {item.seating && (
+                  // Reserved seating (docs/design/seating.md §5.14).
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 border-t border-surface-border pt-2">
+                    <span className="eyebrow text-muted">Seat map</span>
+                    <span className="meta">{item.seating.seatCount} seats</span>
+                    <Link
+                      href={`/admin/events/${encodeURIComponent(item.eventId)}/seat-map`}
+                      aria-label={`Preview and view in editor: ${item.title} seat map`}
+                      className="inline-flex min-h-11 items-center text-sm underline underline-offset-4"
+                    >
+                      Preview and view in editor
+                    </Link>
+                  </div>
+                )}
                 {item.rejectionReason && (
                   <p className="mt-1 text-xs text-muted">Rejection reason: {item.rejectionReason}</p>
                 )}
               </div>
-              <div className="flex shrink-0 gap-2">
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <Link
+                  href={`/admin/events/${encodeURIComponent(item.eventId)}/edit`}
+                  className="btn btn-outline"
+                  aria-label={`Edit ${item.title}`}
+                >
+                  Edit
+                </Link>
                 {status === "pending_review" && (
                   <>
                     <button

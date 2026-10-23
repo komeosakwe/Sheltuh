@@ -31,6 +31,14 @@ describe("next.config headers", () => {
     expect(byKey["x-robots-tag"]).toMatch(/\bnoindex\b/);
   });
 
+  it.each(["/waitlist/:path*", "/following/:path*"])(
+    "keeps the emailed-link page %s (a token in its fragment) out of Referers and search indexes, like checkout",
+    async (source) => {
+      const byKey = await headersFor(source);
+      expect(byKey).toEqual({ "referrer-policy": "no-referrer", "x-robots-tag": "noindex, nofollow" });
+    },
+  );
+
   it("caches the door scanner's versioned WASM decoder for a year, as immutable", async () => {
     const byKey = await headersFor("/vendor/zxing-wasm/:path*");
     expect(byKey["cache-control"]).toBe("public, max-age=31536000, immutable");
@@ -49,6 +57,13 @@ describe("next.config headers", () => {
 
   it("adds headers to no other path (deliberately: each rule above has a reason)", async () => {
     const rules = await nextConfig.headers?.();
-    expect(rules?.map((r) => r.source)).toEqual(["/:path*", "/sw.js", "/checkout/:path*", "/vendor/zxing-wasm/:path*"]);
+    expect(rules?.map((r) => r.source)).toEqual([
+      "/:path*",
+      "/sw.js",
+      "/checkout/:path*",
+      "/waitlist/:path*",
+      "/following/:path*",
+      "/vendor/zxing-wasm/:path*",
+    ]);
   });
 });

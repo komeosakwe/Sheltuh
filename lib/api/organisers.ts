@@ -23,6 +23,12 @@ export interface OrganiserApplicationInput extends OrganiserSocialHandlesInput {
   description: string;
   categories: EventCategory[];
   websiteUrl?: string;
+  /**
+   * A YouTube or Vimeo link (youtube.com/watch?v=…, youtu.be/…,
+   * youtube.com/shorts/…, vimeo.com/{digits}); only the provider and id are
+   * kept. Left out: unchanged on a resubmission; null or "" removes it.
+   */
+  featuredVideoUrl?: string | null;
 }
 
 /**
@@ -32,6 +38,8 @@ export interface OrganiserApplicationInput extends OrganiserSocialHandlesInput {
 export interface OrganiserProfileInput extends OrganiserSocialHandlesInput {
   description?: string;
   websiteUrl?: string | null;
+  /** As OrganiserApplicationInput.featuredVideoUrl. No review; logged for admins. */
+  featuredVideoUrl?: string | null;
 }
 
 export async function applyAsOrganiser(input: OrganiserApplicationInput, getToken: GetToken) {
@@ -58,6 +66,25 @@ export async function resubmitOrganiser(input: OrganiserApplicationInput, getTok
 export async function updateOrganiserProfile(input: OrganiserProfileInput, getToken: GetToken) {
   const token = await getToken();
   return apiFetch<OrganiserRecord>("/organisers/me", { method: "PATCH", body: input, token });
+}
+
+/**
+ * Uploads the caller's organiser logo: the image as-is (JPEG, PNG or WebP; at
+ * most 2 MB, so downsize it first, lib/image.ts). The server fits it on a
+ * white square and strips its metadata. Resolves to the organiser record with
+ * its new `logoUrl`. ApiError 400 (`fieldErrors.logo`: not a supported image,
+ * or over 24 megapixels), 403 (not approved), 409 (the account changed during
+ * the upload), 413 (too large), 429 (20 a day), 503 (busy: try again).
+ */
+export async function uploadOrganiserLogo(image: Blob, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<OrganiserRecord>("/organisers/me/logo", { method: "PUT", body: image, token });
+}
+
+/** Removes the caller's organiser logo (any status). Idempotent; resolves to the record without `logoUrl`. ApiError 404 (no organiser). */
+export async function deleteOrganiserLogo(getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<OrganiserRecord>("/organisers/me/logo", { method: "DELETE", token });
 }
 
 /** Public: an approved organiser's profile and their published events. 404 for anything else. */

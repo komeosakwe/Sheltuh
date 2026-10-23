@@ -1,3 +1,5 @@
+import type { TicketingMode } from "./ticketing";
+
 export type EventCategory =
   | "live-music"
   | "art"
@@ -45,7 +47,29 @@ export interface TicketType {
   /** Face value in integer cents. 0 means a free ticket. */
   priceCents: number;
   feePolicy: FeePolicy;
+  /** The capacity, not what's left (see `remaining`). */
   quantityAvailable: number;
+  /**
+   * None left: every ticket of this type is sold. From the API (live) or the
+   * sample data (demo); absent means on sale.
+   */
+  soldOut?: boolean;
+  /**
+   * Tickets left, only when the API says so (10 or fewer; 0 when sold out).
+   * Absent when more are left: never inferred from `quantityAvailable`.
+   */
+  remaining?: number;
+  /**
+   * A tier with seats on the event's seat map (reserved seating): sold only
+   * by choosing seats on /events/{slug}/seats, never as a quantity. Absent
+   * for general admission.
+   */
+  seated?: true;
+}
+
+/** An event's seat map (reserved seating): its version, for GET /events/{id}/seat-map?v={version}. */
+export interface EventSeatingRef {
+  version: number;
 }
 
 /** Decimal degrees, WGS84. */
@@ -82,7 +106,31 @@ export interface SheltuhEvent {
   poster: EventPoster;
   /** Optional event photo/poster (path under /public or absolute URL). Falls back to `poster` art when absent or failing to load. */
   imageUrl?: string;
+  /** Always empty for an external event (tickets sold on another site). */
   ticketTypes: TicketType[];
+  /**
+   * Every ticket type is sold out (never for an external event, or one with no
+   * ticket types). While it hasn't ended, people can join its waitlist.
+   */
+  soldOut?: boolean;
+  /**
+   * Where tickets are sold: `sheltuh` (here; absent means this too) or
+   * `external` (on another site, at `externalTicketUrl`: no Sheltüh checkout,
+   * booking fee, Who's Going or check-in, and no price shown).
+   */
+  ticketingMode?: TicketingMode;
+  /** External events only: the ticket page. */
+  externalTicketUrl?: string;
+  /** External events only: the organiser says entry is free. */
+  externalFree?: boolean;
+  /** External events only: a known ticketing site's name, or null for "the organiser's site". */
+  externalProvider?: string | null;
+  /**
+   * Reserved seating: the event has a seat map (its seated tiers carry
+   * `seated`). Absent for a general admission event. Tickets for a seated
+   * event are chosen on /events/{slug}/seats.
+   */
+  seating?: EventSeatingRef;
   /**
    * Optional organiser-supplied context — shown on the details page only
    * when present. Never inferred or invented: the live API doesn't collect

@@ -1,5 +1,13 @@
+import type { TicketingMode } from "@/lib/ticketing";
 import type { EventCategory, FeePolicy } from "@/lib/types";
+import type { FeaturedVideo } from "./featured-video";
 import type { PublicEvent } from "./public-events";
+import type { SeatMapTemplate, TicketSeat } from "@/lib/seating/template";
+
+export type { FeaturedVideo, FeaturedVideoProvider } from "./featured-video";
+
+export type { TicketingMode } from "@/lib/ticketing";
+export type { SeatKind, SeatMapTemplate, TicketSeat } from "@/lib/seating/template";
 
 export type OrganiserStatus = "pending" | "approved" | "rejected";
 
@@ -26,6 +34,18 @@ export interface OrganiserRecord {
   updatedAt: string;
   stripeAccountId?: string;
   payoutsEnabled?: boolean;
+  /**
+   * The organiser's featured video (YouTube or Vimeo), stored as provider and
+   * id only. Unset when there's none. Public on their profile once approved.
+   */
+  featuredVideo?: FeaturedVideo;
+  /**
+   * The organiser's logo (512 px square WebP), when they've uploaded one:
+   * `/api/organisers/{organiserId}/logo?v={version}`. Public once approved
+   * (otherwise only an admin, or the owner, with a bearer token); the thumbnail
+   * (96 px) is the same URL with `size=thumb`. Versioned, so it caches safely.
+   */
+  logoUrl?: string;
 }
 
 /** A field an organiser-log entry can record a change to (`status` only for a takedown). */
@@ -37,6 +57,14 @@ export type OrganiserEditField =
   | "facebookPage"
   | "xHandle"
   | "status";
+
+/**
+ * Every field the organiser log can name: OrganiserEditField plus
+ * `featuredVideo`, whose values are "youtube:{id}" / "vimeo:{id}", and
+ * `logo`, whose values are the logo's version (milliseconds since the epoch
+ * of the upload, as a decimal string; null: none).
+ */
+export type OrganiserLogField = OrganiserEditField | "featuredVideo" | "logo";
 
 /** One field's value before and after; null means it was (or became) unset. */
 export interface OrganiserEditChange {
@@ -53,9 +81,14 @@ export interface OrganiserEditEntry {
   kind: "profile_edit" | "suspended";
   at: string;
   /** Only the fields that changed. */
-  changes: Partial<Record<OrganiserEditField, OrganiserEditChange>>;
-  /** The admin's reason, for `suspended` only. */
+  changes: Partial<Record<OrganiserLogField, OrganiserEditChange>>;
+  /**
+   * The admin's reason: for `suspended`, and for a `profile_edit` made by an
+   * admin (`byStaff`, e.g. removing the featured video).
+   */
   reason?: string;
+  /** A `profile_edit` made by Sheltüh staff (an admin), not the organiser. */
+  byStaff?: boolean;
 }
 
 /** The admin queue's view of an organiser: the full record plus its newest log entries. */
@@ -94,6 +127,18 @@ export interface PublicOrganiserProfile {
   socialLinks: OrganiserSocialLinks;
   /** "YYYY-MM" (Melbourne): the month the organiser joined. */
   memberSince: string;
+  /** Always sent (null when there's none); optional so older fixtures stay valid. */
+  featuredVideo?: FeaturedVideo | null;
+  /**
+   * Members following the organiser, only once it's 10 or more
+   * (FOLLOWER_COUNT_THRESHOLD); null below that. Always sent; optional so
+   * older fixtures stay valid.
+   */
+  followerCount?: number | null;
+  /** Published events that have ended ("Events hosted"). Always sent; optional so older fixtures stay valid. */
+  eventsHosted?: number;
+  /** The organiser's logo (512 px; public, versioned), only when they have one. See OrganiserRecord.logoUrl. */
+  logoUrl?: string;
   /** Published events that haven't ended, soonest first. */
   upcomingEvents: PublicEvent[];
   /** Published events that have ended, most recent first. Together with upcomingEvents, at most 24. */
@@ -108,14 +153,93 @@ export interface TicketTypeInput {
   description?: string;
   priceCents: number;
   feePolicy: FeePolicy;
+  /**
+   * For a seated tier (`seated`), the number of its seats that aren't
+   * blocked: set by the seat map, whatever an edit sends.
+   */
   quantityAvailable: number;
+  /**
+   * Sent (as true) only for a tier with seats on the event's seat map
+   * (docs/architecture.md, "Reserved seating"): it's sold only by choosing
+   * seats (POST …/checkout `seats`), never as a quantity. Absent otherwise,
+   * so a general admission event's payload is unchanged. Ignored in edits.
+   */
+  seated?: true;
 }
 
+/** An event's seat map, as event records carry it (absent: general admission only). */
+export interface EventSeating {
+  /** The map's version: GET /events/{id}/seat-map?v={version}. Never reused. */
+  version: number;
+  seatCount: number;
+}
+
+/** One changed field of a `ticketing_changed` log entry: its value before and after. */
+export interface TicketingFieldChange<T> {
+  old: T | null;
+  new: T | null;
+}
+
+/** What an admin's ticketing change changed: only the fields that did. */
+export interface TicketingChanges {
+  ticketingMode?: TicketingFieldChange<TicketingMode>;
+  externalTicketUrl?: TicketingFieldChange<string>;
+  externalFree?: TicketingFieldChange<boolean>;
+}
+
+/**
+ * What an admin's edit changed (`edited`): only the fields that did. Dates
+ * are ISO instants with an offset; ticket types are the whole list before
+ * and after. `image` is "set" while there's a photo, null otherwise (set →
+ * set is a replaced photo).
+ */
+export interface EventEditChanges {
+  title?: TicketingFieldChange<string>;
+  description?: TicketingFieldChange<string>;
+  category?: TicketingFieldChange<EventCategory>;
+  venueName?: TicketingFieldChange<string>;
+  venueAddress?: TicketingFieldChange<string>;
+  suburb?: TicketingFieldChange<string>;
+  startsAt?: TicketingFieldChange<string>;
+  endsAt?: TicketingFieldChange<string>;
+  ticketTypes?: TicketingFieldChange<TicketTypeInput[]>;
+  image?: TicketingFieldChange<"set">;
+  /** An admin replaced or removed the seat map (or switched the event to external ticketing, removing it). */
+  seatMap?: TicketingFieldChange<EventSeating>;
+}
+
+/** ModerationLogEntry.by for an admin's entry in an organiser's view: never the admin's account id. */
+export const SHELTUH_TEAM_ACTOR = "Sheltüh team";
+
 export interface ModerationLogEntry {
-  action: "submitted" | "approved" | "rejected" | "unpublished";
+  /**
+   * `ticketing_changed`: an admin changed the event's ticketing (PATCH
+   * /admin/events/{id}/ticketing, or the ticketing part of PATCH
+   * /admin/events/{id}). `created`: an admin created the event (POST
+   * /admin/events). `edited`: an admin changed anything else, its photo
+   * included. `curated`: an admin changed the event's trending boost or
+   * exclusion; never in an event's `moderationLog` (admins see those entries
+   * through GET /admin/events/{id}/curation).
+   */
+  action:
+    | "submitted"
+    | "approved"
+    | "rejected"
+    | "unpublished"
+    | "ticketing_changed"
+    | "created"
+    | "edited"
+    | "curated";
+  /**
+   * Who acted: an account id, or `"system"`. In the organiser's own view of
+   * their event, every actor other than the organiser's account (an admin)
+   * is SHELTUH_TEAM_ACTOR instead: admins' ids are only shown to admins.
+   */
   by: string;
   at: string;
   reason?: string;
+  /** For `ticketing_changed` and `edited` only: the old and new value of each field that changed. */
+  changes?: TicketingChanges & EventEditChanges;
 }
 
 export interface EventRecord {
@@ -133,12 +257,91 @@ export interface EventRecord {
   organiserName: string;
   /** Same-origin path of the organiser's photo, if one was uploaded. Versioned (?v=) so it caches safely. */
   imageUrl?: string;
+  /**
+   * The organiser's logo thumbnail (96 px square WebP, public, versioned),
+   * only when they have a logo and are approved.
+   */
+  organiserLogoThumbUrl?: string;
+  /** Always empty for an external event. */
   ticketTypes: TicketTypeInput[];
+  /**
+   * Where tickets are sold: `sheltuh` (here, the default) or `external` (on
+   * another site, at `externalTicketUrl`; no Sheltüh checkout, booking fee,
+   * Who's Going or check-in). Always sent by the API; optional so older
+   * fixtures stay valid (absent means `sheltuh`).
+   */
+  ticketingMode?: TicketingMode;
+  /** External events only: the ticket page, as stored (the URL parser's form: lower-case host, punycode). */
+  externalTicketUrl?: string;
+  /** External events only: the organiser says entry is free. Always sent (false for Sheltüh-ticketed events). */
+  externalFree?: boolean;
+  /**
+   * External events only: the ticketing site's name for "Get tickets on
+   * {provider}" (lib/ticketing.ts, ticketProviderName), or null for a site
+   * that isn't on the known list, which the UI calls "the organiser's site".
+   * Always sent; null for Sheltüh-ticketed events.
+   */
+  externalProvider?: string | null;
+  /**
+   * The event has been approved at least once, so the organiser can no longer
+   * change `ticketingMode` or `externalTicketUrl` (a PATCH that tries is a
+   * 409); only an admin can. Always sent.
+   */
+  ticketingLocked?: boolean;
+  /**
+   * The event's seat map, when it has one. The organiser can change the map
+   * only while `ticketingLocked` is false (never approved) and the event is a
+   * draft or rejected; after that only an admin, while it has no orders.
+   */
+  seating?: EventSeating;
   status: EventStatus;
   rejectionReason?: string;
   moderationLog: ModerationLogEntry[];
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * PATCH /api/admin/events/{eventId}/ticketing (admin): sets an event's
+ * ticketing whatever its status, logged as `ticketing_changed` with `reason`.
+ */
+export interface AdminSetEventTicketingInput {
+  ticketingMode: TicketingMode;
+  /** Required for `external`; must be absent, null or empty for `sheltuh`. */
+  externalTicketUrl?: string | null;
+  /** `external` only (default false); must be absent or false for `sheltuh`. */
+  externalFree?: boolean;
+  /** 1–500 characters, shown in the event's moderation log (the organiser sees it). */
+  reason: string;
+}
+
+/** An event as the admin authoring routes return it (GET, POST and PATCH /admin/events…). */
+export interface AdminEventRecord extends EventRecord {
+  /**
+   * The organiser has no owner account: it can only have free Sheltüh
+   * tickets or external ticketing, and only admins check its events in.
+   */
+  organiserPlatformManaged: boolean;
+}
+
+/**
+ * POST /api/admin/organisers: a platform-managed organiser (no owner
+ * account), approved straight away. The fields and their rules are an
+ * organiser application's.
+ */
+export interface AdminCreateOrganiserInput {
+  displayName: string;
+  contactEmail: string;
+  description: string;
+  categories: EventCategory[];
+  /** https:// only. */
+  websiteUrl?: string | null;
+  instagramHandle?: string | null;
+  tiktokHandle?: string | null;
+  facebookPage?: string | null;
+  xHandle?: string | null;
+  /** A YouTube or Vimeo link (see lib/api/featured-video.ts); null or "" for none. */
+  featuredVideoUrl?: string | null;
 }
 
 export interface Paginated<T> {
@@ -167,6 +370,8 @@ export interface IssuedTicket {
   ticketCode: string;
   ticketTypeId: string;
   ticketTypeName: string;
+  /** The ticket's seat, for a seated order (lib/seating/format.ts says it). */
+  seat?: TicketSeat;
 }
 
 export interface OrderRecord {
@@ -187,6 +392,8 @@ export interface OrderRecord {
   /** Unset for free orders, which never touch Stripe. */
   stripeCheckoutSessionId?: string;
   stripePaymentIntentId?: string;
+  /** A seated order's seats (ids on the event's seat map); absent for general admission. */
+  seatIds?: string[];
   tickets: IssuedTicket[];
   createdAt: string;
   updatedAt: string;
@@ -197,26 +404,88 @@ export const MAX_FREE_TICKETS_PER_ORDER = 4;
 
 /**
  * POST /api/events/{eventId}/checkout.
- * - 201 `{url}`: go there. Stripe's checkout for a paid order; the
- *   confirmation page for a free order by a signed-in member booking with
- *   their own (verified) account email.
+ * - 201 `{url}`: go there. Stripe's checkout for a paid order (with
+ *   `orderId`); the confirmation page for a free order by a signed-in member
+ *   booking with their own (verified) account email.
  * - 202 `{status: "confirmation_sent"}`: a free order by anyone else. A link
  *   to confirm it has been emailed to the address given (valid for
  *   `expiresInHours`); nothing is issued or held until it's confirmed.
  */
-export type CheckoutResult = { url: string } | { status: "confirmation_sent"; expiresInHours: number };
+export type CheckoutResult =
+  | {
+      url: string;
+      /**
+       * A seated paid checkout only: when the seats' hold ends (ISO 8601).
+       * Stripe's page closes a few minutes before (SEAT_HOLD.stripeMinutes).
+       */
+      holdExpiresAt?: string;
+      /**
+       * A paid (Stripe) checkout only, seated or not: the pending order's id
+       * (`ord_` + 32 hex). Only this client gets it (it's also in Stripe's
+       * success and cancel URLs); keep it for the session only and pass it to
+       * cancelPendingOrder when the buyer comes Back from Stripe. It's the
+       * order's credential: never log it or put it anywhere shared.
+       */
+      orderId?: string;
+    }
+  | { status: "confirmation_sent"; expiresInHours: number };
 
 /** POST /api/orders/confirm `{token}` (from the emailed link's fragment): 200 with the confirmation page's URL. */
 export interface ConfirmFreeOrderResult {
   url: string;
 }
 
+// ---------------------------------------------------------------------------
+// Waitlist (docs/architecture.md, "Waitlist")
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /api/events/{eventId}/waitlist `{email?}`.
+ * - `joined` (201 new, 200 already on the list: `alreadyJoined`): a signed-in
+ *   member with a verified email joining with that email (sent, or left out).
+ *   `maskedEmail` is that address masked (`m***@example.com`).
+ * - `confirmation_sent` (202): anyone else. A link was emailed to confirm,
+ *   valid for `expiresInHours`. The same answer whether or not the address is
+ *   new, already on the list, or has had links recently: it says nothing
+ *   about the address.
+ */
+export type JoinWaitlistResult =
+  | { status: "joined"; maskedEmail: string; alreadyJoined: boolean }
+  | { status: "confirmation_sent"; expiresInHours: number };
+
+/** GET /api/events/{eventId}/waitlist/status (signed in): whether the caller is on the event's waitlist. */
+export interface WaitlistStatus {
+  joined: boolean;
+  /** The address on the list, masked; only when `joined`. */
+  maskedEmail?: string;
+}
+
+/**
+ * POST /api/waitlist/confirm `{token}` (from the emailed link's fragment):
+ * on the list (also when it already was). `ticketsAvailable`: tickets are on
+ * sale right now (someone may have freed some since the event sold out), so
+ * the page can link straight to them.
+ */
+export interface ConfirmWaitlistResult {
+  status: "joined";
+  eventTitle: string;
+  eventSlug: string;
+  ticketsAvailable: boolean;
+}
+
+/** POST /api/waitlist/leave `{token}` (from a notification email's leave link's fragment). Idempotent. */
+export interface LeaveWaitlistResult {
+  status: "left";
+  /** The event's title, while the event exists. */
+  eventTitle?: string;
+}
+
 /**
  * GET /api/orders/by-session/{orderId}: what the buyer's confirmation page
  * needs, and nothing more. The order id in the URL is the only credential, so
  * this never carries the order, event or organiser ids, the fee split, Stripe
- * ids, line items, timestamps or the full email address. A pending order is
- * `{ status: "pending" }` only.
+ * ids, line items, the order's own timestamps, the venue's street address or
+ * the full email address. A pending order is `{ status: "pending" }` only.
  */
 export interface CustomerOrder {
   status: Exclude<OrderStatus, "pending">;
@@ -236,14 +505,49 @@ export interface CustomerOrder {
   eventTitle: string;
   /** The event's current slug, for linking back to /events/{eventSlug}. Unset if the event is gone. */
   eventSlug?: string;
+  /**
+   * Only for a `paid` order: whether the event is still published. `false`
+   * when it's been unpublished, sent back to draft or review, rejected or
+   * removed: its date and venue are then left out, and the tickets say it's
+   * no longer listed. Unset for any other status (and from an older API,
+   * where a missing value means listed).
+   */
+  eventListed?: boolean;
+  /**
+   * The event's current start and end (ISO instants), venue name and suburb,
+   * as shown on its public page, for the tickets. Only for a `paid` order
+   * whose event is published (`eventListed`); unset otherwise (and from an
+   * older API).
+   */
+  eventStartsAt?: string;
+  eventEndsAt?: string;
+  venueName?: string;
+  suburb?: string;
   /** The buyer's address, masked: "m***@example.com". Unset if none is on record. */
   maskedEmail?: string;
   subtotalCents: number;
   /** Booking fees the buyer paid (not any the organiser absorbed). */
   buyerFeeCents: number;
   totalCents: number;
-  /** Only for a `paid` order; empty for every other status (a refunded order's tickets are void). */
-  tickets: { ticketCode: string; ticketTypeName: string }[];
+  /**
+   * Only for a `paid` order; empty for every other status (a refunded order's
+   * tickets are void). In the ticket email's order (ticket type, then code).
+   */
+  tickets: CustomerTicket[];
+}
+
+export interface CustomerTicket {
+  /** The ticket's code (`7KQM-2HXD`): its QR carries `SH1:` plus this, and the door can type it in. */
+  ticketCode: string;
+  ticketTypeName: string;
+  /** Its seat, for a reserved-seating event; unset for general admission. */
+  seat?: TicketSeat;
+  /**
+   * When the ticket was checked in at the door (ISO instant), or null if it
+   * hasn't been (or its check-in was undone). Optional only for responses
+   * from an older API, which didn't send it: treat a missing one as null.
+   */
+  checkedInAt?: string | null;
 }
 
 export type CustomerOrderLookup = CustomerOrder | { status: "pending" };
@@ -291,7 +595,7 @@ export interface AdminEmailJob {
 // Who's Going
 // ---------------------------------------------------------------------------
 
-/** The caller's own social profile (GET/PUT /api/profiles/me). */
+/** The caller's own social profile (GET/PUT/PATCH /api/profiles/me). */
 export interface ProfileRecord {
   /** 1–40 characters. Shown to other verified members on events you opt in to. */
   displayName: string;
@@ -302,6 +606,100 @@ export interface ProfileRecord {
   suspended: boolean;
   createdAt: string;
   updatedAt: string;
+  // The fields below are always sent; optional so older fixtures stay valid.
+  /** Opaque id of the member profile page (/members/{profileId}). New if the profile is deleted and recreated. */
+  profileId?: string;
+  /** Opted in to a member profile other verified members can open (default false). */
+  profileVisible?: boolean;
+  /** Up to 200 characters, plain text. */
+  bio?: string;
+  /** Instagram username, without '@'. */
+  instagramHandle?: string;
+  hasAvatar?: boolean;
+  /** The 512 px photo (needs the bearer token: fetch it, don't put it in an <img src>). Versioned. */
+  avatarUrl?: string;
+  /** The 96 px thumbnail. */
+  avatarThumbUrl?: string;
+}
+
+/**
+ * PATCH /api/profiles/me. Fields left out are unchanged; null or "" clears
+ * `bio` / `instagramHandle`. Needs a verified email and a profile.
+ */
+export interface ProfilePatchInput {
+  displayName?: string;
+  profileVisible?: boolean;
+  /** Up to 200 characters, plain text (links allowed). */
+  bio?: string | null;
+  /** Instagram username; a leading '@' is dropped. */
+  instagramHandle?: string | null;
+}
+
+/**
+ * GET /api/profiles/{profileId}: another member's profile, for verified
+ * members with a profile that isn't suspended. Never an email or user id.
+ */
+export interface MemberProfile {
+  profileId: string;
+  displayName: string;
+  bio?: string;
+  instagramHandle?: string;
+  /** https://www.instagram.com/{handle}/, built by the server. */
+  instagramUrl?: string;
+  hasAvatar: boolean;
+  /** Versioned; fetch with the bearer token. */
+  avatarUrl?: string;
+  avatarThumbUrl?: string;
+  /** It's the caller's own profile. */
+  isYou: boolean;
+  /**
+   * Events whose Who's Going the member has opted in to that are still open
+   * (published, not ended), soonest first, at most 24.
+   */
+  upcomingEvents: PublicEvent[];
+  /**
+   * A first message can be sent now (POST /api/conversations {profileId,
+   * body}): both opted in to the same open event, and no conversation
+   * between them ever. Doesn't account for rate limits.
+   */
+  canMessage: boolean;
+  /** Their existing conversation, when the caller can see it. */
+  conversationId?: string;
+}
+
+/** What an admin can remove from a member profile. */
+export type ProfileContentField = "avatar" | "bio" | "instagram";
+
+/** POST /api/admin/profiles/{profileId}/remove-content. */
+export interface RemoveProfileContentInput {
+  fields: ProfileContentField[];
+  /** 1–500 characters. Logged (never the content removed). */
+  reason: string;
+}
+
+export interface ProfileModerationEntry {
+  removed: ProfileContentField[];
+  reason: string;
+  at: string;
+  /** The admin's account id; unset if that account was deleted. */
+  by?: string;
+}
+
+/** GET /api/admin/profiles/{profileId} (and the remove-content response). Admin only. */
+export interface AdminMemberProfile {
+  profileId: string;
+  displayName: string;
+  profileVisible: boolean;
+  bio?: string;
+  instagramHandle?: string;
+  hasAvatar: boolean;
+  /** Admins may fetch it whatever the profile's visibility. */
+  avatarUrl?: string;
+  suspended: boolean;
+  /** Newest first, at most 20. */
+  moderationLog: ProfileModerationEntry[];
+  /** Set by remove-content: what that request removed (empty: nothing was there). */
+  removed?: ProfileContentField[];
 }
 
 export interface ProfileInput {
@@ -331,6 +729,15 @@ export interface GoingAttendee {
   displayName: string;
   /** This entry is the caller. */
   isYou: boolean;
+  /**
+   * Their member profile (GET /api/profiles/{profileId}), only when they've
+   * made it visible. Absent: show the name as plain text.
+   */
+  profileId?: string;
+  /** Always sent; true only with a profileId and a photo. Optional so older fixtures stay valid. */
+  hasAvatar?: boolean;
+  /** The 96 px photo when hasAvatar (fetch with the bearer token); otherwise show initials. */
+  avatarThumbUrl?: string;
 }
 
 /** GET/PUT/DELETE /api/events/{eventId}/going/me. */
@@ -403,6 +810,16 @@ export interface StartConversationInput {
   body: string;
 }
 
+/**
+ * POST /api/conversations by member profile: the same rules (both opted in to
+ * the same open event); the server picks that event.
+ */
+export interface StartConversationByProfileInput {
+  profileId: string;
+  /** 1–1000 characters, plain text, no links. */
+  body: string;
+}
+
 /** POST /api/conversations/{conversationId}/messages. */
 export interface SendMessageInput {
   /** 1–1000 characters, plain text. */
@@ -414,8 +831,8 @@ export interface UnreadCount {
   count: number;
 }
 
-/** POST /api/blocks: exactly one of the two. */
-export type BlockInput = { conversationId: string } | { attendeeId: string };
+/** POST /api/blocks: exactly one of these. */
+export type BlockInput = { conversationId: string } | { attendeeId: string } | { profileId: string };
 
 /** GET/POST /api/blocks. */
 export interface BlockRecord {
@@ -440,6 +857,8 @@ export type ReportReason = "harassment" | "spam" | "inappropriate" | "impersonat
 export interface ReportInput {
   conversationId?: string;
   attendeeId?: string;
+  /** A member profile (its bio, Instagram handle or photo); exactly one of the three ids. */
+  profileId?: string;
   messageId?: string;
   reason: ReportReason;
   /** Optional, up to 1000 characters. */
@@ -473,6 +892,15 @@ export interface AdminReport {
   context: { from: "reporter" | "reported"; body: string; sentAt: string }[];
   resolvedAt?: string;
   resolutionNote?: string;
+  /** What was reported. Always sent; optional so older fixtures stay valid. */
+  targetType?: "conversation" | "attendee" | "profile";
+  /** The reported member's current profile, if they still have one (for GET/remove-content). */
+  reportedProfileId?: string;
+  /** Profile reports: copies of the bio and Instagram handle when reported. */
+  reportedBio?: string;
+  reportedInstagramHandle?: string;
+  /** Profile reports with a photo: the copy taken when reported (admin only; fetch with the bearer token). */
+  reportedAvatarUrl?: string;
 }
 
 /** POST /api/admin/reports/{reportId}/resolve. `suspend` also suspends the reported member. */
@@ -648,6 +1076,31 @@ export interface AnalyticsEventSummary {
   venueName: string;
   /** It's been approved at least once (it may since have been unpublished). */
   everPublished: boolean;
+  /** Always sent; optional so older fixtures stay valid (absent means `sheltuh`). */
+  ticketingMode?: TicketingMode;
+}
+
+/** Clicks on an external event's ticket link on one Melbourne day. */
+export interface OutboundClickDay {
+  date: string;
+  clicks: number;
+  /** The event's per-minute click cap was reached that day (any of the organiser's events, in the overview): clicks is a lower bound. */
+  unreliable: boolean;
+}
+
+/**
+ * Clicks on external events' "Get tickets on …" links (POST
+ * /api/events/{id}/outbound): aggregate daily counts only, no visitor data.
+ * Counted from 22 Oct 2026, when external ticketing was added, so every day
+ * an external event could have had a click is covered (no "not counted"
+ * days). Sales of external events happen elsewhere and aren't known.
+ */
+export interface OutboundClickStats {
+  total: number;
+  /** The cap was reached on at least one day of the period. */
+  unreliable: boolean;
+  /** Every day in the range, oldest first, zero-filled. */
+  byDay: OutboundClickDay[];
 }
 
 /** GET /api/organisers/me/events/{eventId}/analytics?from&to&compare. */
@@ -675,6 +1128,18 @@ export interface EventAnalytics {
    * event ends, after which `checkedIn` is 0.
    */
   attendance?: EventAttendance | null;
+  /**
+   * Ticket-link clicks over `range` for an external event (`previous` also
+   * has them, with `compare=prevPeriod`); null for a Sheltüh-ticketed event.
+   * Always sent by the API; optional so older fixtures stay valid.
+   */
+  outboundClicks?: (OutboundClickStats & { previous?: OutboundClickStats }) | null;
+  /**
+   * People on the event's waitlist right now (confirmed, not left): an
+   * aggregate count only. Organisers never see who. 0 for an external event.
+   * Always sent by the API; optional so older fixtures stay valid.
+   */
+  waitlistCount?: number;
 }
 
 /** EventAnalytics.attendance. */
@@ -694,6 +1159,13 @@ export interface AnalyticsOverviewEvent {
   totals: AnalyticsTotals;
   /** With `compare=prevPeriod`. */
   previous?: AnalyticsTotals;
+  /** Always sent; optional so older fixtures stay valid (absent means `sheltuh`). */
+  ticketingMode?: TicketingMode;
+  /**
+   * External events only: ticket-link clicks in the range (and, with
+   * `compare=prevPeriod`, `previous`). Absent for Sheltüh-ticketed events.
+   */
+  outboundClicks?: { total: number; unreliable: boolean; previous?: { total: number; unreliable: boolean } };
 }
 
 /** GET /api/organisers/me/analytics/overview?from&to&compare. */
@@ -710,6 +1182,17 @@ export interface AnalyticsOverview {
   /** More than 500 events: the rest aren't listed (they're still in `totals`). */
   eventsTruncated: boolean;
   previous?: { range: DateRange; totals: AnalyticsTotals; byDay: AnalyticsDay[] };
+  /**
+   * Ticket-link clicks across all the organiser's external events (with
+   * `previous` for `compare=prevPeriod`); null when they have no external
+   * event. Always sent by the API; optional so older fixtures stay valid.
+   */
+  outboundClicks?: (OutboundClickStats & { previous?: OutboundClickStats }) | null;
+  /**
+   * Members following the organiser now: the exact number (the public
+   * profile only shows it from 10). Always sent; optional so older fixtures stay valid.
+   */
+  followerCount?: number;
 }
 
 /** Optional query for the analytics routes. Defaults: an event's whole life (capped), or the last 30 days. */
@@ -775,6 +1258,8 @@ export interface CheckInTicket {
   ticketCount: number;
   /** The code's last four characters. */
   codeLast4: string;
+  /** The ticket's seat, for a seated event (lib/seating/format.ts says it). */
+  seat?: TicketSeat;
 }
 
 /**
@@ -837,6 +1322,12 @@ export interface CheckInLogEntry {
   otherEventTitle?: string;
   /** `undone` only. */
   reason?: string;
+  /**
+   * The ticket's seat (lib/seating/format.ts says it), for a ticket of this
+   * event that has one; absent for general admission, `invalid` and
+   * `other_event` entries, and once a refund has freed the seat.
+   */
+  seat?: TicketSeat;
   /** An `admitted` entry that is the ticket's current check-in, so it can be undone. */
   undoable: boolean;
 }
@@ -854,4 +1345,123 @@ export interface CheckInSummary {
   byTicketType: { ticketTypeId: string; name: string; checkedIn: number; ticketsSold: number; capacity: number }[];
   /** The newest 20 log entries. */
   recent: CheckInLogEntry[];
+}
+
+// ---------------------------------------------------------------------------
+// Following organisers
+// ---------------------------------------------------------------------------
+
+/** GET/POST /api/organisers/{organiserId}/follow (the caller's own follow). */
+export interface FollowStatus {
+  following: boolean;
+  /** Emailed when the organiser publishes a new event (at most one email a day per organiser). False when not following. */
+  notifyNewEvents: boolean;
+}
+
+/** POST /api/organisers/{organiserId}/follow. */
+export interface FollowInput {
+  /** Chosen when following (left out: off); sending it again changes it. Must be a boolean if sent. */
+  notifyNewEvents?: boolean;
+}
+
+/** One entry of GET /api/me/following. */
+export interface FollowedOrganiser {
+  organiserId: string;
+  displayName: string;
+  notifyNewEvents: boolean;
+  followedAt: string;
+}
+
+/** POST /api/follows/unsubscribe {token}: the emailed link's token is the credential. */
+export interface UnsubscribeFollowResult {
+  status: "unsubscribed";
+  /** Still following: only the emails stop. */
+  organiserName?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Reserved seating (docs/architecture.md, "Reserved seating")
+// ---------------------------------------------------------------------------
+
+/**
+ * Seat holds (docs/SEATING_PLAN.md). The buyer is told `stripeMinutes`
+ * (Stripe's page closes then); the seats stay held `holdMinutes`, a buffer for
+ * the payment to be confirmed.
+ */
+export const SEAT_HOLD = { holdMinutes: 35, stripeMinutes: 30 } as const;
+
+/**
+ * GET /api/events/{eventId}/seat-map[?v=version]. Public once the event is
+ * published (cached for a long time when `v` is the current version); before
+ * that, the owning organiser or an admin only (bearer token).
+ */
+export interface SeatMapRecord {
+  eventId: string;
+  version: number;
+  seatCount: number;
+  /** The map, as validated and stored: sections → rows → seats, stage, focus point. */
+  template: SeatMapTemplate;
+}
+
+/**
+ * GET /api/events/{eventId}/seat-availability (published events). `unavailable`
+ * is the bitmap (lib/seating/availability.ts) by seat position for map
+ * `version`: sold, held and blocked look the same. Cached 5 seconds.
+ */
+export interface SeatAvailability {
+  eventId: string;
+  version: number;
+  seatCount: number;
+  unavailable: string;
+}
+
+/** The `seats` part of POST /api/events/{eventId}/checkout. */
+export interface CheckoutSeatsInput {
+  /** The map version the seats were chosen on (a different one is a 409, fieldErrors.seatMapVersion). */
+  mapVersion: number;
+  /** 1 to 10 seat ids. General admission lines (`lineItems`) don't count towards the 10. */
+  seatIds: string[];
+}
+
+/**
+ * Extra body fields of a seated checkout's error responses, besides `error`
+ * and `fieldErrors`:
+ * - 409 (fieldErrors.seats): `seatIds`, the seats that were taken (remove them
+ *   and let the buyer choose again).
+ * - 409 `seat_map_changed` (fieldErrors.seatMapVersion): the map was replaced; reload it.
+ * - 429 (`hold_cap`: too many seats held for the event right now; `rate_limited`:
+ *   too many checkouts for it in 10 minutes; `client_rate_limited`: too many
+ *   checkouts from this connection in 10 minutes, for this event or in all;
+ *   fieldErrors.seats): `seatIds`, the seats asked for (none were held).
+ * - 409 from POST /api/orders/confirm when a guest's seats went before they
+ *   confirmed (`code: "seats_taken"`): `seats` (their labels) and `eventSlug`.
+ */
+export interface SeatErrorDetails {
+  code?: "seats_unavailable" | "hold_cap" | "rate_limited" | "client_rate_limited" | "seat_map_changed" | "seats_taken";
+  seatIds?: string[];
+  seats?: TicketSeat[];
+  eventSlug?: string;
+}
+
+/**
+ * POST /api/orders/by-session/{orderId}/cancel: the buyer left Stripe's page
+ * (its cancel_url, /checkout/cancelled?order={orderId}).
+ * - `released`: nothing was charged; the order is cancelled and its seats are
+ *   free again (also when that had already happened).
+ * - `paid`: it's paid already (show /checkout/success?session_id={orderId}).
+ * - `processing`: Stripe already has the payment (or is confirming it); the
+ *   confirmation page will show the result.
+ */
+export interface CancelOrderResult {
+  status: "released" | "paid" | "processing";
+  /** The event's slug, for "Choose seats again" (unset if the event is gone). */
+  eventSlug?: string;
+  eventTitle: string;
+}
+
+/** PUT /api/admin/events/{eventId}/seat-map. */
+export interface AdminSeatMapInput {
+  template: SeatMapTemplate;
+  /** 1–500 characters, logged (the organiser sees it). */
+  reason: string;
 }

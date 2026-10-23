@@ -20,7 +20,7 @@ export default function SavedNavLink({ size }: { size: "desktop" | "compact" }) 
       aria-current={current ? "page" : undefined}
       className={
         size === "desktop"
-          ? "flex size-9 items-center justify-center rounded-full text-foreground hover:bg-foreground hover:text-background"
+          ? "flex size-9 items-center justify-center rounded-control text-foreground hover:bg-foreground hover:text-background"
           : "flex size-11 items-center justify-center text-foreground"
       }
     >

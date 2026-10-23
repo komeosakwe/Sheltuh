@@ -7,14 +7,15 @@ import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 afterEach(cleanup);
 
 describe("Admin home", () => {
-  it("links an admin to every admin tool, including ticket emails", () => {
+  it("links an admin to every admin tool, including new events and ticket emails", () => {
     render(
       <FakeAuthProvider value={fakeAuthValue({ isAdmin: true })}>
         <AdminHomePage />
       </FakeAuthProvider>,
     );
     const links = screen.getAllByRole("link").map((link) => link.getAttribute("href"));
-    expect(links).toEqual(["/admin/organisers", "/admin/events", "/admin/reports", "/admin/emails"]);
+    expect(links).toEqual(["/admin/organisers", "/admin/events", "/admin/events/new", "/admin/reports", "/admin/emails"]);
+    expect(screen.getByRole("link", { name: /New event/ })).toHaveAttribute("href", "/admin/events/new");
     expect(screen.getByRole("link", { name: /Ticket emails/ })).toHaveAttribute("href", "/admin/emails");
   });
 

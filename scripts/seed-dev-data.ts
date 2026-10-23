@@ -2,8 +2,11 @@
  * Loads the fictional sample events (lib/sample-events.ts) into a dev
  * database as published events, so the live feed has something to show
  * before any real organiser has been through review. Each sample organiser
- * becomes a platform-managed organiser (no account). Safe to re-run: events
- * whose slug already exists are skipped.
+ * becomes a platform-managed organiser (no account). Platform-managed
+ * organisers can't sell paid Sheltüh tickets (the database refuses them:
+ * docs/architecture.md, "Admin authoring"), so sample events with a paid
+ * ticket type are skipped. Safe to re-run: events whose slug already exists
+ * are skipped.
  *
  * Never run this against production.
  *
@@ -22,8 +25,13 @@ async function main() {
   const sql = postgres(databaseUrl, { prepare: false, max: 1 });
 
   let created = 0;
+  let paidSkipped = 0;
   try {
     for (const event of sampleEvents) {
+      if (event.ticketingMode !== "external" && event.ticketTypes.some((t) => t.priceCents > 0)) {
+        paidSkipped += 1;
+        continue;
+      }
       await sql.begin(async (tx) => {
         const [organiser] = await tx`
           select id from public.organisers where owner_user_id is null and display_name = ${event.organiserName}`;
@@ -37,12 +45,17 @@ async function main() {
               returning id`
           )[0].id;
 
+        const external = event.ticketingMode === "external";
+        const externalFree = external && event.externalFree === true;
         const [inserted] = await tx`
           insert into public.events (organiser_id, slug, title, description, category, venue_name, venue_address,
-                                     suburb, starts_at, ends_at, status)
+                                     suburb, starts_at, ends_at, status,
+                                     ticketing_mode, external_ticket_url, external_free, is_free)
           values (${organiserId}, ${event.slug}, ${event.title}, ${event.description}, ${event.category},
                   ${event.venueName}, ${event.venueAddress}, ${event.suburb}, ${event.startsAt},
-                  ${event.endsAt ?? event.startsAt}, 'published')
+                  ${event.endsAt ?? event.startsAt}, 'published',
+                  ${external ? "external" : "sheltuh"}, ${external ? (event.externalTicketUrl ?? null) : null},
+                  ${externalFree}, ${externalFree})
           on conflict (slug) do nothing
           returning id`;
         if (!inserted) return;
@@ -55,7 +68,10 @@ async function main() {
   } finally {
     await sql.end();
   }
-  console.log(`Seeded ${created} new sample event(s); ${sampleEvents.length - created} already existed.`);
+  console.log(
+    `Seeded ${created} new sample event(s); ${sampleEvents.length - created - paidSkipped} already existed; ` +
+      `${paidSkipped} with paid tickets skipped (platform-managed organisers can't sell paid tickets).`,
+  );
 }
 
 main().catch((err) => {

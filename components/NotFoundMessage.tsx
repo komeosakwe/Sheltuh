@@ -1,19 +1,22 @@
-import Link from "next/link";
+import DotsMark from "@/components/brand/DotsMark";
+import { ButtonLink } from "@/components/ui/Button";
 
+/**
+ * The 404 (docs/design/brand-direction-one.md §7): the two dots, the brand
+ * question in the display face, one plain line and a way back to what's on.
+ * Also the live event page's "no such event".
+ */
 export default function NotFoundMessage() {
   return (
-    <div className="mx-auto flex max-w-2xl flex-col items-start gap-6 px-5 py-20 sm:px-8">
-      <h1 className="display-lg">Page not found</h1>
-      <p className="text-muted">
-        We couldn&rsquo;t find that page. The event may have been removed, or the link might be
-        out of date.
+    <div className="mx-auto flex max-w-6xl *:max-w-2xl flex-col items-start px-5 py-20 sm:px-8 sm:py-24">
+      <DotsMark size="lg" className="text-foreground" />
+      <h1 className="display-lg font-display mt-6">Lost?</h1>
+      <p className="mt-4 max-w-md text-base leading-6 text-muted sm:text-lg sm:leading-7">
+        That page isn&rsquo;t here. Try what&rsquo;s on this week.
       </p>
-      <Link
-        href="/"
-        className="btn btn-solid"
-      >
-        Back to all events
-      </Link>
+      <ButtonLink href="/events" size="lg" className="mt-8">
+        See what&rsquo;s on
+      </ButtonLink>
     </div>
   );
 }

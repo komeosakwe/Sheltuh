@@ -1,45 +1,51 @@
 import Link from "next/link";
 import type { Ref } from "react";
+import FollowButton from "@/components/organisers/FollowButton";
 import OrganiserLinks from "@/components/organisers/OrganiserLinks";
-import EventTile from "@/components/ui/EventTile";
-import { SectionHeader } from "@/components/ui/Section";
-import type { PublicOrganiserProfile } from "@/lib/api/types";
+import VideoFacade from "@/components/organisers/VideoFacade";
+import { RESULTS_GRID } from "@/components/EventResults";
+import BackLink from "@/components/ui/BackLink";
+import EventCard from "@/components/ui/EventCard";
+import Strap from "@/components/ui/Strap";
+import SectionHead from "@/components/ui/SectionHead";
 import { formatDayWithYear } from "@/lib/format";
-import { adaptPublicEvent } from "@/lib/live/adapt";
-import { formatMemberSince } from "@/lib/organiser-profile";
-import { EVENT_CATEGORIES } from "@/lib/types";
+import { formatMemberSince, type OrganiserProfileDetails } from "@/lib/organiser-profile";
+import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
+
+const countFormatter = new Intl.NumberFormat("en-AU");
 
 /**
- * An approved organiser's public profile: who they are, their links, then
- * their events. `headingRef` makes the h1 focusable from script (tabIndex
- * -1), for a caller that moves focus to it.
+ * An approved organiser's public profile: who they are, Follow, their
+ * numbers (followers once there are 10, events hosted), their links and
+ * featured video, then their events: `upcoming` (soonest first) and `past`
+ * (most recent first), already in the screens' shape (a live profile's
+ * events adapted by LiveOrganiserProfile, or the demo's sample events).
+ * `headingRef` makes the h1 focusable from script (tabIndex -1), for a caller
+ * that moves focus to it.
  */
 export default function OrganiserProfileView({
   profile,
+  upcoming,
+  past,
   headingRef,
 }: {
-  profile: PublicOrganiserProfile;
+  profile: OrganiserProfileDetails;
+  upcoming: readonly SheltuhEvent[];
+  past: readonly SheltuhEvent[];
   headingRef?: Ref<HTMLHeadingElement>;
 }) {
   const categoryLabels = profile.categories.map(
     (value) => EVENT_CATEGORIES.find((category) => category.value === value)?.label ?? value,
   );
-  const upcoming = profile.upcomingEvents.map(adaptPublicEvent);
-  const past = profile.recentEvents.map(adaptPublicEvent);
   const hasLinks = Boolean(profile.websiteUrl) || Object.values(profile.socialLinks).some(Boolean);
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-5 pt-2 pb-12 sm:gap-14 sm:px-8 sm:py-14">
-      <Link
-        href="/events"
-        className="eyebrow inline-flex min-h-11 w-fit items-center underline underline-offset-4"
-      >
-        &larr; All events
-      </Link>
+      <BackLink href="/events">All events</BackLink>
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-14">
         <header className="flex flex-col gap-5 lg:col-span-7">
-          <p className="eyebrow text-muted">Organiser</p>
+          <Strap label="Organiser" rule={false} />
           <h1
             ref={headingRef}
             tabIndex={headingRef ? -1 : undefined}
@@ -47,11 +53,31 @@ export default function OrganiserProfileView({
           >
             {profile.displayName}
           </h1>
-          <p className="text-sm text-muted">Member since {formatMemberSince(profile.memberSince)}</p>
+          <p className="meta text-muted">Member since {formatMemberSince(profile.memberSince)}</p>
+          {/* Followers only once the API sends a count (10 or more); events hosted (past events). */}
+          <dl className="flex flex-wrap gap-x-8 gap-y-3 empty:hidden">
+            {typeof profile.followerCount === "number" && (
+              <div className="flex flex-col">
+                <dt className="eyebrow text-muted">Followers</dt>
+                <dd className="font-heading text-[2rem] leading-9 tracking-[-0.03em] tabular-nums lg:text-[2.5rem] lg:leading-11">
+                  {countFormatter.format(profile.followerCount)}
+                </dd>
+              </div>
+            )}
+            {typeof profile.eventsHosted === "number" && (
+              <div className="flex flex-col">
+                <dt className="eyebrow text-muted">Events hosted</dt>
+                <dd className="font-heading text-[2rem] leading-9 tracking-[-0.03em] tabular-nums lg:text-[2.5rem] lg:leading-11">
+                  {countFormatter.format(profile.eventsHosted)}
+                </dd>
+              </div>
+            )}
+          </dl>
+          <FollowButton organiserId={profile.organiserId} organiserName={profile.displayName} />
           {categoryLabels.length > 0 && (
             <ul aria-label="Categories" className="flex flex-wrap gap-2">
               {categoryLabels.map((label) => (
-                <li key={label} className="eyebrow border border-foreground px-2 py-1">
+                <li key={label} className="eyebrow rounded-badge border border-foreground bg-card px-2 py-1">
                   {label}
                 </li>
               ))}
@@ -64,28 +90,40 @@ export default function OrganiserProfileView({
           )}
         </header>
 
-        {hasLinks && (
-          <section aria-labelledby="organiser-links" className="flex flex-col gap-3 md:max-w-xl lg:col-span-5 lg:max-w-none">
-            <h2 id="organiser-links" className="eyebrow font-sans text-muted">
-              Links
-            </h2>
-            <OrganiserLinks websiteUrl={profile.websiteUrl} socialLinks={profile.socialLinks} />
-          </section>
+        {(hasLinks || profile.featuredVideo) && (
+          <div className="flex flex-col gap-8 md:max-w-xl lg:col-span-5 lg:max-w-none">
+            {profile.featuredVideo && (
+              <section aria-labelledby="organiser-video" className="flex flex-col gap-3">
+                <h2 id="organiser-video" className="eyebrow text-muted">
+                  Featured video
+                </h2>
+                <VideoFacade video={profile.featuredVideo} title={`${profile.displayName}’s featured video`} />
+              </section>
+            )}
+            {hasLinks && (
+              <section aria-labelledby="organiser-links" className="flex flex-col gap-3">
+                <h2 id="organiser-links" className="eyebrow text-muted">
+                  Links
+                </h2>
+                <OrganiserLinks websiteUrl={profile.websiteUrl} socialLinks={profile.socialLinks} />
+              </section>
+            )}
+          </div>
         )}
       </div>
 
       <section aria-labelledby="organiser-upcoming">
-        <SectionHeader id="organiser-upcoming" title="Upcoming events" />
+        <SectionHead id="organiser-upcoming" title="Upcoming events" />
         {upcoming.length > 0 ? (
-          <ul className="grid grid-cols-1 gap-y-8 sm:grid-cols-2 sm:gap-x-6 sm:gap-y-10 md:grid-cols-3 lg:grid-cols-4">
+          <ul className={RESULTS_GRID}>
             {upcoming.map((event) => (
-              <li key={event.id}>
-                <EventTile event={event} showOrganiser={false} />
+              <li key={event.id} className="flex min-w-0">
+                <EventCard event={event} variant="grid" showOrganiser={false} />
               </li>
             ))}
           </ul>
         ) : (
-          <p className="border-t border-foreground pt-5 text-sm text-muted">
+          <p className="text-sm text-muted">
             No upcoming events right now.{" "}
             <Link href="/events" className="text-foreground underline underline-offset-4">
               Browse all events
@@ -96,7 +134,7 @@ export default function OrganiserProfileView({
 
       {past.length > 0 && (
         <section aria-labelledby="organiser-past">
-          <SectionHeader id="organiser-past" title="Past events" />
+          <SectionHead id="organiser-past" title="Past events" />
           <ul className="flex flex-col border-t border-surface-border">
             {past.map((event) => (
               <li key={event.id} className="border-b border-surface-border">
@@ -107,7 +145,7 @@ export default function OrganiserProfileView({
                   <span className="text-sm font-semibold group-hover:underline group-hover:underline-offset-4">
                     {event.title}
                   </span>
-                  <span className="shrink-0 text-sm text-muted">
+                  <span className="meta shrink-0 text-muted">
                     {formatDayWithYear(event.startsAt)} · {event.venueName || event.suburb}
                   </span>
                 </Link>

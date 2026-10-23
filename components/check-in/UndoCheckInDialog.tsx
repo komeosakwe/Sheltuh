@@ -162,7 +162,7 @@ function UndoForm({
         {undoAbout(entry)}. They&rsquo;ll count as not checked in, and the ticket can be scanned again.
       </p>
 
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-2">
         <label htmlFor="undo-reason" className="eyebrow text-muted">
           Reason
         </label>

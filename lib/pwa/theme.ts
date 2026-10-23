@@ -1,9 +1,9 @@
 /**
- * Paper (--background in app/globals.css). The installed app's status bar,
+ * Cream (--background in app/globals.css). The installed app's status bar,
  * theme colour and splash screen use it so they run straight into the
- * paper-coloured header.
+ * cream header.
  */
-export const APP_THEME_COLOR = "#f3f0e8";
+export const APP_THEME_COLOR = "#fffae7";
 
 /**
  * Ink: the door check-in scope's --background (the door scope in

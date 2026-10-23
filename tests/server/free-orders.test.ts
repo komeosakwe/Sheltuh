@@ -38,7 +38,22 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function book(
+/**
+ * Books; a guest's confirmation email is sent after the response
+ * (Deps.defer), so for a guest (no token) that's run too. A member's deferred
+ * ticket email is left for the test to run. `bookOnly` runs nothing.
+ */
+async function book(
+  buyerEmail: string,
+  quantity = 1,
+  options: { token?: string; eventId?: string; ticketTypeId?: string; extra?: Record<string, unknown> } = {},
+) {
+  const res = await bookOnly(buyerEmail, quantity, options);
+  if (!options.token) await api.runDeferred();
+  return res;
+}
+
+function bookOnly(
   buyerEmail: string,
   quantity = 1,
   options: { token?: string; eventId?: string; ticketTypeId?: string; extra?: Record<string, unknown> } = {},
@@ -210,11 +225,24 @@ describe("guest: book, then confirm by email", () => {
     expect(api.sendEmail).not.toHaveBeenCalled();
   });
 
-  it("if the confirmation email can't be sent: 503, nothing kept, and the log names no address or order", async () => {
+  it("the link is emailed only after the response: no SMTP call before it, the same 202 as an address-limited request", async () => {
+    const res = await bookOnly("fan@example.com");
+    expect(res.status).toBe(202);
+    expect(res.body).toEqual({ status: "confirmation_sent", expiresInHours: 24 });
+    expect(api.sendEmail).not.toHaveBeenCalled();
+    expect(await orders()).toHaveLength(1);
+    await api.runDeferred();
+    expect(api.sendEmail).toHaveBeenCalledTimes(1);
+    expect(api.sendEmail.mock.calls[0][0].to).toBe("fan@example.com");
+  });
+
+  it("if the confirmation email can't be sent: still 202 (sent after the response), nothing kept, and the log names no address or order", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     api.sendEmail.mockRejectedValueOnce(new Error("550 <fan@example.com> no such user"));
-    const res = await book("fan@example.com");
-    expect(res.status).toBe(503);
+    const res = await bookOnly("fan@example.com");
+    expect(res.status).toBe(202);
+    expect(await orders()).toHaveLength(1);
+    await api.runDeferred();
     expect(await orders()).toEqual([]);
     const logged = error.mock.calls.flat().map(String).join("\n");
     expect(logged).toContain("confirmation email failed");
@@ -391,16 +419,17 @@ describe("caps", () => {
     expect(await orders()).toHaveLength(3);
     expect(await refusals()).toEqual({ address_hourly_limit: 1 });
 
-    // Another address is unaffected; and confirming one frees a slot.
+    // Another address is unaffected; and confirming one frees a slot (its ticket email isn't a link).
+    const links = () => api.sendEmail.mock.calls.filter(([m]) => m.subject.startsWith("Confirm your free tickets")).length;
     expect((await book("other@example.com")).status).toBe(202);
-    expect(api.sendEmail).toHaveBeenCalledTimes(4);
+    expect(links()).toBe(4);
     expect((await confirm(tokenFromEmail(0))).status).toBe(200);
     await book("fan@example.com");
-    expect(api.sendEmail).toHaveBeenCalledTimes(5);
+    expect(links()).toBe(5);
     // An hour later, links are allowed again.
     await api.db.query(`update public.orders set created_at = now() - interval '61 minutes'`);
     await book("fan@example.com");
-    expect(api.sendEmail).toHaveBeenCalledTimes(6);
+    expect(links()).toBe(6);
   });
 
   it("at most 60 confirmation emails an hour platform-wide: then 503, nothing recorded", async () => {
@@ -594,7 +623,7 @@ describe("confirmation re-checks", () => {
 });
 
 describe("retention (purge_operational_data)", () => {
-  it("deletes unconfirmed links a week after expiry, idle counters, old refusal counts and old email jobs; keeps paid orders", async () => {
+  it("deletes unconfirmed links a week after expiry, idle counters (platform and per-client), old refusal counts and old email jobs; keeps paid orders", async () => {
     await book("old@example.com");
     await book("recent@example.com");
     await bookAndConfirm("paid@example.com");
@@ -611,6 +640,11 @@ describe("retention (purge_operational_data)", () => {
     await api.db.query(
       `insert into private.platform_rate_limits (bucket, window_started_at, hits) values ('stale', now() - interval '2 days', 1)`,
     );
+    await api.db.query(
+      `insert into private.client_rate_limits (client_key, bucket, window_started_at, hits) values
+         ($1, 'seat_holds', now() - interval '2 days', 1), ($1, 'seat_holds:recent', now() - interval '20 hours', 1)`,
+      ["a".repeat(64)],
+    );
     await api.db.query(`update private.email_outbox set sent_at = now() - interval '91 days'`);
 
     const [counts] = await api.db.query(`select * from private.purge_operational_data()`);
@@ -619,13 +653,15 @@ describe("retention (purge_operational_data)", () => {
       platform_rate_limits_deleted: 1,
       free_order_refusals_deleted: 1,
       email_jobs_deleted: 1,
+      client_rate_limits_deleted: 1,
     });
+    expect(await api.db.query(`select bucket from private.client_rate_limits`)).toEqual([{ bucket: "seat_holds:recent" }]);
     expect((await orders()).map((o) => [o.buyer_email, o.status]).sort()).toEqual([
       ["paid@example.com", "paid"],
       ["recent@example.com", "pending"],
     ]);
     const [again] = await api.db.query(`select * from private.purge_operational_data()`);
-    expect(Object.values(again)).toEqual([0, 0, 0, 0]);
+    expect(Object.values(again)).toEqual([0, 0, 0, 0, 0]);
   });
 });
 

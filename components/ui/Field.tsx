@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
  * 48px tall on phones (iOS Safari zooms the page when a field under 16px takes focus).
  */
 export const fieldClass =
-  "w-full min-h-12 px-3 py-2.5 text-base text-foreground placeholder:text-muted focus-visible:outline-offset-0 sm:min-h-0 sm:text-sm";
+  "w-full min-h-12 px-3 py-2.5 text-base text-foreground placeholder:text-muted focus-visible:outline-offset-0 sm:min-h-10 sm:text-sm";
 
 /** Labelled field wrapper: small caps label above, optional hint below. */
 export function Field({
@@ -20,7 +20,7 @@ export function Field({
   children: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2">
       <label htmlFor={htmlFor} className="eyebrow text-muted">
         {label}
       </label>

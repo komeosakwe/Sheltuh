@@ -27,7 +27,7 @@ const coreSampleEvents: SheltuhEvent[] = [
     whatToExpect: "Standing room only, no seating. Sound levels are loud — earplugs available for free at the door.",
     ageRestriction: "18+. Bar on site, photo ID required.",
     accessibility: "Step-free entry via the loading dock ramp. No accessible toilet on site.",
-    poster: { pattern: "burst", background: "#0a0a12", primary: "#1e3fe0", secondary: "#ff2f6e" },
+    poster: { pattern: "burst", background: "#000000", primary: "#ff4800", secondary: "#fffae7" },
     ticketTypes: [
       {
         id: "neon-static-ga",
@@ -64,7 +64,7 @@ const coreSampleEvents: SheltuhEvent[] = [
     whatToExpect: "Seated at a shared table, hands-on the whole time. Wear clothes you don't mind getting clay on.",
     ageRestriction: "All ages. Under-16s to be accompanied by an adult.",
     accessibility: "Ground floor, step-free entry and an accessible toilet on site.",
-    poster: { pattern: "rings", background: "#141414", primary: "#d98a3d", secondary: "#2f5bf6" },
+    poster: { pattern: "rings", background: "#ff4800", primary: "#000000", secondary: "#fffae7" },
     ticketTypes: [
       {
         id: "paper-moon-seat",
@@ -94,7 +94,7 @@ const coreSampleEvents: SheltuhEvent[] = [
     whatToExpect: "Untutored drawing session with a posed model. Bring your own paper/materials, or borrow a basic set at the door.",
     ageRestriction: "18+ (the model poses nude for part of the session).",
     accessibility: "Lift access to the studio. Please contact the organiser ahead if you need an accessible easel height.",
-    poster: { pattern: "grid", background: "#050507", primary: "#2451f5", secondary: "#f5f4f0" },
+    poster: { pattern: "grid", background: "#fffae7", primary: "#000000", secondary: "#ff4800" },
     ticketTypes: [
       {
         id: "sketch-salon-entry",
@@ -123,7 +123,7 @@ const coreSampleEvents: SheltuhEvent[] = [
     whatToExpect: "Outdoors in a public laneway. Walk through at your own pace, no set start time or seating.",
     ageRestriction: "All ages.",
     accessibility: "Laneway is paved but narrow and uneven in places — wheelchair passable with care.",
-    poster: { pattern: "stripes", background: "#000000", primary: "#1633a8", secondary: "#34e2c4" },
+    poster: { pattern: "stripes", background: "#000000", primary: "#fffae7", secondary: "#ff4800" },
     ticketTypes: [
       {
         id: "laneway-projections-entry",
@@ -152,7 +152,7 @@ const coreSampleEvents: SheltuhEvent[] = [
     whatToExpect: "Small backroom bar, standing and limited seating. Noise sets can be loud in bursts.",
     ageRestriction: "18+. Licensed venue.",
     accessibility: "Two steps at the entrance, no ramp — contact the venue ahead if this is a barrier.",
-    poster: { pattern: "waves", background: "#0b0b0f", primary: "#3b5bff", secondary: "#ffcf4d" },
+    poster: { pattern: "waves", background: "#ff4800", primary: "#fffae7", secondary: "#000000" },
     ticketTypes: [
       {
         id: "fitzroy-poetry-entry",
@@ -181,7 +181,7 @@ const coreSampleEvents: SheltuhEvent[] = [
     whatToExpect: "A busy hall of stalls. Casual, no schedule to follow — come and go as you like.",
     ageRestriction: "All ages.",
     accessibility: "Step-free entry and wide aisles between stalls. Accessible toilet on site.",
-    poster: { pattern: "confetti", background: "#111116", primary: "#274bdb", secondary: "#ff6b3d" },
+    poster: { pattern: "confetti", background: "#fffae7", primary: "#ff4800", secondary: "#000000" },
     ticketTypes: [
       {
         id: "zine-fair-entry",
@@ -209,8 +209,14 @@ const coreSampleEvents: SheltuhEvent[] = [
     audience: "General theatre audience — contains coarse language.",
     whatToExpect: "Fixed seating in the round, 75 minutes with no interval.",
     ageRestriction: "Recommended 15+ for coarse language and mature themes.",
-    accessibility: "Lift access to the studio; one wheelchair-accessible seating position — book ahead via the organiser.",
-    poster: { pattern: "curtain", background: "#08080c", primary: "#152e8a", secondary: "#c81d4f" },
+    accessibility: "Lift access to the studio; one wheelchair space with a companion seat beside it, both on the seat map.",
+    poster: { pattern: "curtain", background: "#000000", primary: "#ff4800", secondary: "#000000" },
+    // Reserved seating (lib/sample-seat-maps.ts): staged in the round, 60
+    // numbered seats with a few already taken. Both tiers are seated, so the
+    // event page shows the seated panel and the seat page works in the demo.
+    // `remaining` is what the API would send for the demo map (10 or fewer
+    // left): 10 concession seats are still free (tests/seating/sample-map.test.ts).
+    seating: { version: 1 },
     ticketTypes: [
       {
         id: "off-kilter-full",
@@ -218,6 +224,7 @@ const coreSampleEvents: SheltuhEvent[] = [
         priceCents: 3500,
         feePolicy: "buyer-pays",
         quantityAvailable: 45,
+        seated: true,
       },
       {
         id: "off-kilter-concession",
@@ -226,6 +233,8 @@ const coreSampleEvents: SheltuhEvent[] = [
         priceCents: 2500,
         feePolicy: "buyer-pays",
         quantityAvailable: 15,
+        remaining: 10,
+        seated: true,
       },
     ],
   },
@@ -247,7 +256,7 @@ const coreSampleEvents: SheltuhEvent[] = [
     whatToExpect: "Two full days, mostly on your feet at the print tables. Small group, hands-on the whole time.",
     ageRestriction: "16+.",
     accessibility: "Ground-floor studio, step-free entry, accessible toilet on site.",
-    poster: { pattern: "halftone", background: "#101014", primary: "#0c2fb0", secondary: "#2fd0c8" },
+    poster: { pattern: "halftone", background: "#ff4800", primary: "#000000", secondary: "#000000" },
     ticketTypes: [
       {
         id: "print-weekend-seat",
@@ -256,8 +265,55 @@ const coreSampleEvents: SheltuhEvent[] = [
         priceCents: 12000,
         feePolicy: "organiser-absorbs",
         quantityAvailable: 10,
+        // A few left, as the API says it (only at 10 or fewer): "Only 4 left."
+        remaining: 4,
       },
     ],
+  },
+  // External ticketing (docs/architecture.md, "External ticketing"): listed
+  // here, tickets sold on another site. No ticket types. The links are
+  // placeholders: the demo never sends anyone to buy anything.
+  {
+    id: "evt-thornbury-dub-session",
+    slug: "thornbury-dub-session",
+    title: "Thornbury Dub Session",
+    description:
+      "A long night of dub and roots on a hand-built sound system, with three selectors and a live horn section. Tickets are sold on Humanitix by the organisers.",
+    category: "live-music",
+    suburb: "Thornbury",
+    venueName: "The Bluestone Hall",
+    venueAddress: "800 High Street, Thornbury VIC 3071",
+    coordinates: { lat: -37.7553, lng: 145.0007 },
+    startsAt: "2026-11-07T08:30:00.000Z",
+    endsAt: "2026-11-07T13:00:00.000Z",
+    organiserName: "Low End Theory Sound",
+    poster: { pattern: "waves", background: "#ff4800", primary: "#fffae7", secondary: "#000000" },
+    ticketTypes: [],
+    ticketingMode: "external",
+    externalTicketUrl: "https://events.humanitix.com/thornbury-dub-session-demo",
+    externalFree: false,
+    externalProvider: "Humanitix",
+  },
+  {
+    id: "evt-footscray-open-studios",
+    slug: "footscray-open-studios",
+    title: "Footscray Open Studios",
+    description:
+      "Twelve artists open their studios for an afternoon of works in progress, demos and conversation. Free entry; RSVP on the organisers' own site so they know how many to expect.",
+    category: "art",
+    suburb: "Footscray",
+    venueName: "Nicholson Street Studios",
+    venueAddress: "12 Nicholson Street, Footscray VIC 3011",
+    coordinates: { lat: -37.8, lng: 144.8998 },
+    startsAt: "2026-11-27T23:00:00.000Z",
+    endsAt: "2026-11-28T05:00:00.000Z",
+    organiserName: "Footscray Studio Collective",
+    poster: { pattern: "grid", background: "#fffae7", primary: "#000000", secondary: "#ff4800" },
+    ticketTypes: [],
+    ticketingMode: "external",
+    externalTicketUrl: "https://www.example.com/footscray-open-studios/rsvp",
+    externalFree: true,
+    externalProvider: null,
   },
 ];
 

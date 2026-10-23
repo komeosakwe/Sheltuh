@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 export default function AdminGate({ children }: { children: ReactNode }) {
   const auth = useAuth();
@@ -16,12 +17,12 @@ export default function AdminGate({ children }: { children: ReactNode }) {
   }
 
   if (auth.status === "loading") {
-    return <p className="text-sm text-muted">Loading…</p>;
+    return <LoadingState text="Loading…" />;
   }
 
   if (auth.status === "signed-out") {
     return (
-      <div className="bg-surface p-4">
+      <div className="rounded-card border border-foreground bg-card p-4">
         <p className="mb-3 text-foreground">Sign in with an admin account to continue.</p>
         <Link href="/login" className="btn btn-solid">
           Sign in

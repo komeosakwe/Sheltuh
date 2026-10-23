@@ -33,7 +33,7 @@ export default function PublicProfilePanel() {
 
   if (auth.status === "signed-out") {
     return (
-      <div className="bg-surface p-4">
+      <div className="rounded-card border border-foreground bg-card p-4">
         <p className="mb-3 text-foreground">Sign in to edit your organiser profile.</p>
         <Link href={withNext("/login", RETURN_TO)} className="btn btn-solid min-h-11">
           Sign in
@@ -57,7 +57,7 @@ export default function PublicProfilePanel() {
 
   if (!organiser || organiser.status !== "approved") {
     return (
-      <div className="bg-surface p-4">
+      <div className="rounded-card border border-foreground bg-card p-4">
         <p className="mb-3 text-foreground">
           Your public profile goes live once your organiser application is approved.
         </p>

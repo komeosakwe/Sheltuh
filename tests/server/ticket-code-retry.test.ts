@@ -66,6 +66,7 @@ describe("a ticket code that clashes with an existing ticket", () => {
       params: { eventId },
       body: { lineItems: [{ ticketTypeId: "rsvp", quantity: 1 }], buyerEmail: "guest@example.com" },
     });
+    await api.runDeferred(); // the link is emailed after the response
     const token = api.sendEmail.mock.calls.at(-1)![0].text.match(/#token=([A-Za-z0-9_-]+)/)![1];
     codes.queue = ["BBBB-BBBB"];
     expect((await api.call(confirmFreeOrder, { body: { token } })).status).toBe(200);

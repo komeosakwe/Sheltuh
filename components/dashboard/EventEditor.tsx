@@ -4,7 +4,15 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import InlineReauth from "@/components/auth/InlineReauth";
 import { ApiError, type GetToken } from "@/lib/api/client";
+import AdminOrganiserPicker, { type PickedOrganiser } from "@/components/admin/AdminOrganiserPicker";
 import EventImageField from "@/components/dashboard/EventImageField";
+import { fieldClass } from "@/components/ui/Field";
+import {
+  adminCreateEvent,
+  adminDeleteEventImage,
+  adminUpdateEvent,
+  adminUploadEventImage,
+} from "@/lib/api/admin";
 import {
   createEventDraft,
   deleteEventImage,
@@ -13,16 +21,47 @@ import {
   uploadEventImage,
   type EventInput,
 } from "@/lib/api/events";
-import type { EventRecord, TicketTypeInput } from "@/lib/api/types";
+import type { AdminEventRecord, EventRecord, TicketTypeInput } from "@/lib/api/types";
 import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
 import { calculateOrderSummary, MIN_PAID_TICKET_CENTS } from "@/lib/fees";
 import { formatAud, toMelbourneDateTimeInputParts } from "@/lib/format";
+import { checkExternalTicketUrl, type TicketingMode } from "@/lib/ticketing";
 import { EVENT_CATEGORIES } from "@/lib/types";
 
-interface Props {
+/** A section title in the form (Panel's title style: 20/24, uppercase by the heading base rule, which a legend doesn't get). */
+const SECTION_TITLE = "font-heading text-xl leading-6 uppercase text-foreground";
+
+interface OrganiserProps {
   getToken: GetToken;
+  mode?: "organiser";
   initial?: EventRecord;
   onSaved: (record: EventRecord) => void;
+  onReload?: never;
+}
+
+/**
+ * Admin authoring (/admin/events/new and /admin/events/[eventId]/edit): any
+ * status is editable, a new event picks its organiser (or creates a
+ * platform-managed one), ticketing is editable, saving can publish, and an
+ * edit carries the version it started from (a conflict is reported, with
+ * `onReload` to fetch the latest version). Every admin route answers with an
+ * AdminEventRecord, and that's what `onSaved` gets.
+ */
+interface AdminProps {
+  getToken: GetToken;
+  mode: "admin";
+  initial?: AdminEventRecord;
+  onSaved: (record: AdminEventRecord) => void;
+  /** Fetch the latest version after a save conflict (remount the editor with it). */
+  onReload?: () => void;
+}
+
+type Props = OrganiserProps | AdminProps;
+
+const PLATFORM_FREE_ONLY = "A platform-managed organiser can only offer free tickets here, or link to another site.";
+
+function isPlatformManaged(record: EventRecord | AdminEventRecord | undefined): boolean {
+  return Boolean(record && "organiserPlatformManaged" in record && record.organiserPlatformManaged);
 }
 
 function newTicketType(): TicketTypeInput {
@@ -35,14 +74,16 @@ function newTicketType(): TicketTypeInput {
   };
 }
 
-export default function EventEditor({ getToken, initial, onSaved }: Props) {
+export default function EventEditor(props: Props) {
+  const { getToken, initial, onReload } = props;
   const router = useRouter();
   const auth = useAuth();
+  const isAdmin = props.mode === "admin";
   // Captured once at mount: the account this draft belongs to, so that if
   // the session expires mid-edit, recovery only accepts signing back in as
   // this same account — never a different one saving over it.
   const [ownerEmail] = useState(() => auth.email);
-  const locked = initial ? initial.status === "pending_review" || initial.status === "published" : false;
+  const locked = !isAdmin && initial ? initial.status === "pending_review" || initial.status === "published" : false;
 
   const [title, setTitle] = useState(initial?.title ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
@@ -55,6 +96,19 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
   const [ticketTypes, setTicketTypes] = useState<TicketTypeInput[]>(
     initial?.ticketTypes && initial.ticketTypes.length > 0 ? initial.ticketTypes : [newTicketType()],
   );
+
+  const [ticketingMode, setTicketingMode] = useState<TicketingMode>(initial?.ticketingMode ?? "sheltuh");
+  const [externalTicketUrl, setExternalTicketUrl] = useState(initial?.externalTicketUrl ?? "");
+  const [externalFree, setExternalFree] = useState(initial?.externalFree === true);
+
+  // Admin mode only.
+  const [organiser, setOrganiser] = useState<PickedOrganiser | null>(null);
+  const platformManaged = initial ? isPlatformManaged(initial) : organiser?.platformManaged === true;
+  const [publish, setPublish] = useState(false);
+  const [reason, setReason] = useState("");
+  // The version being edited (expectedUpdatedAt): the loaded one, then each save's.
+  const [version, setVersion] = useState(initial?.updatedAt);
+  const [conflict, setConflict] = useState(false);
 
   const [imageFile, setImageFile] = useState<Blob | null>(null);
   const [imageRemoved, setImageRemoved] = useState(false);
@@ -72,6 +126,11 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
     if (err instanceof SessionExpiredError) {
       setSessionExpired(true);
       setSubmitError(err.message);
+      return;
+    }
+    if (isAdmin && err instanceof ApiError && err.status === 409 && err.fieldErrors?.expectedUpdatedAt) {
+      setConflict(true);
+      setSubmitError(null);
       return;
     }
     if (err instanceof ApiError && err.fieldErrors) setErrors((prev) => ({ ...prev, ...err.fieldErrors }));
@@ -95,19 +154,31 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
     if (!suburb.trim()) nextErrors.suburb = "Enter a suburb.";
     if (!start.date || !start.time) nextErrors.start = "Enter a start date and time.";
     if (!end.date || !end.time) nextErrors.end = "Enter an end date and time.";
-    if (ticketTypes.length === 0) nextErrors.ticketTypes = "Add at least one ticket type.";
-    ticketTypes.forEach((t, i) => {
-      if (!t.name.trim()) nextErrors[`ticket-${i}-name`] = "Enter a ticket name.";
-      if (!Number.isInteger(t.priceCents) || t.priceCents < 0) nextErrors[`ticket-${i}-price`] = "Enter a valid price.";
-      else if (t.priceCents > 0 && t.priceCents < MIN_PAID_TICKET_CENTS)
-        nextErrors[`ticket-${i}-price`] = `A paid ticket must cost at least ${formatAud(MIN_PAID_TICKET_CENTS)} (or make it free).`;
-      if (!Number.isInteger(t.quantityAvailable) || t.quantityAvailable < 1)
-        nextErrors[`ticket-${i}-qty`] = "Enter how many are available.";
-    });
+    if (isAdmin && !initial && !createdId && !organiser) nextErrors.organiserId = "Choose an organiser.";
+    const external = ticketingMode === "external";
+    if (external) {
+      // Only an admin edits the link here; an organiser's external event keeps its stored one.
+      if (isAdmin) {
+        const checked = checkExternalTicketUrl(externalTicketUrl.trim());
+        if (!externalTicketUrl.trim()) nextErrors.externalTicketUrl = "Enter the address of the page where tickets are sold.";
+        else if (!checked.ok) nextErrors.externalTicketUrl = checked.message;
+      }
+    } else {
+      if (ticketTypes.length === 0) nextErrors.ticketTypes = "Add at least one ticket type.";
+      ticketTypes.forEach((t, i) => {
+        if (!t.name.trim()) nextErrors[`ticket-${i}-name`] = "Enter a ticket name.";
+        if (!Number.isInteger(t.priceCents) || t.priceCents < 0) nextErrors[`ticket-${i}-price`] = "Enter a valid price.";
+        else if (t.priceCents > 0 && platformManaged) nextErrors[`ticket-${i}-price`] = PLATFORM_FREE_ONLY;
+        else if (t.priceCents > 0 && t.priceCents < MIN_PAID_TICKET_CENTS)
+          nextErrors[`ticket-${i}-price`] = `A paid ticket must cost at least ${formatAud(MIN_PAID_TICKET_CENTS)} (or make it free).`;
+        if (!Number.isInteger(t.quantityAvailable) || t.quantityAvailable < 1)
+          nextErrors[`ticket-${i}-qty`] = "Enter how many are available.";
+      });
+    }
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return null;
 
-    return {
+    const input: EventInput = {
       title: title.trim(),
       description: description.trim(),
       category,
@@ -116,22 +187,56 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
       suburb: suburb.trim(),
       start,
       end,
-      ticketTypes,
+      ticketTypes: external ? [] : ticketTypes,
     };
+    // Ticketing is sent by an admin, and for an organiser's external event
+    // (unchanged, so saving never turns it back into a Sheltüh-ticketed one).
+    if (isAdmin || external) {
+      input.ticketingMode = ticketingMode;
+      input.externalTicketUrl = external ? (isAdmin ? externalTicketUrl.trim() : (initial?.externalTicketUrl ?? null)) : null;
+      input.externalFree = external && externalFree;
+    }
+    return input;
   }
 
-  /** Applies a pending photo change to a saved event; returns the latest record. */
-  async function syncImage(record: EventRecord): Promise<EventRecord> {
+  /**
+   * Applies a pending photo change to a saved event through `upload` or
+   * `remove` (the organiser's routes or the admin's, which answer with the
+   * same kind of record they're given); returns the latest record.
+   */
+  async function syncImage<R extends EventRecord>(
+    record: R,
+    upload: (eventId: string, image: Blob, getToken: GetToken) => Promise<R>,
+    remove: (eventId: string, getToken: GetToken) => Promise<R>,
+  ): Promise<R> {
     if (imageFile) {
-      const updated = await uploadEventImage(record.eventId, imageFile, getToken);
+      const updated = await upload(record.eventId, imageFile, getToken);
       setImageFile(null);
       return updated;
     }
     if (imageRemoved && record.imageUrl) {
-      const updated = await deleteEventImage(record.eventId, getToken);
+      const updated = await remove(record.eventId, getToken);
       setImageRemoved(false);
       return updated;
     }
+    return record;
+  }
+
+  /** Admin mode: creates the event, or saves the whole of it against the version being edited. */
+  async function adminSave(input: EventInput): Promise<AdminEventRecord> {
+    const existingId = initial?.eventId ?? createdId;
+    if (existingId) {
+      const record = await adminUpdateEvent(
+        existingId,
+        { ...input, ticketingMode, expectedUpdatedAt: version ?? "", publish, reason: reason.trim() || null },
+        getToken,
+      );
+      setVersion(record.updatedAt);
+      return record;
+    }
+    const record = await adminCreateEvent({ ...input, organiserId: organiser?.organiserId ?? "", publish }, getToken);
+    setCreatedId(record.eventId);
+    setVersion(record.updatedAt);
     return record;
   }
 
@@ -143,18 +248,33 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
     if (!input) return;
 
     setSaving(true);
+    setConflict(false);
     try {
-      const existingId = initial?.eventId ?? createdId;
-      let record = existingId
-        ? await updateEventDraft(existingId, input, getToken)
-        : await createEventDraft(input, getToken);
-      if (!existingId) setCreatedId(record.eventId);
-      record = await syncImage(record);
-      if (!initial) {
-        router.push(`/dashboard/${record.eventId}`);
-        return;
+      if (props.mode === "admin") {
+        let record = await adminSave(input);
+        setPublish(false);
+        record = await syncImage(record, adminUploadEventImage, adminDeleteEventImage);
+        // A photo change bumps the event's version too: the next save is made against it.
+        setVersion(record.updatedAt);
+        if (!initial) {
+          router.push(`/admin/events/${encodeURIComponent(record.eventId)}/edit`);
+          return;
+        }
+        setReason("");
+        props.onSaved(record);
+      } else {
+        const existingId = initial?.eventId ?? createdId;
+        let record = existingId
+          ? await updateEventDraft(existingId, input, getToken)
+          : await createEventDraft(input, getToken);
+        if (!existingId) setCreatedId(record.eventId);
+        record = await syncImage(record, uploadEventImage, deleteEventImage);
+        if (!initial) {
+          router.push(`/dashboard/${record.eventId}`);
+          return;
+        }
+        props.onSaved(record);
       }
-      onSaved(record);
     } catch (err) {
       // Never clears title/description/tickets/etc. above — a failed save
       // (including an expired session) leaves the form exactly as typed.
@@ -165,7 +285,8 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
   }
 
   async function handleSubmitForReview() {
-    if (!initial) return;
+    // Organisers only: an admin publishes from the save itself.
+    if (!initial || props.mode === "admin") return;
     setSubmitError(null);
     setSessionExpired(false);
     // Submit what's on screen, not the last save: unsaved edits are saved
@@ -175,9 +296,9 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
     setSubmitting(true);
     try {
       const saved = await updateEventDraft(initial.eventId, input, getToken);
-      await syncImage(saved);
+      await syncImage(saved, uploadEventImage, deleteEventImage);
       const record = await submitEventForReview(initial.eventId, getToken);
-      onSaved(record);
+      props.onSaved(record);
     } catch (err) {
       handleError(err, "Couldn't submit this event for review.");
     } finally {
@@ -208,21 +329,53 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
         </div>
       )}
 
+      {isAdmin && (initial || createdId) && (
+        <div className="flex flex-col gap-1 bg-surface p-4 text-sm text-foreground">
+          <p>
+            <span className="font-medium">Organiser:</span> {initial?.organiserName ?? organiser?.displayName}
+            {platformManaged && " (platform-managed)"}
+          </p>
+          {initial?.status === "published" && (
+            <p className="text-muted">This event is published: your changes go live as soon as you save.</p>
+          )}
+        </div>
+      )}
+      {isAdmin && !initial && !createdId && (
+        <AdminOrganiserPicker
+          getToken={getToken}
+          value={organiser}
+          onChange={(picked) => {
+            setOrganiser(picked);
+            setErrors((prev) => {
+              const next = { ...prev };
+              delete next.organiserId;
+              return next;
+            });
+          }}
+          error={errors.organiserId}
+        />
+      )}
+      {isAdmin && platformManaged && (
+        <p className="border-l-2 border-foreground px-4 py-2 text-sm text-muted">
+          {PLATFORM_FREE_ONLY} Its events are checked in at the door by an admin.
+        </p>
+      )}
+
       <div className="flex flex-col gap-1">
-        <label htmlFor="title" className="text-sm font-medium text-foreground">
+        <label htmlFor="title" className="eyebrow text-muted">
           Title
         </label>
         <input
           id="title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+          className={fieldClass}
         />
         {errors.title && <p className="text-sm text-danger">{errors.title}</p>}
       </div>
 
       <div className="flex flex-col gap-1">
-        <label htmlFor="description" className="text-sm font-medium text-foreground">
+        <label htmlFor="description" className="eyebrow text-muted">
           Description
         </label>
         <textarea
@@ -230,20 +383,20 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
           rows={4}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+          className={fieldClass}
         />
         {errors.description && <p className="text-sm text-danger">{errors.description}</p>}
       </div>
 
       <div className="flex flex-col gap-1">
-        <label htmlFor="category" className="text-sm font-medium text-foreground">
+        <label htmlFor="category" className="eyebrow text-muted">
           Category
         </label>
         <select
           id="category"
           value={category}
           onChange={(e) => setCategory(e.target.value as typeof category)}
-          className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+          className={fieldClass}
         >
           {EVENT_CATEGORIES.map((c) => (
             <option key={c.value} value={c.value}>
@@ -255,80 +408,80 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
         <div className="flex flex-col gap-1 sm:col-span-1">
-          <label htmlFor="venueName" className="text-sm font-medium text-foreground">
+          <label htmlFor="venueName" className="eyebrow text-muted">
             Venue name
           </label>
           <input
             id="venueName"
             value={venueName}
             onChange={(e) => setVenueName(e.target.value)}
-            className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+            className={fieldClass}
           />
           {errors.venueName && <p className="text-sm text-danger">{errors.venueName}</p>}
         </div>
         <div className="flex flex-col gap-1 sm:col-span-1">
-          <label htmlFor="venueAddress" className="text-sm font-medium text-foreground">
+          <label htmlFor="venueAddress" className="eyebrow text-muted">
             Venue address
           </label>
           <input
             id="venueAddress"
             value={venueAddress}
             onChange={(e) => setVenueAddress(e.target.value)}
-            className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+            className={fieldClass}
           />
           {errors.venueAddress && <p className="text-sm text-danger">{errors.venueAddress}</p>}
         </div>
         <div className="flex flex-col gap-1 sm:col-span-1">
-          <label htmlFor="suburb" className="text-sm font-medium text-foreground">
+          <label htmlFor="suburb" className="eyebrow text-muted">
             Suburb
           </label>
           <input
             id="suburb"
             value={suburb}
             onChange={(e) => setSuburb(e.target.value)}
-            className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+            className={fieldClass}
           />
           {errors.suburb && <p className="text-sm text-danger">{errors.suburb}</p>}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-        <fieldset className="flex flex-col gap-2">
-          <legend className="text-sm font-medium text-foreground">Starts (Melbourne time)</legend>
-          <div className="flex gap-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <fieldset className="flex min-w-0 flex-col gap-2">
+          <legend className="eyebrow text-muted">Starts (Melbourne time)</legend>
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,8rem)] gap-2">
             <input
               type="date"
               aria-label="Start date"
               value={start.date}
               onChange={(e) => setStart((s) => ({ ...s, date: e.target.value }))}
-              className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+              className={`${fieldClass} min-w-0`}
             />
             <input
               type="time"
               aria-label="Start time"
               value={start.time}
               onChange={(e) => setStart((s) => ({ ...s, time: e.target.value }))}
-              className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+              className={`${fieldClass} min-w-0`}
             />
           </div>
           {(errors.start || errors.end) && <p className="text-sm text-danger">{errors.start || errors.end}</p>}
         </fieldset>
-        <fieldset className="flex flex-col gap-2">
-          <legend className="text-sm font-medium text-foreground">Ends (Melbourne time)</legend>
-          <div className="flex gap-2">
+        <fieldset className="flex min-w-0 flex-col gap-2">
+          <legend className="eyebrow text-muted">Ends (Melbourne time)</legend>
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,8rem)] gap-2">
             <input
               type="date"
               aria-label="End date"
               value={end.date}
               onChange={(e) => setEnd((s) => ({ ...s, date: e.target.value }))}
-              className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+              className={`${fieldClass} min-w-0`}
             />
             <input
               type="time"
               aria-label="End time"
               value={end.time}
               onChange={(e) => setEnd((s) => ({ ...s, time: e.target.value }))}
-              className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+              className={`${fieldClass} min-w-0`}
             />
           </div>
         </fieldset>
@@ -344,9 +497,75 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
         error={errors.image}
       />
 
+      {isAdmin && (
+        <fieldset className="flex flex-col gap-3">
+          <legend className={SECTION_TITLE}>Where are tickets sold?</legend>
+          <div className="flex flex-wrap gap-5 text-sm text-foreground">
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="ticketingMode"
+                value="sheltuh"
+                checked={ticketingMode === "sheltuh"}
+                onChange={() => setTicketingMode("sheltuh")}
+              />
+              On Sheltüh
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="ticketingMode"
+                value="external"
+                checked={ticketingMode === "external"}
+                onChange={() => setTicketingMode("external")}
+              />
+              On another site
+            </label>
+          </div>
+          {errors.ticketingMode && <p className="text-sm text-danger">{errors.ticketingMode}</p>}
+          {ticketingMode === "external" && (
+            <>
+              <div className="flex flex-col gap-1">
+                <label htmlFor="externalTicketUrl" className="eyebrow text-muted">
+                  Ticket page address
+                </label>
+                <input
+                  id="externalTicketUrl"
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://"
+                  value={externalTicketUrl}
+                  onChange={(e) => setExternalTicketUrl(e.target.value)}
+                  aria-invalid={Boolean(errors.externalTicketUrl)}
+                  aria-describedby={errors.externalTicketUrl ? "externalTicketUrl-error" : undefined}
+                  className={fieldClass}
+                />
+                {errors.externalTicketUrl && (
+                  <p id="externalTicketUrl-error" className="text-sm text-danger">
+                    {errors.externalTicketUrl}
+                  </p>
+                )}
+              </div>
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <input type="checkbox" checked={externalFree} onChange={(e) => setExternalFree(e.target.checked)} />
+                Entry is free
+              </label>
+            </>
+          )}
+        </fieldset>
+      )}
+
+      {!isAdmin && ticketingMode === "external" && (
+        <div className="bg-surface p-4 text-sm text-foreground">
+          <p className="font-medium">Tickets are sold on {initial?.externalProvider ?? "the organiser\u2019s site"}</p>
+          <p className="mt-1 break-all text-muted">{initial?.externalTicketUrl}</p>
+        </div>
+      )}
+
+      {ticketingMode === "sheltuh" && (
       <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-heading text-xl text-foreground">Ticket types</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className={SECTION_TITLE}>Ticket types</h2>
           <button
             type="button"
             onClick={() => setTicketTypes((prev) => [...prev, newTicketType()])}
@@ -360,24 +579,24 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
         {ticketTypes.map((ticket, index) => {
           const summary = calculateOrderSummary(ticket.priceCents, 1, ticket.feePolicy);
           return (
-            <div key={ticket.id} className="flex flex-col gap-3 bg-surface p-4">
+            <div key={ticket.id} className="flex flex-col gap-3 border-t border-foreground pt-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="flex flex-col gap-1">
-                  <label htmlFor={`ticket-${index}-name`} className="text-sm font-medium text-foreground">
+                  <label htmlFor={`ticket-${index}-name`} className="eyebrow text-muted">
                     Name
                   </label>
                   <input
                     id={`ticket-${index}-name`}
                     value={ticket.name}
                     onChange={(e) => updateTicket(index, { name: e.target.value })}
-                    className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+                    className={fieldClass}
                   />
                   {errors[`ticket-${index}-name`] && (
                     <p className="text-sm text-danger">{errors[`ticket-${index}-name`]}</p>
                   )}
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label htmlFor={`ticket-${index}-price`} className="text-sm font-medium text-foreground">
+                  <label htmlFor={`ticket-${index}-price`} className="eyebrow text-muted">
                     Price (A$)
                   </label>
                   <input
@@ -389,28 +608,28 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
                     onChange={(e) =>
                       updateTicket(index, { priceCents: Math.round(Number(e.target.value) * 100) || 0 })
                     }
-                    className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+                    className={fieldClass}
                   />
                   {errors[`ticket-${index}-price`] && (
                     <p className="text-sm text-danger">{errors[`ticket-${index}-price`]}</p>
                   )}
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label htmlFor={`ticket-${index}-fee-policy`} className="text-sm font-medium text-foreground">
+                  <label htmlFor={`ticket-${index}-fee-policy`} className="eyebrow text-muted">
                     Who pays the booking fee?
                   </label>
                   <select
                     id={`ticket-${index}-fee-policy`}
                     value={ticket.feePolicy}
                     onChange={(e) => updateTicket(index, { feePolicy: e.target.value as TicketTypeInput["feePolicy"] })}
-                    className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+                    className={fieldClass}
                   >
                     <option value="buyer-pays">Buyer pays</option>
                     <option value="organiser-absorbs">Organiser absorbs</option>
                   </select>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label htmlFor={`ticket-${index}-qty`} className="text-sm font-medium text-foreground">
+                  <label htmlFor={`ticket-${index}-qty`} className="eyebrow text-muted">
                     Quantity available
                   </label>
                   <input
@@ -419,7 +638,7 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
                     min={1}
                     value={ticket.quantityAvailable}
                     onChange={(e) => updateTicket(index, { quantityAvailable: Number(e.target.value) || 0 })}
-                    className="border border-foreground bg-transparent px-3 py-2 text-foreground"
+                    className={fieldClass}
                   />
                   {errors[`ticket-${index}-qty`] && (
                     <p className="text-sm text-danger">{errors[`ticket-${index}-qty`]}</p>
@@ -430,7 +649,11 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
                 {ticket.priceCents === 0
                   ? "Free — no booking fee."
                   : `Buyer pays ${formatAud(summary.totalCents)} total (${formatAud(ticket.priceCents)} ticket${
-                      summary.buyerFeeCents > 0 ? ` + ${formatAud(summary.buyerFeeCents)} booking fee` : ", fee absorbed by you"
+                      summary.buyerFeeCents > 0
+                        ? ` + ${formatAud(summary.buyerFeeCents)} booking fee`
+                        : isAdmin
+                          ? ", fee absorbed by the organiser"
+                          : ", fee absorbed by you"
                     }).`}
               </p>
               {ticketTypes.length > 1 && (
@@ -446,6 +669,55 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
           );
         })}
       </div>
+      )}
+
+      {isAdmin && initial && (
+        <div className="flex flex-col gap-1">
+          <label htmlFor="admin-reason" className="eyebrow text-muted">
+            Note for the event&rsquo;s log (optional; the organiser sees it)
+          </label>
+          <textarea
+            id="admin-reason"
+            rows={2}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            aria-invalid={Boolean(errors.reason)}
+            aria-describedby={errors.reason ? "admin-reason-error" : "admin-reason-hint"}
+            className={fieldClass}
+          />
+          {errors.reason ? (
+            <p id="admin-reason-error" className="text-sm text-danger">
+              {errors.reason}
+            </p>
+          ) : (
+            <p id="admin-reason-hint" className="text-xs text-muted">
+              Needed to change where an approved event&rsquo;s tickets are sold.
+            </p>
+          )}
+        </div>
+      )}
+
+      {isAdmin && initial?.status !== "published" && (
+        <label className="flex items-center gap-2 text-sm text-foreground">
+          <input type="checkbox" checked={publish} onChange={(e) => setPublish(e.target.checked)} />
+          {initial || createdId ? "Publish when saved" : "Publish straight away"}
+        </label>
+      )}
+
+      {conflict && (
+        <div role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
+          <p className="font-medium">Someone else changed this event since you opened it.</p>
+          <p className="mt-1 text-muted">
+            Your changes haven&rsquo;t been saved. Reload to see the latest version, then make your changes again
+            (reloading discards what you&rsquo;ve typed here).
+          </p>
+          {onReload && (
+            <button type="button" onClick={onReload} className="btn btn-outline btn-sm mt-3 w-fit">
+              Reload latest version
+            </button>
+          )}
+        </div>
+      )}
 
       {submitError && sessionExpired && (
         <div role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
@@ -471,9 +743,9 @@ export default function EventEditor({ getToken, initial, onSaved }: Props) {
           disabled={saving}
           className="btn btn-solid w-fit"
         >
-          {saving ? "Saving…" : "Save draft"}
+          {saving ? "Saving…" : isAdmin ? (initial || createdId ? "Save changes" : "Create event") : "Save draft"}
         </button>
-        {initial && (
+        {initial && !isAdmin && (
           <button
             type="button"
             onClick={handleSubmitForReview}

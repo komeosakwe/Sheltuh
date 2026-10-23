@@ -82,7 +82,8 @@ export function AttendeeMessageAction({
         <div className="basis-full pt-2 pb-3">
           <ComposeRequestForm
             id={formId}
-            attendee={attendee}
+            name={attendee.displayName}
+            to={{ attendeeId: attendee.attendeeId }}
             getToken={getToken}
             returnTo={returnTo}
             onCancel={() => {
@@ -102,26 +103,31 @@ export function AttendeeMessageAction({
 }
 
 /**
- * A first message to someone on the list. It says what happens: they're
- * asked, replying accepts, and there's no follow-up until they do. No links
- * in a first message (the API refuses them; its field error is shown).
+ * A first message to someone on a Who's Going list (`to.attendeeId`) or from
+ * their member profile (`to.profileId`: the server picks an open event you're
+ * both going to). It says what happens: they're asked, replying accepts, and
+ * there's no follow-up until they do. No links in a first message (the API
+ * refuses them; its field error is shown).
  */
 export function ComposeRequestForm({
   id,
-  attendee,
+  name,
+  to,
   getToken,
   returnTo,
   onCancel,
   onSent,
 }: {
   id: string;
-  attendee: GoingAttendee;
+  /** Their display name. */
+  name: string;
+  to: { attendeeId: string } | { profileId: string };
   getToken: GetToken;
   returnTo: string;
   onCancel: () => void;
   onSent: (conversation: ConversationSummary) => void;
 }) {
-  const name = attendee.displayName;
+  const eventWords = "attendeeId" in to ? "this event" : "the event you’re both going to";
   const [text, setText] = useState("");
   const [fieldError, setFieldError] = useState<{ text: string; announced: boolean } | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -168,13 +174,13 @@ export function ComposeRequestForm({
     setFieldError(null);
     setBusy(true);
     try {
-      const conversation = await startConversation({ attendeeId: attendee.attendeeId, body: text.trim() }, getToken);
+      const conversation = await startConversation({ ...to, body: text.trim() }, getToken);
       onSent(conversation);
       return;
     } catch (err) {
       const mapped = messagingError(err, { rateLimited: REQUEST_RATE_LIMITED });
       if (mapped.kind === "field" && mapped.fields.body) showFieldError(mapped.fields.body);
-      // A field error about anything but the message (the attendee id) isn't the person's to fix.
+      // A field error about anything but the message (the attendee or profile id) isn't the person's to fix.
       else if (mapped.kind === "field") fail({ kind: "message", message: GENERIC_SEND_ERROR });
       else if (mapped.kind === "session") fail({ kind: "session" });
       else if (mapped.kind === "conflict") fail({ kind: "exists" });
@@ -195,7 +201,7 @@ export function ComposeRequestForm({
         Message {name}
       </p>
       <p id={aboutId} className="text-sm leading-5">
-        This sends {name} a message request with your display name and this event. If they reply, you can keep
+        This sends {name} a message request with your display name and {eventWords}. If they reply, you can keep
         chatting. Until then you can&rsquo;t send another, and they might not reply. No links in a first message.
       </p>
       <p className="text-xs text-muted">

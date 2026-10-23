@@ -1,5 +1,7 @@
 # Home page (all widths) design spec
 
+> **Superseded for the hero, section order and cards by [`mobile-redesign.md`](mobile-redesign.md)** (22 Oct 2026).
+
 Status: proposed · Owner: ui-design-director · Scope: `/` from 320px up.
 
 > **Visual layer updated 21 Oct 2026 for `docs/design/brand-direction-one.md` (Brand Direction One).** The tokens, type, radii, colours and motion in §1.4, §2, §4, §5 and §8 below follow that spec, and it wins on any visual conflict. Structure, order, de-duplication (§6), the weekend window, Trending, external-ticketing cards, accessibility (§7, plus quick buy) and owner decisions 2–6 are unchanged. Decision 1 (soft cards with pink accents) is superseded: pink is replaced by Signal Orange, and cards follow the brand's rounded-square, image-first card.
@@ -21,7 +23,7 @@ This replaces the split home: `PhoneHome` below `sm` plus the desktop tree (`Int
 1. **One page, one outline.** A single DOM serves every width, so the h1, landmarks and focus order are identical everywhere. The layout changes; the content doesn't.
 2. **Each event appears once.** Sections claim events in a fixed priority order (§6.2). A later section never repeats one an earlier section showed, so the page reads as a guide, not a feed sliced several ways.
 3. **Time first, then signal, then breadth.** The answer to "what's on soon" comes before "what's popular", which comes before "everything else". This follows the research: 93% of people find events too late.
-4. **One brand language at every width** (`brand-direction-one.md`). Cards are image-first, with rounded-square media (`rounded-card` 12px), no container and no shadow. Section heads use the rule-and-strap structure. Orange is used once per view for the conversion CTA and once on the page as a band. Scale contrast does the editorial work: a 54–96px display h1 against 14–16px Instrument Sans and 12px Plex Mono metadata.
+4. **One brand language at every width** (`brand-direction-one.md`). Cards are image-first, with rounded-square media (`rounded-card` 12px), no container and no shadow. Section heads use the rule-and-strap structure. Orange is used once per view for the conversion CTA and once on the page as a band, plus each card's quick-buy button (owner decision 6 in `brand-direction-one.md`). Scale contrast does the editorial work: a 54–96px display h1 against 14–16px Instrument Sans and 12px Plex Mono metadata.
 5. **Prices are honest or absent.** Sheltüh-ticketed events show the all-inclusive price (`formatFeedPriceParts`, total first). External events show where tickets are sold, never a price we can't vouch for.
 6. **Nothing moves on its own except the photo push-in.** It runs one cycle of 5 seconds or less, holds its end frame, and is off under reduced motion. No drift, no marquee and no autoplay rails on the home.
 
@@ -175,7 +177,7 @@ These are owner questions; see the end of this spec.
 - **Crop:** centre crop, `object-cover`. A focal point needs backend work (§9).
 - **Photography:** follow `brand-direction-one.md` §8.1: candid Melbourne nights, no stock, no filters.
 - **Fallback:** every slot is an `EventArt` with a fixed ratio, so a missing or failing photo shows the generated poster in brand colourways (`brand-direction-one.md` §8.2), with no layout shift.
-- **`priority`** (eager, high fetch priority) goes only on the featured card's `EventArt`. It sits above the fold at lg and is partly visible on phones. `HOME_HERO` keeps `priority` (it's the phone LCP image). At lg it's `display:none`, and its eager download is an accepted cost.
+- **`priority`** (eager, high fetch priority) goes only on the featured card's `EventArt`. It sits above the fold at lg and is partly visible on phones. `HOME_HERO` gets `priority="when-shown"`: lazy with a high fetch priority, so below lg (where it shows) it loads first, and at lg (where it's `display:none`) it's never downloaded.
 - **Accessibility:** all art is `aria-hidden`, and titles are always real text.
 
 ## 5. Components
@@ -225,8 +227,8 @@ Props: `{ upNext: ReactNode }`. Markup: `section[aria-labelledby=home-title]` wi
     - The photo cell: `EventArt … priority motion className="h-full w-full rounded-card"`, with `lg:hidden`. **No `Scribble`.**
   - **Intro:** "Live music, art, workshops and pop-ups in Melbourne, curated, with the people going." Classes `mt-4 sm:mt-6 max-w-[34ch] sm:max-w-[40ch] text-base sm:text-lg`.
   - **CTAs:** `mt-5 sm:mt-8 flex flex-col gap-2 sm:flex-row sm:gap-3`.
-    - "Explore events" → `/events` is `ButtonLink variant="signal" size="lg"`. This is the page's one orange CTA above the fold.
-    - "Join the community" → `#find-your-people` is `variant="outline" size="lg"`.
+    - "Explore events" → `/events` is `ButtonLink variant="signal" size="lg"`. This is the hero's one orange CTA (the Up next card's quick-buy button below it is orange too, owner decision 6).
+    - "Find your people" → `#find-your-people` is `variant="outline" size="lg"` (renamed from "Join the community", so it no longer shares a name with the band's sign-up CTA). It's a native `<a className={buttonClass(…)}>`, not `next/link`, so the browser's fragment jump moves focus to the band (`tabIndex=-1`).
     - Both are `w-full sm:w-auto`.
   - **Search:** `mt-6 sm:mt-8 sm:max-w-xl`, `<SearchBar size="lg" submit label="Search events" />`. The submit is black (`brand-direction-one.md` §6.2).
   - **Categories:** `<CategoryRow className="mt-6" />`. Discs are `size-12 rounded-dot border border-foreground bg-card`.
@@ -261,7 +263,7 @@ All states share one box: `aspect-[4/5] min-[375px]:aspect-square sm:aspect-[3/2
 | --- | --- |
 | Loading | `FeaturedEventCardPlaceholder`: the box in `bg-surface`, `aria-hidden` |
 | Ready | `FeaturedEventCard`, followed by its quick-buy row (`brand-direction-one.md` §6.6), outside the card |
-| Error | The box in `bg-surface flex flex-col justify-end p-5 sm:p-8`, containing `Notice tone="danger" role="alert"` "Couldn't load events." then `Button variant="outline" size="lg" className="mt-3 self-start"` "Try again" (calls the provider's `retry`). The box keeps the hero's height, so there's no layout shift. |
+| Error | The box in `bg-surface flex flex-col justify-end p-5 sm:p-8`, containing `Notice tone="danger" role="alert"` "Couldn't load events. Check your connection and try again." then `Button variant="outline" size="lg" className="mt-3 self-start"` "Try again" (calls the provider's `retry`). The box keeps the hero's height, so there's no layout shift. **While retrying** the box stays mounted and the button is `busy` ("Trying again…"), so keyboard focus stays on it; "Loading events…" is announced. On success focus moves to the `h2#home-next` (`tabIndex=-1`); a second failure re-mounts the alert so it's announced again. |
 | Empty (no upcoming events) | The same box in `bg-surface p-5 sm:p-8 flex flex-col justify-end`, containing `DotsMark lg` then `p.mt-6.text-base.leading-6` "No events have been published yet. Check back soon." (existing copy) |
 
 **`FeaturedEventCard` changes:**
@@ -326,7 +328,7 @@ All states share one box: `aspect-[4/5] min-[375px]:aspect-square sm:aspect-[3/2
 
 **Badges** (compact): "Free" `bg-signal text-black`; "Under A$20" `border border-foreground bg-card`. Both `eyebrow rounded-badge px-2 py-0.5`.
 
-**Quick buy (new):** a "Get tickets" sibling link under each card's main link, per `brand-direction-one.md` §6.6: labels by event state, `/events/{slug}#tickets`, 44px hit area, never orange. For compact, it's indented to the text column.
+**Quick buy (new):** a "Get tickets" sibling button under each card's main link, per `brand-direction-one.md` §6.6: labels by event state, `/events/{slug}#tickets`, 44px tall on phones (40px from sm), Signal Orange with a black label (owner decision 6 in `brand-direction-one.md`, overriding the one-orange-button budget for cards). For compact, it's indented to the text column (`pl-27 sm:pl-31`) and fills it on phones.
 
 **New prop `signal?: TrendingSignal`** (Trending only), where `TrendingSignal = { kind: "going"; count: number } | { kind: "just-announced" } | { kind: "popular" }`.
 - It replaces the category chip at `left-2 top-2` with `eyebrow absolute rounded-badge bg-foreground px-2 py-0.5 text-background`.
@@ -398,8 +400,11 @@ All states share one box: `aspect-[4/5] min-[375px]:aspect-square sm:aspect-[3/2
 
 **Live:**
 - Make one request, `listPublicEvents({ upcoming: true, limit: 40 })`.
-- **Weekend top-up:** if the page has a `nextCursor` and the last item's `startsAt` is before `weekendWindow(now).end`, make one more request, `listPublicEvents({ upcoming: true, onOrAfter: <Melbourne date key of window.start>, limit: 20 })`. Merge the results by `id`.
-- That's at most 2 requests, plus 1 for trending and 1 for the featured going summary.
+- **Weekend top-up**, only while the last loaded page has a `nextCursor` (more events exist) and its last item starts at or before `window.end`: follow the cursor, `listPublicEvents({ upcoming: true, limit: 50, cursor: nextCursor })`, page by page.
+  - Stop once the last loaded item starts after `window.end`, there's no `nextCursor`, or after 4 top-up requests (the cap).
+  - Never jump ahead with `onOrAfter`: it filters on `starts_at`, so it would skip events that start before the weekend but are still running over it (the owner's rule: "This weekend" includes multi-week events).
+  - Merge the results by `id`.
+- That's at most 5 requests, plus 1 for trending and 1 for the featured going summary.
 
 **Demo:** `getEvents()`, sorted soonest first.
 
@@ -416,7 +421,7 @@ All states share one box: `aspect-[4/5] min-[375px]:aspect-square sm:aspect-[3/2
 | Priority | Section | Pool and rule | Cap | Show when |
 | --- | --- | --- | --- | --- |
 | 1 | Up next | Soonest not-started event. If there is none, the soonest in progress. | 1 | ≥1 |
-| 2 | This weekend | Unclaimed events overlapping the weekend window (§6.3), sorted by `max(startsAt, window.start)`, then `startsAt` | 6 | ≥1 (§6.3) |
+| 2 | This weekend | Unclaimed events overlapping the weekend window (§6.3). Events starting inside the window (`startsAt ≥ window.start`) first, by `startsAt`; then events already running when it opens (exhibitions), by `startsAt`; ties by `id` (owner decision 5) | 6 | ≥1 (§6.3) |
 | 3 | Trending | Unclaimed trending items, in server order | 6 | ≥3 after de-duplication (the API already hides <3) |
 | 4 | Coming up near you | Unclaimed, not-started events, soonest first | 6 | ≥2 |
 | 5 | Free & low-cost | Unclaimed upcoming events (in-progress included), soonest first, where Sheltüh-ticketed `getMinBuyerTotalCents ≤ 2000` or external with `externalFree`. Badge "Free" when 0 or `externalFree`, otherwise "Under A$20". **External paid events are excluded**: no verifiable price. | 6 | ≥2 |
@@ -469,17 +474,18 @@ All in Australia/Melbourne wall-clock time, DST-safe. Build it with the `Intl` a
 **Landmarks and names:**
 - Each section is `aria-labelledby` its h2.
 - Each rail or grid `ul` is `aria-labelledby` the same h2, so it's announced as a list of N.
-- Card links take their name from their content: chip, date, title, venue, price or "Tickets on {provider}", and "N going".
+- Card links are named title first (`aria-labelledby`): title, date, venue, price or "Tickets on {provider}", the chip or badge, and "N going". The wide card's date badge repeats the date line and is `aria-hidden`; its description stays out of the name. The featured card's name is title, date and time, place, price and "N going" (the "Up next" chip repeats the section's name).
+- A section's note (This weekend's dates) follows its h2 in the DOM, though it shows on the strap.
 - Quick-buy links are "Get tickets for {title}", "Get free tickets for {title}", "See tickets for {title}" (demo) or "Join waitlist for {title}".
 - See all links are "See all events" or "See all free events".
 - Art, icons, dots, discs and arrows are `aria-hidden`. Strap labels that repeat the h2 are `aria-hidden`.
 
 **Focus order:** this is the DOM order, which matches the visual order at every width:
-- Skip link → Nav → Explore events → Join the community → search input → Search submit → 6 category links → Up next card → its Save → its Get tickets → for each section: See all, then for each card, card link → Save → Get tickets.
+- Skip link → Nav → Explore events → Find your people → search input → Search submit → 6 category links → Up next card → its Save → its Get tickets → for each section: See all, then for each card, card link → Save → Get tickets.
 - At lg, the left hero column comes before the right column, matching left-to-right reading.
 
 **Rails (<sm):**
-- Cards are reached with Tab, and the browser scrolls a focused card into view. `scroll-px-5` keeps it clear of the gutter.
+- Cards are reached with Tab. The browser scrolls only the focused link into view, so each rail item (and each category) brings its whole card into view on keyboard focus (`scrollIntoView({ inline: "nearest", block: "nearest" })`, smooth, instant under reduced motion; not on tap or click). `scroll-px-5` keeps it clear of the gutter.
 - The `ul` isn't focusable, because it contains focusable links.
 - There are no arrow keys, roving tabindex, arrow buttons or drift, so WCAG 2.2.2 doesn't apply to rails.
 

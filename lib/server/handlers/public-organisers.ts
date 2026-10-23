@@ -1,6 +1,6 @@
 import { HttpError, ok } from "../http";
 import { isUuid } from "../pagination";
-import { EVENT_SELECT, findPublicOrganiserRow, toEvent, toPublicEvent, toPublicOrganiserProfile } from "../records";
+import { EVENT_SELECT, findPublicOrganiserRow, toPublicEventFromRow, toPublicOrganiserProfile } from "../records";
 import type { Handler } from "../route";
 
 /** Most events a profile lists: upcoming ones first, then the most recent past ones. */
@@ -42,8 +42,8 @@ export const getPublicOrganiserProfile: Handler<{ organiserId: string }> = async
   return ok(
     toPublicOrganiserProfile(
       row,
-      upcoming.map((r) => toPublicEvent(toEvent(r))),
-      recent.map((r) => toPublicEvent(toEvent(r))),
+      upcoming.map(toPublicEventFromRow),
+      recent.map(toPublicEventFromRow),
     ),
   );
 };

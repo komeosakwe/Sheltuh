@@ -26,6 +26,8 @@ interface Seed {
   organiser: string;
   description: string;
   tickets: TicketSeed[];
+  /** Every tier sold out, as the API would say it (`soldOut`, and `remaining: 0` on each tier). */
+  soldOut?: true;
 }
 
 const AEDT_OFFSET_HOURS = 11;
@@ -133,6 +135,9 @@ const SEEDS: Seed[] = [
       ["Adult", 3800],
       ["Concession", 2800],
     ],
+    // The demo's sold-out event, so it shows the sold-out cards and the
+    // waitlist (brand-direction-one.md §6.11).
+    soldOut: true,
   },
   {
     slug: "wax-and-wick-market",
@@ -309,11 +314,13 @@ export const generatedSampleEvents: SheltuhEvent[] = SEEDS.map((seed) => ({
   endsAt: toUtcIso(seed.start, seed.hours),
   organiserName: seed.organiser,
   poster: assignPoster(seed.slug),
+  ...(seed.soldOut ? { soldOut: true } : {}),
   ticketTypes: seed.tickets.map(([name, priceCents, feePolicy = "buyer-pays", quantity = 100], i) => ({
     id: `${seed.slug}-${i}`,
     name,
     priceCents,
     feePolicy,
     quantityAvailable: quantity,
+    ...(seed.soldOut ? { soldOut: true, remaining: 0 } : {}),
   })),
 }));

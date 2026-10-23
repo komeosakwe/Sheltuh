@@ -91,3 +91,49 @@ export const recordEventView: Handler<{ eventId: string }> = async (req, { event
   if (result === "not_found") throw new HttpError(404, "Event not found.");
   return noContentPrivate();
 };
+
+// ---------------------------------------------------------------------------
+// Outbound clicks (external ticketing)
+// ---------------------------------------------------------------------------
+
+/**
+ * Ticket-link clicks counted per event per window; beyond it they're
+ * dropped and the day is flagged. Keyed on the event, like VIEW_RATE_LIMIT.
+ */
+export const OUTBOUND_RATE_LIMIT = { hits: 300, window: "1 minute" } as const;
+
+/** The beacon carries nothing ("{}"); a body larger than this isn't it. Never read. */
+export const MAX_OUTBOUND_BODY_BYTES = 1024;
+
+/**
+ * POST /api/events/[eventId]/outbound — counts one click on an external
+ * event's "Get tickets on …" link (public, no account, no cookie). Same
+ * rules as a view: nothing about the visitor is read or stored (the user
+ * agent is only checked for bots); only the app's own same-origin JSON
+ * fetch counts; a per-event cap per minute (the day is then flagged in
+ * reports). The body is never read: a declared Content-Length over 1 KB
+ * isn't counted.
+ *
+ * Quiet by design: 204 whether counted or not; 404 only for an event that
+ * isn't a published external one. The link itself never waits on this.
+ */
+export const recordOutboundClick: Handler<{ eventId: string }> = async (req, { eventId }, { db }) => {
+  if (isLikelyBot(req) || !isOwnBeacon(req)) return noContentPrivate();
+  const declared = Number(req.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_OUTBOUND_BODY_BYTES) return noContentPrivate();
+  if (!isUuid(eventId)) throw new HttpError(404, "Event not found.");
+
+  let result: string;
+  try {
+    [{ result }] = await db.query<{ result: string }>(
+      `select private.record_outbound_click($1, $2, $3::interval) as result`,
+      [eventId, OUTBOUND_RATE_LIMIT.hits, OUTBOUND_RATE_LIMIT.window],
+    );
+  } catch (err) {
+    // A lost click isn't worth an error. Never log the request itself.
+    console.error("Recording an outbound click failed:", err instanceof Error ? err.message : "unknown error");
+    return noContentPrivate();
+  }
+  if (result === "not_found") throw new HttpError(404, "Event not found.");
+  return noContentPrivate();
+};

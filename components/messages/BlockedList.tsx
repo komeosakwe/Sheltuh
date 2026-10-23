@@ -10,6 +10,7 @@ import type { BlockRecord } from "@/lib/api/types";
 import { endSentence } from "@/lib/display-name";
 import { formatDayWithYear } from "@/lib/format";
 import { BLOCK_EFFECT, errorText, loadErrorMessage, messagingError } from "./shared";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 const RETURN_TO = "/messages/blocked";
 const LOAD_ERROR = "Couldn’t load the people you’ve blocked.";
@@ -115,7 +116,7 @@ export default function BlockedList({ getToken }: { getToken: GetToken }) {
 
   return (
     <section aria-labelledby="blocked-title" aria-busy={state.status === "loading" ? true : undefined}>
-      <h2 id="blocked-title" ref={headingRef} tabIndex={-1} className="display-md mb-3 !text-2xl outline-offset-2">
+      <h2 id="blocked-title" ref={headingRef} tabIndex={-1} className="font-heading mb-3 text-xl leading-6 outline-offset-2">
         People you&rsquo;ve blocked
       </h2>
       <p className="mb-6 max-w-xl text-sm leading-5 text-muted">
@@ -123,7 +124,7 @@ export default function BlockedList({ getToken }: { getToken: GetToken }) {
         conversation back if it&rsquo;s still there.
       </p>
 
-      {state.status === "loading" && <p className="text-sm text-muted">Loading…</p>}
+      {state.status === "loading" && <LoadingState text="Loading…" />}
 
       {state.status === "error" && (
         <div className="flex flex-col items-start gap-3">

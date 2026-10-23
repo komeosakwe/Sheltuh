@@ -19,6 +19,30 @@ export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
     organiserName: event.organiserName,
     poster: assignPoster(event.slug),
     imageUrl: event.imageUrl,
-    ticketTypes: event.ticketTypes,
+    // Only the fields the UI knows: what's left comes from the server's own
+    // `soldOut` / `remaining` (shown only at 10 or fewer), never worked out here.
+    ticketTypes: event.ticketTypes.map((ticket) => ({
+      id: ticket.id,
+      name: ticket.name,
+      ...(ticket.description !== undefined ? { description: ticket.description } : {}),
+      priceCents: ticket.priceCents,
+      feePolicy: ticket.feePolicy,
+      quantityAvailable: ticket.quantityAvailable,
+      ...(ticket.soldOut === true ? { soldOut: true } : {}),
+      ...(typeof ticket.remaining === "number" ? { remaining: ticket.remaining } : {}),
+      ...(ticket.seated === true ? { seated: true as const } : {}),
+    })),
+    // An external event's stock isn't known, so it's never sold out here.
+    ...(event.soldOut === true && event.ticketingMode !== "external" ? { soldOut: true } : {}),
+    ticketingMode: event.ticketingMode ?? "sheltuh",
+    // Reserved seating: only the map's version (the seat page loads the map itself).
+    ...(event.seating && event.ticketingMode !== "external" ? { seating: { version: event.seating.version } } : {}),
+    ...(event.ticketingMode === "external"
+      ? {
+          externalTicketUrl: event.externalTicketUrl,
+          externalFree: event.externalFree === true,
+          externalProvider: event.externalProvider ?? null,
+        }
+      : {}),
   };
 }

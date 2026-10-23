@@ -40,6 +40,11 @@ const PROFILE: ProfileRecord = {
   updatedAt: "2026-09-01T00:00:00.000Z",
 };
 
+/** The rename form's own status line (the member profile settings have theirs too). */
+function renameStatus() {
+  return within(screen.getByRole("form", { name: "Who's Going profile" })).getByRole("status");
+}
+
 function renderAccount(auth: AuthContextValue = fakeAuthValue({ email: "mia@example.com" })) {
   return render(
     <FakeAuthProvider value={auth}>
@@ -163,13 +168,13 @@ describe("AccountContent", () => {
     fireEvent.change(input, { target: { value: " Mia Thompson " } });
     fireEvent.click(screen.getByRole("button", { name: "Save name" }));
     await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent("Saved. Events you’ve joined now show Mia Thompson."),
+      expect(renameStatus()).toHaveTextContent("Saved. Events you’ve joined now show Mia Thompson."),
     );
     expect(saveMyProfile).toHaveBeenLastCalledWith({ displayName: "Mia Thompson" }, expect.any(Function));
 
     // The confirmation goes once the name is edited again.
     fireEvent.change(input, { target: { value: "Mia T" } });
-    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    expect(renameStatus()).toBeEmptyDOMElement();
   });
 
   it("validates the name before saving", async () => {
@@ -243,7 +248,7 @@ describe("AccountContent", () => {
     expect(save).toHaveFocus();
     expect(save).not.toHaveAttribute("aria-disabled");
     // The name's own full stop isn't doubled.
-    expect(screen.getByRole("status")).toHaveTextContent(/^Saved\. Events you’ve joined now show Mia T\.$/);
+    expect(renameStatus()).toHaveTextContent(/^Saved\. Events you’ve joined now show Mia T\.$/);
   });
 
   it("keeps focus on Yes, delete when deleting fails, so it can be retried", async () => {

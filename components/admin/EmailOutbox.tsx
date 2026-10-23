@@ -2,12 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { SelectedDots } from "@/components/ui/FilterChip";
 import { EmptyState, Notice } from "@/components/ui/Section";
 import { adminListEmailJobs, adminResendEmailJob } from "@/lib/api/admin";
 import { ApiError } from "@/lib/api/client";
 import type { AdminEmailJob, EmailJobStatus } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatMessageTime } from "@/lib/format";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
 const STATUSES: { value: EmailJobStatus; label: string }[] = [
   { value: "failed", label: "Failed" },
@@ -139,6 +141,7 @@ export default function EmailOutbox() {
               setAnnouncement("");
             }}
           >
+            {status === s.value && <SelectedDots />}
             {s.label}
           </Button>
         ))}
@@ -149,7 +152,7 @@ export default function EmailOutbox() {
           {current} ticket emails
         </h2>
 
-        {state.status === "loading" && <p className="text-sm text-muted">Loading…</p>}
+        {state.status === "loading" && <LoadingState text="Loading…" />}
 
         {state.status === "error" && (
           <div className="flex flex-col items-start gap-3">

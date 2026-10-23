@@ -2,6 +2,11 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import InlineReauth from "@/components/auth/InlineReauth";
+import FeaturedVideoField, {
+  featuredVideoChanged,
+  featuredVideoInitial,
+  featuredVideoUrlError,
+} from "@/components/organisers/FeaturedVideoField";
 import SocialHandleFields from "@/components/organisers/SocialHandleFields";
 import { Button } from "@/components/ui/Button";
 import { fieldClass } from "@/components/ui/Field";
@@ -19,9 +24,14 @@ import {
 } from "@/lib/organiser-profile";
 
 const ID_PREFIX = "profile";
-type ProfileField = "description" | "websiteUrl" | SocialHandleField;
+type ProfileField = "description" | "websiteUrl" | SocialHandleField | "featuredVideoUrl";
 /** Form order, for moving focus to the first field with an error. */
-const FIELD_ORDER: readonly ProfileField[] = ["description", "websiteUrl", ...SOCIAL_HANDLE_FIELDS.map((f) => f.field)];
+const FIELD_ORDER: readonly ProfileField[] = [
+  "description",
+  "websiteUrl",
+  ...SOCIAL_HANDLE_FIELDS.map((f) => f.field),
+  "featuredVideoUrl",
+];
 
 function fieldId(field: ProfileField) {
   return `${ID_PREFIX}-${field}`;
@@ -53,9 +63,9 @@ interface Props {
 }
 
 /**
- * An approved organiser's public profile: bio, website and social handles.
- * Saved straight away (no new review). Only the fields that changed are
- * sent; a blank website or handle clears it.
+ * An approved organiser's public profile: bio, website, social handles and a
+ * featured video. Saved straight away (no new review). Only the fields that
+ * changed are sent; a blank website, handle or video clears it.
  */
 export default function PublicProfileForm({ organiser, getToken, onSaved }: Props) {
   const auth = useAuth();
@@ -66,6 +76,7 @@ export default function PublicProfileForm({ organiser, getToken, onSaved }: Prop
   const [description, setDescription] = useState(organiser.description);
   const [websiteUrl, setWebsiteUrl] = useState(organiser.websiteUrl ?? "");
   const [handles, setHandles] = useState<SocialHandleValues>(() => handlesOf(organiser));
+  const [video, setVideo] = useState(() => featuredVideoInitial(organiser.featuredVideo));
   const [errors, setErrors] = useState<Partial<Record<string, string>>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -117,6 +128,8 @@ export default function PublicProfileForm({ organiser, getToken, onSaved }: Prop
     // The saved website, left as it is, is fine even from before the https rule.
     const websiteError = websiteUrlError(websiteUrl, saved.websiteUrl);
     if (websiteError) next.websiteUrl = websiteError;
+    const videoError = featuredVideoUrlError(video);
+    if (videoError) next.featuredVideoUrl = videoError;
     return next;
   }
 
@@ -131,6 +144,7 @@ export default function PublicProfileForm({ organiser, getToken, onSaved }: Prop
     for (const { field } of SOCIAL_HANDLE_FIELDS) {
       if (nextHandles[field] !== (saved[field] ?? null)) input[field] = nextHandles[field];
     }
+    if (featuredVideoChanged(video, saved.featuredVideo)) input.featuredVideoUrl = video.trim() || null;
     return input;
   }
 
@@ -162,6 +176,7 @@ export default function PublicProfileForm({ organiser, getToken, onSaved }: Prop
       setDescription(record.description);
       setWebsiteUrl(record.websiteUrl ?? "");
       setHandles(handlesOf(record));
+      setVideo(featuredVideoInitial(record.featuredVideo));
       showStatus("Profile saved. It's live on your public profile now.");
       onSaved?.(record);
     } catch (err) {
@@ -262,6 +277,18 @@ export default function PublicProfileForm({ organiser, getToken, onSaved }: Prop
           inputClassName={fieldClass}
         />
       </fieldset>
+
+      <FeaturedVideoField
+        id={fieldId("featuredVideoUrl")}
+        value={video}
+        onChange={(value) => {
+          setVideo(value);
+          edited();
+        }}
+        error={errors.featuredVideoUrl}
+        labelClassName="text-sm font-medium text-foreground"
+        inputClassName={fieldClass}
+      />
 
       {submitError && sessionExpired && (
         <div role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">

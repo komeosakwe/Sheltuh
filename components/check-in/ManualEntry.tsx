@@ -54,7 +54,7 @@ export default function ManualEntry({
 
   return (
     <form noValidate onSubmit={handleSubmit}>
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-2">
         <label htmlFor="door-code" className="eyebrow text-muted">
           Type a code
         </label>

@@ -20,7 +20,7 @@ export default async function SearchPage({
         title={query ? `“${query}”` : "Find an event"}
         intro="Search events, venues, suburbs and organisers."
       />
-      <div className="mb-12 max-w-2xl">
+      <div className="rise mb-12 max-w-2xl [--d:120ms]">
         <SearchBar defaultValue={query} size="lg" autoFocus={!query} label="Search events" />
       </div>
       {/* key: a new search starts a fresh feed with its own filters. */}

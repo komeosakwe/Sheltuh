@@ -150,6 +150,21 @@ describe("check-in gate", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load your organiser status.");
   });
 
+  it("an admin without an organiser of their own: straight to the console (platform-managed events)", async () => {
+    organiserState = { loading: false, organiser: null, error: null };
+    await renderPage(fakeAuthValue({ isAdmin: true, email: "admin@sheltuh.example" }));
+    expect(api.getCheckInSummary).toHaveBeenCalledWith("evt-1", expect.any(Function));
+    expect(screen.getByLabelText("Type a code")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Apply as an organiser" })).not.toBeInTheDocument();
+  });
+
+  it("an admin on an organiser's event: the API's 404 shows Event not found", async () => {
+    organiserState = { loading: false, organiser: null, error: null };
+    api.getCheckInSummary.mockRejectedValue(new ApiError(404, "Not found."));
+    await renderPage(fakeAuthValue({ isAdmin: true }));
+    expect(screen.getByRole("heading", { level: 1, name: "Event not found" })).toBeInTheDocument();
+  });
+
   it("not your event (404): Event not found, with the way back", async () => {
     api.getCheckInSummary.mockRejectedValue(new ApiError(404, "Not found."));
     await renderPage();
@@ -993,6 +1008,17 @@ describe("recent scans", () => {
     pending.resolve(summary({ recent: [logEntry({ checkInId: "c3" }), ...summary().recent] }));
     await advance();
     expect(within(list).getByRole("button", { name: "Refresh" })).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("a seated ticket's row says its seat after the type and code, and Undo's name includes it", async () => {
+    api.getCheckInSummary.mockResolvedValue(
+      summary({ recent: [logEntry({ ticketTypeName: "Premium", seat: { section: "Stalls", row: "F", seat: "12", kind: "standard" } })] }),
+    );
+    await renderPage();
+    const list = screen.getByRole("region", { name: "Recent scans" });
+    const detail = within(list).getByText("Stalls · Row F · Seat 12").closest("p") as HTMLElement;
+    expect(detail).toHaveTextContent("Premium · Code ends 2HXD · Stalls · Row F · Seat 12");
+    expect(within(list).getByRole("button", { name: /^Undo check-in, Premium, code ends 2HXD, Stalls, Row F, Seat 12,/ })).toBeInTheDocument();
   });
 
   it("only rows new since the last list fade in (opacity only; off under reduced motion)", async () => {

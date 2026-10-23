@@ -99,7 +99,7 @@ export default function RangeControls({
               onChange={(e) => setFrom(e.target.value)}
             />
           </Field>
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-2">
             <label htmlFor={`${id}-to`} className="eyebrow text-muted">
               To
             </label>

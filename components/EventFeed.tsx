@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import DemoNotice from "@/components/DemoNotice";
 import EventBrowser from "@/components/EventBrowser";
+import FeedLoading from "@/components/FeedLoading";
+import { useLoadingProgress } from "@/components/ui/ProgressLoader";
 import LiveEventFeed from "@/components/LiveEventFeed";
 import { isApiConfigured } from "@/lib/api/client";
 import { getEventCategories, getUpcomingEvents } from "@/lib/data";
@@ -21,6 +22,8 @@ interface FeedProps {
 function DemoEventFeed({ query, initialCategory, initialPricing }: FeedProps) {
   const categories = getEventCategories();
   const [events, setEvents] = useState<SheltuhEvent[] | null>(null);
+  const [summary, setSummary] = useState("");
+  const progress = useLoadingProgress(events === null);
 
   useEffect(() => {
     let cancelled = false;
@@ -35,22 +38,21 @@ function DemoEventFeed({ query, initialCategory, initialPricing }: FeedProps) {
 
   return (
     <div className="flex flex-col gap-4 sm:gap-6">
-      <DemoNotice>
-        These are fictional sample listings for this local prototype — no real tickets are on
-        sale.
-      </DemoNotice>
       {/* Always mounted: screen readers announce text that changes inside a live region,
-          not one that appears already holding its text. */}
-      <p role="status" className={events === null ? "text-sm text-muted" : "sr-only"}>
-        {events === null ? "Loading events…" : ""}
+          not one that appears already holding its text. It says the load's start, then its
+          result (the browser's summary, also on every filter change). The loader shows the progress. */}
+      <p role="status" className="sr-only">
+        {events === null ? "Loading events…" : progress.visible ? "" : summary}
       </p>
-      {events !== null && (
+      {progress.visible && <FeedLoading percent={progress.percent} done={progress.done} />}
+      {events !== null && !progress.visible && (
         <EventBrowser
           events={events}
           categories={categories}
           query={query}
           initialCategory={initialCategory}
           initialPricing={initialPricing}
+          onSummaryChange={setSummary}
         />
       )}
     </div>

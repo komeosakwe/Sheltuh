@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import TicketSelector from "@/components/TicketSelector";
 import { ApiError } from "@/lib/api/client";
@@ -38,8 +38,8 @@ function live(slug: string): SheltuhEvent {
 describe("TicketSelector (live)", () => {
   it("offers a 48px (btn-lg) Checkout, enabled once a ticket is chosen", () => {
     render(<TicketSelector event={live("neon-static")} />);
-    // Nothing chosen yet: a A$0 order, so the (disabled) button reads "Get free tickets".
-    expect(screen.getByRole("button", { name: "Get free tickets" })).toBeDisabled();
+    // Nothing chosen yet: a paid event, so the (disabled) button already reads "Checkout".
+    expect(screen.getByRole("button", { name: "Checkout" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
     const checkout = screen.getByRole("button", { name: "Checkout" });
     expect(checkout).toHaveClass("btn-lg");
@@ -225,7 +225,9 @@ describe("TicketSelector (free tickets)", () => {
   it("states the free-ticket limit before the tickets", () => {
     render(<TicketSelector event={freeEvent()} />);
     const limit = screen.getByText("Up to 4 free tickets per booking, in total across the free ticket types.");
-    const firstTicket = screen.getAllByRole("listitem")[0];
+    // The first ticket's row (the "How booking works" steps are a list too, before both).
+    const firstTicket = screen.getByRole("group", { name: "Quantity for Free entry" }).closest("li");
+    if (!firstTicket) throw new Error("ticket row not rendered");
     expect(limit.compareDocumentPosition(firstTicket) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
@@ -234,8 +236,8 @@ describe("TicketSelector (free tickets)", () => {
     const morePaid = screen.getByRole("button", { name: "Increase quantity for Supporter" });
     const moreA = screen.getByRole("button", { name: "Increase quantity for Free entry" });
     const moreB = screen.getByRole("button", { name: "Increase quantity for Kids" });
-    // The paid type isn't limited by the free cap, and isn't described by it.
-    expect(morePaid).not.toHaveAccessibleDescription();
+    // The paid type isn't limited by the free cap, and isn't described by it: only by its own limit.
+    expect(morePaid).toHaveAccessibleDescription("Up to 8 per booking.");
     for (let i = 0; i < 6; i++) fireEvent.click(morePaid);
     fireEvent.click(moreA);
     fireEvent.click(moreA);
@@ -301,7 +303,9 @@ describe("TicketSelector (free tickets)", () => {
 
     const heading = await screen.findByRole("heading", { name: "Check your inbox" });
     await waitFor(() => expect(heading).toHaveFocus());
-    expect(screen.getByRole("status")).toHaveTextContent("We’ve emailed a link to fan@example.com.");
+    expect(
+      screen.getAllByRole("status").find((s) => s.textContent?.startsWith("We’ve emailed a link to fan@example.com.")),
+    ).toBeDefined();
     expect(screen.queryByRole("button", { name: "Get free tickets" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Use a different email" }));
@@ -342,5 +346,296 @@ describe("TicketSelector (demo)", () => {
     const button = screen.getByRole("button", { name: "Checkout unavailable in this demo" });
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute("aria-disabled", "true");
+  });
+});
+
+describe("TicketSelector pricing (ACCC all-inclusive, brand-direction-one.md §6.8)", () => {
+  it("shows each paid tier's total first, at full size on every width, then the breakdown, before anything is chosen", () => {
+    render(<TicketSelector event={live("neon-static")} />);
+    const total = screen.getByText("A$31.70 incl. booking fee");
+    const breakdown = screen.getByText("A$30 ticket + A$1.70 booking fee");
+    // Total before breakdown, and the breakdown is already there at quantity 0.
+    expect(total.compareDocumentPosition(breakdown) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Quantity for General admission" })).toHaveTextContent("0");
+    // The total: 16/24 semibold, never shrunk on desktop.
+    expect(total).toHaveClass("text-base", "font-semibold");
+    expect(total.className).not.toMatch(/\blg:/);
+    // The breakdown: smaller and muted, in sentence case (not the uppercase meta style).
+    expect(breakdown).toHaveClass("text-xs", "text-muted", "tabular-nums");
+    expect(breakdown).not.toHaveClass("meta");
+  });
+
+  it("explains an organiser-absorbed fee, and gives a free tier no breakdown", () => {
+    const base = live("neon-static");
+    const event: SheltuhEvent = {
+      ...base,
+      ticketTypes: [
+        { id: "abs", name: "Workshop", priceCents: 12000, feePolicy: "organiser-absorbs", quantityAvailable: 10 },
+        { id: "free", name: "Listener", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 10 },
+      ],
+    };
+    render(<TicketSelector event={event} />);
+    expect(screen.getByText("A$120 incl. booking fee")).toBeInTheDocument();
+    expect(screen.getByText("A$120 ticket (booking fee included by organiser)")).toBeInTheDocument();
+    const freeRow = screen.getByRole("group", { name: "Quantity for Listener" }).closest("li");
+    if (!freeRow) throw new Error("free row not rendered");
+    expect(within(freeRow).getByText("Free")).toBeInTheDocument();
+    expect(within(freeRow).queryByText(/ticket \+|booking fee included/)).toBeNull();
+  });
+
+  it("makes the order total the largest number, below a black rule, and keeps checkout black", () => {
+    render(<TicketSelector event={live("neon-static")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    const totalTerm = screen.getByText("Total");
+    const totalValue = totalTerm.nextElementSibling;
+    expect(totalValue).toHaveTextContent("A$31.70");
+    expect(totalValue).toHaveClass("text-xl", "font-bold");
+    expect(totalTerm.parentElement).toHaveClass("border-t", "border-foreground");
+    expect(screen.getByText("Tickets").nextElementSibling).toHaveTextContent("A$30");
+    expect(screen.getByText("Booking fees").nextElementSibling).toHaveTextContent("A$1.70");
+    const checkout = screen.getByRole("button", { name: "Checkout" });
+    expect(checkout).toHaveClass("btn-solid", "btn-lg");
+    expect(checkout.className).not.toMatch(/signal|lg:/);
+  });
+
+  it("says what happens next before anything is chosen: paid and free", () => {
+    render(<TicketSelector event={live("neon-static")} />);
+    const steps = screen.getByRole("list", { name: "How booking works" });
+    expect(steps).toHaveTextContent("1 Choose tickets→2 Pay on Stripe→3 Tickets by email");
+    cleanup();
+    render(<TicketSelector event={live("brunswick-zine-fair")} />);
+    expect(screen.getByRole("list", { name: "How booking works" })).toHaveTextContent(
+      "1 Choose tickets→2 Confirm by email→3 Tickets",
+    );
+    expect(screen.getByText("Signed in with a verified email? Step 2 is usually skipped.")).toBeInTheDocument();
+  });
+});
+
+describe("TicketSelector checkout focus and errors (WCAG 2.2)", () => {
+  it("keeps focus on Checkout while it works and after a failed checkout (busy, not disabled)", async () => {
+    let reject: (err: unknown) => void = () => {};
+    createCheckoutSession.mockReturnValue(new Promise((_, r) => (reject = r)));
+    render(<TicketSelector event={live("neon-static")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    const checkout = screen.getByRole("button", { name: "Checkout" });
+    checkout.focus();
+    fireEvent.click(checkout);
+    expect(checkout).toHaveTextContent("Redirecting to checkout…");
+    expect(checkout).toHaveAttribute("aria-disabled", "true");
+    expect(checkout).not.toBeDisabled();
+    expect(checkout).toHaveFocus();
+    // A second press while busy does nothing.
+    fireEvent.click(checkout);
+    expect(createCheckoutSession).toHaveBeenCalledTimes(1);
+
+    await act(async () => reject(new ApiError(409, "Those tickets just sold out.")));
+    expect(screen.getByRole("alert")).toHaveTextContent("Those tickets just sold out.");
+    expect(checkout).toHaveTextContent("Checkout");
+    expect(checkout).not.toHaveAttribute("aria-disabled", "true");
+    expect(checkout).toHaveFocus();
+  });
+
+  it("moves focus to the email field for our own email error, every time it's shown", async () => {
+    render(<TicketSelector event={live("brunswick-zine-fair")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
+    const email = screen.getByLabelText("Email for your tickets");
+    const book = screen.getByRole("button", { name: "Get free tickets" });
+    book.focus();
+    fireEvent.click(book);
+    await waitFor(() => expect(email).toHaveFocus());
+    expect(email).toHaveAccessibleDescription(/Enter the email address to send your tickets to\.$/);
+    // The same error again still brings focus back.
+    book.focus();
+    fireEvent.click(book);
+    await waitFor(() => expect(email).toHaveFocus());
+  });
+
+  it("moves focus to the email field when the API refuses the email", async () => {
+    createCheckoutSession.mockRejectedValue(
+      new ApiError(400, "Please fix the highlighted fields.", { buyerEmail: "That email address doesn’t look right." }),
+    );
+    render(<TicketSelector event={live("brunswick-zine-fair")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
+    const email = screen.getByLabelText("Email for your tickets");
+    fireEvent.change(email, { target: { value: "fan@example.con" } });
+    const book = screen.getByRole("button", { name: "Get free tickets" });
+    book.focus();
+    fireEvent.click(book);
+    expect(await screen.findByRole("alert")).toHaveTextContent("That email address doesn’t look right.");
+    await waitFor(() => expect(email).toHaveFocus());
+    expect(email).toHaveAttribute("aria-invalid", "true");
+  });
+});
+
+describe("TicketSelector announcements (one status for the panel)", () => {
+  function status(): HTMLElement {
+    const region = screen.getAllByRole("status").find((s) => s.classList.contains("sr-only"));
+    if (!region) throw new Error("panel status not rendered");
+    return region;
+  }
+
+  /** A paid type of 3, so its limit is the capacity, not 8. */
+  function smallEvent(): SheltuhEvent {
+    const base = live("neon-static");
+    return {
+      ...base,
+      ticketTypes: [{ id: "few", name: "Balcony", priceCents: 3000, feePolicy: "buyer-pays", quantityAvailable: 3 }],
+    };
+  }
+
+  it("has no live region per row, and says each change with the new total", () => {
+    const { container } = render(<TicketSelector event={live("neon-static")} />);
+    expect(container.querySelectorAll("[aria-live]")).toHaveLength(0);
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(status()).toHaveTextContent(/^$/);
+    const more = screen.getByRole("button", { name: "Increase quantity for General admission" });
+    fireEvent.click(more);
+    fireEvent.click(more);
+    expect(status()).toHaveTextContent("General admission: 2. Total A$63.40 incl. booking fees.");
+    fireEvent.click(screen.getByRole("button", { name: "Decrease quantity for General admission" }));
+    expect(status()).toHaveTextContent("General admission: 1. Total A$31.70 incl. booking fees.");
+  });
+
+  it("says why at a limit, on reaching it and on each press beyond it", () => {
+    render(<TicketSelector event={smallEvent()} />);
+    const more = screen.getByRole("button", { name: "Increase quantity for Balcony" });
+    // A static hint, before the limit is reached, on the + button.
+    expect(more).toHaveAccessibleDescription("Up to 3 per booking.");
+    expect(screen.getByText("Up to 3 per booking.")).toBeVisible();
+    for (let i = 0; i < 3; i++) fireEvent.click(more);
+    expect(status()).toHaveTextContent("Balcony: 3. Total A$95.10 incl. booking fees. Up to 3 per booking.");
+    fireEvent.click(more);
+    expect(status().textContent?.trim()).toBe("Balcony: 3. Up to 3 per booking.");
+    const first = status().textContent;
+    fireEvent.click(more);
+    // Same words, new text, so it's read again.
+    expect(status().textContent).not.toBe(first);
+    expect(status().textContent?.trim()).toBe("Balcony: 3. Up to 3 per booking.");
+  });
+
+  it("names the free-ticket limit when that's the one reached", () => {
+    render(<TicketSelector event={live("brunswick-zine-fair")} />);
+    const more = screen.getByRole("button", { name: "Increase quantity for Free entry" });
+    for (let i = 0; i < 4; i++) fireEvent.click(more);
+    expect(status()).toHaveTextContent("Free entry: 4. Total A$0. Up to 4 free tickets per booking.");
+  });
+
+  it("says nothing before anything changes, and nothing for a press on − at 0", () => {
+    render(<TicketSelector event={live("neon-static")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Decrease quantity for General admission" }));
+    expect(status().textContent).toBe("");
+  });
+});
+
+describe("TicketSelector before anything is chosen", () => {
+  it("a paid event says Checkout and to choose tickets, never 'Get free tickets' or 'No payment step'", () => {
+    render(<TicketSelector event={live("neon-static")} />);
+    expect(screen.getByRole("button", { name: "Checkout" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Get free tickets" })).toBeNull();
+    expect(screen.getByText("Choose tickets to continue.")).toBeInTheDocument();
+    expect(screen.queryByText(/No payment step/)).toBeNull();
+    // Once chosen, the copy follows the total.
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    expect(screen.getByText("You'll pay securely on Stripe's own checkout page.")).toBeInTheDocument();
+    expect(screen.queryByText("Choose tickets to continue.")).toBeNull();
+  });
+
+  it("an all-free event says Get free tickets", () => {
+    render(<TicketSelector event={live("brunswick-zine-fair")} />);
+    expect(screen.getByRole("button", { name: "Get free tickets" })).toBeDisabled();
+    expect(screen.getByText("Choose tickets to continue.")).toBeInTheDocument();
+  });
+
+  it("a mixed event with only a free ticket chosen is a free booking", () => {
+    const base = live("neon-static");
+    const event: SheltuhEvent = {
+      ...base,
+      ticketTypes: [
+        ...base.ticketTypes,
+        { id: "free", name: "Listener", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 10 },
+      ],
+    };
+    render(<TicketSelector event={event} />);
+    expect(screen.getByRole("button", { name: "Checkout" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Listener" }));
+    expect(screen.getByRole("button", { name: "Get free tickets" })).toBeEnabled();
+    expect(screen.getByText(/No payment step/)).toBeInTheDocument();
+  });
+});
+
+describe("TicketSelector terms and privacy", () => {
+  function expectTermsLinks() {
+    const terms = screen.getByRole("link", { name: "Purchase Terms" });
+    const privacy = screen.getByRole("link", { name: "Privacy Policy" });
+    expect(terms).toHaveAttribute("href", "/purchase-terms");
+    expect(privacy).toHaveAttribute("href", "/privacy");
+    for (const link of [terms, privacy]) expect(link).toHaveClass("text-foreground", "underline");
+    expect(terms.closest("p")).toHaveTextContent("By booking you agree to the Purchase Terms. See our Privacy Policy.");
+  }
+
+  it("says what booking agrees to, under Checkout", () => {
+    render(<TicketSelector event={live("neon-static")} />);
+    const checkout = screen.getByRole("button", { name: "Checkout" });
+    expectTermsLinks();
+    expect(
+      checkout.compareDocumentPosition(screen.getByRole("link", { name: "Purchase Terms" })) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("and with the email field of a free booking", () => {
+    render(<TicketSelector event={live("brunswick-zine-fair")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
+    expect(screen.getByLabelText("Email for your tickets")).toBeInTheDocument();
+    expectTermsLinks();
+  });
+
+  it("isn't shown in the demo, where nothing can be booked", () => {
+    render(<TicketSelector event={findEvent("neon-static")} />);
+    expect(screen.queryByRole("link", { name: "Purchase Terms" })).toBeNull();
+  });
+});
+
+describe("TicketSelector booking fee rule", () => {
+  const RULE = /^Booking fee: /;
+
+  it("is shown when a buyer pays a fee on some ticket", () => {
+    render(<TicketSelector event={live("neon-static")} />);
+    expect(screen.getByText(RULE)).toBeInTheDocument();
+  });
+
+  it("isn't shown when the organiser absorbs every fee", () => {
+    const base = live("neon-static");
+    render(
+      <TicketSelector
+        event={{
+          ...base,
+          ticketTypes: base.ticketTypes.map((t) => ({ ...t, feePolicy: "organiser-absorbs" as const })),
+        }}
+      />,
+    );
+    expect(screen.queryByText(RULE)).toBeNull();
+    expect(screen.getByText("A$30 ticket (booking fee included by organiser)")).toBeInTheDocument();
+  });
+
+  it("isn't shown for a free-only event", () => {
+    render(<TicketSelector event={live("brunswick-zine-fair")} />);
+    expect(screen.queryByText(RULE)).toBeNull();
+  });
+});
+
+describe("TicketSelector never sells a seated tier (reserved seating)", () => {
+  it("leaves seated tiers out, so only general admission can be chosen and checked out", async () => {
+    const base = live("neon-static");
+    const [ga, vip] = base.ticketTypes;
+    const event: SheltuhEvent = { ...base, seating: { version: 1 }, ticketTypes: [ga, { ...vip, seated: true }] };
+    createCheckoutSession.mockReturnValue(new Promise(() => {}));
+    render(<TicketSelector event={event} />);
+    expect(screen.queryByText(vip.name)).toBeNull();
+    expect(screen.queryByRole("button", { name: `Increase quantity for ${vip.name}` })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: `Increase quantity for ${ga.name}` }));
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
+    expect(createCheckoutSession.mock.calls[0][1]).toEqual([{ ticketTypeId: ga.id, quantity: 1 }]);
   });
 });

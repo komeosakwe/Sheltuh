@@ -23,7 +23,11 @@ Stripe (payments) and Vercel (hosting).
    `20261003000000_messages.sql`, then
    `20261004000000_messaging_hardening.sql`.
    (Or use the CLI: `npx supabase link --project-ref <ref>` then
-   `npx supabase db push`.) Any later migration file goes in the same way.
+   `npx supabase db push`.) Every later migration file goes in the same way,
+   in filename order, up to the newest: see the "Go-live checklist" in
+   [`DEPLOYMENT.md`](DEPLOYMENT.md), which also lists `CRON_SECRET`, the cron
+   schedules, the `charge.refunded` webhook, the email footer banner, the
+   Privacy Policy wording and the Bootzy font files.
 3. **Collect the keys** (Project Settings → API Keys):
    - Publishable key (`sb_publishable_…`) → `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
    - Secret key (`sb_secret_…`) → `SUPABASE_SECRET_KEY`. Keep this on
@@ -76,8 +80,14 @@ an admin: no API route or form can grant it.
 npm run seed-dev-data   # needs DATABASE_URL in .env.local
 ```
 
-This loads the eight fictional sample events as published events. Only run it
-against a dev project, never production.
+This loads the fictional sample events as published events, under
+platform-managed organisers (no owner account). Those can't sell paid Sheltüh
+tickets (`20261022000100_admin_event_authoring.sql`), so the sample events
+with a paid ticket type are skipped; the free and external ones are loaded.
+Only run it against a dev project, never production.
+
+Paid ticket types seeded before that migration stay as they are, but checkout
+refuses them (409) and they can't be saved again with a price.
 
 ### Who's Going moderation
 
@@ -289,17 +299,195 @@ from showing 0 views for days nobody counted.
 `ticket_check_ins` log and the check-in functions. It's additive (no existing
 row changes) and also redefines `private.purge_analytics()` with the same
 result columns, so the analytics job above needs no change. Check-in is done
-by the event's organiser, signed in on the door device; admins can't, and
-events of platform-managed organisers (no owner account) can't be checked in
-yet (docs/architecture.md, "Check-in"). An event's check-ins (no buyer data):
+by the event's organiser, signed in on the door device. Events of
+platform-managed organisers (no owner account) are checked in by an admin,
+signed in as themselves on the same door page (`/dashboard/{event id}/check-in`);
+admins can't check in for organisers' own events
+(`20261023000100_review_hardening.sql`; docs/architecture.md, "Check-in").
+An event's check-ins (no buyer data), with who scanned:
 
 ```sql
-select c.id, c.result, right(c.ticket_code, 4) as code_last4, c.reason, c.created_at
-from ticket_check_ins c where c.event_id = '<event id>' order by c.id desc limit 50;
+select c.id, c.result, right(c.ticket_code, 4) as code_last4, c.reason, c.created_at, u.email as scanned_by
+from ticket_check_ins c left join auth.users u on u.id = c.actor_user_id
+where c.event_id = '<event id>' order by c.id desc limit 50;
 ```
 
 Mistaken admissions are undone from the app (with a reason, logged), not in
 SQL: an `update tickets set checked_in_at = null` would leave no record.
+
+### Platform-managed organisers
+
+When you create one (`/admin/events/new` → new organiser, or
+`POST /api/admin/organisers`), give it a Sheltüh alias as its contact email
+(one of the Google Workspace aliases, such as `bookings@sheltuh.com.au`, or a
+new alias), never a person's own address: the record is kept for as long as
+the organiser exists, admins see it, and whoever looks after the alias can
+change hands without the record changing.
+
+### A ticket link refused after a rule change
+
+The ticket link's rules (`private.external_ticket_url_ok`, mirrored in
+`lib/ticketing.ts`) are only checked when a link is written, so tightening
+them (for example adding a shortener) never blocks an unpublish or a
+takedown of an event that already holds such a link. A migration that
+tightens them should list the events whose stored link no longer passes, as
+`20261023000100_review_hardening.sql` does (it stops, naming them):
+
+```sql
+select id, title, status, external_ticket_url from public.events
+where external_ticket_url is not null and not private.external_ticket_url_ok(external_ticket_url);
+```
+
+For each one: replace the link with `PATCH /api/admin/events/{id}/ticketing`
+(`{"ticketingMode": "external", "externalTicketUrl": "https://…", "reason": "…"}`,
+logged), or, if there's no good link to give it, unpublish it
+(`POST /api/admin/events/{id}/unpublish`) and then fix it. Then run the
+migration again.
+
+### Reserved seating
+
+Seat maps, holds and sales are described in `docs/architecture.md`
+("Reserved seating"). Run these in the Supabase SQL editor. Each takes the
+event's seat lock first, as the app does, so it can't interleave with a
+checkout, a payment or a refund. Replace the `<…>` values; event ids are
+uuids, seat ids are the map's (e.g. `A12`), order ids `ord_…`.
+
+**Release a stuck hold.** Holds end on their own 35 minutes after Checkout,
+and the app releases them straight away when Stripe's session expires or the
+buyer cancels. To free a hold early, first **expire the order's Checkout
+Session in the Stripe dashboard** (Payments → Checkout sessions), or check
+it has expired: releasing a hold whose session can still be paid would let
+the buyer pay for seats someone else may then take (they'd be refunded
+automatically, but it's avoidable). Then:
+
+```sql
+select private.release_seat_holds('<order id>');
+-- 'released': the order is now failed and its seats are free.
+-- Anything else ('paid', 'failed', …) is the order's status: nothing changed.
+```
+
+**Block a seat after approval** (a broken seat, a camera position). The
+organiser's map is frozen once approved, and an admin can only replace it
+while the event has no orders (`PUT /api/admin/events/{id}/seat-map`). With
+orders, block an unsold seat in SQL. The seat's tier loses one place of
+capacity. The stored layout isn't changed: buyers see the seat as
+unavailable (the availability bitmap), and the editor still shows it as
+before.
+
+```sql
+do $$
+declare
+  v_event uuid := '<event id>';
+  v_seat text := '<seat id>';
+begin
+  perform private.lock_event_seats(v_event);
+  update public.event_seats
+     set blocked = true, hold_order_id = null, hold_expires_at = null
+   where event_id = v_event and id = v_seat and not blocked and sold_order_id is null
+     and (hold_order_id is null or hold_expires_at <= now());
+  if not found then
+    raise exception 'Seat % is unknown, already blocked, sold or held right now: nothing changed.', v_seat;
+  end if;
+  -- Recompute the tiers' capacity (the ticket_types_seated_capacity trigger).
+  update public.ticket_types set quantity_available = quantity_available where event_id = v_event and seated;
+  insert into public.event_moderation_log (event_id, action, actor_id, reason)
+  values (v_event, 'edited', '<your admin user id>', 'Seat ' || v_seat || ' blocked: <why>');
+end
+$$;
+```
+
+Unblocking is the same with `blocked = false` (and no hold or sale to check).
+A seat that's sold must be moved first (below), or its order refunded.
+
+**Move a buyer's seat** (same ticket type only: a different price is a
+refund and a new booking). The new seat must be free (not sold, blocked or
+held right now). The ticket keeps its code; the buyer's confirmation page
+shows the new seat at once.
+
+```sql
+do $$
+declare
+  v_event uuid := '<event id>';
+  v_order text := '<order id>';
+  v_from text := '<current seat id>';
+  v_to text := '<new seat id>';
+  v_tier text;
+  v_code text;
+begin
+  perform private.lock_event_seats(v_event);
+  select ticket_type_id into v_tier from public.event_seats
+   where event_id = v_event and id = v_from and sold_order_id = v_order for update;
+  if not found then
+    raise exception 'Seat % isn''t sold to that order.', v_from;
+  end if;
+  perform 1 from public.event_seats
+   where event_id = v_event and id = v_to and ticket_type_id = v_tier and not blocked and sold_order_id is null
+     and (hold_order_id is null or hold_expires_at <= now())
+     for update;
+  if not found then
+    raise exception 'Seat % isn''t free in the same ticket type.', v_to;
+  end if;
+  select code into v_code from public.tickets where event_id = v_event and order_id = v_order and seat_id = v_from;
+  -- The ticket lets go of the seat first (its foreign key needs the seat sold to its order).
+  update public.tickets set seat_id = null where code = v_code;
+  update public.event_seats set sold_order_id = null where event_id = v_event and id = v_from;
+  update public.event_seats set sold_order_id = v_order, hold_order_id = null, hold_expires_at = null
+   where event_id = v_event and id = v_to;
+  update public.tickets set seat_id = v_to where code = v_code;
+  update public.orders set seat_ids = array_replace(seat_ids, v_from, v_to) where id = v_order;
+end
+$$;
+```
+
+Then resend the ticket email from `/admin/emails` (it's rebuilt from the
+order, so it shows the new seat), and tell the buyer.
+
+### Redacting personal information from the event moderation log
+
+`edited` and `ticketing_changed` entries in `public.event_moderation_log`
+keep the old and new value of each changed field (`details`), and every entry
+can carry a free-text `reason`. If personal information ends up there (a
+phone number or someone's name in an old event description, say) and has to
+go, because the person asks for it to be corrected or removed (APP 13) or it
+shouldn't be kept (APP 11), redact it in place: keep the entry, so the record
+still shows that the field changed, when and by whom.
+
+1. First fix the event itself (the admin editor). That save logs another
+   `edited` entry whose `old` value is the text being removed, so redact
+   after it.
+2. Find every entry holding the text:
+
+   ```sql
+   select l.id, l.action, l.created_at, l.reason, l.details
+   from public.event_moderation_log l
+   where l.event_id = '<event id>' and (l.details::text ilike '%<text>%' or l.reason ilike '%<text>%')
+   order by l.id;
+   ```
+
+3. Replace each affected value (here a description's `old` value; use the
+   field and side that hold it, and `reason` the same way), in one
+   transaction, noting who redacted it and when:
+
+   ```sql
+   begin;
+   update public.event_moderation_log
+      set details = jsonb_set(details, '{description,old}', to_jsonb('[redacted <date> by <initials>: personal information]'::text))
+    where id = <entry id> and event_id = '<event id>';
+   -- check the row, then:
+   commit;
+   ```
+
+   A ticket type list (`ticketTypes`) is a whole array: replace the
+   affected name or description inside it with the same `jsonb_set` path
+   (`'{ticketTypes,old,0,description}'`).
+4. Record the request and what you redacted outside the database (the
+   privacy request log), not in the event log.
+
+The organiser profile edit log (`private.organiser_profile_edits`) refuses
+updates by design (trigger `organiser_profile_edits_append_only`); redacting
+there means disabling that trigger inside the same transaction, updating the
+one row, and enabling it again before `commit`. Do it only for a request you
+have recorded.
 
 ### Free-ticket and email outbox retention (daily job)
 
@@ -481,6 +669,23 @@ Set it up once:
    the header can retry more often.
 3. Check it under Vercel → Project → Settings → Cron Jobs (each run returns
    counts: `claimed`, `sent`, `retrying`, `failed`).
+
+**Trending.** `vercel.json` also runs `GET /api/cron/trending` once a day
+(17:20 UTC), with the same `CRON_SECRET`: it rebuilds the home page's
+Trending list (`private.refresh_trending()`, docs/architecture.md,
+"Trending"). Daily is a Hobby-plan limit, not a design choice: **on Pro, set
+its schedule to every 15 minutes (`*/15 * * * *`)**. On Hobby you can refresh
+more often from Supabase Cron instead (the function needs no secret: it only
+reads and rewrites the snapshot):
+
+```sql
+select cron.schedule('refresh-trending', '*/15 * * * *', $$select private.refresh_trending()$$);
+```
+
+It's safe to run by hand at any time and returns `eligible` and `ranked`
+counts. Until it has run once, Trending is empty and the home page hides the
+section. To curate (boost or exclude an event), use
+`PUT /api/admin/events/{id}/curation` rather than SQL, so the change is logged.
 
 Failed emails are listed at `/admin/emails`, by order reference and masked
 address, with a **Resend now** button. Delivery is at-least-once, so a buyer

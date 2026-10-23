@@ -2,24 +2,25 @@
 
 import Link from "next/link";
 import type { MouseEvent } from "react";
-import { buttonClass } from "@/components/ui/Button";
+import { secondaryActionClass } from "@/components/ui/Button";
 import { withNext } from "@/lib/safe-next-path";
 import type { SaveTarget } from "./favourites-store";
 import { useFavourites } from "./FavouritesProvider";
 import HeartIcon from "./HeartIcon";
 
-export type SaveButtonVariant = "overlay" | "plain" | "onDark" | "pill";
+export type SaveButtonVariant = "overlay" | "plain" | "action";
 
-const discBase = "flex size-9 items-center justify-center rounded-full border motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90";
+const discBase = "flex size-9 items-center justify-center rounded-control border motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90";
 
 /** The 44px hit area and the visible mark, per variant and state. */
 function classes(variant: SaveButtonVariant, saved: boolean) {
   switch (variant) {
-    case "pill":
+    // The event page's secondary action row, beside Share: the page's one Save.
+    case "action":
       return {
-        target: buttonClass("outline", "md", "min-h-11 gap-2"),
+        target: `group/save ${secondaryActionClass}`,
         mark: null,
-        icon: "size-4",
+        icon: "size-4 motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90",
       };
     case "plain":
       return {
@@ -27,16 +28,13 @@ function classes(variant: SaveButtonVariant, saved: boolean) {
         mark: null,
         icon: "size-5 motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90",
       };
-    case "onDark":
-      return {
-        target: "group/save flex size-11 shrink-0 items-center justify-center rounded-full focus-visible:outline-background",
-        mark: `${discBase} border-background ${saved ? "bg-background text-foreground" : "text-background"}`,
-        icon: "size-4.5",
-      };
+    // On a photo, which can be dark: the page's black outline could vanish into it, so
+    // keyboard focus rings the 36px mark instead, black on a cream gap that shows on any
+    // photo (never orange). Explicit ink/cream: it's the same on every surface.
     case "overlay":
       return {
-        target: "group/save flex size-11 items-center justify-center rounded-full",
-        mark: `${discBase} border-foreground ${
+        target: "group/save flex size-11 items-center justify-center rounded-control focus-visible:outline-none",
+        mark: `${discBase} border-foreground group-focus-visible/save:ring-2 group-focus-visible/save:ring-ink group-focus-visible/save:ring-offset-2 group-focus-visible/save:ring-offset-cream ${
           saved
             ? "bg-foreground text-background group-hover/save:bg-accent-strong"
             : "bg-background text-foreground group-hover/save:ring-1 group-hover/save:ring-foreground"
@@ -77,7 +75,7 @@ export default function SaveButton({
       ) : (
         <HeartIcon filled={saved} className={c.icon} />
       )}
-      {variant === "pill" && "Save"}
+      {variant === "action" && "Save"}
     </>
   );
 
