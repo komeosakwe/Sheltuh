@@ -24,7 +24,11 @@ const MIDDLE_BAND = "-45% 0px -45% 0px";
  * screen before the list).
  */
 export default function WhatElse({ className = "" }: { className?: string }) {
-  const [active, setActive] = useState(0);
+  // What the scroll picked and what the pointer is over, kept apart so the scroll's
+  // choice comes back when the pointer leaves.
+  const [scrolled, setScrolled] = useState(0);
+  const [hovered, setHovered] = useState<number | null>(null);
+  const active = hovered ?? scrolled;
   const items = useRef<(HTMLLIElement | null)[]>([]);
 
   useEffect(() => {
@@ -34,7 +38,7 @@ export default function WhatElse({ className = "" }: { className?: string }) {
         for (const entry of entries) {
           if (!entry.isIntersecting) continue;
           const index = items.current.indexOf(entry.target as HTMLLIElement);
-          if (index >= 0) setActive(index);
+          if (index >= 0) setScrolled(index);
         }
       },
       { rootMargin: MIDDLE_BAND },
@@ -68,7 +72,8 @@ export default function WhatElse({ className = "" }: { className?: string }) {
                 items.current[index] = el;
               }}
               data-active={index === active ? "true" : "false"}
-              onMouseEnter={() => setActive(index)}
+              onMouseEnter={() => setHovered(index)}
+              onMouseLeave={() => setHovered((current) => (current === index ? null : current))}
               className={`motion-safe:transition-colors motion-safe:duration-300 ${index === active ? "text-foreground" : "text-muted"}`}
             >
               <h3 className="text-xl leading-6 font-bold tracking-tight uppercase sm:text-2xl sm:leading-7">{item.title}</h3>
