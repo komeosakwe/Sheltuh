@@ -29,6 +29,7 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
       "This weekend",
       "Popular right now",
+      "What else?",
       "See who’s going. Find your people.",
       "Bring your event to life",
     ]);

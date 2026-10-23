@@ -216,7 +216,7 @@ for (const width of [375, 1280]) {
   test.describe(`home order at ${width}px`, () => {
     test.use({ viewport: { width, height: width < 768 ? 812 : 800 } });
 
-    test("hero, the category row, This weekend, Popular right now, Find your people, For organisers, footer", async ({ page }) => {
+    test("hero, the category row, This weekend, Popular right now, What else?, Find your people, For organisers, footer", async ({ page }) => {
       await openHome(page, { trending: true });
       await expect(page.getByRole("heading", { level: 2, name: "Popular right now" })).toBeVisible();
       const headings = await page.locator("main h2").allTextContents();
@@ -224,6 +224,7 @@ for (const width of [375, 1280]) {
       expect(headings.map((h) => h.trim())).toEqual([
         "This weekend",
         "Popular right now",
+        "What else?",
         "See who’s going. Find your people.",
         "Bring your event to life",
       ]);
@@ -366,3 +367,75 @@ test.describe("/events", () => {
     expect((box?.y ?? -1) > (feed?.y ?? Infinity)).toBe(true);
   });
 });
+
+// Owner (23 Oct 2026): "keep this as well and the motion in the picture": the desktop hero collage with
+// its turning badge, and What else? with its highlight that follows the scroll.
+test.describe("hero collage at 1280px", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  test("shows three photos and the badge, which turns slowly and can be paused", async ({ page }) => {
+    await openHome(page);
+    const collage = page.locator("[data-hero-collage]");
+    await expect(collage).toBeVisible();
+    await expect(collage.locator("img")).toHaveCount(3);
+    const badge = page.getByRole("button", { name: "Pause the badge animation" });
+    await expect(badge).toBeVisible();
+    // Its name changes with its state, so find the drawing by its own marker.
+    const art = page.locator("[data-hero-badge-art]");
+    const spin = await art.evaluate((svg) => {
+      const style = getComputedStyle(svg);
+      return { name: style.animationName, duration: style.animationDuration, count: style.animationIterationCount, state: style.animationPlayState };
+    });
+    expect(spin).toEqual({ name: "spin", duration: "30s", count: "infinite", state: "running" });
+    // Keyboard: Tab reaches it, and Enter pauses it.
+    await badge.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("button", { name: "Play the badge animation" })).toBeFocused();
+    expect(await art.evaluate((svg) => getComputedStyle(svg).animationPlayState)).toBe("paused");
+    // The first section still starts above the fold.
+    const heading = await page.locator("[data-home-section]").first().getByRole("heading", { level: 2 }).boundingBox();
+    expect((heading?.y ?? Infinity) + (heading?.height ?? 0)).toBeLessThanOrEqual(800);
+  });
+
+  test("holds still, and isn't a control, under reduced motion", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await openHome(page);
+    await expect(page.locator("[data-hero-collage]")).toBeVisible();
+    await expect(page.getByRole("button", { name: /badge animation/ })).toHaveCount(0);
+    expect(await page.locator("[data-hero-badge-art]").evaluate((svg) => getComputedStyle(svg).animationName)).toBe("none");
+  });
+});
+
+for (const vp of [
+  { width: 1280, height: 800, desktop: true },
+  { width: 390, height: 844, desktop: false },
+]) {
+  test.describe(`What else? at ${vp.width}px`, () => {
+    test.use({ viewport: { width: vp.width, height: vp.height } });
+
+    test("lights each promise in turn as it crosses the middle of the screen; the rest stay readable", async ({ page }) => {
+      await openHome(page);
+      // No collage on phones: the hero stays short.
+      await expect(page.locator("[data-hero-collage]")).toBeVisible({ visible: vp.desktop });
+      const section = page.getByRole("region", { name: "What else?" });
+      const items = section.getByRole("listitem");
+      await expect(items).toHaveCount(3);
+      await expect(items.nth(0)).toHaveAttribute("data-active", "true");
+      // Inactive items: the muted token (5.39:1 on cream), fully opaque.
+      const inactive = await items.nth(1).evaluate((li) => ({ color: getComputedStyle(li).color, opacity: getComputedStyle(li).opacity }));
+      expect(inactive).toEqual({ color: "rgb(107, 103, 94)", opacity: "1" });
+      await items.nth(2).evaluate((li) => {
+        const box = li.getBoundingClientRect();
+        window.scrollBy({ top: box.top + box.height / 2 - window.innerHeight / 2, behavior: "instant" });
+      });
+      await expect(items.nth(2)).toHaveAttribute("data-active", "true");
+      await expect(items.nth(0)).toHaveAttribute("data-active", "false");
+      // The photo beside the list from 1024px, following the highlight.
+      const photo = section.locator("[data-what-else-photo='active']");
+      if (vp.desktop) await expect(photo.locator("img")).toHaveAttribute("src", "/events/jazz-drummer.webp");
+      else await expect(photo).toBeHidden();
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(0);
+    });
+  });
+}
