@@ -379,6 +379,10 @@ If the manager wants the screen to say 35, the Stripe session expiry must also b
 
 **Too many holds (anti-hoarding, 429):** `Notice tone="danger" role="alert"` "A lot of people are checking out for this event right now. Try again in a minute." No retry timer.
 
+**Back from Stripe (browser Back, `lib/seating/pending-checkout.ts`):** the tab's stored order is released on load or `pageshow`, and the inline note says "You left the payment page, so the seats held for you have been released. You weren't charged." The stored order is kept until the release has an answer (released, paid or processing; or 404) and dropped once its 35-minute hold would have lapsed. A network, 409, 429 or 5xx failure keeps it and is retried at the next `pageshow`, reload, or Checkout press (released first, before the new checkout starts); only one release runs at a time.
+- Failure on load/pageshow: `role="alert"` "We couldn't release the seats held for your last checkout just now. We'll try again when you press Checkout, and they're released automatically within 35 minutes anyway. You weren't charged."
+- Still failing at Checkout (no new checkout starts): `role="alert"` "We couldn't release the seats held for your last checkout yet, so we can't start a new one. Try Checkout again in a moment; those seats are released automatically within 35 minutes anyway. You weren't charged."
+
 **Guest free booking, seats gone at confirm** (`/checkout/confirm`, the `FreeOrderConfirm` error state, BD1 §6.9 structure):
 - `font-heading text-2xl` "Those seats have gone".
 - Body: "Some of your seats were booked by someone else before you confirmed: Stalls · Row F · Seat 12. Nothing was booked."

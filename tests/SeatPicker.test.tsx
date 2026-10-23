@@ -511,13 +511,77 @@ describe("seat page: back from Stripe releases the hold (§5.11)", () => {
     quiet.mockRestore();
   });
 
-  it("loaded afresh with a stored order: releases it once; a failure is an alert saying the hold lapses by itself", async () => {
-    window.sessionStorage.setItem(KEY, JSON.stringify({ orderId: ORDER, slug: event.slug, at: Date.now() - 60_000 }));
-    cancelPendingOrder.mockRejectedValue(new ApiError(500, "Server error."));
+  it("loaded afresh with a stored order: a failure is an alert, keeps the order, and the next pageshow releases it", async () => {
+    const at = Date.now() - 60_000;
+    window.sessionStorage.setItem(KEY, JSON.stringify({ orderId: ORDER, slug: event.slug, at }));
+    cancelPendingOrder
+      .mockRejectedValueOnce(new ApiError(500, "Server error."))
+      .mockResolvedValueOnce({ status: "released", eventTitle: event.title, eventSlug: event.slug });
     renderPicker({ event: live, mode: "live" });
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "We couldn’t release the seats held for your checkout just now. They’ll be released automatically within 35 minutes. You weren’t charged.",
+      "We couldn’t release the seats held for your last checkout just now. We’ll try again when you press Checkout, and they’re released automatically within 35 minutes anyway. You weren’t charged.",
     );
+    expect(cancelPendingOrder).toHaveBeenCalledTimes(1);
+    // Kept, with its original time, so the hold-expiry check still applies.
+    expect(JSON.parse(window.sessionStorage.getItem(KEY) ?? "null")).toEqual({ orderId: ORDER, slug: event.slug, at });
+    await act(async () => {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+    });
+    expect(cancelPendingOrder).toHaveBeenCalledTimes(2);
+    expect(window.sessionStorage.getItem(KEY)).toBeNull();
+    expect(status()).toHaveTextContent("You left the payment page, so the seats held for you have been released.");
+  });
+
+  it("pressing Checkout again releases a kept order first, then starts the new checkout", async () => {
+    window.sessionStorage.setItem(KEY, JSON.stringify({ orderId: ORDER, slug: event.slug, at: Date.now() - 60_000 }));
+    cancelPendingOrder.mockRejectedValueOnce(new ApiError(0, "Couldn't reach the server."));
+    const NEXT = `ord_${"c".repeat(32)}`;
+    createSeatedCheckout.mockResolvedValue({ url: "https://checkout.stripe.test/c/2", orderId: NEXT });
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    renderPicker({ event: live, mode: "live" });
+    await screen.findByRole("alert");
+    showList();
+    fireEvent.click(within(row("North, Row A")).getByRole("checkbox", { name: /^Seat 1, / }));
+
+    // Still failing: no new checkout, and the order is still kept.
+    cancelPendingOrder.mockRejectedValueOnce(new ApiError(503, "Unavailable."));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    });
+    expect(cancelPendingOrder).toHaveBeenCalledTimes(2);
+    expect(createSeatedCheckout).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "We couldn’t release the seats held for your last checkout yet, so we can’t start a new one. Try Checkout again in a moment",
+    );
+    expect(JSON.parse(window.sessionStorage.getItem(KEY) ?? "null")).toMatchObject({ orderId: ORDER });
+
+    // Released now: the new checkout starts, and its order replaces the old one.
+    cancelPendingOrder.mockResolvedValueOnce({ status: "released", eventTitle: event.title, eventSlug: event.slug });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    });
+    expect(cancelPendingOrder).toHaveBeenCalledTimes(3);
+    expect(cancelPendingOrder).toHaveBeenLastCalledWith(ORDER);
+    expect(createSeatedCheckout).toHaveBeenCalledTimes(1);
+    expect(cancelPendingOrder.mock.invocationCallOrder[2]).toBeLessThan(createSeatedCheckout.mock.invocationCallOrder[0]);
+    expect(JSON.parse(window.sessionStorage.getItem(KEY) ?? "null")).toMatchObject({ orderId: NEXT });
+    quiet.mockRestore();
+  });
+
+  it("a pageshow while the release on load is still in flight doesn't cancel the order twice", async () => {
+    window.sessionStorage.setItem(KEY, JSON.stringify({ orderId: ORDER, slug: event.slug, at: Date.now() - 60_000 }));
+    let resolve: (value: unknown) => void = () => {};
+    cancelPendingOrder.mockReturnValue(new Promise((r) => (resolve = r)));
+    renderPicker({ event: live, mode: "live" });
+    await act(async () => {});
+    expect(cancelPendingOrder).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+    });
+    expect(cancelPendingOrder).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolve({ status: "released", eventTitle: event.title, eventSlug: event.slug });
+    });
     expect(cancelPendingOrder).toHaveBeenCalledTimes(1);
     expect(window.sessionStorage.getItem(KEY)).toBeNull();
   });
@@ -533,5 +597,6 @@ describe("seat page: back from Stripe releases the hold (§5.11)", () => {
     await act(async () => {});
     expect(cancelPendingOrder).toHaveBeenCalledWith(ORDER);
     expect(screen.queryByText(/You left the payment page/)).toBeNull();
+    expect(window.sessionStorage.getItem(KEY)).toBeNull();
   });
 });

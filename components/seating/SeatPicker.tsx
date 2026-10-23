@@ -18,14 +18,14 @@ import { useIsDesktop } from "@/components/ui/useIsDesktop";
 import { DotsLoader } from "@/components/brand/DotsMark";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import { createCheckoutSession } from "@/lib/api/orders";
-import { cancelPendingOrder, createSeatedCheckout, getSeatAvailability, seatErrorDetails } from "@/lib/api/seating";
+import { createSeatedCheckout, getSeatAvailability, seatErrorDetails } from "@/lib/api/seating";
 import { MAX_FREE_TICKETS_PER_ORDER, SEAT_HOLD } from "@/lib/api/types";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { formatAud, formatEventDateShort, formatEventTime } from "@/lib/format";
 import { getTicketBuyerTotalCents, isSoldOut } from "@/lib/pricing";
 import { unavailablePositions } from "@/lib/seating/availability";
 import { formatSeatLine, speakSeatLine } from "@/lib/seating/format";
-import { rememberPendingCheckout, takePendingCheckout } from "@/lib/seating/pending-checkout";
+import { peekPendingCheckout, releasePendingCheckout, rememberPendingCheckout } from "@/lib/seating/pending-checkout";
 import {
   findBestSeats,
   generalAdmissionTiers,
@@ -54,6 +54,10 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const AVAILABILITY_POLL_MS = 10_000;
 /** After this many failed polls in a row, say availability may be out of date (§5.2). */
 const STALE_AFTER_FAILURES = 3;
+/** Releasing the last checkout's hold failed; it's kept and tried again at the next chance. */
+const RELEASE_FAILED = `We couldn’t release the seats held for your last checkout just now. We’ll try again when you press Checkout, and they’re released automatically within ${SEAT_HOLD.holdMinutes} minutes anyway. You weren’t charged.`;
+/** …and again when Checkout was pressed, so the new checkout waits. */
+const RELEASE_FAILED_AT_CHECKOUT = `We couldn’t release the seats held for your last checkout yet, so we can’t start a new one. Try Checkout again in a moment; those seats are released automatically within ${SEAT_HOLD.holdMinutes} minutes anyway. You weren’t charged.`;
 
 export type SeatPickerMode = "live" | "demo" | "preview";
 
@@ -284,24 +288,22 @@ export default function SeatPicker({
 
   // Back from Stripe (the browser's Back: a page restored from the back/forward cache, or loaded
   // afresh): release the hold this tab started rather than leave the seats held for the full hold,
-  // and Checkout works again. Stripe's own cancel link goes to /checkout/cancelled instead.
+  // and Checkout works again. Stripe's own cancel link goes to /checkout/cancelled instead. A
+  // release that fails is kept and tried again at the next chance: the next pageshow, a reload,
+  // or pressing Checkout (lib/seating/pending-checkout.ts).
   const releasePending = useCallback(async () => {
-    const pending = takePendingCheckout();
-    if (!pending) return;
+    if (!peekPendingCheckout()) return;
     setBusy(false);
-    try {
-      const result = await cancelPendingOrder(pending.orderId);
-      // Paid or being confirmed meanwhile: nothing was held for nothing, so nothing to say.
-      if (result.status !== "released") return;
-      const text = "You left the payment page, so the seats held for you have been released. You weren’t charged.";
-      announce(text);
-      setInline({ text });
-    } catch {
-      setCheckoutError((prev) => ({
-        text: `We couldn’t release the seats held for your checkout just now. They’ll be released automatically within ${SEAT_HOLD.holdMinutes} minutes. You weren’t charged.`,
-        n: (prev?.n ?? 0) + 1,
-      }));
+    const outcome = await releasePendingCheckout();
+    if (outcome.kind === "failed") {
+      setCheckoutError((prev) => ({ text: RELEASE_FAILED, n: (prev?.n ?? 0) + 1 }));
+      return;
     }
+    // Paid or being confirmed meanwhile: nothing was held for nothing, so nothing to say.
+    if (outcome.kind !== "done" || outcome.status !== "released") return;
+    const text = "You left the payment page, so the seats held for you have been released. You weren’t charged.";
+    announce(text);
+    setInline({ text });
   }, [announce]);
   useEffect(() => {
     if (mode !== "live") return;
@@ -508,6 +510,13 @@ export default function SeatPicker({
       return;
     }
     setBusy(true);
+    // A hold from this tab's last checkout that couldn't be released yet: release it first, so
+    // those seats are free for this one and its stored order isn't replaced while still held.
+    if ((await releasePendingCheckout()).kind === "failed") {
+      setBusy(false);
+      setCheckoutError((prev) => ({ text: RELEASE_FAILED_AT_CHECKOUT, n: (prev?.n ?? 0) + 1 }));
+      return;
+    }
     const lineItems = gaLines.map((line) => ({ ticketTypeId: line.ticket.id, quantity: line.quantity }));
     const email = needsEmail ? buyerEmail.trim() : accountEmail;
     const getToken = needsEmail && auth?.status === "signed-in" ? auth.getAccessToken : undefined;
