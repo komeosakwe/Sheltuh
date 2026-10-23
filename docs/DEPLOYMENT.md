@@ -67,7 +67,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261103000100_refuse_ended_event_orders.sql`. Never
+      newest, currently `20261105000000_organiser_logos.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -89,6 +89,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       13. `20261102000100_social_hardening.sql`
       14. `20261103000000_seat_hold_client_limits.sql`
       15. `20261103000100_refuse_ended_event_orders.sql`
+      16. `20261105000000_organiser_logos.sql`
 
       The 21 files before these are on `main`. Whether production has them
       all is also unverified: the check above covers every file.

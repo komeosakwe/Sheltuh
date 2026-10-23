@@ -123,6 +123,7 @@ describe("Data API lock-out", () => {
       { table_name: "free_order_refusals", rls: true },
       { table_name: "organiser_event_announcements", rls: true },
       { table_name: "organiser_follow_tokens", rls: true },
+      { table_name: "organiser_logos", rls: true },
       { table_name: "organiser_profile_edits", rls: true },
       { table_name: "platform_rate_limits", rls: true },
       { table_name: "profile_avatars", rls: true },
@@ -316,6 +317,28 @@ describe("Data API lock-out", () => {
       `select count(*)::int as n from pg_policy p join pg_class c on c.oid = p.polrelid
         where c.relname in ('profile_avatars', 'profile_moderation_log', 'organiser_follows',
                             'organiser_follow_tokens', 'organiser_event_announcements')`,
+    );
+    expect(policies.n).toBe(0);
+  });
+
+  it("the organiser logo functions exist, pin search_path and aren't client-executable", async () => {
+    const names = ["admin_remove_organiser_logo", "delete_organiser_logo", "put_organiser_logo"];
+    const rows = await db.query<{ fn: string; pinned: boolean; client: boolean }>(
+      `select p.proname as fn,
+              exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c = 'search_path=""') as pinned,
+              has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
+                or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                            where a.grantee = 0 and a.privilege_type = 'EXECUTE') as client
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'private' and p.proname = any($1::text[]) order by 1`,
+      [names],
+    );
+    expect(rows).toEqual(names.map((fn) => ({ fn, pinned: true, client: false })));
+    // The logos: RLS on, no policies.
+    const [policies] = await db.query<{ n: number }>(
+      `select count(*)::int as n from pg_policy p join pg_class c on c.oid = p.polrelid
+         join pg_namespace s on s.oid = c.relnamespace
+        where s.nspname = 'private' and c.relname = 'organiser_logos'`,
     );
     expect(policies.n).toBe(0);
   });

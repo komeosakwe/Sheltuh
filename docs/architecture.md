@@ -48,7 +48,8 @@ Stripe ──webhook──▶ /api/stripe/webhook
 | Table | Key | Notes |
 |---|---|---|
 | `organisers` | `id` | `owner_user_id` is unique, one application per account. It's null for platform-managed organisers (events Sheltüh lists on someone's behalf, and seed data), which admins create (`POST /admin/organisers`), which sell no paid Sheltüh tickets, and whose events only admins check in (see "Admin authoring" and "Check-in"); their `contact_email` should be a Sheltüh alias, never a person's own address (`docs/supabase-setup.md`); check constraint `organisers_platform_no_payouts`: such an organiser has no Stripe account and no payouts. `status`: pending → approved / rejected. Also holds the Stripe Connect account id and `payouts_enabled`. Optional social handles (`instagram_handle`, `tiktok_handle`, `facebook_page`, `x_handle`), stored without `@` and pattern-checked by the database; `website_url` must be http(s), at most 2048 characters (check constraint; the API only takes new `https://` addresses, see "Organiser profiles"). An admin takedown sets `rejected` (see "Organiser profiles"). `featured_video_provider` (`youtube` or `vimeo`) and `featured_video_id`: the featured video, provider and id only, never a URL (check constraint `organisers_featured_video_check`: both or neither, id pattern per provider). |
-| `private.organiser_profile_edits` | `id` (identity) | Append-only log per organiser: each profile edit made without review (`profile_edit`: old and new value of each changed field, by the owner, or by an admin with a reason: removing the featured video, logged as `featured_video` `"provider:id"`) and each admin takedown (`suspended`, with the admin and reason; a takedown must have a reason). A trigger refuses updates (except the `actor_id` foreign key's own set-null when that account is deleted). Admins see the newest 20 per organiser. Kept while the organiser exists; deleted with it. |
+| `private.organiser_profile_edits` | `id` (identity) | Append-only log per organiser: each profile edit made without review (`profile_edit`: old and new value of each changed field, by the owner, or by an admin with a reason: removing the featured video, logged as `featured_video` `"provider:id"`, or the logo, logged as `logo` with its version) and each admin takedown (`suspended`, with the admin and reason; a takedown must have a reason). A trigger refuses updates (except the `actor_id` foreign key's own set-null when that account is deleted). Admins see the newest 20 per organiser. Kept while the organiser exists; deleted with it. |
+| `private.organiser_logos` | `organiser_id` | An organiser's logo as the server re-encoded it: `image` (512 × 512 WebP, ≤ 512 KB) and `thumb` (96 × 96 WebP, ≤ 64 KB), the whole logo fitted on white, no transparency, no metadata. `updated_at` is its version (milliseconds since the epoch, in its URL and the log); every write moves it on by at least a millisecond. Deleted with the organiser (see "Organiser profiles"). |
 | `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected; unpublish returns it to draft. `is_free` (true only when the event has ticket types and all are free; for an external event, `external_free`) is kept up to date by `replace_ticket_types` for the feed's free filter. `whos_going_enabled` (default true) is an admin-only kill switch for that event's Who's Going, set in SQL (`docs/supabase-setup.md`). `ticketing_mode` (`sheltuh`, the default, or `external`), `external_ticket_url` and `external_free`: see "External ticketing". Check constraints: an external event has a link, a Sheltüh-ticketed one has no link and isn't `external_free`, and an external event's `is_free` equals `external_free`. The trigger `events_external_ticket_url_valid` checks a link against `private.external_ticket_url_ok` when it's inserted or changed (only then, so tightening the rules never blocks a later status change; see "External ticketing"). `updated_at` changes on every update of the row, a photo change included (trigger `event_images_touch_event`). Triggers refuse ticket types and orders for an external event, and switching an event with ticket types to external. |
 | `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. A trigger refuses a price above 0 for a platform-managed organiser's event (`ticket_types_platform_free_only`). `quantity_sold` only ever goes up in `fulfil_order`, and down only in `record_payment_refund` (a paid order refunded in full). `seated`: the tier has seats on the event's seat map; its `quantity_available` is then always its unblocked seats (trigger `ticket_types_seated_capacity`, whatever is written; see "Reserved seating"). |
 | `event_seat_maps` | `event_id` | An event's optional seat map (see "Reserved seating"): `layout` (the validated template, `lib/seating/template.ts`), `seat_count` (1–10,000) and `version` (from the sequence `private.seat_map_versions`: never reused, not even after a delete). Every write bumps the event's `updated_at` (`event_seat_maps_touch_event`). Refused for an external event (`event_seat_maps_sheltuh_only`). Deleted with the event. |
@@ -137,6 +138,9 @@ times, which are converted to instants honouring daylight saving
 | `notify_waitlist` | Queues "tickets are available again" emails for an event with tickets left (see "Waitlist"): target 3 per ticket left, at most 100, within a 12-hour window; only the shortfall from people told in the window is queued, so calling it again is a no-op until more tickets free up or the window passes. People never told first, then join order; skips buyers (paid orders, by normalised address), people with an email still waiting, and stops at 500 a day platform-wide. Advisory lock per event. Called at commit by deferred constraint triggers on `ticket_types` (insert with tickets; update leaving more tickets than before) and `events` (status becomes `published`). The triggers catch any error from it and raise a warning instead (event id and SQLSTATE only), so queueing emails can never fail the refund, edit or approval that freed the tickets. |
 | `edit_organiser_profile` | An approved organiser's profile edit (`PATCH /organisers/me`): locks the organiser row, checks it's still approved (`not_approved` → 409), writes only the fields sent whose value really changes (the featured video as `"provider:id"`), and appends their old and new values to `organiser_profile_edits`, in one step. A no-op edit writes nothing. Returns `updated`, `unchanged`, `not_approved` or `not_found`. |
 | `admin_remove_featured_video` | An admin removes an organiser's featured video (any status): locks the organiser row (for update), clears it and logs a `profile_edit` by the admin with the reason. Returns `removed`, `unchanged` (none: nothing logged) or `not_found`. |
+| `put_organiser_logo` | An approved organiser's logo (`PUT /organisers/me/logo`, already re-encoded): locks the organiser row (for no key update), checks it's still approved (`not_approved` → 409: nothing written), writes the logo, bumps the organiser's `updated_at` and logs a `profile_edit` by the owner (`logo`, old and new version), in one step. Returns `updated`, `not_approved` or `not_found`. |
+| `delete_organiser_logo` | The organiser removes their logo, any status: locks the organiser row, deletes it, bumps `updated_at` and logs it. Returns `deleted`, `unchanged` (none: nothing written) or `not_found`. |
+| `admin_remove_organiser_logo` | An admin removes an organiser's logo (any status), with a reason: as `delete_organiser_logo`, logged as a `profile_edit` by the admin with the reason (`byStaff`). Returns `removed`, `unchanged` (none: nothing logged) or `not_found`. |
 | `member_profile_visible` | The one rule for seeing a member profile (stable SQL): the member behind a `profileId` if the viewer has a profile, neither is suspended, neither blocks the other, and the profile is visible or the viewer's own; else null. Used by every read and write by `profileId`; the API also requires a verified email. |
 | `file_profile_report` | A report about a profile: key-share-locks the profile; only one the reporter can see now (`member_profile_visible`) or a member they've blocked (else `not_found`, the unknown-id answer); an open profile report by the same reporter about the same member is returned as it is (`already_open`, no allowance used; two at once: the unique index makes the second find the first); then the reports rate limit, the photo copied once per distinct image (`report_photos`, upserted so a concurrent purge skips it), and the insert (`target_type` `profile`). Returns `filed`, `already_open`, `not_found`, `self` or `rate_limited`. |
 | `create_block_by_profile` | `create_block` for a profile the blocker can see now (`member_profile_visible`); same snapshot, rate limit and results. |
@@ -1578,10 +1582,45 @@ Admins create events themselves, for any organiser
   only when the visitor presses play. Admins remove it with a reason
   (`POST /admin/organisers/{id}/remove-video`), logged as a `profile_edit` by
   the Sheltüh team (`byStaff`).
+- **Logo** (`lib/server/handlers/organiser-logos.ts`, `lib/server/organiser-logo.ts`,
+  `supabase/migrations/20261105000000_organiser_logos.sql`). An approved
+  organiser uploads one (`PUT /organisers/me/logo`, the raw bytes; 403 for
+  anyone else, before the body is read), with no review, like the bio: the
+  change is logged with old and new version (never the image) and shows on
+  the admin queue. The rules are the member photo's (see "Member profiles"):
+  JPEG, PNG or WebP sniffed from the bytes (400 on `logo` otherwise,
+  polyglots included), at most 2 MB (the event photo's limit, which the
+  browser's downsizer aims under; 413), 24 megapixels, first frame, decoded
+  once in the same per-instance slots (503 when full), 20 uploads a day per
+  account (429, bucket `organiser_logo_uploads`). A logo isn't cropped: the
+  whole image is fitted into a 512 px square on white, transparency
+  flattened onto white, plus a 96 px thumbnail, with no metadata. The
+  organiser row is locked and re-checked in the write, so a takedown during
+  the upload is a 409 and nothing is written.
+  **Serving**: `GET /organisers/{id}/logo[?size=thumb]` is public while the
+  organiser is approved, `public, max-age=86400` (not `immutable`, so a
+  takedown stops being served within a day), ETag `"<version>-<f|t>"` and
+  304. URLs carry `?v={version}`, which only busts caches. Otherwise only an
+  admin or the owner with a bearer token, `private, no-store`; anyone else
+  (no token included) gets the same 404 as an unknown organiser, and a
+  non-uuid id is a 404 without a query. The image is only read from the
+  database when the client doesn't already have that version.
+  **In payloads**: `logoUrl` on the organiser's own record (and the admin
+  queue) and the public profile; `organiserLogoThumbUrl` on every event
+  (public shapes included) while the organiser is approved. Absent with no
+  logo.
+  **Moderation**: admins remove it with a reason
+  (`POST /admin/organisers/{id}/remove-logo`), logged as the Sheltüh team's
+  edit; a takedown hides it (the route needs approved). The organiser can
+  delete it at any time, also when suspended (`DELETE /organisers/me/logo`,
+  idempotent). **Privacy**: a logo is business content, public once
+  approved; the Organiser Agreement should say uploads are public and kept
+  until removed (deleted with the organiser).
 - **Public profile** (`GET /organisers/{id}/profile`): only approved
   organisers. Only `organiserId`, `displayName`, `description`,
   `categories`, `websiteUrl`, `socialLinks`, `memberSince` (Melbourne
   `YYYY-MM` of the application), `featuredVideo` (`{provider, id}` or null),
+  `logoUrl` (only with a logo),
   `followerCount` (only from 10 followers, else null: see "Following
   organisers"), `eventsHosted` (published events that have ended) and their
   published events in the feed's public shape: `upcomingEvents` (not yet ended, soonest first), then
@@ -1887,6 +1926,9 @@ application is approved.
 | `GET /me/following?cursor&limit` · `GET /me/following/events?cursor&limit` | signed in: `FollowedOrganiser` items; upcoming events of followed organisers (public event shape), soonest first |
 | `POST /follows/unsubscribe` `{token}` | public (the emailed token is the credential). 200 `{status: "unsubscribed", organiserName?}` (idempotent); 400; 404 |
 | `POST /admin/organisers/{organiserId}/remove-video` `{reason}` | admin. 200 `AdminOrganiserRecord` (unchanged, nothing logged, without a video); 400; 404 |
+| `PUT /organisers/me/logo` (raw JPEG/PNG/WebP) · `DELETE /organisers/me/logo` | PUT: an approved organiser (403 otherwise, before the body is read); 200 the organiser record (`logoUrl`), `private, no-store`; 400 `fieldErrors.logo` (not a supported image, or over 24 megapixels); 409 no longer approved by the time it's written; 413 over 2 MB; 429 over 20 a day; 503 too many images being decoded on the instance. DELETE: signed in, any status; 200 the record without `logoUrl` (idempotent); 404 no organiser |
+| `GET /organisers/{organiserId}/logo[?size=thumb][&v=…]` | public while the organiser is approved (`public, max-age=86400`); otherwise an admin or the owner with a bearer token (`private, no-store`). WebP 512 px (96 px thumbnail), `x-content-type-options: nosniff`, ETag (304). 404 for anything else: unknown, no logo, not approved without the right token, not a uuid |
+| `POST /admin/organisers/{organiserId}/remove-logo` `{reason}` | admin. 200 `AdminOrganiserRecord` (unchanged, nothing logged, without a logo); 400 `fieldErrors.reason` (1–500 characters, cleaned like a message); 403; 404 |
 | `PUT /profiles/me` | verified email, not suspended (403). Creating needs `adultConfirmed: true` (an explicit `false` is a 400); a rename (no `adultConfirmed`) with no profile is a 404. Display names are checked in `lib/server/profile-input.ts`: no control, invisible or default-ignorable characters (U+FE0E/FE0F allowed), at least one letter or digit, at most 4 combining marks per character, no links, emails or @handles, no Latin/Cyrillic/Greek mix within a word, and no reserved names, compared on a lookalike skeleton |
 | `GET /conversations?cursor` | verified member: own conversations, newest activity first |
 | `POST /conversations` `{attendeeId, body}` \| `{profileId, body}` | verified member going to the same open event. 201; 400 invalid/links/self, 403 not going or suspended, 404 member unavailable (also: blocked either way, a pair whose conversation was deleted, or the recipient over their incoming cap), 409 conversation exists, 429 |
@@ -1965,6 +2007,10 @@ is `cache-control: private, no-store`, and so is every admin response
 
 ## Not built yet
 
+- Organiser logos, later: the logo as the organiser page's `og:image`, logos
+  on event cards and the Following list, and logos for platform-managed
+  organisers (an admin upload; today only the organiser's own account can
+  upload, and a platform-managed organiser has none).
 - Reserved seating, later (plan): live block/unblock (SQL runbook for now,
   `docs/supabase-setup.md`), a move-seat tool (likewise), standing areas on
   the map, venue templates, Realtime, the Companion Card flow, and

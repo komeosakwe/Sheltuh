@@ -53,11 +53,38 @@ function opt<T>(value: unknown): T | undefined {
 // Organisers
 // ---------------------------------------------------------------------------
 
+/**
+ * SQL: the organiser `organiserIdSql`'s logo version (milliseconds since the
+ * epoch of its last change, as text), or null with no logo. It goes in the
+ * logo's URL, so a new logo is a new URL. private.organiser_logos' primary key.
+ */
+function organiserLogoVersionOf(organiserIdSql: string): string {
+  return `(select floor(extract(epoch from lg.updated_at) * 1000)::bigint::text
+             from private.organiser_logos lg where lg.organiser_id = ${organiserIdSql})`;
+}
+
+/**
+ * An organiser logo's URLs. `v` only busts caches: the route serves the
+ * current logo whatever it says (public once the organiser is approved).
+ */
+export function organiserLogoUrls(organiserId: string, version: string): { logoUrl: string; logoThumbUrl: string } {
+  const base = `/api/organisers/${organiserId}/logo`;
+  const v = encodeURIComponent(version);
+  return { logoUrl: `${base}?v=${v}`, logoThumbUrl: `${base}?size=thumb&v=${v}` };
+}
+
+/** The `logoUrl` field for a row with `id` and `logo_version`: absent with no logo. */
+function logoUrlOf(row: Row): { logoUrl?: string } {
+  const version = opt<string>(row.logo_version);
+  return version === undefined ? {} : { logoUrl: organiserLogoUrls(row.id as string, version).logoUrl };
+}
+
 const ORGANISER_COLUMNS = `o.id, o.owner_user_id, o.display_name, o.contact_email, o.description,
          o.categories::text[] as categories, o.website_url,
          o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle, o.status::text as status,
          o.rejection_reason, o.reviewed_by, o.reviewed_at, o.stripe_account_id,
-         o.payouts_enabled, o.created_at, o.updated_at, o.featured_video_provider, o.featured_video_id`;
+         o.payouts_enabled, o.created_at, o.updated_at, o.featured_video_provider, o.featured_video_id,
+         ${organiserLogoVersionOf("o.id")} as logo_version`;
 
 export const ORGANISER_SELECT = `
   select ${ORGANISER_COLUMNS}
@@ -96,6 +123,7 @@ const EDIT_FIELDS: Record<string, OrganiserLogField> = {
   facebook_page: "facebookPage",
   x_handle: "xHandle",
   featured_video: "featuredVideo",
+  logo: "logo",
   status: "status",
 };
 
@@ -159,6 +187,7 @@ export function toOrganiser(row: Row): OrganiserRecord {
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
     featuredVideo: featuredVideoOf(row),
+    ...logoUrlOf(row),
   };
 }
 
@@ -179,6 +208,7 @@ const PUBLIC_ORGANISER_SELECT = `
   select o.id, o.display_name, o.description, o.categories::text[] as categories, o.website_url,
          o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle,
          o.featured_video_provider, o.featured_video_id,
+         ${organiserLogoVersionOf("o.id")} as logo_version,
          to_char(o.created_at at time zone 'Australia/Melbourne', 'YYYY-MM') as member_since,
          -- organiser_follows_organiser_idx; only shown from FOLLOWER_COUNT_THRESHOLD.
          (select count(*)::int from public.organiser_follows f where f.organiser_id = o.id) as follower_count,
@@ -219,6 +249,7 @@ export function toPublicOrganiserProfile(
     featuredVideo: featuredVideoOf(row) ?? null,
     followerCount: (row.follower_count as number) >= FOLLOWER_COUNT_THRESHOLD ? (row.follower_count as number) : null,
     eventsHosted: row.events_hosted as number,
+    ...logoUrlOf(row),
     upcomingEvents,
     recentEvents,
   };
@@ -234,6 +265,8 @@ const EVENT_COLUMNS = `
          e.status::text as status, e.rejection_reason, e.created_at, e.updated_at,
          e.ticketing_mode, e.external_ticket_url, e.external_free,
          o.display_name as organiser_name,
+         -- Only while the organiser is approved: the logo route is a 404 otherwise.
+         case when o.status = 'approved' then ${organiserLogoVersionOf("e.organiser_id")} end as organiser_logo_version,
          (select '/api/events/' || e.id::text || '/image?v=' || floor(extract(epoch from i.updated_at))::bigint::text
             from public.event_images i where i.event_id = e.id) as image_url,
          coalesce((
@@ -349,6 +382,14 @@ export function toEventForAdmin(row: Row): EventRecord {
   return mapEvent(row, "admin");
 }
 
+/** The `organiserLogoThumbUrl` field for a row of EVENT_SELECT: absent with no logo (or an organiser not approved). */
+function organiserLogoThumbOf(row: Row): { organiserLogoThumbUrl?: string } {
+  const version = opt<string>(row.organiser_logo_version);
+  return version === undefined
+    ? {}
+    : { organiserLogoThumbUrl: organiserLogoUrls(row.organiser_id as string, version).logoThumbUrl };
+}
+
 function mapEvent(row: Row, audience: LogAudience): EventRecord {
   const log = row.moderation_log as StoredLogEntry[];
   const ticketingMode = (row.ticketing_mode ?? "sheltuh") as TicketingMode;
@@ -367,6 +408,7 @@ function mapEvent(row: Row, audience: LogAudience): EventRecord {
     endsAt: iso(row.ends_at),
     organiserName: row.organiser_name as string,
     imageUrl: opt(row.image_url),
+    ...organiserLogoThumbOf(row),
     ticketTypes: row.ticket_types as TicketTypeInput[],
     ticketingMode,
     externalTicketUrl,
@@ -429,6 +471,8 @@ export function toPublicEvent(event: EventRecord, remaining?: Record<string, num
     endsAt: event.endsAt,
     organiserName: event.organiserName,
     imageUrl: event.imageUrl,
+    // Only with a logo: an event without one keeps its payload unchanged.
+    ...(event.organiserLogoThumbUrl ? { organiserLogoThumbUrl: event.organiserLogoThumbUrl } : {}),
     ticketTypes,
     // Every Sheltüh ticket type sold out. No ticket types, or an external event: not sold out (nothing to wait for).
     soldOut: !external && ticketTypes.length > 0 && ticketTypes.every((ticket) => ticket.soldOut === true),

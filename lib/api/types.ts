@@ -39,6 +39,13 @@ export interface OrganiserRecord {
    * id only. Unset when there's none. Public on their profile once approved.
    */
   featuredVideo?: FeaturedVideo;
+  /**
+   * The organiser's logo (512 px square WebP), when they've uploaded one:
+   * `/api/organisers/{organiserId}/logo?v={version}`. Public once approved
+   * (otherwise only an admin, or the owner, with a bearer token); the thumbnail
+   * (96 px) is the same URL with `size=thumb`. Versioned, so it caches safely.
+   */
+  logoUrl?: string;
 }
 
 /** A field an organiser-log entry can record a change to (`status` only for a takedown). */
@@ -53,9 +60,11 @@ export type OrganiserEditField =
 
 /**
  * Every field the organiser log can name: OrganiserEditField plus
- * `featuredVideo`, whose values are "youtube:{id}" / "vimeo:{id}".
+ * `featuredVideo`, whose values are "youtube:{id}" / "vimeo:{id}", and
+ * `logo`, whose values are the logo's version (milliseconds since the epoch
+ * of the upload, as a decimal string; null: none).
  */
-export type OrganiserLogField = OrganiserEditField | "featuredVideo";
+export type OrganiserLogField = OrganiserEditField | "featuredVideo" | "logo";
 
 /** One field's value before and after; null means it was (or became) unset. */
 export interface OrganiserEditChange {
@@ -128,6 +137,8 @@ export interface PublicOrganiserProfile {
   followerCount?: number | null;
   /** Published events that have ended ("Events hosted"). Always sent; optional so older fixtures stay valid. */
   eventsHosted?: number;
+  /** The organiser's logo (512 px; public, versioned), only when they have one. See OrganiserRecord.logoUrl. */
+  logoUrl?: string;
   /** Published events that haven't ended, soonest first. */
   upcomingEvents: PublicEvent[];
   /** Published events that have ended, most recent first. Together with upcomingEvents, at most 24. */
@@ -246,6 +257,11 @@ export interface EventRecord {
   organiserName: string;
   /** Same-origin path of the organiser's photo, if one was uploaded. Versioned (?v=) so it caches safely. */
   imageUrl?: string;
+  /**
+   * The organiser's logo thumbnail (96 px square WebP, public, versioned),
+   * only when they have a logo and are approved.
+   */
+  organiserLogoThumbUrl?: string;
   /** Always empty for an external event. */
   ticketTypes: TicketTypeInput[];
   /**

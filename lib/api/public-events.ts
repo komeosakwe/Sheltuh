@@ -38,6 +38,12 @@ export interface PublicEvent {
   endsAt: string;
   organiserName: string;
   imageUrl?: string;
+  /**
+   * The organiser's logo thumbnail: `/api/organisers/{organiserId}/logo?size=thumb&v={version}`
+   * (96 px square WebP, public, cached for a day). Only when the organiser has
+   * a logo; absent otherwise (show initials).
+   */
+  organiserLogoThumbUrl?: string;
   /** Always empty for an external event. */
   ticketTypes: PublicTicketType[];
   /**

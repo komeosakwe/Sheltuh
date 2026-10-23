@@ -263,6 +263,20 @@ export async function adminRemoveFeaturedVideo(organiserId: string, reason: stri
   });
 }
 
+/**
+ * Removes an organiser's logo, with a reason (logged on their organiser log
+ * as an edit by the Sheltüh team). Unchanged, and nothing logged, without a
+ * logo. ApiError 400 (reason), 404.
+ */
+export async function adminRemoveOrganiserLogo(organiserId: string, reason: string, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminOrganiserRecord>(`/admin/organisers/${encodeURIComponent(organiserId)}/remove-logo`, {
+    method: "POST",
+    body: { reason },
+    token,
+  });
+}
+
 /** A member profile whatever its visibility, with its moderation log (AdminReport.reportedProfileId). */
 export async function adminGetMemberProfile(profileId: string, getToken: GetToken) {
   const token = await getToken();

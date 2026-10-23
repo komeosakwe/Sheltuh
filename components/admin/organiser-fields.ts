@@ -1,5 +1,6 @@
 import { featuredVideoPageUrl, isFeaturedVideo } from "@/lib/api/featured-video";
 import type { OrganiserEditEntry, OrganiserLogField } from "@/lib/api/types";
+import { formatDayTime } from "@/lib/format";
 import { SOCIAL_HANDLE_FIELDS, type SocialHandleField } from "@/lib/organiser-profile";
 
 /** What the admin views call each field an organiser-log entry can record. */
@@ -11,6 +12,7 @@ export const ORGANISER_FIELD_LABELS: Record<OrganiserLogField, string> = {
   facebookPage: "Facebook",
   xHandle: "X",
   featuredVideo: "Featured video",
+  logo: "Logo",
   status: "Status",
 };
 
@@ -20,6 +22,7 @@ export const ORGANISER_FIELD_ORDER: readonly OrganiserLogField[] = [
   "websiteUrl",
   ...SOCIAL_HANDLE_FIELDS.map((f) => f.field),
   "featuredVideo",
+  "logo",
   "status",
 ];
 
@@ -31,6 +34,16 @@ export function formatLoggedVideo(value: string): string {
   const video = { provider: value.slice(0, at), id: value.slice(at + 1) };
   if (at === -1 || !isFeaturedVideo(video)) return value;
   return `${PROVIDER_NAMES[video.provider]}: ${featuredVideoPageUrl(video)}`;
+}
+
+/**
+ * A logged logo version (milliseconds since the epoch of the upload) as
+ * "Uploaded Fri 25 Sep, 8:05 pm" (Melbourne); anything unexpected as stored.
+ */
+export function formatLoggedLogo(value: string): string {
+  if (!/^\d{1,15}$/.test(value)) return value;
+  const at = new Date(Number(value));
+  return Number.isNaN(at.getTime()) ? value : `Uploaded ${formatDayTime(at.toISOString())}`;
 }
 
 function isSocialHandleField(field: OrganiserLogField): field is SocialHandleField {
@@ -47,7 +60,8 @@ const STATUS_LABELS: Record<string, string> = {
  * A stored value as it reads on the profile: handles with their prefix
  * ("@name", "facebook.com/page"), statuses in words ("Approved"; a takedown's
  * "rejected" reads "Suspended"), a video as its link ("YouTube: https://…"),
- * anything else as stored.
+ * a logo as when it was uploaded ("Uploaded Fri 25 Sep, 8:05 pm"), anything
+ * else as stored.
  */
 export function formatOrganiserFieldValue(
   field: OrganiserLogField,
@@ -59,6 +73,7 @@ export function formatOrganiserFieldValue(
     return STATUS_LABELS[value] ?? value;
   }
   if (field === "featuredVideo") return formatLoggedVideo(value);
+  if (field === "logo") return formatLoggedLogo(value);
   if (!isSocialHandleField(field)) return value;
   const prefix = SOCIAL_HANDLE_FIELDS.find((f) => f.field === field)?.prefix ?? "";
   return `${prefix}${value}`;
