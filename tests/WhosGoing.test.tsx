@@ -639,7 +639,7 @@ describe("Who's Going — signed in", () => {
     expect(api.unsetGoing).toHaveBeenCalledWith(LIVE_EVENT.id, expect.any(Function));
     expect(names(region)).toHaveLength(3);
     expect(within(region).getByText("3").closest("p")).toHaveTextContent("3 going");
-    expect(within(region).getByRole("button", { name: "Show me as going" })).toHaveFocus();
+    await waitFor(() => expect(within(region).getByRole("button", { name: "Show me as going" })).toHaveFocus());
   });
 
   describe("messaging people on the list", () => {
@@ -706,7 +706,7 @@ describe("Who's Going — signed in", () => {
     const button = within(region).getByRole("button", { name: "Show me as going" });
     expect(button).toBeEnabled();
     expect(button).not.toHaveAttribute("aria-disabled");
-    expect(button).toHaveFocus();
+    await waitFor(() => expect(button).toHaveFocus());
   });
 
   it("when the profile has gone (409), moves focus to Add yourself rather than losing it", async () => {
@@ -732,7 +732,9 @@ describe("Who's Going — signed in", () => {
     const region = await panel();
     fireEvent.click(within(region).getByRole("button", { name: "Stop showing me" }));
     expect(await within(region).findByRole("alert")).toHaveTextContent("Couldn't update that. Try again.");
-    expect(within(region).getByRole("button", { name: "Stop showing me" })).toHaveFocus();
+    // Focus moves in a passive effect after the render that shows the alert, so wait for it
+    // (asserting straight away raced that effect and failed intermittently in CI).
+    await waitFor(() => expect(within(region).getByRole("button", { name: "Stop showing me" })).toHaveFocus());
     expect(within(region).getByText("4").closest("p")).toHaveTextContent("4 going");
   });
 
