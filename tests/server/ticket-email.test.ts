@@ -39,7 +39,7 @@ const order = {
 } as OrderRecord;
 
 /** The brand's four colours (docs/design/brand-direction-one.md), lower case as the email writes them. */
-const BRAND = { black: "#000000", white: "#ffffff", cream: "#fffae7", orange: "#ff4800" };
+const BRAND = { black: "#000000", white: "#ffffff", page: "#ffffff", orange: "#ff4800" };
 /** Each ticket card's border, so cards can be counted and split. */
 const CARD = "border:2px solid #000000;border-radius:10px";
 const WORDMARK_CID = "sheltuh-wordmark@sheltuh.com.au";
@@ -74,10 +74,10 @@ describe("buildTicketEmail", () => {
 
   // --- redesign: layout, content and edge cases ---
 
-  it("is a 600px-max centred card in the brand layout: cream page, white card, black title, Signal Orange button with black text", () => {
+  it("is a 600px-max centred card in the brand layout: white page, white card, black title, Signal Orange button with black text", () => {
     const { html } = buildTicketEmail(order, event, "https://sheltuh.com.au");
     expect(html).toContain("max-width:600px");
-    expect(html).toContain('bgcolor="#fffae7"'); // cream page background
+    expect(html).toContain('bgcolor="#ffffff" style="background-color:#ffffff"'); // white page background
     expect(html).toContain("background-color:#ffffff;border:1px solid #000000"); // white card, black hairline
     expect(html).toMatch(/You&rsquo;re in\./);
     expect(html).toMatch(/<p style="[^"]*font-weight:bold;color:#000000">Paint &#38; &#60;Sip&#62;<\/p>/); // event title in black
@@ -102,7 +102,7 @@ describe("buildTicketEmail", () => {
     for (const colour of colours) expect(Object.values<string>(EMAIL_COLOURS)).toContain(colour);
     for (const colour of Object.values(BRAND)) expect(colours).toContain(colour);
     // Backgrounds are set as bgcolor attributes as well as inline styles (clients that drop one keep the other).
-    expect(html).toContain(`<body bgcolor="${BRAND.cream}"`);
+    expect(html).toContain(`<body bgcolor="${BRAND.page}"`);
     expect(html).toContain(`bgcolor="${BRAND.white}" class="px"`);
     // The old palette is gone.
     for (const old of ["#f3f0e8", "#2b3cff", "#0b0b0b", "#5b574e", "#e3ded1"]) expect(html).not.toContain(old);
@@ -160,6 +160,8 @@ describe("buildTicketEmail", () => {
     expect(html).toContain("Ticket 4 of 4");
     expect(html).toContain("VIP");
     expect(html).toMatch(/font-size:28px[^"]*letter-spacing:3px/); // large readable code
+    // Each code sits on the sunken surface tile (#f3f2ee, black on it 18.75:1), not on the white page colour.
+    expect(html.split('<td class="code" bgcolor="#f3f2ee" align="center" style="background-color:#f3f2ee;')).toHaveLength(5);
   });
 
   // Updated deliberately for QR check-in: each ticket now has a QR image, but
@@ -350,7 +352,7 @@ describe("buildTicketEmail", () => {
     const tag = email.html.match(new RegExp(`<img src="cid:${WORDMARK_CID}"[^>]*>`))?.[0] ?? "";
     expect(tag).toContain('alt="SHELT&Uuml;H"');
     expect(tag).toContain(`width="${EMAIL_WORDMARK.displayWidth}" height="${EMAIL_WORDMARK.displayHeight}"`);
-    // With images off, the alt text shows in black on the cream page (Signal Orange is only for the button).
+    // With images off, the alt text shows in black on the white page (Signal Orange is only for the button).
     expect(tag).toContain(`color:${BRAND.black}`);
     expect(tag).toContain("font-size:20px");
     // Shown at the brand's 24px header height (docs/design/brand-direction-one.md §11 #6).

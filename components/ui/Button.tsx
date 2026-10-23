@@ -32,7 +32,7 @@ export function buttonClass(
 /**
  * A quiet secondary action (the event page's Save and Share row: docs/design/
  * mobile-redesign.md, Refinement 22 Oct 2026): an icon and a short label on a
- * soft cream fill, no border, 44px tall. Never a purchase.
+ * soft surface fill, no border, 44px tall. Never a purchase.
  */
 export const secondaryActionClass =
   "inline-flex min-h-11 items-center gap-2 rounded-control bg-surface px-3 text-sm leading-5 font-semibold text-foreground hover:bg-surface-border";

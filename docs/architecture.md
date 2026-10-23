@@ -259,8 +259,8 @@ times, which are converted to instants honouring daylight saving
      is no longer listed. Contact support@…" (the ticket page's rule, and
      the public routes' `status = 'published'`); the tickets still go out,
      and a resend follows the event's status at the time. The wordmark is a
-     PNG (black on cream, 212×48 shown at 106×24, brand-direction-one.md §11
-     #6, about 4 KB) rendered from `public/brand/sheltuh-wordmark.svg`
+     PNG (black on opaque white, 212×48 shown at 106×24, theme-white-dark.md
+     §5.12, about 3 KB) rendered from `public/brand/sheltuh-wordmark.svg`
      (`scripts/render-email-wordmark.ts`: `public/brand/sheltuh-wordmark-email.png`,
      embedded as base64 in `lib/server/email-wordmark.ts`) and attached
      inline (`cid:`) like the QR codes, so it shows where Outlook blocks
@@ -285,7 +285,7 @@ times, which are converted to instants honouring daylight saving
      matrix. Email clients themselves aren't tested. Every transactional
      email (tickets, free-ticket confirmation, waitlist, follower) is built
      on one layout, `lib/server/email-layout.ts` (Brand Direction One:
-     cream page, white card, black text, Signal Orange only on the one
+     white page, white card with a black hairline, black text, Signal Orange only on the one
      button, with black text on it; the button keeps its size in Outlook
      for Windows via `mso-padding-alt`, and the preheader is hidden there
      with `mso-hide:all`), so they can't drift apart;
@@ -590,7 +590,7 @@ UI states in `docs/design/brand-direction-one.md` §6.11).
   the event, when and where, a "Get tickets" link to
   `/events/{slug}#tickets`, that it's first come, first served and nothing is
   held, why they're getting it, and the leave link. Brand Direction One
-  colours (black on cream and white, Signal Orange only as the button, with
+  colours (black on white, Signal Orange only as the button, with
   black text). The subject (here and on the confirmation email) has control,
   invisible and text-direction characters of the title replaced by a space
   (`subjectLine`, `lib/server/email.ts`: every email's subject goes through

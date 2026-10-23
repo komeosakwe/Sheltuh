@@ -166,6 +166,22 @@ describe("Nav — phone menu", () => {
     expect(hidePopover).toHaveBeenCalled();
   });
 
+  it("holds the Theme switch after For organisers, and stays open when it's used (the sheet re-skins around you)", () => {
+    const { menu } = renderNav(fakeAuthValue({ status: "signed-out", configured: true }));
+    const hidePopover = vi.fn();
+    menu.hidePopover = hidePopover;
+    const group = within(menu).getByRole("group", { name: "Theme", hidden: true });
+    const organisers = within(menu).getByRole("link", { name: "For organisers", hidden: true });
+    expect(organisers.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(group.closest("[data-theme-switch]")).toHaveClass("mt-8");
+    fireEvent.click(within(group).getByRole("button", { name: "Dark", hidden: true }));
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+    fireEvent.click(within(group).getByRole("button", { name: "Light", hidden: true }));
+    expect(document.documentElement).not.toHaveAttribute("data-theme");
+    expect(hidePopover).not.toHaveBeenCalled();
+    localStorage.clear();
+  });
+
   it("closes when keyboard focus leaves the menu for the page", () => {
     const { menu } = renderNav(fakeAuthValue({ status: "signed-out" }));
     const hidePopover = vi.fn();

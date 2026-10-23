@@ -64,4 +64,34 @@ describe("EventArt", () => {
     rerender(<EventArt poster={poster} title="x" imageUrl="/home/hero.jpg" motion />);
     expect(container.querySelector("img")?.className).toMatch(/ken-burns/);
   });
+
+  // docs/design/theme-white-dark.md §4: a poster in the page's own colour gets a 1px inset edge,
+  // in the theme where it would otherwise dissolve into the page.
+  describe("edges in Light and Dark", () => {
+    const edges = (container: HTMLElement) => [...container.querySelectorAll("span.ring-inset")];
+
+    it("gives a black poster a white edge in Dark only", () => {
+      const { container } = render(<EventArt poster={{ ...poster, background: "#000000" }} title="x" />);
+      const [edge, ...rest] = edges(container);
+      expect(rest).toHaveLength(0);
+      expect(edge).toHaveClass("ring-1", "ring-foreground", "hidden", "dark:block");
+      expect(edge).not.toHaveClass("dark:hidden");
+    });
+
+    it.each(["#fffae7", "#ffffff", "#f3f2ee", "#F2ECD6"])("gives a paper-tone poster (%s) its edge in Light only", (background) => {
+      const { container } = render(<EventArt poster={{ ...poster, background }} title="x" />);
+      const [edge, ...rest] = edges(container);
+      expect(rest).toHaveLength(0);
+      expect(edge).toHaveClass("ring-1", "ring-foreground", "dark:hidden");
+      expect(edge).not.toHaveClass("hidden");
+    });
+
+    it("draws no edge on an orange poster, or over a photo", () => {
+      const orange = render(<EventArt poster={{ ...poster, background: "#ff4800" }} title="x" />);
+      expect(edges(orange.container)).toHaveLength(0);
+      orange.unmount();
+      const photo = render(<EventArt poster={{ ...poster, background: "#000000" }} title="x" imageUrl="/events/x.jpg" />);
+      expect(edges(photo.container)).toHaveLength(0);
+    });
+  });
 });

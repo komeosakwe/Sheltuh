@@ -404,8 +404,9 @@ describe("EventCard ticket states, from real data only (§6.2.3)", () => {
     expect(cta).toHaveAccessibleName(`${label} for ${e.title}`);
     expect(cta).toHaveAttribute("href", href);
     expect(cta).toHaveClass("btn", tone ?? "");
-    // The black focus ring, never orange.
-    expect(cta).toHaveClass("focus-visible:outline-ink");
+    // The page's own foreground ring (black in Light, white in Dark), never a fixed black or orange one.
+    expect(cta).not.toHaveClass("focus-visible:outline-ink");
+    expect(cta?.className).not.toMatch(/outline-(?:ink|signal)/);
   });
 
   it("ended: 'Ended' on the price line, muted, and no ticket action, sold out or not", () => {

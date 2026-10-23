@@ -216,7 +216,7 @@ describe("SaveButton — live", () => {
 });
 
 describe("SaveButton — focus on a photo (overlay)", () => {
-  it("rings the 36px mark, black on a cream gap, instead of the outline that can vanish into dark art; never orange", async () => {
+  it("rings the 36px mark, black on a white gap, instead of the outline that can vanish into dark art; never orange", async () => {
     const button = await readyHeart();
     const mark = button.firstElementChild as HTMLElement;
     expect(button).toHaveClass("group/save", "focus-visible:outline-none");
@@ -225,7 +225,7 @@ describe("SaveButton — focus on a photo (overlay)", () => {
       "group-focus-visible/save:ring-2",
       "group-focus-visible/save:ring-ink",
       "group-focus-visible/save:ring-offset-2",
-      "group-focus-visible/save:ring-offset-cream",
+      "group-focus-visible/save:ring-offset-paper",
     );
     expect(`${button.className} ${mark.className}`).not.toMatch(/signal|orange/);
   });
@@ -234,7 +234,7 @@ describe("SaveButton — focus on a photo (overlay)", () => {
     renderHeart(signedOut());
     const link = screen.getByRole("link", { name: "Sign in to save Night Market" });
     expect(link).toHaveClass("focus-visible:outline-none");
-    expect(link.firstElementChild).toHaveClass("group-focus-visible/save:ring-ink", "group-focus-visible/save:ring-offset-cream");
+    expect(link.firstElementChild).toHaveClass("group-focus-visible/save:ring-ink", "group-focus-visible/save:ring-offset-paper");
   });
 
   it("other variants keep the page's own outline", async () => {

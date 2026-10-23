@@ -8,9 +8,9 @@ The brand rollout is in progress, following the increments in `brand-direction-o
 
 ## The system in one screen
 
-- **Colour:** Cream `#fffae7` background, White `#ffffff` cards and fields, Black `#000000` text and structure, and **Signal Orange `#ff4800`** for signature fills, the primary conversion CTA (one per view) and large display text only.
+- **Colour:** White `#ffffff` background, cards and fields (cards are set apart by their 1px black border; see [`design/theme-white-dark.md`](design/theme-white-dark.md)), Black `#000000` text and structure, and **Signal Orange `#ff4800`** for signature fills, the primary conversion CTA (one per view) and large display text only.
   - Orange is **never small text on light backgrounds** (3.25:1). Black on orange is 6.18:1.
-  - Light only. Ink sections use `data-surface="ink"`; the one orange band per page uses `data-surface="signal"`.
+  - Light by default, with a **Light / Dark switch** in the footer and the phone menu (`data-theme="dark"` on `<html>`, stored per browser; [`design/theme-white-dark.md`](design/theme-white-dark.md)). Ink sections use `data-surface="ink"`; the one orange band per page uses `data-surface="signal"`; the map canvas is pinned Light with `data-surface="paper"`.
   - The door check-in keeps its own functional palette (`[data-door]`, `--door-*`, `docs/design/check-in.md`).
 - **Type:**
   - **Bootzy** (display token `--face-display`). Not yet licensed into the repo; Instrument Sans 700 set tight stands in, and it swaps with one token block (§3.4).
@@ -44,7 +44,7 @@ Home (`components/home/`, spec `docs/design/mobile-redesign.md`, which supersede
 Favourites (`components/favourites/`, spec `docs/design/favourites-analytics.md`):
 - `SaveButton` has variants `overlay` over art, `plain` on compact cards, `onDark` in the buy bar, and `pill` by the event title. It's a toggle with a fixed name and `aria-pressed`, and a sign-in link when signed out.
 - Also `HeartIcon`, `SavedNavLink`, and the `FavouritesNotice` band (an ink bar, never a toast).
-- The heart is black (cream on ink), never orange.
+- The heart is black (white on ink), never orange.
 
 Analytics (`components/analytics/`):
 - `StatGrid`: Instrument Sans tabular numerals on a hairline, change in words.
@@ -57,7 +57,7 @@ Analytics (`components/analytics/`):
 ## Review gates (tests)
 
 - `tests/door-tokens.test.ts`: the door palette stays scoped to the scanner. Unchanged by the brand rollout.
-- `tests/pwa-manifest.test.ts`: `APP_THEME_COLOR` equals the first `--background` in `globals.css` (Cream after increment 1).
+- `tests/pwa-manifest.test.ts`: `APP_THEME_COLOR` equals the first `--background` in `globals.css` (White since 23 Oct 2026, `theme-white-dark.md`).
 - `tests/brand-tokens.test.ts` (added in increment 1, extended in increments 5 and 11): brand hex values defined; no `pop`, `highlight` or `shadow-card` in components; `text-signal` never combined with small-text classes. It replaces `tests/phone-home-tokens.test.ts`.
 
 ## Legacy (until the increments land)

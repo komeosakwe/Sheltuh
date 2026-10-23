@@ -359,12 +359,13 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
               the very end rather than covering it. Focus scrolls clear of it (globals.css pads
               by --buybar-h), and its bottom padding clears the home indicator. The page
               wrapper's padding is what -mx bleeds it across. Once the event has ended there's no
-              bar at all: nothing's for sale, and the Tickets panel says so. */}
+              bar at all: nothing's for sale, and the Tickets panel says so. In Dark it gains a
+              1px white top rule, so the black bar doesn't merge with the black page. */}
           {price && !ended && (
             <div
               data-buy-bar
               data-surface="ink"
-              className="sticky bottom-0 z-20 -mx-5 flex min-h-16 items-center justify-between gap-4 px-5 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden"
+              className="sticky bottom-0 z-20 -mx-5 flex min-h-16 items-center justify-between gap-4 px-5 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden dark:border-t dark:border-foreground"
             >
               <div className="min-w-0">
                 <p className="text-base leading-5 font-semibold tabular-nums">{price.amount}</p>
@@ -391,7 +392,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
             <div
               data-buy-bar
               data-surface="ink"
-              className="sticky bottom-0 z-20 -mx-5 flex min-h-16 items-center justify-between gap-4 px-5 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden"
+              className="sticky bottom-0 z-20 -mx-5 flex min-h-16 items-center justify-between gap-4 px-5 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden dark:border-t dark:border-foreground"
             >
               <div className="min-w-0">
                 {event.externalFree ? (

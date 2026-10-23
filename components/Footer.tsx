@@ -3,6 +3,7 @@ import BrandU from "@/components/brand/BrandU";
 import Wordmark from "@/components/brand/Wordmark";
 import FooterGroup, { type FooterLink } from "@/components/FooterGroup";
 import InstallPrompt from "@/components/pwa/InstallPrompt";
+import ThemeSwitch from "@/components/theme/ThemeSwitch";
 import { SUPPORT_EMAIL } from "@/lib/contact";
 
 /** Support first, and always open: help, refunds and a way to reach a person. */
@@ -44,17 +45,19 @@ const LEGAL_LINKS: FooterLink[] = [
  * it), kept short. The orange wordmark at a restrained size (decorative: the
  * © line carries the name), the campaign line "Where is ÜR Sheltüh?" as a
  * small brand line under it (heard as "Where is your Sheltüh?"), one note,
- * and the quiet install action. Then the link groups: Fan support always
+ * the quiet install action and the Light / Dark switch
+ * (docs/design/theme-white-dark.md §5.7). Then the link groups: Fan support always
  * open; Explore and Our company as disclosures on phones, columns from
  * 640px. The © line and the legal links close the page, always visible.
  * In the demo, the page's sample-data disclosure is the banner at the top
  * (DemoBanner), so the note here is the same in both modes.
  * `data-page-end`: the page's last block, which gains bottom room while the
  * map's phone sheet is open (globals.css), so nothing ends up under it.
+ * In Dark the ink footer meets a black page, so it gains a 1px white rule.
  */
 export default function Footer() {
   return (
-    <footer data-surface="ink" data-page-end="">
+    <footer data-surface="ink" data-page-end="" className="dark:border-t dark:border-foreground">
       {/* The bottom padding clears the home indicator in an installed iPhone app; it's 0 elsewhere. */}
       <div className="mx-auto max-w-6xl px-5 pt-8 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:px-8 sm:pt-10">
         <div className="flex flex-col gap-6 lg:grid lg:grid-cols-12 lg:gap-x-8">
@@ -66,6 +69,7 @@ export default function Footer() {
             <p className="mt-1 max-w-sm text-sm leading-5 text-muted">Curated creative events in Melbourne.</p>
             {/* A quiet secondary action under the note, only where the browser can install the app. */}
             <InstallPrompt />
+            <ThemeSwitch className="mt-6" />
           </div>
           <div className="flex flex-col sm:grid sm:grid-cols-3 sm:gap-x-6 lg:col-span-7">
             <FooterGroup heading="Fan support" links={SUPPORT_LINKS} />

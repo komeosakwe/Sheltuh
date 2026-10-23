@@ -17,7 +17,7 @@ const MIDDLE_BAND = "-45% 0px -45% 0px";
  * tall photo from 1024px. One item at a time is in full black: the first at
  * load, then whichever crosses the middle of the screen as you scroll (or
  * is under the pointer), and the photo changes to that item's. The others
- * stay readable in the muted text colour (5.39:1 on cream), never faded
+ * stay readable in the muted text colour (5.65:1 on white), never faded
  * out: nothing waits for a scroll to be legible. The photo cross-fade and
  * the colour change ease only for people who haven't asked for less motion.
  * The photo is decoration (hidden below 1024px, where it would cost a phone

@@ -421,7 +421,7 @@ for (const vp of [
       const items = section.getByRole("listitem");
       await expect(items).toHaveCount(3);
       await expect(items.nth(0)).toHaveAttribute("data-active", "true");
-      // Inactive items: the muted token (5.39:1 on cream), fully opaque.
+      // Inactive items: the muted token (5.65:1 on white), fully opaque.
       const inactive = await items.nth(1).evaluate((li) => ({ color: getComputedStyle(li).color, opacity: getComputedStyle(li).opacity }));
       expect(inactive).toEqual({ color: "rgb(107, 103, 94)", opacity: "1" });
       await items.nth(2).evaluate((li) => {

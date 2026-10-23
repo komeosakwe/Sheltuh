@@ -7,9 +7,11 @@ import { UnreadProvider } from "@/components/messages/UnreadProvider";
 import Nav from "@/components/Nav";
 import ServiceWorkerRegistration from "@/components/pwa/ServiceWorkerRegistration";
 import RouteProgress from "@/components/RouteProgress";
+import ThemeSync from "@/components/theme/ThemeSync";
 import { isApiConfigured } from "@/lib/api/client";
 import { AuthProvider } from "@/lib/auth/AuthContext";
 import { APP_THEME_COLOR } from "@/lib/pwa/theme";
+import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { instrument, plexMono } from "./fonts";
 import "./globals.css";
 
@@ -37,7 +39,7 @@ export const metadata: Metadata = {
     : "Sheltüh is a curated guide to Melbourne's live music, art, workshops and pop-ups. Local prototype with sample data — no real tickets are sold yet.",
   applicationName: "Sheltüh",
   // Home-screen app on iOS (the manifest is app/manifest.ts). "default" keeps
-  // dark status-bar text over the cream header; see docs/pwa.md.
+  // dark status-bar text over the white header; see docs/pwa.md.
   appleWebApp: { title: "Sheltüh", statusBarStyle: "default" },
 };
 
@@ -53,11 +55,20 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     // data-scroll-behavior: Next 16 turns the CSS smooth scroll off during route
     // changes, so page navigations still jump to the top instantly.
+    // suppressHydrationWarning: the theme script sets data-theme="dark" on <html>
+    // before hydration (the server always renders Light: no attribute).
     <html
       lang="en"
       data-scroll-behavior="smooth"
       className={`${instrument.variable} ${plexMono.variable} h-full`}
+      suppressHydrationWarning
     >
+      <head>
+        {/* Inline and synchronous, the first child here (React hoists the charset, viewport,
+            stylesheet and metadata above it), so a stored Dark is on before <body> is parsed and
+            painted (docs/design/theme-white-dark.md §5.4; Next's "Preventing flash" guide). */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col bg-background text-foreground antialiased">
         <a
           href="#main"
@@ -83,6 +94,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           </UnreadProvider>
         </AuthProvider>
         <ServiceWorkerRegistration />
+        <ThemeSync />
       </body>
     </html>
   );

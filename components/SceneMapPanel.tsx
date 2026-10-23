@@ -336,7 +336,7 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
 
   return (
     // `isolate` keeps Leaflet's pane z-indexes (400–1000) below the sticky header.
-    <div className="relative isolate h-full w-full overflow-hidden rounded-none border border-surface-border">
+    <div data-surface="paper" className="relative isolate h-full w-full overflow-hidden rounded-none border border-surface-border">
       <MapStyles />
       <MapContainer
         key={retryKey}

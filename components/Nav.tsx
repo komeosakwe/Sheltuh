@@ -8,6 +8,7 @@ import Wordmark from "@/components/brand/Wordmark";
 import SearchBar from "@/components/SearchBar";
 import SavedNavLink from "@/components/favourites/SavedNavLink";
 import { useUnread } from "@/components/messages/UnreadProvider";
+import ThemeSwitch from "@/components/theme/ThemeSwitch";
 import { ButtonLink } from "@/components/ui/Button";
 
 const MENU_ID = "site-menu";
@@ -88,8 +89,9 @@ export default function Nav() {
     menuRef.current?.hidePopover?.();
   }, [pathname]);
 
+  // Links and actions close the menu; the theme switch doesn't: the sheet re-skinning around you is the feedback.
   function closeMenuOnAction(event: MouseEvent<HTMLElement>) {
-    if (event.target instanceof Element && event.target.closest("a, button")) {
+    if (event.target instanceof Element && event.target.closest("a, button") && !event.target.closest("[data-theme-switch]")) {
       menuRef.current?.hidePopover?.();
     }
   }
@@ -226,6 +228,7 @@ export default function Nav() {
           <ButtonLink href="/organisers/apply" variant="outline" size="lg" className="mt-8 w-full">
             For organisers
           </ButtonLink>
+          <ThemeSwitch className="mt-8" />
           <p className="eyebrow mt-auto pt-8 text-muted">Melbourne · Australia</p>
         </nav>
       </div>

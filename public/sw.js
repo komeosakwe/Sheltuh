@@ -16,7 +16,8 @@
 // v2: public/offline.html changed (precached), so the shell cache must be replaced.
 // v3: offline.html re-branded (Brand Direction One: cream, the official wordmark), and the
 // icons in the image cache were redrawn; replacing the caches drops the old ones at once.
-const VERSION = "v3";
+// v4: offline.html white foundation (docs/design/theme-white-dark.md §5.13).
+const VERSION = "v4";
 const CACHE_PREFIX = "sheltuh-";
 const SHELL_CACHE = `${CACHE_PREFIX}shell-${VERSION}`;
 const STATIC_CACHE = `${CACHE_PREFIX}static-${VERSION}`;

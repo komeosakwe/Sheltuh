@@ -42,7 +42,7 @@ export default function MessageList({
             className={`max-w-full rounded-card px-3.5 py-2.5 text-base leading-6 break-words whitespace-pre-wrap sm:text-sm sm:leading-5 ${
               message.fromYou
                 ? "rounded-br-badge bg-foreground text-background"
-                : "rounded-bl-badge border border-surface-border bg-card text-foreground"
+                : "rounded-bl-badge border border-surface-border bg-surface text-foreground"
             }`}
           >
             {message.body}

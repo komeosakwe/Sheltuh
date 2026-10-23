@@ -13,7 +13,7 @@ import { useOptionalHomeEvents } from "./HomeEventsProvider";
 import { HOME_CONTAINER } from "./HomeRail";
 import { ArrowRightIcon, PersonIcon } from "./icons";
 
-/** The card's four circles, in the brand fills in turn (black, orange, cream, black), each with its readable text colour. */
+/** The card's four circles, in the brand fills in turn (black, orange, sunken paper, black), each with its readable text colour. */
 const FACE_FILLS = [
   "bg-foreground text-card",
   "bg-signal text-signal-foreground",
@@ -101,7 +101,9 @@ function Faces({ example }: { example: Example }) {
  * (the demo's are samples). With no event to draw on there's no card and
  * the pitch stands alone: never an invented number.
  * `#find-your-people` links land here, focus included (tabIndex -1).
- * Black on orange (6.18:1); never an orange button here.
+ * Black on orange (6.18:1); never an orange button here. The band looks the
+ * same in Light and Dark: the signal scope pins --card and --surface to
+ * their Light values, so the card stays white with black text.
  */
 export default function CommunitySection({ className = "" }: { className?: string }) {
   const auth = useOptionalAuth();

@@ -3,7 +3,7 @@ import { formatAud } from "@/lib/format";
 import { formatSeatLine, speakSeatLine } from "@/lib/seating/format";
 import { QR_QUIET_ZONE_MODULES, ticketQrLabel, ticketQrMatrix } from "@/lib/ticket-qr";
 import { subjectLine, type EmailMessage, type InlineImage } from "./email";
-import { button, CREAM, escapeHtml, eventTitle, heading, INK, LINE, MONO, MUTED, page, SANS } from "./email-layout";
+import { button, escapeHtml, eventTitle, heading, INK, LINE, MONO, MUTED, page, SANS, SURFACE } from "./email-layout";
 import { EMAIL_WORDMARK } from "./email-wordmark";
 import { orderReference } from "./order-reference";
 import { encodePng } from "./png";
@@ -23,7 +23,7 @@ export const EMAIL_FOOTER_IMAGE_URL = "https://sheltuh.com.au/images/email-foote
  * The buyer's tickets email, sent once an order is paid (free orders included).
  *
  * The shared brand layout (lib/server/email-layout.ts: table markup, inline
- * styles, cream page, one white card, Signal Orange only on the button, a
+ * styles, white page, one white card, Signal Orange only on the button, a
  * button that keeps its size in Outlook, a preheader hidden there too) so it
  * holds up in Gmail, Apple Mail and Outlook and matches every other email.
  * Everything essential (event, when, where, every ticket code and seat, the
@@ -169,7 +169,7 @@ function wordmarkImage(): InlineImage {
 /**
  * One ticket, like the web stub: its number and type, its seat (reserved
  * seating), a dashed perforation, the QR, then the backup code as large text
- * on cream ("Entry code" when there's no QR). The PNG carries its own white
+ * on the sunken surface tile ("Entry code" when there's no QR). The PNG carries its own white
  * quiet zone.
  */
 function ticketCard(
@@ -188,7 +188,7 @@ function ticketCard(
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:2px solid ${INK};border-radius:10px;margin:0 0 14px 0">
 <tr><td style="padding:16px 18px ${seat ? 4 : 12}px 18px;font-family:${SANS};font-size:12px;line-height:18px;letter-spacing:1.2px;text-transform:uppercase;font-weight:bold;color:${MUTED}">${escapeHtml(label)}${typeName ? ` &middot; ${escapeHtml(typeName)}` : ""}</td></tr>
 ${seat ? `<tr><td style="padding:0 18px 12px 18px;font-family:${SANS};font-size:16px;line-height:24px;font-weight:bold;color:${INK}">${escapeHtml(formatSeatLine(seat))}</td></tr>\n` : ""}<tr><td style="border-top:2px dashed ${INK};font-size:0;line-height:0">&nbsp;</td></tr>
-${qrRow}<tr><td style="padding:${qr ? "0" : "16px"} 18px 16px 18px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" style="padding:0 0 6px 0;font-family:${SANS};font-size:11px;line-height:16px;letter-spacing:1.2px;text-transform:uppercase;font-weight:bold;color:${MUTED}">${codeLabel}</td></tr><tr><td class="code" bgcolor="${CREAM}" align="center" style="background-color:${CREAM};border-radius:8px;padding:14px 8px;font-family:${MONO};font-size:28px;line-height:34px;font-weight:bold;letter-spacing:3px;color:${INK};word-break:break-all">${escapeHtml(code)}</td></tr></table></td></tr>
+${qrRow}<tr><td style="padding:${qr ? "0" : "16px"} 18px 16px 18px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" style="padding:0 0 6px 0;font-family:${SANS};font-size:11px;line-height:16px;letter-spacing:1.2px;text-transform:uppercase;font-weight:bold;color:${MUTED}">${codeLabel}</td></tr><tr><td class="code" bgcolor="${SURFACE}" align="center" style="background-color:${SURFACE};border-radius:8px;padding:14px 8px;font-family:${MONO};font-size:28px;line-height:34px;font-weight:bold;letter-spacing:3px;color:${INK};word-break:break-all">${escapeHtml(code)}</td></tr></table></td></tr>
 </table>`;
 }
 
@@ -273,7 +273,7 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
     ? `Show ${one ? "this QR code" : "these QR codes"} at the door. Turn your screen brightness up. If ${one ? "it" : "one"} won&rsquo;t scan, door staff can type in ${one ? "the" : "its"} backup code.`
     : `Show ${one ? "this code" : "these codes"} at the door.`;
 
-  // The official wordmark (black on cream, docs/design/brand-direction-one.md §11 #6), inline so it
+  // The official wordmark (black on opaque white, docs/design/theme-white-dark.md §5.12), inline so it
   // shows where remote images are blocked; with all images off, its alt text names the brand.
   const header = `<img src="cid:${WORDMARK_CID}" width="${EMAIL_WORDMARK.displayWidth}" height="${EMAIL_WORDMARK.displayHeight}" alt="SHELT&Uuml;H" style="display:block;border:0;width:${EMAIL_WORDMARK.displayWidth}px;height:${EMAIL_WORDMARK.displayHeight}px;font-family:${SANS};font-size:20px;line-height:24px;font-weight:bold;color:${INK}">`;
   const body = `    ${heading("You&rsquo;re in.", 8)}
