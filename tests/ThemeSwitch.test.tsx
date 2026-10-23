@@ -146,4 +146,17 @@ describe("ThemeSync (§5.5)", () => {
     expect(screen.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
     expect(setItem).not.toHaveBeenCalled();
   });
+
+  it("catches up on a page restored from the back/forward cache, but not on a normal pageshow", () => {
+    render(<ThemeSync />);
+    localStorage.setItem(THEME_STORAGE_KEY, "dark");
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: false }));
+    });
+    expect(document.documentElement).not.toHaveAttribute("data-theme");
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+    });
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+  });
 });

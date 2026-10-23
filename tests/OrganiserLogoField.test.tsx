@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import OrganiserLogoField, { logoFileError } from "@/components/dashboard/OrganiserLogoField";
+import OrganiserLogoField, { logoErrorMessage, logoFileError } from "@/components/dashboard/OrganiserLogoField";
 import { SESSION_EXPIRED_MESSAGE } from "@/components/whos-going/shared";
 import { ApiError } from "@/lib/api/client";
 import type { OrganiserRecord } from "@/lib/api/types";
@@ -198,5 +198,11 @@ describe("OrganiserLogoField", () => {
     });
     expect(screen.getByText("Couldn’t show your logo")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove logo" })).toBeInTheDocument();
+  });
+});
+
+describe("logoErrorMessage", () => {
+  it("treats a refused token (401) like an expired session: signing in helps, trying again doesn't", () => {
+    expect(logoErrorMessage(new ApiError(401, "Unauthorized"), "fallback")).toBe(SESSION_EXPIRED_MESSAGE);
   });
 });

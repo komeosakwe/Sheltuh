@@ -33,7 +33,7 @@ const SCRIPT_FIXED = "data-theme-fixed";
  * parsed (in case the meta comes after it); the door's own colour is never
  * touched.
  */
-export const THEME_INIT_SCRIPT = `(function(){try{if(localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)})!=="dark")return;var d=document.documentElement;d.setAttribute("${ATTRIBUTE}","dark");var fix=function(){var m=document.querySelector('meta[name="theme-color"]');if(m&&m.content.toLowerCase()===${JSON.stringify(APP_THEME_COLOR)}){m.content=${JSON.stringify(DARK_THEME_COLOR)};m.setAttribute("${SCRIPT_FIXED}","")}};fix();document.addEventListener("DOMContentLoaded",fix)}catch(e){}})();`;
+export const THEME_INIT_SCRIPT = `(function(){try{if(localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)})!=="dark")return;var d=document.documentElement;d.setAttribute("${ATTRIBUTE}","dark");var fix=function(){if(d.getAttribute("${ATTRIBUTE}")!=="dark")return;var m=document.querySelector('meta[name="theme-color"]');if(m&&m.content.toLowerCase()===${JSON.stringify(APP_THEME_COLOR)}){m.content=${JSON.stringify(DARK_THEME_COLOR)};m.setAttribute("${SCRIPT_FIXED}","")}};fix();document.addEventListener("DOMContentLoaded",fix)}catch(e){}})();`;
 
 /** The current theme, from <html> (the single source of truth once the script has run). */
 export function getTheme(): Theme {

@@ -57,6 +57,16 @@ describe("THEME_INIT_SCRIPT (docs/design/theme-white-dark.md §5.4)", () => {
     expect(meta.content).toBe(DARK_THEME_COLOR);
   });
 
+  it("doesn't recolour the theme-color on DOMContentLoaded if Light was chosen in the meantime", () => {
+    localStorage.setItem(THEME_STORAGE_KEY, "dark");
+    runInitScript();
+    document.documentElement.removeAttribute("data-theme"); // the person picked Light before the document finished
+    const meta = themeColorMeta(APP_THEME_COLOR);
+    document.dispatchEvent(new Event("DOMContentLoaded"));
+    expect(meta.content).toBe(APP_THEME_COLOR);
+    expect(meta).not.toHaveAttribute("data-theme-fixed");
+  });
+
   it.each([["light"], [null], ["purple"], ["DARK"]])("leaves the page Light for a stored %s", (stored) => {
     if (stored !== null) localStorage.setItem(THEME_STORAGE_KEY, stored);
     const meta = themeColorMeta(APP_THEME_COLOR);

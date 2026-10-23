@@ -87,6 +87,10 @@ export async function deleteOrganiserLogo(getToken: GetToken) {
   return apiFetch<OrganiserRecord>("/organisers/me/logo", { method: "DELETE", token });
 }
 
+/** The only shape `logoUrl` takes (lib/server/records.ts organiserLogoUrls): no `..` or other routes. */
+const LOGO_URL = /^\/api\/organisers\/[0-9a-f-]{36}\/logo(\?[^#]*)?$/i;
+export const isOrganiserLogoUrl = (url: string) => LOGO_URL.test(url);
+
 /**
  * Fetches an organiser's logo with the bearer token (an <img> can't send
  * one): how an admin, or the owner, sees a logo that isn't public (the
@@ -95,7 +99,7 @@ export async function deleteOrganiserLogo(getToken: GetToken) {
  */
 export async function fetchOrganiserLogo(url: string, getToken: GetToken, signal?: AbortSignal): Promise<Blob> {
   if (!isApiConfigured) throw new Error("The live API is not configured in this environment (Supabase is unset).");
-  if (!url.startsWith("/api/organisers/")) throw new Error("Not a logo URL.");
+  if (!isOrganiserLogoUrl(url)) throw new Error("Not a logo URL.");
   const token = await getToken();
   let res: Response;
   try {

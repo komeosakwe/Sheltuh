@@ -30,6 +30,8 @@ export function logoErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof ImageError) return err.message;
   if (!(err instanceof ApiError)) return fallback;
   switch (err.status) {
+    case 401:
+      return SESSION_EXPIRED_MESSAGE; // The token was refused: trying again won't help, signing in will.
     case 0:
       return err.message; // No connection: the client's own wording.
     case 400:
