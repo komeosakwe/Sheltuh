@@ -258,7 +258,7 @@ describe("brand faces", () => {
   it("maps the faces to tokens, with the display token falling back to Instrument Sans until Bootzy is licensed", () => {
     expect(css).toMatch(/--face-sans: var\(--font-instrument\),/);
     expect(css).toMatch(/--face-mono: var\(--font-plex-mono\),/);
-    expect(css).toContain("--face-display: var(--face-sans);");
+    expect(css).toContain("--face-display: var(--face-dots);");
     expect(css).toContain("--font-sans: var(--face-sans);");
     expect(css).toContain("--font-mono: var(--face-mono);");
     // The old theme keys pointed at next/font variables of the same name.

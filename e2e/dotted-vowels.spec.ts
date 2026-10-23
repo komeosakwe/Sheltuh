@@ -15,7 +15,7 @@ test.beforeEach(async ({ page }) => {
 const fontFamily = (page: Page, selector: string) =>
   page.locator(selector).first().evaluate((el) => getComputedStyle(el).fontFamily);
 
-test("the headline and body render in the dotted face, the text stays plain, fields and mono stay plain", async ({ page }) => {
+test("only the headlines render in the dotted face; body, fields and mono stay plain; the text stays plain", async ({ page }) => {
   await page.goto("/");
   const h1 = page.getByRole("heading", { level: 1 });
   await expect(h1).toBeVisible();
@@ -27,8 +27,11 @@ test("the headline and body render in the dotted face, the text stays plain, fie
 
   // instrumentDots: the CSS family of Instrument Sans Dots (app/fonts.ts), then the plain face.
   expect(await fontFamily(page, "h1")).toMatch(/^"?instrumentDots"?, "Instrument Sans", /);
-  expect(await fontFamily(page, "body")).toMatch(/^"?instrumentDots"?, /);
-  expect(await fontFamily(page, "main p:not(.eyebrow)")).toMatch(/^"?instrumentDots"?, /);
+  // Section titles (display-md) are dotted too; running text, cards and buttons are plain.
+  expect(await fontFamily(page, "main h2")).toMatch(/^"?instrumentDots"?, /);
+  expect(await fontFamily(page, "body")).toMatch(/^"Instrument Sans", /);
+  expect(await fontFamily(page, "main p:not(.eyebrow)")).toMatch(/^"Instrument Sans", /);
+  expect(await fontFamily(page, "main h3")).toMatch(/^"Instrument Sans", /);
 
   // What people type looks the way they typed it.
   const search = page.getByRole("searchbox", { name: "Search events" });

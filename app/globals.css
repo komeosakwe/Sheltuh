@@ -34,18 +34,21 @@
   --door-refuse-foreground: #f3f0e8;
   --door-hold: #ffb020; /* "Not verified": frame, hazard stripes, icon, headline; offline banner fill */
   --door-hold-foreground: #0b0b0b;
-  /* Faces (app/fonts.ts). --face-sans is Instrument Sans Dots first: every vowel drawn with the
-     brand's two dots (owner, 23 Oct 2026), in the font only, so the text stays plainly spelled.
-     Anything it lacks falls through to the plain face. --face-sans-plain is unmodified Instrument
-     Sans, for form fields. Mono stays plain: codes and references must read unambiguously. */
-  --face-sans: var(--font-instrument-dots), var(--font-instrument), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-  --face-sans-plain: var(--font-instrument), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  /* Faces (app/fonts.ts). --face-sans is plain Instrument Sans for all running text, buttons,
+     prices and nav. --face-dots is Instrument Sans Dots (every vowel drawn with the brand's two
+     dots, in the font only, so the text stays plainly spelled), first in the line: only the big
+     headlines use it (the home h1 and display-md section titles, via --face-display), which the
+     owner asked for on 23 Oct 2026 after all-text dots proved too distracting. Anything it lacks
+     falls through to the plain face. Form fields use --face-sans-plain. Mono stays plain. */
+  --face-sans: var(--font-instrument), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --face-dots: var(--font-instrument-dots), var(--face-sans);
+  --face-sans-plain: var(--face-sans);
   --face-mono: var(--font-plex-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   /* THE display token. Bootzy isn't licensed into the repo yet: the fallback is Instrument Sans 700,
      set tight, which is how the brand book sets its own headlines. Flip this block when Bootzy
      lands (brand-direction-one.md §3.4): --face-display: var(--font-bootzy), var(--face-sans);
      --display-weight: 400; --display-tracking: -0.01em; --display-leading: 0.9. */
-  --face-display: var(--face-sans);
+  --face-display: var(--face-dots);
   --display-weight: 700;
   --display-tracking: -0.045em;
   --display-leading: 0.88;
@@ -279,10 +282,11 @@ h4 {
 /* A page's main headline (the home's h1, page headers): the one heavy uppercase style.
    Instrument Sans 700, 32–40px on phones, 56–72px from lg. Event titles use title-lg. */
 @utility display-lg {
-  font-family: var(--face-sans);
+  font-family: var(--face-dots);
   font-weight: 700;
   font-size: clamp(2rem, 8.5vw, 2.5rem);
-  line-height: 0.95;
+  /* 1.08, not 0.95: room for the dots over the second line's capitals. */
+  line-height: 1.08;
   letter-spacing: -0.035em;
   text-transform: uppercase;
   @media (width >= 40rem) {
@@ -296,7 +300,7 @@ h4 {
 /* Section h2 and empty-state titles (docs/design/mobile-redesign.md, Refinement 22 Oct): calm,
    sentence case, 20/24, 22/28 from sm, 24/30 from lg. Only a page's main headline is uppercase. */
 @utility display-md {
-  font-family: var(--face-sans);
+  font-family: var(--face-dots);
   font-weight: 700;
   font-size: 1.25rem;
   line-height: 1.5rem;
@@ -336,7 +340,7 @@ h4 {
     font-family: var(--face-display);
     font-weight: var(--display-weight);
     letter-spacing: var(--display-tracking);
-    line-height: 0.9;
+    line-height: 1.05; /* room for the dots over the second line's capitals */
   }
 }
 

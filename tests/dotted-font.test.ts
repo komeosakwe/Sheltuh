@@ -209,15 +209,19 @@ describe("dotted vowels in the CSS", () => {
     expect(layout).toContain("${instrumentDots.variable} ${instrument.variable} ${plexMono.variable}");
   });
 
-  it("puts the dotted face first in the sans (so in the display face too), the plain one after it", () => {
-    expect(css).toMatch(/--face-sans: var\(--font-instrument-dots\), var\(--font-instrument\), /);
-    expect(css).toContain("--face-display: var(--face-sans);");
+  it("keeps the sans plain and puts the dotted face only on the headlines (display face, display-lg, display-md)", () => {
+    // Headlines only (owner: all-text dots were too distracting): the sans is plain again.
+    expect(css).toMatch(/--face-sans: var\(--font-instrument\), /);
+    expect(css).toContain("--face-dots: var(--font-instrument-dots), var(--face-sans);");
+    expect(css).toContain("--face-display: var(--face-dots);");
+    expect(css).toMatch(/@utility display-lg \{\s*font-family: var\(--face-dots\);/);
+    expect(css).toMatch(/@utility display-md \{\s*font-family: var\(--face-dots\);/);
     expect(css).toContain("--font-sans: var(--face-sans);");
   });
 
   it("keeps a plain sans for form fields, and the mono plain", () => {
     const plain = css.match(/--face-sans-plain: ([^;]*);/)?.[1] ?? "";
-    expect(plain).toMatch(/^var\(--font-instrument\), /);
+    expect(plain).toBe("var(--face-sans)");
     expect(plain).not.toContain("dots");
     const mono = css.match(/--face-mono: ([^;]*);/)?.[1] ?? "";
     expect(mono).toMatch(/^var\(--font-plex-mono\), /);
