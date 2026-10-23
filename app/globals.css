@@ -34,8 +34,12 @@
   --door-refuse-foreground: #f3f0e8;
   --door-hold: #ffb020; /* "Not verified": frame, hazard stripes, icon, headline; offline banner fill */
   --door-hold-foreground: #0b0b0b;
-  /* Faces (app/fonts.ts). */
-  --face-sans: var(--font-instrument), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  /* Faces (app/fonts.ts). --face-sans is Instrument Sans Dots first: every vowel drawn with the
+     brand's two dots (owner, 23 Oct 2026), in the font only, so the text stays plainly spelled.
+     Anything it lacks falls through to the plain face. --face-sans-plain is unmodified Instrument
+     Sans, for form fields. Mono stays plain: codes and references must read unambiguously. */
+  --face-sans: var(--font-instrument-dots), var(--font-instrument), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --face-sans-plain: var(--font-instrument), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   --face-mono: var(--font-plex-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   /* THE display token. Bootzy isn't licensed into the repo yet: the fallback is Instrument Sans 700,
      set tight, which is how the brand book sets its own headlines. Flip this block when Bootzy
@@ -231,6 +235,17 @@ body {
      bottom are handled by the header, footer and sticky bars themselves. */
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
+}
+
+/* Form fields keep the plain Instrument Sans (no dotted vowels), so typed text looks the way it
+   was typed. Base layer: a field that asks for font-mono (a code entry) still gets mono. */
+@layer base {
+  input,
+  textarea,
+  select,
+  [contenteditable]:not([contenteditable="false"]) {
+    font-family: var(--face-sans-plain);
+  }
 }
 
 /* Headings: Instrument Sans 700 in sentence case (docs/design/mobile-redesign.md, Refinement

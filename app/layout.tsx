@@ -12,7 +12,7 @@ import { isApiConfigured } from "@/lib/api/client";
 import { AuthProvider } from "@/lib/auth/AuthContext";
 import { APP_THEME_COLOR } from "@/lib/pwa/theme";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
-import { instrument, plexMono } from "./fonts";
+import { instrument, instrumentDots, plexMono } from "./fonts";
 import "./globals.css";
 
 /**
@@ -60,7 +60,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       data-scroll-behavior="smooth"
-      className={`${instrument.variable} ${plexMono.variable} h-full`}
+      className={`${instrumentDots.variable} ${instrument.variable} ${plexMono.variable} h-full`}
       suppressHydrationWarning
     >
       <head>
