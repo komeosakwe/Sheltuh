@@ -5,13 +5,14 @@ import EventViewBeacon from "@/components/analytics/EventViewBeacon";
 import EventArt from "@/components/EventArt";
 import ExternalTicketLink from "@/components/ExternalTicketLink";
 import SaveButton from "@/components/favourites/SaveButton";
-import { ArrowRightIcon, CalendarIcon, ExternalIcon, PersonIcon, PinIcon } from "@/components/home/icons";
+import { ArrowRightIcon, CalendarIcon, ExternalIcon, PinIcon } from "@/components/home/icons";
 import SaveOnReturn from "@/components/favourites/SaveOnReturn";
 import SeatedTicketsPanel from "@/components/seating/SeatedTicketsPanel";
 import ShareButton from "@/components/ShareButton";
 import TicketSelector from "@/components/TicketSelector";
 import TicketsHashFocus from "@/components/TicketsHashFocus";
 import BackLink from "@/components/ui/BackLink";
+import InitialsAvatar from "@/components/ui/InitialsAvatar";
 import { buttonClass } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Section";
 import WhosGoing from "@/components/WhosGoing";
@@ -26,7 +27,8 @@ import { organiserProfileHref } from "@/lib/sample-organisers";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 
 /** One fact under the title: a 20px icon (with the fact's name for screen readers), then the fact. */
-const factRowClass = "flex gap-3";
+// Each term column is the organiser avatar's width, so every row's text starts on the same line.
+const factRowClass = "flex gap-3 [&>dt]:flex [&>dt]:w-8 [&>dt]:shrink-0 [&>dt]:justify-center";
 const factIconClass = "mt-0.5 size-5 shrink-0 text-muted";
 /** The facts' secondary actions (Get directions, More from): 44px tall, underlined. */
 const factActionClass =
@@ -234,11 +236,21 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                 </div>
                 <div className={factRowClass}>
                   <dt>
-                    <PersonIcon className={factIconClass} />
+                    {/* Their profile mark: initials in the avatar square (organisers have no photo
+                        yet). Decorative and out of the tab order: the name beside it is the link. */}
+                    {organiserHref ? (
+                      <Link href={organiserHref} aria-hidden="true" tabIndex={-1} data-organiser-avatar="" className="flex">
+                        <InitialsAvatar name={event.organiserName} />
+                      </Link>
+                    ) : (
+                      <span data-organiser-avatar="" className="flex">
+                        <InitialsAvatar name={event.organiserName} />
+                      </span>
+                    )}
                     <span className="sr-only">Organiser</span>
                   </dt>
                   <dd className="min-w-0">
-                    <p className="text-base leading-6">
+                    <p className="pt-1 text-base leading-6">
                       Organised by{" "}
                       {/* A live event's organiser profile, or in the demo the sample organiser's. */}
                       {organiserHref ? (

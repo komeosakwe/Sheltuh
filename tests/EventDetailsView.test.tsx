@@ -224,6 +224,25 @@ describe("EventDetailsView organiser", () => {
     expect(link.closest("dd")).toHaveTextContent("Organised by Small Hours Theatre");
   });
 
+  it("shows the organiser's avatar beside their name, linked to the profile but out of the tab order", () => {
+    const { container } = render(<EventDetailsView event={findEvent("dead-letter-office")} demo />);
+    const avatar = container.querySelector("[data-organiser-avatar]");
+    expect(avatar).toHaveTextContent("ST");
+    expect(avatar).toHaveAttribute("href", "/organisers/small-hours-theatre");
+    expect(avatar).toHaveAttribute("aria-hidden", "true");
+    expect(avatar).toHaveAttribute("tabindex", "-1");
+    // The name stays the one link people reach.
+    expect(screen.getAllByRole("link", { name: "Small Hours Theatre" })).toHaveLength(1);
+  });
+
+  it("shows the avatar without a link when there's no profile", () => {
+    const event = { ...findEvent("neon-static"), organiserName: "Nobody In The Samples" };
+    const { container } = render(<EventDetailsView event={event} demo />);
+    const avatar = container.querySelector("[data-organiser-avatar]");
+    expect(avatar).toHaveTextContent("NS");
+    expect(avatar?.tagName).toBe("SPAN");
+  });
+
   it("keeps the organiser as plain text when there's no profile to link to", () => {
     const event = { ...findEvent("neon-static"), organiserName: "Nobody In The Samples" };
     render(<EventDetailsView event={event} demo />);
