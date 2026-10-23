@@ -14,9 +14,8 @@ vi.mock("@/lib/api/trending", () => ({
   getTrendingEvents: (...args: unknown[]) => getTrendingEvents(...args),
 }));
 
-const { loadHomeEvents, loadHomeTrending, HOME_EVENT_LIMIT, HOME_WEEKEND_TOP_UP_LIMIT } = await import(
-  "@/lib/home-events"
-);
+const { loadHomeEvents, loadHomeTrending, HOME_EVENT_LIMIT, HOME_WEEKEND_TOP_UP_LIMIT, HOME_WEEKEND_TOP_UP_MAX_PAGES } =
+  await import("@/lib/home-events");
 
 // Wed 21 Oct 2026, 12:00 AEDT. This weekend ends Sun 25 Oct 23:59:59.999 AEDT (12:59:59.999Z).
 const NOW = new Date("2026-10-21T01:00:00.000Z");
@@ -61,25 +60,55 @@ describe("loadHomeEvents (live)", () => {
     expect(listPublicEvents).toHaveBeenCalledTimes(1);
   });
 
-  it("tops up from the weekend's first day when the page stops before the weekend is over, merging by id", async () => {
+  it("follows the cursor (no jump to the weekend's first day) and keeps an event that started before the weekend and runs into it", async () => {
     listPublicEvents
       .mockResolvedValueOnce({
         items: [item("a", "2026-10-21T08:00:00.000Z"), item("b", "2026-10-22T08:00:00.000Z")],
         nextCursor: "c1",
       })
       .mockResolvedValueOnce({
-        items: [item("b", "2026-10-22T08:00:00.000Z"), item("sat", "2026-10-24T08:00:00.000Z")],
-        nextCursor: undefined,
+        items: [
+          // Thu 22 Oct 20:00 AEDT for three weeks: starts before the weekend, still running over it.
+          item("run", "2026-10-22T09:00:00.000Z", "2026-11-12T09:00:00.000Z"),
+          item("b", "2026-10-22T08:00:00.000Z"),
+          item("sat", "2026-10-24T08:00:00.000Z"),
+          item("mon", "2026-10-26T08:00:00.000Z"),
+        ],
+        nextCursor: "c2",
       });
     const events = await loadHomeEvents(NOW);
     expect(listPublicEvents).toHaveBeenCalledTimes(2);
-    // Friday 23 Oct, Melbourne's date.
-    expect(listPublicEvents.mock.calls[1][0]).toEqual({
-      upcoming: true,
-      onOrAfter: "2026-10-23",
-      limit: HOME_WEEKEND_TOP_UP_LIMIT,
+    expect(listPublicEvents.mock.calls[1][0]).toEqual({ upcoming: true, limit: HOME_WEEKEND_TOP_UP_LIMIT, cursor: "c1" });
+    expect(HOME_WEEKEND_TOP_UP_LIMIT).toBeLessThanOrEqual(50); // the server's maximum
+    expect(events.map((e) => e.id)).toEqual(["a", "b", "run", "sat", "mon"]);
+  });
+
+  it("keeps following the cursor until the last loaded event starts after the weekend's end, then stops", async () => {
+    listPublicEvents
+      .mockResolvedValueOnce({ items: [item("a", "2026-10-21T08:00:00.000Z")], nextCursor: "c1" })
+      .mockResolvedValueOnce({
+        items: [item("thu", "2026-10-22T08:00:00.000Z", "2026-11-30T08:00:00.000Z")],
+        nextCursor: "c2",
+      })
+      .mockResolvedValueOnce({ items: [item("sun", "2026-10-25T02:00:00.000Z")], nextCursor: "c3" })
+      .mockResolvedValueOnce({ items: [item("mon", "2026-10-26T08:00:00.000Z")], nextCursor: "c4" })
+      .mockResolvedValueOnce({ items: [item("never")], nextCursor: "c5" });
+    const events = await loadHomeEvents(NOW);
+    expect(listPublicEvents).toHaveBeenCalledTimes(4);
+    expect(listPublicEvents.mock.calls.slice(1).map((call) => call[0].cursor)).toEqual(["c1", "c2", "c3"]);
+    expect(events.map((e) => e.id)).toEqual(["a", "thu", "sun", "mon"]);
+  });
+
+  it("stops after the cap even if the weekend isn't reached yet", async () => {
+    let n = 0;
+    listPublicEvents.mockImplementation(async () => {
+      n += 1;
+      return { items: [item(`e${n}`, "2026-10-21T08:00:00.000Z", "2026-10-30T08:00:00.000Z")], nextCursor: `c${n}` };
     });
-    expect(events.map((e) => e.id)).toEqual(["a", "b", "sat"]);
+    const events = await loadHomeEvents(NOW);
+    expect(listPublicEvents).toHaveBeenCalledTimes(1 + HOME_WEEKEND_TOP_UP_MAX_PAGES);
+    expect(HOME_WEEKEND_TOP_UP_MAX_PAGES).toBe(4);
+    expect(events).toHaveLength(1 + HOME_WEEKEND_TOP_UP_MAX_PAGES);
   });
 
   it("carries on from the page's cursor when the page stops inside the weekend (no jump back to its first day)", async () => {

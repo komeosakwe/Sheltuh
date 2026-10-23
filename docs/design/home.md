@@ -400,12 +400,11 @@ All states share one box: `aspect-[4/5] min-[375px]:aspect-square sm:aspect-[3/2
 
 **Live:**
 - Make one request, `listPublicEvents({ upcoming: true, limit: 40 })`.
-- **Weekend top-up**, only when the page has a `nextCursor` (more events exist), by where the page's last item starts:
-  - **Before `window.start`:** one more request, `listPublicEvents({ upcoming: true, onOrAfter: <Melbourne date key of window.start>, limit: 20 })`.
-  - **Inside the window** (`window.start` to `window.end`): carry on from the page instead, `listPublicEvents({ upcoming: true, limit: 20, cursor: nextCursor })`.
-  - **After `window.end`:** no more requests; the page already covers the weekend.
+- **Weekend top-up**, only while the last loaded page has a `nextCursor` (more events exist) and its last item starts at or before `window.end`: follow the cursor, `listPublicEvents({ upcoming: true, limit: 50, cursor: nextCursor })`, page by page.
+  - Stop once the last loaded item starts after `window.end`, there's no `nextCursor`, or after 4 top-up requests (the cap).
+  - Never jump ahead with `onOrAfter`: it filters on `starts_at`, so it would skip events that start before the weekend but are still running over it (the owner's rule: "This weekend" includes multi-week events).
   - Merge the results by `id`.
-- That's at most 2 requests, plus 1 for trending and 1 for the featured going summary.
+- That's at most 5 requests, plus 1 for trending and 1 for the featured going summary.
 
 **Demo:** `getEvents()`, sorted soonest first.
 

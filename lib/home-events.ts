@@ -2,7 +2,6 @@ import { isApiConfigured, type GetToken } from "@/lib/api/client";
 import { listFollowingEvents } from "@/lib/api/follows";
 import { listPublicEvents } from "@/lib/api/public-events";
 import { getTrendingEvents } from "@/lib/api/trending";
-import { formatEventDateKey } from "@/lib/format";
 import { getUpcomingEvents, isUpcomingEvent } from "@/lib/data";
 import { bySoonest, weekendWindow, type TrendingItem } from "@/lib/home-sections";
 import { adaptPublicEvent } from "@/lib/live/adapt";
@@ -11,8 +10,10 @@ import type { SheltuhEvent } from "@/lib/types";
 
 /** Live: one page of upcoming events, enough for every home section (the server caps `limit` at 50). */
 export const HOME_EVENT_LIMIT = 40;
-/** Live: the weekend top-up's page size. */
-export const HOME_WEEKEND_TOP_UP_LIMIT = 20;
+/** Live: the weekend top-up's page size (the server's maximum). */
+export const HOME_WEEKEND_TOP_UP_LIMIT = 50;
+/** Live: at most this many top-up requests after the first page, so a very busy week can't fan out unbounded. */
+export const HOME_WEEKEND_TOP_UP_MAX_PAGES = 4;
 /** Live: how many followed organisers' events to ask for (the rail shows at most 6 once de-duplicated). */
 export const HOME_FOLLOWING_LIMIT = 12;
 /** Demo: how many sample events "trend". */
@@ -22,33 +23,30 @@ const notEnded = (now: Date) => (event: SheltuhEvent) => isUpcomingEvent(event, 
 
 /**
  * The home page's events that haven't ended, soonest first (docs/design/home.md
- * §6.1). Live: one request for upcoming events, and at most one more when that
- * page has more and stops short of the weekend's end: from the weekend's first
- * day if the page's last event starts before the weekend does, or the page's
- * next cursor if it starts inside the weekend; merged by id. Demo: the sample
- * events. Either way, events that have ended by `now` are dropped (demo data
- * includes past events, and a tab can stay open for a long time).
+ * §6.1). Live: one request for upcoming events; then, while the last loaded
+ * event starts no later than the weekend's end and there's a next cursor,
+ * follow that cursor page by page (at most HOME_WEEKEND_TOP_UP_MAX_PAGES more
+ * requests), merged by id. Following the cursor rather than jumping to the
+ * weekend's first day keeps events that start before the weekend but are
+ * still running over it ("This weekend" includes multi-week events). Demo:
+ * the sample events. Either way, events that have ended by `now` are dropped
+ * (demo data includes past events, and a tab can stay open for a long time).
  */
 export async function loadHomeEvents(now: Date): Promise<SheltuhEvent[]> {
   if (!isApiConfigured) {
     return (await getUpcomingEvents(now)).filter(notEnded(now)).sort(bySoonest);
   }
 
-  const page = await listPublicEvents({ upcoming: true, limit: HOME_EVENT_LIMIT });
-  const byId = new Map(page.items.map((item) => [item.eventId, adaptPublicEvent(item)]));
-  const last = page.items.at(-1);
   const window = weekendWindow(now);
-  const lastStart = last ? Date.parse(last.startsAt) : Infinity;
-  // The page already reaches past the weekend (or is everything): nothing more to fetch.
-  if (page.nextCursor && lastStart <= window.end) {
-    const topUp = await listPublicEvents(
-      lastStart < window.start
-        ? // The page stops before the weekend: jump to its first day.
-          { upcoming: true, onOrAfter: formatEventDateKey(new Date(window.start).toISOString()), limit: HOME_WEEKEND_TOP_UP_LIMIT }
-        : // The page stops inside the weekend: carry on from where it ended.
-          { upcoming: true, limit: HOME_WEEKEND_TOP_UP_LIMIT, cursor: page.nextCursor },
-    );
-    for (const item of topUp.items) if (!byId.has(item.eventId)) byId.set(item.eventId, adaptPublicEvent(item));
+  const byId = new Map<string, SheltuhEvent>();
+  let page = await listPublicEvents({ upcoming: true, limit: HOME_EVENT_LIMIT });
+  for (let topUps = 0; ; topUps += 1) {
+    for (const item of page.items) if (!byId.has(item.eventId)) byId.set(item.eventId, adaptPublicEvent(item));
+    const last = page.items.at(-1);
+    const lastStart = last ? Date.parse(last.startsAt) : Infinity;
+    // Past the weekend's end, or everything is loaded, or the cap is reached: stop.
+    if (!page.nextCursor || lastStart > window.end || topUps >= HOME_WEEKEND_TOP_UP_MAX_PAGES) break;
+    page = await listPublicEvents({ upcoming: true, limit: HOME_WEEKEND_TOP_UP_LIMIT, cursor: page.nextCursor });
   }
   return [...byId.values()].filter(notEnded(now)).sort(bySoonest);
 }
