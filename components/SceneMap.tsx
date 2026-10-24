@@ -6,7 +6,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import BrandU from "@/components/brand/BrandU";
 import SceneEventRow from "@/components/SceneEventRow";
 import SceneMapFilterBar from "@/components/SceneMapFilterBar";
+import MapStylePreview from "@/components/map/MapStylePreview";
 import SceneMapEventCard from "@/components/map/SceneMapEventCard";
+import { useMapTileStyle } from "@/components/map/useMapTileStyle";
 import { Button } from "@/components/ui/Button";
 import { SelectedDots } from "@/components/ui/FilterChip";
 import { LoadingIndicator, ProgressLoader, useLoadingProgress } from "@/components/ui/ProgressLoader";
@@ -17,6 +19,7 @@ import { adaptPublicEvent } from "@/lib/live/adapt";
 import { getEventCategories, getUpcomingEvents } from "@/lib/data";
 import { formatEventDateShort, formatEventTime } from "@/lib/format";
 import { resolveMapCoordinates } from "@/lib/geo";
+import { TILE_STYLE_PARAM, type TileStyleId } from "@/lib/map-tiles";
 import { formatFeedPrice } from "@/lib/pricing";
 import {
   distinctSuburbs,
@@ -120,7 +123,12 @@ function readFiltersFromParams(params: URLSearchParams): FilterState {
   };
 }
 
-function writeFiltersToParams(filters: FilterState, selectedEventId: string | null, view: MobileView): URLSearchParams {
+function writeFiltersToParams(
+  filters: FilterState,
+  selectedEventId: string | null,
+  view: MobileView,
+  tiles: TileStyleId | null = null,
+): URLSearchParams {
   const params = new URLSearchParams();
   if (filters.search) params.set("q", filters.search);
   if (filters.category !== "all") params.set("cat", filters.category);
@@ -131,6 +139,8 @@ function writeFiltersToParams(filters: FilterState, selectedEventId: string | nu
   if (selectedEventId) params.set("sel", selectedEventId);
   // The map is the default view, so only the list is written.
   if (view === "list") params.set("view", "list");
+  // The Mapbox preview's chosen style, for sharing (only ever set while the preview is on).
+  if (tiles) params.set(TILE_STYLE_PARAM, tiles);
   return params;
 }
 
@@ -164,6 +174,9 @@ function SceneMapView({
   const initial = useMemo(() => readFiltersFromParams(searchParams), []); // eslint-disable-line react-hooks/exhaustive-deps
   const initialSelected = useMemo(() => searchParams.get("sel"), []); // eslint-disable-line react-hooks/exhaustive-deps
   const initialView = useMemo<MobileView>(() => (searchParams.get("view") === "list" ? "list" : "map"), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const initialTiles = useMemo(() => searchParams.get(TILE_STYLE_PARAM), []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Esri, unless a Mapbox token turns on the style preview (docs/mapbox-preview.md).
+  const tiles = useMapTileStyle(initialTiles);
 
   const [filters, setFilters] = useState<FilterState>(initial);
   const [rawSelectedEventId, setSelectedEventId] = useState<string | null>(initialSelected);
@@ -220,11 +233,11 @@ function SceneMapView({
   // history) so the back button from a details page returns here with
   // filters and selection intact.
   useEffect(() => {
-    const params = writeFiltersToParams(filters, rawSelectedEventId, mobileView);
+    const params = writeFiltersToParams(filters, rawSelectedEventId, mobileView, tiles.picked);
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, rawSelectedEventId, mobileView, pathname]);
+  }, [filters, rawSelectedEventId, mobileView, pathname, tiles.picked]);
 
   // The loader's estimated progress; the results replace it once it's done.
   const progress = useLoadingProgress(status === "loading");
@@ -490,6 +503,16 @@ function SceneMapView({
             </EmptyState>
           ) : (
             <>
+              {/* Only with a Mapbox token (preview builds); with the map, so hidden on the phone's list. */}
+              {tiles.preview && (
+                <MapStylePreview
+                  styles={tiles.styles}
+                  value={tiles.active.id}
+                  onChange={tiles.choose}
+                  className={`${mobileView === "map" ? "flex" : "hidden"} lg:flex`}
+                />
+              )}
+
               {/* map-bleed: wider than the page column on large screens (globals.css). */}
               <div className="map-bleed grid overflow-hidden rounded-card border border-foreground bg-card lg:grid-cols-[55fr_45fr]">
                 {/* At most 60% of a phone's height, so there's always page to scroll by outside the map. */}
@@ -503,6 +526,7 @@ function SceneMapView({
                     onSelect={handleMapSelect}
                     onSearchArea={setAreaBounds}
                     onShowList={showList}
+                    tileStyle={tiles.active}
                   />
                   {/* Desktop: the selected event over the map's lower-left corner (phones get the bottom card below). */}
                   {selectedEvent && (

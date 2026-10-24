@@ -175,7 +175,7 @@ export default function SeatList({
                               className={`flex min-h-11 items-center gap-2 rounded-control border px-2 ${
                                 unavailable
                                   ? "border-surface-border bg-surface text-muted line-through"
-                                  : "border-foreground bg-card has-[:checked]:bg-signal"
+                                  : "border-foreground bg-card has-[:checked]:bg-signal has-[:checked]:text-signal-foreground"
                               }`}
                             >
                               <input

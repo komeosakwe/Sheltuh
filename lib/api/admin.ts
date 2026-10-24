@@ -8,6 +8,7 @@ import type {
   AdminOrganiserRecord,
   AdminReport,
   AdminSetEventTicketingInput,
+  AdminSummary,
   EmailJobStatus,
   EventRecord,
   EventStatus,
@@ -113,10 +114,61 @@ export async function adminSuspendOrganiser(organiserId: string, reason: string,
   });
 }
 
-export async function adminListEvents(status: EventStatus, getToken: GetToken, cursor?: string) {
+/** GET /api/admin/events query. */
+export interface AdminListEventsQuery {
+  status: EventStatus;
+  /**
+   * Search: the title or the organiser's name containing it, ignoring case
+   * and accents. Blank: every event in `status`. At most 100 characters are used.
+   */
+  q?: string;
+  /**
+   * true: only events that haven't ended (in progress included); false:
+   * every event. Omitted: the server's default, true for `published` and
+   * false for every other status.
+   */
+  upcoming?: boolean;
+  /** true: only platform-managed organisers' events; false: only organisers with an account. Omitted: both. */
+  platformManaged?: boolean;
+  /** Page size: 20 by default, at most 50. */
+  limit?: number;
+  cursor?: string;
+}
+
+/**
+ * Events in one status, soonest first. `published` lists only events that
+ * haven't ended unless `upcoming: false` is sent. Called with a query
+ * object (its `cursor` included), or as `(status, getToken, cursor)`: the
+ * overloads keep a third argument off the object form, where it would be
+ * ignored. ApiError 400 for a bad status.
+ */
+export function adminListEvents(query: AdminListEventsQuery, getToken: GetToken): Promise<Paginated<AdminEventRecord>>;
+export function adminListEvents(
+  status: EventStatus,
+  getToken: GetToken,
+  cursor?: string,
+): Promise<Paginated<AdminEventRecord>>;
+export async function adminListEvents(query: EventStatus | AdminListEventsQuery, getToken: GetToken, cursor?: string) {
   const token = await getToken();
-  const qs = new URLSearchParams({ status, ...(cursor ? { cursor } : {}) });
-  return apiFetch<Paginated<EventRecord>>(`/admin/events?${qs}`, { token });
+  const options: AdminListEventsQuery = typeof query === "string" ? { status: query, cursor } : query;
+  const { status, q, upcoming, platformManaged, limit, cursor: pageCursor } = options;
+  const qs = new URLSearchParams({ status });
+  if (q?.trim()) qs.set("q", q.trim());
+  if (upcoming !== undefined) qs.set("upcoming", upcoming ? "1" : "0");
+  if (platformManaged !== undefined) qs.set("platformManaged", platformManaged ? "1" : "0");
+  if (limit !== undefined) qs.set("limit", String(limit));
+  if (pageCursor) qs.set("cursor", pageCursor);
+  return apiFetch<Paginated<AdminEventRecord>>(`/admin/events?${qs}`, { token });
+}
+
+/**
+ * What's waiting for an admin, as counts (open reports, events and organiser
+ * applications to review, failed and retrying ticket emails, door check-ins
+ * in the next 24 hours). ApiError 401/403 for anyone but an admin.
+ */
+export async function adminGetSummary(getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminSummary>("/admin/summary", { token });
 }
 
 export async function adminApproveEvent(eventId: string, getToken: GetToken) {

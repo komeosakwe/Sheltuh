@@ -33,7 +33,8 @@ export default function Home() {
       </div>
       {/* Full width: each section's head is in the page column, its rail runs edge to edge. */}
       <HomeEventSections />
-      <div className={HOME_CONTAINER}>
+      {/* Not on phones (owner, 23 Oct 2026): it's a long scroll for little there. */}
+      <div className={`${HOME_CONTAINER} hidden sm:block`}>
         <WhatElse className={SECTION_GAP} />
       </div>
       <CommunitySection className={SECTION_GAP} />

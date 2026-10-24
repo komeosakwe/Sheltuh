@@ -13,9 +13,9 @@ export default function HelpPage() {
     >
       <ContentSection title="How do I buy tickets?">
         <p>
-          Open an event, choose how many tickets you want and check out. Paid tickets are paid
-          securely on Stripe’s own checkout page. Free tickets are issued straight away with no
-          payment step.
+          Open an event, choose how many tickets you want and check out. You pay for paid tickets
+          on our checkout page, in a secure form run by Stripe, our payment provider. Your card
+          details never reach Sheltüh. Free tickets are issued straight away with no payment step.
         </p>
       </ContentSection>
       <ContentSection title="Where are my tickets?">

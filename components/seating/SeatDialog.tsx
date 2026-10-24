@@ -56,7 +56,7 @@ export default function SeatDialog({
       ref={ref}
       aria-labelledby={titleId}
       onClose={onClose}
-      className={`mx-0 mt-auto mb-0 max-h-[90dvh] w-full max-w-none overflow-y-auto rounded-t-card border-t border-foreground bg-card p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] text-foreground backdrop:bg-foreground/50 sm:m-auto sm:rounded-card sm:border sm:p-8 ${
+      className={`mx-0 mt-auto mb-0 max-h-[90dvh] w-full max-w-none overflow-y-auto rounded-t-card border-t border-foreground bg-card p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] text-foreground backdrop:bg-ink/50 sm:m-auto sm:rounded-card sm:border sm:p-8 ${
         wide ? "sm:max-w-2xl" : "sm:max-w-lg"
       }`}
     >

@@ -33,6 +33,24 @@ export function ChevronLeftIcon({ className = "h-5 w-5" }: { className?: string 
   );
 }
 
+/** Pause (two bars): a home rail's auto-scroll control while it plays. */
+export function PauseIcon({ className = "h-5 w-5" }: { className?: string }) {
+  return (
+    <svg {...common} strokeWidth={2} className={className}>
+      <path d="M9 6v12M15 6v12" />
+    </svg>
+  );
+}
+
+/** Play (a triangle): a home rail's auto-scroll control while it's paused. */
+export function PlayIcon({ className = "h-5 w-5" }: { className?: string }) {
+  return (
+    <svg {...common} strokeWidth={2} className={className}>
+      <path d="M8 5.5v13l10-6.5z" />
+    </svg>
+  );
+}
+
 export function CalendarIcon({ className = "h-3 w-3" }: { className?: string }) {
   return (
     <svg {...common} strokeWidth={2} className={className}>
@@ -58,16 +76,6 @@ export function ExternalIcon({ className = "size-4 shrink-0" }: { className?: st
       <path d="M14 4h6v6" />
       <path d="M20 4 10 14" />
       <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
-    </svg>
-  );
-}
-
-/** A person (head and shoulders): the event page's organiser line. */
-export function PersonIcon({ className = "h-3 w-3" }: { className?: string }) {
-  return (
-    <svg {...common} strokeWidth={2} className={className}>
-      <circle cx="12" cy="8" r="3.5" />
-      <path d="M5 20.5c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5" />
     </svg>
   );
 }

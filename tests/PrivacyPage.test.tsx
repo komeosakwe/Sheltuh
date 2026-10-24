@@ -48,3 +48,26 @@ describe("/privacy — Messages", () => {
     expect(screen.getByRole("note")).toHaveTextContent("Draft");
   });
 });
+
+// Owner round of 24 Oct 2026 (D6): near-you search. The precise position stays in the browser; only the suburb is kept.
+describe("/privacy — Your location", () => {
+  it("is linkable as #location and matches what the search bar does", () => {
+    render(<PrivacyPage />);
+    const section = screen.getByRole("heading", { name: "Your location" }).closest("section");
+    if (!section) throw new Error("Your location section not rendered");
+    expect(section).toHaveAttribute("id", "location");
+    expect(section).toHaveTextContent("your browser asks you first");
+    expect(section).toHaveTextContent("used only in your browser, to find the nearest suburb we know, and is then thrown away");
+    expect(section).toHaveTextContent("It isn’t sent to us, stored, or put in a web address.");
+    expect(section).toHaveTextContent("only the suburb’s name is kept");
+    expect(section).toHaveTextContent("/search?near=Fitzroy");
+    expect(section).toHaveTextContent("hosting provider’s request logs");
+    expect(section).toHaveTextContent("isn’t saved in our database, isn’t linked to your account, and isn’t sent with our event searches");
+    expect(section).toHaveTextContent("We don’t work out where you are from your IP address.");
+    expect(section).toHaveTextContent("“Anywhere in Melbourne”");
+    expect(section).toHaveTextContent("or search with the location left empty");
+    // The address with the suburb in it also lives on in the browser's history.
+    expect(section).toHaveTextContent("Search results pages you’ve visited, suburb and all, stay in your browser’s history until you clear it there.");
+    expect(screen.getByRole("note")).toHaveTextContent("Draft");
+  });
+});

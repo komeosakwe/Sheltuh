@@ -35,26 +35,35 @@ function block(selector: string) {
 describe("brand colour tokens", () => {
   it("puts the four brand colours in :root, in lowercase hex", () => {
     const rootBlock = block(":root");
-    expect(rootBlock).toContain("--background: #fffae7;");
+    expect(rootBlock).toContain("--background: #ffffff;");
     expect(rootBlock).toContain("--foreground: #000000;");
     expect(rootBlock).toContain("--card: #ffffff;");
     expect(rootBlock).toContain("--signal: #ff4800;");
     expect(rootBlock).toContain("--signal-foreground: #000000;");
-    // Accent stays black: orange text links would fail contrast on cream (3.25:1).
+    // Accent stays black: orange text links would fail contrast on white (3.40:1).
     expect(rootBlock).toContain("--accent: #000000;");
     for (const hex of css.match(/#[0-9a-fA-F]{6}\b/g) ?? []) expect(hex).toBe(hex.toLowerCase());
   });
 
-  it("keeps :root first, so the first --background is cream and matches the app theme colour", () => {
+  it("keeps :root first, so the first --background is white and matches the app theme colour", () => {
     expect(css.indexOf(":root")).toBeLessThan(css.indexOf("[data-"));
-    expect(css.match(/--background:\s*(#[0-9a-f]{6})/)?.[1]).toBe("#fffae7");
-    expect(APP_THEME_COLOR).toBe("#fffae7");
+    expect(css.match(/--background:\s*(#[0-9a-f]{6})/)?.[1]).toBe("#ffffff");
+    expect(APP_THEME_COLOR).toBe("#ffffff");
+  });
+
+  it("retires the --cream token: white is the foundation, and --paper is the constant white", () => {
+    expect(css).not.toMatch(/--cream\b/);
+    expect(css).not.toMatch(/--color-cream\b/);
+    expect(block(":root")).toContain("--paper: #ffffff;");
+    for (const { file, text } of sources) expect(text, file).not.toMatch(/\b(?:bg|text|ring|border|outline|fill|stroke|ring-offset)-cream\b/);
   });
 
   it("defines the ink and signal section scopes, with readable muted text in each", () => {
     const ink = block('[data-surface="ink"]');
     expect(ink).toContain("--background: #000000;");
-    expect(ink).toContain("--foreground: #fffae7;");
+    expect(ink).toContain("--foreground: #ffffff;");
+    expect(ink).toContain("--accent: #ffffff;");
+    expect(ink).toContain("--accent-strong: #e0e0e0;"); // visible hover on the white solid button
     expect(ink).toContain("--muted: #a39e93;"); // 7.87:1 on black
     const signal = block('[data-surface="signal"]');
     expect(signal).toContain("--background: #ff4800;");
@@ -67,7 +76,7 @@ describe("brand colour tokens", () => {
   });
 
   it("exposes the new colours to Tailwind", () => {
-    for (const name of ["signal", "signal-foreground", "ink", "cream", "card"]) {
+    for (const name of ["signal", "signal-foreground", "ink", "paper", "card"]) {
       expect(css).toContain(`--color-${name}: var(--${name});`);
     }
   });
@@ -88,6 +97,76 @@ describe("brand colour tokens", () => {
     // No shadows anywhere: the transitional flat shadow-card token is gone too.
     expect(css).not.toMatch(/--shadow-card|box-shadow:/);
     expect(css).not.toMatch(/border-radius:\s*9999px/);
+  });
+});
+
+/** The Light colour tokens a scope can carry, in :root's order. */
+const COLOUR_TOKENS = [
+  "--background",
+  "--card",
+  "--surface",
+  "--surface-border",
+  "--foreground",
+  "--muted",
+  "--accent",
+  "--accent-strong",
+  "--accent-foreground",
+  "--danger",
+  "--danger-foreground",
+];
+
+/** `name: value` pairs declared in a block body. */
+function declarations(body: string): Map<string, string> {
+  return new Map([...body.matchAll(/(--[\w-]+|color-scheme):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
+}
+
+describe("the Dark theme and the paper scope (docs/design/theme-white-dark.md §2)", () => {
+  // Dark sits inside @media screen, so printed tickets always use the Light tokens.
+  const dark = css.match(/@media screen \{\s*\[data-theme="dark"\] \{([^}]*)\}\s*\}/)?.[1] ?? "";
+
+  it("defines Dark on <html>, for screens only, with its own colour scheme and the spec's values", () => {
+    const values = declarations(dark);
+    expect(values.get("color-scheme")).toBe("dark");
+    expect(Object.fromEntries(values)).toMatchObject({
+      "--background": "#000000",
+      "--card": "#141414",
+      "--surface": "#262626",
+      "--surface-border": "#333333",
+      "--foreground": "#ffffff",
+      "--muted": "#a39e93",
+      "--accent": "#ffffff",
+      "--accent-strong": "#e0e0e0",
+      "--accent-foreground": "#000000",
+      "--danger": "#ff6b5e",
+      "--danger-foreground": "#000000",
+    });
+    // Orange, ink, paper and the door are constants: Dark never re-scopes them.
+    for (const constant of ["--signal", "--signal-foreground", "--ink", "--paper"]) expect(values.has(constant)).toBe(false);
+    expect([...values.keys()].some((name) => name.startsWith("--door-"))).toBe(false);
+  });
+
+  it("puts Dark after :root (the first --background stays white)", () => {
+    expect(css.indexOf("\n:root {")).toBeLessThan(css.indexOf('[data-theme="dark"]'));
+  });
+
+  it("has a screen-only dark: variant for Tailwind", () => {
+    expect(css).toMatch(
+      /@custom-variant dark \{\s*@media screen \{\s*&:where\(\[data-theme="dark"\], \[data-theme="dark"\] \*\) \{\s*@slot;/,
+    );
+  });
+
+  it("pins a paper subtree to the Light colour tokens, token for token", () => {
+    const root = declarations(block(":root"));
+    const paper = declarations(block('[data-surface="paper"]'));
+    for (const name of COLOUR_TOKENS) expect(paper.get(name), name).toBe(root.get(name));
+    expect(paper.get("color-scheme")).toBe("light");
+  });
+
+  it("keeps the orange band's card and surface light in both themes", () => {
+    const signal = declarations(block('[data-surface="signal"]'));
+    expect(signal.get("--card")).toBe("#ffffff");
+    expect(signal.get("--surface")).toBe(declarations(block(":root")).get("--surface"));
+    expect(signal.get("--accent-foreground")).toBe("#ffffff");
   });
 });
 
@@ -141,6 +220,38 @@ describe("retired accents and motion (brand-direction-one.md §9, cleanup)", () 
     expect(badge).not.toMatch(/(?<!motion-safe:)\banimate-spin\b/);
     expect(badge).toMatch(/HERO_BADGE_TURN = "30s"/);
   });
+
+  // The second, also at the owner's request (23 Oct 2026, "make them automatically scroll", "as
+  // smooth as the very initial one done to simulate DICE"; 24 Oct 2026, "make it go from one end of
+  // screen to next"): the home rails are an endless marquee, a slow continuous drift (60px a second)
+  // across the full width that loops seamlessly on copies of the cards, with no end hold and no
+  // glide back, from one shared hook, only for people who haven't asked for less motion, with a
+  // Pause/Play button (tests/HomeRailAutoScroll.test.tsx covers the behaviour).
+  it("allows one auto-scroll, the home rails' marquee: one hook, motion-gated, with a Pause/Play control", () => {
+    const users = sources.filter(({ text }) => /\buseRailAutoScroll\(/.test(text)).map(({ file }) => file);
+    expect(users.sort()).toEqual(
+      [path.join("components", "home", "HomeRailSection.tsx"), path.join("components", "home", "useRailAutoScroll.ts")].sort(),
+    );
+    const hook = sources.find(({ file }) => file === path.join("components", "home", "useRailAutoScroll.ts"))?.text ?? "";
+    expect(hook).toMatch(/useMotionOk\(\)/);
+    expect(hook).toMatch(/DRIFT_PX_PER_SEC = 60;/);
+    // A loop, not a there-and-back: no hold at an end, no glide back.
+    expect(hook).not.toMatch(/END_HOLD_MS|returnDuration|easeInOutSine/);
+    expect(hook).toMatch(/pos -= loop\.period/);
+    // The copies are hidden from assistive tech and out of the tab order, yet clickable (not inert:
+    // a hovered, held rail's copy must open its event), and only the marquee renders them.
+    const item = sources.find(({ file }) => file === path.join("components", "home", "RailItem.tsx"))?.text ?? "";
+    expect(item).toMatch(/<li ref=\{keepOutOfTabOrder\}[^>]*aria-hidden="true" data-rail-clone="">/);
+    expect(item).toMatch(/el\.tabIndex = -1/);
+    expect(item).not.toMatch(/\binert\b/);
+    const cloning = sources.filter(({ text }) => /<RailCloneSet\b/.test(text)).map(({ file }) => file);
+    expect(cloning).toEqual([path.join("components", "home", "HomeRail.tsx")]);
+    const section = sources.find(({ file }) => file === path.join("components", "home", "HomeRailSection.tsx"))?.text ?? "";
+    expect(section).toMatch(/<RailAutoScrollButton\b/);
+    // The drift itself (frames writing scrollLeft) lives in the hook only.
+    const drifting = sources.filter(({ text }) => /\bscrollLeft = pos\b/.test(text)).map(({ file }) => file);
+    expect(drifting).toEqual([path.join("components", "home", "useRailAutoScroll.ts")]);
+  });
 });
 
 describe("brand faces", () => {
@@ -158,7 +269,7 @@ describe("brand faces", () => {
   it("maps the faces to tokens, with the display token falling back to Instrument Sans until Bootzy is licensed", () => {
     expect(css).toMatch(/--face-sans: var\(--font-instrument\),/);
     expect(css).toMatch(/--face-mono: var\(--font-plex-mono\),/);
-    expect(css).toContain("--face-display: var(--face-sans);");
+    expect(css).toContain("--face-display: var(--face-dots);");
     expect(css).toContain("--font-sans: var(--face-sans);");
     expect(css).toContain("--font-mono: var(--face-mono);");
     // The old theme keys pointed at next/font variables of the same name.

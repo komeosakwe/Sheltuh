@@ -543,12 +543,34 @@ select id, display_name, website_url from public.organisers
 where website_url ~* '^http://' or website_url ~ '^[A-Za-z]+://[^/?#]*@';
 ```
 
+### Event clips (optional)
+
+Short silent clips on events live in the private Storage bucket
+`event-clips`, created by migration `20261106000000_event_clips.sql`
+(check Storage → Buckets shows it as **private**, 10 MB limit). Then
+create a dedicated secret key (Project Settings → API Keys → Create new
+secret key, named `event-clips`) and set it in Vercel as
+`SUPABASE_CLIP_STORAGE_KEY` (server-only, never `NEXT_PUBLIC_`). Revoke
+that key alone if it ever leaks. Without it, clip uploads and playback
+answer 503 and everything else works. Clips are served for ~1 hour per
+signed URL, so plan on Supabase Pro bandwidth before turning clips on.
+
 ## 2. Stripe (Connect)
 
 1. In the Stripe dashboard, stay in **test mode** and enable **Connect**. Use
    the platform profile "marketplace", with **Express** accounts, based in
    Australia.
-2. Developers → API keys → secret key → `STRIPE_SECRET_KEY`.
+2. Developers → API keys:
+   - Secret key (`sk_test_…`) → `STRIPE_SECRET_KEY`.
+   - Publishable key (`pk_test_…`) → `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
+     The payment page (`/checkout/pay`) mounts Stripe's embedded checkout
+     form with it. It must come from the **same account and mode** as the
+     secret key (`pk_test_` with `sk_test_`, `pk_live_` with `sk_live_`):
+     if it's missing or the modes differ, every paid checkout is refused
+     with a 503 ("Card payments aren't available right now.") and the
+     server log says which variable is wrong (never the key). Free tickets
+     still work. It's public by design (it ends up in the browser), but it's
+     baked in at build time, so redeploy after changing it.
 3. Developers → Webhooks → Add endpoint:
    - URL: `https://<your-domain>/api/stripe/webhook`
    - Events: `checkout.session.completed`,
@@ -559,8 +581,24 @@ where website_url ~* '^http://' or website_url ~ '^[A-Za-z]+://[^/?#]*@';
 
    For local testing: `stripe listen --forward-to localhost:3000/api/stripe/webhook`
    prints a temporary signing secret to use instead.
-4. Repeat steps 2–3 in live mode when you're ready to take real money.
-   Live mode uses different keys and a different webhook secret.
+4. **Branding** (Settings → Branding; no code): the embedded form follows
+   it. Background `#ffffff`, brand and accent colour `#000000` (a black
+   button with a white label), shapes "Rounded" (not Pill), the plainest
+   font on offer (Instrument Sans isn't one), and the Sheltüh U mark on
+   white as the icon (`docs/design/checkout-pay.md` §2). Test and live mode
+   may each need it set; check both.
+5. **Apple Pay and Google Pay** (Settings → Payment methods → Payment method
+   domains): register every domain that serves `/checkout/pay` (e.g.
+   `app.sheltuh.com.au`, and `sheltuh.com.au` if the app moves there).
+   With the form on our own page, Stripe needs the domain registered before
+   it offers wallets there. This comes from Stripe's documentation and
+   hasn't been tried here: check in test mode on a real device over HTTPS.
+   Which payment methods are offered at all is also set on that page;
+   redirect-based ones (e.g. Afterpay) send the buyer away and back to
+   `/checkout/success`.
+6. Repeat steps 2–5 in live mode when you're ready to take real money.
+   Live mode uses different keys and a different webhook secret, and the
+   publishable key changes with the secret key.
 
 **`charge.refunded` is required in both test and live mode.** Test-mode and
 live-mode endpoints are configured separately, so check the event list on
@@ -603,7 +641,7 @@ and wait for the confirmation page to show the ticket codes. Then:
 **Orders that can't be fulfilled are refunded automatically.** This covers
 two buyers paying for the last ticket within seconds of each other (the
 database guarantees only one gets it), or an admin unpublishing an event
-while a buyer is still on Stripe's checkout page. The buyer is refunded in
+while a buyer is still on the payment page. The buyer is refunded in
 full: their payment, Sheltüh's fee and the organiser's share. The order is
 marked `refunded` once Stripe confirms the refund succeeded; a pending
 refund is settled by the `refund.updated` webhook. If the refund call itself
@@ -703,7 +741,10 @@ where j.status in ('failed', 'pending') order by j.created_at desc;
    config.
 2. Settings → Environment Variables: add everything in `.env.example`
    **except** `SUPABASE_SECRET_KEY`. Set `NEXT_PUBLIC_SITE_URL` to the
-   production domain.
+   production domain. `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` goes in each
+   environment with the matching secret key: Production the live pair
+   (`pk_live_…` with `sk_live_…`), Preview the test pair (`pk_test_…` with
+   `sk_test_…`).
 3. Settings → Functions → Region: **Sydney (syd1)**, next to the database.
 4. Point a domain at it. The live landing page on `sheltuh.com.au` stays on
    Cloudflare Workers until you decide to swap it. A subdomain such as
@@ -726,9 +767,12 @@ changing them.
      free tickets" email arrives; open its link, press Confirm, and the
      tickets are issued and the ticket email arrives. Signed in with the
      same email, the tickets are issued straight away.
-   - Buy the paid ticket with card `4242 4242 4242 4242`. The confirmation
-     page shows ticket codes once Stripe's webhook arrives, usually within
-     seconds.
+   - Buy the paid ticket with card `4242 4242 4242 4242` in the payment
+     form on `/checkout/pay`. The confirmation page shows ticket codes once
+     Stripe's webhook arrives, usually within seconds. The fuller test-mode
+     run (declines, 3D Secure, duplicate webhooks, sold out, seat expiry) is
+     the "Owner sandbox checklist (embedded checkout)" in
+     `docs/architecture.md`.
 6. In Stripe, check that the payment shows the application fee, with the
    rest transferred to the organiser's connected account.
 

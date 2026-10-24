@@ -1,19 +1,23 @@
 import type { Metadata } from "next";
-import BackLink from "@/components/ui/BackLink";
-import { PageHeader } from "@/components/ui/Section";
-import AdminGate from "@/components/admin/AdminGate";
+import { Suspense } from "react";
+import AdminPage from "@/components/admin/AdminPage";
 import EventQueue from "@/components/admin/EventQueue";
+import { LoadingState } from "@/components/ui/ProgressLoader";
 
-export const metadata: Metadata = { title: "Event submissions — Sheltüh admin" };
+export const metadata: Metadata = { title: "Events — Sheltüh admin" };
 
 export default function AdminEventsPage() {
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-8 px-5 py-12 sm:px-8 sm:py-20">
-      <BackLink href="/admin">Admin</BackLink>
-      <PageHeader flush size="md" eyebrow="Admin" title="Event submissions" />
-      <AdminGate>
+    <AdminPage
+      crumbs={[{ href: "/admin", label: "Admin" }]}
+      title="Events"
+      intro="Every event by status: submissions waiting for review first, soonest first. Approve publishes an event and emails its organiser’s followers; Reject sends your reason to the organiser."
+      width="wide"
+    >
+      {/* The filters live in the URL (useSearchParams), so the queue renders on the client. */}
+      <Suspense fallback={<LoadingState text="Loading…" />}>
         <EventQueue />
-      </AdminGate>
-    </div>
+      </Suspense>
+    </AdminPage>
   );
 }

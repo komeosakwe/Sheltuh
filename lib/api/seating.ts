@@ -97,13 +97,15 @@ export interface SeatedCheckoutInput {
 
 /**
  * Checkout with seats. Resolves like createCheckoutSession: `{url,
- * holdExpiresAt}` for a paid order (go to Stripe; the seats are held),
+ * holdExpiresAt, orderId}` for a paid order (go to the payment page; the
+ * seats are held),
  * `{url}` for a free order issued at once (a signed-in member's own verified
  * email: pass `getToken`), or `{status: "confirmation_sent"}` for a guest's
  * free booking (nothing is held until the emailed link is confirmed).
  * ApiError: 400; 404; 409 seats taken (seatErrorDetails(err).seatIds) or the
  * map changed (fieldErrors.seatMapVersion: reload it); 429 too many people
- * checking out (try again in a minute); 503 free bookings busy.
+ * checking out (try again in a minute); 503 free bookings busy, or card
+ * payments aren't available (nothing was held).
  */
 export async function createSeatedCheckout(eventId: string, input: SeatedCheckoutInput, getToken?: GetToken) {
   const token = await optionalToken(getToken);
@@ -120,7 +122,8 @@ export async function createSeatedCheckout(eventId: string, input: SeatedCheckou
 }
 
 /**
- * The buyer left Stripe's page (/checkout/cancelled?order={orderId}):
+ * The buyer left the payment page (Back to the seat page, or a hosted
+ * session's /checkout/cancelled?order={orderId}):
  * cancels the order and releases its seats. Safe to call again. ApiError 404
  * unknown order, 409 still being set up (try again in a moment).
  */

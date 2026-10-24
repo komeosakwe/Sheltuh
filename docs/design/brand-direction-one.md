@@ -41,6 +41,8 @@ These principles come from the pages themselves, not from the brief.
 
 ### 2.1 Colour tokens: brand → existing names
 
+> **Superseded (23 Oct 2026):** the `--background`, `--surface`, `--surface-border`, `--accent-foreground` and `--cream` rows are replaced by [`theme-white-dark.md`](theme-white-dark.md) §2.1. White replaced cream as the foundation, `--cream` became `--paper`, and there's a Light / Dark switch. The text below is kept as the record.
+
 Most components re-skin through this table alone. **Write hex in lowercase**: `tests/door-tokens.test.ts` and `tests/pwa-manifest.test.ts` match `#[0-9a-f]{6}`, and the manifest test reads the **first** `--background:` in the file, so `:root` must stay first.
 
 | Token | Now | New | Role |
@@ -67,6 +69,8 @@ Add to `@theme inline`: `--color-signal`, `--color-signal-foreground`, `--color-
 
 ### 2.2 Contrast (WCAG 2.2; computed with relative luminance: black 0, cream 0.9540, white 1, orange 0.2590)
 
+> **Superseded (23 Oct 2026):** the Light and Dark contrast tables are in [`theme-white-dark.md`](theme-white-dark.md) §2.1 and §2.2. White replaced cream as the foundation, `--cream` became `--paper`, and there's a Light / Dark switch. The text below is kept as the record.
+
 | Text / fill on background | Ratio | Verdict and permitted use |
 | --- | --- | --- |
 | Black on Cream | **20.08:1** | All text |
@@ -88,6 +92,8 @@ Rules:
 - **Links are black and underlined.** They're never orange.
 
 ### 2.3 Scopes and the dark-mode policy
+
+> **Superseded (23 Oct 2026):** "Light only" no longer holds: the theme policy and the ink, signal and new paper scopes are in [`theme-white-dark.md`](theme-white-dark.md) §2.2 and §2.3. White replaced cream as the foundation, `--cream` became `--paper`, and there's a Light / Dark switch. The text below is kept as the record.
 
 - **Light only.** There's no `prefers-color-scheme: dark` theme. That's a brand decision: "predominantly light, cream/white foundations". `html { color-scheme: light }` stays.
 - **Ink and orange are sections, not themes.** Add two re-skinning scopes after `:root`. They work exactly like `[data-door]`, so every shared component inverts inside them with no class changes:
@@ -253,6 +259,8 @@ Brand lines use "ür" and "ü" for "your" and "you". To keep screen readers sayi
 
 ## 4. Logo usage
 
+> **Superseded (23 Oct 2026):** the theme colour is now `#ffffff` (with `DARK_THEME_COLOR` `#000000` in Dark), per [`theme-white-dark.md`](theme-white-dark.md) §5.1. White replaced cream as the foundation, `--cream` became `--paper`, and there's a Light / Dark switch. The text below is kept as the record.
+
 | Asset | Where | Size on screen | Colour treatments |
 | --- | --- | --- | --- |
 | **Uppercase wordmark** (primary), `sheltuh-wordmark.svg`, ratio 4.41:1 | Nav (all widths); OG image; email header once a PNG export exists (§11 #6) | Nav: **20px tall (88px wide) below lg, 24px (106px) at lg**. **Minimum 16px tall (71px).** | Black on Cream or White · Cream or White on Black · **Orange on Black** · Black on Orange · Orange on Cream or White (non-text graphic, 3.25:1) |
@@ -351,6 +359,7 @@ Icons in buttons are 16px, stroke 1.75, `aria-hidden`.
 - **`SearchBar`:**
   - Drop the `rounded-full!`, `bg-surface!` and `border-foreground!` overrides: it's a field, `rounded-control bg-card`.
   - The submit is `size-11 rounded-control bg-foreground text-background`, with hover `bg-signal text-black`. Increment 1's alias makes it orange first; change it to black in increment 3, so there's no orange inside forms.
+  - **Amended 24 Oct 2026 (owner round: "our search bar similar [to Eventbrite] and a close location"):** the bar is a `rounded-full` pill (an owner-approved exception to "no pills, no circles") holding the words, a divider, a location segment and a round submit. The submit is orange with a black icon (`btn-signal`, 6.18:1) in the home hero and on `/search`, where search is the page's main action; it stays black, orange on hover, in the desktop header, beside pages' own orange actions. Never a white icon on orange. Focus keeps the global ring, inset inside the bar. Behaviour and privacy: `docs/architecture.md`, "Location (near you)".
 
 ### 6.3 Chips and filters
 
@@ -831,7 +840,7 @@ The initial letter keeps 8% opacity in `var(--face-display)`.
 5. **Photography:**
    - The home hero, guide, creators and community images (`HOME_HERO`, `HOME_GUIDE`, `HOME_CREATORS`), and any `InlinePhoto` sources.
    - Usage rights and model releases. That includes the brand book's own photos (pp. 25–26), if they're to be reused.
-6. **The uppercase wordmark as a PNG for email** (black on transparent or cream, about 2× a 24px-tall header, so ~212×48). Done 22 Oct 2026: `public/brand/sheltuh-wordmark-email.png` (black on cream, 212×48, shown at 106×24), rendered from `sheltuh-wordmark.svg` by `scripts/render-email-wordmark.ts` and attached inline (`cid:`, about 4 KB, so it shows where Outlook blocks remote images) as the ticket email's header, alt text "SHELTÜH" (it replaced the app icon beside the text "Sheltüh"). The other emails have no header. Owner to confirm the export.
+6. **The uppercase wordmark as a PNG for email** (black on transparent or cream, about 2× a 24px-tall header, so ~212×48). Done 22 Oct 2026: `public/brand/sheltuh-wordmark-email.png` (black on cream, 212×48, shown at 106×24), rendered from `sheltuh-wordmark.svg` by `scripts/render-email-wordmark.ts` and attached inline (`cid:`, about 4 KB, so it shows where Outlook blocks remote images) as the ticket email's header, alt text "SHELTÜH" (it replaced the app icon beside the text "Sheltüh"). The other emails have no header. Owner to confirm the export. **Re-rendered 23 Oct 2026 as black on opaque white** with the white email page ([`theme-white-dark.md`](theme-white-dark.md) §5.12).
 
 ## Owner questions
 

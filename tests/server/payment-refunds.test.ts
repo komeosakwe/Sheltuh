@@ -3,7 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { createCheckout, getOrderBySession, stripeWebhook } from "@/lib/server/handlers/orders";
 import { orderReference } from "@/lib/server/order-reference";
 import type { EventRecord } from "@/lib/server/types";
-import { stripeWebhookRequest, TestApi } from "./helpers/api";
+import { embeddedSession, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, insertOrder, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
@@ -41,7 +41,7 @@ beforeEach(async () => {
   let sessions = 0;
   api.stripe.checkout.sessions.create.mockImplementation(async () => {
     const id = `cs_test_${++sessions}`;
-    return { id, url: `https://checkout.stripe.test/${id}` };
+    return embeddedSession(id);
   });
 });
 

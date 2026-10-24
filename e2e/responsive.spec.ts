@@ -15,7 +15,7 @@ import { sampleEvents } from "@/lib/sample-events";
  */
 
 const HOUR = 3600_000;
-const WIDTHS = [320, 375, 390, 430, 768, 1280];
+const WIDTHS = [320, 375, 390, 430, 768, 1280, 1440];
 /** A Sheltüh-ticketed, paid sample event, for the event page. */
 const EVENT_SLUG = "fitzroy-poetry-and-noise";
 
@@ -116,32 +116,111 @@ for (const width of WIDTHS) {
   });
 }
 
-for (const width of [375, 1280]) {
+for (const width of [375, 390, 768, 1280, 1440]) {
   test.describe(`home hero at ${width}px`, () => {
     test.use({ viewport: { width, height: 800 } });
 
     test("short copy, search as the main action, the page's only search, and no orange button", async ({ page }) => {
       await mockApi(page);
       await page.goto("/");
-      const hero = page.getByRole("region", { name: "Find your new thing." });
-      await expect(hero.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your new thing.");
-      await expect(hero.getByText("Melbourne • What’s on")).toBeVisible();
-      await expect(hero.getByText(HOME_INTRO)).toBeVisible();
+      const hero = page.getByRole("region", { name: "Find your next thing." });
+      await expect(hero.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
+      await expect(hero.getByText("What’s on near you")).toBeVisible();
+      // The intro line at every width (owner, 23 Oct 2026, layout polish), muted, under the h1 and above the search.
+      const intro = hero.getByText(HOME_INTRO);
+      await expect(intro).toBeVisible();
+      const introBox = await intro.boundingBox();
+      const h1Box = await hero.getByRole("heading", { level: 1 }).boundingBox();
+      const searchBox = await hero.getByRole("search", { name: "Search events" }).boundingBox();
+      if (!introBox || !h1Box || !searchBox) throw new Error("hero not laid out");
+      expect(introBox.y).toBeGreaterThan(h1Box.y + h1Box.height - 1);
+      expect(introBox.y + introBox.height).toBeLessThan(searchBox.y);
+      // Compact on phones: one line under the headline, 8px from it and 16px from the search.
+      if (width < 640) {
+        expect(Math.round(introBox.height)).toBe(24);
+        expect(Math.round(introBox.y - (h1Box.y + h1Box.height))).toBe(8);
+        expect(Math.round(searchBox.y - (introBox.y + introBox.height))).toBe(16);
+      }
       await expect(hero.getByRole("search", { name: "Search events" })).toBeVisible();
-      await expect(hero.locator(".btn-signal")).toHaveCount(0);
+      // Owner round of 24 Oct 2026 (the Eventbrite-style bar): the hero's one orange button is the search submit.
+      await expect(hero.locator(".btn-signal")).toHaveCount(1);
+      await expect(hero.locator(".btn-signal")).toHaveAccessibleName("Search");
       // Refinement (22 Oct 2026): browsing is the category row under the hero; the hero has no links.
       await expect(hero.getByRole("link")).toHaveCount(0);
-      // One search on the home: no header field (desktop) or search icon (phones), and the hero's field
-      // has one magnifier (its submit button).
+      // One search on the home: no header field (desktop) or search icon (phones), and the hero's bar
+      // has two icons, the location pin and one magnifier (its submit button; owner round of 24 Oct 2026).
       await expect(page.getByRole("search")).toHaveCount(1);
       await expect(page.locator("header a[href='/search']")).toHaveCount(0);
-      await expect(hero.getByRole("search").locator("svg")).toHaveCount(1);
+      await expect(hero.getByRole("search").locator("svg")).toHaveCount(2);
+      await expect(hero.getByRole("search").getByRole("button", { name: "Search" }).locator("svg")).toHaveCount(1);
       // The h1 is two lines at 100% text size, never more.
       const lines = await hero.getByRole("heading", { level: 1 }).evaluate((h1) => {
         const lineHeight = parseFloat(getComputedStyle(h1).lineHeight);
         return Math.round(h1.getBoundingClientRect().height / lineHeight);
       });
       expect(lines).toBe(2);
+    });
+  });
+}
+
+// Owner (24 Oct 2026, the phone hero's empty space): "little image should be there". Below 1024px the
+// collage's lead photo is a small tile beside the eyebrow and the h1; from 1024px the collage instead.
+const THUMB_SIZES: Record<number, number | null> = { 320: 72, 375: 88, 390: 88, 768: 112, 1024: null, 1440: null };
+for (const [width, size] of Object.entries(THUMB_SIZES).map(([w, s]) => [Number(w), s] as const)) {
+  test.describe(`home hero thumbnail at ${width}px`, () => {
+    test.use({ viewport: { width, height: width < 768 ? 844 : 900 } });
+
+    test(size ? "a small decorative photo beside the headline, which keeps its two lines" : "no thumbnail: the collage shows", async ({ page }) => {
+      await mockApi(page);
+      await page.goto("/");
+      const hero = page.getByRole("region", { name: "Find your next thing." });
+      const h1 = hero.getByRole("heading", { level: 1 });
+      await expect(h1).toBeVisible();
+      await page.evaluate(() => document.fonts.ready);
+      const thumb = hero.locator("[data-hero-thumb]");
+      const collage = hero.locator("[data-hero-collage]");
+
+      if (!size) {
+        await expect(thumb).toBeHidden();
+        await expect(collage).toBeVisible();
+        return;
+      }
+
+      await expect(thumb).toBeVisible();
+      await expect(collage).toBeHidden();
+      await expect(thumb).toHaveAttribute("aria-hidden", "true");
+      const img = thumb.locator("img");
+      await expect(img).toHaveAttribute("src", "/events/gallery-opening.jpg");
+      await expect(img).toHaveAttribute("alt", "");
+      await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0)).toBe(true);
+      // Its badge is still and never a control (too small for a 44px Pause/Play target).
+      await expect(page.getByRole("button", { name: /badge animation/ })).toHaveCount(0);
+      expect(await thumb.locator("[data-hero-badge-art]").evaluate((svg) => getComputedStyle(svg).animationName)).toBe("none");
+
+      const t = await thumb.boundingBox();
+      const h = await h1.boundingBox();
+      if (!t || !h) throw new Error("hero not laid out");
+      expect(Math.round(t.width)).toBe(size);
+      expect(Math.round(t.height)).toBe(size);
+      // Top right of the column, no taller than the eyebrow and the h1, so the hero is no taller.
+      const gutter = width < 640 ? 20 : 32;
+      expect(Math.round(t.x + t.width)).toBe(width - gutter);
+      expect(t.y + t.height).toBeLessThanOrEqual(h.y + h.height + 0.5);
+      const badgeRight = await thumb.locator("[data-hero-badge]").evaluate((el) => el.getBoundingClientRect().right);
+      expect(badgeRight).toBeLessThanOrEqual(width);
+      // The h1 keeps its two lines, each clear of the tile.
+      const layout = await h1.evaluate((el) => {
+        const lineHeight = parseFloat(getComputedStyle(el).lineHeight);
+        const rights = [...el.querySelectorAll(":scope > span")].map((line) => {
+          const range = document.createRange();
+          range.selectNodeContents(line);
+          return Math.max(...[...range.getClientRects()].map((r) => r.right));
+        });
+        return { lines: Math.round(el.getBoundingClientRect().height / lineHeight), rights };
+      });
+      expect(layout.lines).toBe(2);
+      for (const right of layout.rights) expect(right).toBeLessThan(t.x);
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
     });
   });
 }
@@ -167,6 +246,8 @@ test.describe("home at 375px, without scrolling", () => {
   });
 
   test("a rail scrolled to its end leaves its last card 20px or more from the screen's edge", async ({ page }) => {
+    // A still rail: the auto-scroll (e2e/home-autoscroll.spec.ts) would loop it back to the start.
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await mockApi(page);
     await page.goto("/");
     const rail = page.locator("[data-home-section] ul").filter({ has: page.locator("[data-event-card]") }).last();
@@ -185,6 +266,9 @@ for (const width of [320, 375, 390, 430]) {
     test.use({ viewport: { width, height: 844 } });
 
     test("snap to each card's start at the page gutter, show the next card, never move up and down, and keep the page still", async ({ page }) => {
+      // A still rail, with its own snapping: the auto-scroll's drift turns snapping off and moves it
+      // from the first frame on screen (e2e/home-autoscroll.spec.ts covers that).
+      await page.emulateMedia({ reducedMotion: "reduce" });
       await mockApi(page);
       await page.goto("/");
       const rail = page.locator("[data-home-section] ul").filter({ has: page.locator("[data-event-card]") }).first();
@@ -238,11 +322,14 @@ for (const width of [320, 375, 390, 430]) {
 
 // Owner (23 Oct 2026): "keep using the horizontal scrolling". From 640px too, the rails scroll sideways:
 // fixed 256px cards from the page column's edge, running off the right edge, with Previous/Next buttons.
-for (const width of [768, 1280, 1440]) {
+for (const width of [390, 768, 1280, 1440]) {
   test.describe(`home rails at ${width}px`, () => {
-    test.use({ viewport: { width, height: 900 } });
+    test.use({ viewport: { width, height: width < 768 ? 844 : 900 } });
 
     test("scroll sideways from the column's edge, with fixed-width cards, a peek, working arrows, and a still page", async ({ page }) => {
+      test.skip(width < 640, "the 640px-and-up rail (the phone rails are checked above)");
+      // A still rail, so the positions measured below hold: the auto-scroll is e2e/home-autoscroll.spec.ts's.
+      await page.emulateMedia({ reducedMotion: "reduce" });
       await mockApi(page);
       await page.goto("/");
       const section = page.locator("[data-home-section]").filter({ has: page.getByRole("heading", { name: "Coming up", exact: true }) });
@@ -304,7 +391,73 @@ for (const width of [768, 1280, 1440]) {
       expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
     });
 
+    // Owner (23 Oct 2026, layout polish): a rail of one or two cards left most of a desktop row empty. From
+    // 1024px it's a two-column grid in the page column with landscape images; below, the same carousel.
+    test(`a rail of two is ${width >= 1024 ? "a two-column grid of wide, landscape cards" : "a carousel of fixed cards"}`, async ({ page }) => {
+      const two = fixtures(Date.now()).slice(0, 2);
+      await page.route("**/api/**", (route) =>
+        new URL(route.request().url()).pathname === "/api/events"
+          ? route.fulfill({ json: { items: two, nextCursor: undefined } })
+          : route.fulfill({ status: 404, json: { error: "not mocked in e2e" } }),
+      );
+      await page.goto("/");
+      const weekend = page.getByRole("region", { name: "This weekend" });
+      const cards = weekend.locator("[data-event-card]");
+      await expect(cards).toHaveCount(2, { timeout: 30_000 });
+      await page.evaluate(() => document.fonts.ready);
+      const list = weekend.getByRole("list");
+      await expect(list).toHaveAttribute("data-rail-layout", "pair");
+      const layout = await list.evaluate((ul) => ({ display: getComputedStyle(ul).display, columns: getComputedStyle(ul).gridTemplateColumns }));
+      const boxes = await cards.evaluateAll((els) =>
+        els.map((el) => {
+          const r = el.getBoundingClientRect();
+          const media = el.querySelector("[data-card-media]")?.getBoundingClientRect();
+          const top = (sel: string) => Math.round(el.querySelector(sel)?.getBoundingClientRect().top ?? -1);
+          return { x: r.x, w: r.width, h: Math.round(r.height), mw: media?.width ?? 0, mh: media?.height ?? 0, price: top("[id$='-price']"), cta: top("[data-card-foot] > :nth-child(2)") };
+        }),
+      );
+      const heading = await weekend.getByRole("heading", { level: 2 }).boundingBox();
+      if (!heading) throw new Error("not laid out");
+      const inset = width < 640 ? 20 : width >= 1152 ? (width - 1152) / 2 + 32 : 32;
+      expect(Math.abs(boxes[0].x - heading.x)).toBeLessThanOrEqual(1);
+      if (width >= 1024) {
+        expect(layout.display).toBe("grid");
+        expect(layout.columns.split(" ")).toHaveLength(2);
+        // The two columns fill the page column, edge to edge, 24px apart.
+        const column = Math.min(width, 1152) - 64;
+        for (const box of boxes) expect(Math.abs(box.w - (column - 24) / 2)).toBeLessThanOrEqual(1);
+        expect(Math.abs(boxes[1].x + boxes[1].w - (width - inset))).toBeLessThanOrEqual(1);
+        // Wide landscape strips (owner, 23 Oct 2026: "the pictures still way too big"): 12:5 and never
+        // taller than 200px (wider than 12:5 where the cap bites), full column width.
+        for (const box of boxes) {
+          expect(box.mh).toBeLessThanOrEqual(200 + 0.5);
+          expect(box.mw / box.mh).toBeGreaterThanOrEqual(12 / 5 - 0.02);
+          expect(Math.abs(box.mw - box.w)).toBeLessThanOrEqual(1);
+        }
+      } else if (width >= 640) {
+        expect(layout.display).toBe("flex");
+        for (const box of boxes) expect(Math.round(box.w)).toBe(256);
+      } else {
+        // Phones: the carousel, with the second card peeking in at the right edge, scrolling sideways.
+        expect(layout.display).toBe("flex");
+        expect(boxes[1].x).toBeLessThan(width);
+        expect(boxes[1].x + boxes[1].w).toBeGreaterThan(width);
+        expect(await list.evaluate((ul) => ul.scrollWidth > ul.clientWidth)).toBe(true);
+        await list.evaluate((ul) => ul.scrollTo({ left: ul.scrollWidth, behavior: "instant" }));
+        await expect.poll(async () => Math.round((await cards.nth(1).boundingBox())?.x ?? -1)).toBeLessThan(width - boxes[1].w);
+      }
+      // Equal heights, and the prices and buttons on one line across the pair.
+      expect(boxes[0].h).toBe(boxes[1].h);
+      expect(boxes[0].price).toBe(boxes[1].price);
+      expect(boxes[0].cta).toBe(boxes[1].cta);
+      // Nothing invented to fill the row, no arrows, and the page doesn't move sideways.
+      await expect(page.locator("main [data-event-card]")).toHaveCount(2);
+      await expect(weekend.getByRole("button", { name: /events: This weekend/ })).toHaveCount(0);
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
+    });
+
     test("a rail that fits has no arrows (two cards), and every rail has them exactly when it overflows", async ({ page }) => {
+      test.skip(width < 640, "the 640px-and-up rail (the phone rails are checked above)");
       // Only the two weekend events: This weekend's rail of two fits at every width from 640px.
       const two = fixtures(Date.now()).slice(0, 2);
       await page.route("**/api/**", (route) =>

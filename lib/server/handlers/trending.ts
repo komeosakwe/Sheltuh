@@ -7,6 +7,7 @@ import { isUuid } from "../pagination";
 import { eventSelectWith, toEvent, toPublicEventFromRow } from "../records";
 import type { Handler } from "../route";
 import { fail } from "../validation";
+import { sweepEventClipsSoon } from "./event-clips";
 import { OPEN as WHOS_GOING_OPEN, SUSPENDED_ATTENDEE } from "./going";
 import {
   MAX_TRENDING_BOOST,
@@ -84,13 +85,16 @@ export const getTrendingEvents: Handler = async (_req, _params, { db }) => {
  * GET /api/cron/trending — Vercel Cron (daily on the Hobby plan; every 15
  * minutes on Pro: vercel.json, docs/supabase-setup.md). Rebuilds the
  * snapshot. Returns counts only: how many events were eligible and how many
- * were ranked.
+ * were ranked. After the response, it also runs the event clips' cleanup
+ * sweep (sweepEventClips, lib/server/handlers/event-clips.ts), so it needs
+ * no cron of its own (vercel.json's cron count stays as it is).
  */
 export const runTrendingCron: Handler = async (req, _params, deps) => {
   requireCronSecret(req, deps.cronSecret());
   const [row] = await deps.db.query<{ eligible: number; ranked: number }>(
     `select eligible, ranked from private.refresh_trending()`,
   );
+  sweepEventClipsSoon(deps);
   return okPrivate({ eligible: row.eligible, ranked: row.ranked });
 };
 

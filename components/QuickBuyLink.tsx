@@ -13,10 +13,11 @@ import type { SheltuhEvent } from "@/lib/types";
  * the link out), "Choose seats", and "Join waitlist" when sold out.
  *
  * Signal Orange with a black label (6.18:1, never white) for a purchase;
- * Join waitlist is the outline button (black on cream), since a waitlist
+ * Join waitlist is the outline button (black on white), since a waitlist
  * isn't a purchase. 44px tall on phones and 40px from 640px; keyboard focus
- * is the page's black ring on a cream gap (never orange). Renders nothing,
- * and no wrapper, when there's nothing to get: no tickets yet, or ended.
+ * is the page's own foreground ring (black in Light, white in Dark, never
+ * orange). Renders nothing, and no wrapper, when there's nothing to get:
+ * no tickets yet, or ended.
  *
  * `className` goes on the wrapper row (spacing, indent); `fullWidthOnPhones`
  * stretches the button across that row below 640px. `narrow` is for the
@@ -58,7 +59,7 @@ export default function QuickBuyLink({
       <Link
         href={cta.href}
         // relative: its visually hidden name is positioned within the button, never the page.
-        className={buttonClass(cta.tone, "md", `relative min-h-11 sm:min-h-10 focus-visible:outline-ink ${width}`)}
+        className={buttonClass(cta.tone, "md", `relative min-h-11 sm:min-h-10 ${width}`)}
       >
         {/* The whole name in one span: a leading space in a separate sr-only suffix can be dropped inside a flex link. */}
         <span className="sr-only">

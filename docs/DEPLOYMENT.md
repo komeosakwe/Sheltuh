@@ -111,12 +111,27 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       events listed in `supabase-setup.md` §2. Without it a refund made in
       the Stripe dashboard leaves the order paid and its tickets valid at the
       door.
-- [ ] **Email footer banner** hosted at exactly
-      `https://sheltuh.com.au/images/email-footer.png` (the ticket email
-      links this fixed URL, `EMAIL_FOOTER_IMAGE_URL` in
-      `lib/server/ticket-email.ts`). The file is `public/images/email-footer.png`;
-      while `sheltuh.com.au` is still the Cloudflare Worker landing page,
-      upload it there too. Open the URL in a private window to check. This is
+- [ ] **`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`** (embedded checkout: the
+      payment form is on our own page, `/checkout/pay`). In Vercel set it
+      per environment, matching that environment's `STRIPE_SECRET_KEY`:
+      **Production** the live key (`pk_live_…`), **Preview** the test key
+      (`pk_test_…`). Then **redeploy**: it's baked in at build time. If it's
+      missing or its mode differs from the secret key's, every paid checkout
+      is a 503 ("Card payments aren't available right now.") and nothing is
+      written; free tickets still work. A value that isn't `pk_test_…` or
+      `pk_live_…` at all (a secret `sk_…` key pasted in the wrong box, say)
+      fails the build (`next.config.ts`), naming the variable but not the
+      value, so it never reaches the browser bundle. Before going live, run the "Owner
+      sandbox checklist (embedded checkout)" in `architecture.md` in test
+      mode, register the payment method domain(s) for Apple Pay and Google
+      Pay, and set Stripe's branding (`supabase-setup.md` §2, steps 4–5).
+- [x] **Email footer banner** hosted at exactly
+      `https://sheltuh.com.au/sheltuh_email_signature_logo.png` (the ticket
+      email links this fixed URL, `EMAIL_FOOTER_IMAGE_URL` in
+      `lib/server/ticket-email.ts`; the owner confirmed it loads, 24 Oct 2026).
+      The file is `public/sheltuh_email_signature_logo.png`; while
+      `sheltuh.com.au` is still the Cloudflare Worker landing page it must stay
+      there too. Open the URL in a private window to check. This is
       the only remote image in any email: the free-ticket confirmation,
       waitlist and follower emails have none.
 - **Email wordmark: nothing to host.** The ticket email's header wordmark
@@ -176,18 +191,31 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 1. [ ] **Test mode:** enable Accounts v1 support (the "Something went wrong"
        at checkout came from this being off), create the webhook endpoint
        `https://YOUR-DOMAIN/api/stripe/webhook`, copy the signing secret.
-2. [ ] Run a full test purchase: paid ticket, free ticket, refund.
-3. [ ] Only then repeat with **live** keys.
+       Copy the publishable key (`pk_test_…`) too, for
+       `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
+2. [ ] Branding (white background, black button) and payment method
+       domains for Apple Pay / Google Pay: `supabase-setup.md` §2.
+3. [ ] Run a full test purchase: paid ticket, free ticket, refund; then the
+       "Owner sandbox checklist (embedded checkout)" in `architecture.md`.
+4. [ ] Only then repeat with **live** keys (secret, publishable and webhook
+       secret all change together).
 
 ## Vercel
 
 1. [ ] Environment variables (Production and Preview), from `.env.example`:
        `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
        `NEXT_PUBLIC_SITE_URL`, `DATABASE_URL` (transaction pooler, port 6543),
-       `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SMTP_*`, `EMAIL_FROM`.
+       `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`,
+       `STRIPE_WEBHOOK_SECRET`, `SMTP_*`, `EMAIL_FROM`. The two Stripe keys
+       are a pair from one account and mode: Production live
+       (`sk_live_…` + `pk_live_…`), Preview test (`sk_test_…` +
+       `pk_test_…`). Redeploy after changing any `NEXT_PUBLIC_*` value.
        Optional: `NEXT_PUBLIC_DISABLE_SERVICE_WORKER=1` turns the offline
        service worker off (needs a fresh build; see `docs/pwa.md`).
-       **Never** add `SUPABASE_SECRET_KEY` (local script only).
+       **Never** add `SUPABASE_SECRET_KEY` (local script only). The one
+       exception is `SUPABASE_CLIP_STORAGE_KEY`: a *separate*, separately
+       revocable secret key used only by `lib/server/clip-storage.ts` for the
+       private `event-clips` bucket (event clips; unset = clip routes 503).
 2. [ ] Pro plan once you sell tickets (Hobby is non-commercial).
 3. [ ] Domain: attach `sheltuh.com.au` (see PROJECT_CONTEXT for the Cloudflare
        notes). The landing page currently lives on a Cloudflare Worker; decide

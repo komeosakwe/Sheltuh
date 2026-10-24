@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
+import { AdminSummaryProvider } from "@/components/admin/AdminSummaryProvider";
 import DemoBanner from "@/components/DemoBanner";
 import Footer from "@/components/Footer";
 import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
@@ -7,10 +8,12 @@ import { UnreadProvider } from "@/components/messages/UnreadProvider";
 import Nav from "@/components/Nav";
 import ServiceWorkerRegistration from "@/components/pwa/ServiceWorkerRegistration";
 import RouteProgress from "@/components/RouteProgress";
+import ThemeSync from "@/components/theme/ThemeSync";
 import { isApiConfigured } from "@/lib/api/client";
 import { AuthProvider } from "@/lib/auth/AuthContext";
 import { APP_THEME_COLOR } from "@/lib/pwa/theme";
-import { instrument, plexMono } from "./fonts";
+import { THEME_INIT_SCRIPT } from "@/lib/theme";
+import { instrument, instrumentDots, plexMono } from "./fonts";
 import "./globals.css";
 
 /**
@@ -37,7 +40,7 @@ export const metadata: Metadata = {
     : "Sheltüh is a curated guide to Melbourne's live music, art, workshops and pop-ups. Local prototype with sample data — no real tickets are sold yet.",
   applicationName: "Sheltüh",
   // Home-screen app on iOS (the manifest is app/manifest.ts). "default" keeps
-  // dark status-bar text over the cream header; see docs/pwa.md.
+  // dark status-bar text over the white header; see docs/pwa.md.
   appleWebApp: { title: "Sheltüh", statusBarStyle: "default" },
 };
 
@@ -53,11 +56,20 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     // data-scroll-behavior: Next 16 turns the CSS smooth scroll off during route
     // changes, so page navigations still jump to the top instantly.
+    // suppressHydrationWarning: the theme script sets data-theme="dark" on <html>
+    // before hydration (the server always renders Light: no attribute).
     <html
       lang="en"
       data-scroll-behavior="smooth"
-      className={`${instrument.variable} ${plexMono.variable} h-full`}
+      className={`${instrumentDots.variable} ${instrument.variable} ${plexMono.variable} h-full`}
+      suppressHydrationWarning
     >
+      <head>
+        {/* Inline and synchronous, the first child here (React hoists the charset, viewport,
+            stylesheet and metadata above it), so a stored Dark is on before <body> is parsed and
+            painted (docs/design/theme-white-dark.md §5.4; Next's "Preventing flash" guide). */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col bg-background text-foreground antialiased">
         <a
           href="#main"
@@ -67,22 +79,26 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         </a>
         <AuthProvider>
           <UnreadProvider>
-            <FavouritesProvider>
-              <Nav />
-              {/* useSearchParams needs a Suspense boundary to keep pages static. */}
-              <Suspense fallback={null}>
-                <RouteProgress />
-              </Suspense>
-              <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
-                {/* The demo's one sample-data disclosure, at the top of every page. */}
-                {!isApiConfigured && <DemoBanner />}
-                {children}
-              </main>
-              <Footer />
-            </FavouritesProvider>
+            {/* Admin counts for the nav's Admin badge and the admin pages; fetched for admins only. */}
+            <AdminSummaryProvider>
+              <FavouritesProvider>
+                <Nav />
+                {/* useSearchParams needs a Suspense boundary to keep pages static. */}
+                <Suspense fallback={null}>
+                  <RouteProgress />
+                </Suspense>
+                <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
+                  {/* The demo's one sample-data disclosure, at the top of every page. */}
+                  {!isApiConfigured && <DemoBanner />}
+                  {children}
+                </main>
+                <Footer />
+              </FavouritesProvider>
+            </AdminSummaryProvider>
           </UnreadProvider>
         </AuthProvider>
         <ServiceWorkerRegistration />
+        <ThemeSync />
       </body>
     </html>
   );

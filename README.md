@@ -24,7 +24,8 @@ marketplace.
 - `/`: curated event feed with category, date and free/paid filters.
 - `/map`: Scene Map.
 - `/events/[slug]`: event details and guest checkout. Free tickets are
-  issued instantly; paid tickets go through Stripe Checkout.
+  issued instantly; paid tickets are paid for on `/checkout/pay`, in
+  Stripe's embedded checkout form.
 - `/checkout/success`: order confirmation with ticket codes, also emailed
   to the buyer. An oversold order is refunded automatically.
 

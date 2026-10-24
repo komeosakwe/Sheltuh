@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createCheckout, stripeWebhook } from "@/lib/server/handlers/orders";
 import type { EventRecord } from "@/lib/server/types";
-import { stripeWebhookRequest, TestApi } from "./helpers/api";
+import { embeddedSession, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, signUpAdmin } from "./helpers/fixtures";
 import { seatedEvent, seatStates } from "./helpers/seating";
 import { createTestDb } from "./helpers/test-db";
@@ -30,7 +30,7 @@ beforeEach(async () => {
   let n = 0;
   api.stripe.checkout.sessions.create.mockImplementation(async (params: { client_reference_id: string }) => {
     n += 1;
-    return { id: `cs_race_${n}_${params.client_reference_id}`, url: `https://checkout.stripe.test/${n}` };
+    return embeddedSession(`cs_race_${n}_${params.client_reference_id}`);
   });
 });
 

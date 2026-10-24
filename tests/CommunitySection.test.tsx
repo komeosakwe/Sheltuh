@@ -1,19 +1,40 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import CommunitySection, { COMMUNITY_DEMO_NOTE } from "@/components/home/CommunitySection";
+import CommunitySection, { COMMUNITY_DEMO_NOTE, COMMUNITY_TEASER } from "@/components/home/CommunitySection";
 import { HomeEventsProvider } from "@/components/home/HomeEventsProvider";
 import { COMMUNITY_SAMPLE_FACES } from "@/components/home/home-content";
-import { initialsFor } from "@/lib/initials";
 import { getSampleGoing } from "@/lib/sample-going";
 import { sampleEvents } from "@/lib/sample-events";
 import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
 
 /**
  * Find your people, the owner's mockup (23 Oct 2026): the pitch on the left,
- * the "A look inside" card on the right. Demo mode here (no API configured);
- * live mode is tests/CommunitySectionLive.test.tsx.
+ * the "A look inside" card on the right, always, with the owner's illustrative
+ * portraits. Demo mode here (no API configured); live mode is
+ * tests/CommunitySectionLive.test.tsx.
  */
+
+/** The five portraits: decorative (hidden, empty alt), round, ringed and overlapping, in order. */
+function expectIllustrativeFaces(card: HTMLElement) {
+  const faces = card.querySelector("[data-community-faces]");
+  expect(faces).toHaveAttribute("aria-hidden", "true");
+  const circles = Array.from(faces?.children ?? []);
+  expect(circles).toHaveLength(5);
+  for (const circle of circles) {
+    expect(circle).toHaveClass("rounded-full", "border-4", "border-card", "size-14", "sm:size-20", "lg:size-18", "xl:size-20");
+    expect(circle.textContent).toBe("");
+  }
+  expect(circles.slice(1).every((circle) => circle.classList.contains("-ml-4"))).toBe(true);
+  const imgs = Array.from(faces?.querySelectorAll("img") ?? []);
+  expect(imgs).toHaveLength(5);
+  imgs.forEach((img, i) => {
+    expect(img).toHaveAttribute("alt", "");
+    expect(img).toHaveAttribute("loading", "lazy");
+    expect(img).toHaveAttribute("decoding", "async");
+    expect(decodeURIComponent(img.getAttribute("src") ?? "")).toContain(`/home/people/person-${i + 1}.webp`);
+  });
+}
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -63,6 +84,24 @@ describe("CommunitySection: the pitch", () => {
     expect(container.querySelector(".btn-signal")).toBeNull();
   });
 
+  // Owner (23 Oct 2026, layout polish): compact on phones (about 32px between the blocks, 20–24px card
+  // padding); from 640px as before.
+  it("is compact on phones: 40px band padding, 32px around the action and the card, 20px card padding", () => {
+    const { container } = render(
+      <FakeAuthProvider value={fakeAuthValue({ status: "signed-out" })}>
+        <CommunitySection />
+      </FakeAuthProvider>,
+    );
+    const inner = container.querySelector("#find-your-people > div");
+    expect(inner).toHaveClass("py-10", "sm:py-16", "lg:py-20");
+    expect(screen.getByRole("link", { name: "Create profile now" })).toHaveClass("mt-8");
+    const card = container.querySelector("[data-community-card]");
+    expect(card).toHaveClass("mt-8", "sm:mt-10", "lg:mt-0", "p-5", "sm:p-8");
+    expect(container.querySelector("[data-community-faces]")).toHaveClass("mt-4", "sm:mt-6");
+    // The footnote stays readable: 14px, #666 on white (5.74:1).
+    expect(container.querySelector("[data-community-note]")).toHaveClass("text-sm", "text-foreground/60");
+  });
+
   it("sends signed-in members to find an event, in the same style", () => {
     render(
       <FakeAuthProvider value={fakeAuthValue()}>
@@ -85,14 +124,27 @@ describe("CommunitySection: the pitch", () => {
     expect(screen.getByRole("link", { name: "Create profile now" })).toHaveAttribute("href", "/signup");
   });
 
-  it("invents nothing: with no events to draw on, no card, no number and no faces, just the pitch", () => {
+  it("invents nothing: with no events to draw on, the card shows the pitch, the illustrative faces and no number", () => {
     const { container } = render(<CommunitySection />);
-    expect(container.querySelector("[data-community-example]")).toBeNull();
-    expect(container.querySelector("[data-community-faces]")).toBeNull();
-    expect(screen.queryByText("A look inside")).toBeNull();
+    const card = container.querySelector<HTMLElement>("[data-community-card]");
+    if (!card) throw new Error("no card");
+    expect(card).not.toHaveAttribute("data-community-example");
+    expect(within(card).getByText("A look inside")).toHaveClass("eyebrow");
+    expect(within(card).getByText(COMMUNITY_TEASER.title)).toHaveClass("font-bold");
+    expect(within(card).getByText(COMMUNITY_TEASER.body)).toBeInTheDocument();
+    expect(card.querySelector("[data-community-note]")).toHaveTextContent(/^Illustrative photos$/);
+    expect(card.querySelector("[data-community-count]")).toBeNull();
+    expect(card).not.toHaveTextContent(/people going/);
+    // No number anywhere in the band, and no claim that anyone is going.
     expect(container.textContent).not.toMatch(/\d/);
-    // A single column: no grid waiting for a card.
-    expect(container.querySelector(".lg\\:grid")).toBeNull();
+    expectIllustrativeFaces(card);
+    // Still two columns from 1024px: the card is always there.
+    expect(container.querySelector(".lg\\:grid")).toHaveClass("lg:grid-cols-12");
+    expect(card).toHaveClass("bg-card", "rounded-2xl", "lg:col-span-5");
+  });
+
+  it("uses the owner's five portraits", () => {
+    expect(COMMUNITY_SAMPLE_FACES).toEqual([1, 2, 3, 4, 5].map((n) => `/home/people/person-${n}.webp`));
   });
 });
 
@@ -104,7 +156,7 @@ describe("CommunitySection: the 'A look inside' card (demo)", () => {
       </HomeEventsProvider>,
     );
     await settle();
-    const card = utils.container.querySelector<HTMLElement>("[data-community-example]");
+    const card = utils.container.querySelector<HTMLElement>("[data-community-card][data-community-example]");
     if (!card) throw new Error("no example card");
     return { ...utils, card };
   }
@@ -118,30 +170,27 @@ describe("CommunitySection: the 'A look inside' card (demo)", () => {
     const count = getSampleGoing(event?.id ?? "").count;
     // The count reads as one phrase: "22 people going".
     expect(card.querySelector("[data-community-count]")).toHaveTextContent(new RegExp(`^${count} people going$`));
-    expect(within(card).getByText(COMMUNITY_DEMO_NOTE)).toBeInTheDocument();
-    expect(COMMUNITY_DEMO_NOTE).toBe("Example event · Sample attendees");
+    expect(card).toHaveAttribute("data-community-example");
+    const note = card.querySelector("[data-community-note]");
+    expect(note?.textContent).toBe(COMMUNITY_DEMO_NOTE);
+    // Each part stays on one line, so "Illustrative photos" never splits.
+    expect(Array.from(note?.querySelectorAll(".whitespace-nowrap") ?? []).map((part) => part.textContent)).toEqual([
+      "Example event",
+      "Sample count",
+      "Illustrative photos",
+    ]);
+    expect(COMMUNITY_DEMO_NOTE).toBe("Example event · Sample count · Illustrative photos");
     // White card on the band, 16px corners; its muted lines are readable grey, not the band's black.
     expect(card).toHaveClass("bg-card", "rounded-2xl");
-    expect(within(card).getByText(COMMUNITY_DEMO_NOTE)).toHaveClass("text-foreground/60");
+    expect(note).toHaveClass("text-foreground/60");
   });
 
-  it("draws four overlapping circles, hidden from screen readers, with the sample attendees' initials", async () => {
+  it("keeps the illustrative faces beside the sample count, and the footnote says they're illustrative", async () => {
     const { card } = await renderDemo();
-    const faces = card.querySelector("[data-community-faces]");
-    expect(faces).toHaveAttribute("aria-hidden", "true");
-    const circles = Array.from(faces?.children ?? []);
-    expect(circles).toHaveLength(4);
-    for (const circle of circles) expect(circle).toHaveClass("rounded-full", "border-4", "border-card", "sm:size-20");
-    expect(circles.slice(1).every((circle) => circle.classList.contains("-ml-4"))).toBe(true);
-    // No photos are licensed into the repo yet, so the demo shows initials.
-    expect(COMMUNITY_SAMPLE_FACES).toEqual([]);
-    expect(faces?.querySelector("img")).toBeNull();
-    const title = card.querySelector("p.font-bold")?.textContent ?? "";
-    const event = sampleEvents.find((e) => e.title === title);
-    const expected = getSampleGoing(event?.id ?? "")
-      .attendees.slice(0, 4)
-      .map((a) => initialsFor(a.displayName));
-    expect(circles.map((circle) => circle.textContent)).toEqual(expected);
+    expectIllustrativeFaces(card);
+    expect(card.querySelector("[data-community-note]")).toHaveTextContent(/Illustrative photos$/);
+    // The no-example pitch isn't shown alongside an example.
+    expect(within(card).queryByText(COMMUNITY_TEASER.body)).toBeNull();
   });
 
   it("lays the pitch and the card side by side from 1024px", async () => {

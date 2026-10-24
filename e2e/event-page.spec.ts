@@ -397,3 +397,56 @@ test.describe("ended event at 375px", () => {
     await noSidewaysScroll(page);
   });
 });
+
+/** A 1×1 PNG: enough for the browser to decode as the organiser's logo. */
+const TINY_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+const LOGO_THUMB = "/api/organisers/org-demo/logo?size=thumb&v=1730000000000";
+
+// docs/architecture.md, "Organiser profiles" → Logo: the thumbnail beside "Organised by", or initials.
+test.describe("organiser logo at 375px", () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  for (const logo of ["served", "missing"] as const) {
+    test(`${logo === "served" ? "shows the logo, decorative and out of the tab order" : "a logo that 404s shows the initials"}`, async ({ page }) => {
+      const logoRequests: string[] = [];
+      await page.route("**/api/**", (route) => {
+        const url = new URL(route.request().url());
+        if (/^\/api\/events\/slug\//.test(url.pathname)) {
+          return route.fulfill({ json: { ...asPublic("neon-static"), organiserLogoThumbUrl: LOGO_THUMB } });
+        }
+        if (url.pathname === "/api/organisers/org-demo/logo") {
+          logoRequests.push(`${url.pathname}${url.search}`);
+          return logo === "served"
+            ? route.fulfill({ contentType: "image/png", body: TINY_PNG })
+            : route.fulfill({ status: 404, json: { error: "Organiser not found." } });
+        }
+        if (/\/going$/.test(url.pathname)) return route.fulfill({ json: { count: 0, countHidden: false, closed: false } });
+        return route.fulfill({ status: 204 });
+      });
+      await page.goto("/events/neon-static");
+      await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
+
+      const avatar = page.locator("[data-organiser-avatar]");
+      await expect(avatar).toHaveAttribute("aria-hidden", "true");
+      await expect(avatar).toHaveAttribute("tabindex", "-1");
+      await expect(avatar).toHaveAttribute("href", "/organisers/org-demo");
+      await expect.poll(() => logoRequests).toEqual([LOGO_THUMB]);
+      if (logo === "served") {
+        const img = avatar.locator("img");
+        await expect(img).toHaveAttribute("alt", "");
+        await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBe(1);
+        // The avatar's 32px square, the same as the initials it replaces.
+        const box = await avatar.locator("[data-organiser-logo]").boundingBox();
+        expect(box?.width).toBe(32);
+        expect(box?.height).toBe(32);
+      } else {
+        await expect(avatar.locator("img")).toHaveCount(0);
+        await expect(avatar).toHaveText("SC");
+      }
+      await noSidewaysScroll(page);
+    });
+  }
+});

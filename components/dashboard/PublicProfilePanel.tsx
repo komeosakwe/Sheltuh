@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import OrganiserLogoField from "@/components/dashboard/OrganiserLogoField";
 import PublicProfileForm from "@/components/dashboard/PublicProfileForm";
 import { ButtonLink } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -10,7 +11,11 @@ import { withNext } from "@/lib/safe-next-path";
 /** Where signing in from here comes back to. */
 const RETURN_TO = "/dashboard/profile";
 
-/** The dashboard's public profile editor: available once the organiser is approved. */
+/**
+ * The dashboard's public profile editor: available once the organiser is
+ * approved (the logo too: the API refuses one before then). Never in the
+ * demo, which has no accounts.
+ */
 export default function PublicProfilePanel() {
   const auth = useAuth();
   const { loading, organiser, error, refetch } = useOrganiser();
@@ -81,6 +86,7 @@ export default function PublicProfilePanel() {
           View public profile
         </ButtonLink>
       </div>
+      <OrganiserLogoField organiser={organiser} getToken={auth.getAccessToken} />
       <PublicProfileForm organiser={organiser} getToken={auth.getAccessToken} />
     </div>
   );

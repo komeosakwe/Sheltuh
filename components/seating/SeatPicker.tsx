@@ -286,9 +286,10 @@ export default function SeatPicker({
   // Not while checking out: the buyer's own just-held seats would come back as "just taken".
   useVisibleInterval(pollAvailability, AVAILABILITY_POLL_MS, { enabled: Boolean(poll) && !readOnly && !busy });
 
-  // Back from Stripe (the browser's Back: a page restored from the back/forward cache, or loaded
-  // afresh): release the hold this tab started rather than leave the seats held for the full hold,
-  // and Checkout works again. Stripe's own cancel link goes to /checkout/cancelled instead. A
+  // Back from the payment page (its "Change seats" link, or the browser's Back: a page restored from
+  // the back/forward cache, or loaded afresh): release the hold this tab started rather than leave the
+  // seats held for the full hold, and Checkout works again. A hosted Stripe page from before embedded
+  // checkout has its own cancel link to /checkout/cancelled instead. A
   // release that fails is kept and tried again at the next chance: the next pageshow, a reload,
   // or pressing Checkout (lib/seating/pending-checkout.ts).
   const releasePending = useCallback(async () => {
@@ -536,7 +537,7 @@ export default function SeatPicker({
           : await createCheckoutSession(event.id, lineItems, email, getTrackingRef(event.id), getToken);
       if ("url" in result) {
         // No setBusy(false): the page is navigating away, and re-enabling Checkout would invite a double press.
-        // Coming Back from Stripe resets it and releases the hold (releasePending).
+        // Coming Back from the payment page resets it and releases the hold (releasePending).
         if (result.orderId) rememberPendingCheckout(result.orderId, event.slug);
         window.location.assign(result.url);
         return;
@@ -579,7 +580,7 @@ export default function SeatPicker({
     ? auth?.status === "signed-in"
       ? "Pressing Get free tickets books these seats straight away."
       : "We’ll email you a link to confirm. Your seats are only held once you confirm, if they’re still free."
-    : `Seats aren’t held while you choose. Pressing Checkout holds them for you while you pay on Stripe. You’ll have ${SEAT_HOLD.stripeMinutes} minutes; if you don’t finish, they’re released.`;
+    : `Seats aren’t held while you choose. Pressing Checkout holds them for ${SEAT_HOLD.stripeMinutes} minutes while you pay. If you don’t finish, they’re released.`;
 
   const checkoutLabel = busy ? (freeBooking ? "Booking…" : "Holding your seats…") : freeBooking ? "Get free tickets" : "Checkout";
 

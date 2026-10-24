@@ -5,6 +5,7 @@ import AdminOrganiserPicker, { ORGANISER_PICKER_PAGE } from "@/components/admin/
 import EventEditor from "@/components/dashboard/EventEditor";
 import { ApiError } from "@/lib/api/client";
 import type { AdminEventRecord, AdminOrganiserRecord, EventRecord } from "@/lib/api/types";
+import { SessionExpiredError } from "@/lib/auth/session-token";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
 const push = vi.fn();
@@ -434,6 +435,27 @@ describe("EventEditor (admin) — editing", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(screen.getByText(/Give a reason for changing/)).toBeInTheDocument());
     expect(adminUpdateEvent.mock.calls[0][1]).toMatchObject({ ticketingMode: "external", ticketTypes: [] });
+  });
+
+  it("an expired session asks the page for the one sign-in form, and without it points to the other one", async () => {
+    adminUpdateEvent.mockRejectedValue(new SessionExpiredError());
+    const onReauthNeeded = vi.fn();
+    renderEditor({ initial: EVENT, reauthForm: false, onReauthNeeded });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    const alert = await screen.findByRole("alert");
+    expect(onReauthNeeded).toHaveBeenLastCalledWith(true);
+    expect(alert).toHaveTextContent("Sign in again with the form below (under Trending), then save again.");
+    expect(screen.queryByLabelText("Password")).toBeNull();
+    // Saving again starts afresh: the form is given up first.
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(onReauthNeeded).toHaveBeenCalledWith(false);
+  });
+
+  it("an expired session shows the sign-in form by default", async () => {
+    adminUpdateEvent.mockRejectedValue(new SessionExpiredError());
+    renderEditor({ initial: EVENT });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(await screen.findByLabelText("Password")).toBeInTheDocument();
   });
 
   it("names a platform-managed event's organiser and keeps its tickets free", async () => {

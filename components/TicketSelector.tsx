@@ -66,6 +66,16 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     }
   }, [sentTo]);
 
+  // Back from the payment page (the browser's Back, restoring this page from the back/forward cache):
+  // the checkout this button started is over here, so it's no longer "Opening checkout…".
+  useEffect(() => {
+    function onPageShow(event: PageTransitionEvent) {
+      if (event.persisted) setLoading(false);
+    }
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+
   // An email error (ours or the API's) puts focus on the field it's about,
   // after the message is in the field's description.
   useEffect(() => {
@@ -154,7 +164,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const buyerPaysAFee = ticketTypes.some((t) => t.priceCents > 0 && t.feePolicy === "buyer-pays");
   const steps = allFree
     ? ["Choose tickets", "Confirm by email", "Tickets"]
-    : ["Choose tickets", "Pay on Stripe", "Tickets by email"];
+    : ["Choose tickets", "Pay", "Tickets by email"];
   // Paid orders give Stripe an email at checkout; free ones skip Stripe, so
   // this is the only way their tickets can reach the buyer.
   const needsEmail = canCheckout && hasAnyTickets && orderTotal.totalCents === 0;
@@ -194,6 +204,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         window.location.href = result.url;
         // Deliberately no setLoading(false) here — the page is navigating
         // away, and re-enabling the button would just invite a double-click.
+        // Coming Back to this page resets it (the pageshow listener above).
         return;
       }
       setSentTo(email ?? "");
@@ -437,7 +448,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                 {loading
                   ? freeBooking
                     ? "Booking…"
-                    : "Redirecting to checkout…"
+                    : "Opening checkout…"
                   : freeBooking
                     ? "Get free tickets"
                     : "Checkout"}
@@ -465,7 +476,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                   ? "Choose tickets to continue."
                   : freeBooking
                     ? "No payment step. We'll email you a link to confirm your tickets before they're issued. Signed in and booking with your account's verified email? That step is usually skipped."
-                    : "You'll pay securely on Stripe's own checkout page."}
+                    : "You'll pay on the next page, in a secure form from Stripe, our payment provider."}
               </p>
             </>
           ) : (

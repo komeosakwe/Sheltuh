@@ -4,7 +4,7 @@ import { EVENT_ENDED } from "@/lib/server/handlers/event-queries";
 import { confirmFreeOrder } from "@/lib/server/handlers/free-orders";
 import { createCheckout, getOrderBySession, stripeWebhook } from "@/lib/server/handlers/orders";
 import type { EventRecord } from "@/lib/server/types";
-import { stripeWebhookRequest, TestApi } from "./helpers/api";
+import { embeddedSession, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { seatedEvent, seatStates } from "./helpers/seating";
 import { createTestDb } from "./helpers/test-db";
@@ -39,7 +39,7 @@ beforeEach(async () => {
   let n = 0;
   api.stripe.checkout.sessions.create.mockImplementation(async () => {
     n += 1;
-    return { id: `cs_test_${n}`, url: `https://checkout.stripe.test/cs_test_${n}` };
+    return embeddedSession(`cs_test_${n}`);
   });
 });
 

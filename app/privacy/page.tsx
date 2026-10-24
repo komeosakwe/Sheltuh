@@ -104,6 +104,39 @@ export default function PrivacyPage() {
           </li>
         </ul>
       </ContentSection>
+      <ContentSection title="Your location" id="location">
+        <p>
+          Search can put what&rsquo;s on near you first. It&rsquo;s up to you whether to use it, and
+          how.
+        </p>
+        <ul>
+          <li>
+            If you choose &ldquo;Use my current location&rdquo;, your browser asks you first. If you
+            allow it, your device&rsquo;s position is used only in your browser, to find the nearest
+            suburb we know, and is then thrown away. It isn&rsquo;t sent to us, stored, or put in a
+            web address.
+          </li>
+          <li>
+            You can type a suburb instead. Either way, only the suburb&rsquo;s name is kept: on this
+            device, in your browser&rsquo;s storage, so the search bar remembers it; and in the
+            address of the search results page (for example /search?near=Fitzroy).
+          </li>
+          <li>
+            Like any address you visit, that one reaches our website and our hosting
+            provider&rsquo;s request logs. The suburb isn&rsquo;t saved in our database, isn&rsquo;t
+            linked to your account, and isn&rsquo;t sent with our event searches: results are put in
+            order in your browser.
+          </li>
+          <li>We don&rsquo;t work out where you are from your IP address.</li>
+        </ul>
+        <p>
+          To forget the suburb, choose &ldquo;Anywhere in Melbourne&rdquo; under the search
+          bar&rsquo;s location (or search with the location left empty), or clear this
+          site&rsquo;s data in your browser. Search results pages you&rsquo;ve visited, suburb and
+          all, stay in your browser&rsquo;s history until you clear it there. You can turn
+          location off for this site in your browser&rsquo;s settings at any time.
+        </p>
+      </ContentSection>
       <ContentSection title="Payments">
         <p>
           Card payments are handled by Stripe. We never see or store your card number. Stripe’s

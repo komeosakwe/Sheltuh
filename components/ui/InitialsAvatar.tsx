@@ -1,6 +1,6 @@
 import { initialsFor } from "@/lib/initials";
 
-/** Everyone else's fills, in turn down a list: black, white with a black edge, sunken cream. */
+/** Everyone else's fills, in turn down a list: black, white with a black edge, sunken surface. */
 const FILLS = [
   "bg-foreground text-background",
   "bg-card text-foreground border border-foreground",

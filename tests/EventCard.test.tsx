@@ -109,7 +109,8 @@ const cardRoot = (container: HTMLElement) => container.querySelector<HTMLElement
 
 describe("EventCard anatomy (§6.2.1)", () => {
   // Refinement (owner, 22 Oct 2026): image, title, date, place, then the category and the count,
-  // small; the price and the action last. Shorter: a 4:3 phone rail image and tighter lines.
+  // small; the price and the action last. Shorter: a 4:3 rail image (at every width since the owner's
+  // "the pictures still way too big", 23 Oct 2026) and tighter lines.
   it.each(["rail", "grid"] as const)(
     "%s: image first, then the title, date and time, venue, a small category · going line; the all-inclusive price, then the action, in the foot",
     (variant) => {
@@ -121,8 +122,10 @@ describe("EventCard anatomy (§6.2.1)", () => {
       expect(media).toHaveClass("rounded-card", "overflow-hidden");
       expect(media.children).toHaveLength(1);
       expect(media.firstElementChild).toHaveAttribute("aria-hidden", "true");
-      if (variant === "rail") expect(media.firstElementChild).toHaveClass("aspect-[4/3]", "sm:aspect-square");
-      else expect(media.firstElementChild).toHaveClass("aspect-square");
+      if (variant === "rail") {
+        expect(media.firstElementChild).toHaveClass("aspect-[4/3]");
+        expect(media.firstElementChild?.className).not.toMatch(/aspect-square/);
+      } else expect(media.firstElementChild).toHaveClass("aspect-square");
       const text = media.nextElementSibling as HTMLElement;
       const lines = Array.from(text.children).map((el) => el.textContent);
       expect(lines).toEqual([
@@ -312,6 +315,27 @@ describe("EventCard variants", () => {
     expect(screen.queryByRole("link", { name: /^By / })).toBeNull();
   });
 
+  // Owner (23 Oct 2026, layout polish): a home rail of one or two is a two-column grid from 1024px.
+  it("rail, wide: a rail card below 1024px; from 1024px it fills its cell with a 12:5 image at most 200px tall", () => {
+    const { container } = render(<EventCard event={event} variant="rail" wide mode="live" />);
+    const root = cardRoot(container);
+    expect(root).toHaveAttribute("data-wide", "");
+    expect(root).toHaveClass("w-[min(62vw,15rem)]", "shrink-0", "sm:w-64", "lg:w-full");
+    expect(root.querySelector("[data-card-media] > div")).toHaveClass("aspect-[4/3]", "lg:aspect-[12/5]", "lg:max-h-50");
+    // The same foot (price, then the action), so the pair's prices and buttons line up.
+    expect(root.querySelector("[data-card-foot]")).toHaveClass("mt-auto");
+    expect(screen.getByRole("link", { name: "Buy tickets for Glasshouse Sessions" })).toBeInTheDocument();
+    cleanup();
+    // Not wide: no lg: overrides. And `wide` means nothing to a grid card.
+    const plain = cardRoot(render(<EventCard event={event} variant="rail" mode="live" />).container);
+    expect(plain).not.toHaveAttribute("data-wide");
+    expect(plain.className).not.toMatch(/lg:/);
+    cleanup();
+    const grid = cardRoot(render(<EventCard event={event} variant="grid" wide mode="live" />).container);
+    expect(grid).not.toHaveAttribute("data-wide");
+    expect(grid.querySelector("[data-card-media] > div")?.className).not.toMatch(/lg:/);
+  });
+
   it("grid: fills its cell; 16px titles on the phone grid, 18px from 640px, 14px details; a full-width CTA on phones whose label wraps rather than overflows", () => {
     const { container } = render(<EventCard event={event} variant="grid" mode="live" />);
     expect(cardRoot(container)).toHaveClass("w-full");
@@ -342,12 +366,13 @@ describe("EventCard variants", () => {
     expect(screen.getByRole("link", { name: "By Small Hours Theatre" })).toHaveAttribute("href", "/organisers/small-hours-theatre");
   });
 
-  it("placeholder: the variant's width and media box (rail: 4:3 on phones, square from 640px) and flat bars, hidden from screen readers", () => {
+  it("placeholder: the variant's width and media box (rail: 4:3 at every width) and flat bars, hidden from screen readers", () => {
     const { container } = render(<EventCardPlaceholder variant="rail" />);
     const root = container.firstElementChild as HTMLElement;
     expect(root).toHaveAttribute("aria-hidden", "true");
     expect(root).toHaveClass("w-[min(62vw,15rem)]");
-    expect(root.querySelector(".aspect-\\[4\\/3\\].sm\\:aspect-square.bg-surface")).not.toBeNull();
+    expect(root.querySelector(".aspect-\\[4\\/3\\].bg-surface")).not.toBeNull();
+    expect(root.querySelector(".aspect-square")).toBeNull();
     expect(root.className).not.toMatch(/animate/);
   });
 });
@@ -404,8 +429,9 @@ describe("EventCard ticket states, from real data only (§6.2.3)", () => {
     expect(cta).toHaveAccessibleName(`${label} for ${e.title}`);
     expect(cta).toHaveAttribute("href", href);
     expect(cta).toHaveClass("btn", tone ?? "");
-    // The black focus ring, never orange.
-    expect(cta).toHaveClass("focus-visible:outline-ink");
+    // The page's own foreground ring (black in Light, white in Dark), never a fixed black or orange one.
+    expect(cta).not.toHaveClass("focus-visible:outline-ink");
+    expect(cta?.className).not.toMatch(/outline-(?:ink|signal)/);
   });
 
   it("ended: 'Ended' on the price line, muted, and no ticket action, sold out or not", () => {

@@ -115,6 +115,7 @@ describe("Data API lock-out", () => {
       { table_name: "client_rate_limits", rls: true },
       { table_name: "conversation_pairs", rls: true },
       { table_name: "email_outbox", rls: true },
+      { table_name: "event_clips", rls: true },
       { table_name: "event_curation", rls: true },
       { table_name: "event_rate_limits", rls: true },
       { table_name: "event_view_cap_days", rls: true },
@@ -341,6 +342,43 @@ describe("Data API lock-out", () => {
         where s.nspname = 'private' and c.relname = 'organiser_logos'`,
     );
     expect(policies.n).toBe(0);
+  });
+
+  it("the event clip functions and trigger exist, pin search_path and aren't client-executable", async () => {
+    const names = ["delete_event_clip", "event_clips_touch_event", "lock_event_for_clip", "put_event_clip"];
+    const rows = await db.query<{ fn: string; pinned: boolean; client: boolean }>(
+      `select p.proname as fn,
+              exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c = 'search_path=""') as pinned,
+              has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
+                or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                            where a.grantee = 0 and a.privilege_type = 'EXECUTE') as client
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'private' and p.proname = any($1::text[]) order by 1`,
+      [names],
+    );
+    expect(rows).toEqual(names.map((fn) => ({ fn, pinned: true, client: false })));
+    // The clips' details: RLS on, no policies.
+    const [policies] = await db.query<{ n: number }>(
+      `select count(*)::int as n from pg_policy p join pg_class c on c.oid = p.polrelid
+         join pg_namespace s on s.oid = c.relnamespace
+        where s.nspname = 'private' and c.relname = 'event_clips'`,
+    );
+    expect(policies.n).toBe(0);
+    // The bytes: a private bucket, and no storage.objects policy lets a
+    // client at it (or at anything else).
+    const buckets = await db.query(
+      `select id, public, file_size_limit::int as "fileSizeLimit", allowed_mime_types as "allowedMimeTypes"
+         from storage.buckets where id = 'event-clips'`,
+    );
+    expect(buckets).toEqual([
+      { id: "event-clips", public: false, fileSizeLimit: 10485760, allowedMimeTypes: ["video/mp4", "video/quicktime"] },
+    ]);
+    const [storagePolicies] = await db.query<{ n: number }>(
+      `select count(*)::int as n from pg_policy p join pg_class c on c.oid = p.polrelid
+         join pg_namespace s on s.oid = c.relnamespace
+        where s.nspname = 'storage'`,
+    );
+    expect(storagePolicies.n).toBe(0);
   });
 
   it("every `private` function pins its search_path, apart from the two that predate the rule", async () => {

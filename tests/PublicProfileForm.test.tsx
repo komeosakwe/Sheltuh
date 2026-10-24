@@ -10,6 +10,9 @@ import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 const updateOrganiserProfile = vi.fn();
 vi.mock("@/lib/api/organisers", () => ({
   updateOrganiserProfile: (...args: unknown[]) => updateOrganiserProfile(...args),
+  // The panel's logo field (tested in OrganiserLogoField.test.tsx); never called here.
+  uploadOrganiserLogo: vi.fn(),
+  deleteOrganiserLogo: vi.fn(),
 }));
 
 let organiserState: { loading: boolean; organiser: OrganiserRecord | null; error: string | null };
@@ -291,6 +294,31 @@ describe("PublicProfilePanel", () => {
     renderPanel();
     expect(screen.getByRole("link", { name: "View public profile" })).toHaveAttribute("href", "/organisers/org-1");
     expect(screen.getByLabelText("Bio (required)")).toBeInTheDocument();
+  });
+
+  it("puts the logo field (saved on its own) above the profile form", () => {
+    renderPanel();
+    const logo = screen.getByLabelText(/Logo \(optional\)/);
+    expect(logo).toHaveAttribute("type", "file");
+    const bio = screen.getByLabelText("Bio (required)");
+    expect(logo.compareDocumentPosition(bio) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Not part of the form: choosing a logo doesn't submit or wait for "Save profile".
+    expect(logo.closest("form")).toBeNull();
+  });
+
+  it("has no logo field before approval, or where accounts aren't configured (the demo)", () => {
+    organiserState = { loading: false, organiser: { ...RECORD, status: "pending" }, error: null };
+    renderPanel();
+    expect(screen.queryByLabelText(/Logo \(optional\)/)).toBeNull();
+    cleanup();
+    organiserState = { loading: false, organiser: RECORD, error: null };
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ configured: false, status: "signed-out" })}>
+        <PublicProfilePanel />
+      </FakeAuthProvider>,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Accounts aren’t configured in this environment yet.");
+    expect(screen.queryByLabelText(/Logo \(optional\)/)).toBeNull();
   });
 
   it("has no form until the organiser is approved", () => {

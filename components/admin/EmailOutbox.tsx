@@ -8,14 +8,17 @@ import { adminListEmailJobs, adminResendEmailJob } from "@/lib/api/admin";
 import { ApiError } from "@/lib/api/client";
 import type { AdminEmailJob, EmailJobStatus } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useAdminSummary } from "@/components/admin/AdminSummaryProvider";
+import { useStatusParam } from "@/components/admin/admin-list-url";
 import { formatMessageTime } from "@/lib/format";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 
-const STATUSES: { value: EmailJobStatus; label: string }[] = [
-  { value: "failed", label: "Failed" },
-  { value: "pending", label: "Retrying" },
-  { value: "sending", label: "Sending" },
-  { value: "sent", label: "Sent" },
+/** Each filter's label (what's happening to the emails in it) and its list's heading. */
+const STATUSES: { value: EmailJobStatus; label: string; heading: string }[] = [
+  { value: "failed", label: "Failed", heading: "Failed ticket emails" },
+  { value: "pending", label: "Retrying automatically", heading: "Ticket emails retrying automatically" },
+  { value: "sending", label: "Sending now", heading: "Ticket emails sending now" },
+  { value: "sent", label: "Sent", heading: "Sent ticket emails" },
 ];
 
 type LoadState =
@@ -29,12 +32,14 @@ function errorText(err: unknown, fallback: string) {
 
 /**
  * /admin/emails: ticket emails by delivery status, with a manual resend.
- * Orders appear by their short reference and a masked address only.
+ * Orders appear by their short reference and a masked address only. The
+ * filter is kept in `?status=`.
  */
 export default function EmailOutbox() {
   const auth = useAuth();
+  const adminSummary = useAdminSummary();
   const getToken = auth.getAccessToken;
-  const [status, setStatus] = useState<EmailJobStatus>("failed");
+  const [status, setStatus] = useStatusParam("/admin/emails", STATUSES, "failed");
   const [attempt, setAttempt] = useState(0);
   const key = `${status}#${attempt}`;
   const [result, setResult] = useState<{ key: string; state: LoadState } | null>(null);
@@ -76,6 +81,7 @@ export default function EmailOutbox() {
    * or the list heading when none are left).
    */
   function resent(job: AdminEmailJob) {
+    adminSummary?.refresh(); // The hub's and sub-nav's failed count.
     const label = STATUSES.find((s) => s.value === job.status)?.label ?? job.status;
     if (job.status === status) {
       setResult((current) =>
@@ -109,14 +115,19 @@ export default function EmailOutbox() {
     try {
       const page = await adminListEmailJobs(status, getToken, state.nextCursor);
       const known = new Set(state.items.map((j) => j.jobId));
-      setResult({
-        key,
-        state: {
-          status: "ready",
-          items: [...state.items, ...page.items.filter((j) => !known.has(j.jobId))],
-          nextCursor: page.nextCursor,
-        },
-      });
+      // Only onto the list it was loaded for: another filter may be showing by now.
+      setResult((current) =>
+        current && current.key === key && current.state.status === "ready"
+          ? {
+              key,
+              state: {
+                status: "ready",
+                items: [...current.state.items, ...page.items.filter((j) => !known.has(j.jobId))],
+                nextCursor: page.nextCursor,
+              },
+            }
+          : current,
+      );
     } catch (err) {
       setMoreError(errorText(err, "Couldn’t load more emails."));
     } finally {
@@ -124,7 +135,7 @@ export default function EmailOutbox() {
     }
   }
 
-  const current = STATUSES.find((s) => s.value === status)?.label ?? status;
+  const current = STATUSES.find((s) => s.value === status)?.heading ?? status;
 
   return (
     <div className="flex flex-col gap-6">
@@ -149,7 +160,7 @@ export default function EmailOutbox() {
 
       <section aria-labelledby="emails-heading" aria-busy={state.status === "loading" ? true : undefined}>
         <h2 id="emails-heading" tabIndex={-1} className="display-md mb-4 !text-2xl outline-offset-2">
-          {current} ticket emails
+          {current}
         </h2>
 
         {state.status === "loading" && <LoadingState text="Loading…" />}

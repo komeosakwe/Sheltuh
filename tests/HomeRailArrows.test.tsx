@@ -21,7 +21,12 @@ function setMetrics(el: HTMLElement, { scrollWidth, clientWidth, scrollLeft }: R
 function stubReducedMotion(reduce: boolean) {
   vi.stubGlobal(
     "matchMedia",
-    vi.fn().mockImplementation((query: string) => ({ matches: reduce && query.includes("reduce"), media: query })),
+    vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes("no-preference") ? !reduce : reduce && query.includes("reduce"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })),
   );
 }
 
@@ -68,9 +73,14 @@ describe("HomeRailSection", () => {
     expect(rail()).toHaveAttribute("id", "home-popular-rail");
     expect(next()).toHaveAttribute("aria-controls", "home-popular-rail");
     expect(prev()).toHaveAttribute("aria-controls", "home-popular-rail");
-    // Head order: the link, then Previous, then Next (and then the cards).
+    // Head order: the link, the auto-scroll's Pause (tests/HomeRailAutoScroll.test.tsx), then Previous, then Next (and then the cards).
     const controls = Array.from(container.querySelectorAll("a, button")).map((el) => el.textContent || el.getAttribute("aria-label"));
-    expect(controls.slice(0, 3)).toEqual(["All events", "Previous events: Popular right now", "Next events: Popular right now"]);
+    expect(controls.slice(0, 4)).toEqual([
+      "All events",
+      "Pause auto-scroll: Popular right now",
+      "Previous events: Popular right now",
+      "Next events: Popular right now",
+    ]);
   });
 
   it("buttons show from 640px only (a swipe is the control on phones), as 44px targets", () => {

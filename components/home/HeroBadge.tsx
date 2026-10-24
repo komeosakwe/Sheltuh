@@ -43,13 +43,17 @@ function BadgeArt({ spinning, paused }: { spinning: boolean; paused: boolean }) 
  * turns and isn't a control (and the server render, before the preference
  * is known, is the still one; CSS keeps it still meanwhile). Black on
  * Signal Orange (6.18:1).
+ *
+ * `still`: never turns and is never a control, whatever the motion
+ * preference: for a badge too small to be a 44px Pause/Play target (the
+ * hero's thumbnail below 1024px, `HeroThumb`).
  */
-export default function HeroBadge({ className = "" }: { className?: string }) {
+export default function HeroBadge({ className = "", still = false }: { className?: string; still?: boolean }) {
   const motionOk = useMotionOk();
   const [paused, setPaused] = useState(false);
   const shape = `flex items-center justify-center rounded-full bg-signal p-1 text-signal-foreground ${className}`.trim();
 
-  if (!motionOk) {
+  if (still || !motionOk) {
     return (
       <span aria-hidden="true" data-hero-badge="" className={shape}>
         <BadgeArt spinning={false} paused />

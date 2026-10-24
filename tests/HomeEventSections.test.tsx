@@ -81,8 +81,8 @@ describe("the home's event sections", () => {
     const skeleton = container.querySelector("[aria-hidden='true'].mt-6");
     // A rail of placeholders like the loaded rails (owner, 23 Oct 2026: rails at every width): six,
     // enough for a wide screen, clipped rather than scrolled; each with the rail card's media box (4:3
-    // on phones, square from 640px: the Refinement of 22 Oct 2026).
-    expect(skeleton?.querySelectorAll(".aspect-\\[4\\/3\\].sm\\:aspect-square")).toHaveLength(6);
+    // at every width since the owner's "the pictures still way too big", 23 Oct 2026).
+    expect(skeleton?.querySelectorAll(".aspect-\\[4\\/3\\]")).toHaveLength(6);
     expect(skeleton?.querySelector(".overflow-hidden")).toHaveClass("flex");
     expect(screen.queryByRole("heading", { name: "This weekend" })).not.toBeInTheDocument();
     expect(cardHrefs()).toEqual([]);
@@ -108,6 +108,9 @@ describe("the home's event sections", () => {
     expect(weekend).toHaveTextContent("Fri 23 – Sun 25 Oct");
     const weekendList = screen.getByRole("list", { name: "This weekend" });
     expect(within(weekendList).getAllByRole("listitem")).toHaveLength(2);
+    // Two cards: a pair, a two-column grid of wide cards from 1024px (owner, 23 Oct 2026, layout polish).
+    expect(weekendList).toHaveAttribute("data-rail-layout", "pair");
+    for (const card of weekendList.querySelectorAll("[data-event-card]")) expect(card).toHaveAttribute("data-wide", "");
     // A8: /events isn't filtered to the weekend, so the link says where it goes.
     expect(within(weekend).getByRole("link", { name: "All events" })).toHaveAttribute("href", "/events");
     expect(within(weekend).queryByRole("link", { name: /^See all/ })).toBeNull();
@@ -116,6 +119,9 @@ describe("the home's event sections", () => {
     const popular = screen.getByRole("region", { name: "Popular right now" });
     const popularList = screen.getByRole("list", { name: "Popular right now" });
     expect(within(popularList).getAllByRole("listitem")).toHaveLength(4);
+    // Four cards: an ordinary rail, never wide.
+    expect(popularList).toHaveAttribute("data-rail-layout", "rail");
+    expect(popularList.querySelectorAll("[data-wide]")).toHaveLength(0);
     // Nor sorted by popularity: "All events" too (A8).
     expect(within(popular).getByRole("link", { name: "All events" })).toHaveAttribute("href", "/events");
     // Demo cards show the labelled sample's count (mobile-redesign.md §6.2.5; demo trending ranks by

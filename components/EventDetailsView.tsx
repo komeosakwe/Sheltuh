@@ -4,6 +4,7 @@ import AddToCalendar from "@/components/AddToCalendar";
 import EventViewBeacon from "@/components/analytics/EventViewBeacon";
 import EventArt from "@/components/EventArt";
 import ExternalTicketLink from "@/components/ExternalTicketLink";
+import OrganiserLogo from "@/components/organisers/OrganiserLogo";
 import SaveButton from "@/components/favourites/SaveButton";
 import { ArrowRightIcon, CalendarIcon, ExternalIcon, PinIcon } from "@/components/home/icons";
 import SaveOnReturn from "@/components/favourites/SaveOnReturn";
@@ -12,7 +13,6 @@ import ShareButton from "@/components/ShareButton";
 import TicketSelector from "@/components/TicketSelector";
 import TicketsHashFocus from "@/components/TicketsHashFocus";
 import BackLink from "@/components/ui/BackLink";
-import InitialsAvatar from "@/components/ui/InitialsAvatar";
 import { buttonClass } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Section";
 import WhosGoing from "@/components/WhosGoing";
@@ -236,15 +236,16 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                 </div>
                 <div className={factRowClass}>
                   <dt>
-                    {/* Their profile mark: initials in the avatar square (organisers have no photo
-                        yet). Decorative and out of the tab order: the name beside it is the link. */}
+                    {/* Their profile mark: their logo in the avatar square, or their initials (no
+                        logo, the demo, or it didn't load). Decorative and out of the tab order: the
+                        name beside it is the link. */}
                     {organiserHref ? (
                       <Link href={organiserHref} aria-hidden="true" tabIndex={-1} data-organiser-avatar="" className="flex">
-                        <InitialsAvatar name={event.organiserName} />
+                        <OrganiserLogo name={event.organiserName} url={event.organiserLogoThumbUrl} size="md" fallback="initials" />
                       </Link>
                     ) : (
                       <span data-organiser-avatar="" className="flex">
-                        <InitialsAvatar name={event.organiserName} />
+                        <OrganiserLogo name={event.organiserName} url={event.organiserLogoThumbUrl} size="md" fallback="initials" />
                       </span>
                     )}
                     <span className="sr-only">Organiser</span>
@@ -359,12 +360,13 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
               the very end rather than covering it. Focus scrolls clear of it (globals.css pads
               by --buybar-h), and its bottom padding clears the home indicator. The page
               wrapper's padding is what -mx bleeds it across. Once the event has ended there's no
-              bar at all: nothing's for sale, and the Tickets panel says so. */}
+              bar at all: nothing's for sale, and the Tickets panel says so. In Dark it gains a
+              1px white top rule, so the black bar doesn't merge with the black page. */}
           {price && !ended && (
             <div
               data-buy-bar
               data-surface="ink"
-              className="sticky bottom-0 z-20 -mx-5 flex min-h-16 items-center justify-between gap-4 px-5 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden"
+              className="sticky bottom-0 z-20 -mx-5 flex min-h-16 items-center justify-between gap-4 px-5 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden dark:border-t dark:border-foreground"
             >
               <div className="min-w-0">
                 <p className="text-base leading-5 font-semibold tabular-nums">{price.amount}</p>
@@ -391,7 +393,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
             <div
               data-buy-bar
               data-surface="ink"
-              className="sticky bottom-0 z-20 -mx-5 flex min-h-16 items-center justify-between gap-4 px-5 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden"
+              className="sticky bottom-0 z-20 -mx-5 flex min-h-16 items-center justify-between gap-4 px-5 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:-mx-8 sm:px-8 lg:hidden dark:border-t dark:border-foreground"
             >
               <div className="min-w-0">
                 {event.externalFree ? (

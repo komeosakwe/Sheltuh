@@ -57,7 +57,7 @@ export default function ReportDialog({
       ref={ref}
       aria-labelledby="report-title"
       onClose={onClose}
-      className="mx-0 mt-auto mb-0 w-full max-w-none border-t border-foreground bg-background p-5 text-foreground backdrop:bg-foreground/50 sm:m-auto sm:max-w-lg sm:border sm:p-8"
+      className="mx-0 mt-auto mb-0 w-full max-w-none border-t border-foreground bg-background p-5 text-foreground backdrop:bg-ink/50 sm:m-auto sm:max-w-lg sm:border sm:p-8"
     >
       {open && (
         <ReportForm otherName={otherName} subject={subject} onCancel={onClose} onSubmit={onSubmit} returnTo={returnTo} />

@@ -2,8 +2,9 @@ import { SUPPORT_EMAIL } from "@/lib/contact";
 
 /**
  * The one look every transactional email shares (Brand Direction One,
- * docs/design/brand-direction-one.md §2): black on cream and white, one white
- * card with a black hairline, and Signal Orange only as the fill of the one
+ * docs/design/brand-direction-one.md §2, on the white foundation of
+ * docs/design/theme-white-dark.md §5.12): black on white, one white card with
+ * a black hairline, and Signal Orange only as the fill of the one
  * call-to-action, with black text on it (6.18:1; white on orange fails for
  * button text). Used by the ticket, free-ticket confirmation, waitlist and
  * follower emails, so they can't drift apart again.
@@ -13,29 +14,33 @@ import { SUPPORT_EMAIL } from "@/lib/contact";
  * button that keeps its size in Outlook for Windows (`mso-padding-alt`), a
  * preheader hidden there as well (`mso-hide:all`), no web fonts (the stack
  * names Instrument Sans for anyone who has it installed and falls back to
- * system faces), and light only (`color-scheme: light only`, as the site).
+ * system faces), and light only (`color-scheme: light only`: emails don't
+ * follow the site's Dark theme).
  */
 
 export const EMAIL_COLOURS = {
-  /** Page background (brand Cream). */
-  cream: "#fffae7",
-  /** The card (brand White). */
+  /** Page background (brand White). */
+  page: "#ffffff",
+  /** The card (brand White): the same as the page, set apart by its 1px black border. */
   card: "#ffffff",
   /** Text, rules, the card's hairline, text on orange (brand Black). */
   ink: "#000000",
-  /** Secondary text: 5.39:1 on cream, 5.63:1 on white. */
+  /** Secondary text: 5.65:1 on white, 5.04:1 on surface. */
   muted: "#6b675e",
   /** Decorative dividers only (the site's `--surface-border`). */
-  line: "#ddd5ba",
+  line: "#dedcd5",
+  /** Sunken tile, e.g. the ticket's entry code (the site's `--surface`): black on it is 18.75:1. */
+  surface: "#f3f2ee",
   /** Signal Orange: the primary button's fill, nothing else. */
   signal: "#ff4800",
 } as const;
 
-export const CREAM = EMAIL_COLOURS.cream;
+export const PAGE = EMAIL_COLOURS.page;
 export const CARD = EMAIL_COLOURS.card;
 export const INK = EMAIL_COLOURS.ink;
 export const MUTED = EMAIL_COLOURS.muted;
 export const LINE = EMAIL_COLOURS.line;
+export const SURFACE = EMAIL_COLOURS.surface;
 export const SIGNAL = EMAIL_COLOURS.signal;
 
 export const SANS = `'Instrument Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif`;
@@ -107,7 +112,7 @@ export interface PageInput {
   after?: string;
 }
 
-/** The brand email page: cream, one white card with a black hairline, the support line under it. */
+/** The brand email page: white, one white card with a black hairline, the support line under it. */
 export function page({ title, body, preheader, header, footer = supportFooter, after }: PageInput): string {
   return `<!DOCTYPE html>
 <html lang="en-AU" xmlns="http://www.w3.org/1999/xhtml">
@@ -125,8 +130,8 @@ export function page({ title, body, preheader, header, footer = supportFooter, a
   }
 </style>
 </head>
-<body bgcolor="${CREAM}" style="margin:0;padding:0;background-color:${CREAM};font-family:${SANS};color:${INK};-webkit-text-size-adjust:100%">
-${preheader ? `<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;color:${CREAM};font-size:1px;line-height:1px">${escapeHtml(preheader)}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>\n` : ""}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${CREAM}" style="background-color:${CREAM}">
+<body bgcolor="${PAGE}" style="margin:0;padding:0;background-color:${PAGE};font-family:${SANS};color:${INK};-webkit-text-size-adjust:100%">
+${preheader ? `<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px">${escapeHtml(preheader)}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>\n` : ""}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${PAGE}" style="background-color:${PAGE}">
 <tr><td align="center" style="padding:24px 12px">
 <!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px">

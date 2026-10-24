@@ -44,11 +44,13 @@ function linkHrefs(container: HTMLElement) {
 describe("Nav — phone menu", () => {
   it("is a popover invoked by the Menu button, next to a Search link (off the home)", () => {
     pathname = "/events";
-    const { menu } = renderNav(fakeAuthValue({ status: "signed-out", configured: true }));
+    const { menu, container } = renderNav(fakeAuthValue({ status: "signed-out", configured: true }));
     expect(menu).toHaveAttribute("popover", "auto");
     const button = screen.getByRole("button", { name: "Menu" });
     expect(button).toHaveAttribute("popovertarget", "site-menu");
-    expect(screen.getByRole("link", { name: "Search" })).toHaveAttribute("href", "/search");
+    const bar = container.querySelector<HTMLElement>("header > div.lg\\:hidden");
+    if (!bar) throw new Error("compact bar not rendered");
+    expect(within(bar).getByRole("link", { name: "Search" })).toHaveAttribute("href", "/search");
   });
 
   it("offers every destination when signed out", () => {
@@ -164,6 +166,22 @@ describe("Nav — phone menu", () => {
     account.addEventListener("click", (event) => event.preventDefault());
     fireEvent.click(account);
     expect(hidePopover).toHaveBeenCalled();
+  });
+
+  it("holds the Theme switch after For organisers, and stays open when it's used (the sheet re-skins around you)", () => {
+    const { menu } = renderNav(fakeAuthValue({ status: "signed-out", configured: true }));
+    const hidePopover = vi.fn();
+    menu.hidePopover = hidePopover;
+    const group = within(menu).getByRole("group", { name: "Theme", hidden: true });
+    const organisers = within(menu).getByRole("link", { name: "For organisers", hidden: true });
+    expect(organisers.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(group.closest("[data-theme-switch]")).toHaveClass("mt-8");
+    fireEvent.click(within(group).getByRole("button", { name: "Dark", hidden: true }));
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+    fireEvent.click(within(group).getByRole("button", { name: "Light", hidden: true }));
+    expect(document.documentElement).not.toHaveAttribute("data-theme");
+    expect(hidePopover).not.toHaveBeenCalled();
+    localStorage.clear();
   });
 
   it("closes when keyboard focus leaves the menu for the page", () => {
@@ -310,7 +328,49 @@ describe("Nav — header", () => {
     pathname = "/map";
     renderNav(fakeAuthValue());
     expect(screen.getByRole("search", { name: "Search the site" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Search" })).toHaveAttribute("href", "/search");
+    // The phone bar's icon, and the desktop row's (shown only when the row has no room for the bar).
+    const icons = screen.getAllByRole("link", { name: "Search" });
+    expect(icons).toHaveLength(2);
+    for (const icon of icons) expect(icon).toHaveAttribute("href", "/search");
+  });
+
+  // Header fit (24 Oct 2026): signed in, the desktop row's nav is wider and the row wrapped to two lines
+  // at 1024px (members) and up to 1440px (admins). The bar now takes the room the nav leaves, up to
+  // 384px; under 13rem the slot shows the search icon link instead (e2e/header-fit.spec.ts measures it).
+  it("lets the desktop bar shrink into the row's spare room, with the search icon link in its place when too narrow", () => {
+    pathname = "/events";
+    const { container } = renderNav(fakeAuthValue({ isAdmin: true }));
+    const slot = container.querySelector<HTMLElement>("[data-header-search]");
+    if (!slot) throw new Error("header search slot not rendered");
+    expect(slot).toHaveClass("@container", "flex-1", "max-w-sm", "min-w-9");
+    const search = within(slot).getByRole("search", { name: "Search the site" });
+    expect(search.parentElement).toHaveClass("hidden", "@min-[13rem]:block");
+    const icon = within(slot).getByRole("link", { name: "Search" });
+    expect(icon).toHaveAttribute("href", "/search");
+    expect(icon).toHaveClass("@min-[13rem]:hidden", "size-9");
+    expect(icon).not.toHaveAttribute("aria-current");
+    // Keyboard order: the wordmark, then search (bar or icon), then the Primary nav.
+    const primary = screen.getByRole("navigation", { name: "Primary" });
+    expect(slot.compareDocumentPosition(primary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  // Owner round of 24 Oct 2026 (D2, D7): the Eventbrite-style bar in the header has a black submit
+  // (orange on hover), and the header leaves it out on /search too, whose page has the bar with a location.
+  it("puts the bar with a location and a black submit in the header, but not on /search", () => {
+    pathname = "/events";
+    renderNav(fakeAuthValue());
+    const search = screen.getByRole("search", { name: "Search the site" });
+    expect(within(search).getByRole("button", { name: "Location: Your suburb" })).toBeInTheDocument();
+    const submit = within(search).getByRole("button", { name: "Search" });
+    expect(submit).toHaveAttribute("type", "submit");
+    expect(submit).not.toHaveClass("btn-signal");
+    expect(submit).toHaveClass("bg-foreground", "hover:bg-signal");
+    cleanup();
+    pathname = "/search";
+    renderNav(fakeAuthValue());
+    expect(screen.queryByRole("search")).toBeNull();
+    // The phone bar keeps its search icon there, marked as the current page.
+    expect(screen.getByRole("link", { name: "Search" })).toHaveAttribute("aria-current", "page");
   });
 
   it("names its two navigation landmarks distinctly: the desktop row's Primary, the phone menu's Site menu (A11)", () => {

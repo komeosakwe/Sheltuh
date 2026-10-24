@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AdminEditEvent from "@/components/admin/AdminEditEvent";
 import type { AdminEventRecord } from "@/lib/api/types";
+import { SessionExpiredError } from "@/lib/auth/session-token";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
 vi.mock("next/navigation", () => ({
@@ -15,13 +16,45 @@ vi.mock("@/lib/api/admin", () => ({
   adminGetEvent: (...args: unknown[]) => adminGetEvent(...args),
 }));
 
-// The editor itself is covered in AdminEventEditor.test.tsx.
-vi.mock("@/components/dashboard/EventEditor", () => ({
-  default: () => <div data-testid="event-editor" />,
+// The Trending panel is covered in TrendingPanel.test.tsx.
+const getEventCuration = vi.fn();
+const setEventCuration = vi.fn();
+vi.mock("@/lib/api/trending", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/trending")>()),
+  getEventCuration: (...args: unknown[]) => getEventCuration(...args),
+  setEventCuration: (...args: unknown[]) => setEventCuration(...args),
 }));
 
+// The editor itself is covered in AdminEventEditor.test.tsx. This one only plays its part in sharing the page's
+// one sign-in form: a save that finds the session expired, and whether it may show the form.
+vi.mock("@/components/dashboard/EventEditor", async () => {
+  const { useState } = await import("react");
+  function FakeEditor({ reauthForm, onReauthNeeded }: { reauthForm?: boolean; onReauthNeeded?: (needed: boolean) => void }) {
+    const [expired, setExpired] = useState(false);
+    return (
+      <div data-testid="event-editor">
+        <button
+          type="button"
+          onClick={() => {
+            setExpired(true);
+            onReauthNeeded?.(true);
+          }}
+        >
+          Save (session expired)
+        </button>
+        {expired && <p>{reauthForm ? "Editor: sign-in form" : "Editor: no form"}</p>}
+      </div>
+    );
+  }
+  return { default: FakeEditor };
+});
+
 afterEach(cleanup);
-beforeEach(() => adminGetEvent.mockReset());
+beforeEach(() => {
+  adminGetEvent.mockReset();
+  setEventCuration.mockReset();
+  getEventCuration.mockReset().mockResolvedValue({ eventId: "evt-1", boost: 1, excluded: false, updatedAt: null, log: [] });
+});
 
 const EVENT: AdminEventRecord = {
   organiserId: "org-1",
@@ -83,5 +116,43 @@ describe("AdminEditEvent", () => {
     renderPage();
     await screen.findByTestId("event-editor");
     expect(screen.queryByRole("link", { name: "Open door check-in" })).toBeNull();
+  });
+
+  it("has the event's Trending panel below the editor, linked from the top of the page", async () => {
+    adminGetEvent.mockResolvedValue(EVENT);
+    renderPage();
+    expect(await screen.findByRole("link", { name: "Trending" })).toHaveAttribute("href", "#trending");
+    const panel = screen.getByRole("region", { name: "Trending" });
+    expect(panel).toHaveAttribute("id", "trending");
+    expect(await screen.findByText(/^Now:/)).toHaveTextContent("Now: Normal (×1)");
+    expect(getEventCuration.mock.calls[0][0]).toBe("evt-1");
+  });
+
+  it("shows one sign-in form at a time: whichever of the editor and the Trending panel needed it last", async () => {
+    adminGetEvent.mockResolvedValue(EVENT);
+    setEventCuration.mockRejectedValue(new SessionExpiredError());
+    renderPage();
+    const panel = await screen.findByRole("region", { name: "Trending" });
+    await within(panel).findByText(/^Now:/);
+    fireEvent.click(within(panel).getByRole("checkbox", { name: "Keep out of Trending" }));
+    fireEvent.change(within(panel).getByRole("textbox", { name: /Reason/ }), { target: { value: "Spam" } });
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole("button", { name: "Save Trending settings" }));
+    });
+    // The panel has it.
+    expect(within(panel).getByLabelText("Password")).toBeInTheDocument();
+
+    // Then the editor's save finds the session expired too: it takes the form over.
+    fireEvent.click(screen.getByRole("button", { name: "Save (session expired)" }));
+    expect(screen.getByText("Editor: sign-in form")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Password")).toBeNull();
+    expect(panel).toHaveTextContent("Your session has expired. Sign in again, then save again.");
+  });
+
+  it("the editor keeps the form while the Trending panel doesn't need it", async () => {
+    adminGetEvent.mockResolvedValue(EVENT);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Save (session expired)" }));
+    expect(screen.getByText("Editor: sign-in form")).toBeInTheDocument();
   });
 });
