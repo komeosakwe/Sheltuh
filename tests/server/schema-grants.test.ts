@@ -115,6 +115,7 @@ describe("Data API lock-out", () => {
       { table_name: "client_rate_limits", rls: true },
       { table_name: "conversation_pairs", rls: true },
       { table_name: "email_outbox", rls: true },
+      { table_name: "event_clip_uploads", rls: true },
       { table_name: "event_clips", rls: true },
       { table_name: "event_curation", rls: true },
       { table_name: "event_rate_limits", rls: true },
@@ -357,11 +358,11 @@ describe("Data API lock-out", () => {
       [names],
     );
     expect(rows).toEqual(names.map((fn) => ({ fn, pinned: true, client: false })));
-    // The clips' details: RLS on, no policies.
+    // The clips' details and the issued upload ids: RLS on, no policies.
     const [policies] = await db.query<{ n: number }>(
       `select count(*)::int as n from pg_policy p join pg_class c on c.oid = p.polrelid
          join pg_namespace s on s.oid = c.relnamespace
-        where s.nspname = 'private' and c.relname = 'event_clips'`,
+        where s.nspname = 'private' and c.relname in ('event_clips', 'event_clip_uploads')`,
     );
     expect(policies.n).toBe(0);
     // The bytes: a private bucket, and no storage.objects policy lets a

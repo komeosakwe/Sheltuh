@@ -5,10 +5,12 @@ import { createTestDb } from "./helpers/test-db";
 
 /**
  * supabase/migrations/20261106000000_event_clips.sql (and
- * 20261106000100_event_clip_dimensions.sql's width and height): private.event_clips,
- * its touch trigger, private.put_event_clip / private.delete_event_clip and
- * the `event-clips` bucket, through SQL (the API comes in a later step).
- * Grants and search_path are in schema-grants.test.ts.
+ * 20261106000100_event_clip_dimensions.sql's width and height, and
+ * 20261106000200_event_clip_hardening.sql's rights date and issued upload
+ * ids): private.event_clips, its touch trigger, private.put_event_clip /
+ * private.delete_event_clip, private.event_clip_uploads and the
+ * `event-clips` bucket, through SQL. Grants and search_path are in
+ * schema-grants.test.ts.
  */
 
 let db: Db;
@@ -257,6 +259,91 @@ describe("private.put_event_clip: an organiser", () => {
   });
 });
 
+describe("private.put_event_clip: the rights date", () => {
+  async function rightsAt(eventId: string) {
+    const [row] = await db.query<{ at: string }>(
+      `select rights_confirmed_at::text as at from private.event_clips where event_id = $1`,
+      [eventId],
+    );
+    return row.at;
+  }
+
+  async function backdateRights(eventId: string) {
+    await db.query(`update private.event_clips set rights_confirmed_at = now() - interval '3 days' where event_id = $1`, [
+      eventId,
+    ]);
+    return rightsAt(eventId);
+  }
+
+  it("is the attach's: a description-only change or a replay keeps it, organiser and admin alike", async () => {
+    const eventId = await event("draft");
+    const objectPath = path(eventId);
+    await put(eventId, { path: objectPath });
+    const attached = await backdateRights(eventId);
+
+    expect((await put(eventId, { path: null, description: "Organiser's words." })).result).toBe("updated");
+    expect(await rightsAt(eventId)).toBe(attached);
+    expect((await put(eventId, { path: objectPath, description: "Organiser's replay." })).result).toBe("updated");
+    expect(await rightsAt(eventId)).toBe(attached);
+    expect((await put(eventId, { ...asAdmin, path: null, description: "Admin's words." })).result).toBe("updated");
+    expect(await rightsAt(eventId)).toBe(attached);
+    expect((await put(eventId, { ...asAdmin, path: objectPath, description: "Admin's replay." })).result).toBe("updated");
+    expect(await rightsAt(eventId)).toBe(attached);
+    expect(await clipRow(eventId)).toMatchObject({ object_path: objectPath, description: "Admin's replay." });
+  });
+
+  it("moves on with a new object", async () => {
+    const eventId = await event("draft");
+    await put(eventId);
+    const attached = await backdateRights(eventId);
+    await put(eventId, { path: path(eventId) });
+    expect(Date.parse(await rightsAt(eventId))).toBeGreaterThan(Date.parse(attached));
+    await backdateRights(eventId);
+    await put(eventId, { ...asAdmin, path: path(eventId) });
+    expect(Date.parse(await rightsAt(eventId))).toBeGreaterThan(Date.parse(attached));
+  });
+});
+
+describe("private.event_clip_uploads", () => {
+  const claimSql = `update private.event_clip_uploads u set consumed_at = now()
+                     where u.id = $1 and u.event_id = $2 and u.user_id = $3
+                       and u.consumed_at is null and u.created_at > now() - interval '1 day'
+                     returning u.id`;
+
+  async function issue(eventId: string, userId = OWNER) {
+    const id = crypto.randomUUID();
+    await db.query(`insert into private.event_clip_uploads (id, event_id, user_id) values ($1, $2, $3)`, [id, eventId, userId]);
+    return id;
+  }
+
+  it("lets an issued id be claimed once, by its event and account only", async () => {
+    const eventId = await event("draft");
+    const other = await event("draft");
+    const id = await issue(eventId);
+    expect(await db.query(claimSql, [id, other, OWNER])).toEqual([]);
+    expect(await db.query(claimSql, [id, eventId, ADMIN])).toEqual([]);
+    expect(await db.query(claimSql, [id, eventId, OWNER])).toEqual([{ id }]);
+    expect(await db.query(claimSql, [id, eventId, OWNER])).toEqual([]);
+    expect(await db.query(claimSql, [crypto.randomUUID(), eventId, OWNER])).toEqual([]);
+  });
+
+  it("goes with its event or its account; ids are unique; event and account must exist", async () => {
+    const eventId = await event("draft");
+    const id = await issue(eventId);
+    await expectDbError(issue(crypto.randomUUID()), "23503");
+    await expectDbError(issue(eventId, crypto.randomUUID()), "23503");
+    await expectDbError(
+      db.query(`insert into private.event_clip_uploads (id, event_id, user_id) values ($1, $2, $3)`, [id, eventId, OWNER]),
+      "23505",
+    );
+    await issue(eventId, MEMBER);
+    await db.query(`delete from auth.users where id = $1`, [MEMBER]);
+    expect(await db.query(`select id from private.event_clip_uploads`)).toEqual([{ id }]);
+    await db.query(`delete from public.events where id = $1`, [eventId]);
+    expect(await db.query(`select id from private.event_clip_uploads`)).toEqual([]);
+  });
+});
+
 describe("private.delete_event_clip: an organiser", () => {
   it("removes their draft's clip and returns its object; a second call is unchanged", async () => {
     const eventId = await event("draft");
@@ -490,6 +577,43 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
       } finally {
         await one.end();
         await two.end();
+      }
+    }
+  });
+
+  it("two claims of one upload id at once: the second waits for the first, then matches nothing", async () => {
+    const eventId = await event("draft");
+    const id = crypto.randomUUID();
+    await db.query(`insert into private.event_clip_uploads (id, event_id, user_id) values ($1, $2, $3)`, [id, eventId, OWNER]);
+    const claim = `update private.event_clip_uploads u set consumed_at = now()
+                    where u.id = $1 and u.event_id = $2 and u.user_id = $3 and u.consumed_at is null
+                      and u.created_at > now() - interval '1 day'
+                    returning u.id`;
+    const one = postgres(serverUrl as string, { max: 1, onnotice: () => {} });
+    const two = postgres(serverUrl as string, { max: 1, onnotice: () => {} });
+    try {
+      await one.unsafe("begin");
+      expect(await one.unsafe(claim, [id, eventId, OWNER])).toHaveLength(1);
+      const blocked = await waitUntilBlocked(two);
+      const pending = two.unsafe(claim, [id, eventId, OWNER]).execute();
+      await blocked();
+      await one.unsafe("commit");
+      expect(await pending).toHaveLength(0);
+    } finally {
+      await one.end();
+      await two.end();
+    }
+
+    // Many at once: exactly one wins.
+    for (let round = 0; round < 6; round++) {
+      const raced = crypto.randomUUID();
+      await db.query(`insert into private.event_clip_uploads (id, event_id, user_id) values ($1, $2, $3)`, [raced, eventId, OWNER]);
+      const conns = Array.from({ length: 4 }, () => postgres(serverUrl as string, { max: 1, onnotice: () => {} }));
+      try {
+        const results = await Promise.all(conns.map((c) => c.unsafe(claim, [raced, eventId, OWNER])));
+        expect(results.map((r) => r.length).sort()).toEqual([0, 0, 0, 1]);
+      } finally {
+        await Promise.all(conns.map((c) => c.end()));
       }
     }
   });

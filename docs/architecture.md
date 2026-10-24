@@ -32,6 +32,14 @@ iframe served by Stripe), with the publishable key
   "Who's Going"), add narrow RLS policies for just that. New functions in
   `private` also revoke `execute` explicitly (Postgres grants it to PUBLIC
   by default); `tests/server/schema-grants.test.ts` checks all of this.
+  The browser does reach Supabase directly in two places, neither of them
+  the database: Supabase Auth (sign-up, sign-in, sessions; the diagram
+  above), and, for event clips, a PUT of the file straight
+  to Supabase Storage through a signed upload URL (one new object, no
+  overwrite, 2 hours) the API issues for one path it chose (`uploads/{event}/{account}/{upload}.mp4`
+  in the private `event-clips` bucket, which has no `storage.objects`
+  policies). The API then checks the object and writes the copy that's
+  served itself (see "Event clips").
 - **The database enforces the rules that matter most.** Whatever the
   application code does:
   - Overselling is impossible: a `quantity_sold <= quantity_available` check
@@ -2275,23 +2283,52 @@ One optional silent H.264 MP4 per event (at most 15 s, 10 MB and 1080p, no
 audio track), in the private Supabase Storage bucket `event-clips`. The
 bucket has no `storage.objects` policies, so only the API reaches it, using
 `SUPABASE_CLIP_STORAGE_KEY`, read only by `lib/server/clip-storage.ts`.
+That key is a **full Supabase secret key** (Supabase can't scope them):
+service-role powers over the whole project (the Data API without RLS,
+Supabase Auth admin including setting the admin role, every bucket). It's
+separate only so it can be revoked alone; set it in Vercel's Production
+environment only, unless Preview uses a separate Supabase project. Check
+`select policyname from pg_policies where schemaname = 'storage'` returns
+0 rows and the bucket is private (`docs/supabase-setup.md`).
 Design: `docs/design/event-clips.md`.
 
 - Upload: `POST /events/{id}/clip/uploads` returns a signed upload URL for
-  `uploads/{event}/{account}/{upload}.mp4` (20 a day per account). The
-  browser PUTs the file there. `PUT /events/{id}/clip {uploadId,
-  description, rightsConfirmed}` checks the size, downloads with a cap,
-  checks and neutralises metadata with `lib/server/mp4.ts`, writes
+  `uploads/{event}/{account}/{upload}.mp4` (20 a day per account) and
+  records the upload id with its event and account in
+  `private.event_clip_uploads`. The browser PUTs the file there (the
+  second exception in "Design principles"). `PUT /events/{id}/clip
+  {uploadId, description, rightsConfirmed: true}` claims the upload id
+  (one `update … where consumed_at is null … returning`: an upload is
+  attached at most once, a second claim is a 410; ids over a day old are
+  410 too; 20 claims a day per account, `take_rate_limit`
+  `event_clip_attaches`), checks the size, downloads with a cap, checks
+  and neutralises metadata with `lib/server/mp4.ts` (location, device and
+  XMP boxes, capture times, handler names), writes
   `clips/{event}/{upload}.mp4` itself, and records it with
-  `private.put_event_clip` under the event row lock.
+  `private.put_event_clip` under the event row lock. A Storage failure
+  (503) gives the claim back so the same upload can be retried. A replay
+  of the attached clip's upload id is a description-only change.
+  `rightsConfirmed: true` is required only with an `uploadId`;
+  `rights_confirmed_at` records the attach and isn't changed by
+  description-only edits or replays (`PUT … {description}` without an
+  `uploadId` ignores `rightsConfirmed`).
+- Uploads are off unless `NEXT_PUBLIC_EVENT_CLIPS=1`, and the server
+  enforces it (`clipUploadsEnabled`): upload URLs and attaching an upload
+  are a 503 (`fieldErrors.clip`). Description changes, removal, preview and
+  playback keep working.
 - Organisers can do this on their own draft or rejected events; admins on
   any event (`/admin/events/{id}/clip…`), logged `edited` with `clip` /
   `clipDescription`. The staged object and any replaced clip are deleted
-  after the response; the trending cron's after-response sweep deletes
-  staged uploads and unreferenced clips older than a day.
+  after the response. A final object is never deleted on a refusal or an
+  error (only the staged one is). The trending cron's after-response sweep
+  deletes staged uploads, unreferenced final clips and issued upload ids
+  older than a day.
 - Playback: `GET /events/{id}/clip?v=` returns a 302 to a 1-hour signed URL,
-  for published events only, cached 5 minutes. `GET …/clip/preview` gives
-  the owner or an admin a 10-minute URL. Payloads carry
+  for published events only, cached 5 minutes, at the clip's current
+  version only. Any other `v` (or none) is a 307 to `?v={current}`
+  (`no-store`), as for seat maps, so made-up versions can't each mint a
+  signed URL past the CDN. `GET …/clip/preview` gives the owner or an
+  admin a 10-minute URL. Payloads carry
   `clip?: {url, durationMs, width, height, description}`, absent without a
   clip.
 - Accepted limits: after a takedown, new plays stop within 5 minutes and

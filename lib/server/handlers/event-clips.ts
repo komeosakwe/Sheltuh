@@ -11,15 +11,26 @@
  *      `event-clips` bucket. The path is always built here (event from the
  *      URL, account from the token, a fresh upload id): never taken from the
  *      client. 20 a day per account (take_rate_limit 'event_clip_uploads').
+ *      The id is recorded in private.event_clip_uploads with the event and
+ *      account (20261106000200_event_clip_hardening.sql).
  *   2. The browser PUTs the file to that URL (lib/api/clips.ts).
  *   3. PUT …/clip {uploadId, description, rightsConfirmed: true}: the server
- *      checks the staged object's size, downloads it (capped), checks and
- *      neutralises it (lib/server/mp4.ts), writes the result itself to
+ *      claims the upload id (once only: a second claim is a 410; 20 claims a
+ *      day per account, take_rate_limit 'event_clip_attaches'), checks the
+ *      staged object's size, downloads it (capped), checks and neutralises
+ *      it (lib/server/mp4.ts), writes the result itself to
  *      clips/{eventId}/{uploadId}.mp4, and records it with
  *      private.put_event_clip, which re-checks who may act with the event
  *      row locked. The staged object, and any clip it replaced, are deleted
- *      after the response (deps.defer); the daily sweep (sweepEventClips,
- *      run from the trending cron) catches anything that slips through.
+ *      after the response (deps.defer). A final object is never deleted on a
+ *      refusal or an error (only the staged one is): the daily sweep
+ *      (sweepEventClips, run from the trending cron) deletes it once it's a
+ *      day old and nothing refers to it.
+ *
+ * Uploads are switched off unless NEXT_PUBLIC_EVENT_CLIPS is "1"
+ * (clipUploadsEnabled): steps 1 and 3 are then a 503, whatever the browser
+ * shows. Changing a clip's description, removing it, previewing and playing
+ * it keep working either way.
  *
  * Who may act: the same rules as event photos. An organiser, on their own
  * event (someone else's is a 404) while it's a draft or rejected (409
@@ -30,7 +41,8 @@
  *
  * Reading: GET …/clip?v= redirects (302) a published event's clip to a
  * 1-hour signed URL (cached 5 minutes, so a takedown stops new plays within
- * 5 minutes; a URL already handed out works up to an hour). GET
+ * 5 minutes; a URL already handed out works up to an hour); any `v` but the
+ * clip's current version is a 307 to the current one. GET
  * …/clip/preview gives the owner or an admin a 10-minute signed URL for any
  * status. Without SUPABASE_CLIP_STORAGE_KEY every route that needs Storage
  * is a 503; removing a clip, and changing its description, still work.
@@ -50,6 +62,7 @@ import { fail } from "../validation";
 import { MAX_TICKETING_REASON_LENGTH } from "./admin";
 import { requireEvent, requireOwnEvent } from "./event-queries";
 import { findOrganiserByOwner, requireApprovedOrganiser } from "./organiser-guard";
+import { eventClipsEnabled } from "@/lib/clips-flag";
 import {
   CLIP_MESSAGES,
   CLIP_UPLOAD_CONTENT_TYPES,
@@ -60,6 +73,8 @@ import {
 
 /** Upload URLs per account per day (organisers and admins alike). */
 export const CLIP_UPLOAD_RATE_LIMIT = { hits: 20, window: "1 day" } as const;
+/** Uploads checked (claimed for an attach) per account per day. */
+export const CLIP_ATTACH_RATE_LIMIT = { hits: 20, window: "1 day" } as const;
 /**
  * Clips checked at once per server instance, and how many more may wait:
  * each holds up to 10 MB twice (download, upload), so a burst queues, and
@@ -72,7 +87,13 @@ export const CLIP_URL_LIFETIME_SECONDS = 60 * 60;
 export const CLIP_PREVIEW_LIFETIME_SECONDS = 10 * 60;
 /** The public redirect (the URL is versioned; not `immutable`, so a takedown stops new plays within 5 minutes). */
 export const CLIP_REDIRECT_CACHE_CONTROL = "public, max-age=300, s-maxage=300";
-/** The sweep: staged uploads, and final clips nothing refers to, older than this are deleted. */
+/** The redirect from a stale or missing `v` to the current one: never cached itself (the version moves). */
+export const CLIP_STALE_REDIRECT_CACHE_CONTROL = "no-store";
+/**
+ * The sweep: staged uploads, final clips nothing refers to, and issued
+ * upload ids older than this are deleted. An upload id older than this can't
+ * be attached either (410).
+ */
 export const CLIP_SWEEP_AGE = "1 day";
 /** Objects the sweep deletes per run at most (the rest wait for the next). */
 export const CLIP_SWEEP_BATCH = 500;
@@ -98,6 +119,23 @@ export function finalClipPath(eventId: string, uploadId: string): string {
 }
 
 const unavailable = () => new HttpError(503, CLIP_MESSAGES.unavailable, { clip: CLIP_MESSAGES.unavailable });
+const expired = () => new HttpError(410, CLIP_MESSAGES.uploadExpired, { clip: CLIP_MESSAGES.uploadExpired });
+const rateLimited = () => new HttpError(429, CLIP_MESSAGES.rateLimited, { clip: CLIP_MESSAGES.rateLimited });
+
+/**
+ * The uploads switch, enforced here as well as in the browser: on only when
+ * NEXT_PUBLIC_EVENT_CLIPS is "1" (lib/clips-flag.ts: a literal reference,
+ * inlined at build time like the browser's, and read on each call so tests
+ * can stub it).
+ */
+export function clipUploadsEnabled(): boolean {
+  return eventClipsEnabled();
+}
+
+/** 503 while uploads are switched off. */
+function requireUploadsOn(): void {
+  if (!clipUploadsEnabled()) throw unavailable();
+}
 
 function requireStorage(deps: Deps): ClipStorage {
   const storage = deps.clipStorage();
@@ -263,7 +301,11 @@ function parseAttachRequest(body: Record<string, unknown>, admin: boolean): Atta
     });
     if (!description && !errors.description) errors.description = CLIP_MESSAGES.describe;
   }
-  if (body.rightsConfirmed !== true) errors.rightsConfirmed = CLIP_MESSAGES.rights;
+  // Only a new upload needs it: changing the words doesn't re-confirm (or
+  // re-date) the rights to the clip. Without an uploadId it's ignored.
+  if (body.uploadId !== undefined && body.uploadId !== null && body.rightsConfirmed !== true) {
+    errors.rightsConfirmed = CLIP_MESSAGES.rights;
+  }
   const reason = admin ? parseReason(body.reason, errors) : null;
   if (Object.keys(errors).length > 0) fail(errors);
   return { uploadId, description, reason };
@@ -273,16 +315,35 @@ function parseAttachRequest(body: Record<string, unknown>, admin: boolean): Atta
 // The shared steps
 // ---------------------------------------------------------------------------
 
+/** private.take_rate_limit for the caller: false once `limit` is used up. */
+async function takeRateLimit(
+  db: Db,
+  userId: string,
+  bucket: "event_clip_uploads" | "event_clip_attaches",
+  limit: { hits: number; window: string },
+): Promise<boolean> {
+  const [{ allowed }] = await db.query<{ allowed: boolean }>(
+    `select private.take_rate_limit($1, $2, $3, $4::interval) as allowed`,
+    [userId, bucket, limit.hits, limit.window],
+  );
+  return allowed;
+}
+
 async function issueUploadUrl(actor: Actor, req: Request, deps: Deps): Promise<Response> {
+  requireUploadsOn();
   parseUploadRequest(await readJson(req));
   const storage = requireStorage(deps);
-  const [{ allowed }] = await deps.db.query<{ allowed: boolean }>(
-    `select private.take_rate_limit($1, 'event_clip_uploads', $2, $3::interval) as allowed`,
-    [actor.caller.userId, CLIP_UPLOAD_RATE_LIMIT.hits, CLIP_UPLOAD_RATE_LIMIT.window],
-  );
-  if (!allowed) throw new HttpError(429, CLIP_MESSAGES.rateLimited, { clip: CLIP_MESSAGES.rateLimited });
+  if (!(await takeRateLimit(deps.db, actor.caller.userId, "event_clip_uploads", CLIP_UPLOAD_RATE_LIMIT))) {
+    throw rateLimited();
+  }
 
   const uploadId = crypto.randomUUID();
+  // Recorded before the URL exists, so no URL is ever handed out for an id the attach can't claim.
+  await deps.db.query(`insert into private.event_clip_uploads (id, event_id, user_id) values ($1, $2, $3)`, [
+    uploadId,
+    actor.event.eventId,
+    actor.caller.userId,
+  ]);
   const issuedAt = Date.now();
   let url: string;
   try {
@@ -359,13 +420,12 @@ function refusal(result: string, lockedMessage: string): HttpError | null {
  * Checks the staged upload and writes the clean copy to its final path.
  * 410 if the upload isn't there; 413 over the cap (from its size, before
  * downloading anything); 400 if it isn't a clip we accept. A refused upload
- * is deleted (after the response).
+ * is deleted (after the response). The caller has claimed the upload id.
  */
 async function processUpload(actor: Actor, uploadId: string, deps: Deps): Promise<CheckedClip> {
   const storage = requireStorage(deps);
   const staged = stagedClipPath(actor.event.eventId, actor.caller.userId, uploadId);
   const final = finalClipPath(actor.event.eventId, uploadId);
-  const expired = () => new HttpError(410, CLIP_MESSAGES.uploadExpired, { clip: CLIP_MESSAGES.uploadExpired });
   const tooLarge = (sizeBytes: number) => {
     removeLater(deps, [staged]);
     const message = clipProblemMessage("too_large", { sizeBytes });
@@ -411,6 +471,37 @@ async function processUpload(actor: Actor, uploadId: string, deps: Deps): Promis
   });
 }
 
+/**
+ * Claims an issued upload id for this attach (20261106000200_event_clip_hardening.sql):
+ * one statement, so of two requests with the same id only one gets it. False
+ * if it was never issued for this event and account, is over a day old, or
+ * has been claimed already.
+ */
+async function claimUpload(db: Db, actor: Actor, uploadId: string): Promise<boolean> {
+  const rows = await db.query<{ id: string }>(
+    `update private.event_clip_uploads u
+        set consumed_at = now()
+      where u.id = $1 and u.event_id = $2 and u.user_id = $3
+        and u.consumed_at is null and u.created_at > now() - $4::interval
+      returning u.id`,
+    [uploadId, actor.event.eventId, actor.caller.userId, CLIP_SWEEP_AGE],
+  );
+  return rows.length === 1;
+}
+
+/** Gives a claim back after Storage failed (a 503 before anything was recorded), so the same upload can be retried. */
+async function releaseUpload(db: Db, actor: Actor, uploadId: string): Promise<void> {
+  try {
+    await db.query(
+      `update private.event_clip_uploads set consumed_at = null where id = $1 and event_id = $2 and user_id = $3`,
+      [uploadId, actor.event.eventId, actor.caller.userId],
+    );
+  } catch (err) {
+    // The 503 still goes out; the person chooses the clip again (410) on a retry.
+    console.error("Couldn't release a clip upload claim:", pgErrorCode(err) ?? "unknown error");
+  }
+}
+
 async function attachClip(actor: Actor, req: Request, deps: Deps): Promise<Response> {
   const input = parseAttachRequest(await readJson(req), actor.organiserId === null);
   const { db } = deps;
@@ -424,9 +515,13 @@ async function attachClip(actor: Actor, req: Request, deps: Deps): Promise<Respo
     return respond(actor, deps);
   }
 
-  const final = finalClipPath(eventId, input.uploadId);
+  requireUploadsOn();
+  const uploadId = input.uploadId;
+  const final = finalClipPath(eventId, uploadId);
+  const staged = stagedClipPath(eventId, actor.caller.userId, uploadId);
   // A replay of the clip that's already attached: nothing to check or copy
-  // again (and its staged upload may be gone); only the description can change.
+  // again (and its staged upload may be gone, its id already claimed); only
+  // the description can change.
   const [current] = await db.query<{ object_path: string }>(
     `select object_path from private.event_clips where event_id = $1`,
     [eventId],
@@ -437,32 +532,41 @@ async function attachClip(actor: Actor, req: Request, deps: Deps): Promise<Respo
       replay = (await putClip(db, actor, final, null, input.description, input.reason)).result;
     } catch (err) {
       // Replaced by another clip since the read above: the write had no
-      // details to insert it with (not null). Check and attach it afresh.
+      // details to insert it with (not null). Its id is claimed, so it's a 410 below.
       if (pgErrorCode(err) !== PG_NOT_NULL_VIOLATION) throw err;
     }
     if (replay !== undefined) {
       const refused = refusal(replay, CLIP_MESSAGES.editLocked);
       if (refused) throw refused;
-      removeLater(deps, [stagedClipPath(eventId, actor.caller.userId, input.uploadId)]);
+      removeLater(deps, [staged]);
       return respond(actor, deps);
     }
   }
 
-  const clip = await processUpload(actor, input.uploadId, deps);
-  const staged = stagedClipPath(eventId, actor.caller.userId, input.uploadId);
-  // Who may act is checked again here, with the event row locked: the upload
-  // took a while, and the event may have been submitted or approved since.
-  let written: { result: PutResult; old_object_path: string | null };
+  requireStorage(deps);
+  if (!(await takeRateLimit(db, actor.caller.userId, "event_clip_attaches", CLIP_ATTACH_RATE_LIMIT))) {
+    throw rateLimited();
+  }
+  if (!(await claimUpload(db, actor, uploadId))) throw expired();
+
+  let clip: CheckedClip;
   try {
-    written = await putClip(db, actor, clip.path, clip, input.description, input.reason);
+    clip = await processUpload(actor, uploadId, deps);
   } catch (err) {
-    removeLater(deps, [final]);
+    // Storage failed or the server was busy: nothing was recorded, so the
+    // same upload may be tried again. Any other refusal keeps the claim.
+    if (err instanceof HttpError && err.statusCode === 503) await releaseUpload(db, actor, uploadId);
     throw err;
   }
+  // Who may act is checked again here, with the event row locked: the upload
+  // took a while, and the event may have been submitted or approved since.
+  // On an error or a refusal the final object is left for the sweep (it
+  // deletes final objects nothing refers to once they're a day old): never
+  // deleted here, where a lost race could make it someone's attached clip.
+  const written = await putClip(db, actor, clip.path, clip, input.description, input.reason);
   const refused = refusal(written.result, CLIP_MESSAGES.editLocked);
   if (refused) {
-    // Nothing attached: neither copy is wanted.
-    removeLater(deps, [final, staged]);
+    removeLater(deps, [staged]);
     throw refused;
   }
   removeLater(deps, [staged, written.old_object_path]);
@@ -497,7 +601,7 @@ async function removeClip(actor: Actor, req: Request, deps: Deps): Promise<Respo
  * file to uploadUrl (lib/api/clips.ts, uploadClipToStorage), then calls PUT
  * …/clip with the uploadId. 400 (fieldErrors.clip) a size or type that can't
  * be a clip; 404 not their event; 409 not a draft or rejected; 413 over
- * 10 MB; 429 over 20 a day; 503 Storage unavailable.
+ * 10 MB; 429 over 20 a day; 503 uploads switched off or Storage unavailable.
  */
 export const createClipUpload: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const actor = await organiserActor(req, eventId, deps, CLIP_MESSAGES.editLocked);
@@ -505,13 +609,17 @@ export const createClipUpload: Handler<{ eventId: string }> = async (req, { even
 };
 
 /**
- * PUT /api/events/[eventId]/clip — {uploadId?, description, rightsConfirmed:
- * true}. With an uploadId: checks and attaches that upload (replacing any
- * clip; a replay of the attached one only updates the description). Without
- * one: changes the description of the event's clip (404 if it has none).
+ * PUT /api/events/[eventId]/clip — {uploadId?, description, rightsConfirmed?}.
+ * With an uploadId (rightsConfirmed: true required): checks and attaches that
+ * upload (replacing any clip; a replay of the attached one only updates the
+ * description). Each upload is attached at most once: claiming it again is a
+ * 410. Without one: changes the description of the event's clip (404 if it
+ * has none); rightsConfirmed is ignored and the clip's rights date kept.
  * 200 with the event (its `clip` set). 400 fieldErrors (clip, description,
  * rightsConfirmed); 404; 409 the event was submitted or approved (nothing
- * attached); 410 the upload expired or isn't there; 413; 503.
+ * attached); 410 the upload expired, isn't there, or was used already; 413;
+ * 429 over 20 checked uploads a day; 503 uploads switched off (with an
+ * uploadId), Storage unavailable or the server busy.
  */
 export const putEventClip: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const actor = await organiserActor(req, eventId, deps, CLIP_MESSAGES.editLocked);
@@ -548,31 +656,44 @@ export const adminDeleteEventClip: Handler<{ eventId: string }> = async (req, { 
 // ---------------------------------------------------------------------------
 
 /**
- * GET /api/events/[eventId]/clip?v=… — public, published events only: a 302
- * to a 1-hour signed URL, `public, max-age=300, s-maxage=300` (`v` only
- * versions the URL). Anything else (no clip, not published, not an id) is a
- * 404, the same whoever asks; 503 without Storage.
+ * GET /api/events/[eventId]/clip?v=… — public, published events only: at
+ * the clip's current version (`v`, as in the event's clip.url), a 302 to a
+ * 1-hour signed URL, `public, max-age=300, s-maxage=300`; any other `v`, or
+ * none, is a 307 to `?v={current}` (`no-store`), as the seat map does, so
+ * made-up versions can't each mint a signed URL past the CDN. Anything else
+ * (no clip, not published, not an id) is a 404, the same whoever asks; 503
+ * without Storage.
  */
-export const getEventClip: Handler<{ eventId: string }> = async (_req, { eventId }, deps) => {
+export const getEventClip: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   if (!isUuid(eventId)) throw new HttpError(404, CLIP_NOT_FOUND);
-  const [row] = await deps.db.query<{ object_path: string }>(
-    `select c.object_path
+  // The version as lib/server/records.ts puts it in clip.url.
+  const [row] = await deps.db.query<{ object_path: string; version: string }>(
+    `select c.object_path, floor(extract(epoch from c.updated_at) * 1000)::bigint::text as version
        from private.event_clips c join public.events e on e.id = c.event_id
       where c.event_id = $1 and e.status = 'published'`,
     [eventId],
   );
   if (!row) throw new HttpError(404, CLIP_NOT_FOUND);
+  const url = new URL(req.url);
+  if (url.searchParams.get("v") !== row.version) {
+    url.search = "";
+    url.searchParams.set("v", row.version);
+    return new Response(null, {
+      status: 307,
+      headers: { location: url.toString(), "cache-control": CLIP_STALE_REDIRECT_CACHE_CONTROL },
+    });
+  }
   const storage = deps.clipStorage();
   if (!storage) throw new HttpError(503, CLIPS_UNAVAILABLE);
-  let url: string;
+  let signed: string;
   try {
-    url = await storage.createSignedUrl(row.object_path, CLIP_URL_LIFETIME_SECONDS);
+    signed = await storage.createSignedUrl(row.object_path, CLIP_URL_LIFETIME_SECONDS);
   } catch (err) {
     storageFailed(err, CLIPS_UNAVAILABLE);
   }
   return new Response(null, {
     status: 302,
-    headers: { location: url, "cache-control": CLIP_REDIRECT_CACHE_CONTROL, "referrer-policy": "no-referrer" },
+    headers: { location: signed, "cache-control": CLIP_REDIRECT_CACHE_CONTROL, "referrer-policy": "no-referrer" },
   });
 };
 
@@ -613,17 +734,25 @@ export const getEventClipPreview: Handler<{ eventId: string }> = async (req, { e
 // ---------------------------------------------------------------------------
 
 /**
- * Deletes, through the Storage API (never with SQL), the bucket's objects
- * older than CLIP_SWEEP_AGE that nothing needs: staged uploads (attached or
- * not, an upload is done with within its 2-hour URL) and final clips no
- * event refers to (replaced or removed ones whose deferred delete was lost,
- * an event's clip after the event was deleted, an attach whose write
- * failed). Reads storage.objects with SQL to find them. At most
- * CLIP_SWEEP_BATCH a run. A no-op without Storage.
+ * Deletes the issued upload ids (private.event_clip_uploads) older than
+ * CLIP_SWEEP_AGE, which can no longer be attached. Then deletes, through the
+ * Storage API (never with SQL), the bucket's objects older than
+ * CLIP_SWEEP_AGE that nothing needs: staged uploads (attached or not, an
+ * upload is done with within its 2-hour URL) and final clips no event refers
+ * to (replaced or removed ones whose deferred delete was lost, an event's
+ * clip after the event was deleted, an attach that was refused or whose
+ * write failed). Reads storage.objects with SQL to find them. At most
+ * CLIP_SWEEP_BATCH objects a run. The objects are skipped without Storage.
  */
-export async function sweepEventClips(deps: Deps): Promise<{ removed: number }> {
+export async function sweepEventClips(deps: Deps): Promise<{ removed: number; uploadIdsPurged: number }> {
+  // created_at's index (event_clip_uploads_created_at_idx).
+  const [{ n: uploadIdsPurged }] = await deps.db.query<{ n: number }>(
+    `with purged as (delete from private.event_clip_uploads where created_at < now() - $1::interval returning 1)
+     select count(*)::int as n from purged`,
+    [CLIP_SWEEP_AGE],
+  );
   const storage = deps.clipStorage();
-  if (!storage) return { removed: 0 };
+  if (!storage) return { removed: 0, uploadIdsPurged };
   const rows = await deps.db.query<{ name: string }>(
     `select o.name
        from storage.objects o
@@ -637,7 +766,7 @@ export async function sweepEventClips(deps: Deps): Promise<{ removed: number }> 
     [CLIP_SWEEP_AGE, CLIP_SWEEP_BATCH],
   );
   if (rows.length > 0) await storage.remove(rows.map((r) => r.name));
-  return { removed: rows.length };
+  return { removed: rows.length, uploadIdsPurged };
 }
 
 /** For the trending cron (runTrendingCron): the sweep after its response, best-effort (Deps.defer logs a failure). */

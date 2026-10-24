@@ -547,15 +547,34 @@ where website_url ~* '^http://' or website_url ~ '^[A-Za-z]+://[^/?#]*@';
 
 Short silent clips on events live in the private Storage bucket
 `event-clips`, created by migration `20261106000000_event_clips.sql`
-(check Storage → Buckets shows it as **private**, 10 MB limit). Then
-create a dedicated secret key (Project Settings → API Keys → Create new
-secret key, named `event-clips`) and set it in Vercel as
-`SUPABASE_CLIP_STORAGE_KEY` (server-only, never `NEXT_PUBLIC_`). Revoke
-that key alone if it ever leaks. Without it, clip uploads and playback
-answer 503 and everything else works. Clips are served for ~1 hour per
-signed URL, so plan on Supabase Pro bandwidth before turning clips on.
-Uploads stay hidden until `NEXT_PUBLIC_EVENT_CLIPS=1` is set in Vercel (and
-redeployed): it shows the editor's clip field and the admin queue's clip row.
+(check Storage → Buckets shows it as **private**, 10 MB limit), with
+`20261106000100_event_clip_dimensions.sql` and
+`20261106000200_event_clip_hardening.sql` after it. Check that no Storage
+policy lets a client at any bucket; this must return **0 rows**:
+
+```sql
+select policyname from pg_policies where schemaname = 'storage';
+```
+
+Then create a dedicated secret key (Project Settings → API Keys → Create
+new secret key, named `event-clips`) and set it in Vercel as
+`SUPABASE_CLIP_STORAGE_KEY` (server-only, never `NEXT_PUBLIC_`), for
+**Production only** unless Preview deployments use a separate Supabase
+project (then that project's own key). Be clear about what it is: Supabase
+secret keys can't be scoped, so this is a **full secret key with
+service-role powers** over the whole project: the Data API without RLS
+(every table), Supabase Auth admin (including setting
+`app_metadata.role = "admin"` on any account) and every Storage bucket. The
+app only uses it for `event-clips`, through `lib/server/clip-storage.ts`;
+being a separate key means it can be revoked alone, nothing more. Revoke it
+at once if it may have leaked. Without it, clip uploads and playback answer
+503 and everything else works. Clips are served for ~1 hour per signed URL,
+so plan on Supabase Pro bandwidth before turning clips on.
+Uploads stay off until `NEXT_PUBLIC_EVENT_CLIPS=1` is set in Vercel (and
+redeployed): it shows the editor's clip field and the admin queue's clip
+row, and the server refuses new uploads (503) without it, whatever a
+browser sends. Existing clips still play, and can be re-described or
+removed, either way.
 
 ## 2. Stripe (Connect)
 

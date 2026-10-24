@@ -12,20 +12,29 @@
  *
  * The walk is bounded: every box's size is checked against its parent; only
  * the containers on one fixed path are entered (file, moov, trak, mdia,
- * minf, stbl, stsd: never `mdat` or anything unexpected), so it's never more
- * than seven levels deep however the boxes nest; and it reads at most
- * MAX_BOXES boxes in all. A hostile file costs at most a few thousand reads.
+ * minf, stbl, stsd, and the H.264 sample entry's children: never `mdat` or
+ * anything unexpected), so it's never more than eight levels deep however
+ * the boxes nest; it reads at most MAX_BOXES boxes in all; and `ftyp` is at
+ * most MAX_FTYP_BYTES. A hostile file costs at most a few thousand reads.
  *
  * sanitiseClip then rewrites, in place, every box that can hold personal
- * metadata (`udta`, `meta` and `uuid` wherever the walk goes; at the top
- * level and in `moov`, everything but the boxes needed to play) as a
- * same-size `free` box with its payload zeroed. Nothing moves, so the chunk
- * offsets into `mdat` stay valid and the file plays as before, without its
- * location (`©xyz`, Apple's ISO 6709 keys), device or XMP tags.
+ * metadata (`udta`, `meta` and `uuid` wherever the walk goes, the H.264
+ * sample entry's children included; at the top level and in `moov`,
+ * everything but the boxes needed to play) as a same-size `free` box with
+ * its payload zeroed. It also zeroes the capture times (creation and
+ * modification) in `mvhd`, every `tkhd` and every `mdhd`, and blanks the
+ * name string of every `hdlr` it reads (the media's, and a QuickTime data
+ * handler's in `minf`), which encoders fill with their own or the device's
+ * name. Nothing moves, so the chunk offsets into `mdat` stay valid and the
+ * file plays as before, without its location (`©xyz`, Apple's ISO 6709
+ * keys), device, capture time or XMP tags.
  *
  * Not checked (accepted limits): that the chunk offsets and sample tables
  * agree with `mdat` (a file that lies there just won't play), and the video
- * samples themselves (H.264 SEI user data is left as is).
+ * samples themselves (H.264 SEI user data is left as is). Kept as they are:
+ * the language code in `mdhd`, and the sample entry's 32-byte compressor
+ * name (codec-level, e.g. "AVC Coding"; it's part of the 78-byte entry the
+ * decoder reads).
  */
 
 import {
@@ -40,6 +49,8 @@ import {
 export { MAX_CLIP_BYTES, MAX_CLIP_DURATION_MS, MAX_CLIP_PIXELS, MAX_CLIP_SIDE };
 /** How many boxes the walk reads in all. A phone's clip has a few dozen. */
 export const MAX_BOXES = 1000;
+/** ftyp's size at most: a real one lists a handful of brands (a few dozen bytes). */
+export const MAX_FTYP_BYTES = 1024;
 
 /** Brands (ftyp's major or a compatible one) of files with the structure we accept. */
 const BRANDS = new Set(["isom", "iso2", "iso4", "iso5", "iso6", "mp41", "mp42", "avc1", "M4V ", "qt  "]);
@@ -183,6 +194,8 @@ interface Walk {
   neutralise: Box[];
   /** Padding whose payload is zeroed but whose type stays. */
   pad: Box[];
+  /** Byte ranges [start, end) zeroed in place: capture times, handler names. */
+  blank: [number, number][];
   majorBrand: string;
   movieDuration: Duration | null;
   tracks: Track[];
@@ -192,14 +205,28 @@ function fourcc(bytes: Uint8Array, at: number): string {
   return String.fromCharCode(bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]);
 }
 
-/** The boxes tiling [from, to): each one's size checked against what's left. */
-function readBoxes(walk: Walk, from: number, to: number, topLevel: boolean): Box[] {
+/** Whether [from, to) is all zero bytes. */
+function allZero(bytes: Uint8Array, from: number, to: number): boolean {
+  for (let at = from; at < to; at++) if (bytes[at] !== 0) return false;
+  return true;
+}
+
+/**
+ * The boxes tiling [from, to): each one's size checked against what's left.
+ * `zeroTail`: a run of zero bytes where the next box would start ends the
+ * list (QuickTime ends some sample entries with a zero terminator).
+ */
+function readBoxes(walk: Walk, from: number, to: number, topLevel: boolean, zeroTail = false): Box[] {
   const { bytes, view } = walk;
   const boxes: Box[] = [];
   let at = from;
   while (at < to) {
     walk.boxes += 1;
     if (walk.boxes > MAX_BOXES) throw new Refusal("too_complex");
+    if (zeroTail && (to - at < 8 || view.getUint32(at) === 0) && allZero(bytes, at, Math.min(to, at + 8))) {
+      if (allZero(bytes, at, to)) break;
+      throw new Refusal("malformed");
+    }
     if (to - at < 8) throw new Refusal("malformed");
     const size32 = view.getUint32(at);
     const type = fourcc(bytes, at + 4);
@@ -259,6 +286,15 @@ const ONE = BigInt(1);
 const THOUSAND = BigInt(1000);
 const ALL_ONES_64 = BigInt("0xffffffffffffffff");
 
+/**
+ * mvhd, tkhd and mdhd start (after version and flags) with the creation and
+ * modification times: 32 bits each in version 0, 64 in version 1. Queued
+ * for zeroing (the caller has checked the box is long enough).
+ */
+function blankTimes(walk: Walk, box: Box, version: number): void {
+  walk.blank.push([box.payload + 4, box.payload + 4 + (version === 1 ? 16 : 8)]);
+}
+
 /** mvhd / mdhd: a full box whose version picks 32- or 64-bit times. */
 function readDuration(walk: Walk, box: Box): Duration {
   const { view } = walk;
@@ -266,15 +302,28 @@ function readDuration(walk: Walk, box: Box): Duration {
   const version = walk.bytes[p];
   if (version === 0) {
     if (box.end - p < 20) throw new Refusal("malformed");
+    blankTimes(walk, box, version);
     const value = view.getUint32(p + 16);
     return { timescale: view.getUint32(p + 12), value: BigInt(value), unknown: value === 0xffffffff };
   }
   if (version === 1) {
     if (box.end - p < 32) throw new Refusal("malformed");
+    blankTimes(walk, box, version);
     const value = view.getBigUint64(p + 24);
     return { timescale: view.getUint32(p + 20), value, unknown: value === ALL_ONES_64 };
   }
   throw new Refusal("malformed");
+}
+
+/**
+ * hdlr: version and flags, pre_defined (QuickTime's component type), the
+ * handler type, 12 reserved bytes (QuickTime's manufacturer, flags and
+ * mask), then the name (C or Pascal string) to the end. The name is queued
+ * for zeroing, which reads as an empty string either way.
+ */
+function blankHandlerName(walk: Walk, hdlr: Box): void {
+  const name = hdlr.payload + 24;
+  if (hdlr.end > name) walk.blank.push([name, hdlr.end]);
 }
 
 /**
@@ -289,6 +338,7 @@ function readDisplaySize(walk: Walk, box: Box): { width: number; height: number;
   const offset = version === 0 ? 76 : version === 1 ? 88 : -1;
   if (offset < 0) throw new Refusal("malformed");
   if (box.end - p < offset + 8) throw new Refusal("malformed");
+  blankTimes(walk, box, version);
   const fixed = (value: number) => Math.ceil(value / 65536);
   const matrix = offset - 36;
   const a = walk.view.getInt32(p + matrix);
@@ -330,11 +380,14 @@ function readTrack(walk: Walk, trak: Box): Track {
   const hdlr = required(mdiaChildren, "hdlr");
   if (hdlr.end - hdlr.payload < 12) throw new Refusal("malformed");
   track.handler = fourcc(walk.bytes, hdlr.payload + 8);
+  blankHandlerName(walk, hdlr);
   if (track.handler !== "vide") return track;
 
   const minf = required(mdiaChildren, "minf");
   const minfChildren = readBoxes(walk, minf.payload, minf.end, false);
   scrubChildren(walk, minfChildren);
+  // QuickTime's data handler ('dhlr', often "Core Media Data Handler" or an app's name).
+  for (const box of minfChildren) if (box.type === "hdlr") blankHandlerName(walk, box);
   const stbl = required(minfChildren, "stbl");
   const stblChildren = readBoxes(walk, stbl.payload, stbl.end, false);
   scrubChildren(walk, stblChildren);
@@ -354,6 +407,9 @@ function readTrack(walk: Walk, trak: Box): Track {
     if (entry.end - entry.payload < 78) throw new Refusal("malformed");
     track.codedWidth = walk.view.getUint16(entry.payload + 24);
     track.codedHeight = walk.view.getUint16(entry.payload + 26);
+    // Its children (avcC, pasp, colr, btrt…): a uuid or udta among them is
+    // neutralised like any other. One level only, counted in MAX_BOXES.
+    scrubChildren(walk, readBoxes(walk, entry.payload + 78, entry.end, false, true));
   }
   return track;
 }
@@ -365,6 +421,7 @@ function walkFile(bytes: Uint8Array): Walk {
     boxes: 0,
     neutralise: [],
     pad: [],
+    blank: [],
     majorBrand: "",
     movieDuration: null,
     tracks: [],
@@ -373,15 +430,17 @@ function walkFile(bytes: Uint8Array): Walk {
   const top = readBoxes(walk, 0, bytes.length, true);
   if (top.some((b) => FRAGMENTED.has(b.type))) throw new Refusal("fragmented");
 
-  // ftyp first, once: major brand, minor version, compatible brands.
+  // ftyp first, once: major brand, minor version, compatible brands. At
+  // most MAX_FTYP_BYTES, and the brands are checked where they lie.
   const ftyp = top[0];
   if (ftyp.type !== "ftyp" || top.filter((b) => b.type === "ftyp").length !== 1) throw new Refusal("not_mp4");
+  if (ftyp.end - ftyp.start > MAX_FTYP_BYTES) throw new Refusal("malformed");
   const ftypLength = ftyp.end - ftyp.payload;
   if (ftypLength < 8 || ftypLength % 4 !== 0) throw new Refusal("malformed");
   walk.majorBrand = fourcc(bytes, ftyp.payload);
-  const brands = [walk.majorBrand];
-  for (let at = ftyp.payload + 8; at < ftyp.end; at += 4) brands.push(fourcc(bytes, at));
-  if (!brands.some((brand) => BRANDS.has(brand))) throw new Refusal("not_mp4");
+  let known = BRANDS.has(walk.majorBrand);
+  for (let at = ftyp.payload + 8; !known && at < ftyp.end; at += 4) known = BRANDS.has(fourcc(bytes, at));
+  if (!known) throw new Refusal("not_mp4");
 
   if (!top.some((b) => b.type === "mdat")) throw new Refusal("malformed");
   scrubChildren(walk, top, KEEP_TOP);
@@ -514,5 +573,6 @@ export function sanitiseClip(bytes: Uint8Array): ClipCheck {
     bytes.fill(0, box.fieldsEnd, box.end);
   }
   for (const box of walk.pad) bytes.fill(0, box.fieldsEnd, box.end);
+  for (const [start, end] of walk.blank) bytes.fill(0, start, end);
   return result;
 }

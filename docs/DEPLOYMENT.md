@@ -216,8 +216,21 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        exception is `SUPABASE_CLIP_STORAGE_KEY`: a *separate*, separately
        revocable secret key used only by `lib/server/clip-storage.ts` for the
        private `event-clips` bucket (event clips; unset = clip routes 503).
+       It is still a **full Supabase secret key** (Supabase can't scope
+       them): service-role powers over the whole project, meaning the Data
+       API without RLS, Supabase Auth admin (including making any account an
+       admin) and every Storage bucket. Set it for **Production only**,
+       unless Preview deployments point at a separate Supabase project (then
+       give Preview that project's own key, never Production's). Revoke it
+       at once if it may have leaked.
        Optional: `NEXT_PUBLIC_EVENT_CLIPS=1` turns clip uploads on (the
        editor's clip field, the admin queue's clip row), once that key is set.
+       Without it the server also refuses new uploads (503), whatever a
+       browser sends; existing clips still play, and can be re-described or
+       removed. Before turning it on, check in the SQL editor that
+       `select policyname from pg_policies where schemaname = 'storage';`
+       returns **0 rows** and that Storage → Buckets shows `event-clips` as
+       **private**.
 2. [ ] Pro plan once you sell tickets (Hobby is non-commercial).
 3. [ ] Domain: attach `sheltuh.com.au` (see PROJECT_CONTEXT for the Cloudflare
        notes). The landing page currently lives on a Cloudflare Worker; decide

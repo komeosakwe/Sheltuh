@@ -8,6 +8,7 @@ import {
   MAX_BOXES,
   MAX_CLIP_BYTES,
   MAX_CLIP_DURATION_MS,
+  MAX_FTYP_BYTES,
   sanitiseClip,
   type ClipCheck,
 } from "@/lib/server/mp4";
@@ -69,20 +70,26 @@ interface Timing {
   version?: 0 | 1;
   timescale?: number;
   duration?: number | bigint;
+  /** Creation and modification times set (a recognisable pattern), as a camera writes them. */
+  stamped?: boolean;
 }
 
-function mvhd({ version = 0, timescale = 1000, duration = 10_000 }: Timing = {}) {
+/** Creation and modification times: `n` bytes of a pattern no other field here uses, or zeros. */
+const STAMP = 0xa7;
+const times = (n: number, stamped = false) => (stamped ? new Uint8Array(n).fill(STAMP) : zeros(n));
+
+function mvhd({ version = 0, timescale = 1000, duration = 10_000, stamped }: Timing = {}) {
   const d = BigInt(duration);
   return version === 0
-    ? fullBox("mvhd", 0, zeros(8), u32(timescale), u32(Number(d)), zeros(80))
-    : fullBox("mvhd", 1, zeros(16), u32(timescale), u64(d), zeros(80));
+    ? fullBox("mvhd", 0, times(8, stamped), u32(timescale), u32(Number(d)), zeros(80))
+    : fullBox("mvhd", 1, times(16, stamped), u32(timescale), u64(d), zeros(80));
 }
 
-function mdhd({ version = 0, timescale = 12_800, duration = 128_000 }: Timing = {}) {
+function mdhd({ version = 0, timescale = 12_800, duration = 128_000, stamped }: Timing = {}) {
   const d = BigInt(duration);
   return version === 0
-    ? fullBox("mdhd", 0, zeros(8), u32(timescale), u32(Number(d)), zeros(4))
-    : fullBox("mdhd", 1, zeros(16), u32(timescale), u64(d), zeros(4));
+    ? fullBox("mdhd", 0, times(8, stamped), u32(timescale), u32(Number(d)), zeros(4))
+    : fullBox("mdhd", 1, times(16, stamped), u32(timescale), u64(d), zeros(4));
 }
 
 /** tkhd's matrix {a, b, u, c, d, v, x, y, w}: identity, and a 90° turn as phones write it. */
@@ -95,20 +102,20 @@ function i32(n: number) {
   return out;
 }
 
-function tkhd(width: number, height: number, version: 0 | 1 = 0, matrix?: number[]) {
-  // Everything before the matrix, the matrix (36), then width and height (16.16).
-  const before = version === 0 ? zeros(20 + 8 + 8) : zeros(32 + 8 + 8);
+function tkhd(width: number, height: number, version: 0 | 1 = 0, matrix?: number[], stamped = false) {
+  // Everything before the matrix (the times first), the matrix (36), then width and height (16.16).
+  const before = version === 0 ? concat(times(8, stamped), zeros(12 + 8 + 8)) : concat(times(16, stamped), zeros(16 + 8 + 8));
   const m = matrix ? concat(...matrix.map(i32)) : zeros(36);
   return fullBox("tkhd", version, before, m, u32(width * 65536), u32(height * 65536));
 }
 
-function hdlr(handler: string) {
-  return fullBox("hdlr", 0, zeros(4), latin1(handler), zeros(12), latin1("Handler\0"));
+function hdlr(handler: string, name = "Handler\0") {
+  return fullBox("hdlr", 0, zeros(4), latin1(handler), zeros(12), latin1(name));
 }
 
-/** A VisualSampleEntry (78 bytes) and an avcC/hvcC-ish child. */
-function videoEntry(type: string, width: number, height: number) {
-  return box(type, zeros(6), u16(1), zeros(16), u16(width), u16(height), zeros(50), box("avcC", zeros(8)));
+/** A VisualSampleEntry (78 bytes), an avcC/hvcC-ish child, and any more children (or trailing bytes). */
+function videoEntry(type: string, width: number, height: number, extra: Uint8Array[] = []) {
+  return box(type, zeros(6), u16(1), zeros(16), u16(width), u16(height), zeros(50), box("avcC", zeros(8)), ...extra);
 }
 
 function audioEntry() {
@@ -128,13 +135,20 @@ interface TrackSpec {
   entries?: number;
   trakExtra?: Uint8Array[];
   stblExtra?: Uint8Array[];
+  /** Boxes in minf after stbl. */
+  minfExtra?: Uint8Array[];
+  /** After the sample entry's avcC. */
+  entryExtra?: Uint8Array[];
+  /** The media hdlr's name. */
+  handlerName?: string;
+  tkhdStamped?: boolean;
 }
 
 function trak(spec: TrackSpec, chunkOffset: number) {
   const handler = spec.handler ?? "vide";
   const width = spec.width ?? 1280;
   const height = spec.height ?? 720;
-  const entry = handler === "soun" ? audioEntry() : videoEntry(spec.entry ?? "avc1", width, height);
+  const entry = handler === "soun" ? audioEntry() : videoEntry(spec.entry ?? "avc1", width, height, spec.entryExtra);
   const entries = spec.entries ?? 1;
   const stsd = fullBox("stsd", 0, u32(entries), ...Array.from({ length: entries }, () => entry));
   const stbl = box(
@@ -146,11 +160,17 @@ function trak(spec: TrackSpec, chunkOffset: number) {
     fullBox("stco", 0, u32(1), u32(chunkOffset)),
     ...(spec.stblExtra ?? []),
   );
-  const minf = box("minf", fullBox("vmhd", 0, zeros(8)), box("dinf", fullBox("dref", 0, u32(0))), stbl);
-  const mdia = box("mdia", mdhd(spec.mdhd), hdlr(handler), minf);
+  const minf = box(
+    "minf",
+    fullBox("vmhd", 0, zeros(8)),
+    box("dinf", fullBox("dref", 0, u32(0))),
+    stbl,
+    ...(spec.minfExtra ?? []),
+  );
+  const mdia = box("mdia", mdhd(spec.mdhd), hdlr(handler, spec.handlerName), minf);
   return box(
     "trak",
-    tkhd(spec.displayWidth ?? width, spec.displayHeight ?? height, spec.tkhdVersion ?? 0, spec.matrix),
+    tkhd(spec.displayWidth ?? width, spec.displayHeight ?? height, spec.tkhdVersion ?? 0, spec.matrix, spec.tkhdStamped),
     mdia,
     ...(spec.trakExtra ?? []),
   );
@@ -398,6 +418,18 @@ describe("inspectClip: refused clips", () => {
     expectRefused(inspectClip(clip({ ftyp: box("ftyp", latin1("isom"), u32(0), latin1("is")) })), "malformed");
   });
 
+  it("refuses an ftyp over MAX_FTYP_BYTES, whatever brands it lists", () => {
+    expect(MAX_FTYP_BYTES).toBe(1024);
+    // 1,024 bytes in all (8 of header, 8 of major brand and version, 252 compatible brands): accepted.
+    const unknown = (n: number) => Array.from({ length: n }, () => "zzzz");
+    expect(inspectClip(clip({ ftyp: ftyp("zzzz", [...unknown(251), "isom"]) })).ok).toBe(true);
+    // One more brand: refused, even with a known major brand.
+    expectRefused(inspectClip(clip({ ftyp: ftyp("isom", [...unknown(252), "isom"]) })), "malformed");
+    // A 64-bit-sized ftyp of 9 MB: refused before any brand is read.
+    const huge = concat(u32(1), latin1("ftyp"), u64(BigInt(16 + 8 + 9 * 1024 * 1024)), latin1("isom"), u32(0), zeros(9 * 1024 * 1024));
+    expectRefused(inspectClip(concat(huge, clip().subarray(ftyp().length))), "malformed");
+  });
+
   it("refuses every truncation of a good file", () => {
     const bytes = clip({ topExtra: [box("udta", box("©xyz", latin1("+37.8136+144.9631/")))] });
     for (let length = 0; length < bytes.length; length++) {
@@ -583,6 +615,86 @@ describe("sanitiseClip", () => {
     expect(indexOf(bytes, "wide")).toBeGreaterThan(0);
   });
 
+  it("zeroes the capture times in mvhd, tkhd and mdhd, both versions, keeping everything else", () => {
+    for (const version of [0, 1] as const) {
+      const bytes = clip({
+        mvhd: { version, stamped: true },
+        tracks: [{ mdhd: { version, stamped: true }, tkhdVersion: version, tkhdStamped: true }],
+      });
+      const before = bytes.slice();
+      const stamp = new Uint8Array(version === 1 ? 16 : 8).fill(STAMP);
+      expect(indexOf(before, stamp), `version ${version}`).toBeGreaterThan(0);
+      const result = sanitiseClip(bytes);
+      expect(result).toEqual(inspectClip(before));
+      expect(result.ok).toBe(true);
+      expect(bytes.length).toBe(before.length);
+      expect(bytes.includes(STAMP), `version ${version}`).toBe(false);
+      // Only the times changed (and the handler's name, blanked too): the same bytes with them zeroed.
+      const expected = before.slice();
+      for (const type of ["mvhd", "tkhd", "mdhd"]) {
+        const at = indexOf(before, type) + 4 + 4;
+        expected.fill(0, at, at + (version === 1 ? 16 : 8));
+      }
+      const hdlrAt = indexOf(before, "hdlr") - 4;
+      expected.fill(0, hdlrAt + 32, hdlrAt + new DataView(before.buffer).getUint32(hdlrAt));
+      expect(bytes).toEqual(expected);
+    }
+  });
+
+  it("blanks every handler name it reads, keeping the handler type and the box's size", () => {
+    const bytes = clip({
+      tracks: [
+        {
+          handlerName: "Planted Camera App\0",
+          minfExtra: [hdlr("alis", "Planted Data Handler\0")],
+        },
+      ],
+    });
+    const before = bytes.slice();
+    expect(sanitiseClip(bytes)).toEqual(inspectClip(before));
+    expect(bytes.length).toBe(before.length);
+    expect(indexOf(bytes, "Planted")).toBe(-1);
+    expect(indexOf(bytes, "hdlr")).toBe(indexOf(before, "hdlr"));
+    expect(indexOf(bytes, "vide")).toBe(indexOf(before, "vide"));
+    expect(indexOf(bytes, "alis")).toBe(indexOf(before, "alis"));
+    const at = indexOf(before, "hdlr") - 4;
+    const size = new DataView(before.buffer).getUint32(at);
+    expect(bytes.subarray(at, at + 32)).toEqual(before.subarray(at, at + 32));
+    expect(bytes.subarray(at + 32, at + size).every((b) => b === 0)).toBe(true);
+  });
+
+  it("neutralises metadata among the H.264 sample entry's children, keeping avcC and the rest", () => {
+    const bytes = clip({
+      tracks: [
+        {
+          entryExtra: [
+            box("pasp", u32(1), u32(1)),
+            box("uuid", zeros(16), latin1("Planted encoder serial SN-999")),
+            box("udta", latin1("Planted")),
+          ],
+        },
+      ],
+    });
+    const before = bytes.slice();
+    expect(sanitiseClip(bytes)).toEqual(inspectClip(before));
+    expect(indexOf(bytes, "Planted")).toBe(-1);
+    expect(indexOf(bytes, "uuid")).toBe(-1);
+    for (const kept of ["avcC", "pasp"]) {
+      const at = indexOf(before, kept) - 4;
+      const size = new DataView(before.buffer).getUint32(at);
+      expect(bytes.subarray(at, at + size), kept).toEqual(before.subarray(at, at + size));
+    }
+  });
+
+  it("accepts a sample entry ending in a zero terminator; refuses one ending in anything else", () => {
+    expect(inspectClip(clip({ tracks: [{ entryExtra: [zeros(4)] }] })).ok).toBe(true);
+    expect(inspectClip(clip({ tracks: [{ entryExtra: [zeros(8)] }] })).ok).toBe(true);
+    expectRefused(inspectClip(clip({ tracks: [{ entryExtra: [Uint8Array.of(0, 0, 0, 1)] }] })), "malformed");
+    expectRefused(inspectClip(clip({ tracks: [{ entryExtra: [concat(zeros(8), latin1("junk"))] }] })), "malformed");
+    // A child that runs past the entry.
+    expectRefused(inspectClip(clip({ tracks: [{ entryExtra: [concat(u32(64), latin1("colr"))] }] })), "malformed");
+  });
+
   it("leaves a refused clip untouched", () => {
     const bytes = clip({ tracks: [{}, { handler: "soun" }], topExtra: [box("udta", latin1("+37.8136"))] });
     const before = bytes.slice();
@@ -626,14 +738,17 @@ describe("real files", () => {
         info: { durationMs: 1000, width: 160, height: 90, codedWidth: 160, codedHeight: 90, codec: "avc1", majorBrand: brand },
       });
       expect(bytes.length).toBe(length);
-      for (const gone of ["Planted", "+37.8136", "©xyz", "udta"]) expect(indexOf(bytes, gone), `${name} ${gone}`).toBe(-1);
+      for (const gone of ["Planted", "+37.8136", "©xyz", "udta", "VideoHandler"]) {
+        expect(indexOf(bytes, gone), `${name} ${gone}`).toBe(-1);
+      }
       // The mdat is byte for byte the same.
       const mdatAt = indexOf(before, "mdat") - 4;
       const mdatSize = new DataView(before.buffer).getUint32(mdatAt);
       expect(bytes.subarray(mdatAt, mdatAt + mdatSize)).toEqual(before.subarray(mdatAt, mdatAt + mdatSize));
     }
-    // The QuickTime file had the location and make in plain text before.
+    // The QuickTime file had the location and make in plain text before, and both ffmpeg's handler name.
     expect(indexOf(fixture("h264.mov"), "PlantedMake")).toBeGreaterThan(0);
+    for (const name of ["h264.mp4", "h264.mov"]) expect(indexOf(fixture(name), "VideoHandler"), name).toBeGreaterThan(0);
     expect(indexOf(fixture("h264.mov"), "+37.8136")).toBeGreaterThan(0);
   });
 
