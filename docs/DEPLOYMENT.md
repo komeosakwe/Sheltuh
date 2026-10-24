@@ -118,7 +118,10 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       (`pk_test_…`). Then **redeploy**: it's baked in at build time. If it's
       missing or its mode differs from the secret key's, every paid checkout
       is a 503 ("Card payments aren't available right now.") and nothing is
-      written; free tickets still work. Before going live, run the "Owner
+      written; free tickets still work. A value that isn't `pk_test_…` or
+      `pk_live_…` at all (a secret `sk_…` key pasted in the wrong box, say)
+      fails the build (`next.config.ts`), naming the variable but not the
+      value, so it never reaches the browser bundle. Before going live, run the "Owner
       sandbox checklist (embedded checkout)" in `architecture.md` in test
       mode, register the payment method domain(s) for Apple Pay and Google
       Pay, and set Stripe's branding (`supabase-setup.md` §2, steps 4–5).

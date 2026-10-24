@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { useState, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CheckoutPayment from "@/components/checkout/CheckoutPayment";
 import { ApiError } from "@/lib/api/client";
@@ -8,7 +7,9 @@ import type { OrderPaymentLookup } from "@/lib/api/types";
 
 /**
  * /checkout/pay (docs/design/checkout-pay.md): every state, with Stripe.js
- * and its React wrapper mocked (nothing here loads https://js.stripe.com).
+ * faked (nothing here loads https://js.stripe.com). Its React wrapper,
+ * @stripe/react-stripe-js, is the real one, so the provider's own checks run
+ * against the guarded Stripe the page hands it (lib/stripe/embedded.ts).
  */
 
 const ORDER_ID = `ord_${"ab12".repeat(8)}`;
@@ -55,28 +56,57 @@ vi.mock("@/lib/api/seating", () => ({
   createSeatedCheckout: (...args: unknown[]) => writes.createSeatedCheckout(...args),
 }));
 
-const STRIPE = { id: "fake-stripe-instance" };
+/**
+ * What a fake embedded Checkout does when created: mount an iframe (Stripe's form), mount nothing,
+ * reject, or never answer. Each instance is kept, to check it's destroyed.
+ */
+type CreateMode = "iframe" | "no-iframe" | "reject" | "hang";
+interface FakeEmbedded {
+  options: { clientSecret?: string };
+  mount: ReturnType<typeof vi.fn>;
+  unmount: ReturnType<typeof vi.fn>;
+  destroy: ReturnType<typeof vi.fn>;
+}
+const fake = { modes: [] as CreateMode[], instances: [] as FakeEmbedded[], resolveHung: [] as (() => void)[] };
+
+function createEmbeddedCheckoutPage(options: { clientSecret?: string }): Promise<FakeEmbedded> {
+  const mode = fake.modes.shift() ?? "iframe";
+  if (mode === "reject") return Promise.reject(new Error("Stripe couldn't set up the form"));
+  let frame: HTMLIFrameElement | null = null;
+  const instance: FakeEmbedded = {
+    options,
+    mount: vi.fn((target: HTMLElement) => {
+      if (mode === "no-iframe") return;
+      frame = document.createElement("iframe");
+      frame.title = "Secure payment input frame";
+      target.appendChild(frame);
+    }),
+    unmount: vi.fn(() => frame?.remove()),
+    destroy: vi.fn(() => frame?.remove()),
+  };
+  if (mode === "hang") {
+    // Resolves only when a test says so (after the page has given up).
+    return new Promise((resolve) => {
+      fake.resolveHung.push(() => {
+        fake.instances.push(instance);
+        resolve(instance);
+      });
+    });
+  }
+  fake.instances.push(instance);
+  return Promise.resolve(instance);
+}
+
+/** Stripe.js's instance, with only what the provider checks for and what the page uses. */
+const STRIPE = {
+  elements: vi.fn(),
+  createToken: vi.fn(),
+  createPaymentMethod: vi.fn(),
+  confirmCardPayment: vi.fn(),
+  createEmbeddedCheckoutPage: vi.fn(createEmbeddedCheckoutPage),
+};
 const getStripe = vi.fn();
 vi.mock("@/lib/stripe/browser", () => ({ getStripe: () => getStripe() }));
-
-interface ProviderCall {
-  stripe: unknown;
-  options: { clientSecret?: string | null };
-}
-const providerMounts: ProviderCall[] = [];
-const providerRenders: ProviderCall[] = [];
-let renderIframe = true;
-vi.mock("@stripe/react-stripe-js", () => ({
-  EmbeddedCheckoutProvider: ({ stripe, options, children }: ProviderCall & { children: ReactNode }) => {
-    providerRenders.push({ stripe, options });
-    // Once per mount, as the real provider calls createEmbeddedCheckoutPage once.
-    useState(() => providerMounts.push({ stripe, options }));
-    return <div data-testid="stripe-provider">{children}</div>;
-  },
-  EmbeddedCheckout: () => (
-    <div data-testid="stripe-embedded">{renderIframe && <iframe title="Secure payment input frame" />}</div>
-  ),
-}));
 
 const OPEN_GA: OrderPaymentLookup = {
   status: "open",
@@ -90,8 +120,8 @@ const OPEN_GA: OrderPaymentLookup = {
   suburb: "Collingwood",
   seated: false,
   lines: [
-    { ticketTypeName: "General admission", quantity: 2, unitTotalCents: 3170, lineTotalCents: 6340 },
-    { ticketTypeName: "Free list", quantity: 1, unitTotalCents: 0, lineTotalCents: 0 },
+    { ticketTypeName: "General admission", quantity: 2, unitTotalCents: 3170, lineTotalCents: 6340, buyerPaysFee: true },
+    { ticketTypeName: "Free list", quantity: 1, unitTotalCents: 0, lineTotalCents: 0, buyerPaysFee: false },
   ],
   subtotalCents: 6000,
   buyerFeeCents: 340,
@@ -109,6 +139,7 @@ const OPEN_SEATED: OrderPaymentLookup = {
       quantity: 2,
       unitTotalCents: 3690,
       lineTotalCents: 7380,
+      buyerPaysFee: true,
       seats: [
         { section: "North", row: "A", seat: "1", kind: "standard" },
         { section: "North", row: "A", seat: "2", kind: "standard" },
@@ -124,19 +155,38 @@ beforeEach(() => {
   flags.api = true;
   flags.stripe = true;
   flags.search = `order=${ORDER_ID}`;
-  renderIframe = true;
+  fake.modes = [];
+  fake.instances = [];
+  fake.resolveHung = [];
   getStripe.mockResolvedValue(STRIPE);
 });
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
   getOrderPayment.mockReset();
   getStripe.mockReset();
+  STRIPE.createEmbeddedCheckoutPage.mockClear();
   replace.mockReset();
   for (const fn of Object.values(writes)) fn.mockReset();
-  providerMounts.length = 0;
-  providerRenders.length = 0;
 });
+
+function stripeFrame() {
+  return document.querySelector<HTMLIFrameElement>('[data-payment-slot] iframe[title="Secure payment input frame"]');
+}
+
+/** Stripe's form is in the slot (its iframe). */
+async function formMounted() {
+  await waitFor(() => expect(stripeFrame()).not.toBeNull());
+}
+
+/** Runs pending timers and promises under fake timers. */
+async function advance(ms: number) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+}
 
 function heading() {
   return screen.getByRole("heading", { level: 1 });
@@ -153,16 +203,19 @@ describe("CheckoutPayment: open", () => {
     expect(heading()).toHaveTextContent("Pay for your tickets");
     expect(screen.getByRole("status")).toHaveTextContent("Loading checkout…");
 
-    await screen.findByTestId("stripe-embedded");
+    await formMounted();
     expect(getOrderPayment).toHaveBeenCalledWith(ORDER_ID);
     expect(getStripe).toHaveBeenCalledTimes(1);
-    expect(providerMounts).toEqual([{ stripe: STRIPE, options: { clientSecret: "cs_test_secret_123" } }]);
+    // The real provider accepted the guarded Stripe and created the form once, with this order's secret.
+    expect(STRIPE.createEmbeddedCheckoutPage).toHaveBeenCalledTimes(1);
+    expect(STRIPE.createEmbeddedCheckoutPage).toHaveBeenCalledWith({ clientSecret: "cs_test_secret_123" });
     expect(heading()).toHaveTextContent("Pay for your tickets");
     // The form's slot: white in both themes, named for screen readers.
     const form = screen.getByRole("region", { name: "Payment details" });
     expect(form.querySelector("[data-payment-slot]")).toHaveAttribute("data-surface", "paper");
     expect(await screen.findByText("Payment form ready")).toHaveAttribute("role", "status");
     expect(screen.queryByText("Loading the payment form…")).toBeNull();
+    expect(form.querySelector("[data-payment-slot]")).not.toHaveClass("min-h-144");
     // Reads only.
     noWrites();
   });
@@ -195,7 +248,9 @@ describe("CheckoutPayment: open", () => {
   it("a buyer who pays no booking fee is told so, and no line says 'incl. fee'", async () => {
     getOrderPayment.mockResolvedValue({
       ...OPEN_GA,
-      lines: [{ ticketTypeName: "General admission", quantity: 2, unitTotalCents: 3000, lineTotalCents: 6000 }],
+      lines: [
+        { ticketTypeName: "General admission", quantity: 2, unitTotalCents: 3000, lineTotalCents: 6000, buyerPaysFee: false },
+      ],
       buyerFeeCents: 0,
       totalCents: 6000,
     });
@@ -203,6 +258,24 @@ describe("CheckoutPayment: open", () => {
     expect(await screen.findByText("No booking fee.")).toBeInTheDocument();
     expect(screen.getByText("2 × A$30")).toBeInTheDocument();
     expect(screen.queryByText(/incl\. fee/)).toBeNull();
+  });
+
+  it("'incl. fee' goes by each line: an absorbed line's price says nothing, even when another line has a fee", async () => {
+    getOrderPayment.mockResolvedValue({
+      ...OPEN_GA,
+      lines: [
+        { ticketTypeName: "General admission", quantity: 1, unitTotalCents: 3170, lineTotalCents: 3170, buyerPaysFee: true },
+        { ticketTypeName: "Supporter", quantity: 1, unitTotalCents: 5000, lineTotalCents: 5000, buyerPaysFee: false },
+      ],
+      subtotalCents: 8000,
+      buyerFeeCents: 170,
+      totalCents: 8170,
+    });
+    render(<CheckoutPayment />);
+    const summary = await screen.findByRole("region", { name: "Neon Static" });
+    expect(within(summary).getByText("1 × A$31.70 incl. fee")).toBeInTheDocument();
+    expect(within(summary).getByText("1 × A$50")).toBeInTheDocument();
+    expect(within(summary).getByText("Includes A$1.70 in booking fees.")).toBeInTheDocument();
   });
 
   it("phones fold the lines behind a toggle; the total is never inside it", async () => {
@@ -229,21 +302,29 @@ describe("CheckoutPayment: open", () => {
     const steps = screen.getByRole("list", { name: "Checkout steps" });
     expect(steps).toHaveTextContent("1 Choose tickets→2 Pay→3 Tickets by email");
     expect(within(steps).getByText("2 Pay").closest("li")).toHaveAttribute("aria-current", "step");
+    // The arrows stay muted, even beside the current step.
+    for (const arrow of steps.querySelectorAll('[aria-hidden="true"]')) expect(arrow).toHaveClass("text-muted");
     expect(screen.getByRole("link", { name: "Purchase Terms" })).toHaveAttribute("href", "/purchase-terms");
     expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", "/privacy");
+    expect(screen.getByRole("link", { name: "Purchase Terms" })).toHaveClass("whitespace-nowrap");
+    expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveClass("whitespace-nowrap");
     expect(screen.getByText(/Card details go straight to Stripe, our payment provider, and never reach Sheltüh\./)).toBeInTheDocument();
     // No hold line without seats.
     expect(screen.queryByText(/Your seats are held/)).toBeNull();
   });
 
-  it("seated: back to change seats, the seat steps, each seat, and when the hold ends", async () => {
+  it("seated: back to change seats, the seat steps, each seat, and when the hold ends (Melbourne time)", async () => {
     getOrderPayment.mockResolvedValue(OPEN_SEATED);
     render(<CheckoutPayment />);
     expect(await screen.findByRole("link", { name: "Change seats" })).toHaveAttribute("href", "/events/off-kilter/seats");
     expect(screen.getByRole("list", { name: "Checkout steps" })).toHaveTextContent("1 Choose seats→2 Pay→3 Tickets by email");
-    expect(screen.getByText("Your seats are held until 8:31 pm. Going back releases them.")).toBeInTheDocument();
+    // Melbourne's time, like the event's, and said so: a device elsewhere would otherwise misread it.
+    expect(screen.getByText("Your seats are held until 8:31 pm Melbourne time. Going back releases them.")).toBeInTheDocument();
     expect(screen.getByText("North · Row A · Seat 1")).toBeInTheDocument();
     expect(screen.getByText("North · Row A · Seat 2")).toBeInTheDocument();
+    // Each seat takes the line's full width (a child of the line, not of its name column).
+    const seat = screen.getByText("North · Row A · Seat 1").closest("[data-seat-line]");
+    expect(seat?.parentElement?.tagName).toBe("LI");
     expect(screen.getByRole("button", { name: "Show 2 seats" })).toBeInTheDocument();
   });
 
@@ -256,48 +337,189 @@ describe("CheckoutPayment: open", () => {
   it("leaves focus alone on arrival (Next's route announcer has it)", async () => {
     getOrderPayment.mockResolvedValue(OPEN_GA);
     render(<CheckoutPayment />);
-    await screen.findByTestId("stripe-embedded");
+    await formMounted();
     expect(heading()).not.toHaveFocus();
+    // Focused only by script, and not a control: no focus ring.
+    expect(heading()).toHaveAttribute("tabindex", "-1");
+    expect(heading()).toHaveClass("focus:outline-none!");
   });
 
   it("keeps the loader in the slot until Stripe's iframe is there", async () => {
-    renderIframe = false;
+    fake.modes = ["no-iframe"];
     getOrderPayment.mockResolvedValue(OPEN_GA);
     render(<CheckoutPayment />);
-    await screen.findByTestId("stripe-embedded");
+    await waitFor(() => expect(fake.instances[0]?.mount).toHaveBeenCalled());
     expect(screen.getByText("Loading the payment form…")).toBeInTheDocument();
     expect(screen.queryByText("Payment form ready")).toBeNull();
     expect(document.querySelector("[data-payment-slot]")).toHaveClass("min-h-144");
   });
+
+  it("an iframe that's there but not yet drawn: still loading; ready (and announced) once it has a height", async () => {
+    const observers: { callback: ResizeObserverCallback; targets: Element[] }[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        targets: Element[] = [];
+        constructor(callback: ResizeObserverCallback) {
+          observers.push({ callback, targets: this.targets });
+        }
+        observe(target: Element) {
+          this.targets.push(target);
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    getOrderPayment.mockResolvedValue(OPEN_GA);
+    render(<CheckoutPayment />);
+    await formMounted();
+    await waitFor(() => expect(observers).toHaveLength(1));
+    const frame = stripeFrame();
+    expect(observers[0].targets).toEqual([frame]);
+    // Inserted, 0 high (jsdom's layout): not ready.
+    act(() => observers[0].callback([], {} as ResizeObserver));
+    expect(screen.getByText("Loading the payment form…")).toBeInTheDocument();
+    expect(screen.queryByText("Payment form ready")).toBeNull();
+    expect(document.querySelector("[data-payment-slot]")).toHaveClass("min-h-144");
+
+    if (frame) frame.getBoundingClientRect = () => DOMRect.fromRect({ width: 600, height: 640 });
+    act(() => observers[0].callback([], {} as ResizeObserver));
+    expect(screen.getByText("Payment form ready")).toBeInTheDocument();
+    expect(screen.queryByText("Loading the payment form…")).toBeNull();
+    expect(document.querySelector("[data-payment-slot]")).not.toHaveClass("min-h-144");
+  });
 });
 
-describe("CheckoutPayment: Stripe.js", () => {
-  it("can't load (offline, a blocker): our own alert and Try again, which really tries again", async () => {
+const FORM_FAILED =
+  "The payment form didn’t load. Check your connection. If you use a content blocker, allow js.stripe.com, then try again. You haven’t been charged.";
+
+/** The failed slot: our alert and Try again, no Stripe form, and no reserved height. */
+function expectFormFailed() {
+  expect(screen.getByRole("alert")).toHaveTextContent(FORM_FAILED);
+  expect(stripeFrame()).toBeNull();
+  expect(screen.queryByText("Loading the payment form…")).toBeNull();
+  expect(document.querySelector("[data-payment-slot]")).not.toHaveClass("min-h-144");
+  expect(screen.getByRole("button", { name: "Try again" })).toHaveClass("min-h-11");
+}
+
+describe("CheckoutPayment: Stripe.js and its form", () => {
+  it("can't load (offline, a blocker): our own alert, and Try again loads the checkout afresh", async () => {
     getOrderPayment.mockResolvedValue(OPEN_GA);
     getStripe.mockRejectedValueOnce(new Error("Failed to load Stripe.js"));
     render(<CheckoutPayment />);
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(
-      "The payment form didn’t load. Check your connection. If you use a content blocker, allow js.stripe.com, then try again. You haven’t been charged.",
-    );
+    await screen.findByRole("alert");
+    expectFormFailed();
     // The summary stays; focus moves to the h1 on the change.
     expect(screen.getByRole("region", { name: "Neon Static" })).toBeInTheDocument();
     expect(heading()).toHaveFocus();
-    expect(screen.queryByTestId("stripe-provider")).toBeNull();
+    expect(STRIPE.createEmbeddedCheckoutPage).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    await screen.findByTestId("stripe-embedded");
+    await formMounted();
+    // The checkout is asked for again (it may have closed meanwhile), and Stripe.js is loaded again.
+    expect(getOrderPayment).toHaveBeenCalledTimes(2);
     expect(getStripe).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(providerMounts).toHaveLength(1);
+    expect(STRIPE.createEmbeddedCheckoutPage).toHaveBeenCalledTimes(1);
+    expect(heading()).toHaveFocus();
   });
 
   it("resolving to nothing counts as a failed load", async () => {
     getOrderPayment.mockResolvedValue(OPEN_GA);
     getStripe.mockResolvedValue(null);
     render(<CheckoutPayment />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("The payment form didn’t load.");
-    expect(screen.queryByTestId("stripe-provider")).toBeNull();
+    await screen.findByRole("alert");
+    expectFormFailed();
+  });
+
+  it("Stripe can't set up the form (it rejects): the same alert, not an endless loader, and Try again mounts a new one", async () => {
+    fake.modes = ["reject"];
+    getOrderPayment.mockResolvedValue(OPEN_GA);
+    render(<CheckoutPayment />);
+    await screen.findByRole("alert");
+    expectFormFailed();
+    expect(heading()).toHaveFocus();
+    expect(STRIPE.createEmbeddedCheckoutPage).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await formMounted();
+    expect(getOrderPayment).toHaveBeenCalledTimes(2);
+    expect(STRIPE.createEmbeddedCheckoutPage).toHaveBeenCalledTimes(2);
+    expect(STRIPE.createEmbeddedCheckoutPage).toHaveBeenLastCalledWith({ clientSecret: "cs_test_secret_123" });
+    expect(await screen.findByText("Payment form ready")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("a form that never appears: after 20 s, the alert; one that turns up late is destroyed, and Try again works", async () => {
+    vi.useFakeTimers();
+    fake.modes = ["hang"];
+    getOrderPayment.mockResolvedValue(OPEN_GA);
+    render(<CheckoutPayment />);
+    await advance(0);
+    expect(STRIPE.createEmbeddedCheckoutPage).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Loading the payment form…")).toBeInTheDocument();
+    await advance(19_999);
+    expect(screen.queryByRole("alert")).toBeNull();
+    await advance(1);
+    expectFormFailed();
+    expect(heading()).toHaveFocus();
+
+    // Stripe answers after the page gave up: that form is destroyed, never shown.
+    await act(async () => {
+      fake.resolveHung[0]();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(fake.instances[0].destroy).toHaveBeenCalledTimes(1);
+    expect(fake.instances[0].mount).not.toHaveBeenCalled();
+    expectFormFailed();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await advance(0);
+    expect(stripeFrame()).not.toBeNull();
+    expect(screen.getByText("Payment form ready")).toBeInTheDocument();
+    expect(STRIPE.createEmbeddedCheckoutPage).toHaveBeenCalledTimes(2);
+    // Ready: the watchdog is off.
+    await advance(30_000);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("Stripe.js that never loads is covered by the same 20 s", async () => {
+    vi.useFakeTimers();
+    getStripe.mockReturnValue(new Promise(() => undefined));
+    getOrderPayment.mockResolvedValue(OPEN_GA);
+    render(<CheckoutPayment />);
+    await advance(0);
+    expect(screen.getByText("Loading the payment form…")).toBeInTheDocument();
+    await advance(20_000);
+    expectFormFailed();
+  });
+
+  it("a new form is only created once the last one is destroyed (Stripe.js allows one at a time)", async () => {
+    const order: string[] = [];
+    STRIPE.createEmbeddedCheckoutPage.mockImplementation((options) => {
+      order.push("create");
+      return createEmbeddedCheckoutPage(options).then((instance) => {
+        instance.destroy.mockImplementation(() => order.push("destroy"));
+        return instance;
+      });
+    });
+    getOrderPayment
+      .mockResolvedValueOnce(OPEN_GA)
+      .mockResolvedValueOnce({ status: "closed", eventTitle: "Neon Static", eventSlug: "neon-static", seated: false })
+      .mockResolvedValue(OPEN_GA);
+    render(<CheckoutPayment />);
+    await formMounted();
+    // Closed (a back/forward restore), then open again: the first form went with the closed state.
+    await act(async () => {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+    });
+    await screen.findByRole("heading", { level: 1, name: "This checkout has closed" });
+    await act(async () => {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+    });
+    await formMounted();
+    expect(order).toEqual(["create", "destroy", "create"]);
+    STRIPE.createEmbeddedCheckoutPage.mockImplementation(createEmbeddedCheckoutPage);
   });
 });
 
@@ -324,16 +546,9 @@ describe("CheckoutPayment: never loads Stripe", () => {
     expect(screen.getByRole("link", { name: "support@sheltuh.com.au" })).toHaveAttribute("href", "mailto:support@sheltuh.com.au");
     expect(screen.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/neon-static");
     expect(getStripe).not.toHaveBeenCalled();
-    expect(screen.queryByTestId("stripe-provider")).toBeNull();
+    expect(stripeFrame()).toBeNull();
+    expect(STRIPE.createEmbeddedCheckoutPage).not.toHaveBeenCalled();
     expect(screen.queryByText(/Purchase Terms/)).toBeNull();
-  });
-
-  it("a 503 from the API is the same state, going home", async () => {
-    getOrderPayment.mockRejectedValue(new ApiError(503, "Card payments aren't available right now."));
-    render(<CheckoutPayment />);
-    expect(await screen.findByRole("heading", { level: 1, name: "Card payments aren’t available right now" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Back to Sheltüh" })).toHaveAttribute("href", "/");
-    expect(getStripe).not.toHaveBeenCalled();
   });
 });
 
@@ -385,6 +600,7 @@ describe("CheckoutPayment: other answers", () => {
     expect(screen.queryByRole("list", { name: "Checkout steps" })).toBeNull();
     expect(screen.queryByText("Total")).toBeNull();
     expect(getStripe).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveClass("text-balance", "focus:outline-none!");
   });
 
   it.each([["processing"], ["done"]] as const)("%s: takes the buyer to their order", async (status) => {
@@ -420,16 +636,37 @@ describe("CheckoutPayment: other answers", () => {
     expect(heading()).toHaveTextContent("Pay for your tickets");
     expect(screen.getByRole("link", { name: "Back to Sheltüh" })).toHaveAttribute("href", "/");
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    await screen.findByTestId("stripe-embedded");
+    await formMounted();
     expect(getOrderPayment).toHaveBeenCalledTimes(2);
     expect(heading()).toHaveFocus();
+  });
+
+  it("a 429 (asked too often): wait a minute, nothing charged, and Try again loads it", async () => {
+    getOrderPayment
+      .mockRejectedValueOnce(new ApiError(429, "Too many requests. Try again in a minute."))
+      .mockResolvedValue(OPEN_GA);
+    render(<CheckoutPayment />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Too many tries — wait a minute, then try again. You haven’t been charged.",
+    );
+    expect(heading()).toHaveTextContent("Pay for your tickets");
+    // Nothing of Stripe's until the checkout itself has been read.
+    expect(getStripe).not.toHaveBeenCalled();
+    const again = screen.getByRole("button", { name: "Try again" });
+    expect(again).toHaveClass("btn-outline", "min-h-11");
+    fireEvent.click(again);
+    await formMounted();
+    expect(getOrderPayment).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(heading()).toHaveFocus();
+    noWrites();
   });
 
   it("any other failure: an alert saying nothing was charged, and Try again", async () => {
     getOrderPayment.mockRejectedValue(new TypeError("Failed to fetch"));
     render(<CheckoutPayment />);
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t load checkout right now. You haven’t been charged.");
-    expect(screen.getByRole("button", { name: "Try again" })).toHaveClass("btn-outline");
+    expect(screen.getByRole("button", { name: "Try again" })).toHaveClass("btn-outline", "min-h-11");
   });
 });
 
@@ -437,7 +674,7 @@ describe("CheckoutPayment: asking again", () => {
   it("back from the back/forward cache: asks again, keeping the same form when it's still open", async () => {
     getOrderPayment.mockResolvedValue(OPEN_GA);
     render(<CheckoutPayment />);
-    await screen.findByTestId("stripe-embedded");
+    await formMounted();
     await act(async () => {
       window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: false }));
     });
@@ -446,9 +683,10 @@ describe("CheckoutPayment: asking again", () => {
       window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
     });
     expect(getOrderPayment).toHaveBeenCalledTimes(2);
-    // Not mounted again, and given the very same options (Stripe.js takes them once).
-    expect(providerMounts).toHaveLength(1);
-    expect(new Set(providerRenders.map((call) => call.options)).size).toBe(1);
+    // Not created again, and never destroyed (the provider would warn on new options).
+    expect(STRIPE.createEmbeddedCheckoutPage).toHaveBeenCalledTimes(1);
+    expect(fake.instances[0].destroy).not.toHaveBeenCalled();
+    expect(stripeFrame()).not.toBeNull();
     expect(heading()).not.toHaveFocus();
   });
 
@@ -457,28 +695,61 @@ describe("CheckoutPayment: asking again", () => {
       .mockResolvedValueOnce(OPEN_SEATED)
       .mockResolvedValue({ status: "closed", eventTitle: "Off-Kilter", eventSlug: "off-kilter", seated: true });
     render(<CheckoutPayment />);
-    await screen.findByTestId("stripe-embedded");
+    await formMounted();
     await act(async () => {
       window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
     });
     const h1 = await screen.findByRole("heading", { level: 1, name: "This checkout has closed" });
     expect(h1).toHaveFocus();
-    expect(screen.queryByTestId("stripe-provider")).toBeNull();
+    expect(stripeFrame()).toBeNull();
+    expect(fake.instances[0].destroy).toHaveBeenCalledTimes(1);
   });
 
-  it("once the checkout's time is up, asks again", async () => {
+  it("once the checkout's time is up, asks again (a second after it)", async () => {
+    vi.useFakeTimers();
     getOrderPayment
-      .mockResolvedValueOnce({ ...OPEN_GA, expiresAt: new Date(Date.now() - 1000).toISOString() })
+      .mockResolvedValueOnce({ ...OPEN_GA, expiresAt: new Date(Date.now() + 60_000).toISOString() })
       .mockResolvedValue({ status: "closed", eventTitle: "Neon Static", eventSlug: "neon-static", seated: false });
     render(<CheckoutPayment />);
-    expect(await screen.findByRole("heading", { level: 1, name: "This checkout has closed" }, { timeout: 3000 })).toHaveFocus();
+    await advance(0);
+    expect(getOrderPayment).toHaveBeenCalledTimes(1);
+    await advance(60_999);
+    expect(getOrderPayment).toHaveBeenCalledTimes(1);
+    await advance(1);
     expect(getOrderPayment).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("heading", { level: 1, name: "This checkout has closed" })).toHaveFocus();
+  });
+
+  it("still open past its time (this clock is ahead): asks again after every open answer, 5 s apart at least", async () => {
+    vi.useFakeTimers();
+    const expired = { ...OPEN_GA, expiresAt: new Date(Date.now() - 1000).toISOString() };
+    getOrderPayment
+      .mockResolvedValueOnce(expired)
+      .mockResolvedValueOnce(expired)
+      .mockResolvedValue({ status: "closed", eventTitle: "Neon Static", eventSlug: "neon-static", seated: false });
+    render(<CheckoutPayment />);
+    await advance(0);
+    expect(getOrderPayment).toHaveBeenCalledTimes(1);
+    // Not straight away (no tight loop): 5 s on.
+    await advance(4_999);
+    expect(getOrderPayment).toHaveBeenCalledTimes(1);
+    await advance(1);
+    expect(getOrderPayment).toHaveBeenCalledTimes(2);
+    // The second answer is open with the same expiry: the timer is armed again.
+    expect(stripeFrame()).not.toBeNull();
+    await advance(4_999);
+    expect(getOrderPayment).toHaveBeenCalledTimes(2);
+    await advance(1);
+    expect(getOrderPayment).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole("heading", { level: 1, name: "This checkout has closed" })).toHaveFocus();
+    // The form was created once, through both open answers.
+    expect(STRIPE.createEmbeddedCheckoutPage).toHaveBeenCalledTimes(1);
   });
 
   it("asks only by GET, whatever happens", async () => {
     getOrderPayment.mockResolvedValueOnce(OPEN_SEATED).mockResolvedValue({ status: "processing", delayed: true });
     render(<CheckoutPayment />);
-    await screen.findByTestId("stripe-embedded");
+    await formMounted();
     await act(async () => {
       window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
     });

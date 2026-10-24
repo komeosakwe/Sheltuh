@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import nextConfig from "../next.config";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import nextConfig, { assertStripePublishableKey } from "../next.config";
 
 async function headersFor(source: string) {
   const rules = await nextConfig.headers?.();
@@ -70,5 +70,55 @@ describe("next.config headers", () => {
       "/search",
       "/vendor/zxing-wasm/:path*",
     ]);
+  });
+});
+
+describe("next.config: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY guard", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("accepts it unset or blank (demo mode, CI), and any pk_test_ or pk_live_ key, e2e's placeholder included", () => {
+    for (const value of [undefined, "", "   ", "pk_test_e2e_placeholder", "pk_live_51AbCdEf", " pk_test_51AbCdEf\n"]) {
+      expect(() => assertStripePublishableKey(value)).not.toThrow();
+    }
+  });
+
+  it("refuses anything else, naming the variable and never the value", () => {
+    const bad = [
+      "sk_live_51SecretValue",
+      "sk_test_51SecretValue",
+      "rk_live_51SecretValue",
+      "whsec_51SecretValue",
+      "pk_51SecretValue",
+      "PK_TEST_51SecretValue",
+      "pk_prod_51SecretValue",
+      "51SecretValue",
+    ];
+    for (const value of bad) {
+      let message = "";
+      try {
+        assertStripePublishableKey(value);
+      } catch (err) {
+        message = err instanceof Error ? err.message : String(err);
+      }
+      expect(message).toMatch(/^NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY must be a Stripe publishable key/);
+      expect(message).not.toContain("51SecretValue");
+    }
+  });
+
+  it("runs when the config is loaded: a bad key fails the load (so `next build`), a good or missing one doesn't", async () => {
+    vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "sk_live_51SecretValue");
+    vi.resetModules();
+    await expect(import("../next.config")).rejects.toThrow(/NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY must be/);
+
+    vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "pk_test_e2e_placeholder");
+    vi.resetModules();
+    expect((await import("../next.config")).default.headers).toBeTypeOf("function");
+
+    vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", undefined);
+    vi.resetModules();
+    expect((await import("../next.config")).default.headers).toBeTypeOf("function");
   });
 });

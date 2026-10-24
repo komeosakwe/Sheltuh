@@ -87,7 +87,7 @@ iframe served by Stripe), with the publishable key
 | `event_view_counts` | `(event_id, day, source, coalesce(link_code, ''))` (unique index) | Aggregate page-view counters, one row per event, Melbourne day, source bucket and tracking code: no visitor data of any kind. `link_code` is a plain copy of the code (no foreign key), so a deleted link's counts are kept. Deleted with the event, and by `purge_analytics` after 25 months. |
 | `event_outbound_clicks` | `(event_id, day)` | Clicks on an external event's ticket link, one row per event and Melbourne day: `clicks` (≥ 0) and `cap_reached` (the per-minute click cap was reached that day, so `clicks` is a lower bound). No visitor data of any kind. Deleted with the event, and by `purge_analytics` after 25 months. |
 | `private.event_rate_limits` | `(event_id, bucket)` | Fixed-window counters keyed on an event, never a person (`take_event_rate_limit`): caps the views (bucket `views`) and ticket-link clicks (`outbound`) counted per event per minute. Deleted with the event; idle rows purged daily. |
-| `private.client_rate_limits` | `(client_key, bucket)` | Fixed-window counters keyed on a client (`take_client_rate_limit`): the per-client seat-hold limit (buckets `seat_holds:<event id>` and `seat_holds`, see "Reserved seating"). `client_key` is the API's keyed SHA-256 (HMAC) of the client's IP address (an IPv6 address's /64), salted with a value derived from `STRIPE_WEBHOOK_SECRET` (`lib/server/client-key.ts`); the raw address is never stored or sent to the database (check constraint: 64 hex characters). Idle rows purged daily (`purge_operational_data`). |
+| `private.client_rate_limits` | `(client_key, bucket)` | Fixed-window counters keyed on a client (`take_client_rate_limit`): the per-client seat-hold limit (buckets `seat_holds:<event id>` and `seat_holds`, see "Reserved seating"), paid general admission checkouts (`paid_checkouts`) and payment page reads (`order_payment`; see "Payment flow"). One bucket, `order_payment:order`, is keyed on an order instead: its `client_key` is the keyed SHA-256 of the order id (salt labelled `sheltuh/order-key/v1`), never the id. `client_key` is the API's keyed SHA-256 (HMAC) of the client's IP address (an IPv6 address's /64), salted with a value derived from `STRIPE_WEBHOOK_SECRET` (`lib/server/client-key.ts`); the raw address is never stored or sent to the database (check constraint: 64 hex characters). Idle rows purged daily (`purge_operational_data`). |
 | `private.event_view_cap_days` | `(event_id, day)` | A marker that the event's view cap was reached on that Melbourne day, so reports can flag the day's views as a lower bound. No visitor data. Deleted with the event, and by `purge_analytics` after 25 months. |
 | `private.event_curation` | `event_id` | An admin's trending curation (see "Trending"): `boost` (0.5 to 2, default 1, check constraint) and `excluded`, with who changed it last and when (null until changed). Written only by `set_event_curation`. Deleted with the event. |
 | `private.trending_snapshot` | `rank` | The ranked trending list (at most 24): rank, event (unique), score and when it was computed. Rebuilt as a whole by `refresh_trending`; holds no counts. Deleted with the event. |
@@ -162,7 +162,7 @@ times, which are converted to instants honouring daylight saving
 | `write_seat_map`, `clear_seat_map` | Internal: store a layout (the seats derived from it in SQL, so the two can't disagree; at most 5 tiers, `event_seat_maps_max_tiers`; then every tier's `seated` and capacity recomputed) or remove it. An identical layout is `unchanged` (version kept). Either refuses (check_violation, `event_seat_maps_no_orders`, the API's 409) when the event has any order, whatever the caller checked: defence in depth, so no caller can rewrite seats a pending order holds or a paid one has sold. |
 | `hold_seats` | A paid seated checkout's pending order and its holds, all or nothing (see "Reserved seating"): the seat lock; a used-up hold window refused with a plain read (`rate_limited`, nothing written); then the order, the event (published, Sheltüh-ticketed), the map version, every seat free (else `seats_unavailable` with the ids), lines matching the seats' tiers, and the held-seat cap; only then, with every refusal decided, one hit on the event's hold counter (`take_event_rate_limit`, bucket `seat_holds`, its row locked last) and the holds. A refusal writes nothing at all, so refused attempts (the cap above all) never use up the allowance (`20261102000000_seating_hardening.sql`). Returns `held` (with `hold_expires_at`), `rate_limited`, `not_on_sale`, `version`, `seats_unavailable`, `tier_mismatch` or `hold_cap`. |
 | `release_seat_holds` | A pending order marked `failed` and its holds cleared, under the seat lock; anything not pending is returned unchanged (its status). |
-| `take_client_rate_limit`, `take_seat_hold_attempt` | `take_rate_limit`'s fixed-window counter keyed on a client key. `take_seat_hold_attempt` takes one hit on the client's `seat_holds:<event id>` bucket, then one on its `seat_holds` (all events) bucket, in that order (nothing else writes them), and returns `ok`, `event` or `all`; a refusal keeps neither hit (`20261103000000_seat_hold_client_limits.sql`). |
+| `take_client_rate_limit`, `take_seat_hold_attempt` | `take_rate_limit`'s fixed-window counter keyed on a client key (or, for `order_payment:order`, an order key). `take_seat_hold_attempt` takes one hit on the client's `seat_holds:<event id>` bucket, then one on its `seat_holds` (all events) bucket, in that order (nothing else writes them), and returns `ok`, `event` or `all`; a refusal keeps neither hit (`20261103000000_seat_hold_client_limits.sql`). |
 | `place_free_seated_order`, `request_free_seated_order` | `place_free_order` / `request_free_order` for a seated free order (the seat lock first; the order records its seats). A guest's order holds nothing until confirmed. `seats_unavailable` when a member's seat is gone. |
 | `fulfil_order` | Queues the ticket email in the same step (see "Payment flow"). Takes inventory for every line item, issues the tickets and marks the order paid. If any ticket type has sold out, or the event is no longer published, it takes nothing and marks the order `oversold_refund_required`. Rows are locked in a fixed order, so concurrent orders can't deadlock. It's idempotent, so Stripe's webhook redeliveries are harmless. A seated order takes the event's seat lock first, needs every seat (free, its own hold, or an expired hold) and lines that match its seats exactly (no order buys a seated tier without seats), and gives each ticket one of its tier's seats; otherwise the oversold path, which also clears its holds. |
 
@@ -196,6 +196,17 @@ times, which are converted to instants honouring daylight saving
      key's value. Free tickets don't need it. The key is inlined at build
      time (`Deps.stripePublishableKey`, a literal `process.env` reference), so
      the server checks the same value the browser's bundle was built with.
+   - Then (general admission; seated has its own per-client hold limit) one
+     hit on the client's paid checkout allowance
+     (`CHECKOUT_RATE_LIMITS.paidCheckout`: 10 a minute per client, bucket
+     `paid_checkouts`, keyed and failing open as the seat-hold limit: see
+     "Reserved seating"). Over it: 429 `code: "client_rate_limited"`, nothing
+     written and Stripe not called. Only checkouts that would make an order
+     count (the 404/409/400/503 refusals come first); free orders have their
+     own limits. A buyer starts one, or a few after going Back: 10 leaves
+     room for several buyers on one address (venue wifi, a phone network's
+     shared address) and bounds the pending orders and Stripe sessions one
+     client can make.
    - The order is inserted as `pending` *before* Stripe is called, so a
      payment can never arrive without an order to attach it to.
    - A Checkout Session is created as a destination charge to the
@@ -206,8 +217,12 @@ times, which are converted to instants honouring daylight saving
      return page needs), and no `success_url` or `cancel_url` (that mode
      has neither; Back is our own link). Line items, fees, transfer,
      metadata, `customer_email` and `client_reference_id` are what the hosted
-     session had. General admission keeps Stripe's default expiry (24
-     hours); seated sessions set `expires_at` (see "Reserved seating").
+     session had. General admission sessions expire after an hour
+     (`expires_at`, `GA_CHECKOUT_SESSION_MINUTES`; Stripe's default is 24
+     hours and its minimum 30 minutes), which bounds how long the client
+     secret is any use and how long a form already on screen stays payable
+     after the page says `closed`; seated sessions after 31 minutes (see
+     "Reserved seating").
    - If Stripe errors, or returns no `client_secret` (nobody could mount the
      form, so nobody could pay), the general admission order is marked
      `failed` (a seated one releases its holds) and the checkout is a 500.
@@ -228,13 +243,21 @@ times, which are converted to instants honouring daylight saving
      stored in the browser. The order id is the only credential, as for the
      other `/orders/by-session` routes. Every answer is `private, no-store`
      (`OrderPaymentLookup`, `lib/api/types.ts`):
-     - an id that isn't shaped like one: 404 without a query; unknown, or a
-       guest's free booking (not a card checkout): 404;
+     - an id that isn't shaped like one: 404 without a query;
+     - then one hit on the client's allowance (`paymentPerClient`: 30 reads
+       a minute per client, bucket `order_payment`, unknown ids included, so
+       it also bounds trying ids); over it, 429 before the order is read;
+     - unknown, or a guest's free booking (not a card checkout): 404;
      - `done`: the order is `paid`, `refunded` or `oversold_refund_required`
        (Stripe isn't asked);
      - `closed`: the order is `failed`;
      - 409 while the order has no Stripe session yet (as the cancel route);
-     - otherwise Stripe's session is retrieved. `complete` → `processing`
+     - otherwise one hit on the order's allowance (`paymentPerOrder`: 20 a
+       minute per order however many clients ask, bucket
+       `order_payment:order`, keyed on an HMAC of the order id; 429 over it,
+       Stripe not asked), then Stripe's session is retrieved. Only these
+       answers call Stripe, so only they count per order. `complete` →
+       `processing`
        (`delayed: true` while the payment hasn't cleared, for a payment
        method that takes time). `expired`, or past its `expires_at` →
        `closed`. `open` → `closed` if the event can no longer be booked: not
@@ -247,12 +270,23 @@ times, which are converted to instants honouring daylight saving
        the session's `clientSecret`, its `expiresAt`, and a summary priced on
        the server: event title and slug, date, venue name and suburb, each
        line's all-inclusive unit and line totals (`calculateOrderSummary`,
-       `lib/fees.ts`) with its seats, and the order's subtotal, buyer fee and
-       total. Never the order, event or organiser ids, the fee split, the
+       `lib/fees.ts`), whether that line includes a fee the buyer pays
+       (`buyerPaysFee`: its ticket type is buyer-pays and paid; per line, so
+       an order mixing fee policies says "incl. fee" only where it applies)
+       and its seats, and the order's subtotal, buyer fee and total. Never the order, event or organiser ids, the fee split, the
        buyer's email or any other Stripe id.
      - `closed` and `sold_out` carry `eventTitle`, `eventSlug` (when the
        event still has one) and `seated`, for the way back.
-   - It writes nothing, and logs nothing about the order or the secret. An
+   - The limits are `CHECKOUT_RATE_LIMITS` (`lib/server/handlers/orders.ts`):
+     fixed windows on `take_client_rate_limit`, no migration (new bucket
+     names). The page reads this on load, on Back-Forward and at expiry, and
+     the return page once, so 30 a minute covers several buyers on one
+     address; the per-order 20 caps Stripe retrieves for one order from any
+     number of addresses. The per-client limit fails open (logged, no
+     request detail) without a client IP; both fail open without
+     `STRIPE_WEBHOOK_SECRET`. A 429 is `{error}`, `private, no-store`.
+   - It writes nothing but those counters, and logs nothing about the order
+     or the secret. An
      `open` session without a client secret (a hosted session from before
      embedded checkout) is a 500, logged without the order or session id.
    - `closed` and `sold_out` only change what the page shows. Stripe's
@@ -412,20 +446,39 @@ times, which are converted to instants honouring daylight saving
   v4.0.1 ask the merchant to confirm its site isn't susceptible to attacks
   from scripts that could affect the e-commerce system; check the current
   SAQ and Stripe's guidance before going live. **Follow-up: a strict
-  Content Security Policy (nonces) on `/checkout/pay`.** There's none
-  today, and any later site-wide CSP has to allow Stripe's hosts (Stripe
-  publishes the list; it wasn't verified here).
+  Content Security Policy (nonces) on `/checkout/pay`.** It's being added
+  as `Content-Security-Policy-Report-Only` on `/checkout/pay` first (the
+  frontend's change), to be enforced once its reports are clean; any later
+  site-wide CSP has to allow Stripe's hosts (Stripe publishes the list; it
+  wasn't verified here).
 - **The client secret goes to whoever has the order id.** The same model as
-  the other `/orders/by-session` routes: 128 random bits, sent only to the
-  client that made the order (and in Stripe's `return_url`), never a
-  `Referer` (`no-referrer`), never cached (`no-store`). With the secret,
-  someone can mount the form and pay for that order; they can't change its
-  amount or read anything else.
-- **No rate limit on `GET …/payment`.** Each call that reaches Stripe is
-  one session retrieve (as the cancel route); a flood could use up the
-  account's Stripe API rate limit. Add a per-client limit if it's abused.
+  the other `/orders/by-session` routes: the id is `ord_` + 32 hex, a
+  UUIDv4, so 122 random bits (6 of its 128 are fixed by the format), sent
+  only to the client that made the order (and in Stripe's `return_url`),
+  never a `Referer` (`no-referrer`), never cached (`no-store`). With the
+  secret, someone can mount the form and pay for that order; they can't
+  change its amount. They can read what the form shows, until the session
+  expires (an hour for general admission, 31 minutes seated): the order's
+  line items and total (what our summary shows anyway) and, when the buyer
+  typed one at checkout, the prefilled email address (`customer_email`).
+  That is personal information, so the id stays a credential: never logged
+  in full (short references only), and the expiry is kept short.
+- **Order ids in request logs.** The id is in the path of
+  `/api/orders/by-session/{orderId}/…` and in the query of
+  `/checkout/pay?order=` and `/checkout/success?session_id=`, so Vercel's
+  request logs hold it (see `docs/REMEDIATION_PLAN.md`). Before adding a
+  log drain or sharing logs, redact `ord_[0-9a-f]{32}` in them (replace
+  with the short reference, or `ord_[redacted]`).
+- **`GET …/payment` and paid checkout are rate-limited per client and per
+  order, not globally.** A client with many addresses (a botnet, rotating
+  IPv6 /64s) gets 30 payment reads and 10 paid GA checkouts a minute per
+  address; the per-order limit still caps Stripe retrieves at 20 a minute
+  per order, and trying ids is futile at 122 bits. A shared address with
+  many real buyers (a phone network's CGNAT during a big on-sale) could
+  meet a 429; the page then says to wait a minute. Raise
+  `CHECKOUT_RATE_LIMITS` if it bites.
 - **`closed` for an event that can't be booked isn't binding.** The
-  session stays payable until Stripe expires it (24 hours for general
+  session stays payable until Stripe expires it (an hour for general
   admission, 31 minutes seated) for a form already on screen. Such a
   payment is refunded automatically if the event is unpublished, and
   fulfilled if the event has only ended (`fulfil_order` is unchanged).
@@ -1995,7 +2048,7 @@ unchanged.
   releases the seats), and the hold lapses at 35 minutes anyway. That adds
   no exposure: the id goes only to the client that made the order, which
   already has it in the payment page's URL and Stripe's `return_url`, and
-  the cancel route's model is unchanged: the id (`ord_` + 32 hex, 128 random bits) is the credential
+  the cancel route's model is unchanged: the id (`ord_` + 32 hex, a UUIDv4: 122 random bits) is the credential
   (anything else shaped differently is a 404 without a query), a paid order
   is never changed (`paid`), Stripe already holding the payment is
   `processing`, a guest's free booking is a 404, and the Stripe session is
@@ -2089,7 +2142,7 @@ application is approved.
 | `POST /events/{eventId}/waitlist` `{email?}` · `DELETE /events/{eventId}/waitlist` | POST: public (a member's token is read, optionally). 201/200 `{status: "joined", maskedEmail, alreadyJoined}` for a member's own verified email; 202 `{status: "confirmation_sent", expiresInHours}` for anyone else, whatever the address's history; 400 email; 404 not published; 409 external, ended or not sold out; 503 busy (the platform caps; the link is emailed after the response, so a failed send isn't reported). DELETE: signed in, leaves (204, idempotent) |
 | `GET /events/{eventId}/waitlist/status` | signed in: `{joined, maskedEmail?}`; 404 not published |
 | `POST /waitlist/confirm` `{token}` · `POST /waitlist/leave` `{token}` | public (the emailed token is the credential). Confirm: 200 `{status: "joined", eventTitle, eventSlug, ticketsAvailable}` (also when already on the list); 400; 404; 410 expired or used; 409 closed. Leave: 200 `{status: "left", eventTitle?}` (the title only while the event is published; idempotent); 400; 404 |
-| `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). 409 for an external event, before anything else is read; 409 for a paid order from a platform-managed organiser. 201 `{url}` (a paid order: `{url, orderId}`, `private, no-store`, `url` being the payment page `/checkout/pay?order={orderId}`; see "Payment flow" and "Reserved seating", "Back from the payment page"); 202 free order waiting on its emailed link; 400 (incl. over 4 free tickets in any order, paid or free); 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance; 503 free bookings busy (the guest's link is emailed after the response), or card payments not configured (a paid order, before anything is written: the publishable key is missing or isn't the secret key's mode). 409 for too many of a ticket type names the number left only when it's 10 or fewer |
+| `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). 409 for an external event, before anything else is read; 409 for a paid order from a platform-managed organiser. 201 `{url}` (a paid order: `{url, orderId}`, `private, no-store`, `url` being the payment page `/checkout/pay?order={orderId}`; see "Payment flow" and "Reserved seating", "Back from the payment page"); 202 free order waiting on its emailed link; 400 (incl. over 4 free tickets in any order, paid or free); 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance, or this client's paid checkouts used up (10 a minute; `code: "client_rate_limited"`, nothing written); 503 free bookings busy (the guest's link is emailed after the response), or card payments not configured (a paid order, before anything is written: the publishable key is missing or isn't the secret key's mode). 409 for too many of a ticket type names the number left only when it's 10 or fewer |
 | `POST /events/{eventId}/checkout` with `seats: {mapVersion, seatIds}` | public: a seated checkout (see "Reserved seating"). Paid: 201 `{url, holdExpiresAt, orderId}` (private, no-store; `url` as above), or 503 when card payments aren't configured (before any hold or hold attempt). Free: as above (201 member, 202 guest). 400 (bad seats, over 10, a seated tier in `lineItems`, no map); 404; 409 `seats` taken (body `code`, `seatIds`) or `seatMapVersion` changed; 429 too many seats held or hold attempts for the event, or this client's hold attempts used up (`code: "client_rate_limited"`; body `seatIds`) |
 | `GET /events/{eventId}/seat-map?v=` | public once published (`public, max-age=31536000, immutable`, only at the current `v`; any other `v` or none is a `307` to `?v={current}`, `no-store`, no body); before that the owning organiser or an admin (bearer), private. `SeatMapRecord`. 404 no map or not visible |
 | `GET /events/{eventId}/seat-availability` | as above: `SeatAvailability` (the bitmap), `public, max-age=0, s-maxage=5` once published |
@@ -2098,7 +2151,7 @@ application is approved.
 | `POST /orders/by-session/{orderId}/cancel` | public (the order id is the credential; only the client that made the order gets it: the checkout's 201, the payment page's URL and Stripe's `return_url`, or a pre-embedded hosted session's cancel URL): expires the Stripe session, then cancels the order and releases its seats; a paid order is never changed. 200 `{status: "released" \| "paid" \| "processing", eventTitle, eventSlug?}`; 404; 409 still being set up |
 | `POST /orders/confirm` `{token}` | public (the emailed token is the credential). 200 `{url}` (also when already confirmed, within 24 hours); 400 malformed; 404 unknown; 410 expired (confirmed or not); 409 sold out, allowance used, or a ticket type no longer free |
 | `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store` |
-| `GET /orders/by-session/{orderId}/payment` | public (id is the credential), read-only. `OrderPaymentLookup` (see "Payment flow", step 2), `private, no-store`: `{status: "open", clientSecret, expiresAt, …summary}`, `{status: "processing", delayed}`, `{status: "done"}`, or `{status: "closed" \| "sold_out", eventTitle, eventSlug?, seated}` (`closed` also when the event is no longer published or has ended while the session is open); 404 malformed (no query), unknown or a guest's free booking; 409 still being set up; 500 an open session without a client secret |
+| `GET /orders/by-session/{orderId}/payment` | public (id is the credential), read-only. `OrderPaymentLookup` (see "Payment flow", step 2), `private, no-store`: `{status: "open", clientSecret, expiresAt, …summary}`, `{status: "processing", delayed}`, `{status: "done"}`, or `{status: "closed" \| "sold_out", eventTitle, eventSlug?, seated}` (`closed` also when the event is no longer published or has ended while the session is open); 404 malformed (no query), unknown or a guest's free booking; 409 still being set up; 429 over 30 reads a minute from this client, or 20 Stripe reads a minute for this order; 500 an open session without a client secret |
 | `GET /cron/email-outbox` | Vercel Cron (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due ticket emails, returns counts |
 | `GET /cron/trending` | Vercel Cron (same secret, 401 otherwise): rebuilds the trending snapshot, returns `{eligible, ranked}` |
 | `GET /events/trending` | public: `{items: [{event, label, goingCount?}]}` (see "Trending"), at most 24, best first; `items: []` with fewer than 3. `cache-control: public, max-age=0, s-maxage=300, stale-while-revalidate=600` |

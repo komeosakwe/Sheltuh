@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import SeatLine from "@/components/seating/SeatLine";
-import type { OrderPaymentSummary as Summary } from "@/lib/api/types";
+import type { OrderPaymentLine, OrderPaymentSummary as Summary } from "@/lib/api/types";
 import { formatAud, formatEventDateTimeRange } from "@/lib/format";
 import { ChevronDownIcon } from "./icons";
 
@@ -21,8 +21,6 @@ export default function OrderPaymentSummary({ summary }: { summary: Summary }) {
   // "Seats" only when every line is seats (a seated order can carry general admission tickets too).
   const allSeats = summary.seated && summary.lines.length > 0 && summary.lines.every((line) => (line.seats?.length ?? 0) > 0);
   const noun = allSeats ? (count === 1 ? "seat" : "seats") : count === 1 ? "ticket" : "tickets";
-  // "incl. fee" only where the buyer pays one (an organiser can absorb it).
-  const feeSuffix = summary.buyerFeeCents > 0 ? " incl. fee" : "";
 
   return (
     <section
@@ -33,7 +31,7 @@ export default function OrderPaymentSummary({ summary }: { summary: Summary }) {
         <h2 id="order-summary" className="font-heading text-lg leading-6 break-words text-foreground">
           {summary.eventTitle}
         </h2>
-        {when && <p className="text-sm text-muted">{when}</p>}
+        {when && <p className="text-sm text-pretty text-muted">{when}</p>}
         {where && <p className="text-sm text-muted">{where}</p>}
       </div>
 
@@ -54,20 +52,23 @@ export default function OrderPaymentSummary({ summary }: { summary: Summary }) {
           {summary.lines.map((line, index) => (
             <li
               key={`${line.ticketTypeName}-${index}`}
-              className="flex justify-between gap-4 border-t border-surface-border py-3 first:border-t-0 first:pt-0"
+              className="flex flex-col border-t border-surface-border py-3 first:border-t-0 first:pt-0"
             >
-              <div className="flex min-w-0 flex-col">
-                <p className="text-sm font-semibold break-words text-foreground">{line.ticketTypeName}</p>
-                <p className="meta text-muted tabular-nums">
-                  {line.quantity} &times; {line.unitTotalCents > 0 ? `${formatAud(line.unitTotalCents)}${feeSuffix}` : "Free"}
+              <div className="flex justify-between gap-4">
+                <div className="flex min-w-0 flex-col">
+                  <p className="text-sm font-semibold break-words text-foreground">{line.ticketTypeName}</p>
+                  <p className="meta text-muted tabular-nums">
+                    {line.quantity} &times; {unitLabel(line)}
+                  </p>
+                </div>
+                <p className="shrink-0 text-sm whitespace-nowrap tabular-nums text-foreground">
+                  {line.lineTotalCents > 0 ? formatAud(line.lineTotalCents) : "Free"}
                 </p>
-                {line.seats?.map((seat) => (
-                  <SeatLine key={`${seat.section}|${seat.row}|${seat.seat}`} seat={seat} className="meta text-muted" />
-                ))}
               </div>
-              <p className="shrink-0 text-sm whitespace-nowrap tabular-nums text-foreground">
-                {line.lineTotalCents > 0 ? formatAud(line.lineTotalCents) : "Free"}
-              </p>
+              {/* The seats use the line's full width, under the amount too. */}
+              {line.seats?.map((seat) => (
+                <SeatLine key={`${seat.section}|${seat.row}|${seat.seat}`} seat={seat} className="meta text-muted" />
+              ))}
             </li>
           ))}
         </ul>
@@ -89,4 +90,10 @@ export default function OrderPaymentSummary({ summary }: { summary: Summary }) {
       </div>
     </section>
   );
+}
+
+/** One ticket's all-inclusive price; "incl. fee" only on a line whose buyer pays one (an organiser can absorb it). */
+function unitLabel(line: OrderPaymentLine): string {
+  if (line.unitTotalCents <= 0) return "Free";
+  return line.buyerPaysFee ? `${formatAud(line.unitTotalCents)} incl. fee` : formatAud(line.unitTotalCents);
 }

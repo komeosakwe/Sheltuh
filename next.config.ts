@@ -1,5 +1,29 @@
 import type { NextConfig } from "next";
 
+/**
+ * NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is inlined into the browser bundle, so a
+ * wrong value (a secret `sk_…` or restricted `rk_…` key pasted into the wrong
+ * variable above all) would ship to every visitor. When it's set (after
+ * trimming, as lib/stripe/config.ts reads it), it must look like a
+ * publishable key, `pk_test_…` or `pk_live_…`, or loading this config throws:
+ * `next build` (and `next dev`) fail before anything is bundled. Unset is
+ * fine (demo mode, CI, a deploy without card payments). The message names the
+ * variable, never its value. Whether its mode matches STRIPE_SECRET_KEY is
+ * checked at runtime instead (lib/server/stripe-keys.ts: paid checkout is a
+ * 503 until they match), since the secret key may not be present at build.
+ */
+export function assertStripePublishableKey(value: string | undefined): void {
+  const key = value?.trim();
+  if (key && !/^pk_(test|live)_/.test(key)) {
+    throw new Error(
+      "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY must be a Stripe publishable key (pk_test_… or pk_live_…), or unset. " +
+        "It's built into the browser bundle: never put a secret (sk_…) or restricted (rk_…) key in it.",
+    );
+  }
+}
+
+assertStripePublishableKey(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
+
 const nextConfig: NextConfig = {
   // Lets the dev server's HMR websocket accept connections from 127.0.0.1
   // (not just localhost) — needed for the Playwright e2e suite, which

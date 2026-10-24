@@ -576,6 +576,12 @@ export interface OrderPaymentLine {
   unitTotalCents: number;
   /** `quantity` tickets, all-inclusive. */
   lineTotalCents: number;
+  /**
+   * Whether this line's amounts include a booking fee the buyer pays: its
+   * ticket type is buyer-pays and paid. False for a free line or one whose
+   * organiser absorbs the fee, whatever the order's other lines do.
+   */
+  buyerPaysFee: boolean;
   /** A seated tier's seats in this order, in map order; unset for general admission. */
   seats?: TicketSeat[];
 }
@@ -622,7 +628,8 @@ export interface OrderPaymentSummary {
  * - `sold_out`: the tickets (or some of the seats) went to someone else
  *   while it was open; nothing was charged.
  * ApiError 404 unknown, malformed, or not a card checkout; 409 still being
- * set up (try again in a moment).
+ * set up (try again in a moment); 429 asked too often in the last minute
+ * (by this connection, or for this order: try again in a minute).
  */
 export type OrderPaymentLookup =
   | ({ status: "open"; clientSecret: string; expiresAt: string } & OrderPaymentSummary)

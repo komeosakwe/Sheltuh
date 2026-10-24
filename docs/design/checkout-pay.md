@@ -52,7 +52,7 @@ The page shell is the same as `/checkout/success`: `mx-auto max-w-6xl px-5 sm:px
 - Summary is `col-span-5 sticky top-24`. The 96px clears the 70px header with 24px to spare.
 - Form slot and legal line are `col-span-7`. The slot is capped at `max-w-xl` (576px) so Stripe stays in its single-column layout.
 
-**Form slot:** `rounded-card border border-foreground bg-card overflow-hidden min-h-144` (576px, a documented dimension). The minimum height stops the layout jumping while Stripe mounts. It doesn't apply once the iframe has reported its height. No padding: Stripe pads its own content.
+**Form slot:** `rounded-card border border-foreground bg-card overflow-hidden min-h-144` (576px, a documented dimension). The minimum height stops the layout jumping while Stripe mounts. It doesn't apply once the iframe has a height (drawn, not merely inserted), nor in the failed state. No padding: Stripe pads its own content.
 
 ## 4. Imagery
 
@@ -84,7 +84,7 @@ Step 2 is current. The current step's `li` gets `aria-current="step"`.
 
 **h1:** `Pay for your tickets` in loading, open and Stripe-failed. Each terminal state has its own h1 (table below).
 
-**Seated hold line** (`open` and seated only), between the summary and the form: `Your seats are held until {h:mm am/pm}. Going back releases them.` It's static, not a ticking countdown (WCAG 2.2.1). When `expiresAt` passes, re-fetch; the answer will be the closed state.
+**Seated hold line** (`open` and seated only), between the summary and the form: `Your seats are held until {h:mm am/pm} Melbourne time. Going back releases them.` Melbourne time like the event's own times, and said so for a device in another zone. It's static, not a ticking countdown (WCAG 2.2.1). When `expiresAt` passes, re-fetch; the answer should be the closed state. The timer re-arms after every `open` answer, never sooner than 5 s, so a clock that runs ahead still converges.
 
 **Legal line** under the form slot (`mt-4 text-xs text-muted`):
 
@@ -96,14 +96,15 @@ Step 2 is current. The current step's `li` gets `aria-current="step"`.
 | --- | --- | --- | --- | --- |
 | Loading | Fetching `getOrderPayment` | Pay for your tickets | Summary skeleton (`bg-surface rounded-badge` blocks: 1 line 24px, 2 lines 16px, total 28px) plus `DotsLoader announce label="Loading checkout"` in the form slot | – |
 | Open | `status:"open"` | Pay for your tickets | Summary plus the form. While Stripe.js loads or the iframe mounts, the slot shows a centred `DotsLoader announce label="Loading the payment form"` | Back link |
-| Stripe.js failed | `getStripe()` rejects or resolves null | Pay for your tickets | Summary stays. In the slot (`p-5`): `Notice tone="danger" role="alert"` "The payment form didn't load. Check your connection. If you use a content blocker, allow js.stripe.com, then try again. You haven't been charged." Then a `btn-outline` (md) "Try again", which re-runs `getStripe()` | Back link |
-| Not configured | Live mode, no publishable key, or a 503 | Card payments aren't available right now | "You haven't been charged. Try again later, or email support@sheltuh.com.au." (mailto link) | Back link target. Never loads Stripe |
+| Payment form failed | `getStripe()` rejects or resolves null; `createEmbeddedCheckoutPage` rejects; or the form isn't drawn within 20 s | Pay for your tickets | Summary stays. In the slot (`p-5`, no minimum height): `Notice tone="danger" role="alert"` "The payment form didn't load. Check your connection. If you use a content blocker, allow js.stripe.com, then try again. You haven't been charged." Then a `btn-outline` (md, `min-h-11`) "Try again", which re-fetches the checkout and mounts a fresh form (any earlier Stripe instance is destroyed first) | Back link |
+| Not configured | Live mode, no publishable key | Card payments aren't available right now | "You haven't been charged. Try again later, or email support@sheltuh.com.au." (mailto link) | Back link target. Never loads Stripe |
 | Demo | `!isApiConfigured` | Checkout isn't available in this demo | "This is a local prototype. No payment information is collected and no tickets are issued." | "Browse events" → `/`. Never loads Stripe |
 | Closed | `status:"closed"` | This checkout has closed | GA: "You haven't been charged. Start again from the event page to book." Seated: "You haven't been charged, and the seats held for you have been released. Choose seats to book again." | GA "Back to the event", seated "Choose seats again" |
 | Sold out | `status:"sold_out"` | These tickets have just sold out | GA: "Someone else booked the last ones while this checkout was open. You haven't been charged." Seated: "Some of your seats were booked by someone else while this checkout was open. You haven't been charged. Choose other seats to continue." | GA "Back to the event", seated "Choose other seats" |
 | Processing / done | `status:"processing"` or `"done"` | – | `DotsLoader announce label="Taking you to your order"`, then `router.replace("/checkout/success?session_id={order}")` | – |
 | Not found | No `order` param, or a 404 | We couldn't find that checkout | "The link may be incomplete. If you were charged, your tickets are on their way to your email." | "Back to Sheltüh" link → `/` |
 | Not ready | 409 | Pay for your tickets | `Notice tone="danger" role="alert"` "This checkout is still being set up." plus `btn-outline` "Try again" | Back link |
+| Rate limited | 429 | Pay for your tickets | `Notice tone="danger" role="alert"` "Too many tries — wait a minute, then try again. You haven't been charged." plus `btn-outline` "Try again" | Back link |
 | Network error | Any other failure | Pay for your tickets | `Notice tone="danger" role="alert"` "Couldn't load checkout right now. You haven't been charged." plus `btn-outline` "Try again" | Back link |
 
 Terminal states (not configured, demo, closed, sold out, not found) drop the steps and the summary. They use the same left-aligned `flex flex-col items-start gap-3` block as `StateMessage` in `CheckoutConfirmation`, with the way out at `mt-3`.
@@ -113,7 +114,7 @@ Terminal states (not configured, demo, closed, sold out, not found) drop the ste
 Card `p-4 sm:p-5`, `flex flex-col gap-4`:
 1. `h2#order-summary` with the event title (18/24 700). Under it, 4px apart, the `formatEventDateTimeRange(startsAt, endsAt)` line, then "{venueName}, {suburb}" (14/20 muted). Leave out whichever is absent.
 2. **Lines:** a `ul`, rows `flex justify-between gap-4 py-3` with `border-t border-surface-border` (none on the first).
-   - Left: `{ticketTypeName}`, and under it in `meta`: `{quantity} × {formatAud(unitTotalCents)} incl. fee`. A free line says `{quantity} × Free`.
+   - Left: `{ticketTypeName}`, and under it in `meta`: `{quantity} × {formatAud(unitTotalCents)} incl. fee` ("incl. fee" only when that line's `buyerPaysFee`). A free line says `{quantity} × Free`.
    - Seated: under that, one `meta` line per seat label, formatted as `TicketStub` does via `lib/seating/format.ts`.
    - Right: `formatAud(lineTotalCents)`, or "Free".
 3. **Total:** `flex items-baseline justify-between gap-4 border-t border-foreground pt-3`. "Total" on the left, `formatAud(totalCents)` on the right (§2). **The total is never inside the collapsed region.**
@@ -136,7 +137,7 @@ These use the existing `StateMessage` layout. Actions are a `ButtonLink` `solid 
 
 | State | h1 | Body | Actions |
 | --- | --- | --- | --- |
-| `open` (stop polling) | Payment not completed | "You haven't been charged. Your checkout is still open, so you can try again." Seated adds: " Your seats are held until {h:mm am/pm}." | "Return to payment" → `/checkout/pay?order={id}`; link "Back to the event" (`/` and "Back to Sheltüh" if no slug) |
+| `open` (stop polling) | Payment not completed | "You haven't been charged. Your checkout is still open, so you can try again." Seated adds: " Your seats are held until {h:mm am/pm} Melbourne time." | "Return to payment" → `/checkout/pay?order={id}`; link "Back to the event" (`/` and "Back to Sheltüh" if no slug) |
 | `processing` (polling) | Keep the current `LoadingState` "Confirming your order…" and "This only takes a moment." | – | – |
 | `processing` (after `MAX_POLLS`, replacing today's error) | Your payment is processing | "Some payment methods take a little longer to clear. We'll email your tickets as soon as it does; you don't need to keep this page open. You won't be charged twice." Muted, **not** danger | Link "Back to Sheltüh" |
 | `closed` | This checkout has closed | "You haven't been charged. Start again from the event page to book." | Link "Back to the event" |
@@ -171,7 +172,7 @@ Tests to update (test-engineer): `tests/TicketSelector.test.tsx:404,423,539`. Sp
 
 **Live regions:**
 - `DotsLoader announce` speaks the loading labels.
-- When the iframe reports it's ready, a persistent `sr-only` `role="status"` says "Payment form ready".
+- When the iframe has a height (drawn, not merely inserted), a persistent `sr-only` `role="status"` says "Payment form ready".
 - Errors use `role="alert"`. Don't announce the same message twice.
 
 **Tab order:** Back link → summary toggle (phones) → Stripe iframe → Purchase Terms → Privacy Policy. Nothing is sticky over the form on phones, and the lg sticky summary never overlaps it (separate columns), so WCAG 2.4.11 is met.

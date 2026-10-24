@@ -241,7 +241,7 @@ describe("per-client hold attempts", () => {
     expect(JSON.stringify(error.mock.calls)).not.toContain(IP);
   });
 
-  it("only paid seated holds count: early refusals, general admission and free seats don't", async () => {
+  it("only paid seated holds count: early refusals, general admission (its own limit) and free seats don't", async () => {
     // Refused before the hold (a seat visibly taken, a stale map, bad input): no hit.
     await hold(["A1"], { ip: OTHER_IP });
     expect((await hold(["A1"], { ip: IP })).status).toBe(409);
@@ -257,7 +257,8 @@ describe("per-client hold attempts", () => {
     });
     expect((await hold(["A1"], { headers: { "x-forwarded-for": IP }, on: free })).status).toBe(400); // no email
     const key = clientKey(IP, WEBHOOK_SECRET);
-    expect((await counters()).filter((c) => c.client_key === key)).toEqual([]);
+    // The paid GA checkout took a hit on its own per-client limit (CHECKOUT_RATE_LIMITS.paidCheckout), not a hold attempt.
+    expect((await counters()).filter((c) => c.client_key === key)).toEqual([{ client_key: key, bucket: "paid_checkouts", hits: 1 }]);
   });
 });
 

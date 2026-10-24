@@ -69,7 +69,7 @@ function openPayment(seatCount: number) {
     eventTitle: event!.title,
     eventSlug: event!.slug,
     seated: true,
-    lines: [{ ticketTypeName: "Full price", quantity: seatCount, unitTotalCents: 3690, lineTotalCents: 3690 * seatCount, seats }],
+    lines: [{ ticketTypeName: "Full price", quantity: seatCount, unitTotalCents: 3690, lineTotalCents: 3690 * seatCount, buyerPaysFee: true, seats }],
     subtotalCents: 3500 * seatCount,
     buyerFeeCents: 190 * seatCount,
     totalCents: 3690 * seatCount,
@@ -206,7 +206,7 @@ for (const vp of [
       // The payment page: the seats, the hold, and Stripe's form (the stub) with this order's secret.
       await expect(page.getByRole("heading", { level: 1, name: "Pay for your tickets" })).toBeVisible({ timeout: 30_000 });
       await expect(page.getByRole("list", { name: "Checkout steps" })).toContainText("1 Choose seats");
-      await expect(page.getByText(/^Your seats are held until .+\. Going back releases them\.$/)).toBeVisible();
+      await expect(page.getByText(/^Your seats are held until .+ Melbourne time\. Going back releases them\.$/)).toBeVisible();
       await expect(page.locator('iframe[title="Secure payment form (e2e stub)"]')).toBeVisible({ timeout: 30_000 });
       expect((await seen.stripe.seen()).secrets).toEqual([SECRET]);
       await noSidewaysScroll(page);

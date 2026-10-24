@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CheckoutConfirmation from "@/components/CheckoutConfirmation";
-import type { CustomerOrder } from "@/lib/api/types";
+import type { CustomerOrder, OrderPaymentLookup } from "@/lib/api/types";
+import { rememberPendingCheckout } from "@/lib/seating/pending-checkout";
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams({ session_id: "cs_test_1" }),
@@ -24,6 +25,7 @@ vi.mock("@/lib/api/seating", () => ({
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  sessionStorage.clear();
   getOrderBySession.mockReset();
   getOrderPayment.mockReset();
   for (const fn of Object.values(writes)) fn.mockReset();
@@ -287,9 +289,12 @@ describe("CheckoutConfirmation: back from Stripe without a confirmed order (chec
     expect(
       screen.getByText("You haven’t been charged. Your checkout is still open, so you can try again."),
     ).toBeInTheDocument();
+    // Focused by script, not a control: no ring. Balanced, as every message's h1.
+    expect(h1).toHaveClass("focus:outline-none!", "text-balance");
     const again = screen.getByRole("link", { name: "Return to payment" });
     expect(again).toHaveAttribute("href", "/checkout/pay?order=cs_test_1");
     expect(again).toHaveClass("btn-solid", "btn-lg");
+    expect(again.parentElement).toHaveClass("mt-3");
     expect(screen.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/neon-static");
     // Never the client secret on screen.
     expect(document.body.textContent).not.toContain("cs_secret");
@@ -317,7 +322,7 @@ describe("CheckoutConfirmation: back from Stripe without a confirmed order (chec
     await renderPending(2);
     expect(
       screen.getByText(
-        "You haven’t been charged. Your checkout is still open, so you can try again. Your seats are held until 8:31 pm.",
+        "You haven’t been charged. Your checkout is still open, so you can try again. Your seats are held until 8:31 pm Melbourne time.",
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Back to Sheltüh" })).toHaveAttribute("href", "/");
@@ -388,5 +393,92 @@ describe("CheckoutConfirmation: back from Stripe without a confirmed order (chec
     });
     expect(screen.getByText("ABC123")).toBeInTheDocument();
     expect(getOrderPayment).not.toHaveBeenCalled();
+  });
+});
+
+describe("CheckoutConfirmation: the seat page's pending checkout (released on Back until the order settles)", () => {
+  const KEY = "sheltuh:pending-checkout";
+  const OPEN: OrderPaymentLookup = {
+    status: "open",
+    clientSecret: "cs_secret",
+    expiresAt: "2027-03-06T09:31:00.000Z",
+    eventTitle: "Off-Kilter",
+    eventSlug: "off-kilter",
+    seated: true,
+    lines: [],
+    subtotalCents: 3000,
+    buyerFeeCents: 170,
+    totalCents: 3170,
+  };
+
+  beforeEach(() => {
+    // The seat page stored this order as it went to pay (the page's session_id is the order id).
+    rememberPendingCheckout("cs_test_1", "off-kilter");
+  });
+
+  async function settle(polls: number) {
+    vi.useFakeTimers();
+    render(<CheckoutConfirmation />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    for (let i = 1; i < polls; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+    }
+  }
+
+  it("isn't forgotten just by arriving: while the order is still pending, it's kept", async () => {
+    getOrderBySession.mockResolvedValue({ status: "pending" });
+    getOrderPayment.mockReturnValue(new Promise(() => undefined));
+    await settle(1);
+    expect(screen.getByText("This only takes a moment.")).toBeInTheDocument();
+    expect(sessionStorage.getItem(KEY)).toContain("cs_test_1");
+  });
+
+  it.each([
+    ["payment not completed (still open)", OPEN, "Payment not completed"],
+    ["closed", { status: "closed", eventTitle: "Off-Kilter", eventSlug: "off-kilter", seated: true }, "This checkout has closed"],
+    ["sold out", { status: "sold_out", eventTitle: "Off-Kilter", eventSlug: "off-kilter", seated: true }, "These tickets have just sold out"],
+  ] as const)("%s: kept, so Back to the seat page still releases the seats", async (_name, answer, title) => {
+    getOrderBySession.mockResolvedValue({ status: "pending" });
+    getOrderPayment.mockResolvedValue(answer);
+    await settle(2);
+    expect(screen.getByRole("heading", { level: 1, name: title })).toBeInTheDocument();
+    expect(sessionStorage.getItem(KEY)).toContain("cs_test_1");
+  });
+
+  it("paid: forgotten", async () => {
+    getOrderBySession.mockResolvedValue({ ...ORDER, status: "paid" });
+    await settle(1);
+    expect(screen.getByText("ABC123")).toBeInTheDocument();
+    expect(sessionStorage.getItem(KEY)).toBeNull();
+  });
+
+  it.each([["oversold_refund_required"], ["refunded"]] as const)("%s: forgotten", async (status) => {
+    getOrderBySession.mockResolvedValue({ ...ORDER, status, tickets: [] });
+    await settle(1);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/refunded|couldn’t reserve/);
+    expect(sessionStorage.getItem(KEY)).toBeNull();
+  });
+
+  it("processing (Stripe has the payment): forgotten", async () => {
+    getOrderBySession.mockResolvedValue({ status: "pending" });
+    getOrderPayment.mockResolvedValue({ status: "processing", delayed: true });
+    await settle(11);
+    expect(sessionStorage.getItem(KEY)).toContain("cs_test_1");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(screen.getByRole("heading", { level: 1, name: "Your payment is processing" })).toBeInTheDocument();
+    expect(sessionStorage.getItem(KEY)).toBeNull();
+  });
+
+  it("an error (couldn't load the order): kept", async () => {
+    getOrderBySession.mockRejectedValue(new TypeError("Failed to fetch"));
+    await settle(1);
+    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load your order right now.");
+    expect(sessionStorage.getItem(KEY)).toContain("cs_test_1");
   });
 });

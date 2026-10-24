@@ -16,10 +16,10 @@ import {
   checkoutEndedAction,
   checkoutSoldOutBody,
   checkoutSoldOutLabel,
+  formatHoldDeadline,
   type CheckoutLinkTarget,
   type CheckoutOrderContext,
 } from "@/lib/checkout-pay";
-import { formatEventTime } from "@/lib/format";
 import { isStripeConfigured } from "@/lib/stripe/config";
 import EmbeddedPaymentForm from "./EmbeddedPaymentForm";
 import OrderPaymentSummary from "./OrderPaymentSummary";
@@ -29,22 +29,29 @@ type OpenPayment = Extract<OrderPaymentLookup, { status: "open" }>;
 
 type State =
   | { kind: "loading" }
-  | { kind: "open"; payment: OpenPayment }
+  // `checkedAt` counts the open answers, so the expiry timer re-arms after each one.
+  | { kind: "open"; payment: OpenPayment; checkedAt: number }
   | { kind: "closed"; context: CheckoutOrderContext }
   | { kind: "sold-out"; context: CheckoutOrderContext }
   | { kind: "redirecting" }
   | { kind: "not-found" }
-  | { kind: "not-configured"; context?: CheckoutOrderContext }
+  | { kind: "not-configured"; context: CheckoutOrderContext }
   | { kind: "not-ready" }
+  // 429: asked too often in the last minute (by this connection, or for this order).
+  | { kind: "rate-limited" }
   | { kind: "error" };
 
 const PAY_TITLE = "Pay for your tickets";
 const SUPPORT_EMAIL = "support@sheltuh.com.au";
 /** setTimeout's longest delay (about 24.8 days); a later expiry is re-checked then. */
 const MAX_TIMER_MS = 2_147_483_647;
+/** Never asks again sooner than this: an answer that's still open past its expiry is re-checked at this pace. */
+const RECHECK_FLOOR_MS = 5_000;
 
 const linkClass = "text-foreground underline underline-offset-4";
-const headingClass = "display-md outline-offset-2";
+// Focused by script to say the state changed (tabIndex -1); it's not a control, so no focus ring.
+// Important (`!`): the global :focus-visible ring in globals.css is unlayered, so it beats any utility otherwise.
+const headingClass = "display-md outline-offset-2 focus:outline-none!";
 
 /**
  * /checkout/pay?order={orderId} (docs/design/checkout-pay.md): the order's
@@ -78,7 +85,10 @@ function PaymentFlow({ orderId }: { orderId: string }) {
   const [context, setContext] = useState<CheckoutOrderContext | undefined>(undefined);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const request = useRef(0);
+  const openAnswers = useRef(0);
   const settledOnce = useRef(false);
+  // Bumped by the payment form's "Try again", so a fresh form (and Stripe instance) is mounted.
+  const [formKey, setFormKey] = useState(0);
 
   const load = useCallback(
     async (showLoading: boolean) => {
@@ -95,7 +105,11 @@ function PaymentFlow({ orderId }: { orderId: string }) {
         const next: CheckoutOrderContext = { eventSlug: result.eventSlug, seated: result.seated };
         setContext(next);
         if (result.status === "open") {
-          setState(isStripeConfigured ? { kind: "open", payment: result } : { kind: "not-configured", context: next });
+          setState(
+            isStripeConfigured
+              ? { kind: "open", payment: result, checkedAt: ++openAnswers.current }
+              : { kind: "not-configured", context: next },
+          );
         } else {
           setState({ kind: result.status === "closed" ? "closed" : "sold-out", context: next });
         }
@@ -103,7 +117,7 @@ function PaymentFlow({ orderId }: { orderId: string }) {
         if (id !== request.current) return;
         if (err instanceof ApiError && err.status === 404) setState({ kind: "not-found" });
         else if (err instanceof ApiError && err.status === 409) setState({ kind: "not-ready" });
-        else if (err instanceof ApiError && err.status === 503) setState({ kind: "not-configured" });
+        else if (err instanceof ApiError && err.status === 429) setState({ kind: "rate-limited" });
         else setState({ kind: "error" });
       }
     },
@@ -128,15 +142,20 @@ function PaymentFlow({ orderId }: { orderId: string }) {
     };
   }, [load]);
 
-  // Once the checkout's time is up, ask again: the answer will be that it has closed. No countdown
-  // on screen (WCAG 2.2.1).
+  // Once the checkout's time is up, ask again: the answer should be that it has closed. Re-armed after
+  // every open answer, so one that's still open (a clock ahead of the server's) is asked again, never
+  // sooner than RECHECK_FLOOR_MS. No countdown on screen (WCAG 2.2.1).
   const expiresAt = state.kind === "open" ? state.payment.expiresAt : null;
+  const checkedAt = state.kind === "open" ? state.checkedAt : 0;
   useEffect(() => {
     if (!expiresAt) return;
-    const delay = Math.min(Math.max(Date.parse(expiresAt) - Date.now() + 1000, 0), MAX_TIMER_MS);
+    const untilExpiry = Date.parse(expiresAt) - Date.now() + 1000;
+    const delay = Number.isFinite(untilExpiry)
+      ? Math.min(Math.max(untilExpiry, RECHECK_FLOOR_MS), MAX_TIMER_MS)
+      : RECHECK_FLOOR_MS;
     const timer = window.setTimeout(() => void load(false), delay);
     return () => window.clearTimeout(timer);
-  }, [expiresAt, load]);
+  }, [expiresAt, checkedAt, load]);
 
   // Focus follows a change of state, but not the first answer: on arrival, Next's route announcer has it (§6).
   useEffect(() => {
@@ -148,6 +167,10 @@ function PaymentFlow({ orderId }: { orderId: string }) {
   const focusHeading = useCallback(() => headingRef.current?.focus(), []);
   const back = checkoutBackTarget(state.kind === "open" ? state.payment : context);
   const retry = () => void load(true);
+  const retryForm = useCallback(() => {
+    setFormKey((key) => key + 1);
+    void load(true);
+  }, [load]);
 
   switch (state.kind) {
     case "loading":
@@ -161,7 +184,7 @@ function PaymentFlow({ orderId }: { orderId: string }) {
     case "not-found":
       return <NotFound headingRef={headingRef} />;
     case "not-configured": {
-      const target = checkoutBackTarget(state.context ?? context);
+      const target = checkoutBackTarget(state.context);
       return (
         <Terminal headingRef={headingRef} title="Card payments aren’t available right now" action={target}>
           You haven&rsquo;t been charged. Try again later, or email{" "}
@@ -194,6 +217,7 @@ function PaymentFlow({ orderId }: { orderId: string }) {
       );
     }
     case "not-ready":
+    case "rate-limited":
     case "error":
       return (
         <div className="pt-6 pb-16 sm:pt-8 lg:pt-12">
@@ -202,9 +226,11 @@ function PaymentFlow({ orderId }: { orderId: string }) {
             <Notice tone="danger" role="alert">
               {state.kind === "not-ready"
                 ? "This checkout is still being set up."
-                : "Couldn’t load checkout right now. You haven’t been charged."}
+                : state.kind === "rate-limited"
+                  ? "Too many tries — wait a minute, then try again. You haven’t been charged."
+                  : "Couldn’t load checkout right now. You haven’t been charged."}
             </Notice>
-            <Button variant="outline" onClick={retry}>
+            <Button variant="outline" className="min-h-11" onClick={retry}>
               Try again
             </Button>
           </div>
@@ -219,13 +245,18 @@ function PaymentFlow({ orderId }: { orderId: string }) {
           hold={
             payment.seated ? (
               <p className="text-xs text-muted">
-                Your seats are held until {formatEventTime(payment.expiresAt)}. Going back releases them.
+                Your seats are held until {formatHoldDeadline(payment.expiresAt)}. Going back releases them.
               </p>
             ) : null
           }
           form={
             <>
-              <EmbeddedPaymentForm orderId={orderId} clientSecret={payment.clientSecret} onSettled={focusHeading} />
+              <EmbeddedPaymentForm
+                key={formKey}
+                clientSecret={payment.clientSecret}
+                onSettled={focusHeading}
+                onRetry={retryForm}
+              />
               <LegalLine />
             </>
           }
@@ -275,14 +306,18 @@ function PayHeader({
       {seated === undefined ? (
         <div aria-hidden="true" className="h-4" />
       ) : (
-        <ol aria-label="Checkout steps" className="eyebrow flex flex-wrap gap-x-3 gap-y-1">
+        <ol aria-label="Checkout steps" className="eyebrow flex flex-wrap gap-x-2 gap-y-1">
           {steps.map((step, i) => (
             <li
               key={step}
               aria-current={i === 1 ? "step" : undefined}
-              className={`flex gap-x-3 ${i === 1 ? "text-foreground" : "text-muted"}`}
+              className={`flex gap-x-2 ${i === 1 ? "text-foreground" : "text-muted"}`}
             >
-              {i > 0 && <span aria-hidden="true">&rarr;</span>}
+              {i > 0 && (
+                <span aria-hidden="true" className="text-muted">
+                  &rarr;
+                </span>
+              )}
               <span>
                 {i + 1} {step}
               </span>
@@ -301,11 +336,11 @@ function LegalLine() {
   return (
     <p className="mt-4 text-xs text-muted lg:max-w-xl">
       By paying you agree to the{" "}
-      <Link href="/purchase-terms" className={`${linkClass} py-1`}>
+      <Link href="/purchase-terms" className={`${linkClass} py-1 whitespace-nowrap`}>
         Purchase Terms
       </Link>
       . See our{" "}
-      <Link href="/privacy" className={`${linkClass} py-1`}>
+      <Link href="/privacy" className={`${linkClass} py-1 whitespace-nowrap`}>
         Privacy Policy
       </Link>
       . Card details go straight to Stripe, our payment provider, and never reach Sheltüh.
@@ -363,7 +398,7 @@ function Terminal({
   return (
     <div className="pt-6 pb-16 sm:pt-8 lg:pt-12">
       <div className="flex max-w-2xl flex-col items-start gap-3">
-        <h1 ref={headingRef} tabIndex={-1} className={headingClass}>
+        <h1 ref={headingRef} tabIndex={-1} className={`${headingClass} text-balance`}>
           {title}
         </h1>
         <p className="max-w-md text-sm text-muted">{children}</p>

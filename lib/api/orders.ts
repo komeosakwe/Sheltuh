@@ -28,10 +28,12 @@ export interface CheckoutLineItemInput {
  *
  * ApiError: 400 (fieldErrors `buyerEmail` / `lineItems`, e.g. over 4 free
  * tickets in any order, paid or free), 404 event not on sale, 409 sold out or this email already has its
- * free tickets for the event, 429 too many free bookings today (members),
- * 503 free bookings busy (the link is emailed after the answer, so a failed
- * send isn't reported here), or card payments aren't available (paid orders;
- * nothing was created).
+ * free tickets for the event, 429 too many free bookings today (members)
+ * or too many paid checkouts from this connection in the last minute (body
+ * `code: "client_rate_limited"`; nothing was created), 503 free bookings
+ * busy (the link is emailed after the answer, so a failed send isn't
+ * reported here), or card payments aren't available (paid orders; nothing
+ * was created).
  */
 export async function createCheckoutSession(
   eventId: string,
@@ -84,7 +86,8 @@ export async function getOrderBySession(sessionId: string) {
  * checkout, by the same unguessable order id: Stripe's client secret and a
  * server-priced summary while it's `open`, else where to go
  * (OrderPaymentLookup). Read-only. ApiError 404 unknown, malformed or not a
- * card checkout; 409 still being set up (try again in a moment).
+ * card checkout; 409 still being set up (try again in a moment); 429 asked
+ * too often in the last minute (try again in a minute).
  */
 export async function getOrderPayment(orderId: string) {
   return apiFetch<OrderPaymentLookup>(`/orders/by-session/${encodeURIComponent(orderId)}/payment`);

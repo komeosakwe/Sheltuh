@@ -1,7 +1,14 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { checkInTicket, getCheckInSummary } from "@/lib/server/handlers/check-ins";
 import { confirmFreeOrder } from "@/lib/server/handlers/free-orders";
-import { cancelPendingOrder, createCheckout, getOrderBySession, SEAT_HOLD_LIMITS, stripeWebhook } from "@/lib/server/handlers/orders";
+import {
+  cancelPendingOrder,
+  createCheckout,
+  GA_CHECKOUT_SESSION_MINUTES,
+  getOrderBySession,
+  SEAT_HOLD_LIMITS,
+  stripeWebhook,
+} from "@/lib/server/handlers/orders";
 import { joinWaitlist } from "@/lib/server/handlers/waitlist";
 import { embeddedSession, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, publishedEvent, signUpAdmin } from "./helpers/fixtures";
@@ -595,15 +602,18 @@ describe("check-in", () => {
 });
 
 describe("general admission is unchanged", () => {
-  it("a GA checkout has no hold, no expiry and no cancel_url; its body is {url, orderId}, never cached", async () => {
+  it("a GA checkout has no hold, its own hour-long expiry and no cancel_url; its body is {url, orderId}, never cached", async () => {
     const ga = await publishedEvent(api, organiser, admin, { title: "Plain Gig" });
+    const before = Date.now();
     const res = await checkout({ lineItems: [{ ticketTypeId: "ga", quantity: 1 }] }, { eventId: ga.eventId });
     expect(res.status).toBe(201);
     expect(Object.keys(res.body).sort()).toEqual(["orderId", "url"]);
     expect(res.headers.get("cache-control")).toBe("private, no-store");
     const params = api.stripe.checkout.sessions.create.mock.lastCall![0];
     expect(res.body.orderId).toBe(params.client_reference_id);
-    expect(params).not.toHaveProperty("expires_at");
+    // An hour (GA_CHECKOUT_SESSION_MINUTES), not the seats' 31 minutes: nothing is held for it.
+    expect(params.expires_at * 1000 - before).toBeGreaterThan((GA_CHECKOUT_SESSION_MINUTES - 1) * 60_000);
+    expect(params.expires_at * 1000 - before).toBeLessThanOrEqual(GA_CHECKOUT_SESSION_MINUTES * 60_000 + 1000);
     expect(params).not.toHaveProperty("cancel_url");
     expect(res.body.url).toBe(`/checkout/pay?order=${res.body.orderId}`);
     const [order] = await api.db.query(`select seat_ids from public.orders where event_id = $1`, [ga.eventId]);

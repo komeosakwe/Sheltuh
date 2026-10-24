@@ -7,7 +7,7 @@ import { formatSeatLine } from "@/lib/seating/format";
 import { MAX_SEATS_PER_ORDER } from "@/lib/seating/template";
 import { REMAINING_SHOWN_AT_MOST } from "@/lib/api/public-events";
 import { SEAT_HOLD } from "@/lib/api/types";
-import { clientIp, clientKey } from "../client-key";
+import { clientIp, clientKey, orderKey } from "../client-key";
 import { createdPrivate, HttpError, ok, okPrivate, readJson } from "../http";
 import { parseCheckoutLineItems } from "../order-input";
 import { parseCheckoutSeats } from "../seat-map-input";
@@ -311,6 +311,87 @@ function refuseWithoutCardPayments(deps: Deps) {
   if (!deps.stripePublishableKey()) throw new HttpError(503, CARD_PAYMENTS_OFF);
 }
 
+/**
+ * How long a general admission Checkout Session can be paid for: an hour
+ * (Stripe's default is 24 hours; its minimum is 30 minutes). That bounds how
+ * long the client secret is any use to whoever holds the order id, and how
+ * long a form already on screen stays payable after the payment page has
+ * said `closed`. Seated sessions have their own (SEAT_HOLD_LIMITS).
+ */
+export const GA_CHECKOUT_SESSION_MINUTES = 60;
+
+/**
+ * Anonymous rate limits on the card checkout routes: fixed windows on
+ * private.take_client_rate_limit (no migration: the buckets are new names in
+ * client_rate_limits), keyed with lib/server/client-key.ts and salted from
+ * STRIPE_WEBHOOK_SECRET, as the per-client seat-hold limit. Each call that
+ * gets past them can reach Stripe. Over one: 429, nothing else written.
+ * - `paidCheckout`: paid general admission checkouts per client (its IP
+ *   address), taken just before the order is written, so only checkouts
+ *   that would make an order and a Stripe session count. 10 a minute: a
+ *   buyer starts one, or a few after going Back; 10 leaves room for several
+ *   buyers on one address (venue wifi, a phone network's shared address)
+ *   while bounding the pending orders and Stripe sessions one client can
+ *   make. Seated checkouts have their own (SEAT_HOLD_LIMITS.perClient).
+ * - `paymentPerClient`: GET …/payment per client, every well-formed id
+ *   (unknown ones too). 30 a minute: the payment page reads it on load, on
+ *   Back-Forward and at expiry, the return page once; 30 covers several
+ *   buyers on one address and bounds how fast one client can try ids or
+ *   drive Stripe retrieves.
+ * - `paymentPerOrder`: GET …/payment per order (keyed on an HMAC of its id,
+ *   never the id), taken just before the Stripe retrieve. 20 a minute: the
+ *   bound on Stripe calls for one order however many addresses ask.
+ * The per-client limits fail open, logged, without a client IP (always set
+ * on Vercel); all three fail open, logged, without the secret.
+ */
+export const CHECKOUT_RATE_LIMITS = {
+  paidCheckout: { bucket: "paid_checkouts", hits: 10, window: "1 minute" },
+  paymentPerClient: { bucket: "order_payment", hits: 30, window: "1 minute" },
+  paymentPerOrder: { bucket: "order_payment:order", hits: 20, window: "1 minute" },
+} as const;
+
+type KeyedLimit = (typeof CHECKOUT_RATE_LIMITS)[keyof typeof CHECKOUT_RATE_LIMITS];
+
+const CHECKOUTS_BUSY = "You've started a lot of checkouts in the last minute. Wait a minute, then try again.";
+const PAYMENT_BUSY = "This checkout has been loaded a lot in the last minute. Wait a minute, then reload the page.";
+
+/** One hit on a keyed fixed-window counter: whether it's within the limit. */
+async function takeKeyedLimit(db: Db, key: string, limit: KeyedLimit): Promise<boolean> {
+  const [row] = await db.query<{ allowed: boolean }>(
+    `select private.take_client_rate_limit($1, $2, $3, $4::interval) as allowed`,
+    [key, limit.bucket, limit.hits, limit.window],
+  );
+  return row.allowed;
+}
+
+/**
+ * The secret rate-limit keys are salted with, or undefined when it isn't
+ * configured (logged, naming only the limits skipped): the caller fails open.
+ */
+function rateLimitSecret(deps: Deps, skipped: string): string | undefined {
+  try {
+    return deps.stripeWebhookSecret();
+  } catch {
+    console.error(`STRIPE_WEBHOOK_SECRET isn't set: ${skipped}.`);
+    return undefined;
+  }
+}
+
+/**
+ * One hit on the request's client's counter for `limit`: false when it's
+ * over. True (fails open) without `secret`, or without a usable client IP,
+ * logged without any request detail.
+ */
+async function takeClientLimit(req: Request, deps: Deps, secret: string | undefined, limit: KeyedLimit, what: string) {
+  if (!secret) return true;
+  const ip = clientIp(req);
+  if (!ip) {
+    console.warn(`${what} without a client IP header: the per-client limit was skipped.`);
+    return true;
+  }
+  return takeKeyedLimit(deps.db, clientKey(ip, secret), limit);
+}
+
 /** Our payment page for a card checkout (CheckoutResult.url): relative, same origin. */
 function paymentPageUrl(orderId: string): string {
   return `/checkout/pay?order=${orderId}`;
@@ -333,8 +414,11 @@ function checkoutReturnUrl(deps: Deps, orderId: string): string {
  * (/checkout/pay?order={orderId}, which reads the session's client secret
  * from GET /orders/by-session/{orderId}/payment). The order id also lets the
  * page cancel it (POST /orders/by-session/{orderId}/cancel) if the buyer goes
- * Back. 503 when card payments aren't configured (refuseWithoutCardPayments),
- * before anything is written. A wholly free order
+ * Back. The session can be paid for an hour (GA_CHECKOUT_SESSION_MINUTES).
+ * 503 when card payments aren't configured (refuseWithoutCardPayments),
+ * before anything is written; then 429 (`code: "client_rate_limited"`) over
+ * the client's paid checkouts (CHECKOUT_RATE_LIMITS.paidCheckout), nothing
+ * written either. A wholly free order
  * never touches Stripe (./free-orders.ts): 201 with the confirmation page's
  * URL for a member's own verified email, otherwise 202, the confirmation
  * link being emailed straight after the response. Any order, paid or free, holds at most 4 free
@@ -407,6 +491,10 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   }
 
   refuseWithoutCardPayments(deps);
+  const secret = rateLimitSecret(deps, "the per-client checkout limit was skipped");
+  if (!(await takeClientLimit(req, deps, secret, CHECKOUT_RATE_LIMITS.paidCheckout, "Paid checkout"))) {
+    throw new HttpError(429, CHECKOUTS_BUSY, undefined, { code: "client_rate_limited" });
+  }
   // The order exists before Stripe does, so no payment can ever arrive
   // without an order to attach it to.
   await refuseIfClosed(insertOrder);
@@ -416,6 +504,7 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
       mode: "payment",
       client_reference_id: orderId,
       ...(buyerEmail ? { customer_email: buyerEmail } : {}),
+      expires_at: Math.floor(Date.now() / 1000) + GA_CHECKOUT_SESSION_MINUTES * 60,
       line_items: lineItems.flatMap((line) => {
         const items: Stripe.Checkout.SessionCreateParams.LineItem[] = [
           {
@@ -453,7 +542,7 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
     throw err;
   }
   if (!session.client_secret) {
-    // Nobody could mount (so pay) it: the order fails now, not when the session expires in 24 hours.
+    // Nobody could mount (so pay) it: the order fails now, not when the session expires in an hour.
     await db.query(`update public.orders set status = 'failed' where id = $1 and status = 'pending'`, [orderId]);
     throw new Error("Stripe did not return an embedded Checkout Session's client secret.");
   }
@@ -634,13 +723,8 @@ async function takeClientHoldAttempt(req: Request, deps: Deps, eventId: string, 
     console.warn("Seat hold without a client IP header: the per-client hold limit was skipped.");
     return;
   }
-  let secret: string;
-  try {
-    secret = deps.stripeWebhookSecret();
-  } catch {
-    console.error("STRIPE_WEBHOOK_SECRET isn't set: the per-client hold limit was skipped.");
-    return;
-  }
+  const secret = rateLimitSecret(deps, "the per-client hold limit was skipped");
+  if (!secret) return;
   const { event, allEvents, window } = SEAT_HOLD_LIMITS.perClient;
   const [row] = await deps.db.query<{ result: "ok" | "event" | "all" }>(
     `select private.take_seat_hold_attempt($1, $2, $3, $4, $5::interval) as result`,
@@ -877,7 +961,7 @@ async function expireCheckoutSession(deps: Deps, sessionId: string): Promise<"ex
  * CancelOrderResult: `released` (also when it already was), `paid`, or
  * `processing` (Stripe already has the payment). 404 unknown or not a card
  * checkout; 409 still being set up (try again). `private, no-store`.
- * The id (`ord_` + 32 hex, 128 random bits) only ever reaches the client
+ * The id (`ord_` + 32 hex: a UUIDv4, 122 random bits) only ever reaches the client
  * that made the order: the checkout's response, the payment page's URL and
  * Stripe's return URL. A paid order is never changed here, and the session
  * is expired before anything is released, so nothing can be paid for seats
@@ -953,17 +1037,20 @@ async function openOrderState(db: Db, orderId: string, eventId: string, lineItem
   return { soldOut, seats: row.seats ?? [] };
 }
 
-/** The payment page's lines: all-inclusive amounts from lib/fees.ts, with each seated tier's seats. */
+/** The payment page's lines: all-inclusive amounts from lib/fees.ts, whether each includes a fee, and each seated tier's seats. */
 function paymentLines(lineItems: OrderLineItem[], seats: (TicketSeat & { ticketTypeId: string })[]): OrderPaymentLine[] {
   return lineItems.map((line) => {
     const lineSeats = seats
       .filter((seat) => seat.ticketTypeId === line.ticketTypeId)
       .map(({ section, row, seat, kind }) => ({ section, row, seat, kind }));
+    const unit = calculateOrderSummary(line.unitPriceCents, 1, line.feePolicy);
     return {
       ticketTypeName: line.ticketTypeName,
       quantity: line.quantity,
-      unitTotalCents: calculateOrderSummary(line.unitPriceCents, 1, line.feePolicy).totalCents,
+      unitTotalCents: unit.totalCents,
       lineTotalCents: calculateOrderSummary(line.unitPriceCents, line.quantity, line.feePolicy).totalCents,
+      // This line's own fee policy: a paid buyer-pays ticket (an organiser-absorbed or free one has none).
+      buyerPaysFee: unit.buyerFeeCents > 0,
       ...(lineSeats.length > 0 ? { seats: lineSeats } : {}),
     };
   });
@@ -974,11 +1061,13 @@ function paymentLines(lineItems: OrderLineItem[], seats: (TicketSeat & { ticketT
  * the credential (as for GET /orders/by-session/{id}). What the payment page
  * (/checkout/pay) needs to mount Stripe's embedded form, and its summary
  * (OrderPaymentLookup):
- * - malformed id: 404, no query; unknown, or a guest's free booking (not a
- *   card checkout): 404.
+ * - malformed id: 404, no query. Then one hit on the client's allowance
+ *   (CHECKOUT_RATE_LIMITS.paymentPerClient; 429 over it). Unknown, or a
+ *   guest's free booking (not a card checkout): 404.
  * - `paid`, `refunded`, `oversold_refund_required`: `done`. `failed`: `closed`.
  * - pending without its Stripe session yet: 409 (as the cancel route).
- * - otherwise Stripe's session: `complete` → `processing` (`delayed` while
+ * - otherwise one hit on the order's allowance (paymentPerOrder; 429 over
+ *   it), then Stripe's session: `complete` → `processing` (`delayed` while
  *   the payment hasn't cleared); `expired`, or past its expiry → `closed`;
  *   `open` → `open` with the client secret and the summary, unless the
  *   event is no longer bookable (`closed`: not published, so unpublished by
@@ -986,11 +1075,16 @@ function paymentLines(lineItems: OrderLineItem[], seats: (TicketSeat & { ticketT
  *   private.fulfil_order refuses; or ended, `ends_at <= now()` as for new
  *   orders), or the tickets or seats have gone to someone else since
  *   (`sold_out`, not binding: openOrderState).
- * Writes nothing (the webhook alone settles orders) and logs nothing about
- * the order or the secret. `private, no-store`: the client secret is in it.
+ * Writes nothing but its rate-limit counters (the webhook alone settles
+ * orders) and logs nothing about the order or the secret. `private,
+ * no-store`: the client secret is in it.
  */
-export const getOrderPayment: Handler<{ sessionId: string }> = async (_req, { sessionId }, deps) => {
+export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { sessionId }, deps) => {
   if (!ORDER_ID_PATTERN.test(sessionId)) throw new HttpError(404, ORDER_NOT_FOUND);
+  const secret = rateLimitSecret(deps, "the payment page's rate limits were skipped");
+  if (!(await takeClientLimit(req, deps, secret, CHECKOUT_RATE_LIMITS.paymentPerClient, "Payment page read"))) {
+    throw new HttpError(429, PAYMENT_BUSY);
+  }
   const [row] = await deps.db.query<{
     status: OrderStatus;
     stripe_checkout_session_id: string | null;
@@ -1034,6 +1128,10 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (_req, { se
     throw new HttpError(409, "This checkout is still being set up. Try again in a moment.");
   }
 
+  // Every answer from here asks Stripe: at most so many a minute per order, from any number of clients.
+  if (secret && !(await takeKeyedLimit(deps.db, orderKey(sessionId, secret), CHECKOUT_RATE_LIMITS.paymentPerOrder))) {
+    throw new HttpError(429, PAYMENT_BUSY);
+  }
   const session = await deps.stripe().checkout.sessions.retrieve(row.stripe_checkout_session_id);
   if (session.status === "complete") return answer({ status: "processing", delayed: session.payment_status !== "paid" });
   // Past its expiry, it can't be paid even if Stripe hasn't closed it yet.

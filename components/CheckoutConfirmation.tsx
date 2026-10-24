@@ -16,9 +16,10 @@ import {
   checkoutSoldOutBody,
   checkoutSoldOutLabel,
   eventPathFor,
+  formatHoldDeadline,
   type CheckoutOrderContext,
 } from "@/lib/checkout-pay";
-import { formatAud, formatEventDateTimeRange, formatEventTime } from "@/lib/format";
+import { formatAud, formatEventDateTimeRange } from "@/lib/format";
 import { compareSeats } from "@/lib/seating/format";
 import { forgetPendingCheckout } from "@/lib/seating/pending-checkout";
 import type { CustomerOrder } from "@/lib/api/types";
@@ -64,10 +65,13 @@ export default function CheckoutConfirmation() {
   const pollCount = useRef(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
-  // Paid: going Back to the seat page mustn't try to release this order's seats.
+  // Settled (paid, refunded or oversold, or Stripe has the payment): going Back to the seat page mustn't
+  // try to release this order's seats. Not before: a checkout that's still open (payment not
+  // completed), or one that closed or sold out, is still released on Back.
+  const settled = state.status === "ready" || state.status === "oversold" || state.status === "processing";
   useEffect(() => {
-    if (sessionId) forgetPendingCheckout(sessionId);
-  }, [sessionId]);
+    if (settled && sessionId) forgetPendingCheckout(sessionId);
+  }, [settled, sessionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -218,7 +222,7 @@ export default function CheckoutConfirmation() {
         headingRef={headingRef}
         title="Payment not completed"
         actions={
-          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
+          <div className="mt-3 flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
             <ButtonLink
               variant="solid"
               size="lg"
@@ -235,7 +239,7 @@ export default function CheckoutConfirmation() {
       >
         <p className="max-w-md text-sm text-muted">
           You haven&rsquo;t been charged. Your checkout is still open, so you can try again.
-          {context.seated ? ` Your seats are held until ${formatEventTime(state.expiresAt)}.` : ""}
+          {context.seated ? ` Your seats are held until ${formatHoldDeadline(state.expiresAt)}.` : ""}
         </p>
       </StateMessage>
     );
@@ -402,7 +406,9 @@ function StateMessage({
 }) {
   return (
     <div className="flex flex-col items-start gap-3 py-10 sm:py-14">
-      <h1 ref={headingRef} tabIndex={-1} className="display-md outline-offset-2">
+      {/* Focused by script to say what happened (tabIndex -1); it's not a control, so no focus ring. Important
+          (`!`): the global :focus-visible ring in globals.css is unlayered, so it beats any utility otherwise. */}
+      <h1 ref={headingRef} tabIndex={-1} className="display-md text-balance outline-offset-2 focus:outline-none!">
         {title}
       </h1>
       {children}

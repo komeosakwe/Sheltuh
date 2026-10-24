@@ -2,9 +2,10 @@ import { createHmac } from "node:crypto";
 import { isIP } from "node:net";
 
 /**
- * Per-client keys for anonymous rate limits (docs/architecture.md, "Reserved
- * seating": the per-client seat-hold limit). The raw IP address never leaves
- * this module: callers get a keyed SHA-256 of it, and only that is stored.
+ * Keys for anonymous rate limits (docs/architecture.md, "Reserved seating":
+ * the per-client seat-hold limit; "Payment flow": the paid checkout and
+ * payment page limits). The raw IP address (or order id) never leaves this
+ * module: callers get a keyed SHA-256 of it, and only that is stored.
  */
 
 /**
@@ -59,6 +60,13 @@ export function normaliseIp(value: string): string | undefined {
 
 /** Labels the salt so it can't be confused with anything else derived from the same secret. */
 const SALT_CONTEXT = "sheltuh/client-key/v1";
+/** The same, for order keys: a different salt, so an order key never equals a client key. */
+const ORDER_SALT_CONTEXT = "sheltuh/order-key/v1";
+
+function keyedHash(context: string, value: string, secret: string): string {
+  const salt = createHmac("sha256", secret).update(context, "utf8").digest();
+  return createHmac("sha256", salt).update(value, "utf8").digest("hex");
+}
 
 /**
  * The stored key for a client: HMAC-SHA256 (a salted SHA-256) of the
@@ -68,6 +76,15 @@ const SALT_CONTEXT = "sheltuh/client-key/v1";
  * Rotating the secret only starts every client's counters afresh.
  */
 export function clientKey(ip: string, secret: string): string {
-  const salt = createHmac("sha256", secret).update(SALT_CONTEXT, "utf8").digest();
-  return createHmac("sha256", salt).update(ip, "utf8").digest("hex");
+  return keyedHash(SALT_CONTEXT, ip, secret);
+}
+
+/**
+ * The stored key for a per-order counter (the payment page's per-order
+ * limit): HMAC-SHA256 of the order id, salted as clientKey but under its own
+ * label, 64 hex characters. The order id is a bearer credential, so it's
+ * never stored in a counter itself; the key can't be turned back into it.
+ */
+export function orderKey(orderId: string, secret: string): string {
+  return keyedHash(ORDER_SALT_CONTEXT, orderId, secret);
 }

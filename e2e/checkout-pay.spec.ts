@@ -58,7 +58,7 @@ function openPayment() {
     venueName: sample!.venueName,
     suburb: sample!.suburb,
     seated: false,
-    lines: [{ ticketTypeName: "General admission", quantity: 1, unitTotalCents: 3170, lineTotalCents: 3170 }],
+    lines: [{ ticketTypeName: "General admission", quantity: 1, unitTotalCents: 3170, lineTotalCents: 3170, buyerPaysFee: true }],
     subtotalCents: 3000,
     buyerFeeCents: 170,
     totalCents: 3170,
@@ -134,7 +134,7 @@ test.describe("general admission at 1280×900", () => {
     // Stripe's form (the stub) is mounted with this order's secret and the platform's key.
     await expect(page.locator('iframe[title="Secure payment form (e2e stub)"]')).toBeVisible();
     await expect(page.getByText("Payment form ready")).toBeAttached();
-    expect(await stripe.seen()).toEqual({ keys: ["pk_test_e2e_placeholder"], secrets: [SECRET] });
+    expect(await stripe.seen()).toEqual({ keys: ["pk_test_e2e_placeholder"], secrets: [SECRET], destroyed: 0 });
     expect(stripe.requests.length).toBeGreaterThanOrEqual(1);
     // Summary and form side by side from lg.
     const summaryBox = await summary.boundingBox();
@@ -194,6 +194,81 @@ for (const vp of [
     });
   });
 }
+
+test.describe("when Stripe's form doesn't come", () => {
+  test.use({ viewport: { width: 1280, height: 900 } });
+
+  const STUB_FRAME = 'iframe[title="Secure payment form (e2e stub)"]';
+  const PAYMENT_GET = `GET /api/orders/by-session/${ORDER_ID}/payment`;
+  // The slot's own alert (Next's route announcer is a role="alert" too).
+  const formAlert = (page: Page) => page.locator("[data-payment-slot]").getByRole("alert");
+
+  test("Stripe can't set the form up: our alert (not an endless loader), and Try again mounts a new one", async ({ page }) => {
+    const stripe = await stubStripeJs(page, { modes: ["reject", "mount"] });
+    const seen = await mockApi(page);
+    await page.goto(`/checkout/pay?order=${ORDER_ID}`);
+    const alert = formAlert(page);
+    await expect(alert).toContainText("The payment form didn’t load.", { timeout: 30_000 });
+    await expect(alert).toContainText("You haven’t been charged.");
+    await expect(page.getByText("Loading the payment form…")).toHaveCount(0);
+    await expect(page.getByRole("heading", { level: 1, name: "Pay for your tickets" })).toBeFocused();
+    // The summary stays.
+    await expect(page.getByRole("region", { name: sample!.title }).locator("[data-order-total]")).toHaveText("A$31.70");
+    expect(seen.calls.filter((call) => call === PAYMENT_GET)).toHaveLength(1);
+
+    const again = page.getByRole("button", { name: "Try again" });
+    expect((await again.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await again.click();
+    await expect(page.locator(STUB_FRAME)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("Payment form ready")).toBeAttached();
+    await expect(formAlert(page)).toHaveCount(0);
+    // The checkout was asked for again, and the form created again with the same secret.
+    expect(seen.calls.filter((call) => call === PAYMENT_GET)).toHaveLength(2);
+    expect((await stripe.seen()).secrets).toEqual([SECRET, SECRET]);
+  });
+
+  test("a form that hasn't appeared after 20 s: the same alert, and Try again", async ({ page }) => {
+    await page.clock.install();
+    const stripe = await stubStripeJs(page, { modes: ["hang", "mount"] });
+    await mockApi(page);
+    await page.goto(`/checkout/pay?order=${ORDER_ID}`);
+    await expect(page.getByText("Loading the payment form…")).toBeVisible({ timeout: 30_000 });
+    await expect.poll(async () => (await stripe.seen()).secrets).toEqual([SECRET]);
+    // A keyboard user (so focus moved by script would show :focus-visible).
+    await page.keyboard.press("Tab");
+    // The page's clock also runs on by itself: checked at once, not retried.
+    await page.clock.fastForward(19_000);
+    expect(await formAlert(page).count()).toBe(0);
+    await expect(page.getByText("Loading the payment form…")).toBeVisible();
+    await page.clock.fastForward(1_500);
+    await expect(formAlert(page)).toContainText("The payment form didn’t load.");
+    await expect(page.getByText("Loading the payment form…")).toHaveCount(0);
+    // Focus goes to the h1, which isn't a control: no ring, even though the global :focus-visible applies.
+    const h1 = page.getByRole("heading", { level: 1, name: "Pay for your tickets" });
+    await expect(h1).toBeFocused();
+    expect(await h1.evaluate((el) => [el.matches(":focus-visible"), getComputedStyle(el).outlineStyle])).toEqual([true, "none"]);
+
+    await page.getByRole("button", { name: "Try again" }).click();
+    await expect(page.locator(STUB_FRAME)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("Payment form ready")).toBeAttached();
+    expect((await stripe.seen()).secrets).toEqual([SECRET, SECRET]);
+  });
+
+  test("Stripe's iframe is in place before it's drawn: still loading until it has a height", async ({ page }) => {
+    await stubStripeJs(page, { modes: ["delayed-size"], sizeDelayMs: 2_000 });
+    await mockApi(page);
+    await page.goto(`/checkout/pay?order=${ORDER_ID}`);
+    await expect(page.locator(STUB_FRAME)).toBeAttached({ timeout: 30_000 });
+    // Inserted, 0 high: the loader stays, the slot keeps its height, nothing announced yet.
+    await expect(page.getByText("Loading the payment form…")).toBeVisible();
+    await expect(page.getByText("Payment form ready")).toHaveCount(0);
+    expect((await page.locator("[data-payment-slot]").boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(500);
+
+    await expect(page.getByText("Payment form ready")).toBeAttached({ timeout: 10_000 });
+    await expect(page.getByText("Loading the payment form…")).toHaveCount(0);
+    await expect(page.locator(STUB_FRAME)).toBeVisible();
+  });
+});
 
 test.describe("return page", () => {
   test.use({ viewport: { width: 375, height: 812 } });

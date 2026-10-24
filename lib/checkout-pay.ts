@@ -1,9 +1,20 @@
 /**
  * Shared by the payment page (components/checkout/CheckoutPayment.tsx) and the
  * return page (components/CheckoutConfirmation.tsx): where "back" goes from a
- * card checkout, and what a sold-out checkout says
+ * card checkout, what a sold-out checkout says, and when a seat hold ends
  * (docs/design/checkout-pay.md §5.2, §5.5).
  */
+
+import { formatEventTime } from "@/lib/format";
+
+/**
+ * When a seated checkout's hold ends, as "8:31 pm Melbourne time". Melbourne,
+ * like the event's own times beside it, and said so, for a buyer whose device
+ * is set to another time zone.
+ */
+export function formatHoldDeadline(isoLike: string): string {
+  return `${formatEventTime(isoLike)} Melbourne time`;
+}
 
 /** Enough of an order to say where "back" is. */
 export interface CheckoutOrderContext {
