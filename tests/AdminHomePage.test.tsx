@@ -57,7 +57,10 @@ describe("Admin hub", () => {
     const reports = within(needs).getByRole("link", { name: /^Member reports/ });
     expect(reports).toHaveAttribute("href", "/admin/reports");
     expect(reports).toHaveTextContent("3 open · oldest from");
-    expect(reports).toHaveTextContent("dismiss it or suspend the member");
+    // What to do is the link's description, not part of its name.
+    expect(reports).not.toHaveTextContent("dismiss it or suspend the member");
+    expect(reports).toHaveAccessibleName(/^Member reports\s*3 open · oldest from/);
+    expect(reports).toHaveAccessibleDescription("Read each report, then dismiss it or suspend the member.");
     const events = within(needs).getByRole("link", { name: /^Event submissions/ });
     expect(events).toHaveAttribute("href", "/admin/events");
     expect(events).toHaveTextContent("4 waiting · 1 starts within 3 days");
@@ -75,7 +78,7 @@ describe("Admin hub", () => {
     const manage = section("Manage");
     expect(within(manage).getAllByRole("link").map((l) => l.getAttribute("href"))).toEqual([
       "/admin/events?status=published",
-      "/admin/organisers",
+      "/admin/organisers?status=approved",
       "/admin/events/new",
       "/admin/trending",
       "/admin/events?status=published&view=door",
@@ -93,6 +96,13 @@ describe("Admin hub", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Couldn’t check what’s waiting. The links still work.");
     fireEvent.click(screen.getByRole("button", { name: "Check again" }));
     expect(refresh).toHaveBeenCalled();
+    expect(within(section("Needs you")).getByRole("link", { name: /^Member reports/ })).toHaveAttribute("href", "/admin/reports");
+  });
+
+  it("if the API says the account isn't an admin any more, says so instead of checking forever", () => {
+    renderHub(fakeAuthValue({ isAdmin: true }), { summary: null, denied: true });
+    expect(screen.getByRole("alert")).toHaveTextContent("this account no longer has admin access");
+    expect(screen.queryByText("Checking…")).toBeNull();
     expect(within(section("Needs you")).getByRole("link", { name: /^Member reports/ })).toHaveAttribute("href", "/admin/reports");
   });
 

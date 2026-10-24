@@ -1,20 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
 import { countText, hoursText } from "@/lib/admin-summary";
 import type { AdminSummary } from "@/lib/api/types";
 import { formatDayWithYear } from "@/lib/format";
 import { useAdminSummary } from "./AdminSummaryProvider";
+import { DOOR_EVENTS_HREF } from "./event-queue-filters";
 
-/** The event queue's door view: Sheltüh-run, published, not ended (docs/architecture.md, "Check-in"). */
-export const DOOR_EVENTS_HREF = "/admin/events?status=published&view=door";
-
-/** White cards with a black border (brand-direction-one.md §2.4); the whole card is one link. */
+/**
+ * White cards with a black border (brand-direction-one.md §2.4). The link is
+ * the title and status; its ::after covers the card, so the whole card is
+ * still one click target, while the to-do line stays out of the link's name
+ * (it's the link's description instead).
+ */
 const cardClass =
-  "group flex h-full flex-col gap-2 rounded-card border border-foreground bg-card p-4 hover:bg-surface";
+  "group relative flex h-full flex-col gap-2 rounded-card border border-foreground bg-card p-4 hover:bg-surface";
+const cardLinkClass = "flex flex-col gap-2 after:absolute after:inset-0 after:rounded-card after:content-['']";
 const cardTitleClass =
   "font-heading text-xl leading-6 text-foreground underline-offset-4 group-hover:underline";
 
@@ -99,11 +103,11 @@ function manageCards(summary: AdminSummary | null): HubCard[] {
       todo: "Search by title or organiser to edit, unpublish, change a seat map or curate Trending.",
     },
     {
-      href: "/admin/organisers",
+      href: "/admin/organisers?status=approved",
       title: "Find an organiser",
       status: null,
       waiting: false,
-      todo: "Approved organisers are under Approved: suspend one, or remove a logo or video.",
+      todo: "Search approved organisers by name, email or handle: suspend one, or remove a logo or video.",
     },
     {
       href: "/admin/events/new",
@@ -134,17 +138,20 @@ function manageCards(summary: AdminSummary | null): HubCard[] {
 }
 
 function Card({ card, loading }: { card: HubCard; loading: boolean }) {
+  const todoId = useId();
   return (
-    <li>
-      <Link href={card.href} className={cardClass}>
+    <li className={cardClass}>
+      <Link href={card.href} aria-describedby={todoId} className={cardLinkClass}>
         <h3 className={cardTitleClass}>{card.title}</h3>
         {(card.status !== null || loading) && (
           <p className={`text-sm font-semibold ${card.waiting ? "text-foreground" : "text-muted"}`}>
             {card.status ?? "Checking…"}
           </p>
         )}
-        <p className="text-sm text-muted">{card.todo}</p>
       </Link>
+      <p id={todoId} className="text-sm text-muted">
+        {card.todo}
+      </p>
     </li>
   );
 }
@@ -195,11 +202,18 @@ export default function AdminHub() {
   const context = useAdminSummary();
   const summary = context?.summary ?? null;
   const failed = context?.failed ?? false;
-  const loading = !summary && !failed && Boolean(context);
+  const denied = context?.denied ?? false;
+  const loading = !summary && !failed && !denied && Boolean(context);
 
   return (
     <div className="flex flex-col gap-10">
       <HubSection id="hub-needs-you" title="Needs you" intro="Waiting for an admin, most urgent first.">
+        {denied && (
+          <Notice tone="danger" role="alert">
+            Sheltüh says this account no longer has admin access, so what’s waiting can’t be shown. Sign out and in
+            again; if it still says so, ask another admin.
+          </Notice>
+        )}
         {failed && (
           <div className="flex flex-col items-start gap-3">
             <Notice tone="danger" role="alert">

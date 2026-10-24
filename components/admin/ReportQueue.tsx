@@ -10,6 +10,7 @@ import { adminListReports, adminResolveReport } from "@/lib/api/admin";
 import { ApiError } from "@/lib/api/client";
 import type { AdminReport, ReportStatus } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useStatusParam } from "./admin-list-url";
 import { useAdminSummary } from "./AdminSummaryProvider";
 import { formatMessageTime } from "@/lib/format";
 import { validateMessage } from "@/lib/message-text";
@@ -22,10 +23,11 @@ const TARGET_LABELS: Record<NonNullable<AdminReport["targetType"]>, string> = {
   profile: "Member profile",
 };
 
-const STATUSES: { value: ReportStatus; label: string }[] = [
-  { value: "open", label: "Open" },
-  { value: "actioned", label: "Suspended" },
-  { value: "dismissed", label: "Dismissed" },
+/** Each filter's label (what happened to the reports in it) and its list's heading. */
+const STATUSES: { value: ReportStatus; label: string; heading: string }[] = [
+  { value: "open", label: "Open", heading: "Open reports" },
+  { value: "actioned", label: "Member suspended", heading: "Reports: member suspended" },
+  { value: "dismissed", label: "Dismissed", heading: "Dismissed reports" },
 ];
 
 type LoadState =
@@ -43,13 +45,13 @@ function errorText(err: unknown, fallback: string) {
  * says what was reported (messages, a Who's Going name, a member profile);
  * a profile report shows the copies taken (photo, bio, Instagram) and can
  * remove any of them from the profile, with a reason. Everything a report
- * carries is plain text, shown as text.
+ * carries is plain text, shown as text. The filter is kept in `?status=`.
  */
 export default function ReportQueue() {
   const auth = useAuth();
   const adminSummary = useAdminSummary();
   const getToken = auth.getAccessToken;
-  const [status, setStatus] = useState<ReportStatus>("open");
+  const [status, setStatus] = useStatusParam("/admin/reports", STATUSES, "open");
   const [attempt, setAttempt] = useState(0);
   const key = `${status}#${attempt}`;
   const [result, setResult] = useState<{ key: string; state: LoadState } | null>(null);
@@ -126,7 +128,7 @@ export default function ReportQueue() {
     }
   }
 
-  const current = STATUSES.find((s) => s.value === status)?.label ?? status;
+  const current = STATUSES.find((s) => s.value === status)?.heading ?? status;
 
   return (
     <div className="flex flex-col gap-6">
@@ -151,7 +153,7 @@ export default function ReportQueue() {
 
       <section aria-labelledby="reports-heading" aria-busy={state.status === "loading" ? true : undefined}>
         <h2 id="reports-heading" ref={headingRef} tabIndex={-1} className="display-md mb-4 !text-2xl outline-offset-2">
-          {current} reports
+          {current}
         </h2>
 
         {state.status === "loading" && <LoadingState text="Loading…" />}

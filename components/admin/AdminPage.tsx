@@ -9,7 +9,7 @@ export interface Crumb {
 }
 
 /**
- * Where an admin page sits: "Admin / Event submissions / Edit event". A
+ * Where an admin page sits: "Admin / Events / Edit event". A
  * named nav landmark with an ordered list; the current page is the last item,
  * marked aria-current. The slashes are decorative.
  */

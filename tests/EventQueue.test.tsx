@@ -6,7 +6,8 @@ import EventQueue from "@/components/admin/EventQueue";
 import { eventQueueHref, eventQueueQuery, readEventQueueFilters } from "@/components/admin/event-queue-filters";
 import { adminApproveEvent, adminListEvents, adminRejectEvent, adminUnpublishEvent } from "@/lib/api/admin";
 import { ApiError } from "@/lib/api/client";
-import type { AdminEventRecord } from "@/lib/api/types";
+import type { AdminListEventsQuery } from "@/lib/api/admin";
+import type { AdminEventRecord, EventStatus, Paginated } from "@/lib/api/types";
 import { adminSummary, FakeAdminSummaryProvider } from "./test-utils/fakeAdminSummary";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
@@ -196,7 +197,8 @@ describe("EventQueue", () => {
       expect.any(Function),
     );
     expect(screen.getByRole("searchbox", { name: "Search by title or organiser" })).toHaveValue("neon");
-    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Sheltüh-run events, for door check-in");
+    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Sheltüh-run events (1)");
+    expect(screen.getByText(/Admins run the door only for the ones ticketed on Sheltüh/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Door check-in: Neon Static" })).toHaveAttribute(
       "href",
       "/dashboard/evt-1/check-in",
@@ -233,7 +235,7 @@ describe("EventQueue", () => {
     await vi.waitFor(() => expect(screen.getByRole("button", { name: "Approve Neon Static…" })).toHaveFocus());
   });
 
-  it("after a confirmed approval, says what happened and moves focus to the next event (described by the message)", async () => {
+  it("after a confirmed approval, says what happened (once, in the status line) and moves focus to the next event", async () => {
     vi.mocked(adminListEvents).mockResolvedValue({ items: [NEON, LANEWAY] });
     vi.mocked(adminApproveEvent).mockResolvedValue({ ...NEON, status: "published" });
     renderQueue();
@@ -246,7 +248,8 @@ describe("EventQueue", () => {
     expect(status).toHaveAttribute("role", "status");
     const next = screen.getByRole("heading", { level: 3, name: "Laneway Nights" });
     await vi.waitFor(() => expect(next).toHaveFocus());
-    expect(next).toHaveAttribute("aria-describedby", status.id);
+    // The live region says it; the focused heading isn't described by it as well (it would be read twice).
+    expect(next).not.toHaveAttribute("aria-describedby");
     expect(screen.queryByRole("heading", { level: 3, name: "Neon Static" })).toBeNull();
   });
 
@@ -429,5 +432,152 @@ describe("EventQueue", () => {
       expect.any(Function),
     );
     await vi.waitFor(() => expect(screen.getByRole("heading", { level: 3, name: "Laneway Nights" })).toHaveFocus());
+  });
+
+  it("search and Clear search keep focus in the search box (it isn't remounted); the same search again reloads", async () => {
+    renderQueue();
+    await screen.findByRole("heading", { level: 3, name: "Neon Static" });
+    const box = screen.getByRole("searchbox", { name: "Search by title or organiser" });
+    fireEvent.change(box, { target: { value: "static" } });
+    const searchButton = screen.getByRole("button", { name: "Search" });
+    searchButton.focus();
+    fireEvent.click(searchButton);
+    expect(nav.replace).toHaveBeenLastCalledWith("/admin/events?q=static", { scroll: false });
+    await screen.findByText("Matching “static”.");
+    expect(screen.getByRole("searchbox", { name: "Search by title or organiser" })).toBe(box);
+    await vi.waitFor(() => expect(box).toHaveFocus());
+    expect(box).toHaveValue("static");
+
+    // Submitting the same search again loads the list again (the URL doesn't change).
+    const calls = vi.mocked(adminListEvents).mock.calls.length;
+    fireEvent.submit(box.closest("form") as HTMLFormElement);
+    await vi.waitFor(() => expect(adminListEvents).toHaveBeenCalledTimes(calls + 1));
+    expect(adminListEvents).toHaveBeenLastCalledWith(
+      { status: "pending_review", upcoming: false, q: "static" },
+      expect.any(Function),
+    );
+    expect(await screen.findByText("1 event waiting for review matching “static”.")).toHaveClass("sr-only");
+
+    const clear = screen.getByRole("button", { name: "Clear search" });
+    clear.focus();
+    fireEvent.click(clear);
+    expect(nav.replace).toHaveBeenLastCalledWith("/admin/events", { scroll: false });
+    await vi.waitFor(() => expect(box).toHaveFocus());
+    expect(box).toHaveValue("");
+    expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
+  });
+
+  it("Clear search in a no-match empty state also puts focus in the search box", async () => {
+    nav.set("q=zzz");
+    vi.mocked(adminListEvents).mockResolvedValueOnce({ items: [] });
+    renderQueue();
+    await screen.findByText("Nothing matches “zzz”");
+    // The form's Clear search comes first; the empty state's is the last.
+    const clear = screen.getAllByRole("button", { name: "Clear search" });
+    expect(clear).toHaveLength(2);
+    fireEvent.click(clear[1]);
+    const box = screen.getByRole("searchbox", { name: "Search by title or organiser" });
+    await vi.waitFor(() => expect(box).toHaveFocus());
+    expect(box).toHaveValue("");
+  });
+
+  it.each(["succeeds", "fails"] as const)(
+    "a Load more that %s after a filter change leaves the new list alone",
+    async (outcome) => {
+      let finishMore: (page: { items: AdminEventRecord[] }) => void = () => {};
+      let failMore: (err: unknown) => void = () => {};
+      // The object form (what the queue calls); typed wide, as the overloads would pick the status form.
+      vi.mocked(adminListEvents).mockImplementation(async (query: AdminListEventsQuery | EventStatus) => {
+        if (typeof query !== "string" && query.cursor === "c1") {
+          return new Promise<Paginated<AdminEventRecord>>((resolve, reject) => {
+            finishMore = resolve;
+            failMore = reject;
+          });
+        }
+        const status = typeof query === "string" ? query : query.status;
+        return status === "pending_review"
+          ? { items: [NEON], nextCursor: "c1" }
+          : { items: [ev({ eventId: "evt-9", title: "Draft night", status: "draft" })], nextCursor: "c9" };
+      });
+      renderQueue();
+      await screen.findByRole("heading", { level: 3, name: "Neon Static" });
+      fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+      expect(screen.getByRole("button", { name: "Loading…" })).toBeInTheDocument();
+      const drafts = within(statusGroup()).getByRole("button", { name: "Drafts" });
+      drafts.focus();
+      fireEvent.click(drafts);
+      await screen.findByRole("heading", { level: 3, name: "Draft night" });
+      // The new list's own Load more isn't busy.
+      expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
+      await act(async () => {
+        if (outcome === "succeeds") finishMore({ items: [LANEWAY] });
+        else failMore(new ApiError(500, "boom"));
+      });
+      expect(screen.queryByRole("heading", { level: 3, name: "Laneway Nights" })).toBeNull();
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(drafts).toHaveFocus();
+      expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Drafts (1+)");
+    },
+  );
+
+  it("the Sheltüh-run view lists them all, saying which have no door here", async () => {
+    nav.set("status=published&view=door");
+    vi.mocked(adminListEvents).mockResolvedValue({
+      items: [
+        ev({ status: "published", organiserPlatformManaged: true }),
+        ev({
+          eventId: "evt-5",
+          title: "External run",
+          status: "published",
+          organiserPlatformManaged: true,
+          ticketingMode: "external",
+          externalTicketUrl: "https://example.com/t",
+        }),
+      ],
+    });
+    renderQueue();
+    await screen.findByRole("heading", { level: 3, name: "Neon Static" });
+    expect(within(screen.getByRole("group", { name: "Show published events" })).getByRole("button", { name: "Sheltüh-run" }))
+      .toHaveAttribute("aria-pressed", "true");
+    const external = screen.getByRole("article", { name: "External run" });
+    expect(within(external).queryByRole("link", { name: /^Door check-in/ })).toBeNull();
+    expect(external).toHaveTextContent("No door check-in here: tickets are sold on another site.");
+    expect(screen.getByRole("article", { name: "Neon Static" })).not.toHaveTextContent("No door check-in here");
+  });
+
+  it("an empty Sheltüh-run view says what belongs there", async () => {
+    nav.set("status=published&view=door");
+    vi.mocked(adminListEvents).mockResolvedValue({ items: [] });
+    renderQueue();
+    expect(await screen.findByText("No upcoming Sheltüh-run events")).toBeInTheDocument();
+    expect(screen.getByText(/Admins run the door for the ones ticketed on Sheltüh/)).toBeInTheDocument();
+  });
+
+  it("doesn't offer Unpublish for an event that has ended", async () => {
+    nav.set("status=published&view=all");
+    vi.mocked(adminListEvents).mockResolvedValue({
+      items: [
+        ev({ status: "published" }),
+        ev({
+          eventId: "evt-6",
+          title: "Last year",
+          status: "published",
+          startsAt: "2020-01-01T09:00:00.000Z",
+          endsAt: "2020-01-01T12:00:00.000Z",
+        }),
+      ],
+    });
+    renderQueue();
+    await screen.findByRole("heading", { level: 3, name: "Neon Static" });
+    expect(screen.getByRole("button", { name: "Unpublish Neon Static…" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Unpublish Last year…" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Edit Last year" })).toBeInTheDocument();
+  });
+
+  it("the door notice's link is a 44px target", async () => {
+    renderQueue(adminSummary({ doorEvents: { count: 1, windowHours: 24 } }));
+    await screen.findByRole("heading", { level: 3, name: "Neon Static" });
+    expect(screen.getByRole("link", { name: "Open the door check-in list" })).toHaveClass("min-h-11");
   });
 });

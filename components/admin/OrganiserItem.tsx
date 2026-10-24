@@ -78,7 +78,6 @@ export default function OrganiserItem({
   getToken,
   onRemoved,
   onSuspend,
-  headingDescribedBy,
   reauthOwner,
   onClaimReauth,
   onUpdated,
@@ -90,8 +89,6 @@ export default function OrganiserItem({
   /** It left this list (approved or rejected here, or already reviewed); `message` is announced. */
   onRemoved: (item: AdminOrganiserRecord, message: string) => void;
   onSuspend: (item: AdminOrganiserRecord) => void;
-  /** Set when focus moved to this heading after a removal: the announcement's id. */
-  headingDescribedBy?: string;
   /** Who shows the sign-in form after a session expired (only one may). */
   reauthOwner: string | null;
   onClaimReauth: (owner: string | null) => void;
@@ -112,7 +109,6 @@ export default function OrganiserItem({
           <h3
             id={headingId}
             tabIndex={-1}
-            aria-describedby={headingDescribedBy}
             className="font-sans text-base font-semibold normal-case tracking-normal break-words outline-offset-2"
           >
             {item.displayName}

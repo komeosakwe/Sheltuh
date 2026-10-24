@@ -4,7 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import OrganiserQueue from "@/components/admin/OrganiserQueue";
 import ReportQueue from "@/components/admin/ReportQueue";
 import type { AdminOrganiserRecord, AdminReport } from "@/lib/api/types";
+import type { AdminListOrganisersQuery } from "@/lib/api/admin";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { fakeUrl } from "./test-utils/fakeUrl";
+
+vi.mock("next/navigation", async () => (await import("./test-utils/fakeUrl")).fakeNavigation);
 
 vi.mock("@/lib/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/client")>()),
@@ -30,6 +34,7 @@ const fetchAvatar = vi.fn();
 vi.mock("@/lib/api/profiles", () => ({ fetchAvatar: (...args: unknown[]) => fetchAvatar(...args) }));
 
 beforeEach(() => {
+  fakeUrl.set("");
   for (const fn of [adminListReports, adminGetMemberProfile, adminRemoveProfileContent, adminListOrganisers, adminRemoveFeaturedVideo, fetchAvatar]) {
     fn.mockReset();
   }
@@ -174,7 +179,9 @@ describe("admin: organiser featured video", () => {
         },
       ],
     });
-    adminListOrganisers.mockImplementation(async (status: string) => ({ items: status === "pending" ? [] : [before] }));
+    adminListOrganisers.mockImplementation(async ({ status }: AdminListOrganisersQuery) => ({
+      items: status === "pending" ? [] : [before],
+    }));
     adminRemoveFeaturedVideo.mockResolvedValue(after);
     admin(<OrganiserQueue />);
     fireEvent.click(await screen.findByRole("button", { name: "Approved" }));

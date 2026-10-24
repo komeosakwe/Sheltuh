@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AdminTrendingList from "@/components/admin/AdminTrendingList";
 import TrendingPanel, { describeCurationChange } from "@/components/admin/TrendingPanel";
 import { ApiError } from "@/lib/api/client";
+import { SessionExpiredError } from "@/lib/auth/session-token";
+import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 import type { EventCuration, TrendingEvent } from "@/lib/api/trending";
 
 const getEventCuration = vi.fn();
@@ -106,6 +108,26 @@ describe("TrendingPanel", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t load this event’s Trending settings.");
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByText(/^Now:/)).toHaveTextContent("Now: Normal (×1)");
+  });
+
+  it("an expired session while loading offers the sign-in form right there, then loads", async () => {
+    getEventCuration.mockRejectedValueOnce(new SessionExpiredError()).mockResolvedValue(CURATION);
+    const auth = fakeAuthValue({ email: "admin@sheltuh.example", isAdmin: true });
+    render(
+      <FakeAuthProvider value={auth}>
+        <TrendingPanel eventId="evt-1" getToken={getToken} />
+      </FakeAuthProvider>,
+    );
+    const panel = screen.getByRole("region", { name: "Trending" });
+    expect(await within(panel).findByText(/Your session has expired\. Sign in again below, then try again\./)).toBeInTheDocument();
+    expect(within(panel).getByLabelText("Email")).toHaveValue("admin@sheltuh.example");
+    fireEvent.change(within(panel).getByLabelText("Password"), { target: { value: "pw" } });
+    await act(async () => {
+      fireEvent.click(within(panel).getByRole("button", { name: "Sign in" }));
+    });
+    expect(auth.signIn).toHaveBeenCalled();
+    expect(await within(panel).findByText(/^Now:/)).toHaveTextContent("Now: Normal (×1)");
+    expect(getEventCuration).toHaveBeenCalledTimes(2);
   });
 
   it("describes log entries in words", () => {

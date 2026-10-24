@@ -2,7 +2,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AdminBreadcrumbs } from "@/components/admin/AdminPage";
-import AdminSubNav, { adminSectionFor } from "@/components/admin/AdminSubNav";
+import AdminSubNav, { ADMIN_SUB_NAV, adminSectionFor } from "@/components/admin/AdminSubNav";
 import { needsYouTotal } from "@/lib/admin-summary";
 import { adminSummary, FakeAdminSummaryProvider } from "./test-utils/fakeAdminSummary";
 
@@ -54,14 +54,35 @@ describe("AdminSubNav", () => {
     expect(nav.querySelector("[aria-live]")).toBeNull();
   });
 
-  it("marks the current area, an event's edit page counting as Events", () => {
+  it("marks the current area: the page itself, or (as true) a page inside it, an event's edit page counting as Events", () => {
     pathname = "/admin/events/evt-1/edit";
     const nav = renderSubNav();
-    expect(within(nav).getByRole("link", { name: "Events, 2 waiting" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("link", { name: "Events, 2 waiting" })).toHaveAttribute("aria-current", "true");
     expect(within(nav).getByRole("link", { name: "Overview" })).not.toHaveAttribute("aria-current");
+    cleanup();
+    pathname = "/admin/events";
+    expect(within(renderSubNav()).getByRole("link", { name: "Events, 2 waiting" })).toHaveAttribute("aria-current", "page");
+    cleanup();
+    pathname = "/admin/events/new";
+    const onNew = renderSubNav();
+    expect(within(onNew).getByRole("link", { name: "New event" })).toHaveAttribute("aria-current", "page");
+    expect(within(onNew).getByRole("link", { name: "Events, 2 waiting" })).not.toHaveAttribute("aria-current");
     expect(adminSectionFor("/admin/events/new")).toBe("/admin/events/new");
     expect(adminSectionFor("/admin")).toBe("/admin");
     expect(adminSectionFor("/admin/trending")).toBe("/admin/trending");
+  });
+
+  it("each area's page is titled with its sub-nav label", async () => {
+    const pages: Record<string, { metadata: { title?: unknown } }> = {
+      "/admin/reports": await import("@/app/admin/reports/page"),
+      "/admin/events": await import("@/app/admin/events/page"),
+      "/admin/organisers": await import("@/app/admin/organisers/page"),
+      "/admin/emails": await import("@/app/admin/emails/page"),
+      "/admin/trending": await import("@/app/admin/trending/page"),
+    };
+    for (const link of ADMIN_SUB_NAV.filter((l) => l.href !== "/admin")) {
+      expect(pages[link.href]?.metadata.title).toBe(`${link.label} — Sheltüh admin`);
+    }
   });
 
   it("totals only what needs an admin (not retrying emails or door events)", () => {
@@ -75,7 +96,7 @@ describe("AdminBreadcrumbs", () => {
       <AdminBreadcrumbs
         trail={[
           { href: "/admin", label: "Admin" },
-          { href: "/admin/events", label: "Event submissions" },
+          { href: "/admin/events", label: "Events" },
           { label: "Edit event" },
         ]}
       />,

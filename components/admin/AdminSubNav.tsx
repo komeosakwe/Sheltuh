@@ -40,8 +40,11 @@ export function adminSectionFor(pathname: string): string | null {
  * with what's waiting there as a badge, and New event as a button at the
  * end. The badge number is decorative; the link's name carries the count
  * ("Events, 3 waiting"). The current area has aria-current (the umlaut and
- * an underline, as in the main nav). Wraps on phones: no sideways scrolling,
- * and every link is 44px tall.
+ * an underline, as in the main nav): "page" on the area's own page, "true"
+ * on a page inside it (an event's edit page is in Events; the breadcrumbs
+ * mark that page itself). Wraps on phones: no sideways scrolling, every link
+ * is 44px tall, and the links' own padding is the only gap between them
+ * until sm, so the rows stay few at 320px.
  */
 export default function AdminSubNav() {
   const pathname = usePathname();
@@ -50,14 +53,14 @@ export default function AdminSubNav() {
 
   return (
     <nav aria-label="Admin" className="border-b border-foreground">
-      <ul className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 sm:px-6">
+      <ul className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-0 gap-y-0 px-3 py-1 sm:gap-x-2 sm:gap-y-1 sm:px-6 sm:py-2">
         {ADMIN_SUB_NAV.map((link) => {
           const count = summary && link.area ? areaCount(summary, link.area) : 0;
           return (
             <li key={link.href}>
               <Link
                 href={link.href}
-                aria-current={section === link.href ? "page" : undefined}
+                aria-current={section === link.href ? (pathname === link.href ? "page" : "true") : undefined}
                 className={`${navLinkClass} inline-flex min-h-11 items-center`}
               >
                 {link.label}

@@ -37,6 +37,8 @@ interface OrganiserProps {
   initial?: EventRecord;
   onSaved: (record: EventRecord) => void;
   onReload?: never;
+  reauthForm?: never;
+  onReauthNeeded?: never;
 }
 
 /**
@@ -54,6 +56,15 @@ interface AdminProps {
   onSaved: (record: AdminEventRecord) => void;
   /** Fetch the latest version after a save conflict (remount the editor with it). */
   onReload?: () => void;
+  /**
+   * The admin edit page has one sign-in form for the editor and its Trending
+   * panel (InlineReauth's fields have fixed ids). `onReauthNeeded(true)`: a
+   * save found the session expired; `(false)`: it no longer needs the form.
+   * `reauthForm`: this editor shows the form (default true); otherwise the
+   * message points to the Trending panel's, below it.
+   */
+  reauthForm?: boolean;
+  onReauthNeeded?: (needed: boolean) => void;
 }
 
 type Props = OrganiserProps | AdminProps;
@@ -122,9 +133,17 @@ export default function EventEditor(props: Props) {
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  const reauthForm = props.mode === "admin" ? (props.reauthForm ?? true) : true;
+
+  /** The expired-session message (and the sign-in form, if this editor has it) is shown, or gone. */
+  function showSessionExpired(expired: boolean) {
+    setSessionExpired(expired);
+    if (props.mode === "admin" && (expired || sessionExpired)) props.onReauthNeeded?.(expired);
+  }
+
   function handleError(err: unknown, fallback: string) {
     if (err instanceof SessionExpiredError) {
-      setSessionExpired(true);
+      showSessionExpired(true);
       setSubmitError(err.message);
       return;
     }
@@ -243,7 +262,7 @@ export default function EventEditor(props: Props) {
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitError(null);
-    setSessionExpired(false);
+    showSessionExpired(false);
     const input = buildInput();
     if (!input) return;
 
@@ -288,7 +307,7 @@ export default function EventEditor(props: Props) {
     // Organisers only: an admin publishes from the save itself.
     if (!initial || props.mode === "admin") return;
     setSubmitError(null);
-    setSessionExpired(false);
+    showSessionExpired(false);
     // Submit what's on screen, not the last save: unsaved edits are saved
     // first, and nothing is submitted if they don't validate.
     const input = buildInput();
@@ -722,13 +741,17 @@ export default function EventEditor(props: Props) {
       {submitError && sessionExpired && (
         <div role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
           <p>{submitError}</p>
-          <InlineReauth
-            expectedEmail={ownerEmail}
-            onSignedIn={() => {
-              setSessionExpired(false);
-              setSubmitError(null);
-            }}
-          />
+          {reauthForm ? (
+            <InlineReauth
+              expectedEmail={ownerEmail}
+              onSignedIn={() => {
+                showSessionExpired(false);
+                setSubmitError(null);
+              }}
+            />
+          ) : (
+            <p>Sign in again with the form below (under Trending), then save again.</p>
+          )}
         </div>
       )}
       {submitError && !sessionExpired && (

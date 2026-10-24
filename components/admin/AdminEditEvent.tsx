@@ -10,6 +10,9 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { actionErrorText } from "./OrganiserItem";
 import TrendingPanel, { TRENDING_PANEL_ID } from "./TrendingPanel";
 
+/** The editor's name when it holds the page's sign-in form. */
+const EDITOR_REAUTH_OWNER = "editor";
+
 const STATUS_LABEL: Record<EventStatus, string> = {
   draft: "Draft",
   pending_review: "Pending review",
@@ -18,12 +21,15 @@ const STATUS_LABEL: Record<EventStatus, string> = {
 };
 
 /**
- * /admin/events/[eventId]/edit (inside AdminGate): loads any event and edits
+ * /admin/events/[eventId]/edit (gated by app/admin/layout.tsx): loads any event and edits
  * it in admin mode. After a save conflict, "Reload latest version" fetches it
  * again and remounts the editor on the new version. A platform-managed
  * organiser's Sheltüh-ticketed event links to its door check-in, which admins
  * run (docs/architecture.md, "Check-in"). Below the editor, its Trending
- * curation (TrendingPanel), linked from the top of the page.
+ * curation (TrendingPanel), linked from the top of the page. After an
+ * expired session the sign-in form is shown once, by whichever of the two
+ * needed it last (InlineReauth's fields have fixed ids); the other says to
+ * sign in, then try again.
  */
 export default function AdminEditEvent() {
   const auth = useAuth();
@@ -33,6 +39,7 @@ export default function AdminEditEvent() {
   const [error, setError] = useState<string | null>(null);
   // Bumped on reload, so the editor starts again from the fetched version.
   const [generation, setGeneration] = useState(0);
+  const [reauthOwner, setReauthOwner] = useState<string | null>(null);
 
   const load = useCallback(
     async (signal: { cancelled: boolean }) => {
@@ -114,8 +121,17 @@ export default function AdminEditEvent() {
         initial={event}
         onSaved={setEvent}
         onReload={() => load({ cancelled: false })}
+        reauthForm={reauthOwner === null || reauthOwner === EDITOR_REAUTH_OWNER}
+        onReauthNeeded={(needed) =>
+          setReauthOwner((owner) => (needed ? EDITOR_REAUTH_OWNER : owner === EDITOR_REAUTH_OWNER ? null : owner))
+        }
       />
-      <TrendingPanel eventId={event.eventId} getToken={getToken} />
+      <TrendingPanel
+        eventId={event.eventId}
+        getToken={getToken}
+        reauthOwner={reauthOwner}
+        onClaimReauth={setReauthOwner}
+      />
     </>
   );
 }

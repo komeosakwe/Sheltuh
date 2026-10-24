@@ -25,7 +25,7 @@ export function FakeAdminSummaryProvider({
   children: ReactNode;
 }) {
   return (
-    <AdminSummaryContext.Provider value={{ summary: null, failed: false, refresh: vi.fn(), ...value }}>
+    <AdminSummaryContext.Provider value={{ summary: null, failed: false, denied: false, refresh: vi.fn(), ...value }}>
       {children}
     </AdminSummaryContext.Provider>
   );

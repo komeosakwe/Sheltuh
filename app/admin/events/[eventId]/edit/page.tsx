@@ -9,7 +9,7 @@ export default function AdminEditEventPage() {
     <AdminPage
       crumbs={[
         { href: "/admin", label: "Admin" },
-        { href: "/admin/events", label: "Event submissions" },
+        { href: "/admin/events", label: "Events" },
       ]}
       title="Edit event"
       intro="Change anything about this event, whatever its status, and curate it for Trending. Changes are logged where the organiser can see them."

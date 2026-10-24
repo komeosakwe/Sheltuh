@@ -1,11 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-import type { AdminEventRecord, AdminSummary } from "@/lib/api/types";
+import type { AdminEventRecord, AdminOrganiserRecord, AdminSummary, CheckInSummary } from "@/lib/api/types";
 
 /**
  * The admin area in a real browser: the hub, the sub-nav and the main nav's
  * Admin badge driven by GET /api/admin/summary; the event queue's filters in
  * the URL, confirm before Approve, and focus and the status line after it;
- * no sideways scrolling at 320px. Live mode, signed in as an admin with a
+ * the organiser list's filter and search in the URL; an admin's way back
+ * from door check-in; no sideways scrolling at 320px. Live mode, signed in as an admin with a
  * stored test session (the Supabase URL is a local placeholder), with every
  * /api/* request answered here.
  */
@@ -56,9 +57,36 @@ function event(i: number, overrides: Partial<AdminEventRecord> = {}): AdminEvent
   };
 }
 
+const ORGANISER: AdminOrganiserRecord = {
+  ownerUserId: "u-org",
+  organiserId: "org-1",
+  displayName: "Neon Collective",
+  contactEmail: "hello@neon.example",
+  description: "Loud nights in small rooms.",
+  categories: ["live-music"],
+  status: "approved",
+  createdAt: new Date(now - 30 * DAY).toISOString(),
+  updatedAt: new Date(now - 30 * DAY).toISOString(),
+  recentEdits: [],
+};
+
+const DOOR_SUMMARY: CheckInSummary = {
+  event: {
+    eventId: event(3).eventId,
+    title: "Event 3",
+    startsAt: event(3).startsAt,
+    endsAt: event(3).endsAt,
+  },
+  checkedIn: 0,
+  ticketsSold: 10,
+  capacity: 100,
+  byTicketType: [{ ticketTypeId: "ga", name: "General", checkedIn: 0, ticketsSold: 10, capacity: 100 }],
+  recent: [],
+};
+
 /**
  * Signs in as an admin (unless `signedIn: false`) and answers the API;
- * returns the event-list queries seen.
+ * returns the event-list and organiser-list queries seen.
  */
 async function signedInAsAdmin(page: Page, { signedIn = true, summary = SUMMARY }: { signedIn?: boolean; summary?: AdminSummary } = {}) {
   const session = {
@@ -79,6 +107,7 @@ async function signedInAsAdmin(page: Page, { signedIn = true, summary = SUMMARY 
     },
   };
   const listQueries: string[] = [];
+  const organiserQueries: string[] = [];
   let approved = false;
   if (signedIn) {
     await page.addInitScript((s) => localStorage.setItem("sb-127-auth-token", JSON.stringify(s)), session);
@@ -101,6 +130,13 @@ async function signedInAsAdmin(page: Page, { signedIn = true, summary = SUMMARY 
       const items = [event(1), event(2)].filter((e) => !(approved && e.eventId === event(1).eventId));
       return route.fulfill({ json: { items } });
     }
+    if (path === "/api/admin/organisers") {
+      organiserQueries.push(url.search);
+      return route.fulfill({ json: { items: url.searchParams.get("status") === "approved" ? [ORGANISER] : [] } });
+    }
+    // An admin with no organiser of their own, at a Sheltüh-run event's door.
+    if (path === "/api/organisers/me") return route.fulfill({ status: 404, json: { error: "No organiser." } });
+    if (path === `/api/organisers/me/events/${event(3).eventId}/check-ins`) return route.fulfill({ json: DOOR_SUMMARY });
     if (/^\/api\/admin\/events\/[^/]+\/approve$/.test(path)) {
       approved = true;
       return route.fulfill({ json: event(1, { status: "published" }) });
@@ -117,7 +153,7 @@ async function signedInAsAdmin(page: Page, { signedIn = true, summary = SUMMARY 
     if (path.startsWith("/api/favourites")) return route.fulfill({ json: { items: [], ids: [] } });
     return route.fulfill({ status: 404, json: { error: "not mocked in e2e" } });
   });
-  return { listQueries };
+  return { listQueries, organiserQueries };
 }
 
 // Chromium names a link "Reports , 2 open" (a space before the visually hidden count), as it does
@@ -156,6 +192,10 @@ for (const vp of [
         const box = await link.boundingBox();
         expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
       }
+      if (vp.width === 320) {
+        // Three rows of 44px links, and little else: on phones the links' own padding is the only gap.
+        expect((await subNav.boundingBox())?.height ?? 0).toBeLessThanOrEqual(3 * 44 + 10);
+      }
       await noSidewaysScroll(page);
     });
 
@@ -180,6 +220,38 @@ for (const vp of [
       );
     });
 
+    test("Find an organiser opens Approved, from the URL; a search keeps focus in the box", async ({ page }) => {
+      const { organiserQueries } = await signedInAsAdmin(page);
+      await page.goto("/admin");
+      await page.getByRole("region", { name: "Manage" }).getByRole("link", { name: /^Find an organiser/ }).click();
+      await expect(page).toHaveURL(/\/admin\/organisers\?status=approved$/);
+      await expect(page.getByRole("button", { name: "Approved" })).toHaveAttribute("aria-pressed", "true", {
+        timeout: 30_000,
+      });
+      await expect(page.getByRole("heading", { level: 3, name: "Neon Collective" })).toBeVisible();
+      const box = page.getByRole("searchbox", { name: "Search by name, email or handle" });
+      await box.fill("neon");
+      await box.press("Enter");
+      await expect(page).toHaveURL(/\/admin\/organisers\?status=approved&q=neon$/);
+      await expect(page.getByText("Matching “neon”.", { exact: true })).toBeVisible();
+      await expect(box).toBeFocused();
+      expect(organiserQueries.at(-1)).toBe("?status=approved&q=neon");
+      await noSidewaysScroll(page);
+    });
+
+    test("an admin's door check-in leads back to the admin door list", async ({ page }) => {
+      await signedInAsAdmin(page);
+      await page.goto(`/dashboard/${event(3).eventId}/check-in`);
+      const back = page.getByRole("link", { name: "← Admin door list" });
+      await expect(back).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByRole("heading", { level: 1, name: "Event 3" })).toBeVisible();
+      await noSidewaysScroll(page);
+      await back.click();
+      await expect(page).toHaveURL(/\/admin\/events\?status=published&view=door$/);
+      await expect(page.getByRole("heading", { level: 2, name: /^Sheltüh-run events/ })).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByRole("link", { name: "Door check-in: Event 3" })).toBeVisible();
+    });
+
     test("Trending page: no sideways scrolling", async ({ page }) => {
       await signedInAsAdmin(page);
       await page.goto("/admin/trending");
@@ -192,6 +264,27 @@ for (const vp of [
 
 test.describe("approving by keyboard at 1280×900", () => {
   test.use({ viewport: { width: 1280, height: 900 } });
+
+  test("searching and clearing the search keep focus in the search box", async ({ page }) => {
+    const { listQueries } = await signedInAsAdmin(page);
+    await page.goto("/admin/events");
+    await expect(page.getByRole("heading", { level: 3, name: "Event 1" })).toBeVisible({ timeout: 30_000 });
+    const box = page.getByRole("searchbox", { name: "Search by title or organiser" });
+    await box.fill("event");
+    await box.press("Enter");
+    await expect(page).toHaveURL(/\/admin\/events\?q=event$/);
+    await expect(page.getByText("Matching “event”.", { exact: true })).toBeVisible();
+    await expect(box).toBeFocused();
+    expect(listQueries.at(-1)).toBe("?status=pending_review&q=event&upcoming=0");
+    // The same search again reloads the list.
+    const before = listQueries.length;
+    await box.press("Enter");
+    await expect.poll(() => listQueries.length).toBe(before + 1);
+    await page.getByRole("button", { name: "Clear search" }).first().click();
+    await expect(page).toHaveURL(/\/admin\/events$/);
+    await expect(box).toBeFocused();
+    await expect(box).toHaveValue("");
+  });
 
   test("asks first, then announces the result and moves focus to the next event; the counts follow", async ({ page }) => {
     await signedInAsAdmin(page);

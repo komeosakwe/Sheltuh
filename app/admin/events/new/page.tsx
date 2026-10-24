@@ -9,7 +9,7 @@ export default function AdminNewEventPage() {
     <AdminPage
       crumbs={[
         { href: "/admin", label: "Admin" },
-        { href: "/admin/events", label: "Event submissions" },
+        { href: "/admin/events", label: "Events" },
       ]}
       title="New event"
       intro="For any approved organiser, or a Sheltüh-run (platform-managed) organiser with no account of its own. Save it as a draft, or publish it straight away."

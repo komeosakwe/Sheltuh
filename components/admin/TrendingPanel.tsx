@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import MessageField from "@/components/messages/MessageField";
 import { Button } from "@/components/ui/Button";
 import { fieldClass } from "@/components/ui/Field";
@@ -58,14 +58,35 @@ type LoadState =
 
 type FieldErrors = { boost?: string; excluded?: string; reason?: string };
 
+/** This panel's name when it holds the page's sign-in form (see `reauthOwner`). */
+export const TRENDING_REAUTH_OWNER = "trending";
+
+/**
+ * Who shows the sign-in form after a session expired. InlineReauth's fields
+ * have fixed ids, so a page with another one (the admin edit page's event
+ * editor) shares one owner; without these props the panel always shows its own.
+ */
+interface ReauthProps {
+  reauthOwner?: string | null;
+  onClaimReauth?: (owner: string | null) => void;
+}
+
 /**
  * An event's Trending curation, on its admin edit page (id="trending"): a
  * boost (×0.5 to ×2, multiplying its trending score) and "Keep out of
  * Trending", each change with a reason (admins only see it), and the last 20
  * changes. A boost takes effect at the next trending refresh; keeping it out
- * hides it from the public list straight away.
+ * hides it from the public list straight away. An expired session, loading
+ * or saving, offers the sign-in form right here (when this panel holds it).
  */
-export default function TrendingPanel({ eventId, getToken }: { eventId: string; getToken: GetToken }) {
+export default function TrendingPanel({
+  eventId,
+  getToken,
+  reauthOwner,
+  onClaimReauth,
+}: { eventId: string; getToken: GetToken } & ReauthProps) {
+  const reauth = useReauthOwner({ reauthOwner, onClaimReauth });
+  const claimReauth = reauth.claim;
   const [attempt, setAttempt] = useState(0);
   const key = `${eventId}#${attempt}`;
   const [result, setResult] = useState<{ key: string; state: LoadState } | null>(null);
@@ -84,20 +105,27 @@ export default function TrendingPanel({ eventId, getToken }: { eventId: string; 
       },
       (err: unknown) => {
         if (cancelled) return;
+        const sessionExpired = err instanceof SessionExpiredError;
         setResult({
           key,
           state: {
             status: "error",
             message: actionErrorText(err, "Couldn’t load this event’s Trending settings. Try again."),
-            sessionExpired: err instanceof SessionExpiredError,
+            sessionExpired,
           },
         });
+        if (sessionExpired) claimReauth();
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [eventId, getToken, key]);
+  }, [eventId, getToken, key, claimReauth]);
+
+  function retry() {
+    reauth.release();
+    setAttempt((n) => n + 1);
+  }
 
   useEffect(() => {
     if (jumped.current || state.status !== "ready") return;
@@ -128,13 +156,13 @@ export default function TrendingPanel({ eventId, getToken }: { eventId: string; 
       {state.status === "error" && (
         <div className="flex flex-col items-start gap-3">
           {state.sessionExpired ? (
-            <AdminSessionExpired then="try again" withForm={false} onSignedIn={() => setAttempt((n) => n + 1)} />
+            <AdminSessionExpired then="try again" withForm={reauth.owned} onSignedIn={retry} />
           ) : (
             <Notice tone="danger" role="alert">
               {state.message}
             </Notice>
           )}
-          <Button variant="outline" size="sm" className="min-h-11" onClick={() => setAttempt((n) => n + 1)}>
+          <Button variant="outline" size="sm" className="min-h-11" onClick={retry}>
             Try again
           </Button>
         </div>
@@ -151,10 +179,30 @@ export default function TrendingPanel({ eventId, getToken }: { eventId: string; 
             );
           }}
           onEdit={() => setSaved("")}
+          reauth={reauth}
         />
       )}
     </section>
   );
+}
+
+interface Reauth {
+  /** This panel shows the sign-in form. */
+  owned: boolean;
+  claim: () => void;
+  /** Gives the form up, if this panel has it. */
+  release: () => void;
+}
+
+/** The panel's share of the page's one sign-in form; on its own (no props) it always has it. */
+function useReauthOwner({ reauthOwner, onClaimReauth }: ReauthProps): Reauth {
+  const shared = onClaimReauth !== undefined;
+  const owned = !shared || reauthOwner === TRENDING_REAUTH_OWNER;
+  const claim = useCallback(() => onClaimReauth?.(TRENDING_REAUTH_OWNER), [onClaimReauth]);
+  const release = useCallback(() => {
+    if (reauthOwner === TRENDING_REAUTH_OWNER) onClaimReauth?.(null);
+  }, [reauthOwner, onClaimReauth]);
+  return { owned, claim, release };
 }
 
 function CurationForm({
@@ -163,6 +211,7 @@ function CurationForm({
   getToken,
   onSaved,
   onEdit,
+  reauth,
 }: {
   eventId: string;
   curation: EventCuration;
@@ -170,6 +219,7 @@ function CurationForm({
   onSaved: (curation: EventCuration) => void;
   /** A save was started: the last "Saved" line no longer applies. */
   onEdit: () => void;
+  reauth: Reauth;
 }) {
   const [boost, setBoost] = useState(curation.boost);
   const [excluded, setExcluded] = useState(curation.excluded);
@@ -191,7 +241,10 @@ function CurationForm({
     event.preventDefault();
     if (busy) return;
     setError(null);
-    setExpired(false);
+    if (expired) {
+      setExpired(false);
+      reauth.release();
+    }
     onEdit();
     if (!changed) {
       setError("Nothing has changed: pick another boost, or change “Keep out of Trending”, first.");
@@ -225,6 +278,7 @@ function CurationForm({
         else setError(err.message);
       } else if (err instanceof SessionExpiredError) {
         setExpired(true);
+        reauth.claim();
       } else {
         setError(actionErrorText(err, "Couldn’t save. Try again."));
       }
@@ -312,7 +366,16 @@ function CurationForm({
             {error}
           </Notice>
         )}
-        {expired && <AdminSessionExpired then="save again" onSignedIn={() => setExpired(false)} />}
+        {expired && (
+          <AdminSessionExpired
+            then="save again"
+            withForm={reauth.owned}
+            onSignedIn={() => {
+              setExpired(false);
+              reauth.release();
+            }}
+          />
+        )}
 
         <Button type="submit" variant="solid" size="sm" className="min-h-11 w-fit" busy={busy}>
           {busy ? "Saving…" : "Save Trending settings"}

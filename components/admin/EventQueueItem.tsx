@@ -37,15 +37,15 @@ type Action = "approve" | "reject" | "unpublish";
  * its tickets with the all-inclusive prices buyers will see (lib/pricing.ts),
  * its seat map, and the actions for its status. Approve and Unpublish ask
  * first, saying what will happen; Reject asks for the reason the organiser
- * will see. `onRemoved` is called when it leaves the list (or turns out to
- * have left it already), with what to announce.
+ * will see. An event that has ended can't be unpublished from here (there's
+ * nothing left to take offline). `onRemoved` is called when it leaves the
+ * list (or turns out to have left it already), with what to announce.
  */
 export default function EventQueueItem({
   item,
   listStatus,
   getToken,
   onRemoved,
-  headingDescribedBy,
   reauthOwner,
   onClaimReauth,
   now,
@@ -55,7 +55,6 @@ export default function EventQueueItem({
   listStatus: EventStatus;
   getToken: GetToken;
   onRemoved: (item: AdminEventRecord, message: string) => void;
-  headingDescribedBy?: string;
   /** Who shows the sign-in form after a session expired (only one may). */
   reauthOwner: string | null;
   onClaimReauth: (owner: string | null) => void;
@@ -75,7 +74,6 @@ export default function EventQueueItem({
           <h3
             id={headingId}
             tabIndex={-1}
-            aria-describedby={headingDescribedBy}
             className="font-sans text-base font-semibold normal-case tracking-normal break-words outline-offset-2"
           >
             {item.title}
@@ -330,9 +328,14 @@ function Actions({
   const reviewing = listStatus === "pending_review";
   const published = listStatus === "published";
   const door = published && !ended && hasAdminDoor(item);
+  /** A Sheltüh-run event sold elsewhere: listed with the Sheltüh-run events, but there's no door here to run. */
+  const noDoor = published && !ended && item.organiserPlatformManaged && item.ticketingMode === "external";
 
   return (
     <div className="flex flex-col gap-3 border-t border-surface-border pt-3">
+      {noDoor && !open && (
+        <p className="text-sm text-muted">No door check-in here: tickets are sold on another site.</p>
+      )}
       {open === "reject" && (
         <MessageField
           id={ids.reason}
@@ -446,7 +449,7 @@ function Actions({
             <Link href={editHref} aria-label={`Edit ${item.title}`} className={buttonClass("outline", "sm", "min-h-11")}>
               Edit
             </Link>
-            {published && (
+            {published && !ended && (
               <Button
                 id={ids.unpublish}
                 variant="outline"

@@ -5,6 +5,9 @@ import EmailOutbox from "@/components/admin/EmailOutbox";
 import { ApiError } from "@/lib/api/client";
 import type { AdminEmailJob } from "@/lib/api/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { fakeUrl } from "./test-utils/fakeUrl";
+
+vi.mock("next/navigation", async () => (await import("./test-utils/fakeUrl")).fakeNavigation);
 
 vi.mock("@/lib/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/client")>()),
@@ -18,6 +21,8 @@ vi.mock("@/lib/api/admin", () => ({
 }));
 
 beforeEach(() => {
+  fakeUrl.set("");
+  fakeUrl.replace.mockReset();
   adminListEmailJobs.mockReset();
   adminResendEmailJob.mockReset();
 });
@@ -60,7 +65,7 @@ describe("EmailOutbox", () => {
 
     fireEvent.click(within(item).getByRole("button", { name: "Resend now" }));
     expect(await screen.findByRole("status")).toHaveTextContent(
-      "Resending the email for order #7C1F2E0A. It’s moved to Retrying.",
+      "Resending the email for order #7C1F2E0A. It’s moved to Retrying automatically.",
     );
     expect(adminResendEmailJob).toHaveBeenCalledWith("7", expect.any(Function));
     // It's no longer failed, so it leaves the Failed list rather than sitting there as "Retrying".
@@ -86,8 +91,8 @@ describe("EmailOutbox", () => {
     adminListEmailJobs.mockResolvedValue({ items: [job({ status: "pending", lastError: "timeout" })] });
     adminResendEmailJob.mockResolvedValue(job({ status: "pending", attempts: 0, lastError: undefined }));
     renderOutbox();
-    // Switch to the Retrying view, then resend from it.
-    fireEvent.click(await screen.findByRole("button", { name: "Retrying" }));
+    // Switch to the Retrying automatically view, then resend from it.
+    fireEvent.click(await screen.findByRole("button", { name: "Retrying automatically" }));
     const item = (await screen.findByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).closest("article")!;
     expect(within(item).getByText("timeout")).toBeInTheDocument();
     fireEvent.click(within(item).getByRole("button", { name: "Resend now" }));
@@ -114,5 +119,42 @@ describe("EmailOutbox", () => {
     expect(screen.getByRole("button", { name: "Sent" }).querySelector("[data-selected-dots]")).not.toBeNull();
     expect(await screen.findByRole("heading", { name: "Sent ticket emails" })).toBeInTheDocument();
     expect(adminListEmailJobs).toHaveBeenLastCalledWith("sent", expect.any(Function));
+    expect(fakeUrl.replace).toHaveBeenLastCalledWith("/admin/emails?status=sent", { scroll: false });
+  });
+
+  it("opens on the URL's filter, with plain labels for what's happening to each email", async () => {
+    fakeUrl.set("status=sending");
+    adminListEmailJobs.mockResolvedValue({ items: [] });
+    renderOutbox();
+    expect(await screen.findByRole("heading", { name: "Ticket emails sending now" })).toBeInTheDocument();
+    expect(adminListEmailJobs).toHaveBeenCalledWith("sending", expect.any(Function));
+    const group = screen.getByRole("group", { name: "Show emails" });
+    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "Failed",
+      "Retrying automatically",
+      "Sending now",
+      "Sent",
+    ]);
+    expect(within(group).getByRole("button", { name: "Sending now" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("a Load more answering after the filter changed doesn't replace the new list", async () => {
+    let finishMore: (page: { items: AdminEmailJob[] }) => void = () => {};
+    adminListEmailJobs.mockImplementation(async (status: string, _getToken: unknown, cursor?: string) => {
+      if (cursor) return new Promise((resolve) => (finishMore = resolve));
+      return status === "failed"
+        ? { items: [job()], nextCursor: "c1" }
+        : { items: [job({ jobId: "9", status: "sent", orderReference: "#9E3B4C2D" })] };
+    });
+    renderOutbox();
+    await screen.findByRole("heading", { name: "Order #7C1F2E0A: Neon Static" });
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sent" }));
+    await screen.findByRole("heading", { name: "Order #9E3B4C2D: Neon Static" });
+    finishMore({ items: [job({ jobId: "8", orderReference: "#8D2A3B1C" })] });
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Sent ticket emails" })).toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "Order #9E3B4C2D: Neon Static" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Order #8D2A3B1C: Neon Static" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).toBeNull();
   });
 });

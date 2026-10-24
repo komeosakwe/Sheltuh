@@ -7,7 +7,10 @@ import type { EventStatus } from "@/lib/api/types";
  * to, survives a refresh, and the hub and sub-nav can point at it.
  */
 
-/** Which published events: not ended, Sheltüh-run ones for the door, or every one (past included). */
+/**
+ * Which published events: not ended, Sheltüh-run ones (not ended; where
+ * admins find the doors they run), or every one (past included).
+ */
 export type PublishedView = "upcoming" | "door" | "all";
 
 export interface EventQueueFilters {
@@ -20,6 +23,13 @@ export interface EventQueueFilters {
 
 export const EVENT_QUEUE_PATH = "/admin/events";
 
+/**
+ * The published Sheltüh-run view, where admins find the events whose door
+ * they run (docs/architecture.md, "Check-in"): the hub's Door check-in card,
+ * and the way back from an admin's door check-in.
+ */
+export const DOOR_EVENTS_HREF = `${EVENT_QUEUE_PATH}?status=published&view=door`;
+
 /** In the order they're offered, with plain labels (not the API's status names). */
 export const EVENT_STATUSES: { value: EventStatus; label: string }[] = [
   { value: "pending_review", label: "Waiting for review" },
@@ -30,7 +40,7 @@ export const EVENT_STATUSES: { value: EventStatus; label: string }[] = [
 
 export const PUBLISHED_VIEWS: { value: PublishedView; label: string }[] = [
   { value: "upcoming", label: "Upcoming" },
-  { value: "door", label: "Sheltüh-run, for door check-in" },
+  { value: "door", label: "Sheltüh-run" },
   { value: "all", label: "All, past included" },
 ];
 
@@ -66,7 +76,13 @@ export function eventQueueHref(filters: EventQueueFilters): string {
   return query ? `${EVENT_QUEUE_PATH}?${query}` : EVENT_QUEUE_PATH;
 }
 
-/** What the API is asked for: ended events too, except in the published Upcoming and door views. */
+/**
+ * What the API is asked for: ended events too, except in the published
+ * Upcoming and Sheltüh-run views. The Sheltüh-run view asks for every
+ * platform-managed organiser's event, externally ticketed ones included
+ * (there's no ticketing filter, and filtering pages here would leave gaps);
+ * only Sheltüh-ticketed ones offer Door check-in (EventQueueItem, hasAdminDoor).
+ */
 export function eventQueueQuery(filters: EventQueueFilters, cursor?: string): AdminListEventsQuery {
   const query: AdminListEventsQuery = { status: filters.status, upcoming: false };
   if (filters.status === "published" && filters.view !== "all") query.upcoming = true;
@@ -116,12 +132,12 @@ export function eventQueueWords(filters: EventQueueFilters): ListWords {
     case "published":
       if (filters.view === "door") {
         return {
-          heading: "Sheltüh-run events, for door check-in",
-          one: "Sheltüh-run event coming up",
-          many: "Sheltüh-run events coming up",
-          emptyTitle: "No Sheltüh-run events coming up",
+          heading: "Sheltüh-run events",
+          one: "upcoming Sheltüh-run event",
+          many: "upcoming Sheltüh-run events",
+          emptyTitle: "No upcoming Sheltüh-run events",
           emptyText:
-            "Admins check tickets in only for events of Sheltüh-run (platform-managed) organisers. Organisers run their own doors.",
+            "Events of Sheltüh-run (platform-managed) organisers appear here until they end. Admins run the door for the ones ticketed on Sheltüh; organisers run their own doors.",
         };
       }
       if (filters.view === "all") {

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Button, buttonClass } from "@/components/ui/Button";
 import { fieldClass } from "@/components/ui/Field";
 import { SelectedDots } from "@/components/ui/FilterChip";
@@ -35,8 +35,6 @@ type LoadState =
 
 type MoreError = { message: string } | { sessionExpired: true };
 
-/** The visible result of the last action; the heading that takes focus next is described by it. */
-const ANNOUNCEMENT_ID = "events-announcement";
 const HEADING_ID = "events-heading";
 const SEARCH_ID = "events-search";
 
@@ -53,16 +51,20 @@ export function loadedMessage(filters: EventQueueFilters, items: number, more: b
  * (event-queue-filters.ts). Published events show upcoming ones by default,
  * with views for Sheltüh-run events (door check-in) and for every event,
  * past included. A search box finds a title or organiser in the current
- * status. After Approve, Reject or Unpublish the event leaves the list, a
- * status line says what happened, and focus moves to the next event's
- * heading (or the list's heading when it was the last).
+ * status; searching (or clearing it) keeps focus in the search box, and
+ * searching for the same words again reloads. After Approve, Reject or
+ * Unpublish the event leaves the list, a status line says what happened
+ * (announced once, by that live region), and focus moves to the next
+ * event's heading (or the list's heading when it was the last). A Load more
+ * that finishes after the list changed (a filter, a search, Try again) is
+ * dropped: it belongs to a list that's gone.
  */
 export default function EventQueue() {
   const auth = useAuth();
   const getToken = auth.getAccessToken;
   const router = useRouter();
   const searchParams = useSearchParams();
-  const filters = readEventQueueFilters(searchParams);
+  const filters = useMemo(() => readEventQueueFilters(searchParams), [searchParams]);
   const adminSummary = useAdminSummary();
   const doorSoon = adminSummary?.summary?.doorEvents;
 
@@ -74,14 +76,25 @@ export default function EventQueue() {
   const [moreError, setMoreError] = useState<MoreError | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [loadAnnouncement, setLoadAnnouncement] = useState("");
-  const [describedFocus, setDescribedFocus] = useState<string | null>(null);
   const [reauthOwner, setReauthOwner] = useState<string | null>(null);
+  /** The search box's text while it's being typed, for the search it was typed against. */
+  const [typed, setTyped] = useState<{ q: string; value: string } | null>(null);
+  const searchValue = typed && typed.q === filters.q ? typed.value : filters.q;
   /** When "ended" is judged from; set per load so rows don't flip while being read. */
   const [now, setNow] = useState(() => Date.now());
   const headingRef = useRef<HTMLHeadingElement>(null);
   const pendingFocus = useRef<string | null>(null);
   /** The next load finishing is announced (a filter or search the admin asked for). */
   const announceLoad = useRef(false);
+  /**
+   * The list on screen: replaced whenever another one is asked for, so a Load
+   * more started on an earlier list can tell it no longer applies.
+   */
+  const listToken = useRef<object>({});
+
+  useEffect(() => {
+    listToken.current = {};
+  }, [key]);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,9 +124,7 @@ export default function EventQueue() {
     return () => {
       cancelled = true;
     };
-    // `key` covers every filter and retry; `filters` is rebuilt from the URL on each render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, getToken]);
+  }, [filters, key, getToken]);
 
   useEffect(() => {
     const target = pendingFocus.current;
@@ -124,14 +135,20 @@ export default function EventQueue() {
     element.focus();
   });
 
+  /** Another list (or the same one again): whatever the last list had going no longer applies. */
   function show(next: EventQueueFilters) {
+    listToken.current = {};
+    pendingFocus.current = null;
     announceLoad.current = true;
+    setLoadingMore(false);
     setAnnouncement("");
     setLoadAnnouncement("");
-    setDescribedFocus(null);
     setMoreError(null);
     setReauthOwner(null);
-    router.replace(eventQueueHref(next), { scroll: false });
+    const href = eventQueueHref(next);
+    // The same filters (the same search submitted again): the URL won't change, so load again.
+    if (href === eventQueueHref(filters)) setAttempt((n) => n + 1);
+    else router.replace(href, { scroll: false });
   }
 
   function setItems(change: (items: AdminEventRecord[]) => AdminEventRecord[], nextCursor?: string | null) {
@@ -158,11 +175,13 @@ export default function EventQueue() {
     setAnnouncement(message);
     if (reauthOwner === item.eventId) setReauthOwner(null);
     pendingFocus.current = next ? eventHeadingId(next.eventId) : HEADING_ID;
-    setDescribedFocus(next ? next.eventId : HEADING_ID);
     adminSummary?.refresh();
   }
 
   function retryLoad() {
+    listToken.current = {};
+    pendingFocus.current = null;
+    setLoadingMore(false);
     announceLoad.current = true;
     setLoadAnnouncement("");
     setAttempt((n) => n + 1);
@@ -170,16 +189,19 @@ export default function EventQueue() {
 
   async function loadMore() {
     if (state.status !== "ready" || !state.nextCursor || loadingMore) return;
+    const token = listToken.current;
     setLoadingMore(true);
     setMoreError(null);
     if (reauthOwner === "more") setReauthOwner(null);
     try {
       const page = await adminListEvents(eventQueueQuery(filters, state.nextCursor), getToken);
+      if (token !== listToken.current) return;
       const known = new Set(state.items.map((i) => i.eventId));
       const fresh = page.items.filter((i) => !known.has(i.eventId));
       setItems((current) => [...current, ...fresh], page.nextCursor ?? null);
       if (fresh[0]) pendingFocus.current = eventHeadingId(fresh[0].eventId);
     } catch (err) {
+      if (token !== listToken.current) return;
       if (err instanceof SessionExpiredError) {
         setMoreError({ sessionExpired: true });
         setReauthOwner("more");
@@ -187,14 +209,20 @@ export default function EventQueue() {
         setMoreError({ message: actionErrorText(err, "Couldn’t load more events. Try again.") });
       }
     } finally {
-      setLoadingMore(false);
+      if (token === listToken.current) setLoadingMore(false);
     }
+  }
+
+  /** Searches (or clears the search), keeping focus in the search box: the button pressed may be gone. */
+  function showSearch(q: string) {
+    setTyped(null);
+    show({ ...filters, q: q.trim().slice(0, EVENT_SEARCH_MAX) });
+    pendingFocus.current = SEARCH_ID;
   }
 
   function search(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const value = new FormData(event.currentTarget).get("q");
-    show({ ...filters, q: typeof value === "string" ? value.trim().slice(0, EVENT_SEARCH_MAX) : "" });
+    showSearch(searchValue);
   }
 
   const words = eventQueueWords(filters);
@@ -209,7 +237,7 @@ export default function EventQueue() {
           {hoursText(doorSoon.windowHours)}, and admins run their door.{" "}
           <Link
             href={eventQueueHref({ status: "published", view: "door", q: "" })}
-            className="inline-flex min-h-6 items-center font-semibold underline underline-offset-4"
+            className="inline-flex min-h-11 items-center font-semibold underline underline-offset-4"
           >
             Open the door check-in list
           </Link>
@@ -250,9 +278,8 @@ export default function EventQueue() {
           </div>
         )}
 
-        {/* Remounted when the URL's search changes, so the box always shows what's searched. */}
+        {/* Not remounted when the search changes (focus stays put); the box shows the URL's search until typed in. */}
         <form
-          key={filters.q}
           role="search"
           aria-label="Events"
           onSubmit={search}
@@ -266,7 +293,8 @@ export default function EventQueue() {
               id={SEARCH_ID}
               name="q"
               type="search"
-              defaultValue={filters.q}
+              value={searchValue}
+              onChange={(e) => setTyped({ q: filters.q, value: e.target.value })}
               maxLength={EVENT_SEARCH_MAX}
               autoComplete="off"
               className={fieldClass}
@@ -276,7 +304,7 @@ export default function EventQueue() {
             Search
           </Button>
           {filters.q && (
-            <Button variant="outline" size="sm" className="min-h-11" onClick={() => show({ ...filters, q: "" })}>
+            <Button variant="outline" size="sm" className="min-h-11" onClick={() => showSearch("")}>
               Clear search
             </Button>
           )}
@@ -284,7 +312,7 @@ export default function EventQueue() {
       </div>
 
       {/* Always rendered so each result is announced; empty, it takes no space. */}
-      <p id={ANNOUNCEMENT_ID} role="status" className="border-l-2 border-foreground py-1 pl-4 text-sm empty:sr-only">
+      <p role="status" className="border-l-2 border-foreground py-1 pl-4 text-sm empty:sr-only">
         {announcement}
       </p>
       <p role="status" className="sr-only">
@@ -296,7 +324,6 @@ export default function EventQueue() {
           id={HEADING_ID}
           ref={headingRef}
           tabIndex={-1}
-          aria-describedby={describedFocus === HEADING_ID && announcement ? ANNOUNCEMENT_ID : undefined}
           className="display-md !text-2xl outline-offset-2"
         >
           {words.heading}
@@ -310,6 +337,11 @@ export default function EventQueue() {
             </>
           )}
         </h2>
+        {doorView && (
+          <p className="mt-2 text-sm text-muted">
+            Admins run the door only for the ones ticketed on Sheltüh: those have a Door check-in button.
+          </p>
+        )}
         {filters.q && <p className="mt-2 text-sm text-muted">Matching “{filters.q}”.</p>}
 
         <div className="mt-4">
@@ -336,7 +368,7 @@ export default function EventQueue() {
               <EmptyState
                 title={`Nothing matches “${filters.q}”`}
                 action={
-                  <Button variant="outline" size="sm" className="min-h-11" onClick={() => show({ ...filters, q: "" })}>
+                  <Button variant="outline" size="sm" className="min-h-11" onClick={() => showSearch("")}>
                     Clear search
                   </Button>
                 }
@@ -367,7 +399,6 @@ export default function EventQueue() {
                   listStatus={filters.status}
                   getToken={getToken}
                   onRemoved={removed}
-                  headingDescribedBy={describedFocus === item.eventId && announcement ? ANNOUNCEMENT_ID : undefined}
                   reauthOwner={reauthOwner}
                   onClaimReauth={setReauthOwner}
                   now={now}

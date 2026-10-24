@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import { adminGetSummary } from "@/lib/api/admin";
 import { ApiError } from "@/lib/api/client";
 import type { AdminSummary } from "@/lib/api/types";
@@ -15,6 +15,8 @@ export interface AdminSummaryContextValue {
   summary: AdminSummary | null;
   /** The last check failed (the counts shown, if any, may be out of date). */
   failed: boolean;
+  /** The API said this account isn't an admin (403): no counts will come, and checking has stopped. */
+  denied: boolean;
   /** Checks again now: after an admin action changes a count. */
   refresh: () => void;
 }
@@ -29,8 +31,11 @@ type Result = { key: string; summary: AdminSummary | null; failed: boolean; deni
  * badge, the admin sub-nav and the admin hub. It sits in the root layout
  * (the main nav is there), but only ever fetches for a signed-in admin with
  * accounts configured: never in the demo, never for members. Every 60s while
- * the page is visible, like the unread count. A 401/403 (no longer an admin)
- * stops it; other failures keep the last counts and set `failed`.
+ * the page is visible, like the unread count. A 403 (no longer an admin)
+ * stops it and sets `denied`; any other failure, a 401 (signed out
+ * elsewhere, or a token being refreshed) included, keeps the last counts,
+ * sets `failed` and tries again next time. Only the latest check may set the
+ * counts: a slower, older one finishing last is ignored.
  */
 export function AdminSummaryProvider({ children }: { children: ReactNode }) {
   const auth = useOptionalAuth();
@@ -41,14 +46,19 @@ export function AdminSummaryProvider({ children }: { children: ReactNode }) {
   const [result, setResult] = useState<Result | null>(null);
   const current = result?.key === key ? result : null;
   const denied = current?.denied ?? false;
+  /** Numbers each check; only the newest one's answer is kept. */
+  const latest = useRef(0);
 
   const load = useCallback(async () => {
     if (!isAdmin || !getToken) return;
+    const request = ++latest.current;
     try {
       const summary = await adminGetSummary(getToken);
+      if (request !== latest.current) return;
       setResult({ key, summary, failed: false, denied: false });
     } catch (err) {
-      const deniedNow = err instanceof ApiError && (err.status === 401 || err.status === 403);
+      if (request !== latest.current) return;
+      const deniedNow = err instanceof ApiError && err.status === 403;
       setResult((prev) => ({
         key,
         summary: deniedNow ? null : prev?.key === key ? prev.summary : null,
@@ -68,9 +78,10 @@ export function AdminSummaryProvider({ children }: { children: ReactNode }) {
     () => ({
       summary: isAdmin ? (current?.summary ?? null) : null,
       failed: isAdmin ? (current?.failed ?? false) : false,
+      denied: isAdmin ? denied : false,
       refresh,
     }),
-    [isAdmin, current, refresh],
+    [isAdmin, current, denied, refresh],
   );
   return <AdminSummaryContext.Provider value={value}>{children}</AdminSummaryContext.Provider>;
 }
