@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import EventCard, { EventCardPlaceholder } from "@/components/ui/EventCard";
 import { Notice } from "@/components/ui/Section";
 import { formatWeekendRange } from "@/lib/home-sections";
+import { titleText, WEEKEND_TITLE } from "./home-content";
 import { useHomeEvents } from "./HomeEventsProvider";
 import { HOME_CONTAINER, HomeRailItem, isPairRail, RAIL_SKELETON } from "./HomeRail";
 import HomeRailSection from "./HomeRailSection";
@@ -118,7 +119,8 @@ export default function HomeEventSections() {
       {weekend && (
         <HomeRailSection
           id="home-weekend"
-          title="This weekend"
+          title={titleText(WEEKEND_TITLE)}
+          dottedTitle={WEEKEND_TITLE}
           note={formatWeekendRange(weekend.window)}
           // /events isn't filtered to the weekend, so the link says where it goes.
           link={weekend.status === "cards" ? { href: "/events", label: "All events" } : undefined}

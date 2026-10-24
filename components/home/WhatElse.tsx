@@ -61,7 +61,7 @@ export default function WhatElse({ className = "" }: { className?: string }) {
         ))}
       </div>
       <div className="lg:col-span-6 lg:col-start-7">
-        <h2 id="home-what-else" className="display-lg">
+        <h2 id="home-what-else" className="display-lg display-plain">
           What else?
         </h2>
         <ul className="mt-6 flex flex-col gap-6 sm:mt-8 sm:gap-8">

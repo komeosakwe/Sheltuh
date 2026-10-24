@@ -112,7 +112,7 @@ describe("HomeHero (mobile-redesign.md §6.1)", () => {
   // phone's first screen.
   it("has the eyebrow (the page's one use of the brand dots) and one short sentence", () => {
     const { container } = render(<HomeHero />);
-    expect(screen.getByText("Melbourne • What’s on")).toHaveClass("eyebrow");
+    expect(screen.getByText("What’s on near you")).toHaveClass("eyebrow");
     // Owner (23 Oct 2026, layout polish): these words, muted, at every width (no longer hidden on phones).
     expect(HOME_INTRO).toBe("Music, art and pop-ups. See who’s going.");
     const intro = screen.getByText(HOME_INTRO);
@@ -394,5 +394,24 @@ describe("GuideCard and CreatorsCard", () => {
     expect(cta).toHaveAttribute("href", "/organisers/apply");
     expect(cta).toHaveClass("btn-outline");
     expect(container.querySelector("[data-surface='ink']")).not.toBeNull();
+  });
+});
+
+describe("section title dots (owner, 24 Oct 2026)", () => {
+  it("This weekend dots exactly one letter, and its text and name stay plain", async () => {
+    const { titleText, titleParts, WEEKEND_TITLE } = await import("@/components/home/home-content");
+    expect(titleText(WEEKEND_TITLE)).toBe("This weekend");
+    expect(titleParts(WEEKEND_TITLE).filter((p) => p.dotted).map((p) => p.text)).toEqual(["i"]);
+  });
+});
+
+describe("SectionHead dottedTitle", () => {
+  it("draws only the marked letter in the dotted face; the h2's name stays plain", () => {
+    render(<SectionHead id="w" title="This weekend" dottedTitle="Th^is weekend" />);
+    const h2 = screen.getByRole("heading", { level: 2, name: "This weekend" });
+    const dots = h2.querySelectorAll("[data-dotted-letter]");
+    expect([...dots].map((el) => el.textContent)).toEqual(["i"]);
+    expect(dots[0]).toHaveClass("font-dots");
+    expect(h2.textContent).toBe("This weekend");
   });
 });

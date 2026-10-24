@@ -301,7 +301,7 @@ h4 {
 /* Section h2 and empty-state titles (docs/design/mobile-redesign.md, Refinement 22 Oct): calm,
    sentence case, 20/24, 22/28 from sm, 24/30 from lg. Only a page's main headline is uppercase. */
 @utility display-md {
-  font-family: var(--face-dots);
+  font-family: var(--face-sans);
   font-weight: 700;
   font-size: 1.25rem;
   line-height: 1.5rem;
@@ -347,6 +347,11 @@ h4 {
      plain face, with only its `font-dots` letters dotted (HOME_TITLE_LINES in
      components/home/home-content.ts). Three classes, so it wins over the rule above. */
   .display-lg.font-display.display-plain {
+    font-family: var(--face-sans);
+  }
+  /* Any other display-lg title in plain words (owner, 24 Oct 2026: section titles are normal
+     words), e.g. the home's "What else?". */
+  .display-lg.display-plain {
     font-family: var(--face-sans);
   }
 }

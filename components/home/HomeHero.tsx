@@ -57,7 +57,7 @@ export default function HomeHero() {
           <div className="min-w-0 flex-1">
             <p className="eyebrow flex items-center gap-2 text-muted">
               <DotsMark size="xs" className="text-signal" />
-              Melbourne • What’s on
+              What’s on near you
             </p>
             <h1 id="home-title" className="display-lg mt-2 font-display display-plain sm:mt-3">
               {/* The literal space keeps the accessible name "Find your next thing.". */}

@@ -35,6 +35,7 @@ const SURELY_OVERFLOWS = 5;
 export default function HomeRailSection({
   id,
   title,
+  dottedTitle,
   note,
   link,
   count,
@@ -45,6 +46,8 @@ export default function HomeRailSection({
   /** The h2's id; the rail is `${id}-rail`. */
   id: string;
   title: string;
+  /** The title with a `^`-marked dotted letter, for the h2 only (`SectionHead`). */
+  dottedTitle?: string;
   note?: string;
   link?: { href: string; label?: string; srLabel?: string };
   /** How many cards the rail holds (for the server render's arrows). */
@@ -67,6 +70,7 @@ export default function HomeRailSection({
         <SectionHead
           id={id}
           title={title}
+          dottedTitle={dottedTitle}
           note={note}
           link={link}
           actions={

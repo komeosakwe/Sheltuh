@@ -39,8 +39,12 @@ test("only the headlines render in the dotted face; body, fields and mono stay p
     { text: "i", upper: "uppercase" },
   ]);
   // instrumentDots: the CSS family of Instrument Sans Dots (app/fonts.ts), then the plain face.
-  // Section titles (display-md) are dotted; running text, cards and buttons are plain.
-  expect(await fontFamily(page, "main h2")).toMatch(/^"?instrumentDots"?, /);
+  // Section titles (display-md) are plain words (owner, 24 Oct 2026); "This weekend" dots one letter.
+  // (This test's data has no weekend events, so This weekend's one dot is covered in jsdom.)
+  expect(await fontFamily(page, "main h2")).toMatch(/^"Instrument Sans", /);
+  expect(await fontFamily(page, "#home-what-else")).toMatch(/^"Instrument Sans", /);
+  expect(await page.locator("main h2 [data-dotted-letter]").count()).toBeLessThanOrEqual(1);
+  expect(await fontFamily(page, "#home-creators")).toMatch(/^"Instrument Sans", /);
   expect(await fontFamily(page, "body")).toMatch(/^"Instrument Sans", /);
   expect(await fontFamily(page, "main p:not(.eyebrow)")).toMatch(/^"Instrument Sans", /);
   expect(await fontFamily(page, "main h3")).toMatch(/^"Instrument Sans", /);

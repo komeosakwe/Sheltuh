@@ -43,6 +43,12 @@ export function titleParts(line: string): TitlePart[] {
   return parts;
 }
 
+/**
+ * "This weekend" with one dotted letter (owner, 24 Oct 2026: section titles are plain words, this
+ * one keeps a single special character). Move the `^` to dot a different letter.
+ */
+export const WEEKEND_TITLE = "Th^is weekend";
+
 /** A title line as plain text, without its dot marks. */
 export const titleText = (line: string) => line.split(DOT_MARK).join("");
 
@@ -109,13 +115,13 @@ export const HOME_WHAT_ELSE: readonly (HomeArt & { title: string; note: string }
     poster: { pattern: "rings", background: "#000000", primary: "#fffae7", secondary: "#ff4800" },
   },
   {
-    title: "The price you see is the price you pay",
-    note: "Booking fees shown up front.",
+    title: "Only the good stuff",
+    note: "Hand-picked music, art and pop-ups worth leaving the house for.",
     poster: { pattern: "halftone", background: "#ff4800", primary: "#000000", secondary: "#000000" },
   },
   {
-    title: "Free events stay free",
-    note: "No fee on free tickets.",
+    title: "See who’s going",
+    note: "Ticket holders can show they’re going. Make a free profile to see who.",
     poster: { pattern: "waves", background: "#fffae7", primary: "#000000", secondary: "#ff4800" },
   },
 ];

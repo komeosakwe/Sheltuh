@@ -42,14 +42,14 @@ describe("WhatElse", () => {
     expect(within(region).getByRole("heading", { level: 2 })).toHaveClass("display-lg");
     expect(within(region).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual([
       "Every event reviewed by a person",
-      "The price you see is the price you pay",
-      "Free events stay free",
+      "Only the good stuff",
+      "See who’s going",
     ]);
     for (const h3 of within(region).getAllByRole("heading", { level: 3 })) expect(h3).toHaveClass("uppercase");
     expect(items().map((li) => li.querySelector("p")?.textContent)).toEqual([
       "Curated, not scraped.",
-      "Booking fees shown up front.",
-      "No fee on free tickets.",
+      "Hand-picked music, art and pop-ups worth leaving the house for.",
+      "Ticket holders can show they’re going. Make a free profile to see who.",
     ]);
   });
 

@@ -125,7 +125,7 @@ for (const width of [375, 390, 768, 1280, 1440]) {
       await page.goto("/");
       const hero = page.getByRole("region", { name: "Find your next thing." });
       await expect(hero.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
-      await expect(hero.getByText("Melbourne • What’s on")).toBeVisible();
+      await expect(hero.getByText("What’s on near you")).toBeVisible();
       // The intro line at every width (owner, 23 Oct 2026, layout polish), muted, under the h1 and above the search.
       const intro = hero.getByText(HOME_INTRO);
       await expect(intro).toBeVisible();
