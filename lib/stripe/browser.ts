@@ -35,3 +35,16 @@ export function getStripe(): Promise<Stripe | null> {
   }
   return stripePromise;
 }
+
+/**
+ * Starts loading Stripe.js early (the payment page calls it at mount, beside
+ * its first GET), so the form doesn't wait for the order's answer first. It's
+ * the same memoised load: the form's own getStripe() shares it rather than
+ * injecting the script again. A failure isn't reported here: a failed load
+ * isn't kept (above), so the form's getStripe() either shares the failing
+ * load or, once it has failed, tries again, and shows its own alert (with
+ * "Try again") if that fails too.
+ */
+export function preloadStripe(): void {
+  getStripe().catch(() => undefined);
+}

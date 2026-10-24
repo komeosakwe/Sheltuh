@@ -182,6 +182,8 @@ for (const vp of [
         timeout: 60_000,
       });
       await expect(page.getByRole("link", { name: "Browse events" })).toHaveAttribute("href", "/");
+      // Not even a preconnect to Stripe.js.
+      await expect(page.locator('link[href*="stripe.com"]')).toHaveCount(0);
       await noSidewaysScroll(page);
       await page.waitForLoadState("networkidle");
       expect(stripeRequests).toEqual([]);

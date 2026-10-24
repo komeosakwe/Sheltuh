@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import TicketStub from "@/components/tickets/TicketStub";
-import { ButtonLink } from "@/components/ui/Button";
+import { ButtonLink, buttonClass } from "@/components/ui/Button";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 import Strap from "@/components/ui/Strap";
 import { ApiError } from "@/lib/api/client";
@@ -223,14 +223,15 @@ export default function CheckoutConfirmation() {
         title="Payment not completed"
         actions={
           <div className="mt-3 flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
-            <ButtonLink
-              variant="solid"
-              size="lg"
+            {/* A plain link, not next/link: a full page load, so the payment page gets its own document with
+                its Content Security Policy (proxy.ts sets it on the document's response only). Arriving, the
+                browser reads the new page's title, and focus starts at the top of the page. */}
+            <a
               href={`/checkout/pay?order=${encodeURIComponent(sessionId ?? "")}`}
-              className="w-full sm:w-auto"
+              className={buttonClass("solid", "lg", "w-full sm:w-auto")}
             >
               Return to payment
-            </ButtonLink>
+            </a>
             <Link href={eventLink.href} className={`${linkClass} text-sm`}>
               {eventLink.label}
             </Link>

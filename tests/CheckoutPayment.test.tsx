@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CheckoutPayment from "@/components/checkout/CheckoutPayment";
+import StripePreconnect from "@/components/checkout/StripePreconnect";
 import { ApiError } from "@/lib/api/client";
 import type { OrderPaymentLookup } from "@/lib/api/types";
 
@@ -106,7 +107,9 @@ const STRIPE = {
   createEmbeddedCheckoutPage: vi.fn(createEmbeddedCheckoutPage),
 };
 const getStripe = vi.fn();
-vi.mock("@/lib/stripe/browser", () => ({ getStripe: () => getStripe() }));
+// The page's early start of Stripe.js (lib/stripe/browser.ts, tested in tests/stripe-browser.test.ts).
+const preloadStripe = vi.fn();
+vi.mock("@/lib/stripe/browser", () => ({ getStripe: () => getStripe(), preloadStripe: () => preloadStripe() }));
 
 const OPEN_GA: OrderPaymentLookup = {
   status: "open",
@@ -167,6 +170,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   getOrderPayment.mockReset();
   getStripe.mockReset();
+  preloadStripe.mockReset();
   STRIPE.createEmbeddedCheckoutPage.mockClear();
   replace.mockReset();
   for (const fn of Object.values(writes)) fn.mockReset();
@@ -535,6 +539,7 @@ describe("CheckoutPayment: never loads Stripe", () => {
     await act(async () => {});
     expect(getOrderPayment).not.toHaveBeenCalled();
     expect(getStripe).not.toHaveBeenCalled();
+    expect(preloadStripe).not.toHaveBeenCalled();
   });
 
   it("without a publishable key: card payments aren't available, with the way back", async () => {
@@ -546,9 +551,91 @@ describe("CheckoutPayment: never loads Stripe", () => {
     expect(screen.getByRole("link", { name: "support@sheltuh.com.au" })).toHaveAttribute("href", "mailto:support@sheltuh.com.au");
     expect(screen.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/neon-static");
     expect(getStripe).not.toHaveBeenCalled();
+    expect(preloadStripe).not.toHaveBeenCalled();
     expect(stripeFrame()).toBeNull();
     expect(STRIPE.createEmbeddedCheckoutPage).not.toHaveBeenCalled();
     expect(screen.queryByText(/Purchase Terms/)).toBeNull();
+  });
+});
+
+describe("CheckoutPayment: Stripe.js starts loading at once", () => {
+  it("at mount, beside the first GET and before it answers; the form then shares that load", async () => {
+    let answer: (value: OrderPaymentLookup) => void = () => undefined;
+    getOrderPayment.mockReturnValue(new Promise<OrderPaymentLookup>((resolve) => (answer = resolve)));
+    render(<CheckoutPayment />);
+    await act(async () => {});
+    expect(getOrderPayment).toHaveBeenCalledTimes(1);
+    expect(preloadStripe).toHaveBeenCalledTimes(1);
+    // Still waiting on the order: no form, and the form's own getStripe() hasn't been asked yet.
+    expect(screen.getByText("Loading checkout…")).toBeInTheDocument();
+    expect(getStripe).not.toHaveBeenCalled();
+
+    await act(async () => answer(OPEN_GA));
+    await formMounted();
+    expect(getStripe).toHaveBeenCalledTimes(1);
+    expect(STRIPE.createEmbeddedCheckoutPage).toHaveBeenCalledTimes(1);
+    // Once per page, not again for each answer.
+    expect(preloadStripe).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["closed", { status: "closed", eventTitle: "Neon Static", eventSlug: "neon-static", seated: false }],
+    ["sold out", { status: "sold_out", eventTitle: "Off-Kilter", eventSlug: "off-kilter", seated: true }],
+    ["done", { status: "done" }],
+    ["processing", { status: "processing", delayed: false }],
+  ] as const)("%s: loaded early, but no form is ever created", async (_name, answer) => {
+    getOrderPayment.mockResolvedValue(answer);
+    render(<CheckoutPayment />);
+    await waitFor(() => expect(screen.queryByText("Loading checkout…")).toBeNull());
+    await act(async () => {});
+    expect(preloadStripe).toHaveBeenCalledTimes(1);
+    expect(getStripe).not.toHaveBeenCalled();
+    expect(STRIPE.createEmbeddedCheckoutPage).not.toHaveBeenCalled();
+    expect(stripeFrame()).toBeNull();
+  });
+
+  it("an answer that fails (a 404): loaded early, no form", async () => {
+    getOrderPayment.mockRejectedValue(new ApiError(404, "Not found"));
+    render(<CheckoutPayment />);
+    expect(await screen.findByRole("heading", { level: 1, name: "We couldn’t find that checkout" })).toBeInTheDocument();
+    expect(preloadStripe).toHaveBeenCalledTimes(1);
+    expect(STRIPE.createEmbeddedCheckoutPage).not.toHaveBeenCalled();
+  });
+
+  it("no order in the link: nothing to pay, so nothing loads", async () => {
+    flags.search = "";
+    render(<CheckoutPayment />);
+    await act(async () => {});
+    expect(preloadStripe).not.toHaveBeenCalled();
+  });
+});
+
+describe("StripePreconnect (the payment page's head)", () => {
+  const preconnectLink = () => document.head.querySelector('link[rel="preconnect"][href="https://js.stripe.com"]');
+
+  // React adds a given hint once per page (it remembers it after removal too), so the cases that must
+  // add nothing run first, in one test.
+  it("a preconnect to Stripe.js in live mode with a key only: never in the demo or without a key", () => {
+    flags.api = false;
+    render(<StripePreconnect />);
+    expect(preconnectLink()).toBeNull();
+    cleanup();
+
+    flags.api = true;
+    flags.stripe = false;
+    render(<StripePreconnect />);
+    expect(preconnectLink()).toBeNull();
+    cleanup();
+
+    flags.stripe = true;
+    const { container } = render(<StripePreconnect />);
+    const link = preconnectLink();
+    expect(link).not.toBeNull();
+    // No crossorigin: stripe-js adds its script without one.
+    expect(link).not.toHaveAttribute("crossorigin");
+    // Nothing on the page itself.
+    expect(container).toBeEmptyDOMElement();
+    link?.remove();
   });
 });
 

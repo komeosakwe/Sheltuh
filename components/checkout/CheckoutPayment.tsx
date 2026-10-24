@@ -20,6 +20,7 @@ import {
   type CheckoutLinkTarget,
   type CheckoutOrderContext,
 } from "@/lib/checkout-pay";
+import { preloadStripe } from "@/lib/stripe/browser";
 import { isStripeConfigured } from "@/lib/stripe/config";
 import EmbeddedPaymentForm from "./EmbeddedPaymentForm";
 import OrderPaymentSummary from "./OrderPaymentSummary";
@@ -57,7 +58,8 @@ const headingClass = "display-md outline-offset-2 focus:outline-none!";
  * /checkout/pay?order={orderId} (docs/design/checkout-pay.md): the order's
  * summary beside Stripe's embedded form. Reads only (GET getOrderPayment);
  * the webhook alone issues tickets. Demo mode and a deploy without a
- * publishable key never load Stripe.js.
+ * publishable key never load Stripe.js. Otherwise Stripe.js starts loading
+ * as the page mounts, beside the first GET, whatever that answers.
  */
 export default function CheckoutPayment() {
   const orderId = useSearchParams().get("order");
@@ -123,6 +125,12 @@ function PaymentFlow({ orderId }: { orderId: string }) {
     },
     [orderId],
   );
+
+  // Stripe.js loads while the order is asked for, not after (the form's own getStripe() shares this load).
+  // Only Stripe's form is created from it, and only for an open checkout.
+  useEffect(() => {
+    if (isStripeConfigured) preloadStripe();
+  }, []);
 
   // First load, and again when the page comes back from the back/forward cache (it may have been
   // paid, or have closed, meanwhile).

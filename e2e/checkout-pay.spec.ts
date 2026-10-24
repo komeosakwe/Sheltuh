@@ -71,10 +71,16 @@ interface Seen {
   calls: string[];
 }
 
-async function mockApi(page: Page, { orderPending = false }: { orderPending?: boolean } = {}): Promise<Seen> {
+interface MockOptions {
+  orderPending?: boolean;
+  /** The payment GET is answered only once this settles (it's seen at once). */
+  paymentGate?: Promise<void>;
+}
+
+async function mockApi(page: Page, { orderPending = false, paymentGate }: MockOptions = {}): Promise<Seen> {
   const seen: Seen = { checkouts: [], calls: [] };
   const pub = asPublic();
-  await page.route("**/api/**", (route) => {
+  await page.route("**/api/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     seen.calls.push(`${request.method()} ${url.pathname}`);
@@ -85,6 +91,7 @@ async function mockApi(page: Page, { orderPending = false }: { orderPending?: bo
       return route.fulfill({ status: 201, json: { url: `/checkout/pay?order=${ORDER_ID}`, orderId: ORDER_ID } });
     }
     if (url.pathname === `/api/orders/by-session/${ORDER_ID}/payment` && request.method() === "GET") {
+      if (paymentGate) await paymentGate;
       return route.fulfill({ json: openPayment(), headers: { "cache-control": "private, no-store" } });
     }
     if (url.pathname === `/api/orders/by-session/${ORDER_ID}` && request.method() === "GET" && orderPending) {
@@ -161,6 +168,31 @@ test.describe("general admission at 1280×900", () => {
     await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex, nofollow");
     await expect(page.locator('meta[name="referrer"]')).toHaveAttribute("content", "no-referrer");
     await expect(page).toHaveTitle("Checkout — Sheltüh");
+  });
+
+  test("Stripe.js is asked for while the order is still loading, not after it answers", async ({ page }) => {
+    const stripe = await stubStripeJs(page);
+    let release: () => void = () => undefined;
+    const paymentGate = new Promise<void>((resolve) => (release = resolve));
+    const seen = await mockApi(page, { paymentGate });
+    const response = await page.goto(`/checkout/pay?order=${ORDER_ID}`);
+    // The first HTML's head already preconnects to Stripe.js (live mode with a key).
+    expect((await response?.text()) ?? "").toMatch(/<link rel="preconnect" href="https:\/\/js\.stripe\.com"\/?>/);
+    await expect(page.locator('head link[rel="preconnect"][href="https://js.stripe.com"]')).toHaveCount(1);
+
+    // The GET has been asked and is held: Stripe.js is requested meanwhile.
+    await expect.poll(() => seen.calls.includes(`GET /api/orders/by-session/${ORDER_ID}/payment`), { timeout: 30_000 }).toBe(true);
+    await expect.poll(() => stripe.requests.length, { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
+    await expect(page.getByText("Loading checkout…")).toBeVisible();
+    await expect(page.getByRole("region", { name: sample!.title })).toHaveCount(0);
+    expect((await stripe.seen()).secrets).toEqual([]);
+
+    release();
+    await expect(page.locator('iframe[title="Secure payment form (e2e stub)"]')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText("Payment form ready")).toBeAttached();
+    // The form used the script already loaded: one Stripe instance, one form, this order's secret.
+    expect(await stripe.seen()).toEqual({ keys: ["pk_test_e2e_placeholder"], secrets: [SECRET], destroyed: 0 });
+    expect(new Set(stripe.requests).size).toBe(1);
   });
 });
 
@@ -273,7 +305,7 @@ test.describe("when Stripe's form doesn't come", () => {
 test.describe("return page", () => {
   test.use({ viewport: { width: 375, height: 812 } });
 
-  test("back from Stripe without paying: payment not completed, and Return to payment mounts the form again", async ({ page }) => {
+  test("back from Stripe without paying: payment not completed, and Return to payment loads the payment page afresh", async ({ page }) => {
     const stripe = await stubStripeJs(page);
     const seen = await mockApi(page, { orderPending: true });
     await page.goto(`/checkout/success?session_id=${ORDER_ID}`);
@@ -284,8 +316,22 @@ test.describe("return page", () => {
     // The return page doesn't load Stripe.js.
     expect(stripe.requests).toEqual([]);
 
-    await page.getByRole("link", { name: "Return to payment" }).click();
+    // A full page load (not a client-side navigation): the payment page arrives as its own document,
+    // with its Report-Only Content Security Policy and a nonce.
+    const [payDocument] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().resourceType() === "document" && new URL(response.url()).pathname === "/checkout/pay",
+      ),
+      page.getByRole("link", { name: "Return to payment" }).click(),
+    ]);
+    expect(payDocument.status()).toBe(200);
+    expect(payDocument.headers()["content-security-policy-report-only"]).toMatch(/'nonce-[A-Za-z0-9+/=]+'/);
     await expect(page).toHaveURL(`/checkout/pay?order=${ORDER_ID}`);
+    expect(await page.evaluate(() => new URL(performance.getEntriesByType("navigation")[0]?.name ?? "").pathname)).toBe(
+      "/checkout/pay",
+    );
+    await expect(page).toHaveTitle("Checkout — Sheltüh");
     await expect(page.locator('iframe[title="Secure payment form (e2e stub)"]')).toBeVisible({ timeout: 30_000 });
     expect((await stripe.seen()).secrets).toEqual([SECRET]);
     // Both pages only read.

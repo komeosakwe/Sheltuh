@@ -145,6 +145,28 @@ test.describe("/checkout/pay Content Security Policy (Report-Only)", () => {
     expect(await violations.events()).toEqual([]);
     expect(violations.logged).toEqual([]);
   });
+
+  test("from the return page, Return to payment loads the page with its policy, and no violation", async ({ page }) => {
+    const violations = await watchViolations(page);
+    const stripe = await stubStripeJs(page);
+    await mockApi(page);
+    await page.goto(`/checkout/success?session_id=${ORDER_ID}`);
+    const again = page.getByRole("link", { name: "Return to payment" });
+    await expect(again).toBeVisible({ timeout: 30_000 });
+    const [payDocument] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().resourceType() === "document" && new URL(response.url()).pathname === "/checkout/pay",
+      ),
+      again.click(),
+    ]);
+    expect(payDocument.headers()["content-security-policy-report-only"]).toContain("'strict-dynamic'");
+    await expect(page.locator(STUB_FRAME)).toBeVisible({ timeout: 30_000 });
+    expect((await stripe.seen()).secrets).toEqual([SECRET]);
+    await page.waitForTimeout(500);
+    expect(await violations.events()).toEqual([]);
+    expect(violations.logged).toEqual([]);
+  });
 });
 
 test.describe("other pages don't get the payment page's policy", () => {

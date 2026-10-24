@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import CheckoutPayment, { CheckoutPaymentLoading } from "@/components/checkout/CheckoutPayment";
+import StripePreconnect from "@/components/checkout/StripePreconnect";
 
 // next.config.ts also sends noindex and no-referrer for every /checkout page (the order id is a credential).
 export const metadata: Metadata = {
@@ -19,6 +20,8 @@ export default async function CheckoutPayPage() {
   await connection();
   return (
     <div className="mx-auto max-w-6xl px-5 sm:px-8">
+      {/* Outside the Suspense boundary, so the hint is in the first HTML's head (live mode with a key only). */}
+      <StripePreconnect />
       {/* CheckoutPayment reads the order from useSearchParams, inside a Suspense boundary. */}
       <Suspense fallback={<CheckoutPaymentLoading />}>
         <CheckoutPayment />

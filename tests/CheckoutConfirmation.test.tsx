@@ -1,10 +1,16 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CheckoutConfirmation from "@/components/CheckoutConfirmation";
 import type { CustomerOrder, OrderPaymentLookup } from "@/lib/api/types";
 import { rememberPendingCheckout } from "@/lib/seating/pending-checkout";
 
+// The real next/link, marked, so a test can tell its links from plain ones (a full page load).
+vi.mock("next/link", async (importOriginal) => {
+  const { default: RealLink } = await importOriginal<typeof import("next/link")>();
+  return { default: (props: ComponentProps<typeof RealLink>) => <RealLink {...props} data-next-link="" /> };
+});
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams({ session_id: "cs_test_1" }),
 }));
@@ -292,10 +298,16 @@ describe("CheckoutConfirmation: back from Stripe without a confirmed order (chec
     // Focused by script, not a control: no ring. Balanced, as every message's h1.
     expect(h1).toHaveClass("focus:outline-none!", "text-balance");
     const again = screen.getByRole("link", { name: "Return to payment" });
+    expect(again.tagName).toBe("A");
     expect(again).toHaveAttribute("href", "/checkout/pay?order=cs_test_1");
-    expect(again).toHaveClass("btn-solid", "btn-lg");
+    expect(again).toHaveClass("btn", "btn-solid", "btn-lg", "w-full", "sm:w-auto");
     expect(again.parentElement).toHaveClass("mt-3");
-    expect(screen.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/neon-static");
+    // A plain link, so a full page load: /checkout/pay gets its own document and Content Security Policy.
+    expect(again).not.toHaveAttribute("data-next-link");
+    const back = screen.getByRole("link", { name: "Back to the event" });
+    expect(back).toHaveAttribute("href", "/events/neon-static");
+    // The page's other links stay client-side (and prove the marker below works).
+    expect(back).toHaveAttribute("data-next-link");
     // Never the client secret on screen.
     expect(document.body.textContent).not.toContain("cs_secret");
     const polls = getOrderBySession.mock.calls.length;
