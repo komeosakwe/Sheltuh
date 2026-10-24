@@ -327,8 +327,8 @@ describe("buildTicketEmail", () => {
   it("ends with the brand banner from sheltuh.com.au, after the support info, full width with alt text", () => {
     const email = buildTicketEmail(order, event, "https://x");
     const { html } = email;
-    expect(EMAIL_FOOTER_IMAGE_URL).toBe("https://sheltuh.com.au/images/email-footer.png");
-    const tag = html.match(/<img src="https:\/\/sheltuh\.com\.au\/images\/email-footer\.png"[^>]*>/)?.[0] ?? "";
+    expect(EMAIL_FOOTER_IMAGE_URL).toBe("https://sheltuh.com.au/sheltuh_email_signature_logo.png");
+    const tag = html.match(/<img src="https:\/\/sheltuh\.com\.au\/sheltuh_email_signature_logo\.png"[^>]*>/)?.[0] ?? "";
     expect(tag).toContain('width="600"');
     expect(tag).toContain('alt="Sheltüh. Music. Art. Fashion. Culture."');
     expect(tag).toContain('style="display:block;border:0;width:100%;max-width:600px;height:auto"');

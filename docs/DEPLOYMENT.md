@@ -111,12 +111,13 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       events listed in `supabase-setup.md` §2. Without it a refund made in
       the Stripe dashboard leaves the order paid and its tickets valid at the
       door.
-- [ ] **Email footer banner** hosted at exactly
-      `https://sheltuh.com.au/images/email-footer.png` (the ticket email
-      links this fixed URL, `EMAIL_FOOTER_IMAGE_URL` in
-      `lib/server/ticket-email.ts`). The file is `public/images/email-footer.png`;
-      while `sheltuh.com.au` is still the Cloudflare Worker landing page,
-      upload it there too. Open the URL in a private window to check. This is
+- [x] **Email footer banner** hosted at exactly
+      `https://sheltuh.com.au/sheltuh_email_signature_logo.png` (the ticket
+      email links this fixed URL, `EMAIL_FOOTER_IMAGE_URL` in
+      `lib/server/ticket-email.ts`; the owner confirmed it loads, 24 Oct 2026).
+      The file is `public/sheltuh_email_signature_logo.png`; while
+      `sheltuh.com.au` is still the Cloudflare Worker landing page it must stay
+      there too. Open the URL in a private window to check. This is
       the only remote image in any email: the free-ticket confirmation,
       waitlist and follower emails have none.
 - **Email wordmark: nothing to host.** The ticket email's header wordmark

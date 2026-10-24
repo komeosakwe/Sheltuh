@@ -265,7 +265,7 @@ times, which are converted to instants honouring daylight saving
      embedded as base64 in `lib/server/email-wordmark.ts`) and attached
      inline (`cid:`) like the QR codes, so it shows where Outlook blocks
      remote images; alt text "SHELTÜH". The banner
-     (`EMAIL_FOOTER_IMAGE_URL`, `public/images/email-footer.png`) is the only
+     (`EMAIL_FOOTER_IMAGE_URL`, https://sheltuh.com.au/sheltuh_email_signature_logo.png) is the only
      remote image: the same for everyone, no order data. Each
      ticket whose code matches `TICKET_CODE_PATTERN` gets a QR code
      (`SH1:` + code, level Q, version 1: `lib/ticket-qr.ts` over the vendored

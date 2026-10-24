@@ -122,7 +122,7 @@ describe("every transactional email uses the shared brand layout", () => {
     expect(paid.html.match(/<img src="cid:/g)).toHaveLength(3);
     expect(paid.html).toContain('<img src="cid:sheltuh-wordmark@sheltuh.com.au"');
     expect(paid.html).toContain("incl. booking fees");
-    expect(paid.html).toContain('src="https://sheltuh.com.au/images/email-footer.png"');
+    expect(paid.html).toContain('src="https://sheltuh.com.au/sheltuh_email_signature_logo.png"');
     expect(emails.ticketSeated().html).toContain("Stalls · Row A · Seat 2");
     const seated = emails.freeConfirmationSeated();
     expect(seated.html).toContain("Stalls · Row A · Seat 2");

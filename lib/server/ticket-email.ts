@@ -10,14 +10,17 @@ import { encodePng } from "./png";
 import type { EventRecord, OrderRecord, TicketSeat } from "./types";
 
 /**
- * Brand footer banner (public/images/email-footer.png, 1200 x 400, shown at up
- * to 600 px wide). A fixed public URL on the marketing site, not built from
+ * Brand footer banner (the owner's 2000 x 667 "SHELTÜH / MUSIC. ART. FASHION.
+ * CULTURE." image, public/sheltuh_email_signature_logo.png, shown at up to
+ * 600 px wide). The owner confirmed this URL loads publicly on 24 Oct 2026; the
+ * old /images/email-footer.png was never hosted on sheltuh.com.au, so the
+ * banner was broken. A fixed public URL on the marketing site, not built from
  * the app's origin, so it renders the same from every environment. It's the
  * same for everyone and carries no order data, so a hosted image (unlike the
  * QR codes) is fine, and it's decorative: a client blocking remote images
  * loses nothing (its alt text says what it is).
  */
-export const EMAIL_FOOTER_IMAGE_URL = "https://sheltuh.com.au/images/email-footer.png";
+export const EMAIL_FOOTER_IMAGE_URL = "https://sheltuh.com.au/sheltuh_email_signature_logo.png";
 
 /**
  * The buyer's tickets email, sent once an order is paid (free orders included).
