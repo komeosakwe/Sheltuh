@@ -166,10 +166,34 @@ export default function Nav() {
           <Wordmark className="h-6 w-auto" />
         </Link>
         {/* The home's hero and /search have the page's search; a second field (and a second
-            location) beside it would only compete (owner, 24 Oct 2026, D7). Black submit here. */}
+            location) beside it would only compete (owner, 24 Oct 2026, D7). Black submit here.
+            The bar takes the room the nav leaves (up to 384px), so the row never wraps: signed in,
+            the nav is wider. Under 13rem (an admin's nav at 1024px) "Search events" would no
+            longer fit beside the pin and the submit, so this slot shows the search icon link
+            instead, as phones do. 13rem is that measure (no container size token is this small). */}
         {pathname !== "/" && pathname !== "/search" && (
-          <div className="order-last w-full lg:order-none lg:max-w-sm lg:flex-1">
-            <SearchBar label="Search the site" placeholder="Search events" tone="plain" />
+          <div data-header-search="" className="@container flex max-w-sm min-w-9 flex-1 items-center">
+            <div className="hidden w-full @min-[13rem]:block">
+              <SearchBar label="Search the site" placeholder="Search events" tone="plain" />
+            </div>
+            <Link
+              href="/search"
+              aria-label="Search"
+              className="flex size-9 items-center justify-center rounded-control text-foreground hover:bg-foreground hover:text-background @min-[13rem]:hidden"
+            >
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                className="size-5"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg>
+            </Link>
           </div>
         )}
         <nav aria-label="Primary" className="ml-auto flex flex-wrap items-center gap-x-1 gap-y-1 sm:gap-x-3">

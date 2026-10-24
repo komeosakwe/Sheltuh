@@ -58,7 +58,8 @@ export default function SearchBar({
       </label>
       <div
         data-search-bar=""
-        className={`flex w-full items-center rounded-full border border-foreground bg-card p-1 ${large ? "h-13" : "h-11"}`}
+        // The header's bar is a size container: narrow, its location segment shows just the pin.
+        className={`flex w-full items-center rounded-full border border-foreground bg-card p-1 ${large ? "h-13" : "@container h-11"}`}
       >
         <input
           id={inputId}

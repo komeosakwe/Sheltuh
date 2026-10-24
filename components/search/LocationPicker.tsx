@@ -40,11 +40,13 @@ const GEOLOCATION_OPTIONS: PositionOptions = { enableHighAccuracy: false, timeou
 type PanelStatus = { tone: "info" | "danger"; text: string } | null;
 
 const SIZES = {
-  // The header: a 36px segment in a 44px bar.
-  sm: { button: "h-9 px-2 text-sm sm:px-3", icon: "size-4" },
+  // The header: a 36px segment in a 44px bar. In a bar under 20rem (the bar is a size
+  // container, components/SearchBar.tsx) it's just the pin, so "Search events" keeps its room;
+  // the button's name still says the suburb.
+  sm: { button: "h-9 px-2 text-sm sm:px-3", icon: "size-4", label: "hidden @xs:block" },
   // The hero and /search: 44px in a 52px bar. 14px is fine on a button (no iOS zoom).
   // Tighter sides below 640px, so the words keep room in a 320–400px bar.
-  lg: { button: "h-11 px-2 text-sm sm:px-3", icon: "size-4" },
+  lg: { button: "h-11 px-2 text-sm sm:px-3", icon: "size-4", label: "" },
 } as const;
 
 /** Same suburb, as typed: case and outer spaces aside. */
@@ -317,7 +319,9 @@ export default function LocationPicker({
           <path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z" />
           <circle cx="12" cy="9.5" r="2.5" />
         </svg>
-        <span className={`truncate ${label || anywhere ? "text-foreground" : "font-normal text-muted"}`}>{shown}</span>
+        <span data-location-label="" className={`truncate ${styles.label} ${label || anywhere ? "text-foreground" : "font-normal text-muted"}`}>
+          {shown}
+        </span>
       </button>
       <span role="status" className="sr-only">
         {announcement}

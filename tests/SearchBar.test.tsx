@@ -92,6 +92,26 @@ describe("SearchBar", () => {
     expect(screen.getByRole("searchbox")).toHaveClass("text-sm");
   });
 
+  // Header fit (24 Oct 2026): signed in, the header's bar shrinks into the room the nav leaves. It's a
+  // size container, and under 20rem its location segment is just the pin; the button keeps its name.
+  it("the header size narrows its location segment to the pin in a narrow bar; the hero's never does", () => {
+    render(
+      <>
+        <SearchBar label="Search the site" placeholder="Search events" near="Fitzroy" />
+        <SearchBar label="Search events" size="lg" near="Fitzroy" />
+      </>,
+    );
+    const header = screen.getByRole("search", { name: "Search the site" });
+    expect(header.querySelector("[data-search-bar]")).toHaveClass("@container");
+    const headerLocation = within(header).getByRole("button", { name: "Location: Fitzroy" });
+    expect(headerLocation.querySelector("[data-location-label]")).toHaveClass("hidden", "@xs:block", "truncate");
+    const hero = screen.getByRole("search", { name: "Search events" });
+    expect(hero.querySelector("[data-search-bar]")).not.toHaveClass("@container");
+    const heroLabel = within(hero).getByRole("button", { name: "Location: Fitzroy" }).querySelector("[data-location-label]");
+    expect(heroLabel).not.toHaveClass("hidden");
+    expect(heroLabel).toHaveTextContent("Fitzroy");
+  });
+
   it("submits the suburb as `near` from inside the same form", () => {
     render(<SearchBar label="Search events" size="lg" near="Fitzroy" />);
     const form = screen.getByRole("search", { name: "Search events" });
