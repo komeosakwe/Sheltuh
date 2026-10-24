@@ -168,6 +168,8 @@ describe("sw.js routing: never intercepted", () => {
     ["Stripe Checkout (cross-origin navigation)", navigate("https://checkout.stripe.com/c/pay/cs_test_123")],
     ["Stripe.js", script("https://js.stripe.com/v3/")],
     ["an Esri map tile", image("https://server.arcgisonline.com/ArcGIS/rest/services/tile/1/2/3")],
+    // The Mapbox preview's tiles carry the access token in their URL: never stored (docs/mapbox-preview.md).
+    ["a Mapbox map tile", image("https://api.mapbox.com/styles/v1/mapbox/light-v11/tiles/512/12/3/4@2x?access_token=pk.x")],
     ["the Next image proxy", image("/_next/image?url=https%3A%2F%2Fabcd.supabase.co%2Fa.jpg&w=640&q=75")],
     ["an RSC fetch (query)", req("/events/x?_rsc=abc12")],
     ["an RSC fetch (header)", req("/messages/abc", { headers: { rsc: "1" } })],

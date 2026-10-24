@@ -75,8 +75,17 @@ export default defineConfig({
       // Empty values win over any .env.local, so this is always the demo.
       // A build of its own (next build writes .next, next dev .next/dev, so
       // it can run beside the dev server above), served by next start.
+      // A placeholder public Mapbox token, as a Vercel preview with the map
+      // style preview on (docs/mapbox-preview.md): e2e/mapbox-preview.demo.spec.ts
+      // answers every tile request itself. The live server above has none,
+      // so the rest of the suite sees /map exactly as production does.
       command: `npx next build && npx next start -p ${DEMO_PORT}`,
-      env: { NEXT_PUBLIC_SUPABASE_URL: "", NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "" },
+      env: {
+        NEXT_PUBLIC_SUPABASE_URL: "",
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "",
+        NEXT_PUBLIC_MAPBOX_TOKEN: "pk.e2e-placeholder",
+        NEXT_PUBLIC_MAPBOX_STYLE: "",
+      },
       url: `http://127.0.0.1:${DEMO_PORT}`,
       reuseExistingServer: !process.env.CI,
       timeout: 600_000,

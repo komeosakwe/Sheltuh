@@ -9,6 +9,7 @@ import MapSpotList from "@/components/map/MapSpotList";
 import { runQuietly, stopQuietly } from "@/components/map/quiet-map";
 import { buttonClass } from "@/components/ui/Button";
 import { ProgressLoader, useLoadingProgress } from "@/components/ui/ProgressLoader";
+import { ESRI_STYLE, type TileStyle } from "@/lib/map-tiles";
 import {
   MELBOURNE_DEFAULT_CENTER,
   MELBOURNE_DEFAULT_ZOOM,
@@ -250,19 +251,29 @@ interface SceneMapPanelProps {
   onSearchArea: (bounds: { north: number; south: number; east: number; west: number }) => void;
   /** Phones: switch to the list (offered when the map's tiles fail to load). */
   onShowList?: () => void;
+  /** The basemap (lib/map-tiles.ts): Esri unless the Mapbox preview is on. */
+  tileStyle?: TileStyle;
 }
 
 const TILE_LOAD_TIMEOUT_MS = 9000;
 
 /**
- * Client-only Leaflet map. Basemap is CARTO's free light-gray Esri tiles (no
+ * Client-only Leaflet map. Basemap is Esri's free light-gray canvas (no
  * API key) so it actually reads as a light, quiet map with streets and neighbourhood
  * labels, matching the app's palette — plain default OpenStreetMap tiles are
- * a bright daytime style that wouldn't fit even when they load. CARTO's
- * usage terms are fine for this traffic level; a real launch should still
- * put a dedicated provider key behind this before relying on it at scale.
+ * a bright daytime style that wouldn't fit even when they load. A real launch
+ * should still put a dedicated provider key behind this before relying on it
+ * at scale; a Mapbox token turns on a preview of Mapbox styles
+ * (lib/map-tiles.ts, docs/mapbox-preview.md).
  */
-export default function SceneMapPanel({ events, selectedEventId, onSelect, onSearchArea, onShowList }: SceneMapPanelProps) {
+export default function SceneMapPanel({
+  events,
+  selectedEventId,
+  onSelect,
+  onSearchArea,
+  onShowList,
+  tileStyle = ESRI_STYLE,
+}: SceneMapPanelProps) {
   const [status, setStatus] = useState<TileStatus>("loading");
   const [retryKey, setRetryKey] = useState(0);
   const loadedCount = useRef(0);
@@ -297,7 +308,11 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
     else mapRef.current?.getContainer().focus({ preventScroll: true });
   }
 
+  // A new attempt, or another basemap style: count its tiles afresh, so a style that can't
+  // load (e.g. a Mapbox token refused on this domain) shows the failure UI too.
+  const styleId = tileStyle.id;
   useEffect(() => {
+    void styleId;
     loadedCount.current = 0;
     errorCount.current = 0;
     // Deferred via queueMicrotask so the effect body itself never calls
@@ -315,7 +330,7 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
       cancelled = true;
       clearTimeout(timeout);
     };
-  }, [retryKey]);
+  }, [retryKey, styleId]);
 
   // The tiles' estimated progress (the map reports no real progress until the first tile is in).
   const tilesProgress = useLoadingProgress(status === "loading");
@@ -357,17 +372,16 @@ export default function SceneMapPanel({ events, selectedEventId, onSelect, onSea
         scrollWheelZoom={false}
         className="h-full w-full bg-background"
       >
-        <TileLayer
-          attribution='&copy; <a href="https://www.esri.com">Esri</a> &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors, GIS community'
-          url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"
-          maxZoom={16}
-          eventHandlers={{ tileload: handleTileLoad, tileerror: handleTileError }}
-        />
-        <TileLayer
-          url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
-          maxZoom={16}
-          pane="shadowPane"
-        />
+        {/* Keyed by style: tile size and zoom offset are fixed when a layer is created, so another
+            style is a new layer. Spread as is: Leaflet would take an explicit `undefined` option
+            (say, tileSize) over its default. The first layer is the base whose tiles are watched. */}
+        {tileStyle.layers.map((layer, index) => (
+          <TileLayer
+            key={`${tileStyle.id}-${index}`}
+            {...layer}
+            {...(index === 0 ? { eventHandlers: { tileload: handleTileLoad, tileerror: handleTileError } } : {})}
+          />
+        ))}
         <TileWatcher status={status} retryKey={retryKey} programmaticMoveRef={programmaticMoveRef} />
         <ResizeSync programmaticMoveRef={programmaticMoveRef} />
         <MapController
