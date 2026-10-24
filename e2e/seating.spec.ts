@@ -3,6 +3,7 @@ import type { PublicEvent } from "@/lib/api/public-events";
 import { SAMPLE_SEAT_MAPS } from "@/lib/sample-seat-maps";
 import { sampleEvents } from "@/lib/sample-events";
 import { encodeAvailability } from "@/lib/seating/availability";
+import { stubStripeJs, type StripeStub } from "./stripe-stub";
 
 /**
  * Reserved seating in a real browser (docs/design/seating.md): from the
@@ -10,7 +11,8 @@ import { encodeAvailability } from "@/lib/seating/availability";
  * and pressing Checkout, at 320, 375 and desktop widths. The e2e server
  * runs in live mode with every /api/* request intercepted here: the demo
  * seated event (Off-Kilter) and its sample map are served as the live API
- * would, and "Stripe" is a stub page on this origin.
+ * would. Checkout goes to our payment page (/checkout/pay), where Stripe.js
+ * is a stub (e2e/stripe-stub.ts) that never reaches Stripe.
  */
 
 const DAY = 86_400_000;
@@ -47,13 +49,35 @@ interface Seen {
   checkouts: unknown[];
   availability: number;
   cancels: string[];
+  stripe: StripeStub;
 }
 
-/** The pending order's id, as the API returns it with Stripe's URL (ord_ + 32 hex). */
+/** The pending order's id, as the API returns it with the payment page's URL (ord_ + 32 hex). */
 const ORDER_ID = `ord_${"e2e0".repeat(8)}`;
+const SECRET = "cs_test_e2e_secret_seated";
+
+/** GET …/payment for the held order: open, with two North Row A seats. */
+function openPayment(seatCount: number) {
+  const seats = [
+    { section: "North", row: "A", seat: "1", kind: "standard" },
+    { section: "North", row: "A", seat: "2", kind: "standard" },
+  ].slice(2 - seatCount);
+  return {
+    status: "open",
+    clientSecret: SECRET,
+    expiresAt: new Date(Date.now() + 31 * 60_000).toISOString(),
+    eventTitle: event!.title,
+    eventSlug: event!.slug,
+    seated: true,
+    lines: [{ ticketTypeName: "Full price", quantity: seatCount, unitTotalCents: 3690, lineTotalCents: 3690 * seatCount, seats }],
+    subtotalCents: 3500 * seatCount,
+    buyerFeeCents: 190 * seatCount,
+    totalCents: 3690 * seatCount,
+  };
+}
 
 async function mockApi(page: Page, { takenAtCheckout }: { takenAtCheckout?: string[] } = {}): Promise<Seen> {
-  const seen: Seen = { checkouts: [], availability: 0, cancels: [] };
+  const seen: Seen = { checkouts: [], availability: 0, cancels: [], stripe: await stubStripeJs(page) };
   const pub = asPublic();
   await page.route("**/api/**", (route) => {
     const request = route.request();
@@ -84,11 +108,15 @@ async function mockApi(page: Page, { takenAtCheckout }: { takenAtCheckout?: stri
       return route.fulfill({
         status: 201,
         json: {
-          url: `${new URL(request.url()).origin}/e2e-stripe-stub`,
+          url: `/checkout/pay?order=${ORDER_ID}`,
           holdExpiresAt: new Date(Date.now() + 35 * 60_000).toISOString(),
           orderId: ORDER_ID,
         },
       });
+    }
+    if (url.pathname === `/api/orders/by-session/${ORDER_ID}/payment` && request.method() === "GET") {
+      const last = seen.checkouts.at(-1) as { seats?: { seatIds: string[] } } | undefined;
+      return route.fulfill({ json: openPayment(last?.seats?.seatIds.length === 1 ? 1 : 2) });
     }
     if (url.pathname === `/api/orders/by-session/${ORDER_ID}/cancel` && request.method() === "POST") {
       seen.cancels.push(url.pathname);
@@ -98,10 +126,6 @@ async function mockApi(page: Page, { takenAtCheckout }: { takenAtCheckout?: stri
     if (/\/going(\/|$)/.test(url.pathname)) return route.fulfill({ json: { count: 0, countHidden: true, closed: false } });
     return route.fulfill({ status: 404, json: { error: "not mocked in e2e" } });
   });
-  // "Stripe": a stub page on this origin, never the real thing.
-  await page.route("**/e2e-stripe-stub", (route) =>
-    route.fulfill({ contentType: "text/html", body: "<title>Stripe stub</title><h1>Stripe checkout (stub)</h1>" }),
-  );
   return seen;
 }
 
@@ -138,7 +162,7 @@ for (const vp of [
   test.describe(`seated event on a phone at ${vp.name}`, () => {
     test.use({ viewport: { width: vp.width, height: vp.height } });
 
-    test("buy bar → seat page → choose seats in the list → Checkout holds them and goes to Stripe", async ({ page }) => {
+    test("buy bar → seat page → choose seats in the list → Checkout holds them; the payment page's Change seats releases them", async ({ page }) => {
       const seen = await mockApi(page);
       await page.goto(`/events/${event!.slug}`);
       const bar = page.locator("[data-buy-bar]");
@@ -168,14 +192,33 @@ for (const vp of [
       await seatBar.getByRole("button", { name: /2 seats/ }).click();
       await expect(page.getByRole("heading", { name: "Your seats" })).toBeFocused();
       await expect(seatBar).toContainText("North · Row A · Seat 1");
-      await expect(seatBar).toContainText("You’ll have 30 minutes");
+      await expect(seatBar).toContainText("Pressing Checkout holds them for 30 minutes while you pay.");
 
       const checkout = seatBar.getByRole("button", { name: "Checkout" });
       await expect(checkout).toBeVisible();
       expect((await checkout.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+      // Stripe.js only loads on the payment page.
+      expect(seen.stripe.requests).toEqual([]);
       await checkout.click();
-      await expect(page).toHaveURL(/\/e2e-stripe-stub$/);
+      await expect(page).toHaveURL(`/checkout/pay?order=${ORDER_ID}`);
       expect(seen.checkouts).toEqual([{ seats: { mapVersion: 1, seatIds: ["N-A1", "N-A2"] } }]);
+
+      // The payment page: the seats, the hold, and Stripe's form (the stub) with this order's secret.
+      await expect(page.getByRole("heading", { level: 1, name: "Pay for your tickets" })).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByRole("list", { name: "Checkout steps" })).toContainText("1 Choose seats");
+      await expect(page.getByText(/^Your seats are held until .+\. Going back releases them\.$/)).toBeVisible();
+      await expect(page.locator('iframe[title="Secure payment form (e2e stub)"]')).toBeVisible({ timeout: 30_000 });
+      expect((await seen.stripe.seen()).secrets).toEqual([SECRET]);
+      await noSidewaysScroll(page);
+      expect(seen.cancels).toEqual([]);
+
+      // Change seats: back to the seat page, which releases the hold at once.
+      await page.getByRole("link", { name: "Change seats" }).click();
+      await expect(page).toHaveURL(new RegExp(`/events/${event!.slug}/seats$`));
+      await expect(page.getByText("You left the payment page, so the seats held for you have been released.").first()).toBeVisible({
+        timeout: 30_000,
+      });
+      expect(seen.cancels).toEqual([`/api/orders/by-session/${ORDER_ID}/cancel`]);
     });
 
     test("choosing on the map: a tap at the overview zooms in, then a tap chooses", async ({ page }) => {
@@ -201,7 +244,7 @@ for (const vp of [
 test.describe("seated event at 1280×900", () => {
   test.use({ viewport: { width: 1280, height: 900 } });
 
-  test("event page → seat page; seats taken at Checkout are removed with an alert, then Checkout goes to Stripe", async ({ page }) => {
+  test("event page → seat page; seats taken at Checkout are removed with an alert, then Checkout goes to the payment page", async ({ page }) => {
     const seen = await mockApi(page, { takenAtCheckout: ["N-A1"] });
     await page.goto(`/events/${event!.slug}`);
     const cta = page.locator("#tickets").getByRole("link", { name: "Choose your seats" });
@@ -232,13 +275,16 @@ test.describe("seated event at 1280×900", () => {
     await expect(summary).not.toContainText("North · Row A · Seat 1");
 
     await checkout.click();
-    await expect(page).toHaveURL(/\/e2e-stripe-stub$/);
+    await expect(page).toHaveURL(`/checkout/pay?order=${ORDER_ID}`);
     expect(seen.checkouts).toEqual([
       { seats: { mapVersion: 1, seatIds: ["N-A1", "N-A2"] } },
       { seats: { mapVersion: 1, seatIds: ["N-A2"] } },
     ]);
+    await expect(page.locator('iframe[title="Secure payment form (e2e stub)"]')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("region", { name: event!.title })).toContainText("North · Row A · Seat 2");
+    expect((await seen.stripe.seen()).secrets).toEqual([SECRET]);
 
-    // The browser's Back from "Stripe": the hold is released at once, and Checkout works again.
+    // The browser's Back from the payment page: the hold is released at once, and Checkout works again.
     await page.goBack();
     await expect(page.getByText("You left the payment page, so the seats held for you have been released.").first()).toBeVisible({
       timeout: 30_000,

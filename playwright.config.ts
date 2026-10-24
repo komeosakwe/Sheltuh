@@ -63,11 +63,14 @@ export default defineConfig({
       // Placeholder Supabase settings switch the app into live mode; every
       // request to the app's own /api/* routes is then intercepted by each
       // test's page.route(), so nothing here ever reaches a real Supabase
-      // project or database.
+      // project or database. A placeholder Stripe publishable key turns on
+      // the payment page's form; Stripe.js itself is stubbed per test
+      // (e2e/stripe-stub.ts), so nothing reaches Stripe either.
       command:
         `NEXT_PUBLIC_MAPBOX_TOKEN= NEXT_PUBLIC_MAPBOX_STYLE= ` +
         `NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:${PORT}/supabase-mock ` +
-        `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=e2e-placeholder npx next dev -p ${PORT}`,
+        `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=e2e-placeholder ` +
+        `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_e2e_placeholder npx next dev -p ${PORT}`,
       url: `http://127.0.0.1:${PORT}`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
@@ -86,6 +89,8 @@ export default defineConfig({
         NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "",
         NEXT_PUBLIC_MAPBOX_TOKEN: "pk.e2e-placeholder",
         NEXT_PUBLIC_MAPBOX_STYLE: "",
+        // Even with a key, the demo never loads Stripe.js (e2e/demo.spec.ts).
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: "pk_test_e2e_placeholder",
       },
       url: `http://127.0.0.1:${DEMO_PORT}`,
       reuseExistingServer: !process.env.CI,

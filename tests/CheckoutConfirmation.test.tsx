@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import CheckoutConfirmation from "@/components/CheckoutConfirmation";
 import type { CustomerOrder } from "@/lib/api/types";
@@ -8,13 +8,25 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams({ session_id: "cs_test_1" }),
 }));
 const getOrderBySession = vi.fn();
+const getOrderPayment = vi.fn();
+// The writes the page must never make (it only reads).
+const writes = { createCheckoutSession: vi.fn(), confirmFreeOrder: vi.fn(), cancelPendingOrder: vi.fn() };
 vi.mock("@/lib/api/orders", () => ({
   getOrderBySession: (...args: unknown[]) => getOrderBySession(...args),
+  getOrderPayment: (...args: unknown[]) => getOrderPayment(...args),
+  createCheckoutSession: (...args: unknown[]) => writes.createCheckoutSession(...args),
+  confirmFreeOrder: (...args: unknown[]) => writes.confirmFreeOrder(...args),
+}));
+vi.mock("@/lib/api/seating", () => ({
+  cancelPendingOrder: (...args: unknown[]) => writes.cancelPendingOrder(...args),
 }));
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   getOrderBySession.mockReset();
+  getOrderPayment.mockReset();
+  for (const fn of Object.values(writes)) fn.mockReset();
 });
 
 const ORDER: CustomerOrder = {
@@ -221,5 +233,160 @@ describe("CheckoutConfirmation", () => {
     render(<CheckoutConfirmation />);
     expect(await screen.findByText("We couldn\u2019t reserve your tickets")).toBeInTheDocument();
     expect(screen.getByText(/no tickets were issued/)).toBeInTheDocument();
+  });
+});
+
+describe("CheckoutConfirmation: back from Stripe without a confirmed order (checkout-pay.md §5.5)", () => {
+  /** Renders with the order still pending, and lets `polls` polls (2s apart) happen. */
+  async function renderPending(polls: number) {
+    vi.useFakeTimers();
+    getOrderBySession.mockResolvedValue({ status: "pending" });
+    render(<CheckoutConfirmation />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    for (let i = 1; i < polls; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+    }
+  }
+
+  function noWrites() {
+    for (const fn of Object.values(writes)) expect(fn).not.toHaveBeenCalled();
+  }
+
+  it("asks Stripe's side only after two pending polls", async () => {
+    getOrderPayment.mockResolvedValue({ status: "processing", delayed: false });
+    await renderPending(1);
+    expect(getOrderPayment).not.toHaveBeenCalled();
+    expect(screen.getByText("This only takes a moment.")).toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(getOrderPayment).toHaveBeenCalledTimes(1);
+    expect(getOrderPayment).toHaveBeenCalledWith("cs_test_1");
+  });
+
+  it("still open: payment not completed, back to the payment page, and polling stops", async () => {
+    getOrderPayment.mockResolvedValue({
+      status: "open",
+      clientSecret: "cs_secret",
+      expiresAt: "2027-03-06T09:31:00.000Z",
+      eventTitle: "Neon Static",
+      eventSlug: "neon-static",
+      seated: false,
+      lines: [],
+      subtotalCents: 3000,
+      buyerFeeCents: 170,
+      totalCents: 3170,
+    });
+    await renderPending(2);
+    const h1 = screen.getByRole("heading", { level: 1, name: "Payment not completed" });
+    expect(h1).toHaveFocus();
+    expect(
+      screen.getByText("You haven’t been charged. Your checkout is still open, so you can try again."),
+    ).toBeInTheDocument();
+    const again = screen.getByRole("link", { name: "Return to payment" });
+    expect(again).toHaveAttribute("href", "/checkout/pay?order=cs_test_1");
+    expect(again).toHaveClass("btn-solid", "btn-lg");
+    expect(screen.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/neon-static");
+    // Never the client secret on screen.
+    expect(document.body.textContent).not.toContain("cs_secret");
+    const polls = getOrderBySession.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(getOrderBySession.mock.calls.length).toBe(polls);
+    expect(getOrderPayment).toHaveBeenCalledTimes(1);
+    noWrites();
+  });
+
+  it("still open, seated with no event page: says when the seats are held until, and goes home", async () => {
+    getOrderPayment.mockResolvedValue({
+      status: "open",
+      clientSecret: "cs_secret",
+      expiresAt: "2027-03-06T09:31:00.000Z", // 8:31 pm AEDT
+      eventTitle: "Off-Kilter",
+      seated: true,
+      lines: [],
+      subtotalCents: 3000,
+      buyerFeeCents: 170,
+      totalCents: 3170,
+    });
+    await renderPending(2);
+    expect(
+      screen.getByText(
+        "You haven’t been charged. Your checkout is still open, so you can try again. Your seats are held until 8:31 pm.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to Sheltüh" })).toHaveAttribute("href", "/");
+  });
+
+  it("processing: keeps polling, then says the payment is processing (not an error)", async () => {
+    getOrderPayment.mockResolvedValue({ status: "processing", delayed: true });
+    await renderPending(12);
+    const h1 = screen.getByRole("heading", { level: 1, name: "Your payment is processing" });
+    expect(h1).toHaveFocus();
+    const body = screen.getByText(
+      "Some payment methods take a little longer to clear. We’ll email your tickets as soon as it does; you don’t need to keep this page open. You won’t be charged twice.",
+    );
+    expect(body).toHaveClass("text-muted");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("link", { name: "Back to Sheltüh" })).toHaveAttribute("href", "/");
+    expect(getOrderBySession).toHaveBeenCalledTimes(12);
+    expect(getOrderPayment).toHaveBeenCalledTimes(1);
+    noWrites();
+  });
+
+  it("the check failing changes nothing: polling carries on to today's timeout message", async () => {
+    getOrderPayment.mockRejectedValue(new TypeError("Failed to fetch"));
+    await renderPending(12);
+    expect(screen.getByRole("alert")).toHaveTextContent("Your payment is taking longer than usual to confirm.");
+  });
+
+  it("closed: says so, with the way back to the event", async () => {
+    getOrderPayment.mockResolvedValue({ status: "closed", eventTitle: "Neon Static", eventSlug: "neon-static", seated: true });
+    await renderPending(2);
+    expect(screen.getByRole("heading", { level: 1, name: "This checkout has closed" })).toHaveFocus();
+    expect(
+      screen.getByText(
+        "Your time to pay ran out, or this event can’t be booked right now. You haven’t been charged, and any seats held for you have been released.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/neon-static");
+  });
+
+  it("sold out, seated: choose other seats", async () => {
+    getOrderPayment.mockResolvedValue({ status: "sold_out", eventTitle: "Off-Kilter", eventSlug: "off-kilter", seated: true });
+    await renderPending(2);
+    expect(screen.getByRole("heading", { level: 1, name: "These tickets have just sold out" })).toHaveFocus();
+    expect(
+      screen.getByText(
+        "Some of your seats were booked by someone else while this checkout was open. You haven’t been charged. Choose other seats to continue.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Choose other seats" })).toHaveAttribute("href", "/events/off-kilter/seats");
+    noWrites();
+  });
+
+  it("sold out, general admission: back to the event", async () => {
+    getOrderPayment.mockResolvedValue({ status: "sold_out", eventTitle: "Neon Static", eventSlug: "neon-static", seated: false });
+    await renderPending(2);
+    expect(
+      screen.getByText("Someone else booked the last ones while this checkout was open. You haven’t been charged."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/neon-static");
+  });
+
+  it("paid by the next poll: the tickets, and the payment isn't asked about", async () => {
+    getOrderBySession.mockResolvedValueOnce({ status: "pending" }).mockResolvedValue(ORDER);
+    vi.useFakeTimers();
+    render(<CheckoutConfirmation />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(screen.getByText("ABC123")).toBeInTheDocument();
+    expect(getOrderPayment).not.toHaveBeenCalled();
   });
 });

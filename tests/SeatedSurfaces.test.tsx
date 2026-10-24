@@ -97,6 +97,16 @@ describe("seated panel tier rows (V6: the standard ticket row)", () => {
   });
 });
 
+describe("seated panel steps (checkout-pay.md §5.6)", () => {
+  it("says Pay, not Pay on Stripe", () => {
+    render(<SeatedTicketsPanel event={seated} demo />);
+    expect(screen.getByRole("list", { name: "How booking works" })).toHaveTextContent(
+      "1 Choose seats→2 Pay→3 Tickets by email",
+    );
+    expect(screen.queryByText(/Stripe/)).toBeNull();
+  });
+});
+
 describe("seated panel once the event has ended (§5.1)", () => {
   it("no Choose your seats: says sales have ended", () => {
     vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));

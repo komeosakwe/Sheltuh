@@ -243,7 +243,12 @@ describe("seat page: checkout (§5.11)", () => {
   it("holds the chosen seats on the map version, and states the 30-minute hold first", async () => {
     createSeatedCheckout.mockReturnValue(new Promise(() => {}));
     renderPicker({ event: live, mode: "live" });
-    expect(screen.getByText(/You’ll have 30 minutes; if you don’t finish, they’re released\./)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Seats aren’t held while you choose. Pressing Checkout holds them for 30 minutes while you pay. If you don’t finish, they’re released.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/on Stripe/)).toBeNull();
     showList();
     fireEvent.click(within(row("North, Row A")).getByRole("checkbox", { name: /^Seat 2, / }));
     fireEvent.click(within(row("North, Row A")).getByRole("checkbox", { name: /^Seat 1, / }));
