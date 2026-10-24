@@ -608,15 +608,53 @@ removed, either way.
    font on offer (Instrument Sans isn't one), and the Sheltüh U mark on
    white as the icon (`docs/design/checkout-pay.md` §2). Test and live mode
    may each need it set; check both.
-5. **Apple Pay and Google Pay** (Settings → Payment methods → Payment method
-   domains): register every domain that serves `/checkout/pay` (e.g.
-   `app.sheltuh.com.au`, and `sheltuh.com.au` if the app moves there).
-   With the form on our own page, Stripe needs the domain registered before
-   it offers wallets there. This comes from Stripe's documentation and
-   hasn't been tried here: check in test mode on a real device over HTTPS.
-   Which payment methods are offered at all is also set on that page;
-   redirect-based ones (e.g. Afterpay) send the buyer away and back to
-   `/checkout/success`.
+5. **Payment methods, wallets and Link** (no code: the Checkout Sessions
+   never send `payment_method_types`, so these Dashboard settings apply).
+   - Settings → Payment methods (the platform's default configuration):
+     **on**: Cards, Apple Pay, Google Pay, Link. **Off**: Afterpay/Clearpay,
+     Klarna, Zip, PayPal and other buy-now-pay-later or redirect methods
+     (`docs/FEATURE_PLAN.md`: not without repricing). Redirect-based ones
+     would send the buyer away and back to `/checkout/success`.
+   - Settings → Adaptive Pricing: **off**. The code pins it off on every
+     session anyway (`adaptive_pricing: { enabled: false }`), so buyers pay
+     exactly the A$ total the site shows; keep the Dashboard matching.
+   - **Payment method domains** (Settings → Payment methods → Payment method
+     domains): register every domain that serves `/checkout/pay`:
+     `app.sheltuh.com.au` (live, and test if you test there), a stable
+     preview domain such as `preview.sheltuh.com.au` (test), and
+     `sheltuh.com.au` if the app moves there. Stripe shows Apple Pay, Google
+     Pay and Link in the embedded form only where the domain is registered
+     and that method is `active`. Per-deployment `*.vercel.app` URLs can't
+     be registered ahead of time, so they show cards only.
+   - Or use the script. It reads `STRIPE_DOMAINS_KEY`, else
+     `STRIPE_SECRET_KEY` (e.g. from `.env.local`), and never prints the key.
+     Best is a **restricted key** (Developers → API keys → Create restricted
+     key) with write access to payment method domains only (the
+     permission's exact name in the Dashboard is unverified), made for this
+     run and deleted afterwards. Keep it out of shell history, e.g.
+     `read -rs STRIPE_DOMAINS_KEY && export STRIPE_DOMAINS_KEY`, and never
+     add it to Vercel.
+
+     ```sh
+     npm run payment-domains -- app.sheltuh.com.au preview.sheltuh.com.au             # check (default; changes nothing)
+     npm run payment-domains -- --register app.sheltuh.com.au preview.sheltuh.com.au  # create, re-enable, validate
+     ```
+
+     Hostnames only (no `https://`, path or port). `--register` creates a
+     missing domain enabled, re-enables a disabled one, and asks Stripe to
+     validate it when Apple Pay, Google Pay or Link isn't active. Each run
+     prints the key's mode, every domain's `livemode`, whether it's enabled,
+     and each method's status with Stripe's error message, and exits
+     non-zero unless every domain is enabled with all three `active`. If one
+     stays inactive, follow the error message, then run `--register` again.
+   - **Unverified** (none of this has been tried against Stripe): whether one
+     registration covers both modes (run the script with a test key and
+     again with a live key); whether Apple Pay still asks for the
+     `/.well-known/apple-developer-merchantid-domain-association` file (if
+     its error message does, it goes in `public/.well-known/`); that Connect
+     destination charges use the platform's settings here. Check in test
+     mode on real devices over HTTPS: `docs/architecture.md`, "Owner sandbox
+     checklist", items 11–13.
 6. Repeat steps 2–5 in live mode when you're ready to take real money.
    Live mode uses different keys and a different webhook secret, and the
    publishable key changes with the secret key.
@@ -761,7 +799,8 @@ where j.status in ('failed', 'pending') order by j.created_at desc;
 1. Import the GitHub repo into Vercel. It detects Next.js with no extra
    config.
 2. Settings → Environment Variables: add everything in `.env.example`
-   **except** `SUPABASE_SECRET_KEY`. Set `NEXT_PUBLIC_SITE_URL` to the
+   **except** `SUPABASE_SECRET_KEY` and `STRIPE_DOMAINS_KEY` (local scripts
+   only). Set `NEXT_PUBLIC_SITE_URL` to the
    production domain. `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` goes in each
    environment with the matching secret key: Production the live pair
    (`pk_live_…` with `sk_live_…`), Preview the test pair (`pk_test_…` with

@@ -123,8 +123,9 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       fails the build (`next.config.ts`), naming the variable but not the
       value, so it never reaches the browser bundle. Before going live, run the "Owner
       sandbox checklist (embedded checkout)" in `architecture.md` in test
-      mode, register the payment method domain(s) for Apple Pay and Google
-      Pay, and set Stripe's branding (`supabase-setup.md` §2, steps 4–5).
+      mode, switch on the payment methods and register the payment method
+      domain(s) for Apple Pay, Google Pay and Link (`npm run payment-domains`),
+      and set Stripe's branding (`supabase-setup.md` §2, steps 4–5).
 - [x] **Email footer banner** hosted at exactly
       `https://sheltuh.com.au/sheltuh_email_signature_logo.png` (the ticket
       email links this fixed URL, `EMAIL_FOOTER_IMAGE_URL` in
@@ -193,12 +194,33 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        `https://YOUR-DOMAIN/api/stripe/webhook`, copy the signing secret.
        Copy the publishable key (`pk_test_…`) too, for
        `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
-2. [ ] Branding (white background, black button) and payment method
-       domains for Apple Pay / Google Pay: `supabase-setup.md` §2.
-3. [ ] Run a full test purchase: paid ticket, free ticket, refund; then the
-       "Owner sandbox checklist (embedded checkout)" in `architecture.md`.
-4. [ ] Only then repeat with **live** keys (secret, publishable and webhook
-       secret all change together).
+2. [ ] Branding (white background, black button): `supabase-setup.md` §2,
+       step 4.
+3. [ ] Payment methods (`supabase-setup.md` §2, step 5): Cards, Apple Pay,
+       Google Pay and Link **on**; Afterpay, Klarna, Zip, PayPal and other
+       buy-now-pay-later **off**; Adaptive Pricing **off** (the code pins it
+       off too, so buyers pay exactly the A$ total shown).
+4. [ ] Payment method domains: `npm run payment-domains -- --register
+       app.sheltuh.com.au preview.sheltuh.com.au` with a **test** restricted
+       key (`STRIPE_DOMAINS_KEY`), or Stripe → Settings → Payment method
+       domains. It must exit 0: every domain enabled, Apple Pay, Google Pay
+       and Link `active`. For a stable preview domain: add
+       `preview.sheltuh.com.au` in Vercel and assign it to the branch you
+       test on, add its CNAME in Cloudflare as **DNS only** (grey cloud), and
+       give that branch's Preview environment
+       `NEXT_PUBLIC_SITE_URL=https://preview.sheltuh.com.au` and the test
+       keys, then redeploy. Per-deployment `*.vercel.app` URLs show cards
+       only.
+5. [ ] Run a full test purchase: paid ticket, free ticket, refund; then the
+       "Owner sandbox checklist (embedded checkout)" in `architecture.md`,
+       including the wallet, Link and Adaptive Pricing items (11–13) on real
+       devices. Unverified until then: wallets and Link with `no-referrer`,
+       in Instagram's in-app browser and the installed iOS app, and whether
+       a domain registration covers both modes.
+6. [ ] Only then repeat with **live** keys (secret, publishable and webhook
+       secret all change together), steps 3–4 included: run
+       `npm run payment-domains -- --register app.sheltuh.com.au` again with
+       a **live** restricted key, then delete that key.
 
 ## Vercel
 
@@ -212,7 +234,8 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        `pk_test_…`). Redeploy after changing any `NEXT_PUBLIC_*` value.
        Optional: `NEXT_PUBLIC_DISABLE_SERVICE_WORKER=1` turns the offline
        service worker off (needs a fresh build; see `docs/pwa.md`).
-       **Never** add `SUPABASE_SECRET_KEY` (local script only). The one
+       **Never** add `SUPABASE_SECRET_KEY` or `STRIPE_DOMAINS_KEY` (local
+       scripts only). The one
        exception is `SUPABASE_CLIP_STORAGE_KEY`: a *separate*, separately
        revocable secret key used only by `lib/server/clip-storage.ts` for the
        private `event-clips` bucket (event clips; unset = clip routes 503).
@@ -231,8 +254,14 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        `select policyname from pg_policies where schemaname = 'storage';`
        returns **0 rows** and that Storage → Buckets shows `event-clips` as
        **private**.
-2. [ ] Pro plan once you sell tickets (Hobby is non-commercial).
-3. [ ] Domain: attach `sheltuh.com.au` (see PROJECT_CONTEXT for the Cloudflare
+2. [ ] Settings → Functions → Region is **Sydney (syd1)**, next to the
+       database (`supabase-setup.md` §4). `vercel.json` sets no `regions`, so
+       this setting decides it; not yet checked. Checkout and the payment
+       page's `GET …/payment` each make several sequential database round
+       trips, so a US region would add noticeable delay before the form
+       appears.
+3. [ ] Pro plan once you sell tickets (Hobby is non-commercial).
+4. [ ] Domain: attach `sheltuh.com.au` (see PROJECT_CONTEXT for the Cloudflare
        notes). The landing page currently lives on a Cloudflare Worker; decide
        when the app replaces it.
 

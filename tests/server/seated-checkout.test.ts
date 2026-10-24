@@ -10,7 +10,7 @@ import {
   stripeWebhook,
 } from "@/lib/server/handlers/orders";
 import { joinWaitlist } from "@/lib/server/handlers/waitlist";
-import { embeddedSession, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
+import { embeddedSession, expectSessionPaymentOptions, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { orderIdFromUrl, seatedEvent, seatStates, tierCounts } from "./helpers/seating";
 import { createTestDb } from "./helpers/test-db";
@@ -117,6 +117,8 @@ describe("holding seats at checkout (paid)", () => {
     expect(params.return_url).toBe(`${SITE_URL}/checkout/success?session_id=${orderId}`);
     expect(params).not.toHaveProperty("cancel_url");
     expect(params).not.toHaveProperty("success_url");
+    // Exactly the A$ total (Adaptive Pricing off); the Dashboard's wallets and Link; nothing saved.
+    expectSessionPaymentOptions(params);
     expect(params.line_items).toEqual([
       { price_data: { currency: "aud", product_data: { name: "Premium — Neon Static", description: "Stalls · Row A · Seat 1" }, unit_amount: 5000 }, quantity: 1 },
       { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 250 }, quantity: 1 },
@@ -615,6 +617,7 @@ describe("general admission is unchanged", () => {
     expect(params.expires_at * 1000 - before).toBeGreaterThan((GA_CHECKOUT_SESSION_MINUTES - 1) * 60_000);
     expect(params.expires_at * 1000 - before).toBeLessThanOrEqual(GA_CHECKOUT_SESSION_MINUTES * 60_000 + 1000);
     expect(params).not.toHaveProperty("cancel_url");
+    expectSessionPaymentOptions(params);
     expect(res.body.url).toBe(`/checkout/pay?order=${res.body.orderId}`);
     const [order] = await api.db.query(`select seat_ids from public.orders where event_id = $1`, [ga.eventId]);
     expect(order.seat_ids).toBeNull();

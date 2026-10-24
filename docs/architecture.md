@@ -231,6 +231,22 @@ times, which are converted to instants honouring daylight saving
      secret is any use and how long a form already on screen stays payable
      after the page says `closed`; seated sessions after 31 minutes (see
      "Reserved seating").
+   - Both sessions (general admission and seated) carry the same payment
+     options (`SESSION_PAYMENT_OPTIONS`, `lib/server/handlers/orders.ts`):
+     - `adaptive_pricing: { enabled: false }`, pinned whatever the Dashboard
+       says. Buyers pay exactly the A$ total from `lib/fees.ts` that every
+       page shows (ACL all-inclusive pricing). Left on, Stripe could charge
+       a buyer abroad a converted amount plus its conversion fee.
+     - No `payment_method_types`, `excluded_payment_method_types`,
+       `payment_method_configuration` or `wallet_options`, so the
+       platform's Dashboard payment methods apply (cards, Apple Pay, Google
+       Pay and Link: step 2).
+     - Nothing is saved for later: no `customer`, `customer_creation`,
+       `saved_payment_method_options` or `payment_intent_data.setup_future_usage`.
+       Anyone holding the order id can load the form, so it must never show
+       a member's saved card.
+     The API tests assert all three (`expectSessionPaymentOptions`,
+     `tests/server/helpers/api.ts`) on both kinds of session.
    - If Stripe errors, or returns no `client_secret` (nobody could mount the
      form, so nobody could pay), the general admission order is marked
      `failed` (a seated one releases its holds) and the checkout is a 500.
@@ -312,6 +328,27 @@ times, which are converted to instants honouring daylight saving
    - Stripe's form is branded in Stripe's Dashboard (white background, black
      button: `docs/supabase-setup.md` §2), not in code. Stripe.js loads on
      this page only.
+   - **Wallets and Link** are switched on in the Dashboard, not in code
+     (Settings → Payment methods; `docs/supabase-setup.md` §2, step 5). Stripe
+     shows Apple Pay, Google Pay and Link in the embedded form only on a
+     registered payment method domain where that method is `active` (the
+     Stripe SDK's own description of payment method domains). Each domain
+     serving `/checkout/pay` is registered with `npm run payment-domains`
+     (`scripts/register-payment-domains.ts`, which checks by default and
+     exits non-zero unless all three are active) or in the Dashboard. Link
+     prefills the buyer's email when the checkout sent one (`customer_email`);
+     Link's saved cards are behind Link's own one-time code to the buyer, so
+     whoever holds the order id still can't pay with them. **Unverified**
+     (sandbox checklist items 11–13): whether one registration covers test
+     and live mode (the script reports `livemode`, so run it with each key);
+     whether Apple Pay still needs
+     `/.well-known/apple-developer-merchantid-domain-association` (if Stripe's
+     error message asks for it, serve it from `public/.well-known/`;
+     `proxy.ts` matches only `/checkout/pay`); that with destination charges
+     and no `on_behalf_of` the platform's payment method settings and
+     domains apply, not the connected account's; Link's availability in
+     Australia. Afterpay, Klarna, Zip and PayPal stay off (no buy-now-pay-later
+     without repricing, `docs/FEATURE_PLAN.md`).
 3. `POST /api/stripe/webhook`:
    - The signature is verified.
    - `checkout.session.completed` (when the session is paid) or
@@ -490,8 +527,28 @@ times, which are converted to instants honouring daylight saving
   admission, 31 minutes seated) for a form already on screen. Such a
   payment is refunded automatically if the event is unpublished, and
   fulfilled if the event has only ended (`fulfil_order` is unchanged).
-- **`no-referrer` on `/checkout/pay`.** Whether Apple Pay and Google Pay
-  work with it is unverified (sandbox checklist below).
+- **`no-referrer` on `/checkout/pay`.** Whether Apple Pay, Google Pay and
+  Link work with it is unverified (sandbox checklist below). If the wallets
+  don't appear on a domain whose methods are all `active`, the fallback is
+  `strict-origin` on `/checkout/pay` only: it sends the origin, never the
+  path or `?order=`. That changes `next.config.ts` (the `/checkout/*`
+  headers), the page's own referrer meta in `app/checkout/pay/page.tsx` and
+  the header assertion in `e2e/checkout-pay.spec.ts`; don't make it without
+  a sandbox run showing it's needed.
+- **Wallets and Link need a registered domain.** Per-deployment
+  `*.vercel.app` preview URLs can't be registered ahead of time, so they
+  show cards only. Test wallets on a stable preview domain (e.g.
+  `preview.sheltuh.com.au`, registered in test mode) and on
+  `app.sheltuh.com.au`.
+- **In-app browsers.** Most discovery happens on Instagram, and whether
+  Apple Pay or Google Pay appear inside its in-app browser (or the installed
+  iOS app's standalone window) is unverified. Link and card entry still work
+  there. An "open in your browser" hint would be a product decision.
+- **Wallet iframes and the CSP.** Wallets and Link run inside Stripe's
+  iframe, which our Report-Only policy doesn't govern; no CSP change is
+  expected (unverified: the sandbox run must show no violations). There's
+  no `Permissions-Policy` header today; any future one must allow
+  `payment`.
 - **Stripe.js on the payment page only.** Better for privacy, but Stripe's
   fraud checks (Radar) get fewer signals than with Stripe.js on every page.
 - **Redirect-based payment methods** (if enabled in the Dashboard) can
@@ -554,9 +611,25 @@ a local server (`npm run dev`, port 3000).
 10. If a redirect-based method is enabled (Dashboard → Settings → Payment
     methods), cancel it at the provider: the return page offers to go back
     to the payment page, and nothing was charged.
-11. Apple Pay and Google Pay on real devices, over HTTPS, after registering
-    the domain (`docs/supabase-setup.md` §2), in test mode first.
-12. `/checkout/pay` responses carry `Referrer-Policy: no-referrer` and
+11. **Wallets.** First `npm run payment-domains -- <domain>` with the test
+    key: Apple Pay, Google Pay and Link all `active` (exit 0). Then, over
+    HTTPS on that domain (not localhost, not a `*.vercel.app` URL): Apple Pay
+    in iPhone Safari and in the installed iOS app; Google Pay in Android
+    Chrome and desktop Chrome; and note what Instagram's in-app browser shows
+    on iOS and Android. For each payment: the tickets are issued, Stripe
+    shows the application fee and the transfer, and DevTools shows no
+    Report-Only CSP violations on `/checkout/pay`. If the wallets don't
+    appear although the domain's methods are active, see the `no-referrer`
+    accepted risk above before changing anything.
+12. **Link.** Signed out: pay with a test card, choosing to save it with
+    Link; then start another checkout with the same email and pay with Link
+    (one-time code, then one tap). Signed in: the email arrives prefilled.
+    Both: tickets issued, fee and transfer as in 2, no CSP violations.
+13. **Adaptive Pricing.** The form shows only A$ amounts, the total matches
+    our summary to the cent, and Stripe → the payment shows AUD with no
+    currency conversion (unverified for a buyer abroad: try a VPN if one is
+    to hand).
+14. `/checkout/pay` responses carry `Referrer-Policy: no-referrer` and
     `X-Robots-Tag: noindex, nofollow`; no other page requests
     `js.stripe.com`.
 

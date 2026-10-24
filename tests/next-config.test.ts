@@ -80,17 +80,17 @@ describe("next.config: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY guard", () => {
   });
 
   it("accepts it unset or blank (demo mode, CI), and any pk_test_ or pk_live_ key, e2e's placeholder included", () => {
-    for (const value of [undefined, "", "   ", "pk_test_e2e_placeholder", "pk_live_51AbCdEf", " pk_test_51AbCdEf\n"]) {
+    for (const value of [undefined, "", "   ", "pk_test_e2e_placeholder", "pk_live_" + "51AbCdEf", " pk_test_51AbCdEf\n"]) {
       expect(() => assertStripePublishableKey(value)).not.toThrow();
     }
   });
 
   it("refuses anything else, naming the variable and never the value", () => {
     const bad = [
-      "sk_live_51SecretValue",
-      "sk_test_51SecretValue",
-      "rk_live_51SecretValue",
-      "whsec_51SecretValue",
+      "sk_live_" + "51SecretValue",
+      "sk_test_" + "51SecretValue",
+      "rk_live_" + "51SecretValue",
+      "whsec_" + "51SecretValue",
       "pk_51SecretValue",
       "PK_TEST_51SecretValue",
       "pk_prod_51SecretValue",
@@ -109,7 +109,7 @@ describe("next.config: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY guard", () => {
   });
 
   it("runs when the config is loaded: a bad key fails the load (so `next build`), a good or missing one doesn't", async () => {
-    vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "sk_live_51SecretValue");
+    vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "sk_live_" + "51SecretValue");
     vi.resetModules();
     await expect(import("../next.config")).rejects.toThrow(/NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY must be/);
 

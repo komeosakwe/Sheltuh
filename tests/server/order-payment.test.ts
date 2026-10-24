@@ -158,6 +158,8 @@ describe("the embedded Checkout Session", () => {
       ui_mode: "embedded_page",
       return_url: `${SITE_URL}/checkout/success?session_id=${orderId}`,
       metadata: { orderId, eventId: event.eventId },
+      // Pinned off: buyers pay exactly the A$ total shown, never a converted amount.
+      adaptive_pricing: { enabled: false },
     });
     expect(GA_CHECKOUT_SESSION_MINUTES).toBe(60);
     const after = Date.now();
@@ -205,6 +207,8 @@ describe("the embedded Checkout Session", () => {
       ui_mode: "embedded_page",
       return_url: `${SITE_URL}/checkout/success?session_id=${orderId}`,
       metadata: { orderId, eventId: event.eventId },
+      // Pinned off: buyers pay exactly the A$ total shown, never a converted amount.
+      adaptive_pricing: { enabled: false },
     });
     expect(params.expires_at * 1000 - before).toBeGreaterThan(30 * 60_000);
     expect(params.expires_at * 1000 - before).toBeLessThanOrEqual(SEAT_HOLD_LIMITS.stripeSessionMinutes * 60_000 + 1000);

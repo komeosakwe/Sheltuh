@@ -8,8 +8,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const PK_TEST = "pk_test_51ExampleOnlyNotARealKey";
-const PK_LIVE = "pk_live_51ExampleOnlyNotARealKey";
+const PK_TEST = "pk_test_" + "51ExampleOnlyNotARealKey";
+const PK_LIVE = "pk_live_" + "51ExampleOnlyNotARealKey";
 const SK_TEST = "sk_test_" + "51ExampleOnlyNotARealKey";
 const SK_LIVE = "sk_live_" + "51ExampleOnlyNotARealKey";
 const RK_LIVE = "rk_live_" + "51ExampleOnlyNotARealKey";

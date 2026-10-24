@@ -321,6 +321,26 @@ function refuseWithoutCardPayments(deps: Deps) {
 export const GA_CHECKOUT_SESSION_MINUTES = 60;
 
 /**
+ * Payment options shared by both paid Checkout Sessions (general admission
+ * and seated).
+ * - `adaptive_pricing` is pinned off. Buyers pay exactly the A$ total from
+ *   lib/fees.ts that every page shows (ACL all-inclusive pricing). Left to
+ *   the Dashboard setting, Stripe could charge a buyer abroad a converted
+ *   amount plus its conversion fee.
+ * - `payment_method_types` is deliberately never sent (nor
+ *   `excluded_payment_method_types` or `wallet_options`), so the platform's
+ *   Dashboard payment methods apply: cards, Apple Pay, Google Pay and Link,
+ *   switched on there, on domains registered with `npm run payment-domains`.
+ * - Nothing is saved for later: no `customer`, no
+ *   `saved_payment_method_options`, no `payment_intent_data.setup_future_usage`.
+ *   Anyone holding the order id can load the form, so it must never show a
+ *   member's saved card. Link's saved cards sit behind its own one-time code.
+ */
+const SESSION_PAYMENT_OPTIONS = {
+  adaptive_pricing: { enabled: false },
+} satisfies Pick<Stripe.Checkout.SessionCreateParams, "adaptive_pricing">;
+
+/**
  * Anonymous rate limits on the card checkout routes: fixed windows on
  * private.take_client_rate_limit (no migration: the buckets are new names in
  * client_rate_limits), keyed with lib/server/client-key.ts and salted from
@@ -536,6 +556,9 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
       ui_mode: "embedded_page",
       return_url: checkoutReturnUrl(deps, orderId),
       metadata: { orderId, eventId },
+      // Exactly the A$ total (Adaptive Pricing off); no payment_method_types, so the Dashboard's wallets
+      // and Link apply; nothing saved. See SESSION_PAYMENT_OPTIONS.
+      ...SESSION_PAYMENT_OPTIONS,
     });
   } catch (err) {
     await db.query(`update public.orders set status = 'failed' where id = $1`, [orderId]);
@@ -916,6 +939,9 @@ async function createSeatedCheckout(
       ui_mode: "embedded_page",
       return_url: checkoutReturnUrl(deps, orderId),
       metadata: { orderId, eventId: event.eventId },
+      // Exactly the A$ total (Adaptive Pricing off); no payment_method_types, so the Dashboard's wallets
+      // and Link apply; nothing saved. See SESSION_PAYMENT_OPTIONS.
+      ...SESSION_PAYMENT_OPTIONS,
     });
   } catch (err) {
     // Nobody can pay for these seats: give them back now, not in 35 minutes.

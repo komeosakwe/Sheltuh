@@ -1,5 +1,5 @@
 import Stripe from "stripe";
-import { vi } from "vitest";
+import { expect, vi } from "vitest";
 import type { Caller } from "@/lib/server/auth";
 import { ClipStorageError, type ClipStorage } from "@/lib/server/clip-storage";
 import type { Db } from "@/lib/server/db";
@@ -16,6 +16,29 @@ export const PUBLISHABLE_KEY = "pk_test_not_a_real_key";
 /** What Stripe returns for an embedded session (ui_mode embedded_page): an id and a client secret, no URL. */
 export function embeddedSession(id: string, extra: Record<string, unknown> = {}) {
   return { id, object: "checkout.session", ui_mode: "embedded_page", url: null, client_secret: `${id}_secret_test`, ...extra };
+}
+
+/**
+ * The payment options every paid Checkout Session must carry (orders.ts
+ * SESSION_PAYMENT_OPTIONS): Adaptive Pricing pinned off, so buyers pay exactly
+ * the A$ total; no payment method list or wallet options, so the Dashboard's
+ * cards, Apple Pay, Google Pay and Link apply; and nothing saved for later.
+ */
+export function expectSessionPaymentOptions(params: Record<string, unknown>) {
+  expect(params.adaptive_pricing).toStrictEqual({ enabled: false });
+  for (const key of [
+    "payment_method_types",
+    "excluded_payment_method_types",
+    "payment_method_configuration",
+    "payment_method_options",
+    "wallet_options",
+    "customer",
+    "customer_creation",
+    "saved_payment_method_options",
+  ]) {
+    expect(params, key).not.toHaveProperty(key);
+  }
+  expect(params.payment_intent_data, "payment_intent_data.setup_future_usage").not.toHaveProperty("setup_future_usage");
 }
 
 /** Stripe's own offline signing/verification, for realistic webhook tests. */

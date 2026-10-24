@@ -3,7 +3,7 @@ import { adminUnpublishEvent } from "@/lib/server/handlers/admin";
 import { updateEventDraft } from "@/lib/server/handlers/events";
 import { createCheckout, getOrderBySession, orderTotals, stripeWebhook } from "@/lib/server/handlers/orders";
 import { orderReference } from "@/lib/server/order-reference";
-import { stripeWebhookRequest, TestApi } from "./helpers/api";
+import { expectSessionPaymentOptions, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, eventInput, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
@@ -211,6 +211,8 @@ describe("paid checkout", () => {
     });
     expect(params.return_url).toBe(`https://sheltuh.test/checkout/success?session_id=${orderId}`);
     expect(params.customer_email).toBeUndefined(); // Stripe collects it unless the buyer already gave one
+    // Exactly the A$ total (Adaptive Pricing off); the Dashboard's wallets and Link; nothing saved.
+    expectSessionPaymentOptions(params);
     expect(params.line_items.map((l: { price_data: { unit_amount: number } }) => l.price_data.unit_amount)).toEqual([
       3000, 170, 8000,
     ]);
