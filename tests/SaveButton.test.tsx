@@ -216,10 +216,10 @@ describe("SaveButton — live", () => {
 });
 
 describe("SaveButton — focus on a photo (overlay)", () => {
-  it("rings the 36px mark, black on a white gap, instead of the outline that can vanish into dark art; never orange", async () => {
+  it("rings the 36px mark, black on a white gap, instead of the outline that can vanish into dark art; never orange; the page's outline is dropped (!important beats the unlayered rule), so there's one ring", async () => {
     const button = await readyHeart();
     const mark = button.firstElementChild as HTMLElement;
-    expect(button).toHaveClass("group/save", "focus-visible:outline-none");
+    expect(button).toHaveClass("group/save", "focus-visible:outline-none!");
     expect(mark).toHaveClass(
       "size-9",
       "group-focus-visible/save:ring-2",
@@ -233,7 +233,7 @@ describe("SaveButton — focus on a photo (overlay)", () => {
   it("does the same when it's the sign-in link (signed out)", () => {
     renderHeart(signedOut());
     const link = screen.getByRole("link", { name: "Sign in to save Night Market" });
-    expect(link).toHaveClass("focus-visible:outline-none");
+    expect(link).toHaveClass("focus-visible:outline-none!");
     expect(link.firstElementChild).toHaveClass("group-focus-visible/save:ring-ink", "group-focus-visible/save:ring-offset-paper");
   });
 

@@ -18,7 +18,8 @@ import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
  * returned. Every server error is shown in the field.
  */
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+const push = vi.hoisted(() => vi.fn());
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 
 /** Every API call, in order, by name. */
 const calls: string[] = [];
@@ -31,6 +32,8 @@ const log =
 
 const api = vi.hoisted(() => ({
   updateEventDraft: vi.fn(),
+  createEventDraft: vi.fn(),
+  fetchPrivateEventImage: vi.fn(),
   submitEventForReview: vi.fn(),
   requestClipUpload: vi.fn(),
   uploadClipToStorage: vi.fn(),
@@ -46,11 +49,11 @@ const api = vi.hoisted(() => ({
 
 vi.mock("@/lib/api/events", () => ({
   updateEventDraft: (...args: unknown[]) => api.updateEventDraft(...args),
-  createEventDraft: vi.fn(),
+  createEventDraft: (...args: unknown[]) => api.createEventDraft(...args),
   submitEventForReview: (...args: unknown[]) => api.submitEventForReview(...args),
   uploadEventImage: vi.fn(),
   deleteEventImage: vi.fn(),
-  fetchPrivateEventImage: vi.fn().mockResolvedValue("blob:photo"),
+  fetchPrivateEventImage: (...args: unknown[]) => api.fetchPrivateEventImage(...args),
 }));
 vi.mock("@/lib/api/admin", () => ({
   adminListOrganisers: vi.fn(),
@@ -110,7 +113,9 @@ const TICKET = { uploadId: "up-1", uploadUrl: "https://project.supabase.test/sto
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_EVENT_CLIPS", "1");
   calls.length = 0;
+  push.mockReset();
   for (const fn of Object.values(api)) fn.mockReset();
+  api.fetchPrivateEventImage.mockResolvedValue("blob:photo");
   api.updateEventDraft.mockImplementation(log("updateEventDraft", async () => ({ ...EVENT })));
   api.submitEventForReview.mockImplementation(log("submitEventForReview", async () => ({ ...EVENT, status: "pending_review" })));
   api.requestClipUpload.mockImplementation(log("requestClipUpload", async () => TICKET));
@@ -149,7 +154,7 @@ async function choose(file: File) {
 }
 async function chooseValid() {
   await choose(mp4());
-  fireEvent.change(screen.getByLabelText("Describe the clip"), { target: { value: "A crowd sings along." } });
+  fireEvent.change(screen.getByLabelText("Describe the clip (required)"), { target: { value: "A crowd sings along." } });
   fireEvent.click(screen.getByRole("checkbox", { name: /I own this clip/ }));
 }
 const status = () => document.getElementById("event-clip-status") as HTMLElement;
@@ -208,8 +213,8 @@ describe("EventClipField: what a save needs", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
     expect(await screen.findByText(CLIP_MESSAGES.describe)).toBeInTheDocument();
     expect(screen.getByText(CLIP_MESSAGES.rights)).toBeInTheDocument();
-    expect(screen.getByLabelText("Describe the clip")).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByLabelText("Describe the clip")).toHaveAccessibleDescription(
+    expect(screen.getByLabelText("Describe the clip (required)")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Describe the clip (required)")).toHaveAccessibleDescription(
       /What happens in it, for people who can’t see it\. Shown under the clip\. Describe the clip\./,
     );
     expect(screen.getByRole("checkbox", { name: /I own this clip/ })).toHaveAttribute("aria-invalid", "true");
@@ -220,7 +225,7 @@ describe("EventClipField: what a save needs", () => {
   it("counts the description against its 300 characters", async () => {
     renderEditor();
     await choose(mp4());
-    const box = screen.getByLabelText("Describe the clip");
+    const box = screen.getByLabelText("Describe the clip (required)");
     expect(box).toHaveAttribute("maxlength", "300");
     fireEvent.change(box, { target: { value: "Crowd." } });
     expect(screen.getByText("6/300")).toBeInTheDocument();
@@ -285,7 +290,9 @@ describe("EventClipField: saving", () => {
     expect(bar).toHaveAccessibleName("Uploading clip… 40%");
     fireEvent.click(screen.getByRole("button", { name: "Cancel upload" }));
     await waitFor(() => expect(signal?.aborted).toBe(true));
-    await waitFor(() => expect(status()).toHaveTextContent("Ready to upload when you save."));
+    await waitFor(() => expect(status()).toHaveTextContent("Upload cancelled. The event was saved without the new clip."));
+    // Back to the file input (the Cancel button has gone).
+    await waitFor(() => expect(picker()).toHaveFocus());
     expect(screen.queryByRole("progressbar")).toBeNull();
     expect(api.attachClip).not.toHaveBeenCalled();
     expect(screen.queryByRole("alert")).toBeNull();
@@ -322,6 +329,9 @@ describe("EventClipField: saving", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
     expect(document.getElementById("event-clip-error")).toHaveTextContent(message);
+    // Focus goes to the reason, and the status line says nothing over it.
+    await waitFor(() => expect(document.getElementById("event-clip-error")).toHaveFocus());
+    expect(status()).toHaveTextContent(/^$/);
     expect(api.submitEventForReview).not.toHaveBeenCalled();
   });
 
@@ -354,21 +364,23 @@ describe("EventClipField: saving", () => {
     api.updateEventDraft.mockImplementation(log("updateEventDraft", async () => ({ ...EVENT, clip: SAVED_CLIP })));
     renderEditor({ clip: SAVED_CLIP });
     expect(await screen.findByLabelText("Clip preview")).toHaveAttribute("src", "https://project.supabase.test/signed/preview.mp4");
-    expect(screen.getByLabelText("Describe the clip")).toHaveValue(SAVED_CLIP.description);
-    fireEvent.change(screen.getByLabelText("Describe the clip"), { target: { value: "Dancers, a mirror ball, confetti." } });
+    expect(screen.getByLabelText("Describe the clip (required)")).toHaveValue(SAVED_CLIP.description);
+    fireEvent.change(screen.getByLabelText("Describe the clip (required)"), { target: { value: "Dancers, a mirror ball, confetti." } });
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
     await waitFor(() => expect(api.attachClip).toHaveBeenCalled());
-    expect(api.attachClip.mock.calls[0].slice(0, 2)).toEqual([
-      "evt-1",
-      { description: "Dancers, a mirror ball, confetti.", rightsConfirmed: true },
-    ]);
+    // The rights were confirmed when the clip was added: a new description alone doesn't send them.
+    expect(api.attachClip.mock.calls[0].slice(0, 2)).toEqual(["evt-1", { description: "Dancers, a mirror ball, confetti." }]);
     expect(api.requestClipUpload).not.toHaveBeenCalled();
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).not.toBeDisabled());
     fireEvent.click(screen.getByRole("button", { name: "Remove clip" }));
     expect(screen.getByText("No clip yet")).toBeInTheDocument();
+    expect(status()).toHaveTextContent("The clip will be removed when you save.");
+    await waitFor(() => expect(picker()).toHaveFocus());
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
     await waitFor(() => expect(api.deleteClip).toHaveBeenCalledWith("evt-1", expect.any(Function)));
+    await waitFor(() => expect(status()).toHaveTextContent("Clip removed."));
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
   });
 });
 
@@ -411,5 +423,300 @@ describe("EventClipField: admin mode", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(api.adminUpdateEvent).toHaveBeenCalledTimes(2));
     expect(api.adminUpdateEvent.mock.calls[1][1].expectedUpdatedAt).toBe("2026-10-20T03:00:00.000Z");
+  });
+});
+
+describe("EventClipField: a file still being checked (M1)", () => {
+  it("says so, and Save waits for it: never saved without the clip just chosen", async () => {
+    let read: (metadata: ClipMetadata | null) => void = () => {};
+    api.readMetadata.mockImplementation(() => new Promise((resolve) => (read = resolve)));
+    renderEditor();
+    fireEvent.change(picker(), { target: { files: [mp4()] } });
+    await act(async () => {});
+    expect(status()).toHaveTextContent("Checking the file…");
+    expect(status()).toHaveAttribute("aria-live", "polite");
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await act(async () => {});
+    expect(api.updateEventDraft).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
+
+    // The check passes: the clip is in, so the save now needs its description and rights.
+    await act(async () => read({ durationMs: 9000, width: 1080, height: 1920 }));
+    expect(await screen.findByText(CLIP_MESSAGES.describe)).toBeInTheDocument();
+    expect(screen.getByText(CLIP_MESSAGES.rights)).toBeInTheDocument();
+    expect(api.updateEventDraft).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Save draft" })).not.toBeDisabled();
+  });
+
+  it("a file refused while Save waited stops the save, with the reason shown", async () => {
+    let read: (metadata: ClipMetadata | null) => void = () => {};
+    api.readMetadata.mockImplementation(() => new Promise((resolve) => (read = resolve)));
+    renderEditor();
+    fireEvent.change(picker(), { target: { files: [mp4()] } });
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await act(async () => read({ durationMs: 20_000, width: 1080, height: 1920 }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(CLIP_MESSAGES.tooLong(20_000));
+    expect(api.updateEventDraft).not.toHaveBeenCalled();
+    expect(status()).toHaveTextContent(/^$/);
+  });
+
+  it("Submit waits for it too, then uploads it before submitting", async () => {
+    let read: (metadata: ClipMetadata | null) => void = () => {};
+    renderEditor({ clip: SAVED_CLIP });
+    await screen.findByLabelText("Clip preview");
+    api.readMetadata.mockImplementation(() => new Promise((resolve) => (read = resolve)));
+    fireEvent.change(picker(), { target: { files: [mp4()] } });
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
+    await act(async () => read({ durationMs: 9000, width: 1080, height: 1920 }));
+    // A new clip needs the rights confirmed: asked for, nothing sent.
+    expect(await screen.findByText(CLIP_MESSAGES.rights)).toBeInTheDocument();
+    expect(api.updateEventDraft).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("checkbox", { name: /I own this clip/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
+    await waitFor(() => expect(api.submitEventForReview).toHaveBeenCalled());
+    expect(calls).toEqual(["updateEventDraft", "requestClipUpload", "uploadClipToStorage", "attachClip", "submitEventForReview"]);
+  });
+});
+
+describe("EventClipField: when the clip step fails after the event saved (M2)", () => {
+  const SAVED_PHOTO = "/api/events/evt-1/image?v=2";
+
+  it("keeps the saved event (its photo), tells the page, and doesn't submit", async () => {
+    api.updateEventDraft.mockImplementation(log("updateEventDraft", async () => ({ ...EVENT, imageUrl: SAVED_PHOTO })));
+    api.attachClip.mockImplementation(log("attachClip", () => Promise.reject(new ApiError(429, CLIP_MESSAGES.rateLimited))));
+    const { onSaved } = renderEditor();
+    await chooseValid();
+    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(CLIP_MESSAGES.rateLimited);
+    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ imageUrl: SAVED_PHOTO, status: "draft" }));
+    expect(api.submitEventForReview).not.toHaveBeenCalled();
+    // The photo field shows the saved photo.
+    await waitFor(() => expect(api.fetchPrivateEventImage).toHaveBeenCalledWith(SAVED_PHOTO, expect.any(Function)));
+    // The clip waits for the next save.
+    expect(screen.getByRole("button", { name: "Discard new clip" })).toBeInTheDocument();
+  });
+
+  it("a new event: kept here (its photo), not navigated to, and the next save updates it", async () => {
+    api.createEventDraft.mockImplementation(log("createEventDraft", async () => ({ ...EVENT, imageUrl: SAVED_PHOTO })));
+    api.attachClip.mockImplementationOnce(log("attachClip", () => Promise.reject(new ApiError(503, "Unavailable"))));
+    const onSaved = vi.fn();
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ email: "owner@example.com" })}>
+        <EventEditor getToken={vi.fn().mockResolvedValue("token")} onSaved={onSaved} />
+      </FakeAuthProvider>,
+    );
+    fireEvent.change(screen.getByLabelText(/^Title/), { target: { value: "Test Event" } });
+    fireEvent.change(screen.getByLabelText(/^Description/), { target: { value: "A test event." } });
+    fireEvent.change(screen.getByLabelText(/^Venue name/), { target: { value: "The Venue" } });
+    fireEvent.change(screen.getByLabelText(/^Venue address/), { target: { value: "1 Test St" } });
+    fireEvent.change(screen.getByLabelText(/^Suburb/), { target: { value: "Testville" } });
+    fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-12-01" } });
+    fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "19:00" } });
+    fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2026-12-01" } });
+    fireEvent.change(screen.getByLabelText("End time"), { target: { value: "22:00" } });
+    fireEvent.change(document.getElementById("ticket-0-name") as HTMLElement, { target: { value: "General" } });
+    await chooseValid();
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(CLIP_MESSAGES.unavailable);
+    expect(push).not.toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
+    await waitFor(() => expect(api.fetchPrivateEventImage).toHaveBeenCalledWith(SAVED_PHOTO, expect.any(Function)));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard/evt-1"));
+    expect(api.createEventDraft).toHaveBeenCalledTimes(1);
+    expect(api.updateEventDraft).toHaveBeenCalledWith("evt-1", expect.any(Object), expect.any(Function));
+  });
+
+  it("admin: the note is cleared (it's in the log with the save), the page is told, the version kept", async () => {
+    const ADMIN: AdminEventRecord = {
+      ...EVENT,
+      ticketingMode: "sheltuh",
+      organiserPlatformManaged: false,
+      updatedAt: "2026-10-20T01:00:00.000Z",
+    };
+    api.adminUpdateEvent.mockImplementation(log("adminUpdateEvent", async () => ({ ...ADMIN, updatedAt: "2026-10-20T02:00:00.000Z" })));
+    api.adminRequestClipUpload.mockImplementation(log("adminRequestClipUpload", async () => TICKET));
+    api.adminAttachClip.mockImplementationOnce(log("adminAttachClip", () => Promise.reject(new ApiError(503, "Unavailable"))));
+    const onSaved = vi.fn();
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ email: "admin@sheltuh.example", isAdmin: true })}>
+        <EventEditor mode="admin" initial={ADMIN} getToken={vi.fn().mockResolvedValue("token")} onSaved={onSaved} />
+      </FakeAuthProvider>,
+    );
+    await chooseValid();
+    fireEvent.change(screen.getByLabelText(/Note for the event/), { target: { value: "Fixing the venue." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(CLIP_MESSAGES.unavailable);
+    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ updatedAt: "2026-10-20T02:00:00.000Z" }));
+    expect(screen.getByLabelText(/Note for the event/)).toHaveValue("");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(api.adminUpdateEvent).toHaveBeenCalledTimes(2));
+    expect(api.adminUpdateEvent.mock.calls[1][1]).toMatchObject({ expectedUpdatedAt: "2026-10-20T02:00:00.000Z", reason: null });
+  });
+});
+
+describe("EventClipField: Cancel with a Submit queued (L3), and edits while uploading (L4)", () => {
+  it("Cancel also stops a queued Submit: no fresh upload, nothing submitted", async () => {
+    api.uploadClipToStorage.mockImplementation(
+      log("uploadClipToStorage", (_url, _file, options) => {
+        const { signal } = options as { signal: AbortSignal };
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new DOMException("The upload was cancelled.", "AbortError")));
+        });
+      }),
+    );
+    renderEditor();
+    await chooseValid();
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(api.uploadClipToStorage).toHaveBeenCalled());
+    // Nothing to change while it's being sent.
+    expect(screen.getByLabelText("Describe the clip (required)")).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /I own this clip/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
+    await waitFor(() => expect(api.updateEventDraft).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel upload" }));
+    await waitFor(() => expect(status()).toHaveTextContent("Upload cancelled. The event was saved without the new clip."));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Submit for review" })).not.toBeDisabled());
+    expect(api.requestClipUpload).toHaveBeenCalledTimes(1);
+    expect(api.uploadClipToStorage).toHaveBeenCalledTimes(1);
+    expect(api.submitEventForReview).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Describe the clip (required)")).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Discard new clip" })).toBeInTheDocument();
+  });
+
+  it("a queued Submit's older record doesn't undo the clip the save just attached", async () => {
+    let finish: () => void = () => {};
+    api.uploadClipToStorage.mockImplementation(log("uploadClipToStorage", () => new Promise<void>((resolve) => (finish = resolve))));
+    api.attachClip.mockImplementation(
+      log("attachClip", async () => ({ ...EVENT, clip: SAVED_CLIP, updatedAt: "2026-01-01T00:00:05.000Z" })),
+    );
+    renderEditor();
+    await chooseValid();
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(api.uploadClipToStorage).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
+    // Its event save answers before the clip is attached: no clip, an older version.
+    await waitFor(() => expect(api.updateEventDraft).toHaveBeenCalledTimes(2));
+    await act(async () => finish());
+    await waitFor(() => expect(api.submitEventForReview).toHaveBeenCalled());
+    expect(api.attachClip).toHaveBeenCalledTimes(1);
+    expect(api.deleteClip).not.toHaveBeenCalled();
+    expect(screen.queryByText("No clip yet")).toBeNull();
+    expect(screen.getByRole("button", { name: "Remove clip" })).toBeInTheDocument();
+  });
+});
+
+describe("EventClipField: Remove, Discard and the preview (UX #4, L5)", () => {
+  it("Remove can be undone; Undo puts focus back on Remove clip", async () => {
+    renderEditor({ clip: SAVED_CLIP });
+    await screen.findByLabelText("Clip preview");
+    fireEvent.click(screen.getByRole("button", { name: "Remove clip" }));
+    expect(status()).toHaveTextContent("The clip will be removed when you save.");
+    await waitFor(() => expect(picker()).toHaveFocus());
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(status()).toHaveTextContent(/^$/);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remove clip" })).toHaveFocus());
+    expect(await screen.findByLabelText("Clip preview")).toBeInTheDocument();
+  });
+
+  it("Remove, then a new pick, then Discard: the saved clip is kept, and says so", async () => {
+    renderEditor({ clip: SAVED_CLIP });
+    await screen.findByLabelText("Clip preview");
+    fireEvent.click(screen.getByRole("button", { name: "Remove clip" }));
+    await choose(mp4());
+    expect(status()).toHaveTextContent("Ready to upload when you save.");
+    fireEvent.click(screen.getByRole("button", { name: "Discard new clip" }));
+    expect(status()).toHaveTextContent("Keeping the current clip.");
+    await waitFor(() => expect(picker()).toHaveFocus());
+    expect(screen.getByRole("button", { name: "Remove clip" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(api.updateEventDraft).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).not.toBeDisabled());
+    expect(api.deleteClip).not.toHaveBeenCalled();
+  });
+
+  it("a saved clip's preview that won't play gets a fresh URL once, then says it couldn't load", async () => {
+    api.getClipPreview
+      .mockResolvedValueOnce({ url: "https://project.supabase.test/signed/old.mp4", expiresAt: "" })
+      .mockResolvedValue({ url: "https://project.supabase.test/signed/new.mp4", expiresAt: "" });
+    renderEditor({ clip: SAVED_CLIP });
+    const first = await screen.findByLabelText("Clip preview");
+    expect(first).toHaveAttribute("src", "https://project.supabase.test/signed/old.mp4");
+    fireEvent.error(first);
+    await waitFor(() => expect(screen.getByLabelText("Clip preview")).toHaveAttribute("src", "https://project.supabase.test/signed/new.mp4"));
+    expect(api.getClipPreview).toHaveBeenCalledTimes(2);
+    fireEvent.error(screen.getByLabelText("Clip preview"));
+    expect(await screen.findByText("Couldn’t load the preview")).toBeInTheDocument();
+    expect(api.getClipPreview).toHaveBeenCalledTimes(2);
+  });
+
+  it("a new pick this browser can't play says so instead of a broken player", async () => {
+    renderEditor();
+    await choose(mp4());
+    fireEvent.error(screen.getByLabelText("Clip preview"));
+    expect(screen.getByText("This browser can’t preview this clip")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Discard new clip" })).toBeInTheDocument();
+  });
+});
+
+describe("EventClipField: uploads switched off", () => {
+  const ADMIN_WITH_CLIP: AdminEventRecord = {
+    ...EVENT,
+    status: "published",
+    ticketingMode: "sheltuh",
+    organiserPlatformManaged: false,
+    clip: SAVED_CLIP,
+    updatedAt: "2026-10-20T01:00:00.000Z",
+  };
+  function renderAdmin(initial: AdminEventRecord) {
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ email: "admin@sheltuh.example", isAdmin: true })}>
+        <EventEditor mode="admin" initial={initial} getToken={vi.fn().mockResolvedValue("token")} onSaved={vi.fn()} />
+      </FakeAuthProvider>,
+    );
+  }
+  beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_EVENT_CLIPS", "");
+    api.adminUpdateEvent.mockImplementation(log("adminUpdateEvent", async () => ({ ...ADMIN_WITH_CLIP, updatedAt: "2026-10-20T02:00:00.000Z" })));
+    api.adminAttachClip.mockImplementation(
+      log("adminAttachClip", async () => ({ ...ADMIN_WITH_CLIP, clip: { ...SAVED_CLIP, description: "Confetti." }, updatedAt: "2026-10-20T03:00:00.000Z" })),
+    );
+    api.adminDeleteClip.mockImplementation(log("adminDeleteClip", async () => ({ ...ADMIN_WITH_CLIP, clip: undefined, updatedAt: "2026-10-20T03:00:00.000Z" })));
+  });
+
+  it("an admin still sees an event's clip, and can describe it again: only choosing a file is gone", async () => {
+    renderAdmin(ADMIN_WITH_CLIP);
+    expect(screen.getByText("Event clip (optional)")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Clip preview")).toHaveAttribute("src", "https://project.supabase.test/signed/preview.mp4");
+    expect(document.getElementById("event-clip")).toBeNull();
+    expect(screen.queryByText(/Choose (a|another) clip/)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Describe the clip (required)"), { target: { value: "Confetti." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(api.adminAttachClip).toHaveBeenCalled());
+    expect(api.adminAttachClip.mock.calls[0].slice(0, 2)).toEqual(["evt-1", { description: "Confetti." }]);
+    expect(api.adminRequestClipUpload).not.toHaveBeenCalled();
+  });
+
+  it("an admin can remove it (focus on Undo, there being no file input), and the field stays", async () => {
+    renderAdmin(ADMIN_WITH_CLIP);
+    await screen.findByLabelText("Clip preview");
+    fireEvent.click(screen.getByRole("button", { name: "Remove clip" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Undo" })).toHaveFocus());
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(api.adminDeleteClip).toHaveBeenCalledWith("evt-1", expect.any(Function), undefined));
+    await waitFor(() => expect(status()).toHaveTextContent("Clip removed."));
+    expect(screen.getByText("No clip yet")).toBeInTheDocument();
+  });
+
+  it("no field for an admin's event without a clip, nor for an organiser's", () => {
+    renderAdmin({ ...ADMIN_WITH_CLIP, clip: undefined });
+    expect(screen.queryByText("Event clip (optional)")).toBeNull();
+    cleanup();
+    renderEditor({ clip: SAVED_CLIP });
+    expect(screen.queryByText("Event clip (optional)")).toBeNull();
   });
 });

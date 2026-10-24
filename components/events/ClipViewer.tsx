@@ -106,11 +106,13 @@ function ClipBody({ request }: { request: ClipViewerRequest }) {
   const reduceMotion = usePrefersReducedMotion();
   const descriptionId = useId();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const retryRef = useRef<HTMLButtonElement>(null);
   /** Try again remounts the video (a new key) with the same src. */
   const [attempt, setAttempt] = useState(0);
   const [status, setStatus] = useState<Status>("loading");
   const [slow, setSlow] = useState(false);
-  const sized = Boolean(clip.width && clip.height);
+  const { width, height } = clip;
+  const sized = Boolean(width && height);
 
   // The loader, only once loading has taken a moment.
   useEffect(() => {
@@ -139,6 +141,14 @@ function ClipBody({ request }: { request: ClipViewerRequest }) {
     if (document.activeElement !== video) video.closest("dialog")?.querySelector<HTMLElement>("h2[tabindex]")?.focus();
   }, [attempt]);
 
+  // A clip that fails (again) takes the video away: if focus was on it, it goes to Try again,
+  // never to the page's body.
+  useEffect(() => {
+    if (status !== "error") return;
+    const active = document.activeElement;
+    if (!active || active === document.body) retryRef.current?.focus();
+  }, [status]);
+
   function retry() {
     setStatus("loading");
     setSlow(false);
@@ -152,7 +162,7 @@ function ClipBody({ request }: { request: ClipViewerRequest }) {
           <p role="alert" className="text-sm leading-5">
             {CLIP_ERROR_TEXT}
           </p>
-          <Button variant="outline" size="sm" className="min-h-11" onClick={retry}>
+          <Button ref={retryRef} variant="outline" size="sm" className="min-h-11" onClick={retry}>
             Try again
           </Button>
         </div>
@@ -169,8 +179,15 @@ function ClipBody({ request }: { request: ClipViewerRequest }) {
             controlsList="nodownload"
             disablePictureInPicture
             preload={reduceMotion ? "metadata" : "auto"}
-            width={sized ? clip.width : undefined}
-            height={sized ? clip.height : undefined}
+            width={sized ? width : undefined}
+            height={sized ? height : undefined}
+            // A known shape is reserved before any bytes (no jump when they arrive): as wide as fits
+            // both the dialog and 80dvh less its chrome (title, gaps, two lines of description).
+            style={
+              width && height
+                ? { aspectRatio: `${width} / ${height}`, width: `min(100%, calc((80dvh - 10rem) * ${width / height}))` }
+                : undefined
+            }
             aria-label={`Clip: ${title}`}
             aria-describedby={descriptionId}
             onCanPlay={() => setStatus("ready")}
@@ -179,7 +196,7 @@ function ClipBody({ request }: { request: ClipViewerRequest }) {
             onError={() => setStatus("error")}
             className={
               sized
-                ? "mx-auto block h-auto max-h-[calc(80dvh-10rem)] w-auto max-w-full"
+                ? "mx-auto block h-auto object-contain"
                 : "aspect-video max-h-[calc(80dvh-10rem)] w-full object-contain"
             }
           />

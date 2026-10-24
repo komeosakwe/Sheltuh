@@ -4,12 +4,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventQueueItem from "@/components/admin/EventQueueItem";
 import { ClipViewerProvider } from "@/components/events/ClipViewer";
 import type { AdminEventRecord } from "@/lib/api/types";
+import { SessionExpiredError } from "@/lib/auth/session-token";
+import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
 /**
- * The admin queue's clip row (docs/design/event-clips.md §5.5), behind
- * NEXT_PUBLIC_EVENT_CLIPS: the clip's length and description, then Play
+ * The admin queue's clip row (docs/design/event-clips.md §5.5), whenever the
+ * event has a clip (NEXT_PUBLIC_EVENT_CLIPS gates uploading only, never
+ * reviewing one that exists): the clip's length and description, then Play
  * clip (before Approve… in the tab order), which fetches a short-lived
- * preview URL and opens the page's clip viewer with it, or says it couldn't.
+ * preview URL and opens the page's clip viewer with it, says it couldn't, or
+ * asks to sign in again when the session has run out.
  */
 
 vi.mock("@/lib/api/admin", () => ({
@@ -66,25 +70,30 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-function renderItem(item: AdminEventRecord = ITEM) {
-  return render(
-    <ClipViewerProvider>
-      <ul>
-        <EventQueueItem
-          item={item}
-          listStatus="pending_review"
-          getToken={vi.fn().mockResolvedValue("token")}
-          onRemoved={vi.fn()}
-          reauthOwner={null}
-          onClaimReauth={vi.fn()}
-          now={Date.parse("2026-10-24T00:00:00.000Z")}
-        />
-      </ul>
-    </ClipViewerProvider>,
+function renderItem(item: AdminEventRecord = ITEM, { reauthOwner = null, onClaimReauth = vi.fn() }: { reauthOwner?: string | null; onClaimReauth?: (owner: string | null) => void } = {}) {
+  const tree = (owner: string | null) => (
+    <FakeAuthProvider value={fakeAuthValue({ email: "admin@sheltuh.example", isAdmin: true })}>
+      <ClipViewerProvider>
+        <ul>
+          <EventQueueItem
+            item={item}
+            listStatus="pending_review"
+            getToken={vi.fn().mockResolvedValue("token")}
+            onRemoved={vi.fn()}
+            reauthOwner={owner}
+            onClaimReauth={onClaimReauth}
+            now={Date.parse("2026-10-24T00:00:00.000Z")}
+          />
+        </ul>
+      </ClipViewerProvider>
+    </FakeAuthProvider>
   );
+  const result = render(tree(reauthOwner));
+  return { ...result, rerenderWith: (owner: string | null) => result.rerender(tree(owner)) };
 }
 
-const playClip = () => screen.getByRole("button", { name: "Play clip: Neon Static, 12 seconds" });
+// Label in Name: the name contains the visible "Play clip".
+const playClip = () => screen.getByRole("button", { name: "Play clip: Neon Static, 0:12" });
 
 describe("the admin queue's clip row (§5.5)", () => {
   it("shows the length and description, with Play clip before Approve…", () => {
@@ -92,19 +101,24 @@ describe("the admin queue's clip row (§5.5)", () => {
     expect(screen.getByText("Clip · 0:12")).toBeInTheDocument();
     expect(screen.getByText(CLIP.description)).toBeInTheDocument();
     const play = playClip();
-    expect(play).toHaveTextContent("Play clip");
+    expect(play).toHaveTextContent(/^Play clip$/);
     const approve = screen.getByRole("button", { name: "Approve Neon Static…" });
     expect(play.compareDocumentPosition(approve) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(document.querySelector("video")).toBeNull();
   });
 
-  it("isn't there without a clip, or with the flag off", () => {
-    const { unmount } = renderItem({ ...ITEM, clip: undefined });
+  it("isn't there without a clip", () => {
+    renderItem({ ...ITEM, clip: undefined });
     expect(screen.queryByText(/^Clip ·/)).toBeNull();
-    unmount();
+    expect(screen.queryByRole("button", { name: /^Play clip/ })).toBeNull();
+  });
+
+  it("is there with uploads switched off: a clip that exists is always reviewable", () => {
     vi.stubEnv("NEXT_PUBLIC_EVENT_CLIPS", "");
     renderItem();
-    expect(screen.queryByRole("button", { name: /^Play clip/ })).toBeNull();
+    expect(screen.getByText("Clip · 0:12")).toBeInTheDocument();
+    expect(screen.getByText(CLIP.description)).toBeInTheDocument();
+    expect(playClip()).toBeInTheDocument();
   });
 
   it("fetches a preview URL (busy meanwhile), then plays it in the viewer with no poster; focus comes back", async () => {
@@ -136,5 +150,29 @@ describe("the admin queue's clip row (§5.5)", () => {
     await act(async () => {});
     expect(screen.getByRole("alert")).toHaveTextContent("Couldn’t load the clip. Try again.");
     expect(document.querySelector("dialog")).not.toHaveAttribute("open");
+  });
+
+  it("an expired session asks to sign in again (claiming the queue's one sign-in form), then Play works", async () => {
+    getClipPreview.mockRejectedValueOnce(new SessionExpiredError());
+    const onClaimReauth = vi.fn();
+    const { rerenderWith } = renderItem(ITEM, { onClaimReauth });
+    fireEvent.click(playClip());
+    await act(async () => {});
+    expect(onClaimReauth).toHaveBeenCalledWith("clip:evt-1");
+    expect(screen.getByRole("alert")).toHaveTextContent("Your session has expired. Sign in again, then play the clip.");
+    expect(screen.queryByText("Couldn’t load the clip. Try again.")).toBeNull();
+    expect(document.querySelector("dialog")).not.toHaveAttribute("open");
+
+    // Given the form (only one may be shown at a time), it's offered here.
+    rerenderWith("clip:evt-1");
+    expect(screen.getByRole("alert")).toHaveTextContent("Sign in again below, then play the clip.");
+
+    // Pressing Play again tries again, and gives the form back.
+    getClipPreview.mockResolvedValueOnce({ url: "https://project.supabase.test/signed/evt-1.mp4", expiresAt: "" });
+    fireEvent.click(playClip());
+    await act(async () => {});
+    expect(onClaimReauth).toHaveBeenLastCalledWith(null);
+    expect(screen.queryByText(/Your session has expired/)).toBeNull();
+    expect(document.querySelector("dialog")).toHaveAttribute("open");
   });
 });

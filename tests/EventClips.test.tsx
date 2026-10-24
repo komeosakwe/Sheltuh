@@ -9,7 +9,7 @@ import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
 import { HomeRailItem } from "@/components/home/HomeRail";
 import HomeRailSection from "@/components/home/HomeRailSection";
 import EventCard from "@/components/ui/EventCard";
-import { clipPlayLabel, clipTimeLabel } from "@/lib/clip-display";
+import { clipPlayName, clipTimeLabel } from "@/lib/clip-display";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
 import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
@@ -94,14 +94,17 @@ function withProviders(children: ReactNode) {
   );
 }
 
-const playButton = () => screen.getByRole("button", { name: "Play clip: Glasshouse Sessions, 12 seconds" });
+const playButton = () => screen.getByRole("button", { name: "Play clip: Glasshouse Sessions, 0:12" });
 const dialog = () => document.querySelector("dialog") as HTMLDialogElement;
 const video = () => document.querySelector("dialog video") as HTMLVideoElement | null;
 
 describe("the Play button (§5.1)", () => {
-  it("names the clip with its length, shows 0:12, and opens a dialog", () => {
+  it("names the clip with its length, shows 0:12 (in the name: no aria-label), and opens a dialog", () => {
     withProviders(<EventCard event={event} variant="rail" mode="demo" />);
     const button = playButton();
+    // Label in Name: visually hidden words before the visible length, never an aria-label over it.
+    expect(button).not.toHaveAttribute("aria-label");
+    expect(button.querySelector(".sr-only")).toHaveTextContent("Play clip: Glasshouse Sessions,");
     expect(button).toHaveAttribute("type", "button");
     expect(button).toHaveAttribute("aria-haspopup", "dialog");
     expect(button).toHaveAttribute("data-clip-play", "evt-1");
@@ -111,9 +114,13 @@ describe("the Play button (§5.1)", () => {
     expect(button.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
   });
 
-  it("rounds to whole seconds, at least 1 and at most 15, singular for one", () => {
-    expect(clipPlayLabel("Gig", 600)).toBe("Play clip: Gig, 1 second");
-    expect(clipPlayLabel("Gig", 15_400)).toBe("Play clip: Gig, 15 seconds");
+  it("names every Play control the same way, the visible words included", () => {
+    expect(clipPlayName("Gig", 12_400)).toBe("Play clip: Gig, 0:12");
+  });
+
+  it("rounds to whole seconds, at least 1 and at most 15", () => {
+    expect(clipTimeLabel(600)).toBe("0:01");
+    expect(clipTimeLabel(15_400)).toBe("0:15");
     expect(clipTimeLabel(5_200)).toBe("0:05");
     expect(clipTimeLabel(15_500)).toBe("0:15");
   });
@@ -144,7 +151,10 @@ describe("the Play button (§5.1)", () => {
     // The frame repeats the image's box, at its bottom-left, and passes taps through elsewhere.
     const frame = container.querySelector("[data-clip-frame]") as HTMLElement;
     expect(frame).toHaveClass("pointer-events-none", "absolute", variant === "rail" ? "aspect-[4/3]" : "aspect-square");
-    expect(button).toHaveClass("pointer-events-auto", "absolute", "bottom-1", "left-1", "min-h-11", "min-w-11");
+    // The 36px chip 8px in from the image's bottom-left (its 44px target 4px from the bottom).
+    expect(button).toHaveClass("pointer-events-auto", "absolute", "bottom-1", "left-2", "min-h-11", "min-w-11");
+    // One ring only: the page's own focus outline is dropped (!important beats the unlayered rule).
+    expect(button).toHaveClass("focus-visible:outline-none!");
   });
 
   it("a pair's card repeats the wide image box from 1024px", () => {
@@ -180,6 +190,11 @@ describe("the viewer (§5.2)", () => {
     expect(v).toHaveAttribute("preload", "auto");
     expect(v).toHaveAttribute("width", "1080");
     expect(v).toHaveAttribute("height", "1920");
+    // Its box is reserved from the clip's shape, as wide as fits the dialog and 80dvh less its chrome.
+    expect(v.style.aspectRatio).toBe("1080 / 1920");
+    expect(v.style.width).toMatch(/^min\(100%, .*0\.5625.*\(80dvh - 10rem\)/);
+    expect(v).toHaveClass("mx-auto", "block", "h-auto", "object-contain");
+    expect(v).not.toHaveClass("w-auto");
     expect(v).toHaveAccessibleName("Clip: Glasshouse Sessions");
     expect(v).toHaveAccessibleDescription(CLIP.description);
     expect(within(dialog()).getByText(CLIP.description)).toBeVisible();
@@ -194,6 +209,13 @@ describe("the viewer (§5.2)", () => {
     fireEvent.click(playButton());
     expect(dialog()).toHaveClass("sm:max-w-2xl");
     expect(video()).not.toHaveAttribute("poster");
+  });
+
+  it("a clip of unknown size gets a 16:9 box instead", () => {
+    withProviders(<EventCard event={{ ...event, clip: { ...CLIP, width: 0, height: 0 } }} variant="rail" mode="demo" />);
+    fireEvent.click(playButton());
+    expect(video()).toHaveClass("aspect-video", "w-full", "object-contain");
+    expect(video()?.style.aspectRatio).toBe("");
   });
 
   it("under reduced motion it doesn't play by itself, and only reads the clip's header", () => {
@@ -254,6 +276,21 @@ describe("the viewer (§5.2)", () => {
     expect(document.activeElement).not.toBe(document.body);
     expect(screen.queryByRole("alert")).toBeNull();
   });
+
+  it("when Try again fails again, focus goes to the new Try again, never the page's body", () => {
+    withProviders(<EventCard event={event} variant="rail" mode="demo" />);
+    fireEvent.click(playButton());
+    fireEvent.error(video() as HTMLVideoElement);
+    fireEvent.click(within(dialog()).getByRole("button", { name: "Try again" }));
+    const again = video() as HTMLVideoElement;
+    // Focus on the video's controls, as a browser allows (jsdom doesn't count a video as focusable).
+    again.setAttribute("tabindex", "-1");
+    again.focus();
+    expect(again).toHaveFocus();
+    fireEvent.error(again);
+    expect(screen.getByRole("alert")).toHaveTextContent(CLIP_ERROR_TEXT);
+    expect(within(dialog()).getByRole("button", { name: "Try again" })).toHaveFocus();
+  });
 });
 
 describe("rail copies (§5.1, §5.2)", () => {
@@ -296,7 +333,7 @@ describe("rail copies (§5.1, §5.2)", () => {
     if (!copyPlay) throw new Error("no Play in the copy");
     expect(copyPlay.tabIndex).toBe(-1);
     expect(copyPlay.closest("[aria-hidden='true']")).not.toBeNull();
-    const real = screen.getByRole("button", { name: "Play clip: Night 2, 12 seconds" });
+    const real = screen.getByRole("button", { name: "Play clip: Night 2, 0:12" });
 
     fireEvent.click(copyPlay);
     expect(dialog()).toHaveAttribute("open");
@@ -312,6 +349,7 @@ describe("the event page's photo (§5.3)", () => {
     const { container } = withProviders(<EventDetailsView event={{ ...event, slug: "neon-static" }} demo />);
     const button = playButton();
     expect(button).toHaveTextContent("Play clip0:12");
+    expect(button).toHaveClass("focus-visible:outline-none!");
     expect(button).toHaveClass("absolute", "bottom-3", "left-5", "sm:left-3", "h-11");
     const wrapper = button.parentElement as HTMLElement;
     expect(wrapper).toHaveClass("relative", "-mx-5", "sm:mx-0");

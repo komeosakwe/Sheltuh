@@ -223,7 +223,7 @@ export default function EventCard({
           data-clip-frame=""
           className={`pointer-events-none absolute inset-x-0 top-0 z-10 ${MEDIA[variant]} ${isWide ? WIDE.media : ""}`.trim()}
         >
-          <ClipPlayButton event={event} className="pointer-events-auto absolute bottom-1 left-1" />
+          <ClipPlayButton event={event} className="pointer-events-auto absolute bottom-1 left-2" />
         </div>
       )}
       {showSave && (

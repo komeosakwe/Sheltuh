@@ -25,7 +25,7 @@ import {
   readEventQueueFilters,
   type EventQueueFilters,
 } from "./event-queue-filters";
-import EventQueueItem, { eventHeadingId } from "./EventQueueItem";
+import EventQueueItem, { clipReauthOwner, eventHeadingId } from "./EventQueueItem";
 import { actionErrorText } from "./OrganiserItem";
 
 type LoadState =
@@ -173,7 +173,7 @@ export default function EventQueue() {
     const next = index === -1 ? undefined : (items[index + 1] ?? items[index - 1]);
     setItems((current) => current.filter((i) => i.eventId !== item.eventId));
     setAnnouncement(message);
-    if (reauthOwner === item.eventId) setReauthOwner(null);
+    if (reauthOwner === item.eventId || reauthOwner === clipReauthOwner(item.eventId)) setReauthOwner(null);
     pendingFocus.current = next ? eventHeadingId(next.eventId) : HEADING_ID;
     adminSummary?.refresh();
   }

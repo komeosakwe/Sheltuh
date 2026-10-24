@@ -21,7 +21,7 @@ Status: proposed · Owner: ui-design-director · Date: 24 Oct 2026 · Builds on 
 | Chip, Light | `bg-background text-foreground border-foreground` (white, black, 1px black) | 21:1 text; the black border shows on any light photo, and the white fill on any dark one |
 | Chip, Dark | the same tokens re-scoped: black fill, white text, 1px white border | 21:1; the white border separates it from black letterboxing (`EventArt` `fit="auto"`) |
 | Chip hover (`@media (hover:hover)`) | `bg-foreground text-background` (inverts, as `.btn-outline`) | 21:1 |
-| Chip focus | the target is `focus-visible:outline-none`; the chip gets `ring-2 ring-ink ring-offset-2 ring-offset-paper` (same as Save overlay) | A constant black ring on a white gap, visible on any photo in both themes |
+| Chip focus | the target is `focus-visible:outline-none!` (the `!` beats the page's unlayered `:focus-visible` outline, so there's one ring, not two); the chip gets `ring-2 ring-ink ring-offset-2 ring-offset-paper` (same as Save overlay) | A constant black ring on a white gap, visible on any photo in both themes |
 | Chip active | `motion-safe:scale-95`, 150ms | — |
 | Duration label | Plex Mono 500, 12/16, `tabular-nums`, no tracking (`font-mono text-xs leading-4 font-medium tabular-nums`) | — |
 | Hero chip label | Instrument 600, 13/16, uppercase, tracking 0.02em (the `.btn` md type) plus the mono duration | — |
@@ -38,7 +38,7 @@ Status: proposed · Owner: ui-design-director · Date: 24 Oct 2026 · Builds on 
 No new grids. Placement inside existing boxes:
 
 - **Cards** (`EventCard` `rail`, `grid`, and `wide` pairs; used by home rails and pairs, `/events`, `/search`, `/saved` and profiles via `EventResults`):
-  - The chip sits bottom-left of the media, with its target at `bottom-1 left-1`. The 36px chip centred in a 44px target therefore sits 8px from the media edges, matching Save's 8px inset top-right.
+  - The chip sits bottom-left of the media, with its target at `bottom-1 left-2`. The 36px chip, centred vertically and left-aligned in a 44px target, therefore sits 8px from the media's bottom and left edges, matching Save's 8px inset top-right.
   - On a 134px phone grid card the chip is about 64px wide, leaving more than 60px clear of Save diagonally.
 - **Viewer:**
   - Below 640px, it's a bottom sheet: full width, `rounded-t-card`, `p-5`, with safe-area padding.
@@ -51,9 +51,9 @@ No new grids. Placement inside existing boxes:
   - Rail 4:3, grid 1:1, pair 12:5 (at most 200px tall) from lg; hero 4:3 (at most 30svh) on phones, 3:2 from sm.
   - The chip shows on the poster fallback exactly as on a photo.
 - **Clip in the viewer:** the whole frame is always shown (`object-contain` on `bg-ink`) and never cropped. Portrait, square and landscape are all letterboxed in black.
-- **Video sizing:** `block h-auto w-auto max-w-full max-h-[calc(80dvh-10rem)] mx-auto`, with the HTML `width` and `height` attributes set from the clip's dimensions so the box is reserved before any bytes arrive.
+- **Video sizing:** `mx-auto block h-auto object-contain` plus an inline style from the clip's dimensions, `aspectRatio: "{w} / {h}"` and `width: min(100%, calc((80dvh - 10rem) * {w/h}))`, and the HTML `width` and `height` attributes. The box is the clip's exact shape, as wide as fits both the dialog and the height budget, and it's reserved before any bytes arrive, so the dialog doesn't jump when they do.
   - 10rem is the sheet's chrome: title row 44px, two 16px gaps, two description lines 40px, and padding.
-  - So title, clip and a description of up to 2 lines fit inside 80dvh with no scrolling. Longer descriptions scroll inside the dialog, which is capped at 90dvh by SeatDialog.
+  - So title, clip and a description of up to 2 lines fit inside 80dvh with no scrolling (the width formula keeps the height at most `80dvh - 10rem`). Longer descriptions scroll inside the dialog, which is capped at 90dvh by SeatDialog.
   - If the dimensions aren't known yet (dependency B1), use a `w-full aspect-video max-h-[calc(80dvh-10rem)]` box with the video `size-full object-contain`.
 - **Poster attribute:** `poster={event.imageUrl}` when there's a photo. Omit it otherwise, and don't try to rasterise the SVG art: the black box plus the loader stands in.
 - **No text on the clip** and no scrim. The title and description sit outside the video.
@@ -64,18 +64,18 @@ No new grids. Placement inside existing boxes:
 
 **Anatomy:**
 - A `<button type="button" data-clip-play={event.id}>` with the target classes `group/play flex min-h-11 min-w-11 items-center justify-start focus-visible:outline-none`.
-- Inside it, an `aria-hidden` chip span: `flex h-9 items-center gap-1.5 rounded-control border px-2.5` plus the §2 colours, containing the glyph and `0:12`.
+- Inside it, first a visually hidden `<span class="sr-only">Play clip: {title},</span>` and a space, then the chip span: `flex h-9 items-center gap-1.5 rounded-control border px-2.5` plus the §2 colours, containing the `aria-hidden` glyph and `0:12`.
 
 **Label and name:**
 - Seconds: `s = clamp(round(durationMs / 1000), 1, 15)`.
 - Visible text: `0:{ss}`, e.g. "0:12" or "0:05".
-- Accessible name (`aria-label`): `Play clip: {title}, {s} seconds`, singular for "1 second".
+- Accessible name, from the content (no `aria-label`): "Play clip: {title}, 0:12". **Decision (Label in Name, WCAG 2.5.3):** the visible "0:12" is part of the name, so voice-control users can say what they see.
 - `aria-haspopup="dialog"`.
 
 **Placement in `EventCard`:**
 - A new overlay frame placed **after the title's link and before `SaveButton` in the DOM**: `<div className="pointer-events-none absolute inset-x-0 top-0 z-10 {MEDIA[variant]} {isWide ? WIDE.media : ''}">`.
 - It reuses the media's own aspect classes, so it matches the image box exactly with no measuring.
-- The button inside it is `pointer-events-auto absolute bottom-1 left-1`.
+- The button inside it is `pointer-events-auto absolute bottom-1 left-2`.
 - Render it only when `event.clip` exists.
 - Tab order: card link → Play → Save → ticket action → By {organiser}.
 - It's never inside the link, and never inside the `aria-hidden` `EventArt`.
@@ -117,7 +117,8 @@ No new grids. Placement inside existing boxes:
 - **Loading:** if `canplay` hasn't fired after 300ms, overlay `DotsLoader label="Loading clip"` centred on the black box. Use `data-surface="ink"` on the overlay so the dots are white. Remove it on `canplay`. Under reduced motion the dots are static, as already built.
 - **Error** (`error` event, or a 404 from an unpublished event): replace the video with `flex flex-col items-start gap-3 p-4` on `data-surface="ink"`, containing:
   - `<p role="alert" className="text-sm leading-5">This clip can’t play right now.</p>`
-  - an outline sm `min-h-11` button "Try again", which remounts the video with the same `src`.
+  - an outline sm `min-h-11` button "Try again", which remounts the video with the same `src`, and moves focus to the new video (or the dialog's title where a browser won't focus a video).
+  - If focus was lost when the video went (it was on the video's controls, or a retry failed again), it goes to the new Try again, never the page's body.
   - The description stays below.
 - **Empty:** not reachable, because the trigger only exists when a clip exists.
 
@@ -128,7 +129,7 @@ No new grids. Placement inside existing boxes:
 **Chip:** a hero-size `ClipPlayButton` (`size="hero"`) at `absolute bottom-3 left-5 sm:left-3`. On phones this lines the chip up with the page's 20px text edge.
 - The target and chip are the same element: `inline-flex h-11 items-center gap-2 rounded-control border px-3.5`.
 - Content: glyph 16px, then "Play clip" (button type), then the mono `0:12`.
-- Same colours, focus ring and accessible name as §5.1.
+- Same colours, focus ring and accessible name ("Play clip: {title}, 0:12") as §5.1. Here it's an `aria-label`, which contains both visible parts in order: visually hidden words between "Play clip" and its colon would be spaced apart by Chromium ("Play clip :").
 
 **Layout shift:** none. The chip is absolutely positioned, and the clip data is in the same payload as the event, so it renders with the page. The image stays the LCP element; no video bytes load before the press.
 
@@ -142,24 +143,31 @@ No new grids. Placement inside existing boxes:
 3. **Actions** (`flex flex-col items-start gap-3`):
    - A hidden-but-focusable `input type=file accept="video/mp4,video/quicktime"`, with a label styled as `buttonClass("outline","sm","min-h-11")` reading "Choose a clip", or "Choose another clip" when there is one.
    - **Hint** (`text-xs text-muted max-w-sm`): "Up to 15 seconds, no sound, MP4 or MOV (H.264), up to {cap} MB. On iPhone, set Camera → Formats → Most Compatible, or export as H.264. It plays when someone taps the event’s photo."
-   - When there's a clip: outline sm "Remove clip" (saved) or "Discard new clip" (pending).
+   - When there's a clip: outline sm "Remove clip" (saved) or "Discard new clip" (pending). Afterwards focus goes to the file input.
+   - **Uploads switched off** (`NEXT_PUBLIC_EVENT_CLIPS` unset): the organiser's field isn't shown. An admin editing an event that already has a clip still gets the field, without the file input, label and hint: the saved clip's preview, its description, and Remove clip (focus then goes to Undo). Only choosing a new clip is gated.
 4. **Description:**
-   - `<label htmlFor="event-clip-description" className="eyebrow text-muted">Describe the clip</label>`
-   - A textarea, `rows={3}` and `maxLength={300}`, required whenever there's a clip.
+   - `<label htmlFor="event-clip-description" className="eyebrow text-muted">Describe the clip (required)</label>`
+   - A textarea, `rows={3}` and `maxLength={300}`, required whenever there's a clip. Disabled while the clip is uploading or being checked (as is the rights checkbox), so an edit can't be lost.
    - Hint (12/16 muted): "What happens in it, for people who can’t see it. Shown under the clip."
    - Counter `meta text-muted`: "{n}/300".
 5. **Rights:** a native checkbox, required whenever a new clip is chosen, in `flex min-h-11 items-start gap-3 text-sm`: "I own this clip or have permission to use it, including from everyone who appears in it."
 6. **Progress**, shown while saving:
    - A native `<progress>` with `aria-labelledby` the status line, styled `h-1 w-full appearance-none rounded-badge bg-surface [&::-webkit-progress-value]:bg-foreground [&::-moz-progress-bar]:bg-foreground`.
    - A status line `meta` (`aria-live="polite"`) that steps through:
+     - "Checking the file…" (the browser's pre-checks of a file just chosen; a save waits for them, so it never goes ahead without that clip)
      - "Uploading clip… 42%" (update it only every 10%)
      - "Checking the clip…"
      - "Clip saved."
-   - Outline sm "Cancel upload" while uploading.
+   - Outline sm "Cancel upload" while uploading. Cancel also stops a Submit queued behind that save (nothing is uploaded again, nothing submitted); the status says "Upload cancelled. The event was saved without the new clip." and focus goes to the file input.
    - A pending pick before the first save shows "Ready to upload when you save."
+   - After Remove clip: "The clip will be removed when you save." with an outline sm "Undo" (focus back on Remove clip); after the save, "Clip removed."
+   - After Remove clip, a new pick, then Discard new clip: "Keeping the current clip."
+   - The status line is blank while the field shows an error.
 
 **Errors:**
-- Shown as `text-sm text-danger` with `role="alert"` under the field. The client pre-checks show the server's exact strings.
+- Shown as `text-sm text-danger` with `role="alert"` under the field (`#event-clip-error`, `tabIndex={-1}`: when a save's clip step fails, focus moves to it, or to the description or checkbox when they're the cause). The client pre-checks show the server's exact strings.
+- When the clip step fails after the event itself saved, the editor keeps that saved record (its photo and version), the page is told as after a save, an admin's note is cleared (it's in the log with the save), and nothing is submitted or navigated to.
+- **Preview:** a saved clip's signed preview URL that won't play is fetched again once (it may have expired); if it still won't, "Couldn’t load the preview". A new pick this browser can't play shows "This browser can’t preview this clip".
 - `aria-invalid` goes on the description or checkbox when they're the cause.
 
 | Cause | Copy |
@@ -181,15 +189,16 @@ No new grids. Placement inside existing boxes:
 
 ### 5.5 Admin review (`components/admin/EventQueueItem.tsx`)
 
-**Clip row:** when the item has a clip, add a row under the item's details (above the actions' `border-t`):
+**Clip row:** whenever the item has a clip, whatever the upload flag (a clip that exists is always reviewable), add a row under the item's details (above the actions' `border-t`):
 - `eyebrow text-muted` "Clip · 0:12"
 - the description, 14/20 foreground
-- an outline sm `min-h-11` button "Play clip", named "Play clip: {title}, 12 seconds"
+- an outline sm `min-h-11` button "Play clip", named (`aria-label`) "Play clip: {title}, 0:12", which starts with the visible words
 
 **Pressing Play clip:**
 - It fetches the preview URL. While that's in progress the button is `busy` with the label "Loading clip…".
 - Then it opens the same viewer with `src` set to the signed URL and no poster.
 - On failure: `Notice tone="danger"` "Couldn’t load the clip. Try again."
+- An expired session: the queue's "Your session has expired. Sign in again, then play the clip." (`AdminSessionExpired`), claiming the queue's one sign-in form as the row's other actions do; focus returns to Play clip once signed in.
 
 The clip row sits before Approve… in tab order, so the reviewer reaches the clip first.
 

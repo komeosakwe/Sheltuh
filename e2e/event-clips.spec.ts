@@ -115,7 +115,7 @@ test.describe("home rails at 1280×800", () => {
     const title = (await first.locator("h3").textContent()) ?? "";
     const event = events.find((e) => e.title === title);
     expect(event).toBeDefined();
-    const play = first.getByRole("button", { name: `Play clip: ${title}, 12 seconds` });
+    const play = first.getByRole("button", { name: `Play clip: ${title}, 0:12` });
     await expect(play).toBeVisible();
     await expect(play).toContainText("0:12");
 
@@ -188,14 +188,17 @@ test.describe("at 375×667", () => {
     const first = realCards(rail).first();
     const media = await first.locator("[data-card-media]").boundingBox();
     const play = await first.locator("[data-clip-play]").boundingBox();
-    expect(media && play).toBeTruthy();
-    if (!media || !play) return;
+    const chip = await first.locator("[data-clip-play] > span:not(.sr-only)").boundingBox();
+    expect(media && play && chip).toBeTruthy();
+    if (!media || !play || !chip) return;
     expect(play.width).toBeGreaterThanOrEqual(44);
     expect(play.height).toBeGreaterThanOrEqual(44);
     expect(play.x).toBeGreaterThanOrEqual(media.x);
-    expect(play.x - media.x).toBeLessThanOrEqual(6);
-    expect(media.y + media.height - (play.y + play.height)).toBeLessThanOrEqual(6);
     expect(media.y + media.height - (play.y + play.height)).toBeGreaterThanOrEqual(0);
+    // The 36px chip sits 8px in from the left and bottom edges, as Save does from the top-right.
+    expect(chip.height).toBe(36);
+    expect(Math.abs(chip.x - media.x - 8)).toBeLessThanOrEqual(1);
+    expect(Math.abs(media.y + media.height - (chip.y + chip.height) - 8)).toBeLessThanOrEqual(1);
     expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
   });
 
@@ -204,7 +207,7 @@ test.describe("at 375×667", () => {
     const { events, clipRequests } = await mockPublicApi(page);
     const event = events[0];
     await page.goto(`/events/${event.slug}`);
-    const play = page.getByRole("button", { name: `Play clip: ${event.title}, 12 seconds` });
+    const play = page.getByRole("button", { name: `Play clip: ${event.title}, 0:12` });
     await expect(play).toBeVisible({ timeout: 30_000 });
     await expect(play).toContainText("Play clip");
     const title = page.getByRole("heading", { level: 1, name: event.title });
@@ -278,9 +281,11 @@ test.describe("the editor's clip upload", () => {
       createdAt: new Date(now - DAY).toISOString(),
       updatedAt: new Date(now - DAY).toISOString(),
     };
+    // The event as the server has it: each save answers with its clip.
+    let current: EventRecord = draft;
     const steps: string[] = [];
+    const attachBodies: unknown[] = [];
     let storagePut: { headers: Record<string, string>; size: number } | null = null;
-    let attachBody: unknown = null;
 
     await page.addInitScript((s) => localStorage.setItem("sb-127-auth-token", JSON.stringify(s)), session);
     await page.route("**/supabase-mock/**", async (route) => {
@@ -315,7 +320,7 @@ test.describe("the editor's clip upload", () => {
       if (path === "/api/organisers/me/events/evt-1") return route.fulfill({ json: draft });
       if (path === "/api/events/evt-1" && request.method() === "PATCH") {
         steps.push("save draft");
-        return route.fulfill({ json: draft });
+        return route.fulfill({ json: current });
       }
       if (path === "/api/events/evt-1/clip/uploads" && request.method() === "POST") {
         steps.push("upload URL");
@@ -332,8 +337,14 @@ test.describe("the editor's clip upload", () => {
       }
       if (path === "/api/events/evt-1/clip" && request.method() === "PUT") {
         steps.push("attach");
-        attachBody = request.postDataJSON();
-        return route.fulfill({ json: { ...draft, clip: { ...clipOf("evt-1"), description: "A crowd sings along." } } });
+        const body = request.postDataJSON() as { description: string };
+        attachBodies.push(body);
+        current = {
+          ...draft,
+          clip: { ...clipOf("evt-1"), description: body.description },
+          updatedAt: new Date(now + attachBodies.length * 1000).toISOString(),
+        };
+        return route.fulfill({ json: current });
       }
       if (path === "/api/events/evt-1/clip/preview") {
         steps.push("preview");
@@ -349,7 +360,7 @@ test.describe("the editor's clip upload", () => {
     await expect(page.getByText("Event clip (optional)")).toBeVisible({ timeout: 30_000 });
     await page.locator("#event-clip").setInputFiles({ name: "crowd.mp4", mimeType: "video/mp4", buffer: Buffer.alloc(4096) });
     await expect(page.getByText("Ready to upload when you save.")).toBeVisible();
-    await page.getByLabel("Describe the clip").fill("A crowd sings along.");
+    await page.getByLabel("Describe the clip (required)").fill("A crowd sings along.");
     await page.getByRole("checkbox", { name: /I own this clip/ }).check();
     await page.getByRole("button", { name: "Save draft" }).click();
 
@@ -363,8 +374,15 @@ test.describe("the editor's clip upload", () => {
     expect(put.headers["x-upsert"]).toBe("false");
     expect(put.headers.apikey).toBe("e2e-placeholder");
     expect(put.headers.authorization).toBeUndefined();
-    expect(attachBody).toEqual({ uploadId: "8d6f0a52-3c1e-4b8e-9f51-2f8f3d1c0a11", description: "A crowd sings along.", rightsConfirmed: true });
+    expect(attachBodies).toEqual([{ uploadId: "8d6f0a52-3c1e-4b8e-9f51-2f8f3d1c0a11", description: "A crowd sings along.", rightsConfirmed: true }]);
     await expect.poll(() => steps.includes("preview")).toBe(true);
     expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
+
+    // A new description alone: no upload, and the rights aren't sent again.
+    await page.getByLabel("Describe the clip (required)").fill("A crowd sings along, then confetti.");
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await expect.poll(() => attachBodies.length).toBe(2);
+    expect(attachBodies[1]).toEqual({ description: "A crowd sings along, then confetti." });
+    expect(steps.filter((step) => step === "upload URL")).toHaveLength(1);
   });
 });

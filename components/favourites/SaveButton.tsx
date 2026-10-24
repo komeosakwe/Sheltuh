@@ -33,7 +33,7 @@ function classes(variant: SaveButtonVariant, saved: boolean) {
     // photo (never orange). Explicit ink/paper: it's the same on every surface and theme.
     case "overlay":
       return {
-        target: "group/save flex size-11 items-center justify-center rounded-control focus-visible:outline-none",
+        target: "group/save flex size-11 items-center justify-center rounded-control focus-visible:outline-none!",
         mark: `${discBase} border-foreground group-focus-visible/save:ring-2 group-focus-visible/save:ring-ink group-focus-visible/save:ring-offset-2 group-focus-visible/save:ring-offset-paper ${
           saved
             ? "bg-foreground text-background group-hover/save:bg-accent-strong"

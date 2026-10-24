@@ -38,19 +38,31 @@ export interface ClipUploadTicket {
   maxBytes: number;
 }
 
-export interface AttachClipInput {
-  /** From requestClipUpload. Omit to change only the description of the event's clip. */
-  uploadId?: string;
-  /** 1–300 characters: the clip's text alternative. */
-  description: string;
-  /** The rights checkbox: must be true. */
-  rightsConfirmed: true;
-}
+/**
+ * PUT …/clip's body: a new clip (its uploadId, with the rights confirmed),
+ * or, without an uploadId, a new description for the event's clip (the
+ * rights were confirmed when it was added, so they aren't sent again).
+ */
+export type AttachClipInput =
+  | {
+      /** From requestClipUpload. */
+      uploadId: string;
+      /** 1–300 characters: the clip's text alternative. */
+      description: string;
+      /** The rights checkbox: must be true, and only with an uploadId. */
+      rightsConfirmed: true;
+    }
+  | {
+      uploadId?: never;
+      /** 1–300 characters: the clip's text alternative. */
+      description: string;
+      rightsConfirmed?: never;
+    };
 
-export interface AdminAttachClipInput extends AttachClipInput {
+export type AdminAttachClipInput = AttachClipInput & {
   /** Optional, up to 500 characters, shown in the event's log. */
   reason?: string;
-}
+};
 
 /** 200 from GET …/clip/preview: a short-lived (10-minute) URL for a <video> src. */
 export interface ClipPreview {
@@ -78,7 +90,8 @@ export async function requestClipUpload(eventId: string, input: ClipUploadReques
 /**
  * Attaches the uploaded clip (or, without an uploadId, changes its
  * description). Returns the event, its `clip` the new version. ApiError 400
- * fieldErrors; 404; 409; 410 the upload expired (choose the clip again); 413; 503.
+ * fieldErrors; 404; 409; 410 the upload expired (choose the clip again); 413;
+ * 503 clips unavailable (CLIP_MESSAGES.unavailable in fieldErrors.clip).
  */
 export async function attachClip(eventId: string, input: AttachClipInput, getToken: GetToken) {
   const token = await getToken();

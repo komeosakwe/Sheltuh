@@ -28,6 +28,13 @@ export type ClipPhase =
   | { kind: "checking" }
   | { kind: "saved" };
 
+/**
+ * A one-off status (§5.4) after the person's own action: a cancelled upload,
+ * a removal that's been saved, or the saved clip kept after a new one was
+ * discarded. Cleared by the next action.
+ */
+export type ClipNotice = "cancelled" | "removed" | "kept";
+
 export interface ClipFieldErrors {
   clip?: string;
   description?: string;
@@ -51,6 +58,9 @@ export interface ClipDraftState {
   networkFailed: boolean;
   /** The browser is reading a chosen file (its pre-checks). */
   checkingFile: boolean;
+  notice: ClipNotice | null;
+  /** Counts the save's clip steps that failed: the field moves focus to the reason each time. */
+  failures: number;
 }
 
 /**
@@ -123,6 +133,8 @@ export function useEventClip({ enabled, getToken, saved }: { enabled: boolean; g
     errors: {},
     networkFailed: false,
     checkingFile: false,
+    notice: null,
+    failures: 0,
   }));
   // The source of truth across a save's awaits (state lags a render behind); every change goes through `patch`.
   const current = useRef(state);
@@ -130,41 +142,84 @@ export function useEventClip({ enabled, getToken, saved }: { enabled: boolean; g
   const inFlight = useRef<Promise<unknown> | null>(null);
   /** Each pick, so a slow pre-check of an earlier file never lands after a later one. */
   const pickSeq = useRef(0);
+  /** The pick being checked, if any (true once it's refused): a save waits for it, so a just-chosen clip is never left out. */
+  const pickInFlight = useRef<Promise<boolean> | null>(null);
+  /** Each Cancel upload: a save queued behind the cancelled one doesn't start the upload again. */
+  const cancelSeq = useRef(0);
+  /**
+   * The latest event version a clip call answered with (every clip write bumps it). A record
+   * older than that, from an event save that started before the clip step ended, says nothing
+   * about the clip.
+   */
+  const clipVersionAt = useRef(Number.NEGATIVE_INFINITY);
 
   const patch = useCallback((next: Partial<ClipDraftState>) => {
     current.current = { ...current.current, ...next };
     setState(current.current);
   }, []);
 
+  /** Checks a chosen file: if it passes, it's the clip waiting for the next save. */
   const pick = useCallback(
-    async (file: File) => {
+    (file: File): Promise<void> => {
       const seq = ++pickSeq.current;
-      patch({ errors: {}, networkFailed: false, phase: IDLE, checkingFile: true });
-      const result = await precheckClip(file);
-      if (seq !== pickSeq.current) return;
-      if (!result.ok) {
-        patch({ checkingFile: false, errors: { clip: result.message } });
-        return;
-      }
-      patch({
-        checkingFile: false,
-        file,
-        contentType: result.contentType,
-        metadata: result.metadata,
-        rights: false,
-        removed: false,
+      patch({ errors: {}, networkFailed: false, phase: IDLE, checkingFile: true, notice: null });
+      // Resolves true if the file was refused (a later pick, or Discard, supersedes it: not refused).
+      const refused: Promise<boolean> = precheckClip(file).then((result) => {
+        if (seq !== pickSeq.current) return false;
+        if (!result.ok) {
+          patch({ checkingFile: false, errors: { clip: result.message } });
+          return true;
+        }
+        patch({
+          checkingFile: false,
+          file,
+          contentType: result.contentType,
+          metadata: result.metadata,
+          rights: false,
+          removed: false,
+        });
+        return false;
       });
+      const tracked = refused.finally(() => {
+        if (pickInFlight.current === tracked) pickInFlight.current = null;
+      });
+      pickInFlight.current = tracked;
+      return tracked.then(() => undefined);
     },
     [patch],
   );
 
+  /** Waits for the file being checked, if any: false if it was refused (its error is shown). */
+  async function pickSettled(): Promise<boolean> {
+    let refused = false;
+    while (pickInFlight.current) refused = await pickInFlight.current;
+    return !refused;
+  }
+
   const discard = useCallback(() => {
     pickSeq.current += 1;
-    patch({ file: null, metadata: null, rights: false, errors: {}, networkFailed: false, phase: IDLE, checkingFile: false });
+    pickInFlight.current = null;
+    const { saved, removed } = current.current;
+    patch({
+      file: null,
+      metadata: null,
+      rights: false,
+      errors: {},
+      networkFailed: false,
+      phase: IDLE,
+      checkingFile: false,
+      // The saved clip is what the event keeps (a pick after Remove undid the removal).
+      notice: saved && !removed ? "kept" : null,
+    });
   }, [patch]);
 
   const remove = useCallback(() => {
-    patch({ removed: true, errors: {}, networkFailed: false, phase: IDLE });
+    patch({ removed: true, errors: {}, networkFailed: false, phase: IDLE, notice: null });
+  }, [patch]);
+
+  /** Takes back Remove clip before the save. */
+  const undoRemove = useCallback(() => {
+    patch({ removed: false, notice: null });
   }, [patch]);
 
   const setDescription = useCallback(
@@ -183,11 +238,19 @@ export function useEventClip({ enabled, getToken, saved }: { enabled: boolean; g
     [patch],
   );
 
-  const cancelUpload = useCallback(() => abortRef.current?.abort(), []);
+  const cancelUpload = useCallback(() => {
+    cancelSeq.current += 1;
+    abortRef.current?.abort();
+  }, []);
 
-  /** The description and rights a save needs (§5.4); false (with the field's errors shown) if they're missing. */
-  const validate = useCallback((): boolean => {
+  /**
+   * The description and rights a save needs (§5.4); false (with the field's errors shown) if
+   * they're missing. Waits for a file still being checked first: false if it was refused, so a
+   * save never goes ahead without the clip just chosen.
+   */
+  async function validate(): Promise<boolean> {
     if (!enabled) return true;
+    if (!(await pickSettled())) return false;
     const s = current.current;
     const hasClip = Boolean(s.file) || Boolean(s.saved && !s.removed);
     const errors: ClipFieldErrors = {};
@@ -198,12 +261,20 @@ export function useEventClip({ enabled, getToken, saved }: { enabled: boolean; g
       return false;
     }
     return true;
-  }, [enabled, patch]);
+  }
+
+  /** A clip call's answer: the event's clip as it now is, and the version later records are judged by. */
+  function answered<R extends EventRecord>(updated: R): R {
+    const at = Date.parse(updated.updatedAt);
+    if (at > clipVersionAt.current) clipVersionAt.current = at;
+    return updated;
+  }
 
   async function run<R extends EventRecord>(record: R, routes: ClipRoutes<R>): Promise<R> {
     const eventId = record.eventId;
-    // The record is the server's word on the event's clip.
-    patch({ saved: record.clip });
+    // The record is the server's word on the event's clip, unless a clip call has answered since it was made.
+    const fresh = !(Date.parse(record.updatedAt) < clipVersionAt.current);
+    patch({ ...(fresh ? { saved: record.clip } : {}), notice: null });
     const s = current.current;
     const description = s.description.trim();
     const removing = !s.file && s.removed;
@@ -229,7 +300,9 @@ export function useEventClip({ enabled, getToken, saved }: { enabled: boolean; g
         });
         abortRef.current = null;
         patch({ phase: { kind: "checking" } });
-        const updated = await routes.attach(eventId, { uploadId: ticket.uploadId, description, rightsConfirmed: true }, getToken);
+        const updated = answered(
+          await routes.attach(eventId, { uploadId: ticket.uploadId, description, rightsConfirmed: true }, getToken),
+        );
         // A pick made while this one uploaded stays for the next save.
         const replaced = current.current.file === file;
         patch({
@@ -242,13 +315,13 @@ export function useEventClip({ enabled, getToken, saved }: { enabled: boolean; g
         return updated;
       }
       if (removing && s.saved) {
-        const updated = await routes.remove(eventId, getToken);
-        patch({ saved: updated.clip, removed: false, description: "", phase: IDLE, errors: {} });
+        const updated = answered(await routes.remove(eventId, getToken));
+        patch({ saved: updated.clip, removed: false, description: "", phase: IDLE, errors: {}, notice: "removed" });
         return updated;
       }
       if (s.saved && !s.removed && description && description !== s.saved.description) {
-        // The description only (the rights were confirmed when this clip was added).
-        const updated = await routes.attach(eventId, { description, rightsConfirmed: true }, getToken);
+        // The description only: the rights were confirmed when this clip was added, so they aren't sent.
+        const updated = answered(await routes.attach(eventId, { description }, getToken));
         patch({ saved: updated.clip, description: updated.clip?.description ?? description, errors: {} });
         return updated;
       }
@@ -261,24 +334,33 @@ export function useEventClip({ enabled, getToken, saved }: { enabled: boolean; g
         throw err;
       }
       if (isAbort(err)) {
-        patch({ phase: IDLE });
+        patch({ phase: IDLE, notice: "cancelled" });
         throw new ClipSyncError(true);
       }
       patch({
         phase: IDLE,
         errors: clipErrorsFrom(err, removing, s.file?.size),
         networkFailed: err instanceof ApiError && err.status === 0 && err.message === CLIP_MESSAGES.networkDrop,
+        failures: current.current.failures + 1,
       });
       throw new ClipSyncError();
     }
   }
 
-  /** The save's clip step, after the event (and its photo) are saved. Throws ClipSyncError or SessionExpiredError. */
+  /**
+   * The save's clip step, after the event (and its photo) are saved. Throws ClipSyncError or
+   * SessionExpiredError. Waits for a clip step already running, and for a file still being
+   * checked; if Cancel upload was pressed meanwhile, it stops there (ClipSyncError, cancelled)
+   * rather than start the upload again.
+   */
   async function sync<R extends EventRecord>(record: R, routes: ClipRoutes<R>): Promise<R> {
     if (!enabled) return record;
+    const cancels = cancelSeq.current;
     while (inFlight.current) {
       await inFlight.current.catch(() => undefined);
     }
+    await pickSettled();
+    if (cancelSeq.current !== cancels) throw new ClipSyncError(true);
     const running = run(record, routes);
     inFlight.current = running;
     try {
@@ -288,7 +370,7 @@ export function useEventClip({ enabled, getToken, saved }: { enabled: boolean; g
     }
   }
 
-  return { state, pick, discard, remove, setDescription, setRights, cancelUpload, validate, sync };
+  return { state, pick, discard, remove, undoRemove, setDescription, setRights, cancelUpload, validate, sync };
 }
 
 export type EventClipDraft = ReturnType<typeof useEventClip>;

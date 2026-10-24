@@ -14,13 +14,11 @@ export function clipTimeLabel(durationMs: number): string {
   return `0:${String(clipDisplaySeconds(durationMs)).padStart(2, "0")}`;
 }
 
-/** "12 seconds", "1 second". */
-export function clipSecondsText(durationMs: number): string {
-  const s = clipDisplaySeconds(durationMs);
-  return `${s} ${s === 1 ? "second" : "seconds"}`;
-}
-
-/** A Play control's accessible name: "Play clip: {title}, 12 seconds". */
-export function clipPlayLabel(title: string, durationMs: number): string {
-  return `Play clip: ${title}, ${clipSecondsText(durationMs)}`;
+/**
+ * A Play control's accessible name: "Play clip: {title}, 0:12". It contains
+ * the control's visible words ("Play clip", "0:12") in order, so people who
+ * speak what they see can use it (WCAG 2.5.3, Label in Name).
+ */
+export function clipPlayName(title: string, durationMs: number): string {
+  return `Play clip: ${title}, ${clipTimeLabel(durationMs)}`;
 }

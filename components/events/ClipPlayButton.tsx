@@ -1,7 +1,7 @@
 "use client";
 
 import type { MouseEvent } from "react";
-import { clipPlayLabel, clipTimeLabel } from "@/lib/clip-display";
+import { clipPlayName, clipTimeLabel } from "@/lib/clip-display";
 import type { SheltuhEvent } from "@/lib/types";
 import { useClipViewer } from "./ClipViewer";
 
@@ -20,8 +20,10 @@ const MOTION = "motion-safe:transition motion-safe:duration-150";
 
 /**
  * The Play control for an event's clip (docs/design/event-clips.md §5.1,
- * §5.3): a real button, named "Play clip: {title}, 12 seconds", that opens
- * the page's clip viewer. Nothing loads before it's pressed. `card`: a 36px
+ * §5.3): a real button, named "Play clip: {title}, 0:12" (the name contains
+ * what's on screen: on a card, visually hidden words before the visible
+ * length; on the hero, which shows "Play clip" too, an aria-label), that
+ * opens the page's clip viewer. Nothing loads before it's pressed. `card`: a 36px
  * chip with the length ("0:12") in a 44px target, for the bottom-left of an
  * EventCard's image; `hero`: a 44px chip that also says "Play clip", for the
  * event page's photo. Renders nothing for an event without a clip, or
@@ -53,16 +55,19 @@ export default function ClipPlayButton({
   const time = (
     <span className="font-mono text-xs leading-4 font-medium tabular-nums">{clipTimeLabel(clip.durationMs)}</span>
   );
+  // The global :focus-visible outline isn't in a layer, so only an !important utility drops it for the ring.
+  const ring = "focus-visible:outline-none!";
 
   if (size === "hero") {
     return (
       <button
         type="button"
         data-clip-play={event.id}
-        aria-label={clipPlayLabel(event.title, clip.durationMs)}
+        // Not visually hidden words between the visible ones: Chromium spaces them apart ("Play clip :").
+        aria-label={clipPlayName(event.title, clip.durationMs)}
         aria-haspopup="dialog"
         onClick={handleClick}
-        className={`inline-flex h-11 items-center gap-2 rounded-control border px-3.5 ${COLOURS} hover:bg-foreground hover:text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-paper ${MOTION} motion-safe:active:scale-95 ${className}`
+        className={`inline-flex h-11 items-center gap-2 rounded-control border px-3.5 ${COLOURS} hover:bg-foreground hover:text-background ${ring} focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-paper ${MOTION} motion-safe:active:scale-95 ${className}`
           .replace(/\s+/g, " ")
           .trim()}
       >
@@ -77,13 +82,13 @@ export default function ClipPlayButton({
     <button
       type="button"
       data-clip-play={event.id}
-      aria-label={clipPlayLabel(event.title, clip.durationMs)}
       aria-haspopup="dialog"
       onClick={handleClick}
-      className={`group/play flex min-h-11 min-w-11 items-center justify-start focus-visible:outline-none ${className}`.trim()}
+      className={`group/play flex min-h-11 min-w-11 items-center justify-start ${ring} ${className}`.trim()}
     >
+      {/* The name: these words, then the visible length (a flex container drops the space from the layout). */}
+      <span className="sr-only">Play clip: {event.title},</span>{" "}
       <span
-        aria-hidden="true"
         className={`flex h-9 items-center gap-1.5 rounded-control border px-2.5 ${COLOURS} group-hover/play:bg-foreground group-hover/play:text-background group-focus-visible/play:ring-2 group-focus-visible/play:ring-ink group-focus-visible/play:ring-offset-2 group-focus-visible/play:ring-offset-paper ${MOTION} motion-safe:group-active/play:scale-95`}
       >
         <PlayGlyph className="size-3" />

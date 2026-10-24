@@ -155,9 +155,15 @@ export default function EventEditor(props: Props) {
   // it instead of creating a duplicate.
   const [createdId, setCreatedId] = useState<string | null>(null);
 
-  // The event's clip (docs/design/event-clips.md §5.4), only while clip uploads are switched on.
+  // The event's clip (docs/design/event-clips.md §5.4), while clip uploads are switched on. With
+  // them off, an admin still sees a clip the event already has, and can describe or remove it
+  // (decided at mount, so the field stays after it's removed); only choosing a new one needs the flag.
   const clipsOn = eventClipsEnabled();
-  const clip = useEventClip({ enabled: clipsOn, getToken, saved: initial?.clip });
+  const [clipField] = useState(() => clipsOn || (isAdmin && Boolean(initial?.clip)));
+  const clip = useEventClip({ enabled: clipField, getToken, saved: initial?.clip });
+  // The event as last saved, here: its photo is what the photo field shows, even when the
+  // clip step after it failed (and the page wasn't told, or left).
+  const [savedRecord, setSavedRecord] = useState<EventRecord | undefined>(initial);
   const formRef = useRef<HTMLFormElement>(null);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -299,10 +305,14 @@ export default function EventEditor(props: Props) {
     setSubmitError(null);
     showSessionExpired(false);
     const input = buildInput();
-    const clipReady = clip.validate();
-    if (!input || !clipReady) return;
-
+    // Busy already: the clip's check may still be reading a file just chosen, which the save waits for.
     setSaving(true);
+    const clipReady = await clip.validate();
+    if (!input || !clipReady) {
+      setSaving(false);
+      return;
+    }
+
     setConflict(false);
     try {
       if (props.mode === "admin") {
@@ -313,8 +323,14 @@ export default function EventEditor(props: Props) {
         // A photo change bumps the event's version too: the next save is made against it.
         setVersion(record.updatedAt);
         // So does a clip change: the admin routes answer with the event, whose version is the next.
-        record = await clip.sync(record, adminClipRoutes(note));
+        const onSaved = props.onSaved;
+        record = await syncClip(record, adminClipRoutes(note), (kept) => {
+          // The save is in the event's log with this note now.
+          setReason("");
+          if (initial) onSaved(kept);
+        });
         setVersion(record.updatedAt);
+        setSavedRecord(record);
         if (!initial) {
           router.push(`/admin/events/${encodeURIComponent(record.eventId)}/edit`);
           return;
@@ -328,7 +344,11 @@ export default function EventEditor(props: Props) {
           : await createEventDraft(input, getToken);
         if (!existingId) setCreatedId(record.eventId);
         record = await syncImage(record, uploadEventImage, deleteEventImage);
-        record = await clip.sync(record, ORGANISER_CLIP_ROUTES);
+        const onSaved = props.onSaved;
+        record = await syncClip(record, ORGANISER_CLIP_ROUTES, (kept) => {
+          if (initial) onSaved(kept);
+        });
+        setSavedRecord(record);
         if (!initial) {
           router.push(`/dashboard/${record.eventId}`);
           return;
@@ -344,6 +364,22 @@ export default function EventEditor(props: Props) {
     }
   }
 
+  /**
+   * The clip step, after the event and its photo were saved. If it doesn't finish (refused,
+   * cancelled, or the session ran out), that saved record is kept here, so the photo and the
+   * version are the server's, and `kept` gets it (to tell the page of an existing event, as a
+   * save does); then the error goes on, so a new event isn't navigated to and nothing is submitted.
+   */
+  async function syncClip<R extends EventRecord>(record: R, routes: ClipRoutes<R>, kept: (record: R) => void): Promise<R> {
+    try {
+      return await clip.sync(record, routes);
+    } catch (err) {
+      setSavedRecord(record);
+      kept(record);
+      throw err;
+    }
+  }
+
   async function handleSubmitForReview() {
     // Organisers only: an admin publishes from the save itself.
     if (!initial || props.mode === "admin") return;
@@ -352,14 +388,17 @@ export default function EventEditor(props: Props) {
     // Submit what's on screen, not the last save: unsaved edits are saved
     // first, and nothing is submitted if they don't validate.
     const input = buildInput();
-    const clipReady = clip.validate();
-    if (!input || !clipReady) return;
     setSubmitting(true);
+    const clipReady = await clip.validate();
+    if (!input || !clipReady) {
+      setSubmitting(false);
+      return;
+    }
     try {
       const saved = await updateEventDraft(initial.eventId, input, getToken);
       const withImage = await syncImage(saved, uploadEventImage, deleteEventImage);
       // Waits for a clip upload a save already started, and never submits without the clip.
-      await clip.sync(withImage, ORGANISER_CLIP_ROUTES);
+      setSavedRecord(await syncClip(withImage, ORGANISER_CLIP_ROUTES, props.onSaved));
       const record = await submitEventForReview(initial.eventId, getToken);
       props.onSaved(record);
     } catch (err) {
@@ -552,7 +591,7 @@ export default function EventEditor(props: Props) {
 
       <EventImageField
         getToken={getToken}
-        existingUrl={initial?.imageUrl}
+        existingUrl={savedRecord?.imageUrl}
         pending={imageFile}
         onPendingChange={setImageFile}
         removed={imageRemoved}
@@ -560,10 +599,11 @@ export default function EventEditor(props: Props) {
         error={errors.image}
       />
 
-      {clipsOn && (
+      {clipField && (
         <EventClipField
           draft={clip}
           getToken={getToken}
+          canUpload={clipsOn}
           eventId={initial?.eventId ?? createdId ?? undefined}
           // The upload stopped: save again (the event, then the clip).
           onRetry={() => formRef.current?.requestSubmit()}

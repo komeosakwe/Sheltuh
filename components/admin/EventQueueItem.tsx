@@ -11,8 +11,7 @@ import { getClipPreview } from "@/lib/api/clips";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import type { AdminEventRecord, EventStatus } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/session-token";
-import { clipPlayLabel, clipTimeLabel } from "@/lib/clip-display";
-import { eventClipsEnabled } from "@/lib/clips-flag";
+import { clipPlayName, clipTimeLabel } from "@/lib/clip-display";
 import { formatEventDateTimeRange } from "@/lib/format";
 import { validateMessage } from "@/lib/message-text";
 import { formatTicketBreakdown, formatTicketHeadline } from "@/lib/pricing";
@@ -27,6 +26,14 @@ export const EVENT_REJECT_REASON_MAX = 1000;
 /** The heading's id: focus moves here when the event before it leaves the list. */
 export function eventHeadingId(eventId: string) {
   return `event-${eventId}`;
+}
+
+/**
+ * The clip row's name when it holds the queue's sign-in form (its own, so it
+ * and the row's actions never both show the form's fixed ids).
+ */
+export function clipReauthOwner(eventId: string) {
+  return `clip:${eventId}`;
 }
 
 /** Admins run the door for a Sheltüh-run organiser's Sheltüh-ticketed event (docs/architecture.md, "Check-in"). */
@@ -125,8 +132,17 @@ export default function EventQueueItem({
           </p>
         )}
 
-        {/* Before the actions, so a reviewer reaches the clip before Approve… (docs/design/event-clips.md §5.5). */}
-        {eventClipsEnabled() && item.clip && <ClipRow item={item} clip={item.clip} getToken={getToken} />}
+        {/* Before the actions, so a reviewer reaches the clip before Approve… (docs/design/event-clips.md §5.5).
+            Whenever there's a clip: the upload flag never hides one that exists from review. */}
+        {item.clip && (
+          <ClipRow
+            item={item}
+            clip={item.clip}
+            getToken={getToken}
+            reauthOwner={reauthOwner}
+            onClaimReauth={onClaimReauth}
+          />
+        )}
 
         <Actions
           item={item}
@@ -147,23 +163,44 @@ export default function EventQueueItem({
  * The event's clip for review (docs/design/event-clips.md §5.5): its length
  * and description, and Play clip, which fetches a short-lived preview URL
  * (the clip isn't public until the event is) and opens the page's clip viewer.
+ * Named "Play clip: {title}, 0:12". An expired session asks to sign in again,
+ * as the row's other actions do.
  */
 function ClipRow({
   item,
   clip,
   getToken,
+  reauthOwner,
+  onClaimReauth,
 }: {
   item: AdminEventRecord;
   clip: NonNullable<AdminEventRecord["clip"]>;
   getToken: GetToken;
+  reauthOwner: string | null;
+  onClaimReauth: (owner: string | null) => void;
 }) {
   const viewer = useClipViewer();
+  const owner = clipReauthOwner(item.eventId);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [expired, setExpired] = useState(false);
+  const playRef = useRef<HTMLButtonElement>(null);
+  /** Signed in again: back to Play clip, once the sign-in form has gone. */
+  const refocus = useRef(false);
+
+  useEffect(() => {
+    if (!refocus.current || expired) return;
+    refocus.current = false;
+    playRef.current?.focus();
+  });
 
   async function play(trigger: HTMLButtonElement) {
     if (loading || !viewer) return;
     setFailed(false);
+    if (expired) {
+      setExpired(false);
+      if (reauthOwner === owner) onClaimReauth(null);
+    }
     setLoading(true);
     try {
       const preview = await getClipPreview(item.eventId, getToken);
@@ -172,8 +209,13 @@ function ClipRow({
         clip: { url: preview.url, description: clip.description, width: clip.width, height: clip.height },
         trigger,
       });
-    } catch {
-      setFailed(true);
+    } catch (err) {
+      if (err instanceof SessionExpiredError) {
+        setExpired(true);
+        onClaimReauth(owner);
+      } else {
+        setFailed(true);
+      }
     } finally {
       setLoading(false);
     }
@@ -184,11 +226,13 @@ function ClipRow({
       <p className="eyebrow text-muted">Clip · {clipTimeLabel(clip.durationMs)}</p>
       <p className="text-sm leading-5 break-words text-foreground">{clip.description}</p>
       <Button
+        ref={playRef}
         variant="outline"
         size="sm"
         className="min-h-11"
         busy={loading}
-        aria-label={loading ? undefined : clipPlayLabel(item.title, clip.durationMs)}
+        // Contains the visible "Play clip" (Label in Name).
+        aria-label={loading ? undefined : clipPlayName(item.title, clip.durationMs)}
         aria-haspopup="dialog"
         onClick={(e) => void play(e.currentTarget)}
       >
@@ -198,6 +242,17 @@ function ClipRow({
         <Notice tone="danger" role="alert">
           Couldn’t load the clip. Try again.
         </Notice>
+      )}
+      {expired && (
+        <AdminSessionExpired
+          then="play the clip"
+          withForm={reauthOwner === owner}
+          onSignedIn={() => {
+            refocus.current = true;
+            setExpired(false);
+            onClaimReauth(null);
+          }}
+        />
       )}
     </div>
   );
