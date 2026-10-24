@@ -5,6 +5,7 @@ import type { VerifyAccessToken } from "./auth";
 import { createPostgresDb, type Db } from "./db";
 import { createSmtpSender, type SendEmail } from "./email";
 import { redactForLog } from "./email-address";
+import { matchingPublishableKey } from "./stripe-keys";
 
 /**
  * Everything a handler needs from the outside world. Route files get the
@@ -15,6 +16,13 @@ export interface Deps {
   verifyAccessToken: VerifyAccessToken;
   stripe(): Stripe;
   stripeWebhookSecret(): string;
+  /**
+   * The Stripe publishable key the payment page mounts Stripe's form with,
+   * or undefined when it's unset or its mode (test or live) isn't the secret
+   * key's (logged, without either key). Card checkouts are refused (503)
+   * before anything is written when it's undefined.
+   */
+  stripePublishableKey(): string | undefined;
   /** Public origin of this app, for Stripe redirect URLs, e.g. https://sheltuh.com.au */
   siteUrl(): string;
   /** Transactional email (ticket delivery). Throws if SMTP isn't configured. */
@@ -69,6 +77,10 @@ export function getDeps(): Deps {
       return stripe;
     },
     stripeWebhookSecret: () => requireEnv("STRIPE_WEBHOOK_SECRET"),
+    // A literal process.env.NEXT_PUBLIC_… reference: Next inlines it at build time, so the server checks the
+    // same value the browser's bundle was built with.
+    stripePublishableKey: () =>
+      matchingPublishableKey(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY, process.env.STRIPE_SECRET_KEY),
     siteUrl: () => requireEnv("NEXT_PUBLIC_SITE_URL").replace(/\/+$/, ""),
     // Without SMTP, sending fails (and is logged) rather than silently
     // succeeding, so the order's tickets_emailed_at stays null.

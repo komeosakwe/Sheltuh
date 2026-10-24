@@ -9,7 +9,7 @@ import { orderReference, ticketPageLink } from "@/lib/server/ticket-email";
 import type { EventRecord } from "@/lib/server/types";
 import { TICKET_CODE_PATTERN } from "@/lib/ticket-code";
 import { ticketQrMatrix } from "@/lib/ticket-qr";
-import { SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
+import { embeddedSession, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
@@ -48,7 +48,7 @@ beforeEach(async () => {
   let sessions = 0;
   api.stripe.checkout.sessions.create.mockImplementation(async () => {
     const id = `cs_test_${++sessions}`;
-    return { id, url: `https://checkout.stripe.test/${id}` };
+    return embeddedSession(id);
   });
 });
 
@@ -84,7 +84,7 @@ async function paidOrder(lineItems: { ticketTypeId: string; quantity: number }[]
     }),
   );
   expect(paid.status).toBe(200);
-  return { orderId, paymentIntent, successUrl: session.success_url as string };
+  return { orderId, paymentIntent, returnUrl: session.return_url as string };
 }
 
 /** A free order booked by a member with their own verified email: issued straight away. */
@@ -299,11 +299,11 @@ describe("the ticket page (GET /api/orders/by-session/{id})", () => {
 });
 
 describe("ticket links keep working", () => {
-  it("the email's View your tickets link is the order's existing page: Stripe's success URL, unchanged", async () => {
-    const { orderId, successUrl } = await paidOrder([{ ticketTypeId: "ga", quantity: 2 }]);
+  it("the email's View your tickets link is the order's existing page: Stripe's return URL, unchanged", async () => {
+    const { orderId, returnUrl } = await paidOrder([{ ticketTypeId: "ga", quantity: 2 }]);
     const email = await ticketEmail(orderId);
     const link = `${SITE_URL}/checkout/success?session_id=${orderId}`;
-    expect(successUrl).toBe(link);
+    expect(returnUrl).toBe(link);
     expect(ticketPageLink(SITE_URL, orderId)).toBe(link);
     expect(email.html).toContain(`<a href="${link}"`);
     expect(email.text).toContain(`View your tickets: ${link}`);

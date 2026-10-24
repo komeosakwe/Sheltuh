@@ -9,7 +9,7 @@ import { createCheckout, getOrderBySession, stripeWebhook } from "@/lib/server/h
 import { applyAsOrganiser } from "@/lib/server/handlers/organisers";
 import { runHandler } from "@/lib/server/route";
 import type { EventRecord } from "@/lib/server/types";
-import { SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
+import { embeddedSession, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { application, approvedOrganiser, enablePayouts, eventInput, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
@@ -49,7 +49,7 @@ beforeEach(async () => {
   await enablePayouts(api, organiser.organiserId);
   api.stripe.checkout.sessions.create.mockImplementation(async () => {
     const id = `cs_test_${++sessions}`;
-    return { id, url: `https://checkout.stripe.test/${id}` };
+    return embeddedSession(id);
   });
 });
 

@@ -9,6 +9,13 @@ import { runHandler, type Handler } from "@/lib/server/route";
 export const WEBHOOK_SECRET = "whsec_test_secret";
 export const CRON_SECRET = "cron-test-secret";
 export const SITE_URL = "https://sheltuh.test";
+/** The publishable key a TestApi is configured with (the same mode as the fake secret key below). */
+export const PUBLISHABLE_KEY = "pk_test_not_a_real_key";
+
+/** What Stripe returns for an embedded session (ui_mode embedded_page): an id and a client secret, no URL. */
+export function embeddedSession(id: string, extra: Record<string, unknown> = {}) {
+  return { id, object: "checkout.session", ui_mode: "embedded_page", url: null, client_secret: `${id}_secret_test`, ...extra };
+}
 
 /** Stripe's own offline signing/verification, for realistic webhook tests. */
 const realStripe = new Stripe("sk_test_not_a_real_key");
@@ -22,9 +29,16 @@ export function createFakeStripe() {
     accountLinks: { create: vi.fn().mockResolvedValue({ url: "https://connect.stripe.test/onboard" }) },
     checkout: {
       sessions: {
-        create: vi.fn().mockResolvedValue({ id: "cs_test_1", url: "https://checkout.stripe.test/cs_test_1" }),
+        create: vi.fn().mockResolvedValue(embeddedSession("cs_test_1")),
         expire: vi.fn().mockResolvedValue({ id: "cs_test_1", status: "expired" }),
-        retrieve: vi.fn().mockResolvedValue({ id: "cs_test_1", status: "open" }),
+        // An open embedded session, an hour from expiring.
+        retrieve: vi.fn().mockResolvedValue(
+          embeddedSession("cs_test_1", {
+            status: "open",
+            payment_status: "unpaid",
+            expires_at: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        ),
       },
     },
     refunds: { create: vi.fn().mockResolvedValue({ id: "re_test_1", status: "succeeded" }) },
@@ -53,6 +67,8 @@ export class TestApi {
   readonly deferred: (() => Promise<void>)[] = [];
   /** The cron secret this API is configured with; undefined to simulate CRON_SECRET being unset. */
   cronSecret: string | undefined = CRON_SECRET;
+  /** The Stripe publishable key as Deps reports it; undefined to simulate it unset or of the wrong mode. */
+  stripePublishableKey: string | undefined = PUBLISHABLE_KEY;
   private readonly callers = new Map<string, Caller>();
 
   constructor(readonly db: Db) {}
@@ -63,6 +79,7 @@ export class TestApi {
       verifyAccessToken: async (token) => this.callers.get(token) ?? null,
       stripe: () => this.stripe as unknown as Stripe,
       stripeWebhookSecret: () => WEBHOOK_SECRET,
+      stripePublishableKey: () => this.stripePublishableKey,
       siteUrl: () => SITE_URL,
       sendEmail: this.sendEmail,
       defer: (task) => {

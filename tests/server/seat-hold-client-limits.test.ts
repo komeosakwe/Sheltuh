@@ -5,7 +5,7 @@ import { clientIp, clientKey, normaliseIp } from "@/lib/server/client-key";
 import { cancelPendingOrder, createCheckout, SEAT_HOLD_LIMITS } from "@/lib/server/handlers/orders";
 import type { EventRecord } from "@/lib/server/types";
 import { runHandler } from "@/lib/server/route";
-import { SITE_URL, TestApi, WEBHOOK_SECRET } from "./helpers/api";
+import { embeddedSession, SITE_URL, TestApi, WEBHOOK_SECRET } from "./helpers/api";
 import { approvedOrganiser, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { seatedEvent } from "./helpers/seating";
 import { createTestDb } from "./helpers/test-db";
@@ -73,7 +73,7 @@ beforeEach(async () => {
   let n = 0;
   api.stripe.checkout.sessions.create.mockImplementation(async () => {
     n += 1;
-    return { id: `cs_test_${n}`, url: `https://checkout.stripe.test/cs_test_${n}` };
+    return embeddedSession(`cs_test_${n}`);
   });
 });
 

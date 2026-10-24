@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // Live mode: the client only calls the API when Supabase is configured.
 vi.mock("@/lib/supabase/config", () => ({ isSupabaseConfigured: true }));
 
-const { confirmFreeOrder, createCheckoutSession, getOrderBySession } = await import("@/lib/api/orders");
+const { confirmFreeOrder, createCheckoutSession, getOrderBySession, getOrderPayment } = await import("@/lib/api/orders");
 
 function stubFetch(body: unknown, status = 200) {
   const fetch = vi.fn().mockResolvedValue(
@@ -62,5 +62,14 @@ describe("getOrderBySession", () => {
     const fetch = stubFetch({ status: "pending" });
     expect(await getOrderBySession("ord_a/b")).toEqual({ status: "pending" });
     expect(fetch.mock.calls[0][0]).toBe("/api/orders/by-session/ord_a%2Fb");
+  });
+});
+
+describe("getOrderPayment", () => {
+  it("GETs the payment view, the id encoded into the path", async () => {
+    const fetch = stubFetch({ status: "done" });
+    expect(await getOrderPayment("ord_a/b")).toEqual({ status: "done" });
+    expect(fetch.mock.calls[0][0]).toBe("/api/orders/by-session/ord_a%2Fb/payment");
+    expect(fetch.mock.calls[0][1].method ?? "GET").toBe("GET");
   });
 });
