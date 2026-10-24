@@ -981,8 +981,11 @@ function paymentLines(lineItems: OrderLineItem[], seats: (TicketSeat & { ticketT
  * - otherwise Stripe's session: `complete` → `processing` (`delayed` while
  *   the payment hasn't cleared); `expired`, or past its expiry → `closed`;
  *   `open` → `open` with the client secret and the summary, unless the
- *   tickets or seats have gone to someone else since (`sold_out`, not
- *   binding: openOrderState).
+ *   event is no longer bookable (`closed`: not published, so unpublished by
+ *   its organiser or an admin, or its organiser suspended, which is what
+ *   private.fulfil_order refuses; or ended, `ends_at <= now()` as for new
+ *   orders), or the tickets or seats have gone to someone else since
+ *   (`sold_out`, not binding: openOrderState).
  * Writes nothing (the webhook alone settles orders) and logs nothing about
  * the order or the secret. `private, no-store`: the client secret is in it.
  */
@@ -1001,6 +1004,7 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (_req, { se
     total_cents: number;
     event_slug: string | null;
     event_status: string | null;
+    event_ended: boolean | null;
     event_starts_at: string | Date | null;
     event_ends_at: string | Date | null;
     event_venue_name: string | null;
@@ -1008,7 +1012,7 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (_req, { se
   }>(
     `select o.status::text as status, o.stripe_checkout_session_id, o.confirmation_token_hash is not null as free_link,
             o.event_id, o.event_title, o.line_items, o.seat_ids, o.subtotal_cents, o.buyer_fee_cents, o.total_cents,
-            e.slug as event_slug, e.status::text as event_status, e.starts_at as event_starts_at,
+            e.slug as event_slug, e.status::text as event_status, e.ends_at <= now() as event_ended, e.starts_at as event_starts_at,
             e.ends_at as event_ends_at, e.venue_name as event_venue_name, e.suburb as event_suburb
        from public.orders o
        left join public.events e on e.id = o.event_id
@@ -1034,22 +1038,26 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (_req, { se
   if (session.status === "complete") return answer({ status: "processing", delayed: session.payment_status !== "paid" });
   // Past its expiry, it can't be paid even if Stripe hasn't closed it yet.
   if (session.status !== "open" || session.expires_at * 1000 <= Date.now()) return ended("closed");
+  // No form for an event that's gone or over. Not binding (a payment already
+  // under way is still settled by the webhook: refunded if unpublished,
+  // honoured if ended, as private.fulfil_order decides), only so nobody is
+  // offered tickets they can't use.
+  if (row.event_status !== "published" || row.event_ended !== false) return ended("closed");
   if (!session.client_secret) throw new Error("Stripe returned an open Checkout Session without a client secret.");
 
   const state = await openOrderState(deps.db, sessionId, row.event_id, row.line_items, row.seat_ids);
   if (state.soldOut) return ended("sold_out");
-  // The event's details are public only while it's published (as on the confirmation page).
-  const listed = row.event_status === "published";
+  // The event is published (checked above), so its date and venue are public.
   return answer({
     status: "open",
     clientSecret: session.client_secret,
     expiresAt: new Date(session.expires_at * 1000).toISOString(),
     eventTitle: row.event_title,
     ...(row.event_slug ? { eventSlug: row.event_slug } : {}),
-    ...(listed && row.event_starts_at ? { eventStartsAt: new Date(row.event_starts_at).toISOString() } : {}),
-    ...(listed && row.event_ends_at ? { eventEndsAt: new Date(row.event_ends_at).toISOString() } : {}),
-    ...(listed && row.event_venue_name ? { venueName: row.event_venue_name } : {}),
-    ...(listed && row.event_suburb ? { suburb: row.event_suburb } : {}),
+    ...(row.event_starts_at ? { eventStartsAt: new Date(row.event_starts_at).toISOString() } : {}),
+    ...(row.event_ends_at ? { eventEndsAt: new Date(row.event_ends_at).toISOString() } : {}),
+    ...(row.event_venue_name ? { venueName: row.event_venue_name } : {}),
+    ...(row.event_suburb ? { suburb: row.event_suburb } : {}),
     seated,
     lines: paymentLines(row.line_items, state.seats),
     subtotalCents: row.subtotal_cents,

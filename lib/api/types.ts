@@ -605,7 +605,8 @@ export interface OrderPaymentSummary {
  * - `processing`: Stripe has the payment; go to /checkout/success. `delayed`:
  *   a payment method that takes time to clear (the tickets follow by email).
  * - `done`: settled (paid, or refunded); go to /checkout/success.
- * - `closed`: the checkout expired or was cancelled; nothing was charged.
+ * - `closed`: the checkout expired or was cancelled, or the event can no
+ *   longer be booked (unpublished, or ended); nothing was charged.
  * - `sold_out`: the tickets (or some of the seats) went to someone else
  *   while it was open; nothing was charged.
  * ApiError 404 unknown, malformed, or not a card checkout; 409 still being

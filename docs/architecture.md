@@ -12,10 +12,15 @@ Browser ── Supabase Auth (sign-up, sign-in, sessions)
 Next.js route handlers (app/api/** → lib/server/handlers/*)
    │  verify token with Supabase Auth · authorise · validate
    ├──▶ Postgres (Supabase), via DATABASE_URL
-   └──▶ Stripe (Connect accounts, Checkout Sessions)
+   └──▶ Stripe (Connect accounts, embedded Checkout Sessions)
                       │
 Stripe ──webhook──▶ /api/stripe/webhook
 ```
+
+The one place the browser talks to Stripe directly is the payment page,
+`/checkout/pay`: Stripe.js mounts Stripe's embedded Checkout form there (an
+iframe served by Stripe), with the publishable key
+`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (see "Payment flow").
 
 ## Design principles
 
@@ -180,14 +185,91 @@ times, which are converted to instants honouring daylight saving
      the event's tracking codes (anything else is silently ignored). It's
      attribution only: it never changes the price, the status, or what's
      sent to Stripe.
+   - A paid order needs card payments to be configured:
+     `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` set, and of the same mode as
+     `STRIPE_SECRET_KEY` (`pk_test_` with `sk_test_`/`rk_test_`, `pk_live_`
+     with `sk_live_`/`rk_live_`; `lib/server/stripe-keys.ts`). Otherwise it's
+     a 503 "Card payments aren't available right now." after the usual
+     404/409/400 checks and before any order, seat hold or hold attempt is
+     written or Stripe is called, so a misconfigured deploy leaves nothing
+     behind. The server logs which variable is wrong and the modes, never a
+     key's value. Free tickets don't need it. The key is inlined at build
+     time (`Deps.stripePublishableKey`, a literal `process.env` reference), so
+     the server checks the same value the browser's bundle was built with.
    - The order is inserted as `pending` *before* Stripe is called, so a
      payment can never arrive without an order to attach it to.
    - A Checkout Session is created as a destination charge to the
      organiser's Express account, with `application_fee_amount` set to the
-     booking fee.
+     booking fee. It's an embedded session (`ui_mode: "embedded_page"`) with
+     a `return_url` of `{NEXT_PUBLIC_SITE_URL}/checkout/success?session_id={orderId}`
+     (no `{CHECKOUT_SESSION_ID}` template: the order id is the only id the
+     return page needs), and no `success_url` or `cancel_url` (that mode
+     has neither; Back is our own link). Line items, fees, transfer,
+     metadata, `customer_email` and `client_reference_id` are what the hosted
+     session had. General admission keeps Stripe's default expiry (24
+     hours); seated sessions set `expires_at` (see "Reserved seating").
+   - If Stripe errors, or returns no `client_secret` (nobody could mount the
+     form, so nobody could pay), the general admission order is marked
+     `failed` (a seated one releases its holds) and the checkout is a 500.
+     A missing `NEXT_PUBLIC_SITE_URL` fails the same way, since the
+     `return_url` is built in that step.
+   - The 201 is `{url, orderId}` (seated adds `holdExpiresAt`), `private,
+     no-store`, with `url` our payment page, `/checkout/pay?order={orderId}`
+     (relative). The client secret isn't in it: the payment page reads it.
    - Free orders skip Stripe: see "Free tickets" below.
-2. The buyer pays on Stripe's hosted page. Card details never touch
-   Sheltüh.
+2. The buyer pays on our payment page, `/checkout/pay?order={orderId}`, in
+   Stripe's embedded Checkout form: an iframe served by Stripe, mounted with
+   Stripe.js. Card details go from that iframe to Stripe; they never touch
+   Sheltüh's servers or our page's own code. The page is under
+   `/checkout/*`, so it gets `no-referrer` and `noindex` (below).
+   - It reads `GET /api/orders/by-session/{orderId}/payment`
+     (`getOrderPayment`), not the checkout's response, so a reload, a new
+     tab, or Back then Forward all work, and the client secret is never
+     stored in the browser. The order id is the only credential, as for the
+     other `/orders/by-session` routes. Every answer is `private, no-store`
+     (`OrderPaymentLookup`, `lib/api/types.ts`):
+     - an id that isn't shaped like one: 404 without a query; unknown, or a
+       guest's free booking (not a card checkout): 404;
+     - `done`: the order is `paid`, `refunded` or `oversold_refund_required`
+       (Stripe isn't asked);
+     - `closed`: the order is `failed`;
+     - 409 while the order has no Stripe session yet (as the cancel route);
+     - otherwise Stripe's session is retrieved. `complete` → `processing`
+       (`delayed: true` while the payment hasn't cleared, for a payment
+       method that takes time). `expired`, or past its `expires_at` →
+       `closed`. `open` → `closed` if the event can no longer be booked: not
+       published (unpublished by its organiser or an admin, or its organiser
+       suspended, which unpublishes every event: what `fulfil_order`
+       refuses), or ended (`ends_at <= now()`, as for new orders); else
+       `sold_out` if a line's tickets aren't all left or (seated) one of its
+       seats is sold, blocked, gone or held by another order (a non-binding
+       read, `openOrderState`; `fulfil_order` decides); else `open`, with
+       the session's `clientSecret`, its `expiresAt`, and a summary priced on
+       the server: event title and slug, date, venue name and suburb, each
+       line's all-inclusive unit and line totals (`calculateOrderSummary`,
+       `lib/fees.ts`) with its seats, and the order's subtotal, buyer fee and
+       total. Never the order, event or organiser ids, the fee split, the
+       buyer's email or any other Stripe id.
+     - `closed` and `sold_out` carry `eventTitle`, `eventSlug` (when the
+       event still has one) and `seated`, for the way back.
+   - It writes nothing, and logs nothing about the order or the secret. An
+     `open` session without a client secret (a hosted session from before
+     embedded checkout) is a 500, logged without the order or session id.
+   - `closed` and `sold_out` only change what the page shows. Stripe's
+     session stays open until it expires or is cancelled, and a form that
+     was already mounted can still be paid; the webhook then settles that
+     payment as any other (step 3: refunded if the event is unpublished or
+     the tickets are gone, fulfilled if it has only ended).
+   - Stripe sends the buyer to the `return_url` when the form completes, and
+     also back from a redirect-based payment method, whether or not it was
+     paid; the return page tells those apart (step 5).
+   - Leaving: the page's Back link goes to the event page (general
+     admission, which holds nothing; its session expires on its own) or the
+     seat page (seated, which cancels the order and releases the seats: see
+     "Reserved seating", "Back from the payment page").
+   - Stripe's form is branded in Stripe's Dashboard (white background, black
+     button: `docs/supabase-setup.md` §2), not in code. Stripe.js loads on
+     this page only.
 3. `POST /api/stripe/webhook`:
    - The signature is verified.
    - `checkout.session.completed` (when the session is paid) or
@@ -213,8 +295,8 @@ times, which are converted to instants honouring daylight saving
    - Any other event type is acknowledged (200) and ignored.
    - Inventory is only taken here, so an abandoned checkout never holds
      tickets.
-   - Seated orders: see "Reserved seating" (holds, `expires_at`, the
-     `cancel_url`, and releasing seats on expiry or failure).
+   - Seated orders: see "Reserved seating" (holds, `expires_at`, Back from
+     the payment page, and releasing seats on expiry or failure).
 4. Once an order is paid (free orders included), the buyer is emailed their
    ticket codes over SMTP (`lib/server/email.ts`) through a durable outbox
    (`private.email_outbox`, `lib/server/email-outbox.ts`):
@@ -313,6 +395,109 @@ times, which are converted to instants honouring daylight saving
    like one (`ord_` + 32 hex) is a 404 without a query, and a pending order
    reveals only its status. `/checkout/*` pages send `Referrer-Policy:
    no-referrer` and `X-Robots-Tag: noindex, nofollow` (`next.config.ts`).
+   This page only reads. While the order is still pending after a couple of
+   polls, it can ask `GET …/payment` once to tell a payment Stripe already
+   has (`processing`: keep waiting, and the tickets follow by email if it's
+   slow to clear) from a redirect-based payment that was cancelled or
+   failed (`open`: nothing charged, with a way back to the payment page) or
+   a checkout that's over (`closed`, `sold_out`).
+
+### Accepted risks (embedded checkout)
+
+- **The payment iframe sits on our page (PCI).** With Stripe's hosted page,
+  nothing of ours ran beside the card form. Now `/checkout/pay` hosts
+  Stripe's iframe, so a script injected into that page could, for example,
+  overlay or replace the form. The card fields themselves are still
+  Stripe's, in Stripe's iframe. The SAQ A eligibility criteria in PCI DSS
+  v4.0.1 ask the merchant to confirm its site isn't susceptible to attacks
+  from scripts that could affect the e-commerce system; check the current
+  SAQ and Stripe's guidance before going live. **Follow-up: a strict
+  Content Security Policy (nonces) on `/checkout/pay`.** There's none
+  today, and any later site-wide CSP has to allow Stripe's hosts (Stripe
+  publishes the list; it wasn't verified here).
+- **The client secret goes to whoever has the order id.** The same model as
+  the other `/orders/by-session` routes: 128 random bits, sent only to the
+  client that made the order (and in Stripe's `return_url`), never a
+  `Referer` (`no-referrer`), never cached (`no-store`). With the secret,
+  someone can mount the form and pay for that order; they can't change its
+  amount or read anything else.
+- **No rate limit on `GET …/payment`.** Each call that reaches Stripe is
+  one session retrieve (as the cancel route); a flood could use up the
+  account's Stripe API rate limit. Add a per-client limit if it's abused.
+- **`closed` for an event that can't be booked isn't binding.** The
+  session stays payable until Stripe expires it (24 hours for general
+  admission, 31 minutes seated) for a form already on screen. Such a
+  payment is refunded automatically if the event is unpublished, and
+  fulfilled if the event has only ended (`fulfil_order` is unchanged).
+- **`no-referrer` on `/checkout/pay`.** Whether Apple Pay and Google Pay
+  work with it is unverified (sandbox checklist below).
+- **Stripe.js on the payment page only.** Better for privacy, but Stripe's
+  fraud checks (Radar) get fewer signals than with Stripe.js on every page.
+- **Redirect-based payment methods** (if enabled in the Dashboard) can
+  return outside the installed iOS app's standalone window.
+- **Preview deploys.** The `return_url` uses `NEXT_PUBLIC_SITE_URL`, so a
+  preview needs its own value or buyers return to production.
+- **A session without a client secret** is left to expire in Stripe rather
+  than expired straight away; its order is already failed (or its seats
+  released), so a payment on it would be refunded as for any failed order.
+- **Hosted sessions from before the deploy** still use `success_url` and
+  `cancel_url` for up to 24 hours, so `/checkout/cancelled` stays (see "Not
+  built yet").
+
+### Owner sandbox checklist (embedded checkout)
+
+Nothing below has been run against Stripe: the automated tests use a fake
+Stripe. Run it in **test mode** before going live, with the Stripe CLI and
+a local server (`npm run dev`, port 3000).
+
+1. **Setup.** In `.env.local`: `STRIPE_SECRET_KEY` (`sk_test_…`) and
+   `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (`pk_test_…`) from the **same**
+   Stripe account (Developers → API keys). Run
+   `stripe listen --forward-to localhost:3000/api/stripe/webhook`, put the
+   `whsec_…` it prints in `STRIPE_WEBHOOK_SECRET`, then restart `next dev`
+   (the publishable key is read at build/start). An organiser with payouts
+   set up and a published event with a paid ticket type are needed.
+2. **Success.** Pay with `4242 4242 4242 4242` (any future date, any CVC).
+   Expect: the return page shows the tickets; `stripe listen` shows
+   `checkout.session.completed` answered 200; in Stripe the payment has the
+   application fee and the transfer to the connected account. This also
+   proves Stripe accepts a `return_url` without `{CHECKOUT_SESSION_ID}`.
+3. **Decline.** Pay with `4000 0000 0000 0002`. Expect: the form shows the
+   decline, nothing redirects, the order stays `pending`
+   (`select status from orders where id = '<order id>'`). Then pay with
+   `4242…` in the same form: it succeeds as in 2.
+4. **3D Secure.** Pay with `4000 0025 0000 3155`. "Complete" on the
+   challenge succeeds as in 2; "Fail" shows an error and the order stays
+   `pending`.
+5. **Duplicate delivery.** Find the `checkout.session.completed` event id
+   (`evt_…`) in `stripe listen`'s output or Developers → Events, then
+   `stripe events resend evt_…`. Expect a 200, no new tickets, no second
+   ticket email, `quantity_sold` unchanged. If the resend doesn't reach
+   `stripe listen`, use the Dashboard's Resend on a deployed test endpoint.
+6. **Sold out.** Set a ticket type's quantity to 1. Open its checkout in
+   two browsers (or a normal and a private window) and pay in both. Expect:
+   one gets the ticket; the other's order is refunded in full (refund,
+   transfer reversed, application fee refunded) and its return page says
+   so. Pressing Checkout once it's sold out gives the 409.
+7. **Seated expiry.** Start a seated checkout, then
+   `stripe checkout sessions expire cs_…` (the session id is the order's
+   `stripe_checkout_session_id`). Expect: `checkout.session.expired` is
+   answered 200, the seats are free again on the seat page, and reloading
+   `/checkout/pay?order=…` shows the checkout has closed. Also: Back from
+   the payment page releases the seats straight away.
+8. **Reload.** Reload `/checkout/pay?order=…` on an open checkout. Expect
+   the form to mount again: this proves `sessions.retrieve` returns the
+   session's `client_secret`, which `GET …/payment` depends on.
+9. `stripe trigger checkout.session.completed` (a session the app doesn't
+   know) is answered 200 and changes nothing.
+10. If a redirect-based method is enabled (Dashboard → Settings → Payment
+    methods), cancel it at the provider: the return page offers to go back
+    to the payment page, and nothing was charged.
+11. Apple Pay and Google Pay on real devices, over HTTPS, after registering
+    the domain (`docs/supabase-setup.md` §2), in test mode first.
+12. `/checkout/pay` responses carry `Referrer-Policy: no-referrer` and
+    `X-Robots-Tag: noindex, nofollow`; no other page requests
+    `js.stripe.com`.
 
 ## Refunds made in Stripe
 
@@ -1756,11 +1941,13 @@ unchanged.
   the pending order (`hold_seats`), all or nothing, for 35 minutes; Stripe's
   page expires after 31 (its minimum is 30, and buyers are told 30). They
   expire lazily (no cron: an expired hold is simply free) and are released at
-  once on a Stripe error at checkout, the buyer cancelling (Stripe's
-  `cancel_url` is `/checkout/cancelled?order={orderId}`, whose page calls
-  `POST /orders/by-session/{id}/cancel`: the session is expired first, so it
-  can't be paid afterwards), `checkout.session.expired` and
-  `async_payment_failed`. Anti-hoarding (decision 5), per event: 120 holds
+  once on a Stripe error at checkout (or no client secret from Stripe), the
+  buyer going Back from the payment page (see "Back from the payment page"
+  below; `POST /orders/by-session/{id}/cancel` expires the session first, so
+  it can't be paid afterwards), `checkout.session.expired` and
+  `async_payment_failed`. Hosted sessions created before embedded checkout
+  have a `cancel_url` of `/checkout/cancelled?order={orderId}`, whose page
+  calls the same route. Anti-hoarding (decision 5), per event: 120 holds
   per 10 minutes (`take_event_rate_limit`, bucket `seat_holds`), and at most
   the larger of 20 seats or 30% of the unblocked seats held at once; either
   is a 429 with the seats asked for. Every refusal (the cap, taken seats, a
@@ -1796,14 +1983,19 @@ unchanged.
   new environment variable, and rotating that secret only restarts the
   counters. It fails open, with a log line that carries no request detail,
   when there's no usable IP header (never on Vercel) or the secret isn't set.
-- **Back from Stripe.** A paid checkout's 201 (seated `{url,
+- **Back from the payment page.** A paid checkout's 201 (seated `{url,
   holdExpiresAt, orderId}`, general admission `{url, orderId}`, both
-  `private, no-store`) carries the pending order's id, so the page can keep
-  it for the session and call `POST /orders/by-session/{orderId}/cancel`
-  when the buyer comes back without paying. That adds no exposure: the id
-  goes only to the client that made the order, which already gets it in
-  Stripe's success and cancel URLs, and the cancel route's model is
-  unchanged: the id (`ord_` + 32 hex, 128 random bits) is the credential
+  `private, no-store`; `url` is `/checkout/pay?order={orderId}`) carries the
+  pending order's id. The seat page keeps it for the tab
+  (`lib/seating/pending-checkout.ts`, sessionStorage) and calls
+  `POST /orders/by-session/{orderId}/cancel` when the buyer comes back
+  without paying, by the payment page's Back link or the browser's Back
+  button (on mount and on `pageshow`). A buyer who closes the tab instead
+  is covered by Stripe's `expires_at` (31 minutes: `checkout.session.expired`
+  releases the seats), and the hold lapses at 35 minutes anyway. That adds
+  no exposure: the id goes only to the client that made the order, which
+  already has it in the payment page's URL and Stripe's `return_url`, and
+  the cancel route's model is unchanged: the id (`ord_` + 32 hex, 128 random bits) is the credential
   (anything else shaped differently is a 404 without a query), a paid order
   is never changed (`paid`), Stripe already holding the payment is
   `processing`, a guest's free booking is a 404, and the Stripe session is
@@ -1897,15 +2089,16 @@ application is approved.
 | `POST /events/{eventId}/waitlist` `{email?}` · `DELETE /events/{eventId}/waitlist` | POST: public (a member's token is read, optionally). 201/200 `{status: "joined", maskedEmail, alreadyJoined}` for a member's own verified email; 202 `{status: "confirmation_sent", expiresInHours}` for anyone else, whatever the address's history; 400 email; 404 not published; 409 external, ended or not sold out; 503 busy (the platform caps; the link is emailed after the response, so a failed send isn't reported). DELETE: signed in, leaves (204, idempotent) |
 | `GET /events/{eventId}/waitlist/status` | signed in: `{joined, maskedEmail?}`; 404 not published |
 | `POST /waitlist/confirm` `{token}` · `POST /waitlist/leave` `{token}` | public (the emailed token is the credential). Confirm: 200 `{status: "joined", eventTitle, eventSlug, ticketsAvailable}` (also when already on the list); 400; 404; 410 expired or used; 409 closed. Leave: 200 `{status: "left", eventTitle?}` (the title only while the event is published; idempotent); 400; 404 |
-| `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). 409 for an external event, before anything else is read; 409 for a paid order from a platform-managed organiser. 201 `{url}` (a paid order: `{url, orderId}`, `private, no-store`; see "Reserved seating", "Back from Stripe"); 202 free order waiting on its emailed link; 400 (incl. over 4 free tickets in any order, paid or free); 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance; 503 free bookings busy (the guest's link is emailed after the response). 409 for too many of a ticket type names the number left only when it's 10 or fewer |
-| `POST /events/{eventId}/checkout` with `seats: {mapVersion, seatIds}` | public: a seated checkout (see "Reserved seating"). Paid: 201 `{url, holdExpiresAt, orderId}` (private, no-store). Free: as above (201 member, 202 guest). 400 (bad seats, over 10, a seated tier in `lineItems`, no map); 404; 409 `seats` taken (body `code`, `seatIds`) or `seatMapVersion` changed; 429 too many seats held or hold attempts for the event, or this client's hold attempts used up (`code: "client_rate_limited"`; body `seatIds`) |
+| `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). 409 for an external event, before anything else is read; 409 for a paid order from a platform-managed organiser. 201 `{url}` (a paid order: `{url, orderId}`, `private, no-store`, `url` being the payment page `/checkout/pay?order={orderId}`; see "Payment flow" and "Reserved seating", "Back from the payment page"); 202 free order waiting on its emailed link; 400 (incl. over 4 free tickets in any order, paid or free); 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance; 503 free bookings busy (the guest's link is emailed after the response), or card payments not configured (a paid order, before anything is written: the publishable key is missing or isn't the secret key's mode). 409 for too many of a ticket type names the number left only when it's 10 or fewer |
+| `POST /events/{eventId}/checkout` with `seats: {mapVersion, seatIds}` | public: a seated checkout (see "Reserved seating"). Paid: 201 `{url, holdExpiresAt, orderId}` (private, no-store; `url` as above), or 503 when card payments aren't configured (before any hold or hold attempt). Free: as above (201 member, 202 guest). 400 (bad seats, over 10, a seated tier in `lineItems`, no map); 404; 409 `seats` taken (body `code`, `seatIds`) or `seatMapVersion` changed; 429 too many seats held or hold attempts for the event, or this client's hold attempts used up (`code: "client_rate_limited"`; body `seatIds`) |
 | `GET /events/{eventId}/seat-map?v=` | public once published (`public, max-age=31536000, immutable`, only at the current `v`; any other `v` or none is a `307` to `?v={current}`, `no-store`, no body); before that the owning organiser or an admin (bearer), private. `SeatMapRecord`. 404 no map or not visible |
 | `GET /events/{eventId}/seat-availability` | as above: `SeatAvailability` (the bitmap), `public, max-age=0, s-maxage=5` once published |
 | `PUT /events/{eventId}/seat-map` `{template}` · `DELETE …` | organiser (own event, draft or rejected, never approved). Up to 1 MB. 200 `SeatMapRecord` / 204; 400 `fieldErrors["template.…"]`; 404; 409 not editable, locked, external or has orders |
 | `PUT /admin/events/{eventId}/seat-map` `{template, reason}` · `DELETE …` `{reason}` | admin, any status, no orders. 200 `SeatMapRecord` / 204; 400; 404; 409 has orders (`fieldErrors.template`) or external |
-| `POST /orders/by-session/{orderId}/cancel` | public (the order id is the credential; only the client that made the order gets it: the checkout's 201 and Stripe's URLs): expires the Stripe session, then cancels the order and releases its seats; a paid order is never changed. 200 `{status: "released" \| "paid" \| "processing", eventTitle, eventSlug?}`; 404; 409 still being set up |
+| `POST /orders/by-session/{orderId}/cancel` | public (the order id is the credential; only the client that made the order gets it: the checkout's 201, the payment page's URL and Stripe's `return_url`, or a pre-embedded hosted session's cancel URL): expires the Stripe session, then cancels the order and releases its seats; a paid order is never changed. 200 `{status: "released" \| "paid" \| "processing", eventTitle, eventSlug?}`; 404; 409 still being set up |
 | `POST /orders/confirm` `{token}` | public (the emailed token is the credential). 200 `{url}` (also when already confirmed, within 24 hours); 400 malformed; 404 unknown; 410 expired (confirmed or not); 409 sold out, allowance used, or a ticket type no longer free |
 | `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store` |
+| `GET /orders/by-session/{orderId}/payment` | public (id is the credential), read-only. `OrderPaymentLookup` (see "Payment flow", step 2), `private, no-store`: `{status: "open", clientSecret, expiresAt, …summary}`, `{status: "processing", delayed}`, `{status: "done"}`, or `{status: "closed" \| "sold_out", eventTitle, eventSlug?, seated}` (`closed` also when the event is no longer published or has ended while the session is open); 404 malformed (no query), unknown or a guest's free booking; 409 still being set up; 500 an open session without a client secret |
 | `GET /cron/email-outbox` | Vercel Cron (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due ticket emails, returns counts |
 | `GET /cron/trending` | Vercel Cron (same secret, 401 otherwise): rebuilds the trending snapshot, returns `{eligible, ranked}` |
 | `GET /events/trending` | public: `{items: [{event, label, goingCount?}]}` (see "Trending"), at most 24, best first; `items: []` with fewer than 3. `cache-control: public, max-age=0, s-maxage=300, stale-while-revalidate=600` |
@@ -1983,6 +2176,16 @@ is `cache-control: private, no-store`, and so is every admin response
 - `lib/server/deps.ts`: the production wiring (postgres.js, Supabase Auth,
   Stripe, SMTP), read from env.
 - `lib/api/*`: the browser-side client for the same routes.
+- Embedded checkout: `lib/server/handlers/orders.ts` (`createCheckout` and
+  its seated branch create the embedded sessions; `getOrderPayment` serves
+  `GET /api/orders/by-session/{orderId}/payment`, route
+  `app/api/orders/by-session/[sessionId]/payment/route.ts`);
+  `lib/server/stripe-keys.ts` (the publishable key must match the secret
+  key's mode), wired as `Deps.stripePublishableKey` in `lib/server/deps.ts`;
+  `lib/api/orders.ts` `getOrderPayment`; the payment page
+  `app/checkout/pay/page.tsx` with its client components and the Stripe.js
+  loader (`components/checkout/*`, `lib/stripe/*`); tests
+  `tests/server/order-payment.test.ts` and `tests/server/stripe-keys.test.ts`.
 - `lib/auth/AuthContext.tsx`: Supabase Auth in the browser.
 - `tests/server/*`: API tests against a real Postgres. By default that's
   PGlite in-process. With `TEST_DATABASE_URL=postgres://…` set, they run
@@ -2065,6 +2268,12 @@ Search can order results by how close they are to a suburb (owner round,
   no report has one (reports made before it are deleted 2 years after
   resolution), with its `user_reports_one_avatar_copy` check, and the
   `coalesce` in `adminGetReportAvatar`.
+- Retire `/checkout/cancelled` (and the hosted-checkout wording in the
+  cancel route's comments) once hosted Checkout Sessions created before
+  embedded checkout have all expired (24 hours after that deploy). The
+  cancel route itself stays: the seat page uses it.
+- A strict Content Security Policy on `/checkout/pay` (see "Accepted risks
+  (embedded checkout)").
 - Drop `private.claim_outbox_jobs` (superseded by `claim_email_outbox` in
   `20261024000200_organiser_follows.sql`) once the deploy window is over.
 

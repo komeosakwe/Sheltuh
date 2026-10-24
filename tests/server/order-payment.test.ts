@@ -6,6 +6,7 @@ import {
   SEAT_HOLD_LIMITS,
   stripeWebhook,
 } from "@/lib/server/handlers/orders";
+import { adminSuspendOrganiser } from "@/lib/server/handlers/admin";
 import type { EventRecord } from "@/lib/server/types";
 import { embeddedSession, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
@@ -327,13 +328,91 @@ describe("GET /orders/by-session/{id}/payment", () => {
     expect(body.lines.reduce((sum: number, l: { lineTotalCents: number }) => sum + l.lineTotalCents, 0)).toBe(body.totalCents);
   });
 
-  it("an unpublished event's date and venue are left out", async () => {
-    const { event, orderId } = await gaOrder();
-    await api.db.query(`update public.events set status = 'draft' where id = $1`, [event.eventId]);
-    api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(openSession());
-    const body = (await payment(orderId)).body;
-    expect(body.status).toBe("open");
-    for (const key of ["eventStartsAt", "eventEndsAt", "venueName", "suburb"]) expect(body).not.toHaveProperty(key);
+  describe("closed once the event can no longer be booked, while Stripe's session is still open", () => {
+    const END_SQL = `update public.events set starts_at = now() - interval '3 hours', ends_at = now() - interval '1 second' where id = $1`;
+
+    it("unpublished (back to draft), or its organiser suspended (every event unpublished)", async () => {
+      const { event, orderId } = await gaOrder();
+      const closed = { status: "closed", eventTitle: "Neon Static", eventSlug: event.slug, seated: false };
+      await api.db.query(`update public.events set status = 'draft' where id = $1`, [event.eventId]);
+      api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(openSession());
+      expect((await payment(orderId)).body).toStrictEqual(closed);
+
+      await api.db.query(`update public.events set status = 'published' where id = $1`, [event.eventId]);
+      api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(openSession());
+      expect((await payment(orderId)).body.status).toBe("open");
+
+      const suspended = await api.call(adminSuspendOrganiser, {
+        token: admin.token,
+        params: { organiserId: organiser.organiserId },
+        body: { reason: "Fake venue." },
+      });
+      expect(suspended.status).toBe(200);
+      api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(openSession());
+      expect((await payment(orderId)).body).toStrictEqual(closed);
+    });
+
+    it("ended (ends_at <= now(), as for new orders); still open until then", async () => {
+      const { event, orderId } = await gaOrder();
+      await api.db.query(
+        `update public.events set starts_at = now() - interval '3 hours', ends_at = now() + interval '1 minute' where id = $1`,
+        [event.eventId],
+      );
+      api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(openSession());
+      expect((await payment(orderId)).body.status).toBe("open");
+
+      await api.db.query(END_SQL, [event.eventId]);
+      api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(openSession());
+      expect((await payment(orderId)).body).toStrictEqual({ status: "closed", eventTitle: "Neon Static", eventSlug: event.slug, seated: false });
+    });
+
+    it("seated, ended or unpublished: closed (seated: true), and closed wins over sold_out and a missing secret", async () => {
+      const { event, map } = await seatedEvent(api, organiser, admin);
+      const orderId = (await checkout(event.eventId, { seats: { mapVersion: map.version, seatIds: ["A1"] } })).body.orderId as string;
+      const other = (await checkout(event.eventId, { seats: { mapVersion: map.version, seatIds: ["A2"] } })).body.orderId as string;
+      const closed = { status: "closed", eventTitle: "Neon Static", eventSlug: event.slug, seated: true };
+      await api.db.query(`update public.events set status = 'draft' where id = $1`, [event.eventId]);
+      // Its seat sold to someone else too: the event being gone is what the buyer is told.
+      await api.db.query(
+        `update public.event_seats set hold_order_id = null, hold_expires_at = null, sold_order_id = $2 where event_id = $1 and id = 'A1'`,
+        [event.eventId, other],
+      );
+      api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(openSession());
+      expect((await payment(orderId)).body).toStrictEqual(closed);
+      api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(openSession("cs_test_1", { client_secret: null }));
+      expect((await payment(orderId)).body).toStrictEqual(closed);
+
+      await api.db.query(`update public.events set status = 'published' where id = $1`, [event.eventId]);
+      await api.db.query(END_SQL, [event.eventId]);
+      api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(openSession());
+      expect((await payment(orderId)).body).toStrictEqual(closed);
+    });
+
+    it("only an open session: once Stripe has completed it, it's processing (the webhook settles it), and settled is done", async () => {
+      const { event, orderId } = await gaOrder();
+      await api.db.query(`update public.events set status = 'draft' where id = $1`, [event.eventId]);
+      api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(embeddedSession("cs_test_1", { status: "complete", payment_status: "paid" }));
+      expect((await payment(orderId)).body).toStrictEqual({ status: "processing", delayed: false });
+
+      await api.db.query(`update public.events set status = 'published' where id = $1`, [event.eventId]);
+      await api.db.query(END_SQL, [event.eventId]);
+      api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(embeddedSession("cs_test_1", { status: "complete", payment_status: "paid" }));
+      expect((await payment(orderId)).body).toStrictEqual({ status: "processing", delayed: false });
+
+      await api.db.query(`update public.orders set status = 'paid' where id = $1`, [orderId]);
+      expect((await payment(orderId)).body).toStrictEqual({ status: "done" });
+    });
+
+    it("writes nothing, as for every other answer", async () => {
+      const { event, orderId } = await gaOrder();
+      await api.db.query(END_SQL, [event.eventId]);
+      const before = await dbSnapshot();
+      api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(openSession());
+      expect((await payment(orderId)).body.status).toBe("closed");
+      expect(await dbSnapshot()).toEqual(before);
+      expect(api.stripe.checkout.sessions.expire).not.toHaveBeenCalled();
+      expect(api.stripe.refunds.create).not.toHaveBeenCalled();
+    });
   });
 
   it("processing once Stripe has completed the session; delayed while the payment hasn't cleared", async () => {

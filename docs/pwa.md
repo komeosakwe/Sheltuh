@@ -60,7 +60,8 @@ handles them exactly as it would without a service worker:
   Who's Going, profile, admin and Stripe webhook routes, navigations to
   `/api` included.
 - **Any cross-origin request**: Supabase (auth, REST, storage, including
-  organiser-uploaded event images), Stripe (Checkout, Connect), Esri map tiles,
+  organiser-uploaded event images), Stripe (Stripe.js and the embedded
+  checkout form on `/checkout/pay`, Connect), Esri map tiles,
   anything else.
 - **Same-origin paths that look like a Supabase API** (`/auth/v1`, `/rest/v1`,
   `/storage/v1`, `/realtime/v1`, `/functions/v1`, `/supabase*`) in case one
@@ -82,7 +83,8 @@ dashboard, admin, messages, checkout confirmation) can't be served from
 storage to the next person using the device.
 
 There is no timeout: a slow connection waits for the real page (for example
-on the return from Stripe Checkout) rather than flashing the offline page.
+opening the payment page, or on the return to `/checkout/success` after
+paying) rather than flashing the offline page.
 
 ### Credentials, tokens, messages, payments, tickets
 
@@ -101,7 +103,7 @@ on the return from Stripe Checkout) rather than flashing the offline page.
 | Opening the app or any link with no connection | The offline page: what doesn't work, where your tickets are, a "Try again" link that reloads the page you wanted. |
 | A page already on screen when the connection drops | It stays on screen. Anything that needs the server (loading events, Who's Going, sending a message, checkout, ticket codes) fails with that screen's existing error message. |
 | Browsing, search, map, event details | Need a connection. |
-| Buying tickets, Stripe Checkout | Needs a connection. Nothing is queued. |
+| Buying tickets, the payment page (`/checkout/pay`) | Needs a connection. Nothing is queued. |
 | Your tickets / ticket codes | Need a connection (`/checkout/success`, account). Your ticket QR codes are in your confirmation email, and an email app may have it saved offline. |
 | Messages | Need a connection to read or send. A typed draft stays in the box on screen; it is not sent later. |
 | First visit ever, or browser storage cleared | No service worker yet, so the browser's own offline error appears. |
