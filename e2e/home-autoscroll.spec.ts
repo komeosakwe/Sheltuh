@@ -5,12 +5,14 @@ import { sampleEvents } from "@/lib/sample-events";
 
 /**
  * The home rails' auto-scroll in a real browser (owner, 23 Oct 2026: "make
- * them automatically scroll", then "as smooth as the very initial one done to
- * simulate DICE"; components/home/useRailAutoScroll.ts): the original
- * carousel's continuous 60px/s drift, a 2s hold at the far end and an eased
- * glide back. Live mode with /api/* answered here: two events this weekend (a
- * pair, which never auto-scrolls) and eight more in Coming up, which
- * overflows at both widths.
+ * them automatically scroll", "as smooth as the very initial one done to
+ * simulate DICE"; 24 Oct 2026: "make it go from one end of screen to next";
+ * components/home/useRailAutoScroll.ts): an endless marquee, the cards
+ * drifting at 60px/s from the right edge of the screen to the left, looping
+ * seamlessly on inert copies of the cards. Live mode with /api/* answered
+ * here: two events this weekend (a pair, which never auto-scrolls; on a
+ * Friday to Sunday the next few events fall in the weekend too) and the rest
+ * in Coming up, which overflows at both widths.
  */
 
 const HOUR = 3600_000;
@@ -69,31 +71,132 @@ async function openHome(page: Page, reducedMotion: "reduce" | "no-preference") {
 const scrollLeft = (rail: Locator) => rail.evaluate((ul) => ul.scrollLeft);
 const snapType = (rail: Locator) => rail.evaluate((ul) => getComputedStyle(ul).scrollSnapType);
 const pageOverflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+const copies = (rail: Locator) => rail.locator(":scope > li[data-rail-clone]");
+const realCards = (rail: Locator) => rail.locator(":scope > li:not([data-rail-clone])");
 
-/** The rail's scrollLeft every `every` ms for `ms`, sampled in the page (no round trips between samples). */
-function sample(rail: Locator, ms: number, every: number): Promise<number[]> {
+/** The loop's seam in scrollLeft terms (as `railLoop`): the first real card's offset, one set's width, the gap. */
+function loopOf(rail: Locator) {
+  return rail.evaluate((ul) => {
+    const first = ul.querySelector(":scope > li:not([data-rail-clone])");
+    const copy = ul.querySelector(":scope > li[data-rail-clone]");
+    const railLeft = ul.getBoundingClientRect().left + ul.clientLeft;
+    const firstLeft = first?.getBoundingClientRect().left ?? 0;
+    return {
+      start: ul.scrollLeft + firstLeft - railLeft,
+      period: (copy?.getBoundingClientRect().left ?? firstLeft) - firstLeft,
+      gap: parseFloat(getComputedStyle(ul).columnGap) || 0,
+    };
+  });
+}
+
+interface Frame {
+  /** The rail's scrollLeft. */
+  left: number;
+  /** The title of the leftmost card in view, and how far its left edge is from the rail's (negative: cut off). */
+  title: string;
+  firstLeft: number;
+  /** How far the rightmost card in view ends from the rail's right edge (negative: cut off). */
+  lastRight: number;
+}
+/** Every frame for `ms`: where the rail is and which card is at its left edge, sampled in the page. */
+function watch(rail: Locator, ms: number): Promise<Frame[]> {
   return rail.evaluate(
-    (ul, [total, step]) =>
-      new Promise<number[]>((resolve) => {
-        const out = [ul.scrollLeft];
-        const timer = setInterval(() => {
-          out.push(ul.scrollLeft);
-          if (out.length > total / step) {
-            clearInterval(timer);
-            resolve(out);
-          }
-        }, step);
+    (ul, total) =>
+      new Promise<Frame[]>((resolve) => {
+        const out: Frame[] = [];
+        let t0: number | undefined;
+        const frame = (now: number) => {
+          t0 ??= now;
+          const box = ul.getBoundingClientRect();
+          const left = box.left + ul.clientLeft;
+          const right = left + ul.clientWidth;
+          const inView = Array.from(ul.querySelectorAll(":scope > li"))
+            .map((li) => ({ box: li.getBoundingClientRect(), title: li.querySelector("h3")?.textContent ?? "" }))
+            .filter((card) => card.box.right > left + 0.5 && card.box.left < right - 0.5);
+          const first = inView[0];
+          const last = inView[inView.length - 1];
+          out.push({
+            left: ul.scrollLeft,
+            title: first?.title ?? "",
+            firstLeft: (first?.box.left ?? right) - left,
+            lastRight: right - (last?.box.right ?? left),
+          });
+          if (now - t0 < total) requestAnimationFrame(frame);
+          else resolve(out);
+        };
+        requestAnimationFrame(frame);
       }),
-    [ms, every] as const,
+    ms,
   );
 }
-const steps = (values: number[]) => values.slice(1).map((value, i) => value - values[i]);
+
+/** The rail's position with each wrap added back: the distance the marquee has really travelled. */
+function unwrap(frames: Frame[], period: number): { travelled: number[]; wraps: number } {
+  let wraps = 0;
+  const travelled = frames.map((frame, i) => {
+    if (i > 0 && frames[i - 1].left - frame.left > period / 2) wraps += 1;
+    return frame.left + wraps * period;
+  });
+  return { travelled, wraps };
+}
 
 for (const width of [390, 1440]) {
   test.describe(`home rail auto-scroll at ${width}px`, () => {
     test.use({ viewport: { width, height: width < 768 ? 844 : 900 } });
 
-    test("drifts on by itself, smoothly, a few pixels at a time with snapping off, and Pause stops it on a card", async ({ page }) => {
+    test("an endless marquee: edge to edge, always forward, and seamless across the loop, on inert copies", async ({ page }) => {
+      const { section, rail } = await openHome(page, "no-preference");
+      await expect.poll(() => snapType(rail)).toBe("none");
+      // The copies: after the real cards, a whole set at least, hidden from assistive tech and inert.
+      await expect.poll(() => copies(rail).count()).toBeGreaterThan(0);
+      const real = await realCards(rail).count();
+      expect(real).toBeGreaterThanOrEqual(5);
+      expect((await copies(rail).count()) % real).toBe(0);
+      const marked = await copies(rail).evaluateAll((lis) => lis.map((li) => [li.getAttribute("aria-hidden"), (li as HTMLElement).inert]));
+      expect(marked.every(([hidden, inert]) => hidden === "true" && inert === true)).toBe(true);
+      // Only the real cards are list items and links to assistive tech.
+      await expect(rail.getByRole("listitem")).toHaveCount(real);
+      const realLinks = await rail.evaluate((ul) => ul.querySelectorAll(":scope > li:not([data-rail-clone]) a[href]").length);
+      await expect(rail.getByRole("link")).toHaveCount(realLinks);
+      // A pair (This weekend with two events; on a weekend the fixtures give it more) never moves and has no copies.
+      const pairs = page.locator("[data-home-section]").filter({ has: page.locator('[data-rail-layout="pair"]') });
+      for (const pair of await pairs.all()) {
+        await expect(pair.locator("li[data-rail-clone]")).toHaveCount(0);
+        await expect(pair.getByRole("button", { name: /auto-scroll/ })).toHaveCount(0);
+      }
+
+      const titles = await realCards(rail).evaluateAll((lis) => lis.map((li) => li.querySelector("h3")?.textContent ?? ""));
+      expect(new Set(titles).size).toBe(real);
+      const loop = await loopOf(rail);
+      expect(loop.period).toBeGreaterThan(0);
+      // A script (not a person) puts the rail just before the seam: the drift carries on from there.
+      await rail.evaluate((ul, at) => void (ul.scrollLeft = at), loop.start + loop.period - 150);
+      const frames = await watch(rail, 5_000);
+
+      // It wrapped, and every frame moved it a little further on: never back, never a jump.
+      const { travelled, wraps } = unwrap(frames, loop.period);
+      expect(wraps).toBeGreaterThanOrEqual(1);
+      const moves = travelled.slice(1).map((value, i) => value - travelled[i]);
+      expect(Math.min(...moves)).toBeGreaterThanOrEqual(-0.5);
+      expect(Math.max(...moves)).toBeLessThan(10);
+      // About 60px a second.
+      const distance = travelled[travelled.length - 1] - travelled[0];
+      expect(distance).toBeGreaterThan(200);
+      expect(distance).toBeLessThan(400);
+      // The card at the left edge only ever gives way to the next one in order, across the seam too.
+      const seen = frames.map((frame) => frame.title).filter((title, i, all) => i === 0 || title !== all[i - 1]);
+      expect(seen.length).toBeGreaterThanOrEqual(2);
+      for (let i = 1; i < seen.length; i++) {
+        expect(titles.indexOf(seen[i]), `${seen[i - 1]} → ${seen[i]}`).toBe((titles.indexOf(seen[i - 1]) + 1) % real);
+      }
+      // Edge to edge: never more than a gap between the screen's edges and the cards.
+      expect(Math.max(...frames.map((frame) => frame.firstLeft))).toBeLessThanOrEqual(loop.gap + 0.5);
+      expect(Math.max(...frames.map((frame) => frame.lastRight))).toBeLessThanOrEqual(loop.gap + 0.5);
+      expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
+      await expect(section.getByRole("button", { name: "Pause auto-scroll: Coming up" })).toBeVisible();
+    });
+
+    test("Pause freezes it exactly where it is; Play carries on from there", async ({ page }) => {
       const { section, rail } = await openHome(page, "no-preference");
       const pause = section.getByRole("button", { name: "Pause auto-scroll: Coming up" });
       // A visible 44px control at every width (on phones the arrows are hidden, the Pause button isn't).
@@ -102,74 +205,101 @@ for (const width of [390, 1440]) {
       expect(Math.round(box?.width ?? 0)).toBe(44);
       expect(Math.round(box?.height ?? 0)).toBe(44);
       await expect(section.getByRole("button", { name: "Next events: Coming up" })).toBeVisible({ visible: width >= 640 });
+      await expect.poll(() => scrollLeft(rail), { timeout: 5_000 }).toBeGreaterThan(30);
 
-      // Snapping is off while it drifts (it would pull the rail back to a card).
-      await expect.poll(() => snapType(rail)).toBe("none");
-      // About 60px a second, continuously: every 100ms a few pixels on, never a card-sized jump.
-      const samples = await sample(rail, 2000, 100);
-      const moves = steps(samples);
-      expect(moves.length).toBeGreaterThanOrEqual(19);
-      expect(moves.filter((d) => d > 0).length).toBeGreaterThanOrEqual(moves.length - 1);
-      expect(Math.min(...moves)).toBeGreaterThanOrEqual(0);
-      expect(Math.max(...moves)).toBeLessThan(20);
-      const travelled = samples[samples.length - 1] - samples[0];
-      expect(travelled).toBeGreaterThan(80);
-      expect(travelled).toBeLessThan(160);
-      expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
-
-      // Pause: it settles on a card (snapping back on), then stays there; the button now offers Play.
       await pause.click();
       const play = section.getByRole("button", { name: "Play auto-scroll: Coming up" });
       await expect(play).toBeVisible();
-      await expect.poll(() => snapType(rail), { timeout: 3_000 }).toContain("mandatory");
-      const onCard = await rail.evaluate((ul) => {
-        const inset = parseFloat(getComputedStyle(ul).paddingInlineStart) || 0;
-        const start = ul.getBoundingClientRect().left + ul.clientLeft + inset;
-        return Array.from(ul.querySelectorAll(":scope > li")).some((li) => Math.abs(li.getBoundingClientRect().left - start) < 2);
-      });
-      expect(onCard).toBe(true);
       const held = await scrollLeft(rail);
-      await page.waitForTimeout(3_000);
+      await page.waitForTimeout(2_000);
       expect(await scrollLeft(rail)).toBe(held);
+      // Frozen as a marquee: snapping stays off (turning it on would pull the rail to a card) and the copies stay.
+      expect(await snapType(rail)).toBe("none");
+      expect(await copies(rail).count()).toBeGreaterThan(0);
+
+      // Watched from before the press: still at the held spot, then on from it, never a jump.
+      const watching = watch(rail, 1_500);
+      await play.click();
+      await expect(section.getByRole("button", { name: "Pause auto-scroll: Coming up" })).toBeVisible();
+      const frames = await watching;
+      const moves = frames.slice(1).map((frame, i) => frame.left - frames[i].left);
+      expect(frames[0].left).toBe(held);
+      expect(Math.min(...moves)).toBeGreaterThanOrEqual(-0.5);
+      expect(Math.max(...moves)).toBeLessThan(10);
+      expect(frames[frames.length - 1].left - held).toBeGreaterThan(30);
       expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
     });
 
-    test("at the far end it holds, glides smoothly back to the start, and drifts on", async ({ page }) => {
-      const { rail } = await openHome(page, "no-preference");
-      await expect.poll(() => snapType(rail)).toBe("none");
-      // A script (not a person) moves it near the end: the drift carries on from there.
-      const max = await rail.evaluate((ul) => {
-        const end = ul.scrollWidth - ul.clientWidth;
-        ul.scrollLeft = end - 20;
-        return end;
-      });
-      await expect.poll(() => scrollLeft(rail), { timeout: 3_000 }).toBeGreaterThanOrEqual(max - 1);
-      // The hold: about 2 seconds at the end.
-      const hold = await sample(rail, 1400, 100);
-      expect(Math.min(...hold)).toBeGreaterThanOrEqual(max - 1);
-      // The glide back: many small steps, all heading back, then on again from the start.
-      const glide = await sample(rail, 3000, 50);
-      const back = steps(glide).filter((d) => d < 0);
-      expect(back.length).toBeGreaterThanOrEqual(15);
-      expect(Math.max(...back.map(Math.abs))).toBeLessThan(max / 3);
-      expect(Math.min(...glide)).toBeLessThan(40);
-      await expect.poll(() => scrollLeft(rail), { timeout: 3_000 }).toBeGreaterThan(Math.min(...glide) + 10);
+    test("Tab through the rail reaches only the real cards", async ({ page }) => {
+      const { section, rail } = await openHome(page, "no-preference");
+      await expect.poll(() => copies(rail).count()).toBeGreaterThan(0);
+      // From the section's last control before the rail (Next from 640px, Pause on phones).
+      const before = section.getByRole("button", { name: width >= 640 ? "Next events: Coming up" : "Pause auto-scroll: Coming up" });
+      await before.focus();
+      const stops: { inRail: boolean; inCopy: boolean; card: number }[] = [];
+      for (let i = 0; i < 60; i++) {
+        await page.keyboard.press("Tab");
+        const stop = await page.evaluate(() => {
+          const el = document.activeElement;
+          const ul = document.getElementById("home-popular-rail");
+          const li = el?.closest("#home-popular-rail > li");
+          return {
+            inRail: !!(ul && el && ul.contains(el)),
+            inCopy: !!el?.closest("[data-rail-clone]"),
+            card: ul && li ? Array.from(ul.children).indexOf(li) : -1,
+          };
+        });
+        if (!stop.inRail && stops.some((s) => s.inRail)) break;
+        stops.push(stop);
+      }
+      const inRail = stops.filter((s) => s.inRail);
+      const real = await realCards(rail).count();
+      expect(inRail.length).toBeGreaterThanOrEqual(real);
+      expect(inRail.some((s) => s.inCopy)).toBe(false);
+      // Every real card in turn, and nothing after the last.
+      expect([...new Set(inRail.map((s) => s.card))]).toEqual(Array.from({ length: real }, (_, i) => i));
       expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
     });
 
-    test("a sideways wheel over the rail is the visitor taking over: it stops, with snapping back on", async ({ page }) => {
+    test("a sideways wheel is the visitor taking over: it stops, snaps on a card, and the copies go without a jump", async ({ page }) => {
       const { section, rail } = await openHome(page, "no-preference");
       await expect.poll(() => snapType(rail)).toBe("none");
+      await expect.poll(() => copies(rail).count()).toBeGreaterThan(0);
       const box = await rail.boundingBox();
       await page.mouse.move((box?.x ?? 0) + 100, (box?.y ?? 0) + 100);
       await page.mouse.wheel(300, 0);
       await expect(section.getByRole("button", { name: "Play auto-scroll: Coming up" })).toBeVisible();
       await expect.poll(() => snapType(rail)).toContain("mandatory");
+      // Near the start no copy is in view, so they go, and the rail doesn't move when they do.
+      await expect.poll(() => copies(rail).count()).toBe(0);
       await page.mouse.move(1, 1);
-      await page.waitForTimeout(1_000);
       const held = await scrollLeft(rail);
       await page.waitForTimeout(2_000);
       expect(await scrollLeft(rail)).toBe(held);
+      await expect(rail.getByRole("listitem")).toHaveCount(await realCards(rail).count());
+      expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
+    });
+
+    test("taking over with copies in view keeps them (inert) rather than jumping, and the rail stays put", async ({ page }) => {
+      const { section, rail } = await openHome(page, "no-preference");
+      await expect.poll(() => copies(rail).count()).toBeGreaterThan(0);
+      const loop = await loopOf(rail);
+      // Straddling the seam: the last real cards on the left, the first copies on the right.
+      await rail.evaluate((ul, at) => void (ul.scrollLeft = at), loop.start + loop.period - 300);
+      await page.waitForTimeout(300);
+      const box = await rail.boundingBox();
+      await page.mouse.move((box?.x ?? 0) + 100, (box?.y ?? 0) + 100);
+      await page.mouse.wheel(40, 0);
+      await expect(section.getByRole("button", { name: "Play auto-scroll: Coming up" })).toBeVisible();
+      await expect.poll(() => snapType(rail)).toContain("mandatory");
+      await page.mouse.move(1, 1);
+      await page.waitForTimeout(1_000);
+      const held = await scrollLeft(rail);
+      expect(await copies(rail).count()).toBeGreaterThan(0);
+      await page.waitForTimeout(1_500);
+      expect(await scrollLeft(rail)).toBe(held);
+      // Still inert and hidden: the real cards are still the only list items.
+      await expect(rail.getByRole("listitem")).toHaveCount(await realCards(rail).count());
     });
 
     test("Next pressed mid-drift pages smoothly onto a card, never jumping back first", async ({ page }) => {
@@ -178,39 +308,28 @@ for (const width of [390, 1440]) {
       await expect.poll(() => snapType(rail)).toBe("none");
       // Between two cards (the drift has been going for a moment).
       await expect.poll(() => scrollLeft(rail), { timeout: 5_000 }).toBeGreaterThan(40);
-      const frames = rail.evaluate(
-        (ul) =>
-          new Promise<number[]>((resolve) => {
-            const out: number[] = [];
-            const start = performance.now();
-            const frame = (now: number) => {
-              out.push(ul.scrollLeft);
-              if (now - start < 2000) requestAnimationFrame(frame);
-              else resolve(out);
-            };
-            requestAnimationFrame(frame);
-          }),
-      );
+      const frames = watch(rail, 2_000);
       await section.getByRole("button", { name: "Next events: Coming up" }).click();
-      const seen = await frames;
-      expect(Math.min(...steps(seen))).toBeGreaterThanOrEqual(-1);
+      const seen = (await frames).map((frame) => frame.left);
+      expect(Math.min(...seen.slice(1).map((value, i) => value - seen[i]))).toBeGreaterThanOrEqual(-1);
       await expect(section.getByRole("button", { name: "Play auto-scroll: Coming up" })).toBeVisible();
       await expect.poll(() => snapType(rail)).toContain("mandatory");
-      // On a card's start, or at the rail's end (where the last card meets the column's edge).
+      // On a card's start.
       const landed = await rail.evaluate((ul) => {
         const inset = parseFloat(getComputedStyle(ul).paddingInlineStart) || 0;
         const start = ul.getBoundingClientRect().left + ul.clientLeft + inset;
         const onCard = Array.from(ul.querySelectorAll(":scope > li")).some((li) => Math.abs(li.getBoundingClientRect().left - start) < 2);
-        return { onCard, atEnd: ul.scrollLeft >= ul.scrollWidth - ul.clientWidth - 1, left: ul.scrollLeft };
+        return { onCard, left: ul.scrollLeft };
       });
-      expect(landed.onCard || landed.atEnd, JSON.stringify(landed)).toBe(true);
+      expect(landed.onCard, JSON.stringify(landed)).toBe(true);
     });
 
-    test("under reduced motion it never moves, and there's no Pause button", async ({ page }) => {
+    test("under reduced motion it never moves: no copies and no Pause button", async ({ page }) => {
       const { section, rail } = await openHome(page, "reduce");
       await expect(section.getByRole("button", { name: /auto-scroll/ })).toHaveCount(0);
       await page.waitForTimeout(3_000);
       expect(await scrollLeft(rail)).toBe(0);
+      await expect(copies(rail)).toHaveCount(0);
       expect(await snapType(rail)).toContain("mandatory");
       expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
     });

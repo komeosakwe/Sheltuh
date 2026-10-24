@@ -221,12 +221,13 @@ describe("retired accents and motion (brand-direction-one.md §9, cleanup)", () 
     expect(badge).toMatch(/HERO_BADGE_TURN = "30s"/);
   });
 
-  // The second, also at the owner's request (23 Oct 2026, "make them automatically scroll", then "as
-  // smooth as the very initial one done to simulate DICE"): the home rails drift, slowly and
-  // continuously like the original carousel (60px a second, a 2s hold at the far end, an eased glide
-  // back), from one shared hook, only for people who haven't asked for less motion, with a Pause/Play
-  // button (tests/HomeRailAutoScroll.test.tsx covers the behaviour).
-  it("allows one auto-scroll, the home rails' drift: one hook, motion-gated, with a Pause/Play control", () => {
+  // The second, also at the owner's request (23 Oct 2026, "make them automatically scroll", "as
+  // smooth as the very initial one done to simulate DICE"; 24 Oct 2026, "make it go from one end of
+  // screen to next"): the home rails are an endless marquee, a slow continuous drift (60px a second)
+  // across the full width that loops seamlessly on inert copies of the cards, with no end hold and no
+  // glide back, from one shared hook, only for people who haven't asked for less motion, with a
+  // Pause/Play button (tests/HomeRailAutoScroll.test.tsx covers the behaviour).
+  it("allows one auto-scroll, the home rails' marquee: one hook, motion-gated, with a Pause/Play control", () => {
     const users = sources.filter(({ text }) => /\buseRailAutoScroll\(/.test(text)).map(({ file }) => file);
     expect(users.sort()).toEqual(
       [path.join("components", "home", "HomeRailSection.tsx"), path.join("components", "home", "useRailAutoScroll.ts")].sort(),
@@ -234,7 +235,14 @@ describe("retired accents and motion (brand-direction-one.md §9, cleanup)", () 
     const hook = sources.find(({ file }) => file === path.join("components", "home", "useRailAutoScroll.ts"))?.text ?? "";
     expect(hook).toMatch(/useMotionOk\(\)/);
     expect(hook).toMatch(/DRIFT_PX_PER_SEC = 60;/);
-    expect(hook).toMatch(/END_HOLD_MS = 2000;/);
+    // A loop, not a there-and-back: no hold at an end, no glide back.
+    expect(hook).not.toMatch(/END_HOLD_MS|returnDuration|easeInOutSine/);
+    expect(hook).toMatch(/pos -= loop\.period/);
+    // The copies are hidden from assistive tech and inert, and only the marquee renders them.
+    const item = sources.find(({ file }) => file === path.join("components", "home", "RailItem.tsx"))?.text ?? "";
+    expect(item).toMatch(/aria-hidden="true" inert data-rail-clone=""/);
+    const cloning = sources.filter(({ text }) => /<RailCloneSet\b/.test(text)).map(({ file }) => file);
+    expect(cloning).toEqual([path.join("components", "home", "HomeRail.tsx")]);
     const section = sources.find(({ file }) => file === path.join("components", "home", "HomeRailSection.tsx"))?.text ?? "";
     expect(section).toMatch(/<RailAutoScrollButton\b/);
     // The drift itself (frames writing scrollLeft) lives in the hook only.

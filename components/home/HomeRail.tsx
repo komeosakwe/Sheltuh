@@ -1,5 +1,5 @@
 import type { ReactNode, Ref } from "react";
-import RailItem from "./RailItem";
+import RailItem, { RailCloneSet } from "./RailItem";
 
 /**
  * The home's page column: the hero's, the section heads' and the For
@@ -69,10 +69,11 @@ const PAIR =
  *
  * Native scrolling: start-aligned mandatory snap (a swipe, wheel or arrow
  * press settles with a card's left edge on the inset line). A rail that
- * overflows also drifts by itself, a slow continuous slide like the original
- * carousel's (snapping off while it drifts), with a Pause/Play button and
- * never under reduced motion (owner, 23 Oct 2026: `useRailAutoScroll`, via
- * `HomeRailSection`). From 640px the section head's
+ * overflows also drifts by itself, an endless marquee (owner, 24 Oct 2026:
+ * `useRailAutoScroll`, via `HomeRailSection`): a slow continuous slide,
+ * snapping off while it drifts, with `clones` copies of the cards after the
+ * real ones so it loops seamlessly, a Pause/Play button, and never under
+ * reduced motion. From 640px the section head's
  * Previous/Next buttons page it (`RailArrows`); keyboard focus anywhere in
  * a card brings the whole card into view (`RailItem`).
  * `overflow-y-hidden`: a sideways scroller is otherwise a vertical one too,
@@ -86,12 +87,18 @@ export default function HomeRail({
   id,
   ref,
   pair = false,
+  clones = 0,
 }: {
   children: ReactNode;
   labelledBy: string;
   id?: string;
   ref?: Ref<HTMLUListElement>;
   pair?: boolean;
+  /**
+   * Copies of the cards after the real ones, for the auto-scroll's endless
+   * loop (`useRailAutoScroll`): `aria-hidden` and `inert` (`RailCloneSet`).
+   */
+  clones?: number;
 }) {
   return (
     <ul
@@ -102,6 +109,9 @@ export default function HomeRail({
       className={`no-scrollbar -my-4 flex snap-x snap-mandatory gap-3 overflow-x-auto overflow-y-hidden overscroll-x-contain py-4 pe-0 sm:gap-6 ${INSET} ${SNAP_INSET} ${END_GUTTER} ${pair ? PAIR : ""}`.trim()}
     >
       {children}
+      {Array.from({ length: clones }, (_, i) => (
+        <RailCloneSet key={`rail-clone-${i}`}>{children}</RailCloneSet>
+      ))}
     </ul>
   );
 }

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import type { PublicEvent } from "@/lib/api/public-events";
 import { weekendWindow } from "@/lib/home-sections";
 import { sampleEvents } from "@/lib/sample-events";
@@ -117,11 +117,15 @@ for (const vp of VIEWPORTS) {
         expect(title.y + title.height).toBeLessThanOrEqual(fold);
       }
 
-      // Each event at most once across every section.
+      // Each event at most once across every section. The auto-scroll's copies of a rail's cards
+      // (aria-hidden and inert, `li[data-rail-clone]`) aren't the page listing an event again.
       const hrefs = await page
         .locator("main a[href^='/events/']")
         .evaluateAll((links) =>
-          links.map((a) => a.getAttribute("href") ?? "").filter((href) => /^\/events\/[^?#/]+$/.test(href)),
+          links
+            .filter((a) => !a.closest("[data-rail-clone]"))
+            .map((a) => a.getAttribute("href") ?? "")
+            .filter((href) => /^\/events\/[^?#/]+$/.test(href)),
         );
       expect(hrefs.length).toBeGreaterThan(5);
       expect(new Set(hrefs).size).toBe(hrefs.length);
@@ -165,6 +169,14 @@ test.describe("the photo push-in (the hero photo shows from 1024px)", () => {
   });
 });
 
+/** Moves the mouse onto `target` without waiting for it to hold still (an auto-scrolling rail holds still under the pointer). */
+async function pointAt(page: Page, target: Locator) {
+  await target.evaluate((el) => el.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" }));
+  const box = await target.boundingBox();
+  if (!box) throw new Error("not rendered");
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+}
+
 test("a card's Buy tickets lands on the event page with focus on the tickets", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   const events = fixtures(Date.now());
@@ -179,6 +191,8 @@ test("a card's Buy tickets lands on the event page with focus on the tickets", a
   const quickBuy = section.getByRole("link", { name: /^(?:Buy tickets|Get free tickets) for / }).first();
   const href = await quickBuy.getAttribute("href");
   expect(href).toMatch(/^\/events\/[^/]+#tickets$/);
+  // A rail that auto-scrolls never stops moving by itself; the pointer over it holds it, as for a person.
+  await pointAt(page, quickBuy);
   await quickBuy.click();
   // The dev server compiles the event route on first visit, which can take a while under load.
   await expect(page).toHaveURL(/#tickets$/, { timeout: 30_000 });

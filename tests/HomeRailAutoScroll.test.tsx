@@ -4,34 +4,35 @@ import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HomeRailItem } from "@/components/home/HomeRail";
 import HomeRailSection from "@/components/home/HomeRailSection";
-import {
-  DRIFT_PX_PER_SEC,
-  END_HOLD_MS,
-  POINTER_RESUME_MS,
-  REST_MS,
-  SETTLE_MS,
-  TOUCH_RESUME_MS,
-  easeInOutSine,
-  returnDuration,
-} from "@/components/home/useRailAutoScroll";
+import { DRIFT_PX_PER_SEC, POINTER_RESUME_MS, REST_MS, SETTLE_MS, TOUCH_RESUME_MS } from "@/components/home/useRailAutoScroll";
 
 /**
  * The home rails' auto-scroll (owner, 23 Oct 2026: "make them automatically
- * scroll", then "as smooth as the very initial one done to simulate DICE"):
- * the original carousel's slow continuous drift, 60px a second, frame by
- * frame; at the far end a 2s hold and an eased glide back to the start;
- * held still while the visitor is busy with the rail, stopped for good when
- * they scroll it themselves, with a Pause/Play button (WCAG 2.2.2) and
- * nothing at all under reduced motion.
+ * scroll", "as smooth as the very initial one done to simulate DICE"; 24 Oct
+ * 2026: "make it go from one end of screen to next"): an endless marquee,
+ * 60px a second, frame by frame, looping seamlessly on inert copies of the
+ * cards with no end and no way back; held still while the visitor is busy
+ * with the rail, stopped for good (an ordinary rail again) when they scroll
+ * it themselves, with a Pause/Play button (WCAG 2.2.2) and nothing at all
+ * under reduced motion.
  *
  * jsdom has no layout, so the rail gets fake scroll metrics and 256px cards
- * laid side by side; and it has no frames, so requestAnimationFrame is
- * driven here: `run(ms, frameMs)` advances the fake timers and the frame
- * clock together, like a browser at that frame rate.
+ * laid side by side (copies too, after the real cards); and it has no
+ * frames, so requestAnimationFrame is driven here: `run(ms, frameMs)`
+ * advances the fake timers and the frame clock together, like a browser at
+ * that frame rate.
  */
 
 const CARD = 256;
-const MAX = 2000; // scrollWidth 3000 less clientWidth 1000
+/** jsdom's list padding: the rail's start inset. */
+const INSET = 40;
+/** Stands in for the rail's end spacer. */
+const END = 20;
+const VIEW = 1000;
+/** One set of six cards: the loop's period. */
+const SET = 6 * CARD;
+/** Where the loop wraps: one set past the first card. */
+const SEAM = INSET + SET;
 
 function stubMotion(ok: boolean) {
   vi.stubGlobal(
@@ -79,11 +80,16 @@ const framesPending = () => frames.size;
 /** A controllable IntersectionObserver: the test says when the rail is on or off screen. */
 const observers: IntersectionObserverCallback[] = [];
 class FakeObserver {
+  private callback: IntersectionObserverCallback;
   constructor(callback: IntersectionObserverCallback) {
+    this.callback = callback;
     observers.push(callback);
   }
   observe() {}
-  disconnect() {}
+  disconnect() {
+    const i = observers.indexOf(this.callback);
+    if (i >= 0) observers.splice(i, 1);
+  }
   unobserve() {}
   takeRecords() {
     return [];
@@ -91,15 +97,23 @@ class FakeObserver {
 }
 function setOnScreen(isIntersecting: boolean) {
   act(() => {
-    for (const callback of observers) callback([{ isIntersecting } as IntersectionObserverEntry], {} as IntersectionObserver);
+    for (const callback of [...observers]) callback([{ isIntersecting } as IntersectionObserverEntry], {} as IntersectionObserver);
   });
 }
 
-function setMetrics(el: HTMLElement, { scrollWidth, clientWidth, scrollLeft }: Record<string, number>) {
-  Object.defineProperty(el, "scrollWidth", { configurable: true, value: scrollWidth });
+/**
+ * The rail's metrics: `clientWidth`, and a `scrollWidth` that follows the
+ * cards in it (the inset, every card, copies too, and the end spacer) unless
+ * one is given. Fires the scroll and resize a browser would.
+ */
+function setMetrics(el: HTMLElement, { clientWidth, scrollLeft, scrollWidth }: { clientWidth: number; scrollLeft: number; scrollWidth?: number }) {
+  Object.defineProperty(el, "scrollWidth", { configurable: true, get: () => scrollWidth ?? INSET + el.children.length * CARD + END });
   Object.defineProperty(el, "clientWidth", { configurable: true, value: clientWidth });
   el.scrollLeft = scrollLeft;
-  act(() => void fireEvent.scroll(el));
+  act(() => {
+    fireEvent.scroll(el);
+    window.dispatchEvent(new Event("resize"));
+  });
 }
 
 function renderSection(count: number) {
@@ -119,6 +133,8 @@ const pause = () => screen.getByRole("button", { name: "Pause auto-scroll: Popul
 const play = () => screen.getByRole("button", { name: "Play auto-scroll: Popular right now" });
 const toggle = () => screen.queryByRole("button", { name: /auto-scroll: Popular right now$/ });
 const snap = () => rail().style.scrollSnapType;
+/** The copies of the cards in the DOM (hidden from the accessibility tree, so not found by role). */
+const copies = (list: HTMLElement = rail()) => Array.from(list.querySelectorAll(":scope > li[data-rail-clone]"));
 
 /** `actual` within `tolerance` pixels of `expected`. */
 function expectNear(actual: number, expected: number, tolerance = 1) {
@@ -133,10 +149,14 @@ function keyboardFocusMode() {
   });
 }
 
-/** A long rail, overflowing, at `scrollLeft`, after its first frame (which only reads the clock). */
-function renderOverflowing(scrollLeft = 0) {
-  const view = renderSection(6);
-  setMetrics(rail(), { scrollWidth: 3000, clientWidth: 1000, scrollLeft });
+/**
+ * A rail of `count` cards (six: one set is 1536px, wider than the 1000px
+ * rail), overflowing, at `scrollLeft`: measured (on the resize), its copies
+ * rendered, and past its first frame (which only reads the clock).
+ */
+function renderOverflowing(scrollLeft = 0, count = 6, clientWidth = VIEW) {
+  const view = renderSection(count);
+  setMetrics(rail(), { clientWidth, scrollLeft });
   run(16);
   return view;
 }
@@ -174,7 +194,8 @@ beforeEach(() => {
   scrollTo = vi.fn();
   Element.prototype.scrollBy = scrollBy as unknown as typeof Element.prototype.scrollBy;
   Element.prototype.scrollTo = scrollTo as unknown as typeof Element.prototype.scrollTo;
-  // Cards side by side from the rail's start inset (jsdom's list padding, 40px), moving as it scrolls.
+  // Cards side by side from the rail's start inset (jsdom's list padding), copies after the real
+  // ones, moving as it scrolls.
   vi.spyOn(HTMLLIElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLLIElement) {
     const list = this.parentElement;
     const index = list ? Array.from(list.children).indexOf(this) : 0;
@@ -194,9 +215,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("home rail auto-scroll: the drift", () => {
+describe("home rail auto-scroll: the marquee", () => {
   it("drifts continuously, 60px a second, a little every frame (no card steps), with snapping off", () => {
     renderOverflowing();
+    expect(getComputedStyle(rail()).paddingInlineStart).toBe(`${INSET}px`);
     expect(DRIFT_PX_PER_SEC).toBe(60);
     expect(snap()).toBe("none");
     expect(moves(1008).every(oneFrame)).toBe(true);
@@ -229,35 +251,74 @@ describe("home rail auto-scroll: the drift", () => {
     expect(rail().scrollLeft).toBeCloseTo(9, 5);
   });
 
-  it("at the far end holds 2 seconds, glides back to the start in one eased movement, then drifts on (no cloned cards)", () => {
-    renderOverflowing(MAX - 30);
-    const cards = screen.getAllByRole("listitem").length;
-    run(512);
-    expect(rail().scrollLeft).toBe(MAX);
-    run(END_HOLD_MS - 600);
-    expect(rail().scrollLeft).toBe(MAX);
+  it("renders one set of copies after the real cards, aria-hidden and inert: the list's items and links are the real ones only", () => {
+    renderOverflowing();
+    const all = Array.from(rail().children);
+    expect(all).toHaveLength(12);
+    expect(copies()).toEqual(all.slice(6));
+    for (const [i, copy] of copies().entries()) {
+      expect(copy).toHaveAttribute("aria-hidden", "true");
+      expect(copy).toHaveAttribute("inert");
+      expect(copy.textContent).toBe(`Event ${i}`);
+    }
+    expect(screen.getAllByRole("listitem")).toHaveLength(6);
+    expect(screen.getAllByRole("link", { name: /^Event \d$/ })).toHaveLength(6);
+    // The real cards are untouched.
+    for (const card of all.slice(0, 6)) {
+      expect(card).not.toHaveAttribute("aria-hidden");
+      expect(card).not.toHaveAttribute("inert");
+    }
+  });
 
-    // The glide: gentle at first, quicker in the middle, always heading back, never a jump.
-    const glide: number[] = [];
-    run(END_HOLD_MS, 16, () => glide.push(rail().scrollLeft));
-    const start = glide.findIndex((left) => left < MAX);
-    expect(start).toBeGreaterThan(0);
-    const back = glide.slice(start);
-    const steps = back.slice(1).map((left, i) => left - back[i]);
-    expect(steps.every((d) => d < 0)).toBe(true);
-    const fastest = Math.max(...steps.map(Math.abs));
-    expect(Math.abs(steps[0])).toBeLessThan(fastest / 4);
-    expect(fastest).toBeLessThan(30);
-    expect(returnDuration(MAX)).toBe(2000);
-    expect(easeInOutSine(0.5)).toBeCloseTo(0.5);
+  it("renders as many sets of copies as it takes to fill the rail past the seam", () => {
+    // Four cards (1024px) in a 1050px rail: it overflows (the inset and end spacer), and one set of copies wouldn't fill it.
+    renderOverflowing(0, 4, 1050);
+    expect(copies()).toHaveLength(8);
+    expect(screen.getAllByRole("listitem")).toHaveLength(4);
+  });
 
-    run(700);
-    const atStart = rail().scrollLeft;
-    expect(atStart).toBeLessThan(10);
-    run(512);
-    expectNear(rail().scrollLeft, atStart + 30);
-    expect(screen.getAllByRole("listitem")).toHaveLength(cards);
+  it("loops seamlessly: one set's width past the first card it moves back exactly one set, never a step backwards on screen", () => {
+    renderOverflowing(SEAM - 30);
+    const lefts: number[] = [rail().scrollLeft];
+    run(3008, 16, () => lefts.push(rail().scrollLeft));
+    const steps = lefts.slice(1).map((left, i) => left - lefts[i]);
+    // Exactly one wrap in these three seconds, by exactly one set less one frame's drift.
+    const wraps = steps.filter((d) => d < 0);
+    expect(wraps).toHaveLength(1);
+    expectNear(wraps[0] + SET, 0.96, 0.05);
+    // Unwrapped, every frame is one frame's drift on: the same picture, moving steadily.
+    expect(steps.map((d) => (d < 0 ? d + SET : d)).every(oneFrame)).toBe(true);
+    // Never back before the first card (the inset doesn't come back): the cards fill the rail edge to edge.
+    expect(Math.min(...lefts)).toBeGreaterThanOrEqual(INSET);
+    // The card at the left edge only ever gives way to the next one in turn (5, then the copy of 0, shown as 0, then 1).
+    const atLeft = lefts.map((left) => Math.floor((left - INSET) / CARD) % 6);
+    const order = atLeft.filter((card, i) => i === 0 || card !== atLeft[i - 1]);
+    expect(order).toEqual([5, 0]);
     expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("never stops: no hold at an end and no way back, for as long as it runs", () => {
+    renderOverflowing();
+    let travelled = 0;
+    let previous = rail().scrollLeft;
+    let lowest = Infinity;
+    let highest = -Infinity;
+    // 30 seconds in 100ms frames (the longest a frame counts for, to keep the test quick): 1800px, past the seam.
+    let wraps = 0;
+    run(30_000, 100, () => {
+      const d = rail().scrollLeft - previous;
+      if (d < 0) wraps += 1;
+      travelled += d < 0 ? d + SET : d;
+      previous = rail().scrollLeft;
+      lowest = Math.min(lowest, previous);
+      highest = Math.max(highest, previous);
+    });
+    expectNear(travelled, 1800, 1);
+    expect(wraps).toBe(1);
+    // Always within the real cards' set and its seam: the copies are only ever shown as the seam passes.
+    expect(highest).toBeLessThan(SEAM);
+    expect(lowest).toBeGreaterThanOrEqual(0);
+    expect(pause()).toBeInTheDocument();
   });
 
   it("carries on from wherever something else (a script) put the rail", () => {
@@ -286,6 +347,7 @@ describe("home rail auto-scroll: holding still", () => {
     expect(pause()).toBeInTheDocument();
     // Snapping stays off through a hold: turning it on would pull the rail to a card.
     expect(snap()).toBe("none");
+    expect(copies()).toHaveLength(6);
   });
 
   it("holds still while keyboard focus is in the rail or on its arrows, but not on Pause/Play itself", () => {
@@ -391,7 +453,7 @@ describe("home rail auto-scroll: the visitor takes over", () => {
       },
     ],
     ["an arrow button", () => void fireEvent.click(screen.getByRole("button", { name: "Next events: Popular right now" }))],
-  ])("stops for the rest of the page view, then settles on a card with snapping back on: %s", (_label, scrollIt) => {
+  ])("stops for the rest of the page view, settles on a card with snapping back on, and the copies go: %s", (_label, scrollIt) => {
     renderOverflowing();
     run(1008);
     act(() => scrollIt(rail()));
@@ -405,17 +467,68 @@ describe("home rail auto-scroll: the visitor takes over", () => {
     run(REST_MS + 16);
     expect(scrollTo).toHaveBeenLastCalledWith({ left: nearest, behavior: "smooth" });
     expect(snap()).toBe("none");
+    expect(copies()).toHaveLength(6);
     glideTo(nearest);
     expect(snap()).toBe("");
+    // No copy in view (the rail is near the start): they go, and the rail stays exactly where it is.
+    expect(copies()).toHaveLength(0);
+    expect(rail().scrollLeft).toBe(nearest);
     const left = rail().scrollLeft;
     run(20_000);
     expect(rail().scrollLeft).toBe(left);
-    // Play starts it again, from there.
+    // Play starts it again, from there, with its copies back.
     fireEvent.click(play());
     expect(pause()).toBeInTheDocument();
     expect(snap()).toBe("none");
+    expect(copies()).toHaveLength(6);
     run(1024);
     expectNear(rail().scrollLeft, left + 60);
+  });
+
+  it("with copies in view, keeps them (inert) rather than jump; a view wholly in them moves back one set, and then they go", () => {
+    // Straddling the seam: the last real cards on the left, the first copies on the right.
+    renderOverflowing(SEAM - 300);
+    fireEvent.wheel(rail(), { deltaX: 40, deltaY: 0 });
+    run(REST_MS + 16);
+    // The nearest card's start is card 5's (1280).
+    expect(scrollTo).toHaveBeenLastCalledWith({ left: 5 * CARD, behavior: "smooth" });
+    glideTo(5 * CARD);
+    expect(snap()).toBe("");
+    expect(play()).toBeInTheDocument();
+    // Copies in view: taking them away would change what's on screen, so they stay, still inert.
+    expect(copies()).toHaveLength(6);
+    expect(screen.getAllByRole("listitem")).toHaveLength(6);
+    expect(rail().scrollLeft).toBe(5 * CARD);
+
+    // The visitor swipes on, onto the second copy (wholly in the copies): one set back is the same
+    // picture, so it moves there, onto the real cards, and the copies are out of view and go.
+    act(() => {
+      fireEvent.touchStart(rail());
+      rail().scrollLeft = 7 * CARD;
+      fireEvent.scroll(rail());
+      fireEvent.touchEnd(window);
+      rail().dispatchEvent(new Event("scrollend"));
+    });
+    expect(rail().scrollLeft).toBe(7 * CARD - SET);
+    expect(copies()).toHaveLength(0);
+    expect(framesPending()).toBe(0);
+  });
+
+  it("with copies in view, they go at a later rest once none is in view", () => {
+    renderOverflowing(SEAM - 300);
+    fireEvent.wheel(rail(), { deltaX: 40, deltaY: 0 });
+    run(REST_MS + 16);
+    glideTo(5 * CARD);
+    expect(copies()).toHaveLength(6);
+    // The visitor scrolls back (no scrollend from this engine: the rest is a pause in scroll events).
+    act(() => {
+      rail().scrollLeft = 2 * CARD;
+      fireEvent.scroll(rail());
+    });
+    expect(copies()).toHaveLength(6);
+    run(REST_MS + 16);
+    expect(copies()).toHaveLength(0);
+    expect(rail().scrollLeft).toBe(2 * CARD);
   });
 
   it("doesn't glide while the visitor's finger is still down, only once it lifts and the rail is at rest", () => {
@@ -441,7 +554,7 @@ describe("home rail auto-scroll: the visitor takes over", () => {
     run(1008);
     const left = rail().scrollLeft;
     fireEvent.click(screen.getByRole("button", { name: "Next events: Popular right now" }));
-    // Three whole 256px cards fit (1000px less jsdom's 40px list inset), from card 0's start.
+    // Three whole 256px cards fit (1000px less the 40px inset), from card 0's start.
     expect(scrollBy).toHaveBeenCalledWith({ left: 3 * CARD - left, behavior: "smooth" });
     expect(play()).toBeInTheDocument();
     // The drift's last write reporting in late (a scroll and a scrollend where the rail already
@@ -462,6 +575,19 @@ describe("home rail auto-scroll: the visitor takes over", () => {
     expect(snap()).toBe("");
   });
 
+  it("an arrow pressed during a hand-over's settle still leaves snapping on at the end", () => {
+    renderOverflowing();
+    run(1008);
+    fireEvent.wheel(rail(), { deltaX: 40, deltaY: 0 });
+    fireEvent.click(screen.getByRole("button", { name: "Next events: Popular right now" }));
+    act(() => {
+      rail().scrollLeft = 3 * CARD;
+      fireEvent.scroll(rail());
+    });
+    glideTo(3 * CARD);
+    expect(snap()).toBe("");
+  });
+
   it("isn't stopped by its own movement, even just after a key press in the section or during a press on the rail", () => {
     renderOverflowing();
     fireEvent.keyDown(screen.getByRole("link", { name: "All events" }), { key: "Tab" });
@@ -474,6 +600,14 @@ describe("home rail auto-scroll: the visitor takes over", () => {
     expectNear(rail().scrollLeft, 30);
   });
 
+  it("isn't stopped by its own wrap at the seam, even just after a key press in the section", () => {
+    renderOverflowing(SEAM - 10);
+    fireEvent.keyDown(screen.getByRole("link", { name: "All events" }), { key: "Tab" });
+    run(512, 16, () => void fireEvent.scroll(rail()));
+    expect(pause()).toBeInTheDocument();
+    expect(rail().scrollLeft).toBeLessThan(SEAM - SET + 30);
+  });
+
   it("isn't stopped by a vertical wheel over the rail (the page scrolling past)", () => {
     renderOverflowing();
     fireEvent.wheel(rail(), { deltaX: 0, deltaY: 80 });
@@ -484,9 +618,9 @@ describe("home rail auto-scroll: the visitor takes over", () => {
 });
 
 describe("home rail auto-scroll: Pause/Play", () => {
-  it("Pause stops it and settles it smoothly on the nearest card, then snapping comes back; Play restarts it", () => {
+  it("Pause freezes the marquee exactly where it is (no settling, snapping still off, copies kept); Play carries on from there", () => {
     renderOverflowing();
-    run(2000); // about 120px along: the nearest card start is 0 (256 is further)
+    run(2000);
     const button = pause();
     expect(button).toHaveAttribute("aria-controls", "home-popular-rail");
     expect(button).toHaveAttribute("type", "button");
@@ -496,51 +630,48 @@ describe("home rail auto-scroll: Pause/Play", () => {
     // Label switching, not aria-pressed too (one or the other).
     expect(button).not.toHaveAttribute("aria-pressed");
 
+    const held = rail().scrollLeft;
     fireEvent.click(button);
     expect(play()).toBe(button);
     expect(framesPending()).toBe(0);
-    expect(scrollTo).toHaveBeenCalledWith({ left: 0, behavior: "smooth" });
-    // Snapping stays off while it glides there, so nothing fights it, and comes back when it lands.
-    expect(snap()).toBe("none");
-    glideTo(0);
-    expect(snap()).toBe("");
     run(10_000);
-    expect(rail().scrollLeft).toBe(0);
+    expect(rail().scrollLeft).toBe(held);
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(snap()).toBe("none");
+    expect(copies()).toHaveLength(6);
 
     fireEvent.click(play());
     expect(pause()).toBe(button);
-    expect(snap()).toBe("none");
-    run(1024);
-    expectNear(rail().scrollLeft, 60);
+    // The first frame only reads the clock; then on at the same speed, from the same (fractional) spot.
+    run(16);
+    expect(rail().scrollLeft).toBe(held);
+    expect(moves(1008).every(oneFrame)).toBe(true);
+    expectNear(rail().scrollLeft, held + 60);
   });
 
-  it("Pause past a card's middle settles on the next card; without a scrollend event, snapping comes back anyway", () => {
+  it("Pause at the seam and Play carry on through the wrap without a jump", () => {
+    renderOverflowing(SEAM - 5);
+    fireEvent.click(pause());
+    run(5000);
+    fireEvent.click(play());
+    run(16);
+    const steps = moves(512);
+    expect(steps.map((d) => (d < 0 ? d + SET : d)).every(oneFrame)).toBe(true);
+    expect(steps.filter((d) => d < 0)).toHaveLength(1);
+  });
+
+  it("a paused rail the visitor scrolls is theirs: it settles on a card and becomes an ordinary rail", () => {
     renderOverflowing(200);
     fireEvent.click(pause());
-    expect(scrollTo).toHaveBeenCalledWith({ left: CARD, behavior: "smooth" });
-    run(SETTLE_MS - 16);
-    expect(snap()).toBe("none");
-    run(16);
+    fireEvent.wheel(rail(), { deltaX: 40, deltaY: 0 });
+    expect(play()).toBeInTheDocument();
+    run(REST_MS + 16);
+    expect(scrollTo).toHaveBeenLastCalledWith({ left: CARD, behavior: "smooth" });
+    glideTo(CARD);
     expect(snap()).toBe("");
-  });
-
-  it("Pause on a card's start just turns snapping back on", () => {
-    renderOverflowing(CARD);
-    fireEvent.click(pause());
-    expect(scrollTo).not.toHaveBeenCalled();
-    expect(snap()).toBe("");
-  });
-
-  it("Play at the far end glides straight back to the start", () => {
-    renderOverflowing(CARD);
-    fireEvent.click(pause());
-    rail().scrollLeft = MAX; // the visitor went to the end
-    fireEvent.click(play());
-    run(512);
-    expect(rail().scrollLeft).toBeLessThan(MAX);
-    // Back at the start within the glide's time, and drifting on from there.
-    run(returnDuration(MAX) - 512);
-    expect(rail().scrollLeft).toBeLessThan(5);
+    expect(copies()).toHaveLength(0);
+    run(5000);
+    expect(rail().scrollLeft).toBe(CARD);
   });
 
   it("each section's button is its own", () => {
@@ -563,18 +694,21 @@ describe("home rail auto-scroll: Pause/Play", () => {
       </>,
     );
     const [a, b] = screen.getAllByRole("list");
-    for (const list of [a, b]) setMetrics(list, { scrollWidth: 3000, clientWidth: 1000, scrollLeft: 0 });
+    for (const list of [a, b]) setMetrics(list, { clientWidth: VIEW, scrollLeft: 0 });
+    run(16);
     fireEvent.click(screen.getByRole("button", { name: "Pause auto-scroll: Coming up" }));
     expect(screen.getByRole("button", { name: "Play auto-scroll: Coming up" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Pause auto-scroll: From organisers you follow" })).toBeInTheDocument();
     run(1024);
     expect(a.scrollLeft).toBe(0);
     expectNear(b.scrollLeft, 60);
+    expect(copies(a)).toHaveLength(6);
+    expect(copies(b)).toHaveLength(6);
   });
 });
 
 describe("home rail auto-scroll: where it never runs", () => {
-  it("never moves, and has no button, for people who prefer reduced motion", () => {
+  it("never moves, and has no button and no copies, for people who prefer reduced motion", () => {
     stubMotion(false);
     renderOverflowing();
     expect(toggle()).toBeNull();
@@ -584,9 +718,10 @@ describe("home rail auto-scroll: where it never runs", () => {
     run(5000);
     expect(rail().scrollLeft).toBe(0);
     expect(snap()).toBe("");
+    expect(copies()).toHaveLength(0);
   });
 
-  it("the server render has the button for a long rail (so the head doesn't shift), hidden by CSS under reduced motion", () => {
+  it("the server render has the button for a long rail (so the head doesn't shift), hidden by CSS under reduced motion, and no copies", () => {
     const html = renderToString(
       <HomeRailSection id="home-popular" title="Popular right now" count={6}>
         <HomeRailItem>
@@ -596,25 +731,31 @@ describe("home rail auto-scroll: where it never runs", () => {
     );
     expect(html).toContain('aria-label="Pause auto-scroll: Popular right now"');
     expect(html).toMatch(/data-rail-autoscroll-toggle=""[^>]*class="[^"]*motion-reduce:hidden/);
+    expect(html).not.toContain("data-rail-clone");
+    expect(html).not.toContain("inert");
   });
 
   it("never runs on a pair (one or two cards), even when it overflows on a narrow screen", () => {
     renderSection(2);
-    setMetrics(rail(), { scrollWidth: 700, clientWidth: 390, scrollLeft: 0 });
+    setMetrics(rail(), { clientWidth: 390, scrollLeft: 0, scrollWidth: 700 });
+    run(32);
     // The arrows arrive (it overflows), the auto-scroll doesn't.
     expect(screen.getByRole("button", { name: "Next events: Popular right now" })).toBeInTheDocument();
     expect(toggle()).toBeNull();
     run(5000);
     expect(rail().scrollLeft).toBe(0);
     expect(snap()).toBe("");
+    expect(copies()).toHaveLength(0);
   });
 
   it("never runs on a rail that doesn't overflow", () => {
     renderSection(4);
-    setMetrics(rail(), { scrollWidth: 1280, clientWidth: 1280, scrollLeft: 0 });
+    setMetrics(rail(), { clientWidth: 1280, scrollLeft: 0 });
+    run(32);
     expect(toggle()).toBeNull();
     run(5000);
     expect(rail().scrollLeft).toBe(0);
+    expect(copies()).toHaveLength(0);
   });
 
   it("leaves no frame or timer behind when it unmounts", () => {
@@ -627,9 +768,9 @@ describe("home rail auto-scroll: where it never runs", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("leaves no timer behind when it unmounts during Pause's settle", () => {
+  it("leaves no timer behind when it unmounts during a hand-over's settle", () => {
     const { unmount } = renderOverflowing(100);
-    fireEvent.click(pause());
+    fireEvent.wheel(rail(), { deltaX: 40, deltaY: 0 });
     expect(vi.getTimerCount()).toBeGreaterThan(0);
     unmount();
     expect(framesPending()).toBe(0);

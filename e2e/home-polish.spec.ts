@@ -155,6 +155,10 @@ test.describe("the home's ways on, at 390px", () => {
     const href = await link.getAttribute("href");
     const title = (await card.locator("h3").textContent())?.trim() ?? "";
     expect(href).toMatch(/^\/events\/[^/#?]+$/);
+    // A rail that auto-scrolls never stops moving by itself; the pointer over it holds it, as for a person.
+    await link.evaluate((el) => el.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" }));
+    const box = await link.boundingBox();
+    await page.mouse.move((box?.x ?? 0) + (box?.width ?? 0) / 2, (box?.y ?? 0) + (box?.height ?? 0) / 2);
     await link.click();
     await expect(page).toHaveURL(new RegExp(`${href}$`), { timeout: 30_000 });
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(title, { timeout: 30_000 });
