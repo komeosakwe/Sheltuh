@@ -4,7 +4,8 @@ import { pgConstraint, pgErrorCode, type Db } from "@/lib/server/db";
 import { createTestDb } from "./helpers/test-db";
 
 /**
- * supabase/migrations/20261106000000_event_clips.sql: private.event_clips,
+ * supabase/migrations/20261106000000_event_clips.sql (and
+ * 20261106000100_event_clip_dimensions.sql's width and height): private.event_clips,
  * its touch trigger, private.put_event_clip / private.delete_event_clip and
  * the `event-clips` bucket, through SQL (the API comes in a later step).
  * Grants and search_path are in schema-grants.test.ts.
@@ -69,13 +70,16 @@ interface ClipWrite {
   path?: string | null;
   size?: number;
   duration?: number;
+  width?: number;
+  height?: number;
   description?: string;
   reason?: string | null;
 }
 
 async function put(eventId: string, w: ClipWrite = {}) {
   const [row] = await db.query<{ result: string; old_object_path: string | null }>(
-    `select * from private.put_event_clip($1::uuid, $2::uuid, $3::uuid, $4::text, $5::integer, $6::integer, $7::text, $8::text)`,
+    `select * from private.put_event_clip($1::uuid, $2::uuid, $3::uuid, $4::text, $5::integer, $6::integer,
+                                          $7::integer, $8::integer, $9::text, $10::text)`,
     [
       eventId,
       w.actor ?? OWNER,
@@ -83,6 +87,8 @@ async function put(eventId: string, w: ClipWrite = {}) {
       w.path === undefined ? path(eventId) : w.path,
       w.size ?? 4_000_000,
       w.duration ?? 12_000,
+      w.width ?? 1080,
+      w.height ?? 1920,
       w.description ?? "Four bands in a warehouse, crowd dancing under red lights.",
       w.reason ?? null,
     ],
@@ -105,11 +111,13 @@ async function clipRow(eventId: string) {
     object_path: string;
     size_bytes: number;
     duration_ms: number;
+    width: number;
+    height: number;
     description: string;
     version: string;
     rights: boolean;
   }>(
-    `select object_path, size_bytes, duration_ms, description,
+    `select object_path, size_bytes, duration_ms, width, height, description,
             floor(extract(epoch from updated_at) * 1000)::bigint::text as version,
             rights_confirmed_at is not null as rights
        from private.event_clips where event_id = $1`,
@@ -372,6 +380,24 @@ describe("private.event_clips constraints", () => {
     expect(await clipRow(eventId)).toBeUndefined();
   });
 
+  it("bounds the size it's shown at: each side 1–4096, at most 2.1 megapixels", async () => {
+    const eventId = await event("draft");
+    await expectDbError(put(eventId, { width: 0 }), "23514", "event_clips_width_check");
+    await expectDbError(put(eventId, { height: 4097 }), "23514", "event_clips_height_check");
+    await expectDbError(put(eventId, { width: 2000, height: 1100 }), "23514", "event_clips_pixels_check");
+    expect((await put(eventId, { width: 1920, height: 1080 })).result).toBe("updated");
+    expect(await clipRow(eventId)).toMatchObject({ width: 1920, height: 1080 });
+  });
+
+  it("a description-only change, or a replay, keeps the stored size", async () => {
+    const eventId = await event("draft");
+    const objectPath = path(eventId);
+    await put(eventId, { path: objectPath, width: 1280, height: 720 });
+    await put(eventId, { path: null, width: 99, height: 99, description: "Now with a new description." });
+    await put(eventId, { path: objectPath, width: 98, height: 98, description: "And again." });
+    expect(await clipRow(eventId)).toMatchObject({ width: 1280, height: 720, description: "And again." });
+  });
+
   it("bounds size, duration and description", async () => {
     const eventId = await event("draft");
     await expectDbError(put(eventId, { size: 0 }), "23514", "event_clips_size_bytes_check");
@@ -420,7 +446,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
     };
   }
 
-  const putSql = `select result from private.put_event_clip($1::uuid, $2::uuid, $3::uuid, $4::text, 4000000, 12000, 'Crowd shot.', null)`;
+  const putSql = `select result from private.put_event_clip($1::uuid, $2::uuid, $3::uuid, $4::text, 4000000, 12000, 1080, 1920, 'Crowd shot.', null)`;
 
   it("an attach waiting on a submit sees the submitted event and writes nothing", async () => {
     const eventId = await event("draft");

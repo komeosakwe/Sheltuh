@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { after } from "next/server";
 import Stripe from "stripe";
 import type { VerifyAccessToken } from "./auth";
+import { createClipStorage, type ClipStorage } from "./clip-storage";
 import { createPostgresDb, type Db } from "./db";
 import { createSmtpSender, type SendEmail } from "./email";
 import { redactForLog } from "./email-address";
@@ -36,6 +37,12 @@ export interface Deps {
   defer(task: () => Promise<void>): void;
   /** The shared secret Vercel Cron sends as `Authorization: Bearer …`; undefined when unset (cron routes then refuse everything). */
   cronSecret(): string | undefined;
+  /**
+   * Event clips' Supabase Storage (lib/server/clip-storage.ts), created on
+   * first use; undefined when SUPABASE_CLIP_STORAGE_KEY (or the Supabase URL)
+   * is unset, and the clip routes then answer 503.
+   */
+  clipStorage(): ClipStorage | undefined;
 }
 
 function requireEnv(name: string): string {
@@ -56,6 +63,8 @@ export function getDeps(): Deps {
     { auth: { persistSession: false, autoRefreshToken: false } },
   );
   let stripe: Stripe | undefined;
+  // null: looked, and it isn't configured.
+  let clipStorage: ClipStorage | null | undefined;
   const smtp = createSmtpSender();
 
   cached = {
@@ -99,6 +108,10 @@ export function getDeps(): Deps {
       });
     },
     cronSecret: () => process.env.CRON_SECRET || undefined,
+    clipStorage() {
+      if (clipStorage === undefined) clipStorage = createClipStorage() ?? null;
+      return clipStorage ?? undefined;
+    },
   };
   return cached;
 }

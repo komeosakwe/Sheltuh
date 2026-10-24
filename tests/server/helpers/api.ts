@@ -1,6 +1,7 @@
 import Stripe from "stripe";
 import { vi } from "vitest";
 import type { Caller } from "@/lib/server/auth";
+import { ClipStorageError, type ClipStorage } from "@/lib/server/clip-storage";
 import type { Db } from "@/lib/server/db";
 import type { Deps } from "@/lib/server/deps";
 import type { EmailMessage } from "@/lib/server/email";
@@ -59,6 +60,71 @@ export function stripeWebhookRequest(event: { type: string; data: { object: unkn
   });
 }
 
+/** The fake Storage's origin: its URLs are never fetched. */
+export const FAKE_STORAGE_ORIGIN = "https://project.supabase.test";
+
+/**
+ * An in-memory stand-in for Supabase Storage's `event-clips` bucket
+ * (lib/server/clip-storage.ts). `put` is what the browser's upload to a
+ * signed URL would do. `calls` records every call by name; set `failing` to
+ * make a call throw as an unreachable Storage would.
+ */
+export class FakeClipStorage implements ClipStorage {
+  readonly objects = new Map<string, { bytes: Uint8Array; contentType: string }>();
+  readonly calls: { op: string; paths: string[] }[] = [];
+  /** Operations that throw a ClipStorageError (Storage down). */
+  readonly failing = new Set<string>();
+
+  /** The browser's PUT to an upload URL. */
+  put(path: string, bytes: Uint8Array, contentType = "video/mp4"): void {
+    this.objects.set(path, { bytes: bytes.slice(), contentType });
+  }
+
+  /** How many times `op` was called. */
+  count(op: string): number {
+    return this.calls.filter((c) => c.op === op).length;
+  }
+
+  private record(op: string, paths: string[]) {
+    this.calls.push({ op, paths });
+    if (this.failing.has(op)) throw new ClipStorageError(op, 500);
+  }
+
+  async createUploadUrl(path: string) {
+    this.record("createUploadUrl", [path]);
+    return { url: `${FAKE_STORAGE_ORIGIN}/storage/v1/object/upload/sign/event-clips/${path}?token=upload-token` };
+  }
+
+  async info(path: string) {
+    this.record("info", [path]);
+    const object = this.objects.get(path);
+    return object ? { size: object.bytes.length } : null;
+  }
+
+  async download(path: string, maxBytes: number) {
+    this.record("download", [path]);
+    const object = this.objects.get(path);
+    if (!object) return "missing" as const;
+    if (object.bytes.length > maxBytes) return "too_large" as const;
+    return object.bytes.slice();
+  }
+
+  async upload(path: string, bytes: Uint8Array, contentType: string) {
+    this.record("upload", [path]);
+    this.objects.set(path, { bytes: bytes.slice(), contentType });
+  }
+
+  async createSignedUrl(path: string, expiresInSeconds: number) {
+    this.record("createSignedUrl", [path]);
+    return `${FAKE_STORAGE_ORIGIN}/storage/v1/object/sign/event-clips/${path}?token=signed-${expiresInSeconds}`;
+  }
+
+  async remove(paths: string[]) {
+    this.record("remove", paths);
+    for (const path of paths) this.objects.delete(path);
+  }
+}
+
 export class TestApi {
   readonly stripe = createFakeStripe();
   /** Every email the API "sent". Make it throw to simulate an SMTP outage. */
@@ -69,6 +135,8 @@ export class TestApi {
   cronSecret: string | undefined = CRON_SECRET;
   /** The Stripe publishable key as Deps reports it; undefined to simulate it unset or of the wrong mode. */
   stripePublishableKey: string | undefined = PUBLISHABLE_KEY;
+  /** Event clips' Storage; undefined to simulate SUPABASE_CLIP_STORAGE_KEY being unset. */
+  clipStorage: FakeClipStorage | undefined = new FakeClipStorage();
   private readonly callers = new Map<string, Caller>();
 
   constructor(readonly db: Db) {}
@@ -86,6 +154,7 @@ export class TestApi {
         this.deferred.push(task);
       },
       cronSecret: () => this.cronSecret,
+      clipStorage: () => this.clipStorage,
     };
   }
 

@@ -1,10 +1,11 @@
 import type { TicketingMode } from "@/lib/ticketing";
-import type { EventCategory, FeePolicy } from "@/lib/types";
+import type { EventCategory, EventClip, FeePolicy } from "@/lib/types";
 import type { FeaturedVideo } from "./featured-video";
 import type { PublicEvent } from "./public-events";
 import type { SeatMapTemplate, TicketSeat } from "@/lib/seating/template";
 
 export type { FeaturedVideo, FeaturedVideoProvider } from "./featured-video";
+export type { EventClip } from "@/lib/types";
 
 export type { TicketingMode } from "@/lib/ticketing";
 export type { SeatKind, SeatMapTemplate, TicketSeat } from "@/lib/seating/template";
@@ -191,7 +192,8 @@ export interface TicketingChanges {
  * What an admin's edit changed (`edited`): only the fields that did. Dates
  * are ISO instants with an offset; ticket types are the whole list before
  * and after. `image` is "set" while there's a photo, null otherwise (set →
- * set is a replaced photo).
+ * set is a replaced photo). `clip` is the clip's version (the `v` of its
+ * URL, milliseconds as a string), null for none; `clipDescription` its text.
  */
 export interface EventEditChanges {
   title?: TicketingFieldChange<string>;
@@ -206,6 +208,10 @@ export interface EventEditChanges {
   image?: TicketingFieldChange<"set">;
   /** An admin replaced or removed the seat map (or switched the event to external ticketing, removing it). */
   seatMap?: TicketingFieldChange<EventSeating>;
+  /** An admin added, replaced or removed the clip (its versions). */
+  clip?: TicketingFieldChange<string>;
+  /** An admin changed the clip's description. */
+  clipDescription?: TicketingFieldChange<string>;
 }
 
 /** ModerationLogEntry.by for an admin's entry in an organiser's view: never the admin's account id. */
@@ -257,6 +263,12 @@ export interface EventRecord {
   organiserName: string;
   /** Same-origin path of the organiser's photo, if one was uploaded. Versioned (?v=) so it caches safely. */
   imageUrl?: string;
+  /**
+   * The event's clip, only when it has one (absent otherwise). Its `url`
+   * plays only once the event is published; before that, the owner or an
+   * admin previews it with GET /events/{id}/clip/preview (lib/api/clips.ts).
+   */
+  clip?: EventClip;
   /**
    * The organiser's logo thumbnail (96 px square WebP, public, versioned),
    * only when they have a logo and are approved.

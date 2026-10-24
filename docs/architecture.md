@@ -2216,6 +2216,38 @@ is `cache-control: private, no-store`, and so is every admin response
   `app/opengraph-image.tsx` (inherited from the parent segment, since a
   page's `openGraph` replaces the parent's whole object).
 
+## Event clips
+
+One optional silent H.264 MP4 per event (at most 15 s, 10 MB and 1080p, no
+audio track), in the private Supabase Storage bucket `event-clips`. The
+bucket has no `storage.objects` policies, so only the API reaches it, using
+`SUPABASE_CLIP_STORAGE_KEY`, read only by `lib/server/clip-storage.ts`.
+Design: `docs/design/event-clips.md`.
+
+- Upload: `POST /events/{id}/clip/uploads` returns a signed upload URL for
+  `uploads/{event}/{account}/{upload}.mp4` (20 a day per account). The
+  browser PUTs the file there. `PUT /events/{id}/clip {uploadId,
+  description, rightsConfirmed}` checks the size, downloads with a cap,
+  checks and neutralises metadata with `lib/server/mp4.ts`, writes
+  `clips/{event}/{upload}.mp4` itself, and records it with
+  `private.put_event_clip` under the event row lock.
+- Organisers can do this on their own draft or rejected events; admins on
+  any event (`/admin/events/{id}/clip…`), logged `edited` with `clip` /
+  `clipDescription`. The staged object and any replaced clip are deleted
+  after the response; the trending cron's after-response sweep deletes
+  staged uploads and unreferenced clips older than a day.
+- Playback: `GET /events/{id}/clip?v=` returns a 302 to a 1-hour signed URL,
+  for published events only, cached 5 minutes. `GET …/clip/preview` gives
+  the owner or an admin a 10-minute URL. Payloads carry
+  `clip?: {url, durationMs, width, height, description}`, absent without a
+  clip.
+- Accepted limits: after a takedown, new plays stop within 5 minutes and
+  URLs already handed out work for up to an hour; Storage isn't
+  transactional with the database (deferred deletes and the sweep cover
+  the gap); no `expectedUpdatedAt` on clip writes, as for photos.
+- Not built: captions/WebVTT, transcoding (HEVC is refused), faststart,
+  WebM.
+
 ## Location (near you)
 
 Search can order results by how close they are to a suburb (owner round,

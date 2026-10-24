@@ -209,7 +209,10 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        `pk_test_…`). Redeploy after changing any `NEXT_PUBLIC_*` value.
        Optional: `NEXT_PUBLIC_DISABLE_SERVICE_WORKER=1` turns the offline
        service worker off (needs a fresh build; see `docs/pwa.md`).
-       **Never** add `SUPABASE_SECRET_KEY` (local script only).
+       **Never** add `SUPABASE_SECRET_KEY` (local script only). The one
+       exception is `SUPABASE_CLIP_STORAGE_KEY`: a *separate*, separately
+       revocable secret key used only by `lib/server/clip-storage.ts` for the
+       private `event-clips` bucket (event clips; unset = clip routes 503).
 2. [ ] Pro plan once you sell tickets (Hobby is non-commercial).
 3. [ ] Domain: attach `sheltuh.com.au` (see PROJECT_CONTEXT for the Cloudflare
        notes). The landing page currently lives on a Cloudflare Worker; decide

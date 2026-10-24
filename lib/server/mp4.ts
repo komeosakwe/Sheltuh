@@ -28,12 +28,16 @@
  * samples themselves (H.264 SEI user data is left as is).
  */
 
-/** The bucket's file_size_limit and event_clips.size_bytes' bound. */
-export const MAX_CLIP_BYTES = 10 * 1024 * 1024;
-/** 15 s, plus half a second for encoder rounding (event_clips.duration_ms' bound). */
-export const MAX_CLIP_DURATION_MS = 15_500;
-/** About 1080p (1920 × 1080 is 2,073,600), either way round. */
-export const MAX_CLIP_PIXELS = 2_100_000;
+import {
+  CLIP_MESSAGES,
+  MAX_CLIP_BYTES,
+  MAX_CLIP_DURATION_MS,
+  MAX_CLIP_PIXELS,
+  MAX_CLIP_SIDE,
+} from "@/lib/clip-rules";
+
+// The limits live in lib/clip-rules.ts (shared with the browser's pre-checks).
+export { MAX_CLIP_BYTES, MAX_CLIP_DURATION_MS, MAX_CLIP_PIXELS, MAX_CLIP_SIDE };
 /** How many boxes the walk reads in all. A phone's clip has a few dozen. */
 export const MAX_BOXES = 1000;
 
@@ -74,35 +78,57 @@ export type ClipProblem =
   | "too_long"
   | "too_many_pixels";
 
-const EXPORT = "Export it again as MP4 (H.264 / Most Compatible).";
+/** What a refused clip's message can quote. */
+export interface ClipProblemDetails {
+  /** The clip's length (too_long). */
+  durationMs?: number;
+  /** The file's size (too_large). */
+  sizeBytes?: number;
+}
 
-/** What the organiser is told (the API's fieldErrors.clip). */
-export const CLIP_PROBLEM_MESSAGES: Record<ClipProblem, string> = {
-  too_large: "Clips can be at most 10 MB.",
-  not_mp4: `That file isn't an MP4 video. ${EXPORT}`,
-  webm: `WebM videos aren't supported. ${EXPORT}`,
-  malformed: `That video file is damaged or incomplete. ${EXPORT}`,
-  too_complex: `That video file is laid out in a way we can't check. ${EXPORT}`,
-  fragmented: `That's a streaming (fragmented) MP4. ${EXPORT}`,
-  no_video: "That file has no video in it.",
-  hevc:
-    "That video is HEVC (H.265), which many browsers can't play. Export as H.264 / Most Compatible (on an iPhone: Settings > Camera > Formats > Most Compatible).",
-  codec: "That video isn't H.264. Export as H.264 / Most Compatible.",
-  audio: "Clips can't have sound. Remove the audio track and export it again.",
-  extra_track: `That video has extra tracks (such as timecode, captions or location data). ${EXPORT}`,
-  no_duration: `We couldn't tell how long that video is. ${EXPORT}`,
-  too_long: "Clips can be at most 15 seconds. Trim it and try again.",
-  too_many_pixels: "Clips can be at most 1080p (1920 × 1080). Export it at 1080p or smaller.",
-};
+/**
+ * What the organiser is told for a problem (the API's fieldErrors.clip): the
+ * exact strings of docs/design/event-clips.md §5.4 (lib/clip-rules.ts).
+ */
+export function clipProblemMessage(problem: ClipProblem, details: ClipProblemDetails = {}): string {
+  switch (problem) {
+    case "too_large":
+      return CLIP_MESSAGES.tooLarge(details.sizeBytes ?? MAX_CLIP_BYTES + 1);
+    case "too_long":
+      return CLIP_MESSAGES.tooLong(details.durationMs ?? MAX_CLIP_DURATION_MS + 1);
+    case "not_mp4":
+    case "webm":
+      return CLIP_MESSAGES.notMp4;
+    case "hevc":
+      return CLIP_MESSAGES.hevc;
+    case "audio":
+      return CLIP_MESSAGES.audio;
+    case "too_many_pixels":
+      return CLIP_MESSAGES.tooManyPixels;
+    case "malformed":
+    case "too_complex":
+    case "fragmented":
+    case "no_video":
+    case "codec":
+    case "extra_track":
+    case "no_duration":
+      return CLIP_MESSAGES.unreadable;
+  }
+}
 
 /** What a clip that passed holds. */
 export interface ClipInfo {
   /** Rounded up, so at most MAX_CLIP_DURATION_MS. */
   durationMs: number;
-  /** Display size (the video track's tkhd), in whole pixels. */
+  /**
+   * Display size, as it's shown: the video track's tkhd size (or, when that's
+   * zero, the coded size), turned a quarter if tkhd's matrix rotates it 90°
+   * or 270° (a phone's portrait clip is often stored landscape and rotated).
+   * Whole pixels; the event_clips width and height.
+   */
   width: number;
   height: number;
-  /** Encoded frame size (the sample entry). */
+  /** Encoded frame size (the sample entry), before any rotation. */
   codedWidth: number;
   codedHeight: number;
   codec: "avc1" | "avc3";
@@ -136,6 +162,8 @@ interface Track {
   codedHeight: number;
   displayWidth: number;
   displayHeight: number;
+  /** tkhd's matrix turns the picture a quarter (90° or 270°). */
+  quarterTurn: boolean;
   mediaDuration: Duration | null;
 }
 
@@ -249,15 +277,29 @@ function readDuration(walk: Walk, box: Box): Duration {
   throw new Refusal("malformed");
 }
 
-/** tkhd's width and height (16.16 fixed point), rounded up to whole pixels. */
-function readDisplaySize(walk: Walk, box: Box): { width: number; height: number } {
+/**
+ * tkhd's width and height (16.16 fixed point), rounded up to whole pixels,
+ * and whether its matrix turns the picture a quarter. The matrix (nine
+ * 32-bit values, just before the width) is {a, b, u, c, d, v, x, y, w}; a
+ * 90° or 270° turn has a = d = 0 and b, c non-zero.
+ */
+function readDisplaySize(walk: Walk, box: Box): { width: number; height: number; quarterTurn: boolean } {
   const p = box.payload;
   const version = walk.bytes[p];
   const offset = version === 0 ? 76 : version === 1 ? 88 : -1;
   if (offset < 0) throw new Refusal("malformed");
   if (box.end - p < offset + 8) throw new Refusal("malformed");
   const fixed = (value: number) => Math.ceil(value / 65536);
-  return { width: fixed(walk.view.getUint32(p + offset)), height: fixed(walk.view.getUint32(p + offset + 4)) };
+  const matrix = offset - 36;
+  const a = walk.view.getInt32(p + matrix);
+  const b = walk.view.getInt32(p + matrix + 4);
+  const c = walk.view.getInt32(p + matrix + 12);
+  const d = walk.view.getInt32(p + matrix + 16);
+  return {
+    width: fixed(walk.view.getUint32(p + offset)),
+    height: fixed(walk.view.getUint32(p + offset + 4)),
+    quarterTurn: a === 0 && d === 0 && b !== 0 && c !== 0,
+  };
 }
 
 function readTrack(walk: Walk, trak: Box): Track {
@@ -268,6 +310,7 @@ function readTrack(walk: Walk, trak: Box): Track {
     codedHeight: 0,
     displayWidth: 0,
     displayHeight: 0,
+    quarterTurn: false,
     mediaDuration: null,
   };
   const trakChildren = readBoxes(walk, trak.payload, trak.end, false);
@@ -275,6 +318,7 @@ function readTrack(walk: Walk, trak: Box): Track {
   const display = readDisplaySize(walk, required(trakChildren, "tkhd"));
   track.displayWidth = display.width;
   track.displayHeight = display.height;
+  track.quarterTurn = display.quarterTurn;
 
   const mdia = required(trakChildren, "mdia");
   const mdiaChildren = readBoxes(walk, mdia.payload, mdia.end, false);
@@ -351,12 +395,19 @@ function walkFile(bytes: Uint8Array): Walk {
   return walk;
 }
 
-/** Whether `duration` is above zero and at most MAX_CLIP_DURATION_MS; its length in ms (rounded up) if so. */
-function durationMs(duration: Duration | null): number | "no_duration" | "too_long" {
+/** A day: any longer is reported as a day (it's refused either way, and a 64-bit duration can be absurd). */
+const LONGEST_REPORTED_MS = BigInt(24 * 60 * 60 * 1000);
+
+/**
+ * `duration`'s length in ms (rounded up), or "no_duration" for none, zero or
+ * unknown; `tooLong` when it's over MAX_CLIP_DURATION_MS.
+ */
+function durationMs(duration: Duration | null): { ms: number; tooLong: boolean } | "no_duration" {
   if (!duration || duration.unknown || duration.timescale === 0 || duration.value === ZERO) return "no_duration";
   const scale = BigInt(duration.timescale);
-  if (duration.value * THOUSAND > BigInt(MAX_CLIP_DURATION_MS) * scale) return "too_long";
-  return Number((duration.value * THOUSAND + scale - ONE) / scale);
+  let ms = (duration.value * THOUSAND + scale - ONE) / scale;
+  if (ms > LONGEST_REPORTED_MS) ms = LONGEST_REPORTED_MS;
+  return { ms: Number(ms), tooLong: duration.value * THOUSAND > BigInt(MAX_CLIP_DURATION_MS) * scale };
 }
 
 function check(walk: Walk): ClipCheck {
@@ -375,13 +426,16 @@ function check(walk: Walk): ClipCheck {
   if (walk.tracks.some((t) => t.handler === "soun")) add("audio");
   if (videos.length > 1 || walk.tracks.some((t) => t.handler !== "vide" && t.handler !== "soun")) add("extra_track");
 
-  const movie = durationMs(walk.movieDuration);
-  if (typeof movie === "string") add(movie);
-  let longest = typeof movie === "number" ? movie : 0;
-  for (const track of walk.tracks) {
-    const media = durationMs(track.mediaDuration);
-    if (typeof media === "string") add(media);
-    else longest = Math.max(longest, media);
+  // The movie and every track: none missing, none over the limit.
+  let longest = 0;
+  for (const duration of [walk.movieDuration, ...walk.tracks.map((t) => t.mediaDuration)]) {
+    const length = durationMs(duration);
+    if (length === "no_duration") {
+      add("no_duration");
+      continue;
+    }
+    longest = Math.max(longest, length.ms);
+    if (length.tooLong) add("too_long");
   }
 
   const video = videos[0];
@@ -391,18 +445,22 @@ function check(walk: Walk): ClipCheck {
     (video.codedWidth === 0 ||
       video.codedHeight === 0 ||
       video.codedWidth * video.codedHeight > MAX_CLIP_PIXELS ||
-      video.displayWidth * video.displayHeight > MAX_CLIP_PIXELS)
+      video.displayWidth * video.displayHeight > MAX_CLIP_PIXELS ||
+      Math.max(video.codedWidth, video.codedHeight, video.displayWidth, video.displayHeight) > MAX_CLIP_SIDE)
   ) {
     add(video.codedWidth === 0 || video.codedHeight === 0 ? "malformed" : "too_many_pixels");
   }
 
-  if (problems.length > 0) return refused(problems);
+  if (problems.length > 0) return refused(problems, { durationMs: longest });
+  // tkhd's size, or the coded size when tkhd has none; then the matrix's turn.
+  const shownWidth = video.displayWidth && video.displayHeight ? video.displayWidth : video.codedWidth;
+  const shownHeight = video.displayWidth && video.displayHeight ? video.displayHeight : video.codedHeight;
   return {
     ok: true,
     info: {
       durationMs: longest,
-      width: video.displayWidth,
-      height: video.displayHeight,
+      width: video.quarterTurn ? shownHeight : shownWidth,
+      height: video.quarterTurn ? shownWidth : shownHeight,
       codedWidth: video.codedWidth,
       codedHeight: video.codedHeight,
       codec: video.sampleEntry as "avc1" | "avc3",
@@ -411,19 +469,20 @@ function check(walk: Walk): ClipCheck {
   };
 }
 
-function refused(problems: ClipProblem[]): ClipCheck {
+function refused(problems: ClipProblem[], details: ClipProblemDetails = {}): ClipCheck {
   return {
     ok: false,
     problem: problems[0],
     problems,
-    message: problems.map((p) => CLIP_PROBLEM_MESSAGES[p]).join(" "),
+    // Each distinct message once (several problems share "We couldn't read this clip").
+    message: [...new Set(problems.map((p) => clipProblemMessage(p, details)))].join(" "),
   };
 }
 
 const EBML_MAGIC = [0x1a, 0x45, 0xdf, 0xa3];
 
 function inspect(bytes: Uint8Array): { check: ClipCheck; walk?: Walk } {
-  if (bytes.length > MAX_CLIP_BYTES) return { check: refused(["too_large"]) };
+  if (bytes.length > MAX_CLIP_BYTES) return { check: refused(["too_large"], { sizeBytes: bytes.length }) };
   if (bytes.length >= 4 && EBML_MAGIC.every((b, i) => bytes[i] === b)) return { check: refused(["webm"]) };
   if (bytes.length < 8 || fourcc(bytes, 4) !== "ftyp") return { check: refused(["not_mp4"]) };
   let walk: Walk;

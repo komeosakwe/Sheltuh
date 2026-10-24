@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { CLIP_MESSAGES } from "@/lib/clip-rules";
 import {
-  CLIP_PROBLEM_MESSAGES,
+  clipProblemMessage,
   inspectClip,
   MAX_BOXES,
   MAX_CLIP_BYTES,
@@ -84,10 +85,21 @@ function mdhd({ version = 0, timescale = 12_800, duration = 128_000 }: Timing = 
     : fullBox("mdhd", 1, zeros(16), u32(timescale), u64(d), zeros(4));
 }
 
-function tkhd(width: number, height: number, version: 0 | 1 = 0) {
+/** tkhd's matrix {a, b, u, c, d, v, x, y, w}: identity, and a 90° turn as phones write it. */
+const IDENTITY = [0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x40000000];
+const TURN_90 = [0, 0x10000, 0, -0x10000, 0, 0, 0, 0, 0x40000000];
+
+function i32(n: number) {
+  const out = new Uint8Array(4);
+  new DataView(out.buffer).setInt32(0, n);
+  return out;
+}
+
+function tkhd(width: number, height: number, version: 0 | 1 = 0, matrix?: number[]) {
   // Everything before the matrix, the matrix (36), then width and height (16.16).
   const before = version === 0 ? zeros(20 + 8 + 8) : zeros(32 + 8 + 8);
-  return fullBox("tkhd", version, before, zeros(36), u32(width * 65536), u32(height * 65536));
+  const m = matrix ? concat(...matrix.map(i32)) : zeros(36);
+  return fullBox("tkhd", version, before, m, u32(width * 65536), u32(height * 65536));
 }
 
 function hdlr(handler: string) {
@@ -112,6 +124,7 @@ interface TrackSpec {
   displayHeight?: number;
   mdhd?: Timing;
   tkhdVersion?: 0 | 1;
+  matrix?: number[];
   entries?: number;
   trakExtra?: Uint8Array[];
   stblExtra?: Uint8Array[];
@@ -137,7 +150,7 @@ function trak(spec: TrackSpec, chunkOffset: number) {
   const mdia = box("mdia", mdhd(spec.mdhd), hdlr(handler), minf);
   return box(
     "trak",
-    tkhd(spec.displayWidth ?? width, spec.displayHeight ?? height, spec.tkhdVersion ?? 0),
+    tkhd(spec.displayWidth ?? width, spec.displayHeight ?? height, spec.tkhdVersion ?? 0, spec.matrix),
     mdia,
     ...(spec.trakExtra ?? []),
   );
@@ -244,6 +257,26 @@ describe("inspectClip: accepted clips", () => {
     });
   });
 
+  it("reports the size as shown: tkhd's matrix turning a landscape-stored clip portrait", () => {
+    for (const tkhdVersion of [0, 1] as const) {
+      expect(inspectClip(clip({ tracks: [{ width: 1920, height: 1080, matrix: TURN_90, tkhdVersion }] }))).toMatchObject({
+        ok: true,
+        info: { width: 1080, height: 1920, codedWidth: 1920, codedHeight: 1080 },
+      });
+    }
+    expect(inspectClip(clip({ tracks: [{ width: 1280, height: 720, matrix: IDENTITY }] }))).toMatchObject({
+      ok: true,
+      info: { width: 1280, height: 720 },
+    });
+  });
+
+  it("falls back to the coded size when tkhd gives none", () => {
+    expect(inspectClip(clip({ tracks: [{ width: 640, height: 360, displayWidth: 0, displayHeight: 0 }] }))).toMatchObject({
+      ok: true,
+      info: { width: 640, height: 360 },
+    });
+  });
+
   it("doesn't change the bytes", () => {
     const bytes = clip({ topExtra: [box("udta", box("©xyz", latin1("+37.8136+144.9631/")))] });
     const copy = bytes.slice();
@@ -257,7 +290,12 @@ describe("inspectClip: refused clips", () => {
     expectRefused(inspectClip(clip({ mvhd: { timescale: 1000, duration: MAX_CLIP_DURATION_MS + 1 } })), "too_long");
     expectRefused(inspectClip(clip({ mvhd: { version: 1, timescale: 1, duration: BigInt(2 ** 40) } })), "too_long");
     expectRefused(inspectClip(clip({ tracks: [{ mdhd: { timescale: 12_800, duration: 12_800 * 16 } }] })), "too_long");
-    expect(CLIP_PROBLEM_MESSAGES.too_long).toContain("15 seconds");
+    const result = inspectClip(clip({ mvhd: { timescale: 1000, duration: 18_400 } }));
+    expectRefused(result, "too_long");
+    // The spec's copy, with the clip's own length (rounded) in it.
+    if (!result.ok) {
+      expect(result.message).toBe("This clip is 18 seconds. Clips can be up to 15 seconds: trim it and try again.");
+    }
   });
 
   it("refuses a zero, unknown or timescale-less duration", () => {
@@ -272,7 +310,7 @@ describe("inspectClip: refused clips", () => {
     for (const entry of ["hvc1", "hev1", "dvh1"]) {
       const result = inspectClip(clip({ tracks: [{ entry }] }));
       expectRefused(result, "hevc");
-      if (!result.ok) expect(result.message).toContain("Export as H.264 / Most Compatible");
+      if (!result.ok) expect(result.message).toBe(CLIP_MESSAGES.hevc);
     }
   });
 
@@ -283,7 +321,7 @@ describe("inspectClip: refused clips", () => {
   it("refuses any audio track (clips never have sound)", () => {
     const result = inspectClip(clip({ tracks: [{}, { handler: "soun" }] }));
     expectRefused(result, "audio");
-    if (!result.ok) expect(result.message).toBe(CLIP_PROBLEM_MESSAGES.audio);
+    if (!result.ok) expect(result.message).toBe("Clips can’t have sound — export without audio.");
     // Audio only: no video, and the audio.
     const audioOnly = inspectClip(clip({ tracks: [{ handler: "soun" }] }));
     expect(audioOnly).toMatchObject({ ok: false, problem: "no_video", problems: ["no_video", "audio"] });
@@ -301,7 +339,7 @@ describe("inspectClip: refused clips", () => {
     expect(result).toMatchObject({ ok: false, problem: "hevc", problems: ["hevc", "audio", "too_long"] });
     if (!result.ok) {
       expect(result.message).toBe(
-        [CLIP_PROBLEM_MESSAGES.hevc, CLIP_PROBLEM_MESSAGES.audio, CLIP_PROBLEM_MESSAGES.too_long].join(" "),
+        [CLIP_MESSAGES.hevc, CLIP_MESSAGES.audio, CLIP_MESSAGES.tooLong(20_000)].join(" "),
       );
     }
   });
@@ -310,6 +348,34 @@ describe("inspectClip: refused clips", () => {
     expectRefused(inspectClip(clip({ tracks: [{ width: 3840, height: 2160 }] })), "too_many_pixels");
     expectRefused(inspectClip(clip({ tracks: [{ displayWidth: 2560, displayHeight: 1440 }] })), "too_many_pixels");
     expectRefused(inspectClip(clip({ tracks: [{ width: 0, height: 720 }] })), "malformed");
+    // Few pixels, but a strip: no side over MAX_CLIP_SIDE.
+    expectRefused(inspectClip(clip({ tracks: [{ width: 640, height: 360, displayWidth: 8192, displayHeight: 2 }] })), "too_many_pixels");
+  });
+
+  it("says what the spec says for each problem (docs/design/event-clips.md §5.4)", () => {
+    const unreadable = "We couldn’t read this clip. Export it again as MP4 (H.264) and try again.";
+    expect(clipProblemMessage("not_mp4")).toBe("This file isn’t an MP4 or MOV video. Export it as MP4 (H.264) and try again.");
+    expect(clipProblemMessage("webm")).toBe(clipProblemMessage("not_mp4"));
+    expect(clipProblemMessage("hevc")).toBe(
+      "This clip is HEVC, which many phones and browsers can’t play. Export as H.264 / Most Compatible and try again.",
+    );
+    expect(clipProblemMessage("too_long", { durationMs: 15_600 })).toBe(
+      "This clip is 16 seconds. Clips can be up to 15 seconds: trim it and try again.",
+    );
+    expect(clipProblemMessage("too_large", { sizeBytes: 12.3 * 1024 * 1024 })).toBe(
+      "This clip is 12.3 MB. Clips can be up to 10 MB: export at 1080p or lower and try again.",
+    );
+    expect(clipProblemMessage("too_many_pixels")).toBe("This clip is bigger than 1080p. Export at 1080p or lower and try again.");
+    expect(clipProblemMessage("audio")).toBe("Clips can’t have sound — export without audio.");
+    for (const problem of ["malformed", "too_complex", "fragmented", "no_video", "codec", "extra_track", "no_duration"] as const) {
+      expect(clipProblemMessage(problem)).toBe(unreadable);
+    }
+  });
+
+  it("says each distinct message once", () => {
+    const result = inspectClip(clip({ tracks: [{ entry: "vp09" }, { handler: "tmcd", entry: "tmcd" }] }));
+    expect(result).toMatchObject({ ok: false, problems: ["codec", "extra_track"] });
+    if (!result.ok) expect(result.message).toBe(CLIP_MESSAGES.unreadable);
   });
 
   it("refuses WebM, other files, and anything over the size cap", () => {
@@ -321,7 +387,9 @@ describe("inspectClip: refused clips", () => {
     expectRefused(inspectClip(clip({ ftyp: ftyp("heic", ["mif1", "heic"]) })), "not_mp4");
     const big = new Uint8Array(MAX_CLIP_BYTES + 1);
     big.set(clip());
-    expectRefused(inspectClip(big), "too_large");
+    const tooBig = inspectClip(big);
+    expectRefused(tooBig, "too_large");
+    if (!tooBig.ok) expect(tooBig.message).toBe(CLIP_MESSAGES.tooLarge(MAX_CLIP_BYTES + 1));
   });
 
   it("refuses an ftyp that isn't first, a second ftyp, or a ragged one", () => {

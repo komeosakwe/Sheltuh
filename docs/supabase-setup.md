@@ -543,6 +543,18 @@ select id, display_name, website_url from public.organisers
 where website_url ~* '^http://' or website_url ~ '^[A-Za-z]+://[^/?#]*@';
 ```
 
+### Event clips (optional)
+
+Short silent clips on events live in the private Storage bucket
+`event-clips`, created by migration `20261106000000_event_clips.sql`
+(check Storage → Buckets shows it as **private**, 10 MB limit). Then
+create a dedicated secret key (Project Settings → API Keys → Create new
+secret key, named `event-clips`) and set it in Vercel as
+`SUPABASE_CLIP_STORAGE_KEY` (server-only, never `NEXT_PUBLIC_`). Revoke
+that key alone if it ever leaks. Without it, clip uploads and playback
+answer 503 and everything else works. Clips are served for ~1 hour per
+signed URL, so plan on Supabase Pro bandwidth before turning clips on.
+
 ## 2. Stripe (Connect)
 
 1. In the Stripe dashboard, stay in **test mode** and enable **Connect**. Use
