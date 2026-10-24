@@ -96,7 +96,8 @@ export default function HomeRail({
   pair?: boolean;
   /**
    * Copies of the cards after the real ones, for the auto-scroll's endless
-   * loop (`useRailAutoScroll`): `aria-hidden` and `inert` (`RailCloneSet`).
+   * loop (`useRailAutoScroll`): `aria-hidden`, out of the tab order, and
+   * clickable like the real cards (`RailCloneSet`).
    */
   clones?: number;
 }) {

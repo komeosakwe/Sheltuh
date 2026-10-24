@@ -10,7 +10,7 @@ import { DRIFT_PX_PER_SEC, POINTER_RESUME_MS, REST_MS, SETTLE_MS, TOUCH_RESUME_M
  * The home rails' auto-scroll (owner, 23 Oct 2026: "make them automatically
  * scroll", "as smooth as the very initial one done to simulate DICE"; 24 Oct
  * 2026: "make it go from one end of screen to next"): an endless marquee,
- * 60px a second, frame by frame, looping seamlessly on inert copies of the
+ * 60px a second, frame by frame, looping seamlessly on copies of the
  * cards with no end and no way back; held still while the visitor is busy
  * with the rail, stopped for good (an ordinary rail again) when they scroll
  * it themselves, with a Pause/Play button (WCAG 2.2.2) and nothing at all
@@ -251,14 +251,17 @@ describe("home rail auto-scroll: the marquee", () => {
     expect(rail().scrollLeft).toBeCloseTo(9, 5);
   });
 
-  it("renders one set of copies after the real cards, aria-hidden and inert: the list's items and links are the real ones only", () => {
+  it("renders one set of copies after the real cards, aria-hidden and out of the tab order: the list's items and links are the real ones only", () => {
     renderOverflowing();
     const all = Array.from(rail().children);
     expect(all).toHaveLength(12);
     expect(copies()).toEqual(all.slice(6));
     for (const [i, copy] of copies().entries()) {
       expect(copy).toHaveAttribute("aria-hidden", "true");
-      expect(copy).toHaveAttribute("inert");
+      expect(copy).not.toHaveAttribute("inert");
+      // Clickable like the real card (the same link), but never a tab stop.
+      expect(copy.querySelector("a")).toHaveAttribute("href", `#e${i}`);
+      expect(copy.querySelector("a")).toHaveAttribute("tabindex", "-1");
       expect(copy.textContent).toBe(`Event ${i}`);
     }
     expect(screen.getAllByRole("listitem")).toHaveLength(6);
@@ -267,7 +270,45 @@ describe("home rail auto-scroll: the marquee", () => {
     for (const card of all.slice(0, 6)) {
       expect(card).not.toHaveAttribute("aria-hidden");
       expect(card).not.toHaveAttribute("inert");
+      expect(card.querySelector("a")).not.toHaveAttribute("tabindex");
     }
+  });
+
+  it("takes every focusable thing in a copy out of the tab order, including ones that appear later, and leaves the real cards alone", () => {
+    const items = (extra: boolean) =>
+      Array.from({ length: 6 }, (_, i) => (
+        <HomeRailItem key={i}>
+          <div>
+            <a href={`#e${i}`}>Event {i}</a>
+            <button type="button">Save {i}</button>
+            <span tabIndex={0}>Note {i}</span>
+            {extra && <a href={`#t${i}`}>Tickets {i}</a>}
+          </div>
+        </HomeRailItem>
+      ));
+    const view = render(
+      <HomeRailSection id="home-popular" title="Popular right now" count={6}>
+        {items(false)}
+      </HomeRailSection>,
+    );
+    setMetrics(rail(), { clientWidth: VIEW, scrollLeft: 0 });
+    const tabbable = (li: Element) =>
+      Array.from(li.querySelectorAll<HTMLElement>("a[href], button, [tabindex]")).map((el) => el.getAttribute("tabindex"));
+    expect(copies()).toHaveLength(6);
+    for (const copy of copies()) expect(tabbable(copy)).toEqual(["-1", "-1", "-1"]);
+    // A card re-rendering with a new action: in the copies it's out of the tab order too.
+    view.rerender(
+      <HomeRailSection id="home-popular" title="Popular right now" count={6}>
+        {items(true)}
+      </HomeRailSection>,
+    );
+    act(() => void vi.advanceTimersByTime(0));
+    return Promise.resolve().then(() => {
+      for (const copy of copies()) expect(tabbable(copy)).toEqual(["-1", "-1", "-1", "-1"]);
+      // The real cards keep their tab stops.
+      const real = Array.from(rail().children).slice(0, 6);
+      for (const card of real) expect(tabbable(card)).toEqual([null, null, "0", null]);
+    });
   });
 
   it("renders as many sets of copies as it takes to fill the rail past the seam", () => {
@@ -485,7 +526,7 @@ describe("home rail auto-scroll: the visitor takes over", () => {
     expectNear(rail().scrollLeft, left + 60);
   });
 
-  it("with copies in view, keeps them (inert) rather than jump; a view wholly in them moves back one set, and then they go", () => {
+  it("with copies in view, keeps them (out of the tab order) rather than jump; a view wholly in them moves back one set, and then they go", () => {
     // Straddling the seam: the last real cards on the left, the first copies on the right.
     renderOverflowing(SEAM - 300);
     fireEvent.wheel(rail(), { deltaX: 40, deltaY: 0 });
@@ -495,7 +536,7 @@ describe("home rail auto-scroll: the visitor takes over", () => {
     glideTo(5 * CARD);
     expect(snap()).toBe("");
     expect(play()).toBeInTheDocument();
-    // Copies in view: taking them away would change what's on screen, so they stay, still inert.
+    // Copies in view: taking them away would change what's on screen, so they stay, still hidden and out of the tab order.
     expect(copies()).toHaveLength(6);
     expect(screen.getAllByRole("listitem")).toHaveLength(6);
     expect(rail().scrollLeft).toBe(5 * CARD);
@@ -732,7 +773,6 @@ describe("home rail auto-scroll: where it never runs", () => {
     expect(html).toContain('aria-label="Pause auto-scroll: Popular right now"');
     expect(html).toMatch(/data-rail-autoscroll-toggle=""[^>]*class="[^"]*motion-reduce:hidden/);
     expect(html).not.toContain("data-rail-clone");
-    expect(html).not.toContain("inert");
   });
 
   it("never runs on a pair (one or two cards), even when it overflows on a narrow screen", () => {

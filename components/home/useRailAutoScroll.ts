@@ -240,8 +240,11 @@ type Mode = "drift" | "paused" | "stopped";
  * edge and leaving at the left, at `DRIFT_PX_PER_SEC`, for as long as it
  * runs, with no end and no way back. `clones` copies of the cards follow the
  * real ones (enough to fill the rail past the seam, usually one), rendered
- * after mount only, `aria-hidden` and `inert` (`RailItem`): no tab stops and
- * no second set of links for a screen reader. When the drift has moved one
+ * after mount only, `aria-hidden` with nothing in them in the tab order
+ * (`RailItem`): no tab stops and no second set of links for a screen
+ * reader, while a click or tap on a copy works as on the real card (a
+ * visitor who hovers, which holds the rail, can click whatever card is
+ * under the pointer). When the drift has moved one
  * set's width past the first card (`railLoop`) it subtracts that width from
  * its position: the copies look exactly like the cards they copy, so the
  * wrap is invisible and the motion never goes backwards.
@@ -272,7 +275,8 @@ type Mode = "drift" | "paused" | "stopped";
  * (the same picture), it glides onto the nearest card and snapping comes
  * back on. The copies then go as soon as none is in view (straight away, or
  * at a later rest), since taking away cards on screen would be a jump; until
- * then they stay inert. Play starts the marquee again from where the rail
+ * then they stay, clickable and still out of the tab order and hidden from
+ * assistive tech. Play starts the marquee again from where the rail
  * is. Its own writes are never mistaken for the visitor's: a scroll only
  * counts when it moves the rail away from where the drift put it, during a
  * touch, a press on the rail or just after a key press.

@@ -118,7 +118,7 @@ for (const vp of VIEWPORTS) {
       }
 
       // Each event at most once across every section. The auto-scroll's copies of a rail's cards
-      // (aria-hidden and inert, `li[data-rail-clone]`) aren't the page listing an event again.
+      // (aria-hidden and out of the tab order, `li[data-rail-clone]`) aren't the page listing an event again.
       const hrefs = await page
         .locator("main a[href^='/events/']")
         .evaluateAll((links) =>

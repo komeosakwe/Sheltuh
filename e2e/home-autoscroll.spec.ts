@@ -9,7 +9,8 @@ import { sampleEvents } from "@/lib/sample-events";
  * simulate DICE"; 24 Oct 2026: "make it go from one end of screen to next";
  * components/home/useRailAutoScroll.ts): an endless marquee, the cards
  * drifting at 60px/s from the right edge of the screen to the left, looping
- * seamlessly on inert copies of the cards. Live mode with /api/* answered
+ * seamlessly on copies of the cards (hidden from assistive tech and out of
+ * the tab order, but clickable). Live mode with /api/* answered
  * here: two events this weekend (a pair, which never auto-scrolls; on a
  * Friday to Sunday the next few events fall in the weekend too) and the rest
  * in Coming up, which overflows at both widths.
@@ -144,16 +145,29 @@ for (const width of [390, 1440]) {
   test.describe(`home rail auto-scroll at ${width}px`, () => {
     test.use({ viewport: { width, height: width < 768 ? 844 : 900 } });
 
-    test("an endless marquee: edge to edge, always forward, and seamless across the loop, on inert copies", async ({ page }) => {
+    test("an endless marquee: edge to edge, always forward, and seamless across the loop, on hidden, untabbable copies", async ({ page }) => {
       const { section, rail } = await openHome(page, "no-preference");
       await expect.poll(() => snapType(rail)).toBe("none");
-      // The copies: after the real cards, a whole set at least, hidden from assistive tech and inert.
+      // The copies: after the real cards, a whole set at least, hidden from assistive tech, not inert
+      // (they're clickable), with nothing in them in the tab order.
       await expect.poll(() => copies(rail).count()).toBeGreaterThan(0);
       const real = await realCards(rail).count();
       expect(real).toBeGreaterThanOrEqual(5);
       expect((await copies(rail).count()) % real).toBe(0);
-      const marked = await copies(rail).evaluateAll((lis) => lis.map((li) => [li.getAttribute("aria-hidden"), (li as HTMLElement).inert]));
-      expect(marked.every(([hidden, inert]) => hidden === "true" && inert === true)).toBe(true);
+      const marked = await copies(rail).evaluateAll((lis) =>
+        lis.map((li) => ({
+          hidden: li.getAttribute("aria-hidden"),
+          inert: (li as HTMLElement).inert,
+          // Everything with a tab index (links, buttons, the Save heart, the ticket action) and what it is.
+          tabIndexes: Array.from(li.querySelectorAll<HTMLElement>("a[href], button, input, select, textarea, [tabindex]")).map((el) => el.tabIndex),
+        })),
+      );
+      for (const copy of marked) {
+        expect(copy.hidden).toBe("true");
+        expect(copy.inert).toBe(false);
+        expect(copy.tabIndexes.length).toBeGreaterThanOrEqual(2);
+        expect(copy.tabIndexes.every((index) => index === -1)).toBe(true);
+      }
       // Only the real cards are list items and links to assistive tech.
       await expect(rail.getByRole("listitem")).toHaveCount(real);
       const realLinks = await rail.evaluate((ul) => ul.querySelectorAll(":scope > li:not([data-rail-clone]) a[href]").length);
@@ -230,6 +244,45 @@ for (const width of [390, 1440]) {
       expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
     });
 
+    test("a click on a copy (the rail held under the pointer) opens its event, like the real card", async ({ page }) => {
+      const { rail } = await openHome(page, "no-preference");
+      const events = fixtures(Date.now());
+      await page.route("**/api/events/slug/**", (route) => {
+        const slug = decodeURIComponent(new URL(route.request().url()).pathname.split("/").pop() ?? "");
+        const event = events.find((e) => e.slug === slug);
+        return event ? route.fulfill({ json: event }) : route.fulfill({ status: 404, json: { error: "not found" } });
+      });
+      await expect.poll(() => copies(rail).count()).toBeGreaterThan(0);
+      const loop = await loopOf(rail);
+      // The first copy part way in from the right edge, the last real cards to its left.
+      await rail.evaluate((ul, period) => void (ul.scrollLeft = period - ul.clientWidth * 0.6), loop.start + loop.period);
+      // The pointer over the rail holds it, as for a person about to click.
+      const railBox = await rail.boundingBox();
+      await page.mouse.move((railBox?.x ?? 0) + 10, (railBox?.y ?? 0) + 60);
+      const target = await rail.evaluate((ul) => {
+        const copy = ul.querySelector<HTMLElement>(":scope > li[data-rail-clone]");
+        const media = copy?.querySelector("[data-card-media]")?.getBoundingClientRect();
+        const railBox = ul.getBoundingClientRect();
+        if (!copy || !media) return null;
+        // The middle of the copy's image where it's on screen (clear of the Save heart in its corner).
+        const x = (Math.max(media.left, railBox.left) + Math.min(media.right, railBox.right)) / 2;
+        const y = media.top + media.height * 0.6;
+        const hit = document.elementFromPoint(x, y);
+        return {
+          x,
+          y,
+          onCopy: !!hit?.closest("li[data-rail-clone]"),
+          href: copy.querySelector("[data-card-link]")?.getAttribute("href") ?? "",
+          title: copy.querySelector("h3")?.textContent?.trim() ?? "",
+        };
+      });
+      expect(target?.onCopy).toBe(true);
+      expect(target?.href).toMatch(/^\/events\/[^/#?]+$/);
+      await page.mouse.click(target?.x ?? 0, target?.y ?? 0);
+      await expect(page).toHaveURL(new RegExp(`${target?.href}$`), { timeout: 30_000 });
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText(target?.title ?? "", { timeout: 30_000 });
+    });
+
     test("Tab through the rail reaches only the real cards", async ({ page }) => {
       const { section, rail } = await openHome(page, "no-preference");
       await expect.poll(() => copies(rail).count()).toBeGreaterThan(0);
@@ -280,7 +333,7 @@ for (const width of [390, 1440]) {
       expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
     });
 
-    test("taking over with copies in view keeps them (inert) rather than jumping, and the rail stays put", async ({ page }) => {
+    test("taking over with copies in view keeps them rather than jumping, and the rail stays put", async ({ page }) => {
       const { section, rail } = await openHome(page, "no-preference");
       await expect.poll(() => copies(rail).count()).toBeGreaterThan(0);
       const loop = await loopOf(rail);
@@ -298,7 +351,7 @@ for (const width of [390, 1440]) {
       expect(await copies(rail).count()).toBeGreaterThan(0);
       await page.waitForTimeout(1_500);
       expect(await scrollLeft(rail)).toBe(held);
-      // Still inert and hidden: the real cards are still the only list items.
+      // Still hidden: the real cards are still the only list items.
       await expect(rail.getByRole("listitem")).toHaveCount(await realCards(rail).count());
     });
 

@@ -224,7 +224,7 @@ describe("retired accents and motion (brand-direction-one.md §9, cleanup)", () 
   // The second, also at the owner's request (23 Oct 2026, "make them automatically scroll", "as
   // smooth as the very initial one done to simulate DICE"; 24 Oct 2026, "make it go from one end of
   // screen to next"): the home rails are an endless marquee, a slow continuous drift (60px a second)
-  // across the full width that loops seamlessly on inert copies of the cards, with no end hold and no
+  // across the full width that loops seamlessly on copies of the cards, with no end hold and no
   // glide back, from one shared hook, only for people who haven't asked for less motion, with a
   // Pause/Play button (tests/HomeRailAutoScroll.test.tsx covers the behaviour).
   it("allows one auto-scroll, the home rails' marquee: one hook, motion-gated, with a Pause/Play control", () => {
@@ -238,9 +238,12 @@ describe("retired accents and motion (brand-direction-one.md §9, cleanup)", () 
     // A loop, not a there-and-back: no hold at an end, no glide back.
     expect(hook).not.toMatch(/END_HOLD_MS|returnDuration|easeInOutSine/);
     expect(hook).toMatch(/pos -= loop\.period/);
-    // The copies are hidden from assistive tech and inert, and only the marquee renders them.
+    // The copies are hidden from assistive tech and out of the tab order, yet clickable (not inert:
+    // a hovered, held rail's copy must open its event), and only the marquee renders them.
     const item = sources.find(({ file }) => file === path.join("components", "home", "RailItem.tsx"))?.text ?? "";
-    expect(item).toMatch(/aria-hidden="true" inert data-rail-clone=""/);
+    expect(item).toMatch(/<li ref=\{keepOutOfTabOrder\}[^>]*aria-hidden="true" data-rail-clone="">/);
+    expect(item).toMatch(/el\.tabIndex = -1/);
+    expect(item).not.toMatch(/\binert\b/);
     const cloning = sources.filter(({ text }) => /<RailCloneSet\b/.test(text)).map(({ file }) => file);
     expect(cloning).toEqual([path.join("components", "home", "HomeRail.tsx")]);
     const section = sources.find(({ file }) => file === path.join("components", "home", "HomeRailSection.tsx"))?.text ?? "";
