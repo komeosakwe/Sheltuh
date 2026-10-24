@@ -38,7 +38,12 @@ export default function EventQueue() {
       setLoading(true);
       setError(null);
       try {
-        const page = await adminListEvents(nextStatus, getToken, append ? cursor : undefined);
+        // Every event in the status, ended ones included: this queue has no past/upcoming
+        // toggle yet, and the API's published default is upcoming only.
+        const page = await adminListEvents(
+          { status: nextStatus, upcoming: false, cursor: append ? cursor : undefined },
+          getToken,
+        );
         setItems((prev) => (append ? [...prev, ...page.items] : page.items));
         setCursor(page.nextCursor);
       } catch (err) {

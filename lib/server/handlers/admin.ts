@@ -360,7 +360,7 @@ export const DOOR_EVENT_WINDOW_HOURS = 24;
  * - emailsFailed / emailsRetrying: ticket emails (the jobs GET /admin/emails
  *   lists: the ones with an order) that gave up, or are waiting for another
  *   attempt after at least one failed (email_outbox_status_created_idx).
- * - doorEventsNext24h: published, Sheltüh-ticketed events of platform-managed
+ * - doorEvents: published, Sheltüh-ticketed events of platform-managed
  *   organisers (the ones only admins check in) that haven't ended and start
  *   within DOOR_EVENT_WINDOW_HOURS (events_status_ends_idx).
  *

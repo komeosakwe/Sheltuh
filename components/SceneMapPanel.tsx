@@ -312,7 +312,6 @@ export default function SceneMapPanel({
   // load (e.g. a Mapbox token refused on this domain) shows the failure UI too.
   const styleId = tileStyle.id;
   useEffect(() => {
-    void styleId;
     loadedCount.current = 0;
     errorCount.current = 0;
     // Deferred via queueMicrotask so the effect body itself never calls

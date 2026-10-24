@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import EventQueue from "@/components/admin/EventQueue";
+import { adminListEvents } from "@/lib/api/admin";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
 vi.mock("@/lib/api/admin", () => ({
@@ -36,6 +37,27 @@ vi.mock("@/lib/api/admin", () => ({
 afterEach(cleanup);
 
 describe("EventQueue", () => {
+  it("asks for every event in the status, ended ones included (no past/upcoming toggle yet)", async () => {
+    vi.mocked(adminListEvents).mockClear();
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ isAdmin: true })}>
+        <EventQueue />
+      </FakeAuthProvider>,
+    );
+    await screen.findByRole("link", { name: "Edit Neon Static" });
+    expect(adminListEvents).toHaveBeenCalledWith(
+      { status: "pending_review", upcoming: false, cursor: undefined },
+      expect.any(Function),
+    );
+    fireEvent.click(within(screen.getByRole("group", { name: "Show events" })).getByRole("button", { name: "Published" }));
+    await vi.waitFor(() =>
+      expect(adminListEvents).toHaveBeenLastCalledWith(
+        { status: "published", upcoming: false, cursor: undefined },
+        expect.any(Function),
+      ),
+    );
+  });
+
   it("links to the admin editor: a new event, and each listed event's edit page", async () => {
     render(
       <FakeAuthProvider value={fakeAuthValue({ isAdmin: true })}>

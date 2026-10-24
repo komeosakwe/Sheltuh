@@ -65,6 +65,7 @@ export default defineConfig({
       // test's page.route(), so nothing here ever reaches a real Supabase
       // project or database.
       command:
+        `NEXT_PUBLIC_MAPBOX_TOKEN= NEXT_PUBLIC_MAPBOX_STYLE= ` +
         `NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:${PORT}/supabase-mock ` +
         `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=e2e-placeholder npx next dev -p ${PORT}`,
       url: `http://127.0.0.1:${PORT}`,

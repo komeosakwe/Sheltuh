@@ -29,8 +29,8 @@ const getServerStored = () => null;
 
 /**
  * The /map basemap (lib/map-tiles.ts). `initialParam` is the ?tiles= value
- * the page was opened with. With no Mapbox token this is always Esri, and
- * nothing is read from or written to storage.
+ * the page was opened with. With no Mapbox token this is always Esri and
+ * nothing is written to storage (the stored choice is read but ignored).
  */
 export function useMapTileStyle(initialParam: string | null): MapTileStyleState {
   const styles = useMemo(() => availableTileStyles(readMapboxConfig()), []);
