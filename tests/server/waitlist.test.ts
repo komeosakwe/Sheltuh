@@ -570,6 +570,15 @@ describe("notifications when tickets free up", () => {
   async function fiveOnList() {
     const emails = ["a@example.com", "b@example.com", "c@example.com", "d@example.com", "e@example.com"];
     for (const email of emails) await memberOnList(email);
+    // Joins in quick succession can share a timestamp (PGlite's clock is
+    // millisecond-grained), and ties fall back to the random id. Space the
+    // join times a second apart so "join order" is the order above.
+    for (const [i, email] of emails.entries()) {
+      await api.db.query(
+        `update private.event_waitlist set confirmed_at = now() - make_interval(secs => $2) where email = $1`,
+        [email, emails.length - i],
+      );
+    }
     return emails;
   }
 
