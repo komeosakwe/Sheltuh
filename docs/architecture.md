@@ -2298,6 +2298,15 @@ Design: `docs/design/event-clips.md`.
   URLs already handed out work for up to an hour; Storage isn't
   transactional with the database (deferred deletes and the sweep cover
   the gap); no `expectedUpdatedAt` on clip writes, as for photos.
+- UI: a Play button on the image of any card or event page whose event has
+  a clip (`components/events/ClipPlayButton.tsx`), opening the page's one
+  viewer (`components/events/ClipViewer.tsx`, mounted in `app/layout.tsx`;
+  SeatDialog with a muted inline `<video>` mounted only while open, no
+  autoplay under reduced motion; the home rails hold still while it's
+  open). Uploads are behind `NEXT_PUBLIC_EVENT_CLIPS=1`: the editor's
+  `EventClipField` (browser pre-checks in `lib/clip-precheck.ts`, upload
+  after the event save, `useEventClip`) and the admin queue's clip row.
+  Playback needs no flag.
 - Not built: captions/WebVTT, transcoding (HEVC is refused), faststart,
   WebM.
 

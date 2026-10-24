@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
 import { AdminSummaryProvider } from "@/components/admin/AdminSummaryProvider";
 import DemoBanner from "@/components/DemoBanner";
+import { ClipViewerProvider } from "@/components/events/ClipViewer";
 import Footer from "@/components/Footer";
 import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
 import { UnreadProvider } from "@/components/messages/UnreadProvider";
@@ -82,17 +83,20 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             {/* Admin counts for the nav's Admin badge and the admin pages; fetched for admins only. */}
             <AdminSummaryProvider>
               <FavouritesProvider>
-                <Nav />
-                {/* useSearchParams needs a Suspense boundary to keep pages static. */}
-                <Suspense fallback={null}>
-                  <RouteProgress />
-                </Suspense>
-                <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
-                  {/* The demo's one sample-data disclosure, at the top of every page. */}
-                  {!isApiConfigured && <DemoBanner />}
-                  {children}
-                </main>
-                <Footer />
+                {/* The page's one event-clip viewer (docs/design/event-clips.md §5.2), for every EventCard. */}
+                <ClipViewerProvider>
+                  <Nav />
+                  {/* useSearchParams needs a Suspense boundary to keep pages static. */}
+                  <Suspense fallback={null}>
+                    <RouteProgress />
+                  </Suspense>
+                  <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
+                    {/* The demo's one sample-data disclosure, at the top of every page. */}
+                    {!isApiConfigured && <DemoBanner />}
+                    {children}
+                  </main>
+                  <Footer />
+                </ClipViewerProvider>
               </FavouritesProvider>
             </AdminSummaryProvider>
           </UnreadProvider>

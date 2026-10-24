@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import InlineReauth from "@/components/auth/InlineReauth";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import AdminOrganiserPicker, { type PickedOrganiser } from "@/components/admin/AdminOrganiserPicker";
+import EventClipField from "@/components/dashboard/EventClipField";
 import EventImageField from "@/components/dashboard/EventImageField";
+import { ClipSyncError, useEventClip, type ClipRoutes } from "@/components/dashboard/useEventClip";
 import { fieldClass } from "@/components/ui/Field";
 import {
   adminCreateEvent,
@@ -13,6 +15,14 @@ import {
   adminUpdateEvent,
   adminUploadEventImage,
 } from "@/lib/api/admin";
+import {
+  adminAttachClip,
+  adminDeleteClip,
+  adminRequestClipUpload,
+  attachClip,
+  deleteClip,
+  requestClipUpload,
+} from "@/lib/api/clips";
 import {
   createEventDraft,
   deleteEventImage,
@@ -23,6 +33,7 @@ import {
 } from "@/lib/api/events";
 import type { AdminEventRecord, EventRecord, TicketTypeInput } from "@/lib/api/types";
 import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
+import { eventClipsEnabled } from "@/lib/clips-flag";
 import { calculateOrderSummary, MIN_PAID_TICKET_CENTS } from "@/lib/fees";
 import { formatAud, toMelbourneDateTimeInputParts } from "@/lib/format";
 import { checkExternalTicketUrl, type TicketingMode } from "@/lib/ticketing";
@@ -73,6 +84,23 @@ const PLATFORM_FREE_ONLY = "A platform-managed organiser can only offer free tic
 
 function isPlatformManaged(record: EventRecord | AdminEventRecord | undefined): boolean {
   return Boolean(record && "organiserPlatformManaged" in record && record.organiserPlatformManaged);
+}
+
+/** The organiser's clip routes (their own draft or rejected event). */
+const ORGANISER_CLIP_ROUTES: ClipRoutes<EventRecord> = {
+  request: requestClipUpload,
+  attach: attachClip,
+  remove: deleteClip,
+};
+
+/** The admin's clip routes (any event, any status), with the save's note for the event's log. */
+function adminClipRoutes(reason: string): ClipRoutes<AdminEventRecord> {
+  const note = reason || undefined;
+  return {
+    request: adminRequestClipUpload,
+    attach: (eventId, input, getToken) => adminAttachClip(eventId, { ...input, ...(note ? { reason: note } : {}) }, getToken),
+    remove: (eventId, getToken) => adminDeleteClip(eventId, getToken, note),
+  };
 }
 
 function newTicketType(): TicketTypeInput {
@@ -127,6 +155,11 @@ export default function EventEditor(props: Props) {
   // it instead of creating a duplicate.
   const [createdId, setCreatedId] = useState<string | null>(null);
 
+  // The event's clip (docs/design/event-clips.md §5.4), only while clip uploads are switched on.
+  const clipsOn = eventClipsEnabled();
+  const clip = useEventClip({ enabled: clipsOn, getToken, saved: initial?.clip });
+  const formRef = useRef<HTMLFormElement>(null);
+
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -142,6 +175,8 @@ export default function EventEditor(props: Props) {
   }
 
   function handleError(err: unknown, fallback: string) {
+    // The clip step failed or was cancelled: the clip field already says why (the event itself was saved).
+    if (err instanceof ClipSyncError) return;
     if (err instanceof SessionExpiredError) {
       showSessionExpired(true);
       setSubmitError(err.message);
@@ -264,16 +299,21 @@ export default function EventEditor(props: Props) {
     setSubmitError(null);
     showSessionExpired(false);
     const input = buildInput();
-    if (!input) return;
+    const clipReady = clip.validate();
+    if (!input || !clipReady) return;
 
     setSaving(true);
     setConflict(false);
     try {
       if (props.mode === "admin") {
+        const note = reason.trim();
         let record = await adminSave(input);
         setPublish(false);
         record = await syncImage(record, adminUploadEventImage, adminDeleteEventImage);
         // A photo change bumps the event's version too: the next save is made against it.
+        setVersion(record.updatedAt);
+        // So does a clip change: the admin routes answer with the event, whose version is the next.
+        record = await clip.sync(record, adminClipRoutes(note));
         setVersion(record.updatedAt);
         if (!initial) {
           router.push(`/admin/events/${encodeURIComponent(record.eventId)}/edit`);
@@ -288,6 +328,7 @@ export default function EventEditor(props: Props) {
           : await createEventDraft(input, getToken);
         if (!existingId) setCreatedId(record.eventId);
         record = await syncImage(record, uploadEventImage, deleteEventImage);
+        record = await clip.sync(record, ORGANISER_CLIP_ROUTES);
         if (!initial) {
           router.push(`/dashboard/${record.eventId}`);
           return;
@@ -311,11 +352,14 @@ export default function EventEditor(props: Props) {
     // Submit what's on screen, not the last save: unsaved edits are saved
     // first, and nothing is submitted if they don't validate.
     const input = buildInput();
-    if (!input) return;
+    const clipReady = clip.validate();
+    if (!input || !clipReady) return;
     setSubmitting(true);
     try {
       const saved = await updateEventDraft(initial.eventId, input, getToken);
-      await syncImage(saved, uploadEventImage, deleteEventImage);
+      const withImage = await syncImage(saved, uploadEventImage, deleteEventImage);
+      // Waits for a clip upload a save already started, and never submits without the clip.
+      await clip.sync(withImage, ORGANISER_CLIP_ROUTES);
       const record = await submitEventForReview(initial.eventId, getToken);
       props.onSaved(record);
     } catch (err) {
@@ -340,7 +384,7 @@ export default function EventEditor(props: Props) {
   }
 
   return (
-    <form onSubmit={handleSave} className="flex flex-col gap-6" noValidate>
+    <form ref={formRef} onSubmit={handleSave} className="flex flex-col gap-6" noValidate>
       {initial?.status === "rejected" && initial.rejectionReason && (
         <div className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
           <p className="font-medium">Not approved — reviewer note:</p>
@@ -515,6 +559,16 @@ export default function EventEditor(props: Props) {
         onRemovedChange={setImageRemoved}
         error={errors.image}
       />
+
+      {clipsOn && (
+        <EventClipField
+          draft={clip}
+          getToken={getToken}
+          eventId={initial?.eventId ?? createdId ?? undefined}
+          // The upload stopped: save again (the event, then the clip).
+          onRetry={() => formRef.current?.requestSubmit()}
+        />
+      )}
 
       {isAdmin && (
         <fieldset className="flex flex-col gap-3">

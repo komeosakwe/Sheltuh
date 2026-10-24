@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, type ReactNode } from "react";
+import { useClipViewer } from "@/components/events/ClipViewer";
 import SectionHead from "@/components/ui/SectionHead";
 import HomeRail, { HOME_CONTAINER, isPairRail } from "./HomeRail";
 import RailArrows, { useRailScroll } from "./RailArrows";
@@ -62,7 +63,9 @@ export default function HomeRailSection({
   const scroll = useRailScroll(railRef, !empty && count >= SURELY_OVERFLOWS, empty ? -1 : count);
   const overflows = !empty && (scroll.canPrev || scroll.canNext);
   const pair = isPairRail(count);
-  const auto = useRailAutoScroll({ rootRef, railRef, enabled: overflows && !pair });
+  // Every rail holds still while the page's clip viewer is open (docs/design/event-clips.md §5.2).
+  const clipViewer = useClipViewer();
+  const auto = useRailAutoScroll({ rootRef, railRef, enabled: overflows && !pair, held: clipViewer?.isOpen ?? false });
 
   return (
     <section ref={rootRef} aria-labelledby={id} data-home-section className={className}>

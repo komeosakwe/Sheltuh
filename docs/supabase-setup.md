@@ -554,6 +554,8 @@ secret key, named `event-clips`) and set it in Vercel as
 that key alone if it ever leaks. Without it, clip uploads and playback
 answer 503 and everything else works. Clips are served for ~1 hour per
 signed URL, so plan on Supabase Pro bandwidth before turning clips on.
+Uploads stay hidden until `NEXT_PUBLIC_EVENT_CLIPS=1` is set in Vercel (and
+redeployed): it shows the editor's clip field and the admin queue's clip row.
 
 ## 2. Stripe (Connect)
 

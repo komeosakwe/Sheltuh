@@ -286,18 +286,29 @@ type Mode = "drift" | "paused" | "stopped";
  * place in the head and nothing shifts; CSS `motion-reduce:hidden` hides it
  * meanwhile), then only where motion is welcome.
  *
+ * `held` holds it still too, for as long as it's true, from outside the
+ * rail: while the page's clip viewer is open (docs/design/event-clips.md
+ * §5.2). It carries on `POINTER_RESUME_MS` after `held` goes false. It isn't
+ * a Pause: the Pause/Play button doesn't change.
+ *
  * `rootRef` is the section (focus and key presses), `railRef` the scroller.
  */
 export function useRailAutoScroll({
   rootRef,
   railRef,
   enabled,
+  held = false,
 }: {
   rootRef: RefObject<HTMLElement | null>;
   railRef: RefObject<HTMLElement | null>;
   enabled: boolean;
+  held?: boolean;
 }): RailAutoScroll {
   const motionOk = useMotionOk();
+  /** `held`, read by the marquee's frames through a ref, so a change never restarts it. */
+  const heldRef = useRef(held);
+  /** The running marquee's reaction to `held` changing (set while it runs). */
+  const onHeldChangeRef = useRef<((held: boolean) => void) | null>(null);
   const hydrated = useHydrated();
   const [mode, setMode] = useState<Mode>("drift");
   /** Copies the loop needs at this width (`loopCopiesNeeded`), once measured. */
@@ -366,6 +377,13 @@ export function useRailAutoScroll({
 
   // Nothing left waiting when the section goes.
   useEffect(() => cancelSettle, [cancelSettle]);
+
+  // Held from outside (the clip viewer): stops now, carries on a moment after it's let go.
+  useEffect(() => {
+    if (heldRef.current === held) return;
+    heldRef.current = held;
+    onHeldChangeRef.current?.(held);
+  }, [held]);
 
   // How many copies the loop needs, measured on the real cards, again whenever the rail resizes.
   useEffect(() => {
@@ -470,7 +488,8 @@ export function useRailAutoScroll({
     const resizeObserver = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(() => (loop = railLoop(rail)));
     resizeObserver?.observe(rail);
 
-    const shouldRun = () => drifting && !hovering && !focused && !touching && !cooling && visible && !hidden;
+    const shouldRun = () =>
+      drifting && !heldRef.current && !hovering && !focused && !touching && !cooling && visible && !hidden;
 
     const frame = (now: number) => {
       const max = rail.scrollWidth - rail.clientWidth;
@@ -518,6 +537,10 @@ export function useRailAutoScroll({
         cooling = false;
         update();
       }, ms);
+    };
+    onHeldChangeRef.current = (nowHeld: boolean) => {
+      if (nowHeld) update();
+      else coolDown(POINTER_RESUME_MS);
     };
     const userScrolled = () => {
       running = false;
@@ -612,6 +635,7 @@ export function useRailAutoScroll({
       running = false;
       cancelAnimationFrame(raf);
       clearTimeout(coolTimer);
+      onHeldChangeRef.current = null;
       observer?.disconnect();
       resizeObserver?.disconnect();
       rail.removeEventListener("pointerenter", onPointerEnter);

@@ -2,13 +2,17 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { useClipViewer } from "@/components/events/ClipViewer";
 import MessageField from "@/components/messages/MessageField";
 import { Button, buttonClass } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
 import { adminApproveEvent, adminRejectEvent, adminUnpublishEvent } from "@/lib/api/admin";
+import { getClipPreview } from "@/lib/api/clips";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import type { AdminEventRecord, EventStatus } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/session-token";
+import { clipPlayLabel, clipTimeLabel } from "@/lib/clip-display";
+import { eventClipsEnabled } from "@/lib/clips-flag";
 import { formatEventDateTimeRange } from "@/lib/format";
 import { validateMessage } from "@/lib/message-text";
 import { formatTicketBreakdown, formatTicketHeadline } from "@/lib/pricing";
@@ -121,6 +125,9 @@ export default function EventQueueItem({
           </p>
         )}
 
+        {/* Before the actions, so a reviewer reaches the clip before Approve… (docs/design/event-clips.md §5.5). */}
+        {eventClipsEnabled() && item.clip && <ClipRow item={item} clip={item.clip} getToken={getToken} />}
+
         <Actions
           item={item}
           listStatus={listStatus}
@@ -133,6 +140,66 @@ export default function EventQueueItem({
         />
       </article>
     </li>
+  );
+}
+
+/**
+ * The event's clip for review (docs/design/event-clips.md §5.5): its length
+ * and description, and Play clip, which fetches a short-lived preview URL
+ * (the clip isn't public until the event is) and opens the page's clip viewer.
+ */
+function ClipRow({
+  item,
+  clip,
+  getToken,
+}: {
+  item: AdminEventRecord;
+  clip: NonNullable<AdminEventRecord["clip"]>;
+  getToken: GetToken;
+}) {
+  const viewer = useClipViewer();
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  async function play(trigger: HTMLButtonElement) {
+    if (loading || !viewer) return;
+    setFailed(false);
+    setLoading(true);
+    try {
+      const preview = await getClipPreview(item.eventId, getToken);
+      viewer.open({
+        title: item.title,
+        clip: { url: preview.url, description: clip.description, width: clip.width, height: clip.height },
+        trigger,
+      });
+    } catch {
+      setFailed(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div data-clip-row="" className="flex flex-col items-start gap-2 border-t border-surface-border pt-2">
+      <p className="eyebrow text-muted">Clip · {clipTimeLabel(clip.durationMs)}</p>
+      <p className="text-sm leading-5 break-words text-foreground">{clip.description}</p>
+      <Button
+        variant="outline"
+        size="sm"
+        className="min-h-11"
+        busy={loading}
+        aria-label={loading ? undefined : clipPlayLabel(item.title, clip.durationMs)}
+        aria-haspopup="dialog"
+        onClick={(e) => void play(e.currentTarget)}
+      >
+        {loading ? "Loading clip…" : "Play clip"}
+      </Button>
+      {failed && (
+        <Notice tone="danger" role="alert">
+          Couldn’t load the clip. Try again.
+        </Notice>
+      )}
+    </div>
   );
 }
 

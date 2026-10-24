@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ClipViewerProvider, useClipViewer } from "@/components/events/ClipViewer";
 import { HomeRailItem } from "@/components/home/HomeRail";
 import HomeRailSection from "@/components/home/HomeRailSection";
 import { DRIFT_PX_PER_SEC, POINTER_RESUME_MS, REST_MS, SETTLE_MS, TOUCH_RESUME_MS } from "@/components/home/useRailAutoScroll";
@@ -388,6 +389,57 @@ describe("home rail auto-scroll: holding still", () => {
     expect(pause()).toBeInTheDocument();
     // Snapping stays off through a hold: turning it on would pull the rail to a card.
     expect(snap()).toBe("none");
+    expect(copies()).toHaveLength(6);
+  });
+
+  // docs/design/event-clips.md §5.2: every rail holds still while the page's clip viewer is open.
+  it("holds still while the clip viewer is open (no Pause), and carries on 600ms after it closes", () => {
+    HTMLDialogElement.prototype.showModal = function showModal(this: HTMLDialogElement) {
+      this.setAttribute("open", "");
+    };
+    HTMLDialogElement.prototype.close = function close(this: HTMLDialogElement) {
+      this.removeAttribute("open");
+    };
+    HTMLMediaElement.prototype.play = vi.fn().mockResolvedValue(undefined) as unknown as HTMLMediaElement["play"];
+    function OpenClip() {
+      const viewer = useClipViewer();
+      return (
+        <button
+          type="button"
+          onClick={(e) =>
+            viewer?.open({ title: "Gig", clip: { url: "/api/events/e/clip?v=1", description: "A crowd." }, trigger: e.currentTarget })
+          }
+        >
+          Open clip
+        </button>
+      );
+    }
+    render(
+      <ClipViewerProvider>
+        <OpenClip />
+        <HomeRailSection id="home-popular" title="Popular right now" count={6}>
+          {Array.from({ length: 6 }, (_, i) => (
+            <HomeRailItem key={i}>
+              <a href={`#e${i}`}>Event {i}</a>
+            </HomeRailItem>
+          ))}
+        </HomeRailSection>
+      </ClipViewerProvider>,
+    );
+    setMetrics(rail(), { clientWidth: VIEW, scrollLeft: 0 });
+    run(1008);
+    fireEvent.click(screen.getByRole("button", { name: "Open clip" }));
+    expect(framesPending()).toBe(0);
+    const held = rail().scrollLeft;
+    run(10_000);
+    expect(rail().scrollLeft).toBe(held);
+    // A hold, not a Pause: the button still offers Pause.
+    expect(pause()).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    run(POINTER_RESUME_MS - 16);
+    expect(rail().scrollLeft).toBe(held);
+    run(32);
+    expect(moves(496).every(oneFrame)).toBe(true);
     expect(copies()).toHaveLength(6);
   });
 

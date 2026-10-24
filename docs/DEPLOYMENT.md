@@ -216,6 +216,8 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        exception is `SUPABASE_CLIP_STORAGE_KEY`: a *separate*, separately
        revocable secret key used only by `lib/server/clip-storage.ts` for the
        private `event-clips` bucket (event clips; unset = clip routes 503).
+       Optional: `NEXT_PUBLIC_EVENT_CLIPS=1` turns clip uploads on (the
+       editor's clip field, the admin queue's clip row), once that key is set.
 2. [ ] Pro plan once you sell tickets (Hobby is non-commercial).
 3. [ ] Domain: attach `sheltuh.com.au` (see PROJECT_CONTEXT for the Cloudflare
        notes). The landing page currently lives on a Cloudflare Worker; decide

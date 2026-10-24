@@ -70,7 +70,9 @@ export default defineConfig({
         `NEXT_PUBLIC_MAPBOX_TOKEN= NEXT_PUBLIC_MAPBOX_STYLE= ` +
         `NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:${PORT}/supabase-mock ` +
         `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=e2e-placeholder ` +
-        `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_e2e_placeholder npx next dev -p ${PORT}`,
+        `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_e2e_placeholder ` +
+        // Event clips' uploads on (e2e/event-clips.spec.ts): the editor's clip field and the admin queue's clip row.
+        `NEXT_PUBLIC_EVENT_CLIPS=1 npx next dev -p ${PORT}`,
       url: `http://127.0.0.1:${PORT}`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,

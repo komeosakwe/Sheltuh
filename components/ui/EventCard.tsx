@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { useId } from "react";
 import EventArt from "@/components/EventArt";
+import ClipPlayButton from "@/components/events/ClipPlayButton";
 import SaveButton from "@/components/favourites/SaveButton";
 import QuickBuyLink from "@/components/QuickBuyLink";
 import CardPrice from "@/components/ui/CardPrice";
@@ -87,8 +88,10 @@ const WIDE = { width: "lg:w-full", media: "lg:aspect-[12/5] lg:max-h-50" } as co
  * (`::after`), and Save, the ticket action and the organiser link sit above
  * it (z-10) as siblings, so nothing interactive is nested in a link. The
  * link is named title first, then the date, place, price and going count
- * (the category is seen, not repeated in every link's name). Tab order: the
- * card's link, Save, the ticket action, then "By {organiser}". Keyboard
+ * (the category is seen, not repeated in every link's name). An event with
+ * a clip also has a Play button at the image's bottom-left
+ * (docs/design/event-clips.md §5.1). Tab order: the card's link, Play (with
+ * a clip), Save, the ticket action, then "By {organiser}". Keyboard
  * focus rings the whole card (the link's own ring is suppressed in
  * globals.css, only where `:has()` works).
  *
@@ -211,6 +214,18 @@ export default function EventCard({
           )}
         </p>
       </div>
+      {event.clip && (
+        // The clip's Play (docs/design/event-clips.md §5.1): after the card's link and before Save in
+        // the DOM (tab order: link, Play, Save, ticket action), at the image's bottom-left on screen.
+        // The frame repeats the image's own box (its aspect classes), so nothing is measured; only the
+        // button in it takes pointer events, so a tap anywhere else on the image still opens the event.
+        <div
+          data-clip-frame=""
+          className={`pointer-events-none absolute inset-x-0 top-0 z-10 ${MEDIA[variant]} ${isWide ? WIDE.media : ""}`.trim()}
+        >
+          <ClipPlayButton event={event} className="pointer-events-auto absolute bottom-1 left-1" />
+        </div>
+      )}
       {showSave && (
         // After the text in the DOM (so it follows the card's link in tab order), over the photo's corner on screen.
         <SaveButton

@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import AddToCalendar from "@/components/AddToCalendar";
 import EventViewBeacon from "@/components/analytics/EventViewBeacon";
 import EventArt from "@/components/EventArt";
+import ClipPlayButton from "@/components/events/ClipPlayButton";
 import ExternalTicketLink from "@/components/ExternalTicketLink";
 import OrganiserLogo from "@/components/organisers/OrganiserLogo";
 import SaveButton from "@/components/favourites/SaveButton";
@@ -165,15 +166,20 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
             {/* The photo first at every width (it's aria-hidden, so reading order is the title
                 first): full-bleed 4:3 on phones, never more than 30% of the screen's height so
                 the title, date and venue still fit above the buy bar; a 3:2 rounded card from sm.
-                The page's LCP image. */}
-            <EventArt
-              poster={event.poster}
-              imageUrl={event.imageUrl}
-              title={event.title}
-              priority
-              fit="auto"
-              className="-mx-5 aspect-[4/3] max-h-[30svh] w-[calc(100%+2.5rem)] sm:mx-0 sm:aspect-[3/2] sm:max-h-none sm:w-full sm:rounded-card"
-            />
+                The page's LCP image. The wrapper is the same box (full-bleed on phones), so an
+                event's clip Play can sit on the photo's bottom-left, lined up with the page's text
+                edge on phones (docs/design/event-clips.md §5.3); absolutely placed, so nothing shifts. */}
+            <div className="relative -mx-5 sm:mx-0">
+              <EventArt
+                poster={event.poster}
+                imageUrl={event.imageUrl}
+                title={event.title}
+                priority
+                fit="auto"
+                className="aspect-[4/3] max-h-[30svh] w-full sm:aspect-[3/2] sm:max-h-none sm:rounded-card"
+              />
+              <ClipPlayButton event={event} size="hero" className="absolute bottom-3 left-5 sm:left-3" />
+            </div>
             <div className="flex flex-col gap-3">
               <p className="text-sm leading-5 text-muted">{categoryLabel}</p>
               <h1 className="title-lg -mt-2 max-w-[24ch] break-words">{event.title}</h1>
