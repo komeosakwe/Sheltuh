@@ -10,6 +10,7 @@ import type { AdminOrganiserRecord, OrganiserStatus, SuspendOrganiserResult } fr
 import { useAuth } from "@/lib/auth/AuthContext";
 import { SessionExpiredError } from "@/lib/auth/session-token";
 import AdminSessionExpired from "./AdminSessionExpired";
+import { useAdminSummary } from "./AdminSummaryProvider";
 import OrganiserItem, { actionErrorText, organiserHeadingId, suspendButtonId } from "./OrganiserItem";
 import SuspendOrganiserDialog, { type SuspendOutcome } from "./SuspendOrganiserDialog";
 import { LoadingState } from "@/components/ui/ProgressLoader";
@@ -98,6 +99,7 @@ export function loadedMessage(status: OrganiserStatus, items: number, more: bool
 export default function OrganiserQueue() {
   const auth = useAuth();
   const getToken = auth.getAccessToken;
+  const adminSummary = useAdminSummary();
   const [status, setStatus] = useState<OrganiserStatus>("pending");
   const [attempt, setAttempt] = useState(0);
   const key = `${status}#${attempt}`;
@@ -184,6 +186,7 @@ export default function OrganiserQueue() {
     const index = items.findIndex((i) => i.organiserId === item.organiserId);
     const next = index === -1 ? undefined : (items[index + 1] ?? items[index - 1]);
     setItems((current) => current.filter((i) => i.organiserId !== item.organiserId));
+    adminSummary?.refresh(); // The hub's and sub-nav's waiting count.
     setAnnouncement(message);
     setLateSuspendError(null);
     if (reauthOwner === item.organiserId) setReauthOwner(null);

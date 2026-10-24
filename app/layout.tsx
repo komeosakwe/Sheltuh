@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
+import { AdminSummaryProvider } from "@/components/admin/AdminSummaryProvider";
 import DemoBanner from "@/components/DemoBanner";
 import Footer from "@/components/Footer";
 import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
@@ -78,19 +79,22 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         </a>
         <AuthProvider>
           <UnreadProvider>
-            <FavouritesProvider>
-              <Nav />
-              {/* useSearchParams needs a Suspense boundary to keep pages static. */}
-              <Suspense fallback={null}>
-                <RouteProgress />
-              </Suspense>
-              <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
-                {/* The demo's one sample-data disclosure, at the top of every page. */}
-                {!isApiConfigured && <DemoBanner />}
-                {children}
-              </main>
-              <Footer />
-            </FavouritesProvider>
+            {/* Admin counts for the nav's Admin badge and the admin pages; fetched for admins only. */}
+            <AdminSummaryProvider>
+              <FavouritesProvider>
+                <Nav />
+                {/* useSearchParams needs a Suspense boundary to keep pages static. */}
+                <Suspense fallback={null}>
+                  <RouteProgress />
+                </Suspense>
+                <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
+                  {/* The demo's one sample-data disclosure, at the top of every page. */}
+                  {!isApiConfigured && <DemoBanner />}
+                  {children}
+                </main>
+                <Footer />
+              </FavouritesProvider>
+            </AdminSummaryProvider>
           </UnreadProvider>
         </AuthProvider>
         <ServiceWorkerRegistration />

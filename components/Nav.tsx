@@ -161,7 +161,7 @@ export default function Nav() {
       </div>
 
       {/* Desktop row. */}
-      <div className="mx-auto hidden max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4 sm:px-8 lg:flex">
+      <div className="mx-auto hidden max-w-6xl min-h-17 flex-wrap items-center gap-x-6 gap-y-3 px-5 py-3 sm:px-8 lg:flex">
         <Link href="/" aria-label="Sheltüh home" className="flex items-center py-1">
           <Wordmark className="h-6 w-auto" />
         </Link>

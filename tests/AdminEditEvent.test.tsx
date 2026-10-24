@@ -15,13 +15,23 @@ vi.mock("@/lib/api/admin", () => ({
   adminGetEvent: (...args: unknown[]) => adminGetEvent(...args),
 }));
 
+// The Trending panel is covered in TrendingPanel.test.tsx.
+const getEventCuration = vi.fn();
+vi.mock("@/lib/api/trending", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/trending")>()),
+  getEventCuration: (...args: unknown[]) => getEventCuration(...args),
+}));
+
 // The editor itself is covered in AdminEventEditor.test.tsx.
 vi.mock("@/components/dashboard/EventEditor", () => ({
   default: () => <div data-testid="event-editor" />,
 }));
 
 afterEach(cleanup);
-beforeEach(() => adminGetEvent.mockReset());
+beforeEach(() => {
+  adminGetEvent.mockReset();
+  getEventCuration.mockReset().mockResolvedValue({ eventId: "evt-1", boost: 1, excluded: false, updatedAt: null, log: [] });
+});
 
 const EVENT: AdminEventRecord = {
   organiserId: "org-1",
@@ -83,5 +93,15 @@ describe("AdminEditEvent", () => {
     renderPage();
     await screen.findByTestId("event-editor");
     expect(screen.queryByRole("link", { name: "Open door check-in" })).toBeNull();
+  });
+
+  it("has the event's Trending panel below the editor, linked from the top of the page", async () => {
+    adminGetEvent.mockResolvedValue(EVENT);
+    renderPage();
+    expect(await screen.findByRole("link", { name: "Trending" })).toHaveAttribute("href", "#trending");
+    const panel = screen.getByRole("region", { name: "Trending" });
+    expect(panel).toHaveAttribute("id", "trending");
+    expect(await screen.findByText(/^Now:/)).toHaveTextContent("Now: Normal (×1)");
+    expect(getEventCuration.mock.calls[0][0]).toBe("evt-1");
   });
 });

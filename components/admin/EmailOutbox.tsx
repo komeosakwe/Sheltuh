@@ -8,6 +8,7 @@ import { adminListEmailJobs, adminResendEmailJob } from "@/lib/api/admin";
 import { ApiError } from "@/lib/api/client";
 import type { AdminEmailJob, EmailJobStatus } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useAdminSummary } from "@/components/admin/AdminSummaryProvider";
 import { formatMessageTime } from "@/lib/format";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 
@@ -33,6 +34,7 @@ function errorText(err: unknown, fallback: string) {
  */
 export default function EmailOutbox() {
   const auth = useAuth();
+  const adminSummary = useAdminSummary();
   const getToken = auth.getAccessToken;
   const [status, setStatus] = useState<EmailJobStatus>("failed");
   const [attempt, setAttempt] = useState(0);
@@ -76,6 +78,7 @@ export default function EmailOutbox() {
    * or the list heading when none are left).
    */
   function resent(job: AdminEmailJob) {
+    adminSummary?.refresh(); // The hub's and sub-nav's failed count.
     const label = STATUSES.find((s) => s.value === job.status)?.label ?? job.status;
     if (job.status === status) {
       setResult((current) =>

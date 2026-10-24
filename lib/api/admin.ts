@@ -138,8 +138,16 @@ export interface AdminListEventsQuery {
 /**
  * Events in one status, soonest first. `published` lists only events that
  * haven't ended unless `upcoming: false` is sent. Called with a query
- * object, or as `(status, getToken, cursor)`. ApiError 400 for a bad status.
+ * object (its `cursor` included), or as `(status, getToken, cursor)`: the
+ * overloads keep a third argument off the object form, where it would be
+ * ignored. ApiError 400 for a bad status.
  */
+export function adminListEvents(query: AdminListEventsQuery, getToken: GetToken): Promise<Paginated<AdminEventRecord>>;
+export function adminListEvents(
+  status: EventStatus,
+  getToken: GetToken,
+  cursor?: string,
+): Promise<Paginated<AdminEventRecord>>;
 export async function adminListEvents(query: EventStatus | AdminListEventsQuery, getToken: GetToken, cursor?: string) {
   const token = await getToken();
   const options: AdminListEventsQuery = typeof query === "string" ? { status: query, cursor } : query;

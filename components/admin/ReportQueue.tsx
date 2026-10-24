@@ -10,6 +10,7 @@ import { adminListReports, adminResolveReport } from "@/lib/api/admin";
 import { ApiError } from "@/lib/api/client";
 import type { AdminReport, ReportStatus } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useAdminSummary } from "./AdminSummaryProvider";
 import { formatMessageTime } from "@/lib/format";
 import { validateMessage } from "@/lib/message-text";
 import { LoadingState } from "@/components/ui/ProgressLoader";
@@ -46,6 +47,7 @@ function errorText(err: unknown, fallback: string) {
  */
 export default function ReportQueue() {
   const auth = useAuth();
+  const adminSummary = useAdminSummary();
   const getToken = auth.getAccessToken;
   const [status, setStatus] = useState<ReportStatus>("open");
   const [attempt, setAttempt] = useState(0);
@@ -99,6 +101,7 @@ export default function ReportQueue() {
 
   /** A report left the open queue (resolved here, or by someone else): focus the next one. */
   function removed(report: AdminReport, items: AdminReport[], message: string) {
+    adminSummary?.refresh(); // The hub's and sub-nav's open count.
     const index = items.findIndex((r) => r.reportId === report.reportId);
     const next = items[index + 1] ?? items[index - 1];
     setItems((current) => current.filter((r) => r.reportId !== report.reportId));
