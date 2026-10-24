@@ -123,8 +123,8 @@ for (const width of [375, 390, 768, 1280, 1440]) {
     test("short copy, search as the main action, the page's only search, and no orange button", async ({ page }) => {
       await mockApi(page);
       await page.goto("/");
-      const hero = page.getByRole("region", { name: "Find your new thing." });
-      await expect(hero.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your new thing.");
+      const hero = page.getByRole("region", { name: "Find your next thing." });
+      await expect(hero.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
       await expect(hero.getByText("Melbourne • What’s on")).toBeVisible();
       // The intro line at every width (owner, 23 Oct 2026, layout polish), muted, under the h1 and above the search.
       const intro = hero.getByText(HOME_INTRO);
@@ -156,6 +156,68 @@ for (const width of [375, 390, 768, 1280, 1440]) {
         return Math.round(h1.getBoundingClientRect().height / lineHeight);
       });
       expect(lines).toBe(2);
+    });
+  });
+}
+
+// Owner (24 Oct 2026, the phone hero's empty space): "little image should be there". Below 1024px the
+// collage's lead photo is a small tile beside the eyebrow and the h1; from 1024px the collage instead.
+const THUMB_SIZES: Record<number, number | null> = { 320: 72, 375: 88, 390: 88, 768: 112, 1024: null, 1440: null };
+for (const [width, size] of Object.entries(THUMB_SIZES).map(([w, s]) => [Number(w), s] as const)) {
+  test.describe(`home hero thumbnail at ${width}px`, () => {
+    test.use({ viewport: { width, height: width < 768 ? 844 : 900 } });
+
+    test(size ? "a small decorative photo beside the headline, which keeps its two lines" : "no thumbnail: the collage shows", async ({ page }) => {
+      await mockApi(page);
+      await page.goto("/");
+      const hero = page.getByRole("region", { name: "Find your next thing." });
+      const h1 = hero.getByRole("heading", { level: 1 });
+      await expect(h1).toBeVisible();
+      await page.evaluate(() => document.fonts.ready);
+      const thumb = hero.locator("[data-hero-thumb]");
+      const collage = hero.locator("[data-hero-collage]");
+
+      if (!size) {
+        await expect(thumb).toBeHidden();
+        await expect(collage).toBeVisible();
+        return;
+      }
+
+      await expect(thumb).toBeVisible();
+      await expect(collage).toBeHidden();
+      await expect(thumb).toHaveAttribute("aria-hidden", "true");
+      const img = thumb.locator("img");
+      await expect(img).toHaveAttribute("src", "/events/gallery-opening.jpg");
+      await expect(img).toHaveAttribute("alt", "");
+      await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0)).toBe(true);
+      // Its badge is still and never a control (too small for a 44px Pause/Play target).
+      await expect(page.getByRole("button", { name: /badge animation/ })).toHaveCount(0);
+      expect(await thumb.locator("[data-hero-badge-art]").evaluate((svg) => getComputedStyle(svg).animationName)).toBe("none");
+
+      const t = await thumb.boundingBox();
+      const h = await h1.boundingBox();
+      if (!t || !h) throw new Error("hero not laid out");
+      expect(Math.round(t.width)).toBe(size);
+      expect(Math.round(t.height)).toBe(size);
+      // Top right of the column, no taller than the eyebrow and the h1, so the hero is no taller.
+      const gutter = width < 640 ? 20 : 32;
+      expect(Math.round(t.x + t.width)).toBe(width - gutter);
+      expect(t.y + t.height).toBeLessThanOrEqual(h.y + h.height + 0.5);
+      const badgeRight = await thumb.locator("[data-hero-badge]").evaluate((el) => el.getBoundingClientRect().right);
+      expect(badgeRight).toBeLessThanOrEqual(width);
+      // The h1 keeps its two lines, each clear of the tile.
+      const layout = await h1.evaluate((el) => {
+        const lineHeight = parseFloat(getComputedStyle(el).lineHeight);
+        const rights = [...el.querySelectorAll(":scope > span")].map((line) => {
+          const range = document.createRange();
+          range.selectNodeContents(line);
+          return Math.max(...[...range.getClientRects()].map((r) => r.right));
+        });
+        return { lines: Math.round(el.getBoundingClientRect().height / lineHeight), rights };
+      });
+      expect(layout.lines).toBe(2);
+      for (const right of layout.rights) expect(right).toBeLessThan(t.x);
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(0);
     });
   });
 }

@@ -91,7 +91,7 @@ for (const vp of VIEWPORTS) {
       await openHome(page);
 
       await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
-      await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your new thing.");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
       // No Up next any more (docs/design/mobile-redesign.md §6.1).
       await expect(page.getByRole("region", { name: "Up next" })).toHaveCount(0);
 
@@ -430,8 +430,9 @@ test.describe("hero collage at 1280px", () => {
     await expect(collage.locator(":scope > [aria-hidden='true'] svg text")).toHaveCount(2);
     const badge = page.getByRole("button", { name: "Pause the badge animation" });
     await expect(badge).toBeVisible();
-    // Its name changes with its state, so find the drawing by its own marker.
-    const art = page.locator("[data-hero-badge-art]");
+    // Its name changes with its state, so find the drawing by its own marker (the collage's: the
+    // thumbnail's still copy, hidden from 1024px, has one too).
+    const art = collage.locator("[data-hero-badge-art]");
     const spin = await art.evaluate((svg) => {
       const style = getComputedStyle(svg);
       return { name: style.animationName, duration: style.animationDuration, count: style.animationIterationCount, state: style.animationPlayState };
@@ -452,7 +453,7 @@ test.describe("hero collage at 1280px", () => {
     await openHome(page);
     await expect(page.locator("[data-hero-collage]")).toBeVisible();
     await expect(page.getByRole("button", { name: /badge animation/ })).toHaveCount(0);
-    expect(await page.locator("[data-hero-badge-art]").evaluate((svg) => getComputedStyle(svg).animationName)).toBe("none");
+    expect(await page.locator("[data-hero-collage] [data-hero-badge-art]").evaluate((svg) => getComputedStyle(svg).animationName)).toBe("none");
   });
 });
 

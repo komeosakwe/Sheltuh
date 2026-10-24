@@ -55,6 +55,16 @@ describe("HeroBadge", () => {
     expect(screen.getByRole("button", { name: "Pause the badge animation" })).toBe(play);
   });
 
+  // The phone hero's thumbnail (owner, 24 Oct 2026): a badge too small to be a 44px Pause/Play target.
+  it("`still`: holds still and isn't a control even where motion is fine", () => {
+    stubMotion(true);
+    const { container } = render(<HeroBadge still />);
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(container.querySelector("[data-hero-badge]")).toHaveAttribute("aria-hidden", "true");
+    expect(container.querySelector("[data-hero-badge-art]")?.getAttribute("class")).not.toMatch(/animate/);
+    expect(container.querySelector("textPath")?.textContent).toBe(HERO_BADGE_TEXT.toUpperCase());
+  });
+
   it("holds still and isn't a control for people who prefer reduced motion (and on the server render)", () => {
     stubMotion(false);
     const { container } = render(<HeroBadge />);
@@ -87,5 +97,15 @@ describe("HeroCollage", () => {
     stubMotion(false);
     const { container } = render(<HomeHero />);
     expect(container.querySelector("[data-hero-collage]")).toHaveClass("hidden", "lg:block", "lg:col-span-5");
+  });
+
+  it("where motion is fine, the hero has one badge control (the collage's): the thumbnail's badge stays still", () => {
+    stubMotion(true);
+    const { container } = render(<HomeHero />);
+    expect(screen.getAllByRole("button", { name: "Pause the badge animation" })).toHaveLength(1);
+    expect(container.querySelector("[data-hero-collage] button[data-hero-badge]")).not.toBeNull();
+    const thumbBadge = container.querySelector("[data-hero-thumb] [data-hero-badge]");
+    expect(thumbBadge?.tagName).toBe("SPAN");
+    expect(thumbBadge?.querySelector("[data-hero-badge-art]")?.getAttribute("class")).not.toMatch(/animate/);
   });
 });

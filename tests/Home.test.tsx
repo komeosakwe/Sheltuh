@@ -22,7 +22,7 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     await settle();
 
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
-    expect(screen.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your new thing.");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
     // The brief's order (mobile-redesign.md §6.3.1): Trending and Coming up are one slot, and Free &
     // low-cost and Only in the city have left the home (the latter is at the end of /events).
     // Refinement (22 Oct 2026): the category chips are a labelled nav under the search, with no heading.
@@ -40,7 +40,7 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
   it("puts the category row between the hero and the first event section, each chip to its /events filter", async () => {
     render(<Home />);
     await settle();
-    const hero = screen.getByRole("region", { name: "Find your new thing." });
+    const hero = screen.getByRole("region", { name: "Find your next thing." });
     const categories = screen.getByRole("navigation", { name: "Browse by category" });
     const weekend = screen.getByRole("region", { name: "This weekend" });
     expect(hero.compareDocumentPosition(categories) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

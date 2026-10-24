@@ -5,7 +5,7 @@ import CategoryRow from "@/components/home/CategoryRow";
 import CreatorsCard from "@/components/home/CreatorsCard";
 import GuideCard from "@/components/home/GuideCard";
 import HomeHero from "@/components/home/HomeHero";
-import { HOME_INTRO } from "@/components/home/home-content";
+import { HOME_INTRO, HOME_TITLE, HOME_TITLE_LINES, titleParts, titleText } from "@/components/home/home-content";
 import HomeRail, { HOME_CONTAINER, HomeRailItem, isPairRail, PAIR_MAX } from "@/components/home/HomeRail";
 import SectionHead from "@/components/ui/SectionHead";
 
@@ -28,14 +28,84 @@ function tabTo(el: HTMLElement) {
 }
 
 describe("HomeHero (mobile-redesign.md §6.1)", () => {
-  it("has one h1, 'Find your new thing.', on two lines that may wrap (never nowrap), in the display face", () => {
+  it("has one h1, 'Find your next thing.', on two lines that may wrap (never nowrap), in the display face", () => {
     render(<HomeHero />);
     const h1 = screen.getByRole("heading", { level: 1 });
-    expect(h1).toHaveAccessibleName("Find your new thing.");
-    expect(Array.from(h1.children).map((line) => line.textContent)).toEqual(["Find your", "new thing."]);
+    expect(h1).toHaveAccessibleName("Find your next thing.");
+    expect(h1.textContent).toBe("Find your next thing.");
+    expect(Array.from(h1.children).map((line) => line.textContent)).toEqual(["Find your", "next thing."]);
     for (const line of h1.children) expect(line).toHaveClass("block");
     expect(h1.innerHTML).not.toMatch(/nowrap/);
     expect(h1).toHaveClass("display-lg", "font-display");
+  });
+
+  // Owner (24 Oct 2026): "only two letters with dots". The h1 is plain; YOÜR and THÏNG are drawn by the
+  // dotted face on two letters, while the text itself stays plainly spelled.
+  it("draws only two letters in the dotted face, the u of 'your' and the i of 'thing', in a plain h1", () => {
+    render(<HomeHero />);
+    const h1 = screen.getByRole("heading", { level: 1 });
+    expect(h1).toHaveClass("display-plain");
+    expect(h1).not.toHaveClass("font-dots");
+    const dotted = Array.from(h1.querySelectorAll(".font-dots"));
+    expect(dotted.map((el) => el.textContent)).toEqual(["u", "i"]);
+    for (const el of dotted) {
+      expect(el.tagName).toBe("SPAN");
+      expect(el).toHaveAttribute("data-dotted-letter");
+      expect(el.children).toHaveLength(0);
+    }
+    const [first, second] = Array.from(h1.children);
+    expect(first.contains(dotted[0])).toBe(true);
+    expect(second.contains(dotted[1])).toBe(true);
+    // Nothing else in the h1 is a dotted run, and no real diacritics are in the text.
+    expect(h1.querySelectorAll("[data-dotted-letter]")).toHaveLength(2);
+    expect(h1.textContent).not.toMatch(/[À-ɏ]/);
+  });
+
+  it("chooses the dotted letters in one place: HOME_TITLE_LINES, read by titleParts", () => {
+    expect(HOME_TITLE_LINES).toEqual(["Find yo^ur", "next th^ing."]);
+    expect(HOME_TITLE).toBe("Find your next thing.");
+    expect(HOME_TITLE_LINES.map(titleText)).toEqual(["Find your", "next thing."]);
+    expect(titleParts("Find yo^ur")).toEqual([
+      { text: "Find yo", dotted: false },
+      { text: "u", dotted: true },
+      { text: "r", dotted: false },
+    ]);
+    // A mark at the start or the end of a line, two in a row, or none at all.
+    expect(titleParts("^ab^c")).toEqual([
+      { text: "a", dotted: true },
+      { text: "b", dotted: false },
+      { text: "c", dotted: true },
+    ]);
+    expect(titleParts("^a^b")).toEqual([
+      { text: "a", dotted: true },
+      { text: "b", dotted: true },
+    ]);
+    expect(titleParts("plain")).toEqual([{ text: "plain", dotted: false }]);
+  });
+
+  // Owner (24 Oct 2026): "little image should be there", in the empty space beside the phone headline.
+  it("puts a small decorative tile of the collage's lead photo beside the eyebrow and h1, below 1024px only", () => {
+    const { container } = render(<HomeHero />);
+    const thumb = container.querySelector("[data-hero-thumb]");
+    expect(thumb).toHaveAttribute("aria-hidden", "true");
+    expect(thumb).toHaveClass("lg:hidden", "shrink-0", "size-18", "min-[375px]:size-22", "sm:size-28");
+    const img = thumb?.querySelector("img");
+    expect(img).toHaveAttribute("src", "/events/gallery-opening.jpg");
+    expect(img).toHaveAttribute("alt", "");
+    // Hidden from 1024px, so lazy (never fetched there), first where it shows; it doesn't push in.
+    expect(img).toHaveAttribute("loading", "lazy");
+    expect(img).toHaveAttribute("fetchpriority", "high");
+    expect(img).not.toHaveClass("ken-burns");
+    // In the same row as the eyebrow and the h1, after them, in a column of its own.
+    const row = thumb?.parentElement;
+    expect(row).toHaveClass("flex", "items-start");
+    const text = row?.firstElementChild;
+    expect(text).toHaveClass("min-w-0", "flex-1");
+    expect(text?.querySelector("h1")).not.toBeNull();
+    expect(text?.querySelector("p.eyebrow")).not.toBeNull();
+    // Its badge is a still copy: too small for a 44px Pause/Play target, so never a control.
+    expect(thumb?.querySelector("[data-hero-badge]")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.queryByRole("button", { name: /badge animation/ })).toBeNull();
   });
 
   // Refinement (owner, 22 Oct 2026): a shorter hero, so the first event's image and title reach a
@@ -78,16 +148,19 @@ describe("HomeHero (mobile-redesign.md §6.1)", () => {
 
   it("shows the photo from lg only, beside the text, with the one-cycle push-in", () => {
     const { container } = render(<HomeHero />);
-    const img = container.querySelector("img");
+    const img = container.querySelector("[data-hero-collage] img");
     expect(img).toHaveClass("ken-burns");
     expect(img?.closest(".hidden.lg\\:block")).not.toBeNull();
   });
 
-  it("never fetches the photo where it's hidden (below lg): lazy, with a high fetch priority where it shows", () => {
+  it("never fetches a photo where it's hidden (the collage below lg, the tile from lg): lazy, with a high fetch priority where it shows", () => {
     const { container } = render(<HomeHero />);
-    const img = container.querySelector("img");
-    expect(img).toHaveAttribute("loading", "lazy");
-    expect(img).toHaveAttribute("fetchpriority", "high");
+    const imgs = Array.from(container.querySelectorAll("img"));
+    expect(imgs).toHaveLength(2);
+    for (const img of imgs) {
+      expect(img).toHaveAttribute("loading", "lazy");
+      expect(img).toHaveAttribute("fetchpriority", "high");
+    }
   });
 
   it("has no sticker graphics", () => {

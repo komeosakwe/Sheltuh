@@ -219,6 +219,14 @@ describe("dotted vowels in the CSS", () => {
     expect(css).toContain("--font-sans: var(--face-sans);");
   });
 
+  // Owner (24 Oct 2026): "only two letters with dots" on the home h1. Section titles are unchanged.
+  it("lets a display headline be plain (display-plain) with single letters in the dotted face (font-dots)", () => {
+    expect(css).toMatch(/\.display-lg\.font-display\.display-plain \{\s*font-family: var\(--face-sans\);\s*\}/);
+    expect(css).toMatch(/@utility font-dots \{\s*font-family: var\(--face-dots\);\s*\}/);
+    // The plain override is three classes, so it wins over the two-class display rule before it.
+    expect(css.indexOf(".display-lg.font-display.display-plain")).toBeGreaterThan(css.indexOf(".display-lg.font-display {"));
+  });
+
   it("keeps a plain sans for form fields, and the mono plain", () => {
     const plain = css.match(/--face-sans-plain: ([^;]*);/)?.[1] ?? "";
     expect(plain).toBe("var(--face-sans)");

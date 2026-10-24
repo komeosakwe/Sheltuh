@@ -2,10 +2,11 @@ import { expect, test, type Page } from "@playwright/test";
 
 /**
  * The dotted vowels (owner, 23 Oct 2026; app/fonts/instrument-sans-dots/
- * README.md) in a real Chromium: the sans, and the display headline with it,
- * is Instrument Sans Dots, which draws every vowel with two dots, while the
- * text itself stays plainly spelled. Form fields keep the plain Instrument
- * Sans and the mono stays IBM Plex Mono. /api is intercepted.
+ * README.md) in a real Chromium. Instrument Sans Dots draws every vowel with
+ * two dots while the text itself stays plainly spelled. Section titles are
+ * in it; the home h1 is plain but for two letters (owner, 24 Oct 2026);
+ * running text is plain Instrument Sans. Form fields keep the plain
+ * Instrument Sans and the mono stays IBM Plex Mono. /api is intercepted.
  */
 
 test.beforeEach(async ({ page }) => {
@@ -22,12 +23,23 @@ test("only the headlines render in the dotted face; body, fields and mono stay p
   await page.evaluate(() => document.fonts.ready);
 
   // Spelling, accessible name and copy are unchanged: only the rendering differs.
-  await expect(h1).toHaveAccessibleName("Find your new thing.");
-  expect((await h1.textContent())?.replace(/\s+/g, " ").trim()).toBe("Find your new thing.");
+  await expect(h1).toHaveAccessibleName("Find your next thing.");
+  expect(await h1.textContent()).toBe("Find your next thing.");
 
+  // The home h1 (owner, 24 Oct 2026: "only two letters with dots") is in the plain face, and exactly
+  // two letters in it are in the dotted one: FIND YOÜR NEXT THÏNG.
+  expect(await fontFamily(page, "h1")).toMatch(/^"Instrument Sans", /);
+  const dottedInH1 = await h1.evaluate((el) =>
+    [...el.querySelectorAll("*")]
+      .filter((child) => /^"?instrumentDots"?, "Instrument Sans", /.test(getComputedStyle(child).fontFamily))
+      .map((child) => ({ text: child.textContent, upper: getComputedStyle(child).textTransform })),
+  );
+  expect(dottedInH1).toEqual([
+    { text: "u", upper: "uppercase" },
+    { text: "i", upper: "uppercase" },
+  ]);
   // instrumentDots: the CSS family of Instrument Sans Dots (app/fonts.ts), then the plain face.
-  expect(await fontFamily(page, "h1")).toMatch(/^"?instrumentDots"?, "Instrument Sans", /);
-  // Section titles (display-md) are dotted too; running text, cards and buttons are plain.
+  // Section titles (display-md) are dotted; running text, cards and buttons are plain.
   expect(await fontFamily(page, "main h2")).toMatch(/^"?instrumentDots"?, /);
   expect(await fontFamily(page, "body")).toMatch(/^"Instrument Sans", /);
   expect(await fontFamily(page, "main p:not(.eyebrow)")).toMatch(/^"Instrument Sans", /);

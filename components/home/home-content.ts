@@ -12,6 +12,44 @@ export interface HomeArt {
 }
 
 /**
+ * The home h1, one entry per line (two lines at every width): "Find your
+ * next thing." (owner, 24 Oct 2026). The h1 is in the plain face and only
+ * the letter after each `^` is drawn in the dotted face (Instrument Sans
+ * Dots), so it reads FIND YOÜR NEXT THÏNG. (owner, 24 Oct 2026: "only two
+ * letters with dots"; the Ü echoes SHELTÜH) while its text and accessible
+ * name stay plainly "Find your next thing.". To dot other letters, move the
+ * `^`s: this line is the only place the choice is made.
+ */
+export const HOME_TITLE_LINES: readonly [string, string] = ["Find yo^ur", "next th^ing."];
+
+/** Marks the next letter of a `HOME_TITLE_LINES` line as drawn with the dots. */
+const DOT_MARK = "^";
+
+/** A run of a title line: plain text, or one letter drawn in the dotted face. */
+export interface TitlePart {
+  text: string;
+  dotted: boolean;
+}
+
+/** Splits a `HOME_TITLE_LINES` line into plain runs and its dotted letters, in order. */
+export function titleParts(line: string): TitlePart[] {
+  const [head, ...marked] = line.split(DOT_MARK);
+  const parts: TitlePart[] = head ? [{ text: head, dotted: false }] : [];
+  for (const run of marked) {
+    if (!run) continue;
+    parts.push({ text: run.charAt(0), dotted: true });
+    if (run.length > 1) parts.push({ text: run.slice(1), dotted: false });
+  }
+  return parts;
+}
+
+/** A title line as plain text, without its dot marks. */
+export const titleText = (line: string) => line.split(DOT_MARK).join("");
+
+/** The h1's text and accessible name: "Find your next thing.". */
+export const HOME_TITLE = HOME_TITLE_LINES.map(titleText).join(" ");
+
+/**
  * The hero's one short sentence under the h1, at every width (owner, 23 Oct
  * 2026, layout polish: back on phones, in these words).
  */
@@ -23,15 +61,20 @@ export const HOME_INTRO = "Music, art and pop-ups. See who’s going.";
  * public/events/ has six photos and each is also a sample event's own image
  * (lib/sample-photos.ts), so each promo photo is used once on the home, and
  * only photos the home's event rails don't show: street-market (no upcoming
- * sample event uses it) is the For organisers card, the one promo photo
- * phones see; gallery-opening (the upcoming art events' photo, none of which
- * is on the home's rails at present) leads the desktop hero collage. The
+ * sample event uses it) is the For organisers card; gallery-opening (the
+ * upcoming art events' photo, none of which is on the home's rails at
+ * present) leads the desktop hero collage and is the small tile beside the
+ * headline below 1024px (owner, 24 Oct 2026: "little image should be
+ * there"). The
  * other promo slots show their brand poster art until the owner supplies
  * photos of their own (public/home/README.md lists what's needed). Events
  * always keep their own image.
  */
 
-/** The desktop hero collage's lead photo (public/events/gallery-opening.jpg). */
+/**
+ * The desktop hero collage's lead photo (public/events/gallery-opening.jpg),
+ * also the small tile beside the headline below 1024px (`HeroThumb`).
+ */
 export const HOME_HERO: HomeArt = {
   imageUrl: "/events/gallery-opening.jpg",
   poster: { pattern: "burst", background: "#000000", primary: "#ff4800", secondary: "#fffae7" },
