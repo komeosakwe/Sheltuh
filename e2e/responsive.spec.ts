@@ -142,14 +142,17 @@ for (const width of [375, 390, 768, 1280, 1440]) {
         expect(Math.round(searchBox.y - (introBox.y + introBox.height))).toBe(16);
       }
       await expect(hero.getByRole("search", { name: "Search events" })).toBeVisible();
-      await expect(hero.locator(".btn-signal")).toHaveCount(0);
+      // Owner round of 24 Oct 2026 (the Eventbrite-style bar): the hero's one orange button is the search submit.
+      await expect(hero.locator(".btn-signal")).toHaveCount(1);
+      await expect(hero.locator(".btn-signal")).toHaveAccessibleName("Search");
       // Refinement (22 Oct 2026): browsing is the category row under the hero; the hero has no links.
       await expect(hero.getByRole("link")).toHaveCount(0);
-      // One search on the home: no header field (desktop) or search icon (phones), and the hero's field
-      // has one magnifier (its submit button).
+      // One search on the home: no header field (desktop) or search icon (phones), and the hero's bar
+      // has two icons, the location pin and one magnifier (its submit button; owner round of 24 Oct 2026).
       await expect(page.getByRole("search")).toHaveCount(1);
       await expect(page.locator("header a[href='/search']")).toHaveCount(0);
-      await expect(hero.getByRole("search").locator("svg")).toHaveCount(1);
+      await expect(hero.getByRole("search").locator("svg")).toHaveCount(2);
+      await expect(hero.getByRole("search").getByRole("button", { name: "Search" }).locator("svg")).toHaveCount(1);
       // The h1 is two lines at 100% text size, never more.
       const lines = await hero.getByRole("heading", { level: 1 }).evaluate((h1) => {
         const lineHeight = parseFloat(getComputedStyle(h1).lineHeight);

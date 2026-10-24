@@ -359,6 +359,7 @@ Icons in buttons are 16px, stroke 1.75, `aria-hidden`.
 - **`SearchBar`:**
   - Drop the `rounded-full!`, `bg-surface!` and `border-foreground!` overrides: it's a field, `rounded-control bg-card`.
   - The submit is `size-11 rounded-control bg-foreground text-background`, with hover `bg-signal text-black`. Increment 1's alias makes it orange first; change it to black in increment 3, so there's no orange inside forms.
+  - **Amended 24 Oct 2026 (owner round: "our search bar similar [to Eventbrite] and a close location"):** the bar is a `rounded-full` pill (an owner-approved exception to "no pills, no circles") holding the words, a divider, a location segment and a round submit. The submit is orange with a black icon (`btn-signal`, 6.18:1) in the home hero and on `/search`, where search is the page's main action; it stays black, orange on hover, in the desktop header, beside pages' own orange actions. Never a white icon on orange. Focus keeps the global ring, inset inside the bar. Behaviour and privacy: `docs/architecture.md`, "Location (near you)".
 
 ### 6.3 Chips and filters
 

@@ -18,6 +18,7 @@ The brand rollout is in progress, following the increments in `brand-direction-o
   - **IBM Plex Mono** for metadata, labels and dates (`eyebrow`, `meta`).
 - **Logo:** the official vectors in `public/brand/` (wordmark, lowercase wordmark, secondary ü, two-dot mark), inlined via `components/brand/*`. Never typeset the wordmark.
 - **Shape:** rounded squares, from the umlaut. `rounded-card` 12px, `rounded-control` 8px, `rounded-badge` 4px, `rounded-dot` 28% for avatars and markers. No pills, no circles, no shadows. Structure comes from 1px black rules and the mono "strap".
+  - **Owner-approved exceptions** (`rounded-full`): the round portraits (`CommunitySection`), the hero badge (`HeroBadge`), and, from 24 Oct 2026, the **search bar**: a pill with a round submit and a round location segment, as in the owner's Eventbrite reference ("our search bar similar and a close location", decision D1). Nothing else is round.
 - **Motif:** the two dots appear only in the places listed in `brand-direction-one.md` §5 (strap marker, active-nav umlaut, selected chip, loader, connection states, empty states).
 - **Pricing:** the all-inclusive total is always first and most prominent; partial prices are secondary (§6.8). Checkout is quiet: black, no orange (§6.9).
 - **Motion:** the photo push-in runs one cycle of 5 seconds or less and holds. Nothing loops except the loader while loading. Everything respects `prefers-reduced-motion`.
@@ -27,7 +28,8 @@ The brand rollout is in progress, following the increments in `brand-direction-o
 | Component | Use | Brand spec |
 | --- | --- | --- |
 | `Button`, `ButtonLink`, `buttonClass` | `signal` (new, orange, max one per view, never in checkout), `solid` (black), `outline`, `danger`; sizes `sm` 32 / `md` 40 / `lg` 48px. CSS in `.btn*`. | §6.1 |
-| `Field`, `fieldClass`, `SearchBar` | White, 1px black, `rounded-control`, mono labels | §6.2 |
+| `Field`, `fieldClass` | White, 1px black, `rounded-control`, mono labels | §6.2 |
+| `SearchBar` + `search/LocationPicker` | One bar in the hero, the desktop header and `/search` (24 Oct 2026): a `rounded-full` pill, 1px black, `bg-card`; the words (`q`, named by its placeholder) \| divider \| location segment ("Your suburb" / the suburb; opens the "Find events near you" popover: "Use my current location" only on click, or a typed suburb `near`) \| round submit. `tone="signal"` orange submit, black icon (hero, `/search`); `tone="plain"` black, orange on hover (header). `size="lg"` 52px, 16px text; `size="sm"` 44px (header). The header leaves it out on `/` and `/search`. | §6.2, amended 24 Oct 2026 |
 | `Page`, `PageHeader`, `Strap` | Page container; page header (mono strap + display h1) | §6.4 |
 | `SectionHead` | The one section head, site-wide (home, profiles, Saved): black rule, dots + `display-md` h2 (balanced), optional note, optional link on the h2's baseline ("See all …", or "All events" where the target isn't the section's own list). No strap repeating the title. Replaced `SectionHeader` in P2. | `mobile-redesign.md` §6.3.3 |
 | `BackLink`, `backLinkClass` | The one back link: Instrument 14/20 semibold, underlined, 44px tall, decorative arrow | `mobile-redesign.md` §3.2 |

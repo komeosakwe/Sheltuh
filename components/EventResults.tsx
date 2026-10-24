@@ -18,14 +18,17 @@ export const RESULTS_GRID =
 export default function EventResults({
   events,
   heading,
+  label = "Events",
   listRef,
 }: {
   events: SheltuhEvent[];
   heading?: string;
+  /** The list's name: "Events", or a band's on /search near a suburb ("Within 5 km"). */
+  label?: string;
   listRef?: Ref<HTMLUListElement>;
 }) {
   const list = (
-    <ul ref={listRef} aria-label="Events" className={RESULTS_GRID}>
+    <ul ref={listRef} aria-label={label} className={RESULTS_GRID}>
       {events.map((event) => (
         <li key={event.id} className="flex min-w-0">
           <EventCard event={event} variant="grid" />

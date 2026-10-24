@@ -1955,9 +1955,10 @@ application is approved.
 | `GET /organisers/me/events/{id}/analytics?from&to&compare` · `…/analytics.csv` | organiser (own events). 400 bad range. The JSON has `waitlistCount` (people on the event's waitlist now: a count only) |
 | `POST /organisers/me/events/{id}/check-ins` `{code, requestId}` · `GET …/check-ins` · `POST …/check-ins/{checkInId}/undo` `{reason}` | organiser (own events), or admin (platform-managed organisers' events only; anything else 404); see "Check-in". Every ticket outcome is 200; 400 bad body, 404, 409 request id reused for another code, 413, 429. `checkInId`s are uuids |
 | `GET /organisers/me/analytics/overview?from&to&compare` · `…/overview.csv` | organiser: all own events. 400 bad range |
-| `GET /admin/organisers?status&q&limit&cursor` · `POST /admin/organisers/{id}/approve` · `…/reject` | admin. Items (and the decision responses) are `AdminOrganiserRecord`: the full record plus `recentEdits` (newest 20 log entries), most recently updated first. `q` (optional, at most 100 characters used): name, contact email or social handle containing it, ignoring case and accents (NFKD, combining marks removed; a leading `@` is ignored for handles; LIKE wildcards match literally); no index (a substring of a folded expression), it scans one status's organisers. `limit` 20 by default, at most 50. The admin event editor's organiser picker searches with it. Approve/reject: 409 unless pending |
+| `GET /admin/organisers?status&q&limit&cursor` · `POST /admin/organisers/{id}/approve` · `…/reject` | admin. Items (and the decision responses) are `AdminOrganiserRecord`: the full record plus `recentEdits` (newest 20 log entries), most recently updated first. `q` (optional, at most 100 characters used): name, contact email or social handle containing it, ignoring case and accents (NFKD, combining marks removed; a leading `@` is ignored for handles; LIKE wildcards match literally); no index (a substring of a folded expression), it scans one status's organisers. Control characters in `q` are dropped. `limit` 20 by default, at most 50. The admin event editor's organiser picker searches with it. Approve/reject: 409 unless pending |
 | `POST /admin/organisers/{id}/suspend` `{reason}` | admin. Takedown of an approved organiser (see "Organiser profiles"). 200 `{organiser, eventsUnpublished, submissionsRejected}`; 400 reason missing, over 500 characters or with control/invisible characters; 404 unknown; 409 not approved |
-| `GET /admin/events?status` · `POST /admin/events/{id}/approve` · `…/reject` · `…/unpublish` | admin. Approve: 409 if the event's organiser isn't approved. Items are `EventRecord`s, so the review queue shows `ticketingMode`, `externalTicketUrl`, `externalProvider` and `ticketingLocked` |
+| `GET /admin/events?status&q&upcoming&platformManaged&limit&cursor` · `POST /admin/events/{id}/approve` · `…/reject` · `…/unpublish` | admin. Soonest first. `q` (optional, control characters dropped, at most 100 characters used): title or organiser name containing it, ignoring case and accents, LIKE wildcards literal; no index (it scans one status's events). `upcoming` (`1`/`true`, `0`/`false`): only events that haven't ended (`ends_at > now()`, in progress included), or all; absent means `1` for `status=published` and `0` for every other status. `platformManaged` (`1`/`0`): only platform-managed organisers' events, or only the others; absent, both. 400 (fieldErrors on the parameter) for any other boolean value. Approve: 409 if the event's organiser isn't approved. Items are `AdminEventRecord`s (`EventRecord` plus `organiserPlatformManaged`), so the review queue shows `ticketingMode`, `externalTicketUrl`, `externalProvider` and `ticketingLocked` |
+| `GET /admin/summary` | admin. `AdminSummary`, counts only (no names, titles or addresses): `reportsOpen {count, oldestAt}`, `eventsPending {count, soonestStartsAt, startingSoon, startingSoonHours: 72}` (the last three over events not ended), `organisersPending {count, oldestAt}` (oldest last update), `emailsFailed {count}` and `emailsRetrying {count}` (ticket emails: failed, or pending after a failed attempt), `doorEvents {count, windowHours: 24}` (published, Sheltüh-ticketed, platform-managed, not ended, starting within 24 hours). One query; each part is served by an existing status index |
 | `POST /admin/organisers` | admin. A platform-managed organiser (see "Admin authoring"): the application's fields and rules. 201 `AdminOrganiserRecord`; 400 fieldErrors |
 | `GET /admin/events/{id}` · `POST /admin/events` · `PATCH /admin/events/{id}` | admin (see "Admin authoring"). `AdminEventRecord`. POST: the event body plus `organiserId`, `publish?`; 201; 400 fieldErrors (`organiserId` unknown; `ticketTypes` paid for a platform-managed organiser); 409 organiser not approved. PATCH: the event body with `ticketingMode` required, `expectedUpdatedAt`, `publish?`, `reason?` (≤500); 200 (unchanged if nothing changes); 400 fieldErrors (incl. `reason` to change an approved event's mode or link); 404; 409 stale version (`fieldErrors.expectedUpdatedAt`), orders on a switch to external, sold ticket types, or organiser not approved when publishing |
 | `PUT /admin/events/{id}/image` · `DELETE /admin/events/{id}/image` | admin, any status. As the organiser's (413, 400), logged `edited`; 404 |
@@ -2011,6 +2012,39 @@ is `cache-control: private, no-store`, and so is every admin response
   `/api/events/{id}/image?v=…` (public for published events), or the site's
   `app/opengraph-image.tsx` (inherited from the parent segment, since a
   page's `openGraph` replaces the parent's whole object).
+
+## Location (near you)
+
+Search can order results by how close they are to a suburb (owner round,
+24 Oct 2026). Phase 1 is **browser-only**: no table, route, handler,
+`lib/api` or migration change, and the API never receives a location.
+
+- `components/search/LocationPicker.tsx` (the search bar's location
+  segment): "Use my current location" calls `navigator.geolocation` only
+  on that click, never on load (coarse, 10 s timeout, 10 min cache). The
+  position is matched to the nearest known suburb centre
+  (`lib/location.ts` `nearestLocality`, within Greater Melbourne and
+  5 km of a centre) and dropped. Or the visitor types a suburb.
+- Only the suburb's name leaves that function: localStorage
+  `sheltuh:near:v1` = `{"suburb": …}` (`lib/near-storage.ts`), and the
+  `/search?near=` parameter (≤ 60 characters). Coordinates never reach
+  storage, the URL, the API or logs. An empty `near` is dropped on submit
+  (and `/search` redirects `near=` away for a search sent before hydration
+  or without JS).
+- `/search` resolves `near` against the suburb table (`lib/localities.ts`);
+  `EventFeed` → `EventBrowser` (demo) / `LiveEventFeed` (live) order the
+  results with `orderByNearness`: bands (In {suburb}, Within 5 km,
+  5–15 km, Further away, Location not on file), soonest first within each.
+  Live near mode reads at most 4 pages of 50 (the 200 soonest matches) and
+  says so when more matched. Distances are suburb centre to suburb centre,
+  labelled approximate.
+- The suburb table is interim: `lib/localities.ts` reuses the 20 centres in
+  `lib/geo.ts` until a CC BY 4.0 Greater Melbourne table (ABS SAL 2021 or
+  the Geoscience Australia Gazetteer) is generated, with its source header
+  and a credit on `/about`.
+- Disclosed at `/privacy#location` (draft) and in the popover.
+- Phase 2 (not built): venue coordinates on events and a server-side
+  `GET /api/events?near=<suburb>` checked against the same table.
 
 ## Not built yet
 

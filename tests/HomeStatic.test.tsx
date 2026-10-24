@@ -122,17 +122,22 @@ describe("HomeHero (mobile-redesign.md §6.1)", () => {
     expect(container.querySelectorAll("p.eyebrow svg")).toHaveLength(1);
   });
 
-  it("makes search the main action, with one search icon (the submit button) and no orange button or link", () => {
+  // Owner round of 24 Oct 2026 (the Eventbrite-style bar with a location): the submit is orange now, and
+  // the bar has two icons, the location pin and the submit's magnifier.
+  it("makes search the main action: an orange submit (the hero's one orange button), a pin and one magnifier", () => {
     const { container } = render(<HomeHero />);
     const search = screen.getByRole("search", { name: "Search events" });
     // A3 (WCAG 2.5.3): the field's name is the words it shows, so "Search events" works by voice too.
     expect(within(search).getByRole("searchbox", { name: "Search events" })).toHaveAttribute("placeholder", "Search events");
-    expect(within(search).getByRole("button", { name: "Search" })).toHaveAttribute("type", "submit");
-    // No second magnifier at the field's start: the submit button's is the only one.
-    expect(search.querySelectorAll("svg")).toHaveLength(1);
-    expect(container.querySelector(".btn-signal")).toBeNull();
-    // Browsing is the category row under the hero; the hero itself has no links.
-    expect(screen.queryAllByRole("link")).toEqual([]);
+    const submit = within(search).getByRole("button", { name: "Search" });
+    expect(submit).toHaveAttribute("type", "submit");
+    expect(within(search).getByRole("button", { name: "Location: Your suburb" })).toBeInTheDocument();
+    // No second magnifier at the field's start: the pin and the submit button's magnifier.
+    expect(search.querySelectorAll("svg")).toHaveLength(2);
+    expect(Array.from(container.querySelectorAll(".btn-signal"))).toEqual([submit]);
+    // Browsing is the category row under the hero; the hero itself has no links. (Where the browser
+    // has geolocation, the location popover's Privacy link is in the closed popover, display: none.)
+    expect(screen.queryAllByRole("link").filter((link) => !link.closest("[popover]"))).toEqual([]);
     expect(screen.queryByRole("navigation")).toBeNull();
   });
 

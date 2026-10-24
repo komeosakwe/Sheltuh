@@ -329,6 +329,25 @@ describe("Nav — header", () => {
     expect(screen.getByRole("link", { name: "Search" })).toHaveAttribute("href", "/search");
   });
 
+  // Owner round of 24 Oct 2026 (D2, D7): the Eventbrite-style bar in the header has a black submit
+  // (orange on hover), and the header leaves it out on /search too, whose page has the bar with a location.
+  it("puts the bar with a location and a black submit in the header, but not on /search", () => {
+    pathname = "/events";
+    renderNav(fakeAuthValue());
+    const search = screen.getByRole("search", { name: "Search the site" });
+    expect(within(search).getByRole("button", { name: "Location: Your suburb" })).toBeInTheDocument();
+    const submit = within(search).getByRole("button", { name: "Search" });
+    expect(submit).toHaveAttribute("type", "submit");
+    expect(submit).not.toHaveClass("btn-signal");
+    expect(submit).toHaveClass("bg-foreground", "hover:bg-signal");
+    cleanup();
+    pathname = "/search";
+    renderNav(fakeAuthValue());
+    expect(screen.queryByRole("search")).toBeNull();
+    // The phone bar keeps its search icon there, marked as the current page.
+    expect(screen.getByRole("link", { name: "Search" })).toHaveAttribute("aria-current", "page");
+  });
+
   it("names its two navigation landmarks distinctly: the desktop row's Primary, the phone menu's Site menu (A11)", () => {
     const { menu } = renderNav(fakeAuthValue({ status: "signed-out" }));
     const primary = screen.getAllByRole("navigation", { name: "Primary", hidden: true });

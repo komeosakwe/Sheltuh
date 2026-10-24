@@ -5,9 +5,10 @@ import type { Coordinates, SheltuhEvent } from "./types";
  * only as a fallback when an event has no geocoded `coordinates` of its
  * own (e.g. every event from the live API today — see adaptPublicEvent,
  * which doesn't carry a venue location yet). These are suburb-level
- * approximations, not surveyed venue positions.
+ * approximations, not surveyed venue positions. Also the interim suburb table
+ * for "near you" search (lib/localities.ts) until a sourced one lands.
  */
-const SUBURB_COORDINATES: Record<string, Coordinates> = {
+export const SUBURB_COORDINATES: Readonly<Record<string, Coordinates>> = {
   "melbourne cbd": { lat: -37.8136, lng: 144.9631 },
   fitzroy: { lat: -37.7997, lng: 144.9784 },
   "fitzroy north": { lat: -37.7838, lng: 144.9784 },

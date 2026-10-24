@@ -128,10 +128,13 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     const waitlist = screen.getAllByRole("link", { name: /Join waitlist for/ });
     for (const link of waitlist) expect(link).toHaveClass("btn-outline");
     const orange = Array.from(container.querySelectorAll(".btn-signal"));
-    // Every other card quick-buy is orange (black label), and nothing else: the hero's main action is
-    // the search now, and "Explore all events" is a text link (owner feedback, 22 Oct 2026).
-    expect(orange).toHaveLength(quickBuy.length);
-    expect(orange.filter((el) => !quickBuy.includes(el as HTMLElement))).toEqual([]);
+    // Every other card quick-buy is orange (black label), and the hero's search submit: the hero's main
+    // action is the search (owner feedback, 22 Oct 2026), whose submit is orange since the owner round of
+    // 24 Oct 2026 (the Eventbrite-style bar). "Explore all events" is a text link.
+    const searchSubmit = screen.getByRole("search", { name: "Search events" }).querySelector("button[type='submit']");
+    expect(orange).toHaveLength(quickBuy.length + 1);
+    expect(orange).toContain(searchSubmit);
+    expect(orange.filter((el) => el !== searchSubmit && !quickBuy.includes(el as HTMLElement))).toEqual([]);
     // Never an orange button on the orange band.
     expect(band?.querySelector(".btn-signal")).toBeNull();
   });

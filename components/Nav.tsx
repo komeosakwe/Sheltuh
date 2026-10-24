@@ -165,10 +165,11 @@ export default function Nav() {
         <Link href="/" aria-label="Sheltüh home" className="flex items-center py-1">
           <Wordmark className="h-6 w-auto" />
         </Link>
-        {/* The home's hero has the page's search; a second field beside it would only compete. */}
-        {pathname !== "/" && (
+        {/* The home's hero and /search have the page's search; a second field (and a second
+            location) beside it would only compete (owner, 24 Oct 2026, D7). Black submit here. */}
+        {pathname !== "/" && pathname !== "/search" && (
           <div className="order-last w-full lg:order-none lg:max-w-sm lg:flex-1">
-            <SearchBar label="Search the site" placeholder="Search events" />
+            <SearchBar label="Search the site" placeholder="Search events" tone="plain" />
           </div>
         )}
         <nav aria-label="Primary" className="ml-auto flex flex-wrap items-center gap-x-1 gap-y-1 sm:gap-x-3">
