@@ -39,6 +39,10 @@ describe("next.config headers", () => {
     },
   );
 
+  it("keeps the OAuth callback (/auth/callback?code=…, a one-time sign-in code) out of Referers and search indexes", async () => {
+    expect(await headersFor("/auth/:path*")).toEqual({ "referrer-policy": "no-referrer", "x-robots-tag": "noindex, nofollow" });
+  });
+
   it("sends only the origin as a Referer from /search, whose address can hold the visitor's suburb (near=)", async () => {
     expect(await headersFor("/search")).toEqual({ "referrer-policy": "strict-origin" });
   });
@@ -67,6 +71,7 @@ describe("next.config headers", () => {
       "/checkout/:path*",
       "/waitlist/:path*",
       "/following/:path*",
+      "/auth/:path*",
       "/search",
       "/vendor/zxing-wasm/:path*",
     ]);

@@ -4,6 +4,7 @@ import type { Session } from "@supabase/supabase-js";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { oauthCallbackUrl, oauthQueryParams, type OAuthProvider } from "./oauth";
 import { createAccessTokenResolver, SessionExpiredError } from "./session-token";
 
 // Re-exported so components can `import { SessionExpiredError } from
@@ -18,6 +19,11 @@ interface AuthState {
   accessToken?: string;
   /** UI hint only (e.g. showing the admin nav link) — the API re-checks it on every request. */
   isAdmin: boolean;
+  /**
+   * How this account can sign in ("email", "google", "apple"), from
+   * Supabase's `app_metadata.providers`. Display only; absent when signed out.
+   */
+  providers?: string[];
 }
 
 export interface AuthContextValue extends AuthState {
@@ -29,6 +35,19 @@ export interface AuthContextValue extends AuthState {
   resendConfirmationCode: (email: string) => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
   confirmForgotPassword: (email: string, code: string, newPassword: string) => Promise<void>;
+  /**
+   * Starts signing in with Google or Apple: the browser leaves for the
+   * provider and comes back to /auth/callback, carrying a safe `next`
+   * (lib/auth/oauth.ts). Resolves as the page starts to leave; rejects if
+   * the sign-in can't be started.
+   */
+  signInWithProvider: (provider: OAuthProvider, next?: string) => Promise<void>;
+  /**
+   * Exchanges the code /auth/callback was sent back with for a session (once:
+   * a code is single use). Rejects with Supabase's own AuthError, so its
+   * `code` (e.g. "flow_state_expired") is kept for lib/auth/oauth.ts to explain.
+   */
+  completeOAuthSignIn: (code: string) => Promise<void>;
   signOut: () => void;
   refresh: () => Promise<void>;
   /**
@@ -48,6 +67,12 @@ export const AuthContext = createContext<AuthContextValue | undefined>(undefined
 
 const SIGNED_OUT: AuthState = { status: "signed-out", isAdmin: false };
 
+function providersOf(session: Session): string[] | undefined {
+  const providers: unknown = session.user.app_metadata?.providers;
+  if (!Array.isArray(providers)) return undefined;
+  return providers.filter((p): p is string => typeof p === "string");
+}
+
 function sessionToState(session: Session | null): AuthState {
   if (!session) return SIGNED_OUT;
   return {
@@ -55,6 +80,7 @@ function sessionToState(session: Session | null): AuthState {
     email: session.user.email,
     accessToken: session.access_token,
     isAdmin: session.user.app_metadata?.role === "admin",
+    providers: providersOf(session),
   };
 }
 
@@ -138,6 +164,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await client.auth.signOut();
   }, []);
 
+  const signInWithProvider = useCallback(async (provider: OAuthProvider, next?: string) => {
+    const { error } = await requireClient().auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: oauthCallbackUrl(window.location.origin, next),
+        queryParams: oauthQueryParams(provider),
+      },
+    });
+    throwIfError(error);
+  }, []);
+
+  // Not throwIfError: that would drop the AuthError's `code`.
+  const completeOAuthSignIn = useCallback(async (code: string) => {
+    const { error } = await requireClient().auth.exchangeCodeForSession(code);
+    if (error) throw error;
+  }, []);
+
   const signOut = useCallback(() => {
     void getSupabaseBrowserClient()?.auth.signOut();
     setState(SIGNED_OUT);
@@ -153,6 +196,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       resendConfirmationCode,
       forgotPassword,
       confirmForgotPassword,
+      signInWithProvider,
+      completeOAuthSignIn,
       signOut,
       refresh,
       getAccessToken,
@@ -165,6 +210,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       resendConfirmationCode,
       forgotPassword,
       confirmForgotPassword,
+      signInWithProvider,
+      completeOAuthSignIn,
       signOut,
       refresh,
       getAccessToken,

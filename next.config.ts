@@ -83,6 +83,16 @@ const nextConfig: NextConfig = {
           { key: "X-Robots-Tag", value: "noindex, nofollow" },
         ],
       },
+      // /auth/callback?code=… carries a one-time sign-in code from Google or
+      // Apple (via Supabase Auth): never send it on as a Referer, and keep the
+      // page out of search indexes.
+      {
+        source: "/auth/:path*",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
       // /search?near=Fitzroy carries the visitor's suburb (lib/location.ts): send
       // only the origin as a Referer, to this site and to any other, so the
       // suburb never leaves in one (docs/architecture.md, "Location"). The API
