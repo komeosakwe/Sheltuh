@@ -316,10 +316,19 @@ export const eventSelectWith = (extraColumns: string) => `
   select ${EVENT_COLUMNS},
          ${extraColumns}${EVENT_FROM}`;
 
-/** EVENT_SELECT plus whether the organiser is platform-managed (no owner account). Admin only. */
+/**
+ * EVENT_SELECT plus whether the organiser is platform-managed (no owner
+ * account) and the event's trending curation (private.event_curation: null
+ * columns when an admin never curated it). Admin only. Callers append a
+ * `where` over `e` / `o`: the curation join is on the table's primary key,
+ * at most one row per event, so it never changes the rows or their order.
+ */
 export const ADMIN_EVENT_SELECT = `
   select ${EVENT_COLUMNS},
-         o.owner_user_id is null as organiser_platform_managed${EVENT_FROM}`;
+         o.owner_user_id is null as organiser_platform_managed,
+         ec.boost as curation_boost,
+         ec.excluded as curation_excluded${EVENT_FROM}
+  left join private.event_curation ec on ec.event_id = e.id`;
 
 /** The fields a log entry's `changes` can name (ModerationLogEntry.changes). */
 const LOG_CHANGE_FIELDS = [
@@ -451,9 +460,19 @@ function mapEvent(row: Row, audience: LogAudience): EventRecord {
   };
 }
 
-/** For rows of ADMIN_EVENT_SELECT. */
+/**
+ * For rows of ADMIN_EVENT_SELECT. An event with no curation row has the
+ * defaults GET /admin/events/{id}/curation reports: boost 1, not excluded.
+ */
 export function toAdminEvent(row: Row): AdminEventRecord {
-  return { ...toEventForAdmin(row), organiserPlatformManaged: row.organiser_platform_managed === true };
+  return {
+    ...toEventForAdmin(row),
+    organiserPlatformManaged: row.organiser_platform_managed === true,
+    curation: {
+      boost: row.curation_boost === null || row.curation_boost === undefined ? 1 : Number(row.curation_boost),
+      excluded: row.curation_excluded === true,
+    },
+  };
 }
 
 /**

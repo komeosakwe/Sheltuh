@@ -281,7 +281,8 @@ export const adminRemoveOrganiserLogo: Handler<{ organiserId: string }> = async 
 /**
  * GET /api/admin/events?status=pending_review&q=&upcoming=&platformManaged=&limit=&cursor=
  * — soonest first. Items are AdminEventRecords (EventRecord plus
- * `organiserPlatformManaged`).
+ * `organiserPlatformManaged` and the trending `curation`, read by a primary
+ * key join on private.event_curation: no request per row).
  *
  * - `q` (optional; control characters removed, trimmed, at most
  *   MAX_EVENT_SEARCH_LENGTH characters used): the title or the organiser's

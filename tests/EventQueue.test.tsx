@@ -71,6 +71,7 @@ function ev(overrides: Partial<AdminEventRecord> = {}): AdminEventRecord {
     createdAt: "2026-10-01T00:00:00.000Z",
     updatedAt: "2026-10-01T00:00:00.000Z",
     organiserPlatformManaged: false,
+    curation: { boost: 1, excluded: false },
     ...overrides,
   };
 }
@@ -141,6 +142,22 @@ describe("event queue filters (URL)", () => {
 });
 
 describe("EventQueue", () => {
+  it("shows an event's Trending curation: a boost, kept out, or nothing when uncurated", async () => {
+    vi.mocked(adminListEvents).mockResolvedValue({
+      items: [
+        ev({ eventId: "evt-b", title: "Boosted", curation: { boost: 1.5, excluded: false } }),
+        ev({ eventId: "evt-x", title: "Excluded", curation: { boost: 1, excluded: true } }),
+        ev({ eventId: "evt-p", title: "Plain" }),
+      ],
+    });
+    renderQueue();
+    const row = async (title: string) =>
+      (await screen.findByRole("heading", { name: title })).closest("li") as HTMLElement;
+    expect(within(await row("Boosted")).getByText("Boost ×1.5")).toBeInTheDocument();
+    expect(within(await row("Excluded")).getByText("Kept out of Trending")).toBeInTheDocument();
+    expect((await row("Plain")).querySelector("[data-curation]")).toBeNull();
+  });
+
   it("starts on Waiting for review, and a filter changes the URL and what's asked for", async () => {
     renderQueue();
     expect(await screen.findByRole("heading", { level: 3, name: "Neon Static" })).toBeInTheDocument();

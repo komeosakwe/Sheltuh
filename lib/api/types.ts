@@ -334,6 +334,20 @@ export interface AdminEventRecord extends EventRecord {
    * tickets or external ticketing, and only admins check its events in.
    */
   organiserPlatformManaged: boolean;
+  /**
+   * The event's trending curation (set through PUT
+   * /admin/events/{eventId}/curation, whose GET also has the log). An event
+   * an admin never curated: boost 1, excluded false.
+   */
+  curation: AdminEventCurationState;
+}
+
+/** An event's trending curation as AdminEventRecord carries it. */
+export interface AdminEventCurationState {
+  /** Multiplies the event's trending score: 0.5 to 2, default 1. */
+  boost: number;
+  /** Kept out of trending whatever its score. */
+  excluded: boolean;
 }
 
 /**

@@ -393,6 +393,7 @@ describe("EventClipField: admin mode", () => {
     externalProvider: null,
     ticketingLocked: true,
     organiserPlatformManaged: false,
+    curation: { boost: 1, excluded: false },
     updatedAt: "2026-10-20T01:00:00.000Z",
   };
 
@@ -535,6 +536,7 @@ describe("EventClipField: when the clip step fails after the event saved (M2)", 
       ...EVENT,
       ticketingMode: "sheltuh",
       organiserPlatformManaged: false,
+      curation: { boost: 1, excluded: false },
       updatedAt: "2026-10-20T01:00:00.000Z",
     };
     api.adminUpdateEvent.mockImplementation(log("adminUpdateEvent", async () => ({ ...ADMIN, updatedAt: "2026-10-20T02:00:00.000Z" })));
@@ -669,6 +671,7 @@ describe("EventClipField: uploads switched off", () => {
     status: "published",
     ticketingMode: "sheltuh",
     organiserPlatformManaged: false,
+    curation: { boost: 1, excluded: false },
     clip: SAVED_CLIP,
     updatedAt: "2026-10-20T01:00:00.000Z",
   };

@@ -53,6 +53,7 @@ function event(i: number, overrides: Partial<AdminEventRecord> = {}): AdminEvent
     createdAt: new Date(now - DAY).toISOString(),
     updatedAt: new Date(now - DAY).toISOString(),
     organiserPlatformManaged: false,
+    curation: { boost: 1, excluded: false },
     ...overrides,
   };
 }

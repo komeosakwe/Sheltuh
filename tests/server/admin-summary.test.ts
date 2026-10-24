@@ -8,8 +8,10 @@ import {
   parseAdminSearch,
   PENDING_EVENT_SOON_HOURS,
 } from "@/lib/server/handlers/admin";
-import { adminCreateEvent, adminCreateOrganiser } from "@/lib/server/handlers/admin-authoring";
-import { submitEventForReview } from "@/lib/server/handlers/events";
+import { adminCreateEvent, adminCreateOrganiser, adminGetEvent } from "@/lib/server/handlers/admin-authoring";
+import { getMyEvent, submitEventForReview } from "@/lib/server/handlers/events";
+import { getPublicEventBySlug } from "@/lib/server/handlers/public-events";
+import { adminSetEventCuration } from "@/lib/server/handlers/trending";
 import { applyAsOrganiser } from "@/lib/server/handlers/organisers";
 import type { AdminSummary } from "@/lib/server/types";
 import { TestApi } from "./helpers/api";
@@ -251,6 +253,64 @@ describe("GET /api/admin/events filters", () => {
     const byTitle = Object.fromEntries(res.body.items.map((e: { title: string; organiserPlatformManaged: boolean }) => [e.title, e]));
     expect(byTitle["Platform gig"]).toMatchObject({ organiserPlatformManaged: true, status: "published" });
     expect(byTitle["Owned gig"]).toMatchObject({ organiserPlatformManaged: false, moderationLog: expect.any(Array) });
+  });
+
+  it("items carry the trending curation: boosted, excluded, and boost 1 / not excluded when never curated", async () => {
+    const organiser = await approvedOrganiser(api, admin);
+    const boosted = await publishedEvent(api, organiser, admin, { title: "Boosted" });
+    const excluded = await publishedEvent(api, organiser, admin, { title: "Excluded" });
+    const uncurated = await publishedEvent(api, organiser, admin, { title: "Uncurated" });
+    const reset = await publishedEvent(api, organiser, admin, { title: "Reset" });
+    const pending = await pendingEvent(organiser, { title: "Pending boosted" });
+    // Distinct starts, so the list's order (soonest first) is known.
+    for (const [i, event] of [boosted, excluded, uncurated, reset].entries()) {
+      await reschedule(event.eventId, 24 * (i + 1), 24 * (i + 1) + 3);
+    }
+    const curate = async (eventId: string, boost: number, isExcluded: boolean) => {
+      const res = await api.call(adminSetEventCuration, {
+        token: admin.token,
+        method: "PUT",
+        params: { eventId },
+        body: { boost, excluded: isExcluded, reason: "Editorial pick" },
+      });
+      expect(res.status).toBe(200);
+    };
+    await curate(boosted.eventId, 1.5, false);
+    await curate(excluded.eventId, 0.5, true);
+    // A curation row that's back at the defaults reads like no row at all.
+    await curate(reset.eventId, 2, true);
+    await curate(reset.eventId, 1, false);
+    await curate(pending.eventId, 1.25, false);
+
+    const res = await listEvents({ status: "published" });
+    expect(res.status).toBe(200);
+    // One item per event, in the usual order: the join adds no rows.
+    expect(titles(res)).toEqual(["Boosted", "Excluded", "Uncurated", "Reset"]);
+    const curation = Object.fromEntries(
+      res.body.items.map((e: { title: string; curation: unknown }) => [e.title, e.curation]),
+    );
+    expect(curation).toEqual({
+      Boosted: { boost: 1.5, excluded: false },
+      Excluded: { boost: 0.5, excluded: true },
+      Uncurated: { boost: 1, excluded: false },
+      Reset: { boost: 1, excluded: false },
+    });
+    // Any status, and the page boundary keeps every item's curation.
+    expect((await listEvents({ status: "pending_review" })).body.items[0].curation).toEqual({ boost: 1.25, excluded: false });
+    const page = await listEvents({ status: "published", limit: "1" });
+    expect(page.body.items.map((e: { curation: unknown }) => e.curation)).toEqual([{ boost: 1.5, excluded: false }]);
+    const next = await listEvents({ status: "published", limit: "1", cursor: page.body.nextCursor });
+    expect(next.body.items.map((e: { curation: unknown }) => e.curation)).toEqual([{ boost: 0.5, excluded: true }]);
+
+    // The single-event admin read carries it too; the organiser's and the public views never do.
+    const one = await api.call(adminGetEvent, { token: admin.token, params: { eventId: excluded.eventId } });
+    expect(one.body.curation).toEqual({ boost: 0.5, excluded: true });
+    const own = await api.call(getMyEvent, { token: organiser.token, params: { eventId: excluded.eventId } });
+    expect(own.status).toBe(200);
+    expect(own.body).not.toHaveProperty("curation");
+    const pub = await api.call(getPublicEventBySlug, { params: { slug: one.body.slug } });
+    expect(pub.status).toBe(200);
+    expect(pub.body).not.toHaveProperty("curation");
   });
 
   it("published defaults to upcoming; upcoming=0 (or false) brings back ended events; other statuses default to all", async () => {

@@ -102,6 +102,14 @@ export default function EventQueueItem({
               </>
             )}
           </p>
+          {(item.curation.excluded || item.curation.boost !== 1) && (
+            <p className="text-sm text-foreground" data-curation>
+              Trending:{" "}
+              <span className="font-semibold">
+                {item.curation.excluded ? "Kept out of Trending" : `Boost ×${item.curation.boost}`}
+              </span>
+            </p>
+          )}
           <p className="meta text-muted">
             {item.venueName}, {item.suburb}
           </p>

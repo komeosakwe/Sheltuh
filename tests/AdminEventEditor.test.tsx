@@ -83,6 +83,7 @@ const EVENT: AdminEventRecord = {
   createdAt: "2026-10-01T00:00:00.000Z",
   updatedAt: "2026-10-20T01:02:03.456Z",
   organiserPlatformManaged: false,
+  curation: { boost: 1, excluded: false },
 };
 
 /** The admin editor's props (the organiser's are typed apart: their onSaved gets an EventRecord). */

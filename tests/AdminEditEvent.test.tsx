@@ -79,6 +79,7 @@ const EVENT: AdminEventRecord = {
   createdAt: "2026-10-01T00:00:00.000Z",
   updatedAt: "2026-10-20T01:02:03.456Z",
   organiserPlatformManaged: true,
+  curation: { boost: 1, excluded: false },
 };
 
 function renderPage() {
