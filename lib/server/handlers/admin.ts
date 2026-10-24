@@ -6,9 +6,9 @@ import { parseTicketing } from "../event-input";
 import { HttpError, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
-import { ADMIN_ORGANISER_SELECT, EVENT_SELECT, toAdminOrganiser, toEventForAdmin } from "../records";
+import { ADMIN_EVENT_SELECT, ADMIN_ORGANISER_SELECT, toAdminEvent, toAdminOrganiser } from "../records";
 import type { Handler } from "../route";
-import type { AdminOrganiserRecord, EventStatus, OrganiserStatus, SuspendOrganiserResult } from "../types";
+import type { AdminOrganiserRecord, AdminSummary, EventStatus, OrganiserStatus, SuspendOrganiserResult } from "../types";
 import { fail, requireString } from "../validation";
 import { requireEventForAdmin } from "./event-queries";
 
@@ -54,6 +54,32 @@ function containsPattern(text: string): string {
   return `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 }
 
+/** Longest admin event search text (longer input is cut, as in the organiser search). */
+export const MAX_EVENT_SEARCH_LENGTH = 100;
+
+/**
+ * An admin search parameter as the SQL compares it: control characters
+ * (C0, DEL, C1) removed (Postgres text can't hold NUL, and none of them can
+ * match a name or title), trimmed, cut to `maxLength`, then folded
+ * (foldOrganiserSearch). Empty: no search.
+ */
+export function parseAdminSearch(raw: string | null, maxLength: number): string {
+  const cleaned = (raw ?? "").replace(/[\u0000-\u001f\u007f-\u009f]/g, "").trim().slice(0, maxLength);
+  return foldOrganiserSearch(cleaned).trim();
+}
+
+/**
+ * An optional boolean query parameter: "1" or "true", "0" or "false";
+ * absent or empty is undefined. Anything else is a 400 naming the parameter.
+ */
+function parseBooleanParam(qs: URLSearchParams, name: string): boolean | undefined {
+  const raw = qs.get(name);
+  if (raw === null || raw === "") return undefined;
+  if (raw === "1" || raw === "true") return true;
+  if (raw === "0" || raw === "false") return false;
+  throw new HttpError(400, `${name} must be 1 or 0.`, { [name]: "Must be 1 or 0." });
+}
+
 /**
  * GET /api/admin/organisers?status=pending&q=&limit=&cursor= — most recently
  * updated first. Each item is an AdminOrganiserRecord: the full record
@@ -81,7 +107,7 @@ export const adminListOrganisers: Handler = async (req, _params, { db, verifyAcc
 
   const params: unknown[] = [status];
   const where = ["o.status = $1::public.organiser_status"];
-  const q = foldOrganiserSearch(qs.get("q")?.trim().slice(0, MAX_ORGANISER_SEARCH_LENGTH) ?? "").trim();
+  const q = parseAdminSearch(qs.get("q"), MAX_ORGANISER_SEARCH_LENGTH);
   if (q) {
     params.push(containsPattern(q));
     const any = `$${params.length}`;
@@ -252,7 +278,29 @@ export const adminRemoveOrganiserLogo: Handler<{ organiserId: string }> = async 
 // Event submissions
 // ---------------------------------------------------------------------------
 
-/** GET /api/admin/events?status=pending_review — soonest first. */
+/**
+ * GET /api/admin/events?status=pending_review&q=&upcoming=&platformManaged=&limit=&cursor=
+ * — soonest first. Items are AdminEventRecords (EventRecord plus
+ * `organiserPlatformManaged`).
+ *
+ * - `q` (optional; control characters removed, trimmed, at most
+ *   MAX_EVENT_SEARCH_LENGTH characters used): the title or the organiser's
+ *   name contains it, ignoring case and accents (parseAdminSearch); LIKE
+ *   wildcards match literally.
+ * - `upcoming` (1/true or 0/false): only events that haven't ended
+ *   (`ends_at > now()`, in progress included), or every event. Absent:
+ *   true for `status=published` (the live list; past events with `upcoming=0`),
+ *   false for every other status (what an admin has to act on, whenever it is).
+ * - `platformManaged` (1/true or 0/false): only events of platform-managed
+ *   organisers (no owner account: the ones admins check in at the door), or
+ *   only of organisers with an account. Absent: both.
+ *
+ * Anything else for a boolean is a 400 (fieldErrors on the parameter).
+ * Served by events_status_starts_idx (status, starts_at, id), or
+ * events_status_ends_idx with `upcoming`; the search has no index (a
+ * substring of a folded expression, as for organisers) and filters one
+ * status's rows.
+ */
 export const adminListEvents: Handler = async (req, _params, { db, verifyAccessToken }) => {
   await requireAdmin(req, verifyAccessToken);
   const qs = new URL(req.url).searchParams;
@@ -260,15 +308,118 @@ export const adminListEvents: Handler = async (req, _params, { db, verifyAccessT
   if (!EVENT_STATUSES.includes(status)) {
     throw new HttpError(400, `status must be one of: ${EVENT_STATUSES.join(", ")}`);
   }
+  const upcoming = parseBooleanParam(qs, "upcoming") ?? status === "published";
+  const platformManaged = parseBooleanParam(qs, "platformManaged");
   const limit = parseLimit(qs.get("limit"));
   const offset = decodeCursor(qs.get("cursor"));
 
+  const params: unknown[] = [status];
+  const where = ["e.status = $1::public.event_status"];
+  if (upcoming) where.push("e.ends_at > now()");
+  if (platformManaged !== undefined) {
+    where.push(platformManaged ? "o.owner_user_id is null" : "o.owner_user_id is not null");
+  }
+  const q = parseAdminSearch(qs.get("q"), MAX_EVENT_SEARCH_LENGTH);
+  if (q) {
+    params.push(containsPattern(q));
+    const n = `$${params.length}`;
+    where.push(`(${ORGANISER_SEARCH_FOLD("e.title")} like ${n} or ${ORGANISER_SEARCH_FOLD("o.display_name")} like ${n})`);
+  }
+  params.push(limit + 1, offset);
+
   const rows = await db.query(
-    `${EVENT_SELECT} where e.status = $1::public.event_status
-     order by e.starts_at, e.id limit $2 offset $3`,
-    [status, limit + 1, offset],
+    `${ADMIN_EVENT_SELECT} where ${where.join(" and ")}
+     order by e.starts_at, e.id limit $${params.length - 1} offset $${params.length}`,
+    params,
   );
-  return okPrivate(toPage(rows.map(toEventForAdmin), offset, limit));
+  return okPrivate(toPage(rows.map(toAdminEvent), offset, limit));
+};
+
+// ---------------------------------------------------------------------------
+// Summary (the admin hub's counts)
+// ---------------------------------------------------------------------------
+
+/** "Starts soon" for a pending submission: within this many hours (and not ended). */
+export const PENDING_EVENT_SOON_HOURS = 72;
+/** The door check-in window: platform-managed events starting within this many hours (and not ended). */
+export const DOOR_EVENT_WINDOW_HOURS = 24;
+
+/**
+ * GET /api/admin/summary — what's waiting for an admin, as counts (the hub
+ * and the admin nav's badges). One read of five aggregates, each over one
+ * status of one table and served by an existing index:
+ *
+ * - reportsOpen: open member reports, and when the oldest was filed
+ *   (user_reports_status_created_idx).
+ * - eventsPending: events waiting for review; of those not ended, the soonest
+ *   start and how many start within PENDING_EVENT_SOON_HOURS
+ *   (events_status_starts_idx).
+ * - organisersPending: organiser applications waiting for review, and the
+ *   oldest one's last update (its submission or resubmission;
+ *   organisers_status_updated_idx).
+ * - emailsFailed / emailsRetrying: ticket emails (the jobs GET /admin/emails
+ *   lists: the ones with an order) that gave up, or are waiting for another
+ *   attempt after at least one failed (email_outbox_status_created_idx).
+ * - doorEventsNext24h: published, Sheltüh-ticketed events of platform-managed
+ *   organisers (the ones only admins check in) that haven't ended and start
+ *   within DOOR_EVENT_WINDOW_HOURS (events_status_ends_idx).
+ *
+ * Counts only: no titles, names or addresses.
+ */
+export const adminSummary: Handler = async (req, _params, { db, verifyAccessToken }) => {
+  await requireAdmin(req, verifyAccessToken);
+  const [row] = await db.query<{
+    reports_open: number;
+    reports_oldest_at: Date | string | null;
+    events_pending: number;
+    events_pending_soonest: Date | string | null;
+    events_pending_soon: number;
+    organisers_pending: number;
+    organisers_pending_oldest_at: Date | string | null;
+    emails_failed: number;
+    emails_retrying: number;
+    door_events: number;
+  }>(
+    `select r.reports_open, r.reports_oldest_at,
+            ev.events_pending, ev.events_pending_soonest, ev.events_pending_soon,
+            og.organisers_pending, og.organisers_pending_oldest_at,
+            em.emails_failed, em.emails_retrying,
+            dr.door_events
+       from (select count(*)::int as reports_open, min(created_at) as reports_oldest_at
+               from private.user_reports where status = 'open') r,
+            (select count(*)::int as events_pending,
+                    min(starts_at) filter (where ends_at > now()) as events_pending_soonest,
+                    count(*) filter (where ends_at > now() and starts_at <= now() + make_interval(hours => $1::int))::int
+                      as events_pending_soon
+               from public.events where status = 'pending_review') ev,
+            (select count(*)::int as organisers_pending, min(updated_at) as organisers_pending_oldest_at
+               from public.organisers where status = 'pending') og,
+            (select count(*) filter (where status = 'failed')::int as emails_failed,
+                    count(*) filter (where status = 'pending' and attempts > 0)::int as emails_retrying
+               from private.email_outbox
+              where status in ('failed', 'pending') and order_id is not null) em,
+            (select count(*)::int as door_events
+               from public.events e join public.organisers o on o.id = e.organiser_id
+              where e.status = 'published' and e.ends_at > now()
+                and e.starts_at <= now() + make_interval(hours => $2::int)
+                and e.ticketing_mode = 'sheltuh' and o.owner_user_id is null) dr`,
+    [PENDING_EVENT_SOON_HOURS, DOOR_EVENT_WINDOW_HOURS],
+  );
+  const at = (value: Date | string | null) => (value === null ? null : new Date(value).toISOString());
+  const summary: AdminSummary = {
+    reportsOpen: { count: row.reports_open, oldestAt: at(row.reports_oldest_at) },
+    eventsPending: {
+      count: row.events_pending,
+      soonestStartsAt: at(row.events_pending_soonest),
+      startingSoon: row.events_pending_soon,
+      startingSoonHours: PENDING_EVENT_SOON_HOURS,
+    },
+    organisersPending: { count: row.organisers_pending, oldestAt: at(row.organisers_pending_oldest_at) },
+    emailsFailed: { count: row.emails_failed },
+    emailsRetrying: { count: row.emails_retrying },
+    doorEvents: { count: row.door_events, windowHours: DOOR_EVENT_WINDOW_HOURS },
+  };
+  return okPrivate(summary);
 };
 
 interface Moderation {

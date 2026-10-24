@@ -592,6 +592,42 @@ export interface AdminEmailJob {
 }
 
 // ---------------------------------------------------------------------------
+// Admin summary
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/admin/summary: what's waiting for an admin, as counts only (no
+ * titles, names or addresses). Times are ISO 8601; null when nothing is
+ * waiting.
+ */
+export interface AdminSummary {
+  /** Open member reports (GET /admin/reports?status=open). `oldestAt`: when the oldest was filed. */
+  reportsOpen: { count: number; oldestAt: string | null };
+  /**
+   * Events waiting for review (GET /admin/events?status=pending_review).
+   * `soonestStartsAt` and `startingSoon` only count those that haven't
+   * ended: the soonest start, and how many start within `startingSoonHours`
+   * (72) from now, in progress included.
+   */
+  eventsPending: { count: number; soonestStartsAt: string | null; startingSoon: number; startingSoonHours: number };
+  /**
+   * Organiser applications waiting for review (GET /admin/organisers?status=pending).
+   * `oldestAt`: the oldest one's last update (its submission or resubmission).
+   */
+  organisersPending: { count: number; oldestAt: string | null };
+  /** Ticket emails that gave up and need a resend (GET /admin/emails?status=failed). */
+  emailsFailed: { count: number };
+  /** Ticket emails waiting for another attempt after at least one failed (in GET /admin/emails?status=pending). */
+  emailsRetrying: { count: number };
+  /**
+   * Published, Sheltüh-ticketed events of platform-managed organisers (the
+   * ones only admins check in) that haven't ended and start within
+   * `windowHours` (24) from now.
+   */
+  doorEvents: { count: number; windowHours: number };
+}
+
+// ---------------------------------------------------------------------------
 // Who's Going
 // ---------------------------------------------------------------------------
 

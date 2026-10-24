@@ -12,6 +12,7 @@ export type {
   EventEditChanges,
   AdminSetEventTicketingInput,
   AdminOrganiserRecord,
+  AdminSummary,
   OrganiserEditChange,
   OrganiserEditEntry,
   OrganiserEditField,
