@@ -69,6 +69,7 @@ select version, file, coalesce(applied, false) as applied
     ('20261102000100', 'social_hardening', to_regclass('private.report_photos') is not null),
     ('20261103000000', 'seat_hold_client_limits', to_regclass('private.client_rate_limits') is not null),
     ('20261103000100', 'refuse_ended_event_orders', exists (select 1 from fn where proname = 'orders_not_ended')),
-    ('20261105000000', 'organiser_logos', to_regclass('private.organiser_logos') is not null)
+    ('20261105000000', 'organiser_logos', to_regclass('private.organiser_logos') is not null),
+    ('20261106000000', 'event_clips', to_regclass('private.event_clips') is not null)
   ) as m(version, file, applied)
  order by version;
