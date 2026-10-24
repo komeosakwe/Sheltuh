@@ -523,8 +523,17 @@ describe("checkout attribution", () => {
 
     expect(await orderRow(tracked)).toEqual({ tracking_code: link.code, total_cents: 6340, application_fee_cents: 340 });
     expect(await orderRow(plain)).toEqual({ tracking_code: null, total_cents: 6340, application_fee_cents: 340 });
-    const strip = (p: Record<string, unknown>) => ({ ...p, client_reference_id: undefined, metadata: undefined, return_url: undefined });
+    // expires_at is "now + 60 minutes" per checkout, so two checkouts can straddle a second;
+    // it's compared on its own below.
+    const strip = (p: Record<string, unknown>) => ({
+      ...p,
+      client_reference_id: undefined,
+      metadata: undefined,
+      return_url: undefined,
+      expires_at: undefined,
+    });
     expect(strip(trackedParams)).toEqual(strip(plainParams));
+    expect(Math.abs(Number(trackedParams.expires_at) - Number(plainParams.expires_at))).toBeLessThanOrEqual(5);
     expect(trackedParams.metadata).toEqual({ orderId: tracked, eventId: event.eventId });
   });
 
