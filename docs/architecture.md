@@ -2232,8 +2232,13 @@ Search can order results by how close they are to a suburb (owner round,
   `sheltuh:near:v1` = `{"suburb": …}` (`lib/near-storage.ts`), and the
   `/search?near=` parameter (≤ 60 characters). Coordinates never reach
   storage, the URL, the API or logs. An empty `near` is dropped on submit
-  (and `/search` redirects `near=` away for a search sent before hydration
-  or without JS).
+  and forgets the stored suburb (and `/search` redirects `near=` away for a
+  search sent before hydration or without JS). `/search` with no `near` at
+  all prefills the bar's location from storage without changing the results,
+  and shows "Press Search to update results." until the visitor searches.
+- `/search` sends `Referrer-Policy: strict-origin` (`next.config.ts`) and
+  `apiFetch` sets `referrerPolicy: "strict-origin"`, so the suburb in the
+  page address doesn't reach the API in the Referer header.
 - `/search` resolves `near` against the suburb table (`lib/localities.ts`);
   `EventFeed` → `EventBrowser` (demo) / `LiveEventFeed` (live) order the
   results with `orderByNearness`: bands (In {suburb}, Within 5 km,

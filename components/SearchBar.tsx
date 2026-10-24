@@ -22,6 +22,7 @@ import LocationPicker from "@/components/search/LocationPicker";
 export default function SearchBar({
   defaultValue = "",
   near,
+  appliedNear,
   size = "sm",
   tone = "plain",
   autoFocus = false,
@@ -29,8 +30,13 @@ export default function SearchBar({
   placeholder = "Search by event or venue",
 }: {
   defaultValue?: string;
-  /** /search passes its `near` (even ""), so the bar mirrors the address; elsewhere the remembered suburb is used. */
+  /** /search passes its `near` when the address has one, so the bar mirrors it; otherwise the remembered suburb is used. */
   near?: string;
+  /**
+   * /search only: the suburb its results are ordered by ("" for none). The bar then says
+   * "Press Search to update results" while its location differs from it.
+   */
+  appliedNear?: string;
   size?: "sm" | "lg";
   tone?: "signal" | "plain";
   autoFocus?: boolean;
@@ -46,7 +52,7 @@ export default function SearchBar({
       ? "btn btn-signal"
       : "border border-foreground bg-foreground text-background hover:border-signal hover:bg-signal hover:text-signal-foreground";
   return (
-    <form action="/search" method="get" role="search" aria-label={label} className="w-full">
+    <form action="/search" method="get" role="search" aria-label={label} className="relative w-full">
       <label htmlFor={inputId} className="sr-only">
         {placeholder}
       </label>
@@ -64,17 +70,17 @@ export default function SearchBar({
           placeholder={placeholder}
           autoComplete="off"
           enterKeyHint="search"
-          className={`h-full min-w-0 flex-1 rounded-full border-0 bg-transparent py-0 text-foreground placeholder:text-muted focus-visible:-outline-offset-2! ${
-            large ? "pr-2 pl-4 text-base" : "pr-2 pl-3 text-sm"
+          className={`h-full min-w-0 flex-1 rounded-full border-0 bg-transparent py-0 text-ellipsis text-foreground placeholder:text-muted focus-visible:-outline-offset-2! ${
+            large ? "pr-2 pl-3 text-base sm:pl-4" : "pr-2 pl-3 text-sm"
           }`}
         />
         <span aria-hidden="true" className="h-7 w-px shrink-0 bg-foreground/50" />
-        <LocationPicker near={near} size={size} />
+        <LocationPicker near={near} appliedNear={appliedNear} size={size} />
         <button
           type="submit"
           aria-label="Search"
           data-search-submit=""
-          className={`${submitTone} flex shrink-0 items-center justify-center rounded-full p-0 focus-visible:outline-offset-1! ${
+          className={`${submitTone} flex shrink-0 items-center justify-center rounded-full p-0 focus-visible:-outline-offset-2! ${
             large ? "size-11 min-h-11" : "size-9 min-h-9"
           }`}
         >

@@ -49,6 +49,24 @@ describe("findLocality", () => {
     expect(findLocality("Atlantis")).toBeNull();
     expect(findLocality("   ")).toBeNull();
   });
+
+  // What people type is looked up in tables: never answered from Object.prototype.
+  it.each([
+    ["constructor", "constructor"],
+    ["__proto__", "proto"],
+    ["toString", "tostring"],
+    ["hasOwnProperty", "hasownproperty"],
+    ["Constructor Nth", "constructor north"],
+    ["Saint constructor", "st constructor"],
+  ])(
+    "treats %s as an ordinary unknown word",
+    (text, normalised) => {
+      expect(normaliseSuburb(text)).toBe(normalised);
+      expect(findLocality(text)).toBeNull();
+      expect(didYouMean(text)).toBeNull();
+      expect(nearnessBand(place("Fitzroy"), text)).toBe("unknown");
+    },
+  );
 });
 
 describe("distanceKm", () => {

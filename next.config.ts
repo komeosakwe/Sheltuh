@@ -59,6 +59,14 @@ const nextConfig: NextConfig = {
           { key: "X-Robots-Tag", value: "noindex, nofollow" },
         ],
       },
+      // /search?near=Fitzroy carries the visitor's suburb (lib/location.ts): send
+      // only the origin as a Referer, to this site and to any other, so the
+      // suburb never leaves in one (docs/architecture.md, "Location"). The API
+      // client sets the same policy on its own requests (lib/api/client.ts).
+      {
+        source: "/search",
+        headers: [{ key: "Referrer-Policy", value: "strict-origin" }],
+      },
       // The door scanner's self-hosted QR decoder (public/vendor/zxing-wasm/<version>/,
       // lib/check-in/detector.ts). The version is in the path and a new version gets a
       // new folder, so a file never changes at its URL: cache it for a year.

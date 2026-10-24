@@ -1,4 +1,3 @@
-import { useId } from "react";
 import EventResults from "@/components/EventResults";
 import { orderByNearness, type Locality } from "@/lib/location";
 import type { SheltuhEvent } from "@/lib/types";
@@ -10,6 +9,8 @@ export const NEAR_MAX_EVENTS = 200;
  * /search results near a suburb (owner decision D4, 24 Oct 2026): in bands,
  * nearest first (In {suburb}, Within 5 km, 5–15 km, Further away, Location
  * not on file), soonest first within each, each under a small visible h2.
+ * The h2s are the structure: no region landmark per band, and the lists
+ * aren't named again with the heading's words.
  * Every event is listed: one whose suburb isn't known goes last, never away.
  * `capped`: more events matched than were read, so say only the soonest
  * were ordered.
@@ -23,7 +24,6 @@ export default function NearbyResults({
   origin: Locality;
   capped?: boolean;
 }) {
-  const idPrefix = useId();
   const groups = orderByNearness(events, origin);
   return (
     <div className="flex flex-col gap-8 sm:gap-10">
@@ -31,17 +31,12 @@ export default function NearbyResults({
         Closest to {origin.name} first. Distances are between suburb centres, so they’re approximate.
         {capped && ` Sorted the ${NEAR_MAX_EVENTS} soonest events by distance.`}
       </p>
-      {groups.map((group) => {
-        const headingId = `${idPrefix}-${group.band}`;
-        return (
-          <section key={group.band} aria-labelledby={headingId} data-near-band={group.band}>
-            <h2 id={headingId} className="eyebrow mb-4 text-foreground">
-              {group.label}
-            </h2>
-            <EventResults events={group.items} label={group.label} />
-          </section>
-        );
-      })}
+      {groups.map((group) => (
+        <div key={group.band} data-near-band={group.band}>
+          <h2 className="eyebrow mb-4 text-foreground">{group.label}</h2>
+          <EventResults events={group.items} label={null} />
+        </div>
+      ))}
     </div>
   );
 }

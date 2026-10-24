@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { isValidElement, type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SearchPage from "@/app/search/page";
 import EventFeed from "@/components/EventFeed";
 import SearchBar from "@/components/SearchBar";
 import { isUpcomingEvent } from "@/lib/data";
+import { NEAR_STORAGE_KEY } from "@/lib/near-storage";
 import { sampleEvents } from "@/lib/sample-events";
 
 // The demo feed lists only events that haven't ended, so the sample data is read as of a fixed day.
@@ -44,10 +45,33 @@ describe("/search?near= (owner round of 24 Oct 2026)", () => {
   });
 
   it("cuts `near` at 60 characters and passes no suburb when there's none", async () => {
-    expect(findElement(await page({ near: "x".repeat(80) }), SearchBar)?.props).toMatchObject({ near: "x".repeat(60) });
+    expect(findElement(await page({ near: "x".repeat(80) }), SearchBar)?.props).toMatchObject({ near: "x".repeat(60), appliedNear: "x".repeat(60) });
     const tree = await page({ q: "jazz" });
     expect(findElement(tree, EventFeed)?.props).toMatchObject({ query: "jazz", near: undefined });
-    expect(findElement(tree, SearchBar)?.props).toMatchObject({ near: "" });
+    // No `near` in the address: the bar may start from the remembered suburb; the results don't.
+    expect(findElement(tree, SearchBar)?.props).toMatchObject({ near: undefined, appliedNear: "" });
+  });
+
+  it("without `near`: prefills the remembered suburb in the bar, keeps the results as they are, and says to press Search", async () => {
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Brunswick" }));
+    render(await page({ q: "jazz" }));
+    expect(screen.getByRole("button", { name: "Location: Brunswick" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("“jazz”");
+    expect(document.querySelector("[data-near-hint]")).toHaveTextContent("Press Search to update results.");
+    expect(screen.queryByText(/Closest to/)).toBeNull();
+  });
+
+  it("with `near`: the bar mirrors it (not the remembered suburb), with no hint until the location changes", async () => {
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Brunswick" }));
+    render(await page({ near: "fitzroy" }));
+    expect(screen.getByRole("button", { name: "Location: fitzroy" })).toBeInTheDocument();
+    const hint = document.querySelector("[data-near-hint]");
+    expect(hint).toHaveAttribute("aria-live", "polite");
+    expect(hint).toHaveTextContent(/^$/);
+    fireEvent.change(screen.getByLabelText("Suburb"), { target: { value: "Carlton" } });
+    expect(hint).toHaveTextContent("Press Search to update results.");
+    fireEvent.change(screen.getByLabelText("Suburb"), { target: { value: " Fitzroy " } });
+    expect(hint).toHaveTextContent(/^$/);
   });
 
   it("drops an empty `near` from the address (a search sent before the bar's script ran, or without JS)", async () => {
@@ -66,9 +90,11 @@ describe("/search?near= (owner round of 24 Oct 2026)", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(h1);
   });
 
-  it("drops “suburb” from the query field's placeholder: location has its own field", async () => {
+  it("a short placeholder, “Search events”, which also names the field; location has its own", async () => {
     render(await page({}));
-    expect(screen.getByRole("searchbox", { name: "Search by event or venue" })).toBeInTheDocument();
+    const field = screen.getByRole("searchbox", { name: "Search events" });
+    expect(field).toHaveAttribute("placeholder", "Search events");
+    expect(field).toHaveClass("text-ellipsis");
     expect(screen.getByRole("button", { name: "Location: Your suburb" })).toBeInTheDocument();
   });
 
@@ -76,10 +102,12 @@ describe("/search?near= (owner round of 24 Oct 2026)", () => {
     render(await page({ q: "jazz", near: "Brunswik" }));
     const notice = screen.getByText(/We don’t know where “Brunswik” is yet, so these are soonest first\./);
     expect(within(notice).getByRole("link", { name: "Brunswick" })).toHaveAttribute("href", "/search?q=jazz&near=Brunswick");
+    expect(within(notice).getByRole("link", { name: "Search all of Melbourne" })).toHaveAttribute("href", "/search?q=jazz");
     cleanup();
     render(await page({ near: "Atlantis" }));
-    expect(screen.getByText(/We don’t know where “Atlantis” is yet/)).toBeInTheDocument();
+    const atlantis = screen.getByText(/We don’t know where “Atlantis” is yet/);
     expect(screen.queryByText(/Did you mean/)).toBeNull();
+    expect(within(atlantis).getByRole("link", { name: "Search all of Melbourne" })).toHaveAttribute("href", "/search");
   });
 
   it("demo: lists every upcoming event in bands, nearest first, soonest within each", async () => {
@@ -95,7 +123,9 @@ describe("/search?near= (owner round of 24 Oct 2026)", () => {
     expect(bands[0]).toBe("In Fitzroy");
     expect(bands.at(-1)).toBe("Location not on file");
     const upcoming = sampleEvents.filter((e) => isUpcomingEvent(e, NOW));
-    const listed = screen.getAllByRole("list").filter((l) => order.includes(l.getAttribute("aria-label") ?? ""));
+    const listed = [...document.querySelectorAll<HTMLElement>("[data-near-band]")].map((band) => within(band).getByRole("list"));
+    // No region landmark per band: the h2s are the structure.
+    expect(screen.queryAllByRole("region")).toHaveLength(0);
     const titles = listed.flatMap((l) => within(l).getAllByRole("heading", { level: 3 }).map((h) => h.textContent?.trim()));
     expect(titles).toHaveLength(upcoming.length);
     const fitzroy = within(listed[0]).getAllByRole("heading", { level: 3 }).map((h) => h.textContent?.trim());

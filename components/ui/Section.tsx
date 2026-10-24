@@ -71,7 +71,7 @@ export function PageHeader({
           {title}
         </h1>
         {intro && (
-          <div className="rise mt-4 max-w-xl text-base leading-6 text-muted [--d:80ms] sm:text-lg sm:leading-7">
+          <div className="rise mt-4 max-w-xl text-base leading-6 text-pretty text-muted [--d:80ms] sm:text-lg sm:leading-7">
             {intro}
           </div>
         )}

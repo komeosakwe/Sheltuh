@@ -66,8 +66,16 @@ describe("SearchBar", () => {
     expect(location.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(submit).toHaveAttribute("type", "submit");
     expect(submit).toHaveClass("rounded-full", "size-11");
-    // 16px text so iOS doesn't zoom.
-    expect(screen.getByRole("searchbox")).toHaveClass("text-base");
+    // 16px text so iOS doesn't zoom; a long query ends in "…" rather than being cut off; tighter on phones.
+    expect(screen.getByRole("searchbox")).toHaveClass("text-base", "text-ellipsis", "pl-3", "sm:pl-4");
+    // The submit's focus ring is drawn inside the pill, like the field's and the location's.
+    expect(submit).toHaveClass("focus-visible:-outline-offset-2!");
+    expect(location).toHaveClass("px-2", "sm:px-3", "gap-1", "focus-visible:-outline-offset-2!");
+  });
+
+  it("shows no “Press Search” hint outside /search (no appliedNear)", () => {
+    render(<SearchBar label="Search events" size="lg" near="Fitzroy" />);
+    expect(document.querySelector("[data-near-hint]")).toBeNull();
   });
 
   it("tone=signal: an orange submit with a black icon (hero, /search)", () => {
@@ -87,7 +95,7 @@ describe("SearchBar", () => {
   it("submits the suburb as `near` from inside the same form", () => {
     render(<SearchBar label="Search events" size="lg" near="Fitzroy" />);
     const form = screen.getByRole("search", { name: "Search events" });
-    const near = within(form).getByLabelText("Your suburb");
+    const near = within(form).getByLabelText("Suburb");
     expect(near).toHaveAttribute("name", "near");
     expect(near).toHaveValue("Fitzroy");
     expect(within(form).getByRole("button", { name: "Location: Fitzroy" })).toBeInTheDocument();

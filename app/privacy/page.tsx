@@ -131,7 +131,9 @@ export default function PrivacyPage() {
         </ul>
         <p>
           To forget the suburb, choose &ldquo;Anywhere in Melbourne&rdquo; under the search
-          bar&rsquo;s location, or clear this site&rsquo;s data in your browser. You can turn
+          bar&rsquo;s location (or search with the location left empty), or clear this
+          site&rsquo;s data in your browser. Search results pages you&rsquo;ve visited, suburb and
+          all, stay in your browser&rsquo;s history until you clear it there. You can turn
           location off for this site in your browser&rsquo;s settings at any time.
         </p>
       </ContentSection>

@@ -65,6 +65,9 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
             ? options.body
             : JSON.stringify(options.body),
       ...(options.signal ? { signal: options.signal } : {}),
+      // The page's address can hold a visitor's suburb (/search?near=…): send
+      // only the origin as a Referer. No handler reads Referer.
+      referrerPolicy: "strict-origin",
     });
   } catch (err) {
     if (options.signal?.aborted) throw err;

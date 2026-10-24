@@ -38,7 +38,9 @@ export const SUBURB_COORDINATES: Readonly<Record<string, Coordinates>> = {
  */
 export function resolveEventCoordinates(event: SheltuhEvent): Coordinates | null {
   if (event.coordinates) return event.coordinates;
-  return SUBURB_COORDINATES[event.suburb.trim().toLowerCase()] ?? null;
+  const key = event.suburb.trim().toLowerCase();
+  // Own keys only: a suburb of "constructor" mustn't find Object's.
+  return Object.hasOwn(SUBURB_COORDINATES, key) ? SUBURB_COORDINATES[key] : null;
 }
 
 /** Roughly bounds inner Melbourne — used as the map's default view. */

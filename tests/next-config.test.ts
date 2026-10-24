@@ -39,6 +39,10 @@ describe("next.config headers", () => {
     },
   );
 
+  it("sends only the origin as a Referer from /search, whose address can hold the visitor's suburb (near=)", async () => {
+    expect(await headersFor("/search")).toEqual({ "referrer-policy": "strict-origin" });
+  });
+
   it("caches the door scanner's versioned WASM decoder for a year, as immutable", async () => {
     const byKey = await headersFor("/vendor/zxing-wasm/:path*");
     expect(byKey["cache-control"]).toBe("public, max-age=31536000, immutable");
@@ -63,6 +67,7 @@ describe("next.config headers", () => {
       "/checkout/:path*",
       "/waitlist/:path*",
       "/following/:path*",
+      "/search",
       "/vendor/zxing-wasm/:path*",
     ]);
   });

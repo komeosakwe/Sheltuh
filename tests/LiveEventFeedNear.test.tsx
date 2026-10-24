@@ -33,11 +33,17 @@ function makeEvent(id: string, suburb: string, startsAt: string): PublicEvent {
   };
 }
 
+// Each band: its visible h2, then an unnamed list (the heading names it; no region landmark per band).
 const bandTitles = () =>
-  screen.getAllByRole("list").map((list) => [
-    list.getAttribute("aria-label"),
-    within(list).getAllByRole("heading", { level: 3 }).map((h) => h.textContent?.trim()),
-  ]);
+  [...document.querySelectorAll<HTMLElement>("[data-near-band]")].map((band) => {
+    expect(band.tagName).toBe("DIV");
+    const list = within(band).getByRole("list");
+    expect(list).not.toHaveAttribute("aria-label");
+    return [
+      within(band).getByRole("heading", { level: 2 }).textContent,
+      within(list).getAllByRole("heading", { level: 3 }).map((h) => h.textContent?.trim()),
+    ];
+  });
 
 describe("LiveEventFeed — near a suburb (ordered in the browser)", () => {
   it("never sends the suburb or any coordinates to the API", async () => {

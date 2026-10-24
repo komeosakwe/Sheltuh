@@ -20,21 +20,23 @@ export { MELBOURNE_LOCALITIES, type Locality } from "./localities";
  */
 export const NEAREST_MAX_KM = 5;
 
-const ALIASES: Record<string, string> = {
-  cbd: "melbourne",
-  city: "melbourne",
-  "melbourne cbd": "melbourne",
-  "melbourne city": "melbourne",
-  "melbourne city centre": "melbourne",
-  "melbourne city center": "melbourne",
-};
+// Maps, not object literals: what people type is looked up here, and a plain
+// object would answer "constructor" or "__proto__" from its prototype.
+const ALIASES: ReadonlyMap<string, string> = new Map([
+  ["cbd", "melbourne"],
+  ["city", "melbourne"],
+  ["melbourne cbd", "melbourne"],
+  ["melbourne city", "melbourne"],
+  ["melbourne city centre", "melbourne"],
+  ["melbourne city center", "melbourne"],
+]);
 
-const WORDS: Record<string, string> = {
-  saint: "st",
-  mt: "mount",
-  nth: "north",
-  sth: "south",
-};
+const WORDS: ReadonlyMap<string, string> = new Map([
+  ["saint", "st"],
+  ["mt", "mount"],
+  ["nth", "north"],
+  ["sth", "south"],
+]);
 
 /** Words that say where a suburb is, not which one: "Fitzroy, VIC 3065" is Fitzroy. */
 const PLACE_WORDS = new Set(["vic", "victoria", "australia", "au"]);
@@ -53,9 +55,9 @@ export function normaliseSuburb(text: string): string {
     .trim()
     .split(" ")
     .filter((word) => word && !PLACE_WORDS.has(word) && !/^\d{4}$/.test(word))
-    .map((word) => WORDS[word] ?? word);
+    .map((word) => WORDS.get(word) ?? word);
   const joined = words.join(" ");
-  return ALIASES[joined] ?? joined;
+  return ALIASES.get(joined) ?? joined;
 }
 
 const BY_NAME = new Map<string, Locality>(MELBOURNE_LOCALITIES.map((locality) => [normaliseSuburb(locality.name), locality]));
