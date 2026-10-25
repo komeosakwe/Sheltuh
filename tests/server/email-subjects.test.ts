@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { describe, expect, it } from "vitest";
+import { buildEventReviewEmail, buildOrganiserReviewEmail } from "@/lib/server/admin-review-email";
 import { mailOptions, subjectLine } from "@/lib/server/email";
 import { buildFollowerNewEventsEmail } from "@/lib/server/follower-email";
 import { buildFreeConfirmationEmail } from "@/lib/server/free-confirmation-email";
@@ -79,6 +80,16 @@ describe("every email's subject is cleaned", () => {
         siteUrl: site,
         unsubscribeLink: `${site}/u#token=x`,
       }),
+    eventReview: () =>
+      buildEventReviewEmail({
+        to: "ops@sheltuh.test",
+        title: HOSTILE_TITLE,
+        organiserName: HOSTILE_NAME,
+        startsAt: event.startsAt,
+        resubmitted: false,
+        siteUrl: site,
+      }),
+    organiserReview: () => buildOrganiserReviewEmail({ to: "ops@sheltuh.test", organiserName: HOSTILE_NAME, siteUrl: site }),
   };
 
   it.each(Object.entries(emails))("%s", (_name, build) => {
@@ -95,6 +106,8 @@ describe("every email's subject is cleaned", () => {
     expect(emails.waitlistAvailable().subject).toBe(`Tickets are available again: ${CLEAN_TITLE}`);
     expect(emails.followerOne().subject).toBe(`New from ${CLEAN_NAME}: ${CLEAN_TITLE}`);
     expect(emails.followerMany().subject).toBe(`3 new events from ${CLEAN_NAME}`);
+    expect(emails.eventReview().subject).toBe(`Event to review: ${CLEAN_TITLE}`);
+    expect(emails.organiserReview().subject).toBe(`Organiser to review: ${CLEAN_NAME}`);
   });
 
   it("mailOptions cleans a subject again, and the header that goes out has one line and no injected header", async () => {

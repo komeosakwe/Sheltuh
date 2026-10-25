@@ -201,7 +201,8 @@ describe("free orders", () => {
     await api.runDeferred();
     expect(api.sendEmail).not.toHaveBeenCalled();
     expect(await orders(event.eventId)).toEqual([]);
-    expect(await db.query(`select * from private.platform_rate_limits`)).toEqual([]);
+    // The free-order caps' counters (the setup's submission takes an admin_review_emails_daily hit).
+    expect(await db.query(`select * from private.platform_rate_limits where bucket like 'free\\_order\\_%'`)).toEqual([]);
   });
 
   it("a guest's request racing the end: request_free_order is refused by the database, 409, no cap used", async () => {
@@ -212,7 +213,8 @@ describe("free orders", () => {
     await raced.runDeferred();
     expect(raced.sendEmail).not.toHaveBeenCalled();
     expect(await orders(event.eventId)).toEqual([]);
-    expect(await db.query(`select * from private.platform_rate_limits`)).toEqual([]);
+    // The free-order caps' counters (the setup's submission takes an admin_review_emails_daily hit).
+    expect(await db.query(`select * from private.platform_rate_limits where bucket like 'free\\_order\\_%'`)).toEqual([]);
   });
 
   it("a guest's link confirmed after the end issues nothing: 409, the order failed", async () => {

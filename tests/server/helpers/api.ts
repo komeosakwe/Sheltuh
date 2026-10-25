@@ -160,6 +160,8 @@ export class TestApi {
   stripePublishableKey: string | undefined = PUBLISHABLE_KEY;
   /** Event clips' Storage; undefined to simulate SUPABASE_CLIP_STORAGE_KEY being unset. */
   clipStorage: FakeClipStorage | undefined = new FakeClipStorage();
+  /** ADMIN_NOTIFY_EMAILS as Deps reports it (parsed); empty to simulate it unset. */
+  adminNotifyEmails: string[] = [];
   private readonly callers = new Map<string, Caller>();
 
   constructor(readonly db: Db) {}
@@ -178,6 +180,7 @@ export class TestApi {
       },
       cronSecret: () => this.cronSecret,
       clipStorage: () => this.clipStorage,
+      adminNotifyEmails: () => this.adminNotifyEmails,
     };
   }
 

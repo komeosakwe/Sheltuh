@@ -100,9 +100,10 @@ async function refusals() {
   return Object.fromEntries(rows.map((r) => [r.reason, r.refusals]));
 }
 
+/** The free-order caps' platform counters (the setup's submissions also count towards admin_review_emails_daily). */
 async function buckets() {
   const rows = await api.db.query<{ bucket: string; hits: number }>(
-    `select bucket, hits from private.platform_rate_limits order by bucket`,
+    `select bucket, hits from private.platform_rate_limits where bucket like 'free\\_order\\_%' order by bucket`,
   );
   return Object.fromEntries(rows.map((r) => [r.bucket, r.hits]));
 }

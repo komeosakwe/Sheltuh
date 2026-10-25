@@ -1,6 +1,7 @@
 import { featuredVideoKey, parseFeaturedVideoUrl, type FeaturedVideo } from "@/lib/api/featured-video";
 import { requireCaller } from "../auth";
 import { PG_UNIQUE_VIOLATION, pgErrorCode, type Db } from "../db";
+import { sendReviewEmailsSoon } from "../email-outbox";
 import { created, HttpError, ok, readJson } from "../http";
 import { parseMessageText } from "../message-input";
 import { parseSocialHandles, SOCIAL_RULES } from "../organiser-input";
@@ -129,9 +130,14 @@ function setClause(assignments: Assignment[], firstParam: number): { items: stri
   };
 }
 
-/** POST /api/organisers/apply */
-export const applyAsOrganiser: Handler = async (req, _params, { db, verifyAccessToken }) => {
-  const caller = await requireCaller(req, verifyAccessToken);
+/**
+ * POST /api/organisers/apply. The admins' "organiser to review" email is
+ * queued by the database with the application (private.queue_review_email)
+ * and sent straight after the response.
+ */
+export const applyAsOrganiser: Handler = async (req, _params, deps) => {
+  const { db } = deps;
+  const caller = await requireCaller(req, deps.verifyAccessToken);
 
   const existing = await findOrganiserByOwner(db, caller.userId);
   if (!canApplyAsOrganiser(existing?.status)) {
@@ -168,6 +174,7 @@ export const applyAsOrganiser: Handler = async (req, _params, { db, verifyAccess
       ],
     );
     const [record] = await db.query(`${ORGANISER_SELECT} where o.id = $1`, [row.id]);
+    sendReviewEmailsSoon(deps, "organiser_review");
     return created(toOwnOrganiserView(toOrganiser(record)));
   } catch (err) {
     // Lost a race with a second tab submitting the same application.
@@ -189,14 +196,16 @@ export const getMyOrganiser: Handler = async (req, _params, { db, verifyAccessTo
 /**
  * PATCH /api/organisers/me. What it does depends on the application's status:
  * - rejected: edit and resubmit the whole application (back to pending).
- *   Social handles are optional; ones not sent are kept.
+ *   Social handles are optional; ones not sent are kept. The admins' review
+ *   email is queued with it, as for a new application.
  * - approved: edit the public profile (description, websiteUrl, social
  *   handles, featuredVideoUrl) without a new review (logged); the status
  *   doesn't change.
  * - pending: 409.
  */
-export const resubmitOrganiser: Handler = async (req, _params, { db, verifyAccessToken }) => {
-  const caller = await requireCaller(req, verifyAccessToken);
+export const resubmitOrganiser: Handler = async (req, _params, deps) => {
+  const { db } = deps;
+  const caller = await requireCaller(req, deps.verifyAccessToken);
 
   const existing = await findOrganiserByOwner(db, caller.userId);
   if (!existing) throw new HttpError(404, "No organiser application found.");
@@ -236,6 +245,7 @@ export const resubmitOrganiser: Handler = async (req, _params, { db, verifyAcces
     ],
   );
   if (rows.length === 0) throw new HttpError(409, "Your application status changed — refresh and try again.");
+  sendReviewEmailsSoon(deps, "organiser_review");
 
   const record = await findOrganiserByOwner(db, caller.userId);
   return ok(toOwnOrganiserView(record!));

@@ -266,6 +266,12 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        `pk_test_…`). Redeploy after changing any `NEXT_PUBLIC_*` value.
        Optional: `NEXT_PUBLIC_DISABLE_SERVICE_WORKER=1` turns the offline
        service worker off (needs a fresh build; see `docs/pwa.md`).
+       Optional: `ADMIN_NOTIFY_EMAILS` (server-only, never `NEXT_PUBLIC_`),
+       a comma-separated list of the addresses that get the "event /
+       organiser to review" emails, e.g. `bookings@sheltuh.com.au`. Unset =
+       every admin account's confirmed email (see `docs/architecture.md`,
+       "Admin review emails"); with neither, those emails are skipped and
+       logged once. Needs `SMTP_*` like every email.
        **Never** add `SUPABASE_SECRET_KEY` or `STRIPE_DOMAINS_KEY` (local
        scripts only). The one
        exception is `SUPABASE_CLIP_STORAGE_KEY`: a *separate*, separately

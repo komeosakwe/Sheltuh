@@ -78,7 +78,8 @@ iframe served by Stripe), with the publishable key
 | `ticket_check_ins` | `id` (identity) | The check-in log (see "Check-in"): one row per scan or undo, with a random `public_id` (uuid, unique: the only id the API shows, as `checkInId`; the sequential `id` stays internal, so ids don't reveal platform-wide scan volume), the event scanned for, the ticket `code` (null for an `invalid` scan: what was scanned is never stored), the acting account (the organiser's, or the admin's for a platform-managed organiser's event), the client's `request_id` (unique per event: the idempotency key), the `result` and, for an undo only, its `reason` (3–200 characters). Check constraints tie `invalid` to a null code and `undone` to a reason. Deleted with the event or the ticket, and by `purge_analytics` 25 months after the event ends. No buyer data. |
 | `private.platform_rate_limits` | `bucket` | Platform-wide fixed-window counters (`take_platform_rate_limit`): the hourly and 24-hour confirmation-email caps. Idle rows purged daily. |
 | `private.free_order_refusals` | `(day, reason)` | Counts of refused free bookings per Melbourne day and reason. No personal data. Deleted after 13 months. |
-| `private.email_outbox` | `id` | Transactional email jobs of three kinds: `ticket_email`, one per paid order (`(order_id, kind)` unique), `waitlist_available`, one per person told that tickets are available again (`waitlist_entry_id`; at most one pending or sending per entry), and `organiser_new_events`, a follower's new-event email (`follow_id`; at most one pending or sending per follow; see "Following organisers"). A check ties each kind to its key. Status, attempts, next attempt, lease, redacted last error. No address or content (read from the order, the waitlist entry or the follow, at send time). Deleted with the order, the entry or the follow. |
+| `private.email_outbox` | `id` | Transactional email jobs of five kinds: `ticket_email`, one per paid order (`(order_id, kind)` unique), `waitlist_available`, one per person told that tickets are available again (`waitlist_entry_id`; at most one pending or sending per entry), `organiser_new_events`, a follower's new-event email (`follow_id`; at most one pending or sending per follow; see "Following organisers"), and `event_review` / `organiser_review`, the admins' "waiting for your review" email (`event_id` / `organiser_id`; at most one pending or sending per event or application; see "Admin review emails"). A check ties each kind to its key. Status, attempts, next attempt, lease, redacted last error. No address or content (read from the order, the waitlist entry, the follow, the event or the application, at send time). Deleted with the order, the entry, the follow, the event or the organiser. |
+| `private.email_job_recipients` | `(job_id, recipient_hash)` | Which admins already have a review job's email (the lower-cased address's SHA-256 only), so a retry skips them. Deleted with the job. |
 | `private.event_waitlist` | `id` | One entry per `(event_id, email_key)` (see "Waitlist"): the address as typed and `private.email_key` of it, `user_id` (only when a member joined with their own verified email; deleted with the account), `confirmed_at` (on the list from then: join order), `unsubscribed_at` (left), `notified_at` and `notify_count`. Deleted with the event, and by `purge_social_data` 30 days after the event ends. Never shown to organisers except as a count. |
 | `private.event_waitlist_tokens` | `token_hash` | SHA-256 hashes of emailed waitlist tokens, never the tokens: `confirm` (a guest's join link, 24 hours, used once) and `leave` (one per notification email, valid while the entry exists). Deleted with the entry; expired confirmation links a week after expiry. |
 | `profiles` | `user_id` | A member's social identity: `display_name` (1–40 characters), `adult_confirmed_at` (required: no profile without an 18+ confirmation). Deleted with the Supabase account. `social_suspended_at` is deprecated and ignored (see `private.social_suspensions`). Member profile fields (see "Member profiles"): `public_id` (random uuid, unique: the opaque `profileId`, never the user id; a recreated profile gets a new one), `profile_visible` (opt-in, default false), `bio` (1–200 characters) and `instagram_handle` (Instagram's username pattern, check constraint), both optional. |
@@ -167,6 +168,8 @@ times, which are converted to instants honouring daylight saving
 | `unsubscribe_follow` | Turns a follow's emails off by an unsubscribe token's hash (the follow stays). Idempotent: `unsubscribed` or `not_found`. |
 | `notify_followers` | Run at commit by the deferred constraint trigger `events_followers_announce` (status becomes `published`): for a published, upcoming event of an approved organiser, records the announcement (once per event ever: a republish is a no-op), then, under an advisory lock per organiser, queues one `organiser_new_events` job per follower with emails on and a confirmed email (`auth.users.email_confirmed_at`) who has none waiting, due at the later of now and 24 hours after their last, until the platform's 500 a day. Locks each follow row as it's queued. |
 | `claim_email_outbox` | `claim_outbox_jobs` for every kind, also returning the follow. `claim_outbox_jobs` (the previous release's) now leaves `organiser_new_events` alone, for the deploy window. |
+| `lease_outbox_jobs` | `claim_email_outbox` for every kind, also returning the event and the organiser (the review emails). `claim_email_outbox` (the previous release's) now leaves `event_review` and `organiser_review` alone, for the deploy window. |
+| `queue_review_email` | Queues the admins' review email for an event in review or a pending application of an account's organiser (called by deferred triggers on `events` and `organisers`): nothing if one is already waiting or being sent, due an hour after the last one sent, at most 100 a day platform-wide. An advisory lock per subject serialises calls. Returns whether it queued. A trigger deletes a still-waiting job when its subject leaves review. |
 | `suspend_organiser` | An admin takedown, only from `approved` (a second admin gets 409): locks the organiser row, then its published and pending-review events in id order; sets the organiser `rejected` with the reason and reviewer; moves each published event to draft (`unpublished`) and each pending one to `rejected`, through `transition_event`, so the event moderation log records each with the admin and reason; logs the takedown. Deletes nothing. Returns the result and how many events moved. |
 | `record_payment_refund` | Records a `charge.refunded` by payment intent (see "Refunds made in Stripe"). Locks the order (`for update`), and acts only on a `paid` one. Full refund: `refunded`, the amount recorded, and each line item's quantity taken off its ticket type's `quantity_sold` (never below 0), updating ticket types in `ticketTypeId` order like `fulfil_order`, so the two can't deadlock. Partial: only `amount_refunded_cents`, which only grows. A redelivery (already refunded, or no larger amount) changes nothing, so inventory is released exactly once. Returns `refunded`, `partial`, `unchanged` or `not_found`, with the order id when found (logged by short reference only). A full refund of a seated order also frees its seats (tickets' `seat_id` cleared, then the seats' sale), after the seat lock. |
 | `replace_seat_map`, `delete_seat_map` | The organiser's map (see "Reserved seating"): the seat lock, then the event row (owned by the organiser, else `not_found`); only while draft or rejected (`not_editable`) and never approved (`frozen`), not external (`external`), and the event has no orders of any status (`has_orders`); then `write_seat_map` / `clear_seat_map`. |
@@ -2029,6 +2032,57 @@ Members follow organisers (owner request, 21 Oct 2026;
   database (advisory locks per account and per organiser, the unique active
   job per follow); run the suite on a real Postgres before go-live.
 
+## Admin review emails
+
+Admins get an email when something is waiting for their review
+(`supabase/migrations/20261107000000_admin_review_emails.sql`,
+`lib/server/admin-review-email.ts`, `lib/server/email-outbox.ts`):
+
+- **When.** An organiser submits an event for review (draft or rejected →
+  `pending_review`, so a resubmission too): "Event to review: {title}", with
+  the title, the organiser's name, when it starts (Melbourne time), whether
+  it was resubmitted after a rejection, and a link to
+  `/admin/events?status=pending_review`. Someone applies to be an organiser,
+  or resubmits a rejected application (→ `pending`): "Organiser to review:
+  {name}", with the name and a link to `/admin/organisers`. Nothing else: no
+  description, contact details, venue address or buyer data; no images, no
+  tracking. Saving a draft, an approved organiser's profile edit, and
+  anything an admin creates (admin-authored events are published directly,
+  platform-managed organisers are approved) send nothing.
+- **Reliable.** Deferred constraint triggers on `events` and `organisers`
+  queue an `event_review` / `organiser_review` outbox job in the same
+  transaction as the status change, whichever path made it, and only if it
+  commits. The submit, apply and resubmit routes then send it straight after
+  the response (`Deps.defer`); the outbox cron retries it like any other job.
+  As for every kind, the job holds no address or content: both are read when
+  it's sent.
+- **Recipients.** `ADMIN_NOTIFY_EMAILS` (optional, server-only,
+  comma-separated plain addresses, at most 20; invalid entries are ignored
+  and counted in one log line, never named) when it has any valid address;
+  otherwise every admin account (`app_metadata.role = 'admin'`) with a
+  confirmed email, read from `auth.users` at send time. One email per
+  recipient. `private.email_job_recipients` records (by the address's
+  SHA-256, never the address) who already has a job's email, so a retry after
+  a partial failure only reaches the ones it missed. With no recipient at
+  all, the job is skipped (recorded `failed`) and the server logs it once,
+  without addresses.
+- **Throttle.** At most one review email waiting per event and per
+  application (unique partial indexes; another submission while one waits
+  adds nothing); the next one no sooner than an hour after the last was sent
+  (queued for then, not dropped: on the Hobby plan's daily cron it may wait
+  for the next run); at most 100 a day platform-wide
+  (`admin_review_emails_daily`; beyond that nothing is queued, and the queue
+  and the admin home's counts still show everything waiting). An organiser
+  can only resubmit after an admin rejects, so a submit/reject loop is paced
+  by the admins anyway.
+- **Stale.** A job still waiting when its event or application leaves review
+  (an admin got there first) is deleted in that transaction; one a worker is
+  already sending checks the status and sends nothing if it has been
+  reviewed.
+- **Not in `/admin/emails`.** That list and the home page's failed and
+  retrying counts are ticket emails only (jobs with an order); review emails
+  are internal and never resent by hand.
+
 ## Reserved seating
 
 Optional seat maps for concert-style events (owner request, 21 Oct 2026;
@@ -2056,6 +2110,15 @@ unchanged.
   with seats (`fulfil_order` refuses an order whose seated lines don't match
   its seats). A mixed event's other tiers are general admission, bought as
   quantities beside the seats; they don't count towards the 10 seats.
+- **Ready-made layouts.** The editor's "Start from a layout" builds a whole
+  map in the browser (`lib/seating/layouts.ts`, pure): rows facing a stage,
+  a centre aisle, stalls with angled side sections, curved rows, or a small
+  room, scaled to about the number of seats asked for (each within its own
+  range and the generator's 50 rows of 80), every seat on one chosen tier,
+  with two wheelchair spaces and their companion seats in the front row.
+  It's an ordinary template: saved through the same `PUT …/seat-map` and
+  validator, so it adds no contract. No tables (the model has no table
+  shape). Shown only while the organiser can change the map.
 - **Who changes it.** The organiser, while the event is a draft (or
   rejected) that has never been approved: the map freezes at first approval,
   like the ticketing (and never once it has orders: the database functions
@@ -2239,7 +2302,7 @@ application is approved.
 | `POST /orders/confirm` `{token}` | public (the emailed token is the credential). 200 `{url}` (also when already confirmed, within 24 hours); 400 malformed; 404 unknown; 410 expired (confirmed or not); 409 sold out, allowance used, or a ticket type no longer free |
 | `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store` |
 | `GET /orders/by-session/{orderId}/payment` | public (id is the credential), read-only. `OrderPaymentLookup` (see "Payment flow", step 2), `private, no-store`: `{status: "open", clientSecret, expiresAt, …summary}`, `{status: "processing", delayed}`, `{status: "done"}`, or `{status: "closed" \| "sold_out", eventTitle, eventSlug?, seated}` (`closed` also when the event is no longer published or has ended while the session is open); 404 malformed (no query), unknown or a guest's free booking; 409 still being set up; 429 over 30 reads a minute from this client, or 20 Stripe reads a minute for this order; 500 an open session without a client secret |
-| `GET /cron/email-outbox` | Vercel Cron (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due ticket emails, returns counts |
+| `GET /cron/email-outbox` | Vercel Cron (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due outbox emails (tickets, waitlist, followers, admin review emails), returns counts |
 | `GET /cron/trending` | Vercel Cron (same secret, 401 otherwise): rebuilds the trending snapshot, returns `{eligible, ranked}` |
 | `GET /events/trending` | public: `{items: [{event, label, goingCount?}]}` (see "Trending"), at most 24, best first; `items: []` with fewer than 3. `cache-control: public, max-age=0, s-maxage=300, stale-while-revalidate=600` |
 | `GET /admin/emails?status&cursor` · `POST /admin/emails/{jobId}/resend` | admin. Status `failed` (default), `pending`, `sending`, `sent`. Resend: 404 unknown, 409 being sent, 429 resent in the last 5 minutes or over 20 an hour |
@@ -2721,6 +2784,8 @@ sign-up and password reset on the real project after deploying.
   (embedded checkout)").
 - Drop `private.claim_outbox_jobs` (superseded by `claim_email_outbox` in
   `20261024000200_organiser_follows.sql`) once the deploy window is over.
+- Drop `private.claim_email_outbox` (superseded by `lease_outbox_jobs` in
+  `20261107000000_admin_review_emails.sql`) once that deploy window is over.
 
 - Drop `private.claim_email_jobs` (superseded by `claim_outbox_jobs` in
   `20261024000000_waitlist.sql`, kept only so a deploy still running the

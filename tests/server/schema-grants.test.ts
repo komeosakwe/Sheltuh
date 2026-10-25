@@ -114,6 +114,7 @@ describe("Data API lock-out", () => {
       { table_name: "analytics_settings", rls: true },
       { table_name: "client_rate_limits", rls: true },
       { table_name: "conversation_pairs", rls: true },
+      { table_name: "email_job_recipients", rls: true },
       { table_name: "email_outbox", rls: true },
       { table_name: "event_clip_uploads", rls: true },
       { table_name: "event_clips", rls: true },

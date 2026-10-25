@@ -6,6 +6,7 @@ import {
   pgConstraint,
   pgErrorCode,
 } from "../db";
+import { sendReviewEmailsSoon } from "../email-outbox";
 import { parseEventInput, type EventInput } from "../event-input";
 import { created, HttpError, ok, readJson } from "../http";
 import { decodeCursor, parseLimit, toPage } from "../pagination";
@@ -152,7 +153,12 @@ export const updateEventDraft: Handler<{ eventId: string }> = async (req, { even
   return ok(await requireEvent(db, eventId));
 };
 
-/** POST /api/events/[eventId]/submit — draft or rejected → pending review. */
+/**
+ * POST /api/events/[eventId]/submit — draft or rejected → pending review. The
+ * admins' "event to review" email is queued by the database in the same
+ * transaction (private.queue_review_email: at most one waiting per event, an
+ * hour apart) and sent straight after the response.
+ */
 export const submitEventForReview: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const caller = await requireCaller(req, deps.verifyAccessToken);
   const organiser = await requireApprovedOrganiser(deps.db, caller);
@@ -164,6 +170,7 @@ export const submitEventForReview: Handler<{ eventId: string }> = async (req, { 
     [eventId, caller.userId, organiser.organiserId],
   );
   if (!row.moved) throw new HttpError(409, "Only a draft or rejected event can be submitted for review.");
+  sendReviewEmailsSoon(deps, "event_review");
   return ok(await requireEvent(deps.db, eventId));
 };
 

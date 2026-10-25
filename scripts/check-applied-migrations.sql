@@ -73,6 +73,7 @@ select version, file, coalesce(applied, false) as applied
     ('20261106000000', 'event_clips', to_regclass('private.event_clips') is not null),
     ('20261106000100', 'event_clip_dimensions',
       exists (select 1 from col where attrelid = to_regclass('private.event_clips') and attname = 'width')),
-    ('20261106000200', 'event_clip_hardening', to_regclass('private.event_clip_uploads') is not null)
+    ('20261106000200', 'event_clip_hardening', to_regclass('private.event_clip_uploads') is not null),
+    ('20261107000000', 'admin_review_emails', to_regclass('private.email_job_recipients') is not null)
   ) as m(version, file, applied)
  order by version;

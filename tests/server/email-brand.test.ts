@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildEventReviewEmail, buildOrganiserReviewEmail } from "@/lib/server/admin-review-email";
 import type { EmailMessage } from "@/lib/server/email";
 import { button, EMAIL_COLOURS, escapeHtml, INK, SIGNAL, supportFooter } from "@/lib/server/email-layout";
 import { buildFollowerNewEventsEmail } from "@/lib/server/follower-email";
@@ -66,6 +67,25 @@ const emails: Record<string, () => EmailMessage> = {
     buildWaitlistAvailableEmail("fan@example.com", event, `${site}/events/neon-static#tickets`, `${site}/waitlist/leave#token=x`),
   followerOne: () => follower(1, [event]),
   followerMany: () => follower(9, [event, { ...event, slug: "second" } as EventRecord]),
+  eventReview: () =>
+    buildEventReviewEmail({
+      to: "ops@sheltuh.test",
+      title: event.title,
+      organiserName: "Cellar Door Sound",
+      startsAt: event.startsAt,
+      resubmitted: false,
+      siteUrl: site,
+    }),
+  eventReviewResubmitted: () =>
+    buildEventReviewEmail({
+      to: "ops@sheltuh.test",
+      title: event.title,
+      organiserName: "Cellar Door Sound",
+      startsAt: event.startsAt,
+      resubmitted: true,
+      siteUrl: site,
+    }),
+  organiserReview: () => buildOrganiserReviewEmail({ to: "ops@sheltuh.test", organiserName: "Cellar Door Sound", siteUrl: site }),
 };
 
 /** Every colour value in the markup: style properties and bgcolor attributes. */

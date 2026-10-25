@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { after } from "next/server";
 import Stripe from "stripe";
+import { parseAdminNotifyEmails } from "./admin-review-email";
 import type { VerifyAccessToken } from "./auth";
 import { createClipStorage, type ClipStorage } from "./clip-storage";
 import { createPostgresDb, type Db } from "./db";
@@ -43,6 +44,13 @@ export interface Deps {
    * is unset, and the clip routes then answer 503.
    */
   clipStorage(): ClipStorage | undefined;
+  /**
+   * ADMIN_NOTIFY_EMAILS (optional, server-only): where the admins' "waiting
+   * for your review" emails go, instead of every admin account's address
+   * (lib/server/admin-review-email.ts). Empty when unset or when no entry is
+   * a valid address.
+   */
+  adminNotifyEmails(): string[];
 }
 
 function requireEnv(name: string): string {
@@ -65,6 +73,7 @@ export function getDeps(): Deps {
   let stripe: Stripe | undefined;
   // null: looked, and it isn't configured.
   let clipStorage: ClipStorage | null | undefined;
+  let adminNotifyEmails: string[] | undefined;
   const smtp = createSmtpSender();
 
   cached = {
@@ -111,6 +120,15 @@ export function getDeps(): Deps {
     clipStorage() {
       if (clipStorage === undefined) clipStorage = createClipStorage() ?? null;
       return clipStorage ?? undefined;
+    },
+    adminNotifyEmails() {
+      if (adminNotifyEmails === undefined) {
+        const parsed = parseAdminNotifyEmails(process.env.ADMIN_NOTIFY_EMAILS);
+        // How many, never which: they're addresses.
+        if (parsed.ignored > 0) console.warn(`ADMIN_NOTIFY_EMAILS: ignored ${parsed.ignored} invalid or extra entries.`);
+        adminNotifyEmails = parsed.emails;
+      }
+      return adminNotifyEmails;
     },
   };
   return cached;
