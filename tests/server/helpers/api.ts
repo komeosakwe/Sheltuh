@@ -1,6 +1,7 @@
 import Stripe from "stripe";
 import { expect, vi } from "vitest";
 import type { Caller } from "@/lib/server/auth";
+import { AuthAdminError, type AuthAdmin } from "@/lib/server/auth-admin";
 import { ClipStorageError, type ClipStorage } from "@/lib/server/clip-storage";
 import type { Db } from "@/lib/server/db";
 import type { Deps } from "@/lib/server/deps";
@@ -148,6 +149,25 @@ export class FakeClipStorage implements ClipStorage {
   }
 }
 
+/**
+ * A stand-in for Supabase Auth's admin API (lib/server/auth-admin.ts).
+ * `generateInviteLink` answers a fresh token hash per call, "exists" for an
+ * address in `existing` (lower-cased), and throws an AuthAdminError while
+ * `failing` is set. `calls` records the addresses asked for.
+ */
+export class FakeAuthAdmin implements AuthAdmin {
+  readonly calls: string[] = [];
+  readonly existing = new Set<string>();
+  failing = false;
+
+  async generateInviteLink(email: string) {
+    this.calls.push(email);
+    if (this.failing) throw new AuthAdminError("generate_link", 500);
+    if (this.existing.has(email.toLowerCase())) return "exists" as const;
+    return { tokenHash: `pkce_hash_${crypto.randomUUID().replace(/-/g, "")}` };
+  }
+}
+
 export class TestApi {
   readonly stripe = createFakeStripe();
   /** Every email the API "sent". Make it throw to simulate an SMTP outage. */
@@ -160,6 +180,8 @@ export class TestApi {
   stripePublishableKey: string | undefined = PUBLISHABLE_KEY;
   /** Event clips' Storage; undefined to simulate SUPABASE_CLIP_STORAGE_KEY being unset. */
   clipStorage: FakeClipStorage | undefined = new FakeClipStorage();
+  /** Supabase Auth's admin API for invites; undefined to simulate SUPABASE_ADMIN_INVITE_KEY being unset. */
+  authAdmin: FakeAuthAdmin | undefined = new FakeAuthAdmin();
   /** ADMIN_NOTIFY_EMAILS as Deps reports it (parsed); empty to simulate it unset. */
   adminNotifyEmails: string[] = [];
   private readonly callers = new Map<string, Caller>();
@@ -180,6 +202,7 @@ export class TestApi {
       },
       cronSecret: () => this.cronSecret,
       clipStorage: () => this.clipStorage,
+      authAdmin: () => this.authAdmin,
       adminNotifyEmails: () => this.adminNotifyEmails,
     };
   }

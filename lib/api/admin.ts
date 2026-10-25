@@ -1,8 +1,11 @@
 import { apiFetch, type GetToken } from "./client";
 import type { EventInput } from "./events";
 import type {
+  AdminCreateInviteInput,
   AdminCreateOrganiserInput,
   AdminEmailJob,
+  AdminInviteRecord,
+  AdminInviteSendResult,
   AdminMemberProfile,
   AdminEventRecord,
   AdminOrganiserRecord,
@@ -12,6 +15,7 @@ import type {
   EmailJobStatus,
   EventRecord,
   EventStatus,
+  InviteStatus,
   OrganiserStatus,
   Paginated,
   RemoveProfileContentInput,
@@ -345,6 +349,53 @@ export async function adminRemoveProfileContent(profileId: string, input: Remove
   return apiFetch<AdminMemberProfile>(`/admin/profiles/${encodeURIComponent(profileId)}/remove-content`, {
     method: "POST",
     body: input,
+    token,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Account invites (docs/architecture.md, "Account invites")
+// ---------------------------------------------------------------------------
+
+/** Invites in one status (default `pending`), newest first. `expired` includes pending invites whose link has run out. */
+export async function adminListInvites(status: InviteStatus, getToken: GetToken, cursor?: string) {
+  const token = await getToken();
+  const qs = new URLSearchParams({ status, ...(cursor ? { cursor } : {}) });
+  return apiFetch<Paginated<AdminInviteRecord>>(`/admin/invites?${qs}`, { token });
+}
+
+/**
+ * Invites someone who asked to join, and emails them the link (14 days).
+ * 201 `{invite, emailSent}` (`emailSent: false`: saved, but the email failed:
+ * resend it). ApiError 400 (fieldErrors `kind`, `email`, `consent`,
+ * `organiser.<field>`), 409 the address already has a pending invite, or (an
+ * organiser invite) its account already has an organiser, 429 over 20 an hour
+ * (this admin) or 100 a day (everyone), 503 invites aren't configured.
+ */
+export async function adminCreateInvite(input: AdminCreateInviteInput, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminInviteSendResult>("/admin/invites", { method: "POST", body: input, token });
+}
+
+/**
+ * Emails a new link (the old one stops working; 14 days from now). A pending
+ * or expired invite. ApiError 404, 409 accepted or revoked (or the address
+ * has another pending invite), 429 sent in the last minute or over the
+ * allowances, 503 invites aren't configured.
+ */
+export async function adminResendInvite(inviteId: string, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminInviteSendResult>(`/admin/invites/${encodeURIComponent(inviteId)}/resend`, {
+    method: "POST",
+    token,
+  });
+}
+
+/** Revokes a pending invite: its link stops working at once. ApiError 404, 409 not pending (accepted, revoked or expired). */
+export async function adminRevokeInvite(inviteId: string, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminInviteRecord>(`/admin/invites/${encodeURIComponent(inviteId)}/revoke`, {
+    method: "POST",
     token,
   });
 }

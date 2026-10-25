@@ -171,6 +171,12 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
     that don't pay) and collects device and fraud-prevention signals under
     Stripe's policy; drafted in `/privacy`'s Payments section. Still marked
     draft.
+  - Account invites (`architecture.md`, "Account invites"): when someone
+    asks, a Sheltüh admin can set up an invite (their email address and, for
+    an organiser, the organiser details they gave) and email them a link; it
+    is deleted 90 days after it was accepted, withdrawn or expired. Review
+    the invite email's wording alongside the Privacy Policy and, once
+    drafted, link the Organiser Agreement from it.
 - [ ] **Google and Apple sign-in** (optional; off until the flag is set;
       `supabase-setup.md` §1, "Sign in with Google and Apple", and
       `architecture.md`, same section). In order:
@@ -299,6 +305,15 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        unless Preview deployments point at a separate Supabase project (then
        give Preview that project's own key, never Production's). Revoke it
        at once if it may have leaked.
+       The same goes for `SUPABASE_ADMIN_INVITE_KEY` (account invites; unset =
+       creating invites answers 503 and invitees use the ordinary sign-up):
+       a *separate* secret key (Supabase → API Keys → Create new secret key,
+       `account-invites`) read only by `lib/server/auth-admin.ts`, still a
+       **full Supabase secret key** with the same whole-project powers. Set
+       it for **Production only**, redeploy, and revoke it at once if it may
+       have leaked. No Supabase template change is needed, and **don't use
+       the dashboard's "Invite user" button** (its link doesn't land in the
+       app); invite from `/admin/invites`.
        Optional: `NEXT_PUBLIC_EVENT_CLIPS=1` turns clip uploads on (the
        editor's clip field, the admin queue's clip row), once that key is set.
        Without it the server also refuses new uploads (503), whatever a
@@ -328,6 +343,11 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 - [ ] Organiser flow: apply, approve as admin, submit an event with a photo,
       approve, see it on the home page.
 - [ ] Check the phone layout on a real phone.
+- [ ] **Account invites** (once `SUPABASE_ADMIN_INVITE_KEY` is set): the
+      smoke tests in `supabase-setup.md` §1, "Account invites": a fresh
+      address on a phone ends on the dashboard as an approved organiser; an
+      existing account; Google from the invite page; expired and revoked
+      invites.
 - [ ] **After the PKCE switch (whether or not Google and Apple are on):**
       email sign-up with the emailed code, and password reset with its code,
       both still work; so does signing in with a password.

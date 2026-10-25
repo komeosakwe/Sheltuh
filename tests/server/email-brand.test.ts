@@ -4,6 +4,7 @@ import type { EmailMessage } from "@/lib/server/email";
 import { button, EMAIL_COLOURS, escapeHtml, INK, SIGNAL, supportFooter } from "@/lib/server/email-layout";
 import { buildFollowerNewEventsEmail } from "@/lib/server/follower-email";
 import { buildFreeConfirmationEmail } from "@/lib/server/free-confirmation-email";
+import { buildInviteEmail } from "@/lib/server/invite-email";
 import { buildTicketEmail } from "@/lib/server/ticket-email";
 import type { EventRecord, OrderLineItem, OrderRecord, TicketSeat } from "@/lib/server/types";
 import { buildWaitlistAvailableEmail, buildWaitlistConfirmationEmail } from "@/lib/server/waitlist-email";
@@ -86,6 +87,17 @@ const emails: Record<string, () => EmailMessage> = {
       siteUrl: site,
     }),
   organiserReview: () => buildOrganiserReviewEmail({ to: "ops@sheltuh.test", organiserName: "Cellar Door Sound", siteUrl: site }),
+  inviteOrganiser: () =>
+    buildInviteEmail({
+      to: "fan@example.com",
+      kind: "organiser",
+      organiserName: "Cellar Door <Sound>",
+      link: `${site}/invite#token=x`,
+      daysValid: 14,
+      siteUrl: site,
+    }),
+  inviteMember: () =>
+    buildInviteEmail({ to: "fan@example.com", kind: "member", link: `${site}/invite#token=x`, daysValid: 14, siteUrl: site }),
 };
 
 /** Every colour value in the markup: style properties and bgcolor attributes. */

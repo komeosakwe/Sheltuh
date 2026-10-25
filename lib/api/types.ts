@@ -77,9 +77,12 @@ export interface OrganiserEditChange {
  * One entry of an organiser's append-only change log (admin only).
  * `profile_edit`: the approved organiser changed their public profile
  * (no review). `suspended`: an admin took them down, with `reason`.
+ * `invite_accepted`: the organiser's account accepted an admin's invite,
+ * which created the organiser, approved.
  */
 export interface OrganiserEditEntry {
-  kind: "profile_edit" | "suspended";
+  /** `invite_accepted`: the organiser was created by an accepted admin invite (`changes.status`: null → approved). */
+  kind: "profile_edit" | "suspended" | "invite_accepted";
   at: string;
   /** Only the fields that changed. */
   changes: Partial<Record<OrganiserLogField, OrganiserEditChange>>;
@@ -1600,4 +1603,99 @@ export interface AdminSeatMapInput {
   template: SeatMapTemplate;
   /** 1–500 characters, logged (the organiser sees it). */
   reason: string;
+}
+
+// ---------------------------------------------------------------------------
+// Account invites (docs/architecture.md, "Account invites")
+// ---------------------------------------------------------------------------
+
+/** `organiser`: comes with an organiser, approved when accepted. `member`: an account only. */
+export type InviteKind = "organiser" | "member";
+
+/**
+ * `expired`: the link's 14 days have passed (also before anything has
+ * marked it). Only `pending` invites can be accepted or revoked; `pending`
+ * and `expired` ones can be resent.
+ */
+export type InviteStatus = "pending" | "accepted" | "revoked" | "expired";
+
+/** An invite as admins see it (GET /api/admin/invites). Never the link or its token. */
+export interface AdminInviteRecord {
+  inviteId: string;
+  kind: InviteKind;
+  /** As the admin typed it. */
+  email: string;
+  status: InviteStatus;
+  /** An organiser invite's organiser name. */
+  organiserName?: string;
+  /** The inviting admin's account id (unset once that account is deleted). */
+  invitedBy?: string;
+  createdAt: string;
+  /** When the current link stops working. */
+  expiresAt: string;
+  /** When the email was last sent (or attempted). */
+  lastSentAt?: string;
+  /** Set when the last send failed: resend it. */
+  lastSendFailedAt?: string;
+  /** Emails sent for this invite, the first included. */
+  sendCount: number;
+  acceptedAt?: string;
+  /** The organiser an accepted organiser invite created. */
+  acceptedOrganiserId?: string;
+  revokedAt?: string;
+}
+
+/**
+ * POST /api/admin/invites. `consent` must be true: the person asked to be
+ * invited (Spam Act 2003). `organiser`: required for an organiser invite
+ * (the application's fields and rules, the bio included; fieldErrors are
+ * `organiser.<field>`), refused for a member invite.
+ */
+export interface AdminCreateInviteInput {
+  kind: InviteKind;
+  email: string;
+  consent: true;
+  organiser?: AdminCreateOrganiserInput;
+}
+
+/** POST /api/admin/invites (201) and …/{inviteId}/resend (200). `emailSent: false`: saved, but the email failed; resend it. */
+export interface AdminInviteSendResult {
+  invite: AdminInviteRecord;
+  emailSent: boolean;
+}
+
+/** POST /api/invites/view {token}: what the invite page shows before anything is pressed. */
+export interface InviteView {
+  kind: InviteKind;
+  /** "m***@example.com": the invite's address. */
+  maskedEmail: string;
+  organiserName?: string;
+  expiresAt: string;
+  /** `existing`: the address already has a confirmed account, so the person signs in instead of creating one. */
+  account: "new" | "existing";
+  /**
+   * Whether "Create account" with a password works here (the server can
+   * issue the sign-up token). false: send them to the ordinary sign-up
+   * (`/signup?next=/invite`); acceptance works the same once they're verified.
+   */
+  passwordSetup: boolean;
+}
+
+/** POST /api/invites/account-link {token}: the sign-up token's hash, for `verifyOtp({token_hash, type: "invite"})`. */
+export interface InviteAccountLink {
+  tokenHash: string;
+}
+
+/** GET /api/invites/me: the pending invite for the caller's verified email. */
+export interface MyInvite {
+  inviteId: string;
+  kind: InviteKind;
+  organiserName?: string;
+  expiresAt: string;
+}
+
+/** POST /api/invites/accept {inviteId}. `organiserId`: the organiser created (organiser invites). */
+export interface AcceptInviteResult {
+  kind: InviteKind;
+  organiserId?: string;
 }

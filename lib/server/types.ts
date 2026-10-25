@@ -6,8 +6,17 @@ import type { EventCategory } from "@/lib/types";
 
 export type { EventCategory, FeePolicy } from "@/lib/types";
 export type {
+  AcceptInviteResult,
+  AdminCreateInviteInput,
   AdminCreateOrganiserInput,
   AdminEmailJob,
+  AdminInviteRecord,
+  AdminInviteSendResult,
+  InviteAccountLink,
+  InviteKind,
+  InviteStatus,
+  InviteView,
+  MyInvite,
   AdminEventRecord,
   EventEditChanges,
   AdminSetEventTicketingInput,

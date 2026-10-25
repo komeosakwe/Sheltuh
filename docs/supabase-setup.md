@@ -47,6 +47,11 @@ email, rather than click a link. Supabase sends links by default, so:
 - **Emails → Templates → "Confirm signup":** put `{{ .Token }}` in the body,
   e.g. `Your Sheltüh verification code is {{ .Token }}`.
 - **Emails → Templates → "Reset password":** the same, with `{{ .Token }}`.
+- **Don't use Users → "Invite user"** (or change the "Invite user"
+  template). Its link goes to Supabase's own verify page, which this app
+  doesn't pick up (sign-in uses PKCE), so the person would land nowhere.
+  Invite people from `/admin/invites` instead ("Account invites" below): that
+  email is ours, sent through the SMTP settings, and needs no template change.
 - **Policies / Passwords:** minimum length 8, and require lowercase,
   uppercase and digits. This matches what the sign-up form already tells
   people.
@@ -608,8 +613,10 @@ have recorded.
 
 Guest free orders that were never confirmed are deleted a week after their
 link expired, along with idle platform counters, free-booking refusal counts
-older than 13 months, and ticket-email jobs (sent ones after 90 days, failed
-ones after a year), by `private.purge_operational_data()`:
+older than 13 months, ticket-email jobs (sent ones after 90 days, failed
+ones after a year), idle per-client counters, and account invites 90 days
+after they were accepted, withdrawn or expired, by
+`private.purge_operational_data()`:
 
 ```sql
 select cron.schedule('purge-operational-data', '37 3 * * *', $$select private.purge_operational_data()$$);
@@ -690,6 +697,49 @@ redeployed): it shows the editor's clip field and the admin queue's clip
 row, and the server refuses new uploads (503) without it, whatever a
 browser sends. Existing clips still play, and can be re-described or
 removed, either way.
+
+### Account invites (optional)
+
+Admins invite people who asked to join, as an organiser or a member, from
+`/admin/invites` (`docs/architecture.md`, "Account invites"; migration
+`20261108000000_account_invites.sql`). The invite email is ours, sent through
+the SMTP settings (§3), so there's **no Supabase template, Site URL or
+Redirect URL change**. Don't use the dashboard's **Invite user** button: its
+link wouldn't land in this app.
+
+When the invitee presses "Create account", the server asks Supabase Auth for
+a sign-up token for the invited address there and then. That needs a
+dedicated secret key: Project Settings → API Keys → **Create new secret key**,
+named `account-invites`, set in Vercel as `SUPABASE_ADMIN_INVITE_KEY`
+(server-only, never `NEXT_PUBLIC_`) for **Production only**, then redeploy.
+Be clear about what it is: Supabase secret keys can't be scoped, so this is a
+**full secret key with service-role powers** over the whole project: the Data
+API without RLS (every table), Supabase Auth admin (including setting
+`app_metadata.role = "admin"` on any account) and every Storage bucket. The
+app only uses it for that one call, through `lib/server/auth-admin.ts`; being
+a separate key means it can be revoked alone, nothing more. Revoke it at once
+if it may have leaked. Without it, creating and resending invites answer 503,
+and anyone holding an invite already sent signs up the ordinary way (with a
+code) and accepts it from the same page.
+
+Smoke-test on the **test** project before relying on it (these Supabase
+behaviours aren't covered by the automated tests):
+
+1. Invite a fresh address you can read on a phone, as an organiser. Open the
+   email, Create account with a password: you land on the dashboard as an
+   approved organiser, and the admin's organiser queue shows it with "Joined
+   by invite".
+2. Invite an address that already has an account: the page says to sign in;
+   after signing in, accept.
+3. From the invite page, continue with Google instead: you come back signed
+   in and can accept.
+4. An expired invite (or set `expires_at` in the past in SQL) and a revoked
+   one: the page says so.
+5. Note whether Supabase answers "already exists" for a confirmed address,
+   reuses an unconfirmed one, and whether the account shows as confirmed
+   after the token is verified (`docs/architecture.md`, "Accepted risks
+   (account invites)"). Delete any unconfirmed accounts an abandoned test
+   left in Authentication → Users.
 
 ## 2. Stripe (Connect)
 
@@ -924,6 +974,10 @@ where j.status in ('failed', 'pending') order by j.created_at desc;
 4. Point a domain at it. The live landing page on `sheltuh.com.au` stays on
    Cloudflare Workers until you decide to swap it. A subdomain such as
    `app.sheltuh.com.au` avoids touching it for now.
+
+`SUPABASE_CLIP_STORAGE_KEY` and `SUPABASE_ADMIN_INVITE_KEY` are full
+Supabase secret keys: **Production only** (§1, "Event clips" and "Account
+invites").
 
 `NEXT_PUBLIC_*` values are baked in at build time, so redeploy after
 changing them. `NEXT_PUBLIC_AUTH_PROVIDERS` (Google and Apple sign-in) goes in

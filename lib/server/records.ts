@@ -8,6 +8,7 @@ import type {
   AdminEmailJob,
   AdminMemberProfile,
   AdminEventRecord,
+  AdminInviteRecord,
   AdminOrganiserRecord,
   AdminReport,
   BlockRecord,
@@ -697,6 +698,41 @@ export function toAdminEmailJob(row: Row): AdminEmailJob {
     orderStatus: row.order_status as AdminEmailJob["orderStatus"],
     eventTitle: row.event_title as string,
     maskedEmail: email ? maskEmail(email) : undefined,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Account invites
+// ---------------------------------------------------------------------------
+
+/**
+ * Admin view of an invite; append `where …`. Never the token hash, the
+ * organiser's other details or who accepted it. `lapsed`: the link has run
+ * out (a pending invite then reads `expired`).
+ */
+export const ADMIN_INVITE_SELECT = `
+  select i.id, i.kind, i.email, i.status, i.expires_at <= now() as lapsed,
+         i.organiser_profile ->> 'display_name' as organiser_name, i.invited_by, i.created_at, i.expires_at,
+         i.last_sent_at, i.last_send_failed_at, i.send_count, i.accepted_at, i.accepted_organiser_id, i.revoked_at
+    from private.account_invites i`;
+
+export function toAdminInvite(row: Row): AdminInviteRecord {
+  const stored = row.status as AdminInviteRecord["status"];
+  return {
+    inviteId: row.id as string,
+    kind: row.kind as AdminInviteRecord["kind"],
+    email: row.email as string,
+    status: stored === "pending" && row.lapsed === true ? "expired" : stored,
+    organiserName: opt(row.organiser_name),
+    invitedBy: opt(row.invited_by),
+    createdAt: iso(row.created_at),
+    expiresAt: iso(row.expires_at),
+    lastSentAt: row.last_sent_at ? iso(row.last_sent_at) : undefined,
+    lastSendFailedAt: row.last_send_failed_at ? iso(row.last_send_failed_at) : undefined,
+    sendCount: row.send_count as number,
+    acceptedAt: row.accepted_at ? iso(row.accepted_at) : undefined,
+    acceptedOrganiserId: opt(row.accepted_organiser_id),
+    revokedAt: row.revoked_at ? iso(row.revoked_at) : undefined,
   };
 }
 

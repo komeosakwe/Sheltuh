@@ -48,7 +48,7 @@ and recent runs with
 | --- | --- | --- | --- | --- |
 | `purge-social-data` | `17 3 * * *` (daily 03:17) | 2:17 pm | 1:17 pm | `private.purge_social_data()`: Who's Going opt-ins 30 days after the event, old conversations and resolved reports, stale rate-limit counters. |
 | `purge-analytics` | `27 3 * * *` (daily 03:27) | 2:27 pm | 1:27 pm | `private.purge_analytics()`: view counters after 25 months, idle view rate limits, check-in records 25 months after the event. |
-| `purge-operational-data` | `37 3 * * *` (daily 03:37) | 2:37 pm | 1:37 pm | `private.purge_operational_data()`: expired unconfirmed guest free orders, idle platform counters, old refusal counts, old outbox jobs. |
+| `purge-operational-data` | `37 3 * * *` (daily 03:37) | 2:37 pm | 1:37 pm | `private.purge_operational_data()`: expired unconfirmed guest free orders, idle platform counters, old refusal counts, old outbox jobs, idle per-client counters, account invites 90 days after they were accepted, revoked or expired. |
 | `refresh-trending` (optional) | `*/15 * * * *` | every 15 min | every 15 min | `private.refresh_trending()`, only if you chose to run it from the database (below). |
 
 The owner reported scheduling one retention job (job id 1); which one, and

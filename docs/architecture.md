@@ -65,7 +65,7 @@ iframe served by Stripe), with the publishable key
 | Table | Key | Notes |
 |---|---|---|
 | `organisers` | `id` | `owner_user_id` is unique, one application per account. It's null for platform-managed organisers (events Sheltüh lists on someone's behalf, and seed data), which admins create (`POST /admin/organisers`), which sell no paid Sheltüh tickets, and whose events only admins check in (see "Admin authoring" and "Check-in"); their `contact_email` should be a Sheltüh alias, never a person's own address (`docs/supabase-setup.md`); check constraint `organisers_platform_no_payouts`: such an organiser has no Stripe account and no payouts. `status`: pending → approved / rejected. Also holds the Stripe Connect account id and `payouts_enabled`. Optional social handles (`instagram_handle`, `tiktok_handle`, `facebook_page`, `x_handle`), stored without `@` and pattern-checked by the database; `website_url` must be http(s), at most 2048 characters (check constraint; the API only takes new `https://` addresses, see "Organiser profiles"). An admin takedown sets `rejected` (see "Organiser profiles"). `featured_video_provider` (`youtube` or `vimeo`) and `featured_video_id`: the featured video, provider and id only, never a URL (check constraint `organisers_featured_video_check`: both or neither, id pattern per provider). |
-| `private.organiser_profile_edits` | `id` (identity) | Append-only log per organiser: each profile edit made without review (`profile_edit`: old and new value of each changed field, by the owner, or by an admin with a reason: removing the featured video, logged as `featured_video` `"provider:id"`, or the logo, logged as `logo` with its version) and each admin takedown (`suspended`, with the admin and reason; a takedown must have a reason). A trigger refuses updates (except the `actor_id` foreign key's own set-null when that account is deleted). Admins see the newest 20 per organiser. Kept while the organiser exists; deleted with it. |
+| `private.organiser_profile_edits` | `id` (identity) | Append-only log per organiser: each profile edit made without review (`profile_edit`: old and new value of each changed field, by the owner, or by an admin with a reason: removing the featured video, logged as `featured_video` `"provider:id"`, or the logo, logged as `logo` with its version), each admin takedown (`suspended`, with the admin and reason; a takedown must have a reason), and the organiser's creation by an accepted admin invite (`invite_accepted`, by the new owner: `status` null → approved; see "Account invites"). A trigger refuses updates (except the `actor_id` foreign key's own set-null when that account is deleted). Admins see the newest 20 per organiser. Kept while the organiser exists; deleted with it. |
 | `private.organiser_logos` | `organiser_id` | An organiser's logo as the server re-encoded it: `image` (512 × 512 WebP, ≤ 512 KB) and `thumb` (96 × 96 WebP, ≤ 64 KB), the whole logo fitted on white, no transparency, no metadata. `updated_at` is its version (milliseconds since the epoch, in its URL and the log); every write moves it on by at least a millisecond. Deleted with the organiser (see "Organiser profiles"). |
 | `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected; unpublish returns it to draft. `is_free` (true only when the event has ticket types and all are free; for an external event, `external_free`) is kept up to date by `replace_ticket_types` for the feed's free filter. `whos_going_enabled` (default true) is an admin-only kill switch for that event's Who's Going, set in SQL (`docs/supabase-setup.md`). `ticketing_mode` (`sheltuh`, the default, or `external`), `external_ticket_url` and `external_free`: see "External ticketing". Check constraints: an external event has a link, a Sheltüh-ticketed one has no link and isn't `external_free`, and an external event's `is_free` equals `external_free`. The trigger `events_external_ticket_url_valid` checks a link against `private.external_ticket_url_ok` when it's inserted or changed (only then, so tightening the rules never blocks a later status change; see "External ticketing"). `updated_at` changes on every update of the row, a photo change included (trigger `event_images_touch_event`). Triggers refuse ticket types and orders for an external event, and switching an event with ticket types to external. |
 | `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. A trigger refuses a price above 0 for a platform-managed organiser's event (`ticket_types_platform_free_only`). `quantity_sold` only ever goes up in `fulfil_order`, and down only in `record_payment_refund` (a paid order refunded in full). `seated`: the tier has seats on the event's seat map; its `quantity_available` is then always its unblocked seats (trigger `ticket_types_seated_capacity`, whatever is written; see "Reserved seating"). |
@@ -106,6 +106,7 @@ iframe served by Stripe), with the publishable key
 | `private.trending_snapshot` | `rank` | The ranked trending list (at most 24): rank, event (unique), score and when it was computed. Rebuilt as a whole by `refresh_trending`; holds no counts. Deleted with the event. |
 | `private.analytics_settings` | single row | `views_tracked_since`: the Melbourne day view counting started (when its migration ran), so reports show earlier days as "not counted" rather than 0. |
 | `private.user_reports` | `id` | A member's report: copies of the reported message, up to 20 messages of context and the reported display name; `target_type` (`conversation`, `attendee` or `profile`); for a profile report, copies of the bio, Instagram handle and photo (512 px WebP: `reported_avatar_sha256`, a key into `private.report_photos`; reports made before that keep the copy inline in `reported_avatar`, never both: `user_reports_one_avatar_copy`). At most one open profile report per reporter and reported member (partial unique index `user_reports_open_profile_key`). Every reference is `on delete set null`, so the evidence survives the messages and both accounts. `status`: open → actioned (suspended) / dismissed. Resolved reports are deleted 2 years after resolution. |
+| `private.account_invites` | `id` | Admin invites (see "Account invites"): `kind` (`organiser`, with `organiser_profile`: the application's fields, the organisers columns as keys; or `member`, without), the address as typed, `token_hash` (SHA-256 of the emailed token, never the token; unique), `status` pending → accepted / revoked / expired (a pending invite past `expires_at` reads as expired), who invited, last sent, accepted and revoked it (each `on delete set null`), `expires_at` (14 days from the last send), `last_sent_at`, `last_send_failed_at`, `send_count`, `links_issued` (sign-up tokens requested with the current link), `accepted_organiser_id`. At most one pending invite per address, ignoring case (`account_invites_pending_email_key`). Check constraints tie a profile to organiser invites and `accepted_at` / `revoked_at` to their statuses. Deleted 90 days after it was accepted, revoked or expired (`purge_operational_data`). |
 | `private.report_photos` | `sha256` | Profile reports' photo copies, once per distinct image (`sha256 = sha256(image)`, check constraint), however many reports take it. `last_used_at` is bumped whenever a report takes it. Deleted by `purge_social_data` once no report references it and it's been unused for a day. |
 
 Timestamps are `timestamptz`. Organisers enter Australia/Melbourne local
@@ -146,7 +147,11 @@ times, which are converted to instants honouring daylight saving
 | `place_free_order` | A member's free order, created and fulfilled in one step under an advisory lock on (event, person): the per-person cap, then the daily allowance, then `fulfil_order`. A refusal or sell-out writes nothing (beyond a refusal count). Returns `paid`, `person_event_limit`, `member_daily_limit` or `sold_out`. |
 | `request_free_order` | A guest's pending free order: the platform's hourly and 24-hour caps (read-only), then, under an advisory lock on the address, the hourly link limit, then a hit on each platform cap. Returns `requested`, `address_limited`, `platform_limited` or `platform_daily_limited`. (The previous 13-argument form delegates to it with the same daily cap, for the deploy window; the app doesn't call it.) |
 | `confirm_free_order` | Confirms by token hash: locks the order, then (event, person), then the event (share) to check every ticket type is still free, then `fulfil_order`'s locks. Idempotent within the link's 24 hours. Returns `confirmed`, `already_confirmed`, `expired_confirmed`, `not_found`, `expired`, `unavailable`, `ended` (the event ended before the link was confirmed: read before the allowance, and again under the event's share lock), `person_event_limit`, `no_longer_free`, `seats_taken` (a seated order's seats went to someone else since the link was sent) or `sold_out` (the last five mark the order `failed`). A seated order takes the seat lock before the order row. |
-| `purge_operational_data` | Retention for free-ticket and outbox data (see "Free tickets" and "Payment flow"); sent outbox jobs after 90 days, failed ones after a year; per-client counters (`client_rate_limits`) idle for a day. Idempotent; Supabase Cron daily. |
+| `purge_operational_data` | Retention for free-ticket and outbox data (see "Free tickets" and "Payment flow"); sent outbox jobs after 90 days, failed ones after a year; per-client counters (`client_rate_limits`) idle for a day; account invites 90 days after they were accepted, revoked or expired (`account_invites_deleted`, `20261108000000_account_invites.sql`). Idempotent; Supabase Cron daily. |
+| `create_account_invite` | An admin's invite (see "Account invites"): marks the address's expired pending invite `expired`; refuses an address with a pending invite (`already_invited`) or, for an organiser invite, one whose account already owns an organiser (`already_organiser`); then a hit on the admin's hourly allowance (`account_invites`) and the platform's daily one (`account_invites_daily`) and the insert, in one subtransaction, so a refusal keeps neither hit and two admins inviting the same address at once can't both succeed (the unique index; the loser is `already_invited`). Returns `created` with the id, or the refusal. |
+| `resend_account_invite` | Locks the invite; only a pending or expired one (`not_pending`), not within a minute of the last send (`too_soon`); the same allowances, taken only when it's resent; a new token hash, 14 days from now, link count reset, status pending again (`already_invited` if the address has another pending invite by then). |
+| `issue_invite_account_link` | The invite page's "Create account", by token hash: locks the invite; `not_found`, `used`, `revoked`, `expired`; `has_account` when the address already has a confirmed account; `limit` past the per-link cap; otherwise counts one request and returns the address. |
+| `accept_account_invite` | The invitee's acceptance: locks the invite; the caller's verified email must equal its address, ignoring case (`not_found` otherwise, revealing nothing); the same account again is `already_accepted` (idempotent), another one `used`; `revoked`, `expired`. An organiser invite inserts the organiser, approved, reviewed by the inviting admin, owned by the caller (`on conflict (owner_user_id) do nothing`: an account with an organiser, or an application committed meanwhile, is `has_organiser`, nothing written), and logs `invite_accepted`; then marks the invite accepted, in one step. |
 | `claim_outbox_jobs`, `finish_email_job`, `resend_email_job`, `admin_resend_email_job` | The email outbox: lease due jobs of any kind (optionally one order's, or one kind) with `skip locked` (an expired lease is taken again; one that expired on the 6th attempt fails), record an outcome only for the current lease holder, and an admin resend of a ticket email (not while leased, not twice in 5 minutes; a waitlist email is `not_found`). `admin_resend_email_job` takes a hit on the admin's hourly allowance only when the resend is queued, in the same transaction (over it: `rate_limited`, nothing changed). `claim_email_jobs`, the earlier form, now claims ticket emails only and is kept for the deploy window (see "Not built yet"). |
 | `waitlist_join_state` | Whether an event's waitlist takes joins: `open` (published, Sheltüh-ticketed, not ended, has ticket types and every one is sold out), else `not_found` (missing or not published), `external`, `ended` or `not_sold_out`. |
 | `join_waitlist` | A member's join with their own verified email (the API checks it's theirs): on the list at once, idempotently (`already_joined`); someone who left, or never confirmed, joins again at the back. An entry already on the list is linked to the member's account only if its address is exactly theirs (ignoring case), never by a normalised match (`+tag`, Gmail dots). Returns `joined`, `already_joined` or a `waitlist_join_state` refusal. |
@@ -2051,7 +2056,8 @@ Admins get an email when something is waiting for their review
   description, contact details, venue address or buyer data; no images, no
   tracking. Saving a draft, an approved organiser's profile edit, and
   anything an admin creates (admin-authored events are published directly,
-  platform-managed organisers are approved) send nothing.
+  platform-managed organisers are approved, and so is an organiser created by
+  an accepted invite, see "Account invites") send nothing.
 - **Reliable.** Deferred constraint triggers on `events` and `organisers`
   queue an `event_review` / `organiser_review` outbox job in the same
   transaction as the status change, whichever path made it, and only if it
@@ -2099,6 +2105,113 @@ Admins get an email when something is waiting for their review
 - **Not in `/admin/emails`.** That list and the home page's failed and
   retrying counts are ticket emails only (jobs with an order); review emails
   are internal and never resent by hand.
+
+## Account invites
+
+Admins invite people who asked to join, as an organiser or as a member
+(owner decisions, 25 Oct 2026; `supabase/migrations/20261108000000_account_invites.sql`,
+`lib/server/handlers/invites.ts`, `lib/server/auth-admin.ts`,
+`lib/server/invite-email.ts`, `lib/api/invites.ts` and the invite functions in
+`lib/api/admin.ts`). The pages, `/admin/invites` (admins) and `/invite` (the
+invitee), are separate frontend work; this section is the API and the data.
+
+- **Creating** (`POST /admin/invites {kind, email, consent: true, organiser?}`,
+  admin only). `consent` must be true: the admin confirms the person asked to
+  be invited (Spam Act 2003). There are no automatic reminders: an email goes
+  out only when an admin creates or resends an invite. An organiser invite
+  carries the organiser, with the application's fields and rules (the same
+  parser as `POST /organisers/apply`, so the bio is required; errors are
+  `fieldErrors["organiser.<field>"]`); a member invite carries nothing else.
+  One pending invite per address, ignoring case (409); an organiser invite for
+  an address whose account already has an organiser is a 409 (only admins
+  learn that). The invite is saved first, then emailed through our own SMTP
+  (`deps.sendEmail`), in the request: a failed send is recorded
+  (`lastSendFailedAt`) and answered `emailSent: false`, and the admin resends.
+  Nothing about the address goes to Supabase at this point.
+- **The link** is `/invite#token=…` (32 random bytes, base64url, in the
+  fragment, so it isn't in server logs or Referers; only its SHA-256 is
+  stored) and works for 14 days. A resend (`…/resend`, a pending or expired
+  invite) emails a new link, so the old one is a 404, and restarts the 14
+  days; revoking (`…/revoke`, a pending invite) stops it at once. One
+  conditional update, so a revoke and an acceptance can't both succeed.
+- **Opening it changes nothing.** `POST /invites/view {token}` is a read
+  (kind, masked address, organiser name, expiry, whether the address already
+  has an account, whether password setup is available), so a mail scanner
+  following the link is harmless. 410 with `code` `expired`, `revoked` or
+  `used`.
+- **"Create account": a sign-up token minted just in time.** We never use
+  Supabase's own invites (`inviteUserByEmail`, the dashboard's "Invite user"
+  and its template): auth-js doesn't support PKCE for them, and their link
+  goes to Supabase's verify endpoint, which nothing in this app picks up (the
+  browser client is `flowType: "pkce"`, `detectSessionInUrl: false`). Instead
+  `POST /invites/account-link {token}` asks Supabase Auth's admin
+  `generate_link` (type `invite`, no `data`) for the invite's address at that
+  moment, which sends no email, and returns only its `hashed_token`; the
+  browser verifies it (`verifyOtp({token_hash, type: "invite"})`), sets a
+  password (the sign-up rules) and signs out other sessions. No Supabase
+  account exists until the person acts, and revoking the invite leaves nothing
+  to use. An address with a confirmed account is a 409 `code: "has_account"`
+  (they sign in instead). At most 10 tokens per link and 20 requests an hour
+  per client (`take_client_rate_limit`, bucket `invite_account_links`; fails
+  open, logged, without a client IP or `STRIPE_WEBHOOK_SECRET`, like
+  checkout's), 429 beyond.
+- **Accepting** (`GET /invites/me`, then `POST /invites/accept {inviteId}`):
+  a signed-in caller whose **verified** email equals the invite's, ignoring
+  case (anyone else: 404, revealing nothing). Because only the verified email
+  counts, a password set from the invite, Google or Apple sign-in, an existing
+  account, or the ordinary sign-up all accept the same way. An organiser
+  invite creates the organiser, **approved** (reviewed by the inviting admin),
+  owned by the caller, and logs `invite_accepted` on its log, in one step
+  (`accept_account_invite`); being approved from the start, it queues no
+  "organiser to review" email. One organiser per account: one that already
+  has one (any status, or an application committed at the same moment) gets a
+  409 and nothing is written. Idempotent for the same account.
+- **The key.** `SUPABASE_ADMIN_INVITE_KEY` (server-only, Production only),
+  read only by `lib/server/auth-admin.ts`, which sends it to Supabase Auth
+  and nowhere else and never puts it, the address or a token in an error or
+  log. Without it, creating and resending are a 503 (nothing written),
+  `account-link` is a 503 `code: "unavailable"` and `view` says
+  `passwordSetup: false`, so the page sends the person to the ordinary
+  sign-up (`/signup?next=/invite`) and acceptance still works. A Supabase
+  failure is the same 503.
+- **Allowances.** 20 invites (created or resent) per admin an hour and 100 a
+  day platform-wide (the Workspace SMTP quota is shared), taken only when the
+  invite is written; a resend no sooner than a minute after the last send.
+  429 beyond.
+- **Privacy and retention.** Admins see the address as typed; the invitee's
+  page shows it masked. Neither the address nor the token is ever logged.
+  Invites are deleted 90 days after they were accepted, revoked or expired.
+  The Privacy Policy should say admins can set up an invite for someone who
+  asks, what it holds and for how long.
+
+### Accepted risks (account invites)
+
+- **Whoever holds the link can set up the account.** Inherent to emailed
+  links; bounded by the 14 days, the one address it's for, the per-link cap
+  and revoking.
+- **Apple's Hide My Email** addresses never match the invite: the person uses
+  the invited address (password or Google), or the admin invites again.
+- **Abandoned setups** leave unconfirmed Supabase accounts behind (cleaned up
+  by hand in Authentication → Users).
+- **The key is a full Supabase secret key** (Supabase can't scope them), used
+  from a public, token-gated route. `DATABASE_URL` already gives
+  database-owner access, `auth.users` included; this one is separately
+  revocable.
+- **An account someone pre-registered with the invitee's address** but never
+  confirmed: mitigated by the mandatory password and signing out other
+  sessions after the token is verified, and by Supabase clearing the password
+  when it links an unconfirmed account to Google or Apple.
+- **Admin typos** in an organiser's details: revoke before acceptance, or SQL
+  after (organisers can't change their name, contact email or categories, and
+  there's no admin edit tool).
+- **Unverified Supabase behaviour** (not in `node_modules`; smoke-test on the
+  test project, `supabase-setup.md`): the admin API accepting an `sb_secret_`
+  key as Bearer; `generate_link` type `invite` answering 422 `email_exists`
+  for a confirmed user, reusing an unconfirmed one and sending nothing;
+  `verifyOtp` type `invite` confirming the email and returning a session; the
+  `hashed_token` format (validated loosely); whether `auth.users` emails are
+  lower-cased (compared with `lower()` on both sides). The "has an account"
+  checks scan `auth.users`; fine at current scale.
 
 ## Reserved seating
 
@@ -2373,6 +2486,9 @@ application is approved.
 | `GET /admin/events?status&q&upcoming&platformManaged&limit&cursor` · `POST /admin/events/{id}/approve` · `…/reject` · `…/unpublish` | admin. Soonest first. `q` (optional, control characters dropped, at most 100 characters used): title or organiser name containing it, ignoring case and accents, LIKE wildcards literal; no index (it scans one status's events). `upcoming` (`1`/`true`, `0`/`false`): only events that haven't ended (`ends_at > now()`, in progress included), or all; absent means `1` for `status=published` and `0` for every other status. `platformManaged` (`1`/`0`): only platform-managed organisers' events, or only the others; absent, both. 400 (fieldErrors on the parameter) for any other boolean value. Approve: 409 if the event's organiser isn't approved. Items are `AdminEventRecord`s (`EventRecord` plus `organiserPlatformManaged` and `curation: { boost, excluded }`, default boost 1 / not excluded), so the review queue shows `ticketingMode`, `externalTicketUrl`, `externalProvider`, `ticketingLocked` and the trending curation without a request per row |
 | `GET /admin/summary` | admin. `AdminSummary`, counts only (no names, titles or addresses): `reportsOpen {count, oldestAt}`, `eventsPending {count, soonestStartsAt, startingSoon, startingSoonHours: 72}` (the last three over events not ended), `organisersPending {count, oldestAt}` (oldest last update), `emailsFailed {count}` and `emailsRetrying {count}` (ticket emails: failed, or pending after a failed attempt), `doorEvents {count, windowHours: 24}` (published, Sheltüh-ticketed, platform-managed, not ended, starting within 24 hours). One query; each part is served by an existing status index |
 | `POST /admin/organisers` | admin. A platform-managed organiser (see "Admin authoring"): the application's fields and rules. 201 `AdminOrganiserRecord`; 400 fieldErrors |
+| `GET /admin/invites?status&cursor&limit` · `POST /admin/invites` `{kind, email, consent, organiser?}` · `POST /admin/invites/{inviteId}/resend` · `POST …/revoke` | admin (see "Account invites"). List: `Paginated<AdminInviteRecord>`, status `pending` (default), `accepted`, `revoked` or `expired` (400 otherwise), newest first. Create: 201 `{invite, emailSent}`; 400 fieldErrors (`kind`, `email`, `consent`, `organiser`, `organiser.<field>`); 409 a pending invite for the address, or its account already has an organiser; 429; 503 without `SUPABASE_ADMIN_INVITE_KEY` (nothing written). Resend: 200 `{invite, emailSent}`; 404; 409 accepted or revoked; 429 within a minute or over the allowance; 503. Revoke: 200 the invite; 404; 409 not pending |
+| `POST /invites/view` `{token}` · `POST /invites/account-link` `{token}` | public (the emailed token is the credential), private, no-store. View: `InviteView`, read-only; 400; 404; 410 `code` `expired` / `revoked` / `used`. Account link: `{tokenHash}`; 400; 404; 410; 409 `code: "has_account"`; 429 (10 per link, 20 an hour per client); 503 `code: "unavailable"` (no key, or Supabase Auth failed) |
+| `GET /invites/me` · `POST /invites/accept` `{inviteId}` | verified email. Me: the pending invite for the caller's address (`MyInvite`); 404 none. Accept: 200 `{kind, organiserId?}` (idempotent); 404 unknown or another address's; 409 the account already has an organiser; 410 `code` |
 | `GET /admin/events/{id}` · `POST /admin/events` · `PATCH /admin/events/{id}` | admin (see "Admin authoring"). `AdminEventRecord`. POST: the event body plus `organiserId`, `publish?`; 201; 400 fieldErrors (`organiserId` unknown; `ticketTypes` paid for a platform-managed organiser); 409 organiser not approved. PATCH: the event body with `ticketingMode` required, `expectedUpdatedAt`, `publish?`, `reason?` (≤500); 200 (unchanged if nothing changes); 400 fieldErrors (incl. `reason` to change an approved event's mode or link); 404; 409 stale version (`fieldErrors.expectedUpdatedAt`), orders on a switch to external, sold ticket types, or organiser not approved when publishing |
 | `PUT /admin/events/{id}/image` · `DELETE /admin/events/{id}/image` | admin, any status. As the organiser's (413, 400), logged `edited`; 404 |
 | `GET /admin/events/{id}/curation` · `PUT …/curation` `{boost, excluded, reason}` | admin, any status (see "Trending"). `{eventId, boost, excluded, updatedAt, log}` (newest 20 changes). PUT: 200 (unchanged, nothing logged, if nothing changes; logged `curated` otherwise); 400 fieldErrors (`boost` a number from 0.5 to 2, rounded to 2 places; `excluded` a boolean; `reason` 1–500 characters); 404 |
@@ -2383,7 +2499,7 @@ response). It's currently a row offset, fine at this scale.
 
 JSON request bodies over 256 KB are refused with 413. Every error response
 is `cache-control: private, no-store`, and so is every admin response
-(`admin.ts`, `admin-authoring.ts`, `email-outbox.ts`, `reports.ts`,
+(`admin.ts`, `admin-authoring.ts`, `email-outbox.ts`, `invites.ts`, `reports.ts`,
 `trending.ts`).
 
 ## Code map
@@ -2406,6 +2522,11 @@ is `cache-control: private, no-store`, and so is every admin response
   `app/checkout/pay/page.tsx` with its client components and the Stripe.js
   loader (`components/checkout/*`, `lib/stripe/*`); tests
   `tests/server/order-payment.test.ts` and `tests/server/stripe-keys.test.ts`.
+- Account invites: `lib/server/handlers/invites.ts`; `lib/server/auth-admin.ts`
+  (the only reader of `SUPABASE_ADMIN_INVITE_KEY`), wired as `Deps.authAdmin`;
+  `lib/server/invite-email.ts`; `lib/api/invites.ts` and the invite functions
+  in `lib/api/admin.ts`; tests `tests/server/invites.test.ts`,
+  `tests/server/auth-admin.test.ts`, `tests/server/invite-email.test.ts`.
 - `lib/auth/AuthContext.tsx`: Supabase Auth in the browser.
 - Sign in with Google and Apple (see that section): `lib/supabase/browser.ts`
   (`flowType: "pkce"`, `detectSessionInUrl: false`); `lib/auth/oauth.ts`
@@ -2776,6 +2897,11 @@ sign-up and password reset on the real project after deploying.
 
 ## Not built yet
 
+- Account invites, later: inviting someone to take over a platform-managed
+  organiser (the owner decided against it for the first version: it's a
+  one-way ownership transfer, moving door check-in to the new owner), and
+  any reminder emails (deliberately none: Spam Act). The `/invite` and
+  `/admin/invites` pages are separate frontend work (see "Account invites").
 - Organiser logos, later: the logo as the organiser page's `og:image`, logos
   on event cards and the Following list, and logos for platform-managed
   organisers (an admin upload; today only the organiser's own account can

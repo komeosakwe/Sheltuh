@@ -111,6 +111,7 @@ describe("Data API lock-out", () => {
         where n.nspname = 'private' and c.relkind = 'r' order by 1`,
     );
     expect(tables).toEqual([
+      { table_name: "account_invites", rls: true },
       { table_name: "analytics_settings", rls: true },
       { table_name: "client_rate_limits", rls: true },
       { table_name: "conversation_pairs", rls: true },
@@ -381,6 +382,40 @@ describe("Data API lock-out", () => {
         where s.nspname = 'storage'`,
     );
     expect(storagePolicies.n).toBe(0);
+  });
+
+  it("the account invite functions exist, pin search_path, aren't security definer and aren't client-executable", async () => {
+    const names = [
+      "accept_account_invite",
+      "create_account_invite",
+      "issue_invite_account_link",
+      "purge_operational_data",
+      "resend_account_invite",
+    ];
+    const rows = await db.query<{ fn: string; pinned: boolean; definer: boolean; client: boolean }>(
+      `select p.proname as fn,
+              exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c = 'search_path=""') as pinned,
+              p.prosecdef as definer,
+              has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
+                or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                            where a.grantee = 0 and a.privilege_type = 'EXECUTE') as client
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'private' and p.proname = any($1::text[]) order by 1`,
+      [names],
+    );
+    expect(rows).toEqual(names.map((fn) => ({ fn, pinned: true, definer: false, client: false })));
+    // The invites (addresses, token hashes): RLS on, no policies, no client grants.
+    const [policies] = await db.query<{ n: number }>(
+      `select count(*)::int as n from pg_policy p join pg_class c on c.oid = p.polrelid
+         join pg_namespace s on s.oid = c.relnamespace
+        where s.nspname = 'private' and c.relname = 'account_invites'`,
+    );
+    expect(policies.n).toBe(0);
+    const grants = await db.query(
+      `select grantee, privilege_type from information_schema.role_table_grants
+        where table_schema = 'private' and table_name = 'account_invites' and grantee in ('anon', 'authenticated', 'PUBLIC')`,
+    );
+    expect(grants).toEqual([]);
   });
 
   it("every `private` function pins its search_path, apart from the two that predate the rule", async () => {
