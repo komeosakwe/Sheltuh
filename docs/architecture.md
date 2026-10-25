@@ -2060,25 +2060,39 @@ Admins get an email when something is waiting for their review
   comma-separated plain addresses, at most 20; invalid entries are ignored
   and counted in one log line, never named) when it has any valid address;
   otherwise every admin account (`app_metadata.role = 'admin'`) with a
-  confirmed email, read from `auth.users` at send time. One email per
+  confirmed email that isn't banned or deleted, read from `auth.users` at
+  send time. `ADMIN_NOTIFY_EMAILS` should be an inbox only admins read, and
+  offboarding an admin includes taking their address out of it. One email per
   recipient. `private.email_job_recipients` records (by the address's
   SHA-256, never the address) who already has a job's email, so a retry after
-  a partial failure only reaches the ones it missed. With no recipient at
+  a partial failure only reaches the ones it missed. All of a job's sends
+  share one 2-minute lease, so before each send the worker stops (to retry
+  later) once less than a minute of it is left: a slow SMTP server can't
+  outlive the lease and have another worker send it again. With no recipient at
   all, the job is skipped (recorded `failed`) and the server logs it once,
   without addresses.
 - **Throttle.** At most one review email waiting per event and per
   application (unique partial indexes; another submission while one waits
   adds nothing); the next one no sooner than an hour after the last was sent
   (queued for then, not dropped: on the Hobby plan's daily cron it may wait
-  for the next run); at most 100 a day platform-wide
-  (`admin_review_emails_daily`; beyond that nothing is queued, and the queue
-  and the admin home's counts still show everything waiting). An organiser
+  for the next run); at most 10 a day per account (the organiser's owner or
+  the applicant; `review_emails` in `private.rate_limits`, taken first, so a
+  refusal there takes no platform slot) and at most 100 a day platform-wide
+  (`admin_review_emails_daily`). Beyond either nothing is queued, and the
+  queue and the admin home's counts still show everything waiting. The
+  per-account limit stops one organiser creating and submitting draft after
+  draft from using up the platform's day. An organiser
   can only resubmit after an admin rejects, so a submit/reject loop is paced
   by the admins anyway.
 - **Stale.** A job still waiting when its event or application leaves review
   (an admin got there first) is deleted in that transaction; one a worker is
   already sending checks the status and sends nothing if it has been
   reviewed.
+- **Deploy order.** The worker leases with `private.lease_outbox_jobs`
+  (from the migration above). If the code deploys before the migration is
+  applied, it falls back to `private.claim_email_outbox` on
+  `undefined_function`, so the other kinds keep sending and review jobs wait
+  (`docs/DEPLOYMENT.md`).
 - **Not in `/admin/emails`.** That list and the home page's failed and
   retrying counts are ticket emails only (jobs with an order); review emails
   are internal and never resent by hand.

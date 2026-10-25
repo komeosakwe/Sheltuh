@@ -67,7 +67,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261105000000_organiser_logos.sql`. Never
+      newest, currently `20261107000000_admin_review_emails.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -90,6 +90,19 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       14. `20261103000000_seat_hold_client_limits.sql`
       15. `20261103000100_refuse_ended_event_orders.sql`
       16. `20261105000000_organiser_logos.sql`
+      17. `20261106000000_event_clips.sql`
+      18. `20261106000100_event_clip_dimensions.sql`
+      19. `20261106000200_event_clip_hardening.sql`
+      20. `20261107000000_admin_review_emails.sql`
+
+      **Apply `20261107000000_admin_review_emails.sql` before the code that
+      sends admin review emails deploys.** That code leases outbox jobs with
+      `private.lease_outbox_jobs`, which this file creates. If the code goes
+      out first it falls back to the previous claimer, so ticket, waitlist
+      and follower emails keep sending and only review emails wait (the
+      server logs "private.lease_outbox_jobs is missing" once). Then apply
+      the file and call `/api/cron/email-outbox` once (with the
+      `CRON_SECRET` bearer) to send whatever waited.
 
       The 21 files before these are on `main`. Whether production has them
       all is also unverified: the check above covers every file.
@@ -268,7 +281,9 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        service worker off (needs a fresh build; see `docs/pwa.md`).
        Optional: `ADMIN_NOTIFY_EMAILS` (server-only, never `NEXT_PUBLIC_`),
        a comma-separated list of the addresses that get the "event /
-       organiser to review" emails, e.g. `bookings@sheltuh.com.au`. Unset =
+       organiser to review" emails. Use an inbox only admins read, never a
+       customer-facing one (`bookings@`, `support@`). When an admin leaves,
+       remove their address from it as well as their admin role. Unset =
        every admin account's confirmed email (see `docs/architecture.md`,
        "Admin review emails"); with neither, those emails are skipped and
        logged once. Needs `SMTP_*` like every email.

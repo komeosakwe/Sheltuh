@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { buildEventReviewEmail, buildOrganiserReviewEmail } from "./admin-review-email";
+import { PG_UNDEFINED_FUNCTION, pgErrorCode } from "./db";
 import type { Deps } from "./deps";
 import type { EmailMessage } from "./email";
 import { isPlainEmailAddress, redactForLog } from "./email-address";
@@ -43,6 +44,17 @@ export const EMAIL_RETRY_DELAYS_SECONDS = [60, 300, 1800, 7200, 21600] as const;
 export const MAX_EMAIL_ATTEMPTS = 6;
 /** How long a worker holds a job. Comfortably more than one SMTP send (lib/server/email.ts timeouts). */
 export const EMAIL_LEASE = "2 minutes";
+/** EMAIL_LEASE in milliseconds. */
+export const EMAIL_LEASE_MS = 2 * 60_000;
+/**
+ * A review job sends to its admins one at a time, all on one lease. Before
+ * each send it stops (a non-permanent failure: retried later, skipping the
+ * admins who already have it) once less than this is left of the lease, so a
+ * slow SMTP server can't outlive the lease and have another worker send the
+ * same email again. More than one send's worst case (lib/server/email.ts:
+ * 10 s connection + 10 s greeting + 30 s socket timeouts).
+ */
+export const REVIEW_SEND_LEASE_MARGIN_MS = 60_000;
 /**
  * Jobs leased at a time. One: a job is leased just before it's sent, so even
  * a send that runs into every SMTP timeout ends well inside its lease, and a
@@ -263,7 +275,8 @@ let warnedNoAdminRecipients = false;
 /**
  * Who gets the admins' review emails: ADMIN_NOTIFY_EMAILS when it has any
  * valid address, otherwise every admin account (app_metadata role `admin`)
- * with a confirmed, plain email address. Repeats (ignoring case) once.
+ * with a confirmed, plain email address that isn't banned or deleted in
+ * Supabase Auth. Repeats (ignoring case) once.
  */
 export async function adminReviewRecipients(deps: Deps): Promise<string[]> {
   const configured = deps.adminNotifyEmails();
@@ -271,6 +284,7 @@ export async function adminReviewRecipients(deps: Deps): Promise<string[]> {
   const rows = await deps.db.query<{ email: string }>(
     `select u.email from auth.users u
       where u.raw_app_meta_data ->> 'role' = 'admin' and u.email is not null and u.email_confirmed_at is not null
+        and (u.banned_until is null or u.banned_until <= now()) and u.deleted_at is null
       order by u.email`,
   );
   const seen = new Set<string>();
@@ -339,12 +353,13 @@ async function reviewEmailBuilder(
 /**
  * Sends one review job's email to each admin recipient who doesn't have it
  * yet (private.email_job_recipients, recorded after each send), so a retry
- * after a partial failure reaches only the ones it missed. Skipped, not
- * retried, if the event or application has been reviewed (or deleted) since,
- * or there's nobody to send to (logged once per process, without addresses).
- * Never throws.
+ * after a partial failure reaches only the ones it missed. Stops, to be
+ * retried, once less than REVIEW_SEND_LEASE_MARGIN_MS is left before
+ * `leaseEndsAt` (ms since the epoch). Skipped, not retried, if the event or
+ * application has been reviewed (or deleted) since, or there's nobody to send
+ * to (logged once per process, without addresses). Never throws.
  */
-async function deliverReviewEmail(deps: Deps, job: ClaimedJob): Promise<Outcome> {
+async function deliverReviewEmail(deps: Deps, job: ClaimedJob, leaseEndsAt: number): Promise<Outcome> {
   try {
     const email = await reviewEmailBuilder(deps, job);
     if ("skip" in email) return skip(email.skip);
@@ -372,6 +387,9 @@ async function deliverReviewEmail(deps: Deps, job: ClaimedJob): Promise<Outcome>
     for (const to of recipients) {
       const hash = recipientHash(to);
       if (done.has(hash)) continue;
+      if (leaseEndsAt - Date.now() < REVIEW_SEND_LEASE_MARGIN_MS) {
+        return { sent: false, error: "the lease ran short; the rest are sent on the next attempt", permanent: false };
+      }
       try {
         await deps.sendEmail(email.build(to));
       } catch (err) {
@@ -391,8 +409,10 @@ async function deliverReviewEmail(deps: Deps, job: ClaimedJob): Promise<Outcome>
   }
 }
 
-function deliver(deps: Deps, job: ClaimedJob): Promise<Outcome> {
-  if (job.job_kind === "event_review" || job.job_kind === "organiser_review") return deliverReviewEmail(deps, job);
+function deliver(deps: Deps, job: ClaimedJob, leaseEndsAt: number): Promise<Outcome> {
+  if (job.job_kind === "event_review" || job.job_kind === "organiser_review") {
+    return deliverReviewEmail(deps, job, leaseEndsAt);
+  }
   if (job.job_kind === "waitlist_available" && job.job_waitlist_entry_id) {
     return deliverWaitlistEmail(deps, job.job_waitlist_entry_id);
   }
@@ -403,8 +423,8 @@ function deliver(deps: Deps, job: ClaimedJob): Promise<Outcome> {
   return Promise.resolve({ sent: false, error: "unknown job", permanent: true });
 }
 
-async function runJob(deps: Deps, job: ClaimedJob, summary: DrainSummary, random: () => number) {
-  const outcome = await deliver(deps, job);
+async function runJob(deps: Deps, job: ClaimedJob, leaseEndsAt: number, summary: DrainSummary, random: () => number) {
+  const outcome = await deliver(deps, job, leaseEndsAt);
   const retryIn = outcome.sent || outcome.permanent ? null : retryDelaySeconds(job.job_attempts, random);
   const [{ result }] = await deps.db.query<{ result: string }>(
     `select private.finish_email_job($1::bigint, $2::uuid, $3, $4, $5::interval) as result`,
@@ -446,6 +466,38 @@ async function runJob(deps: Deps, job: ClaimedJob, summary: DrainSummary, random
   );
 }
 
+/** Logged once per process while the database lacks private.lease_outbox_jobs. */
+let warnedOldClaimer = false;
+
+/**
+ * Leases up to `limit` due jobs with private.lease_outbox_jobs. In a deploy
+ * window where this code runs before 20261107000000_admin_review_emails.sql
+ * is applied, that function doesn't exist yet (undefined_function): then it
+ * leases with the previous release's private.claim_email_outbox instead, so
+ * ticket, waitlist and follower emails keep going out. That claimer never
+ * takes review jobs; they wait until the migration is applied.
+ */
+async function leaseJobs(deps: Deps, limit: number, orderId: string | null, kind: EmailJobKind | null) {
+  const params = [limit, EMAIL_LEASE, MAX_EMAIL_ATTEMPTS, orderId, kind];
+  try {
+    return await deps.db.query<ClaimedJob>(`select * from private.lease_outbox_jobs($1, $2::interval, $3, $4, $5)`, params);
+  } catch (err) {
+    if (pgErrorCode(err) !== PG_UNDEFINED_FUNCTION) throw err;
+  }
+  if (!warnedOldClaimer) {
+    warnedOldClaimer = true;
+    console.warn(
+      "Email outbox: private.lease_outbox_jobs is missing (migration 20261107000000_admin_review_emails.sql " +
+        "isn't applied); using private.claim_email_outbox. Admin review emails wait until it is.",
+    );
+  }
+  const rows = await deps.db.query<Omit<ClaimedJob, "job_event_id" | "job_organiser_id">>(
+    `select * from private.claim_email_outbox($1, $2::interval, $3, $4, $5)`,
+    params,
+  );
+  return rows.map((row): ClaimedJob => ({ ...row, job_event_id: null, job_organiser_id: null }));
+}
+
 /**
  * Leases due jobs and sends them, until none are due, `maxJobs` have been
  * taken or `budgetMs` has passed. With `orderId`, only that order's job (the
@@ -460,13 +512,12 @@ export async function drainEmailOutbox(
   const deadline = Date.now() + budgetMs;
   const summary: DrainSummary = { claimed: 0, sent: 0, retrying: 0, failed: 0 };
   while (summary.claimed < maxJobs && Date.now() < deadline) {
-    const jobs = await deps.db.query<ClaimedJob>(
-      `select * from private.lease_outbox_jobs($1, $2::interval, $3, $4, $5)`,
-      [Math.min(CLAIM_BATCH, maxJobs - summary.claimed), EMAIL_LEASE, MAX_EMAIL_ATTEMPTS, orderId ?? null, kind ?? null],
-    );
+    // Taken before the lease starts, so the lease ends no sooner than this says.
+    const leaseEndsAt = Date.now() + EMAIL_LEASE_MS;
+    const jobs = await leaseJobs(deps, Math.min(CLAIM_BATCH, maxJobs - summary.claimed), orderId ?? null, kind ?? null);
     if (jobs.length === 0) break;
     summary.claimed += jobs.length;
-    for (const job of jobs) await runJob(deps, job, summary, random);
+    for (const job of jobs) await runJob(deps, job, leaseEndsAt, summary, random);
   }
   return summary;
 }

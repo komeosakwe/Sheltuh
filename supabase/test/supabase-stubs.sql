@@ -31,6 +31,10 @@ alter default privileges in schema public grant all on sequences to anon, authen
 -- Set by Supabase Auth once the user confirms their email (read by
 -- private.notify_followers).
 alter table auth.users add column if not exists email_confirmed_at timestamptz;
+-- Set by Supabase Auth when an account is banned (until then) or soft-deleted
+-- (read by lib/server/email-outbox.ts's adminReviewRecipients).
+alter table auth.users add column if not exists banned_until timestamptz;
+alter table auth.users add column if not exists deleted_at timestamptz;
 
 -- Supabase Storage: just the bucket and object tables, with the columns the
 -- migrations and the API's SQL use (event clips: 20261106000000_event_clips.sql

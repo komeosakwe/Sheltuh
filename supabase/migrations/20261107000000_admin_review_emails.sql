@@ -21,9 +21,13 @@
 --   * Throttled (private.queue_review_email): at most one email waiting per
 --     event or application (another submission while one waits adds
 --     nothing), the next one no sooner than an hour after the last was sent
---     (it's queued for then, not dropped), and at most 100 a day platform-wide
---     (beyond that nothing is queued; the queue and the admin home's counts
---     still show everything waiting).
+--     (it's queued for then, not dropped), at most 10 a day per account (the
+--     organiser's owner or the applicant: `review_emails` in
+--     private.rate_limits, so one account submitting draft after draft can't
+--     use up the platform's day or flood the admins) and at most 100 a day
+--     platform-wide (beyond either nothing is queued; the queue and the admin
+--     home's counts still show everything waiting). The account's limit is
+--     taken first, so a refusal there takes no platform slot.
 --   * A job still waiting when its event or application leaves review (an
 --     admin got there first) is deleted in the same transaction.
 --   * private.email_job_recipients: one row per admin address a review job
@@ -54,7 +58,9 @@
 -- drop table private.email_job_recipients; delete the outbox's
 -- `event_review` and `organiser_review` jobs, restore its kind checks from
 -- 20261024000200_organiser_follows.sql and drop its event_id and organiser_id
--- columns (that discards only those notifications' delivery history).
+-- columns (that discards only those notifications' delivery history). The
+-- `review_emails` rows in private.rate_limits can be left for
+-- private.purge_social_data to clear.
 
 -- ---------------------------------------------------------------------------
 -- The outbox's two new kinds
@@ -196,7 +202,8 @@ $$;
 -- and returns whether it did. Nothing is queued unless the subject is still
 -- waiting for review and belongs to an account (not a platform-managed
 -- organiser), nor when an email about it is already waiting or being sent (it
--- will say the same thing), nor over the platform's 100 a day. The email is
+-- will say the same thing), nor over 10 a day for the account that owns the
+-- organiser (or applied), nor over the platform's 100 a day. The email is
 -- due an hour after the last one about the same subject was sent, or now.
 -- An advisory lock per subject serialises calls (the status change that
 -- triggers this already holds the subject's row lock).
@@ -206,17 +213,18 @@ set search_path = ''
 as $$
 declare
   v_last_sent timestamptz;
+  v_owner uuid;
 begin
   if p_kind = 'event_review' then
-    perform 1 from public.events e join public.organisers o on o.id = e.organiser_id
-     where e.id = p_subject_id and e.status = 'pending_review' and o.owner_user_id is not null;
+    select o.owner_user_id into v_owner from public.events e join public.organisers o on o.id = e.organiser_id
+     where e.id = p_subject_id and e.status = 'pending_review';
   elsif p_kind = 'organiser_review' then
-    perform 1 from public.organisers o
-     where o.id = p_subject_id and o.status = 'pending' and o.owner_user_id is not null;
+    select o.owner_user_id into v_owner from public.organisers o
+     where o.id = p_subject_id and o.status = 'pending';
   else
     raise exception 'unknown review email kind: %', p_kind;
   end if;
-  if not found then
+  if v_owner is null then
     return false;
   end if;
 
@@ -238,6 +246,10 @@ begin
      where j.organiser_id = p_subject_id and j.status = 'sent';
   end if;
 
+  -- The account's own limit first: a refusal there takes no platform slot.
+  if not private.take_rate_limit(v_owner, 'review_emails', 10, interval '24 hours') then
+    return false;
+  end if;
   if not private.take_platform_rate_limit('admin_review_emails_daily', 100, interval '24 hours') then
     return false;
   end if;

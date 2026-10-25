@@ -298,6 +298,39 @@ describe("an event submitted for review", () => {
     expect(await reviewJobs()).toEqual([]);
   });
 
+  it("stops queueing at 10 a day per account, without taking platform slots or stopping another organiser's emails", async () => {
+    const other = await approvedOrganiser(api, admin, { displayName: "Other Collective" });
+    await api.runDeferred();
+    api.sendEmail.mockClear();
+    const platformHits = async () =>
+      (
+        await api.db.query<{ hits: number }>(
+          `select hits from private.platform_rate_limits where bucket = 'admin_review_emails_daily'`,
+        )
+      )[0].hits;
+    // The organiser's own application (beforeEach) was the account's first; 9 more events make 10.
+    for (let i = 0; i < 9; i++) {
+      const draft = await draftEvent(api, organiser, { title: `Draft ${i}` });
+      expect((await submit(draft.eventId)).status).toBe(200);
+    }
+    expect(await reviewJobs("event_review")).toHaveLength(9);
+    const before = await platformHits();
+
+    const over = await draftEvent(api, organiser, { title: "One too many" });
+    const res = await submit(over.eventId);
+    expect(res.status).toBe(200); // the submission still goes through
+    expect(res.body.status).toBe("pending_review");
+    expect(await reviewJobs("event_review")).toHaveLength(9);
+    expect(await platformHits()).toBe(before); // refused before the platform's bucket
+
+    const theirs = await draftEvent(api, other, { title: "Their Show" });
+    expect((await submit(theirs.eventId, other.token)).status).toBe(200);
+    expect((await reviewJobs("event_review")).filter((j) => j.event_id === theirs.eventId)).toHaveLength(1);
+    await api.runDeferred();
+    expect(sent().some((m) => m.text.includes("Their Show"))).toBe(true);
+    expect(sent().some((m) => m.text.includes("One too many"))).toBe(false);
+  });
+
   it("retries only the admins a partial failure missed", async () => {
     const second = await api.signUp({ admin: true, email: "second-admin@sheltuh.test" });
     api.sendEmail.mockImplementation(async (message) => {
@@ -321,6 +354,48 @@ describe("an event submitted for review", () => {
     await api.db.query(`update private.email_outbox set next_attempt_at = now() where id = $1::bigint`, [job.id]);
     expect(await drainEmailOutbox(api.deps)).toMatchObject({ claimed: 1, sent: 1 });
     expect(recipients()).toEqual([second.email]); // not the admin who already had it
+  });
+
+  it("isn't sent to a banned or deleted admin account (a ban that has ended counts again)", async () => {
+    const banned = await api.signUp({ admin: true, email: "banned-admin@sheltuh.test" });
+    const deleted = await api.signUp({ admin: true, email: "deleted-admin@sheltuh.test" });
+    const unbanned = await api.signUp({ admin: true, email: "unbanned-admin@sheltuh.test" });
+    await api.db.query(`update auth.users set banned_until = now() + interval '100 years' where id = $1`, [banned.userId]);
+    await api.db.query(`update auth.users set deleted_at = now() where id = $1`, [deleted.userId]);
+    await api.db.query(`update auth.users set banned_until = now() - interval '1 day' where id = $1`, [unbanned.userId]);
+    const draft = await draftEvent(api, organiser);
+    await submit(draft.eventId);
+    await api.runDeferred();
+    expect(recipients()).toEqual([admin.email, unbanned.email].sort());
+  });
+
+  it("stops before its lease runs short, and the retry reaches only the admins it missed", async () => {
+    const second = await api.signUp({ admin: true, email: "second-admin@sheltuh.test" });
+    const realNow = Date.now.bind(Date);
+    let elapsed = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => realNow() + elapsed);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    // The first send takes 61 seconds: under a minute of the 2-minute lease is left for the next.
+    api.sendEmail.mockImplementationOnce(async () => {
+      elapsed += 61_000;
+    });
+    const draft = await draftEvent(api, organiser);
+    await submit(draft.eventId);
+    await api.runDeferred();
+    expect(api.sendEmail).toHaveBeenCalledTimes(1);
+    const [first] = recipients();
+    const [job] = await reviewJobs();
+    expect(job).toMatchObject({ status: "pending", attempts: 1, due: false });
+    const [{ last_error }] = await api.db.query<{ last_error: string }>(
+      `select last_error from private.email_outbox where id = $1::bigint`,
+      [job.id],
+    );
+    expect(last_error).toContain("lease");
+
+    api.sendEmail.mockClear();
+    await api.db.query(`update private.email_outbox set next_attempt_at = now() where id = $1::bigint`, [job.id]);
+    expect(await drainEmailOutbox(api.deps)).toMatchObject({ claimed: 1, sent: 1 });
+    expect(recipients()).toEqual([admin.email, second.email].filter((email) => email !== first));
   });
 
   it("is skipped, with one log line and no address, when there's nobody to send to", async () => {
@@ -419,6 +494,17 @@ describe("an organiser application", () => {
     expect(await reviewJobs("organiser_review")).toEqual([]);
     await api.runDeferred();
     expect(api.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("isn't queued once the applicant's account has had 10 review emails today", async () => {
+    const applicant = await api.signUp();
+    await api.db.query(
+      `insert into private.rate_limits (user_id, bucket, window_started_at, hits) values ($1, 'review_emails', now(), 10)`,
+      [applicant.userId],
+    );
+    const res = await apply(applicant.token);
+    expect(res.status).toBe(201);
+    expect(await reviewJobs("organiser_review")).toEqual([]);
   });
 
   it("isn't queued by an approved organiser's profile edit, a refused application or an admin-created organiser", async () => {

@@ -9,11 +9,12 @@ import {
 } from "@/lib/server/email-outbox";
 import { adminUnpublishEvent } from "@/lib/server/handlers/admin";
 import { adminListEmailJobs, adminResendEmailJob, runEmailOutboxCron } from "@/lib/server/handlers/email-outbox";
+import { submitEventForReview } from "@/lib/server/handlers/events";
 import { createCheckout, stripeWebhook } from "@/lib/server/handlers/orders";
 import { orderReference } from "@/lib/server/order-reference";
 import { EVENT_UNLISTED_TEXT } from "@/lib/server/ticket-email";
 import { CRON_SECRET, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
-import { approvedOrganiser, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
+import { approvedOrganiser, draftEvent, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
 let api: TestApi;
@@ -535,5 +536,43 @@ describe("drain budget", () => {
     await paidOrder("c@example.com");
     expect(await drainEmailOutbox(api.deps)).toEqual({ claimed: 2, sent: 2, retrying: 0, failed: 0 });
     expect(await drainEmailOutbox(api.deps)).toMatchObject({ claimed: 1 });
+  });
+});
+
+describe("code deployed before 20261107000000_admin_review_emails.sql is applied", () => {
+  it("falls back to claim_email_outbox: ticket emails still go out, review emails wait for the migration", async () => {
+    const draft = await draftEvent(api, organiser);
+    await api.call(submitEventForReview, { token: organiser.token, params: { eventId: draft.eventId }, method: "POST" });
+    const orderId = await paidOrder();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const jobs = () =>
+      api.db.query<{ kind: string; status: string; attempts: number }>(
+        `select kind, status, attempts from private.email_outbox where order_id = $1 or event_id = $2 order by kind`,
+        [orderId, draft.eventId],
+      );
+
+    // As before the migration: no private.lease_outbox_jobs.
+    await api.db.query(
+      `alter function private.lease_outbox_jobs(integer, interval, integer, text, text) rename to lease_outbox_jobs_hidden`,
+    );
+    try {
+      expect(await drainEmailOutbox(api.deps)).toMatchObject({ claimed: 1, sent: 1 });
+    } finally {
+      await api.db.query(
+        `alter function private.lease_outbox_jobs_hidden(integer, interval, integer, text, text) rename to lease_outbox_jobs`,
+      );
+    }
+    expect(api.sendEmail).toHaveBeenCalledTimes(1);
+    expect(api.sendEmail.mock.calls[0][0].to).toBe("fan@example.com");
+    expect(await jobs()).toEqual([
+      { kind: "event_review", status: "pending", attempts: 0 },
+      { kind: "ticket_email", status: "sent", attempts: 1 },
+    ]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls.flat().join(" ")).not.toContain("@");
+
+    // Once it's applied, the next run sends the review email that waited.
+    expect(await drainEmailOutbox(api.deps)).toMatchObject({ claimed: 1, sent: 1 });
+    expect((await jobs())[0]).toMatchObject({ kind: "event_review", status: "sent" });
   });
 });

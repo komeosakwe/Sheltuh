@@ -185,7 +185,9 @@ checked.
 3. Sign out and back in. The Admin link appears in the nav.
 
 `--revoke` removes admin access. This script is the only way anyone becomes
-an admin: no API route or form can grant it.
+an admin: no API route or form can grant it. When offboarding an admin, also
+remove their address from `ADMIN_NOTIFY_EMAILS` if it's there (it gets the
+"waiting for your review" emails whatever the account's role).
 
 ### Optional: sample data for a dev project
 
