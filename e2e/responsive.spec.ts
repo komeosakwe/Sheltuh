@@ -271,7 +271,12 @@ for (const width of [320, 375, 390, 430]) {
       await page.emulateMedia({ reducedMotion: "reduce" });
       await mockApi(page);
       await page.goto("/");
-      const rail = page.locator("[data-home-section] ul").filter({ has: page.locator("[data-event-card]") }).first();
+      // A rail with at least three cards, so it can scroll a whole card's width. Late on a
+      // Sunday (Melbourne) "This weekend" holds only two, which can't.
+      const rail = page
+        .locator("[data-home-section] ul")
+        .filter({ has: page.locator("li:nth-of-type(3) [data-event-card]") })
+        .first();
       await expect(rail).toBeVisible({ timeout: 30_000 });
       await page.evaluate(() => document.fonts.ready);
 
