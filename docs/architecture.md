@@ -2549,7 +2549,7 @@ sign-up and password reset on the real project after deploying.
 - `next` is checked with `safeNextPath` (`lib/safe-next-path.ts`) both when
   the sign-in starts and again on the callback, because anyone can craft a
   callback URL. `/auth/*` is refused too (`oauthReturnPath`). Unsafe means
-  dropped, so the person lands on `/dashboard`.
+  dropped, so the person lands on `/events` (DEFAULT_AFTER_SIGN_IN).
 - Supabase accepts a `redirect_to` on the **Site URL**'s host without a
   Redirect URLs entry (path and query aren't checked); anything else must
   match an entry, or Supabase **silently falls back to the Site URL**.

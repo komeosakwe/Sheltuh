@@ -1,5 +1,5 @@
 import { isAuthError, isAuthRetryableFetchError } from "@supabase/supabase-js";
-import { safeNextPath } from "@/lib/safe-next-path";
+import { DEFAULT_AFTER_SIGN_IN, safeNextPath } from "@/lib/safe-next-path";
 import { parseAuthProviders, type OAuthProvider } from "./oauth-providers";
 
 /**
@@ -25,7 +25,7 @@ export const OAUTH_CALLBACK_PATH = "/auth/callback";
 export const EMAIL_SIGN_IN_ID = "email-sign-in";
 
 /** Where a completed sign-in goes when there's no (safe) `next`: as LoginForm and VerifyForm. */
-export const OAUTH_DEFAULT_NEXT = "/dashboard";
+export const OAUTH_DEFAULT_NEXT = DEFAULT_AFTER_SIGN_IN;
 
 /**
  * The providers turned on with NEXT_PUBLIC_AUTH_PROVIDERS (.env.example),

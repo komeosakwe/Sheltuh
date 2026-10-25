@@ -174,18 +174,18 @@ test("an unsafe next never leaves the site: dropped on the way out, and refused 
   await page.goto(`/login?next=${encodeURIComponent("//evil.example/phish")}`);
   await expect(googleButton(page)).toBeVisible({ timeout: 60_000 });
   await googleButton(page).click();
-  await expect(page).toHaveURL(/\/dashboard$/, { timeout: 30_000 });
+  await expect(page).toHaveURL(/\/events$/, { timeout: 30_000 });
   expect(flow.authorize[0].searchParams.get("redirect_to")).toBe(`${origin(page)}/auth/callback`);
 });
 
-test("a callback URL whose next was tampered with lands on /dashboard, not the other site", async ({ page, baseURL }) => {
+test("a callback URL whose next was tampered with lands on /events, not the other site", async ({ page, baseURL }) => {
   await mockAuth(page, {
     back: (redirectTo) => `${new URL(redirectTo).origin}/auth/callback?next=${encodeURIComponent("https://evil.example/")}&code=${CODE}`,
   });
   await page.goto("/login");
   await expect(appleButton(page)).toBeVisible({ timeout: 60_000 });
   await appleButton(page).click();
-  await expect(page).toHaveURL(/\/dashboard$/, { timeout: 30_000 });
+  await expect(page).toHaveURL(/\/events$/, { timeout: 30_000 });
   expect(origin(page)).toBe(new URL(baseURL ?? "").origin);
 });
 

@@ -72,8 +72,8 @@ describe("LoginForm return path", () => {
     expect(await signInWith("/events/neon-static")).toBe("/events/neon-static");
   });
 
-  it("goes to the dashboard with no ?next=", async () => {
-    expect(await signInWith(undefined)).toBe("/dashboard");
+  it("goes to the events feed with no ?next=", async () => {
+    expect(await signInWith(undefined)).toBe("/events");
   });
 
   it.each([
@@ -85,9 +85,9 @@ describe("LoginForm return path", () => {
     "/a/..//evil.example",
     "/%2e//evil.example",
   ])(
-    "ignores an unsafe ?next= (%j) and goes to the dashboard",
+    "ignores an unsafe ?next= (%j) and goes to the events feed",
     async (next) => {
-      expect(await signInWith(next)).toBe("/dashboard");
+      expect(await signInWith(next)).toBe("/events");
     },
   );
 });

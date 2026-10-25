@@ -6,7 +6,7 @@ import { useRef, useState, type FormEvent } from "react";
 import AuthField, { fieldsForAuthError, useFocusAfterRender, type AuthErrorField } from "@/components/auth/AuthField";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { safeNextPath, withNext } from "@/lib/safe-next-path";
+import { DEFAULT_AFTER_SIGN_IN, safeNextPath, withNext } from "@/lib/safe-next-path";
 
 const FORM_ERROR_ID = "verify-error";
 
@@ -69,7 +69,7 @@ export default function VerifyForm() {
     try {
       // Confirming also signs the new account in.
       await auth.confirmSignUp(email.trim(), code.trim());
-      router.push(safeNextPath(next) ?? "/dashboard");
+      router.push(safeNextPath(next) ?? DEFAULT_AFTER_SIGN_IN);
     } catch (err) {
       showServerError(err instanceof Error ? err.message : "Couldn't verify that code.", ["code"]);
     } finally {

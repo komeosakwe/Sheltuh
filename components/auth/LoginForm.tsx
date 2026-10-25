@@ -7,7 +7,7 @@ import AuthField, { fieldsForAuthError, useFocusAfterRender, type AuthErrorField
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { oauthProviderNames, offeredOAuthProviders } from "@/lib/auth/oauth";
-import { safeNextPath, withNext } from "@/lib/safe-next-path";
+import { DEFAULT_AFTER_SIGN_IN, safeNextPath, withNext } from "@/lib/safe-next-path";
 
 const FORM_ERROR_ID = "login-error";
 
@@ -70,7 +70,7 @@ export default function LoginForm({ next }: { next?: string } = {}) {
     setLoading(true);
     try {
       await auth.signIn(email.trim(), password);
-      router.push(safeNextPath(next) ?? "/dashboard");
+      router.push(safeNextPath(next) ?? DEFAULT_AFTER_SIGN_IN);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Couldn't sign in.";
       const fields = fieldsForAuthError(message, ["email", "password"]);

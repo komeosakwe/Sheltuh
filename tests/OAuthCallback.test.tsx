@@ -54,7 +54,7 @@ describe("OAuthCallback: a code", () => {
     const auth = signedOut();
     open("/auth/callback?code=abc&sb_flow_id=0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d", auth);
     expect(window.location.search).toBe("");
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/events"));
     expect(auth.completeOAuthSignIn).toHaveBeenCalledTimes(1);
     expect(auth.completeOAuthSignIn).toHaveBeenCalledWith("abc", "0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d");
   });
@@ -67,19 +67,19 @@ describe("OAuthCallback: a code", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Signing in");
     expect(replace).not.toHaveBeenCalled();
     finish();
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/events"));
   });
 
-  it("goes to the dashboard with no next", async () => {
+  it("goes to the events feed with no next", async () => {
     open("/auth/callback?code=abc", signedOut());
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/events"));
   });
 
   it.each(["%2F%2Fevil.example", "https%3A%2F%2Fevil.example%2F", "javascript%3Aalert(1)", "%2Fauth%2Fcallback%3Fcode%3Dx"])(
-    "ignores an unsafe or /auth next (%s): the dashboard instead",
+    "ignores an unsafe or /auth next (%s): the events feed instead",
     async (next) => {
       open(`/auth/callback?code=abc&next=${next}`, signedOut());
-      await waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
+      await waitFor(() => expect(replace).toHaveBeenCalledWith("/events"));
     },
   );
 
