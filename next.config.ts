@@ -1,4 +1,8 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import type { NextConfig } from "next";
+import { PHASE_PRODUCTION_BUILD } from "next/constants";
+import { missingOAuthLogos } from "./lib/auth/oauth-providers";
 
 /**
  * NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is inlined into the browser bundle, so a
@@ -24,7 +28,31 @@ export function assertStripePublishableKey(value: string | undefined): void {
 
 assertStripePublishableKey(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
 
-const nextConfig: NextConfig = {
+/**
+ * "Continue with Apple / Google" shows the vendors' own logo files from
+ * public/auth/ (lib/auth/oauth-providers.ts OAUTH_LOGO_FILES), which the
+ * owner downloads (public/auth/README.md): none is committed, and no stand-in
+ * may ship. So a production build with NEXT_PUBLIC_AUTH_PROVIDERS listing a
+ * provider whose files aren't there fails, naming them. Only `next build`
+ * (see the default export): `next dev` runs without them, as the e2e suite
+ * does with the flag on (it serves its own test files).
+ */
+export function assertOAuthLogos(
+  providers: string | undefined,
+  publicDir: string = path.join(process.cwd(), "public"),
+): void {
+  const missing = missingOAuthLogos(providers, (file) => existsSync(path.join(publicDir, "auth", file)));
+  if (missing.length > 0) {
+    throw new Error(
+      `NEXT_PUBLIC_AUTH_PROVIDERS lists a provider whose official logo artwork is missing: ` +
+        `${missing.map((file) => `public/auth/${file}`).join(", ")}. ` +
+        "Add the files described in public/auth/README.md, or take the provider out of NEXT_PUBLIC_AUTH_PROVIDERS.",
+    );
+  }
+}
+
+/** Everything but the build-time checks; exported for tests/next-config.test.ts. */
+export const nextConfig: NextConfig = {
   // Lets the dev server's HMR websocket accept connections from 127.0.0.1
   // (not just localhost) — needed for the Playwright e2e suite, which
   // navigates to http://127.0.0.1:<port>. Ignored outside development.
@@ -112,4 +140,11 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+/**
+ * Next calls this with the phase it's loading the config for. The logo check
+ * runs for `next build` only; the Stripe key check above runs on every load.
+ */
+export default function config(phase: string): NextConfig {
+  if (phase === PHASE_PRODUCTION_BUILD) assertOAuthLogos(process.env.NEXT_PUBLIC_AUTH_PROVIDERS);
+  return nextConfig;
+}

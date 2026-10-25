@@ -6,6 +6,7 @@ import ApplicationForm from "@/components/organisers/ApplicationForm";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
 import type { OrganiserRecord } from "@/lib/api/types";
+import { withNext } from "@/lib/safe-next-path";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 
 function StatusCard({ children }: { children: ReactNode }) {
@@ -13,6 +14,9 @@ function StatusCard({ children }: { children: ReactNode }) {
     <div className="rounded-card border border-foreground bg-card p-4 text-foreground">{children}</div>
   );
 }
+
+/** Signing in or up from here comes back here (any way of signing in: email, Apple or Google). */
+const APPLY_PATH = "/organisers/apply";
 
 export default function ApplyPageContent() {
   const auth = useAuth();
@@ -36,10 +40,10 @@ export default function ApplyPageContent() {
       <StatusCard>
         <p className="mb-3">Sign in or create an account to apply as an organiser.</p>
         <div className="flex gap-3">
-          <Link href="/login" className="btn btn-solid">
+          <Link href={withNext("/login", APPLY_PATH)} className="btn btn-solid">
             Sign in
           </Link>
-          <Link href="/signup" className="btn btn-outline">
+          <Link href={withNext("/signup", APPLY_PATH)} className="btn btn-outline">
             Sign up
           </Link>
         </div>

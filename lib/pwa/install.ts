@@ -1,3 +1,5 @@
+import { IN_APP_BROWSER_TOKENS } from "@/lib/auth/in-app-browser";
+
 /**
  * Rules for the "add to home screen" affordance (components/pwa/InstallPrompt.tsx).
  * See docs/pwa.md.
@@ -32,9 +34,11 @@ export function installPromptAllowedOn(pathname: string | null | undefined): boo
   return typeof pathname === "string" && INSTALL_PROMPT_PATHS.has(pathname);
 }
 
-/** Other iOS browsers and in-app browsers, where Safari's steps would be wrong. */
-const NOT_SAFARI =
-  /CriOS|FxiOS|EdgiOS|OPiOS|OPT\/|YaBrowser|DuckDuckGo|GSA\/|Instagram|FBAN|FBAV|FB_IAB|Line\/|Snapchat|Twitter|LinkedInApp|Pinterest|TikTok|musical_ly|WhatsApp/i;
+/** Other iOS browsers and in-app browsers (lib/auth/in-app-browser.ts), where Safari's steps would be wrong. */
+const NOT_SAFARI = new RegExp(
+  `CriOS|FxiOS|EdgiOS|OPiOS|OPT\\/|YaBrowser|DuckDuckGo|${IN_APP_BROWSER_TOKENS.source}`,
+  "i",
+);
 
 /**
  * Safari on iPhone, iPod or iPad. iPadOS Safari reports a Mac user agent by

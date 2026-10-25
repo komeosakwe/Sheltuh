@@ -13,6 +13,7 @@ vi.mock("next/navigation", () => ({
 afterEach(() => {
   cleanup();
   push.mockReset();
+  vi.unstubAllEnvs();
 });
 
 describe("safeNextPath", () => {
@@ -89,4 +90,31 @@ describe("LoginForm return path", () => {
       expect(await signInWith(next)).toBe("/dashboard");
     },
   );
+});
+
+describe("LoginForm: the no-password hint for Apple / Google accounts", () => {
+  function renderLogin(flag: string, configured = true) {
+    vi.stubEnv("NEXT_PUBLIC_AUTH_PROVIDERS", flag);
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ status: "signed-out", configured })}>
+        <LoginForm />
+      </FakeAuthProvider>,
+    );
+  }
+
+  it("describes the password field with it when a provider is on, naming only the ones that are", () => {
+    renderLogin("apple,google");
+    const hint = screen.getByText("Signed up with Google or Apple? Use that button — there’s no password.");
+    expect(screen.getByLabelText("Password")).toHaveAttribute("aria-describedby", hint.id);
+    cleanup();
+
+    renderLogin("apple");
+    expect(screen.getByText("Signed up with Apple? Use that button — there’s no password.")).toBeInTheDocument();
+  });
+
+  it("has no hint with no provider on", () => {
+    renderLogin("");
+    expect(screen.queryByText(/Use that button/)).toBeNull();
+    expect(screen.getByLabelText("Password")).not.toHaveAttribute("aria-describedby");
+  });
 });

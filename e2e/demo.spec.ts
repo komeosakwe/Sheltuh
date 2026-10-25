@@ -201,5 +201,17 @@ for (const vp of [
       await noSidewaysScroll(page);
       checkNoApiCalls();
     });
+
+    test("sign in and sign up offer no Apple or Google buttons (no accounts in the demo)", async ({ page }) => {
+      const checkNoApiCalls = noApiCalls(page);
+      for (const path of ["/login", "/signup"]) {
+        await page.goto(path);
+        await expect(page.getByText("Accounts aren’t configured in this environment yet.")).toBeVisible({ timeout: 60_000 });
+        await expect(page.getByRole("button", { name: /Continue with (Apple|Google)/ })).toHaveCount(0);
+        await expect(page.locator('img[src^="/auth/"]')).toHaveCount(0);
+        await noSidewaysScroll(page);
+      }
+      checkNoApiCalls();
+    });
   });
 }

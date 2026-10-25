@@ -1,5 +1,9 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import nextConfig, { assertStripePublishableKey } from "../next.config";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD, PHASE_PRODUCTION_SERVER } from "next/constants";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import config, { assertOAuthLogos, assertStripePublishableKey, nextConfig } from "../next.config";
 
 async function headersFor(source: string) {
   const rules = await nextConfig.headers?.();
@@ -120,10 +124,66 @@ describe("next.config: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY guard", () => {
 
     vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "pk_test_e2e_placeholder");
     vi.resetModules();
-    expect((await import("../next.config")).default.headers).toBeTypeOf("function");
+    expect((await import("../next.config")).nextConfig.headers).toBeTypeOf("function");
 
     vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", undefined);
     vi.resetModules();
-    expect((await import("../next.config")).default.headers).toBeTypeOf("function");
+    expect((await import("../next.config")).nextConfig.headers).toBeTypeOf("function");
+  });
+});
+
+describe("next.config: the official sign-in logos must be there for each provider NEXT_PUBLIC_AUTH_PROVIDERS lists", () => {
+  let dir = "";
+  const publicDir = () => path.join(dir, "public");
+  const addLogos = (...files: string[]) => {
+    mkdirSync(path.join(publicDir(), "auth"), { recursive: true });
+    for (const file of files) writeFileSync(path.join(publicDir(), "auth", file), "<svg/>");
+  };
+
+  beforeEach(() => {
+    dir = mkdtempSync(path.join(tmpdir(), "sheltuh-logos-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("passes with no provider listed (the default), whatever is in public/auth", () => {
+    for (const value of [undefined, "", " , ", "github"]) expect(() => assertOAuthLogos(value, publicDir())).not.toThrow();
+  });
+
+  it("fails naming every missing file (and where to read about them) for each listed provider", () => {
+    addLogos("README.md");
+    expect(() => assertOAuthLogos("google,apple", publicDir())).toThrow(
+      "NEXT_PUBLIC_AUTH_PROVIDERS lists a provider whose official logo artwork is missing: " +
+        "public/auth/google-g.svg, public/auth/apple-logo-white.svg, public/auth/apple-logo-black.svg. " +
+        "Add the files described in public/auth/README.md, or take the provider out of NEXT_PUBLIC_AUTH_PROVIDERS.",
+    );
+    addLogos("apple-logo-white.svg");
+    expect(() => assertOAuthLogos("apple", publicDir())).toThrow(/missing: public\/auth\/apple-logo-black\.svg\. /);
+  });
+
+  it("passes once a provider's files are all there, checking only the providers listed", () => {
+    addLogos("google-g.svg");
+    expect(() => assertOAuthLogos("google", publicDir())).not.toThrow();
+    expect(() => assertOAuthLogos("apple", publicDir())).toThrow(/apple-logo-white\.svg, public\/auth\/apple-logo-black\.svg/);
+    addLogos("apple-logo-white.svg", "apple-logo-black.svg");
+    expect(() => assertOAuthLogos(" Google , APPLE ", publicDir())).not.toThrow();
+  });
+
+  it("runs for `next build` only (the project's public/), so `next dev` and `next start` load without the files", () => {
+    vi.spyOn(process, "cwd").mockReturnValue(dir);
+    vi.stubEnv("NEXT_PUBLIC_AUTH_PROVIDERS", "google,apple");
+    expect(() => config(PHASE_PRODUCTION_BUILD)).toThrow(/public\/auth\/google-g\.svg/);
+    expect(config(PHASE_DEVELOPMENT_SERVER)).toBe(nextConfig);
+    expect(config(PHASE_PRODUCTION_SERVER)).toBe(nextConfig);
+
+    addLogos("google-g.svg", "apple-logo-white.svg", "apple-logo-black.svg");
+    expect(config(PHASE_PRODUCTION_BUILD)).toBe(nextConfig);
+
+    vi.stubEnv("NEXT_PUBLIC_AUTH_PROVIDERS", "");
+    rmSync(path.join(publicDir(), "auth"), { recursive: true });
+    expect(config(PHASE_PRODUCTION_BUILD)).toBe(nextConfig);
   });
 });

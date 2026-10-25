@@ -30,8 +30,8 @@ Status: spec, 24 Oct 2026. Builds on `brand-direction-one.md` §7 (Auth), `theme
   - Both buttons on Dark (white fills on `#000`): 21:1.
 
 **Type.**
-- Add `Roboto` weight 500, `subsets: ["latin"]`, `display: "swap"`, `preload: false`, `variable: "--font-roboto"` to `app/fonts.ts`. Apply `.variable` on the OAuthButtons root only.
-- Add `--face-oauth: var(--font-roboto), Roboto, "Helvetica Neue", Arial, sans-serif;`.
+- Add `Roboto` weight 500, `subsets: ["latin"]`, `display: "swap"`, `preload: false`, `variable: "--font-roboto"`. Apply `.variable` on the OAuthButtons root only. (As built: in its own module, `components/auth/oauth-font.ts`, so only /login and /signup carry its `@font-face`.)
+- Add `--face-oauth: var(--font-roboto), Roboto, "Helvetica Neue", Arial, sans-serif;`. (As built: declared on `.btn-oauth`, not `:root`, because `--font-roboto` exists only inside OAuthButtons.)
 - Google requires Roboto Medium (unverified). Apple allows any font. Both titles use it so the pair reads as one set.
 - Sentence case, tracking 0, no `uppercase`.
 
@@ -115,6 +115,12 @@ If only one provider is enabled, render that button alone, then the divider. If 
 - `aria-hidden="true" focusable="false"`.
 - Don't commit the zip files. Record each source URL and download date in a comment above each inlined SVG.
 - These marks appear nowhere else (not `/account`, not the footer).
+
+**As built (25 Oct 2026, manager decision): files, not inlined paths.** The artwork can't be downloaded from the build environment, and no placeholder may ship, so the buttons show the owner's downloaded files unmodified as `<img alt="" aria-hidden="true">` from `public/auth/`:
+- `apple-logo-white.svg` (black button, White theme) and `apple-logo-black.svg` (white button, Dark theme): Apple's **logo-only** artwork, at the button's full 48px height with its own padding.
+- `google-g.svg`: the standard multicolour G, 24×24, on both themes.
+
+`public/auth/README.md` says where to download each. `next build` fails while `NEXT_PUBLIC_AUTH_PROVIDERS` lists a provider whose files are missing (`next.config.ts`). The file names live in `lib/auth/oauth-providers.ts`. Record each file's source URL and download date in the commit that adds it.
 
 ## 5. Components
 

@@ -72,7 +72,11 @@ export default defineConfig({
         `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=e2e-placeholder ` +
         `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_e2e_placeholder ` +
         // Event clips' uploads on (e2e/event-clips.spec.ts): the editor's clip field and the admin queue's clip row.
-        `NEXT_PUBLIC_EVENT_CLIPS=1 npx next dev -p ${PORT}`,
+        `NEXT_PUBLIC_EVENT_CLIPS=1 ` +
+        // Continue with Apple / Google on (e2e/oauth.spec.ts). Only for this dev server: `next build`
+        // refuses the flag without the official logo files (next.config.ts), which aren't committed;
+        // the spec answers /auth/*.svg itself.
+        `NEXT_PUBLIC_AUTH_PROVIDERS=google,apple npx next dev -p ${PORT}`,
       url: `http://127.0.0.1:${PORT}`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
@@ -93,6 +97,8 @@ export default defineConfig({
         NEXT_PUBLIC_MAPBOX_STYLE: "",
         // Even with a key, the demo never loads Stripe.js (e2e/demo.spec.ts).
         NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: "pk_test_e2e_placeholder",
+        // As the Vercel previews: no Apple / Google sign-in (e2e/demo.spec.ts checks there are no buttons).
+        NEXT_PUBLIC_AUTH_PROVIDERS: "",
       },
       url: `http://127.0.0.1:${DEMO_PORT}`,
       reuseExistingServer: !process.env.CI,

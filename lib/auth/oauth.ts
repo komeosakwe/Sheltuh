@@ -1,5 +1,6 @@
 import { isAuthError, isAuthRetryableFetchError } from "@supabase/supabase-js";
 import { safeNextPath } from "@/lib/safe-next-path";
+import { parseAuthProviders, type OAuthProvider } from "./oauth-providers";
 
 /**
  * Signing in with Google or Apple: Supabase Auth's hosted OAuth, a full-page
@@ -7,34 +8,21 @@ import { safeNextPath } from "@/lib/safe-next-path";
  * OAuthCallback.tsx), which exchanges the code for a session once.
  */
 
-/** The providers Sheltüh offers, as Supabase Auth names them. */
-export const OAUTH_PROVIDERS = ["google", "apple"] as const;
-export type OAuthProvider = (typeof OAUTH_PROVIDERS)[number];
-
-export function isOAuthProvider(value: string): value is OAuthProvider {
-  return (OAUTH_PROVIDERS as readonly string[]).includes(value);
-}
+export {
+  isOAuthProvider,
+  missingOAuthLogos,
+  OAUTH_LOGO_FILES,
+  OAUTH_LOGO_PATH,
+  OAUTH_PROVIDERS,
+  parseAuthProviders,
+  type OAuthProvider,
+} from "./oauth-providers";
 
 /** Where Supabase Auth sends the browser back to after the provider. */
 export const OAUTH_CALLBACK_PATH = "/auth/callback";
 
 /** Where a completed sign-in goes when there's no (safe) `next`: as LoginForm and VerifyForm. */
 export const OAUTH_DEFAULT_NEXT = "/dashboard";
-
-/**
- * The providers listed in a NEXT_PUBLIC_AUTH_PROVIDERS value: comma
- * separated, any case, spaces ignored. Unknown names and repeats are dropped;
- * the order given is kept.
- */
-export function parseAuthProviders(raw: string | undefined): OAuthProvider[] {
-  if (!raw) return [];
-  const providers: OAuthProvider[] = [];
-  for (const part of raw.split(",")) {
-    const name = part.trim().toLowerCase();
-    if (isOAuthProvider(name) && !providers.includes(name)) providers.push(name);
-  }
-  return providers;
-}
 
 /**
  * The providers turned on with NEXT_PUBLIC_AUTH_PROVIDERS (.env.example),
@@ -48,6 +36,55 @@ export function parseAuthProviders(raw: string | undefined): OAuthProvider[] {
  */
 export function enabledOAuthProviders(): OAuthProvider[] {
   return parseAuthProviders(process.env.NEXT_PUBLIC_AUTH_PROVIDERS);
+}
+
+/** How each provider is named in copy. */
+export const OAUTH_PROVIDER_NAMES: Record<OAuthProvider, string> = { apple: "Apple", google: "Google" };
+
+/**
+ * The order the buttons stack in, whatever the flag's order
+ * (docs/design/social-sign-in.md §3): Apple, then Google.
+ */
+const BUTTON_ORDER: readonly OAuthProvider[] = ["apple", "google"];
+
+/**
+ * The providers to offer on this page, in button order: the flag's, but
+ * none at all unless Supabase is configured (demo mode shows no buttons).
+ * Pass `useAuth().configured`.
+ */
+export function offeredOAuthProviders(configured: boolean): OAuthProvider[] {
+  if (!configured) return [];
+  const enabled = enabledOAuthProviders();
+  return BUTTON_ORDER.filter((provider) => enabled.includes(provider));
+}
+
+/**
+ * "Apple or Google", "Google or Apple", or just the one: the offered
+ * providers' names for a line of copy, in `order` (the spec's copy names
+ * Apple first beside the buttons, Google first elsewhere).
+ */
+export function oauthProviderNames(providers: readonly OAuthProvider[], order: readonly OAuthProvider[]): string {
+  return order
+    .filter((provider) => providers.includes(provider))
+    .map((provider) => OAUTH_PROVIDER_NAMES[provider])
+    .join(" or ");
+}
+
+/** How /account names each way of signing in (Supabase's `app_metadata.providers`), in display order. */
+const SIGN_IN_METHOD_NAMES: readonly [string, string][] = [
+  ["email", "Email and password"],
+  ["google", "Google"],
+  ["apple", "Apple"],
+];
+
+/**
+ * The sign-in methods line on /account: "Email and password, Google". Only
+ * the methods named above, in that order; null when none is known.
+ */
+export function signInMethodsLabel(providers: readonly string[] | undefined): string | null {
+  if (!providers) return null;
+  const names = SIGN_IN_METHOD_NAMES.filter(([id]) => providers.includes(id)).map(([, name]) => name);
+  return names.length > 0 ? names.join(", ") : null;
 }
 
 /**

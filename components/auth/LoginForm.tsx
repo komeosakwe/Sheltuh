@@ -6,6 +6,7 @@ import { useRef, useState, type FormEvent } from "react";
 import AuthField, { fieldsForAuthError, useFocusAfterRender, type AuthErrorField } from "@/components/auth/AuthField";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { oauthProviderNames, offeredOAuthProviders } from "@/lib/auth/oauth";
 import { safeNextPath, withNext } from "@/lib/safe-next-path";
 
 const FORM_ERROR_ID = "login-error";
@@ -17,6 +18,9 @@ const FORM_ERROR_ID = "login-error";
  * Empty fields are caught here, before Supabase is called; on any error,
  * focus goes to the first invalid field, which is marked and described by
  * its error. A wrong email or password marks both (the service won't say which).
+ *
+ * With Apple or Google offered above the form (OAuthButtons), the password
+ * field's hint says an account made with one of them has no password.
  */
 export default function LoginForm({ next }: { next?: string } = {}) {
   const auth = useAuth();
@@ -30,6 +34,7 @@ export default function LoginForm({ next }: { next?: string } = {}) {
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const focusAfterRender = useFocusAfterRender();
+  const providers = offeredOAuthProviders(auth.configured);
 
   if (!auth.configured) {
     return (
@@ -96,6 +101,11 @@ export default function LoginForm({ next }: { next?: string } = {}) {
         onChange={(e) => setPassword(e.target.value)}
         error={fieldErrors.password}
         invalidBy={invalidBy("password")}
+        hint={
+          providers.length > 0
+            ? `Signed up with ${oauthProviderNames(providers, ["google", "apple"])}? Use that button — there’s no password.`
+            : undefined
+        }
         labelAside={
           <Link
             href={withNext("/forgot-password", next)}

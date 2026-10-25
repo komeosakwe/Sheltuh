@@ -2,7 +2,12 @@ import { AuthApiError, AuthPKCECodeVerifierMissingError, AuthRetryableFetchError
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   enabledOAuthProviders,
+  missingOAuthLogos,
   OAUTH_ERROR_COPY,
+  OAUTH_LOGO_FILES,
+  oauthProviderNames,
+  offeredOAuthProviders,
+  signInMethodsLabel,
   oauthCallbackUrl,
   oauthErrorKind,
   oauthExchangeErrorKind,
@@ -208,5 +213,57 @@ describe("OAUTH_ERROR_COPY", () => {
 
   it("names support for a banned account", () => {
     expect(OAUTH_ERROR_COPY.banned.message).toContain("support@sheltuh.com.au");
+  });
+});
+
+describe("offeredOAuthProviders and oauthProviderNames: the buttons and the copy around them", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("offers the flagged providers in button order, Apple first, and none unless Supabase is configured", () => {
+    vi.stubEnv("NEXT_PUBLIC_AUTH_PROVIDERS", "google,apple");
+    expect(offeredOAuthProviders(true)).toEqual(["apple", "google"]);
+    expect(offeredOAuthProviders(false)).toEqual([]);
+    vi.stubEnv("NEXT_PUBLIC_AUTH_PROVIDERS", "google");
+    expect(offeredOAuthProviders(true)).toEqual(["google"]);
+    vi.stubEnv("NEXT_PUBLIC_AUTH_PROVIDERS", "");
+    expect(offeredOAuthProviders(true)).toEqual([]);
+  });
+
+  it("names the offered providers in the order asked, or just the one", () => {
+    expect(oauthProviderNames(["apple", "google"], ["apple", "google"])).toBe("Apple or Google");
+    expect(oauthProviderNames(["apple", "google"], ["google", "apple"])).toBe("Google or Apple");
+    expect(oauthProviderNames(["google"], ["apple", "google"])).toBe("Google");
+    expect(oauthProviderNames(["apple"], ["google", "apple"])).toBe("Apple");
+  });
+});
+
+describe("signInMethodsLabel: /account's sign-in methods line", () => {
+  it("names email, Google and Apple in that order, ignoring anything else", () => {
+    expect(signInMethodsLabel(["google", "email"])).toBe("Email and password, Google");
+    expect(signInMethodsLabel(["apple", "google", "email"])).toBe("Email and password, Google, Apple");
+    expect(signInMethodsLabel(["apple"])).toBe("Apple");
+    expect(signInMethodsLabel(["github", "email"])).toBe("Email and password");
+  });
+
+  it("is null when nothing known is listed", () => {
+    expect(signInMethodsLabel(undefined)).toBeNull();
+    expect(signInMethodsLabel([])).toBeNull();
+    expect(signInMethodsLabel(["github"])).toBeNull();
+  });
+});
+
+describe("missingOAuthLogos: the official artwork each listed provider needs", () => {
+  it("lists Apple's two logo-only files and Google's G", () => {
+    expect(OAUTH_LOGO_FILES).toEqual({ apple: ["apple-logo-white.svg", "apple-logo-black.svg"], google: ["google-g.svg"] });
+  });
+
+  it("names only the listed providers' missing files", () => {
+    const none = () => false;
+    expect(missingOAuthLogos(undefined, none)).toEqual([]);
+    expect(missingOAuthLogos("", none)).toEqual([]);
+    expect(missingOAuthLogos("google", none)).toEqual(["google-g.svg"]);
+    expect(missingOAuthLogos("google,apple", none)).toEqual(["google-g.svg", "apple-logo-white.svg", "apple-logo-black.svg"]);
+    expect(missingOAuthLogos("apple", (file) => file === "apple-logo-white.svg")).toEqual(["apple-logo-black.svg"]);
+    expect(missingOAuthLogos("google,apple", () => true)).toEqual([]);
   });
 });
