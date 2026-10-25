@@ -80,10 +80,14 @@ describe("Admin hub", () => {
       "/admin/events?status=published",
       "/admin/organisers?status=approved",
       "/admin/events/new",
+      "/admin/invites",
       "/admin/trending",
       "/admin/events?status=published&view=door",
     ]);
     expect(within(manage).getByRole("link", { name: /^Door check-in/ })).toHaveTextContent("2 events in the next 24 hours");
+    expect(within(manage).getByRole("link", { name: "Invite someone" })).toHaveAccessibleDescription(
+      "Invite a person who asked to join, as an organiser (approved when they accept) or a member.",
+    );
     expect(within(section("Done outside Sheltüh admin")).getByText(/Stripe dashboard/)).toBeInTheDocument();
   });
 

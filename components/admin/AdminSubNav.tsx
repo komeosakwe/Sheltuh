@@ -23,6 +23,7 @@ export const ADMIN_SUB_NAV: SubNavLink[] = [
   { href: "/admin/organisers", label: "Organisers", area: "organisers" },
   { href: "/admin/emails", label: "Emails", area: "emails" },
   { href: "/admin/trending", label: "Trending" },
+  { href: "/admin/invites", label: "Invites" },
 ];
 
 const NEW_EVENT_HREF = "/admin/events/new";

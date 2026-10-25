@@ -117,6 +117,13 @@ function manageCards(summary: AdminSummary | null): HubCard[] {
       todo: "For any approved organiser, or a Sheltüh-run (platform-managed) organiser with no account of its own.",
     },
     {
+      href: "/admin/invites",
+      title: "Invite someone",
+      status: null,
+      waiting: false,
+      todo: "Invite a person who asked to join, as an organiser (approved when they accept) or a member.",
+    },
+    {
       href: "/admin/trending",
       title: "Trending",
       status: null,

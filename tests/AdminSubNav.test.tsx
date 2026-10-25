@@ -41,6 +41,7 @@ describe("AdminSubNav", () => {
       ["Organisers", "/admin/organisers"],
       ["Emails", "/admin/emails"],
       ["Trending", "/admin/trending"],
+      ["Invites", "/admin/invites"],
       ["New event", "/admin/events/new"],
     ]);
     expect(within(nav).getByRole("link", { name: "Reports, 3 open" })).toBeInTheDocument();
@@ -70,6 +71,7 @@ describe("AdminSubNav", () => {
     expect(adminSectionFor("/admin/events/new")).toBe("/admin/events/new");
     expect(adminSectionFor("/admin")).toBe("/admin");
     expect(adminSectionFor("/admin/trending")).toBe("/admin/trending");
+    expect(adminSectionFor("/admin/invites")).toBe("/admin/invites");
   });
 
   it("each area's page is titled with its sub-nav label", async () => {
@@ -79,6 +81,7 @@ describe("AdminSubNav", () => {
       "/admin/organisers": await import("@/app/admin/organisers/page"),
       "/admin/emails": await import("@/app/admin/emails/page"),
       "/admin/trending": await import("@/app/admin/trending/page"),
+      "/admin/invites": await import("@/app/admin/invites/page"),
     };
     for (const link of ADMIN_SUB_NAV.filter((l) => l.href !== "/admin")) {
       expect(pages[link.href]?.metadata.title).toBe(`${link.label} — Sheltüh admin`);

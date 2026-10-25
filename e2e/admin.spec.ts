@@ -1,12 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
-import type { AdminEventRecord, AdminOrganiserRecord, AdminSummary, CheckInSummary } from "@/lib/api/types";
+import type { AdminEventRecord, AdminInviteRecord, AdminOrganiserRecord, AdminSummary, CheckInSummary } from "@/lib/api/types";
 
 /**
  * The admin area in a real browser: the hub, the sub-nav and the main nav's
  * Admin badge driven by GET /api/admin/summary; the event queue's filters in
  * the URL, confirm before Approve, and focus and the status line after it;
  * the organiser list's filter and search in the URL; an admin's way back
- * from door check-in; no sideways scrolling at 320px. Live mode, signed in as an admin with a
+ * from door check-in; inviting someone, then resending and revoking the
+ * invite; no sideways scrolling at 320px. Live mode, signed in as an admin with a
  * stored test session (the Supabase URL is a local placeholder), with every
  * /api/* request answered here.
  */
@@ -305,6 +306,110 @@ test.describe("approving by keyboard at 1280×900", () => {
     await expect(page.getByRole("navigation", { name: "Admin" }).getByRole("link", { name: /^Events\s*, 1 waiting$/ })).toBeVisible();
   });
 });
+
+/** Answers /api/admin/invites* (after signedInAsAdmin, so these routes win); returns what was posted. */
+async function mockInvites(page: Page) {
+  const posted: { path: string; body: unknown }[] = [];
+  let invites: AdminInviteRecord[] = [];
+  const record = (email: string, overrides: Partial<AdminInviteRecord> = {}): AdminInviteRecord => ({
+    inviteId: "22222222-2222-4222-8222-222222222222",
+    kind: "organiser",
+    email,
+    status: "pending",
+    organiserName: "Neon Collective",
+    createdAt: new Date(now).toISOString(),
+    expiresAt: new Date(now + 14 * DAY).toISOString(),
+    lastSentAt: new Date(now).toISOString(),
+    sendCount: 1,
+    ...overrides,
+  });
+  await page.route("**/api/admin/invites**", (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const path = url.pathname;
+    if (request.method() === "GET" && path === "/api/admin/invites") {
+      const status = url.searchParams.get("status") ?? "pending";
+      return route.fulfill({ json: { items: invites.filter((i) => i.status === status) } });
+    }
+    posted.push({ path, body: request.postData() ? request.postDataJSON() : undefined });
+    if (path === "/api/admin/invites") {
+      const created = record("mia@example.com");
+      invites = [created];
+      return route.fulfill({ status: 201, json: { invite: created, emailSent: true } });
+    }
+    if (path.endsWith("/resend")) {
+      invites = invites.map((i) => ({ ...i, sendCount: i.sendCount + 1 }));
+      return route.fulfill({ json: { invite: invites[0], emailSent: true } });
+    }
+    if (path.endsWith("/revoke")) {
+      invites = invites.map((i) => ({ ...i, status: "revoked" as const, revokedAt: new Date().toISOString() }));
+      return route.fulfill({ json: invites[0] });
+    }
+    return route.fulfill({ status: 404, json: { error: "not mocked in e2e" } });
+  });
+  return posted;
+}
+
+for (const vp of [
+  { width: 320, height: 640 },
+  { width: 1280, height: 900 },
+]) {
+  test(`invites at ${vp.width}×${vp.height}: invite an organiser, resend it, revoke it`, async ({ page }) => {
+    await page.setViewportSize(vp);
+    await signedInAsAdmin(page);
+    const posted = await mockInvites(page);
+    await page.goto("/admin");
+    await page.getByRole("region", { name: "Manage" }).getByRole("link", { name: "Invite someone" }).click();
+    await expect(page).toHaveURL(/\/admin\/invites$/);
+    await expect(page.getByRole("navigation", { name: "Admin" }).getByRole("link", { name: "Invites" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(page.getByText("No invites waiting")).toBeVisible({ timeout: 30_000 });
+
+    const form = page.getByRole("form", { name: "Invite someone" });
+    await form.getByLabel("Their email", { exact: true }).fill("mia@example.com");
+    await form.getByLabel("Their email again").fill("mia@example.com");
+    await form.getByLabel("Organiser name").fill("Neon Collective");
+    await expect(form.getByLabel("Contact email")).toHaveValue("mia@example.com");
+    await form.getByLabel("Description").fill("Loud nights in small rooms.");
+    await form.getByLabel("Live music").check();
+    await form.getByLabel("They asked to be invited (required)").check();
+    await noSidewaysScroll(page);
+    await form.getByRole("button", { name: "Send invite" }).click();
+
+    await expect(form.getByText("Invite sent to mia@example.com. The link works for 14 days.")).toBeVisible();
+    expect(posted[0]).toEqual({
+      path: "/api/admin/invites",
+      body: {
+        kind: "organiser",
+        email: "mia@example.com",
+        consent: true,
+        organiser: {
+          displayName: "Neon Collective",
+          contactEmail: "mia@example.com",
+          description: "Loud nights in small rooms.",
+          categories: ["live-music"],
+          websiteUrl: null,
+        },
+      },
+    });
+
+    const article = page.getByRole("article", { name: "mia@example.com" });
+    await expect(article).toContainText("Organiser: Neon Collective");
+    await article.getByRole("button", { name: "Resend" }).click();
+    await expect(article).toContainText("(2 emails)");
+    expect(posted[1].path).toMatch(/\/resend$/);
+
+    await article.getByRole("button", { name: "Revoke…" }).click();
+    await expect(article.getByRole("button", { name: "Cancel" })).toBeFocused();
+    await article.getByRole("button", { name: "Revoke invite" }).click();
+    await expect(page.getByRole("article", { name: "mia@example.com" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { level: 2, name: "Invites waiting to be accepted" })).toBeFocused();
+    expect(posted[2].path).toMatch(/\/revoke$/);
+    await noSidewaysScroll(page);
+  });
+}
 
 /** The header's height on a page, once its account links have settled. */
 async function headerHeight(page: Page, path: string, ready: RegExp) {

@@ -39,7 +39,7 @@ describe("next.config headers", () => {
     expect(byKey["x-robots-tag"]).toMatch(/\bnoindex\b/);
   });
 
-  it.each(["/waitlist/:path*", "/following/:path*"])(
+  it.each(["/waitlist/:path*", "/following/:path*", "/invite"])(
     "keeps the emailed-link page %s (a token in its fragment) out of Referers and search indexes, like checkout",
     async (source) => {
       const byKey = await headersFor(source);
@@ -79,6 +79,7 @@ describe("next.config headers", () => {
       "/checkout/:path*",
       "/waitlist/:path*",
       "/following/:path*",
+      "/invite",
       "/auth/:path*",
       "/search",
       "/vendor/zxing-wasm/:path*",

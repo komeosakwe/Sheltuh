@@ -117,6 +117,15 @@ export const nextConfig: NextConfig = {
           { key: "X-Robots-Tag", value: "noindex, nofollow" },
         ],
       },
+      // An account invite's link (/invite#token=…) carries its token in the
+      // fragment: the same headers as the other emailed-link pages.
+      {
+        source: "/invite",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
       // /auth/callback?code=… carries a one-time sign-in code from Google or
       // Apple (via Supabase Auth): never send it on as a Referer, and keep the
       // page out of search indexes.

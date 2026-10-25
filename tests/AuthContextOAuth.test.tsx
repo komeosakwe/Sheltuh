@@ -9,6 +9,8 @@ import { AuthProvider, useAuth, type AuthContextValue } from "@/lib/auth/AuthCon
 let listener: ((event: AuthChangeEvent, session: Session | null) => void) | undefined;
 const signInWithOAuth = vi.fn();
 const exchangeCodeForSession = vi.fn();
+const verifyOtp = vi.fn();
+const updateUser = vi.fn();
 const signOut = vi.fn().mockResolvedValue({ error: null });
 const client = {
   auth: {
@@ -19,6 +21,8 @@ const client = {
     getSession: async () => ({ data: { session: null } }),
     signInWithOAuth,
     exchangeCodeForSession,
+    verifyOtp,
+    updateUser,
     signOut,
   },
 };
@@ -42,6 +46,9 @@ function current(): AuthContextValue {
 beforeEach(() => {
   signInWithOAuth.mockReset().mockResolvedValue({ data: { provider: "google", url: "https://x", flowId: null }, error: null });
   exchangeCodeForSession.mockReset();
+  verifyOtp.mockReset();
+  updateUser.mockReset();
+  signOut.mockReset().mockResolvedValue({ error: null });
   render(
     <AuthProvider>
       <Probe />
@@ -98,6 +105,51 @@ describe("AuthProvider: completeOAuthSignIn", () => {
     exchangeCodeForSession.mockResolvedValue({ data: { session: null, user: null }, error });
     await expect(current().completeOAuthSignIn("abc")).rejects.toBe(error);
     await expect(current().completeOAuthSignIn("abc")).rejects.toMatchObject({ code: "flow_state_expired" });
+  });
+});
+
+describe("AuthProvider: verifyInvite", () => {
+  it("verifies the invite's sign-up token hash (type invite)", async () => {
+    verifyOtp.mockResolvedValue({ data: { session: {}, user: {} }, error: null });
+    await current().verifyInvite("hashed-token-abc");
+    expect(verifyOtp).toHaveBeenCalledWith({ token_hash: "hashed-token-abc", type: "invite" });
+  });
+
+  it("rejects with Supabase's own AuthError, keeping its code (otp_expired)", async () => {
+    const error = new AuthApiError("Email link is invalid or has expired", 403, "otp_expired");
+    verifyOtp.mockResolvedValue({ data: { session: null, user: null }, error });
+    await expect(current().verifyInvite("x")).rejects.toBe(error);
+    await expect(current().verifyInvite("x")).rejects.toMatchObject({ code: "otp_expired" });
+  });
+});
+
+describe("AuthProvider: setNewPassword", () => {
+  it("sets the password, then signs out every other session (this one stays)", async () => {
+    updateUser.mockResolvedValue({ data: { user: {} }, error: null });
+    await current().setNewPassword("Secret123");
+    expect(updateUser).toHaveBeenCalledWith({ password: "Secret123" });
+    expect(signOut).toHaveBeenCalledWith({ scope: "others" });
+    expect(updateUser.mock.invocationCallOrder[0]).toBeLessThan(signOut.mock.invocationCallOrder[0]);
+  });
+
+  it("rejects with the AuthError and signs nothing out when the password is refused", async () => {
+    const error = new AuthApiError("Password is too weak", 422, "weak_password");
+    updateUser.mockResolvedValue({ data: { user: null }, error });
+    await expect(current().setNewPassword("weak")).rejects.toBe(error);
+    expect(signOut).not.toHaveBeenCalled();
+  });
+
+  it("goes on to the sign-out when the password is already set to it (a retry)", async () => {
+    updateUser.mockResolvedValue({ data: { user: null }, error: new AuthApiError("Same", 422, "same_password") });
+    await current().setNewPassword("Secret123");
+    expect(signOut).toHaveBeenCalledWith({ scope: "others" });
+  });
+
+  it("rejects when signing out the other sessions fails", async () => {
+    updateUser.mockResolvedValue({ data: { user: {} }, error: null });
+    const error = new AuthApiError("Server error", 500, "unexpected_failure");
+    signOut.mockResolvedValue({ error });
+    await expect(current().setNewPassword("Secret123")).rejects.toBe(error);
   });
 });
 

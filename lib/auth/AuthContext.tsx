@@ -80,6 +80,23 @@ export interface AuthContextValue extends AuthState {
    */
   completeOAuthSignIn: (code: string, flowId?: string) => Promise<void>;
   /**
+   * An account invite's "Create account" (components/invites): verifies the
+   * sign-up token hash POST /api/invites/account-link returned
+   * (`verifyOtp`, type `invite`), which confirms the address and signs the
+   * new account in. Rejects with Supabase's own AuthError, so its `code`
+   * (e.g. "otp_expired") is kept for the page to explain.
+   */
+  verifyInvite: (tokenHash: string) => Promise<void>;
+  /**
+   * Sets the signed-in account's password, then signs out every other
+   * session it has (`scope: "others"`; this one stays), so nothing signed in
+   * before the password was chosen keeps access. Safe to call again after a
+   * failure: a password that's already `password` (Supabase's
+   * "same_password") goes on to the sign-out. Rejects with Supabase's own
+   * AuthError (e.g. "weak_password").
+   */
+  setNewPassword: (password: string) => Promise<void>;
+  /**
    * Signs out. `"global"` (the default) is the person's own Sign out: it ends
    * every session this account has, on every device, and first tells every
    * tab here that it was deliberate (`signedOutBy: "user"`), so none keeps a
@@ -267,6 +284,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) throw error;
   }, []);
 
+  // Not throwIfError: that would drop the AuthError's `code`.
+  const verifyInvite = useCallback(async (tokenHash: string) => {
+    const { error } = await requireClient().auth.verifyOtp({ token_hash: tokenHash, type: "invite" });
+    if (error) throw error;
+  }, []);
+
+  const setNewPassword = useCallback(async (password: string) => {
+    const client = requireClient();
+    const updated = await client.auth.updateUser({ password });
+    if (updated.error && updated.error.code !== "same_password") throw updated.error;
+    const others = await client.auth.signOut({ scope: "others" });
+    if (others.error) throw others.error;
+  }, []);
+
   const signOut = useCallback((scope: SignOutScope = "global") => {
     const byUser = scope === "global";
     if (byUser) {
@@ -290,6 +321,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       confirmForgotPassword,
       signInWithProvider,
       completeOAuthSignIn,
+      verifyInvite,
+      setNewPassword,
       signOut,
       refresh,
       getAccessToken,
@@ -305,6 +338,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       confirmForgotPassword,
       signInWithProvider,
       completeOAuthSignIn,
+      verifyInvite,
+      setNewPassword,
       signOut,
       refresh,
       getAccessToken,
