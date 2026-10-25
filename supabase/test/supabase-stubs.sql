@@ -41,6 +41,20 @@ alter table auth.users add column if not exists deleted_at timestamptz;
 -- "no password" as null or ''.
 alter table auth.users add column if not exists last_sign_in_at timestamptz;
 alter table auth.users add column if not exists encrypted_password text;
+-- Set by Supabase Auth's generate_link (type invite) on the account it mints
+-- for: with no password and no sign-in, that's what tells a fresh invite
+-- account (reused by the next "Create account") from someone's registration.
+alter table auth.users add column if not exists invited_at timestamptz;
+-- Supabase Auth's sign-in identities: an email sign-up or invite has one with
+-- provider 'email', and a Google or Apple sign-in adds one with its provider.
+-- Only what "Create account" reads (an account with a non-email identity is
+-- never treated as a fresh invite account). As in Supabase, deleting the
+-- user deletes its identities.
+create table if not exists auth.identities (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  provider text not null
+);
 
 -- Supabase Storage: just the bucket and object tables, with the columns the
 -- migrations and the API's SQL use (event clips: 20261106000000_event_clips.sql

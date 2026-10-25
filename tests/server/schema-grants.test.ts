@@ -387,6 +387,7 @@ describe("Data API lock-out", () => {
   it("the account invite functions exist, pin search_path, aren't security definer and aren't client-executable", async () => {
     const names = [
       "accept_account_invite",
+      "account_invite_inviter_is_admin",
       "create_account_invite",
       "issue_invite_account_link",
       "purge_operational_data",

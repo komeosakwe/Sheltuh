@@ -151,12 +151,16 @@ export class FakeClipStorage implements ClipStorage {
 
 /**
  * A stand-in for Supabase Auth's admin API (lib/server/auth-admin.ts), on the
- * test database's auth.users, as Supabase Auth behaves (docs/architecture.md,
- * "Account invites"): `generateInviteLink` answers "exists" for an address
- * with a confirmed account (or one in `existing`, lower-cased), reuses an
- * unconfirmed account as it is, or creates an unconfirmed one without a
- * password, and answers a fresh token hash with that account's id;
- * `deleteUser` deletes the account (resolving if it's already gone). Each
+ * test database's auth.users and auth.identities, as Supabase Auth behaves
+ * (docs/architecture.md, "Account invites"): `generateInviteLink` answers
+ * "exists" for an address with a confirmed account (or one in `existing`,
+ * lower-cased), reuses an unconfirmed account as it is, or creates an
+ * unconfirmed one without a password (with an 'email' identity), sets the
+ * account's invited_at, and answers a fresh token hash with that account's
+ * id. Calls run one at a time, as Supabase Auth looks up and creates an
+ * address's account in one transaction (one account per address).
+ * `deleteUser` deletes the account and its identities (resolving if it's
+ * already gone). Each
  * throws an AuthAdminError while `failing` / `failingDelete` is set.
  * `beforeGenerate` runs just before an invite link is made (e.g. someone
  * registering the address at that moment). `calls` records the addresses
@@ -170,9 +174,17 @@ export class FakeAuthAdmin implements AuthAdmin {
   failingDelete = false;
   beforeGenerate: ((email: string) => Promise<void>) | undefined;
 
+  private queue: Promise<unknown> = Promise.resolve();
+
   constructor(private readonly db: Db) {}
 
-  async generateInviteLink(email: string) {
+  generateInviteLink(email: string) {
+    const run = this.queue.then(() => this.generate(email));
+    this.queue = run.catch(() => {});
+    return run;
+  }
+
+  private async generate(email: string) {
     this.calls.push(email);
     if (this.failing) throw new AuthAdminError("generate_link", 500);
     await this.beforeGenerate?.(email);
@@ -186,7 +198,9 @@ export class FakeAuthAdmin implements AuthAdmin {
     if (!userId) {
       userId = crypto.randomUUID();
       await this.db.query(`insert into auth.users (id, email, raw_app_meta_data) values ($1, $2, '{}')`, [userId, email]);
+      await this.db.query(`insert into auth.identities (user_id, provider) values ($1, 'email')`, [userId]);
     }
+    await this.db.query(`update auth.users set invited_at = now() where id = $1`, [userId]);
     return { tokenHash: `pkce_hash_${crypto.randomUUID().replace(/-/g, "")}`, userId };
   }
 

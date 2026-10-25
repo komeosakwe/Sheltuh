@@ -2113,8 +2113,12 @@ Admins invite people who asked to join, as an organiser or as a member
 (owner decisions, 25 Oct 2026; `supabase/migrations/20261108000000_account_invites.sql`,
 `lib/server/handlers/invites.ts`, `lib/server/auth-admin.ts`,
 `lib/server/invite-email.ts`, `lib/api/invites.ts` and the invite functions in
-`lib/api/admin.ts`). The pages, `/admin/invites` (admins) and `/invite` (the
-invitee), are separate frontend work; this section is the API and the data.
+`lib/api/admin.ts`). The pages: `/admin/invites` (`components/admin/InvitesAdmin.tsx`:
+`InviteForm.tsx` to invite someone, `InviteQueue.tsx` to list, resend and
+revoke by status) and `/invite`, where the emailed link lands
+(`components/invites/*`: `InviteFlow.tsx` reads the invite and picks the
+step, `InviteCreateAccount.tsx` is "Create account" with a password,
+`InviteJoin.tsx` the accept step, `invite-problems.ts` the error copy).
 
 - **Creating** (`POST /admin/invites {kind, email, consent: true, organiser?}`,
   admin only). `consent` must be true: the admin confirms the person asked to
@@ -2148,9 +2152,9 @@ invitee), are separate frontend work; this section is the API and the data.
   setup is available), so a mail scanner following the link is harmless.
   `account` is `existing` (a confirmed account: sign in), `unconfirmed`
   (only an account that was never confirmed, perhaps registered by someone
-  else: "Create account" replaces it, and without password setup, or if
-  that fails, the page sends them to the password reset, never the ordinary
-  sign-up) or `new`. 410 with `code` `expired`, `revoked` or `used`.
+  else: "Create account" replaces it, or reuses an earlier press's, and
+  without password setup, or if that fails, the page sends them to the
+  password reset, never the ordinary sign-up) or `new`. 410 with `code` `expired`, `revoked` or `used`.
 - **"Create account": a sign-up token minted just in time.** We never use
   Supabase's own invites (`inviteUserByEmail`, the dashboard's "Invite user"
   and its template): auth-js doesn't support PKCE for them, and their link
@@ -2166,22 +2170,29 @@ invitee), are separate frontend work; this section is the API and the data.
   ordinary account, nothing more, since acceptance refuses a revoked invite.
   An address with a confirmed account is a 409 `code: "has_account"` (they
   sign in instead).
-  **An unconfirmed account for the address is deleted first.** Supabase's
-  `generate_link` reuses an unconfirmed account as it is, and verifying the
-  token confirms it while keeping its password (it only generates one when
-  there's none), so someone who registered the invitee's address first
-  could sign in to the confirmed account and accept. So, before minting,
-  each account with the address is re-read just before it's deleted
-  through the admin API (`DELETE /auth/v1/admin/users/{id}`): a confirmed
-  one is never deleted (409 `has_account`), and an unconfirmed one that has
-  signed in is left alone (503); one that was never confirmed and never
-  signed in can't have been used. Then `generate_link` creates a fresh,
-  passwordless account, and the server checks it is the address's only
-  account, unconfirmed, without a password and never signed in; if the
-  address was registered again in between (Supabase would reuse that
-  account), the token is withheld (503). A failed deletion mints nothing
-  (503). Pressing "Create account" again replaces the previous press's
-  account the same way (its token stops working anyway).
+  **An unconfirmed account someone registered with the address is deleted
+  first.** Supabase's `generate_link` reuses an unconfirmed account as it
+  is, and verifying the token confirms it while keeping its password (it
+  only generates one when there's none), so someone who registered the
+  invitee's address first could sign in to the confirmed account and
+  accept. So, before minting, each account with the address is re-read just
+  before it's deleted through the admin API (`DELETE
+  /auth/v1/admin/users/{id}`): a confirmed one is never deleted (409
+  `has_account`), and an unconfirmed one that has signed in is left alone
+  (503); one that was never confirmed and never signed in can't have been
+  used. A **fresh invite account** is kept: never confirmed or signed in, no
+  password, `invited_at` set (by `generate_link`), and no identity but
+  `email` (no Google or Apple). That's what an earlier press made, perhaps
+  one still in progress in another tab or device, and `generate_link`
+  reuses it, so two presses never delete each other's account (or one the
+  other has just verified). Then `generate_link` mints for that account or
+  a new passwordless one, and the server checks the account is the
+  address's only one and a fresh invite account; if the address was
+  registered again in between (Supabase would reuse that account), the
+  token is withheld (503). A failed deletion mints nothing (503). Each
+  press mints a new token for the same account; if Supabase keeps only the
+  newest (unverified, below), in two tabs the one pressed last finishes and
+  the other's verify fails, and pressing again there works.
   At most 10 tokens per link and 20 requests an hour per client
   (`take_client_rate_limit`, bucket `invite_account_links`; fails open,
   logged, without a client IP or `STRIPE_WEBHOOK_SECRET`, like checkout's),
@@ -2227,8 +2238,8 @@ invitee), are separate frontend work; this section is the API and the data.
 - **Apple's Hide My Email** addresses never match the invite: the person uses
   the invited address (password or Google), or the admin invites again.
 - **Abandoned setups** leave unconfirmed Supabase accounts behind (cleaned up
-  by hand in Authentication → Users, or replaced by the next "Create
-  account" for that address).
+  by hand in Authentication → Users, or reused by the next "Create account"
+  for that address).
 - **"Confirm email" must stay on** (`supabase-setup.md`). Acceptance trusts
   only a verified email; with confirmation off, anyone could sign up with an
   invited address, be "verified" at once, and accept.
@@ -2257,7 +2268,13 @@ invitee), are separate frontend work; this section is the API and the data.
   /admin/users/{id}` hard-deleting (404 when gone) and freeing the address;
   `verifyOtp` type `invite` confirming the email and returning a session; the
   `hashed_token` format (validated loosely); whether `auth.users` emails are
-  lower-cased (compared with `lower()` on both sides). The "has an account"
+  lower-cased (compared with `lower()` on both sides); `generate_link`
+  setting `invited_at` on the account it mints for (new or reused), giving a
+  new one an `auth.identities` row with provider `email` and nothing else,
+  and a newer token replacing an earlier one for the same account; and, for
+  the password-reset fallback (no key, or setup failed, with an
+  `unconfirmed` account), `/recover` sending a reset code to an unconfirmed
+  user and verifying that code confirming the email. The "has an account"
   checks scan `auth.users`; fine at current scale.
 
 ## Reserved seating
@@ -2534,7 +2551,7 @@ application is approved.
 | `GET /admin/summary` | admin. `AdminSummary`, counts only (no names, titles or addresses): `reportsOpen {count, oldestAt}`, `eventsPending {count, soonestStartsAt, startingSoon, startingSoonHours: 72}` (the last three over events not ended), `organisersPending {count, oldestAt}` (oldest last update), `emailsFailed {count}` and `emailsRetrying {count}` (ticket emails: failed, or pending after a failed attempt), `doorEvents {count, windowHours: 24}` (published, Sheltüh-ticketed, platform-managed, not ended, starting within 24 hours). One query; each part is served by an existing status index |
 | `POST /admin/organisers` | admin. A platform-managed organiser (see "Admin authoring"): the application's fields and rules. 201 `AdminOrganiserRecord`; 400 fieldErrors |
 | `GET /admin/invites?status&cursor&limit` · `POST /admin/invites` `{kind, email, consent, organiser?}` · `POST /admin/invites/{inviteId}/resend` · `POST …/revoke` | admin (see "Account invites"). List: `Paginated<AdminInviteRecord>`, status `pending` (default), `accepted`, `revoked` or `expired` (400 otherwise), newest first. Create: 201 `{invite, emailSent}`; 400 fieldErrors (`kind`, `email`, `consent`, `organiser`, `organiser.<field>`); 409 a pending invite for the address, or its account already has an organiser; 429; 503 without `SUPABASE_ADMIN_INVITE_KEY` (nothing written). Resend: 200 `{invite, emailSent}`; 404; 409 accepted or revoked (or its inviter is no longer an admin); 429 within a minute or over the allowance; 503. Revoke: 200 the invite; 404; 409 not pending |
-| `POST /invites/view` `{token}` · `POST /invites/account-link` `{token}` | public (the emailed token is the credential), private, no-store. View: `InviteView` (`account` `new` / `existing` / `unconfirmed`), read-only; 400; 404; 410 `code` `expired` / `revoked` / `used`. Account link: deletes the address's unconfirmed accounts, then `{tokenHash}`; 400; 404; 410; 409 `code: "has_account"`; 429 (10 per link, 20 an hour per client, counting only tokens that match an invite); 503 `code: "unavailable"` (no key, Supabase Auth failed, or the address's account couldn't be made safe) |
+| `POST /invites/view` `{token}` · `POST /invites/account-link` `{token}` | public (the emailed token is the credential), private, no-store. View: `InviteView` (`account` `new` / `existing` / `unconfirmed`), read-only; 400; 404; 410 `code` `expired` / `revoked` / `used`. Account link: deletes unconfirmed accounts someone registered with the address (keeping a fresh invite account from an earlier press), then `{tokenHash}`; 400; 404; 410; 409 `code: "has_account"`; 429 (10 per link, 20 an hour per client, counting only tokens that match an invite); 503 `code: "unavailable"` (no key, Supabase Auth failed, or the address's account couldn't be made safe) |
 | `GET /invites/me` · `POST /invites/accept` `{inviteId}` | verified email. Me: the pending invite for the caller's address (`MyInvite`); 404 none. Accept: 200 `{kind, organiserId?}` (idempotent); 404 unknown or another address's; 409 the account already has an organiser; 410 `code` |
 | `GET /admin/events/{id}` · `POST /admin/events` · `PATCH /admin/events/{id}` | admin (see "Admin authoring"). `AdminEventRecord`. POST: the event body plus `organiserId`, `publish?`; 201; 400 fieldErrors (`organiserId` unknown; `ticketTypes` paid for a platform-managed organiser); 409 organiser not approved. PATCH: the event body with `ticketingMode` required, `expectedUpdatedAt`, `publish?`, `reason?` (≤500); 200 (unchanged if nothing changes); 400 fieldErrors (incl. `reason` to change an approved event's mode or link); 404; 409 stale version (`fieldErrors.expectedUpdatedAt`), orders on a switch to external, sold ticket types, or organiser not approved when publishing |
 | `PUT /admin/events/{id}/image` · `DELETE /admin/events/{id}/image` | admin, any status. As the organiser's (413, 400), logged `edited`; 404 |
@@ -2572,8 +2589,13 @@ is `cache-control: private, no-store`, and so is every admin response
 - Account invites: `lib/server/handlers/invites.ts`; `lib/server/auth-admin.ts`
   (the only reader of `SUPABASE_ADMIN_INVITE_KEY`), wired as `Deps.authAdmin`;
   `lib/server/invite-email.ts`; `lib/api/invites.ts` and the invite functions
-  in `lib/api/admin.ts`; tests `tests/server/invites.test.ts`,
-  `tests/server/auth-admin.test.ts`, `tests/server/invite-email.test.ts`.
+  in `lib/api/admin.ts`; the pages `app/admin/invites/page.tsx` →
+  `components/admin/InvitesAdmin.tsx` (`InviteForm.tsx`, `InviteQueue.tsx`)
+  and `app/invite/page.tsx` → `components/invites/*` (`InviteFlow.tsx`,
+  `InviteCreateAccount.tsx`, `InviteJoin.tsx`, `invite-problems.ts`); tests
+  `tests/server/invites.test.ts`, `tests/server/auth-admin.test.ts`,
+  `tests/server/invite-email.test.ts`, `tests/InviteFlow.test.tsx`,
+  `tests/InvitesAdmin.test.tsx`, `e2e/invite.spec.ts`.
 - `lib/auth/AuthContext.tsx`: Supabase Auth in the browser.
 - Sign in with Google and Apple (see that section): `lib/supabase/browser.ts`
   (`flowType: "pkce"`, `detectSessionInUrl: false`); `lib/auth/oauth.ts`
@@ -2947,8 +2969,7 @@ sign-up and password reset on the real project after deploying.
 - Account invites, later: inviting someone to take over a platform-managed
   organiser (the owner decided against it for the first version: it's a
   one-way ownership transfer, moving door check-in to the new owner), and
-  any reminder emails (deliberately none: Spam Act). The `/invite` and
-  `/admin/invites` pages are separate frontend work (see "Account invites").
+  any reminder emails (deliberately none: Spam Act).
 - Organiser logos, later: the logo as the organiser page's `og:image`, logos
   on event cards and the Following list, and logos for platform-managed
   organisers (an admin upload; today only the organiser's own account can

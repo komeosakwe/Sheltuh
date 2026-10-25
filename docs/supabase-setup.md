@@ -730,9 +730,11 @@ code), or resets the password if their address already has an unconfirmed
 account, and accepts it from the same page.
 
 Before minting the sign-up token, the server **deletes any unconfirmed
-account** with the invited address (one that was never confirmed and has
-never signed in), so the invitee always gets a new account without a
-password someone else may know. A confirmed account is never deleted.
+account** someone registered with the invited address (one that was never
+confirmed and has never signed in), so the invitee always gets an account
+without a password someone else may know. The passwordless account an
+earlier "Create account" made (in another tab, say) is kept and reused, not
+deleted. A confirmed account is never deleted.
 
 Smoke-test on the **test** project before relying on it (these Supabase
 behaviours aren't covered by the automated tests):
@@ -751,7 +753,21 @@ behaviours aren't covered by the automated tests):
    confirm it; invite that address and press Create account: the
    unconfirmed account is replaced (a new user id in Authentication →
    Users), and the old password doesn't sign in afterwards.
-6. Note whether Supabase answers "already exists" for a confirmed address,
+6. Without the key (a Preview deployment, which doesn't have
+   `SUPABASE_ADMIN_INVITE_KEY`, or a local run without it): sign up through
+   the ordinary form with a fresh address and don't confirm it; invite that
+   address. The invite page sends you to reset the password: reset it with
+   the code Supabase emails, sign in with the new password, and accept. The
+   account should show as confirmed in Authentication → Users, and the first
+   password shouldn't sign in. If no code arrives, or the account stays
+   unconfirmed, the fallback doesn't work (`docs/architecture.md`,
+   "Unverified Supabase behaviour").
+7. Invite a fresh address and open the link in two tabs; press Create
+   account in both. Authentication → Users shows one account for the
+   address (the same user id both times, none deleted); finish in the tab
+   pressed last. If the other tab's code is refused, pressing Create account
+   there again works.
+8. Note whether Supabase answers "already exists" for a confirmed address,
    reuses an unconfirmed one, and whether the account shows as confirmed
    after the token is verified (`docs/architecture.md`, "Accepted risks
    (account invites)"). Delete any unconfirmed accounts an abandoned test

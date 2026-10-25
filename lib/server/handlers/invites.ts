@@ -27,8 +27,9 @@ import { parseApplication } from "./organisers";
  * supabase/migrations/20261108000000_account_invites.sql). An admin invites
  * someone who asked to join, as an organiser (approved once they accept) or
  * a member; we email them `/invite#token=…` ourselves. On that page,
- * "Create account" replaces any unconfirmed account for the address and asks
- * Supabase Auth for a sign-up token just in time (lib/server/auth-admin.ts),
+ * "Create account" replaces any unconfirmed account someone registered with
+ * the address (keeping one an earlier press made) and asks Supabase Auth for
+ * a sign-up token just in time (lib/server/auth-admin.ts),
  * and the signed-in invitee with a verified email equal to the invite's
  * accepts it, while its inviter is still an admin. Only the token's SHA-256
  * is stored; the address and the token are never logged.
@@ -253,7 +254,9 @@ export const adminCreateInvite: Handler = async (req, _params, deps) => {
   }
   const inviteId = row.invite_id as string;
   const emailSent = await sendInviteEmail(deps, inviteId, token, tokenHash);
-  const result: AdminInviteSendResult = { invite: (await readAdminInvite(deps.db, inviteId))!, emailSent };
+  const invite = await readAdminInvite(deps.db, inviteId);
+  if (!invite) throw new HttpError(404, INVITE_NOT_FOUND); // deleted meanwhile
+  const result: AdminInviteSendResult = { invite, emailSent };
   return createdPrivate(result);
 };
 
@@ -304,7 +307,9 @@ export const adminResendInvite: Handler<{ inviteId: string }> = async (req, { in
       throw new Error(`Unexpected resend_account_invite result: ${row.result}`);
   }
   const emailSent = await sendInviteEmail(deps, inviteId, token, tokenHash);
-  const result: AdminInviteSendResult = { invite: (await readAdminInvite(deps.db, inviteId))!, emailSent };
+  const invite = await readAdminInvite(deps.db, inviteId);
+  if (!invite) throw new HttpError(404, INVITE_NOT_FOUND); // deleted meanwhile
+  const result: AdminInviteSendResult = { invite, emailSent };
   return okPrivate(result);
 };
 
@@ -419,13 +424,27 @@ const hasAccount = () => new HttpError(409, HAS_ACCOUNT, undefined, { code: "has
 const setupUnavailable = () => new HttpError(503, ACCOUNT_SETUP_UNAVAILABLE, undefined, { code: "unavailable" });
 
 /**
- * Deletes every unconfirmed account with the invite's address before a
- * sign-up token is minted. Supabase Auth would otherwise mint for that
- * account as it is, and verifying the token would confirm it with whatever
- * password it already has: someone who registered the invitee's address
- * first could then sign in to it. An account that was never confirmed and
- * has never signed in can't have been used, so nothing is lost. Each one is
- * re-checked right before its deletion; a confirmed one is never deleted
+ * SQL on `u` (auth.users): the account is what Supabase Auth's generate_link
+ * (type invite) makes for an address, as an earlier "Create account" left
+ * it. Never confirmed, never signed in, no password (Supabase stores none as
+ * null or ''), invited (invited_at), and no sign-in identity but email (no
+ * Google or Apple). Nobody can sign in to it without a token from here.
+ */
+const FRESH_INVITE_ACCOUNT = `u.email_confirmed_at is null and u.last_sign_in_at is null
+  and coalesce(u.encrypted_password, '') = '' and u.invited_at is not null
+  and not exists (select 1 from auth.identities ui where ui.user_id = u.id and ui.provider <> 'email')`;
+
+/**
+ * Deletes the unconfirmed accounts someone registered with the invite's
+ * address before a sign-up token is minted. Supabase Auth would otherwise
+ * mint for that account as it is, and verifying the token would confirm it
+ * with whatever password it already has: someone who registered the
+ * invitee's address first could then sign in to it. An account that was
+ * never confirmed and has never signed in can't have been used, so nothing
+ * is lost. A fresh invite account (FRESH_INVITE_ACCOUNT: an earlier press,
+ * perhaps one still in progress in another tab) is kept, and Supabase mints
+ * for it again, so two presses never delete each other's account. Each one
+ * is re-checked right before its deletion; a confirmed one is never deleted
  * (409 has_account), and one that has signed in without being confirmed is
  * left alone (503). Throws AuthAdminError when a deletion fails.
  */
@@ -434,8 +453,9 @@ async function deleteUnconfirmedAccounts(db: Db, authAdmin: AuthAdmin, email: st
     email,
   ]);
   for (const { id } of accounts) {
-    const [state] = await db.query<{ confirmed: boolean; signed_in: boolean }>(
-      `select u.email_confirmed_at is not null as confirmed, u.last_sign_in_at is not null as signed_in
+    const [state] = await db.query<{ confirmed: boolean; signed_in: boolean; fresh: boolean }>(
+      `select u.email_confirmed_at is not null as confirmed, u.last_sign_in_at is not null as signed_in,
+              ${FRESH_INVITE_ACCOUNT} as fresh
          from auth.users u where u.id = $1`,
       [id],
     );
@@ -445,33 +465,33 @@ async function deleteUnconfirmedAccounts(db: Db, authAdmin: AuthAdmin, email: st
       console.error("Invite sign-up link withheld: the invited address has an unconfirmed account that has signed in.");
       throw setupUnavailable();
     }
+    if (state.fresh) continue; // an earlier press's: Supabase reuses it
     await authAdmin.deleteUser(id);
   }
 }
 
 /**
  * Whether `userId`, the account a sign-up token was just minted for, is the
- * address's only account, still unconfirmed, without a password and never
- * signed in: what Supabase creates for an invite. Anything else means the
- * address was registered again between the deletion and the minting (Supabase
- * then reuses that account, password and all), so the token is withheld.
+ * address's only account and a fresh invite account (FRESH_INVITE_ACCOUNT).
+ * Anything else means the address was registered (or signed in to with
+ * Google or Apple) between the deletion and the minting, and Supabase then
+ * reuses that account, password and all, so the token is withheld.
  */
 async function isFreshInviteAccount(db: Db, email: string, userId: string): Promise<boolean> {
-  const accounts = await db.query<{ id: string; untouched: boolean }>(
-    `select u.id,
-            u.email_confirmed_at is null and u.last_sign_in_at is null
-              and coalesce(u.encrypted_password, '') = '' as untouched
-       from auth.users u where lower(u.email) = lower($1)`,
+  const accounts = await db.query<{ id: string; fresh: boolean }>(
+    `select u.id, ${FRESH_INVITE_ACCOUNT} as fresh from auth.users u where lower(u.email) = lower($1)`,
     [email],
   );
-  return accounts.length === 1 && accounts[0].id === userId && accounts[0].untouched;
+  return accounts.length === 1 && accounts[0].id === userId && accounts[0].fresh;
 }
 
 /**
  * POST /api/invites/account-link {token} — public (the emailed token is the
- * credential). "Create account": deletes any unconfirmed account with the
- * invite's address, then asks Supabase Auth for a sign-up token for it (a
- * new, passwordless account; no email is sent) and returns its hash, which
+ * credential). "Create account": deletes any unconfirmed account someone
+ * registered with the invite's address (keeping a fresh invite account from
+ * an earlier press), then asks Supabase Auth for a sign-up token for it (a
+ * passwordless account, new or that earlier one; no email is sent; a newer
+ * token replaces an earlier one) and returns its hash, which
  * the browser verifies (`verifyOtp`, type `invite`) before setting a
  * password. 200 {tokenHash} (private, no-store); 400; 404; 410 (`code`;
  * revoked also when the inviter is no longer an admin); 409 `code:

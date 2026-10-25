@@ -340,6 +340,23 @@ describe("resending and revoking", () => {
     expect(row).toMatchObject({ links_issued: 0, last_sent_by: admin.userId, token_hash: sha256(newToken) });
   });
 
+  it("an invite deleted while its email was going out: create and resend answer 404, not a broken record", async () => {
+    const deleteInvites = async () => {
+      await api.db.query(`delete from private.account_invites`);
+    };
+    api.sendEmail.mockImplementationOnce(deleteInvites);
+    const created = await create(memberBody());
+    expect(created.status).toBe(404);
+    expect(api.sendEmail).toHaveBeenCalledTimes(1);
+
+    const { inviteId } = await createOrganiserInvite();
+    await sendable();
+    api.sendEmail.mockImplementationOnce(deleteInvites);
+    const resent = await resend(inviteId);
+    expect(resent.status).toBe(404);
+    expect(await inviteRows()).toEqual([]);
+  });
+
   it("revives an expired invite; refuses an accepted or revoked one (409), an unknown one (404), and is 503 without the key", async () => {
     const { inviteId, token } = await createOrganiserInvite();
     await api.db.query(`update private.account_invites set expires_at = now() - interval '1 second'`);
@@ -555,11 +572,99 @@ describe("account-link and an account someone registered first with the invited 
     expect(accounts[0].id).not.toBe(squatter);
     expect(accounts[0]).toMatchObject({ email_confirmed_at: null, encrypted_password: null });
 
-    // Pressed again: the passwordless account from the first press is replaced too.
+    // Pressed again (another tab, say): the first press's fresh invite account is kept and minted for again.
     const first = accounts[0].id;
+    const again = await accountLink(token);
+    expect(again.status).toBe(200);
+    expect(again.body.tokenHash).not.toBe(res.body.tokenHash);
+    expect(api.authAdmin!.deleted).toEqual([squatter]);
+    expect(await accountsFor()).toEqual([expect.objectContaining({ id: first })]);
+  });
+
+  /** Records the account each generateInviteLink call minted for. */
+  function recordMinted(): string[] {
+    const minted: string[] = [];
+    const fake = api.authAdmin!;
+    const real = fake.generateInviteLink.bind(fake);
+    vi.spyOn(fake, "generateInviteLink").mockImplementation(async (email) => {
+      const link = await real(email);
+      if (link !== "exists") minted.push(link.userId);
+      return link;
+    });
+    return minted;
+  }
+
+  it("two presses at once (two tabs or devices) never delete each other's account: both 200, for the same account", async () => {
+    const { token } = await createOrganiserInvite();
+    const minted = recordMinted();
+    // No account yet...
+    const [a, b] = await Promise.all([accountLink(token), accountLink(token)]);
+    expect([a.status, b.status]).toEqual([200, 200]);
+    const accounts = await accountsFor();
+    expect(accounts).toHaveLength(1);
+    expect(minted).toEqual([accounts[0].id, accounts[0].id]);
+    // ...and with the account an earlier press made.
+    const [c, d] = await Promise.all([accountLink(token), accountLink(token)]);
+    expect([c.status, d.status]).toEqual([200, 200]);
+    expect(minted).toEqual(Array(4).fill(accounts[0].id));
+    expect(api.authAdmin!.deleted).toEqual([]);
+    expect(await accountsFor()).toEqual([expect.objectContaining({ id: accounts[0].id })]);
+  });
+
+  it("an earlier press's account verified meanwhile is never deleted: 409 has_account", async () => {
+    const { token } = await createOrganiserInvite();
     expect((await accountLink(token)).status).toBe(200);
-    expect(api.authAdmin!.deleted).toEqual([squatter, first]);
-    expect(await accountsFor()).toHaveLength(1);
+    const [first] = await accountsFor();
+    // The other tab verifies its token after this press's re-check.
+    api.authAdmin!.beforeGenerate = async () => {
+      api.authAdmin!.beforeGenerate = undefined;
+      await api.db.query(`update auth.users set email_confirmed_at = now(), last_sign_in_at = now() where id = $1`, [
+        first.id,
+      ]);
+    };
+    const res = await accountLink(token);
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("has_account");
+    expect(api.authAdmin!.deleted).toEqual([]);
+    expect(await accountsFor()).toEqual([expect.objectContaining({ id: first.id })]);
+  });
+
+  it("an unconfirmed account with a Google or Apple identity isn't a fresh invite account: replaced first, or the token withheld", async () => {
+    const { token } = await createOrganiserInvite();
+    // Invited and passwordless, but with another sign-in identity: deleted before minting.
+    const linked = crypto.randomUUID();
+    await api.db.query(
+      `insert into auth.users (id, email, raw_app_meta_data, invited_at) values ($1, 'invitee@example.com', '{}', now())`,
+      [linked],
+    );
+    await api.db.query(`insert into auth.identities (user_id, provider) values ($1, 'email'), ($1, 'google')`, [linked]);
+    const res = await accountLink(token);
+    expect(res.status).toBe(200);
+    expect(api.authAdmin!.deleted).toEqual([linked]);
+    const [fresh] = await accountsFor();
+    expect(fresh.id).not.toBe(linked);
+
+    // An identity added between the re-check and the minting: Supabase reuses the account, and the token is withheld.
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    api.authAdmin!.beforeGenerate = async () => {
+      api.authAdmin!.beforeGenerate = undefined;
+      await api.db.query(`insert into auth.identities (user_id, provider) values ($1, 'apple')`, [fresh.id]);
+    };
+    const withheld = await accountLink(token);
+    expect(withheld.status).toBe(503);
+    expect(withheld.body.code).toBe("unavailable");
+    expect(withheld.body).not.toHaveProperty("tokenHash");
+    expect(api.authAdmin!.deleted).toEqual([linked]);
+    expect(JSON.stringify(errors.mock.calls)).not.toMatch(/invitee@example\.com/i);
+  });
+
+  it("an unconfirmed passwordless account that wasn't invited (e.g. an email-code sign-up) is replaced", async () => {
+    const { token } = await createOrganiserInvite();
+    const otp = crypto.randomUUID();
+    await api.db.query(`insert into auth.users (id, email, raw_app_meta_data) values ($1, 'invitee@example.com', '{}')`, [otp]);
+    expect((await accountLink(token)).status).toBe(200);
+    expect(api.authAdmin!.deleted).toEqual([otp]);
+    expect(await accountsFor()).toEqual([expect.not.objectContaining({ id: otp })]);
   });
 
   it("never deletes a confirmed account: 409 has_account, nothing minted", async () => {

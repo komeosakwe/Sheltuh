@@ -59,7 +59,8 @@ export interface AuthAdmin {
    * passes to `verifyOtp({token_hash, type: "invite"})`, and the account it's
    * for. Supabase Auth creates the (unconfirmed, passwordless) account if
    * there's none, or reuses an unconfirmed one as it is (password included:
-   * the caller deletes those first, lib/server/handlers/invites.ts). "exists":
+   * the caller deletes those first, keeping only a fresh invite account,
+   * lib/server/handlers/invites.ts). "exists":
    * the address already has a confirmed account (the person signs in
    * instead). Throws AuthAdminError otherwise.
    */

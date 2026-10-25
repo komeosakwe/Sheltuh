@@ -55,13 +55,16 @@ describe("createClipStorage", () => {
           ? json({ signedURL: "/object/sign/event-clips/a.mp4?token=t" })
           : url.includes("/object/upload/sign/")
             ? json({ url: "/object/upload/sign/event-clips/a.mp4?token=t" })
-            : json([]), // remove
+            : json([]), // remove, download, upload
     );
     await storage.createUploadUrl("a.mp4");
     await storage.info("a.mp4");
     await storage.createSignedUrl("a.mp4", 60);
     await storage.remove(["a.mp4"]);
-    expect(fetch.mock.calls.length).toBeGreaterThanOrEqual(4);
+    await storage.download("a.mp4", 1024);
+    await storage.upload("a.mp4", new Uint8Array([1]), "video/mp4");
+    expect(fetch.mock.calls.length).toBeGreaterThanOrEqual(6);
+    expect(fetch.mock.calls.map(([, init]) => init?.method)).toEqual(["POST", "GET", "POST", "DELETE", "GET", "POST"]);
     for (const [, init] of fetch.mock.calls) expect(init?.redirect).toBe("error");
   });
 
