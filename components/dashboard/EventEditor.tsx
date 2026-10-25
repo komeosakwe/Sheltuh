@@ -35,7 +35,7 @@ import type { AdminEventRecord, EventRecord, TicketTypeInput } from "@/lib/api/t
 import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import { eventClipsEnabled } from "@/lib/clips-flag";
-import { calculateOrderSummary, MIN_PAID_TICKET_CENTS } from "@/lib/fees";
+import { calculateBookingFeeCents, calculateOrderSummary, describeBookingFee, MIN_PAID_TICKET_CENTS } from "@/lib/fees";
 import { formatAud, toMelbourneDateTimeInputParts } from "@/lib/format";
 import { checkExternalTicketUrl, type TicketingMode } from "@/lib/ticketing";
 import { EVENT_CATEGORIES } from "@/lib/types";
@@ -754,11 +754,13 @@ export default function EventEditor(props: Props) {
                     id={`ticket-${index}-fee-policy`}
                     value={ticket.feePolicy}
                     onChange={(e) => updateTicket(index, { feePolicy: e.target.value as TicketTypeInput["feePolicy"] })}
+                    aria-describedby={`ticket-${index}-fee-help`}
                     className={fieldClass}
                   >
                     <option value="buyer-pays">Buyer pays</option>
                     <option value="organiser-absorbs">Organiser absorbs</option>
                   </select>
+                  <FeePolicyHelp id={`ticket-${index}-fee-help`} priceCents={ticket.priceCents} isAdmin={isAdmin} />
                 </div>
                 <div className="flex flex-col gap-1">
                   <label htmlFor={`ticket-${index}-qty`} className="eyebrow text-muted">
@@ -901,5 +903,36 @@ export default function EventEditor(props: Props) {
         )}
       </div>
     </form>
+  );
+}
+
+/**
+ * What each booking-fee choice means for this ticket, in plain words, under
+ * "Who pays the booking fee?". Amounts come from lib/fees.ts.
+ */
+function FeePolicyHelp({ id, priceCents, isAdmin }: { id: string; priceCents: number; isAdmin: boolean }) {
+  const you = isAdmin ? "the organiser receives" : "you receive";
+  if (priceCents <= 0) {
+    return (
+      <p id={id} className="text-xs text-muted">
+        Free tickets have no booking fee, so this choice doesn&rsquo;t apply.
+      </p>
+    );
+  }
+  const fee = calculateBookingFeeCents(priceCents);
+  const price = formatAud(priceCents);
+  return (
+    <div id={id} className="flex flex-col gap-1 text-xs text-muted">
+      <p>Sheltüh&rsquo;s booking fee is {describeBookingFee()}: {formatAud(fee)} on this ticket.</p>
+      <p>
+        <span className="font-semibold text-foreground">Buyer pays:</span> the fee is added on top. The buyer pays{" "}
+        {formatAud(priceCents + fee)} and {you} the full {price}.
+      </p>
+      <p>
+        <span className="font-semibold text-foreground">Organiser absorbs:</span> the buyer pays just {price} and the fee
+        comes out of it, so {you} {formatAud(Math.max(priceCents - fee, 0))}. Handy for keeping a round price.
+      </p>
+      <p>Card processing costs are covered by Sheltüh either way.</p>
+    </div>
   );
 }

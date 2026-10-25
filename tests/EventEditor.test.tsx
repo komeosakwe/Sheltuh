@@ -322,3 +322,19 @@ describe("EventEditor — an account change mid-save (after the check, before th
     await expect(updateEventDraft.mock.calls[0][2]()).resolves.toBe("user-owner-token");
   });
 });
+
+describe("EventEditor — explains the booking-fee choice", () => {
+  it("says what the buyer pays and what the organiser receives for each choice, and is tied to the select", () => {
+    renderEditor({
+      ticketTypes: [{ id: "tt-1", name: "GA", priceCents: 3000, quantityAvailable: 10, feePolicy: "buyer-pays" }],
+    } as Partial<EventRecord>);
+    const select = screen.getByLabelText("Who pays the booking fee?");
+    const help = document.getElementById(select.getAttribute("aria-describedby") ?? "");
+    expect(help).not.toBeNull();
+    const text = help?.textContent ?? "";
+    // A$30 ticket: fee 4% + A$0.50 = A$1.70.
+    expect(text).toContain("A$1.70 on this ticket");
+    expect(text).toContain("The buyer pays A$31.70 and you receive the full A$30");
+    expect(text).toContain("the buyer pays just A$30 and the fee comes out of it, so you receive A$28.30");
+  });
+});
