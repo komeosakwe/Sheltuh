@@ -35,6 +35,12 @@ alter table auth.users add column if not exists email_confirmed_at timestamptz;
 -- (read by lib/server/email-outbox.ts's adminReviewRecipients).
 alter table auth.users add column if not exists banned_until timestamptz;
 alter table auth.users add column if not exists deleted_at timestamptz;
+-- Read by the invite page's "Create account" (lib/server/handlers/invites.ts):
+-- an unconfirmed account is deleted only if it has never signed in, and a
+-- freshly minted invite account must have no password. Supabase Auth stores
+-- "no password" as null or ''.
+alter table auth.users add column if not exists last_sign_in_at timestamptz;
+alter table auth.users add column if not exists encrypted_password text;
 
 -- Supabase Storage: just the bucket and object tables, with the columns the
 -- migrations and the API's SQL use (event clips: 20261106000000_event_clips.sql

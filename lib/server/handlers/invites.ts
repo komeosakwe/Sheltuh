@@ -9,7 +9,7 @@ import type {
   MyInvite,
 } from "@/lib/api/types";
 import { requireAdmin, requireVerifiedCaller } from "../auth";
-import { AuthAdminError } from "../auth-admin";
+import { AuthAdminError, type AuthAdmin } from "../auth-admin";
 import { clientIp, clientKey } from "../client-key";
 import type { Db } from "../db";
 import type { Deps } from "../deps";
@@ -27,10 +27,11 @@ import { parseApplication } from "./organisers";
  * supabase/migrations/20261108000000_account_invites.sql). An admin invites
  * someone who asked to join, as an organiser (approved once they accept) or
  * a member; we email them `/invite#token=…` ourselves. On that page,
- * "Create account" asks Supabase Auth for a sign-up token just in time
- * (lib/server/auth-admin.ts), and the signed-in invitee with a verified email
- * equal to the invite's accepts it. Only the token's SHA-256 is stored; the
- * address and the token are never logged.
+ * "Create account" replaces any unconfirmed account for the address and asks
+ * Supabase Auth for a sign-up token just in time (lib/server/auth-admin.ts),
+ * and the signed-in invitee with a verified email equal to the invite's
+ * accepts it, while its inviter is still an admin. Only the token's SHA-256
+ * is stored; the address and the token are never logged.
  */
 export const INVITE_LIMITS = {
   /** How long a link works. */
@@ -259,8 +260,9 @@ export const adminCreateInvite: Handler = async (req, _params, deps) => {
 /**
  * POST /api/admin/invites/[inviteId]/resend — admin. A new link (the old one
  * stops working), 14 days from now, emailed. A pending or expired invite.
- * 200 {invite, emailSent}; 404; 409 accepted or revoked (or the address has
- * another pending invite by now); 429 sent in the last minute, or allowance;
+ * 200 {invite, emailSent}; 404; 409 accepted or revoked, or its inviter is
+ * no longer an admin (it's marked revoked), or the address has another
+ * pending invite by now; 429 sent in the last minute, or allowance;
  * 503 when invites aren't configured.
  */
 export const adminResendInvite: Handler<{ inviteId: string }> = async (req, { inviteId }, deps) => {
@@ -288,7 +290,10 @@ export const adminResendInvite: Handler<{ inviteId: string }> = async (req, { in
     case "not_found":
       throw new HttpError(404, INVITE_NOT_FOUND);
     case "not_pending":
-      throw new HttpError(409, "This invite has been accepted or withdrawn, so it can't be resent.");
+      throw new HttpError(
+        409,
+        "This invite has been accepted or withdrawn (or whoever sent it is no longer an admin), so it can't be resent.",
+      );
     case "already_invited":
       throw new HttpError(409, "This address has another invite waiting. Resend that one instead.");
     case "too_soon":
@@ -332,7 +337,9 @@ export const adminRevokeInvite: Handler<{ inviteId: string }> = async (req, { in
  * POST /api/invites/view {token} — public (the emailed token is the
  * credential). Read-only, so opening the link (or a mail scanner doing so)
  * changes nothing. 200 InviteView; 400 malformed; 404 unknown; 410 expired,
- * revoked or used (`code`).
+ * revoked (also when its inviter is no longer an admin) or used (`code`).
+ * `account`: `existing` (a confirmed account), `unconfirmed` (only accounts
+ * never confirmed) or `new`.
  */
 export const viewInvite: Handler = async (req, _params, deps) => {
   const token = readToken(await readJson(req));
@@ -343,12 +350,17 @@ export const viewInvite: Handler = async (req, _params, deps) => {
     lapsed: boolean;
     expires_at: string | Date;
     organiser_name: string | null;
+    inviter_is_admin: boolean;
     has_account: boolean;
+    has_unconfirmed: boolean;
   }>(
     `select i.kind, i.email, i.status, i.expires_at <= now() as lapsed, i.expires_at,
             i.organiser_profile ->> 'display_name' as organiser_name,
+            private.account_invite_inviter_is_admin(i.invited_by) as inviter_is_admin,
             exists (select 1 from auth.users u
-                     where lower(u.email) = lower(i.email) and u.email_confirmed_at is not null) as has_account
+                     where lower(u.email) = lower(i.email) and u.email_confirmed_at is not null) as has_account,
+            exists (select 1 from auth.users u
+                     where lower(u.email) = lower(i.email) and u.email_confirmed_at is null) as has_unconfirmed
        from private.account_invites i where i.token_hash = $1`,
     [hashToken(token)],
   );
@@ -356,12 +368,14 @@ export const viewInvite: Handler = async (req, _params, deps) => {
   if (row.status === "accepted") gone("used");
   if (row.status === "revoked") gone("revoked");
   if (row.status === "expired" || row.lapsed) gone("expired");
+  // Read-only here: the link step, acceptance or a resend marks it revoked.
+  if (!row.inviter_is_admin) gone("revoked");
   const view: InviteView = {
     kind: row.kind,
     maskedEmail: maskEmail(row.email),
     ...(row.organiser_name ? { organiserName: row.organiser_name } : {}),
     expiresAt: new Date(row.expires_at).toISOString(),
-    account: row.has_account ? "existing" : "new",
+    account: row.has_account ? "existing" : row.has_unconfirmed ? "unconfirmed" : "new",
     passwordSetup: deps.authAdmin() !== undefined,
   };
   return okPrivate(view);
@@ -401,25 +415,89 @@ async function takeLinkRequest(req: Request, deps: Deps): Promise<boolean> {
 const HAS_ACCOUNT = "This email address already has a Sheltüh account. Sign in to accept the invite.";
 const TOO_MANY_LINKS = "That's been tried a lot. Wait a while, or ask the Sheltüh team to send a new invite.";
 
+const hasAccount = () => new HttpError(409, HAS_ACCOUNT, undefined, { code: "has_account" });
+const setupUnavailable = () => new HttpError(503, ACCOUNT_SETUP_UNAVAILABLE, undefined, { code: "unavailable" });
+
+/**
+ * Deletes every unconfirmed account with the invite's address before a
+ * sign-up token is minted. Supabase Auth would otherwise mint for that
+ * account as it is, and verifying the token would confirm it with whatever
+ * password it already has: someone who registered the invitee's address
+ * first could then sign in to it. An account that was never confirmed and
+ * has never signed in can't have been used, so nothing is lost. Each one is
+ * re-checked right before its deletion; a confirmed one is never deleted
+ * (409 has_account), and one that has signed in without being confirmed is
+ * left alone (503). Throws AuthAdminError when a deletion fails.
+ */
+async function deleteUnconfirmedAccounts(db: Db, authAdmin: AuthAdmin, email: string): Promise<void> {
+  const accounts = await db.query<{ id: string }>(`select u.id from auth.users u where lower(u.email) = lower($1)`, [
+    email,
+  ]);
+  for (const { id } of accounts) {
+    const [state] = await db.query<{ confirmed: boolean; signed_in: boolean }>(
+      `select u.email_confirmed_at is not null as confirmed, u.last_sign_in_at is not null as signed_in
+         from auth.users u where u.id = $1`,
+      [id],
+    );
+    if (!state) continue; // gone already
+    if (state.confirmed) throw hasAccount();
+    if (state.signed_in) {
+      console.error("Invite sign-up link withheld: the invited address has an unconfirmed account that has signed in.");
+      throw setupUnavailable();
+    }
+    await authAdmin.deleteUser(id);
+  }
+}
+
+/**
+ * Whether `userId`, the account a sign-up token was just minted for, is the
+ * address's only account, still unconfirmed, without a password and never
+ * signed in: what Supabase creates for an invite. Anything else means the
+ * address was registered again between the deletion and the minting (Supabase
+ * then reuses that account, password and all), so the token is withheld.
+ */
+async function isFreshInviteAccount(db: Db, email: string, userId: string): Promise<boolean> {
+  const accounts = await db.query<{ id: string; untouched: boolean }>(
+    `select u.id,
+            u.email_confirmed_at is null and u.last_sign_in_at is null
+              and coalesce(u.encrypted_password, '') = '' as untouched
+       from auth.users u where lower(u.email) = lower($1)`,
+    [email],
+  );
+  return accounts.length === 1 && accounts[0].id === userId && accounts[0].untouched;
+}
+
 /**
  * POST /api/invites/account-link {token} — public (the emailed token is the
- * credential). "Create account": asks Supabase Auth for a sign-up token for
- * the invite's address (no email is sent) and returns its hash, which the
- * browser verifies (`verifyOtp`, type `invite`) before setting a password.
- * 200 {tokenHash} (private, no-store); 400; 404; 410 (`code`); 409
- * `code: "has_account"` (sign in instead); 429 over 10 per link or 20 an hour
- * from this client; 503 when it isn't configured or Supabase Auth failed
- * (the page falls back to the ordinary sign-up).
+ * credential). "Create account": deletes any unconfirmed account with the
+ * invite's address, then asks Supabase Auth for a sign-up token for it (a
+ * new, passwordless account; no email is sent) and returns its hash, which
+ * the browser verifies (`verifyOtp`, type `invite`) before setting a
+ * password. 200 {tokenHash} (private, no-store); 400; 404; 410 (`code`;
+ * revoked also when the inviter is no longer an admin); 409 `code:
+ * "has_account"` (sign in instead); 429 over 10 per link or 20 an hour from
+ * this client (only requests whose token matches an invite count); 503 `code:
+ * "unavailable"` when it isn't configured, Supabase Auth failed, or the
+ * address's account couldn't be made safe to set up (the page falls back to
+ * the ordinary sign-up, or the password reset for an `unconfirmed` account).
  */
 export const getInviteAccountLink: Handler = async (req, _params, deps) => {
   const token = readToken(await readJson(req));
   const authAdmin = deps.authAdmin();
-  if (!authAdmin) throw new HttpError(503, ACCOUNT_SETUP_UNAVAILABLE, undefined, { code: "unavailable" });
+  if (!authAdmin) throw setupUnavailable();
+  const tokenHash = hashToken(token);
+
+  // Only a token that matches an invite takes this client's hit, so made-up
+  // tokens from a shared address can't use up the allowance of real invitees.
+  const [known] = await deps.db.query(`select 1 as known from private.account_invites i where i.token_hash = $1`, [
+    tokenHash,
+  ]);
+  if (!known) throw new HttpError(404, LINK_NOT_FOUND);
   if (!(await takeLinkRequest(req, deps))) throw new HttpError(429, TOO_MANY_LINKS);
 
   const [row] = await deps.db.query<{ result: string; email: string | null }>(
     `select * from private.issue_invite_account_link($1, $2)`,
-    [hashToken(token), INVITE_LIMITS.linksPerInvite],
+    [tokenHash, INVITE_LIMITS.linksPerInvite],
   );
   switch (row.result) {
     case "ok":
@@ -431,29 +509,37 @@ export const getInviteAccountLink: Handler = async (req, _params, deps) => {
     case "expired":
       return gone(row.result);
     case "has_account":
-      throw new HttpError(409, HAS_ACCOUNT, undefined, { code: "has_account" });
+      throw hasAccount();
     case "limit":
       throw new HttpError(429, TOO_MANY_LINKS);
     default:
       throw new Error(`Unexpected issue_invite_account_link result: ${row.result}`);
   }
+  const email = row.email as string;
 
-  let link: Awaited<ReturnType<typeof authAdmin.generateInviteLink>>;
+  let link: Awaited<ReturnType<AuthAdmin["generateInviteLink"]>>;
   try {
-    link = await authAdmin.generateInviteLink(row.email as string);
+    await deleteUnconfirmedAccounts(deps.db, authAdmin, email);
+    link = await authAdmin.generateInviteLink(email);
   } catch (err) {
+    if (err instanceof HttpError) throw err;
     // AuthAdminError's message holds no key, address or token.
     console.error("Invite sign-up link failed:", err instanceof AuthAdminError ? err.message : "unknown error");
-    throw new HttpError(503, ACCOUNT_SETUP_UNAVAILABLE, undefined, { code: "unavailable" });
+    throw setupUnavailable();
   }
-  if (link === "exists") throw new HttpError(409, HAS_ACCOUNT, undefined, { code: "has_account" });
+  if (link === "exists") throw hasAccount();
+  if (!(await isFreshInviteAccount(deps.db, email, link.userId))) {
+    console.error("Invite sign-up link withheld: the invited address's account changed while it was set up.");
+    throw setupUnavailable();
+  }
   const result: InviteAccountLink = { tokenHash: link.tokenHash };
   return okPrivate(result);
 };
 
 /**
  * GET /api/invites/me — a signed-in caller with a verified email. The invite
- * waiting for that address (ignoring case), if any. 200 MyInvite; 404 none.
+ * waiting for that address (ignoring case), if any, while its inviter is
+ * still an admin. 200 MyInvite; 404 none.
  */
 export const getMyInvite: Handler = async (req, _params, { db, verifyAccessToken }) => {
   const caller = await requireVerifiedCaller(req, verifyAccessToken);
@@ -465,7 +551,8 @@ export const getMyInvite: Handler = async (req, _params, { db, verifyAccessToken
   }>(
     `select i.id, i.kind, i.organiser_profile ->> 'display_name' as organiser_name, i.expires_at
        from private.account_invites i
-      where lower(i.email) = lower($1) and i.status = 'pending' and i.expires_at > now()`,
+      where lower(i.email) = lower($1) and i.status = 'pending' and i.expires_at > now()
+        and private.account_invite_inviter_is_admin(i.invited_by)`,
     [caller.email],
   );
   if (!row) throw new HttpError(404, "There's no invite waiting for this account's email address.");
@@ -483,7 +570,8 @@ export const getMyInvite: Handler = async (req, _params, { db, verifyAccessToken
  * email is the invite's (ignoring case). An organiser invite creates their
  * organiser, approved, in the same step. Idempotent for the same account.
  * 200 AcceptInviteResult; 404 unknown or not theirs; 409 the account already
- * has an organiser; 410 expired, revoked or used by another account (`code`).
+ * has an organiser; 410 expired, revoked (also when its inviter is no longer
+ * an admin: it's marked revoked) or used by another account (`code`).
  */
 export const acceptInvite: Handler = async (req, _params, { db, verifyAccessToken }) => {
   const caller = await requireVerifiedCaller(req, verifyAccessToken);

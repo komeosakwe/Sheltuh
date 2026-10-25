@@ -43,7 +43,10 @@ Stripe (payments) and Vercel (hosting).
 The sign-up and password-reset screens ask people to type a code from their
 email, rather than click a link. Supabase sends links by default, so:
 
-- **Sign In / Providers → Email:** keep "Confirm email" **on**.
+- **Sign In / Providers → Email:** keep "Confirm email" **on**. Account
+  invites depend on it: accepting one needs only a verified email, so with
+  confirmation off anyone could sign up with an invited address and accept
+  the invite.
 - **Emails → Templates → "Confirm signup":** put `{{ .Token }}` in the body,
   e.g. `Your Sheltüh verification code is {{ .Token }}`.
 - **Emails → Templates → "Reset password":** the same, with `{{ .Token }}`.
@@ -192,7 +195,10 @@ checked.
 `--revoke` removes admin access. This script is the only way anyone becomes
 an admin: no API route or form can grant it. When offboarding an admin, also
 remove their address from `ADMIN_NOTIFY_EMAILS` if it's there (it gets the
-"waiting for your review" emails whatever the account's role).
+"waiting for your review" emails whatever the account's role). Any invites
+they sent that are still pending stop working (the page says the invite was
+withdrawn) and can't be resent by another admin; send new ones if those
+people should still join. Deleting the account has the same effect.
 
 ### Optional: sample data for a dev project
 
@@ -720,7 +726,13 @@ app only uses it for that one call, through `lib/server/auth-admin.ts`; being
 a separate key means it can be revoked alone, nothing more. Revoke it at once
 if it may have leaked. Without it, creating and resending invites answer 503,
 and anyone holding an invite already sent signs up the ordinary way (with a
-code) and accepts it from the same page.
+code), or resets the password if their address already has an unconfirmed
+account, and accepts it from the same page.
+
+Before minting the sign-up token, the server **deletes any unconfirmed
+account** with the invited address (one that was never confirmed and has
+never signed in), so the invitee always gets a new account without a
+password someone else may know. A confirmed account is never deleted.
 
 Smoke-test on the **test** project before relying on it (these Supabase
 behaviours aren't covered by the automated tests):
@@ -735,7 +747,11 @@ behaviours aren't covered by the automated tests):
    in and can accept.
 4. An expired invite (or set `expires_at` in the past in SQL) and a revoked
    one: the page says so.
-5. Note whether Supabase answers "already exists" for a confirmed address,
+5. Sign up through the ordinary form with a fresh address and don't
+   confirm it; invite that address and press Create account: the
+   unconfirmed account is replaced (a new user id in Authentication →
+   Users), and the old password doesn't sign in afterwards.
+6. Note whether Supabase answers "already exists" for a confirmed address,
    reuses an unconfirmed one, and whether the account shows as confirmed
    after the token is verified (`docs/architecture.md`, "Accepted risks
    (account invites)"). Delete any unconfirmed accounts an abandoned test

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { clientKey } from "@/lib/server/client-key";
 import type { EmailMessage } from "@/lib/server/email";
@@ -81,6 +81,22 @@ const view = (token: string) => api.call(viewInvite, { body: { token } });
 const accountLink = (token: string, headers?: Record<string, string>) =>
   api.call(getInviteAccountLink, { body: { token }, headers });
 const accept = (inviteId: string, token: string) => api.call(acceptInvite, { token, body: { inviteId } });
+
+/**
+ * A db.query stand-in that runs `hook` once just before the first query
+ * matching `pattern`, then passes every query to the real `db`.
+ */
+function passThroughAfter(db: TestApi["db"], pattern: RegExp, hook: () => Promise<void>) {
+  const real = db.query.bind(db);
+  let fired = false;
+  return (async (text: string, params?: unknown[]) => {
+    if (!fired && pattern.test(text)) {
+      fired = true;
+      await hook();
+    }
+    return real(text, params);
+  }) as TestApi["db"]["query"];
+}
 
 describe("creating an invite (POST /api/admin/invites)", () => {
   it("saves an organiser invite, stores only the token's hash, and emails a fragment link", async () => {
@@ -436,11 +452,10 @@ describe("the invite page (view and account-link)", () => {
     expect(res.status).toBe(409);
     expect(res.body.code).toBe("has_account");
     expect(api.authAdmin!.calls).toEqual([]);
+    expect(api.authAdmin!.deleted).toEqual([]);
 
-    // An unconfirmed account doesn't count here; Supabase reuses it (or says it exists).
-    await api.db.query(`update auth.users set email_confirmed_at = null where id = $1`, [existing.userId]);
-    expect((await accountLink(token)).status).toBe(200);
     api.authAdmin!.existing.add("invitee@example.com");
+    await api.db.query(`delete from auth.users where id = $1`, [existing.userId]);
     const exists = await accountLink(token);
     expect(exists.status).toBe(409);
     expect(exists.body.code).toBe("has_account");
@@ -465,7 +480,7 @@ describe("the invite page (view and account-link)", () => {
     expect(off.status).toBe(503);
     expect(off.body.code).toBe("unavailable");
 
-    api.authAdmin = new FakeAuthAdmin();
+    api.authAdmin = new FakeAuthAdmin(api.db);
     await api.call(adminRevokeInvite, { token: admin.token, params: { inviteId }, method: "POST" });
     const revoked = await accountLink(token);
     expect(revoked.status).toBe(410);
@@ -488,6 +503,149 @@ describe("the invite page (view and account-link)", () => {
     );
     expect((await accountLink(second.token, { "x-forwarded-for": ip })).status).toBe(429);
     expect((await accountLink(second.token, { "x-forwarded-for": "203.0.113.10" })).status).toBe(200);
+  });
+
+  it("account-link: made-up tokens from a shared client don't use its allowance (only a token matching an invite counts)", async () => {
+    const { token } = await createOrganiserInvite();
+    const ip = "198.51.100.7";
+    const { bucket, hits } = INVITE_LIMITS.linkRequestsPerClient;
+    for (let i = 0; i <= hits; i += 1) {
+      const junk = await accountLink(randomBytes(32).toString("base64url"), { "x-forwarded-for": ip });
+      expect(junk.status).toBe(404);
+    }
+    expect(await api.db.query(`select * from private.client_rate_limits where bucket = $1`, [bucket])).toEqual([]);
+    expect((await accountLink(token, { "x-forwarded-for": ip })).status).toBe(200);
+    expect(await api.db.query(`select hits from private.client_rate_limits where bucket = $1`, [bucket])).toEqual([{ hits: 1 }]);
+
+    // A matched token counts even when the invite can't be used any more.
+    await api.call(adminRevokeInvite, { token: admin.token, params: { inviteId: (await inviteRows())[0].id as string }, method: "POST" });
+    expect((await accountLink(token, { "x-forwarded-for": ip })).status).toBe(410);
+    expect(await api.db.query(`select hits from private.client_rate_limits where bucket = $1`, [bucket])).toEqual([{ hits: 2 }]);
+  });
+});
+
+describe("account-link and an account someone registered first with the invited address", () => {
+  /** An unconfirmed account with a password, as Supabase's ordinary sign-up leaves it before confirmation. */
+  async function preRegister(email = "invitee@example.com") {
+    const id = crypto.randomUUID();
+    await api.db.query(
+      `insert into auth.users (id, email, raw_app_meta_data, encrypted_password) values ($1, $2, '{}', '$2a$10$someoneelse')`,
+      [id, email],
+    );
+    return id;
+  }
+
+  async function accountsFor(email = "invitee@example.com") {
+    return api.db.query<{ id: string; email_confirmed_at: string | null; encrypted_password: string | null }>(
+      `select id, email_confirmed_at, encrypted_password from auth.users where lower(email) = lower($1)`,
+      [email],
+    );
+  }
+
+  it("deletes the unconfirmed account, then mints for a new passwordless one", async () => {
+    const { token } = await createOrganiserInvite();
+    const squatter = await preRegister();
+    const res = await accountLink(token);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ tokenHash: expect.stringMatching(/^pkce_hash_/) });
+    expect(api.authAdmin!.deleted).toEqual([squatter]);
+    expect(api.authAdmin!.calls).toEqual([INVITEE]);
+    const accounts = await accountsFor();
+    expect(accounts).toHaveLength(1);
+    expect(accounts[0].id).not.toBe(squatter);
+    expect(accounts[0]).toMatchObject({ email_confirmed_at: null, encrypted_password: null });
+
+    // Pressed again: the passwordless account from the first press is replaced too.
+    const first = accounts[0].id;
+    expect((await accountLink(token)).status).toBe(200);
+    expect(api.authAdmin!.deleted).toEqual([squatter, first]);
+    expect(await accountsFor()).toHaveLength(1);
+  });
+
+  it("never deletes a confirmed account: 409 has_account, nothing minted", async () => {
+    const { token } = await createOrganiserInvite();
+    // The link step's own check refuses it first...
+    const owner = await api.signUp({ email: "invitee@example.com" });
+    expect((await accountLink(token)).body.code).toBe("has_account");
+    // ...and an account confirmed between that check and the deletion is caught by the re-check.
+    const squatter = await preRegister("INVITEE@example.com");
+    await api.db.query(`delete from auth.users where id = $1`, [owner.userId]);
+    const confirmJustBefore = passThroughAfter(api.db, /from auth\.users u where u\.id = \$1/, async () => {
+      await api.db.query(`update auth.users set email_confirmed_at = now() where id = $1`, [squatter]);
+    });
+    vi.spyOn(api.db, "query").mockImplementation(confirmJustBefore);
+    const res = await accountLink(token);
+    vi.restoreAllMocks();
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("has_account");
+    expect(api.authAdmin!.deleted).toEqual([]);
+    expect(api.authAdmin!.calls).toEqual([]);
+    expect(await accountsFor()).toEqual([expect.objectContaining({ id: squatter })]);
+  });
+
+  it("leaves an unconfirmed account that has signed in alone: 503, nothing deleted or minted", async () => {
+    const { token } = await createOrganiserInvite();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const squatter = await preRegister();
+    await api.db.query(`update auth.users set last_sign_in_at = now() where id = $1`, [squatter]);
+    const res = await accountLink(token);
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe("unavailable");
+    expect(api.authAdmin!.deleted).toEqual([]);
+    expect(api.authAdmin!.calls).toEqual([]);
+    expect(JSON.stringify(errors.mock.calls)).not.toMatch(/invitee@example\.com/i);
+  });
+
+  it("a failed deletion mints nothing: 503 unavailable, logged without the address or token", async () => {
+    const { token } = await createOrganiserInvite();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const squatter = await preRegister();
+    api.authAdmin!.failingDelete = true;
+    const res = await accountLink(token);
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe("unavailable");
+    expect(api.authAdmin!.calls).toEqual([]);
+    expect(await accountsFor()).toEqual([expect.objectContaining({ id: squatter })]);
+    const logged = JSON.stringify(errors.mock.calls);
+    expect(logged).toContain("delete_user");
+    expect(logged).not.toMatch(/invitee@example\.com/i);
+    expect(logged).not.toContain(token);
+    expect(logged).not.toContain(squatter);
+  });
+
+  it("withholds the token when the address is registered again between the deletion and the minting (503)", async () => {
+    const { token } = await createOrganiserInvite();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await preRegister();
+    let again = "";
+    api.authAdmin!.beforeGenerate = async () => {
+      api.authAdmin!.beforeGenerate = undefined;
+      again = await preRegister();
+    };
+    const res = await accountLink(token);
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe("unavailable");
+    expect(res.body).not.toHaveProperty("tokenHash");
+    // Supabase reused the new registration (password and all): the token never left the server.
+    expect(await accountsFor()).toEqual([expect.objectContaining({ id: again })]);
+    expect(JSON.stringify(errors.mock.calls)).not.toMatch(/invitee@example\.com/i);
+
+    // The next press replaces it.
+    expect((await accountLink(token)).status).toBe(200);
+    expect((await accountsFor())[0].id).not.toBe(again);
+  });
+
+  it("view says `unconfirmed` when the address has only an unconfirmed account (the password-reset fallback)", async () => {
+    const { token } = await createOrganiserInvite();
+    const squatter = await preRegister();
+    expect((await view(token)).body).toMatchObject({ account: "unconfirmed", passwordSetup: true });
+    api.authAdmin = undefined;
+    expect((await view(token)).body).toMatchObject({ account: "unconfirmed", passwordSetup: false });
+    // Read-only: nothing deleted.
+    expect(await accountsFor()).toEqual([expect.objectContaining({ id: squatter })]);
+    // A confirmed account as well: `existing`.
+    await api.signUp({ email: "Invitee@example.com" });
+    expect((await view(token)).body.account).toBe("existing");
   });
 });
 
@@ -612,6 +770,44 @@ describe("accepting (GET /api/invites/me, POST /api/invites/accept)", () => {
     const used = await accept(third.body.invite.inviteId, secondAccount.token);
     expect(used.status).toBe(410);
     expect(used.body.code).toBe("used");
+  });
+
+  it("an invite whose inviter is no longer an admin (demoted or deleted) is revoked: view, me, link, accept, resend", async () => {
+    const { inviteId, token } = await createOrganiserInvite();
+    const member = await createOrganiserInvite({ email: "member@example.com" });
+    const invitee = await api.signUp({ email: "invitee@example.com" });
+    await api.db.query(`update auth.users set raw_app_meta_data = '{}' where id = $1`, [admin.userId]);
+
+    // Read-only views: 410 revoked / nothing waiting, and nothing written.
+    const viewed = await view(token);
+    expect(viewed.status).toBe(410);
+    expect(viewed.body.code).toBe("revoked");
+    expect((await api.call(getMyInvite, { token: invitee.token })).status).toBe(404);
+    expect((await inviteRows()).map((r) => r.status)).toEqual(["pending", "pending"]);
+
+    const res = await accept(inviteId, invitee.token);
+    expect(res.status).toBe(410);
+    expect(res.body.code).toBe("revoked");
+    expect(await api.db.query(`select id from public.organisers`)).toEqual([]);
+    expect((await inviteRows())[0]).toMatchObject({ status: "revoked", revoked_by: null });
+    expect((await inviteRows())[0].revoked_at).not.toBeNull();
+
+    // The link step marks it too, and asks Supabase nothing.
+    const link = await accountLink(member.token);
+    expect(link.status).toBe(410);
+    expect(link.body.code).toBe("revoked");
+    expect(api.authAdmin!.calls).toEqual([]);
+    expect((await inviteRows())[1].status).toBe("revoked");
+
+    // Another admin can't revive one by resending it.
+    const other = await signUpAdmin(api);
+    const third = await createOrganiserInvite({ email: "third@example.com" });
+    await api.db.query(`update private.account_invites set last_sent_at = now() - interval '2 minutes'`);
+    await api.db.query(`delete from auth.users where id = $1`, [admin.userId]); // deleted: invited_by becomes null
+    const resent = await api.call(adminResendInvite, { token: other.token, params: { inviteId: third.inviteId }, method: "POST" });
+    expect(resent.status).toBe(409);
+    expect((await inviteRows())[2]).toMatchObject({ status: "revoked", invited_by: null });
+    expect(api.sendEmail).toHaveBeenCalledTimes(3); // the three invites only
   });
 
   it("409 when the account already has an organiser (any status), with nothing written", async () => {

@@ -150,21 +150,50 @@ export class FakeClipStorage implements ClipStorage {
 }
 
 /**
- * A stand-in for Supabase Auth's admin API (lib/server/auth-admin.ts).
- * `generateInviteLink` answers a fresh token hash per call, "exists" for an
- * address in `existing` (lower-cased), and throws an AuthAdminError while
- * `failing` is set. `calls` records the addresses asked for.
+ * A stand-in for Supabase Auth's admin API (lib/server/auth-admin.ts), on the
+ * test database's auth.users, as Supabase Auth behaves (docs/architecture.md,
+ * "Account invites"): `generateInviteLink` answers "exists" for an address
+ * with a confirmed account (or one in `existing`, lower-cased), reuses an
+ * unconfirmed account as it is, or creates an unconfirmed one without a
+ * password, and answers a fresh token hash with that account's id;
+ * `deleteUser` deletes the account (resolving if it's already gone). Each
+ * throws an AuthAdminError while `failing` / `failingDelete` is set.
+ * `beforeGenerate` runs just before an invite link is made (e.g. someone
+ * registering the address at that moment). `calls` records the addresses
+ * asked for and `deleted` the accounts deleted.
  */
 export class FakeAuthAdmin implements AuthAdmin {
   readonly calls: string[] = [];
+  readonly deleted: string[] = [];
   readonly existing = new Set<string>();
   failing = false;
+  failingDelete = false;
+  beforeGenerate: ((email: string) => Promise<void>) | undefined;
+
+  constructor(private readonly db: Db) {}
 
   async generateInviteLink(email: string) {
     this.calls.push(email);
     if (this.failing) throw new AuthAdminError("generate_link", 500);
+    await this.beforeGenerate?.(email);
     if (this.existing.has(email.toLowerCase())) return "exists" as const;
-    return { tokenHash: `pkce_hash_${crypto.randomUUID().replace(/-/g, "")}` };
+    const accounts = await this.db.query<{ id: string; confirmed: boolean }>(
+      `select id, email_confirmed_at is not null as confirmed from auth.users where lower(email) = lower($1) order by id`,
+      [email],
+    );
+    if (accounts.some((a) => a.confirmed)) return "exists" as const;
+    let userId = accounts[0]?.id;
+    if (!userId) {
+      userId = crypto.randomUUID();
+      await this.db.query(`insert into auth.users (id, email, raw_app_meta_data) values ($1, $2, '{}')`, [userId, email]);
+    }
+    return { tokenHash: `pkce_hash_${crypto.randomUUID().replace(/-/g, "")}`, userId };
+  }
+
+  async deleteUser(userId: string) {
+    this.deleted.push(userId);
+    if (this.failingDelete) throw new AuthAdminError("delete_user", 500);
+    await this.db.query(`delete from auth.users where id = $1`, [userId]);
   }
 }
 
@@ -181,12 +210,14 @@ export class TestApi {
   /** Event clips' Storage; undefined to simulate SUPABASE_CLIP_STORAGE_KEY being unset. */
   clipStorage: FakeClipStorage | undefined = new FakeClipStorage();
   /** Supabase Auth's admin API for invites; undefined to simulate SUPABASE_ADMIN_INVITE_KEY being unset. */
-  authAdmin: FakeAuthAdmin | undefined = new FakeAuthAdmin();
+  authAdmin: FakeAuthAdmin | undefined;
   /** ADMIN_NOTIFY_EMAILS as Deps reports it (parsed); empty to simulate it unset. */
   adminNotifyEmails: string[] = [];
   private readonly callers = new Map<string, Caller>();
 
-  constructor(readonly db: Db) {}
+  constructor(readonly db: Db) {
+    this.authAdmin = new FakeAuthAdmin(db);
+  }
 
   get deps(): Deps {
     return {

@@ -1671,12 +1671,22 @@ export interface InviteView {
   maskedEmail: string;
   organiserName?: string;
   expiresAt: string;
-  /** `existing`: the address already has a confirmed account, so the person signs in instead of creating one. */
-  account: "new" | "existing";
+  /**
+   * `existing`: the address already has a confirmed account, so the person
+   * signs in instead of creating one. `unconfirmed`: it has only an account
+   * that was never confirmed (perhaps registered by someone else). "Create
+   * account" still works when `passwordSetup` is true (the server replaces
+   * that account); otherwise, or when account-link answers 503, send them to
+   * the password reset (`/forgot-password`), never the ordinary sign-up:
+   * resetting confirms the address and replaces whatever password it had.
+   * `new`: no account yet.
+   */
+  account: "new" | "existing" | "unconfirmed";
   /**
    * Whether "Create account" with a password works here (the server can
    * issue the sign-up token). false: send them to the ordinary sign-up
-   * (`/signup?next=/invite`); acceptance works the same once they're verified.
+   * (`/signup?next=/invite`), or the password reset for `unconfirmed`;
+   * acceptance works the same once they're verified.
    */
   passwordSetup: boolean;
 }

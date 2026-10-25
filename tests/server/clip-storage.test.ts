@@ -47,6 +47,24 @@ describe("createClipStorage", () => {
     expect(headersOf(init!)["x-upsert"]).toBeUndefined();
   });
 
+  it("never follows a redirect (the key is in the headers): every call is redirect: error", async () => {
+    const { storage, fetch } = client((url) =>
+      url.includes("/object/info/")
+        ? json({ size: 1 })
+        : url.includes("/object/sign/")
+          ? json({ signedURL: "/object/sign/event-clips/a.mp4?token=t" })
+          : url.includes("/object/upload/sign/")
+            ? json({ url: "/object/upload/sign/event-clips/a.mp4?token=t" })
+            : json([]), // remove
+    );
+    await storage.createUploadUrl("a.mp4");
+    await storage.info("a.mp4");
+    await storage.createSignedUrl("a.mp4", 60);
+    await storage.remove(["a.mp4"]);
+    expect(fetch.mock.calls.length).toBeGreaterThanOrEqual(4);
+    for (const [, init] of fetch.mock.calls) expect(init?.redirect).toBe("error");
+  });
+
   it("refuses a signed URL that isn't relative to Storage, or has no token", async () => {
     for (const url of ["https://evil.example/x?token=a", "//evil.example/x?token=a", "/object/upload/sign/x", 42]) {
       const { storage } = client(() => json({ url }));

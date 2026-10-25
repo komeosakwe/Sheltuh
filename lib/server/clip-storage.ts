@@ -20,7 +20,8 @@
  *   createSignedUrl        POST   /object/sign/{bucket}/{path}  {expiresIn}          → {signedURL}
  *   remove                 DELETE /object/{bucket}  {prefixes: [...]}                → [...]
  * with `apikey` and `Authorization: Bearer` set to the key (supabase-js's
- * fetchWithAuth does the same for Storage).
+ * fetchWithAuth does the same for Storage). Redirects are refused
+ * (`redirect: "error"`), so the key never follows one to another origin.
  */
 
 /** The bucket (event_clips migration). */
@@ -139,9 +140,15 @@ export function createClipStorage(
 
   async function call(operation: string, url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
     try {
-      return await fetchImpl(url, { ...init, headers: { ...auth, ...init.headers }, signal: AbortSignal.timeout(timeoutMs) });
+      return await fetchImpl(url, {
+        ...init,
+        headers: { ...auth, ...init.headers },
+        // Never follow a redirect: the headers carry the key.
+        redirect: "error",
+        signal: AbortSignal.timeout(timeoutMs),
+      });
     } catch {
-      // The cause (a network or timeout error) is dropped: it can quote the URL.
+      // The cause (a network, redirect or timeout error) is dropped: it can quote the URL.
       throw new ClipStorageError(operation);
     }
   }

@@ -20,15 +20,19 @@
 --   * private.resend_account_invite: a new token (the old link stops
 --     working), 14 days from now, at most once a minute, under the same
 --     allowances.
+--   * private.account_invite_inviter_is_admin: whether an invite's inviter is
+--     still an admin (app_metadata role 'admin'). An invite whose inviter was
+--     demoted or deleted is dead: resend, the link step and acceptance mark it
+--     revoked (revoked_by null) and refuse it.
 --   * private.issue_invite_account_link: the invite page's "Create account"
---     step. Locks the invite, checks it's usable, refuses an address that
---     already has a confirmed account (`has_account`: sign in instead) and
+--     step. Locks the invite, checks it's usable (its inviter still an
+--     admin), refuses an address that already has a confirmed account (`has_account`: sign in instead) and
 --     more than p_cap link requests per invite; otherwise counts one and
 --     returns the address (the API then asks Supabase Auth for a sign-up
 --     token: lib/server/auth-admin.ts).
 --   * private.accept_account_invite: the signed-in invitee's acceptance, by
---     a verified email equal to the invite's (ignoring case). For an
---     organiser invite, creates their organiser, approved (reviewed by the
+--     a verified email equal to the invite's (ignoring case), while its
+--     inviter is still an admin. For an organiser invite, creates their organiser, approved (reviewed by the
 --     inviting admin), owned by their account, and logs `invite_accepted` on
 --     private.organiser_profile_edits, in the same step. Idempotent for the
 --     same account. An account that already has an organiser (any status) is
@@ -72,7 +76,7 @@
 --     while accounts number in the thousands (as the admin review emails).
 --
 -- Reversible, not destructive: restore private.purge_operational_data from
--- 20261103000000_seat_hold_client_limits.sql (drop + create); drop the four
+-- 20261103000000_seat_hold_client_limits.sql (drop + create); drop the five
 -- functions and table private.account_invites (discarding invites); delete
 -- the organiser log's `invite_accepted` entries and restore its kind check
 -- from 20261018000000_organiser_profile_moderation.sql. Organisers created by
@@ -135,6 +139,23 @@ revoke all on private.account_invites from public, anon, authenticated;
 alter table private.organiser_profile_edits
   drop constraint organiser_profile_edits_kind_check,
   add constraint organiser_profile_edits_kind_check check (kind in ('profile_edit', 'suspended', 'invite_accepted'));
+
+-- ---------------------------------------------------------------------------
+-- The inviter
+-- ---------------------------------------------------------------------------
+
+-- Whether p_invited_by is still an admin (scripts/promote-admin.ts sets and,
+-- with --revoke, removes app_metadata.role). False for null: the inviter's
+-- account was deleted (invited_by is `on delete set null`).
+create function private.account_invite_inviter_is_admin(p_invited_by uuid)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select exists (select 1 from auth.users u
+                  where u.id = p_invited_by and u.raw_app_meta_data ->> 'role' = 'admin');
+$$;
 
 -- ---------------------------------------------------------------------------
 -- Creating and resending
@@ -207,7 +228,8 @@ $$;
 -- pending invite by now: 'already_invited'). Not within p_cooldown of the
 -- last send ('too_soon'). Same allowances as create_account_invite, taken
 -- only when it's resent. Returns 'resent', 'not_found', 'not_pending'
--- (accepted or revoked), 'too_soon', 'already_invited' or 'rate_limited'.
+-- (accepted or revoked, or its inviter is no longer an admin: then it's
+-- marked revoked), 'too_soon', 'already_invited' or 'rate_limited'.
 create function private.resend_account_invite(
   p_admin_id uuid, p_invite_id uuid, p_token_hash text, p_ttl interval, p_cooldown interval,
   p_admin_limit integer, p_admin_window interval, p_daily_limit integer, p_daily_window interval,
@@ -225,6 +247,11 @@ begin
     return;
   end if;
   if v_invite.status not in ('pending', 'expired') then
+    result := 'not_pending';
+    return;
+  end if;
+  if not private.account_invite_inviter_is_admin(v_invite.invited_by) then
+    update private.account_invites i set status = 'revoked', revoked_at = now() where i.id = v_invite.id;
     result := 'not_pending';
     return;
   end if;
@@ -263,7 +290,8 @@ $$;
 
 -- The invite page's "Create account": by the emailed token's hash. Returns
 -- 'ok' with the invite's address (one sign-up token request counted),
--- 'not_found', 'used' (accepted), 'revoked', 'expired', 'has_account' (the
+-- 'not_found', 'used' (accepted), 'revoked' (also when its inviter is no
+-- longer an admin: then it's marked revoked), 'expired', 'has_account' (the
 -- address already has a confirmed account: sign in instead) or 'limit'
 -- (p_cap requests already made with this link).
 create function private.issue_invite_account_link(p_token_hash text, p_cap integer, out result text, out email text)
@@ -290,6 +318,11 @@ begin
     result := 'expired';
     return;
   end if;
+  if not private.account_invite_inviter_is_admin(v_invite.invited_by) then
+    update private.account_invites i set status = 'revoked', revoked_at = now() where i.id = v_invite.id;
+    result := 'revoked';
+    return;
+  end if;
   perform 1 from auth.users u where lower(u.email) = lower(v_invite.email) and u.email_confirmed_at is not null;
   if found then
     result := 'has_account';
@@ -311,7 +344,8 @@ $$;
 -- revealed). Returns:
 --   'accepted' / 'already_accepted' (by this account before): kind, and the
 --     organiser for an organiser invite;
---   'not_found', 'used' (accepted by another account), 'revoked', 'expired';
+--   'not_found', 'used' (accepted by another account), 'revoked' (also when
+--     its inviter is no longer an admin: then it's marked revoked), 'expired';
 --   'has_organiser': the account already has an organiser (nothing written).
 create function private.accept_account_invite(
   p_invite_id uuid, p_user_id uuid, p_email text,
@@ -346,6 +380,13 @@ begin
   end if;
   if v_invite.status = 'expired' or v_invite.expires_at <= now() then
     result := 'expired';
+    kind := null;
+    return;
+  end if;
+  -- The organiser is approved on the inviter's say-so: only while they're an admin.
+  if not private.account_invite_inviter_is_admin(v_invite.invited_by) then
+    update private.account_invites i set status = 'revoked', revoked_at = now() where i.id = v_invite.id;
+    result := 'revoked';
     kind := null;
     return;
   end if;
@@ -432,6 +473,7 @@ $$;
 -- Grants
 -- ---------------------------------------------------------------------------
 
+revoke all on function private.account_invite_inviter_is_admin(uuid) from public, anon, authenticated;
 revoke all on function private.create_account_invite(uuid, text, text, text, jsonb, interval, integer, interval, integer, interval)
   from public, anon, authenticated;
 revoke all on function private.resend_account_invite(uuid, uuid, text, interval, interval, integer, interval, integer, interval)
