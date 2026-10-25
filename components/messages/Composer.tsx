@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
+import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import { validateMessage } from "@/lib/message-text";
 import MessageField from "./MessageField";
 import SessionExpiredNotice from "./SessionExpiredNotice";
@@ -56,6 +57,8 @@ export default function Composer({
   // Applied once the render that shows the error (or clears the box) has committed.
   const pendingFocus = useRef<"input" | "problem" | null>(null);
   const waiting = mode === "waiting";
+  // Whose draft this is (captured while signed in), for the expired-session sign-in.
+  const { owner, otherAccount } = useAccountOwner();
 
   useEffect(() => {
     const target = pendingFocus.current;
@@ -82,6 +85,12 @@ export default function Composer({
       return;
     }
     setFieldError(null);
+    if (otherAccount) {
+      // Signed in as someone else by now (another tab): never send this as them.
+      setProblem({ kind: "session" });
+      pendingFocus.current = "problem";
+      return;
+    }
     setBusy(true);
     const outcome = await onSend(text.trim());
     setBusy(false);
@@ -132,6 +141,7 @@ export default function Composer({
       {problem?.kind === "session" && (
         <SessionExpiredNotice
           what="message"
+          owner={owner}
           noticeRef={problemRef}
           onSignedIn={() => {
             setProblem(null);

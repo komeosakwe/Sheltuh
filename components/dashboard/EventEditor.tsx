@@ -2,7 +2,7 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import InlineReauth from "@/components/auth/InlineReauth";
+import InlineReauth, { signedInAgainMessage } from "@/components/auth/InlineReauth";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import AdminOrganiserPicker, { type PickedOrganiser } from "@/components/admin/AdminOrganiserPicker";
 import EventClipField from "@/components/dashboard/EventClipField";
@@ -32,7 +32,8 @@ import {
   type EventInput,
 } from "@/lib/api/events";
 import type { AdminEventRecord, EventRecord, TicketTypeInput } from "@/lib/api/types";
-import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
+import { SessionExpiredError } from "@/lib/auth/AuthContext";
+import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import { eventClipsEnabled } from "@/lib/clips-flag";
 import { calculateOrderSummary, MIN_PAID_TICKET_CENTS } from "@/lib/fees";
 import { formatAud, toMelbourneDateTimeInputParts } from "@/lib/format";
@@ -116,12 +117,12 @@ function newTicketType(): TicketTypeInput {
 export default function EventEditor(props: Props) {
   const { getToken, initial, onReload } = props;
   const router = useRouter();
-  const auth = useAuth();
   const isAdmin = props.mode === "admin";
-  // Captured once at mount: the account this draft belongs to, so that if
+  // Captured while signed in: the account this draft belongs to, so that if
   // the session expires mid-edit, recovery only accepts signing back in as
-  // this same account — never a different one saving over it.
-  const [ownerEmail] = useState(() => auth.email);
+  // this same account, and nothing is saved while someone else is signed in
+  // (another tab) — never a different one saving over it.
+  const { owner, otherAccount } = useAccountOwner();
   const locked = !isAdmin && initial ? initial.status === "pending_review" || initial.status === "published" : false;
 
   const [title, setTitle] = useState(initial?.title ?? "");
@@ -171,6 +172,9 @@ export default function EventEditor(props: Props) {
   const [sessionExpired, setSessionExpired] = useState(false);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // The polite line by the buttons: said after signing in again in a recovery.
+  const [status, setStatus] = useState<string | null>(null);
+  const saveRef = useRef<HTMLButtonElement>(null);
 
   const reauthForm = props.mode === "admin" ? (props.reauthForm ?? true) : true;
 
@@ -178,6 +182,14 @@ export default function EventEditor(props: Props) {
   function showSessionExpired(expired: boolean) {
     setSessionExpired(expired);
     if (props.mode === "admin" && (expired || sessionExpired)) props.onReauthNeeded?.(expired);
+  }
+
+  /** Someone else is signed in by now (another tab): open the recovery, which takes only this draft's account. */
+  function refuseOtherAccount(): boolean {
+    if (!otherAccount) return false;
+    showSessionExpired(true);
+    setSubmitError(new SessionExpiredError().message);
+    return true;
   }
 
   function handleError(err: unknown, fallback: string) {
@@ -304,7 +316,9 @@ export default function EventEditor(props: Props) {
     event.preventDefault();
     setSubmitError(null);
     showSessionExpired(false);
+    setStatus(null);
     const input = buildInput();
+    if (input && refuseOtherAccount()) return;
     // Busy already: the clip's check may still be reading a file just chosen, which the save waits for.
     setSaving(true);
     const clipReady = await clip.validate();
@@ -385,9 +399,11 @@ export default function EventEditor(props: Props) {
     if (!initial || props.mode === "admin") return;
     setSubmitError(null);
     showSessionExpired(false);
+    setStatus(null);
     // Submit what's on screen, not the last save: unsaved edits are saved
     // first, and nothing is submitted if they don't validate.
     const input = buildInput();
+    if (input && refuseOtherAccount()) return;
     setSubmitting(true);
     const clipReady = await clip.validate();
     if (!input || !clipReady) {
@@ -837,10 +853,12 @@ export default function EventEditor(props: Props) {
           <p>{submitError}</p>
           {reauthForm ? (
             <InlineReauth
-              expectedEmail={ownerEmail}
+              expectedAccount={owner}
               onSignedIn={() => {
                 showSessionExpired(false);
                 setSubmitError(null);
+                setStatus(signedInAgainMessage("save"));
+                saveRef.current?.focus();
               }}
             />
           ) : (
@@ -854,8 +872,14 @@ export default function EventEditor(props: Props) {
         </p>
       )}
 
+      {/* Always rendered (never display:none), so it's announced when its text changes. */}
+      <p role="status" className="text-sm text-foreground empty:sr-only">
+        {status}
+      </p>
+
       <div className="flex flex-wrap gap-3">
         <button
+          ref={saveRef}
           type="submit"
           disabled={saving}
           className="btn btn-solid w-fit"

@@ -21,6 +21,9 @@ export {
 /** Where Supabase Auth sends the browser back to after the provider. */
 export const OAUTH_CALLBACK_PATH = "/auth/callback";
 
+/** The id of /login's email form wrapper, which /auth/callback's "Use email instead" links to (`#email-sign-in`). */
+export const EMAIL_SIGN_IN_ID = "email-sign-in";
+
 /** Where a completed sign-in goes when there's no (safe) `next`: as LoginForm and VerifyForm. */
 export const OAUTH_DEFAULT_NEXT = "/dashboard";
 
@@ -172,18 +175,21 @@ export function oauthExchangeErrorKind(err: unknown): OAuthErrorKind {
 }
 
 export type OAuthCallback =
-  | { kind: "code"; code: string; next: string | null }
+  | { kind: "code"; code: string; flowId: string | null; next: string | null }
   | { kind: "error"; error: OAuthErrorKind; next: string | null };
 
 // Supabase's auth codes are UUIDs; this only bounds what's passed on.
 const CODE_PATTERN = /^[A-Za-z0-9._~-]{1,512}$/;
+// Supabase's own check for a PKCE flow id (auth-js validatePKCEFlowId).
+const FLOW_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 
 /**
  * What the callback URL says: a code to exchange, or an error. Supabase puts
  * errors in both the query and the fragment; either is read, the query
  * first. `error_description` is never used: anyone can put any text in a
  * URL, so the page shows only our own copy. No code and no error is
- * "missing".
+ * "missing". With a code, Supabase's `sb_flow_id` (which PKCE flow it
+ * belongs to, when Supabase adds one) is kept if it's well-formed.
  */
 export function parseOAuthCallback(search: string, hash: string): OAuthCallback {
   const query = new URLSearchParams(search);
@@ -195,7 +201,10 @@ export function parseOAuthCallback(search: string, hash: string): OAuthCallback 
   if (error || errorCode) return { kind: "error", error: oauthErrorKind(errorCode, error), next };
 
   const code = query.get("code");
-  if (code && CODE_PATTERN.test(code)) return { kind: "code", code, next };
+  const flowId = query.get("sb_flow_id");
+  if (code && CODE_PATTERN.test(code)) {
+    return { kind: "code", code, flowId: flowId && FLOW_ID_PATTERN.test(flowId) ? flowId : null, next };
+  }
   return { kind: "error", error: "missing", next };
 }
 

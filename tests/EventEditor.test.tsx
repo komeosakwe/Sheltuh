@@ -146,11 +146,39 @@ describe("EventEditor — session-expiry recovery preserves the form", () => {
     await waitFor(() => expect(signIn).toHaveBeenCalledWith("owner@example.com", "hunter2"));
     // Recovery never navigated away — the field is still there after sign-in.
     expect(screen.getByLabelText("Title")).toHaveValue("Updated title");
+    // Said politely, with focus on the button to try again (the sign-in form has gone).
+    expect(screen.getByRole("status")).toHaveTextContent("Signed in again. Your changes are still here — save when you’re ready.");
+    expect(screen.getByRole("button", { name: "Save draft" })).toHaveFocus();
 
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
     expect(updateEventDraft).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("EventEditor — never saves as another account", () => {
+  it("someone else signed in by now (another tab): opens the recovery, locked to the draft's owner, and saves nothing", async () => {
+    const auth = (overrides: Parameters<typeof fakeAuthValue>[0]) => fakeAuthValue({ getAccessToken: vi.fn().mockResolvedValue("t"), ...overrides });
+    const getToken = vi.fn().mockResolvedValue("token");
+    const view = render(
+      <FakeAuthProvider value={auth({ userId: "user-owner", email: "owner@example.com" })}>
+        <EventEditor getToken={getToken} initial={BASE_EVENT} onSaved={vi.fn()} />
+      </FakeAuthProvider>,
+    );
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Updated title" } });
+    view.rerender(
+      <FakeAuthProvider value={auth({ userId: "user-other", email: "other@example.com" })}>
+        <EventEditor getToken={getToken} initial={BASE_EVENT} onSaved={vi.fn()} />
+      </FakeAuthProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(new SessionExpiredError().message));
+    expect(updateEventDraft).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Email")).toHaveValue("owner@example.com");
+    expect(screen.getByText(/^You're signed in as a different account/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Title")).toHaveValue("Updated title");
   });
 });
 

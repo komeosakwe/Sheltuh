@@ -850,4 +850,13 @@ h4 {
   .btn-oauth[aria-disabled="true"] {
     cursor: progress;
   }
+  /* Forced colours (Windows contrast themes) replace the fills with the system's, so each
+     button's edge has to be a border: Apple's has none of its own, so one is added in
+     ButtonText; Google's 1px stroke is already one, and is forced to the system colour like any
+     other border. */
+  @media (forced-colors: active) {
+    .btn-oauth-apple {
+      border: 1px solid ButtonText;
+    }
+  }
 }

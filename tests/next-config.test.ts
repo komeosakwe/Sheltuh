@@ -13,9 +13,13 @@ async function headersFor(source: string) {
 }
 
 describe("next.config headers", () => {
-  it("forbids framing on every path: X-Frame-Options DENY and CSP frame-ancestors 'none', nothing else", async () => {
+  it("forbids framing on every path (X-Frame-Options DENY, CSP frame-ancestors 'none') and sends HSTS, nothing else", async () => {
     const byKey = await headersFor("/:path*");
-    expect(byKey).toEqual({ "x-frame-options": "DENY", "content-security-policy": "frame-ancestors 'none'" });
+    expect(byKey).toEqual({
+      "x-frame-options": "DENY",
+      "content-security-policy": "frame-ancestors 'none'",
+      "strict-transport-security": "max-age=63072000",
+    });
     // First, so a more specific rule's header of the same name (the /sw.js CSP) overrides it (the last match wins).
     const rules = (await nextConfig.headers?.()) ?? [];
     expect(rules[0].source).toBe("/:path*");
@@ -158,7 +162,7 @@ describe("next.config: the official sign-in logos must be there for each provide
     expect(() => assertOAuthLogos("google,apple", publicDir())).toThrow(
       "NEXT_PUBLIC_AUTH_PROVIDERS lists a provider whose official logo artwork is missing: " +
         "public/auth/google-g.svg, public/auth/apple-logo-white.svg, public/auth/apple-logo-black.svg. " +
-        "Add the files described in public/auth/README.md, or take the provider out of NEXT_PUBLIC_AUTH_PROVIDERS.",
+        "Add the files described in docs/auth-logos.md, or take the provider out of NEXT_PUBLIC_AUTH_PROVIDERS.",
     );
     addLogos("apple-logo-white.svg");
     expect(() => assertOAuthLogos("apple", publicDir())).toThrow(/missing: public\/auth\/apple-logo-black\.svg\. /);
@@ -172,7 +176,7 @@ describe("next.config: the official sign-in logos must be there for each provide
     expect(() => assertOAuthLogos(" Google , APPLE ", publicDir())).not.toThrow();
   });
 
-  it("runs for `next build` only (the project's public/), so `next dev` and `next start` load without the files", () => {
+  it("runs in the production-build phase only (`next build`, `next typegen`), so `next dev` and `next start` load without the files", () => {
     vi.spyOn(process, "cwd").mockReturnValue(dir);
     vi.stubEnv("NEXT_PUBLIC_AUTH_PROVIDERS", "google,apple");
     expect(() => config(PHASE_PRODUCTION_BUILD)).toThrow(/public\/auth\/google-g\.svg/);

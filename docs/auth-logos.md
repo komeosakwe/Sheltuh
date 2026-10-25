@@ -1,6 +1,8 @@
 # Sign-in logos (owner adds these)
 
-"Continue with Apple" and "Continue with Google" (`components/auth/OAuthButtons.tsx`) show the vendors' **official** logo files from this folder. They're not committed: download them yourself, unmodified. **Never ship a stand-in.** `next build` fails if `NEXT_PUBLIC_AUTH_PROVIDERS` lists a provider whose files below are missing (`next.config.ts`, `assertOAuthLogos`). The file names are set in `lib/auth/oauth-providers.ts` (`OAUTH_LOGO_FILES`).
+"Continue with Apple" and "Continue with Google" (`components/auth/OAuthButtons.tsx`) show the vendors' **official** logo files from `public/auth/` (served at `/auth/<file>`). They're not committed: download them yourself, unmodified. **Never ship a stand-in.** `next build` fails if `NEXT_PUBLIC_AUTH_PROVIDERS` lists a provider whose files below are missing (`next.config.ts`, `assertOAuthLogos`). `next typegen` fails the same way (Next loads the config there as it does for a build); `next dev` doesn't check. The file names are set in `lib/auth/oauth-providers.ts` (`OAUTH_LOGO_FILES`).
+
+This page lives in `docs/` rather than in `public/auth/` because everything in `public/` is served to anyone who asks for it.
 
 The design spec is `docs/design/social-sign-in.md` (§4).
 
@@ -14,7 +16,7 @@ The design spec is `docs/design/social-sign-in.md` (§4).
 
 1. Go to <https://developer.apple.com/design/resources/> and download the **Sign in with Apple** resources (Apple's button and logo artwork).
 2. In the download, take the **logo-only** images (just the Apple logo, with its built-in padding, not a full button) in **SVG**, in **black** and in **white**.
-3. Save them here as `apple-logo-black.svg` and `apple-logo-white.svg`. Change nothing inside the files: no cropping, no recolouring, no removing or adding padding.
+3. Save them in `public/auth/` as `apple-logo-black.svg` and `apple-logo-white.svg`. Change nothing inside the files: no cropping, no recolouring, no removing or adding padding.
 
 How they're used, following Apple's Human Interface Guidelines for a custom button: the logo file is shown at the button's full height (48px) with its own padding, beside the title "Continue with Apple". Logo and title are both white on the black button, or both black on the white one.
 
@@ -22,7 +24,7 @@ How they're used, following Apple's Human Interface Guidelines for a custom butt
 
 1. Go to <https://developers.google.com/identity/branding-guidelines> and download the Sign in with Google branding kit linked there.
 2. Take the standard multicolour **"G"** logo in **SVG**. It's the only "G" allowed: never a monochrome or recoloured one.
-3. Save it here as `google-g.svg`, unmodified.
+3. Save it in `public/auth/` as `google-g.svg`, unmodified.
 
 It's shown at 24×24px, before the title "Continue with Google", on Google's Dark button (White theme) and Light button (Dark theme).
 

@@ -31,11 +31,13 @@ assertStripePublishableKey(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
 /**
  * "Continue with Apple / Google" shows the vendors' own logo files from
  * public/auth/ (lib/auth/oauth-providers.ts OAUTH_LOGO_FILES), which the
- * owner downloads (public/auth/README.md): none is committed, and no stand-in
+ * owner downloads (docs/auth-logos.md): none is committed, and no stand-in
  * may ship. So a production build with NEXT_PUBLIC_AUTH_PROVIDERS listing a
- * provider whose files aren't there fails, naming them. Only `next build`
- * (see the default export): `next dev` runs without them, as the e2e suite
- * does with the flag on (it serves its own test files).
+ * provider whose files aren't there fails, naming them. It runs in the
+ * production-build phase only (see the default export), which is `next
+ * build` and also `next typegen` (Next loads the config in that phase for
+ * it too, so typegen fails the same way). `next dev` runs without them, as
+ * the e2e suite does with the flag on (it serves its own test files).
  */
 export function assertOAuthLogos(
   providers: string | undefined,
@@ -46,7 +48,7 @@ export function assertOAuthLogos(
     throw new Error(
       `NEXT_PUBLIC_AUTH_PROVIDERS lists a provider whose official logo artwork is missing: ` +
         `${missing.map((file) => `public/auth/${file}`).join(", ")}. ` +
-        "Add the files described in public/auth/README.md, or take the provider out of NEXT_PUBLIC_AUTH_PROVIDERS.",
+        "Add the files described in docs/auth-logos.md, or take the provider out of NEXT_PUBLIC_AUTH_PROVIDERS.",
     );
   }
 }
@@ -62,13 +64,17 @@ export const nextConfig: NextConfig = {
     return [
       // No page may be framed by another site (clickjacking): the legacy
       // header and the CSP directive that replaces it. Only frame-ancestors, so
-      // no other content is restricted. It comes first: when two rules set the
+      // no other content is restricted. And HTTPS only (HSTS). It comes first: when two rules set the
       // same header key, the later one wins, so /sw.js keeps its own CSP below.
       {
         source: "/:path*",
         headers: [
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+          // HTTPS only, for two years, once a browser has seen it over HTTPS (browsers ignore it
+          // over plain http, so local dev is unaffected). Not includeSubDomains yet: that's only
+          // safe once every subdomain serves HTTPS.
+          { key: "Strict-Transport-Security", value: "max-age=63072000" },
         ],
       },
       // The service worker must never be served from a stale cache, or the kill
@@ -142,7 +148,9 @@ export const nextConfig: NextConfig = {
 
 /**
  * Next calls this with the phase it's loading the config for. The logo check
- * runs for `next build` only; the Stripe key check above runs on every load.
+ * runs in the production-build phase only (`next build`, and `next typegen`,
+ * which loads the config in that phase too); the Stripe key check above runs
+ * on every load.
  */
 export default function config(phase: string): NextConfig {
   if (phase === PHASE_PRODUCTION_BUILD) assertOAuthLogos(process.env.NEXT_PUBLIC_AUTH_PROVIDERS);

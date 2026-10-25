@@ -3,6 +3,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CheckoutConfirmation from "@/components/CheckoutConfirmation";
+import { ApiError } from "@/lib/api/client";
 import type { CustomerOrder, OrderPaymentLookup } from "@/lib/api/types";
 import { rememberPendingCheckout } from "@/lib/seating/pending-checkout";
 
@@ -292,6 +293,8 @@ describe("CheckoutConfirmation: back from Stripe without a confirmed order (chec
     await renderPending(2);
     const h1 = screen.getByRole("heading", { level: 1, name: "Payment not completed" });
     expect(h1).toHaveFocus();
+    // The tab says so too, never "Order confirmed".
+    expect(document.title).toBe("Payment not completed — Sheltüh");
     expect(
       screen.getByText("You haven’t been charged. Your checkout is still open, so you can try again."),
     ).toBeInTheDocument();
@@ -492,5 +495,37 @@ describe("CheckoutConfirmation: the seat page's pending checkout (released on Ba
     await settle(1);
     expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load your order right now.");
     expect(sessionStorage.getItem(KEY)).toContain("cs_test_1");
+  });
+});
+
+describe("CheckoutConfirmation: the tab's title follows the answer", () => {
+  afterEach(() => {
+    document.title = "";
+  });
+
+  it("the route's own title is neutral (it can also say a payment wasn't completed)", async () => {
+    const { metadata } = await import("@/app/checkout/success/page");
+    expect(metadata.title).toBe("Your order — Sheltüh");
+  });
+
+  it("leaves it while confirming, then says Order confirmed only for a paid order", async () => {
+    document.title = "Your order — Sheltüh";
+    let resolve: (order: CustomerOrder) => void = () => {};
+    getOrderBySession.mockImplementation(() => new Promise((r) => (resolve = r)));
+    render(<CheckoutConfirmation />);
+    expect(document.title).toBe("Your order — Sheltüh");
+    await act(async () => resolve(ORDER));
+    expect(document.title).toBe("Order confirmed — Sheltüh");
+  });
+
+  it.each<[string, () => void, string]>([
+    ["not found", () => getOrderBySession.mockRejectedValue(new ApiError(404, "Not found.")), "Order not found — Sheltüh"],
+    ["an error", () => getOrderBySession.mockRejectedValue(new Error("boom")), "Something went wrong — Sheltüh"],
+    ["a refund", () => getOrderBySession.mockResolvedValue({ ...ORDER, status: "refunded", refundReason: "refunded" }), "Order refunded — Sheltüh"],
+  ])("%s: %j", async (_, arrange, title) => {
+    arrange();
+    render(<CheckoutConfirmation />);
+    await screen.findByRole("heading", { level: 1 });
+    expect(document.title).toBe(title);
   });
 });

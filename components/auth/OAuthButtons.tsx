@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import LegalNote from "@/components/auth/LegalNote";
 import { DotsLoader } from "@/components/brand/DotsMark";
 import { Notice } from "@/components/ui/Section";
@@ -17,12 +17,15 @@ import {
 } from "@/lib/auth/oauth";
 import { roboto } from "./oauth-font";
 
-/** What the slot under the buttons shows. */
-type Slot =
-  | { kind: "busy"; provider: OAuthProvider }
-  | { kind: "error"; provider: OAuthProvider }
-  | { kind: "in-app"; platform: DevicePlatform; apple: boolean }
-  | null;
+/** What the polite status line under the buttons says. */
+type Status = { kind: "busy"; provider: OAuthProvider } | { kind: "in-app"; platform: DevicePlatform; apple: boolean };
+
+/**
+ * How long the status line stays empty before the in-app message is said
+ * again: a live region only speaks when its text changes, so a second tap on
+ * Google would otherwise be met with silence.
+ */
+const REANNOUNCE_DELAY_MS = 100;
 
 const OPEN_IN: Record<DevicePlatform, string> = {
   ios: "Open this page in Safari",
@@ -39,7 +42,7 @@ const [GOOGLE_G] = OAUTH_LOGO_FILES.google;
 
 /**
  * The vendors' own artwork, served from public/auth/ (the owner adds it:
- * public/auth/README.md; next.config.ts fails the build without it). Shown
+ * docs/auth-logos.md; next.config.ts fails the build without it). Shown
  * as files, unmodified and uncropped, and hidden from assistive tech: the
  * button's title is its name.
  */
@@ -63,79 +66,115 @@ function Logo({ file, className }: { file: string; className: string }) {
  * cache, still busy, so `pageshow` resets it. Inside an app's browser,
  * Google would refuse, so its button says how to get out instead.
  *
+ * What happens is said in two regions that are always there (a live region
+ * added along with its text often isn't read): a polite status ("Opening
+ * Google…", the in-app message, emptied and said again on each tap) and,
+ * beside it, an alert for a sign-in that couldn't start.
+ *
  * Real buttons outside any form: they never submit the email form.
  */
 export default function OAuthButtons({ next }: { next?: string }) {
   const auth = useAuth();
   const providers = offeredOAuthProviders(auth.configured);
-  const [slot, setSlot] = useState<Slot>(null);
-  const busy = slot?.kind === "busy";
+  const [status, setStatus] = useState<Status | null>(null);
+  const [failed, setFailed] = useState<OAuthProvider | null>(null);
+  const reannounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const busy = status?.kind === "busy";
 
   useEffect(() => {
     function onPageShow(event: PageTransitionEvent) {
-      if (event.persisted) setSlot(null);
+      if (!event.persisted) return;
+      clearTimeout(reannounce.current);
+      setStatus(null);
     }
     window.addEventListener("pageshow", onPageShow);
-    return () => window.removeEventListener("pageshow", onPageShow);
+    const timer = reannounce;
+    return () => {
+      window.removeEventListener("pageshow", onPageShow);
+      clearTimeout(timer.current);
+    };
   }, []);
 
   if (providers.length === 0) return null;
 
   async function start(provider: OAuthProvider) {
     if (busy) return;
+    clearTimeout(reannounce.current);
+    setFailed(null);
     if (provider === "google" && isInAppBrowser(navigator.userAgent)) {
-      setSlot({
+      const inApp: Status = {
         kind: "in-app",
         platform: devicePlatform(navigator.userAgent, navigator.maxTouchPoints ?? 0),
         apple: providers.includes("apple"),
-      });
+      };
+      // Emptied, then said again a moment later.
+      setStatus(null);
+      reannounce.current = setTimeout(() => setStatus(inApp), REANNOUNCE_DELAY_MS);
       return;
     }
-    setSlot({ kind: "busy", provider });
+    setStatus({ kind: "busy", provider });
     try {
       await auth.signInWithProvider(provider, oauthReturnPath(next) ?? undefined);
       // The page is on its way to the provider: stay busy until it's gone.
     } catch {
       // What went wrong is the connection or the service, not anything to fix here.
-      setSlot({ kind: "error", provider });
+      setStatus(null);
+      setFailed(provider);
     }
   }
 
-  const buttonProps = (provider: OAuthProvider) => ({
-    type: "button" as const,
-    "aria-disabled": busy ? true : undefined,
-    onClick: () => void start(provider),
-  });
-
   return (
     <div className={`${roboto.variable} flex flex-col gap-8`}>
-      <div className="flex flex-col gap-3">
-        {providers.includes("apple") && (
-          <button {...buttonProps("apple")} className="btn-oauth btn-oauth-apple">
-            {/* White theme: the black button and white logo; Dark: the white button and black logo. */}
-            <Logo file={APPLE_ON_WHITE} className="h-12 w-auto shrink-0 dark:hidden" />
-            <Logo file={APPLE_ON_DARK} className="hidden h-12 w-auto shrink-0 dark:block" />
-            <span>Continue with Apple</span>
-          </button>
-        )}
-        {providers.includes("google") && (
-          <button {...buttonProps("google")} className="btn-oauth btn-oauth-google">
-            <Logo file={GOOGLE_G} className="size-6 shrink-0" />
-            <span>Continue with Google</span>
-          </button>
-        )}
-      </div>
+      <div>
+        <div className="flex flex-col gap-3">
+          {providers.includes("apple") && (
+            <button
+              type="button"
+              aria-disabled={busy ? true : undefined}
+              onClick={() => void start("apple")}
+              className="btn-oauth btn-oauth-apple"
+            >
+              {/* White theme: the black button and white logo; Dark: the white button and black logo. */}
+              <Logo file={APPLE_ON_WHITE} className="h-12 w-auto shrink-0 dark:hidden" />
+              <Logo file={APPLE_ON_DARK} className="hidden h-12 w-auto shrink-0 dark:block" />
+              <span>Continue with Apple</span>
+            </button>
+          )}
+          {providers.includes("google") && (
+            <button
+              type="button"
+              aria-disabled={busy ? true : undefined}
+              onClick={() => void start("google")}
+              className="btn-oauth btn-oauth-google"
+            >
+              <Logo file={GOOGLE_G} className="size-6 shrink-0" />
+              <span>Continue with Google</span>
+            </button>
+          )}
+        </div>
 
-      <div className="empty:hidden">
-        {slot?.kind === "busy" && <DotsLoader announce label={`Opening ${OAUTH_PROVIDER_NAMES[slot.provider]}`} />}
-        {slot?.kind === "error" && (
-          <Notice tone="danger" role="alert">
-            Couldn&rsquo;t open {OAUTH_PROVIDER_NAMES[slot.provider]} sign-in. Check your connection and try again.
-          </Notice>
-        )}
-        {slot?.kind === "in-app" && (
-          <Notice role="status">{inAppMessage(slot.platform, slot.apple)}</Notice>
-        )}
+        {/* Always rendered, empty until there's something to say (its content brings its own spacing). */}
+        <div role="status" aria-atomic="true">
+          {status?.kind === "busy" && (
+            <div className="mt-8">
+              <DotsLoader label={`Opening ${OAUTH_PROVIDER_NAMES[status.provider]}`} />
+            </div>
+          )}
+          {status?.kind === "in-app" && (
+            <div className="mt-8">
+              <Notice>{inAppMessage(status.platform, status.apple)}</Notice>
+            </div>
+          )}
+        </div>
+        <div role="alert" aria-atomic="true">
+          {failed && (
+            <div className="mt-8">
+              <Notice tone="danger">
+                Couldn&rsquo;t open {OAUTH_PROVIDER_NAMES[failed]} sign-in. Check your connection and try again.
+              </Notice>
+            </div>
+          )}
+        </div>
       </div>
 
       <LegalNote

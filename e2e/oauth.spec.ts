@@ -9,7 +9,7 @@ import { expect, test, type Page, type Request } from "@playwright/test";
  * would end in, and its PKCE token exchange with a session. Every /api/*
  * request is answered here too, so nothing leaves the machine.
  *
- * The official logo files aren't committed (public/auth/README.md), so
+ * The official logo files aren't committed (docs/auth-logos.md), so
  * /auth/*.svg is answered with a plain test square: no artwork is involved.
  */
 
@@ -163,7 +163,7 @@ test("cancelling at the provider shows our own words, never the URL's descriptio
   // The error (and anything else) is gone from the address bar.
   await expect(page).toHaveURL(/\/auth\/callback$/);
   await expect(page.getByRole("link", { name: "Back to sign in" })).toHaveAttribute("href", "/login?next=%2Faccount");
-  await expect(page.getByRole("link", { name: "Use email instead" })).toHaveAttribute("href", "/login?next=%2Faccount#email");
+  await expect(page.getByRole("link", { name: "Use email instead" })).toHaveAttribute("href", "/login?next=%2Faccount#email-sign-in");
   expect(flow.exchanges).toHaveLength(0);
   expect(exchanges).toHaveLength(0);
 });
@@ -211,6 +211,20 @@ test.describe("at 375×667", () => {
       await noSidewaysScroll(page);
     });
   }
+
+  test("/login#email-sign-in (the callback's Use email instead): the email form, label and all, is in view below the sticky header", async ({ page }) => {
+    await mockAuth(page);
+    await page.goto("/login#email-sign-in");
+    const form = page.locator("#email-sign-in");
+    await expect(form.getByLabel("Email")).toBeVisible({ timeout: 60_000 });
+    await expect(async () => {
+      const header = await page.getByRole("banner").boundingBox();
+      const label = await form.locator('label[for="email"]').boundingBox();
+      if (!header || !label) throw new Error("not laid out");
+      expect(label.y).toBeGreaterThanOrEqual(header.y + header.height);
+      expect(label.y + label.height).toBeLessThanOrEqual(667);
+    }).toPass({ timeout: 10_000 });
+  });
 
   test("the pair inverts with the theme: black Apple and dark Google on White, both white on Dark", async ({ page }) => {
     await mockAuth(page);

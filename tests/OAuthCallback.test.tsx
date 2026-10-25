@@ -43,11 +43,20 @@ describe("OAuthCallback: a code", () => {
     expect(window.location.hash).toBe("");
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/events/neon-static#whos-going"));
     expect(auth.completeOAuthSignIn).toHaveBeenCalledTimes(1);
-    expect(auth.completeOAuthSignIn).toHaveBeenCalledWith("3f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f");
+    expect(auth.completeOAuthSignIn).toHaveBeenCalledWith("3f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f", undefined);
     expect(replace).toHaveBeenCalledTimes(1);
     // The second run doesn't re-read the (now empty) URL and call it a broken link.
     expect(screen.getByRole("status")).toHaveTextContent("Signing you in…");
     expect(screen.queryByRole("heading", { name: "This sign-in link didn’t work" })).toBeNull();
+  });
+
+  it("passes Supabase's sb_flow_id on to the exchange, as the address bar is cleared before it (once, in StrictMode too)", async () => {
+    const auth = signedOut();
+    open("/auth/callback?code=abc&sb_flow_id=0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d", auth);
+    expect(window.location.search).toBe("");
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
+    expect(auth.completeOAuthSignIn).toHaveBeenCalledTimes(1);
+    expect(auth.completeOAuthSignIn).toHaveBeenCalledWith("abc", "0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d");
   });
 
   it("says it's signing in (a polite status) while the exchange runs", async () => {
@@ -140,7 +149,7 @@ describe("OAuthCallback: errors", () => {
     await screen.findByRole("heading", { level: 1, name: "Sign-in cancelled" });
     const next = encodeURIComponent("/events/neon-static#whos-going");
     expect(screen.getByRole("link", { name: "Back to sign in" })).toHaveAttribute("href", `/login?next=${next}`);
-    expect(screen.getByRole("link", { name: "Use email instead" })).toHaveAttribute("href", `/login?next=${next}#email`);
+    expect(screen.getByRole("link", { name: "Use email instead" })).toHaveAttribute("href", `/login?next=${next}#email-sign-in`);
     expect(screen.queryByRole("button", { name: /try again/i })).toBeNull();
   });
 
@@ -148,7 +157,7 @@ describe("OAuthCallback: errors", () => {
     open("/auth/callback?next=%2F%2Fevil.example&error=access_denied", signedOut());
     await screen.findByRole("heading", { level: 1, name: "Sign-in cancelled" });
     expect(screen.getByRole("link", { name: "Back to sign in" })).toHaveAttribute("href", "/login");
-    expect(screen.getByRole("link", { name: "Use email instead" })).toHaveAttribute("href", "/login#email");
+    expect(screen.getByRole("link", { name: "Use email instead" })).toHaveAttribute("href", "/login#email-sign-in");
   });
 
   it("a banned account is pointed to support, with only the way back to sign in", async () => {
@@ -157,6 +166,36 @@ describe("OAuthCallback: errors", () => {
     expect(screen.getByRole("link", { name: "support@sheltuh.com.au" })).toHaveAttribute("href", "mailto:support@sheltuh.com.au");
     expect(screen.getByRole("link", { name: "Back to sign in" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Use email instead" })).toBeNull();
+  });
+});
+
+describe("OAuthCallback: what an error says to assistive tech", () => {
+  afterEach(() => {
+    document.title = "";
+  });
+
+  it("the focused h1 is described by the line under it, shows no focus ring, and names the tab", async () => {
+    open("/auth/callback?error=access_denied", signedOut());
+    const heading = await screen.findByRole("heading", { level: 1, name: "Sign-in cancelled" });
+    await waitFor(() => expect(heading).toHaveFocus());
+    expect(heading).toHaveAccessibleDescription("Nothing has changed. Try again, or sign in with your email.");
+    // Focused by script, not a control.
+    expect(heading).toHaveClass("focus:outline-none!");
+    expect(document.title).toBe("Sign-in cancelled — Sheltüh");
+  });
+
+  it("the banned account's h1 is described by the support line", async () => {
+    open("/auth/callback?error=access_denied&error_code=user_banned", signedOut());
+    const heading = await screen.findByRole("heading", { level: 1, name: "This account can’t sign in" });
+    expect(heading).toHaveAccessibleDescription("If you think this is a mistake, email support@sheltuh.com.au.");
+    expect(document.title).toBe("This account can’t sign in — Sheltüh");
+  });
+
+  it("demo mode too", async () => {
+    open("/auth/callback?code=abc", signedOut({ configured: false }));
+    const heading = await screen.findByRole("heading", { level: 1, name: "Accounts aren’t configured" });
+    expect(heading).toHaveAccessibleDescription(/Accounts aren’t configured in this environment yet/);
+    expect(document.title).toBe("Accounts aren’t configured — Sheltüh");
   });
 });
 

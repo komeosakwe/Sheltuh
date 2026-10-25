@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import LoginPage from "@/app/login/page";
 import SignupPage from "@/app/signup/page";
@@ -166,12 +168,36 @@ describe("OAuthButtons: starting a sign-in", () => {
       window.dispatchEvent(Object.assign(new Event("pageshow"), { persisted: true }));
     });
     expect(apple()).not.toHaveAttribute("aria-disabled");
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  });
+
+  it("says what happens in a polite status and an alert that are always there (atomic), so they're read when filled", async () => {
+    const signInWithProvider = vi.fn().mockRejectedValueOnce(new Error("offline")).mockImplementation(leaving());
+    renderButtons({ auth: { signInWithProvider } });
+    const status = screen.getByRole("status");
+    const alert = screen.getByRole("alert");
+    for (const region of [status, alert]) {
+      expect(region).toBeEmptyDOMElement();
+      expect(region).toHaveAttribute("aria-atomic", "true");
+    }
+
+    await act(async () => {
+      fireEvent.click(apple());
+    });
+    expect(screen.getByRole("alert")).toBe(alert);
+    expect(alert).toHaveTextContent("Couldn’t open Apple sign-in.");
+    expect(status).toBeEmptyDOMElement();
+
+    // Trying again clears the error, and the same status region says it's opening.
+    fireEvent.click(apple());
+    expect(alert).toBeEmptyDOMElement();
+    expect(screen.getByRole("status")).toBe(status);
+    expect(status).toHaveTextContent("Opening Apple…");
   });
 });
 
 describe("OAuthButtons: inside an app's browser", () => {
-  it("doesn't start Google in Instagram on iPhone: says to open Safari, or use Apple or email", () => {
+  it("doesn't start Google in Instagram on iPhone: says to open Safari, or use Apple or email", async () => {
     setUserAgent(UA.iphoneInstagram);
     const signInWithProvider = leaving();
     renderButtons({ auth: { signInWithProvider } });
@@ -179,8 +205,10 @@ describe("OAuthButtons: inside an app's browser", () => {
     google().focus();
     fireEvent.click(google());
     expect(signInWithProvider).not.toHaveBeenCalled();
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Google sign-in doesn’t work inside this app’s browser. Open this page in Safari, or continue with Apple or email.",
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Google sign-in doesn’t work inside this app’s browser. Open this page in Safari, or continue with Apple or email.",
+      ),
     );
     expect(document.activeElement).toBe(google());
     expect(google()).not.toHaveAttribute("aria-disabled");
@@ -190,13 +218,38 @@ describe("OAuthButtons: inside an app's browser", () => {
     expect(signInWithProvider).toHaveBeenCalledWith("apple", undefined);
   });
 
-  it("suggests Chrome on Android, and only email when Apple isn't offered", () => {
+  it("suggests Chrome on Android, and only email when Apple isn't offered", async () => {
     setUserAgent(UA.androidInstagram);
     renderButtons({ flag: "google" });
     fireEvent.click(google());
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Google sign-in doesn’t work inside this app’s browser. Open this page in Chrome, or continue with email.",
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Google sign-in doesn’t work inside this app’s browser. Open this page in Chrome, or continue with email.",
+      ),
     );
+  });
+
+  it("says it again on each tap: the status is emptied, then filled a moment later", () => {
+    vi.useFakeTimers();
+    try {
+      setUserAgent(UA.iphoneInstagram);
+      renderButtons();
+      const status = screen.getByRole("status");
+      fireEvent.click(google());
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      expect(status).toHaveTextContent(/doesn’t work inside this app’s browser/);
+
+      fireEvent.click(google());
+      expect(status).toBeEmptyDOMElement();
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+      expect(status).toHaveTextContent(/doesn’t work inside this app’s browser/);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("starts Google as usual in a real browser (Chrome on iPhone)", () => {
@@ -209,8 +262,8 @@ describe("OAuthButtons: inside an app's browser", () => {
 });
 
 describe("OAuthButtons on /login and /signup", () => {
-  async function renderPage(page: "login" | "signup", next?: string) {
-    vi.stubEnv("NEXT_PUBLIC_AUTH_PROVIDERS", "google,apple");
+  async function renderPage(page: "login" | "signup", next?: string, flag = "google,apple") {
+    vi.stubEnv("NEXT_PUBLIC_AUTH_PROVIDERS", flag);
     const signInWithProvider = leaving();
     const searchParams = Promise.resolve(next ? { next } : {});
     const element =
@@ -230,10 +283,30 @@ describe("OAuthButtons on /login and /signup", () => {
     const divider = screen.getByText("or");
     expect(appleButton.compareDocumentPosition(divider) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(divider.compareDocumentPosition(email) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // The callback's "Use email instead" lands on #email.
-    expect(email).toHaveAttribute("id", "email");
+    // The callback's "Use email instead" lands on the email form's wrapper, label and all.
+    if (page === "login") expect(email.closest("#email-sign-in")).not.toBeNull();
 
     fireEvent.click(google());
     expect(signInWithProvider).toHaveBeenCalledWith("google", "/events/neon-static");
+  });
+
+  it("/login says the privacy line once: the buttons' line with them, the one under the form without", async () => {
+    await renderPage("login");
+    expect(screen.getAllByRole("link", { name: "Privacy Policy" })).toHaveLength(1);
+    expect(screen.getByText(/^Continuing with Apple or Google signs you in/)).toBeInTheDocument();
+    cleanup();
+
+    await renderPage("login", undefined, "");
+    expect(screen.getAllByRole("link", { name: "Privacy Policy" })).toHaveLength(1);
+    expect(screen.getByText(/^How we handle your details:/)).toBeInTheDocument();
+  });
+});
+
+describe("OAuthButtons in forced colours (Windows contrast themes)", () => {
+  const css = readFileSync(path.resolve(import.meta.dirname, "../app/globals.css"), "utf8");
+
+  it("gives Apple's borderless button an edge in the system's button text colour; Google's keeps its own 1px stroke", () => {
+    expect(css).toMatch(/@media \(forced-colors: active\) \{\s*\.btn-oauth-apple \{\s*border: 1px solid ButtonText;/);
+    expect(css).toMatch(/\.btn-oauth-google \{[^}]*border: 1px solid var\(--google-stroke\);/);
   });
 });

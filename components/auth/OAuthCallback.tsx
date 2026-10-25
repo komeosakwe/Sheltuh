@@ -7,6 +7,7 @@ import { ButtonLink } from "@/components/ui/Button";
 import { PageHeader } from "@/components/ui/Section";
 import { useAuth } from "@/lib/auth/AuthContext";
 import {
+  EMAIL_SIGN_IN_ID,
   OAUTH_DEFAULT_NEXT,
   OAUTH_ERROR_COPY,
   oauthExchangeErrorKind,
@@ -22,7 +23,10 @@ type State =
   | { status: "error"; kind: OAuthErrorKind; next: string | null };
 
 const BODY_CLASS = "max-w-md text-base leading-6 text-muted";
+/** The line under the h1, which describes it (read as focus moves to the h1). */
+const BODY_ID = "oauth-callback-body";
 const ACTIONS_CLASS = "flex flex-col gap-3 sm:flex-row";
+const UNCONFIGURED_TITLE = "Accounts aren’t configured";
 
 /**
  * /auth/callback (docs/design/social-sign-in.md §5): where Supabase Auth
@@ -35,6 +39,13 @@ const ACTIONS_CLASS = "flex flex-col gap-3 sm:flex-row";
  * StrictMode runs effects twice in development, and a code works only once.
  * Then it's on to `next` (checked again here: anyone can craft this URL), or
  * the dashboard.
+ *
+ * Supabase's `sb_flow_id` (when it sends one) is read with the code and
+ * passed to the exchange, since Supabase would otherwise look for it in the
+ * address bar, which has been cleared by then.
+ *
+ * An error moves focus to its h1, which is described by the line under it,
+ * and the tab's title says what happened.
  *
  * Errors show only our own copy (lib/auth/oauth.ts), never the URL's
  * `error_description`. There's no "Try again": a failed exchange has used
@@ -74,8 +85,8 @@ export default function OAuthCallback() {
       return;
     }
 
-    const { code, next } = callback;
-    completeOAuthSignIn(code).then(
+    const { code, flowId, next } = callback;
+    completeOAuthSignIn(code, flowId ?? undefined).then(
       () => {
         if (mounted.current) router.replace(next ?? OAUTH_DEFAULT_NEXT);
       },
@@ -85,9 +96,13 @@ export default function OAuthCallback() {
     );
   }, [configured, completeOAuthSignIn, router]);
 
+  const settledTitle =
+    state.status === "error" ? OAUTH_ERROR_COPY[state.kind].title : state.status === "unconfigured" ? UNCONFIGURED_TITLE : null;
   useEffect(() => {
-    if (state.status === "error" || state.status === "unconfigured") headingRef.current?.focus();
-  }, [state.status]);
+    if (!settledTitle) return;
+    document.title = `${settledTitle} — Sheltüh`;
+    headingRef.current?.focus();
+  }, [settledTitle]);
 
   if (state.status === "working") {
     return (
@@ -101,8 +116,8 @@ export default function OAuthCallback() {
   if (state.status === "unconfigured") {
     return (
       <div className="flex flex-col gap-8">
-        <PageHeader flush eyebrow="Account" title="Accounts aren’t configured" titleRef={headingRef} />
-        <p className={BODY_CLASS}>
+        <PageHeader flush eyebrow="Account" title={UNCONFIGURED_TITLE} titleRef={headingRef} titleDescribedBy={BODY_ID} />
+        <p id={BODY_ID} className={BODY_CLASS}>
           Accounts aren&rsquo;t configured in this environment yet, so Apple and Google sign-in aren&rsquo;t available.
         </p>
         <div className={ACTIONS_CLASS}>
@@ -118,9 +133,9 @@ export default function OAuthCallback() {
   const copy = OAUTH_ERROR_COPY[kind];
   return (
     <div className="flex flex-col gap-8">
-      <PageHeader flush eyebrow="Account" title={copy.title} titleRef={headingRef} />
+      <PageHeader flush eyebrow="Account" title={copy.title} titleRef={headingRef} titleDescribedBy={BODY_ID} />
       {kind === "banned" ? (
-        <p className={BODY_CLASS}>
+        <p id={BODY_ID} className={BODY_CLASS}>
           If you think this is a mistake, email{" "}
           <a href={`mailto:${SUPPORT_EMAIL}`} className="text-foreground underline underline-offset-4">
             {SUPPORT_EMAIL}
@@ -128,14 +143,16 @@ export default function OAuthCallback() {
           .
         </p>
       ) : (
-        <p className={BODY_CLASS}>{copy.message}</p>
+        <p id={BODY_ID} className={BODY_CLASS}>
+          {copy.message}
+        </p>
       )}
       <div className={ACTIONS_CLASS}>
         <ButtonLink variant="solid" size="lg" href={withNext("/login", next)} className="w-full sm:w-auto">
           Back to sign in
         </ButtonLink>
         {kind !== "banned" && (
-          <ButtonLink variant="outline" size="lg" href={`${withNext("/login", next)}#email`} className="w-full sm:w-auto">
+          <ButtonLink variant="outline" size="lg" href={`${withNext("/login", next)}#${EMAIL_SIGN_IN_ID}`} className="w-full sm:w-auto">
             Use email instead
           </ButtonLink>
         )}

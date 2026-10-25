@@ -4,7 +4,10 @@ import Link from "next/link";
 import OrganiserLogoField from "@/components/dashboard/OrganiserLogoField";
 import PublicProfileForm from "@/components/dashboard/PublicProfileForm";
 import { ButtonLink } from "@/components/ui/Button";
+import type { GetToken } from "@/lib/api/client";
+import type { OrganiserRecord } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useKeptWhileSignedOut } from "@/lib/auth/useKeptWhileSignedOut";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
 import { withNext } from "@/lib/safe-next-path";
 
@@ -19,6 +22,12 @@ const RETURN_TO = "/dashboard/profile";
 export default function PublicProfilePanel() {
   const auth = useAuth();
   const { loading, organiser, error, refetch } = useOrganiser();
+  // Signed in, with this account's organiser loaded.
+  const settled = auth.status === "signed-in" && !loading && !error;
+  // The approved organiser the form was last shown for: kept while the session
+  // has run out (or another account's is loading), so the form stays mounted
+  // with the unsaved changes and its own recovery can sign in again in place.
+  const editing = useKeptWhileSignedOut(organiser?.status === "approved" ? organiser : null, settled);
 
   if (!auth.configured) {
     return (
@@ -27,6 +36,8 @@ export default function PublicProfilePanel() {
       </p>
     );
   }
+
+  if (editing) return <ProfileEditor organiser={editing} getToken={auth.getAccessToken} />;
 
   if (auth.status === "loading" || loading) {
     return (
@@ -73,6 +84,11 @@ export default function PublicProfilePanel() {
     );
   }
 
+  return <ProfileEditor organiser={organiser} getToken={auth.getAccessToken} />;
+}
+
+/** One component wherever it's shown from, so the form is never remounted (losing edits). */
+function ProfileEditor({ organiser, getToken }: { organiser: OrganiserRecord; getToken: GetToken }) {
   const profileHref = `/organisers/${encodeURIComponent(organiser.organiserId)}`;
 
   return (
@@ -86,8 +102,8 @@ export default function PublicProfilePanel() {
           View public profile
         </ButtonLink>
       </div>
-      <OrganiserLogoField organiser={organiser} getToken={auth.getAccessToken} />
-      <PublicProfileForm organiser={organiser} getToken={auth.getAccessToken} />
+      <OrganiserLogoField organiser={organiser} getToken={getToken} />
+      <PublicProfileForm organiser={organiser} getToken={getToken} />
     </div>
   );
 }

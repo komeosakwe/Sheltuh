@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
 import type { ReportReason } from "@/lib/api/types";
+import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import { validateMessage } from "@/lib/message-text";
 import MessageField from "./MessageField";
 import SessionExpiredNotice from "./SessionExpiredNotice";
@@ -91,6 +92,8 @@ function ReportForm({
   const detailsRef = useRef<HTMLTextAreaElement | null>(null);
   const problemRef = useRef<HTMLDivElement>(null);
   const pendingFocus = useRef<"reason" | "details" | "problem" | null>(null);
+  // Whose report this is (captured while signed in, as the dialog opens), for the expired-session sign-in.
+  const { owner, otherAccount } = useAccountOwner();
 
   // Opening the dialog (a user action) starts at the first reason.
   useEffect(() => {
@@ -127,6 +130,12 @@ function ReportForm({
     }
     if (nextDetailsError) {
       showDetailsError(nextDetailsError);
+      return;
+    }
+    if (otherAccount) {
+      // Signed in as someone else by now (another tab): never send this as them.
+      setProblem({ kind: "session" });
+      pendingFocus.current = "problem";
       return;
     }
     setBusy(true);
@@ -225,6 +234,7 @@ function ReportForm({
       {problem?.kind === "session" && (
         <SessionExpiredNotice
           what="report"
+          owner={owner}
           noticeRef={problemRef}
           onSignedIn={() => {
             setProblem(null);

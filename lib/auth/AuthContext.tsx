@@ -13,9 +13,19 @@ export { SessionExpiredError };
 
 type AuthStatus = "loading" | "signed-out" | "signed-in";
 
+export type SignOutScope = "global" | "local";
+
 interface AuthState {
   status: AuthStatus;
+  /** Supabase's user id: the stable way to tell one account from another (an email can change). */
+  userId?: string;
   email?: string;
+  /**
+   * When this session was signed in (Supabase's `user.last_sign_in_at`): it
+   * changes with each new sign-in, never with a token refresh, so it marks a
+   * sign-in boundary (InlineReauth). Absent when signed out.
+   */
+  lastSignInAt?: string;
   accessToken?: string;
   /** UI hint only (e.g. showing the admin nav link) — the API re-checks it on every request. */
   isAdmin: boolean;
@@ -46,9 +56,17 @@ export interface AuthContextValue extends AuthState {
    * Exchanges the code /auth/callback was sent back with for a session (once:
    * a code is single use). Rejects with Supabase's own AuthError, so its
    * `code` (e.g. "flow_state_expired") is kept for lib/auth/oauth.ts to explain.
+   * `flowId`: the callback URL's `sb_flow_id`, when Supabase sent one (it picks
+   * this flow's verifier when several sign-ins were started).
    */
-  completeOAuthSignIn: (code: string) => Promise<void>;
-  signOut: () => void;
+  completeOAuthSignIn: (code: string, flowId?: string) => Promise<void>;
+  /**
+   * Signs out. `"global"` (the default, the person's own Sign out) ends every
+   * session this account has, on every device; `"local"` ends only this
+   * browser's (which every tab here shares), for refusing a sign-in made by
+   * mistake without signing the account out elsewhere.
+   */
+  signOut: (scope?: SignOutScope) => void;
   refresh: () => Promise<void>;
   /**
    * Resolves a currently-valid access token, refreshing it first if the
@@ -77,7 +95,9 @@ function sessionToState(session: Session | null): AuthState {
   if (!session) return SIGNED_OUT;
   return {
     status: "signed-in",
+    userId: session.user.id,
     email: session.user.email,
+    lastSignInAt: session.user.last_sign_in_at,
     accessToken: session.access_token,
     isAdmin: session.user.app_metadata?.role === "admin",
     providers: providersOf(session),
@@ -176,13 +196,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Not throwIfError: that would drop the AuthError's `code`.
-  const completeOAuthSignIn = useCallback(async (code: string) => {
-    const { error } = await requireClient().auth.exchangeCodeForSession(code);
+  const completeOAuthSignIn = useCallback(async (code: string, flowId?: string) => {
+    const client = requireClient();
+    const { error } = await (flowId ? client.auth.exchangeCodeForSession(code, { flowId }) : client.auth.exchangeCodeForSession(code));
     if (error) throw error;
   }, []);
 
-  const signOut = useCallback(() => {
-    void getSupabaseBrowserClient()?.auth.signOut();
+  const signOut = useCallback((scope: SignOutScope = "global") => {
+    void getSupabaseBrowserClient()?.auth.signOut({ scope });
     setState(SIGNED_OUT);
   }, []);
 

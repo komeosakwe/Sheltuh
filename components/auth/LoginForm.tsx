@@ -11,6 +11,13 @@ import { safeNextPath, withNext } from "@/lib/safe-next-path";
 
 const FORM_ERROR_ID = "login-error";
 
+/** Supabase Auth's message for a wrong email or password (it won't say which). */
+const INVALID_CREDENTIALS = "invalid login credentials";
+
+function noPasswordHint(names: string): string {
+  return `Signed up with ${names}? Use Continue with ${names} above — there’s no password.`;
+}
+
 /**
  * `next` is the raw `?next=` value: where to go after signing in. Only a
  * same-site relative path is honoured; anything else goes to the dashboard.
@@ -20,7 +27,9 @@ const FORM_ERROR_ID = "login-error";
  * its error. A wrong email or password marks both (the service won't say which).
  *
  * With Apple or Google offered above the form (OAuthButtons), the password
- * field's hint says an account made with one of them has no password.
+ * field's hint says an account made with one of them has no password, and a
+ * wrong email or password says to use that button (such an account has no
+ * password to get right).
  */
 export default function LoginForm({ next }: { next?: string } = {}) {
   const auth = useAuth();
@@ -65,7 +74,12 @@ export default function LoginForm({ next }: { next?: string } = {}) {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Couldn't sign in.";
       const fields = fieldsForAuthError(message, ["email", "password"]);
-      setError(message);
+      const wrongCredentials = providers.length > 0 && message.trim().toLowerCase() === INVALID_CREDENTIALS;
+      setError(
+        wrongCredentials
+          ? `That email and password don’t match. If you signed up with ${oauthProviderNames(providers, ["apple", "google"])}, use that button above.`
+          : message,
+      );
       setErrorFields(fields);
       if (fields.includes("email")) focusAfterRender(emailRef.current);
       else if (fields.includes("password")) focusAfterRender(passwordRef.current);
@@ -101,11 +115,7 @@ export default function LoginForm({ next }: { next?: string } = {}) {
         onChange={(e) => setPassword(e.target.value)}
         error={fieldErrors.password}
         invalidBy={invalidBy("password")}
-        hint={
-          providers.length > 0
-            ? `Signed up with ${oauthProviderNames(providers, ["google", "apple"])}? Use that button — there’s no password.`
-            : undefined
-        }
+        hint={providers.length > 0 ? noPasswordHint(oauthProviderNames(providers, ["google", "apple"])) : undefined}
         labelAside={
           <Link
             href={withNext("/forgot-password", next)}

@@ -43,6 +43,7 @@ export function PageHeader({
   flush = false,
   titleId,
   titleRef,
+  titleDescribedBy,
 }: {
   eyebrow?: string;
   title: ReactNode;
@@ -52,8 +53,14 @@ export function PageHeader({
   brand?: boolean;
   flush?: boolean;
   titleId?: string;
-  /** Makes the h1 focusable (tabIndex -1) so focus can be moved to it. */
+  /**
+   * Makes the h1 focusable (tabIndex -1) so script can move focus to it. It's
+   * not a control, so it shows no focus ring (`!`: the global :focus-visible
+   * ring in globals.css is unlayered, so it beats any utility otherwise).
+   */
   titleRef?: Ref<HTMLHeadingElement>;
+  /** The h1's aria-describedby: the id(s) of what explains it, read when focus moves to it. */
+  titleDescribedBy?: string;
 }) {
   const titleClass = size === "md" ? "display-md" : brand ? "display-lg font-display" : "display-lg";
   return (
@@ -66,7 +73,8 @@ export function PageHeader({
           id={titleId}
           ref={titleRef}
           tabIndex={titleRef ? -1 : undefined}
-          className={`${titleClass} break-words outline-offset-2`}
+          aria-describedby={titleDescribedBy}
+          className={`${titleClass} break-words outline-offset-2 ${titleRef ? "focus:outline-none!" : ""}`.trim()}
         >
           {title}
         </h1>

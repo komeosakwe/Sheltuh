@@ -2,13 +2,20 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import InlineReauth from "@/components/auth/InlineReauth";
+import type { AccountRef } from "@/lib/auth/account";
 import type { AuthContextValue } from "@/lib/auth/AuthContext";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+
+const realUserAgent = window.navigator.userAgent;
 
 afterEach(() => {
   cleanup();
   vi.unstubAllEnvs();
+  Object.defineProperty(window.navigator, "userAgent", { value: realUserAgent, configurable: true });
+  Reflect.deleteProperty(window.navigator, "standalone");
 });
+
+const OWNER: AccountRef = { userId: "user-owner", email: "owner@example.com" };
 
 describe("InlineReauth — the account guard behind session-expiry recovery", () => {
   it("signs in and calls onSignedIn when no expected account is pinned", async () => {
@@ -32,8 +39,8 @@ describe("InlineReauth — the account guard behind session-expiry recovery", ()
     const signIn = vi.fn().mockResolvedValue(undefined);
     const onSignedIn = vi.fn();
     render(
-      <FakeAuthProvider value={fakeAuthValue({ signIn })}>
-        <InlineReauth expectedEmail="owner@example.com" onSignedIn={onSignedIn} />
+      <FakeAuthProvider value={fakeAuthValue({ signIn, status: "signed-out", email: undefined })}>
+        <InlineReauth expectedAccount={OWNER} onSignedIn={onSignedIn} />
       </FakeAuthProvider>,
     );
 
@@ -47,17 +54,18 @@ describe("InlineReauth — the account guard behind session-expiry recovery", ()
     await waitFor(() => expect(onSignedIn).toHaveBeenCalledTimes(1));
   });
 
-  it("rejects and signs back out when a different account signs in than the one the draft belongs to", async () => {
+  it("rejects a different account signed in here, and signs it out of this browser only", async () => {
     // Prevents one user's unsaved draft from being submitted under a
     // different account: even if a caller bypasses the readOnly email
     // field (e.g. by dispatching a raw change event), a mismatched
-    // sign-in is rejected rather than silently accepted.
+    // sign-in is rejected rather than silently accepted. Local scope: the
+    // account's sessions elsewhere are left alone.
     const signIn = vi.fn().mockResolvedValue(undefined);
     const signOut = vi.fn();
     const onSignedIn = vi.fn();
     render(
-      <FakeAuthProvider value={fakeAuthValue({ signIn, signOut })}>
-        <InlineReauth expectedEmail="owner@example.com" onSignedIn={onSignedIn} />
+      <FakeAuthProvider value={fakeAuthValue({ signIn, signOut, status: "signed-out", email: undefined })}>
+        <InlineReauth expectedAccount={OWNER} onSignedIn={onSignedIn} />
       </FakeAuthProvider>,
     );
 
@@ -66,6 +74,7 @@ describe("InlineReauth — the account guard behind session-expiry recovery", ()
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
     await waitFor(() => expect(signOut).toHaveBeenCalledTimes(1));
+    expect(signOut).toHaveBeenCalledWith("local");
     expect(onSignedIn).not.toHaveBeenCalled();
     expect(screen.getByRole("alert").textContent).toMatch(/different account/i);
   });
@@ -74,8 +83,8 @@ describe("InlineReauth — the account guard behind session-expiry recovery", ()
     const signIn = vi.fn().mockRejectedValue(new Error("Incorrect username or password."));
     const onSignedIn = vi.fn();
     render(
-      <FakeAuthProvider value={fakeAuthValue({ signIn })}>
-        <InlineReauth expectedEmail="owner@example.com" onSignedIn={onSignedIn} />
+      <FakeAuthProvider value={fakeAuthValue({ signIn, status: "signed-out", email: undefined })}>
+        <InlineReauth expectedAccount={OWNER} onSignedIn={onSignedIn} />
       </FakeAuthProvider>,
     );
 
@@ -85,13 +94,31 @@ describe("InlineReauth — the account guard behind session-expiry recovery", ()
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Incorrect username or password."));
     expect(onSignedIn).not.toHaveBeenCalled();
   });
+
+  it("says so while someone else is signed in (e.g. the host refused to submit as them), without signing them out", () => {
+    const signOut = vi.fn();
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ signOut, userId: "user-other", email: "other@example.com" })}>
+        <InlineReauth expectedAccount={OWNER} onSignedIn={vi.fn()} />
+      </FakeAuthProvider>,
+    );
+    expect(
+      screen.getByText(
+        "You're signed in as a different account than the one that started this draft. Sign in as owner@example.com to save it — signing in as anyone else won't be accepted.",
+      ),
+    ).toBeInTheDocument();
+    expect(signOut).not.toHaveBeenCalled();
+  });
 });
 
 describe("InlineReauth — signing in with Google or Apple in a new tab", () => {
-  const SIGNED_OUT = { status: "signed-out", email: undefined, accessToken: undefined } as const;
+  const SIGNED_OUT = { status: "signed-out", userId: undefined, email: undefined, accessToken: undefined } as const;
 
   /** Mounts with `initial`; `become` re-renders with another auth state, as a sign-in in another tab would. */
-  function mount(initial: Partial<AuthContextValue>, { expectedEmail, flag = "google,apple" }: { expectedEmail?: string; flag?: string } = {}) {
+  function mount(
+    initial: Partial<AuthContextValue>,
+    { expected, flag = "google,apple" }: { expected?: AccountRef; flag?: string } = {},
+  ) {
     vi.stubEnv("NEXT_PUBLIC_AUTH_PROVIDERS", flag);
     const onSignedIn = vi.fn();
     const onSubmit = vi.fn((event: React.FormEvent) => event.preventDefault());
@@ -99,7 +126,7 @@ describe("InlineReauth — signing in with Google or Apple in a new tab", () => 
     const tree = (auth: Partial<AuthContextValue>) => (
       <FakeAuthProvider value={fakeAuthValue({ ...shared, ...auth })}>
         <form onSubmit={onSubmit}>
-          <InlineReauth expectedEmail={expectedEmail} onSignedIn={onSignedIn} />
+          <InlineReauth expectedAccount={expected} onSignedIn={onSignedIn} />
         </form>
       </FakeAuthProvider>
     );
@@ -108,11 +135,21 @@ describe("InlineReauth — signing in with Google or Apple in a new tab", () => 
     return { onSignedIn, onSubmit, ...shared, become };
   }
 
-  it("offers a /login link in a new tab, naming only the providers that are on, without submitting the outer form", () => {
+  const useNewTabLink = () => fireEvent.click(screen.getByRole("link", { name: "Sign in in a new tab" }));
+  const owner = (overrides: Partial<AuthContextValue> = {}): Partial<AuthContextValue> => ({
+    status: "signed-in",
+    userId: "user-owner",
+    email: "owner@example.com",
+    accessToken: "owner-token",
+    lastSignInAt: "2026-10-25T10:00:00Z",
+    ...overrides,
+  });
+
+  it("offers /login in a new tab (ending on /signed-in), naming only the providers that are on, without submitting the outer form", () => {
     const { onSubmit } = mount(SIGNED_OUT);
     expect(screen.getByText(/^Signed in with Google or Apple\?/)).toBeInTheDocument();
     const link = screen.getByRole("link", { name: "Sign in in a new tab" });
-    expect(link).toHaveAttribute("href", "/login");
+    expect(link).toHaveAttribute("href", "/login?next=%2Fsigned-in");
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener");
 
@@ -132,72 +169,133 @@ describe("InlineReauth — signing in with Google or Apple in a new tab", () => 
     expect(screen.queryByRole("link", { name: "Sign in in a new tab" })).toBeNull();
   });
 
+  it("in the iOS home-screen app (its new tabs open in Safari, apart from it), no link: says how it is instead", () => {
+    Object.defineProperty(window.navigator, "userAgent", {
+      value: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+      configurable: true,
+    });
+    Object.defineProperty(window.navigator, "standalone", { value: true, configurable: true });
+    mount(SIGNED_OUT);
+    expect(screen.queryByRole("link", { name: "Sign in in a new tab" })).toBeNull();
+    expect(
+      screen.getByText(
+        "Signed in with Google or Apple? In the home-screen app, that sign-in can’t reach this page. Copy anything you want to keep, then sign in again with Sign in, at the top of the page or in the menu.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("says it's waiting once the link is used, in a polite live region, and clears it when the sign-in arrives", async () => {
-    const { become, onSignedIn } = mount(SIGNED_OUT, { expectedEmail: "owner@example.com" });
+    const { become, onSignedIn } = mount(SIGNED_OUT, { expected: OWNER });
     const live = screen.getByText((_, el) => el?.getAttribute("aria-live") === "polite");
     expect(live).toBeEmptyDOMElement();
 
-    fireEvent.click(screen.getByRole("link", { name: "Sign in in a new tab" }));
+    useNewTabLink();
     expect(live).toHaveTextContent("Waiting for you to sign in in the other tab.");
 
-    await become({ status: "signed-in", email: "owner@example.com", accessToken: "from-the-other-tab" });
+    await become(owner());
     expect(onSignedIn).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(live).toBeEmptyDOMElement());
   });
 
-  it("calls onSignedIn exactly once when a new session for the expected account arrives from another tab", async () => {
-    const { become, onSignedIn, signOut } = mount(SIGNED_OUT, { expectedEmail: "Owner@Example.com" });
+  it("never reacts to a sign-in in another tab unless the link was used", async () => {
+    const { become, onSignedIn, signOut } = mount(SIGNED_OUT, { expected: OWNER });
+    await become(owner());
+    await become({ ...SIGNED_OUT });
+    await become({ status: "signed-in", userId: "user-other", email: "other@example.com", accessToken: "t" });
+    expect(onSignedIn).not.toHaveBeenCalled();
+    expect(signOut).not.toHaveBeenCalled();
+  });
+
+  it("calls onSignedIn exactly once for the expected account's new sign-in; token refreshes never count", async () => {
+    const { become, onSignedIn, signOut } = mount(SIGNED_OUT, { expected: OWNER });
+    useNewTabLink();
     expect(onSignedIn).not.toHaveBeenCalled();
 
-    await become({ status: "signed-in", email: "owner@example.com", accessToken: "token-1" });
+    await become(owner({ accessToken: "token-1" }));
     expect(onSignedIn).toHaveBeenCalledTimes(1);
 
-    // A refresh, or the same state again, never calls it a second time.
-    await become({ status: "signed-in", email: "owner@example.com", accessToken: "token-1" });
-    await become({ status: "signed-in", email: "owner@example.com", accessToken: "token-2" });
+    // A refresh (a new token, same sign-in), or the same state again, never calls it a second time.
+    await become(owner({ accessToken: "token-1" }));
+    await become(owner({ accessToken: "token-2" }));
     expect(onSignedIn).toHaveBeenCalledTimes(1);
     expect(signOut).not.toHaveBeenCalled();
   });
 
+  it("keys on the sign-in, not the token: a refresh of a stale session is ignored, a new sign-in by the same account counts", async () => {
+    // The session ran out without this tab hearing a sign-out (say, a refresh that failed on the network).
+    const { become, onSignedIn } = mount(owner({ accessToken: "stale" }), { expected: OWNER });
+    useNewTabLink();
+    await become(owner({ accessToken: "refreshed" }));
+    expect(onSignedIn).not.toHaveBeenCalled();
+
+    await become(owner({ accessToken: "new", lastSignInAt: "2026-10-25T11:00:00Z" }));
+    expect(onSignedIn).toHaveBeenCalledTimes(1);
+  });
+
   it("accepts any new session when no account is pinned", async () => {
     const { become, onSignedIn } = mount(SIGNED_OUT);
+    useNewTabLink();
     await become({ status: "signed-in", email: "anyone@example.com", accessToken: "token-1" });
     expect(onSignedIn).toHaveBeenCalledTimes(1);
   });
 
-  it("refuses another account's session from the other tab: the existing error, and signs it out", async () => {
-    const { become, onSignedIn, signOut } = mount(SIGNED_OUT, { expectedEmail: "owner@example.com" });
-    fireEvent.click(screen.getByRole("link", { name: "Sign in in a new tab" }));
+  it("refuses another account's session from the other tab: says so, moves focus there, and signs nobody out", async () => {
+    const { become, onSignedIn, signOut } = mount(SIGNED_OUT, { expected: OWNER });
+    useNewTabLink();
 
-    await become({ status: "signed-in", email: "someone-else@example.com", accessToken: "their-token" });
-    expect(signOut).toHaveBeenCalledTimes(1);
+    await become({ status: "signed-in", userId: "user-other", email: "someone-else@example.com", accessToken: "their-token" });
+    expect(signOut).not.toHaveBeenCalled();
     expect(onSignedIn).not.toHaveBeenCalled();
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/different account/i));
-    expect(screen.getByRole("alert")).toHaveTextContent("Sign in as owner@example.com to save it");
+    const message = screen.getByText(/^You're signed in as a different account/);
+    expect(message).toHaveTextContent("Sign in as owner@example.com to save it");
+    await waitFor(() => expect(message).toHaveFocus());
+    expect(message).toHaveAttribute("tabindex", "-1");
     expect(screen.queryByText("Waiting for you to sign in in the other tab.")).toBeNull();
 
-    // Signed out, then the right account signs in over there: accepted.
+    // Still said while it's true (it isn't cleared by anything else happening here).
+    await become({ status: "signed-in", userId: "user-other", email: "someone-else@example.com", accessToken: "refreshed" });
+    expect(screen.getByText(/^You're signed in as a different account/)).toBeInTheDocument();
+
+    // They sign out over there, and the right account signs in: accepted.
     await become(SIGNED_OUT);
-    await become({ status: "signed-in", email: "owner@example.com", accessToken: "owner-token" });
+    expect(screen.queryByText(/^You're signed in as a different account/)).toBeNull();
+    await become(owner());
     expect(onSignedIn).toHaveBeenCalledTimes(1);
   });
 
+  it("compares accounts by user id when both have one: a changed email is still the owner, a reused one isn't", async () => {
+    const changed = mount(SIGNED_OUT, { expected: OWNER });
+    useNewTabLink();
+    await changed.become(owner({ email: "new-address@example.com" }));
+    expect(changed.onSignedIn).toHaveBeenCalledTimes(1);
+    cleanup();
+
+    const reused = mount(SIGNED_OUT, { expected: OWNER });
+    useNewTabLink();
+    await reused.become(owner({ userId: "user-someone-else" }));
+    expect(reused.onSignedIn).not.toHaveBeenCalled();
+    expect(screen.getByText(/^You're signed in as a different account/)).toBeInTheDocument();
+  });
+
   it("does nothing for the session it mounted with, or the first one after loading", async () => {
-    const signedIn = mount({ status: "signed-in", email: "owner@example.com", accessToken: "stale" }, { expectedEmail: "owner@example.com" });
-    await signedIn.become({ status: "signed-in", email: "owner@example.com", accessToken: "stale" });
+    const signedIn = mount(owner({ accessToken: "stale" }), { expected: OWNER });
+    useNewTabLink();
+    await signedIn.become(owner({ accessToken: "stale" }));
     expect(signedIn.onSignedIn).not.toHaveBeenCalled();
     cleanup();
 
-    const loading = mount({ status: "loading", email: undefined, accessToken: undefined }, { expectedEmail: "owner@example.com" });
-    await loading.become({ status: "signed-in", email: "owner@example.com", accessToken: "restored" });
+    const loading = mount({ status: "loading", email: undefined, accessToken: undefined }, { expected: OWNER });
+    useNewTabLink();
+    await loading.become(owner({ accessToken: "restored" }));
     expect(loading.onSignedIn).not.toHaveBeenCalled();
   });
 
   it("calls onSignedIn once for a password sign-in here, whenever its session reaches this component", async () => {
     // Its session arrives while the sign-in is still in flight...
-    const during = mount(SIGNED_OUT, { expectedEmail: "owner@example.com" });
+    const during = mount(SIGNED_OUT, { expected: OWNER });
+    useNewTabLink();
     during.signIn.mockImplementation(async () => {
-      await during.become({ status: "signed-in", email: "owner@example.com", accessToken: "password-token" });
+      await during.become(owner({ accessToken: "password-token" }));
     });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter2" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
@@ -207,11 +305,12 @@ describe("InlineReauth — signing in with Google or Apple in a new tab", () => 
     cleanup();
 
     // ...or only after it has finished.
-    const after = mount(SIGNED_OUT, { expectedEmail: "owner@example.com" });
+    const after = mount(SIGNED_OUT, { expected: OWNER });
+    useNewTabLink();
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter2" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     await waitFor(() => expect(after.onSignedIn).toHaveBeenCalledTimes(1));
-    await after.become({ status: "signed-in", email: "owner@example.com", accessToken: "password-token" });
+    await after.become(owner({ accessToken: "password-token" }));
     expect(after.onSignedIn).toHaveBeenCalledTimes(1);
   });
 });

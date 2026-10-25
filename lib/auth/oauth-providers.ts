@@ -30,7 +30,7 @@ export function parseAuthProviders(raw: string | undefined): OAuthProvider[] {
 /**
  * The official logo files each provider's button shows, served from
  * public/auth/ (so at /auth/<file>). They're the vendors' own artwork, which
- * the owner downloads (public/auth/README.md says from where); none is
+ * the owner downloads (docs/auth-logos.md says from where); none is
  * committed and no stand-in may ship, so next.config.ts fails the build when
  * NEXT_PUBLIC_AUTH_PROVIDERS lists a provider whose files are missing.
  *

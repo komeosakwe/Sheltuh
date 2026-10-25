@@ -5,9 +5,11 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import EventEditor from "@/components/dashboard/EventEditor";
 import { ButtonLink } from "@/components/ui/Button";
+import type { GetToken } from "@/lib/api/client";
 import { getMyEvent } from "@/lib/api/events";
 import type { EventRecord } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useKeptWhileSignedOut } from "@/lib/auth/useKeptWhileSignedOut";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 
@@ -20,6 +22,12 @@ export default function EditEventPageContent() {
 
   const ready = auth.status === "signed-in" && organiser?.status === "approved";
   const getToken = auth.getAccessToken;
+  // Signed in, with this account's organiser status loaded.
+  const settled = auth.status === "signed-in" && !organiserLoading;
+  // The editor was on screen: kept while the session has run out (or another
+  // account's status is loading), so it stays mounted with the unsaved
+  // changes and its own recovery can sign in again in place.
+  const editorShown = useKeptWhileSignedOut(ready && event !== null && !error, settled) === true;
 
   useEffect(() => {
     if (!ready) return;
@@ -44,6 +52,8 @@ export default function EditEventPageContent() {
     );
   }
 
+  if (event && editorShown) return <EditorView event={event} getToken={getToken} onSaved={setEvent} />;
+
   if (auth.status === "loading" || organiserLoading) {
     return <LoadingState text="Loading…" />;
   }
@@ -67,10 +77,19 @@ export default function EditEventPageContent() {
     );
   }
 
-  if (!event) {
-    return <LoadingState text="Loading event…" />;
-  }
+  return <LoadingState text="Loading event…" />;
+}
 
+/** The editor and its links. One component wherever it's shown from, so it's never remounted (losing edits). */
+function EditorView({
+  event,
+  getToken,
+  onSaved,
+}: {
+  event: EventRecord;
+  getToken: GetToken;
+  onSaved: (record: EventRecord) => void;
+}) {
   return (
     <>
       <div className="flex flex-wrap gap-2">
@@ -94,7 +113,7 @@ export default function EditEventPageContent() {
           </ButtonLink>
         )}
       </div>
-      <EventEditor getToken={getToken} initial={event} onSaved={setEvent} />
+      <EventEditor getToken={getToken} initial={event} onSaved={onSaved} />
     </>
   );
 }

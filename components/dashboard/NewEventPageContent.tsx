@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import EventEditor from "@/components/dashboard/EventEditor";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useKeptWhileSignedOut } from "@/lib/auth/useKeptWhileSignedOut";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 
@@ -11,6 +12,11 @@ export default function NewEventPageContent() {
   const auth = useAuth();
   const router = useRouter();
   const { loading, organiser } = useOrganiser();
+  const approved = auth.status === "signed-in" && organiser?.status === "approved";
+  // The editor was on screen: kept while the session has run out (or another
+  // account's status is loading), so the new draft stays mounted and its own
+  // recovery can sign in again in place.
+  const editorShown = useKeptWhileSignedOut(approved, auth.status === "signed-in" && !loading) === true;
 
   if (!auth.configured) {
     return (
@@ -20,25 +26,25 @@ export default function NewEventPageContent() {
     );
   }
 
+  if (editorShown) {
+    return (
+      <EventEditor
+        getToken={auth.getAccessToken}
+        onSaved={(record) => router.push(`/dashboard/${record.eventId}`)}
+      />
+    );
+  }
+
   if (auth.status === "loading" || loading) {
     return <LoadingState text="Loading…" />;
   }
 
-  if (auth.status !== "signed-in" || !organiser || organiser.status !== "approved") {
-    return (
-      <div className="rounded-card border border-foreground bg-card p-4">
-        <p className="mb-3 text-foreground">You need an approved organiser application to create events.</p>
-        <Link href="/organisers/apply" className="btn btn-solid">
-          Apply as an organiser
-        </Link>
-      </div>
-    );
-  }
-
   return (
-    <EventEditor
-      getToken={auth.getAccessToken}
-      onSaved={(record) => router.push(`/dashboard/${record.eventId}`)}
-    />
+    <div className="rounded-card border border-foreground bg-card p-4">
+      <p className="mb-3 text-foreground">You need an approved organiser application to create events.</p>
+      <Link href="/organisers/apply" className="btn btn-solid">
+        Apply as an organiser
+      </Link>
+    </div>
   );
 }

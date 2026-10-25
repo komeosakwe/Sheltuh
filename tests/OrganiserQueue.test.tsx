@@ -7,6 +7,7 @@ import { SessionExpiredError } from "@/lib/auth/session-token";
 import type { AdminOrganiserRecord, OrganiserStatus } from "@/lib/api/types";
 import type { AdminListOrganisersQuery } from "@/lib/api/admin";
 import { formatDayTime } from "@/lib/format";
+import { AdminOwnerProvider } from "@/components/admin/AdminSessionExpired";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 import { fakeUrl } from "./test-utils/fakeUrl";
 
@@ -85,7 +86,10 @@ function renderQueue() {
   const auth = fakeAuthValue({ isAdmin: true });
   render(
     <FakeAuthProvider value={auth}>
-      <OrganiserQueue />
+      {/* As AdminShell does on every admin page: the admin these pages are open as. */}
+      <AdminOwnerProvider>
+        <OrganiserQueue />
+      </AdminOwnerProvider>
     </FakeAuthProvider>,
   );
   return auth;
@@ -631,7 +635,9 @@ describe("Admin organisers: a suspend in flight", () => {
     const auth = fakeAuthValue({ isAdmin: true, email: "admin@example.com" });
     render(
       <FakeAuthProvider value={auth}>
-        <OrganiserQueue />
+        <AdminOwnerProvider>
+          <OrganiserQueue />
+        </AdminOwnerProvider>
       </FakeAuthProvider>,
     );
     await screen.findByText("Nothing to review");

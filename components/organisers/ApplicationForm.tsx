@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import InlineReauth from "@/components/auth/InlineReauth";
+import InlineReauth, { signedInAgainMessage } from "@/components/auth/InlineReauth";
 import FeaturedVideoField, { featuredVideoInitial, featuredVideoUrlError } from "@/components/organisers/FeaturedVideoField";
 import SocialHandleFields from "@/components/organisers/SocialHandleFields";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import { applyAsOrganiser, resubmitOrganiser, type OrganiserApplicationInput } from "@/lib/api/organisers";
 import type { OrganiserRecord } from "@/lib/api/types";
-import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
+import { SessionExpiredError } from "@/lib/auth/AuthContext";
+import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import {
   SOCIAL_HANDLE_FIELDS,
   socialHandlesForRequest,
@@ -74,12 +75,11 @@ interface Props {
 }
 
 export default function ApplicationForm({ mode, getToken, initial, onSuccess }: Props) {
-  const auth = useAuth();
-  // Captured once at mount: the account filling out this application, so a
-  // session-expiry recovery only ever resumes as this same account —
-  // otherwise a signed-in-as-someone-else recovery would submit this
-  // organiser application under the wrong account entirely.
-  const [ownerEmail] = useState(() => auth.email);
+  // Captured while signed in: the account filling out this application, so a
+  // session-expiry recovery only ever resumes as this same account, and
+  // nothing is submitted while someone else is signed in (another tab) —
+  // otherwise it would go in under the wrong account entirely.
+  const { owner, otherAccount } = useAccountOwner();
   const [displayName, setDisplayName] = useState(initial?.displayName ?? "");
   const [contactEmail, setContactEmail] = useState(initial?.contactEmail ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
@@ -96,6 +96,9 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [loading, setLoading] = useState(false);
+  // The polite line by the submit button: said after signing in again in a recovery.
+  const [status, setStatus] = useState<string | null>(null);
+  const submitRef = useRef<HTMLButtonElement>(null);
   const focusFirstError = useRef(false);
 
   // After a failed submit (client checks or the server's field errors), once
@@ -136,6 +139,7 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
     event.preventDefault();
     setSubmitError(null);
     setSessionExpired(false);
+    setStatus(null);
     const nextErrors = validate();
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) {
@@ -156,6 +160,13 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
       // Blank: none (a resubmission sends null, which removes one given before).
       featuredVideoUrl: video.trim() || (mode === "resubmit" ? null : undefined),
     };
+
+    if (otherAccount) {
+      // Someone else is signed in by now: the recovery below says so, and takes only this account.
+      setSessionExpired(true);
+      setSubmitError(new SessionExpiredError().message);
+      return;
+    }
 
     setLoading(true);
     try {
@@ -321,10 +332,12 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
         <div role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
           <p>{submitError}</p>
           <InlineReauth
-            expectedEmail={ownerEmail}
+            expectedAccount={owner}
             onSignedIn={() => {
               setSessionExpired(false);
               setSubmitError(null);
+              setStatus(signedInAgainMessage("submit"));
+              submitRef.current?.focus();
             }}
           />
         </div>
@@ -335,7 +348,13 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
         </p>
       )}
 
+      {/* Always rendered (never display:none), so it's announced when its text changes. */}
+      <p role="status" className="text-sm text-foreground empty:sr-only">
+        {status}
+      </p>
+
       <button
+        ref={submitRef}
         type="submit"
         disabled={loading}
         className="btn btn-solid w-fit"

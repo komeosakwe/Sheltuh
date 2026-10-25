@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { PageHeader } from "@/components/ui/Section";
 import { useAuth } from "@/lib/auth/AuthContext";
 import AdminGate from "./AdminGate";
+import { AdminOwnerProvider } from "./AdminSessionExpired";
 import AdminSubNav from "./AdminSubNav";
 
 /**
@@ -28,10 +29,11 @@ export default function AdminShell({ children }: { children: ReactNode }) {
     );
   }
 
+  // The admin these pages are open as: an expired-session sign-in is locked to them.
   return (
-    <>
+    <AdminOwnerProvider>
       <AdminSubNav />
       {children}
-    </>
+    </AdminOwnerProvider>
   );
 }

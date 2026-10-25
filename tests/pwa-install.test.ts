@@ -5,6 +5,7 @@ import {
   getInstallDismissed,
   INSTALL_DISMISSED_KEY,
   installPromptAllowedOn,
+  isIosHomeScreenApp,
   isIosSafari,
   isStandalone,
   rememberInstallDismissed,
@@ -98,6 +99,23 @@ describe("isStandalone / detectInstallPlatform", () => {
     expect(detectInstallPlatform(window)).toBe("ios-safari");
     vi.spyOn(navigator, "userAgent", "get").mockReturnValue(UA.androidChrome);
     expect(detectInstallPlatform(window)).toBe("other");
+  });
+});
+
+describe("isIosHomeScreenApp (InlineReauth: no new-tab sign-in there)", () => {
+  it("is true only when installed on an iPhone, not in Safari, nor installed on Android", () => {
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue(UA.iphoneSafari);
+    expect(isIosHomeScreenApp(window)).toBe(false);
+    stubDisplayMode("standalone");
+    expect(isIosHomeScreenApp(window)).toBe(true);
+    vi.spyOn(navigator, "userAgent", "get").mockReturnValue(UA.androidChrome);
+    expect(isIosHomeScreenApp(window)).toBe(false);
+  });
+
+  it("counts an iPad with a Mac user agent (a touch screen)", () => {
+    stubDisplayMode("standalone");
+    vi.spyOn(window, "navigator", "get").mockReturnValue({ ...navigator, userAgent: UA.ipadDesktopSafari, maxTouchPoints: 5 } as Navigator);
+    expect(isIosHomeScreenApp(window)).toBe(true);
   });
 });
 

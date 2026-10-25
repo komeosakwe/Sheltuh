@@ -8,6 +8,7 @@ import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
 import type { GetToken } from "@/lib/api/client";
 import { startConversation } from "@/lib/api/messages";
 import type { ConversationSummary, GoingAttendee } from "@/lib/api/types";
+import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import { validateMessage } from "@/lib/message-text";
 import MessageField from "./MessageField";
 import SessionExpiredNotice from "./SessionExpiredNotice";
@@ -136,6 +137,8 @@ export function ComposeRequestForm({
   const failureRef = useRef<HTMLDivElement>(null);
   const pendingFocus = useRef<"input" | "failure" | null>(null);
   const aboutId = `${id}-about`;
+  // Whose draft this is (captured while signed in), for the expired-session sign-in.
+  const { owner, otherAccount } = useAccountOwner();
 
   // Opening the form (a user action) moves focus into it.
   useEffect(() => {
@@ -172,6 +175,11 @@ export function ComposeRequestForm({
       return;
     }
     setFieldError(null);
+    if (otherAccount) {
+      // Signed in as someone else by now (another tab): never send this as them.
+      fail({ kind: "session" });
+      return;
+    }
     setBusy(true);
     try {
       const conversation = await startConversation({ ...to, body: text.trim() }, getToken);
@@ -227,6 +235,7 @@ export function ComposeRequestForm({
       {failure?.kind === "session" ? (
         <SessionExpiredNotice
           what="message"
+          owner={owner}
           noticeRef={failureRef}
           onSignedIn={() => {
             setFailure(null);

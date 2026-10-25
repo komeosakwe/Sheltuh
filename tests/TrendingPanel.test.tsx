@@ -5,6 +5,7 @@ import AdminTrendingList from "@/components/admin/AdminTrendingList";
 import TrendingPanel, { describeCurationChange } from "@/components/admin/TrendingPanel";
 import { ApiError } from "@/lib/api/client";
 import { SessionExpiredError } from "@/lib/auth/session-token";
+import { AdminOwnerProvider } from "@/components/admin/AdminSessionExpired";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 import type { EventCuration, TrendingEvent } from "@/lib/api/trending";
 
@@ -115,7 +116,9 @@ describe("TrendingPanel", () => {
     const auth = fakeAuthValue({ email: "admin@sheltuh.example", isAdmin: true });
     render(
       <FakeAuthProvider value={auth}>
-        <TrendingPanel eventId="evt-1" getToken={getToken} />
+        <AdminOwnerProvider>
+          <TrendingPanel eventId="evt-1" getToken={getToken} />
+        </AdminOwnerProvider>
       </FakeAuthProvider>,
     );
     const panel = screen.getByRole("region", { name: "Trending" });

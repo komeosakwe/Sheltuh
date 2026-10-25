@@ -120,7 +120,7 @@ If only one provider is enabled, render that button alone, then the divider. If 
 - `apple-logo-white.svg` (black button, White theme) and `apple-logo-black.svg` (white button, Dark theme): Apple's **logo-only** artwork, at the button's full 48px height with its own padding.
 - `google-g.svg`: the standard multicolour G, 24×24, on both themes.
 
-`public/auth/README.md` says where to download each. `next build` fails while `NEXT_PUBLIC_AUTH_PROVIDERS` lists a provider whose files are missing (`next.config.ts`). The file names live in `lib/auth/oauth-providers.ts`. Record each file's source URL and download date in the commit that adds it.
+`docs/auth-logos.md` says where to download each. `next build` (and `next typegen`, which loads the config the same way) fails while `NEXT_PUBLIC_AUTH_PROVIDERS` lists a provider whose files are missing (`next.config.ts`). The file names live in `lib/auth/oauth-providers.ts`. Record each file's source URL and download date in the commit that adds it.
 
 ## 5. Components
 
@@ -139,13 +139,15 @@ States:
 | Hover (`hover:hover`) | 8% `currentColor` overlay. The fill itself never changes. |
 | Focus-visible | Global `outline: 2px solid var(--foreground); outline-offset: 3px`. That's black on White and white on Dark, separated from the button by a 3px gap of page colour. Never orange; don't override it. |
 | Active | 1px nudge (no-preference only). |
-| Busy (after a click, before the redirect) | **Both** buttons get `aria-disabled="true"`, keep their colours and keep focus. Clicks are ignored. The status slot shows `DotsLoader` with `announce`, label **"Opening Apple"** or **"Opening Google"** (DotsLoader adds the "…"). |
+| Forced colours | The system replaces the fills, so each button needs an edge: Apple's gets `1px solid ButtonText` (it has no border of its own); Google's 1px stroke is forced to the system colour like any border. |
+| Busy (after a click, before the redirect) | **Both** buttons get `aria-disabled="true"`, keep their colours and keep focus. Clicks are ignored. The status region shows `DotsLoader`, label **"Opening Apple"** or **"Opening Google"** (DotsLoader adds the "…"). |
 | Back/forward-cache restore (`pageshow` with `persisted`) | Reset busy and clear the status. |
-| Error before the redirect | `Notice tone="danger" role="alert"`: **"Couldn't open Apple sign-in. Check your connection and try again."** (or Google). Busy resets; focus stays on the button. |
+| Error before the redirect | `Notice tone="danger"` in the alert region: **"Couldn't open Apple sign-in. Check your connection and try again."** (or Google). Busy resets; focus stays on the button. |
+| Live regions | Two, always rendered under the pair and empty until used (a region added together with its text often isn't read): a `role="status" aria-atomic="true"` for busy and the in-app notice, and beside it a `role="alert" aria-atomic="true"` for the error. Their content brings its own top margin, so empty they take no room. |
 | Disabled | Not used. An unavailable provider isn't rendered. |
 | Loading / empty | Nothing renders until `auth.configured` is known. |
 
-**In-app browser, Google only.** The button renders normally. A click doesn't redirect. Instead it shows `Notice tone="info" role="status"` in the slot, and focus stays on the button:
+**In-app browser, Google only.** The button renders normally. A click doesn't redirect. Instead it shows `Notice tone="info"` in the status region, and focus stays on the button. Each tap empties the region and fills it again 100ms later, so a second tap is heard too:
 - iOS: **"Google sign-in doesn't work inside this app's browser. Open this page in Safari, or continue with Apple or email."**
 - Android: the same with **"Chrome"**.
 - Other: **"…in your browser…"**.
@@ -166,17 +168,20 @@ With one provider, name only that one. Implement it as a `lead` prop on `LegalNo
 The rule is a decorative hairline, so `surface-border` is correct. Muted text is 5.65:1 on White and 7.87:1 on Dark.
 
 **`LoginForm.tsx`.** Only when at least one provider renders, add the password field's `hint` (AuthField's existing slot, `text-xs text-muted`, wired into `aria-describedby`):
-> **"Signed up with Google or Apple? Use that button — there's no password."**
+> **"Signed up with Google or Apple? Use Continue with Google or Apple above — there's no password."**
 
-With one provider, name only that one.
+With one provider, name only that one. With a provider on, Supabase's "Invalid login credentials" (and only that error) reads:
+> **"That email and password don't match. If you signed up with Apple or Google, use that button above."**
+
+The email form sits in `<div id="email-sign-in">` (the callback's "Use email instead" target; the page's `scroll-padding-top` keeps its label clear of the sticky header). With the buttons shown, their legal line is the page's: `/login` doesn't repeat `LegalNote` under the form.
 
 **`/auth/callback` (`OAuthCallback.tsx`)**
 - Shell as in §3.
-- `PageHeader flush eyebrow="Account"`, with `titleRef` used on error.
+- `PageHeader flush eyebrow="Account"`, with `titleRef` used on error (no focus ring: it's focused by script) and `titleDescribedBy` pointing at the body line, so the h1 is read with it. On error the tab's title is the h1's, "— Sheltüh".
 - Body: `<p class="max-w-md text-base leading-6 text-muted">`.
 - Actions: `flex flex-col gap-3 sm:flex-row`, each `w-full sm:w-auto`:
   - `ButtonLink variant="solid" size="lg"`: **"Back to sign in"** → `withNext("/login", next)`.
-  - `ButtonLink variant="outline" size="lg"`: **"Use email instead"** → `withNext("/login", next)` + `#email`.
+  - `ButtonLink variant="outline" size="lg"`: **"Use email instead"** → `withNext("/login", next)` + `#email-sign-in`.
 - No retry button.
 - On error, focus moves to the h1.
 
@@ -199,10 +204,12 @@ The h1s are uppercase via `display-lg`, as on every auth page. No red headings; 
 **`InlineReauth.tsx`.** Only when a provider is enabled. Add a line under the Sign in button: `<p class="text-xs leading-4 text-muted">`
 > **"Signed in with Google or Apple?"** followed by the link **"Sign in in a new tab"**
 
-- The link: `/login`, `target="_blank" rel="noopener"`, `inline-flex min-h-11 items-center text-foreground underline underline-offset-4`.
+- The link: `/login?next=/signed-in`, `target="_blank" rel="noopener"`, `inline-flex min-h-11 items-center text-foreground underline underline-offset-4`. `/signed-in` says **"You're signed in"** / **"Go back to your other tab to finish. You can close this one."** (not under `/auth`, which a sign-in's `next` may never be).
 - With one provider, name only that one.
 - After the link is clicked, an `aria-live="polite"` line `text-xs text-muted` reads **"Waiting for you to sign in in the other tab."**
-- It clears on `onSignedIn`. The different-email error reuses the existing `text-xs text-danger` alert.
+- Only after the link was used does a sign-in from another tab count, and only a new sign-in (another account, or a new `last_sign_in_at`), never a token refresh. The expected account (captured by the host while signed in, compared by user id, then email) calls `onSignedIn`. Another account shows the different-account line (`text-xs text-danger`, focusable, focus moved to it, kept while it's true) and signs nobody out. A wrong-account password sign-in in the form itself signs out this browser only (local scope).
+- In the iOS home-screen app (its new tabs open in Safari, with separate storage) there's no link; the line says: **"Signed in with Google or Apple? In the home-screen app, that sign-in can't reach this page. Copy anything you want to keep, then sign in again with Sign in, at the top of the page or in the menu."**
+- The host form announces in its own polite status region **"Signed in again. Your changes are still here — submit when you're ready."** ("save" for the event editor and the public profile) and moves focus to its submit button. It stays mounted, draft and all, while the session is gone.
 
 **`AccountContent.tsx` (optional).** In the "Signed in as" Panel, under the email, as the first line of the `gap-1` stack: `<p class="text-sm text-muted">`
 > **"Sign-in methods: Email and password, Google"**
@@ -227,7 +234,7 @@ The h1s are uppercase via `display-lg`, as on every auth page. No red headings; 
 
 **Proposals for the manager (behaviour)**
 - A `lead` prop on `LegalNote`.
-- `#email` on "Use email instead". Native fragment scrolling only; focusing the field would be new behaviour.
+- `#email-sign-in` on "Use email instead". Native fragment scrolling only; focusing the field would be new behaviour.
 - A "Copy link" button in the in-app notice, which would need clipboard code.
 - The InlineReauth "waiting" line.
 

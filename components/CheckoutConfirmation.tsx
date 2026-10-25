@@ -24,7 +24,7 @@ import { compareSeats } from "@/lib/seating/format";
 import { forgetPendingCheckout } from "@/lib/seating/pending-checkout";
 import type { CustomerOrder } from "@/lib/api/types";
 
-type LoadState =
+export type LoadState =
   | { status: "loading" }
   | { status: "confirming" } // paid on Stripe's side, waiting on our webhook to land
   | { status: "ready"; order: CustomerOrder }
@@ -45,6 +45,34 @@ function sortTicketsBySeat(tickets: CustomerOrder["tickets"]) {
   return [...numbered].sort((a, b) =>
     a.ticket.seat && b.ticket.seat ? compareSeats(a.ticket.seat, b.ticket.seat) : a.ticket.seat ? -1 : b.ticket.seat ? 1 : a.number - b.number,
   );
+}
+
+/**
+ * The tab's title for each answer (the route's own, "Your order — Sheltüh", stays while it's loading):
+ * what happened, never "Order confirmed" for an order that wasn't.
+ */
+export function confirmationTitle(state: LoadState): string | null {
+  switch (state.status) {
+    case "loading":
+    case "confirming":
+      return null;
+    case "ready":
+      return "Order confirmed — Sheltüh";
+    case "oversold":
+      return state.order.refundReason === "refunded" ? "Order refunded — Sheltüh" : "Tickets not reserved — Sheltüh";
+    case "not-found":
+      return "Order not found — Sheltüh";
+    case "error":
+      return "Something went wrong — Sheltüh";
+    case "payment-open":
+      return "Payment not completed — Sheltüh";
+    case "processing":
+      return "Payment processing — Sheltüh";
+    case "closed":
+      return "Checkout closed — Sheltüh";
+    case "sold-out":
+      return "Sold out — Sheltüh";
+  }
 }
 
 const POLL_INTERVAL_MS = 2000;
@@ -163,6 +191,11 @@ export default function CheckoutConfirmation() {
       cancelled = true;
     };
   }, [sessionId]);
+
+  const title = confirmationTitle(state);
+  useEffect(() => {
+    if (title) document.title = title;
+  }, [title]);
 
   // Focus follows the page's answer when it's a message rather than the tickets (checkout-pay.md §6).
   const messageShown = state.status !== "loading" && state.status !== "confirming" && state.status !== "ready";

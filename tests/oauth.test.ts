@@ -101,9 +101,20 @@ describe("parseOAuthCallback", () => {
     expect(parseOAuthCallback("?next=%2Fevents%2Fx%23whos-going&code=3f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f", "")).toEqual({
       kind: "code",
       code: "3f1c2b9e-1a2b-4c3d-8e9f-0a1b2c3d4e5f",
+      flowId: null,
       next: "/events/x#whos-going",
     });
-    expect(parseOAuthCallback("?code=abc", "")).toEqual({ kind: "code", code: "abc", next: null });
+    expect(parseOAuthCallback("?code=abc", "")).toEqual({ kind: "code", code: "abc", flowId: null, next: null });
+  });
+
+  it("keeps Supabase's sb_flow_id with the code when it's well-formed (Supabase's own pattern), and only then", () => {
+    expect(parseOAuthCallback("?code=abc&sb_flow_id=0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d", "")).toMatchObject({
+      kind: "code",
+      flowId: "0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d",
+    });
+    for (const bad of ["short", "has%20space", "x".repeat(65), "%3Cscript%3E"]) {
+      expect(parseOAuthCallback(`?code=abc&sb_flow_id=${bad}`, "")).toMatchObject({ kind: "code", flowId: null });
+    }
   });
 
   it("drops an unsafe next, the callback itself included", () => {
