@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { AuthApiError } from "@supabase/supabase-js";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import InviteFlow from "@/components/invites/InviteFlow";
 import { ApiError } from "@/lib/api/client";
 import type { InviteView, MyInvite } from "@/lib/api/types";
-import type { AuthContextValue } from "@/lib/auth/AuthContext";
+import { OtherSessionsSignOutError, type AuthContextValue } from "@/lib/auth/AuthContext";
 import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
 
 const viewInvite = vi.fn();
@@ -45,6 +45,9 @@ const ORGANISER_VIEW: InviteView = {
 const MEMBER_VIEW: InviteView = { kind: "member", maskedEmail: "m***@example.com", expiresAt: EXPIRES, account: "new", passwordSetup: true };
 const ORGANISER_INVITE: MyInvite = { inviteId: "inv-1", kind: "organiser", organiserName: "Neon Collective", expiresAt: EXPIRES };
 const MEMBER_INVITE: MyInvite = { inviteId: "inv-2", kind: "member", expiresAt: EXPIRES };
+
+const NEW_INVITE_MAILTO = "mailto:support@sheltuh.com.au?subject=New%20invite%20link";
+const SIGNED_IN_MIA: Partial<AuthContextValue> = { status: "signed-in", email: "mia@example.com", userId: "u-mia" };
 
 const SIGNED_OUT: Partial<AuthContextValue> = { status: "signed-out", email: undefined, userId: undefined, accessToken: undefined };
 
@@ -140,6 +143,7 @@ describe("/invite: before anything is pressed", () => {
     const heading = await screen.findByRole("heading", { level: 1, name: "This invite link isn’t valid" });
     await waitFor(() => expect(heading).toHaveFocus());
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Email support@sheltuh.com.au" })).toHaveAttribute("href", NEW_INVITE_MAILTO);
   });
 
   it.each([
@@ -152,7 +156,21 @@ describe("/invite: before anything is pressed", () => {
     const heading = await screen.findByRole("heading", { level: 1, name: title });
     await waitFor(() => expect(heading).toHaveFocus());
     expect(heading).toHaveAccessibleDescription(message);
-    if (code === "used") expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login?next=%2Finvite");
+    if (code === "used") {
+      expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login?next=%2Finvite");
+      expect(screen.queryByRole("link", { name: /^Email / })).toBeNull();
+    } else {
+      // How to reach the team, with the subject filled in.
+      expect(screen.getByRole("link", { name: "Email support@sheltuh.com.au" })).toHaveAttribute("href", NEW_INVITE_MAILTO);
+    }
+  });
+
+  it("a used invite, signed in: on to their account (not the dashboard, which is an organiser's)", async () => {
+    viewInvite.mockRejectedValue(new ApiError(410, "Gone.", undefined, { error: "Gone.", code: "used" }));
+    renderFlow(SIGNED_IN_MIA);
+    expect(await screen.findByRole("heading", { level: 1, name: "This invite has already been used" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Your account" })).toHaveAttribute("href", "/account");
+    expect(screen.queryByRole("link", { name: "Go to your dashboard" })).toBeNull();
   });
 
   it("a connection failure can be tried again", async () => {
@@ -163,6 +181,17 @@ describe("/invite: before anything is pressed", () => {
     expect(viewInvite).toHaveBeenCalledTimes(2);
   });
 
+  it("the same failure again after Try again: the heading takes focus again, so it's read out", async () => {
+    viewInvite.mockRejectedValue(new ApiError(0, "Couldn't reach the server."));
+    renderFlow();
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Something went wrong" })).toHaveFocus());
+    retry.focus();
+    fireEvent.click(retry);
+    await waitFor(() => expect(viewInvite).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Something went wrong" })).toHaveFocus());
+  });
+
   it("an address with an account signs in, coming back here", async () => {
     viewInvite.mockResolvedValue({ ...ORGANISER_VIEW, account: "existing" });
     renderFlow();
@@ -170,6 +199,7 @@ describe("/invite: before anything is pressed", () => {
       /m\*\*\*@example\.com already has a Sheltüh account/,
     );
     expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login?next=%2Finvite");
+    expect(screen.getByRole("link", { name: "Forgot your password?" })).toHaveAttribute("href", "/forgot-password?next=%2Finvite");
     expect(screen.queryByLabelText("Password")).toBeNull();
   });
 
@@ -260,6 +290,29 @@ describe("/invite: Create account", () => {
     expect(push).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["a server fault", new ApiError(500, "Internal server error")],
+    ["no connection", new ApiError(0, "Failed to fetch")],
+  ])("member: accepting straight away fails (%s): the Accept step opens saying so, in our words", async (_what, error) => {
+    viewInvite.mockResolvedValue(MEMBER_VIEW);
+    getInviteAccountLink.mockResolvedValue({ tokenHash: "hash-2" });
+    getMyInvite.mockReset().mockResolvedValue(MEMBER_INVITE);
+    acceptInvite.mockRejectedValueOnce(error).mockResolvedValue({ kind: "member" });
+    renderFlow();
+    await fillPasswords();
+    fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+    const heading = await screen.findByRole("heading", { level: 1, name: "Accept your invite" });
+    await waitFor(() => expect(heading).toHaveFocus());
+    // Focus lands on the heading: it's described by the intro and the error, so both are read.
+    expect(heading).toHaveAccessibleDescription(
+      /^Accepting finishes setting up your Sheltüh account .* We couldn’t accept your invite just now\. Try again in a moment\.$/,
+    );
+    expect(screen.getByRole("alert")).not.toHaveTextContent(error.message);
+    expect(screen.getByText(/^By accepting, you agree/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Accept invite" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "You’re in" })).toBeInTheDocument();
+  });
+
   it("an expired sign-up token (otp_expired) is explained, and Create account asks for a new one", async () => {
     viewInvite.mockResolvedValue(ORGANISER_VIEW);
     getInviteAccountLink.mockResolvedValue({ tokenHash: "hash-1" });
@@ -287,10 +340,14 @@ describe("/invite: Create account", () => {
     );
     await fillPasswords();
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/Your account is set up, but its password wasn’t saved: Password is known/);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Your account is set up, but its password wasn’t saved: Password is known to be weak and easy to guess. Choose a different password, then press Save password.",
+    );
     const password = screen.getByLabelText("Password");
     await waitFor(() => expect(password).toHaveFocus());
     expect(password).toHaveAttribute("aria-invalid", "true");
+    // The account exists now: signing in to another isn't the way on.
+    expect(screen.queryByRole("link", { name: "Sign in" })).toBeNull();
 
     await fillPasswords("Better456x", "Better456x");
     fireEvent.click(screen.getByRole("button", { name: "Save password" }));
@@ -300,7 +357,27 @@ describe("/invite: Create account", () => {
     expect(value.setNewPassword).toHaveBeenLastCalledWith("Better456x");
   });
 
-  it("409 has_account: on to signing in, saying why", async () => {
+  it("other sessions not signed out: says the password was saved, and Save password only retries that", async () => {
+    viewInvite.mockResolvedValue(ORGANISER_VIEW);
+    getInviteAccountLink.mockResolvedValue({ tokenHash: "hash-1" });
+    getMyInvite.mockReset().mockResolvedValue(ORGANISER_INVITE);
+    const { controls } = renderFlow();
+    const value = controls.auth;
+    value.setNewPassword.mockRejectedValueOnce(new OtherSessionsSignOutError(new AuthApiError("Server error", 500, "unexpected_failure")));
+    await fillPasswords();
+    fireEvent.click(screen.getByRole("button", { name: "Create account" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Your password was saved, but we couldn’t sign out your other sessions. Press Save password to try again.");
+    expect(alert).not.toHaveTextContent("wasn’t saved");
+    expect(screen.getByLabelText("Password")).not.toHaveAttribute("aria-invalid");
+
+    fireEvent.click(screen.getByRole("button", { name: "Save password" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Join Sheltüh as Neon Collective" })).toBeInTheDocument();
+    expect(value.setNewPassword).toHaveBeenCalledTimes(2);
+    expect(getInviteAccountLink).toHaveBeenCalledTimes(1);
+  });
+
+  it("409 has_account: on to signing in, its heading and intro saying why (no second notice)", async () => {
     viewInvite.mockResolvedValue(ORGANISER_VIEW);
     getInviteAccountLink.mockRejectedValue(
       new ApiError(409, "This email address already has a Sheltüh account.", undefined, { code: "has_account" }),
@@ -310,7 +387,8 @@ describe("/invite: Create account", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     const heading = await screen.findByRole("heading", { level: 1, name: "Sign in to accept your invite" });
     await waitFor(() => expect(heading).toHaveFocus());
-    expect(screen.getByText("This email address already has a Sheltüh account.")).toBeInTheDocument();
+    expect(heading).toHaveAccessibleDescription(/m\*\*\*@example\.com already has a Sheltüh account/);
+    expect(screen.queryByText("This email address already has a Sheltüh account.")).toBeNull();
   });
 
   it("503 unavailable: falls back to the ordinary sign-up", async () => {
@@ -335,6 +413,9 @@ describe("/invite: Create account", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
     const heading = await screen.findByRole("heading", { level: 1, name: "Reset your password to accept your invite" });
     await waitFor(() => expect(heading).toHaveFocus());
+    // Our words, not the 503's (which point at the sign-up form this account can't use).
+    expect(screen.getByText("We couldn’t set up your account from here, so reset its password instead.")).toBeInTheDocument();
+    expect(screen.queryByText("We can't set up your account from here right now.")).toBeNull();
     expect(viewInvite).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("link", { name: "Reset password" })).toHaveAttribute("href", "/forgot-password?next=%2Finvite");
     expect(screen.queryByRole("link", { name: "Create account" })).toBeNull();
@@ -382,6 +463,7 @@ describe("/invite: signed in", () => {
     const heading = await screen.findByRole("heading", { level: 1, name: "You’re signed in as other@example.com" });
     expect(heading).toHaveAccessibleDescription("This invite is for m***@example.com. Sign out to continue.");
     expect(signOut).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: "Keep using this account" })).toHaveAttribute("href", "/events");
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(signOut).toHaveBeenCalledWith("local");
     const next = await screen.findByRole("heading", { level: 1, name: "Set up Neon Collective on Sheltüh" });
@@ -417,6 +499,23 @@ describe("/invite: signed in", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "You’re in" })).toBeInTheDocument();
   });
 
+  it("a link a resend replaced (404), signed in with the invite's account: the invite waiting for it, to accept", async () => {
+    viewInvite.mockRejectedValue(new ApiError(404, "This invite link isn't valid."));
+    getMyInvite.mockReset().mockResolvedValue(MEMBER_INVITE);
+    renderFlow(SIGNED_IN_MIA);
+    expect(await screen.findByRole("heading", { level: 1, name: "Accept your invite" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Accept invite" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "This invite link isn’t valid" })).toBeNull();
+  });
+
+  it("an invalid link (404), signed in, with no invite for the account: the invalid link", async () => {
+    viewInvite.mockRejectedValue(new ApiError(404, "This invite link isn't valid."));
+    renderFlow(SIGNED_IN_MIA);
+    const heading = await screen.findByRole("heading", { level: 1, name: "This invite link isn’t valid" });
+    await waitFor(() => expect(heading).toHaveFocus());
+    expect(getMyInvite).toHaveBeenCalled();
+  });
+
   it("no invite for the account (no token): says so, with Sign out", async () => {
     const { signOut } = renderFlow({ status: "signed-in", email: "mia@example.com", userId: "u-mia" }, { at: "/invite" });
     expect(await screen.findByRole("heading", { level: 1, name: "No invite for this account" })).toBeInTheDocument();
@@ -430,8 +529,15 @@ describe("/invite: signed in", () => {
       .mockRejectedValueOnce(new ApiError(409, "Your account already has an organiser profile."))
       .mockRejectedValueOnce(new ApiError(410, "Expired.", undefined, { code: "expired" }));
     renderFlow({ status: "signed-in", email: "mia@example.com", userId: "u-mia" }, { at: "/invite" });
-    fireEvent.click(await screen.findByRole("button", { name: "Join as Neon Collective" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Your account already has an organiser profile.");
+    expect(await screen.findByText(/^By joining, you agree/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Join as Neon Collective" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Your account already has an organiser profile.");
+    // Only the team can sort this out: how to reach them.
+    expect(within(alert).getByRole("link", { name: "Email support@sheltuh.com.au" })).toHaveAttribute(
+      "href",
+      "mailto:support@sheltuh.com.au?subject=Invite%3A%20my%20account%20already%20has%20an%20organiser",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Join as Neon Collective" }));
     const heading = await screen.findByRole("heading", { level: 1, name: "This invite has expired" });
     await waitFor(() => expect(heading).toHaveFocus());

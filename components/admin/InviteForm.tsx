@@ -6,11 +6,17 @@ import { Notice } from "@/components/ui/Section";
 import { adminCreateInvite } from "@/lib/api/admin";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import type { AdminCreateInviteInput, AdminInviteRecord, InviteKind } from "@/lib/api/types";
+import { SessionExpiredError } from "@/lib/auth/session-token";
+import { INVITE_LINK_DAYS } from "@/lib/invites";
 import { websiteUrlError } from "@/lib/organiser-profile";
 import { EVENT_CATEGORIES, type EventCategory } from "@/lib/types";
+import AdminSessionExpired from "./AdminSessionExpired";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SUMMARY_ID = "invite-form-summary";
+const SUBMIT_ID = "invite-form-submit";
+/** The form's name when it holds the page's sign-in form (InvitesAdmin's `reauthOwner`). */
+export const FORM_REAUTH_OWNER = "form";
 const inputClass = "border border-foreground bg-transparent px-3 py-2 text-foreground";
 
 /** The form's fields, in order, by the API's fieldErrors keys (organiser fields are `organiser.<field>`). */
@@ -49,14 +55,17 @@ function controlId(field: FormField | string): string {
   return `invite-${field.replace(".", "-")}`;
 }
 
-/** What the 503 means: nothing was saved or sent. */
-export const INVITES_UNAVAILABLE =
-  "Invites aren’t available yet: this site can’t create accounts from an invite until SUPABASE_ADMIN_INVITE_KEY is set (docs/supabase-setup.md). Nothing was saved or sent.";
+/** What the 503 means, plainly first: nothing was saved or sent. */
+export const INVITES_UNAVAILABLE_TITLE = "Invites can’t be sent yet. Nothing was saved or sent.";
+/** Why, for whoever sets the site up. */
+export const INVITES_UNAVAILABLE_DETAIL =
+  "This site can’t create accounts from an invite until SUPABASE_ADMIN_INVITE_KEY is set (docs/supabase-setup.md).";
+export const INVITES_UNAVAILABLE = `${INVITES_UNAVAILABLE_TITLE} ${INVITES_UNAVAILABLE_DETAIL}`;
 
 /** What a sent (or saved but unsent) invite says. */
 export function sentText(invite: AdminInviteRecord, emailSent: boolean): string {
   return emailSent
-    ? `Invite sent to ${invite.email}. The link works for 14 days.`
+    ? `Invite sent to ${invite.email}. The link works for ${INVITE_LINK_DAYS} days.`
     : `Invite saved, but the email to ${invite.email} didn’t send. Resend it from the list below.`;
 }
 
@@ -67,14 +76,21 @@ export function sentText(invite: AdminInviteRecord, emailSent: boolean): string 
  * invite's address, description, categories and website); the organiser
  * is approved when they accept. The admin confirms the person asked for it
  * (Spam Act 2003). On an error, a summary lists what to fix and focus goes
- * to the first field with one; each field's message describes it.
+ * to the first field with one; each field's message describes it. An
+ * expired session offers the sign-in form here (when this form holds it),
+ * keeping what was typed; a sent invite is announced where focus stays.
  */
 export default function InviteForm({
   getToken,
   onCreated,
+  reauthOwner,
+  onClaimReauth,
 }: {
   getToken: GetToken;
   onCreated: (invite: AdminInviteRecord, emailSent: boolean) => void;
+  /** Who shows the page's one sign-in form after a session expired. */
+  reauthOwner: string | null;
+  onClaimReauth: (owner: string | null) => void;
 }) {
   const [kind, setKind] = useState<InviteKind>("organiser");
   const [email, setEmail] = useState("");
@@ -91,8 +107,9 @@ export default function InviteForm({
   const [formError, setFormError] = useState<{ title: string; message?: string } | null>(null);
   const [sent, setSent] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  /** The session ran out while sending: sign in again (what's typed is kept), then send again. */
+  const [expired, setExpired] = useState(false);
   const focusFirstError = useRef(false);
-  const sentRef = useRef<HTMLDivElement>(null);
   const summaryRef = useRef<HTMLDivElement>(null);
 
   const organiser = kind === "organiser";
@@ -107,10 +124,6 @@ export default function InviteForm({
     const target = first ? document.getElementById(controlId(first)) : summaryRef.current;
     target?.focus();
   }, [errors, formError, organiser]);
-
-  useEffect(() => {
-    if (sent) sentRef.current?.focus();
-  }, [sent]);
 
   function validate(): Record<string, string> {
     const next: Record<string, string> = {};
@@ -148,6 +161,10 @@ export default function InviteForm({
     event.preventDefault();
     if (saving) return;
     setSent(null);
+    if (expired) {
+      setExpired(false);
+      if (reauthOwner === FORM_REAUTH_OWNER) onClaimReauth(null);
+    }
     const nextErrors = validate();
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
@@ -182,8 +199,14 @@ export default function InviteForm({
       setSent(sentText(result.invite, result.emailSent));
       onCreated(result.invite, result.emailSent);
     } catch (err) {
+      if (err instanceof SessionExpiredError) {
+        // Said as an alert beside the button, which keeps focus.
+        setExpired(true);
+        onClaimReauth(FORM_REAUTH_OWNER);
+        return;
+      }
       if (err instanceof ApiError && err.status === 503) {
-        setFormError({ title: "Invites aren’t available yet", message: INVITES_UNAVAILABLE });
+        setFormError({ title: INVITES_UNAVAILABLE_TITLE, message: INVITES_UNAVAILABLE_DETAIL });
       } else if (err instanceof ApiError && err.fieldErrors && Object.keys(err.fieldErrors).length > 0) {
         setErrors(err.fieldErrors);
         setFormError({ title: "Fix these to send the invite:" });
@@ -297,6 +320,7 @@ export default function InviteForm({
           autoComplete="off"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          aria-required
           {...errorProps("email", ["invite-email-note"])}
           className={inputClass}
         />,
@@ -313,6 +337,7 @@ export default function InviteForm({
           autoComplete="off"
           value={emailConfirm}
           onChange={(e) => setEmailConfirm(e.target.value)}
+          aria-required
           {...errorProps("emailConfirm", ["invite-emailConfirm-note"])}
           className={inputClass}
         />,
@@ -333,6 +358,7 @@ export default function InviteForm({
               id={controlId("organiser.displayName")}
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
+              aria-required
               {...errorProps("organiser.displayName")}
               className={inputClass}
             />,
@@ -345,6 +371,7 @@ export default function InviteForm({
               autoComplete="off"
               value={shownContactEmail}
               onChange={(e) => setContactEmail(e.target.value)}
+              aria-required
               {...errorProps("organiser.contactEmail", ["invite-organiser-contactEmail-note"])}
               className={inputClass}
             />,
@@ -359,6 +386,7 @@ export default function InviteForm({
               rows={3}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
+              aria-required
               {...errorProps("organiser.description")}
               className={inputClass}
             />,
@@ -413,6 +441,7 @@ export default function InviteForm({
             checked={consent}
             onChange={(e) => setConsent(e.target.checked)}
             required
+            aria-required
             {...errorProps("consent", ["invite-consent-note"])}
             className="mt-0.5 size-5 shrink-0 accent-accent"
           />
@@ -425,8 +454,21 @@ export default function InviteForm({
         {errorLine("consent")}
       </div>
 
+      {expired && (
+        <AdminSessionExpired
+          then="send the invite"
+          withForm={reauthOwner === FORM_REAUTH_OWNER}
+          onSignedIn={() => {
+            setExpired(false);
+            onClaimReauth(null);
+            document.getElementById(SUBMIT_ID)?.focus();
+          }}
+        />
+      )}
+
       <div>
         <Button
+          id={SUBMIT_ID}
           type="submit"
           variant="solid"
           busy={saving}
@@ -436,12 +478,12 @@ export default function InviteForm({
           {saving ? "Sending…" : "Send invite"}
         </Button>
       </div>
+      <p role="status" className="sr-only">
+        {saving ? "Sending the invite…" : ""}
+      </p>
 
-      {sent && (
-        <div ref={sentRef} tabIndex={-1} className="outline-offset-2">
-          <Notice role="status">{sent}</Notice>
-        </div>
-      )}
+      {/* Always rendered, so a sent invite is announced; focus stays on Send invite. */}
+      <div role="status">{sent && <Notice>{sent}</Notice>}</div>
     </form>
   );
 }

@@ -1,16 +1,35 @@
 import { ApiError } from "@/lib/api/client";
+import type { InviteKind } from "@/lib/api/types";
+import { SessionExpiredError } from "@/lib/auth/session-token";
+import { SUPPORT_EMAIL } from "@/lib/contact";
+import { INVITE_LINK_DAYS } from "@/lib/invites";
 
 /**
  * Why the invite page can't go on (lib/api/invites.ts's errors, in our own
  * words): its heading, what it means, and whether trying again might work.
  * `used` also offers to sign in (the invite is already someone's account).
+ * `contactSubject`: the screen offers to email the Sheltüh team, with this
+ * subject. `kind`: the invite's, when it's known (where a signed-in "used"
+ * sends them).
  */
 export interface InviteProblem {
   reason: "invalid" | "expired" | "revoked" | "used" | "not-yours" | "failed";
   title: string;
   message: string;
   retry: boolean;
+  contactSubject?: string;
+  kind?: InviteKind;
 }
+
+/** A link to email the Sheltüh team, with the subject filled in. */
+export function supportMailto(subject: string): string {
+  return `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}`;
+}
+
+/** What the invite pages' email links say: the address itself, so it can be copied without a mail app. */
+export const SUPPORT_LINK_LABEL = `Email ${SUPPORT_EMAIL}`;
+
+export const NEW_INVITE_SUBJECT = "New invite link";
 
 export const INVALID_LINK: InviteProblem = {
   reason: "invalid",
@@ -18,20 +37,23 @@ export const INVALID_LINK: InviteProblem = {
   message:
     "Open it straight from your email, making sure the whole link is used. If it still doesn’t work, ask the Sheltüh team to send a new invite.",
   retry: false,
+  contactSubject: NEW_INVITE_SUBJECT,
 };
 
 const GONE: Record<"expired" | "revoked" | "used", InviteProblem> = {
   expired: {
     reason: "expired",
     title: "This invite has expired",
-    message: "Invite links work for 14 days. Ask the Sheltüh team to send you a new one.",
+    message: `Invite links work for ${INVITE_LINK_DAYS} days. Ask the Sheltüh team to send you a new one.`,
     retry: false,
+    contactSubject: NEW_INVITE_SUBJECT,
   },
   revoked: {
     reason: "revoked",
     title: "This invite has been withdrawn",
     message: "It can’t be used any more. Contact the Sheltüh team if you think that’s a mistake.",
     retry: false,
+    contactSubject: NEW_INVITE_SUBJECT,
   },
   used: {
     reason: "used",
@@ -53,6 +75,17 @@ export function apiErrorCode(err: unknown): string | null {
   if (!(err instanceof ApiError)) return null;
   const code = err.body?.code;
   return typeof code === "string" ? code : null;
+}
+
+/**
+ * Why accepting failed, said beside the button: the API's words for a
+ * refusal (4xx), an expired session's, and otherwise (no connection, a
+ * server fault) our own.
+ */
+export function acceptErrorText(err: unknown): string {
+  if (err instanceof ApiError && err.status >= 400 && err.status < 500) return err.message;
+  if (err instanceof SessionExpiredError) return "Your session has expired. Sign in again, then open this page to accept.";
+  return "We couldn’t accept your invite just now. Try again in a moment.";
 }
 
 /**

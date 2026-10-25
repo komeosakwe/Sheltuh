@@ -8,10 +8,10 @@ import { Button } from "@/components/ui/Button";
 import { ApiError } from "@/lib/api/client";
 import { acceptInvite, getInviteAccountLink, getMyInvite } from "@/lib/api/invites";
 import type { AcceptInviteResult, MyInvite } from "@/lib/api/types";
-import { useAuth } from "@/lib/auth/AuthContext";
+import { OtherSessionsSignOutError, useAuth } from "@/lib/auth/AuthContext";
 import { PASSWORD_HINT, PASSWORD_REGEX } from "@/lib/auth/password-rules";
 import { withNext } from "@/lib/safe-next-path";
-import { apiErrorCode, inviteProblem, type InviteProblem } from "./invite-problems";
+import { acceptErrorText, apiErrorCode, inviteProblem, type InviteProblem } from "./invite-problems";
 
 const FORM_ERROR_ID = "invite-account-error";
 export const INVITE_PATH = "/invite";
@@ -24,8 +24,14 @@ export interface InviteAccountCreated {
   invite: MyInvite | null;
   /** A member invite, accepted straight away. */
   accepted: AcceptInviteResult | null;
-  /** Why accepting a member invite straight away failed: shown on the Accept step. */
+  /** Why accepting a member invite straight away failed, in our words: shown on the Accept step. */
   acceptError: string | null;
+}
+
+/** A message as a sentence: Supabase's often lack the full stop. */
+function withStop(message: string): string {
+  const trimmed = message.trim();
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
 /** What Supabase's verify said, in our words: "otp_expired" is a sign-up token that has run out or was used. */
@@ -66,8 +72,8 @@ export default function InviteCreateAccount({
   /** It stopped short of creating the account (still signed out): the page needn't keep the form on screen. */
   onIdle: () => void;
   onCreated: (result: InviteAccountCreated) => void;
-  /** The address has an account by now: sign in instead. */
-  onHasAccount: (message: string) => void;
+  /** The address has an account by now: sign in instead (the page says so in its own words). */
+  onHasAccount: () => void;
   /** Accounts can't be set up from here: the ordinary sign-up instead. */
   onUnavailable: (message: string) => void;
   /** The link can't be used (invalid, expired, withdrawn, used). */
@@ -101,8 +107,8 @@ export default function InviteCreateAccount({
       return (await getInviteAccountLink(token)).tokenHash;
     } catch (err) {
       const code = apiErrorCode(err);
-      if (code === "has_account" && err instanceof ApiError) {
-        onHasAccount(err.message);
+      if (code === "has_account") {
+        onHasAccount();
         return null;
       }
       if (err instanceof ApiError && (code === "unavailable" || err.status === 503)) {
@@ -148,11 +154,22 @@ export default function InviteCreateAccount({
       try {
         await auth.setNewPassword(password);
       } catch (err) {
-        const message = err instanceof Error && err.message ? err.message : "Try again.";
-        setError(`Your account is set up, but its password wasn’t saved: ${message}`);
-        if (fieldsForAuthError(message, ["password"]).includes("password")) {
+        if (err instanceof OtherSessionsSignOutError) {
+          // Pressing Save password again only does the sign-out (the password is already this one).
+          setError("Your password was saved, but we couldn’t sign out your other sessions. Press Save password to try again.");
+          return;
+        }
+        const message = err instanceof Error && err.message ? withStop(err.message) : "";
+        if (message && fieldsForAuthError(message, []).includes("password")) {
+          setError(
+            `Your account is set up, but its password wasn’t saved: ${message} Choose a different password, then press Save password.`,
+          );
           setPasswordInvalid(true);
           focusAfterRender(passwordRef.current);
+        } else {
+          setError(
+            `Your account is set up, but its password wasn’t saved${message ? `: ${message}` : "."} Press Save password to try again.`,
+          );
         }
         return;
       }
@@ -173,11 +190,7 @@ export default function InviteCreateAccount({
       try {
         onCreated({ invite, accepted: await acceptInvite(invite.inviteId, auth.getAccessToken), acceptError: null });
       } catch (err) {
-        onCreated({
-          invite,
-          accepted: null,
-          acceptError: err instanceof Error && err.message ? err.message : "Couldn’t accept the invite.",
-        });
+        onCreated({ invite, accepted: null, acceptError: acceptErrorText(err) });
       }
     } finally {
       setBusy(false);
@@ -237,12 +250,15 @@ export default function InviteCreateAccount({
         {busy ? "Setting up your account…" : ""}
       </p>
 
-      <p className="text-sm text-muted">
-        Already have an account?{" "}
-        <Link href={withNext("/login", INVITE_PATH)} className="text-accent underline underline-offset-2">
-          Sign in
-        </Link>
-      </p>
+      {/* Once verified, this is the account: signing in to another isn't the way on. */}
+      {!verified && (
+        <p className="text-sm text-muted">
+          Already have an account?{" "}
+          <Link href={withNext("/login", INVITE_PATH)} className="text-accent underline underline-offset-2">
+            Sign in
+          </Link>
+        </p>
+      )}
     </form>
   );
 }

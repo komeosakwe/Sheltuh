@@ -16,8 +16,8 @@ import { formatDayWithYear } from "@/lib/format";
 import { useFragmentToken } from "@/lib/link-token";
 import { withNext } from "@/lib/safe-next-path";
 import InviteCreateAccount, { INVITE_PATH, type InviteAccountCreated } from "./InviteCreateAccount";
-import InviteJoin from "./InviteJoin";
-import { inviteProblem, type InviteProblem } from "./invite-problems";
+import InviteJoin, { INVITE_JOIN_ERROR_ID } from "./InviteJoin";
+import { INVALID_LINK, inviteProblem, SUPPORT_LINK_LABEL, supportMailto, type InviteProblem } from "./invite-problems";
 
 const SIGN_IN_HREF = withNext("/login", INVITE_PATH);
 const SIGN_UP_HREF = withNext("/signup", INVITE_PATH);
@@ -85,7 +85,7 @@ export default function InviteFlow() {
 
   // What happened here, which outranks what's loaded.
   const [problem, setProblem] = useState<InviteProblem | null>(null);
-  const [hasAccount, setHasAccount] = useState<string | null>(null);
+  const [hasAccount, setHasAccount] = useState(false);
   const [unavailable, setUnavailable] = useState<string | null>(null);
   const [created, setCreated] = useState<InviteAccountCreated | null>(null);
   const [accepted, setAccepted] = useState<AcceptInviteResult | null>(null);
@@ -215,27 +215,41 @@ export default function InviteFlow() {
 
     const viewed = view?.status === "ready" ? view.value : null;
     if (view?.status === "loading") return LOADING;
-    if (view?.status === "error") return problemScreen(inviteProblem(view.error, "open this invite"), () => setViewAttempt((n) => n + 1));
+    // Signed in, a link that isn't valid (one a resend replaced, say) may still be this account's
+    // invite: GET /me says whether one is waiting.
+    const linkInvalid =
+      signedIn && view?.status === "error" && view.error instanceof ApiError && view.error.status === 404;
+    if (view?.status === "error" && !(linkInvalid && mine)) {
+      return problemScreen(inviteProblem(view.error, "open this invite"), {
+        attempt: viewAttempt,
+        run: () => setViewAttempt((n) => n + 1),
+      });
+    }
 
     if (creating && viewed && token) return createScreen(viewed, token);
 
     if (signedIn && mine) {
       if (mine.status === "loading") return LOADING;
       if (mine.status === "error") {
-        return problemScreen(inviteProblem(mine.error, "find your invite"), () => setMeAttempt((n) => n + 1));
+        return problemScreen(inviteProblem(mine.error, "find your invite"), {
+          attempt: meAttempt,
+          run: () => setMeAttempt((n) => n + 1),
+        });
       }
       const own = mine.value.found ? mine.value.invite : null;
       if (own && (!viewed || sameInvite(viewed, own))) return joinScreen(own, null);
+      if (linkInvalid) return problemScreen(INVALID_LINK);
       if (viewed) {
         return {
           id: "other-account",
           title: `You’re signed in as ${auth.email ?? "another account"}`,
           intro: `This invite is for ${viewed.maskedEmail}. Sign out to continue.`,
           body: (
-            <div>
+            <div className="flex flex-col items-start gap-3">
               <Button variant="solid" size="lg" onClick={signOutHere} className="w-full sm:w-auto">
                 Sign out
               </Button>
+              <BackLinks links={[{ href: "/events", label: "Keep using this account" }]} />
             </div>
           ),
         };
@@ -285,7 +299,8 @@ export default function InviteFlow() {
         intro: `An account for ${viewed.maskedEmail} was started but never confirmed. Reset its password: we’ll email that address a code, you choose a new password, then sign in and come back here to accept.`,
         body: (
           <div className="flex flex-col gap-4">
-            {unavailable && <Notice>{unavailable}</Notice>}
+            {/* Not the server's 503 words: they point at the sign-up, which this account can't use. */}
+            {unavailable && <Notice>We couldn’t set up your account from here, so reset its password instead.</Notice>}
             <div>
               <ButtonLink variant="solid" size="lg" href={RESET_HREF} className="w-full sm:w-auto">
                 Reset password
@@ -302,13 +317,11 @@ export default function InviteFlow() {
         title: "Sign in to accept your invite",
         intro: `${viewed.maskedEmail} already has a Sheltüh account. Sign in with it, and you’ll come back here to accept.`,
         body: (
-          <div className="flex flex-col gap-4">
-            {hasAccount && <Notice>{hasAccount}</Notice>}
-            <div>
-              <ButtonLink variant="solid" size="lg" href={SIGN_IN_HREF} className="w-full sm:w-auto">
-                Sign in
-              </ButtonLink>
-            </div>
+          <div className="flex flex-col items-start gap-3">
+            <ButtonLink variant="solid" size="lg" href={SIGN_IN_HREF} className="w-full sm:w-auto">
+              Sign in
+            </ButtonLink>
+            <BackLinks links={[{ href: RESET_HREF, label: "Forgot your password?" }]} />
           </div>
         ),
       };
@@ -361,7 +374,7 @@ export default function InviteFlow() {
             onBegin={begin}
             onIdle={() => setCreating(false)}
             onCreated={accountCreated}
-            onHasAccount={(message) => stop(() => setHasAccount(message))}
+            onHasAccount={() => stop(() => setHasAccount(true))}
             onUnavailable={(message) =>
               stop(() => {
                 setUnavailable(message);
@@ -369,7 +382,7 @@ export default function InviteFlow() {
                 setViewAttempt((n) => n + 1);
               })
             }
-            onProblem={(next) => stop(() => setProblem(next))}
+            onProblem={(next) => stop(() => setProblem({ ...next, kind: viewed.kind }))}
           />
         </div>
       ),
@@ -384,29 +397,35 @@ export default function InviteFlow() {
       intro: organiser
         ? `Joining sets up ${invite.organiserName ?? "your organiser"} as an approved organiser, run by this account (${auth.email ?? "you"}). You can list events from your dashboard straight away.`
         : `Accepting finishes setting up your Sheltüh account (${auth.email ?? "you"}).`,
+      // Accepting already failed (straight after Create account): read out with the heading.
+      describedBy: acceptError ? INVITE_JOIN_ERROR_ID : undefined,
       body: <InviteJoin invite={invite} initialError={acceptError} onAccepted={setAccepted} onProblem={setProblem} />,
     };
   }
 
-  function problemScreen(shown: InviteProblem, retry?: () => void): Screen {
+  /** `retry.attempt`: which try this is, so the same failure again is a new screen (its heading takes focus). */
+  function problemScreen(shown: InviteProblem, retry?: { attempt: number; run: () => void }): Screen {
+    // A used invite made a member's account (or one whose kind isn't known here): their account, not the dashboard.
+    const home =
+      shown.reason === "used" && shown.kind !== "organiser"
+        ? { href: "/account", label: "Your account" }
+        : { href: "/dashboard", label: "Go to your dashboard" };
     const links =
       shown.reason === "used" || shown.reason === "not-yours"
         ? signedIn
-          ? [
-              { href: "/dashboard", label: "Go to your dashboard" },
-              { href: "/events", label: "Browse events" },
-            ]
+          ? [home, { href: "/events", label: "Browse events" }]
           : [{ href: SIGN_IN_HREF, label: "Sign in" }]
         : [{ href: "/", label: "Back to Sheltüh" }];
+    if (shown.contactSubject) links.unshift({ href: supportMailto(shown.contactSubject), label: SUPPORT_LINK_LABEL });
     return {
-      id: `problem-${shown.reason}-${shown.title}`,
+      id: `problem-${shown.reason}-${shown.title}-${retry?.attempt ?? 0}`,
       title: shown.title,
       intro: shown.message,
       focusFirst: true,
       body: (
         <div className="flex flex-col items-start gap-3">
           {shown.retry && retry && (
-            <Button variant="outline" size="lg" onClick={retry}>
+            <Button variant="outline" size="lg" onClick={retry.run}>
               Try again
             </Button>
           )}
@@ -433,7 +452,7 @@ export default function InviteFlow() {
         title={screen.title}
         intro={screen.intro && <p id={INTRO_ID}>{screen.intro}</p>}
         titleRef={headingRef}
-        titleDescribedBy={screen.intro ? INTRO_ID : undefined}
+        titleDescribedBy={[screen.intro ? INTRO_ID : null, screen.describedBy].filter(Boolean).join(" ") || undefined}
       />
       {screen.body}
     </>
@@ -445,6 +464,8 @@ interface Screen {
   id: string;
   title: string;
   intro?: string;
+  /** More of what the heading is described by, after the intro (an element's id). */
+  describedBy?: string;
   body?: ReactNode;
   /** Take focus even as the page's first screen (an outcome that ends the visit, as EmailLinkAction does). */
   focusFirst?: boolean;
@@ -457,9 +478,15 @@ function BackLinks({ links }: { links: { href: string; label: string }[] }) {
     <ul className="flex flex-col gap-1">
       {links.map((link) => (
         <li key={link.href}>
-          <Link href={link.href} className="inline-flex min-h-11 items-center underline underline-offset-4">
-            {link.label}
-          </Link>
+          {link.href.startsWith("mailto:") ? (
+            <a href={link.href} className="inline-flex min-h-11 items-center break-all underline underline-offset-4">
+              {link.label}
+            </a>
+          ) : (
+            <Link href={link.href} className="inline-flex min-h-11 items-center underline underline-offset-4">
+              {link.label}
+            </Link>
+          )}
         </li>
       ))}
     </ul>

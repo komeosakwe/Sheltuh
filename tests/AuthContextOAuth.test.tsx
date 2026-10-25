@@ -3,7 +3,7 @@ import { AuthApiError, type AuthChangeEvent, type Session } from "@supabase/supa
 import { act, cleanup, render } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AuthProvider, useAuth, type AuthContextValue } from "@/lib/auth/AuthContext";
+import { AuthProvider, OtherSessionsSignOutError, useAuth, type AuthContextValue } from "@/lib/auth/AuthContext";
 
 // A stand-in for the Supabase browser client: only what AuthProvider calls.
 let listener: ((event: AuthChangeEvent, session: Session | null) => void) | undefined;
@@ -145,11 +145,13 @@ describe("AuthProvider: setNewPassword", () => {
     expect(signOut).toHaveBeenCalledWith({ scope: "others" });
   });
 
-  it("rejects when signing out the other sessions fails", async () => {
+  it("rejects when signing out the other sessions fails, saying the password itself was saved", async () => {
     updateUser.mockResolvedValue({ data: { user: {} }, error: null });
     const error = new AuthApiError("Server error", 500, "unexpected_failure");
     signOut.mockResolvedValue({ error });
-    await expect(current().setNewPassword("Secret123")).rejects.toBe(error);
+    const rejected = current().setNewPassword("Secret123");
+    await expect(rejected).rejects.toBeInstanceOf(OtherSessionsSignOutError);
+    await expect(rejected).rejects.toMatchObject({ cause: error });
   });
 });
 

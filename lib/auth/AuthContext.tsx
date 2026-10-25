@@ -13,6 +13,18 @@ import { announceUserSignOut, endsSession, lastUserSignOut, onUserSignOut } from
 // "@/lib/auth/AuthContext"` alongside `useAuth` without a second import.
 export { SessionExpiredError };
 
+/**
+ * setNewPassword saved the password, but signing out the account's other
+ * sessions failed: the password is set, only the sign-out is still to do
+ * (calling setNewPassword again does it). `cause` is Supabase's AuthError.
+ */
+export class OtherSessionsSignOutError extends Error {
+  constructor(cause: unknown) {
+    super("The password was saved, but the other sessions couldn't be signed out.", { cause });
+    this.name = "OtherSessionsSignOutError";
+  }
+}
+
 type AuthStatus = "loading" | "signed-out" | "signed-in";
 
 export type SignOutScope = "global" | "local";
@@ -93,7 +105,8 @@ export interface AuthContextValue extends AuthState {
    * before the password was chosen keeps access. Safe to call again after a
    * failure: a password that's already `password` (Supabase's
    * "same_password") goes on to the sign-out. Rejects with Supabase's own
-   * AuthError (e.g. "weak_password").
+   * AuthError (e.g. "weak_password") when the password isn't saved, and with
+   * OtherSessionsSignOutError when it was but the sign-out failed.
    */
   setNewPassword: (password: string) => Promise<void>;
   /**
@@ -295,7 +308,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const updated = await client.auth.updateUser({ password });
     if (updated.error && updated.error.code !== "same_password") throw updated.error;
     const others = await client.auth.signOut({ scope: "others" });
-    if (others.error) throw others.error;
+    if (others.error) throw new OtherSessionsSignOutError(others.error);
   }, []);
 
   const signOut = useCallback((scope: SignOutScope = "global") => {
