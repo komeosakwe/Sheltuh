@@ -184,6 +184,14 @@ describe("/invite: before anything is pressed", () => {
     expect(screen.queryByLabelText("Password")).toBeNull();
   });
 
+  it("with password setup on, an unconfirmed account is replaced by the server: the normal Create account form", async () => {
+    viewInvite.mockResolvedValue({ ...ORGANISER_VIEW, account: "unconfirmed", passwordSetup: true });
+    renderFlow();
+    expect(await screen.findByRole("button", { name: "Create account" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Password")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Reset password" })).toBeNull();
+  });
+
   it("without password setup (no key), sends a new address to the ordinary sign-up, coming back here", async () => {
     viewInvite.mockResolvedValue({ ...MEMBER_VIEW, passwordSetup: false });
     renderFlow();

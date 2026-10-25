@@ -23,20 +23,6 @@ const SIGN_IN_HREF = withNext("/login", INVITE_PATH);
 const SIGN_UP_HREF = withNext("/signup", INVITE_PATH);
 const RESET_HREF = withNext("/forgot-password", INVITE_PATH);
 
-/**
- * InviteView's `account`, plus "unconfirmed" (ASSUMPTION, pending the backend
- * contract change: an unconfirmed Supabase account already exists for the
- * address and the password can't be set from here). Such an account may
- * have been registered by someone else with a password they know, so it's
- * finished by a password reset (which confirms the address and replaces the
- * password), never the ordinary sign-up.
- */
-type InviteAccount = InviteView["account"] | "unconfirmed";
-
-/** The view's account, read as InviteAccount (a declared return type, so it isn't narrowed back). */
-function accountOf(view: InviteView): InviteAccount {
-  return view.account;
-}
 const INTRO_ID = "invite-intro";
 
 type Load<T> = { status: "loading" } | { status: "ready"; value: T } | { status: "error"; error: unknown };
@@ -286,8 +272,13 @@ export default function InviteFlow() {
       };
     }
 
-    const account = accountOf(viewed);
-    if (account === "unconfirmed") {
+    // "unconfirmed": the address has only a never-confirmed account, which
+    // someone else may have registered with a password they know. With
+    // password setup on, the server replaces that account when the person
+    // creates theirs; otherwise a password reset finishes it (it confirms the
+    // address and replaces the password), never the ordinary sign-up.
+    const account = viewed.account;
+    if (account === "unconfirmed" && (!viewed.passwordSetup || unavailable)) {
       return {
         id: "unconfirmed-account",
         title: "Reset your password to accept your invite",
