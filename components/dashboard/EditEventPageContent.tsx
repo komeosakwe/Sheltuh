@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import EventEditor from "@/components/dashboard/EventEditor";
+import { seatMapHref, seatMapLinkLabel } from "@/components/dashboard/SeatingChoice";
 import { ButtonLink } from "@/components/ui/Button";
 import type { GetToken } from "@/lib/api/client";
 import { getMyEvent } from "@/lib/api/events";
@@ -118,15 +119,15 @@ function EditorView({
         >
           Analytics
         </ButtonLink>
-        {/* Reserved seating: optional, for Sheltüh-ticketed events (docs/design/seating.md §5.13). */}
+        {/* Reserved seating: optional, for Sheltüh-ticketed events (docs/design/seating.md §5.13); also in the editor's Seating section. */}
         {event.ticketingMode !== "external" && (
           <ButtonLink
             variant="outline"
             size="sm"
             className="min-h-11 w-fit"
-            href={`/dashboard/${encodeURIComponent(event.eventId)}/seat-map`}
+            href={seatMapHref(event.eventId, false)}
           >
-            {event.seating ? `Seat map · ${event.seating.seatCount} seats` : "Add a seat map"}
+            {seatMapLinkLabel(event.seating)}
           </ButtonLink>
         )}
       </div>

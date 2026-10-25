@@ -7,6 +7,11 @@ import { ApiError, type GetToken } from "@/lib/api/client";
 import AdminOrganiserPicker, { type PickedOrganiser } from "@/components/admin/AdminOrganiserPicker";
 import EventClipField from "@/components/dashboard/EventClipField";
 import EventImageField from "@/components/dashboard/EventImageField";
+import SeatingChoiceField, {
+  initialSeatingChoice,
+  seatMapHref,
+  type SeatingChoice,
+} from "@/components/dashboard/SeatingChoice";
 import { ClipSyncError, useEventClip, type ClipRoutes } from "@/components/dashboard/useEventClip";
 import { fieldClass } from "@/components/ui/Field";
 import {
@@ -143,6 +148,11 @@ export default function EventEditor(props: Props) {
   const [ticketingMode, setTicketingMode] = useState<TicketingMode>(initial?.ticketingMode ?? "sheltuh");
   const [externalTicketUrl, setExternalTicketUrl] = useState(initial?.externalTicketUrl ?? "");
   const [externalFree, setExternalFree] = useState(initial?.externalFree === true);
+  // Reserved seating (docs/design/seating.md §5.13): not a field of its own. An existing
+  // event's comes from its seat map; a new event's decides where saving goes next.
+  const [seatingChoice, setSeatingChoice] = useState<SeatingChoice>(() => initialSeatingChoice(initial));
+  // Only for Sheltüh-ticketed events: a seat map can't go with external ticketing.
+  const reservedSeating = ticketingMode === "sheltuh" && seatingChoice === "reserved";
 
   // Admin mode only.
   const [organiser, setOrganiser] = useState<PickedOrganiser | null>(null);
@@ -349,7 +359,12 @@ export default function EventEditor(props: Props) {
         setVersion(record.updatedAt);
         setSavedRecord(record);
         if (!initial) {
-          router.push(`/admin/events/${encodeURIComponent(record.eventId)}/edit`);
+          // Reserved seating: on to the new event's seat map, to add the seats.
+          router.push(
+            reservedSeating
+              ? seatMapHref(record.eventId, true)
+              : `/admin/events/${encodeURIComponent(record.eventId)}/edit`,
+          );
           return;
         }
         setReason("");
@@ -367,7 +382,8 @@ export default function EventEditor(props: Props) {
         });
         setSavedRecord(record);
         if (!initial) {
-          router.push(`/dashboard/${record.eventId}`);
+          // Reserved seating: on to the new draft's seat map, to lay out the seats.
+          router.push(reservedSeating ? seatMapHref(record.eventId, false) : `/dashboard/${record.eventId}`);
           return;
         }
         props.onSaved(record);
@@ -695,6 +711,17 @@ export default function EventEditor(props: Props) {
       )}
 
       {ticketingMode === "sheltuh" && (
+        <SeatingChoiceField
+          value={seatingChoice}
+          onChange={setSeatingChoice}
+          event={initial}
+          admin={isAdmin}
+          locked={!isAdmin && initial?.ticketingLocked === true}
+          legendClassName={SECTION_TITLE}
+        />
+      )}
+
+      {ticketingMode === "sheltuh" && (
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className={SECTION_TITLE}>Ticket types</h2>
@@ -889,7 +916,7 @@ export default function EventEditor(props: Props) {
           disabled={saving}
           className="btn btn-solid w-fit"
         >
-          {saving ? "Saving…" : isAdmin ? (initial || createdId ? "Save changes" : "Create event") : "Save draft"}
+          {saving ? "Saving…" : saveLabel(isAdmin, Boolean(initial), Boolean(createdId), reservedSeating)}
         </button>
         {initial && !isAdmin && (
           <button
@@ -904,6 +931,20 @@ export default function EventEditor(props: Props) {
       </div>
     </form>
   );
+}
+
+/**
+ * The save button's words. Saving a new event with reserved seating goes on to
+ * its seat map, and says so.
+ */
+function saveLabel(isAdmin: boolean, existing: boolean, created: boolean, reserved: boolean): string {
+  const toSeats = reserved && !existing;
+  if (isAdmin) {
+    if (existing) return "Save changes";
+    if (toSeats) return created ? "Save and set up seats" : "Create event and set up seats";
+    return created ? "Save changes" : "Create event";
+  }
+  return toSeats ? "Save draft and set up seats" : "Save draft";
 }
 
 /**
