@@ -5,7 +5,6 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
 import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
-import type { GetToken } from "@/lib/api/client";
 import { startConversation } from "@/lib/api/messages";
 import type { ConversationSummary, GoingAttendee } from "@/lib/api/types";
 import { useAccountOwner } from "@/lib/auth/useAccountOwner";
@@ -28,13 +27,11 @@ type Failure = { kind: "message"; message: string } | { kind: "exists" } | { kin
  */
 export function AttendeeMessageAction({
   attendee,
-  getToken,
   returnTo,
   open,
   onOpenChange,
 }: {
   attendee: GoingAttendee;
-  getToken: GetToken;
   returnTo: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -85,7 +82,6 @@ export function AttendeeMessageAction({
             id={formId}
             name={attendee.displayName}
             to={{ attendeeId: attendee.attendeeId }}
-            getToken={getToken}
             returnTo={returnTo}
             onCancel={() => {
               pendingFocus.current = "button";
@@ -108,13 +104,13 @@ export function AttendeeMessageAction({
  * their member profile (`to.profileId`: the server picks an open event you're
  * both going to). It says what happens: they're asked, replying accepts, and
  * there's no follow-up until they do. No links in a first message (the API
- * refuses them; its field error is shown).
+ * refuses them; its field error is shown). Sent as the account that wrote it
+ * only (lib/auth/useAccountOwner.ts: its token getter is bound to them).
  */
 export function ComposeRequestForm({
   id,
   name,
   to,
-  getToken,
   returnTo,
   onCancel,
   onSent,
@@ -123,7 +119,6 @@ export function ComposeRequestForm({
   /** Their display name. */
   name: string;
   to: { attendeeId: string } | { profileId: string };
-  getToken: GetToken;
   returnTo: string;
   onCancel: () => void;
   onSent: (conversation: ConversationSummary) => void;
@@ -138,7 +133,7 @@ export function ComposeRequestForm({
   const pendingFocus = useRef<"input" | "failure" | null>(null);
   const aboutId = `${id}-about`;
   // Whose draft this is (captured while signed in), for the expired-session sign-in.
-  const { owner, otherAccount } = useAccountOwner();
+  const { owner, otherAccount, getOwnerToken } = useAccountOwner();
 
   // Opening the form (a user action) moves focus into it.
   useEffect(() => {
@@ -182,7 +177,7 @@ export function ComposeRequestForm({
     }
     setBusy(true);
     try {
-      const conversation = await startConversation({ ...to, body: text.trim() }, getToken);
+      const conversation = await startConversation({ ...to, body: text.trim() }, getOwnerToken);
       onSent(conversation);
       return;
     } catch (err) {

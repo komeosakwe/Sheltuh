@@ -384,11 +384,10 @@ export default function WhosGoing() {
               listRef={listRef}
               getToken={mode === "live" ? getToken : undefined}
               renderAction={
-                canMessage && getToken
+                canMessage
                   ? (attendee) => (
                       <AttendeeMessageAction
                         attendee={attendee}
-                        getToken={getToken}
                         returnTo={returnTo}
                         open={composeFor === attendee.attendeeId}
                         onOpenChange={(open) => setComposeFor(open ? attendee.attendeeId : null)}

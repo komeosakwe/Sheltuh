@@ -6,7 +6,7 @@ import EventEditor from "@/components/dashboard/EventEditor";
 import { ApiError } from "@/lib/api/client";
 import type { AdminEventRecord, AdminOrganiserRecord, EventRecord } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/session-token";
-import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { callsTokenFirst, fakeAuthValue, FakeAuthProvider, switchableSession } from "./test-utils/fakeAuth";
 
 const push = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -467,6 +467,44 @@ describe("EventEditor (admin) — editing", () => {
       expect(screen.getAllByText(/A platform-managed organiser can only offer free tickets here/).length).toBeGreaterThan(1),
     );
     expect(adminUpdateEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("EventEditor (admin) — never saves as another account", () => {
+  const ADMIN_A = { userId: "admin-a", email: "a@sheltuh.example", isAdmin: true };
+  const ADMIN_B = { userId: "admin-b", email: "b@sheltuh.example", isAdmin: true };
+
+  function renderAs(session = switchableSession(ADMIN_A), props: Partial<AdminEditorProps> = {}) {
+    const onSaved = vi.fn();
+    const tree = (admin: typeof ADMIN_A) => (
+      <FakeAuthProvider value={fakeAuthValue({ status: "signed-in", ...admin, ...session.auth })}>
+        <EventEditor mode="admin" getToken={vi.fn().mockResolvedValue("page-token")} initial={EVENT} onSaved={onSaved} {...props} />
+      </FakeAuthProvider>
+    );
+    const view = render(tree(ADMIN_A));
+    return { onSaved, become: (admin: typeof ADMIN_A) => view.rerender(tree(admin)) };
+  }
+
+  it("another admin signed in by now (another tab): the recovery opens, locked to the first, and nothing is saved", async () => {
+    const { become } = renderAs();
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Encore" } });
+    become(ADMIN_B);
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(new SessionExpiredError().message));
+    expect(adminUpdateEvent).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Email")).toHaveValue("a@sheltuh.example");
+    expect(screen.getByLabelText("Title")).toHaveValue("Encore");
+  });
+
+  it("changed after the check, before the request: its token is refused, so nothing is saved as them", async () => {
+    const session = switchableSession(ADMIN_A);
+    adminUpdateEvent.mockImplementation(callsTokenFirst({ ...EVENT, title: "Encore" }));
+    const { onSaved } = renderAs(session);
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    session.become(ADMIN_B);
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(new SessionExpiredError().message));
+    expect(session.auth.getAccessTokenFor).toHaveBeenCalledWith({ userId: "admin-a", email: "a@sheltuh.example" });
+    expect(onSaved).not.toHaveBeenCalled();
   });
 });
 

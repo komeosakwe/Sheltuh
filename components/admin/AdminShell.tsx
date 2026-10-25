@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { PageHeader } from "@/components/ui/Section";
+import { accountKey } from "@/lib/auth/account";
 import { useAuth } from "@/lib/auth/AuthContext";
 import AdminGate from "./AdminGate";
 import { AdminOwnerProvider } from "./AdminSessionExpired";
@@ -29,9 +30,13 @@ export default function AdminShell({ children }: { children: ReactNode }) {
     );
   }
 
-  // The admin these pages are open as: an expired-session sign-in is locked to them.
+  // The admin these pages are open as: an expired-session sign-in is locked to
+  // them. Keyed by account: if another admin signs in (another tab), every
+  // admin page is mounted afresh as them, so nothing on screen (a reason
+  // being typed, a confirmation open, an event being edited) is ever acted on
+  // with the other admin's session. The same admin signing in again keeps it all.
   return (
-    <AdminOwnerProvider>
+    <AdminOwnerProvider key={accountKey(auth) ?? ""}>
       <AdminSubNav />
       {children}
     </AdminOwnerProvider>

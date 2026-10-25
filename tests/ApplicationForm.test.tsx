@@ -5,7 +5,7 @@ import ApplicationForm from "@/components/organisers/ApplicationForm";
 import { ApiError } from "@/lib/api/client";
 import type { OrganiserRecord } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/session-token";
-import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { callsTokenFirst, fakeAuthValue, FakeAuthProvider, switchableSession } from "./test-utils/fakeAuth";
 
 const applyAsOrganiser = vi.fn();
 const resubmitOrganiser = vi.fn();
@@ -49,7 +49,7 @@ describe("ApplicationForm — session-expiry recovery preserves the form (organi
 
     render(
       <FakeAuthProvider value={fakeAuthValue({ email: "owner@example.com", signIn, signOut })}>
-        <ApplicationForm mode="apply" getToken={vi.fn().mockResolvedValue("token")} onSuccess={onSuccess} />
+        <ApplicationForm mode="apply" onSuccess={onSuccess} />
       </FakeAuthProvider>,
     );
 
@@ -88,7 +88,7 @@ describe("ApplicationForm — validation errors are announced and focused", () =
   function renderForm() {
     render(
       <FakeAuthProvider value={fakeAuthValue()}>
-        <ApplicationForm mode="apply" getToken={vi.fn().mockResolvedValue("token")} onSuccess={vi.fn()} />
+        <ApplicationForm mode="apply" onSuccess={vi.fn()} />
       </FakeAuthProvider>,
     );
   }
@@ -168,12 +168,7 @@ describe("ApplicationForm — optional social profiles", () => {
   function renderForm(mode: "apply" | "resubmit", initial?: OrganiserRecord) {
     render(
       <FakeAuthProvider value={fakeAuthValue()}>
-        <ApplicationForm
-          mode={mode}
-          getToken={vi.fn().mockResolvedValue("token")}
-          initial={initial}
-          onSuccess={vi.fn()}
-        />
+        <ApplicationForm mode={mode} initial={initial} onSuccess={vi.fn()} />
       </FakeAuthProvider>,
     );
   }
@@ -273,7 +268,7 @@ describe("ApplicationForm — website rule and public-profile notes", () => {
   function renderForm(mode: "apply" | "resubmit" = "apply", initial?: OrganiserRecord) {
     render(
       <FakeAuthProvider value={fakeAuthValue()}>
-        <ApplicationForm mode={mode} getToken={vi.fn().mockResolvedValue("token")} initial={initial} onSuccess={vi.fn()} />
+        <ApplicationForm mode={mode} initial={initial} onSuccess={vi.fn()} />
       </FakeAuthProvider>,
     );
   }
@@ -362,7 +357,7 @@ describe("ApplicationForm — featured video", () => {
   function renderApply(mode: "apply" | "resubmit" = "apply", initial?: OrganiserRecord) {
     render(
       <FakeAuthProvider value={fakeAuthValue()}>
-        <ApplicationForm mode={mode} getToken={vi.fn()} initial={initial} onSuccess={vi.fn()} />
+        <ApplicationForm mode={mode} initial={initial} onSuccess={vi.fn()} />
       </FakeAuthProvider>,
     );
   }
@@ -393,5 +388,30 @@ describe("ApplicationForm — featured video", () => {
     await waitFor(() =>
       expect(resubmitOrganiser).toHaveBeenCalledWith(expect.objectContaining({ featuredVideoUrl: null }), expect.any(Function)),
     );
+  });
+});
+
+describe("ApplicationForm — an account change mid-submit (after the check, before the request) is refused", () => {
+  it("the request's token is bound to the account filling it in: another's is never used", async () => {
+    const owner = { userId: "user-owner", email: "owner@example.com" };
+    const session = switchableSession(owner);
+    // The check has passed (React still says owner); another tab signs in as someone else before the request's token.
+    applyAsOrganiser.mockImplementation((...args: unknown[]) => {
+      session.become({ userId: "user-other", email: "other@example.com" });
+      return callsTokenFirst(APPROVED_RECORD)(...args);
+    });
+    const onSuccess = vi.fn();
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ status: "signed-in", ...owner, ...session.auth })}>
+        <ApplicationForm mode="apply" onSuccess={onSuccess} />
+      </FakeAuthProvider>,
+    );
+    fillRequiredFields();
+    fireEvent.click(screen.getByRole("button", { name: "Submit application" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(new SessionExpiredError().message));
+    expect(session.auth.getAccessTokenFor).toHaveBeenCalledWith(owner);
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Email")).toHaveValue("owner@example.com");
+    expect(screen.getByLabelText("Organiser name")).toHaveValue("My New Org");
   });
 });

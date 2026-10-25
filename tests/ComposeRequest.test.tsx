@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AttendeeMessageAction } from "@/components/messages/ComposeRequest";
 import { ApiError } from "@/lib/api/client";
 import type { ConversationSummary, GoingAttendee } from "@/lib/api/types";
-import { SessionExpiredError } from "@/lib/auth/AuthContext";
-import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { SessionExpiredError, type AuthContextValue } from "@/lib/auth/AuthContext";
+import { callsTokenFirst, fakeAuthValue, FakeAuthProvider, switchableSession } from "./test-utils/fakeAuth";
 
 vi.mock("@/lib/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/client")>()),
@@ -23,7 +23,6 @@ beforeEach(() => {
 afterEach(cleanup);
 
 const MIA: GoingAttendee = { attendeeId: "att-1", displayName: "Mia T.", isYou: false };
-const getToken = vi.fn().mockResolvedValue("token");
 
 function Harness() {
   const [open, setOpen] = useState(false);
@@ -32,7 +31,6 @@ function Harness() {
       <li>
         <AttendeeMessageAction
           attendee={MIA}
-          getToken={getToken}
           returnTo="/events/neon-static#whos-going"
           open={open}
           onOpenChange={setOpen}
@@ -105,7 +103,9 @@ describe("Message someone on Who's Going", () => {
     openForm();
     send("  Hi! Keen for Saturday?  ");
     const sent = await screen.findByText(/Request sent to Mia T\./);
-    expect(startConversation).toHaveBeenCalledWith({ attendeeId: "att-1", body: "Hi! Keen for Saturday?" }, getToken);
+    expect(startConversation).toHaveBeenCalledWith({ attendeeId: "att-1", body: "Hi! Keen for Saturday?" }, expect.any(Function));
+    // Sent with the writer's own token (the fake session's).
+    await expect(startConversation.mock.calls[0][1]()).resolves.toBe("fake-access-token");
     expect(within(sent).getByRole("link", { name: "View conversation" })).toHaveAttribute("href", "/messages/c9");
     await waitFor(() => expect(sent).toHaveFocus());
     expect(screen.queryByRole("form")).toBeNull();
@@ -209,5 +209,46 @@ describe("Message someone on Who's Going", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("form")).toBeNull();
     await waitFor(() => expect(screen.getByRole("button", { name: "Message Mia T." })).toHaveFocus());
+  });
+});
+
+describe("Message someone on Who's Going — never sent as another account", () => {
+  const SAM = { userId: "user-sam", email: "sam@example.com" };
+  const ALEX = { userId: "user-alex", email: "alex@example.com" };
+
+  function openAs(session = switchableSession(SAM)) {
+    const tree = (account: Partial<AuthContextValue>) => (
+      <FakeAuthProvider value={fakeAuthValue({ status: "signed-in", ...account, ...session.auth })}>
+        <Harness />
+      </FakeAuthProvider>
+    );
+    const view = render(tree(SAM));
+    fireEvent.click(screen.getByRole("button", { name: "Message Mia T." }));
+    return (account: Partial<AuthContextValue>) => view.rerender(tree(account));
+  }
+
+  it("someone else signed in by now (another tab): the request isn't sent, and the sign-in is the writer's", async () => {
+    const become = openAs();
+    fireEvent.change(box(), { target: { value: "Hi!" } });
+    become(ALEX);
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    expect(await screen.findByText(/Your session has expired/)).toBeInTheDocument();
+    expect(startConversation).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Email")).toHaveValue("sam@example.com");
+    expect(box()).toHaveValue("Hi!");
+  });
+
+  it("changed after the check, before the request: the token is refused, so nothing is sent as them", async () => {
+    const session = switchableSession(SAM);
+    startConversation.mockImplementation((...args: unknown[]) => {
+      session.become(ALEX); // After the check, before the request's token.
+      return callsTokenFirst(SUMMARY)(...args);
+    });
+    openAs(session);
+    send("Hi!");
+    expect(await screen.findByText(/Your session has expired/)).toBeInTheDocument();
+    expect(screen.queryByText(/Request sent to/)).toBeNull();
+    expect(screen.getByLabelText("Email")).toHaveValue("sam@example.com");
+    expect(box()).toHaveValue("Hi!");
   });
 });

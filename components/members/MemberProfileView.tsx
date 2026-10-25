@@ -97,7 +97,8 @@ export default function MemberProfileView({
     }
   }
 
-  async function report(reason: ReportReason, details: string | undefined): Promise<ReportOutcome> {
+  /** `reportToken`: the dialog's, bound to the account that wrote the report. */
+  async function report(reason: ReportReason, details: string | undefined, reportToken: GetToken): Promise<ReportOutcome> {
     if (!live) {
       // The demo: nothing is sent. The notice says what would happen.
       setReportOpen(false);
@@ -106,7 +107,7 @@ export default function MemberProfileView({
       return { ok: true };
     }
     try {
-      await reportMember({ profileId: profile.profileId, reason, details }, live.getToken);
+      await reportMember({ profileId: profile.profileId, reason, details }, reportToken);
       setReportOpen(false);
       setReported(true);
       pendingFocus.current = "reported";
@@ -237,7 +238,6 @@ export default function MemberProfileView({
                 id="member-compose"
                 name={name}
                 to={{ profileId: profile.profileId }}
-                getToken={live.getToken}
                 returnTo={returnTo}
                 onCancel={() => {
                   setComposing(false);

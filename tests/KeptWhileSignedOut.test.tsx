@@ -39,7 +39,10 @@ vi.mock("@/components/dashboard/OrganiserLogoField", () => ({ default: () => nul
 
 const APPROVED = { organiserId: "org-1", status: "approved" } as const;
 const SIGNED_IN: Partial<AuthContextValue> = { status: "signed-in", userId: "user-a", email: "a@example.com" };
-const SIGNED_OUT: Partial<AuthContextValue> = { status: "signed-out", userId: undefined, email: undefined };
+const SIGNED_OUT: Partial<AuthContextValue> = { status: "signed-out", userId: undefined, email: undefined, signedOutBy: "session" };
+/** Signed out by the person's own Sign out (in this tab or another). */
+const SIGNED_OUT_BY_USER: Partial<AuthContextValue> = { ...SIGNED_OUT, signedOutBy: "user" };
+const OTHER: Partial<AuthContextValue> = { status: "signed-in", userId: "user-b", email: "b@example.com" };
 
 beforeEach(() => {
   mounts.editor = 0;
@@ -117,19 +120,107 @@ describe("pages keep a form mounted (with its draft) while its session has run o
   });
 });
 
+describe("pages drop the kept form after the person's own Sign out, and never give it to another account", () => {
+  it("/dashboard/<event>: after their own Sign out (here or in another tab), the signed-out message, not the editor", async () => {
+    const become = mount(<EditEventPageContent />, SIGNED_IN);
+    fireEvent.change(await screen.findByLabelText("editor draft"), { target: { value: "New title" } });
+    await become(SIGNED_OUT_BY_USER, { loading: false, organiser: null, error: null });
+    expect(screen.queryByLabelText("editor draft")).toBeNull();
+    expect(screen.getByText("You need an approved organiser application to manage events.")).toBeInTheDocument();
+    // Signing in again starts afresh: nothing of the last draft comes back.
+    await become(SIGNED_IN, { loading: true, organiser: null, error: null });
+    expect(screen.queryByLabelText("editor draft")).toBeNull();
+  });
+
+  it("/dashboard/<event>: another account that has loaded gets its own editor, not this one's draft", async () => {
+    const become = mount(<EditEventPageContent />, SIGNED_IN);
+    fireEvent.change(await screen.findByLabelText("editor draft"), { target: { value: "New title" } });
+    // Loading the other account: still the first one's form, for its recovery.
+    await become(OTHER, { loading: true, organiser: null, error: null });
+    expect(screen.getByLabelText("editor draft")).toHaveValue("New title");
+    await become(OTHER, { loading: false, organiser: APPROVED, error: null });
+    expect(await screen.findByLabelText("editor draft")).toHaveValue("");
+    expect(mounts.editor).toBe(2);
+  });
+
+  it("/dashboard/new: after their own Sign out, the signed-out message; another account gets a new, empty editor", async () => {
+    const become = mount(<NewEventPageContent />, SIGNED_IN);
+    fireEvent.change(screen.getByLabelText("editor draft"), { target: { value: "Night Market" } });
+    await become(SIGNED_OUT_BY_USER, { loading: false, organiser: null, error: null });
+    expect(screen.queryByLabelText("editor draft")).toBeNull();
+    expect(screen.getByText("You need an approved organiser application to create events.")).toBeInTheDocument();
+    cleanup();
+
+    organiserState = { loading: false, organiser: APPROVED, error: null };
+    const again = mount(<NewEventPageContent />, SIGNED_IN);
+    fireEvent.change(screen.getByLabelText("editor draft"), { target: { value: "Night Market" } });
+    await again(OTHER, { loading: true, organiser: null, error: null });
+    expect(screen.getByLabelText("editor draft")).toHaveValue("Night Market");
+    await again(OTHER, { loading: false, organiser: APPROVED, error: null });
+    expect(screen.getByLabelText("editor draft")).toHaveValue("");
+  });
+
+  it("/dashboard/profile: after their own Sign out, the Sign in card", async () => {
+    const become = mount(<PublicProfilePanel />, SIGNED_IN);
+    fireEvent.change(screen.getByLabelText("profile draft"), { target: { value: "New bio" } });
+    await become(SIGNED_OUT_BY_USER, { loading: false, organiser: null, error: null });
+    expect(screen.queryByLabelText("profile draft")).toBeNull();
+    expect(screen.getByText("Sign in to edit your organiser profile.")).toBeInTheDocument();
+  });
+
+  it("/dashboard/profile: another account gets its own form once loaded, or its own error with Try again", async () => {
+    const become = mount(<PublicProfilePanel />, SIGNED_IN);
+    fireEvent.change(screen.getByLabelText("profile draft"), { target: { value: "New bio" } });
+    await become(OTHER, { loading: false, organiser: APPROVED, error: null });
+    expect(screen.getByLabelText("profile draft")).toHaveValue("");
+    fireEvent.change(screen.getByLabelText("profile draft"), { target: { value: "B's bio" } });
+    await become(SIGNED_IN, { loading: false, organiser: null, error: "Couldn't load your organiser status." });
+    expect(screen.queryByLabelText("profile draft")).toBeNull();
+    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load your organiser status.");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+});
+
 describe("useKeptWhileSignedOut", () => {
-  it("is the value while settled, the last settled value while not, and undefined before it ever settled", () => {
-    const { result, rerender } = renderHook(({ value, settled }) => useKeptWhileSignedOut(value, settled), {
-      initialProps: { value: "first", settled: false },
+  /** Who's signed in, read by the wrapper on each render. */
+  const auth: { current: Partial<AuthContextValue> } = { current: SIGNED_IN };
+  function hook(initial: { value: string; settled: boolean }) {
+    return renderHook(({ value, settled }) => useKeptWhileSignedOut(value, settled), {
+      initialProps: initial,
+      wrapper: function Wrapper({ children }) {
+        return <FakeAuthProvider value={fakeAuthValue(auth.current)}>{children}</FakeAuthProvider>;
+      },
     });
+  }
+
+  it("is the value while settled, the last settled value while not, and undefined before it ever settled; each with its account", () => {
+    auth.current = { status: "loading", userId: undefined, email: undefined };
+    const { result, rerender } = hook({ value: "first", settled: false });
     expect(result.current).toBeUndefined();
+    auth.current = SIGNED_IN;
     rerender({ value: "a", settled: true });
-    expect(result.current).toBe("a");
+    expect(result.current).toEqual({ value: "a", account: "user-a" });
+    auth.current = SIGNED_OUT;
     rerender({ value: "ignored", settled: false });
-    expect(result.current).toBe("a");
+    expect(result.current).toEqual({ value: "a", account: "user-a" });
+    auth.current = SIGNED_IN;
     rerender({ value: "b", settled: true });
-    expect(result.current).toBe("b");
-    rerender({ value: "c", settled: false });
-    expect(result.current).toBe("b");
+    expect(result.current).toEqual({ value: "b", account: "user-a" });
+    auth.current = OTHER;
+    rerender({ value: "loading b", settled: false });
+    expect(result.current).toEqual({ value: "b", account: "user-a" });
+    rerender({ value: "theirs", settled: true });
+    expect(result.current).toEqual({ value: "theirs", account: "user-b" });
+  });
+
+  it("forgets it after the person's own Sign out, so it doesn't come back while signing in again", () => {
+    auth.current = SIGNED_IN;
+    const { result, rerender } = hook({ value: "a", settled: true });
+    auth.current = SIGNED_OUT_BY_USER;
+    rerender({ value: "a", settled: false });
+    expect(result.current).toBeUndefined();
+    auth.current = SIGNED_IN;
+    rerender({ value: "a", settled: false });
+    expect(result.current).toBeUndefined();
   });
 });

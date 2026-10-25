@@ -5,8 +5,8 @@ import { useState, type ReactNode } from "react";
 import ApplicationForm from "@/components/organisers/ApplicationForm";
 import { Button } from "@/components/ui/Button";
 import { LoadingState } from "@/components/ui/ProgressLoader";
-import type { GetToken } from "@/lib/api/client";
 import type { OrganiserRecord } from "@/lib/api/types";
+import { accountKey } from "@/lib/auth/account";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useKeptWhileSignedOut } from "@/lib/auth/useKeptWhileSignedOut";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
@@ -30,19 +30,29 @@ function formViewFor(current: OrganiserRecord | null): FormView | null {
   return null;
 }
 
+/** An application just submitted from the form, and the account it was submitted as. */
+interface Submitted {
+  record: OrganiserRecord;
+  account: string;
+}
+
 export default function ApplyPageContent() {
   const auth = useAuth();
+  const account = accountKey(auth);
   const { loading, organiser, error, refetch, refreshing } = useOrganiser();
-  const [justSubmitted, setJustSubmitted] = useState<OrganiserRecord | null>(null);
+  const [justSubmitted, setJustSubmitted] = useState<Submitted | null>(null);
 
-  const current = justSubmitted ?? organiser;
-  // Signed in, with this account's application (or none) loaded.
-  const settled = auth.status === "signed-in" && !loading && !error;
-  // The record the form was last shown for: kept while the session has run
-  // out (or another account's is loading), so the form stays mounted with
-  // what's typed and its own recovery can sign in again in place.
-  const kept = useKeptWhileSignedOut(current, settled);
-  const keptForm = !settled && kept !== undefined ? formViewFor(kept) : null;
+  // What was just submitted is only ever this account's own (never shown to another that signs in).
+  const current = justSubmitted && justSubmitted.account === account ? justSubmitted.record : organiser;
+  // Signed in, with this account's application (or none) loaded, or failed to load.
+  const settled = auth.status === "signed-in" && !loading;
+  // The record the form was last shown for (false: an error was shown, no
+  // form): kept while the session has run out (or another account's is
+  // loading), so the form stays mounted with what's typed and its own
+  // recovery can sign in again in place. Not after the person's own Sign out.
+  const kept = useKeptWhileSignedOut<OrganiserRecord | null | false>(error ? false : current, settled);
+  const keptForm = !settled && kept && kept.value !== false ? formViewFor(kept.value) : null;
+  const onSuccess = (record: OrganiserRecord, as: string) => setJustSubmitted({ record, account: as });
 
   if (!auth.configured) {
     return (
@@ -52,7 +62,7 @@ export default function ApplyPageContent() {
     );
   }
 
-  if (keptForm) return <FormSection view={keptForm} getToken={auth.getAccessToken} onSuccess={setJustSubmitted} />;
+  if (keptForm && kept) return <FormSection view={keptForm} account={kept.account} onSuccess={onSuccess} />;
 
   if (auth.status === "loading" || loading) {
     return <LoadingState text="Loading…" />;
@@ -88,7 +98,7 @@ export default function ApplyPageContent() {
   }
 
   const form = formViewFor(current);
-  if (form) return <FormSection view={form} getToken={auth.getAccessToken} onSuccess={setJustSubmitted} />;
+  if (form) return <FormSection view={form} account={account ?? ""} onSuccess={onSuccess} />;
 
   if (current?.status === "pending") {
     return (
@@ -116,16 +126,17 @@ export default function ApplyPageContent() {
 /**
  * The application form and what's said above it. One component for both the
  * kept and the settled view, at the same place in the tree, so going from one
- * to the other never remounts the form (which would lose what's typed).
+ * to the other never remounts the form (which would lose what's typed). Keyed
+ * by `account` (the one it was shown for), so another account gets a new form.
  */
 function FormSection({
   view,
-  getToken,
+  account,
   onSuccess,
 }: {
   view: FormView;
-  getToken: GetToken;
-  onSuccess: (record: OrganiserRecord) => void;
+  account: string;
+  onSuccess: (record: OrganiserRecord, account: string) => void;
 }) {
   return (
     <div className="flex flex-col gap-6">
@@ -144,11 +155,10 @@ function FormSection({
         </StatusCard>
       )}
       <ApplicationForm
-        key={view.mode}
+        key={`${account}\n${view.mode}`}
         mode={view.mode}
-        getToken={getToken}
         initial={view.mode === "resubmit" ? view.record : undefined}
-        onSuccess={onSuccess}
+        onSuccess={(record) => onSuccess(record, account)}
       />
     </div>
   );

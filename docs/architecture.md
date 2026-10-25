@@ -2665,6 +2665,34 @@ sign-up and password reset on the real project after deploying.
   expected one to save; and in the iOS home-screen app the new tab opens in
   Safari, whose storage is separate, so the link can't complete the
   recovery there (the password form still works for password accounts).
+- **A draft stays on screen after its session ends by itself**
+  (`lib/auth/useKeptWhileSignedOut.ts`). When a session expires, its
+  refresh token is revoked (a sign-out on another device, a password
+  reset), or a recovery refuses a wrong-account sign-in, the event editor,
+  organiser application and public profile form stay on screen, signed out,
+  with what was typed, so the person can sign in again in place and finish.
+  Accepted: until they do (or leave the page), anyone at that device can
+  read their own unsaved draft there. It's never sent as anyone else: every
+  request those forms (and the message, request and report forms) make uses
+  a token getter bound to the draft's owner, which reads the session when
+  it's called and refuses anyone else's (`useAccountOwner`'s
+  `getOwnerToken`, over AuthContext's `getAccessTokenFor`), and once another
+  account's data has loaded (or failed to) the page shows that account its
+  own, with a new form (keyed by account), so the draft is gone. The admin
+  pages and the messages pages are keyed by account the same way, so a
+  direct switch to another account remounts them. The person's **own Sign
+  out** isn't an expiry: before signing out it records, for every tab here,
+  that it was deliberate (`lib/auth/sign-out-signal.ts`: localStorage, read
+  when Supabase's sign-out reaches a tab, and a BroadcastChannel for a tab
+  that heard Supabase first; the `storage` event where there's no
+  BroadcastChannel), AuthContext reports `signedOutBy: "user"`, and every
+  tab drops the kept form for the ordinary signed-out page. Not covered: a
+  Sign out on another device (this browser only sees its refresh token
+  revoked, as for an expiry), and a tab where storage is blocked and there's
+  no BroadcastChannel. Requests outside those forms (admin actions, Who's
+  Going, the organiser logo) use the session's token when they're made; an
+  admin action already in flight at the moment another admin signs in
+  could go as them (the admin pages remount as soon as React hears of it).
 
 ## Not built yet
 

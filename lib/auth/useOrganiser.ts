@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, isApiConfigured, type GetToken } from "@/lib/api/client";
 import { getMyOrganiser } from "@/lib/api/organisers";
 import type { OrganiserRecord } from "@/lib/api/types";
+import { accountKey } from "./account";
 import { useAuth } from "./AuthContext";
 
 interface OrganiserResult {
@@ -33,17 +34,19 @@ const API_NOT_CONFIGURED = "The live API is not configured in this environment."
 
 /**
  * Loads (and lets callers refetch) the signed-in user's own organiser
- * application. A result belongs to the account it was fetched for: after a
- * sign-out and a sign-in (the same account or another) it's `loading` until
- * that account's own has arrived, never showing the last one's. A token
- * refresh fetches nothing. `refetch` keeps the current result while it runs
- * (`refreshing`), so a page never swaps what it shows (a form being filled
- * in, above all) for a loader.
+ * application. A result belongs to the account it was fetched for, and is
+ * only ever shown for that account: when a different account signs in, it's
+ * `loading` until that account's own has arrived, never showing the last
+ * one's. Each sign-in fetches again; the same account signing back in (after
+ * a sign-out or an expiry) keeps its own last result meanwhile, so it isn't
+ * `loading`. A token refresh fetches nothing. `refetch` keeps the current
+ * result while it runs (`refreshing`), so a page never swaps what it shows (a
+ * form being filled in, above all) for a loader.
  */
 export function useOrganiser() {
   const auth = useAuth();
   const getToken = auth.getAccessToken;
-  const account = auth.status === "signed-in" ? (auth.userId ?? auth.email ?? "") : null;
+  const account = accountKey(auth);
   const [fetched, setFetched] = useState<Fetched | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 

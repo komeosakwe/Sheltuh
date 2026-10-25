@@ -40,9 +40,10 @@ const UNCONFIGURED_TITLE = "Accounts aren’t configured";
  * Then it's on to `next` (checked again here: anyone can craft this URL), or
  * the dashboard.
  *
- * Supabase's `sb_flow_id` (when it sends one) is read with the code and
- * passed to the exchange, since Supabase would otherwise look for it in the
- * address bar, which has been cleared by then.
+ * An `sb_flow_id` with the code is read too and passed to the exchange (the
+ * address bar has been cleared by then). auth-js adds one only with its
+ * experimental `appendPkceFlowIdToRedirects` option, which we don't turn on,
+ * so normally there's none and the exchange uses the one stored verifier.
  *
  * An error moves focus to its h1, which is described by the line under it,
  * and the tab's title says what happened.

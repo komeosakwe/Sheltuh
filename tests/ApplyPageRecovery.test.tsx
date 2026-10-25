@@ -127,8 +127,9 @@ describe("ApplyPageContent: a draft survives its session running out", () => {
     const { become, signOut } = mount(accountA());
     await fillDraft();
     await become(SIGNED_OUT);
+    // B's status is still loading: A's form is kept (for A's recovery), with A's draft.
+    getMyOrganiser.mockImplementationOnce(() => new Promise(() => {}));
     await become(accountB);
-    // B has no application either: the same form, still with A's draft.
     await waitFor(() => expect(getMyOrganiser).toHaveBeenCalledTimes(2));
     expect(screen.getByLabelText("Organiser name")).toHaveValue("Neon Collective");
 
@@ -138,6 +139,50 @@ describe("ApplyPageContent: a draft survives its session running out", () => {
     expect(screen.getByText(/^You're signed in as a different account/)).toHaveTextContent("Sign in as a@example.com");
     expect(screen.getByLabelText("Email")).toHaveValue("a@example.com");
     expect(signOut).not.toHaveBeenCalled();
+  });
+
+  it("once another account has loaded, it gets a new, empty form of its own (never the last one's draft)", async () => {
+    const { become } = mount(accountA());
+    await fillDraft();
+    const nameField = screen.getByLabelText("Organiser name");
+    await become(SIGNED_OUT);
+    await become(accountB);
+    // B has no application either: a form, but a new one.
+    await waitFor(() => expect(screen.getByLabelText("Organiser name")).not.toBe(nameField));
+    expect(screen.getByLabelText("Organiser name")).toHaveValue("");
+    expect(screen.getByLabelText("Contact email")).toHaveValue("");
+  });
+
+  it("another account whose status fails to load sees its own error with Try again, not the last one's form", async () => {
+    const { become } = mount(accountA());
+    await fillDraft();
+    await become(SIGNED_OUT);
+    getMyOrganiser.mockRejectedValueOnce(new Error("Couldn't load your organiser status."));
+    await become(accountB);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't load your organiser status.");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Organiser name")).toBeNull();
+  });
+
+  it("after the person's own Sign out (here or in another tab), the Sign in card, not the kept form", async () => {
+    const { become } = mount(accountA());
+    await fillDraft();
+    await become({ ...SIGNED_OUT, signedOutBy: "user" });
+    expect(screen.getByText("Sign in or create an account to apply as an organiser.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Organiser name")).toBeNull();
+  });
+
+  it("an application just submitted is only ever shown to the account that submitted it", async () => {
+    applyAsOrganiser.mockResolvedValueOnce(PENDING);
+    const { become } = mount(accountA());
+    await fillDraft();
+    fireEvent.click(submit());
+    expect(await screen.findByText("Application pending")).toBeInTheDocument();
+    await become(SIGNED_OUT);
+    await become(accountB);
+    // B has none: B's own (empty) form, not A's "pending".
+    expect(await screen.findByLabelText("Organiser name")).toHaveValue("");
+    expect(screen.queryByText("Application pending")).toBeNull();
   });
 
   it("someone arriving signed out still gets the Sign in card (nothing was on screen to keep)", async () => {

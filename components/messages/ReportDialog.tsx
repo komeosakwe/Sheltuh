@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
+import type { GetToken } from "@/lib/api/client";
 import type { ReportReason } from "@/lib/api/types";
 import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import { validateMessage } from "@/lib/message-text";
@@ -27,7 +28,9 @@ const REASON_ERROR = "Choose a reason.";
  * inside, Escape closes it and focus returns to what opened it). A reason is
  * required; details are optional. The form is mounted fresh on each open.
  * `subject`: what's reported, and so what a copy is kept of (a conversation,
- * or a member profile's name, bio, Instagram and photo).
+ * or a member profile's name, bio, Instagram and photo). `onSubmit` gets the
+ * token getter to send it with, bound to the account that wrote the report
+ * (lib/auth/useAccountOwner.ts).
  */
 export default function ReportDialog({
   open,
@@ -41,7 +44,7 @@ export default function ReportDialog({
   otherName: string;
   subject?: "conversation" | "profile";
   onClose: () => void;
-  onSubmit: (reason: ReportReason, details: string | undefined) => Promise<ReportOutcome>;
+  onSubmit: (reason: ReportReason, details: string | undefined, getToken: GetToken) => Promise<ReportOutcome>;
   returnTo: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -79,7 +82,7 @@ function ReportForm({
   otherName: string;
   subject: "conversation" | "profile";
   onCancel: () => void;
-  onSubmit: (reason: ReportReason, details: string | undefined) => Promise<ReportOutcome>;
+  onSubmit: (reason: ReportReason, details: string | undefined, getToken: GetToken) => Promise<ReportOutcome>;
   returnTo: string;
 }) {
   const [reason, setReason] = useState<ReportReason | null>(null);
@@ -93,7 +96,7 @@ function ReportForm({
   const problemRef = useRef<HTMLDivElement>(null);
   const pendingFocus = useRef<"reason" | "details" | "problem" | null>(null);
   // Whose report this is (captured while signed in, as the dialog opens), for the expired-session sign-in.
-  const { owner, otherAccount } = useAccountOwner();
+  const { owner, otherAccount, getOwnerToken } = useAccountOwner();
 
   // Opening the dialog (a user action) starts at the first reason.
   useEffect(() => {
@@ -139,7 +142,7 @@ function ReportForm({
       return;
     }
     setBusy(true);
-    const outcome = await onSubmit(reason, details.trim() || undefined);
+    const outcome = await onSubmit(reason, details.trim() || undefined, getOwnerToken);
     if (outcome.ok || "gone" in outcome) return; // The dialog closes.
     setBusy(false);
     if ("fieldErrors" in outcome) {

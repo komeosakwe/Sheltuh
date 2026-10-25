@@ -15,8 +15,9 @@ export default function NewEventPageContent() {
   const approved = auth.status === "signed-in" && organiser?.status === "approved";
   // The editor was on screen: kept while the session has run out (or another
   // account's status is loading), so the new draft stays mounted and its own
-  // recovery can sign in again in place.
-  const editorShown = useKeptWhileSignedOut(approved, auth.status === "signed-in" && !loading) === true;
+  // recovery can sign in again in place. Not after the person's own Sign out;
+  // keyed by account, so another account gets a new, empty editor.
+  const editor = useKeptWhileSignedOut(approved, auth.status === "signed-in" && !loading);
 
   if (!auth.configured) {
     return (
@@ -26,9 +27,10 @@ export default function NewEventPageContent() {
     );
   }
 
-  if (editorShown) {
+  if (editor?.value) {
     return (
       <EventEditor
+        key={editor.account}
         getToken={auth.getAccessToken}
         onSaved={(record) => router.push(`/dashboard/${record.eventId}`)}
       />

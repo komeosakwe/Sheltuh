@@ -121,8 +121,11 @@ export default function EventEditor(props: Props) {
   // Captured while signed in: the account this draft belongs to, so that if
   // the session expires mid-edit, recovery only accepts signing back in as
   // this same account, and nothing is saved while someone else is signed in
-  // (another tab) — never a different one saving over it.
-  const { owner, otherAccount } = useAccountOwner();
+  // (another tab) — never a different one saving over it. Every request a
+  // save makes (the event, its photo, its clip; an admin's new organiser)
+  // uses `saveToken`, bound to this account when it's called; `getToken`
+  // (the page's) is only for reading (photo and clip previews).
+  const { owner, otherAccount, getOwnerToken: saveToken } = useAccountOwner();
   const locked = !isAdmin && initial ? initial.status === "pending_review" || initial.status === "published" : false;
 
   const [title, setTitle] = useState(initial?.title ?? "");
@@ -161,7 +164,7 @@ export default function EventEditor(props: Props) {
   // (decided at mount, so the field stays after it's removed); only choosing a new one needs the flag.
   const clipsOn = eventClipsEnabled();
   const [clipField] = useState(() => clipsOn || (isAdmin && Boolean(initial?.clip)));
-  const clip = useEventClip({ enabled: clipField, getToken, saved: initial?.clip });
+  const clip = useEventClip({ enabled: clipField, getToken: saveToken, saved: initial?.clip });
   // The event as last saved, here: its photo is what the photo field shows, even when the
   // clip step after it failed (and the page wasn't told, or left).
   const [savedRecord, setSavedRecord] = useState<EventRecord | undefined>(initial);
@@ -282,12 +285,12 @@ export default function EventEditor(props: Props) {
     remove: (eventId: string, getToken: GetToken) => Promise<R>,
   ): Promise<R> {
     if (imageFile) {
-      const updated = await upload(record.eventId, imageFile, getToken);
+      const updated = await upload(record.eventId, imageFile, saveToken);
       setImageFile(null);
       return updated;
     }
     if (imageRemoved && record.imageUrl) {
-      const updated = await remove(record.eventId, getToken);
+      const updated = await remove(record.eventId, saveToken);
       setImageRemoved(false);
       return updated;
     }
@@ -301,12 +304,12 @@ export default function EventEditor(props: Props) {
       const record = await adminUpdateEvent(
         existingId,
         { ...input, ticketingMode, expectedUpdatedAt: version ?? "", publish, reason: reason.trim() || null },
-        getToken,
+        saveToken,
       );
       setVersion(record.updatedAt);
       return record;
     }
-    const record = await adminCreateEvent({ ...input, organiserId: organiser?.organiserId ?? "", publish }, getToken);
+    const record = await adminCreateEvent({ ...input, organiserId: organiser?.organiserId ?? "", publish }, saveToken);
     setCreatedId(record.eventId);
     setVersion(record.updatedAt);
     return record;
@@ -354,8 +357,8 @@ export default function EventEditor(props: Props) {
       } else {
         const existingId = initial?.eventId ?? createdId;
         let record = existingId
-          ? await updateEventDraft(existingId, input, getToken)
-          : await createEventDraft(input, getToken);
+          ? await updateEventDraft(existingId, input, saveToken)
+          : await createEventDraft(input, saveToken);
         if (!existingId) setCreatedId(record.eventId);
         record = await syncImage(record, uploadEventImage, deleteEventImage);
         const onSaved = props.onSaved;
@@ -411,11 +414,11 @@ export default function EventEditor(props: Props) {
       return;
     }
     try {
-      const saved = await updateEventDraft(initial.eventId, input, getToken);
+      const saved = await updateEventDraft(initial.eventId, input, saveToken);
       const withImage = await syncImage(saved, uploadEventImage, deleteEventImage);
       // Waits for a clip upload a save already started, and never submits without the clip.
       setSavedRecord(await syncClip(withImage, ORGANISER_CLIP_ROUTES, props.onSaved));
-      const record = await submitEventForReview(initial.eventId, getToken);
+      const record = await submitEventForReview(initial.eventId, saveToken);
       props.onSaved(record);
     } catch (err) {
       handleError(err, "Couldn't submit this event for review.");
@@ -460,7 +463,7 @@ export default function EventEditor(props: Props) {
       )}
       {isAdmin && !initial && !createdId && (
         <AdminOrganiserPicker
-          getToken={getToken}
+          getToken={saveToken}
           value={organiser}
           onChange={(picked) => {
             setOrganiser(picked);

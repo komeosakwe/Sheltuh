@@ -77,8 +77,8 @@ interface Props {
  * offered) a link opens /login in a new tab, which then lands on /signed-in
  * ("go back to your other tab"). Signing in there reaches this tab too
  * (Supabase shares sign-ins between tabs). Only once that link has been used
- * does a new sign-in (a new account, or a new sign-in time: never a token
- * refresh) count: for the expected account it calls `onSignedIn`, once;
+ * does a new sign-in (a new account, or a new sign-in time, which a token
+ * refresh isn't expected to change) count: for the expected account it calls `onSignedIn`, once;
  * for another account it shows the different-account message and moves focus
  * to it, and signs nobody out (that session belongs to the other tab). A
  * password sign-in here decides for itself, and if it's the wrong account
@@ -106,7 +106,7 @@ export default function InlineReauth({ expectedAccount, onSignedIn }: Props) {
     auth.status === "signed-in" ? { userId: auth.userId, email: auth.email } : undefined;
   // Signed in right now as someone other than the draft's owner: said for as long as it's true.
   const otherAccount = Boolean(expectedAccount && live && !sameAccount(live, expectedAccount));
-  // Changes with each new sign-in (or account), never with a token refresh.
+  // Changes with each new sign-in (or account); not expected to with a token refresh (Supabase sets last_sign_in_at on sign-in).
   const signInKey =
     auth.status === "signed-in" ? [auth.userId ?? "", auth.email ?? "", auth.lastSignInAt ?? ""].join("\n") : undefined;
   const seenKey = useRef<string | undefined | typeof PENDING>(auth.status === "loading" ? PENDING : signInKey);
@@ -181,6 +181,13 @@ export default function InlineReauth({ expectedAccount, onSignedIn }: Props) {
     }
   }
 
+  /** The new-tab link was opened (a click, or a middle-click): from now on, a sign-in there counts. */
+  function openedNewTab() {
+    newTabUsed.current = true;
+    setError(null);
+    setWaiting(true);
+  }
+
   function handlePasswordKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key !== "Enter") return;
     event.preventDefault();
@@ -250,10 +257,13 @@ export default function InlineReauth({ expectedAccount, onSignedIn }: Props) {
                 href={NEW_TAB_SIGN_IN_HREF}
                 target="_blank"
                 rel="noopener"
-                onClick={() => {
+                onClick={openedNewTab}
+                onAuxClick={(event) => {
+                  if (event.button === 1) openedNewTab();
+                }}
+                // Its menu may open the link in a new tab (or window): a sign-in there counts too.
+                onContextMenu={() => {
                   newTabUsed.current = true;
-                  setError(null);
-                  setWaiting(true);
                 }}
                 className="inline-flex min-h-11 items-center text-foreground underline underline-offset-4"
               >

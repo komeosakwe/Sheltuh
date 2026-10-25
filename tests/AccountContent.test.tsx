@@ -221,6 +221,9 @@ describe("AccountContent", () => {
     expect(screen.getByRole("link", { name: "My events" })).toHaveAttribute("href", "/dashboard");
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(auth.signOut).toHaveBeenCalledTimes(1);
+    // No scope: the default, global sign-out (every device), which is also what marks it as the
+    // person's own, so no tab keeps a form on screen for it.
+    expect(auth.signOut).toHaveBeenCalledWith();
     expect(push).toHaveBeenCalledWith("/");
     await screen.findByLabelText("Display name");
   });

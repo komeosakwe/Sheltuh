@@ -197,6 +197,24 @@ describe("InlineReauth — signing in with Google or Apple in a new tab", () => 
     await waitFor(() => expect(live).toBeEmptyDOMElement());
   });
 
+  it("a middle-click on the link (opening it in a new tab) counts as using it", async () => {
+    const { become, onSignedIn } = mount(SIGNED_OUT, { expected: OWNER });
+    fireEvent(screen.getByRole("link", { name: "Sign in in a new tab" }), new MouseEvent("auxclick", { bubbles: true, button: 1 }));
+    expect(screen.getByText("Waiting for you to sign in in the other tab.")).toBeInTheDocument();
+    await become(owner());
+    expect(onSignedIn).toHaveBeenCalledTimes(1);
+  });
+
+  it("opening the link's menu (Open in new tab) counts as using it; a right-button auxclick alone says nothing", async () => {
+    const { become, onSignedIn } = mount(SIGNED_OUT, { expected: OWNER });
+    const link = screen.getByRole("link", { name: "Sign in in a new tab" });
+    fireEvent(link, new MouseEvent("auxclick", { bubbles: true, button: 2 }));
+    expect(screen.queryByText("Waiting for you to sign in in the other tab.")).toBeNull();
+    fireEvent.contextMenu(link);
+    await become(owner());
+    expect(onSignedIn).toHaveBeenCalledTimes(1);
+  });
+
   it("never reacts to a sign-in in another tab unless the link was used", async () => {
     const { become, onSignedIn, signOut } = mount(SIGNED_OUT, { expected: OWNER });
     await become(owner());

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CheckoutConfirmation from "@/components/CheckoutConfirmation";
@@ -293,7 +293,8 @@ describe("CheckoutConfirmation: back from Stripe without a confirmed order (chec
     await renderPending(2);
     const h1 = screen.getByRole("heading", { level: 1, name: "Payment not completed" });
     expect(h1).toHaveFocus();
-    // The tab says so too, never "Order confirmed".
+    // The tab says so too, never "Order confirmed". (Fake timers here, so not waitFor: the
+    // effect that sets it has already run inside renderPending's act.)
     expect(document.title).toBe("Payment not completed — Sheltüh");
     expect(
       screen.getByText("You haven’t been charged. Your checkout is still open, so you can try again."),
@@ -515,7 +516,7 @@ describe("CheckoutConfirmation: the tab's title follows the answer", () => {
     render(<CheckoutConfirmation />);
     expect(document.title).toBe("Your order — Sheltüh");
     await act(async () => resolve(ORDER));
-    expect(document.title).toBe("Order confirmed — Sheltüh");
+    await waitFor(() => expect(document.title).toBe("Order confirmed — Sheltüh"));
   });
 
   it.each<[string, () => void, string]>([
@@ -526,6 +527,6 @@ describe("CheckoutConfirmation: the tab's title follows the answer", () => {
     arrange();
     render(<CheckoutConfirmation />);
     await screen.findByRole("heading", { level: 1 });
-    expect(document.title).toBe(title);
+    await waitFor(() => expect(document.title).toBe(title));
   });
 });

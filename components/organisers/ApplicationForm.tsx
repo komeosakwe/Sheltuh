@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import InlineReauth, { signedInAgainMessage } from "@/components/auth/InlineReauth";
 import FeaturedVideoField, { featuredVideoInitial, featuredVideoUrlError } from "@/components/organisers/FeaturedVideoField";
 import SocialHandleFields from "@/components/organisers/SocialHandleFields";
-import { ApiError, type GetToken } from "@/lib/api/client";
+import { ApiError } from "@/lib/api/client";
 import { applyAsOrganiser, resubmitOrganiser, type OrganiserApplicationInput } from "@/lib/api/organisers";
 import type { OrganiserRecord } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/AuthContext";
@@ -69,17 +69,17 @@ const PUBLIC_NOTE = "Shown publicly on your organiser profile once approved.";
 
 interface Props {
   mode: "apply" | "resubmit";
-  getToken: GetToken;
   initial?: OrganiserRecord;
   onSuccess: (record: OrganiserRecord) => void;
 }
 
-export default function ApplicationForm({ mode, getToken, initial, onSuccess }: Props) {
+export default function ApplicationForm({ mode, initial, onSuccess }: Props) {
   // Captured while signed in: the account filling out this application, so a
   // session-expiry recovery only ever resumes as this same account, and
   // nothing is submitted while someone else is signed in (another tab) —
-  // otherwise it would go in under the wrong account entirely.
-  const { owner, otherAccount } = useAccountOwner();
+  // otherwise it would go in under the wrong account entirely. The submit's
+  // token is bound to it too (getOwnerToken), for a change after the check.
+  const { owner, otherAccount, getOwnerToken } = useAccountOwner();
   const [displayName, setDisplayName] = useState(initial?.displayName ?? "");
   const [contactEmail, setContactEmail] = useState(initial?.contactEmail ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
@@ -171,7 +171,7 @@ export default function ApplicationForm({ mode, getToken, initial, onSuccess }: 
     setLoading(true);
     try {
       const record =
-        mode === "apply" ? await applyAsOrganiser(input, getToken) : await resubmitOrganiser(input, getToken);
+        mode === "apply" ? await applyAsOrganiser(input, getOwnerToken) : await resubmitOrganiser(input, getOwnerToken);
       onSuccess(record);
     } catch (err) {
       // None of the fields above are cleared here — a failed submission

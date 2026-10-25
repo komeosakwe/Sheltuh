@@ -24,3 +24,12 @@ export function sameAccount(a: AccountRef | undefined, b: AccountRef | undefined
   if (a.userId && b.userId) return a.userId === b.userId;
   return a.email !== undefined && b.email !== undefined && normalEmail(a.email) === normalEmail(b.email);
 }
+
+/**
+ * A string naming the signed-in account (its user id, else its email), for
+ * telling "this account's data" from another's (a React key, a cache tag);
+ * null when nobody is signed in.
+ */
+export function accountKey(auth: { status: string; userId?: string; email?: string }): string | null {
+  return auth.status === "signed-in" ? (auth.userId ?? auth.email ?? "") : null;
+}

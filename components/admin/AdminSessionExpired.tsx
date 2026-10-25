@@ -11,9 +11,10 @@ const AdminOwnerContext = createContext<AccountRef | undefined>(undefined);
 
 /**
  * The admin who's using these pages, captured while they're signed in
- * (AdminShell renders this around every admin page), so a sign-in form shown
- * after their session has gone is locked to them rather than to whoever the
- * live session belongs to by then.
+ * (AdminShell renders this around every admin page, keyed by account, so
+ * another admin signing in remounts it and everything in it), so a sign-in
+ * form shown after their session has gone is locked to them rather than to
+ * whoever the live session belongs to by then.
  */
 export function AdminOwnerProvider({ children }: { children: ReactNode }) {
   const { owner } = useAccountOwner();

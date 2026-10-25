@@ -188,8 +188,10 @@ const FLOW_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
  * errors in both the query and the fragment; either is read, the query
  * first. `error_description` is never used: anyone can put any text in a
  * URL, so the page shows only our own copy. No code and no error is
- * "missing". With a code, Supabase's `sb_flow_id` (which PKCE flow it
- * belongs to, when Supabase adds one) is kept if it's well-formed.
+ * "missing". With a code, an `sb_flow_id` (which PKCE flow it belongs to) is
+ * kept if it's well-formed. auth-js adds one only with its experimental
+ * `appendPkceFlowIdToRedirects` option, which we don't turn on, so it's
+ * normally absent.
  */
 export function parseOAuthCallback(search: string, hash: string): OAuthCallback {
   const query = new URLSearchParams(search);
