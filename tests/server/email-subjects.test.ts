@@ -106,8 +106,8 @@ describe("every email's subject is cleaned", () => {
     expect(emails.waitlistAvailable().subject).toBe(`Tickets are available again: ${CLEAN_TITLE}`);
     expect(emails.followerOne().subject).toBe(`New from ${CLEAN_NAME}: ${CLEAN_TITLE}`);
     expect(emails.followerMany().subject).toBe(`3 new events from ${CLEAN_NAME}`);
-    expect(emails.eventReview().subject).toBe(`Event to review: ${CLEAN_TITLE}`);
-    expect(emails.organiserReview().subject).toBe(`Organiser to review: ${CLEAN_NAME}`);
+    expect(emails.eventReview().subject).toBe("Event submitted for review");
+    expect(emails.organiserReview().subject).toBe("Organiser application to review");
   });
 
   it("mailOptions cleans a subject again, and the header that goes out has one line and no injected header", async () => {

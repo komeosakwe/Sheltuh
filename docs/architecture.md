@@ -2039,12 +2039,15 @@ Admins get an email when something is waiting for their review
 `lib/server/admin-review-email.ts`, `lib/server/email-outbox.ts`):
 
 - **When.** An organiser submits an event for review (draft or rejected →
-  `pending_review`, so a resubmission too): "Event to review: {title}", with
-  the title, the organiser's name, when it starts (Melbourne time), whether
-  it was resubmitted after a rejection, and a link to
+  `pending_review`, so a resubmission too): "Event submitted for review" (or
+  "Event resubmitted for review" after a rejection), with the title, the
+  organiser's name, when it starts (Melbourne time) and a link to
   `/admin/events?status=pending_review`. Someone applies to be an organiser,
-  or resubmits a rejected application (→ `pending`): "Organiser to review:
-  {name}", with the name and a link to `/admin/organisers`. Nothing else: no
+  or resubmits a rejected application (→ `pending`): "Organiser application
+  to review", with the name and a link to `/admin/organisers`. Subjects and
+  inbox previews are fixed text: the organiser's title and name appear only
+  in the body, under "As submitted by the organiser:", so they can't be used
+  to phish admins from our own signed address. Nothing else: no
   description, contact details, venue address or buyer data; no images, no
   tracking. Saving a draft, an approved organiser's profile edit, and
   anything an admin creates (admin-authored events are published directly,

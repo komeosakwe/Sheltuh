@@ -106,9 +106,9 @@ describe("an event submitted for review", () => {
     await api.runDeferred();
     expect(recipients()).toEqual([admin.email, second.email].sort());
     const [message] = sent();
-    expect(message.subject).toBe("Event to review: Neon Static");
-    expect(message.text).toContain("Neon Static");
-    expect(message.text).toContain(`By ${application.displayName}`);
+    expect(message.subject).toBe("Event submitted for review");
+    expect(message.text).toContain("As submitted by the organiser:\nTitle: Neon Static");
+    expect(message.text).toContain(`Organiser: ${application.displayName}`);
     expect(message.text).toContain(`Starts ${reviewEventStart(draft.startsAt)}`);
     expect(reviewEventStart(draft.startsAt)).toMatch(/6 March 2027, 8:00 pm AEDT$/);
     expect(message.text).toContain(`${SITE_URL}/admin/events?status=pending_review`);
@@ -245,7 +245,7 @@ describe("an event submitted for review", () => {
     expect((await api.call(runEmailOutboxCron, { token: CRON_SECRET })).body).toMatchObject({ claimed: 1, sent: 1 });
     expect(api.sendEmail).toHaveBeenCalledTimes(2);
     const resent = sent()[1];
-    expect(resent.subject).toBe("Event to review: Neon Static");
+    expect(resent.subject).toBe("Event resubmitted for review");
     expect(resent.text).toContain("An event was resubmitted for review");
   });
 
@@ -445,7 +445,8 @@ describe("an organiser application", () => {
     await api.runDeferred();
     expect(recipients()).toEqual([admin.email]);
     const [message] = sent();
-    expect(message.subject).toBe("Organiser to review: Fresh Faces");
+    expect(message.subject).toBe("Organiser application to review");
+    expect(message.text).toContain("As submitted by the organiser:\nOrganiser name: Fresh Faces");
     expect(message.text).toContain(`${SITE_URL}/admin/organisers`);
     expect(message.html).toContain(`href="${SITE_URL}/admin/organisers"`);
     for (const part of [message.subject, message.text, message.html]) {
@@ -480,7 +481,8 @@ describe("an organiser application", () => {
     expect(resubmitted.status).toBe(200);
     await api.runDeferred();
     expect(api.sendEmail).toHaveBeenCalledTimes(2);
-    expect(sent()[1].subject).toBe("Organiser to review: Fresh Faces Collective");
+    expect(sent()[1].subject).toBe("Organiser application to review");
+    expect(sent()[1].text).toContain("Organiser name: Fresh Faces Collective");
   });
 
   it("is dropped when an admin approves the application before it's sent", async () => {
@@ -547,13 +549,51 @@ describe("the review emails' content", () => {
       resubmitted: false,
       siteUrl: SITE_URL,
     });
-    expect(message.subject).toBe("Event to review: Neon Static Bcc: x@evil.test");
+    expect(message.subject).toBe("Event submitted for review");
+    expect(message.text).toContain("Title: Neon Static Bcc: x@evil.test");
     const transport = nodemailer.createTransport({ streamTransport: true, buffer: true, newline: "unix" });
     const info = await transport.sendMail(mailOptions("Sheltüh <support@sheltuh.test>", message));
     const headers = (info.message as Buffer).toString("utf8").split("\n\n")[0];
     expect(headers).toMatch(/^To: ops@sheltuh\.test$/m);
     expect(headers).not.toMatch(/^bcc:/im);
     expect(message.html).not.toContain("‮");
+  });
+
+  it("keep organiser-supplied text out of the subject and preheader, and label it in the body", () => {
+    const phish = "URGENT: admin password reset required";
+    const emails = [
+      buildEventReviewEmail({
+        to: "ops@sheltuh.test",
+        title: phish,
+        organiserName: phish,
+        startsAt: "2027-03-06T09:00:00.000Z",
+        resubmitted: false,
+        siteUrl: SITE_URL,
+      }),
+      buildEventReviewEmail({
+        to: "ops@sheltuh.test",
+        title: phish,
+        organiserName: phish,
+        startsAt: "2027-03-06T09:00:00.000Z",
+        resubmitted: true,
+        siteUrl: SITE_URL,
+      }),
+      buildOrganiserReviewEmail({ to: "ops@sheltuh.test", organiserName: phish, siteUrl: SITE_URL }),
+    ];
+    expect(emails.map((m) => m.subject)).toEqual([
+      "Event submitted for review",
+      "Event resubmitted for review",
+      "Organiser application to review",
+    ]);
+    for (const message of emails) {
+      expect(message.subject).not.toContain("URGENT");
+      // The preheader (the inbox preview) is the hidden first div; the title tag is the fixed headline.
+      const preheader = message.html.match(/<div style="display:none[^>]*>([^<]*)/)![1];
+      expect(preheader).not.toContain("URGENT");
+      expect(message.html.match(/<title>([^<]*)<\/title>/)![1]).not.toContain("URGENT");
+      expect(message.text).toContain("As submitted by the organiser:");
+      expect(message.html).toContain("As submitted by the organiser:");
+    }
   });
 
   it("escape organiser-supplied text in the HTML", () => {

@@ -11,6 +11,11 @@ import { formatTicketDate, formatTicketTime } from "./ticket-email";
  * an admin needs to know something is waiting (the event's title, its
  * organiser's name and its start; the applicant's organiser name) and the
  * link to the queue, where everything else is.
+ *
+ * The subjects and preheaders are fixed: an applicant's or organiser's own
+ * text (an event title, an organiser name) never goes in them, so it can't
+ * be used to send admins a convincing message from our signed address. It
+ * appears only in the body, labelled as what the organiser submitted.
  */
 
 /** Most addresses read from ADMIN_NOTIFY_EMAILS (the rest are ignored). */
@@ -59,7 +64,12 @@ export function reviewEventStart(startsAt: string): string {
 const FOOTER_TEXT = "You're getting this because you're a Sheltüh admin.";
 const FOOTER_HTML = `<p style="margin:0;font-size:13px;line-height:20px;color:${MUTED}">You&rsquo;re getting this because you&rsquo;re a Sheltüh admin.</p>`;
 
-/** "Event to review: {title}", to one admin. */
+/** The label over the organiser's own text, so it never reads as ours. */
+const SUBMITTED_LABEL = "As submitted by the organiser:";
+const SUBMITTED_LABEL_HTML = `<p style="margin:0 0 8px 0;font-size:13px;line-height:20px;color:${MUTED}">${escapeHtml(SUBMITTED_LABEL)}</p>`;
+const PREHEADER = "Open the review queue to approve or reject it.";
+
+/** "Event submitted for review" (or "resubmitted"), to one admin. */
 export function buildEventReviewEmail(input: {
   to: string;
   title: string;
@@ -79,8 +89,9 @@ export function buildEventReviewEmail(input: {
   const text = [
     headline,
     "",
-    title,
-    `By ${organiserName}`,
+    SUBMITTED_LABEL,
+    `Title: ${title}`,
+    `Organiser: ${organiserName}`,
     `Starts ${starts}`,
     "",
     `Review it: ${link}`,
@@ -91,18 +102,20 @@ export function buildEventReviewEmail(input: {
 
   const html = page({
     title: headline,
-    preheader: `${title}, by ${organiserName}`,
+    preheader: PREHEADER,
     body:
       heading(escapeHtml(headline)) +
-      eventBlock(title, [`By ${organiserName}`, `Starts ${starts}`]) +
+      SUBMITTED_LABEL_HTML +
+      eventBlock(title, [`Organiser: ${organiserName}`, `Starts ${starts}`]) +
       button("Open the review queue", link) +
       FOOTER_HTML,
   });
 
-  return { to, subject: subjectLine(`Event to review: ${title}`), text, html };
+  const subject = resubmitted ? "Event resubmitted for review" : "Event submitted for review";
+  return { to, subject, text, html };
 }
 
-/** "Organiser to review: {name}", to one admin (a new application or a resubmitted one). */
+/** "Organiser application to review", to one admin (a new application or a resubmitted one). */
 export function buildOrganiserReviewEmail(input: { to: string; organiserName: string; siteUrl: string }): EmailMessage {
   const { to, siteUrl } = input;
   const organiserName = subjectLine(input.organiserName);
@@ -112,7 +125,8 @@ export function buildOrganiserReviewEmail(input: { to: string; organiserName: st
   const text = [
     headline,
     "",
-    organiserName,
+    SUBMITTED_LABEL,
+    `Organiser name: ${organiserName}`,
     "",
     `Review it: ${link}`,
     "",
@@ -122,13 +136,14 @@ export function buildOrganiserReviewEmail(input: { to: string; organiserName: st
 
   const html = page({
     title: headline,
-    preheader: organiserName,
+    preheader: PREHEADER,
     body:
       heading(escapeHtml(headline)) +
+      SUBMITTED_LABEL_HTML +
       eventBlock(organiserName, []) +
       button("Open the organiser queue", link) +
       FOOTER_HTML,
   });
 
-  return { to, subject: subjectLine(`Organiser to review: ${organiserName}`), text, html };
+  return { to, subject: "Organiser application to review", text, html };
 }
