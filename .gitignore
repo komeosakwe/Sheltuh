@@ -27,6 +27,8 @@ node_modules/
 # misc
 .DS_Store
 *.pem
+# Apple keys (Sign in with Apple, AuthKey_<KeyID>.p8): keep them in a password manager, never here
+*.p8
 
 # debug
 npm-debug.log*

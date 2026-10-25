@@ -15,7 +15,11 @@ export default function PrivacyPage() {
     >
       <ContentSection title="What we collect">
         <ul>
-          <li>Your email address and password when you create an account.</li>
+          <li>
+            Your email address and password when you create an account, or, if you sign in with
+            Google or Apple, what they share with us (see{" "}
+            <a href="#google-apple">Signing in with Google or Apple</a>).
+          </li>
           <li>
             The email address you enter at checkout, so we can send your tickets, and your order
             details.
@@ -35,6 +39,48 @@ export default function PrivacyPage() {
           </li>
         </ul>
         <p>We only collect what we need to run the service.</p>
+      </ContentSection>
+      <ContentSection title="Signing in with Google or Apple" id="google-apple">
+        <p>
+          You can create an account or sign in with Google or Apple instead of a password. They ask
+          you first, then share some details with us through Supabase, which runs our sign-in:
+        </p>
+        <ul>
+          <li>
+            Google: your name, email address, the web address of your profile photo, and your Google
+            account ID.
+          </li>
+          <li>
+            Apple: your email address (your real one, or a private relay address if you choose Hide
+            My Email), an Apple account ID and, if you let Apple share it, your name. Apple only
+            sends your name the first time.
+          </li>
+        </ul>
+        <p>
+          We use only the email address and the account ID: to sign you in, and to send your
+          tickets and account emails. The other details are kept with your sign-in record, but we
+          don&rsquo;t use them or show them to anyone. Your Who&rsquo;s Going display name is
+          always the one you choose.
+        </p>
+        <ul>
+          <li>
+            If the email address Google or Apple shares is verified and already belongs to a
+            Sheltüh account, you&rsquo;re signed in to that account: the two are linked
+            automatically, and your password keeps working. So anyone who can sign in to that Google
+            or Apple account can sign in to your Sheltüh account. Keep it secure.
+          </li>
+          <li>
+            With Apple&rsquo;s Hide My Email, your account&rsquo;s email is a private relay address
+            (ending in @privaterelay.appleid.com) that Apple forwards to you. It won&rsquo;t match an
+            account you made with your own address, so you&rsquo;ll have a separate Sheltüh account.
+            Your account page shows the address; for Who&rsquo;s Going, book tickets with it. You
+            can manage forwarding in your Apple account settings.
+          </li>
+          <li>
+            Google&rsquo;s and Apple&rsquo;s own privacy policies apply to what you give them.
+            Signing out of Sheltüh doesn&rsquo;t sign you out of Google or Apple.
+          </li>
+        </ul>
       </ContentSection>
       <ContentSection title="Who’s Going" id="whos-going">
         <p>
@@ -145,7 +191,7 @@ export default function PrivacyPage() {
       </ContentSection>
       <ContentSection title="Who we share it with">
         <p>
-          We use service providers to run Sheltüh — for hosting, our database (located in Sydney),
+          We use service providers to run Sheltüh — for hosting, sign-in, our database (located in Sydney),
           payments and sending email. They only handle data on our behalf. Organisers can see the
           orders for their own events. We don’t sell your personal information.
         </p>

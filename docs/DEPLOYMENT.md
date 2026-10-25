@@ -150,6 +150,33 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
     scanning account: the organiser, or a Sheltüh admin for platform-managed
     organisers' events) is recorded, shown with the ticket (its ticket page),
     and deleted 25 months after the event.
+  - Signing in with Google or Apple: drafted on `/privacy#google-apple`
+    (what each provider shares, that we use only the email and account ID,
+    automatic linking by verified email, Hide My Email). Still marked draft.
+- [ ] **Google and Apple sign-in** (optional; off until the flag is set;
+      `supabase-setup.md` §1, "Sign in with Google and Apple", and
+      `architecture.md`, same section). In order:
+      - Decide which entity enrols with Apple (Apple's user IDs and relay
+        addresses are per developer team; `PROJECT_CONTEXT.md`).
+      - Set up the Google client, and the Apple App ID, Services ID, key and
+        client secret (`npm run apple-client-secret`), then Supabase's
+        providers. Site URL is exactly `https://app.sheltuh.com.au`; **no
+        Redirect URLs entries**, and **never a `*.vercel.app` wildcard**.
+        "Confirm email" stays **on**; manual linking stays **off**.
+      - Register the email senders as Apple email sources, or mail to Hide My
+        Email addresses bounces.
+      - **Official logo files in `public/auth/`** (Apple's from Apple Design
+        Resources, Google's G from its branding kit), as
+        `components/auth/OAuthButtons.tsx` expects them: they aren't in the
+        repo, and **the build fails without them**. No placeholder logos.
+      - `NEXT_PUBLIC_AUTH_PROVIDERS=google,apple` (or `google`) in Vercel for
+        **Production only** (previews share the production Supabase project
+        and can't be registered), then **redeploy**. List only providers
+        enabled in Supabase, or the button leads to a raw error page.
+      - Run the "Google and Apple sign-in" smoke tests below.
+      - A calendar reminder to rotate the Apple client secret **every
+        ~5 months** (it stops working after at most 6; Apple sign-in then
+        fails for everyone).
 - [ ] **Bootzy font files.** The licensed display face isn't in the repo;
       headlines fall back to Instrument Sans. Add
       `app/fonts/bootzy/Bootzy-Regular.woff2` and its licence file, then
@@ -275,11 +302,33 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 - [ ] Organiser flow: apply, approve as admin, submit an event with a photo,
       approve, see it on the home page.
 - [ ] Check the phone layout on a real phone.
+- [ ] **After the PKCE switch (whether or not Google and Apple are on):**
+      email sign-up with the emailed code, and password reset with its code,
+      both still work; so does signing in with a password.
+- [ ] **Google and Apple sign-in** (once the flag is on), each on desktop
+      Chrome, iPhone Safari, the **iPhone home-screen app** (the installed
+      PWA: unverified whether the sign-in survives the round trip; a launch
+      gate) and Android Chrome:
+  - [ ] Continue with Google and with Apple from `/login` and `/signup`;
+        land back where you started (e.g. an event's Who's Going, via
+        `next`), signed in; `/account` shows the email.
+  - [ ] Cancel on Google's and Apple's screens: our "Sign-in cancelled"
+        page, nothing changed.
+  - [ ] An existing email-and-password account, then Google with the same
+        email: the same account (its tickets and profile), and the password
+        still works.
+  - [ ] Apple with Hide My Email: a separate account with the
+        `@privaterelay.appleid.com` address; book a free ticket with it and
+        check the ticket email arrives through the relay.
+  - [ ] **Instagram's in-app browser** (open the site from a DM or bio
+        link): Google shows the "open in your browser" notice instead of
+        Google's error; check whether Apple works there.
+  - [ ] Sign out, then Continue with Google: Google asks which account.
 
 ## Needs your decision or sign-off before launch
 
-- **Legal:** consent wording, the privacy policy sections for Who's Going and
-  messaging (still marked draft), Terms, Organiser Agreement. Check whether
+- **Legal:** consent wording, the privacy policy sections for Who's Going,
+  messaging and Google/Apple sign-in (still marked draft), Terms, Organiser Agreement. Check whether
   messaging brings Sheltüh under the under-16 social media minimum-age rules
   and the upcoming Children's Online Privacy Code.
 - **Evidence gap:** if a member deletes their profile before being reported,

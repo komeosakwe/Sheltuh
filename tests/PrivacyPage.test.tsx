@@ -71,3 +71,48 @@ describe("/privacy — Your location", () => {
     expect(screen.getByRole("note")).toHaveTextContent("Draft");
   });
 });
+
+// Google and Apple sign-in (docs/architecture.md, "Sign in with Google and Apple"): what each shares, what we use, linking.
+describe("/privacy — Signing in with Google or Apple", () => {
+  it("is linkable as #google-apple and says what each provider shares and what we use", () => {
+    render(<PrivacyPage />);
+    const section = screen.getByRole("heading", { name: "Signing in with Google or Apple" }).closest("section");
+    if (!section) throw new Error("Google/Apple section not rendered");
+    expect(section).toHaveAttribute("id", "google-apple");
+    expect(section).toHaveTextContent(
+      "Google: your name, email address, the web address of your profile photo, and your Google account ID.",
+    );
+    expect(section).toHaveTextContent("Apple: your email address (your real one, or a private relay address if you choose Hide My Email), an Apple account ID");
+    // Supabase Auth asks Apple for the name scope; Apple sends it on the first authorisation only.
+    expect(section).toHaveTextContent("if you let Apple share it, your name. Apple only sends your name the first time.");
+    expect(section).toHaveTextContent("We use only the email address and the account ID");
+    expect(section).toHaveTextContent("we don’t use them or show them to anyone");
+    expect(screen.getByRole("note")).toHaveTextContent("Draft");
+  });
+
+  it("explains automatic linking, Hide My Email and the providers' own policies", () => {
+    render(<PrivacyPage />);
+    const section = screen.getByRole("heading", { name: "Signing in with Google or Apple" }).closest("section");
+    if (!section) throw new Error("Google/Apple section not rendered");
+    expect(section).toHaveTextContent("is verified and already belongs to a Sheltüh account");
+    expect(section).toHaveTextContent("the two are linked automatically, and your password keeps working");
+    expect(section).toHaveTextContent("anyone who can sign in to that Google or Apple account can sign in to your Sheltüh account");
+    expect(section).toHaveTextContent("@privaterelay.appleid.com");
+    expect(section).toHaveTextContent("so you’ll have a separate Sheltüh account");
+    expect(section).toHaveTextContent("for Who’s Going, book tickets with it");
+    expect(section).toHaveTextContent("Google’s and Apple’s own privacy policies apply to what you give them.");
+    expect(section).toHaveTextContent("Signing out of Sheltüh doesn’t sign you out of Google or Apple.");
+  });
+
+  it("is pointed to from What we collect, and sign-in is listed among our service providers", () => {
+    render(<PrivacyPage />);
+    const collect = screen.getByRole("heading", { name: "What we collect" }).closest("section");
+    if (!collect) throw new Error("What we collect section not rendered");
+    expect(within(collect).getByRole("link", { name: "Signing in with Google or Apple" })).toHaveAttribute(
+      "href",
+      "#google-apple",
+    );
+    const sharing = screen.getByRole("heading", { name: "Who we share it with" }).closest("section");
+    expect(sharing).toHaveTextContent("for hosting, sign-in, our database (located in Sydney)");
+  });
+});

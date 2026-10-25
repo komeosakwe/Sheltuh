@@ -50,7 +50,9 @@ email, rather than click a link. Supabase sends links by default, so:
 - **Policies / Passwords:** minimum length 8, and require lowercase,
   uppercase and digits. This matches what the sign-up form already tells
   people.
-- **URL Configuration:** set the Site URL to your real domain.
+- **URL Configuration:** set the Site URL to your real domain: the exact
+  origin people use, e.g. `https://app.sheltuh.com.au` (Google and Apple
+  sign-in rely on it; see the next section).
 - **SMTP:** Supabase's built-in email is heavily rate-limited and meant for
   testing only. Before real organisers sign up, set a custom SMTP sender
   (Emails → SMTP Settings). Your Google Workspace works
@@ -58,6 +60,115 @@ email, rather than click a link. Supabase sends links by default, so:
   transactional provider such as Resend also works; if you use one, **add
   its include to your existing SPF record** rather than creating a second
   `v=spf1` record.
+
+### Sign in with Google and Apple (optional)
+
+"Continue with Google" and "Continue with Apple" on `/login` and `/signup`
+(design in `docs/architecture.md`, "Sign in with Google and Apple"). They
+stay hidden until both providers are set up here **and**
+`NEXT_PUBLIC_AUTH_PROVIDERS` lists them, so do this first and set the flag
+last. You can do just Google; Apple costs US$99 a year. Decide first which
+entity enrols with Apple: Apple's user IDs and relay addresses belong to the
+developer team, so moving to another team later (e.g. a Pty Ltd's) breaks
+sign-in matching for people who hid their email (`PROJECT_CONTEXT.md`).
+
+Throughout, `<ref>` is your Supabase project ref, and the **callback URL**
+is `https://<ref>.supabase.co/auth/v1/callback` (copy it from Supabase →
+Authentication → Sign In / Providers → Google or Apple). Google's console
+labels below come from Supabase's Google guide; Google's own docs weren't
+checked.
+
+**Google** (console.cloud.google.com → Google Auth Platform)
+
+1. Create or pick the project "Sheltuh".
+2. **Branding** (the consent screen): app name "Sheltüh"; support email
+   `support@sheltuh.com.au`; home page `https://app.sheltuh.com.au`; privacy
+   policy `https://app.sheltuh.com.au/privacy`; terms
+   `https://app.sheltuh.com.au/terms`; authorised domain `sheltuh.com.au`
+   (add `supabase.co` too if the console insists on the callback's domain);
+   developer contact `info@sheltuh.com.au`.
+3. **Data Access:** add `openid`; keep `…/auth/userinfo.email` and
+   `…/auth/userinfo.profile`; nothing else.
+4. **Audience:** External, then **Publish app**. In "Testing" only the test
+   users you list can sign in.
+5. **Clients → Create client → Web application:**
+   - Authorised JavaScript origins: `https://app.sheltuh.com.au`.
+   - Authorised redirect URIs: the callback URL.
+   - Copy the client ID and secret (the secret is shown once; keep it in
+     your password manager).
+6. Optional: branding verification (free, a few days). Until it's done (or
+   there's a Supabase custom domain), Google's screen shows
+   `<ref>.supabase.co`.
+
+**Apple** (developer.apple.com/account; needs the Apple Developer Program)
+
+1. Enrol. Note the **Team ID** (Membership details).
+2. **Certificates, Identifiers & Profiles → Identifiers → + → App IDs →
+   App:** description "Sheltuh", explicit bundle ID `au.com.sheltuh.app`,
+   tick **Sign in with Apple** (as a primary App ID). Leave the
+   server-to-server notification endpoint empty: Supabase doesn't use it.
+3. **Identifiers → + → Services IDs:** description "Sheltüh" (people see
+   it on Apple's screen), identifier `au.com.sheltuh.web`. Open it, tick
+   Sign in with Apple → **Configure**: primary App ID the one above; domain
+   `<ref>.supabase.co`; return URL the callback URL. Save. Don't register
+   `app.sheltuh.com.au`: in this flow Apple only ever returns to Supabase.
+   If the portal asks you to verify the domain, follow its prompt
+   (Supabase's guide lists no such step).
+4. **Keys → +:** name it, tick Sign in with Apple → Configure → the primary
+   App ID. Register and **download `AuthKey_<KeyID>.p8`: Apple lets you
+   download it once.** Keep it in your password manager, never in the repo
+   (`*.p8` is git-ignored as a backstop), Vercel or email. Note the **Key ID**.
+5. **Make the client secret** (a JWT Apple accepts for at most 6 months),
+   on your own machine:
+
+   ```bash
+   npm run apple-client-secret -- --key ~/secure/AuthKey_ABCDE12345.p8 \
+     --team-id <TEAM ID> --key-id <KEY ID> --services-id au.com.sheltuh.web
+   ```
+
+   It prints the JWT (stdout; e.g. add `| pbcopy` on a Mac to copy it
+   without it showing) and its expiry date (stderr), never the key. Default
+   180 days; `--days` up to 182, and it refuses more (Apple's limit is
+   15,777,000 seconds). The JWT is a secret too: paste it straight into
+   Supabase, don't save it in a file or a note. Supabase's Apple guide also
+   has an in-browser generator (not in Safari).
+6. **Services → Sign in with Apple for Email Communication → Configure:**
+   register every address that emails people as an **email source**:
+   `EMAIL_FROM` and the Supabase SMTP sender (or the whole domain
+   `sheltuh.com.au`). Those messages must pass SPF or DKIM (Workspace DKIM
+   is already on). Without this, Apple's relay rejects mail to
+   `…@privaterelay.appleid.com` addresses: no tickets, no codes.
+7. **Set a reminder to rotate the secret about every 5 months** (step 5
+   again, then paste the new JWT into Supabase). If it lapses, Apple sign-in
+   fails for everyone; Google and email keep working. The key itself
+   doesn't expire; revoke and replace it only if it leaks (then make a new
+   secret straight away).
+
+**Supabase** (Authentication)
+
+1. **URL Configuration:** Site URL `https://app.sheltuh.com.au`, exactly
+   the origin people use. **Redirect URLs: none for production**: Supabase
+   accepts any return path on the Site URL's host. Only for a host you own
+   and control add an exact entry, e.g.
+   `https://staging.sheltuh.com.au/auth/callback**`. **Never add a
+   `*.vercel.app` wildcard** (such as `https://*-<team>.vercel.app/**`):
+   anyone can create a Vercel project with a matching URL and collect
+   sign-in codes through it. So Google and Apple stay off on previews.
+2. **Sign In / Providers → Google:** enable; Client IDs = the web client ID;
+   Client Secret; leave "Skip nonce check" **off**; "Allow users without an
+   email" **off** (if shown).
+3. **Sign In / Providers → Apple:** enable; Client IDs = `au.com.sheltuh.web`
+   (first, if you ever add more); Secret Key (for OAuth) = the JWT from
+   step 5; "Allow users without an email" **off** (if shown).
+4. Keep **"Confirm email" on** (Email provider). Supabase links a Google or
+   Apple sign-in to an existing account with the same email automatically,
+   and trusts only verified emails for that while confirmation is on. Keep
+   sign-ups on, and **manual linking off** ("Allow manual linking" under
+   Sign In / Providers): the app doesn't use it.
+5. **Vercel:** `NEXT_PUBLIC_AUTH_PROVIDERS=google,apple` (or just `google`)
+   for **Production only**, then redeploy. List only providers enabled in
+   steps 2 and 3, or the button leads to Supabase's raw error page. Then the
+   smoke tests in `DEPLOYMENT.md`.
 
 ### Make yourself an admin
 
@@ -811,7 +922,9 @@ where j.status in ('failed', 'pending') order by j.created_at desc;
    `app.sheltuh.com.au` avoids touching it for now.
 
 `NEXT_PUBLIC_*` values are baked in at build time, so redeploy after
-changing them.
+changing them. `NEXT_PUBLIC_AUTH_PROVIDERS` (Google and Apple sign-in) goes in
+**Production only**, once the providers are set up (§1, "Sign in with Google
+and Apple").
 
 ## 5. Smoke test (test mode)
 

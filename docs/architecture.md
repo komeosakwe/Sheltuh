@@ -6,6 +6,7 @@ the API is this app's own route handlers under `app/api/`.
 
 ```
 Browser ── Supabase Auth (sign-up, sign-in, sessions)
+   │            └──▶ Google / Apple (full-page redirects only, PKCE)
    │
    │  fetch /api/*  + Authorization: Bearer <Supabase access token>
    ▼
@@ -34,7 +35,10 @@ iframe served by Stripe), with the publishable key
   by default); `tests/server/schema-grants.test.ts` checks all of this.
   The browser does reach Supabase directly in two places, neither of them
   the database: Supabase Auth (sign-up, sign-in, sessions; the diagram
-  above), and, for event clips, a PUT of the file straight
+  above), including signing in with Google or Apple, where the browser is
+  only ever *redirected* (Supabase Auth → Google or Apple → Supabase Auth →
+  our `/auth/callback`): no Google or Apple script runs on our pages and the
+  app never calls their APIs (see "Sign in with Google and Apple"); and, for event clips, a PUT of the file straight
   to Supabase Storage through a signed upload URL (one new object, no
   overwrite, 2 hours) the API issues for one path it chose (`uploads/{event}/{account}/{upload}.mp4`
   in the private `event-clips` bucket, which has no `storage.objects`
@@ -2323,6 +2327,18 @@ is `cache-control: private, no-store`, and so is every admin response
   loader (`components/checkout/*`, `lib/stripe/*`); tests
   `tests/server/order-payment.test.ts` and `tests/server/stripe-keys.test.ts`.
 - `lib/auth/AuthContext.tsx`: Supabase Auth in the browser.
+- Sign in with Google and Apple (see that section): `lib/supabase/browser.ts`
+  (`flowType: "pkce"`, `detectSessionInUrl: false`); `lib/auth/oauth.ts`
+  (the provider flag, the callback URL and safe `next`, callback parsing,
+  the error copy); `lib/auth/AuthContext.tsx` `signInWithProvider` and
+  `completeOAuthSignIn`; `components/auth/OAuthButtons.tsx` on `/login` and
+  `/signup`, with `lib/auth/in-app-browser.ts`; `app/auth/callback/page.tsx`
+  → `components/auth/OAuthCallback.tsx`; the `/auth/:path*` headers in
+  `next.config.ts`; `scripts/apple-client-secret.ts` (run as
+  `npm run apple-client-secret`); design `docs/design/social-sign-in.md`;
+  tests `tests/oauth.test.ts`, `tests/AuthContextOAuth.test.tsx`,
+  `tests/OAuthCallback.test.tsx`, `tests/supabase-pkce.test.ts`,
+  `tests/apple-client-secret.test.ts`.
 - `tests/server/*`: API tests against a real Postgres. By default that's
   PGlite in-process. With `TEST_DATABASE_URL=postgres://…` set, they run
   against a real server through the production driver.
@@ -2459,6 +2475,164 @@ Search can order results by how close they are to a suburb (owner round,
 - Disclosed at `/privacy#location` (draft) and in the popover.
 - Phase 2 (not built): venue coordinates on events and a server-side
   `GET /api/events?near=<suburb>` checked against the same table.
+
+## Sign in with Google and Apple
+
+People can create an account or sign in with Google or Apple as well as
+with an email and password. It's Supabase Auth's own hosted OAuth, and it's
+**browser-only**: no route, handler, `lib/server`, migration, RLS or grant
+changed. The API already accepts any Supabase access token
+(`lib/server/deps.ts` `verifyAccessToken` → `getUser`). A Google or Apple
+user whose provider email is verified (the normal case) arrives with
+`email_confirmed_at` already set, so `requireVerifiedCaller`, Who's Going,
+the waitlist and follows work for them at once. An unverified provider email
+gets Supabase's confirmation email and the callback's "Verify your email
+first" copy (`provider_email_needs_verification`) instead of a session.
+
+**Off by default.** The buttons render only when Supabase is configured
+**and** `NEXT_PUBLIC_AUTH_PROVIDERS` lists the provider (`google`,
+`apple`, or `google,apple`; `lib/auth/oauth.ts` `enabledOAuthProviders`).
+Demo mode, previews and providers not yet set up show none. The flag must
+list only providers enabled in the Supabase project, or Supabase answers the
+redirect with a raw JSON error page. It's baked in at build time: set it for
+**Production only**, then redeploy.
+
+### The flow (redirect + PKCE)
+
+1. `/login` or `/signup` → "Continue with Google / Apple"
+   (`components/auth/OAuthButtons.tsx`) → `AuthContext.signInWithProvider`
+   → `supabase.auth.signInWithOAuth`. The browser client uses
+   `flowType: "pkce"` (`lib/supabase/browser.ts`): auth-js keeps a code
+   verifier in **this origin's** localStorage and sends only its S256
+   challenge. `redirectTo` is `${window.location.origin}/auth/callback?next=…`
+   (`oauthCallbackUrl`), from the tab's own origin, not
+   `NEXT_PUBLIC_SITE_URL`, because that's where the verifier is. Google also
+   gets `prompt=select_account`: signing out of Sheltüh doesn't sign anyone
+   out of Google, so on a shared device the next person would otherwise get
+   the last person's account without being asked.
+2. Full-page redirects: Supabase's `/auth/v1/authorize` → Google or Apple →
+   Supabase's `/auth/v1/callback` (the only return URL registered with
+   Google and Apple) → our `redirectTo` with `?code=…`, or with an error in
+   the query or the fragment.
+3. `/auth/callback` (`app/auth/callback/page.tsx` →
+   `components/auth/OAuthCallback.tsx`, a client page) reads the URL once
+   (in an effect behind a ref, because React Strict Mode runs effects twice
+   in development and a code works once), strips it from the address bar
+   (`history.replaceState`), calls `exchangeCodeForSession` once, then
+   `router.replace`s to `next`, or `/dashboard` (as LoginForm and
+   VerifyForm). `detectSessionInUrl` stays off, so no other page ever
+   exchanges a code.
+4. A failure shows only our own copy (`OAUTH_ERROR_COPY`), per Supabase
+   `error_code` (cancelled, banned, sign-ups disabled, unverified provider
+   email, started in another browser, expired or used, network). The URL's
+   `error_description` is never rendered: anyone can put any text in a link.
+   There's no retry button (auth-js deletes the verifier after a failed
+   exchange): "Back to sign in" (carrying `next`) and "Use email instead".
+
+Why a client page and not a `route.ts`: the verifier and the session live
+in localStorage, which a server route can't read or write without moving
+sessions to cookies (`@supabase/ssr`), a rewrite of working auth the
+bearer-token API doesn't need. Popups and the providers' own JavaScript
+(Sign in with Apple JS, Google Identity Services with `signInWithIdToken`)
+were rejected for v1: popups fail on phones and in the iOS home-screen app,
+and the scripts would run third-party code on the auth pages. The ID-token
+flow stays the fallback if the Apple secret's rotation becomes a burden.
+
+**The email flows changed too.** With PKCE, `signUp`, `resend` and
+`resetPasswordForEmail` also send a code challenge (leaving an unused
+verifier). The typed codes are still checked with `verifyOtp`, which PKCE
+doesn't affect (`tests/supabase-pkce.test.ts`), but smoke-test email
+sign-up and password reset on the real project after deploying.
+
+### `next`: no open redirect
+
+- `next` is checked with `safeNextPath` (`lib/safe-next-path.ts`) both when
+  the sign-in starts and again on the callback, because anyone can craft a
+  callback URL. `/auth/*` is refused too (`oauthReturnPath`). Unsafe means
+  dropped, so the person lands on `/dashboard`.
+- Supabase accepts a `redirect_to` whose scheme, host and port match the
+  **Site URL** (path and query aren't checked); anything else must match a
+  Redirect URLs entry, or Supabase **silently falls back to the Site URL**.
+  So production needs no Redirect URLs entries.
+- PKCE also stops login CSRF and code injection: a code from a flow someone
+  else started can't be exchanged in the victim's browser, which doesn't
+  hold that flow's verifier.
+- `/auth/:path*` sends `Referrer-Policy: no-referrer` and
+  `X-Robots-Tag: noindex, nofollow` (`next.config.ts`), and the page sets
+  the same in its metadata, so the code never leaves in a Referer header.
+
+### Accounts and automatic linking (the trust model)
+
+- **Linking is automatic, by verified email.** When a Google or Apple
+  identity's verified email matches an existing account, Supabase adds the
+  identity to that account: the password keeps working, nothing is emailed,
+  and the provider's details are merged into `user_metadata`. If the
+  existing account was never confirmed, Supabase links it but clears its
+  password and removes its other identities, so someone who pre-registered
+  a victim's address loses it. An unverified provider email is never linked,
+  **as long as "Confirm email" stays on** (with auto-confirm on, Supabase
+  treats every email as verified): another reason that setting is a
+  security setting.
+- **Manual linking stays off** (`linkIdentity` isn't used; it needs a
+  security-sensitive Supabase setting). Someone who uses Apple's Hide My
+  Email gets a separate account; there's no merge tool.
+- **First sign-in creates no profile row.** Nothing triggers on
+  `auth.users`; a Who's Going profile is still made only by
+  `PUT /api/profiles/me` with the 18+ confirmation. The display name isn't
+  prefilled from the provider: it's public on Who's Going.
+- **`user_metadata` is never used for authorisation.** Google, Apple and the
+  user themselves (`updateUser`) can all write it. Admin is
+  `app_metadata.role` only (which survives linking), ownership comes from the
+  user id, and `app_metadata.providers` is a display hint (the
+  `providers` field in AuthContext). The app reads no `user_metadata` today;
+  keep it that way.
+- Organisers are unaffected: their contact email is typed into the
+  application, and Stripe Connect uses `contact_email`. `promote-admin`
+  matches the account email, which for an Apple user hiding their email is
+  the relay address.
+
+### Accepted risks (Google and Apple sign-in)
+
+- **Stale Google accounts on custom domains.** Whoever controls a Google
+  account for an address gets into the Sheltüh account with that address.
+  For Gmail and live Workspace addresses that's the owner. For a custom
+  domain (an ex-employee's still-open Google account, a lapsed domain
+  re-registered by someone else) it's a takeover path, and Supabase doesn't
+  check Google's `hd` (hosted-domain) claim. Accepted. Admins use
+  `@sheltuh.com.au` Workspace accounts with 2-Step Verification.
+- **Apple relay duplicates.** With Hide My Email the account's email is
+  `…@privaterelay.appleid.com`, which never matches an existing account, so
+  the person gets a second account; Who's Going needs tickets booked with the
+  relay address (the existing "booked with {email}" copy says so); our
+  emails reach it only if our senders are registered as Apple email sources
+  (`supabase-setup.md`); Stripe's own receipts probably won't (unverified).
+  Apple's user IDs and relay addresses are **per developer team**: moving to
+  a different Apple team later (e.g. the Pty Ltd's) breaks matching for
+  hidden-email users (`PROJECT_CONTEXT.md`, action items).
+- **Apple secret expiry.** Supabase's Apple provider needs a client secret
+  JWT that Apple caps at 15,777,000 seconds (about 6 months). When it
+  expires, Apple sign-in fails for everyone (Google and email keep working).
+  Rotate it about every 5 months with `npm run apple-client-secret`
+  (`supabase-setup.md`).
+- **Off on previews.** Vercel previews share the production Supabase
+  project, and their URLs can't be registered ahead of time, so the flag is
+  Production only. **Never add a `*.vercel.app` wildcard (e.g.
+  `https://*-<team>.vercel.app/**`) to Supabase's Redirect URLs**: anyone
+  can create a Vercel project whose URL matches it, and a crafted link would
+  then send a victim's code to their site (PKCE doesn't help: the attacker
+  started that flow). Add exact entries only for hosts we own, e.g.
+  `https://staging.sheltuh.com.au/auth/callback**`.
+- **In-app browsers and the iOS home-screen app.** Google refuses sign-in in
+  embedded webviews (Instagram, Facebook): OAuthButtons shows an "open in
+  your browser, or use Apple or email" notice instead
+  (`lib/auth/in-app-browser.ts`). Apple in webviews, and whether the iOS
+  home-screen app keeps the verifier across the round trip, are unverified:
+  real-device smoke tests are a launch gate (`DEPLOYMENT.md`).
+- **The provider's access token** (Google's) sits in the localStorage
+  session until its first refresh. Low value; accepted.
+- **The consent screens show `<ref>.supabase.co`** until there's a Supabase
+  custom domain or Google brand verification.
+- Two tabs signing in at once: the second wins, the first gets "try again".
 
 ## Not built yet
 
