@@ -67,7 +67,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261107000000_admin_review_emails.sql`. Never
+      newest, currently `20261108000000_account_invites.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -94,6 +94,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       18. `20261106000100_event_clip_dimensions.sql`
       19. `20261106000200_event_clip_hardening.sql`
       20. `20261107000000_admin_review_emails.sql`
+      21. `20261108000000_account_invites.sql`
 
       **Apply `20261107000000_admin_review_emails.sql` before the code that
       sends admin review emails deploys.** That code leases outbox jobs with
