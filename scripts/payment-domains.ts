@@ -9,9 +9,13 @@
  * Kept free of process/env/network so tests/payment-domains.test.ts can run
  * it against a fake Stripe client. The key's value is never printed: only the
  * environment variable it came from and its kind (secret or restricted, test
- * or live), and any Stripe error message is redacted before it's printed.
+ * or live). Every printed line goes through the shared redactor
+ * (scripts/redact-secrets.ts), and arguments are only echoed when short and
+ * not key-like, so a key pasted as an argument by mistake is never printed:
+ * the script says one was spotted and advises rotating it instead.
  */
 import type Stripe from "stripe";
+import { echoable, looksSecret, redacting, redactSecrets, ROTATE_ADVICE, showArg } from "./redact-secrets";
 
 /** The key the script prefers: a restricted key made for this job. */
 export const DOMAINS_KEY_ENV = "STRIPE_DOMAINS_KEY";
@@ -54,7 +58,9 @@ const EXAMPLE = "e.g. app.sheltuh.com.au";
  */
 export function parseHostname(raw: string): HostnameCheck {
   const value = raw.trim().toLowerCase();
-  const bad = (why: string): HostnameCheck => ({ ok: false, reason: `"${raw}" ${why}` });
+  const shown = showArg(raw);
+  const subject = shown.charAt(0).toUpperCase() + shown.slice(1);
+  const bad = (why: string): HostnameCheck => ({ ok: false, reason: `${subject} ${why}` });
   if (!value) return { ok: false, reason: "An empty hostname was given." };
   if (value.includes("://")) return bad(`has a scheme: give the hostname only (${EXAMPLE}).`);
   if (/[/?#\\]/.test(value)) return bad(`has a path or query: give the hostname only (${EXAMPLE}).`);
@@ -86,10 +92,10 @@ export function describeKey(key: string): KeyInfo | undefined {
   return { mode: match[2] as KeyInfo["mode"], restricted: match[1] === "rk" };
 }
 
-/** Removes the key, and anything shaped like a Stripe key (masked ones too), from text about to be printed. */
+/** Removes the key, and anything key-shaped (Stripe keys, masked ones too, and private keys), from text about to be printed. */
 export function redact(text: string, key: string): string {
   const withoutKey = key ? text.split(key).join("[redacted]") : text;
-  return withoutKey.replace(/\b(?:sk|rk|pk)_(?:test|live)_[A-Za-z0-9*]+/g, "[redacted]");
+  return redactSecrets(withoutKey);
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +122,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   const errors: string[] = [];
   const hostnames: string[] = [];
   let action: Action | undefined;
+  // A key pasted in the wrong place: refused before anything else, never echoed (even with --help).
+  if (argv.some(looksSecret)) return { ok: false, errors: [ROTATE_ADVICE] };
   for (const arg of argv) {
     if (arg === "--help" || arg === "-h") return { ok: true, action: "help" };
     if (arg === "--check" || arg === "--register") {
@@ -125,7 +133,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       continue;
     }
     if (arg.startsWith("-")) {
-      errors.push(`Unknown option ${arg}.`);
+      errors.push(echoable(arg) ? `Unknown option ${arg}.` : `Unknown option: ${showArg(arg)}.`);
       continue;
     }
     const parsed = parseHostname(arg);
@@ -192,7 +200,8 @@ export type RunOptions = {
 };
 
 /** Checks or registers each hostname; resolves to the process exit code (0 only if every domain is ready). */
-export async function runPaymentDomains({ client, action, hostnames, key, print }: RunOptions): Promise<number> {
+export async function runPaymentDomains({ client, action, hostnames, key, print: rawPrint }: RunOptions): Promise<number> {
+  const print = redacting(rawPrint);
   const keyInfo = describeKey(key);
   if (!keyInfo) {
     print("The key isn't a Stripe secret (sk_…) or restricted (rk_…) key.");
@@ -236,7 +245,9 @@ export type MainOptions = {
 };
 
 /** The whole command: arguments, the key from the environment, then runPaymentDomains. Resolves to the exit code. */
-export async function main({ argv, env, makeClient, print, printError }: MainOptions): Promise<number> {
+export async function main({ argv, env, makeClient, print: rawPrint, printError: rawPrintError }: MainOptions): Promise<number> {
+  const print = redacting(rawPrint);
+  const printError = redacting(rawPrintError);
   const args = parseArgs(argv);
   if (args.ok && args.action === "help") {
     print(USAGE);

@@ -217,6 +217,58 @@ describe("main", () => {
     expect(wrong.all).not.toContain(rsa.split("\n")[1]);
   });
 
+  it("never prints a pasted .p8 key or its body, wherever it's given: says so, advises rotating, reads nothing", () => {
+    const body = PEM.trim().split("\n").slice(1, -1);
+    const pasted = [
+      [...ARGS, PEM], // the whole file as a stray argument
+      [...ARGS, body.join("\n")], // its body without the BEGIN/END lines
+      [...ARGS, body.join("")], // ...on one line
+      ["--key", body.join(""), "--team-id", TEAM_ID, "--key-id", KEY_ID, "--services-id", SERVICES_ID], // instead of the path
+      [`--key=${body.join("\n")}`, "--team-id", TEAM_ID, "--key-id", KEY_ID, "--services-id", SERVICES_ID],
+      ["--key", ...PEM.split(/\s+/).filter(Boolean), "--team-id", TEAM_ID], // an unquoted $(cat AuthKey.p8)
+      [...ARGS, "--help", PEM],
+    ];
+    for (const argv of pasted) {
+      const result = run(argv);
+      expect(result.code).toBe(1);
+      expect(result.reads).toEqual([]);
+      expect(result.out).toEqual([]);
+      expect(result.err[0]).toMatch(/looks like a secret key.*isn't shown.*rotate it/);
+      expect(result.all).not.toContain("PRIVATE KEY");
+      for (const line of body) expect(result.all).not.toContain(line);
+    }
+  });
+
+  it("never prints a Stripe key passed by mistake, and doesn't echo a long unknown argument", () => {
+    const stripe = run([...ARGS, "sk_live_" + "51FakeLiveSecretKeyValue9999999999"]);
+    expect(stripe.code).toBe(1);
+    expect(stripe.all).toMatch(/rotate it/);
+    expect(stripe.all).not.toContain("sk_live_");
+
+    const long = `--${"z".repeat(90)}`;
+    const result = run([...ARGS, long]);
+    expect(result.code).toBe(1);
+    expect(result.err[0]).toBe(`Unknown argument: an argument of ${long.length} characters (not shown).`);
+    expect(result.all).not.toContain("zzzzzzzzzz");
+    expect(run([...ARGS, "--audience"]).err[0]).toBe('Unknown argument "--audience".');
+  });
+
+  it("redacts anything key-like that reaches stderr (here, in the key path), still naming an ordinary path", () => {
+    const fails = {
+      readFile: () => {
+        throw new Error("ENOENT");
+      },
+    };
+    const blob = "Ab3+Cd4Ef5Gh6Ij7Kl8Mn9Op0Qr1St2Uv";
+    const odd = run(["--key", `/secure/${blob}/AuthKey.p8`, "--team-id", TEAM_ID, "--key-id", KEY_ID, "--services-id", SERVICES_ID], fails);
+    expect(odd.code).toBe(1);
+    expect(odd.err).toEqual(["Couldn't read [redacted].p8."]);
+    expect(odd.all).not.toContain(blob);
+    const path = "/Users/kome/Library/Mobile Documents/com~apple~CloudDocs/secure/AuthKey_KEY9876543.p8";
+    const plain = run(["--key", path, "--team-id", TEAM_ID, "--key-id", KEY_ID, "--services-id", SERVICES_ID], fails);
+    expect(plain.err).toEqual([`Couldn't read ${path}.`]);
+  });
+
   it("prints usage for --help (exit 0) and bad arguments (exit 1)", () => {
     const help = run(["--help"]);
     expect(help.code).toBe(0);

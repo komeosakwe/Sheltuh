@@ -2550,10 +2550,27 @@ sign-up and password reset on the real project after deploying.
   the sign-in starts and again on the callback, because anyone can craft a
   callback URL. `/auth/*` is refused too (`oauthReturnPath`). Unsafe means
   dropped, so the person lands on `/dashboard`.
-- Supabase accepts a `redirect_to` whose scheme, host and port match the
-  **Site URL** (path and query aren't checked); anything else must match a
-  Redirect URLs entry, or Supabase **silently falls back to the Site URL**.
-  So production needs no Redirect URLs entries.
+- Supabase accepts a `redirect_to` on the **Site URL**'s host without a
+  Redirect URLs entry (path and query aren't checked); anything else must
+  match an entry, or Supabase **silently falls back to the Site URL**.
+  **Exactly what it compares is unverified**: it may be the hostname only
+  (not scheme or port), in which case `http://` or another port on our host
+  would be accepted too. The guidance doesn't depend on it: production needs
+  no Redirect URLs entries; add exact entries only for HTTPS hosts we own
+  (e.g. `https://staging.sheltuh.com.au/auth/callback**`), and **never** a
+  `*.vercel.app` wildcard (see "Accepted risks" below).
+  **Owner check** on the test project (`DEPLOYMENT.md`, smoke tests): start
+  a sign-in with `redirect_to` set to `http://<site host>/auth/callback` and
+  to `https://<site host>:8443/auth/callback`, note whether Supabase sends
+  the code there or falls back to the Site URL, and update this bullet. If
+  they're accepted, the exposure is small: we control the host, nothing of
+  ours listens on other ports, and the code is useless without the verifier
+  in the starting tab's storage. HSTS covers the `http://` case for anyone
+  who has visited before: the app sends
+  `Strict-Transport-Security: max-age=63072000` (two years;
+  `next.config.ts`). `includeSubDomains` and `preload` are a later option,
+  once every `sheltuh.com.au` subdomain (the landing page included) is
+  confirmed HTTPS-only; preload is slow to undo.
 - PKCE also stops login CSRF and code injection: a code from a flow someone
   else started can't be exchanged in the victim's browser, which doesn't
   hold that flow's verifier.
@@ -2633,6 +2650,21 @@ sign-up and password reset on the real project after deploying.
 - **The consent screens show `<ref>.supabase.co`** until there's a Supabase
   custom domain or Google brand verification.
 - Two tabs signing in at once: the second wins, the first gets "try again".
+- **Signing back in from an expired-session message with Google or Apple**
+  (`components/auth/InlineReauth.tsx`). Those accounts have no password, so
+  the message links to `/login` in a new tab, and the session that tab
+  creates reaches this one (Supabase shares one session per origin across
+  tabs). Intended behaviour: the recovery only completes after the person
+  has opened that link from this message (a sign-in in some other tab
+  doesn't silently complete it), and only a new session for the expected
+  account counts. It **never signs anyone out**: if the new tab signed into
+  a different account, this tab says so and saves nothing, rather than
+  signing that account out (with the shared session, that would sign the
+  other tab out too). Accepted: someone who switches accounts in the new
+  tab stays signed in as that account and has to sign back in as the
+  expected one to save; and in the iOS home-screen app the new tab opens in
+  Safari, whose storage is separate, so the link can't complete the
+  recovery there (the password form still works for password accounts).
 
 ## Not built yet
 

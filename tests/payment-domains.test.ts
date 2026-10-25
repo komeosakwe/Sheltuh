@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
   describeKey,
@@ -332,6 +333,55 @@ describe("main (the command)", () => {
     expect(await run.done).toBe(0);
     expect(run.out[0]).toMatch(/^Usage:/);
     expect(run.makeClient).not.toHaveBeenCalled();
+  });
+
+  it("never prints a key passed as an argument (positional, as an option or masked): says so and advises rotating", async () => {
+    const pasted = [
+      "sk_live_" + "51FakeLiveSecretKeyValue9999999999",
+      "rk_live_" + "51FakeRestrictedKeyValue8888888888",
+      "--key=sk_test_" + "51FakeSecretKeyValue7777777777",
+      "whsec_" + "FakeWebhookSigningSecret0123456789abcdef",
+      "sk_live_****************9999",
+    ];
+    for (const key of pasted) {
+      for (const argv of [[key], ["app.sheltuh.com.au", key], ["--register", key, "app.sheltuh.com.au"], ["--help", key]]) {
+        const run = start(argv, { STRIPE_DOMAINS_KEY: TEST_KEY });
+        expect(await run.done, key).toBe(1);
+        expect(run.makeClient).not.toHaveBeenCalled();
+        expect(run.err[0]).toMatch(/looks like a secret key.*isn't shown.*rotate it/);
+        expect(run.all()).not.toContain(key);
+        expect(run.all()).not.toMatch(/(?:sk|rk)_(?:test|live)_|whsec_/);
+      }
+    }
+  });
+
+  it("never prints a pasted private key (whole, or one word at a time) given as arguments", async () => {
+    const pem = generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    const body = pem.trim().split("\n").slice(1, -1);
+    for (const argv of [[pem], pem.split(/\s+/).filter(Boolean), [body.join("")]]) {
+      const run = start(argv, { STRIPE_DOMAINS_KEY: TEST_KEY });
+      expect(await run.done).toBe(1);
+      expect(run.makeClient).not.toHaveBeenCalled();
+      expect(run.all()).toMatch(/rotate it/);
+      expect(run.all()).not.toContain("PRIVATE KEY");
+      for (const line of body) expect(run.all()).not.toContain(line);
+    }
+  });
+
+  it("doesn't echo a long unrecognised argument, describing it by length", () => {
+    const longHost = `${"x".repeat(70)}.sheltuh.com.au/checkout`;
+    const longOption = `--${"y".repeat(80)}`;
+    const parsed = parseArgs([longHost, longOption]);
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.errors).toEqual([
+      `An argument of ${longHost.length} characters (not shown) has a path or query: give the hostname only (e.g. app.sheltuh.com.au).`,
+      `Unknown option: an argument of ${longOption.length} characters (not shown).`,
+    ]);
+    expect(parsed.errors.join("\n")).not.toContain("xxxxxxxxxx");
+    expect(parsed.errors.join("\n")).not.toContain("yyyyyyyyyy");
+    // Short ones are still quoted, as before.
+    expect(parseHostname("https://app.sheltuh.com.au")).toMatchObject({ reason: expect.stringMatching(/^"https:\/\/app\.sheltuh\.com\.au" has a scheme/) });
   });
 
   it("redacts and exits 1 if making the client throws", async () => {

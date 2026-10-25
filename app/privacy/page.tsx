@@ -16,8 +16,8 @@ export default function PrivacyPage() {
       <ContentSection title="What we collect">
         <ul>
           <li>
-            Your email address and password when you create an account, or, if you sign in with
-            Google or Apple, what they share with us (see{" "}
+            Your email address and password when you create an account, or, if we offer sign-in with
+            Google or Apple and you use it, what they share with us (see{" "}
             <a href="#google-apple">Signing in with Google or Apple</a>).
           </li>
           <li>
@@ -42,8 +42,9 @@ export default function PrivacyPage() {
       </ContentSection>
       <ContentSection title="Signing in with Google or Apple" id="google-apple">
         <p>
-          You can create an account or sign in with Google or Apple instead of a password. They ask
-          you first, then share some details with us through Supabase, which runs our sign-in:
+          If we offer sign-in with Google or Apple, you can use it to create an account or sign in
+          instead of a password. If you do, they ask you first, then share some details with us
+          through Supabase, which runs our sign-in:
         </p>
         <ul>
           <li>
@@ -187,6 +188,11 @@ export default function PrivacyPage() {
         <p>
           Card payments are handled by Stripe. We never see or store your card number. Stripe’s
           own privacy policy applies to the information you give it.
+        </p>
+        <p>
+          Stripe&rsquo;s script loads on our payment page, including when you open it and
+          don&rsquo;t pay, and collects information about your device and how the page is used, to
+          help prevent fraud. Stripe&rsquo;s privacy policy covers that too.
         </p>
       </ContentSection>
       <ContentSection title="Who we share it with">

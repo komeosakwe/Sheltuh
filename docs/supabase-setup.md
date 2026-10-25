@@ -148,7 +148,9 @@ checked.
 
 1. **URL Configuration:** Site URL `https://app.sheltuh.com.au`, exactly
    the origin people use. **Redirect URLs: none for production**: Supabase
-   accepts any return path on the Site URL's host. Only for a host you own
+   accepts any return path on the Site URL's host (whether it also checks
+   the scheme and port is unverified: `architecture.md`, "`next`: no open
+   redirect"). Only for an HTTPS host you own
    and control add an exact entry, e.g.
    `https://staging.sheltuh.com.au/auth/callback**`. **Never add a
    `*.vercel.app` wildcard** (such as `https://*-<team>.vercel.app/**`):

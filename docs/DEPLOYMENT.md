@@ -152,7 +152,12 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
     and deleted 25 months after the event.
   - Signing in with Google or Apple: drafted on `/privacy#google-apple`
     (what each provider shares, that we use only the email and account ID,
-    automatic linking by verified email, Hide My Email). Still marked draft.
+    automatic linking by verified email, Hide My Email), worded as "if we
+    offer it" while the flag is off. Still marked draft.
+  - Payments: Stripe's script loads on `/checkout/pay` (even for visits
+    that don't pay) and collects device and fraud-prevention signals under
+    Stripe's policy; drafted in `/privacy`'s Payments section. Still marked
+    draft.
 - [ ] **Google and Apple sign-in** (optional; off until the flag is set;
       `supabase-setup.md` §1, "Sign in with Google and Apple", and
       `architecture.md`, same section). In order:
@@ -324,6 +329,11 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
         link): Google shows the "open in your browser" notice instead of
         Google's error; check whether Apple works there.
   - [ ] Sign out, then Continue with Google: Google asks which account.
+  - [ ] On the **test** project, start a sign-in with `redirect_to` set to
+        `http://<site host>/auth/callback`, then to
+        `https://<site host>:8443/auth/callback`: note whether Supabase
+        sends the code there or falls back to the Site URL, and record the
+        result in `architecture.md` ("`next`: no open redirect").
 
 ## Needs your decision or sign-off before launch
 

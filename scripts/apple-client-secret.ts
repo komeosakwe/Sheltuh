@@ -15,9 +15,15 @@
  * Kept free of process/fs so tests/apple-client-secret.test.ts can run it
  * with a key it generates. The key is never printed, and neither is anything
  * read from its file: a key that can't be used gets a message naming only
- * the path.
+ * the path. Every stderr line goes through the shared redactor
+ * (scripts/redact-secrets.ts), and arguments are only echoed when short and
+ * not key-like, so a .p8 key pasted as an argument by mistake is never
+ * printed: the script says one was spotted and advises rotating it instead.
+ * stdout carries only the signed JWT (the script's output, meant to be
+ * copied), so it isn't redacted.
  */
 import { createPrivateKey, sign, type KeyObject } from "node:crypto";
+import { echoable, looksSecret, redacting, ROTATE_ADVICE, showArg } from "./redact-secrets";
 
 /** Apple's limit on `exp - iat`: 15,777,000 seconds (about 182.6 days). */
 export const MAX_LIFETIME_SECONDS = 15_777_000;
@@ -69,12 +75,16 @@ function isFlag(value: string): value is Flag {
 /** `--flag value` or `--flag=value`; every flag but --days is required. */
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const values: Partial<Record<(typeof FLAGS)[Flag], string>> = {};
+  // A key pasted in the wrong place (e.g. the .p8's contents instead of its path): refused first, never echoed.
+  if (argv.some(looksSecret)) return { ok: false, reason: ROTATE_ADVICE };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--help" || arg === "-h") return { ok: false, help: true, reason: USAGE };
     const eq = arg.indexOf("=");
     const name = eq === -1 ? arg : arg.slice(0, eq);
-    if (!isFlag(name)) return { ok: false, reason: `Unknown argument "${name}".` };
+    if (!isFlag(name)) {
+      return { ok: false, reason: echoable(name) ? `Unknown argument "${name}".` : `Unknown argument: ${showArg(name)}.` };
+    }
     let value: string | undefined;
     if (eq !== -1) value = arg.slice(eq + 1);
     else {
@@ -187,10 +197,11 @@ export interface MainIo {
 
 /** Runs the script; the exit code. */
 export function main(io: MainIo): number {
+  const printError = redacting(io.printError);
   const parsed = parseArgs(io.argv);
   if (!parsed.ok) {
-    io.printError(parsed.reason);
-    if (!parsed.help) io.printError(`\n${USAGE}`);
+    printError(parsed.reason);
+    if (!parsed.help) printError(`\n${USAGE}`);
     return parsed.help ? 0 : 1;
   }
   const { keyPath, teamId, keyId, servicesId, days } = parsed.options;
@@ -211,13 +222,13 @@ export function main(io: MainIo): number {
       lifetimeSeconds: days * 86_400,
     });
     io.print(jwt);
-    io.printError(
+    printError(
       `Expires ${expiresAt.toISOString()} (${days} days). Paste it into Supabase → Authentication → ` +
         "Sign In / Providers → Apple → Secret Key (for OAuth), and rotate it before then (about 5 months).",
     );
     return 0;
   } catch (err) {
-    io.printError(err instanceof SecretError ? err.message : "Couldn't sign the client secret.");
+    printError(err instanceof SecretError ? err.message : "Couldn't sign the client secret.");
     return 1;
   }
 }

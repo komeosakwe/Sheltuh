@@ -79,6 +79,9 @@ describe("/privacy — Signing in with Google or Apple", () => {
     const section = screen.getByRole("heading", { name: "Signing in with Google or Apple" }).closest("section");
     if (!section) throw new Error("Google/Apple section not rendered");
     expect(section).toHaveAttribute("id", "google-apple");
+    // It's off until the owner turns it on, so the policy mustn't say it's available.
+    expect(section).toHaveTextContent("If we offer sign-in with Google or Apple, you can use it to create an account or sign in");
+    expect(section).not.toHaveTextContent("You can create an account or sign in with Google or Apple");
     expect(section).toHaveTextContent(
       "Google: your name, email address, the web address of your profile photo, and your Google account ID.",
     );
@@ -108,11 +111,25 @@ describe("/privacy — Signing in with Google or Apple", () => {
     render(<PrivacyPage />);
     const collect = screen.getByRole("heading", { name: "What we collect" }).closest("section");
     if (!collect) throw new Error("What we collect section not rendered");
+    expect(collect).toHaveTextContent("if we offer sign-in with Google or Apple and you use it, what they share with us");
     expect(within(collect).getByRole("link", { name: "Signing in with Google or Apple" })).toHaveAttribute(
       "href",
       "#google-apple",
     );
     const sharing = screen.getByRole("heading", { name: "Who we share it with" }).closest("section");
     expect(sharing).toHaveTextContent("for hosting, sign-in, our database (located in Sydney)");
+  });
+});
+
+describe("/privacy — Payments", () => {
+  it("says Stripe's script runs on the payment page, even without paying, and collects fraud-prevention signals", () => {
+    render(<PrivacyPage />);
+    const section = screen.getByRole("heading", { name: "Payments" }).closest("section");
+    if (!section) throw new Error("Payments section not rendered");
+    expect(section).toHaveTextContent("Card payments are handled by Stripe. We never see or store your card number.");
+    expect(section).toHaveTextContent("Stripe’s script loads on our payment page, including when you open it and don’t pay");
+    expect(section).toHaveTextContent("collects information about your device and how the page is used, to help prevent fraud");
+    expect(section).toHaveTextContent("Stripe’s privacy policy covers that too.");
+    expect(screen.getByRole("note")).toHaveTextContent("Draft");
   });
 });
