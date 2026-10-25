@@ -231,7 +231,7 @@ export default function EditorCanvas({
         )}
         {seats.length === 0 && !ghost && (
           <div className="pointer-events-none absolute inset-x-8 top-1/3">
-            <EmptyState title="No seats yet">Add a section on the left, or import a seat map.</EmptyState>
+            <EmptyState title="No seats yet">Start from a layout (Layouts, above), add a section on the left, or import a seat map.</EmptyState>
           </div>
         )}
       </div>
