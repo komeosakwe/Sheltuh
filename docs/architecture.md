@@ -73,7 +73,7 @@ iframe served by Stripe), with the publishable key
 | `event_seats` | `(event_id, id)` | The map's seats, derived from the layout in the same step (`write_seat_map`): `position` (map order: the availability bit), section, row (may be empty) and seat labels, `ticket_type_id` (no-action foreign key `event_seats_ticket_type_fkey`: a tier with seats can't be removed), `kind` (standard, wheelchair, companion), `blocked`; `hold_order_id` / `hold_expires_at` (a pending order's hold) and `sold_order_id`. Checks: never held and sold at once (`event_seats_one_owner`), never held or sold while blocked (`event_seats_blocked_unsold`). Deleted with the map. |
 | `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Public via `GET /api/events/[id]/image` once published (cached for a day, versioned URL); before that only the owner/admins with a token. Every write (insert, update, delete) bumps the event's `updated_at` in the same transaction (`event_images_touch_event`), so a photo change is a new version of the event (see "Admin authoring"); writers lock the event row (for no key update) before the image row. Move to Storage/CDN if volume grows. |
 | `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished / ticketing_changed / created / edited / curated, by whom, and why. `details` (jsonb object, null for the other actions): for `ticketing_changed`, the old and new value of each ticketing field the admin changed (full ticket links: see "External ticketing"); for `edited`, the old and new value of each other field an admin changed (see "Admin authoring"); for `curated`, the old and new `boost` and `excluded` (see "Trending"). Shown to the event's organiser and to admins (`moderationLog[].changes`), never publicly, except `curated` entries, which only admins see (`GET /admin/events/{id}/curation`). `by` is the actor's account id for admins; the organiser's view shows `"Sheltüh team"` (`SHELTUH_TEAM_ACTOR`) for anyone but the organiser's own account. No update trigger: personal information in `details` or `reason` is redacted in place (`docs/supabase-setup.md`, APP 11/13). |
-| `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed / oversold_refund_required; oversold_refund_required → refunded (our automatic refund); paid → refunded (refunded in full in Stripe, see "Refunds made in Stripe"). `amount_refunded_cents` (≥ 0, default 0) is Stripe's cumulative refunded amount, recorded only for paid orders (a partial refund leaves the order paid). Indexed on `stripe_payment_intent_id` (partial, not null) for the refund webhook, and on `(event_id, created_at)` (partial, `paid`) for the trending refresh's 14-day read. `tickets_emailed_at` records the ticket email. `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). `seat_ids` (1–10): a seated order's seats, set when it's made and never changed (what fulfilment and refunds act on). |
+| `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed / oversold_refund_required; oversold_refund_required → refunded (our automatic refund); paid → refunded (refunded in full in Stripe, see "Refunds made in Stripe"). `amount_refunded_cents` (≥ 0, default 0) is Stripe's cumulative refunded amount, recorded only for paid orders (a partial refund leaves the order paid). Indexed on `stripe_payment_intent_id` (partial, not null) for the refund webhook, and on `(event_id, created_at)` (partial, `paid`) for the trending refresh's 14-day read. `tickets_emailed_at` records the ticket email. `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). `seat_ids` (1–10): a seated order's seats, set when it's made and never changed (what fulfilment and refunds act on). `support_cents` (0 to 50000, default 0; `20261110000100_order_support.sql`): Support Sheltüh, what the buyer added for the platform (see "Support Sheltüh"); only on an order with a paid ticket (`orders_support_paid_only`), and in `total_cents` (`orders_support_in_total`: total = subtotal + buyer fee + support when there is some), never in `subtotal_cents`, `buyer_fee_cents` or `application_fee_cents` (the booking fee). |
 | `tickets` | `code` | One row per admitted person. Rows are kept when their order is refunded, but only a `paid` order's tickets are valid: check-in checks the order's status. `checked_in_at`: when the ticket was admitted at the door (null until then, and again after an undo; cleared 25 months after the event ends). Indexed on `(event_id, ticket_type_id)` for the check-in counts. `seat_id`: its seat (reserved seating); the foreign key `ticket_seats_sold_fkey` (event, seat, order, ticket type) → `event_seats (event_id, id, sold_order_id, ticket_type_id)` means a ticket can only name a seat sold to its own order in its own tier, and `tickets_seat_key` one ticket per seat. A full refund clears it (the order's `seat_ids` keeps the history). `wallet_serial` (uuid, random, unique `tickets_wallet_serial_key`; `20261109000500_ticket_wallet_serial.sql`): the id of the ticket's wallet pass, read only by the wallet routes (see "Wallet passes"). |
 | `ticket_check_ins` | `id` (identity) | The check-in log (see "Check-in"): one row per scan or undo, with a random `public_id` (uuid, unique: the only id the API shows, as `checkInId`; the sequential `id` stays internal, so ids don't reveal platform-wide scan volume), the event scanned for, the ticket `code` (null for an `invalid` scan: what was scanned is never stored), the acting account (the organiser's, or the admin's for a platform-managed organiser's event), the client's `request_id` (unique per event: the idempotency key), the `result` and, for an undo only, its `reason` (3–200 characters). Check constraints tie `invalid` to a null code and `undone` to a reason. Deleted with the event or the ticket, and by `purge_analytics` 25 months after the event ends. No buyer data. |
 | `private.platform_rate_limits` | `bucket` | Platform-wide fixed-window counters (`take_platform_rate_limit`): the hourly and 24-hour confirmation-email caps. Idle rows purged daily. |
@@ -193,7 +193,7 @@ times, which are converted to instants honouring daylight saving
 | `replace_seat_map`, `delete_seat_map` | The organiser's map (see "Reserved seating"): the seat lock, then the event row (owned by the organiser, else `not_found`); only while draft or rejected (`not_editable`) and never approved (`frozen`), not external (`external`), and the event has no orders of any status (`has_orders`); then `write_seat_map` / `clear_seat_map`. |
 | `admin_replace_seat_map` | An admin's replacement (layout) or removal (null), any status, only while the event has no orders of any status (`has_orders`); a reason is required; logged `edited` with `changes.seatMap` (old and new `{version, seatCount}`). Nothing changing is `unchanged`, nothing logged. |
 | `write_seat_map`, `clear_seat_map` | Internal: store a layout (the seats derived from it in SQL, so the two can't disagree; at most 5 tiers, `event_seat_maps_max_tiers`; then every tier's `seated` and capacity recomputed) or remove it. An identical layout is `unchanged` (version kept). Either refuses (check_violation, `event_seat_maps_no_orders`, the API's 409) when the event has any order, whatever the caller checked: defence in depth, so no caller can rewrite seats a pending order holds or a paid one has sold. |
-| `hold_seats` | A paid seated checkout's pending order and its holds, all or nothing (see "Reserved seating"): the seat lock; a used-up hold window refused with a plain read (`rate_limited`, nothing written); then the order, the event (published, Sheltüh-ticketed), the map version, every seat free (else `seats_unavailable` with the ids), lines matching the seats' tiers, and the held-seat cap; only then, with every refusal decided, one hit on the event's hold counter (`take_event_rate_limit`, bucket `seat_holds`, its row locked last) and the holds. A refusal writes nothing at all, so refused attempts (the cap above all) never use up the allowance (`20261102000000_seating_hardening.sql`). Returns `held` (with `hold_expires_at`), `rate_limited`, `not_on_sale`, `version`, `seats_unavailable`, `tier_mismatch` or `hold_cap`. |
+| `hold_seats` | A paid seated checkout's pending order (with its Support Sheltüh amount, `p_support_cents`, default 0: `20261110000100_order_support.sql`) and its holds, all or nothing (see "Reserved seating"): the seat lock; a used-up hold window refused with a plain read (`rate_limited`, nothing written); then the order, the event (published, Sheltüh-ticketed), the map version, every seat free (else `seats_unavailable` with the ids), lines matching the seats' tiers, and the held-seat cap; only then, with every refusal decided, one hit on the event's hold counter (`take_event_rate_limit`, bucket `seat_holds`, its row locked last) and the holds. A refusal writes nothing at all, so refused attempts (the cap above all) never use up the allowance (`20261102000000_seating_hardening.sql`). Returns `held` (with `hold_expires_at`), `rate_limited`, `not_on_sale`, `version`, `seats_unavailable`, `tier_mismatch` or `hold_cap`. |
 | `release_seat_holds` | A pending order marked `failed` and its holds cleared, under the seat lock; anything not pending is returned unchanged (its status). |
 | `take_client_rate_limit`, `take_seat_hold_attempt` | `take_rate_limit`'s fixed-window counter keyed on a client key (or, for `order_payment:order`, an order key). `take_seat_hold_attempt` takes one hit on the client's `seat_holds:<event id>` bucket, then one on its `seat_holds` (all events) bucket, in that order (nothing else writes them), and returns `ok`, `event` or `all`; a refusal keeps neither hit (`20261103000000_seat_hold_client_limits.sql`). |
 | `place_free_seated_order`, `request_free_seated_order` | `place_free_order` / `request_free_order` for a seated free order (the seat lock first; the order records its seats). A guest's order holds nothing until confirmed. `seats_unavailable` when a member's seat is gone. |
@@ -249,9 +249,13 @@ times, which are converted to instants honouring daylight saving
    - A paid checkout is one attempt per `Idempotency-Key`: a repeat gets the
      same order and session, never a second one, and Stripe is asked with a
      per-order idempotency key (see "Checkout idempotency" below).
+   - An optional `supportCents` (Support Sheltüh, general admission and
+     seated) is validated here and stored on the order before Stripe is
+     called (see "Support Sheltüh").
    - A Checkout Session is created as a destination charge to the
      organiser's Express account, with `application_fee_amount` set to the
-     booking fee. It's an embedded session (`ui_mode: "embedded_page"`) with
+     booking fee plus any Support Sheltüh (so the organiser's transfer is
+     the same with or without it). It's an embedded session (`ui_mode: "embedded_page"`) with
      a `return_url` of `{NEXT_PUBLIC_SITE_URL}/checkout/success?session_id={orderId}`
      (no `{CHECKOUT_SESSION_ID}` template: the order id is the only id the
      return page needs), and no `success_url` or `cancel_url` (that mode
@@ -718,6 +722,59 @@ Each event has a refund policy (`lib/refund-policy.ts`, migration `2026110900010
 
 Organisers set it while the event is a draft or rejected; once it's submitted only an admin can change it. Buyers keep what they bought under: a change that makes the policy less generous for an event with paid orders, or pending ones that can still be paid (`private.event_has_payable_orders`: a card order whose Checkout Session is recorded, or a guest's free order waiting on its emailed link; a card order still being set up, or kept after Stripe didn't answer, has no session and doesn't count, so one unanswered Stripe call can't block an edit for the 2 days until the purge fails it) (`private.refund_policy_tightens`: `days_before` → `no_change_of_mind`, or more days' notice; mirrored by `tightensRefundPolicy`, and a test checks they agree) is refused with 409 `code: "refund_policy_tightened"`, for an admin's edit of any event and for an organiser's edit of an unpublished draft that has orders. The check runs under the event row lock, and every order insert, and recording a card order's session (`finish_checkout_attempt`), share-locks that row, so no order becomes payable in between. Loosening is always allowed. Admin changes are logged in the `edited` entry (`changes.refundPolicy`, `changes.refundDays`). Refunds themselves stay manual (see "Refunds made in Stripe"); nothing enforces the deadline automatically.
 
+## Support Sheltüh
+
+An optional amount a buyer adds to a paid checkout, which goes entirely to
+Sheltüh, the platform (`lib/support.ts`, migration
+`20261110000100_order_support.sql`). It's never called a donation: Sheltüh
+is a sole trader, not a charity, and nothing says or implies it's tax
+deductible. It isn't a fee: `lib/fees.ts` doesn't know about it, and no
+booking fee is charged on it.
+
+- **Input.** `POST /api/events/{eventId}/checkout` (general admission and
+  seated) takes an optional `supportCents`: omitted, null or 0 is none;
+  otherwise a whole number of cents from A$1 to A$500
+  (`SUPPORT_MIN_CENTS`, `SUPPORT_MAX_CENTS`), else **400**
+  `fieldErrors.supportCents`. Only an order with a paid ticket may carry it
+  (a free order never goes through Stripe): **400**
+  `fieldErrors.supportCents` for a wholly free one. The UI's one-tap amounts
+  (A$2, A$5, A$10, `SUPPORT_PRESETS_CENTS`) and Other are a client matter:
+  nothing is pre-selected. No other money field from the client is read.
+- **Idempotency.** The amount is part of the attempt's fingerprint (only
+  when above 0, so a basket without it hashes as before): the same key and
+  amount replays (200), another amount is **422** `idempotency_key_reused`
+  ("Checkout idempotency").
+- **Storage.** `orders.support_cents`, written with the pending order in the
+  same statement (general admission: the API's insert; seated:
+  `private.hold_seats`), before Stripe is called. `total_cents` includes it
+  (what the buyer pays); `subtotal_cents`, `buyer_fee_cents` and
+  `application_fee_cents` (the booking fee) never do. Database checks:
+  0 to 50000, only with a paid ticket, and in the total.
+- **Stripe.** The session is built from the stored order only
+  (`lib/server/checkout-attempts.ts`): one more line after the tickets and
+  their booking fees, "Support Sheltüh", `unit_amount` the amount, quantity
+  1; and `application_fee_amount` = booking fee + support, so Sheltüh keeps
+  all of it and the organiser's transfer (total − application fee) is
+  exactly what it is without support. An order without support gets the
+  very same parameters as before, and a retry for the same order the same
+  ones.
+- **Example.** Two A$30 buyer-pays tickets (booking fee A$1.70 each) and
+  A$5 support: subtotal A$60, buyer fee A$3.40, support A$5, total A$68.40;
+  application fee A$3.40 + A$5 = A$8.40; the organiser's transfer A$60,
+  the same as without support (A$63.40 − A$3.40). Stripe's processing fee
+  comes out of the platform's share, as ever.
+- **Buyers see it** as its own line: `OrderPaymentSummary.supportCents` (the
+  payment page) and `CustomerOrder.supportCents` (the ticket page), each
+  only when above 0, with `totalCents` including it; and in the ticket
+  email's order summary (HTML and text), above the total, which says
+  "incl. booking fees and Support Sheltüh".
+- **Organisers never see it.** Analytics gross, fees and net, and tracking
+  links' gross, use `total_cents − support_cents` ("Organiser analytics");
+  per-ticket figures come from the line items, which never include it.
+  Their transfer and payouts don't include it either.
+- **Refunds.** See "Refunds made in Stripe": a full refund returns it;
+  partial refunds stay manual.
+
 ## Checkout idempotency
 
 Payment audit item 4 (`supabase/migrations/20261109000400_checkout_attempts.sql`,
@@ -739,7 +796,9 @@ Session, so a double click or a retry after a lost response made two of each
   unique on its own, so a key reused for another event is caught). Its
   fingerprint is a SHA-256 of the event, kind, the canonical basket (ticket
   type ids and quantities, map version and seat ids, sorted), the
-  normalised buyer email (trimmed, lowercased) and the tracking code.
+  normalised buyer email (trimmed, lowercased), the tracking code and, only
+  when there is one, the Support Sheltüh amount (so a basket without it
+  hashes as it always did, and a replay with another amount is a 422).
   Prices aren't in it: they come from the database, and a replay returns
   the order as it was made.
 - **Answers for a key already used:**
@@ -987,6 +1046,21 @@ carries its payment intent, its cumulative `amount_refunded`, and `refunded`
   is visible: `failed`, `canceled` and `requires_action` with
   `console.error`, any other status with `console.info`
   (`recordRefundStatus`, `lib/server/handlers/orders.ts`).
+- **Support Sheltüh in refunds.** A full refund (dashboard or ours) returns
+  everything the buyer paid, support included: `charge.refunded` records
+  the charge's whole `amount_refunded`, which includes it. Our automatic
+  refunds (an oversold order, a payment for a failed order) refund the
+  whole payment with `reverse_transfer` and `refund_application_fee`: the
+  organiser's transfer (which never held support) is reversed, and the
+  application fee (the booking fee plus support) is returned, so Sheltüh
+  gives the support back. A full refund in the dashboard should choose
+  both options too, as ours do: reversing the transfer without refunding
+  the application fee makes the organiser's side pay back Sheltüh's booking
+  fee and support. Partial refunds stay manual, as before: Stripe reverses
+  the transfer and the application fee in proportion to the amount
+  refunded, so to refund only the tickets (and keep the support), or only
+  the support, work out the split in Stripe by hand; the order records only
+  the amount refunded to the buyer.
 - Logs name an order only by its short reference (`#7C1F2E0A`): never its id,
   the buyer, or the payment intent.
 
@@ -1625,7 +1699,8 @@ still opens the event, but nothing more is counted under it.
 **Sales** come from `paid` orders only (free orders are A$0 paid orders;
 pending, failed, refunded and refund-pending ones are left out), counted on
 the Melbourne day the order was placed. Money is integer cents from the
-orders' own snapshots: gross is `total_cents` (what buyers paid), fees is
+orders' own snapshots: gross is `total_cents` less `support_cents` (what
+buyers paid for the event: Support Sheltüh is the platform's), fees is
 `application_fee_cents` (the platform's booking fee, whoever paid it), net
 is gross − fees (what Stripe pays the organiser; Stripe's processing fee is
 the platform's). Only the per-ticket-type split is re-derived, with
@@ -2901,6 +2976,10 @@ is `cache-control: private, no-store`, and so is every admin response
 - `lib/server/deps.ts`: the production wiring (postgres.js, Supabase Auth,
   Stripe, SMTP), read from env.
 - `lib/api/*`: the browser-side client for the same routes.
+- Support Sheltüh: `lib/support.ts` (amounts, label and copy, client-safe),
+  `parseSupportCents` in `lib/server/order-input.ts`, the session line in
+  `lib/server/checkout-attempts.ts`; tests
+  `tests/server/support-sheltuh.test.ts`.
 - Embedded checkout: `lib/server/handlers/orders.ts` (`createCheckout` and
   its seated branch create the embedded sessions; `getOrderPayment` serves
   `GET /api/orders/by-session/{orderId}/payment`, route

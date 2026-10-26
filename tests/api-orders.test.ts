@@ -36,6 +36,25 @@ describe("createCheckoutSession", () => {
   });
 });
 
+describe("createCheckoutSession and createSeatedCheckout (Support Sheltüh)", () => {
+  it("send supportCents only when above 0, and a changed amount is a new attempt (a new key)", async () => {
+    const fetch = stubFetch({ url: "/checkout/pay?order=o", orderId: "o" }, 201);
+    const lines = [{ ticketTypeId: "ga", quantity: 1 }];
+    await createCheckoutSession("evt-support", lines, undefined, undefined, undefined, 500);
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ lineItems: lines, supportCents: 500 });
+    await createCheckoutSession("evt-support", lines, undefined, undefined, undefined, 0);
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ lineItems: lines });
+    await createCheckoutSession("evt-support", lines, undefined, undefined, undefined, 1000);
+    const keys = fetch.mock.calls.map((call) => call[1].headers["idempotency-key"]);
+    expect(new Set(keys).size).toBe(3);
+
+    await createSeatedCheckout("evt-support-seated", { seats: { mapVersion: 1, seatIds: ["A1"] }, supportCents: 200 });
+    expect(JSON.parse(fetch.mock.calls[3][1].body)).toEqual({ seats: { mapVersion: 1, seatIds: ["A1"] }, supportCents: 200 });
+    await createSeatedCheckout("evt-support-seated", { seats: { mapVersion: 1, seatIds: ["A1"] }, supportCents: 0 });
+    expect(JSON.parse(fetch.mock.calls[4][1].body)).toEqual({ seats: { mapVersion: 1, seatIds: ["A1"] } });
+  });
+});
+
 describe("createCheckoutSession (free orders)", () => {
   it("sends the account's token when given one, and goes the guest way when there's none to be had", async () => {
     const fetch = stubFetch({ status: "confirmation_sent", expiresInHours: 24 }, 202);

@@ -283,6 +283,25 @@ describe("Data API lock-out", () => {
     expect(seq.granted).toBe(0);
   });
 
+  it("Support Sheltüh: orders.support_cents is checked in the database, and hold_seats keeps one locked-down form taking it", async () => {
+    const constraints = await db.query<{ conname: string }>(
+      `select conname from pg_constraint where conrelid = 'public.orders'::regclass and contype = 'c' and conname like 'orders_support%' order by 1`,
+    );
+    expect(constraints.map((c) => c.conname)).toEqual([
+      "orders_support_cents_check",
+      "orders_support_in_total",
+      "orders_support_paid_only",
+    ]);
+    expect(await privateFunctions(["hold_seats"])).toEqual(locked(["hold_seats"]));
+    const [hold] = await db.query<{ defaults: number; names: string[] }>(
+      `select p.pronargdefaults::int as defaults, p.proargnames as names
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'private' and p.proname = 'hold_seats'`,
+    );
+    expect(hold.defaults).toBe(1);
+    expect(hold.names).toContain("p_support_cents");
+  });
+
   it("the member profile and organiser follow functions and triggers exist, pin search_path and aren't client-executable", async () => {
     const names = [
       "admin_remove_featured_video",

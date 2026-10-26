@@ -19,7 +19,7 @@ import {
 } from "../checkout-attempts";
 import { clientIp, clientKey, orderKey } from "../client-key";
 import { HttpError, ok, okPrivate, readJson } from "../http";
-import { parseCheckoutLineItems } from "../order-input";
+import { parseCheckoutLineItems, parseSupportCents, refuseSupportOnFreeOrder } from "../order-input";
 import { parseCheckoutSeats } from "../seat-map-input";
 import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
 import { CUSTOMER_ORDER_SELECT, ORDER_SELECT, toCustomerOrder, toOrder } from "../records";
@@ -609,6 +609,14 @@ export async function takeClientLimit(req: Request, deps: Deps, secret: string |
  * tickets (400, fieldErrors.lineItems). An event that has ended takes no new
  * order or seat hold, paid or free (409 "This event has ended."; the
  * database refuses the order too: orders_not_ended).
+ *
+ * Optional `supportCents` (Support Sheltüh, lib/support.ts; general admission
+ * and seated alike): omitted or 0 is none, else a whole number of cents from
+ * A$1 to A$500, and only with a paid ticket in the order (400
+ * `fieldErrors.supportCents` otherwise). It's stored on the order, part of
+ * its total and of the attempt's fingerprint (a replay with another amount is
+ * a 422), a line of its own in Stripe's session, and all of it goes to
+ * Sheltüh (application_fee_amount): ../checkout-attempts.ts.
  */
 export const createCheckout: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const { db } = deps;
@@ -627,6 +635,9 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   const lineItems = parseCheckoutLineItems(body, event.ticketTypes);
   refuseSeatedLines(event, lineItems);
   const totals = orderTotals(lineItems);
+  // Support Sheltüh: validated here, and only on an order with a paid ticket (400 otherwise).
+  const supportCents = parseSupportCents(body.supportCents);
+  refuseSupportOnFreeOrder(supportCents, totals.subtotalCents);
   const isFree = totals.totalCents === 0;
   // Free: tickets straight away for a member's own verified email, an emailed confirmation link for anyone else.
   if (isFree) {
@@ -648,6 +659,7 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
     lines: lineItems,
     buyerEmail: body.buyerEmail,
     trackingCode,
+    supportCents,
   });
   // The attempt is bound to this client: a replay or retry from another client key is refused.
   const client = requestClientKey(req, deps);
@@ -663,9 +675,9 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   const insertOrder = (orderId: string) =>
     db.query(
       `insert into public.orders (id, event_id, organiser_id, event_title, line_items, subtotal_cents,
-         buyer_fee_cents, total_cents, application_fee_cents, buyer_email, tracking_code)
+         buyer_fee_cents, total_cents, application_fee_cents, buyer_email, tracking_code, support_cents)
        values ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10,
-         (select l.code from public.event_tracking_links l where l.event_id = $2 and l.code = $11))`,
+         (select l.code from public.event_tracking_links l where l.event_id = $2 and l.code = $11), $12)`,
       [
         orderId,
         eventId,
@@ -674,10 +686,12 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
         JSON.stringify(lineItems),
         totals.subtotalCents,
         totals.buyerFeeCents,
-        totals.totalCents,
+        // What the buyer pays: tickets, buyer-paid fees and any Support Sheltüh (orders_support_in_total).
+        totals.totalCents + supportCents,
         totals.applicationFeeCents,
         buyerEmail,
         trackingCode,
+        supportCents,
       ],
     );
 
@@ -937,6 +951,7 @@ function seatLines(event: EventRecord, seats: ChosenSeat[]): OrderLineItem[] {
  *   orderId}`, `url` being the payment page.
  * - Free: a member's own verified email gets the seats at once; anyone else
  *   an emailed link, holding nothing until it's confirmed.
+ * Optional `supportCents` as for general admission (createCheckout).
  * Refusals write nothing (only a hold counts towards the event's hold
  * attempts): 400 bad input; 409 `seats` taken or unknown (body `seatIds`),
  * `seatMapVersion` changed; 429 too many seats held or holds made for the
@@ -967,6 +982,8 @@ async function createSeatedCheckout(
     throw seatError(409, SEAT_MAP_CHANGED, "seatMapVersion", { code: "seat_map_changed" });
   }
   const trackingCode = parseTrackingCode(body.trackingCode);
+  // Support Sheltüh: its form here; whether the order may carry it once it's priced (below).
+  const supportCents = parseSupportCents(body.supportCents);
   // The same key and basket again: the same order and holds, before the seat check (which would see them held).
   const fingerprint = checkoutFingerprint({
     kind: "seated",
@@ -975,6 +992,7 @@ async function createSeatedCheckout(
     seats: { mapVersion, seatIds },
     buyerEmail: body.buyerEmail,
     trackingCode,
+    supportCents,
   });
   const client = requestClientKey(req, deps);
   const peeked = await peekCheckoutAttempt(db, key, fingerprint, client.key);
@@ -1006,6 +1024,7 @@ async function createSeatedCheckout(
   const lineItems = [...seatLines(event, seats), ...gaLines];
   const totals = orderTotals(lineItems);
   const labels = seats.map(({ section, row, seat, kind }) => ({ section, row, seat, kind }));
+  refuseSupportOnFreeOrder(supportCents, totals.subtotalCents);
 
   if (totals.totalCents === 0) {
     const buyerEmail = parseBuyerEmail(body, true);
@@ -1031,7 +1050,7 @@ async function createSeatedCheckout(
       db.query<{ result: string; unavailable_seat_ids: string[] | null }>(
         `select result, unavailable_seat_ids
            from private.hold_seats($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11, $12, $13::text[],
-                                   $14::interval, $15, $16::interval, $17, $18)`,
+                                   $14::interval, $15, $16::interval, $17, $18, $19)`,
         [
           orderId,
           event.eventId,
@@ -1040,7 +1059,7 @@ async function createSeatedCheckout(
           JSON.stringify(lineItems),
           totals.subtotalCents,
           totals.buyerFeeCents,
-          totals.totalCents,
+          totals.totalCents + supportCents,
           totals.applicationFeeCents,
           buyerEmail,
           trackingCode,
@@ -1051,6 +1070,7 @@ async function createSeatedCheckout(
           SEAT_HOLD_LIMITS.attempts.window,
           SEAT_HOLD_LIMITS.capMin,
           SEAT_HOLD_LIMITS.capShare,
+          supportCents,
         ],
       ),
     );
@@ -1254,6 +1274,7 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { ses
     subtotal_cents: number;
     buyer_fee_cents: number;
     total_cents: number;
+    support_cents: number;
     event_slug: string | null;
     event_status: string | null;
     event_ended: boolean | null;
@@ -1266,7 +1287,7 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { ses
   }>(
     `select o.status::text as status, o.stripe_checkout_session_id, o.confirmation_token_hash is not null as free_link,
             o.event_id, o.event_title, o.line_items, o.seat_ids, o.subtotal_cents, o.buyer_fee_cents, o.total_cents,
-            e.slug as event_slug, e.status::text as event_status, e.ends_at <= now() as event_ended, e.starts_at as event_starts_at,
+            o.support_cents, e.slug as event_slug, e.status::text as event_status, e.ends_at <= now() as event_ended, e.starts_at as event_starts_at,
             e.ends_at as event_ends_at, e.venue_name as event_venue_name, e.suburb as event_suburb,
             e.refund_policy as event_refund_policy, e.refund_days as event_refund_days
        from public.orders o
@@ -1327,6 +1348,8 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { ses
     lines: paymentLines(row.line_items, state.seats),
     subtotalCents: row.subtotal_cents,
     buyerFeeCents: row.buyer_fee_cents,
+    // Support Sheltüh, only when there is some; totalCents includes it (what Stripe's form charges).
+    ...(row.support_cents > 0 ? { supportCents: row.support_cents } : {}),
     totalCents: row.total_cents,
   });
 };

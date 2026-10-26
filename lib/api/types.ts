@@ -434,8 +434,12 @@ export interface OrderRecord {
   lineItems: OrderLineItem[];
   subtotalCents: number;
   buyerFeeCents: number;
+  /** What the buyer paid: subtotal, buyer-paid fees and any Support Sheltüh. */
   totalCents: number;
+  /** The booking fee (the platform's, whoever paid it). Never includes Support Sheltüh. */
   applicationFeeCents: number;
+  /** Support Sheltüh (lib/support.ts), all of it the platform's: only when the buyer added some. */
+  supportCents?: number;
   status: OrderStatus;
   /** Unset for free orders, which never touch Stripe. */
   stripeCheckoutSessionId?: string;
@@ -587,6 +591,13 @@ export interface CustomerOrder {
   subtotalCents: number;
   /** Booking fees the buyer paid (not any the organiser absorbed). */
   buyerFeeCents: number;
+  /**
+   * What the buyer added for Support Sheltüh (lib/support.ts: SUPPORT_LABEL),
+   * shown as its own line. Only when they added some; unset otherwise (and
+   * from an older API).
+   */
+  supportCents?: number;
+  /** What the buyer paid, all-inclusive: subtotal, buyer-paid fees and any Support Sheltüh. */
   totalCents: number;
   /**
    * Only for a `paid` order; empty for every other status (a refunded order's
@@ -674,7 +685,13 @@ export interface OrderPaymentSummary {
   subtotalCents: number;
   /** Booking fees the buyer pays (not any the organiser absorbs). */
   buyerFeeCents: number;
-  /** What the buyer pays, all-inclusive: the same amount as Stripe's form. */
+  /**
+   * Support Sheltüh the buyer chose at checkout (lib/support.ts: SUPPORT_LABEL),
+   * its own line in the summary and in Stripe's form. Only when there is some;
+   * unset otherwise (and from an older API).
+   */
+  supportCents?: number;
+  /** What the buyer pays, all-inclusive (Support Sheltüh included): the same amount as Stripe's form. */
   totalCents: number;
 }
 
@@ -1299,7 +1316,7 @@ export interface DateRange {
 
 /** Money in integer cents. `netCents` = `grossCents` − `feesCents`. */
 export interface MoneyTotals {
-  /** What buyers paid, booking fees they paid included. */
+  /** What buyers paid for the event, booking fees they paid included; never Support Sheltüh (the platform's). */
   grossCents: number;
   /** Sheltüh's booking fees (lib/fees.ts), whether the buyer paid them or the organiser absorbed them. */
   feesCents: number;

@@ -8,6 +8,7 @@ import type { Handler } from "../route";
 import { generateTrackingCode } from "../tracking-codes";
 import type { EventRecord } from "../types";
 import { fail } from "../validation";
+import { ORGANISER_GROSS } from "./analytics";
 import { requireOwnEvent } from "./event-queries";
 import { requireApprovedOrganiser } from "./organiser-guard";
 
@@ -62,7 +63,7 @@ async function listLinks(db: Db, deps: Deps, event: EventRecord): Promise<Tracki
             coalesce(o.orders, 0) as orders, coalesce(o.tickets, 0)::bigint as tickets, coalesce(o.gross, 0)::bigint as gross
        from public.event_tracking_links l
        left join lateral (
-              select count(*)::int as orders, sum(o.total_cents) as gross,
+              select count(*)::int as orders, sum(${ORGANISER_GROSS}) as gross,
                      sum((select coalesce(sum((li ->> 'quantity')::int), 0) from jsonb_array_elements(o.line_items) li)) as tickets
                 from public.orders o
                where o.event_id = l.event_id and o.status = 'paid' and o.tracking_code = l.code) o on true

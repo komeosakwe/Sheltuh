@@ -94,6 +94,8 @@ export interface SeatedCheckoutInput {
   /** Required when the order is free. */
   buyerEmail?: string;
   trackingCode?: string;
+  /** Support Sheltüh (lib/support.ts), as for createCheckoutSession: paid orders only, sent only when above 0. */
+  supportCents?: number;
 }
 
 /**
@@ -117,6 +119,7 @@ export async function createSeatedCheckout(eventId: string, input: SeatedCheckou
     ...(input.lineItems && input.lineItems.length > 0 ? { lineItems: input.lineItems } : {}),
     ...(input.buyerEmail ? { buyerEmail: input.buyerEmail } : {}),
     ...(input.trackingCode ? { trackingCode: input.trackingCode } : {}),
+    ...(input.supportCents && input.supportCents > 0 ? { supportCents: input.supportCents } : {}),
   };
   return runCheckoutAttempt(eventId, body, async (key) =>
     apiFetch<CheckoutResult>(`/events/${eventId}/checkout`, {

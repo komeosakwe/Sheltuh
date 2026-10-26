@@ -581,7 +581,7 @@ const TICKET_SEAT_JSON = `(select json_build_object('section', s.section_label, 
 
 export const ORDER_SELECT = `
   select o.id, o.event_id, o.organiser_id, o.event_title, o.buyer_email, o.line_items,
-         o.subtotal_cents, o.buyer_fee_cents, o.total_cents, o.application_fee_cents,
+         o.subtotal_cents, o.buyer_fee_cents, o.total_cents, o.application_fee_cents, o.support_cents,
          o.status::text as status, o.stripe_checkout_session_id, o.stripe_payment_intent_id,
          o.created_at, o.updated_at, o.seat_ids,
          (select e.slug from public.events e where e.id = o.event_id) as event_slug,
@@ -606,6 +606,7 @@ export function toOrder(row: Row): OrderRecord {
     buyerFeeCents: row.buyer_fee_cents as number,
     totalCents: row.total_cents as number,
     applicationFeeCents: row.application_fee_cents as number,
+    ...(Number(row.support_cents ?? 0) > 0 ? { supportCents: Number(row.support_cents) } : {}),
     status: row.status as OrderRecord["status"],
     stripeCheckoutSessionId: opt(row.stripe_checkout_session_id),
     stripePaymentIntentId: opt(row.stripe_payment_intent_id),
@@ -635,7 +636,7 @@ export function toOrder(row: Row): OrderRecord {
  */
 export const CUSTOMER_ORDER_SELECT = `
   select o.id, o.status::text as status, o.event_title, o.buyer_email,
-         o.subtotal_cents, o.buyer_fee_cents, o.total_cents,
+         o.subtotal_cents, o.buyer_fee_cents, o.total_cents, o.support_cents,
          e.slug as event_slug, e.status::text as event_status,
          e.starts_at as event_starts_at, e.ends_at as event_ends_at,
          e.venue_name as event_venue_name, e.suburb as event_suburb,
@@ -702,6 +703,8 @@ export function toCustomerOrder(row: Row): CustomerOrder {
     maskedEmail: email ? maskEmail(email) : undefined,
     subtotalCents: row.subtotal_cents as number,
     buyerFeeCents: row.buyer_fee_cents as number,
+    // Support Sheltüh, its own line: only when the buyer added some (totalCents includes it).
+    ...(Number(row.support_cents ?? 0) > 0 ? { supportCents: Number(row.support_cents) } : {}),
     totalCents: row.total_cents as number,
     tickets,
   };
