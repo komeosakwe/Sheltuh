@@ -69,10 +69,10 @@ function openPayment(seatCount: number) {
     eventTitle: event!.title,
     eventSlug: event!.slug,
     seated: true,
-    lines: [{ ticketTypeName: "Full price", quantity: seatCount, unitTotalCents: 3690, lineTotalCents: 3690 * seatCount, buyerPaysFee: true, seats }],
+    lines: [{ ticketTypeName: "Full price", quantity: seatCount, unitTotalCents: 3760, lineTotalCents: 3760 * seatCount, buyerPaysFee: true, seats }],
     subtotalCents: 3500 * seatCount,
-    buyerFeeCents: 190 * seatCount,
-    totalCents: 3690 * seatCount,
+    buyerFeeCents: 260 * seatCount,
+    totalCents: 3760 * seatCount,
   };
 }
 
@@ -181,11 +181,11 @@ for (const vp of [
 
       await page.getByRole("tab", { name: "List" }).click();
       const rowA = page.getByRole("group", { name: "North, Row A" });
-      await rowA.getByRole("checkbox", { name: /^Seat 1, Full price, A\$36\.90/ }).check();
+      await rowA.getByRole("checkbox", { name: /^Seat 1, Full price, A\$37\.60/ }).check();
       await rowA.getByRole("checkbox", { name: /^Seat 2, Full price/ }).check();
       const seatBar = page.locator("[data-seat-bar]");
       await expect(seatBar).toContainText("2 seats");
-      await expect(seatBar).toContainText("A$73.80");
+      await expect(seatBar).toContainText("A$75.20");
       await noSidewaysScroll(page);
 
       // The seat bar's details: every seat with its all-inclusive price, then the total.
@@ -260,7 +260,7 @@ test.describe("seated event at 1280×900", () => {
     await page.locator('[role="img"] [data-seat="N-A2"] rect').click({ force: true });
     const summary = page.getByRole("heading", { name: "Your seats" }).locator("..");
     await expect(summary).toContainText("North · Row A · Seat 1");
-    await expect(summary).toContainText("A$73.80");
+    await expect(summary).toContainText("A$75.20");
 
     // Polls availability while visible (once on load, then every 10 seconds).
     expect(seen.availability).toBeGreaterThanOrEqual(1);

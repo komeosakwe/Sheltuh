@@ -17,7 +17,7 @@ let admin: { token: string; userId: string };
 let organiser: { token: string; userId: string; organiserId: string };
 let event: EventRecord;
 
-// GA: 3000 + 170 buyer fee = 3170 to the buyer. VIP: 8000, fee absorbed.
+// GA: 3000 + 230 buyer fee = 3230 to the buyer. VIP: 8000, fee absorbed.
 const TICKETS = [
   { id: "ga", name: "GA", priceCents: 3000, feePolicy: "buyer-pays", quantityAvailable: 10 },
   { id: "vip", name: "VIP", priceCents: 8000, feePolicy: "organiser-absorbs", quantityAvailable: 1 },
@@ -133,12 +133,12 @@ describe("full refund (charge.refunded, refunded: true)", () => {
     );
     expect(await sold()).toEqual({ ga: 2, vip: 1 });
 
-    await refund("pi_full", 2 * 3170 + 8000, true);
+    await refund("pi_full", 2 * 3230 + 8000, true);
 
-    expect(await internal(orderId)).toEqual({ status: "refunded", amount_refunded_cents: 14340, tickets: 3 });
+    expect(await internal(orderId)).toEqual({ status: "refunded", amount_refunded_cents: 14460, tickets: 3 });
     expect(await sold()).toEqual({ ga: 0, vip: 0 });
     // The buyer's page: refunded after tickets were issued, and no codes (they're void).
-    expect(await lookup(orderId)).toMatchObject({ status: "refunded", refundReason: "refunded", tickets: [], totalCents: 14340 });
+    expect(await lookup(orderId)).toMatchObject({ status: "refunded", refundReason: "refunded", tickets: [], totalCents: 14460 });
     // The released VIP can be sold again.
     const next = await paidOrder([{ ticketTypeId: "vip", quantity: 1 }], "pi_next");
     expect(await lookup(next)).toMatchObject({ status: "paid", tickets: [{ ticketTypeName: "VIP" }] });
@@ -151,11 +151,11 @@ describe("full refund (charge.refunded, refunded: true)", () => {
     const refunded = await paidOrder([{ ticketTypeId: "ga", quantity: 2 }], "pi_refunded");
     expect(await sold()).toEqual({ ga: 5, vip: 0 });
 
-    for (let i = 0; i < 3; i++) await refund("pi_refunded", 6340, true);
+    for (let i = 0; i < 3; i++) await refund("pi_refunded", 6460, true);
 
     // Another order's 3 tickets still count: a second release would have taken it to 1.
     expect(await sold()).toEqual({ ga: 3, vip: 0 });
-    expect(await internal(refunded)).toMatchObject({ status: "refunded", amount_refunded_cents: 6340 });
+    expect(await internal(refunded)).toMatchObject({ status: "refunded", amount_refunded_cents: 6460 });
     expect(await internal(kept)).toMatchObject({ status: "paid", amount_refunded_cents: 0 });
     expect((await lookup(kept)).tickets).toHaveLength(3);
   });
@@ -163,7 +163,7 @@ describe("full refund (charge.refunded, refunded: true)", () => {
   it("accepts an expanded payment intent object", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     const orderId = await paidOrder([{ ticketTypeId: "ga", quantity: 1 }], "pi_expanded");
-    await refund({ id: "pi_expanded", object: "payment_intent" }, 3170, true);
+    await refund({ id: "pi_expanded", object: "payment_intent" }, 3230, true);
     expect(await internal(orderId)).toMatchObject({ status: "refunded" });
     expect(await sold()).toEqual({ ga: 0, vip: 0 });
   });
@@ -171,7 +171,7 @@ describe("full refund (charge.refunded, refunded: true)", () => {
   it("stops a ticket email that hasn't gone out yet", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     const orderId = await paidOrder([{ ticketTypeId: "ga", quantity: 1 }], "pi_email");
-    await refund("pi_email", 3170, true);
+    await refund("pi_email", 3230, true);
     await api.runDeferred();
     expect(api.sendEmail).not.toHaveBeenCalled();
     const [job] = await api.db.query(`select status from private.email_outbox where order_id = $1`, [orderId]);
@@ -181,7 +181,7 @@ describe("full refund (charge.refunded, refunded: true)", () => {
   it("logs the order by its short reference only", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const orderId = await paidOrder([{ ticketTypeId: "ga", quantity: 1 }], "pi_log");
-    await refund("pi_log", 3170, true);
+    await refund("pi_log", 3230, true);
     const logged = info.mock.calls.flat().map(String).join("\n");
     expect(logged).toContain(orderReference(orderId));
     expect(logged).not.toContain(orderId);
@@ -194,16 +194,16 @@ describe("partial refund (refunded: false)", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const orderId = await paidOrder([{ ticketTypeId: "ga", quantity: 2 }], "pi_part");
 
-    await refund("pi_part", 3170, false);
+    await refund("pi_part", 3230, false);
 
-    expect(await internal(orderId)).toEqual({ status: "paid", amount_refunded_cents: 3170, tickets: 2 });
+    expect(await internal(orderId)).toEqual({ status: "paid", amount_refunded_cents: 3230, tickets: 2 });
     expect(await sold()).toEqual({ ga: 2, vip: 0 });
     const page = await lookup(orderId);
     expect(page.status).toBe("paid");
     expect(page.tickets).toHaveLength(2);
     // Nothing about the refund reaches the buyer's page.
     expect(page).not.toHaveProperty("refundReason");
-    expect(JSON.stringify(page)).not.toContain("3170");
+    expect(JSON.stringify(page)).not.toContain("3230");
 
     // Logged once, for manual follow-up, by reference only.
     expect(error).toHaveBeenCalledTimes(1);
@@ -218,10 +218,10 @@ describe("partial refund (refunded: false)", () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     const orderId = await paidOrder([{ ticketTypeId: "ga", quantity: 2 }], "pi_steps");
 
-    await refund("pi_steps", 3170, false);
-    await refund("pi_steps", 3170, false); // redelivered
+    await refund("pi_steps", 3230, false);
+    await refund("pi_steps", 3230, false); // redelivered
     await refund("pi_steps", 1000, false); // an older delivery arriving late
-    expect(await internal(orderId)).toMatchObject({ status: "paid", amount_refunded_cents: 3170 });
+    expect(await internal(orderId)).toMatchObject({ status: "paid", amount_refunded_cents: 3230 });
     expect(error).toHaveBeenCalledTimes(1);
 
     await refund("pi_steps", 4000, false);
@@ -229,8 +229,8 @@ describe("partial refund (refunded: false)", () => {
     expect(error).toHaveBeenCalledTimes(2);
 
     // The rest refunded: Stripe now says the charge is fully refunded.
-    await refund("pi_steps", 6340, true);
-    expect(await internal(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: 6340 });
+    await refund("pi_steps", 6460, true);
+    expect(await internal(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: 6460 });
     expect(await sold()).toEqual({ ga: 0, vip: 0 });
   });
 });
@@ -245,7 +245,7 @@ describe("orders a refund doesn't change", () => {
     ]);
 
     for (const orderId of [pending, failed]) {
-      await refund(`pi_${orderId.slice(-8)}`, 3170, true);
+      await refund(`pi_${orderId.slice(-8)}`, 3230, true);
       await refund(`pi_${orderId.slice(-8)}`, 100, false);
     }
     expect(await internal(pending)).toEqual({ status: "pending", amount_refunded_cents: 0, tickets: 0 });
@@ -263,8 +263,8 @@ describe("orders a refund doesn't change", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const orderId = await paidOrder([{ ticketTypeId: "ga", quantity: 1 }], "pi_ours");
 
-    await refund("pi_not_ours", 3170, true);
-    await refund(null, 3170, true);
+    await refund("pi_not_ours", 3230, true);
+    await refund(null, 3230, true);
     const empty = await api.send(stripeWebhook, stripeWebhookRequest({ type: "charge.refunded", data: { object: {} } }));
     expect({ status: empty.status, body: empty.body }).toEqual({ status: 200, body: { received: true } });
     // Nonsense amounts never reach the database.
@@ -294,7 +294,7 @@ describe("refund.updated / refund.failed for a refund made outside Sheltüh (no 
     vi.spyOn(console, "info").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const orderId = await paidOrder([{ ticketTypeId: "ga", quantity: 1 }], "pi_dash");
-    await refund("pi_dash", 3170, true);
+    await refund("pi_dash", 3230, true);
     const before = await internal(orderId);
 
     for (const type of ["refund.failed", "refund.updated"] as const) {
@@ -360,7 +360,7 @@ describe("the oversold refund path is unchanged", () => {
     expect(await internal(second)).toEqual({ status: "refunded", amount_refunded_cents: 0, tickets: 0 });
     expect(await sold()).toEqual({ ga: 0, vip: 1 });
 
-    await refund("pi_second", 3170 + 8000, true);
+    await refund("pi_second", 3230 + 8000, true);
 
     expect(await internal(second)).toEqual({ status: "refunded", amount_refunded_cents: 0, tickets: 0 });
     expect(await internal(first)).toMatchObject({ status: "paid" });
@@ -373,7 +373,7 @@ describe("the oversold refund path is unchanged", () => {
     const { second } = await oversold("pending");
     expect(await lookup(second)).toMatchObject({ status: "oversold_refund_required", refundReason: "oversold" });
 
-    await refund("pi_second", 3170 + 8000, true);
+    await refund("pi_second", 3230 + 8000, true);
     expect((await internal(second)).status).toBe("oversold_refund_required");
 
     await api.send(
@@ -453,9 +453,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
     const [one, two] = connections();
     try {
       await one.unsafe("begin");
-      expect((await recordRefund(one, "pi_twice", 6340, true))[0].result).toBe("refunded");
+      expect((await recordRefund(one, "pi_twice", 6460, true))[0].result).toBe("refunded");
       const blocked = await waitUntilBlocked(two);
-      const pending = recordRefund(two, "pi_twice", 6340, true).execute();
+      const pending = recordRefund(two, "pi_twice", 6460, true).execute();
       await blocked();
       await one.unsafe("commit");
       expect((await pending)[0].result).toBe("unchanged");
@@ -463,7 +463,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
       await one.end();
       await two.end();
     }
-    expect(await internal(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: 6340 });
+    expect(await internal(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: 6460 });
     expect(await sold()).toEqual({ ga: 3, vip: 0 });
   });
 
@@ -512,7 +512,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
       await one.unsafe("begin");
       expect((await fulfil(one, other, "pi_b", [{ id: "ga", n: 4 }]))[0].status).toBe("paid");
       const blocked = await waitUntilBlocked(two);
-      const pending = recordRefund(two, "pi_a", 14340, true).execute();
+      const pending = recordRefund(two, "pi_a", 14460, true).execute();
       await blocked();
       await one.unsafe("commit");
       expect((await pending)[0].result).toBe("refunded");
@@ -541,7 +541,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
       await one.unsafe("begin");
       expect((await fulfil(one, orderId, "pi_same", [{ id: "ga", n: 1 }]))[0].status).toBe("paid");
       const blocked = await waitUntilBlocked(two);
-      const pending = recordRefund(two, "pi_same", 3170, true).execute();
+      const pending = recordRefund(two, "pi_same", 3230, true).execute();
       await blocked();
       await one.unsafe("commit");
       expect((await pending)[0].result).toBe("refunded");
@@ -549,10 +549,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
       await one.end();
       await two.end();
     }
-    expect(await internal(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: 3170, tickets: 1 });
+    expect(await internal(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: 3230, tickets: 1 });
     expect(await sold()).toEqual({ ga: 0, vip: 0 });
     // A redelivery changes nothing more.
-    expect((await api.db.query<{ result: string }>(`select result from private.record_payment_refund('pi_same', 3170, true)`))[0].result).toBe(
+    expect((await api.db.query<{ result: string }>(`select result from private.record_payment_refund('pi_same', 3230, true)`))[0].result).toBe(
       "unchanged",
     );
     expect(await sold()).toEqual({ ga: 0, vip: 0 });

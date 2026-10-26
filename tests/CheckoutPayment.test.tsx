@@ -124,12 +124,12 @@ const OPEN_GA: OrderPaymentLookup = {
   suburb: "Collingwood",
   seated: false,
   lines: [
-    { ticketTypeName: "General admission", quantity: 2, unitTotalCents: 3170, lineTotalCents: 6340, buyerPaysFee: true },
+    { ticketTypeName: "General admission", quantity: 2, unitTotalCents: 3230, lineTotalCents: 6460, buyerPaysFee: true },
     { ticketTypeName: "Free list", quantity: 1, unitTotalCents: 0, lineTotalCents: 0, buyerPaysFee: false },
   ],
   subtotalCents: 6000,
-  buyerFeeCents: 340,
-  totalCents: 6340,
+  buyerFeeCents: 460,
+  totalCents: 6460,
 };
 
 const OPEN_SEATED: OrderPaymentLookup = {
@@ -141,8 +141,8 @@ const OPEN_SEATED: OrderPaymentLookup = {
     {
       ticketTypeName: "Full price",
       quantity: 2,
-      unitTotalCents: 3690,
-      lineTotalCents: 7380,
+      unitTotalCents: 3760,
+      lineTotalCents: 7520,
       buyerPaysFee: true,
       seats: [
         { section: "North", row: "A", seat: "1", kind: "standard" },
@@ -151,8 +151,8 @@ const OPEN_SEATED: OrderPaymentLookup = {
     },
   ],
   subtotalCents: 7000,
-  buyerFeeCents: 380,
-  totalCents: 7380,
+  buyerFeeCents: 520,
+  totalCents: 7520,
 };
 
 beforeEach(() => {
@@ -232,19 +232,19 @@ describe("CheckoutPayment: open", () => {
     expect(summary).toHaveClass("rounded-card", "border", "border-foreground", "bg-card");
     expect(within(summary).getByText("Sat 6 Mar, 8:00 pm – 11:30 pm")).toBeInTheDocument();
     expect(within(summary).getByText("The Tote, Collingwood, VIC")).toBeInTheDocument();
-    expect(within(summary).getByText("2 × A$31.70 incl. fee")).toBeInTheDocument();
+    expect(within(summary).getByText("2 × A$32.30 incl. fee")).toBeInTheDocument();
     expect(within(summary).getByText("1 × Free")).toBeInTheDocument();
     expect(within(summary).getByText("Free", { selector: "p.shrink-0" })).toBeInTheDocument();
 
     const total = summary.querySelector("[data-order-total]");
-    expect(total).toHaveTextContent("A$63.40");
+    expect(total).toHaveTextContent("A$64.60");
     expect(total).toHaveClass("text-xl", "font-bold", "tabular-nums");
     expect(within(summary).getByText("Total")).toHaveClass("text-lg", "font-bold");
     // Every other amount is smaller than the total.
-    const lineAmount = within(summary).getByText("A$63.40", { selector: "li p" });
+    const lineAmount = within(summary).getByText("A$64.60", { selector: "li p" });
     expect(lineAmount).toHaveClass("text-sm");
     expect(lineAmount.className).not.toMatch(/text-(lg|xl)/);
-    const fee = within(summary).getByText("Includes A$3.40 in booking fees.");
+    const fee = within(summary).getByText("Includes A$4.60 in booking fees.");
     expect(fee).toHaveClass("text-xs");
     // The fee note comes after the total, never before it.
     expect(total?.compareDocumentPosition(fee) ?? 0).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
@@ -347,18 +347,18 @@ describe("CheckoutPayment: open", () => {
     getOrderPayment.mockResolvedValue({
       ...OPEN_GA,
       lines: [
-        { ticketTypeName: "General admission", quantity: 1, unitTotalCents: 3170, lineTotalCents: 3170, buyerPaysFee: true },
+        { ticketTypeName: "General admission", quantity: 1, unitTotalCents: 3230, lineTotalCents: 3230, buyerPaysFee: true },
         { ticketTypeName: "Supporter", quantity: 1, unitTotalCents: 5000, lineTotalCents: 5000, buyerPaysFee: false },
       ],
       subtotalCents: 8000,
-      buyerFeeCents: 170,
-      totalCents: 8170,
+      buyerFeeCents: 230,
+      totalCents: 8230,
     });
     render(<CheckoutPayment />);
     const summary = await screen.findByRole("region", { name: "Neon Static" });
-    expect(within(summary).getByText("1 × A$31.70 incl. fee")).toBeInTheDocument();
+    expect(within(summary).getByText("1 × A$32.30 incl. fee")).toBeInTheDocument();
     expect(within(summary).getByText("1 × A$50")).toBeInTheDocument();
-    expect(within(summary).getByText("Includes A$1.70 in booking fees.")).toBeInTheDocument();
+    expect(within(summary).getByText("Includes A$2.30 in booking fees.")).toBeInTheDocument();
   });
 
   it("phones fold the lines behind a toggle; the total is never inside it", async () => {

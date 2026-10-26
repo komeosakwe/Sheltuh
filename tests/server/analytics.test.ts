@@ -605,8 +605,8 @@ describe("checkout attribution", () => {
     const tracked = await paidOrder([{ ticketTypeId: "ga", quantity: 2 }], { trackingCode: link.code });
     const trackedParams = api.stripe.checkout.sessions.create.mock.calls.at(-1)![0];
 
-    expect(await orderRow(tracked)).toEqual({ tracking_code: link.code, total_cents: 6340, application_fee_cents: 340 });
-    expect(await orderRow(plain)).toEqual({ tracking_code: null, total_cents: 6340, application_fee_cents: 340 });
+    expect(await orderRow(tracked)).toEqual({ tracking_code: link.code, total_cents: 6460, application_fee_cents: 460 });
+    expect(await orderRow(plain)).toEqual({ tracking_code: null, total_cents: 6460, application_fee_cents: 460 });
     // expires_at is "now + 60 minutes" per checkout, so two checkouts can straddle a second;
     // it's compared on its own below.
     const strip = (p: Record<string, unknown>) => ({
@@ -695,7 +695,7 @@ describe("event analytics", () => {
     const [ra, rb] = [await orderRow(a), await orderRow(b)];
     expect(ra.total_cents + rb.total_cents).toBe(grossCents);
     expect(ra.application_fee_cents + rb.application_fee_cents).toBe(feesCents);
-    expect({ grossCents, feesCents }).toEqual({ grossCents: 17510, feesCents: 880 });
+    expect({ grossCents, feesCents }).toEqual({ grossCents: 17690, feesCents: 1220 });
 
     const res = await analytics(organiser.token);
     expect(res.status).toBe(200);
@@ -806,10 +806,10 @@ describe("event analytics", () => {
     const res = await analytics(organiser.token, { from: "2026-10-01", to: "2026-10-10", compare: "prevPeriod" });
     expect(res.status).toBe(200);
     const { totals, byDay, previous } = res.body;
-    expect(totals).toMatchObject({ views: 10, orders: 1, ticketsSold: 1, grossCents: 3170, feesCents: 170 });
+    expect(totals).toMatchObject({ views: 10, orders: 1, ticketsSold: 1, grossCents: 3230, feesCents: 230 });
     expect(totals.conversionRate).toBeCloseTo(0.1);
     expect(byDay).toHaveLength(10);
-    expect(byDay[0]).toMatchObject({ date: "2026-10-01", views: 4, orders: 1, grossCents: 3170 });
+    expect(byDay[0]).toMatchObject({ date: "2026-10-01", views: 4, orders: 1, grossCents: 3230 });
     expect(byDay[9]).toMatchObject({ date: "2026-10-10", views: 6, orders: 0, grossCents: 0 });
     expect(byDay[4]).toEqual({
       date: "2026-10-05",
@@ -823,7 +823,7 @@ describe("event analytics", () => {
     });
 
     expect(previous.range).toEqual({ from: "2026-09-21", to: "2026-09-30" });
-    expect(previous.totals).toMatchObject({ views: 5, orders: 1, ticketsSold: 2, grossCents: 16000, feesCents: 740 });
+    expect(previous.totals).toMatchObject({ views: 5, orders: 1, ticketsSold: 2, grossCents: 16000, feesCents: 1060 });
     expect(previous.byDay).toHaveLength(10);
     expect(previous.byDay.find((d: { date: string }) => d.date === "2026-09-25")).toMatchObject({ orders: 1 });
 
@@ -931,15 +931,15 @@ describe("overview", () => {
     expect(res.headers.get("cache-control")).toBe("private, no-store");
     const body = res.body;
     expect(body.range).toEqual({ from: addDays(today(), -29), to: today() });
-    expect(body.totals).toMatchObject({ views: 3, orders: 1, ticketsSold: 1, grossCents: 3170, feesCents: 170, netCents: 3000 });
+    expect(body.totals).toMatchObject({ views: 3, orders: 1, ticketsSold: 1, grossCents: 3230, feesCents: 230, netCents: 3000 });
     expect(body.totals.conversionRate).toBeCloseTo(1 / 3);
     expect(body.byDay).toHaveLength(30);
     expect(body.eventsTruncated).toBe(false);
     // Upcoming soonest first (second starts tomorrow, event in 2027), then past.
     expect(body.events.map((e: { title: string }) => e.title)).toEqual(["Second", event.title, "Past"]);
     const mine = body.events.find((e: { eventId: string }) => e.eventId === event.eventId);
-    expect(mine.totals).toMatchObject({ views: 2, orders: 1, grossCents: 3170 });
-    expect(mine.previous).toMatchObject({ views: 0, orders: 1, grossCents: 8000, feesCents: 370, netCents: 7630 });
+    expect(mine.totals).toMatchObject({ views: 2, orders: 1, grossCents: 3230 });
+    expect(mine.previous).toMatchObject({ views: 0, orders: 1, grossCents: 8000, feesCents: 530, netCents: 7470 });
     expect(body.previous.range).toEqual({ from: addDays(today(), -59), to: addDays(today(), -30) });
     expect(body.previous.totals).toMatchObject({ orders: 1, grossCents: 8000 });
     expect(JSON.stringify(body)).not.toContain(rivalEvent.eventId);
@@ -962,7 +962,7 @@ describe("CSV exports", () => {
     expect(res.headers.get("cache-control")).toBe("private, no-store");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(res.text.startsWith("﻿")).toBe(true);
-    expect(res.text).toContain(`"Total","0","1","1","31.70","1.70","30.00"\r\n`);
+    expect(res.text).toContain(`"Total","0","1","1","32.30","2.30","30.00"\r\n`);
     expect(res.text).not.toMatch(/@example\.com|pi_test|cs_test|ord_/);
 
     const all = await csv(getAnalyticsOverviewCsv, organiser.token, {}, { compare: "prevPeriod" });

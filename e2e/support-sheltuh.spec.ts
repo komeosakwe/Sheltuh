@@ -63,11 +63,11 @@ function gaPayment(supportCents: number) {
     eventTitle: neon.title,
     eventSlug: neon.slug,
     seated: false,
-    lines: [{ ticketTypeName: "General admission", quantity: 1, unitTotalCents: 3170, lineTotalCents: 3170, buyerPaysFee: true }],
+    lines: [{ ticketTypeName: "General admission", quantity: 1, unitTotalCents: 3230, lineTotalCents: 3230, buyerPaysFee: true }],
     subtotalCents: 3000,
-    buyerFeeCents: 170,
+    buyerFeeCents: 230,
     ...(supportCents > 0 ? { supportCents } : {}),
-    totalCents: 3170 + supportCents,
+    totalCents: 3230 + supportCents,
   };
 }
 
@@ -134,12 +134,12 @@ test.describe("general admission at 1280×900", () => {
     // Nothing pre-selected.
     for (const name of ["A$2", "A$5", "A$10", "Other"]) await expect(support.getByRole("radio", { name })).not.toBeChecked();
     const total = tickets.getByText("Total", { exact: true }).locator("xpath=following-sibling::dd");
-    await expect(total).toHaveText("A$31.70");
+    await expect(total).toHaveText("A$32.30");
 
     // One tap, on the chip itself (the label).
     await support.locator("label", { hasText: "A$5" }).click();
     await expect(support.getByRole("radio", { name: "A$5" })).toBeChecked();
-    await expect(total).toHaveText("A$36.70");
+    await expect(total).toHaveText("A$37.30");
     await expect(tickets.locator("dl").first()).toContainText("Support Sheltüh");
     const chipBox = await support.locator("label", { hasText: "A$5" }).boundingBox();
     expect(chipBox?.height ?? 0).toBeGreaterThanOrEqual(44);
@@ -152,8 +152,8 @@ test.describe("general admission at 1280×900", () => {
     await expect(summary).toBeVisible({ timeout: 30_000 });
     await expect(summary.locator("[data-support-line]")).toContainText("Support Sheltüh");
     await expect(summary.locator("[data-support-line]")).toContainText("A$5");
-    await expect(summary.locator("[data-order-total]")).toHaveText("A$36.70");
-    await expect(summary).toContainText("Includes A$1.70 in booking fees and A$5 for Support Sheltüh.");
+    await expect(summary.locator("[data-order-total]")).toHaveText("A$37.30");
+    await expect(summary).toContainText("Includes A$2.30 in booking fees and A$5 for Support Sheltüh.");
   });
 
   test("tapping the chosen chip again removes it, in the browser's own radio handling", async ({ page }) => {
@@ -193,7 +193,7 @@ test.describe("general admission at 1280×900", () => {
     await page.keyboard.press("ArrowRight");
     await expect(five).toBeFocused();
     await expect(five).toBeChecked();
-    await expect(tickets.getByText("Total", { exact: true }).locator("xpath=following-sibling::dd")).toHaveText("A$36.70");
+    await expect(tickets.getByText("Total", { exact: true }).locator("xpath=following-sibling::dd")).toHaveText("A$37.30");
     await page.keyboard.press("Space");
     await expect(five).not.toBeChecked();
     await expect(five).toBeFocused();
@@ -233,7 +233,7 @@ test.describe("general admission at 1280×900", () => {
     expect(seen.checkouts).toEqual([]);
     await field.fill("12.50");
     await expect(tickets.getByRole("alert")).toHaveCount(0);
-    await expect(tickets.getByText("Total", { exact: true }).locator("xpath=following-sibling::dd")).toHaveText("A$44.20");
+    await expect(tickets.getByText("Total", { exact: true }).locator("xpath=following-sibling::dd")).toHaveText("A$44.80");
     await tickets.getByRole("button", { name: "Checkout" }).click();
     await expect(page).toHaveURL(`/checkout/pay?order=${GA_ORDER}`);
     expect(seen.checkouts).toEqual([{ lineItems: [{ ticketTypeId: "neon-static-ga", quantity: 1 }], supportCents: 1250 }]);
@@ -363,7 +363,7 @@ for (const vp of [
         expect((box?.x ?? -1) >= 0 && (box?.x ?? 0) + (box?.width ?? 0) <= vp.width).toBe(true);
       }
       await support.locator("label", { hasText: "A$5" }).click();
-      await expect(tickets.getByText("Total", { exact: true }).locator("xpath=following-sibling::dd")).toHaveText("A$36.70");
+      await expect(tickets.getByText("Total", { exact: true }).locator("xpath=following-sibling::dd")).toHaveText("A$37.30");
       // The widest chosen chip, "✓ A$10", fits inside its chip.
       await support.locator("label", { hasText: "A$10" }).click();
       const overflow = await support.locator("label", { hasText: "A$10" }).locator("span").evaluate((el) => el.scrollWidth - el.clientWidth);
@@ -392,9 +392,9 @@ test.describe("seated checkout at 1280×900", () => {
     await expect(support).toBeVisible();
     for (const name of ["A$2", "A$5", "A$10", "Other"]) await expect(support.getByRole("radio", { name })).not.toBeChecked();
     const totals = page.getByText("Total", { exact: true }).locator("xpath=..");
-    await expect(totals).toContainText("A$36.90");
+    await expect(totals).toContainText("A$37.60");
     await support.locator("label", { hasText: "A$5" }).click();
-    await expect(totals).toContainText("A$41.90");
+    await expect(totals).toContainText("A$42.60");
 
     await page.getByRole("button", { name: "Checkout" }).click();
     await expect(page).toHaveURL(`/checkout/pay?order=${SEATED_ORDER}`);
@@ -413,14 +413,14 @@ test.describe("seated checkout on a phone at 375", () => {
     await page.getByRole("tab", { name: "List" }).click();
     await page.getByRole("group", { name: "North, Row A" }).getByRole("checkbox", { name: /^Seat 1, Full price/ }).check();
     const seatBar = page.locator("[data-seat-bar]");
-    await expect(seatBar).toContainText("A$36.90");
+    await expect(seatBar).toContainText("A$37.60");
     await seatBar.getByRole("button", { name: /1 seat/ }).click();
 
     const support = seatBar.getByRole("group", { name: "Support Sheltüh" });
     await expect(support).toBeVisible();
     await support.locator("label", { hasText: "A$2" }).click();
     await expect(support.getByRole("radio", { name: "A$2" })).toBeChecked();
-    await expect(seatBar).toContainText("A$38.90 incl. fees and support");
+    await expect(seatBar).toContainText("A$39.60 incl. fees and support");
     await noSidewaysScroll(page);
 
     await seatBar.getByRole("button", { name: "Checkout" }).click();
@@ -450,6 +450,6 @@ test.describe("payment page on a phone at 375", () => {
     await expect(summary.getByText("General admission")).toBeHidden();
     await expect(summary.locator("[data-support-line]")).toBeVisible();
     await expect(summary.locator("[data-support-line]")).toContainText("A$2");
-    await expect(summary.locator("[data-order-total]")).toHaveText("A$33.70");
+    await expect(summary.locator("[data-order-total]")).toHaveText("A$34.30");
   });
 });

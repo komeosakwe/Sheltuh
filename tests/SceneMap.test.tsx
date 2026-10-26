@@ -210,8 +210,8 @@ describe("SceneMap photo markers", () => {
     expect(photo?.compareDocumentPosition(title) ?? 0).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(card).toHaveTextContent(/Fri 20 Nov, 8:00 pm/);
     expect(card).toHaveTextContent("The Venue · Fitzroy");
-    // All-inclusive: A$20 + 4% + A$0.50 booking fee.
-    expect(card).toHaveTextContent("A$21.30 incl. booking fee");
+    // All-inclusive: A$20 + 6% + A$0.50 booking fee (A$1.70).
+    expect(card).toHaveTextContent("A$21.70 incl. booking fee");
     expect(within(card).getByRole("link", { name: /View event/ })).toHaveAttribute("href", "/events/photo-night");
 
     fireEvent.click(within(card).getByRole("button", { name: "Dismiss selected event" }));

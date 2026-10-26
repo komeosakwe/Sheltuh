@@ -380,6 +380,8 @@ interface BeginRow {
 interface SessionOrder {
   line_items: OrderLineItem[];
   application_fee_cents: number;
+  /** What the buyer pays, as stored when the order was made: the session must charge exactly this (sessionTotalCents). */
+  total_cents: number;
   /** Support Sheltüh: all of it is the platform's (added to the application fee). */
   support_cents: number;
   buyer_email: string | null;
@@ -392,7 +394,7 @@ interface SessionOrder {
 /** Everything the session is made from, read back from the order, so a retry for the same order sends Stripe the same parameters. */
 async function loadSessionOrder(db: Db, orderId: string): Promise<SessionOrder | undefined> {
   const [row] = await db.query<SessionOrder>(
-    `select o.line_items, o.application_fee_cents, o.support_cents, o.buyer_email, o.event_title,
+    `select o.line_items, o.application_fee_cents, o.total_cents, o.support_cents, o.buyer_email, o.event_title,
             floor(extract(epoch from o.created_at))::float8 as created_epoch,
             case when o.seat_ids is not null then
               (select coalesce(jsonb_agg(jsonb_build_object('ticketTypeId', s.ticket_type_id, 'section', s.section_label,
@@ -405,6 +407,17 @@ async function loadSessionOrder(db: Db, orderId: string): Promise<SessionOrder |
     [orderId],
   );
   return row;
+}
+
+/**
+ * What a session made from these parameters charges: its lines' unit amounts
+ * times their quantities (Adaptive Pricing is off, so nothing else is added).
+ */
+function sessionTotalCents(params: Stripe.Checkout.SessionCreateParams): number {
+  return (params.line_items ?? []).reduce(
+    (sum, item) => sum + (item.price_data?.unit_amount ?? 0) * (item.quantity ?? 1),
+    0,
+  );
 }
 
 /**
@@ -531,7 +544,9 @@ async function failAttempt(db: Db, checkout: PaidCheckout, lease: string, releas
  * session from the order as stored (idempotency key
  * `checkout-session-<orderId>`), and records it (finish_checkout_attempt).
  * 201 the CheckoutResult; 200 for a replay; 409 checkout_in_progress (with
- * Retry-After), checkout_expired or checkout_completed; 422
+ * Retry-After), checkout_expired (also for a kept order whose stored total
+ * no longer matches the session lib/fees.ts prices, as across a booking fee
+ * change: nothing is sent to Stripe) or checkout_completed; 422
  * idempotency_key_reused; 429 from `limitError`; 503
  * payment_provider_unavailable when Stripe didn't answer (the order is kept
  * for a retry with the same key); 500 for any other Stripe error (the order
@@ -612,6 +627,16 @@ export async function runPaidCheckout(deps: Deps, checkout: PaidCheckout): Promi
     throw new Error("A checkout's order vanished before its Stripe session was made.");
   }
   const params = sessionParams(order, checkout, orderId, deps.siteUrl());
+  // The booking fee lines are priced by lib/fees.ts as it is now, the order's total when it was made. They
+  // differ only for an order made before the fee changed and reused after (a retry within gaReuseWithin or
+  // seatedReuseWithin across a deploy): that session would charge more than the order, and the webhook would
+  // refund it as an amount_mismatch. End this attempt instead (seats released), so the buyer's next press makes
+  // a new order at today's fee. Nothing was sent to Stripe.
+  if (sessionTotalCents(params) !== order.total_cents) {
+    await failAttempt(db, checkout, lease, true);
+    console.warn(`Checkout for order ${orderReference(orderId)}: its stored total no longer matches its session; ended.`);
+    throw CHECKOUT_EXPIRED();
+  }
   let session: Stripe.Checkout.Session;
   try {
     session = await deps.stripe().checkout.sessions.create(params, {

@@ -62,7 +62,7 @@ const soldOutEvent: SheltuhEvent = {
 describe("TicketSelector, every tier sold out (§6.11)", () => {
   it("shows each tier's total, muted, with 'Sold out' instead of a stepper, then the waitlist; no summary or checkout", () => {
     render(<TicketSelector event={soldOutEvent} />);
-    const total = screen.getByText("A$36.90 incl. booking fee");
+    const total = screen.getByText("A$37.60 incl. booking fee");
     expect(total).toHaveClass("text-muted");
     expect(screen.getAllByText("Sold out")).toHaveLength(2);
     expect(screen.queryByRole("group", { name: /Quantity for/ })).toBeNull();

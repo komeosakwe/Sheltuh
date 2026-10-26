@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import ContentPage, { ContentSection } from "@/components/ContentPage";
+import { describeBookingFee } from "@/lib/fees";
 
 export const metadata: Metadata = { title: "Purchase Terms — Sheltüh" };
 
@@ -15,7 +16,7 @@ export default function PurchaseTermsPage() {
       <ContentSection title="The price">
         <p>
           The total shown at checkout includes the ticket price and any booking fee. The booking fee
-          is 4% of the ticket price plus A$0.50 per paid ticket, and is paid by either the buyer or
+          is {describeBookingFee()}, and is paid by either the buyer or
           the organiser as shown on the event. Free tickets carry no fee. All prices are in
           Australian dollars.
         </p>

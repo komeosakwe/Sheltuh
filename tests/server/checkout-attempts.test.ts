@@ -467,6 +467,41 @@ describe("Stripe failures and retries", () => {
     expect(rows.find((o) => o.status === "pending")!.id).toBe(retry.body.orderId);
   });
 
+  it("a kept order priced at an older booking fee: the retry ends it (409 checkout_expired) without calling Stripe; a new press pays today's fee", async () => {
+    stripe.failNext("unreachable");
+    expect((await checkout()).status).toBe(503);
+    const [kept] = await orders();
+    // Two A$30 buyer-pays tickets as priced before October 2026 (4% + A$0.50 = A$1.70 each); today's fee is
+    // 6% + A$0.50 = A$2.30 each, so the fee lines lib/fees.ts now prices total A$64.60, not the stored A$63.40.
+    await api.db.query(
+      `update public.orders set buyer_fee_cents = 340, total_cents = 6340, application_fee_cents = 340 where id = $1`,
+      [kept.id],
+    );
+
+    const retry = await checkout();
+    expect(retry.status).toBe(409);
+    expect(retry.body).toMatchObject({ code: "checkout_expired" });
+    expect(createCalls()).toHaveLength(1); // only the first, unanswered call: nothing was sent for the old order
+    expect(await orders()).toEqual([{ id: kept.id, status: "failed", stripe_checkout_session_id: null }]);
+    expect(await attempts()).toEqual([{ idempotency_key: KEY, status: "failed", order_id: kept.id, lease_token: null }]);
+
+    // The client's next press is a new attempt (a new key): a new order at today's fee, charged exactly its total.
+    const fresh = await checkout(BASKET, { key: OTHER_KEY });
+    expect(fresh.status).toBe(201);
+    const [row] = await api.db.query<{ buyer_fee_cents: number; total_cents: number; application_fee_cents: number }>(
+      `select buyer_fee_cents, total_cents, application_fee_cents from public.orders where id = $1`,
+      [fresh.body.orderId],
+    );
+    expect(row).toEqual({ buyer_fee_cents: 460, total_cents: 6460, application_fee_cents: 460 });
+    const [params] = createCalls()[1];
+    const charged = params.line_items.reduce(
+      (sum: number, item: { price_data: { unit_amount: number }; quantity: number }) =>
+        sum + item.price_data.unit_amount * item.quantity,
+      0,
+    );
+    expect(charged).toBe(6460);
+  });
+
   it("a request that died mid-way (its lease lapsed): a retry takes over; until then it's in progress", async () => {
     // A lease nobody finished: as if the request was killed after making the order.
     stripe.failNext("unreachable");

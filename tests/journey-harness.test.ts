@@ -40,10 +40,10 @@ describe("journey harness: Stripe form decoding", () => {
   it("nests brackets and turns numbered keys into arrays", () => {
     const body =
       "mode=payment&line_items[0][price_data][unit_amount]=3000&line_items[0][quantity]=2" +
-      "&line_items[1][price_data][unit_amount]=170&payment_intent_data[transfer_data][destination]=acct_1&metadata[orderId]=ord_1";
+      "&line_items[1][price_data][unit_amount]=230&payment_intent_data[transfer_data][destination]=acct_1&metadata[orderId]=ord_1";
     expect(decodeStripeForm(body)).toEqual({
       mode: "payment",
-      line_items: [{ price_data: { unit_amount: "3000" }, quantity: "2" }, { price_data: { unit_amount: "170" } }],
+      line_items: [{ price_data: { unit_amount: "3000" }, quantity: "2" }, { price_data: { unit_amount: "230" } }],
       payment_intent_data: { transfer_data: { destination: "acct_1" } },
       metadata: { orderId: "ord_1" },
     });
@@ -69,7 +69,7 @@ describe("journey harness: fake Stripe through the real SDK", () => {
       mode: "payment" as const,
       client_reference_id: "ord_self",
       line_items: [{ price_data: { currency: "aud", product_data: { name: "GA" }, unit_amount: 3000 }, quantity: 1 }],
-      payment_intent_data: { application_fee_amount: 170, transfer_data: { destination: account.id } },
+      payment_intent_data: { application_fee_amount: 230, transfer_data: { destination: account.id } },
       success_url: "http://127.0.0.1/ok",
     };
     const first = await stripe.checkout.sessions.create(params, { idempotencyKey: "k1" });
@@ -91,7 +91,7 @@ describe("journey harness: fake Stripe through the real SDK", () => {
       mode: "payment" as const,
       client_reference_id: "ord_embedded",
       line_items: [{ price_data: { currency: "aud", product_data: { name: "GA" }, unit_amount: 3000 }, quantity: 1 }],
-      payment_intent_data: { application_fee_amount: 170, transfer_data: { destination: account.id } },
+      payment_intent_data: { application_fee_amount: 230, transfer_data: { destination: account.id } },
       ui_mode: "embedded_page" as const,
       return_url: "http://127.0.0.1/done",
     };

@@ -530,7 +530,7 @@ div.relative.flex.flex-col                                   (grid cell / rail i
 
 ### 6.8 Pricing display: ACCC all-inclusive (owner requirement 5)
 
-The helpers already compute buyer totals: `getTicketBuyerTotalCents`, `getMinBuyerTotalCents`, `formatFeedPrice`, `formatFeedPriceParts` and `formatTicketHeadline` (all fee-inclusive via `lib/fees.ts`: 4% + A$0.50 per paid ticket, or 0 when the organiser absorbs it), and `formatTicketBreakdown` (the partial).
+The helpers already compute buyer totals: `getTicketBuyerTotalCents`, `getMinBuyerTotalCents`, `formatFeedPrice`, `formatFeedPriceParts` and `formatTicketHeadline` (all fee-inclusive via `lib/fees.ts`: 6% + A$0.50 per paid ticket, or 0 when the organiser absorbs it), and `formatTicketBreakdown` (the partial).
 
 **Rule: the all-inclusive total is always the first and most prominent number.** Any partial (face value or fee) is shown only as a secondary breakdown: smaller or equal size, lighter weight, muted, and after the total. It's never shown alone.
 
@@ -538,7 +538,7 @@ The helpers already compute buyer totals: `getTicketBuyerTotalCents`, `getMinBuy
 | --- | --- |
 | Cards (all variants), buy bar | `formatFeedPriceParts`. **Amount** ("From A$32.78") Instrument 600 14/20 black `tabular-nums`, then " incl. booking fee" 400 muted on the same line. Buy bar: amount 16/20 600, note 12/16 below. "From" is the cheapest buyer total. **Face value never appears on cards.** |
 | Ticket row (`TicketSelector`) | 1. Name 16/22 600. 2. **Total per ticket** (`formatTicketHeadline`) **16/24 600 at every width**. Delete the `lg:text-sm lg:font-normal lg:normal-nums` downgrade: the total must not shrink on desktop. 3. Description 14/20 muted. 4. The breakdown (`formatTicketBreakdown`) as `meta` 12/16 muted, **always visible for paid tiers** (not only when quantity > 0), so the fee is explained before choosing. 5. Free: "Free" and no breakdown. |
-| Order summary (`TicketSelector`, checkout) | Rows "Tickets" and "Booking fees" at 14/20 muted with values 14/20 `tabular-nums`. Then a 1px **black** rule. Then **"Total" 18/24 700 with value 20/28 700 `tabular-nums`**, the largest number in the panel. The fee rule line ("Booking fee: 4% of ticket face value + A$0.50 per paid ticket. Free tickets never carry a fee.") stays above the tiers, 14/20 muted. |
+| Order summary (`TicketSelector`, checkout) | Rows "Tickets" and "Booking fees" at 14/20 muted with values 14/20 `tabular-nums`. Then a 1px **black** rule. Then **"Total" 18/24 700 with value 20/28 700 `tabular-nums`**, the largest number in the panel. The fee rule line ("Booking fee: 6% of ticket face value + A$0.50 per paid ticket. Free tickets never carry a fee.") stays above the tiers, 14/20 muted. |
 | Checkout success | "Total paid" uses the same treatment as Total. Subtotal and fees stay secondary. |
 | External events | No price (owner decision 3). |
 | Sold-out tier | Keep showing its total, in muted (it's still advertised). "Sold out" (`eyebrow`, black) replaces the stepper. **When the cheapest tier is sold out, cards' "From" must use the cheapest available tier** (needs B-WL data, §10). |

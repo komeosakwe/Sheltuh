@@ -78,7 +78,7 @@ async function completed(orderId: string) {
 function refunded(orderId: string) {
   return stripeWebhookRequest({
     type: "charge.refunded",
-    data: { object: { id: "ch_1", object: "charge", payment_intent: `pi_${orderId}`, amount_refunded: 5250, refunded: true } },
+    data: { object: { id: "ch_1", object: "charge", payment_intent: `pi_${orderId}`, amount_refunded: 5350, refunded: true } },
   });
 }
 

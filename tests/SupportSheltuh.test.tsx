@@ -56,7 +56,7 @@ function liveEvent(slug: string): SheltuhEvent {
   return { ...event, organiserId: "org-1" };
 }
 
-/** Neon Static's General admission is A$30 + A$1.70 booking fee = A$31.70. */
+/** Neon Static's General admission is A$30 + A$2.30 booking fee = A$32.30. */
 const NEON = "neon-static";
 const addGa = () => fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
 const removeGa = () => fireEvent.click(screen.getByRole("button", { name: "Decrease quantity for General admission" }));
@@ -97,17 +97,17 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
   it("one tap adds A$5: its own summary line, and the total goes up at once", () => {
     render(<TicketSelector event={liveEvent(NEON)} />);
     addGa();
-    expect(total()).toHaveTextContent("A$31.70");
+    expect(total()).toHaveTextContent("A$32.30");
     fireEvent.click(chip("A$5"));
     expect(chip("A$5")).toBeChecked();
-    expect(total()).toHaveTextContent("A$36.70");
+    expect(total()).toHaveTextContent("A$37.30");
     const line = screen.getByText("Support Sheltüh", { selector: "dt" });
     expect(line.nextElementSibling).toHaveTextContent("A$5");
     // The tickets' own lines don't change: it's not a fee.
     expect(screen.getByText("Tickets").nextElementSibling).toHaveTextContent("A$30");
-    expect(screen.getByText("Booking fees").nextElementSibling).toHaveTextContent("A$1.70");
+    expect(screen.getByText("Booking fees").nextElementSibling).toHaveTextContent("A$2.30");
     expect(status()).toHaveTextContent(
-      "Support Sheltüh: A$5 added. Total A$36.70 incl. booking fees and Support Sheltüh. Choose it again or press Remove to take it off.",
+      "Support Sheltüh: A$5 added. Total A$37.30 incl. booking fees and Support Sheltüh. Choose it again or press Remove to take it off.",
     );
     // The selected chip is orange with black text, plus a check (never colour alone).
     expect(chip("A$5").nextElementSibling).toHaveClass("peer-checked:bg-signal", "peer-checked:text-signal-foreground");
@@ -122,12 +122,12 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     fireEvent.click(chip("A$10"));
     expect(chip("A$10")).toBeChecked();
     expect(chip("A$5")).not.toBeChecked();
-    expect(total()).toHaveTextContent("A$41.70");
+    expect(total()).toHaveTextContent("A$42.30");
     fireEvent.click(chip("A$10"));
     expect(within(group()).getAllByRole("radio").every((r) => !(r as HTMLInputElement).checked)).toBe(true);
-    expect(total()).toHaveTextContent("A$31.70");
+    expect(total()).toHaveTextContent("A$32.30");
     expect(screen.queryByText("Support Sheltüh", { selector: "dt" })).toBeNull();
-    expect(status()).toHaveTextContent("Support Sheltüh removed. Total A$31.70 incl. booking fees.");
+    expect(status()).toHaveTextContent("Support Sheltüh removed. Total A$32.30 incl. booking fees.");
   });
 
   it("keyboard: Space on the chosen chip removes it", () => {
@@ -141,7 +141,7 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     expect(fireEvent.keyDown(five, { key: " " })).toBe(false);
     expect(five).not.toBeChecked();
     expect(five).toHaveFocus();
-    expect(total()).toHaveTextContent("A$31.70");
+    expect(total()).toHaveTextContent("A$32.30");
   });
 
   it("keyboard: a Remove button clears it and keeps focus in the group", () => {
@@ -154,7 +154,7 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     expect(chip("A$2")).not.toBeChecked();
     expect(chip("A$2")).toHaveFocus();
     expect(screen.queryByRole("button", { name: "Remove Support Sheltüh" })).toBeNull();
-    expect(total()).toHaveTextContent("A$31.70");
+    expect(total()).toHaveTextContent("A$32.30");
   });
 
   it("passes the chosen amount to createCheckoutSession as its 6th argument", async () => {
@@ -201,7 +201,7 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     // Not an amount yet: no error while typing, one once the field is left.
     fireEvent.change(field, { target: { value: "0.5" } });
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(total()).toHaveTextContent("A$31.70");
+    expect(total()).toHaveTextContent("A$32.30");
     const slot = screen.getByText("In Australian dollars, from A$1 to A$500.").parentElement as HTMLElement;
     expect(slot).toHaveClass("min-h-10");
     fireEvent.blur(field);
@@ -226,7 +226,7 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     expect(field).not.toHaveAttribute("aria-invalid");
     expect(field).toHaveAccessibleDescription("In Australian dollars, from A$1 to A$500.");
-    expect(total()).toHaveTextContent("A$39.20");
+    expect(total()).toHaveTextContent("A$39.80");
     expect(screen.getByText("Support Sheltüh", { selector: "dt" }).nextElementSibling).toHaveTextContent("A$7.50");
 
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
@@ -271,7 +271,7 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     expect(status()).toHaveTextContent("General admission: 0. Total A$0.");
     addGa();
     expect(chip("A$10")).not.toBeChecked();
-    expect(total()).toHaveTextContent("A$31.70");
+    expect(total()).toHaveTextContent("A$32.30");
   });
 
   it("isn't offered for free tickets, even in an event with paid ones", () => {
@@ -317,7 +317,7 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     render(<TicketSelector event={event} />);
     addGa();
     fireEvent.click(chip("A$2"));
-    expect(total()).toHaveTextContent("A$33.70");
+    expect(total()).toHaveTextContent("A$34.30");
     expect(screen.getByRole("button", { name: "Checkout unavailable in this demo" })).toBeDisabled();
   });
 });
@@ -356,9 +356,9 @@ describe("Support Sheltüh on the seat page", () => {
     chooseSeat();
     expect(within(group()).getAllByRole("radio").every((r) => !(r as HTMLInputElement).checked)).toBe(true);
     const totals = screen.getByText("Total").closest("dl") as HTMLElement;
-    expect(within(totals).getByText("A$36.90")).toBeInTheDocument();
+    expect(within(totals).getByText("A$37.60")).toBeInTheDocument();
     fireEvent.click(chip("A$10"));
-    expect(within(totals).getByText("A$46.90")).toHaveClass("text-xl", "font-bold");
+    expect(within(totals).getByText("A$47.60")).toHaveClass("text-xl", "font-bold");
     expect(within(totals).getByText("Support Sheltüh").nextElementSibling).toHaveTextContent("A$10");
     // Face value and fees unchanged.
     expect(within(totals).getByText("Ticket face value").nextElementSibling).toHaveTextContent("A$35");
@@ -418,14 +418,14 @@ describe("Support Sheltüh on the payment page's summary", () => {
     eventTitle: "Neon Static",
     eventSlug: "neon-static",
     seated: false,
-    lines: [{ ticketTypeName: "General admission", quantity: 2, unitTotalCents: 3170, lineTotalCents: 6340, buyerPaysFee: true }],
+    lines: [{ ticketTypeName: "General admission", quantity: 2, unitTotalCents: 3230, lineTotalCents: 6460, buyerPaysFee: true }],
     subtotalCents: 6000,
-    buyerFeeCents: 340,
-    totalCents: 6340,
+    buyerFeeCents: 460,
+    totalCents: 6460,
   };
 
   it("is its own line, and the total (which includes it) says so", () => {
-    render(<OrderPaymentSummary summary={{ ...base, supportCents: 500, totalCents: 6840 }} />);
+    render(<OrderPaymentSummary summary={{ ...base, supportCents: 500, totalCents: 6960 }} />);
     const line = document.querySelector("[data-support-line]") as HTMLElement;
     // Outside the phone fold ("Show n tickets"): seen before paying with the ticket lines closed.
     expect(document.getElementById("order-lines")).toHaveClass("hidden");
@@ -433,8 +433,8 @@ describe("Support Sheltüh on the payment page's summary", () => {
     expect(line).toHaveTextContent("Support Sheltüh");
     expect(line).toHaveTextContent("To Sheltüh, not the organiser");
     expect(line).toHaveTextContent("A$5");
-    expect(document.querySelector("[data-order-total]")).toHaveTextContent("A$68.40");
-    expect(screen.getByText("Includes A$3.40 in booking fees and A$5 for Support Sheltüh.")).toBeInTheDocument();
+    expect(document.querySelector("[data-order-total]")).toHaveTextContent("A$69.60");
+    expect(screen.getByText("Includes A$4.60 in booking fees and A$5 for Support Sheltüh.")).toBeInTheDocument();
   });
 
   it("with no booking fee, still says the total includes it", () => {
@@ -445,7 +445,7 @@ describe("Support Sheltüh on the payment page's summary", () => {
   it("with support, the refund terms say it's refunded only with the whole order; not without it", () => {
     const note = "Support Sheltüh is refunded only if your whole order is refunded.";
     const { unmount } = render(
-      <OrderPaymentSummary summary={{ ...base, supportCents: 500, totalCents: 6840, refundPolicy: "no_change_of_mind" }} />,
+      <OrderPaymentSummary summary={{ ...base, supportCents: 500, totalCents: 6960, refundPolicy: "no_change_of_mind" }} />,
     );
     const policy = document.querySelector("[data-refund-policy]") as HTMLElement;
     expect(within(policy).getByText(note)).toBeInTheDocument();
@@ -459,6 +459,6 @@ describe("Support Sheltüh on the payment page's summary", () => {
     render(<OrderPaymentSummary summary={base} />);
     expect(document.querySelector("[data-support-line]")).toBeNull();
     expect(screen.queryByText(/Support Sheltüh/)).toBeNull();
-    expect(screen.getByText("Includes A$3.40 in booking fees.")).toBeInTheDocument();
+    expect(screen.getByText("Includes A$4.60 in booking fees.")).toBeInTheDocument();
   });
 });

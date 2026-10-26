@@ -31,7 +31,7 @@ let info: MockInstance;
 let warn: MockInstance;
 let error: MockInstance;
 
-// GA: 3000 + 170 buyer fee = 3170 to the buyer. VIP: 8000, fee absorbed.
+// GA: 3000 + 230 buyer fee = 3230 to the buyer. VIP: 8000, fee absorbed.
 const TICKETS = [
   { id: "ga", name: "GA", priceCents: 3000, feePolicy: "buyer-pays", quantityAvailable: 10 },
   { id: "vip", name: "VIP", priceCents: 8000, feePolicy: "organiser-absorbs", quantityAvailable: 1 },
@@ -144,7 +144,7 @@ function refundEvent(
         id: refundId,
         object: "refund",
         status,
-        amount: options.amount ?? 3170,
+        amount: options.amount ?? 3230,
         payment_intent: paymentIntent,
         metadata: options.orderId ? { orderId: options.orderId } : {},
       },
@@ -237,15 +237,15 @@ describe("a full refund that arrives before the payment is recorded (D1)", () =>
   it("is held, then the payment leaves the order refunded: nothing taken, issued, emailed or refunded again", async () => {
     const orderId = await checkout([{ ticketTypeId: "ga", quantity: 2 }]);
 
-    await refund("pi_early", 6340, true);
+    await refund("pi_early", 6460, true);
     expect(await internal(orderId)).toMatchObject({ status: "pending", tickets: 0 });
     expect(await earlyRows()).toEqual([
-      { payment_intent_id: "pi_early", amount_refunded_cents: 6340, fully_refunded: true, applied_order_id: null },
+      { payment_intent_id: "pi_early", amount_refunded_cents: 6460, fully_refunded: true, applied_order_id: null },
     ]);
     expect(logged(warn)).toContain("evt_charge_refunded: charge.refunded arrived before its payment was recorded");
 
     await pay(orderId, "pi_early");
-    expect(await internal(orderId)).toEqual({ status: "refunded", amount_refunded_cents: 6340, tickets: 0, payment_intent: "pi_early" });
+    expect(await internal(orderId)).toEqual({ status: "refunded", amount_refunded_cents: 6460, tickets: 0, payment_intent: "pi_early" });
     expect(await sold()).toEqual({ ga: 0, vip: 0 });
     expect(await ticketJobs(orderId)).toEqual([]);
     expect(api.stripe.refunds.create).not.toHaveBeenCalled();
@@ -256,7 +256,7 @@ describe("a full refund that arrives before the payment is recorded (D1)", () =>
 
     // Redelivered: nothing more happens.
     await pay(orderId, "pi_early");
-    await refund("pi_early", 6340, true);
+    await refund("pi_early", 6460, true);
     await api.runDeferred();
     expect(await internal(orderId)).toMatchObject({ status: "refunded", tickets: 0 });
     expect(await sold()).toEqual({ ga: 0, vip: 0 });
@@ -288,15 +288,15 @@ describe("a full refund that arrives before the payment is recorded (D1)", () =>
 describe("a partial refund that arrives before the payment is recorded (D2)", () => {
   it("tickets are issued, the amount recorded and a partial_refund exception opened with an alert; a later full refund voids and closes it", async () => {
     const orderId = await checkout([{ ticketTypeId: "ga", quantity: 2 }]);
-    await refund("pi_part_early", 3170, false, { eventId: "evt_partial" });
+    await refund("pi_part_early", 3230, false, { eventId: "evt_partial" });
     await pay(orderId, "pi_part_early");
 
-    expect(await internal(orderId)).toMatchObject({ status: "paid", amount_refunded_cents: 3170, tickets: 2 });
+    expect(await internal(orderId)).toMatchObject({ status: "paid", amount_refunded_cents: 3230, tickets: 2 });
     expect(await sold()).toEqual({ ga: 2, vip: 0 });
     const [exception] = await exceptions();
     expect(exception).toMatchObject({ kind: "partial_refund", status: "open", order_id: orderId, alerted: true });
     // supportCents too (0: none), to split a dashboard refund (20261110000150_support_in_exceptions.sql).
-    expect(exception.details).toEqual({ amountRefundedCents: 3170, totalCents: 6340, supportCents: 0, orderStatus: "paid" });
+    expect(exception.details).toEqual({ amountRefundedCents: 3230, totalCents: 6460, supportCents: 0, orderStatus: "paid" });
     expect(await alertJobs()).toEqual([{ status: "pending", payment_exception_id: exception.id }]);
 
     // After the response: the ticket email and the ops alert.
@@ -305,8 +305,8 @@ describe("a partial refund that arrives before the payment is recorded (D2)", ()
     expect(recipients).toEqual(["buyer@example.com", OPS_ALERT_EMAIL]);
     const alert = api.sendEmail.mock.calls.find(([message]) => message.to === OPS_ALERT_EMAIL)![0];
     expect(alert.subject).toBe(`Sheltüh payment exception: Partial refund ${orderReference(orderId)}`);
-    expect(alert.text).toContain("Refunded so far: A$31.70");
-    expect(alert.text).toContain("Order total: A$63.40");
+    expect(alert.text).toContain("Refunded so far: A$32.30");
+    expect(alert.text).toContain("Order total: A$64.60");
     expect(alert.text).toContain("Support Sheltüh (in the total, Sheltüh's): A$0.00");
     expect(alert.text).toContain("Stripe event: evt_partial");
     for (const part of [alert.subject, alert.text, alert.html]) {
@@ -317,8 +317,8 @@ describe("a partial refund that arrives before the payment is recorded (D2)", ()
     expect((await alertJobs())[0].status).toBe("sent");
 
     // The rest refunded later: the order is voided and the exception closes itself.
-    await refund("pi_part_early", 6340, true);
-    expect(await internal(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: 6340, tickets: 2 });
+    await refund("pi_part_early", 6460, true);
+    expect(await internal(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: 6460, tickets: 2 });
     expect(await sold()).toEqual({ ga: 0, vip: 0 });
     expect(await exceptions()).toEqual([expect.objectContaining({ status: "resolved", resolution: "auto" })]);
     expectLogHygiene(orderId, "pi_part_early");
@@ -346,22 +346,22 @@ describe("early deliveries are idempotent", () => {
     await refund("pi_steps", 1000, false);
     await refund("pi_steps", 3000, false);
     await refund("pi_steps", 1000, false); // an older delivery arriving late
-    await refund("pi_steps", 6340, true);
+    await refund("pi_steps", 6460, true);
     await refund("pi_steps", 3000, false); // older again
     expect(await earlyRows()).toEqual([
-      { payment_intent_id: "pi_steps", amount_refunded_cents: 6340, fully_refunded: true, applied_order_id: null },
+      { payment_intent_id: "pi_steps", amount_refunded_cents: 6460, fully_refunded: true, applied_order_id: null },
     ]);
 
     await pay(orderId, "pi_steps");
     await pay(orderId, "pi_steps");
-    expect(await internal(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: 6340, tickets: 0 });
+    expect(await internal(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: 6460, tickets: 0 });
     expect(await sold()).toEqual({ ga: 0, vip: 0 });
     expect(await exceptions()).toEqual([]);
   });
 
   it("a refund recorded after fulfilment goes the usual way (no early row, inventory released once)", async () => {
     const orderId = await paidOrder([{ ticketTypeId: "ga", quantity: 2 }], "pi_after");
-    for (let i = 0; i < 3; i++) await refund("pi_after", 6340, true);
+    for (let i = 0; i < 3; i++) await refund("pi_after", 6460, true);
     expect(await internal(orderId)).toMatchObject({ status: "refunded", tickets: 2 });
     expect(await sold()).toEqual({ ga: 0, vip: 0 });
     expect(await earlyRows()).toEqual([]);
@@ -393,7 +393,7 @@ describe("payments that aren't ours write nothing", () => {
   });
 
   it("an early refund row for our destination is still never applied to another payment", async () => {
-    await refund("pi_one", 3170, true);
+    await refund("pi_one", 3230, true);
     const orderId = await checkout([{ ticketTypeId: "ga", quantity: 1 }]);
     await pay(orderId, "pi_two");
     expect(await internal(orderId)).toMatchObject({ status: "paid", tickets: 1, amount_refunded_cents: 0 });
@@ -408,7 +408,7 @@ describe("payments that aren't ours write nothing", () => {
 /** A paid order refunded in full in the dashboard (charge.refunded, D3): voided. */
 async function voidedOrder(paymentIntent: string) {
   const orderId = await paidOrder([{ ticketTypeId: "ga", quantity: 1 }], paymentIntent);
-  await refund(paymentIntent, 3170, true);
+  await refund(paymentIntent, 3230, true);
   expect(await internal(orderId)).toMatchObject({ status: "refunded" });
   return orderId;
 }
@@ -426,9 +426,9 @@ describe("a dashboard refund that doesn't complete after its order was voided (D
       expect(rows).toEqual([expect.objectContaining({ kind: "refund_not_completed", status: "open", order_id: orderId, refund_id: "re_dash", alerted: true })]);
       expect(rows[0].details).toEqual({
         refundStatus: status,
-        refundAmountCents: 3170,
+        refundAmountCents: 3230,
         orderStatus: "refunded",
-        totalCents: 3170,
+        totalCents: 3230,
         supportCents: 0,
         source: "stripe",
       });
@@ -511,7 +511,7 @@ describe("a dashboard refund that doesn't complete after its order was voided (D
 
   it("a failure reported before the payment had an order is kept, and matched to the order at fulfilment", async () => {
     const orderId = await checkout([{ ticketTypeId: "ga", quantity: 1 }]);
-    await refund("pi_pre", 3170, true);
+    await refund("pi_pre", 3230, true);
     await refundStatus("refund.failed", "re_pre", "failed", "pi_pre");
     expect(await exceptions()).toEqual([expect.objectContaining({ kind: "refund_not_completed", order_id: null, status: "open" })]);
     expect(logged(error)).toContain("a refund of a payment not yet matched to an order");
@@ -564,14 +564,14 @@ describe("refund statuses out of order, and confirmed with Stripe before a failu
 
   it("a reported failure that Stripe says has since succeeded is recorded as succeeded: no exception, no alert", async () => {
     await voidedOrder("pi_confirm");
-    api.stripe.refunds.retrieve.mockResolvedValue({ id: "re_confirm", object: "refund", status: "succeeded", amount: 3170 });
+    api.stripe.refunds.retrieve.mockResolvedValue({ id: "re_confirm", object: "refund", status: "succeeded", amount: 3230 });
     await refundStatus("refund.updated", "re_confirm", "requires_action", "pi_confirm", { created: 100, eventId: "evt_ra" });
     expect(await exceptions()).toEqual([]);
     expect(await alertJobs()).toEqual([]);
     expect(await marks()).toEqual([{ refund_id: "re_confirm", status: "succeeded", stripe_event_id: "evt_ra" }]);
 
     // Stripe confirms a failure: it's reported.
-    api.stripe.refunds.retrieve.mockResolvedValue({ id: "re_confirm", object: "refund", status: "failed", amount: 3170 });
+    api.stripe.refunds.retrieve.mockResolvedValue({ id: "re_confirm", object: "refund", status: "failed", amount: 3230 });
     await refundStatus("refund.failed", "re_confirm", "failed", "pi_confirm", { created: 200, eventId: "evt_f" });
     expect(await exceptions()).toEqual([expect.objectContaining({ status: "open", refund_id: "re_confirm" })]);
     expect(await alertJobs()).toHaveLength(1);
@@ -675,7 +675,7 @@ describe("early refunds meeting other outcomes at fulfilment", () => {
   it("an early full refund for an order that had already failed: it stays failed, nothing issued, no exception", async () => {
     const orderId = await checkout([{ ticketTypeId: "ga", quantity: 1 }]);
     await api.db.query(`update public.orders set status = 'failed' where id = $1`, [orderId]);
-    await refund("pi_failed_early", 3170, true);
+    await refund("pi_failed_early", 3230, true);
     expect(await earlyRows()).toHaveLength(1);
 
     // The payment arrives: our refund finds it already refunded in full (done, not a 500).
@@ -703,7 +703,7 @@ describe("early refunds meeting other outcomes at fulfilment", () => {
     expect(await internal(orderId)).toMatchObject({ status: "failed", tickets: 0, payment_intent: "pi_failed_part" });
     expect(await exceptions()).toEqual([]);
     // The full charge.refunded that follows changes nothing (only paid orders are voided).
-    await refund("pi_failed_part", 3170, true);
+    await refund("pi_failed_part", 3230, true);
     expect(await internal(orderId)).toMatchObject({ status: "failed" });
     expect(await exceptions()).toEqual([]);
   });
@@ -1036,7 +1036,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("races (real Postgres only)", ()
     const [one, two] = connections();
     try {
       await one.unsafe("begin");
-      expect((await recordRefund(one, "pi_rf", 6340, true))[0].result).toBe("deferred");
+      expect((await recordRefund(one, "pi_rf", 6460, true))[0].result).toBe("deferred");
       const blocked = await waitUntilBlocked(two);
       const pending = fulfil(two, orderId, "pi_rf", 2).execute();
       await blocked();
@@ -1046,7 +1046,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("races (real Postgres only)", ()
       await one.end();
       await two.end();
     }
-    expect(await internal(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: 6340, tickets: 0 });
+    expect(await internal(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: 6460, tickets: 0 });
     expect(await sold()).toEqual({ ga: 0, vip: 0 });
   });
 
@@ -1056,7 +1056,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("races (real Postgres only)", ()
       await one.unsafe("begin");
       expect((await recordRefund(one, "pi_twice", 3000, false))[0].result).toBe("deferred");
       const blocked = await waitUntilBlocked(two);
-      const pending = recordRefund(two, "pi_twice", 6340, true).execute();
+      const pending = recordRefund(two, "pi_twice", 6460, true).execute();
       await blocked();
       await one.unsafe("commit");
       expect((await pending)[0].result).toBe("deferred");
@@ -1065,7 +1065,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("races (real Postgres only)", ()
       await two.end();
     }
     expect(await earlyRows()).toEqual([
-      { payment_intent_id: "pi_twice", amount_refunded_cents: 6340, fully_refunded: true, applied_order_id: null },
+      { payment_intent_id: "pi_twice", amount_refunded_cents: 6460, fully_refunded: true, applied_order_id: null },
     ]);
   });
 
@@ -1075,7 +1075,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("races (real Postgres only)", ()
       const pi = `pi_storm_${round}`;
       const requests = [
         ...Array.from({ length: 3 }, () => api.send(stripeWebhook, completed(orderId, pi))),
-        ...Array.from({ length: 3 }, () => api.send(stripeWebhook, chargeRefunded(pi, 6340, true))),
+        ...Array.from({ length: 3 }, () => api.send(stripeWebhook, chargeRefunded(pi, 6460, true))),
       ];
       const results = await Promise.all(requests);
       expect(results.map((r) => r.status)).toEqual([200, 200, 200, 200, 200, 200]);
@@ -1099,7 +1099,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("races (real Postgres only)", ()
       const pi = `pi_seat_${seat}`;
       await Promise.all([
         api.send(stripeWebhook, completed(orderId, pi)),
-        api.send(stripeWebhook, chargeRefunded(pi, 5250, true)),
+        api.send(stripeWebhook, chargeRefunded(pi, 5350, true)),
         api.send(stripeWebhook, completed(orderId, pi)),
       ]);
       expect(await internal(orderId)).toMatchObject({ status: "refunded" });

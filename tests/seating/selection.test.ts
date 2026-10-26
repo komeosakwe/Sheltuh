@@ -37,7 +37,7 @@ describe("tier patterns (docs/design/seating.md §2.2)", () => {
     const standing = tier("standing", 1000);
     expect(seatedTiers([full, standing, concession], template).map((t) => t.id)).toEqual(["off-kilter-concession", "off-kilter-full"]);
     expect(generalAdmissionTiers([full, standing, concession], template).map((t) => t.id)).toEqual(["standing"]);
-    // A$26 absorbed (buyer pays A$26.00) is cheaper than A$25 + fee (A$26.50).
+    // A$26 absorbed (buyer pays A$26.00) is cheaper than A$25 + fee (A$27.00).
     expect(seatedTiers([tier("a", 2500), tier("b", 2600, "organiser-absorbs")], {
       ...template,
       sections: [{ ...template.sections[0], rows: [{ ...template.sections[0].rows[0], seats: [
@@ -64,8 +64,8 @@ describe("seat order totals (lib/fees.ts only)", () => {
         calculateOrderSummary(2000, 2, "organiser-absorbs"),
       ]),
     );
-    // A$36.90 × 2 + A$26.50 + A$40.00.
-    expect(total.totalCents).toBe(3690 * 2 + 2650 + 4000);
+    // A$37.60 × 2 + A$27.00 + A$40.00.
+    expect(total.totalCents).toBe(3760 * 2 + 2700 + 4000);
   });
 });
 

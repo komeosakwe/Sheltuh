@@ -35,7 +35,7 @@ describe("EventDetailsView buy bar (phones and tablets)", () => {
     const bar = buyBar(container);
     if (!bar) throw new Error("buy bar not rendered");
     expect(bar).toHaveClass("lg:hidden"); // never on desktop
-    expect(within(bar).getByText("From A$31.70")).toBeInTheDocument();
+    expect(within(bar).getByText("From A$32.30")).toBeInTheDocument();
     expect(within(bar).getByText("incl. booking fee")).toBeInTheDocument();
     // "Buy tickets" in the demo too (owner, 21 Oct 2026); the tickets section says nothing's bookable.
     expect(within(bar).getByRole("link", { name: "Buy tickets" })).toHaveAttribute("href", "#tickets");
@@ -46,7 +46,7 @@ describe("EventDetailsView buy bar (phones and tablets)", () => {
     const { container } = render(<EventDetailsView event={findEvent("fitzroy-poetry-and-noise")} demo={false} />);
     const bar = buyBar(container);
     if (!bar) throw new Error("buy bar not rendered");
-    expect(within(bar).getByText("A$21.30")).toBeInTheDocument();
+    expect(within(bar).getByText("A$21.70")).toBeInTheDocument();
     expect(within(bar).getByRole("link", { name: "Buy tickets" })).toHaveAttribute("href", "#tickets");
   });
 
@@ -341,7 +341,7 @@ describe("EventDetailsView tickets panel", () => {
     const sentence = `Booking fee: ${describeBookingFee()}. Free tickets never carry a fee.`;
     expect(within(tickets).getByText(sentence)).toBeInTheDocument();
     // And it says what's actually charged today.
-    expect(sentence).toBe("Booking fee: 4% of ticket face value + A$0.50 per paid ticket. Free tickets never carry a fee.");
+    expect(sentence).toBe("Booking fee: 6% of ticket face value + A$0.50 per paid ticket. Free tickets never carry a fee.");
   });
 
   it("says tickets are coming soon when there are no ticket types, with no fee copy and nothing to select", () => {

@@ -122,17 +122,17 @@ describe("holding seats at checkout (paid)", () => {
     expectSessionPaymentOptions(params);
     expect(params.line_items).toEqual([
       { price_data: { currency: "aud", product_data: { name: "Premium — Neon Static", description: "Stalls · Row A · Seat 1" }, unit_amount: 5000 }, quantity: 1 },
-      { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 250 }, quantity: 1 },
+      { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 350 }, quantity: 1 },
       { price_data: { currency: "aud", product_data: { name: "Standard — Neon Static", description: "Stalls · Row B · Seat 2" }, unit_amount: 3000 }, quantity: 1 },
-      { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 170 }, quantity: 1 },
+      { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 230 }, quantity: 1 },
       { price_data: { currency: "aud", product_data: { name: "Standing — Neon Static" }, unit_amount: 2000 }, quantity: 2 },
-      { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 130 }, quantity: 2 },
+      { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 170 }, quantity: 2 },
     ]);
-    expect(params.payment_intent_data.application_fee_amount).toBe(250 + 170 + 260);
+    expect(params.payment_intent_data.application_fee_amount).toBe(350 + 230 + 340);
 
     expect(await orders()).toEqual([{ id: orderId, status: "pending", seat_ids: ["A1", "B2"] }]);
     const [order] = await api.db.query(`select total_cents, stripe_checkout_session_id from public.orders where id = $1`, [orderId]);
-    expect(order).toEqual({ total_cents: 5000 + 250 + 3000 + 170 + 2 * 2130, stripe_checkout_session_id: "cs_test_1" });
+    expect(order).toEqual({ total_cents: 5000 + 350 + 3000 + 230 + 2 * 2170, stripe_checkout_session_id: "cs_test_1" });
     expect(await seatStates(api, event.eventId)).toMatchObject({ A1: `held:${orderId}`, B2: `held:${orderId}`, A2: "free" });
     // Nothing is sold until payment.
     expect(await tierCounts(api, event.eventId)).toMatchObject({ prem: { sold: 0 }, std: { sold: 0 }, ga: { sold: 0 } });
@@ -596,7 +596,7 @@ describe("check-in", () => {
       stripeWebhook,
       stripeWebhookRequest({
         type: "charge.refunded",
-        data: { object: { id: "ch_1", object: "charge", payment_intent: `pi_${orderId}`, amount_refunded: 3170, refunded: true } },
+        data: { object: { id: "ch_1", object: "charge", payment_intent: `pi_${orderId}`, amount_refunded: 3230, refunded: true } },
       }),
     );
     const afterRefund = await api.call(getCheckInSummary, { token: organiser.token, params: { eventId: event.eventId } });

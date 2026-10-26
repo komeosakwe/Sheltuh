@@ -23,8 +23,8 @@ const ORDER = {
   suburb: "Collingwood",
   maskedEmail: "m***@example.com",
   subtotalCents: 6000,
-  buyerFeeCents: 340,
-  totalCents: 6340,
+  buyerFeeCents: 460,
+  totalCents: 6460,
   tickets: [
     { ticketCode: "7KQM-2HXD", ticketTypeName: "General admission", checkedInAt: null },
     { ticketCode: "A2B3-C4D5", ticketTypeName: "General admission", checkedInAt: null },

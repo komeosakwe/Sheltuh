@@ -48,8 +48,8 @@ const ORDER: CustomerOrder = {
   eventSlug: "neon-static",
   maskedEmail: "m***@example.com",
   subtotalCents: 3000,
-  buyerFeeCents: 170,
-  totalCents: 3170,
+  buyerFeeCents: 230,
+  totalCents: 3230,
   tickets: [{ ticketCode: "ABC123", ticketTypeName: "General admission", checkedInAt: null }],
 };
 
@@ -93,7 +93,7 @@ describe("CheckoutConfirmation", () => {
     render(<CheckoutConfirmation />);
     const totalTerm = await screen.findByText("Total paid");
     const totalValue = totalTerm.nextElementSibling;
-    expect(totalValue).toHaveTextContent("A$31.70");
+    expect(totalValue).toHaveTextContent("A$32.30");
     expect(totalValue).toHaveClass("text-xl", "font-bold", "tabular-nums");
     const card = totalTerm.closest("dl")?.parentElement;
     expect(card).toHaveClass("rounded-card", "border", "border-foreground", "bg-card", "p-4");
@@ -432,8 +432,8 @@ describe("CheckoutConfirmation: back from Stripe without a confirmed order (chec
       seated: false,
       lines: [],
       subtotalCents: 3000,
-      buyerFeeCents: 170,
-      totalCents: 3170,
+      buyerFeeCents: 230,
+      totalCents: 3230,
     });
     await renderPending(2);
     const h1 = screen.getByRole("heading", { level: 1, name: "Payment not completed" });
@@ -477,8 +477,8 @@ describe("CheckoutConfirmation: back from Stripe without a confirmed order (chec
       seated: true,
       lines: [],
       subtotalCents: 3000,
-      buyerFeeCents: 170,
-      totalCents: 3170,
+      buyerFeeCents: 230,
+      totalCents: 3230,
     });
     await renderPending(2);
     expect(
@@ -500,8 +500,8 @@ describe("CheckoutConfirmation: back from Stripe without a confirmed order (chec
       seated: true,
       lines: [],
       subtotalCents: 3000,
-      buyerFeeCents: 170,
-      totalCents: 3170,
+      buyerFeeCents: 230,
+      totalCents: 3230,
     });
     await renderPending(2);
     expect(screen.getByText(/Your seats are held until 5:31 pm Perth time\.$/)).toBeInTheDocument();
@@ -586,8 +586,8 @@ describe("CheckoutConfirmation: the seat page's pending checkout (released on Ba
     seated: true,
     lines: [],
     subtotalCents: 3000,
-    buyerFeeCents: 170,
-    totalCents: 3170,
+    buyerFeeCents: 230,
+    totalCents: 3230,
   };
 
   beforeEach(() => {
@@ -696,7 +696,7 @@ describe("CheckoutConfirmation: the tab's title follows the answer", () => {
 
 describe("CheckoutConfirmation: Support Sheltüh", () => {
   it("is its own line in the totals, in the total paid, with a thank-you", async () => {
-    getOrderBySession.mockResolvedValue({ ...ORDER, supportCents: 500, totalCents: 3670 });
+    getOrderBySession.mockResolvedValue({ ...ORDER, supportCents: 500, totalCents: 3730 });
     render(<CheckoutConfirmation />);
     const term = await screen.findByText("Support Sheltüh", { selector: "dt" });
     expect(term.nextElementSibling).toHaveTextContent("A$5");
@@ -705,7 +705,7 @@ describe("CheckoutConfirmation: Support Sheltüh", () => {
     const totalTerm = screen.getByText("Total paid");
     expect(screen.getByText("Booking fees").compareDocumentPosition(term) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(term.compareDocumentPosition(totalTerm) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(totalTerm.nextElementSibling).toHaveTextContent("A$36.70");
+    expect(totalTerm.nextElementSibling).toHaveTextContent("A$37.30");
     expect(screen.getByText("Thanks for supporting Sheltüh.")).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/donat/i);
   });

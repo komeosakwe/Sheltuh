@@ -125,8 +125,8 @@ describe("money split by ticket type", () => {
       feesCents: 3 * fee(3000) + fee(8000),
     });
     expect(rows).toEqual([
-      expect.objectContaining({ ticketTypeId: "ga", ticketsSold: 3, faceValueCents: 9000, grossCents: 9510, feesCents: 510, netCents: 9000 }),
-      expect.objectContaining({ ticketTypeId: "vip", ticketsSold: 1, faceValueCents: 8000, grossCents: 8000, feesCents: 370, netCents: 7630 }),
+      expect.objectContaining({ ticketTypeId: "ga", ticketsSold: 3, faceValueCents: 9000, grossCents: 9690, feesCents: 690, netCents: 9000 }),
+      expect.objectContaining({ ticketTypeId: "vip", ticketsSold: 1, faceValueCents: 8000, grossCents: 8000, feesCents: 530, netCents: 7470 }),
     ]);
   });
 

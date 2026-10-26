@@ -135,16 +135,16 @@ test.describe("Sheltüh-ticketed event at 390×844", () => {
     await mockApi(page);
     await page.goto("/events/neon-static");
     const bar = page.locator("[data-buy-bar]");
-    await expect(bar).toContainText("From A$31.70", { timeout: 30_000 });
+    await expect(bar).toContainText("From A$32.30", { timeout: 30_000 });
     // The tab is titled with the event once it's loaded (live pages render client-side).
     await expect(page).toHaveTitle("Neon Static — Sheltüh");
     await bar.getByRole("link", { name: "Buy tickets" }).click();
     await expect(page).toHaveURL(/#tickets$/);
     await expect(page.locator("#tickets")).toBeFocused();
     const tickets = page.locator("#tickets");
-    await expect(tickets.getByText("A$31.70 incl. booking fee")).toBeVisible();
+    await expect(tickets.getByText("A$32.30 incl. booking fee")).toBeVisible();
     // The breakdown is there before anything's chosen.
-    await expect(tickets.getByText("A$30 ticket + A$1.70 booking fee")).toBeVisible();
+    await expect(tickets.getByText("A$30 ticket + A$2.30 booking fee")).toBeVisible();
     await noSidewaysScroll(page);
   });
 });
@@ -367,7 +367,7 @@ for (const width of [375, 1280]) {
 
       // Fees and refunds beside the tickets, linking the existing pages.
       const tickets = page.locator("#tickets");
-      await expect(tickets.getByText("A$31.70 incl. booking fee")).toBeVisible();
+      await expect(tickets.getByText("A$32.30 incl. booking fee")).toBeVisible();
       // (Live, the selector's own "By booking you agree to the Purchase Terms" line links them too:
       // that's consent at checkout; this is where refund conditions are.)
       const refunds = tickets.locator("dl").filter({ hasText: "Refunds" });
