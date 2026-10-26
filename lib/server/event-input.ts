@@ -6,7 +6,7 @@ import {
   type RefundPolicy,
 } from "@/lib/refund-policy";
 import { didYouMean, findLocality } from "@/lib/location";
-import { checkExternalTicketUrl, TICKETING_MODES, type TicketingMode } from "@/lib/ticketing";
+import type { TicketingMode } from "@/lib/ticketing";
 import {
   PLATFORM_TIME_ZONE,
   STATE_CODES,
@@ -14,6 +14,7 @@ import {
   type AustralianTimeZone,
   type StateCode,
 } from "@/lib/time-zones";
+import { parseTicketing, type Ticketing } from "./ticketing-input";
 import type { EventCategory, TicketTypeInput } from "./types";
 import {
   fail,
@@ -57,8 +58,9 @@ export interface EventInput {
   refundDays?: number | null;
 }
 
-/** An event's ticketing, as stored. */
-export type Ticketing = Pick<EventInput, "ticketingMode" | "externalTicketUrl" | "externalFree">;
+// The ticketing fields are parsed in ./ticketing-input, which (unlike this
+// module) doesn't load the suburb table; re-exported for this module's callers.
+export { parseTicketing, type Ticketing };
 
 interface RawEventBody {
   title?: unknown;
@@ -77,50 +79,6 @@ interface RawEventBody {
   externalFree?: unknown;
   refundPolicy?: unknown;
   refundDays?: unknown;
-}
-
-const absent = (value: unknown) => value === undefined || value === null || value === "";
-
-/**
- * `ticketingMode` (absent means `sheltuh`, so clients that predate external
- * ticketing keep working), `externalTicketUrl` and `externalFree`, with
- * errors under those field names. External: a link that passes
- * checkExternalTicketUrl is required, and the stored form is the parser's.
- * Sheltüh: no link and no free flag may be sent (absent, null, "" or false),
- * rather than being silently dropped.
- */
-export function parseTicketing(body: RawEventBody, errors: Record<string, string>): Ticketing {
-  const rawMode = body.ticketingMode ?? "sheltuh";
-  if (typeof rawMode !== "string" || !TICKETING_MODES.includes(rawMode as TicketingMode)) {
-    errors.ticketingMode = "Choose where tickets are sold.";
-    return { ticketingMode: "sheltuh", externalTicketUrl: null, externalFree: false };
-  }
-  const ticketingMode = rawMode as TicketingMode;
-
-  if (body.externalFree !== undefined && body.externalFree !== null && typeof body.externalFree !== "boolean") {
-    errors.externalFree = "Must be true or false.";
-  }
-  const externalFree = body.externalFree === true;
-
-  if (ticketingMode === "sheltuh") {
-    if (!absent(body.externalTicketUrl)) {
-      errors.externalTicketUrl = "Only for events whose tickets are sold on another site.";
-    }
-    if (externalFree) errors.externalFree = "Only for events whose tickets are sold on another site.";
-    return { ticketingMode, externalTicketUrl: null, externalFree: false };
-  }
-
-  let externalTicketUrl: string | null = null;
-  if (absent(body.externalTicketUrl)) {
-    errors.externalTicketUrl = "Enter the address of the page where tickets are sold.";
-  } else if (typeof body.externalTicketUrl !== "string") {
-    errors.externalTicketUrl = "Enter the ticket page's full address, starting with https://";
-  } else {
-    const checked = checkExternalTicketUrl(body.externalTicketUrl);
-    if (checked.ok) externalTicketUrl = checked.url;
-    else errors.externalTicketUrl = checked.message;
-  }
-  return { ticketingMode, externalTicketUrl, externalFree };
 }
 
 /** The event's refund policy as parseRefundPolicy returns it: nothing sent, or both fields. */

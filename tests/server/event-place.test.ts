@@ -19,7 +19,7 @@ import type { AdminEventRecord, EventRecord, OrderRecord } from "@/lib/server/ty
 import { DST_GAP_MESSAGE } from "@/lib/server/validation";
 import { buildWaitlistAvailableEmail, when } from "@/lib/server/waitlist-email";
 import { passTimeZone, passWhen } from "@/lib/server/wallet/pass-content";
-import { STATE_CODES, ZONES_BY_STATE } from "@/lib/time-zones";
+import { STATE_CODES, wallClockParts, ZONES_BY_STATE } from "@/lib/time-zones";
 import { TestApi } from "./helpers/api";
 import { approvedOrganiser, draftEvent, eventInput, insertOrder, publishedEvent, setUpPayouts, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
@@ -146,6 +146,65 @@ describe("the columns", () => {
     for (const column of ["state", "time_zone"]) {
       await expect(api.db.query(`update public.events set ${column} = null where id = $1`, [event.eventId])).rejects.toThrow();
     }
+  });
+});
+
+describe("the database knows every zone", () => {
+  /** Every zone an event may use: SQL reads its start `at time zone` the event's (public-events.ts, onOrAfter). */
+  const ZONES = [...new Set(Object.values(ZONES_BY_STATE).flat())].sort();
+  /** A winter instant (no daylight saving anywhere), besides the fixture's March start (daylight saving in the south-east). */
+  const JULY = "2027-07-15T02:00:00.000Z";
+
+  /** "YYYY-MM-DD HH:mm" in `zone` by the runtime's (ICU's) zone data. */
+  function jsLocal(instant: string | Date, zone: string): string {
+    const parts = wallClockParts(instant, zone);
+    return `${parts.date} ${parts.time}`;
+  }
+
+  it("now() and an event's starts_at convert in each, agreeing with the runtime's zone data", { timeout: 60_000 }, async () => {
+    const event = await draftEvent(api, organiser);
+    const unknown: string[] = [];
+    for (const zone of ZONES) {
+      let row: { now_local: unknown; starts_local: string; july_local: string; starts_at: Date | string };
+      try {
+        [row] = await api.db.query(
+          `select now() at time zone $1 as now_local,
+                  to_char(starts_at at time zone $1, 'YYYY-MM-DD HH24:MI') as starts_local,
+                  to_char($3::timestamptz at time zone $1, 'YYYY-MM-DD HH24:MI') as july_local,
+                  starts_at
+             from public.events where id = $2`,
+          [zone, event.eventId, JULY],
+        );
+      } catch (err) {
+        // Collected rather than thrown at the first, so a failure names every zone missing.
+        if (err instanceof Error && /time zone .* not recognized/i.test(err.message)) {
+          unknown.push(zone);
+          continue;
+        }
+        throw err;
+      }
+      expect(row.now_local, zone).toBeTruthy();
+      // Postgres's zone data and the runtime's agree on the wall clock, daylight saving included.
+      expect(row.starts_local, `${zone} starts_at`).toBe(jsLocal(new Date(row.starts_at), zone));
+      expect(row.july_local, `${zone} July`).toBe(jsLocal(JULY, zone));
+    }
+    expect(unknown, "zones this Postgres doesn't know").toEqual([]);
+    expect(ZONES).toHaveLength(13);
+  });
+
+  it("each is in pg_timezone_names, and DEPLOYMENT.md's Supabase check lists exactly these", async () => {
+    const rows = await api.db.query<{ name: string }>(
+      `select name from pg_timezone_names where name = any($1::text[]) order by name`,
+      [ZONES],
+    );
+    expect(rows.map((r) => r.name)).toEqual(ZONES);
+    const deployment = readFileSync(path.join(ROOT, "docs/DEPLOYMENT.md"), "utf8");
+    const listed = /from pg_timezone_names where name = any\('\{([^}]+)\}'\)/.exec(deployment)?.[1].split(",").sort();
+    expect(listed).toEqual(ZONES);
+  });
+
+  it("an unknown zone is an error, not a silent UTC (so the checks above can fail)", async () => {
+    await expect(api.db.query(`select now() at time zone $1`, ["Australia/Nowhere"])).rejects.toThrow(/not recognized/i);
   });
 });
 

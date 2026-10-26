@@ -3078,8 +3078,25 @@ Events can be anywhere in Australia (owner plan, steps S3 and S4;
   (`DST_GAP_MESSAGE`); a time they repeat is the earlier instant. The
   database functions keep the stored value of either field when it's
   absent; `admin_edit_event` logs a change of either (`changes.state`,
-  `changes.timeZone`). The write routes import the suburb table
-  (`lib/location.ts`, about 290 kB) statically: accepted.
+  `changes.timeZone`). The suburb table (`lib/location.ts`, about 290 kB)
+  is imported statically on the server only by `lib/server/event-input.ts`,
+  so it loads with the two handler modules that parse event bodies
+  (`handlers/events.ts`, `handlers/admin-authoring.ts`) and with exactly
+  the API routes whose route file imports either: `/api/events` (GET, POST),
+  `/api/events/[eventId]` (PATCH), `/api/events/[eventId]/submit`,
+  `/api/organisers/me/events` and `/api/organisers/me/events/[eventId]`,
+  `/api/admin/events` (GET, POST), `/api/admin/events/[eventId]` (GET,
+  PATCH), `/api/admin/events/[eventId]/image` and `/api/admin/organisers`
+  (GET, POST). Of the pages, only `/search` loads it in its server render;
+  client components load it on demand (`lib/location-loader.ts`).
+  Accepted. Submit, the organiser's two event reads, the admin's event
+  image and the organisers list only load it because their route file
+  shares a handler module with a write; moving them out means splitting
+  those modules and their route imports. Ticketing input
+  (`lib/server/ticketing-input.ts`) and the payouts errors
+  (`lib/server/payouts-refusal.ts`) are kept apart from `event-input.ts`
+  and `handlers/events.ts` so that `handlers/admin.ts`, and through it
+  seating, clips and trending, don't load it.
 - **Read**: `EventRecord` and `PublicEvent` carry `state` and `timeZone`
   (every route that returns an event); `CustomerOrder` and
   `OrderPaymentSummary` carry `eventTimeZone` and `eventState` whenever they

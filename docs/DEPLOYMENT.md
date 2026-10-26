@@ -130,6 +130,22 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           every event page, list and order lookup is a 500. The previous app
           keeps working against it)
 
+      **Before merging the Australia-wide events branch, check the Supabase
+      project knows every event time zone.** The public list's `onOrAfter`
+      filter (`lib/server/handlers/public-events.ts`) reads each event's
+      start `at time zone` its own zone in SQL, and a zone Postgres doesn't
+      know makes that query fail. Run this in the SQL editor (read-only); it must return `13`:
+
+      ```sql
+      select count(*) from pg_timezone_names where name = any('{Australia/Melbourne,Australia/Sydney,Australia/Broken_Hill,Australia/Lord_Howe,Australia/Brisbane,Australia/Adelaide,Australia/Perth,Australia/Eucla,Australia/Hobart,Australia/Darwin,Indian/Christmas,Indian/Cocos,Pacific/Norfolk}');
+      ```
+
+      Anything less means a zone is missing: stop and report which
+      (`select name from pg_timezone_names where name like any('{Australia/%,Indian/%,Pacific/Norfolk}') order by name`).
+      The list is `ZONES_BY_STATE` in `lib/time-zones.ts`;
+      `tests/server/event-place.test.ts` checks it matches, and runs every
+      zone through `at time zone` on PGlite and Postgres 16.
+
       Files 24 to 26 were written as `20261104000000_payment_reconciliation.sql`,
       `20261104000100_email_outbox_health.sql` and
       `20261104000200_checkout_attempts.sql` on the payments audit branch and

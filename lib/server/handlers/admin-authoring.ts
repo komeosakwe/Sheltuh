@@ -14,9 +14,9 @@ import { parseMessageText } from "../message-input";
 import { isUuid } from "../pagination";
 import { ADMIN_EVENT_SELECT, ADMIN_ORGANISER_SELECT, toAdminEvent, toAdminOrganiser } from "../records";
 import type { Handler } from "../route";
+import { MAX_TICKETING_REASON_LENGTH } from "../ticketing-input";
 import type { AdminEventRecord } from "../types";
 import { fail } from "../validation";
-import { MAX_TICKETING_REASON_LENGTH } from "./admin";
 import { readEventImage } from "./event-images";
 import {
   ADMIN_PAYOUTS_REQUIRED,

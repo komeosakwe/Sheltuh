@@ -15,9 +15,9 @@ import { parseMessageText } from "../message-input";
 import { isUuid } from "../pagination";
 import type { Handler } from "../route";
 import { MAX_SEAT_MAP_BODY_BYTES, parseSeatMapTemplate } from "../seat-map-input";
+import { MAX_TICKETING_REASON_LENGTH } from "../ticketing-input";
 import type { SeatAvailability, SeatMapRecord } from "../types";
 import { fail } from "../validation";
-import { MAX_TICKETING_REASON_LENGTH } from "./admin";
 import { requireEventForAdmin, requireOwnEvent } from "./event-queries";
 import { findOrganiserByOwner, requireApprovedOrganiser } from "./organiser-guard";
 
