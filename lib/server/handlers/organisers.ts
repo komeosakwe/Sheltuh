@@ -3,7 +3,7 @@ import { requireCaller } from "../auth";
 import { PG_UNIQUE_VIOLATION, pgErrorCode, type Db } from "../db";
 import { sendReviewEmailsSoon } from "../email-outbox";
 import { redactForLog } from "../email-address";
-import { created, HttpError, ok, readJson } from "../http";
+import { created, HttpError, ok, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
 import { parseSocialHandles, SOCIAL_RULES } from "../organiser-input";
 import { ORGANISER_SELECT, toOrganiser, toOwnOrganiserView } from "../records";
@@ -186,12 +186,12 @@ export const applyAsOrganiser: Handler = async (req, _params, deps) => {
   }
 };
 
-/** GET /api/organisers/me */
+/** GET /api/organisers/me — the caller's own record (contact email, payouts state): `private, no-store`. */
 export const getMyOrganiser: Handler = async (req, _params, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
   const record = await findOrganiserByOwner(db, caller.userId);
   if (!record) throw new HttpError(404, "No organiser application found.");
-  return ok(toOwnOrganiserView(record));
+  return okPrivate(toOwnOrganiserView(record));
 };
 
 /**

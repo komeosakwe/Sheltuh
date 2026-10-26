@@ -3,7 +3,7 @@ import type { Db } from "@/lib/server/db";
 import { adminRejectEvent, adminRejectOrganiser, adminUnpublishEvent } from "@/lib/server/handlers/admin";
 import { submitEventForReview } from "@/lib/server/handlers/events";
 import { applyAsOrganiser, getMyOrganiser, resubmitOrganiser } from "@/lib/server/handlers/organisers";
-import { getPublicEventBySlug } from "@/lib/server/handlers/public-events";
+import { getPublicEventBySlug, PUBLIC_EVENTS_CACHE_CONTROL } from "@/lib/server/handlers/public-events";
 import { getPublicOrganiserProfile, PROFILE_EVENT_LIMIT } from "@/lib/server/handlers/public-organisers";
 import { TestApi } from "./helpers/api";
 import { application, approvedOrganiser, draftEvent, publishedEvent, signUpAdmin } from "./helpers/fixtures";
@@ -398,8 +398,8 @@ describe("GET /organisers/{organiserId}/profile", () => {
     for (const secret of [application.contactEmail, organiser.userId, admin.userId, "acct_secret_1", "payouts", "status"]) {
       expect(text).not.toContain(secret);
     }
-    // Public, like the event routes: not marked private.
-    expect(res.headers.get("cache-control")).toBeNull();
+    // Public, like the feed: shared at the CDN (nothing in it depends on who asks).
+    expect(res.headers.get("cache-control")).toBe(PUBLIC_EVENTS_CACHE_CONTROL);
   });
 
   it("leaves out the website and social links the organiser hasn't set", async () => {

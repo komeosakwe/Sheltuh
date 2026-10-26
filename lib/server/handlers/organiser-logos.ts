@@ -18,6 +18,17 @@ const NOT_APPROVED = "Your organiser application must be approved before you can
 const LOGO_NOT_FOUND = "Logo not found.";
 
 /**
+ * An approved organiser's logo at its current version (`?v=` as
+ * organiserLogoUrls gives it): the CDN may share it, for an hour, so a
+ * takedown (suspension) or a new logo stops being served within about an
+ * hour. Not `immutable`, for the same reason. `max-age` equals `s-maxage` so
+ * a CDN copy is never stale on arrival in the browser (see EVENT_IMAGE_CACHE).
+ */
+export const LOGO_CACHE = "public, max-age=3600, s-maxage=3600";
+/** Any other `v` (none, or not the current one): browser only, never shared (see EVENT_IMAGE_UNVERSIONED_CACHE). */
+export const LOGO_UNVERSIONED_CACHE = "private, max-age=3600";
+
+/**
  * PUT /api/organisers/me/logo — the raw image (JPEG, PNG or WebP, at most
  * 2 MB, read as a stream and cut off past it: 413). Re-encoded server-side
  * (lib/server/organiser-logo.ts); the upload itself is never stored. An
@@ -82,8 +93,9 @@ function claimedVersion(req: Request, thumb: boolean): string | null {
 /**
  * GET /api/organisers/[organiserId]/logo[?size=thumb][&v=…] — the logo as
  * WebP (512 px, or the 96 px thumbnail). Public while the organiser is
- * approved (`public, max-age=86400`; the URL is versioned, `v` itself is
- * ignored). Otherwise only an admin or the organiser's owner, with a bearer
+ * approved: whatever `v` says, the current logo is served, but only at the
+ * current version may the CDN share it (LOGO_CACHE; LOGO_UNVERSIONED_CACHE
+ * otherwise). Otherwise only an admin or the organiser's owner, with a bearer
  * token, never cached; anyone else gets the same 404 as an unknown organiser
  * or one without a logo (a missing token included), so nothing leaks. ETag,
  * 304 on a matching If-None-Match.
@@ -94,7 +106,8 @@ export const getOrganiserLogo: Handler<{ organiserId: string }> = async (
   { db, verifyAccessToken },
 ) => {
   if (!isUuid(organiserId)) throw new HttpError(404, LOGO_NOT_FOUND);
-  const thumb = new URL(req.url).searchParams.get("size") === "thumb";
+  const query = new URL(req.url).searchParams;
+  const thumb = query.get("size") === "thumb";
   // One query (both tables by primary key). The image is only read when the
   // client doesn't already have this version.
   const [row] = await db.query<{
@@ -128,8 +141,11 @@ export const getOrganiserLogo: Handler<{ organiserId: string }> = async (
   const headers = {
     "content-type": "image/webp",
     "x-content-type-options": "nosniff",
-    // Not `immutable`: a takedown should stop being served within a day.
-    "cache-control": approved ? "public, max-age=86400" : "private, no-store",
+    "cache-control": !approved
+      ? "private, no-store"
+      : query.get("v") === row.version
+        ? LOGO_CACHE
+        : LOGO_UNVERSIONED_CACHE,
     etag: logoEtag(row.version, thumb),
   };
   if (row.data === null) return new Response(null, { status: 304, headers });

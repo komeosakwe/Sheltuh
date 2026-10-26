@@ -1,8 +1,26 @@
-import { HttpError, ok } from "../http";
+import { HttpError, okPrivate, okPublic } from "../http";
 import { decodeCursor, parseLimit, toPage } from "../pagination";
 import { EVENT_SELECT, toPublicEventFromRow } from "../records";
 import type { Handler } from "../route";
 import { EVENT_CATEGORIES, type EventCategory } from "../types";
+import { upcomingPageQuery } from "../upcoming-page";
+
+/**
+ * The feed (GET /api/events): the same for every caller (no handler here
+ * reads a token), so the CDN may share it. Fresh for a minute, then served
+ * stale for up to two more while it revalidates; browsers revalidate every
+ * time (max-age=0). So a change (a new, edited, sold-out or unpublished
+ * event) can take up to about 3 minutes to show: docs/architecture.md, "CDN
+ * windows". Checkout and fulfilment always read the database.
+ */
+export const PUBLIC_EVENTS_CACHE_CONTROL = "public, max-age=0, s-maxage=60, stale-while-revalidate=120";
+
+/**
+ * One event by slug (the event and seat pages): a shorter window than the
+ * feed, since the page shows what's left ("Only N left", sold out) and caps
+ * the quantity. At most about a minute stale.
+ */
+export const PUBLIC_EVENT_CACHE_CONTROL = "public, max-age=0, s-maxage=15, stale-while-revalidate=45";
 
 /** "YYYY-MM-DD" (already pattern-checked) is a real calendar date: not 2026-02-30. */
 function isCalendarDate(text: string): boolean {
@@ -14,6 +32,9 @@ function isCalendarDate(text: string): boolean {
 /**
  * GET /api/events — public, unauthenticated. Every query here is pinned to
  * status = 'published'; nothing else is reachable through these routes.
+ * Nothing reads the caller: 200s are shared at the CDN
+ * (PUBLIC_EVENTS_CACHE_CONTROL), except a search (`q`), which is
+ * `private, no-store`; errors are `private, no-store`.
  */
 export const listPublicEvents: Handler = async (req, _params, { db }) => {
   const qs = new URL(req.url).searchParams;
@@ -64,11 +85,13 @@ export const listPublicEvents: Handler = async (req, _params, { db }) => {
   // between two page loads drops out and shifts later rows up by one, as any
   // change to the feed does with an offset cursor. Absent, empty, 0 or false
   // means every published event (the original behaviour); anything else is a
-  // 400. Served by events_status_ends_idx.
-  const upcoming = qs.get("upcoming");
-  if (upcoming !== null && upcoming !== "") {
-    if (upcoming === "1" || upcoming === "true") where.push("e.ends_at > now()");
-    else if (upcoming !== "0" && upcoming !== "false") throw new HttpError(400, "upcoming must be 1 or 0.");
+  // 400. The page's ids come first (upcomingPageQuery: in progress through
+  // events_status_ends_idx, not started through events_status_starts_idx).
+  const upcomingParam = qs.get("upcoming");
+  let upcoming = false;
+  if (upcomingParam !== null && upcomingParam !== "") {
+    if (upcomingParam === "1" || upcomingParam === "true") upcoming = true;
+    else if (upcomingParam !== "0" && upcomingParam !== "false") throw new HttpError(400, "upcoming must be 1 or 0.");
   }
 
   // Free-text search over title, venue, suburb, organiser and description.
@@ -87,17 +110,30 @@ export const listPublicEvents: Handler = async (req, _params, { db }) => {
   const offset = decodeCursor(qs.get("cursor"));
   params.push(limit + 1, offset);
 
+  const limitParam = `$${params.length - 1}`;
+  const offsetParam = `$${params.length}`;
   const rows = await db.query(
-    `${EVENT_SELECT} where ${where.join(" and ")}
-     order by e.starts_at, e.id limit $${params.length - 1} offset $${params.length}`,
+    upcoming
+      ? upcomingPageQuery(EVENT_SELECT, where, limitParam, offsetParam)
+      : `${EVENT_SELECT} where ${where.join(" and ")}
+         order by e.starts_at, e.id limit ${limitParam} offset ${offsetParam}`,
     params,
   );
-  return ok(toPage(rows.map(toPublicEventFromRow), offset, limit));
+  const page = toPage(rows.map(toPublicEventFromRow), offset, limit);
+  // A search is never shared: a CDN copy under `?q=…` would tell anyone who
+  // asks for the same URL (Age, x-vercel-cache) that someone searched for
+  // that term a moment ago. Any non-empty `q` counts, blank-after-trim too.
+  if (qs.get("q")) return okPrivate(page);
+  return okPublic(page, PUBLIC_EVENTS_CACHE_CONTROL);
 };
 
-/** GET /api/events/slug/[slug] — public; a slug that's been unpublished is a 404. */
+/**
+ * GET /api/events/slug/[slug] — public; a slug that's been unpublished is a
+ * 404 (never cached, so a newly published event shows at once). A 200 is
+ * shared at the CDN (PUBLIC_EVENT_CACHE_CONTROL).
+ */
 export const getPublicEventBySlug: Handler<{ slug: string }> = async (_req, { slug }, { db }) => {
   const [row] = await db.query(`${EVENT_SELECT} where e.slug = $1 and e.status = 'published'`, [slug]);
   if (!row) throw new HttpError(404, "Event not found.");
-  return ok(toPublicEventFromRow(row));
+  return okPublic(toPublicEventFromRow(row), PUBLIC_EVENT_CACHE_CONTROL);
 };

@@ -33,6 +33,15 @@ export const created = (body: unknown) => json(201, body);
 export const PRIVATE_NO_STORE = { "cache-control": "private, no-store" } as const;
 
 export const okPrivate = (body: unknown) => Response.json(body, { status: 200, headers: PRIVATE_NO_STORE });
+
+/**
+ * A 200 that a CDN may share between callers, under `cacheControl` (e.g.
+ * `public, max-age=0, s-maxage=60, …`). Only for a response that's the same
+ * for everyone: the handler must never read the caller's token, cookies or
+ * anything else about them. Errors stay `private, no-store` (errorJson).
+ */
+export const okPublic = (body: unknown, cacheControl: string) =>
+  Response.json(body, { status: 200, headers: { "cache-control": cacheControl } });
 export const createdPrivate = (body: unknown) => Response.json(body, { status: 201, headers: PRIVATE_NO_STORE });
 export const noContentPrivate = () => new Response(null, { status: 204, headers: PRIVATE_NO_STORE });
 

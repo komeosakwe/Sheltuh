@@ -10,6 +10,7 @@ import {
   getAnalyticsOverviewCsv,
   getEventAnalytics,
   getEventAnalyticsCsv,
+  ORGANISER_GROSS,
 } from "@/lib/server/handlers/analytics";
 import { recordEventView, VIEW_RATE_LIMIT } from "@/lib/server/handlers/event-views";
 import { createCheckout, stripeWebhook } from "@/lib/server/handlers/orders";
@@ -332,6 +333,88 @@ describe("tracking links", () => {
     expect(list.status).toBe(200);
     expect(list.headers.get("cache-control")).toBe("private, no-store");
     expect(list.body.items.map((l: { label: string }) => l.label)).toEqual(["Newsletter", "Instagram bio"]);
+  });
+
+  it("lists each link's all-time views and paid orders, the same as a per-link count", async () => {
+    const [bio, newsletter, quiet] = [
+      (await createLink(organiser.token, "Instagram bio")).body,
+      (await createLink(organiser.token, "Newsletter")).body,
+      (await createLink(organiser.token, "Quiet")).body,
+    ];
+    const other = await publishedEvent(api, organiser, admin, { title: "Other", ticketTypes: TICKETS });
+    const otherLink = (await createLink(organiser.token, "Other bio", other.eventId)).body;
+
+    // Views over several days and sources; the other event's never count here.
+    const views: [string, string, string | null, number][] = [
+      [event.eventId, "2026-10-01", bio.code, 4],
+      [event.eventId, "2026-10-02", bio.code, 5],
+      [event.eventId, "2026-10-02", newsletter.code, 2],
+      [event.eventId, "2026-10-02", null, 40],
+      [other.eventId, "2026-10-02", otherLink.code, 9],
+    ];
+    for (const [eventId, day, code, count] of views) {
+      await api.db.query(
+        `insert into public.event_view_counts (event_id, day, source, link_code, views)
+         values ($1, $2::date, case when $3::text is null then 'direct' else 'tracking' end, $3::text, $4)`,
+        [eventId, day, code, count],
+      );
+    }
+    // Paid orders through two links and none; unpaid ones with a code never count.
+    const a = await paidOrder([{ ticketTypeId: "ga", quantity: 2 }], { trackingCode: bio.code });
+    const b = await paidOrder(
+      [
+        { ticketTypeId: "ga", quantity: 1 },
+        { ticketTypeId: "vip", quantity: 1 },
+      ],
+      { trackingCode: bio.code },
+    );
+    const c = await paidOrder([{ ticketTypeId: "vip", quantity: 3 }], { trackingCode: newsletter.code });
+    await paidOrder([{ ticketTypeId: "ga", quantity: 1 }]);
+    for (const status of ["pending", "failed", "refunded", "oversold_refund_required"] as const) {
+      const id = await insertOrder(api, event, `x-${status}@example.com`, status);
+      await api.db.query(`update public.orders set tracking_code = $2, total_cents = 99999 where id = $1`, [id, quiet.code]);
+    }
+
+    const list = await links(organiser.token);
+    expect(list.status).toBe(200);
+    const byLabel = Object.fromEntries(
+      list.body.items.map((l: { label: string; views: number; orders: number; ticketsSold: number; grossCents: number }) => [
+        l.label,
+        { views: l.views, orders: l.orders, ticketsSold: l.ticketsSold, grossCents: l.grossCents },
+      ]),
+    );
+    const [ra, rb, rc] = [await orderRow(a), await orderRow(b), await orderRow(c)];
+    expect(byLabel).toEqual({
+      "Instagram bio": { views: 9, orders: 2, ticketsSold: 4, grossCents: ra.total_cents + rb.total_cents },
+      Newsletter: { views: 2, orders: 1, ticketsSold: 3, grossCents: rc.total_cents },
+      Quiet: { views: 0, orders: 0, ticketsSold: 0, grossCents: 0 },
+    });
+
+    // And exactly what the per-link (lateral) query gives, row for row, in the same order.
+    const perLink = await api.db.query<{ id: string; views: string; orders: number; tickets: string; gross: string }>(
+      `select l.id,
+              coalesce((select sum(v.views) from public.event_view_counts v
+                         where v.event_id = l.event_id and v.link_code = l.code), 0)::bigint as views,
+              coalesce(o.orders, 0) as orders, coalesce(o.tickets, 0)::bigint as tickets, coalesce(o.gross, 0)::bigint as gross
+         from public.event_tracking_links l
+         left join lateral (
+                select count(*)::int as orders, sum(${ORGANISER_GROSS}) as gross,
+                       sum((select coalesce(sum((li ->> 'quantity')::int), 0) from jsonb_array_elements(o.line_items) li)) as tickets
+                  from public.orders o
+                 where o.event_id = l.event_id and o.status = 'paid' and o.tracking_code = l.code) o on true
+        where l.event_id = $1
+        order by l.created_at desc, l.id`,
+      [event.eventId],
+    );
+    expect(
+      list.body.items.map((l: { linkId: string; views: number; orders: number; ticketsSold: number; grossCents: number }) => [
+        l.linkId,
+        l.views,
+        l.orders,
+        l.ticketsSold,
+        l.grossCents,
+      ]),
+    ).toEqual(perLink.map((r) => [r.id, Number(r.views), Number(r.orders), Number(r.tickets), Number(r.gross)]));
   });
 
   it("validates the label", async () => {

@@ -306,6 +306,9 @@ describe("public reads", () => {
     const params = { eventId: event.eventId };
     const current = await api.call(getSeatMap, { params, query: { v: String(map.version) } });
     expect(current.status).toBe(200);
+    // A year in browsers (the versioned URL never changes), an hour at the
+    // CDN (a takedown stops reaching new visitors within about an hour).
+    expect(SEAT_MAP_CACHE).toBe("public, max-age=31536000, s-maxage=3600, immutable");
     expect(current.headers.get("cache-control")).toBe(SEAT_MAP_CACHE);
     expect(current.body).toEqual(map);
   });

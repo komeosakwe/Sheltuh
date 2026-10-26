@@ -9,7 +9,7 @@ import {
 import { REFUND_POLICY_TIGHTENED_CODE } from "@/lib/refund-policy";
 import { sendReviewEmailsSoon } from "../email-outbox";
 import { parseEventInput, storedPlaceOf, type EventInput } from "../event-input";
-import { created, HttpError, ok, readJson } from "../http";
+import { created, HttpError, ok, okPrivate, readJson } from "../http";
 import { decodeCursor, parseLimit, toPage } from "../pagination";
 import {
   ADMIN_PAYOUTS_REQUIRED,
@@ -232,7 +232,7 @@ export const submitEventForReview: Handler<{ eventId: string }> = async (req, { 
   return ok(await requireEvent(deps.db, eventId));
 };
 
-/** GET /api/organisers/me/events — newest first. */
+/** GET /api/organisers/me/events — newest first; the organiser's own records (`private, no-store`). */
 export const listMyEvents: Handler = async (req, _params, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
   const organiser = await requireApprovedOrganiser(db, caller);
@@ -244,12 +244,12 @@ export const listMyEvents: Handler = async (req, _params, { db, verifyAccessToke
     `${EVENT_SELECT} where e.organiser_id = $1 order by e.created_at desc, e.id desc limit $2 offset $3`,
     [organiser.organiserId, limit + 1, offset],
   );
-  return ok(toPage(rows.map(toEvent), offset, limit));
+  return okPrivate(toPage(rows.map(toEvent), offset, limit));
 };
 
-/** GET /api/organisers/me/events/[eventId] — for the edit form. */
+/** GET /api/organisers/me/events/[eventId] — for the edit form (`private, no-store`). */
 export const getMyEvent: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
   const organiser = await requireApprovedOrganiser(db, caller);
-  return ok(await requireOwnEvent(db, organiser.organiserId, eventId));
+  return okPrivate(await requireOwnEvent(db, organiser.organiserId, eventId));
 };

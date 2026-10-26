@@ -15,18 +15,19 @@
  *
  * The suburb table (lib/localities.ts: every ABS suburb and locality in
  * Australia) is large, so client components load this module on demand
- * (lib/location-loader.ts) and import only its types statically. Server code
- * (app/search/page.tsx, the event write routes) imports it directly.
+ * (lib/location-loader.ts) and import only its types statically. The event
+ * write routes import it directly; /search (app/search/page.tsx) only when
+ * the address has a `near`.
  */
 import { distanceKm, MELBOURNE_DEFAULT_CENTER } from "./geo";
 import { LOCALITY_DATA, LOCALITY_REACH_KM } from "./localities";
-import { NEAR_MAX_LENGTH } from "./near-storage";
+import { parseNearParam } from "./near-storage";
 import { placeName, placeQuery, type PlaceFields } from "./place";
 import type { StateCode } from "./time-zones";
 import type { Coordinates } from "./types";
 
 export type { StateCode };
-export { distanceKm, placeQuery };
+export { distanceKm, parseNearParam, placeQuery };
 
 /** The table's order. */
 const STATE_CODES = ["NSW", "VIC", "QLD", "SA", "WA", "TAS", "NT", "ACT", "OT"] as const satisfies readonly StateCode[];
@@ -584,7 +585,3 @@ export function didYouMean(text: string): Locality | null {
   return null;
 }
 
-/** The `near` search parameter: its first value, trimmed, at most NEAR_MAX_LENGTH characters. */
-export function parseNearParam(value: string | string[] | undefined): string {
-  return ((Array.isArray(value) ? value[0] : value) ?? "").trim().slice(0, NEAR_MAX_LENGTH).trim();
-}

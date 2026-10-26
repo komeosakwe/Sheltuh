@@ -90,9 +90,37 @@ describe("live seat page: a map replaced while open (docs/design/seating.md §5.
       fireEvent.click(screen.getAllByRole("button", { name: "Checkout" })[0]);
     });
     await waitFor(() => expect(getPublicEventBySlug).toHaveBeenCalledTimes(2));
-    expect(getPublicEventBySlug).toHaveBeenLastCalledWith(event.slug);
+    // The first load is the plain URL; the reload is keyed by the map version the availability
+    // names (here still 1: the checkout's 409 doesn't say), so the CDN's older copy isn't reused.
+    expect(getPublicEventBySlug).toHaveBeenNthCalledWith(1, event.slug);
+    expect(getPublicEventBySlug).toHaveBeenLastCalledWith(event.slug, { seatMapVersion: 1 });
     await waitFor(() => expect(document.title).toBe("Choose seats — Off-Kilter (new run) — Sheltüh"));
     // No remount: the seat chosen before is still chosen.
     expect(within(screen.getByRole("group", { name: "North, Row A" })).getByRole("checkbox", { name: /^Seat 1, / })).toBeChecked();
+  });
+
+  it("after the poll sees a new map version, reloads the event under a URL keyed by that version", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(new Date("2026-10-21T00:00:00.000Z"));
+    const availability = (version: number) => ({
+      eventId: event.id,
+      version,
+      seatCount: sample.seatCount,
+      unavailable: encodeAvailability(sample.seatCount, sample.unavailable),
+    });
+    getSeatAvailability.mockReset();
+    getSeatAvailability.mockResolvedValueOnce(availability(1)).mockResolvedValue(availability(2));
+    getPublicEventBySlug.mockResolvedValueOnce(asPublic("Off-Kilter", 1)).mockResolvedValueOnce(asPublic("Off-Kilter (new run)", 2));
+    render(<LiveSeatPage slug={event.slug} />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByRole("group", { name: "North, Row A" })).toBeTruthy();
+    expect(getPublicEventBySlug).toHaveBeenCalledTimes(1);
+
+    // The next poll names version 2: the event is fetched again, keyed by it.
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(getPublicEventBySlug).toHaveBeenCalledTimes(2);
+    expect(getPublicEventBySlug).toHaveBeenLastCalledWith(event.slug, { seatMapVersion: 2 });
+    expect(document.title).toBe("Choose seats — Off-Kilter (new run) — Sheltüh");
   });
 });

@@ -34,9 +34,16 @@ Stripe (payments) and Vercel (hosting).
      your own machine only. The app never needs it.
    - Project URL → `NEXT_PUBLIC_SUPABASE_URL`
 4. **Database URL** (Connect button → "Transaction pooler", port 6543) →
-   `DATABASE_URL`. Use the pooler, not the direct connection. Serverless
-   hosting opens many short-lived connections, and the pooler exists to
-   absorb them.
+   `DATABASE_URL`, with `?sslmode=require` on the end. Use the pooler, not
+   the direct connection. Serverless hosting opens many short-lived
+   connections, and the pooler exists to absorb them. The app requires TLS
+   for any database that isn't on the same machine, whatever `sslmode`
+   says (`lib/server/db.ts`), but keep it in the URL so every other tool
+   that reads it does the same. Then turn on **Enforce SSL** (Project
+   Settings → Database → SSL Configuration), so the database refuses a
+   plain-text connection from anything. Optionally, for full certificate
+   verification, download the CA certificate from the same page and set
+   it as `DATABASE_CA_CERT` (`docs/DEPLOYMENT.md`, Supabase step 7).
 
 ### Auth settings (Authentication in the dashboard)
 
@@ -1320,6 +1327,10 @@ where j.status in ('failed', 'pending') order by j.created_at desc;
    (`pk_live_…` with `sk_live_…`), Preview the test pair (`pk_test_…` with
    `sk_test_…`).
 3. Settings → Functions → Region: **Sydney (syd1)**, next to the database.
+   `vercel.json` pins it (`"regions": ["syd1"]`); check the dashboard shows
+   the same after the first deploy. Also check **Fluid compute** is on
+   (Settings → Functions): an instance then serves many requests at once
+   and shares its 5 database connections between them.
 4. Point a domain at it. The live landing page on `sheltuh.com.au` stays on
    Cloudflare Workers until you decide to swap it. A subdomain such as
    `app.sheltuh.com.au` avoids touching it for now.

@@ -1,5 +1,11 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { deleteEventImage, getEventImage, putEventImage } from "@/lib/server/handlers/event-images";
+import {
+  deleteEventImage,
+  EVENT_IMAGE_CACHE,
+  EVENT_IMAGE_UNVERSIONED_CACHE,
+  getEventImage,
+  putEventImage,
+} from "@/lib/server/handlers/event-images";
 import { submitEventForReview } from "@/lib/server/handlers/events";
 import { adminApproveEvent } from "@/lib/server/handlers/admin";
 import { runHandler } from "@/lib/server/route";
@@ -39,8 +45,11 @@ function put(eventId: string, body: BodyInit, token = organiser.token) {
   );
 }
 
-async function getRaw(eventId: string, token?: string) {
-  const req = new Request(SITE, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+async function getRaw(eventId: string, token?: string, version?: string, extraHeaders: Record<string, string> = {}) {
+  const url = version === undefined ? SITE : `${SITE}?v=${encodeURIComponent(version)}`;
+  const req = new Request(url, {
+    headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...extraHeaders },
+  });
   return (await import("@/lib/server/route")).runHandler(getEventImage, req, { eventId }, api.deps);
 }
 
@@ -83,17 +92,69 @@ describe("event images", () => {
     expect((await getRaw(draft.eventId, admin.token)).status).toBe(200);
   });
 
-  it("serves a published event's image publicly, cached for a day (not forever, so a takedown takes effect)", async () => {
+  it("serves a published event's image publicly; shared at the CDN only at its current version, for an hour", async () => {
     const draft = await draftEvent(api, organiser);
     await put(draft.eventId, PNG);
     const params = { eventId: draft.eventId };
     await api.call(submitEventForReview, { token: organiser.token, params, method: "POST" });
     const approved = await api.call(adminApproveEvent, { token: admin.token, params, method: "POST" });
-    expect(approved.body.imageUrl).toBeDefined();
+    const version = new URL(approved.body.imageUrl, SITE).searchParams.get("v")!;
+    expect(version).toMatch(/^\d+$/);
 
-    const read = await getRaw(draft.eventId);
-    expect(read.status).toBe(200);
-    expect(read.headers.get("cache-control")).toBe("public, max-age=86400");
+    // At the URL the API gives out: an hour at the CDN, and max-age as long
+    // so a CDN copy isn't stale on arrival (a takedown is gone within about
+    // an hour; never `immutable`).
+    expect(EVENT_IMAGE_CACHE).toBe("public, max-age=3600, s-maxage=3600");
+    const current = await getRaw(draft.eventId, undefined, version);
+    expect(current.status).toBe(200);
+    expect(current.headers.get("cache-control")).toBe(EVENT_IMAGE_CACHE);
+    expect(current.headers.get("etag")).toBe(`"${version}"`);
+    expect(current.headers.get("last-modified")).toBe(new Date(Number(version) * 1000).toUTCString());
+    expect(new Uint8Array(await current.arrayBuffer())).toEqual(PNG);
+    // The same for a signed-in caller: nothing in it depends on who asks.
+    const signedIn = await getRaw(draft.eventId, organiser.token, version);
+    expect(signedIn.headers.get("cache-control")).toBe(EVENT_IMAGE_CACHE);
+
+    // Any other `v` (none, an old one, a guessed future one) still gets the
+    // current image, but for the browser only: never shared under a URL that
+    // could outlive a replacement.
+    expect(EVENT_IMAGE_UNVERSIONED_CACHE).toBe("private, max-age=3600");
+    for (const v of [undefined, "", String(Number(version) - 1), String(Number(version) + 60), `${version}x`]) {
+      const res = await getRaw(draft.eventId, undefined, v);
+      expect([v, res.status, res.headers.get("cache-control")]).toEqual([v, 200, EVENT_IMAGE_UNVERSIONED_CACHE]);
+    }
+
+    // A matching If-None-Match: 304, no body, the same cache header and ETag
+    // as the 200 it stands for (shared only at the current `v`).
+    const etag = { "if-none-match": `"${version}"` };
+    const notModified = await getRaw(draft.eventId, undefined, version, etag);
+    expect([notModified.status, notModified.headers.get("cache-control"), notModified.headers.get("etag")]).toEqual([
+      304,
+      EVENT_IMAGE_CACHE,
+      `"${version}"`,
+    ]);
+    expect((await notModified.arrayBuffer()).byteLength).toBe(0);
+    const notModifiedUnversioned = await getRaw(draft.eventId, undefined, undefined, etag);
+    expect([notModifiedUnversioned.status, notModifiedUnversioned.headers.get("cache-control")]).toEqual([
+      304,
+      EVENT_IMAGE_UNVERSIONED_CACHE,
+    ]);
+    // An old version's ETag, a weak or listed one, or garbage: the image.
+    for (const header of [`"${Number(version) - 1}"`, `W/"${version}"`, `"${version}", "1"`, "*", version]) {
+      const res = await getRaw(draft.eventId, undefined, version, { "if-none-match": header });
+      expect([header, res.status]).toEqual([header, 200]);
+      expect(new Uint8Array(await res.arrayBuffer())).toEqual(PNG);
+    }
+
+    // Unpublished again: private, whatever `v` says, and only for the owner or an admin.
+    await api.db.query(`update public.events set status = 'draft' where id = $1`, [draft.eventId]);
+    expect((await getRaw(draft.eventId, undefined, version)).status).toBe(404);
+    // A matching ETag doesn't get round the access check either.
+    expect((await getRaw(draft.eventId, undefined, version, etag)).status).toBe(404);
+    const owner = await getRaw(draft.eventId, organiser.token, version);
+    expect([owner.status, owner.headers.get("cache-control")]).toEqual([200, "private, no-store"]);
+    const ownerNotModified = await getRaw(draft.eventId, organiser.token, version, etag);
+    expect([ownerNotModified.status, ownerNotModified.headers.get("cache-control")]).toEqual([304, "private, no-store"]);
   });
 
   it("rejects non-images (by content, not by declared type) and oversized files", async () => {

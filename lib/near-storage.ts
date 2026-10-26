@@ -20,6 +20,15 @@ export const NEAR_STORAGE_KEY = "sheltuh:near:v1";
  */
 export const NEAR_MAX_LENGTH = 60;
 
+/**
+ * The `near` search parameter: its first value, trimmed, at most
+ * NEAR_MAX_LENGTH characters. Here (re-exported by lib/location.ts) so
+ * /search can read it without loading the suburb table.
+ */
+export function parseNearParam(value: string | string[] | undefined): string {
+  return ((Array.isArray(value) ? value[0] : value) ?? "").trim().slice(0, NEAR_MAX_LENGTH).trim();
+}
+
 function local(): Storage | null {
   try {
     return typeof window === "undefined" ? null : window.localStorage;

@@ -10,6 +10,7 @@ import { ADMIN_EVENT_SELECT, ADMIN_ORGANISER_SELECT, toAdminEvent, toAdminOrgani
 import type { Handler } from "../route";
 import { MAX_TICKETING_REASON_LENGTH, parseTicketing } from "../ticketing-input";
 import type { AdminOrganiserRecord, AdminSummary, EventStatus, OrganiserStatus, SuspendOrganiserResult } from "../types";
+import { upcomingPageQuery } from "../upcoming-page";
 import { fail, requireString } from "../validation";
 import { requireEventForAdmin } from "./event-queries";
 
@@ -298,8 +299,10 @@ export const adminRemoveOrganiserLogo: Handler<{ organiserId: string }> = async 
  *   only of organisers with an account. Absent: both.
  *
  * Anything else for a boolean is a 400 (fieldErrors on the parameter).
- * Served by events_status_starts_idx (status, starts_at, id), or
- * events_status_ends_idx with `upcoming`; the search has no index (a
+ * Served by events_status_starts_idx (status, starts_at, id); with
+ * `upcoming`, the page's ids come first (upcomingPageQuery: events in progress
+ * through events_status_ends_idx, not started ones through the starts
+ * index), so ended events aren't walked. The search has no index (a
  * substring of a folded expression, as for organisers) and filters one
  * status's rows.
  */
@@ -317,7 +320,6 @@ export const adminListEvents: Handler = async (req, _params, { db, verifyAccessT
 
   const params: unknown[] = [status];
   const where = ["e.status = $1::public.event_status"];
-  if (upcoming) where.push("e.ends_at > now()");
   if (platformManaged !== undefined) {
     where.push(platformManaged ? "o.owner_user_id is null" : "o.owner_user_id is not null");
   }
@@ -328,10 +330,14 @@ export const adminListEvents: Handler = async (req, _params, { db, verifyAccessT
     where.push(`(${ORGANISER_SEARCH_FOLD("e.title")} like ${n} or ${ORGANISER_SEARCH_FOLD("o.display_name")} like ${n})`);
   }
   params.push(limit + 1, offset);
+  const limitParam = `$${params.length - 1}`;
+  const offsetParam = `$${params.length}`;
 
   const rows = await db.query(
-    `${ADMIN_EVENT_SELECT} where ${where.join(" and ")}
-     order by e.starts_at, e.id limit $${params.length - 1} offset $${params.length}`,
+    upcoming
+      ? upcomingPageQuery(ADMIN_EVENT_SELECT, where, limitParam, offsetParam)
+      : `${ADMIN_EVENT_SELECT} where ${where.join(" and ")}
+         order by e.starts_at, e.id limit ${limitParam} offset ${offsetParam}`,
     params,
   );
   return okPrivate(toPage(rows.map(toAdminEvent), offset, limit));
