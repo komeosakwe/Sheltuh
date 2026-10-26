@@ -132,7 +132,9 @@ async function deliverTicketEmail(deps: Deps, orderId: string): Promise<Outcome>
     if (!order.buyerEmail) return { sent: false, error: "the order has no email address", permanent: true };
     const event = await findEventById(deps.db, order.eventId);
     if (!event) return { sent: false, error: "the event no longer exists", permanent: true };
-    await deps.sendEmail(buildTicketEmail(order, event, deps.siteUrl()));
+    // Which wallets' passes are on, for the per-ticket "Add to … Wallet" links (neither call throws: off is undefined).
+    const wallet = { google: !!deps.googleWallet(), apple: !!(await deps.appleWallet()) };
+    await deps.sendEmail(buildTicketEmail(order, event, deps.siteUrl(), new Date(), wallet));
     return { sent: true };
   } catch (err) {
     return { sent: false, error: redactForLog(err instanceof Error ? err.message : "unknown error"), permanent: false };

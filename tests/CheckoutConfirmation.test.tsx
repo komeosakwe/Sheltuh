@@ -20,7 +20,9 @@ const getOrderBySession = vi.fn();
 const getOrderPayment = vi.fn();
 // The writes the page must never make (it only reads).
 const writes = { createCheckoutSession: vi.fn(), confirmFreeOrder: vi.fn(), cancelPendingOrder: vi.fn() };
-vi.mock("@/lib/api/orders", () => ({
+vi.mock("@/lib/api/orders", async (importOriginal) => ({
+  // A pure URL builder (the wallet buttons' links): the real one.
+  walletPassUrl: (await importOriginal<typeof import("@/lib/api/orders")>()).walletPassUrl,
   getOrderBySession: (...args: unknown[]) => getOrderBySession(...args),
   getOrderPayment: (...args: unknown[]) => getOrderPayment(...args),
   createCheckoutSession: (...args: unknown[]) => writes.createCheckoutSession(...args),
@@ -281,6 +283,83 @@ describe("CheckoutConfirmation", () => {
       expect(screen.queryByText(REFUND_ACL_STATEMENT)).toBeNull();
       cleanup();
     }
+  });
+
+  describe("wallet buttons (CustomerOrder.wallet)", () => {
+    const walletLinks = () => screen.queryAllByRole("link", { name: /^Add to (Apple|Google) Wallet/ });
+
+    it("none without the flags (an older API), or with both off", async () => {
+      for (const order of [{ ...WITH_DETAILS, eventListed: true }, { ...WITH_DETAILS, eventListed: true, wallet: { google: false, apple: false } }]) {
+        getOrderBySession.mockResolvedValue(order);
+        render(<CheckoutConfirmation />);
+        expect(await screen.findByRole("img", { name: "QR code for ticket 7KQM-2HXD" })).toBeInTheDocument();
+        expect(walletLinks()).toHaveLength(0);
+        expect(screen.queryByRole("list", { name: "Add to your phone's wallet" })).toBeNull();
+        cleanup();
+      }
+    });
+
+    it("per ticket, only the wallets that are on, each to its pass route by the ticket's number (the API's order)", async () => {
+      getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, eventListed: true, wallet: { google: true, apple: false } });
+      render(<CheckoutConfirmation />);
+      const list = await screen.findByRole("list", { name: "Add to your phone's wallet" });
+      const links = within(list).getAllByRole("link");
+      expect(links.map((a) => a.getAttribute("aria-label"))).toEqual([
+        "Add to Google Wallet: ticket 1 of 2",
+        "Add to Google Wallet: ticket 2 of 2",
+      ]);
+      expect(links.map((a) => a.getAttribute("href"))).toEqual([
+        "/api/orders/by-session/cs_test_1/wallet/google?ticket=1",
+        "/api/orders/by-session/cs_test_1/wallet/google?ticket=2",
+      ]);
+      expect(within(list).getByText("Ticket 2 of 2 · VIP")).toBeInTheDocument();
+      cleanup();
+
+      getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, eventListed: true, wallet: { google: true, apple: true } });
+      render(<CheckoutConfirmation />);
+      await screen.findByRole("list", { name: "Add to your phone's wallet" });
+      expect(walletLinks().map((a) => a.getAttribute("href"))).toEqual([
+        "/api/orders/by-session/cs_test_1/wallet/apple?ticket=1",
+        "/api/orders/by-session/cs_test_1/wallet/google?ticket=1",
+        "/api/orders/by-session/cs_test_1/wallet/apple?ticket=2",
+        "/api/orders/by-session/cs_test_1/wallet/google?ticket=2",
+      ]);
+    });
+
+    it("seated tickets are listed by seat but keep their numbers, so each link is the route's ticket", async () => {
+      getOrderBySession.mockResolvedValue({
+        ...WITH_DETAILS,
+        eventListed: true,
+        wallet: { google: false, apple: true },
+        tickets: [
+          { ticketCode: "7KQM-2HXD", ticketTypeName: "Stalls", checkedInAt: null, seat: { section: "Stalls", row: "B", seat: "4", kind: "standard" } },
+          { ticketCode: "A2B3-C4D5", ticketTypeName: "Stalls", checkedInAt: null, seat: { section: "Stalls", row: "A", seat: "9", kind: "standard" } },
+        ],
+      });
+      render(<CheckoutConfirmation />);
+      await screen.findByRole("list", { name: "Add to your phone's wallet" });
+      // Row A (ticket 2 in the API's order) is listed first, and its link still asks for ticket 2.
+      expect(walletLinks().map((a) => [a.getAttribute("aria-label"), a.getAttribute("href")])).toEqual([
+        ["Add to Apple Wallet: ticket 2 of 2", "/api/orders/by-session/cs_test_1/wallet/apple?ticket=2"],
+        ["Add to Apple Wallet: ticket 1 of 2", "/api/orders/by-session/cs_test_1/wallet/apple?ticket=1"],
+      ]);
+    });
+
+    it("none for an event that's no longer listed, even if a response carried the flags", async () => {
+      getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, eventListed: false, wallet: { google: true, apple: true } });
+      render(<CheckoutConfirmation />);
+      expect(await screen.findByRole("img", { name: "QR code for ticket 7KQM-2HXD" })).toBeInTheDocument();
+      expect(walletLinks()).toHaveLength(0);
+    });
+
+    it("none for a refunded order", async () => {
+      getOrderBySession.mockResolvedValue({ ...ORDER, status: "refunded", refundReason: "refunded", tickets: [], wallet: { google: true, apple: true } });
+      render(<CheckoutConfirmation />);
+      expect(
+        await screen.findByText("Your payment for Neon Static was refunded, so the tickets for this order are no longer valid."),
+      ).toBeInTheDocument();
+      expect(walletLinks()).toHaveLength(0);
+    });
   });
 
   it("keeps the sold-out wording for an oversold refund", async () => {

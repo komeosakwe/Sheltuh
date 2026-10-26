@@ -17,7 +17,9 @@ import {
   ticketDirectionsLink,
   ticketEmailRefundPolicy,
   ticketQrAlt,
+  ticketWalletLinks,
   ticketWhen,
+  walletPassLink,
 } from "@/lib/server/ticket-email";
 import type { EventRecord, OrderRecord } from "@/lib/server/types";
 import { ticketQrMatrix } from "@/lib/ticket-qr";
@@ -793,5 +795,90 @@ describe("buildTicketEmail", () => {
   it("a message without inline images has no attachments (other emails are unchanged)", () => {
     const options = mailOptions("tickets@sheltuh.com.au", { to: "a@example.com", subject: "s", text: "t", html: "<p>h</p>" });
     expect(options.attachments).toBeUndefined();
+  });
+});
+
+describe("wallet links (ticketWalletLinks; the outbox passes which wallets are on)", () => {
+  const paid = { ...order, status: "paid" } as OrderRecord;
+  const BOTH = { google: true, apple: true };
+  const link = (provider: "apple" | "google", n: number) => `https://x/api/orders/by-session/ord_abc/wallet/${provider}?ticket=${n}`;
+  const panelsOf = (html: string) => html.split(CARD).slice(1);
+
+  it("none by default (no wallet on), so the email is as before", () => {
+    const { html, text } = buildTicketEmail(paid, event, "https://x");
+    for (const body of [html, text]) {
+      expect(body).not.toContain("/wallet/");
+      expect(body).not.toMatch(/Add to (Apple|Google) Wallet/);
+    }
+  });
+
+  it("each ticket, right after its entry code, links its own number's route (1-based, the route's ?ticket=)", () => {
+    const { html, text } = buildTicketEmail(paid, event, "https://x", new Date(), BOTH);
+    expect(text).toContain(
+      [
+        "Ticket 1 of 2 - GA",
+        "Entry code: ABCD-EFGH",
+        `Add to Apple Wallet: ${link("apple", 1)}`,
+        `Add to Google Wallet: ${link("google", 1)}`,
+        "",
+        "Ticket 2 of 2 - GA",
+        "Entry code: JKLM-NPQR",
+        `Add to Apple Wallet: ${link("apple", 2)}`,
+        `Add to Google Wallet: ${link("google", 2)}`,
+      ].join("\n"),
+    );
+    const panels = panelsOf(html);
+    expect(panels).toHaveLength(2);
+    for (const [i, panel] of panels.entries()) {
+      const n = i + 1;
+      expect(panel).toContain(order.tickets[i].ticketCode);
+      expect(panel).toContain(`<a href="${link("apple", n)}" style="color:#000000;text-decoration:underline">Add to Apple Wallet</a>`);
+      expect(panel).toContain(`<a href="${link("google", n)}" style="color:#000000;text-decoration:underline">Add to Google Wallet</a>`);
+      // Under the code, inside the panel.
+      expect(panel.indexOf("Add to Apple Wallet")).toBeGreaterThan(panel.indexOf(order.tickets[i].ticketCode));
+      expect(panel.match(/\?ticket=(\d+)/g)).toEqual([`?ticket=${n}`, `?ticket=${n}`]);
+    }
+    expect(walletPassLink("https://x", "ord_abc", "google", 2)).toBe(link("google", 2));
+  });
+
+  it("only the wallets that are on", () => {
+    const google = buildTicketEmail(paid, event, "https://x", new Date(), { google: true, apple: false });
+    expect(google.text).toContain(`Add to Google Wallet: ${link("google", 1)}`);
+    expect(google.text).not.toContain("Apple Wallet");
+    expect(google.html).not.toContain("Apple Wallet");
+    const apple = buildTicketEmail(paid, event, "https://x", new Date(), { google: false, apple: true });
+    expect(apple.html).toContain(">Add to Apple Wallet</a>");
+    expect(apple.html).not.toContain("Google Wallet");
+    const none = buildTicketEmail(paid, event, "https://x", new Date(), { google: false, apple: false });
+    expect(none.html).not.toContain("/wallet/");
+    expect(none.text).not.toContain("/wallet/");
+  });
+
+  it("none for an event that isn't listed, or an order that isn't paid (the routes would 404)", () => {
+    for (const status of ["draft", "pending_review", "rejected"] as const) {
+      const { html, text } = buildTicketEmail(paid, { ...event, status }, "https://x", new Date(), BOTH);
+      expect(html).not.toContain("/wallet/");
+      expect(text).not.toContain("/wallet/");
+      expect(ticketWalletLinks(paid, { status }, "https://x", BOTH, 0)).toEqual([]);
+    }
+    for (const status of ["pending", "refunded"] as const) {
+      expect(ticketWalletLinks({ ...paid, status }, event, "https://x", BOTH, 0)).toEqual([]);
+    }
+  });
+
+  it("keeps the refund policy and the summary as they were, and encodes the order id in the link", () => {
+    const days = { ...event, refundPolicy: "days_before", refundDays: 7 } as EventRecord;
+    const BUILT = new Date("2026-11-01T00:00:00.000Z");
+    const without = buildTicketEmail(paid, days, "https://x", BUILT);
+    const withWallet = buildTicketEmail(paid, days, "https://x", BUILT, BOTH);
+    const line = "Refund policy: Refunds available until Sat 27 Feb 2027, 8:00 pm (7 days before the event).";
+    expect(withWallet.text).toContain(line);
+    // Everything after the tickets is unchanged.
+    const tail = (t: string) => t.slice(t.indexOf("View your tickets:"));
+    expect(tail(withWallet.text)).toBe(tail(without.text));
+    const htmlTail = (h: string) => h.slice(h.lastIndexOf("</table>", h.indexOf("View your tickets")));
+    expect(htmlTail(withWallet.html)).toBe(htmlTail(without.html));
+    const odd = buildTicketEmail({ ...paid, orderId: "ord_a/b&c" }, event, "https://x", new Date(), BOTH);
+    expect(odd.html).toContain('href="https://x/api/orders/by-session/ord_a%2Fb%26c/wallet/apple?ticket=1"');
   });
 });

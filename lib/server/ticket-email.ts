@@ -22,7 +22,7 @@ import {
 } from "./email-layout";
 import { orderReference } from "./order-reference";
 import { encodePng } from "./png";
-import type { EventRecord, OrderRecord, TicketSeat } from "./types";
+import type { EventRecord, OrderRecord, TicketSeat, WalletAvailability } from "./types";
 
 /**
  * The buyer's tickets email, sent once an order is paid (free orders included).
@@ -33,7 +33,9 @@ import type { EventRecord, OrderRecord, TicketSeat } from "./types";
  * and the event name as the heading; the event's image, full width, when it
  * has one; the date and time, venue, address and a "Get directions" link; a
  * white ticket panel per ticket (type, "Ticket n of N", seat, a dashed
- * perforation, the QR, "Show this code at the door." and the backup code);
+ * perforation, the QR, "Show this code at the door.", the backup code and,
+ * while the event is listed, "Add to Apple Wallet" / "Add to Google Wallet"
+ * for each wallet the server has on: ticketWalletLinks);
  * the "View your ticket(s) →" button to the order's ticket page, with a text
  * fallback link; the order reference and total; for a paid order, the
  * event's refund policy and the Australian Consumer Law line
@@ -157,6 +159,42 @@ export function ticketPageLink(siteUrl: string, orderId: string): string {
 }
 
 /**
+ * One ticket's "Add to … Wallet" route (lib/server/handlers/wallet.ts), by the
+ * same capability as ticketPageLink. `ticketNumber` is the ticket's number in
+ * the email and on the ticket page (1-based, ticket type then code), which is
+ * the route's `?ticket=`; never the ticket's code.
+ */
+export function walletPassLink(siteUrl: string, orderId: string, provider: "apple" | "google", ticketNumber: number): string {
+  return `${siteUrl}/api/orders/by-session/${encodeURIComponent(orderId)}/wallet/${provider}?ticket=${ticketNumber}`;
+}
+
+/** No wallet passes: buildTicketEmail's default, when the caller doesn't say which wallets are on. */
+const NO_WALLET: WalletAvailability = { google: false, apple: false };
+
+/**
+ * Ticket `index`'s (0-based) wallet links for the email, Apple then Google,
+ * or none: only for a paid order of a listed (published) event, the wallet
+ * pass routes' own rule (walletEligible in ./handlers/orders.ts; they 404
+ * otherwise), and only for the wallets `wallet` says are on (the outbox
+ * passes Deps.googleWallet / appleWallet). The outbox rebuilds the email on
+ * every attempt and resend, so the links follow the event and configuration
+ * as they stand then.
+ */
+export function ticketWalletLinks(
+  order: Pick<OrderRecord, "orderId" | "status">,
+  event: Pick<EventRecord, "status">,
+  siteUrl: string,
+  wallet: WalletAvailability,
+  index: number,
+): { label: string; href: string }[] {
+  if (order.status !== "paid" || event.status !== "published") return [];
+  return [
+    ...(wallet.apple ? [{ label: "Add to Apple Wallet", href: walletPassLink(siteUrl, order.orderId, "apple", index + 1) }] : []),
+    ...(wallet.google ? [{ label: "Add to Google Wallet", href: walletPassLink(siteUrl, order.orderId, "google", index + 1) }] : []),
+  ];
+}
+
+/**
  * The event image's absolute URL for the email, or null: only for a
  * same-origin path (the API's `/api/events/{id}/image?v=…`) on an https site,
  * so a mail client (or Gmail's image proxy) can fetch it without signing in,
@@ -250,9 +288,18 @@ function ticketLine(typeName: string, index: number, total: number): string {
  * ticket", its type and number, its seat (reserved seating), a dashed
  * perforation, the QR centred on white (the PNG carries its own white quiet
  * zone; nothing is drawn over it), "Show this code at the door." and the
- * backup code as selectable text ("Entry code", larger, when there's no QR).
+ * backup code as selectable text ("Entry code", larger, when there's no QR),
+ * then its wallet links, if any (ticketWalletLinks), as underlined text links.
  */
-function ticketPanel(code: string, typeName: string, index: number, total: number, qr: TicketQr | null, seat?: TicketSeat): string {
+function ticketPanel(
+  code: string,
+  typeName: string,
+  index: number,
+  total: number,
+  qr: TicketQr | null,
+  seat?: TicketSeat,
+  walletLinks: { label: string; href: string }[] = [],
+): string {
   const qrRow = qr
     ? `<tr><td align="center" bgcolor="${WHITE}" style="padding:24px 16px 0 16px;background-color:${WHITE}"><img src="cid:${escapeHtml(qr.image.cid)}" width="${qr.px}" height="${qr.px}" alt="${escapeHtml(qr.alt)}" style="display:block;border:0;width:${qr.px}px;max-width:100%;height:auto;image-rendering:pixelated;-ms-interpolation-mode:nearest-neighbor;background-color:${WHITE};${text(13, 18, INK)}"></td></tr>\n`
     : "";
@@ -266,7 +313,7 @@ ${qrRow}<tr><td align="center" class="tpx" style="padding:${qr ? 16 : 20}px 20px
 <tr><td align="center" style="${text(16, 24, INK, "font-weight:bold")}">Show this code at the door.</td></tr>
 <tr><td align="center" style="padding:8px 0 0 0;${text(14, 20, MUTED)}">${qr ? "Backup code" : "Entry code"}</td></tr>
 <tr><td align="center" style="${codeStyle}">${escapeHtml(code)}</td></tr>
-</table></td></tr>
+${walletLinks.length ? `<tr><td align="center" style="padding:12px 0 0 0;${text(14, 20, INK)}">${walletLinks.map((l) => `<a href="${escapeHtml(l.href)}" style="color:${INK};text-decoration:underline">${escapeHtml(l.label)}</a>`).join(" &middot; ")}</td></tr>\n` : ""}</table></td></tr>
 </table>`;
 }
 
@@ -299,13 +346,16 @@ const YOURE_IN_LABEL = `<table role="presentation" cellpadding="0" cellspacing="
 
 /**
  * The sent email: one 600px-max column, with a plain-text alternative. `now`
- * (when it's built) dates the refund policy (ticketEmailRefundPolicy).
+ * (when it's built) dates the refund policy (ticketEmailRefundPolicy);
+ * `wallet` says which wallets' passes are on, for each ticket's wallet links
+ * (ticketWalletLinks; none by default).
  */
 export function buildTicketEmail(
   order: OrderRecord,
   event: EventRecord,
   siteUrl: string,
   now: Date = new Date(),
+  wallet: WalletAvailability = NO_WALLET,
 ): EmailMessage {
   const link = ticketPageLink(siteUrl, order.orderId);
   const one = order.tickets.length === 1;
@@ -325,6 +375,7 @@ export function buildTicketEmail(
   const anyQr = qrs.some((qr) => qr !== null);
   const total = order.tickets.length;
   const refunds = ticketEmailRefundPolicy(order, event, now);
+  const walletLinks = (i: number) => ticketWalletLinks(order, event, siteUrl, wallet, i);
 
   // --- Plain text ---
   const plain = [
@@ -357,6 +408,7 @@ export function buildTicketEmail(
       `Ticket ${i + 1} of ${total}${t.ticketTypeName ? ` - ${t.ticketTypeName}` : ""}`,
       ...(t.seat ? [`Seat: ${speakSeatLine(t.seat)}`] : []),
       `Entry code: ${t.ticketCode}`,
+      ...walletLinks(i).map((l) => `${l.label}: ${l.href}`),
     ]),
     "",
     `${buttonLabel}: ${link}`,
@@ -403,7 +455,9 @@ ${
         "0 0 24px 0",
       );
 
-  const panels = order.tickets.map((t, i) => ticketPanel(t.ticketCode, t.ticketTypeName, i, total, qrs[i], t.seat)).join("\n");
+  const panels = order.tickets
+    .map((t, i) => ticketPanel(t.ticketCode, t.ticketTypeName, i, total, qrs[i], t.seat, walletLinks(i)))
+    .join("\n");
   const tip = anyQr
     ? para(
         `Turn your screen brightness up. If ${one ? "the" : "a"} QR code won&rsquo;t scan, door staff can type in ${one ? "the" : "its"} backup code.`,

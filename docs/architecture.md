@@ -3371,6 +3371,23 @@ the server's configuration. `wallet` is present only when the order's
 tickets could be added (`walletEligible`: `paid`, `eventListed`, at least one
 ticket), with `false` for a wallet that's off.
 
+**Where it's offered.** The ticket page (`components/CheckoutConfirmation.tsx`)
+shows `WalletButtons` for each ticket, under the ticket stubs, when
+`order.wallet` has a wallet on (and the event is listed); each button links
+the route with the ticket's number, kept from the API's order even where
+seated tickets are listed by seat. The ticket email
+(`lib/server/ticket-email.ts`) puts "Add to Apple Wallet" / "Add to Google
+Wallet" text links in each ticket's panel, under its code, and after its
+entry code in the plain text (`ticketWalletLinks`, `walletPassLink`): only
+for a paid order of a published event (the routes' own rule) and only for
+the wallets that are on, which the outbox reads on every attempt
+(`{ google: !!deps.googleWallet(), apple: !!(await deps.appleWallet()) }`),
+so a resend follows the configuration and the event as they stand then.
+Tests: `tests/CheckoutConfirmation.test.tsx`, `tests/server/ticket-email.test.ts`,
+and `tests/server/wallet-passes.test.ts` ("the ticket email's wallet links"),
+which follows each emailed link into the route and checks the pass is the
+ticket the email shows under that number.
+
 **The capability and the rules are the ticket page's.**
 `GET /api/orders/by-session/{orderId}/wallet/google?ticket={n}` and
 `…/wallet/apple?ticket={n}` read the order with the page's own lookup

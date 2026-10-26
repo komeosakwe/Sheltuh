@@ -413,9 +413,10 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        returns **0 rows** and that Storage → Buckets shows `event-clips` as
        **private**.
        Optional: wallet passes ("Add to Google Wallet" / "Add to Apple
-       Wallet" on the ticket page), server-only, **Production only**. Each
-       wallet turns itself on after a redeploy once all of its variables are
-       set and valid; until then it's simply off (no button, its route 404s),
+       Wallet" on the ticket page and in the ticket email), server-only,
+       **Production only**. Each wallet turns itself on after a redeploy once
+       all of its variables are set and valid; until then it's simply off (no
+       button or email link, its route 404s),
        and the function logs name any variable that's wrong, never a value.
        Google: `GOOGLE_WALLET_ISSUER_ID`, `GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL`,
        `GOOGLE_WALLET_PRIVATE_KEY`. Apple (needs the Apple Developer Program):

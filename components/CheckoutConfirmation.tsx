@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import TicketStub from "@/components/tickets/TicketStub";
+import WalletButtons from "@/components/tickets/WalletButtons";
 import { ButtonLink, buttonClass } from "@/components/ui/Button";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 import Strap from "@/components/ui/Strap";
@@ -374,6 +375,28 @@ export default function CheckoutConfirmation() {
             />
           ))}
         </ul>
+        {/* Add to Apple / Google Wallet, per ticket, only for the wallets the server has on (order.wallet: set only
+            for a paid order of a listed event, as the pass routes require). Numbered as the stubs and the email
+            (the route takes the number). */}
+        {sessionId && !unlisted && (order.wallet?.apple || order.wallet?.google) && (
+          <ul className="flex flex-col gap-3 print:hidden" aria-label="Add to your phone's wallet">
+            {sortTicketsBySeat(order.tickets).map(({ ticket, number }) => (
+              <li key={ticket.ticketCode} className="flex flex-col gap-1">
+                {order.tickets.length > 1 && (
+                  <p className="text-xs text-muted">
+                    Ticket {number} of {order.tickets.length} · {ticket.ticketTypeName}
+                  </p>
+                )}
+                <WalletButtons
+                  sessionId={sessionId}
+                  wallet={order.wallet}
+                  ticketNumber={number}
+                  ticketCount={order.tickets.length}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
         <div className="flex flex-col gap-1 text-xs text-muted">
           <p>Show a QR code at the door, from this page or your ticket email.</p>
           <p>This page needs a connection. If signal at the venue is patchy, take a screenshot first.</p>

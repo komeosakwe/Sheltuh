@@ -470,3 +470,84 @@ describe("log hygiene", () => {
     }
   });
 });
+
+describe("the ticket email's wallet links (lib/server/ticket-email.ts, ticketWalletLinks)", () => {
+  /** The order's ticket email, as the outbox sent it (the paid webhook queues it; Deps.defer drains it). */
+  async function sentEmail() {
+    await api.runDeferred();
+    expect(api.sendEmail).toHaveBeenCalled();
+    return api.sendEmail.mock.calls.at(-1)![0];
+  }
+
+  /** Each plain-text ticket block: its number, its entry code, and its wallet links (label → URL). */
+  function textTickets(text: string) {
+    return text
+      .split("\n\nTicket ")
+      .slice(1)
+      .map((block) => {
+        const number = Number(/^(\d+) of /.exec(block)![1]);
+        const code = /^Entry code: (\S+)$/m.exec(block)![1];
+        const links = Object.fromEntries([...block.matchAll(/^(Add to (?:Apple|Google) Wallet): (\S+)$/gm)].map((m) => [m[1], m[2]]));
+        return { number, code, links };
+      });
+  }
+
+  it("each ticket's links are numbered as the route takes them: ?ticket=n is the pass of the ticket the email shows as n", async () => {
+    const { orderId } = await paidOrder(3);
+    const { text, html } = await sentEmail();
+    const tickets = textTickets(text);
+    expect(tickets.map((t) => t.number)).toEqual([1, 2, 3]);
+    // The email's order is the ticket page's (the API's), which is the route's.
+    expect(tickets.map((t) => t.code)).toEqual(((await page(orderId)).tickets as { ticketCode: string }[]).map((t) => t.ticketCode));
+    const panels = html.split('class="ticket"').slice(1);
+    expect(panels).toHaveLength(3);
+    for (const [i, { number, code, links }] of tickets.entries()) {
+      const base = `${SITE_URL}/api/orders/by-session/${orderId}/wallet`;
+      expect(links).toEqual({
+        "Add to Apple Wallet": `${base}/apple?ticket=${number}`,
+        "Add to Google Wallet": `${base}/google?ticket=${number}`,
+      });
+      // The HTML panel showing this code links the same two routes, and no other ticket's.
+      expect(panels[i]).toContain(code);
+      expect(panels[i]).toContain(`href="${base}/apple?ticket=${number}"`);
+      expect(panels[i]).toContain(`href="${base}/google?ticket=${number}"`);
+      expect(panels[i].match(/\/wallet\/(?:apple|google)\?ticket=(\d+)/g)!.every((m) => m.endsWith(`=${number}`))).toBe(true);
+
+      // Following the link gives this ticket's pass, from both wallets.
+      const google = await pass(getGoogleWalletPass, orderId, String(number));
+      const { claims } = decodeJwt(google.headers.get("location")!.slice(GOOGLE_SAVE_URL_BASE.length), googleCreds.keys.publicKey);
+      expect(claims.payload.eventTicketObjects[0].barcode.alternateText).toBe(code);
+      const applePass = readZip(Buffer.from(await (await pass(getAppleWalletPass, orderId, String(number))).arrayBuffer()));
+      expect(JSON.parse(applePass.get("pass.json")!.toString("utf8")).barcodes[0].altText).toBe(code);
+    }
+  });
+
+  it("only for the wallets that are on, and none with both off", async () => {
+    api.googleWallet = undefined;
+    const { orderId } = await paidOrder(1);
+    let { text, html } = await sentEmail();
+    expect(textTickets(text)[0].links).toEqual({ "Add to Apple Wallet": `${SITE_URL}/api/orders/by-session/${orderId}/wallet/apple?ticket=1` });
+    expect(html).toContain(">Add to Apple Wallet</a>");
+    expect(html).not.toContain("Google Wallet");
+
+    api.appleWallet = undefined;
+    api.sendEmail.mockClear();
+    await paidOrder(1);
+    ({ text, html } = await sentEmail());
+    for (const body of [text, html]) {
+      expect(body).not.toContain("/wallet/");
+      expect(body).not.toMatch(/Add to (Apple|Google) Wallet/);
+    }
+  });
+
+  it("none once the event isn't listed when the email is built (the routes would 404)", async () => {
+    await paidOrder(1);
+    await api.db.query(`update public.events set status = 'draft' where id = $1`, [event.eventId]);
+    const { text, html } = await sentEmail();
+    expect(text).toContain("This event is no longer listed.");
+    for (const body of [text, html]) {
+      expect(body).not.toContain("/wallet/");
+      expect(body).not.toMatch(/Add to (Apple|Google) Wallet/);
+    }
+  });
+});

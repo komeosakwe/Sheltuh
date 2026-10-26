@@ -4,7 +4,7 @@
 phone wallet, with the same QR the ticket page and email show. Each wallet
 **switches itself on** once its variables are in Vercel and the site is
 redeployed: no code change, no flag. Until then it's off: the ticket page
-shows no button for it, and its route answers 404. How it works:
+shows no button for it, the ticket email no link, and its route answers 404. How it works:
 `docs/architecture.md`, "Wallet passes".
 
 Rules for every value below:
