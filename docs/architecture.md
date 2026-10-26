@@ -646,6 +646,16 @@ a local server (`npm run dev`, port 3000).
     `X-Robots-Tag: noindex, nofollow`; no other page requests
     `js.stripe.com`.
 
+## Payouts before paid events
+
+An organiser has to set up payouts (Stripe Connect, `organisers.payouts_enabled`) before an event with a paid Sheltüh ticket type can be submitted for review or published. Migration `20261109000000_paid_events_need_payouts.sql` enforces this in the database, whatever the code does:
+
+- `events_paid_tickets_need_payouts` refuses a move to `pending_review` or `published` for a Sheltüh-ticketed event with a ticket type priced above 0 while its organiser's payouts are off. This covers the organiser's submit and resubmit, an admin's approval, and an admin's publish through `admin_create_event` or `admin_edit_event`. A move back to draft or rejected (unpublish, reject, takedown) is never refused.
+- `ticket_types_paid_need_payouts` refuses a new paid ticket type, or a free one made paid, while the event is `pending_review` or `published` and the organiser has an owner and no payouts. Existing paid types stay editable; if payouts are turned off later, checkout's own guard refuses sales (`orders.ts`).
+- `private.submit_event` is the organiser's submit. It share-locks the organiser, then locks the event, so a concurrent Stripe re-sync either waits for the submit or is seen by it. It returns `payouts_required` rather than raising.
+
+The API answers 409 with `code: "payouts_required"` (`lib/api/events.ts`: `isPayoutsRequiredError`); admin create and edit responses also carry `fieldErrors.ticketTypes`. Drafts, free events and external ticketing never need payouts. Platform-managed organisers can't have payouts or paid ticket types at all (`organisers_platform_no_payouts`, `ticket_types_platform_free_only`), so the rule changes nothing for them. The editor warns up front using `OrganiserRecord.payoutsEnabled` from `GET /api/organisers/me`.
+
 ## Refunds made in Stripe
 
 Refunds of paid orders are made in the Stripe dashboard (there's no refund
