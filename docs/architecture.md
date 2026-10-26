@@ -2510,7 +2510,8 @@ application is approved.
 | `PUT /admin/events/{eventId}/seat-map` `{template, reason}` · `DELETE …` `{reason}` | admin, any status, no orders. 200 `SeatMapRecord` / 204; 400; 404; 409 has orders (`fieldErrors.template`) or external |
 | `POST /orders/by-session/{orderId}/cancel` | public (the order id is the credential; only the client that made the order gets it: the checkout's 201, the payment page's URL and Stripe's `return_url`, or a pre-embedded hosted session's cancel URL): expires the Stripe session, then cancels the order and releases its seats; a paid order is never changed. 200 `{status: "released" \| "paid" \| "processing", eventTitle, eventSlug?}`; 404; 409 still being set up |
 | `POST /orders/confirm` `{token}` | public (the emailed token is the credential). 200 `{url}` (also when already confirmed, within 24 hours); 400 malformed; 404 unknown; 410 expired (confirmed or not); 409 sold out, allowance used, or a ticket type no longer free |
-| `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store` |
+| `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store`; `wallet: {google, apple}` when the tickets can be added to a wallet (see "Wallet passes") |
+| `GET /orders/by-session/{orderId}/wallet/google?ticket={n}` · `…/wallet/apple?ticket={n}` | public (id is the credential, as the ticket page; see "Wallet passes"). Google: 302 to `https://pay.google.com/gp/v/save/{jwt}`; Apple: 200 `application/vnd.apple.pkpass`. `private, no-store`. 404 malformed (no query), the wallet not configured (no query), unknown, not paid, the event not published, or no ticket `n`; 400 `fieldErrors.ticket`; 429 over 30 a minute from this client |
 | `GET /orders/by-session/{orderId}/payment` | public (id is the credential), read-only. `OrderPaymentLookup` (see "Payment flow", step 2), `private, no-store`: `{status: "open", clientSecret, expiresAt, …summary}`, `{status: "processing", delayed}`, `{status: "done"}`, or `{status: "closed" \| "sold_out", eventTitle, eventSlug?, seated}` (`closed` also when the event is no longer published or has ended while the session is open); 404 malformed (no query), unknown or a guest's free booking; 409 still being set up; 429 over 30 reads a minute from this client, or 20 Stripe reads a minute for this order; 500 an open session without a client secret |
 | `GET /cron/email-outbox` | Vercel Cron (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due outbox emails (tickets, waitlist, followers, admin review emails), returns counts |
 | `GET /cron/trending` | Vercel Cron (same secret, 401 otherwise): rebuilds the trending snapshot, returns `{eligible, ranked}` |
@@ -2639,6 +2640,17 @@ is `cache-control: private, no-store`, and so is every admin response
   and the API: `template.ts` (the map's shape and validator), `availability.ts`
   (the bitmap), `format.ts` (how a seat is said). `lib/sample-seat-maps.ts`:
   the demo's seated sample.
+- Wallet passes (see that section): `lib/server/handlers/wallet.ts` (routes
+  `app/api/orders/by-session/[sessionId]/wallet/{google,apple}/route.ts`);
+  `lib/server/wallet/` (`config.ts`, the only reader of the wallet variables,
+  wired as `Deps.googleWallet` / `Deps.appleWallet`; `pass-content.ts`;
+  `google.ts`; `apple.ts`; `brand.ts`; `images.ts`, generated);
+  `lookupCustomerOrder` and `walletEligible` in `lib/server/handlers/orders.ts`;
+  `lib/api/orders.ts` `walletPassUrl`; `components/tickets/WalletButtons.tsx`;
+  `scripts/render-wallet-images.ts` → `public/wallet/`; tests
+  `tests/server/wallet-passes.test.ts`, `wallet-google.test.ts`,
+  `wallet-apple.test.ts` (helpers `tests/server/helpers/wallet.ts`) and
+  `tests/WalletButtons.test.tsx`.
 - `components/tickets/TicketQr.tsx` / `lib/ticket-qr.ts`: the ticket QR,
   as inline SVG on `/checkout/success` and as a PNG in the ticket email.
 - Link previews: `lib/share-metadata.ts` builds title, description,
@@ -3006,6 +3018,156 @@ sign-up and password reset on the real project after deploying.
   Going, the organiser logo) use the session's token when they're made; an
   admin action already in flight at the moment another admin signs in
   could go as them (the admin pages remount as soon as React hears of it).
+
+## Wallet passes
+
+"Add to Google Wallet" and "Add to Apple Wallet" put one ticket in the
+buyer's phone wallet (`lib/server/wallet/*`, `lib/server/handlers/wallet.ts`,
+`components/tickets/WalletButtons.tsx`; owner setup `docs/wallet-setup.md`).
+
+**On by configuration, nothing else.** Each wallet is on only when all of its
+server-only variables are set and valid (`lib/server/wallet/config.ts`, the
+only reader, wired as `Deps.googleWallet` / `Deps.appleWallet`, read once per
+instance, as `Deps.clipStorage`):
+
+- Google: `GOOGLE_WALLET_ISSUER_ID` (digits), `GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL`
+  (`…gserviceaccount.com`), `GOOGLE_WALLET_PRIVATE_KEY` (the JSON key file's
+  `private_key`: an RSA PEM of 2048 bits or more; literal `\n` escapes and
+  surrounding quotes accepted, as Vercel holds a pasted value). One option
+  only: no whole-JSON variable.
+- Apple: `APPLE_WALLET_PASS_TYPE_ID` (`pass.…`), `APPLE_WALLET_TEAM_ID` (10
+  characters), `APPLE_WALLET_CERT_PEM`, `APPLE_WALLET_KEY_PEM`,
+  `APPLE_WALLET_WWDR_PEM` (base64-encoded PEMs, or raw PEMs), and
+  `APPLE_WALLET_KEY_PASSPHRASE` only for an encrypted key. Checked: the
+  certificate is current, the key is its key, the WWDR certificate issued it,
+  and its subject's `UID` and `OU` (when present, as on Apple's) are this
+  Pass Type ID and team. Off from the moment the certificate expires.
+
+All of a wallet's variables unset is quietly off; anything set but missing
+or invalid is off and logged once, naming the variables and what's wrong
+with them, never a value. No `NEXT_PUBLIC_` flag: the ticket page learns
+what's on from the order response (`CustomerOrder.wallet: {google, apple}`,
+computed by `getOrderBySession` from `Deps`), so a button can't drift from
+the server's configuration. `wallet` is present only when the order's
+tickets could be added (`walletEligible`: `paid`, `eventListed`, at least one
+ticket), with `false` for a wallet that's off.
+
+**The capability and the rules are the ticket page's.**
+`GET /api/orders/by-session/{orderId}/wallet/google?ticket={n}` and
+`…/wallet/apple?ticket={n}` read the order with the page's own lookup
+(`lookupCustomerOrder`, shared with `getOrderBySession`), so a pass is only
+ever a ticket the page shows. In order, every answer `private, no-store`:
+
+1. an id not shaped like an order id: 404, no query;
+2. the wallet is off: 404 (`"Google Wallet passes aren't available."` /
+   `"Apple Wallet passes aren't available."`), no query. A 404 rather than a
+   503: the route simply isn't there until it's configured, and the page never
+   links to it;
+3. `ticket` missing or not 1–9999 (no leading zero): 400 `fieldErrors.ticket`;
+4. one hit on the client's allowance (`WALLET_RATE_LIMITS.perClient`: 30 a
+   minute, bucket `wallet_pass` on `take_client_rate_limit`, keyed and failing
+   open as the payment page's limit: see "Payment flow"; no migration), for
+   every well-formed request, unknown orders included; over it, 429;
+5. unknown, not `paid` (pending, failed, refunded, refund pending: a refunded
+   order's tickets are void), or the event not published (unpublished, in
+   review, rejected, removed: the page's "no longer listed"): 404 `"Order not
+   found."`; a `ticket` past the order's last: 404 `"Ticket not found."`.
+   `n` is the ticket's number on the page and in the email (ticket type, then
+   code, 1-based), never its code, so no ticket code is ever in a URL. Free
+   orders are the same: a member's is `paid` at once, a guest's once its
+   emailed link is confirmed (`pending`, so 404, until then);
+6. then one read of the event's id and street address (the page's response
+   leaves the address out; the email shows it), again only while it's
+   published.
+
+Writes nothing but the counter; logs nothing about the order. The order id
+is in the path, as for every `/orders/by-session` route (the page's own
+URL); the routes are linked from `/checkout/*` pages (`no-referrer`), and
+the Google redirect sets `Referrer-Policy: no-referrer` itself, so Google
+never gets the URL as a Referer.
+
+**What a pass shows** (`lib/server/wallet/pass-content.ts`, built once per
+request so the two can't disagree): the event title (the order's, as the
+page), date and time in the event's zone (`passTimeZone`: Melbourne for
+every event today; the one place to change when events get their own
+zone), venue name and address, ticket type, "Ticket n of N", the seat, the
+QR carrying exactly the existing payload (`ticketQrPayload`: `SH1:` + code;
+none for a code that isn't canonical, as the email) with the code as its
+alternate text, and the order's short reference. Nothing about the buyer:
+no email, name or order id. Both wallets draw their own QR from the
+payload, so the symbol may differ from the email's (level Q) but scans to
+the same text, which check-in already accepts. Ivory background, black
+text, Signal Orange only as a fill (`lib/server/wallet/brand.ts`); images in
+`public/wallet/` (`scripts/render-wallet-images.ts`).
+
+**Google** (`lib/server/wallet/google.ts`, no dependency): a "Save to Google
+Wallet" JWT, RS256 over node:crypto with the service account's key, `iss`
+the service account, `aud` `google`, `typ` `savetowallet`, `origins`
+`[NEXT_PUBLIC_SITE_URL's origin]`, and the payload's `eventTicketClasses` and
+`eventTicketObjects` inline: class `{issuerId}.sheltuh-event-{eventId}`
+(`reviewStatus` `UNDER_REVIEW`, event name, venue, `dateTime` as the venue's
+local time with its offset, logo and hero image URLs on the site), object
+`{issuerId}.sheltuh-ticket-{serial}` (`serial`: 32 hex characters of a
+labelled SHA-256 of the code, so the same ticket is always the same object;
+ids keep to `[A-Za-z0-9._-]`), barcode `QR_CODE`. The route answers 302 to
+`https://pay.google.com/gp/v/save/{jwt}`. **One ticket per JWT**, not the
+order: the JWT travels in a URL, a typical ticket's is about 2.5 KB (a test
+holds it under 5 KB at the longest field lengths), and a whole order's (10
+seats, or more general admission tickets) could pass what browsers and
+Google's front end reliably accept (the exact limit is unverified); it also
+matches Apple's one pass per ticket.
+
+**Apple** (`lib/server/wallet/apple.ts`): a `.pkpass` per ticket, built
+here: `pass.json` (`formatVersion` 1, the Pass Type ID and team, the serial
+above as `serialNumber`, `organizationName` "Sheltüh", `description`,
+`groupingIdentifier` per event, `sharingProhibited`, the colours,
+`relevantDate` and `relevantDates`, an `eventTicket` with header (date),
+primary (event), secondary (time, venue), auxiliary (ticket, seat) and back
+fields, and `barcodes` with the QR payload and `altText`); the images;
+`manifest.json` (SHA-1 of each file); and `signature`, a detached PKCS #7
+SignedData over the manifest (SHA-256, with contentType, messageDigest and
+signingTime attributes) by the Pass Type ID certificate, carrying it and the
+WWDR intermediate. The zip is written by `zipStore` (stored entries, a fixed
+1980 timestamp). 200 `application/vnd.apple.pkpass`, `Content-Disposition:
+attachment; filename="sheltuh-ticket-{n}.pkpass"`, `nosniff`.
+
+**The dependency: `node-forge`** (runtime) and `@types/node-forge` (dev).
+Node can't make PKCS #7, so forge makes the signature, and nothing else of
+it is used; only `lib/server/wallet/apple.ts` imports it (the configuration
+is read with node:crypto), so of all the routes only the two wallet routes
+bundle it (they share `lib/server/handlers/wallet.ts`). Chosen over `passkit-generator`, which wraps forge and adds `joi`
+(five more packages), `tslib` and a zip library. forge has no dependencies,
+is pure JavaScript (fine in Vercel's Node runtime), BSD-3-Clause (or GPL-2.0,
+our choice), Digital Bazaar's, 1.4.0 released March 2026. `npm audit` lists
+one high advisory against every forge version (GHSA-86w9-cpqp-85rv: RSA
+PKCS #1 v1.5 signature *verification* accepts extra nested DigestAlgorithm
+elements, no fix yet). It concerns verifying signatures, which this code
+never asks forge to do (the tests verify with node:crypto); revisit when a
+fix ships.
+
+### Accepted limits (wallet passes)
+
+- **No updates in v1.** No Apple web service (no `webServiceURL` or
+  `authenticationToken`) and no Google REST API: a saved pass never changes.
+  If the event's time or venue changes, or the order is refunded, the pass in
+  the wallet still shows what it showed. Google also keeps the first copy of
+  an event's class, so a later change doesn't reach new saves either. The
+  door is the authority: check-in refuses a refunded order's code
+  (`not_admissible`) whatever a wallet shows. A later option: Apple's pass
+  web service (`webServiceURL`, push updates through APNs) and Google's REST
+  API (`eventTicketClass.patch`, `eventTicketObject.patch`, voiding objects
+  on refund).
+- **Google's save page before publishing access**: only accounts listed in
+  the Pay & Wallet Console can save passes, as test passes, until Google
+  approves publishing access (`docs/wallet-setup.md`).
+- **Unverified against the real services** (no credentials here): that
+  Google accepts the inline class and object as built (field names from
+  Google's REST reference, from memory) and renders the logo and hero; that
+  iOS Wallet accepts the pass (the signature is checked against a test chain
+  with node:crypto and `openssl cms -verify`, not against Apple's WWDR); the
+  look of both. `docs/wallet-setup.md` has the checks to run.
+- **Text buttons** until the official badges are added
+  (`docs/wallet-setup.md`, "Official badges").
 
 ## Not built yet
 

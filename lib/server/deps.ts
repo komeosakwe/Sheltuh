@@ -9,6 +9,13 @@ import { createPostgresDb, type Db } from "./db";
 import { createSmtpSender, type SendEmail } from "./email";
 import { redactForLog } from "./email-address";
 import { matchingPublishableKey } from "./stripe-keys";
+import {
+  appleWalletConfigFromEnv,
+  googleWalletConfigFromEnv,
+  loadWalletConfig,
+  type AppleWalletConfig,
+  type GoogleWalletConfig,
+} from "./wallet/config";
 
 /**
  * Everything a handler needs from the outside world. Route files get the
@@ -59,6 +66,21 @@ export interface Deps {
    * a valid address.
    */
   adminNotifyEmails(): string[];
+  /**
+   * "Add to Google Wallet" (lib/server/wallet/): the issuer and service
+   * account, read once from GOOGLE_WALLET_ISSUER_ID,
+   * GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL and GOOGLE_WALLET_PRIVATE_KEY;
+   * undefined when any is unset or invalid (logged once, by variable name
+   * only), and Google passes are then off: no button, and their route is a 404.
+   */
+  googleWallet(): GoogleWalletConfig | undefined;
+  /**
+   * "Add to Apple Wallet": the Pass Type ID certificate and key, read once
+   * from the APPLE_WALLET_* variables; undefined when any required one is
+   * unset or invalid (logged once), or once the certificate has expired, and
+   * Apple passes are then off.
+   */
+  appleWallet(): AppleWalletConfig | undefined;
 }
 
 function requireEnv(name: string): string {
@@ -83,6 +105,8 @@ export function getDeps(): Deps {
   let clipStorage: ClipStorage | null | undefined;
   let authAdmin: AuthAdmin | null | undefined;
   let adminNotifyEmails: string[] | undefined;
+  let googleWallet: GoogleWalletConfig | null | undefined;
+  let appleWallet: AppleWalletConfig | null | undefined;
   const smtp = createSmtpSender();
 
   cached = {
@@ -142,6 +166,15 @@ export function getDeps(): Deps {
         adminNotifyEmails = parsed.emails;
       }
       return adminNotifyEmails;
+    },
+    googleWallet() {
+      if (googleWallet === undefined) googleWallet = loadWalletConfig("Google Wallet", () => googleWalletConfigFromEnv()) ?? null;
+      return googleWallet ?? undefined;
+    },
+    appleWallet() {
+      if (appleWallet === undefined) appleWallet = loadWalletConfig("Apple Wallet", () => appleWalletConfigFromEnv()) ?? null;
+      // A certificate that expires while this instance runs turns Apple passes off from then (Wallet would refuse them).
+      return appleWallet && appleWallet.certExpiresAt > Date.now() ? appleWallet : undefined;
     },
   };
   return cached;

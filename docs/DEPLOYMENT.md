@@ -342,6 +342,20 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        `select policyname from pg_policies where schemaname = 'storage';`
        returns **0 rows** and that Storage → Buckets shows `event-clips` as
        **private**.
+       Optional: wallet passes ("Add to Google Wallet" / "Add to Apple
+       Wallet" on the ticket page), server-only, **Production only**. Each
+       wallet turns itself on after a redeploy once all of its variables are
+       set and valid; until then it's simply off (no button, its route 404s),
+       and the function logs name any variable that's wrong, never a value.
+       Google: `GOOGLE_WALLET_ISSUER_ID`, `GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL`,
+       `GOOGLE_WALLET_PRIVATE_KEY`. Apple (needs the Apple Developer Program):
+       `APPLE_WALLET_PASS_TYPE_ID`, `APPLE_WALLET_TEAM_ID`,
+       `APPLE_WALLET_CERT_PEM`, `APPLE_WALLET_KEY_PEM`,
+       `APPLE_WALLET_WWDR_PEM` (the three PEMs base64-encoded) and, only for
+       an encrypted key, `APPLE_WALLET_KEY_PASSPHRASE`. Step by step:
+       `docs/wallet-setup.md`. The private keys are secrets: never commit
+       them, and revoke them (Google: delete the service account key; Apple:
+       revoke the Pass Type ID certificate) if they may have leaked.
 2. [ ] Settings → Functions → Region is **Sydney (syd1)**, next to the
        database (`supabase-setup.md` §4). `vercel.json` sets no `regions`, so
        this setting decides it; not yet checked. Checkout and the payment
@@ -395,6 +409,12 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
         `https://<site host>:8443/auth/callback`: note whether Supabase
         sends the code there or falls back to the Site URL, and record the
         result in `architecture.md` ("`next`: no open redirect").
+
+- [ ] **Wallet passes** (once a wallet's variables are set and redeployed):
+      the checks in `docs/wallet-setup.md` ("Test a pass"): add a ticket to
+      Google Wallet on an Android phone and to Apple Wallet on an iPhone,
+      scan the pass's QR at `/dashboard/{event}/check-in`, and check a
+      refunded order's ticket page shows no wallet buttons.
 
 ## Needs your decision or sign-off before launch
 

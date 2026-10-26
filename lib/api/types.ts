@@ -593,6 +593,19 @@ export interface CustomerOrder {
    * tickets are void). In the ticket email's order (ticket type, then code).
    */
   tickets: CustomerTicket[];
+  /**
+   * Which wallets the tickets can be added to (`/api/orders/by-session/{id}/wallet/{google|apple}?ticket={n}`),
+   * from the server's own configuration: a wallet is on only once its credentials are set. Only for a `paid`
+   * order whose event is published (`eventListed`) and that has tickets; unset otherwise (and from an older
+   * API): show no wallet buttons then.
+   */
+  wallet?: WalletAvailability;
+}
+
+/** Which wallet passes the server can make (CustomerOrder.wallet). */
+export interface WalletAvailability {
+  google: boolean;
+  apple: boolean;
 }
 
 export interface CustomerTicket {

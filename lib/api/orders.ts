@@ -1,6 +1,9 @@
 import { apiFetch, type GetToken } from "./client";
 import type { CheckoutResult, ConfirmFreeOrderResult, CustomerOrderLookup, OrderPaymentLookup } from "./types";
 
+/** The wallets a ticket can be added to (CustomerOrder.wallet). */
+export type WalletProvider = "google" | "apple";
+
 export interface CheckoutLineItemInput {
   ticketTypeId: string;
   quantity: number;
@@ -91,4 +94,17 @@ export async function getOrderBySession(sessionId: string) {
  */
 export async function getOrderPayment(orderId: string) {
   return apiFetch<OrderPaymentLookup>(`/orders/by-session/${encodeURIComponent(orderId)}/payment`);
+}
+
+/**
+ * Where "Add to Google Wallet" / "Add to Apple Wallet" goes for one ticket of
+ * the order: a plain link (a full navigation, not a fetch). Google's answers
+ * with a redirect to Google's save page; Apple's is the .pkpass, which Safari
+ * offers to add to Wallet. The order id is the same capability as the ticket
+ * page's own URL; `ticketNumber` is the ticket's number on the page (1-based,
+ * in the API's order), never its code. Only offer it when
+ * `CustomerOrder.wallet[provider]` is true.
+ */
+export function walletPassUrl(sessionId: string, provider: WalletProvider, ticketNumber: number): string {
+  return `/api/orders/by-session/${encodeURIComponent(sessionId)}/wallet/${provider}?ticket=${ticketNumber}`;
 }

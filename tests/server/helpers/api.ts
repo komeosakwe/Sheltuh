@@ -6,6 +6,7 @@ import { ClipStorageError, type ClipStorage } from "@/lib/server/clip-storage";
 import type { Db } from "@/lib/server/db";
 import type { Deps } from "@/lib/server/deps";
 import type { EmailMessage } from "@/lib/server/email";
+import type { AppleWalletConfig, GoogleWalletConfig } from "@/lib/server/wallet/config";
 import { runHandler, type Handler } from "@/lib/server/route";
 
 export const WEBHOOK_SECRET = "whsec_test_secret";
@@ -227,6 +228,10 @@ export class TestApi {
   authAdmin: FakeAuthAdmin | undefined;
   /** ADMIN_NOTIFY_EMAILS as Deps reports it (parsed); empty to simulate it unset. */
   adminNotifyEmails: string[] = [];
+  /** Google Wallet passes; undefined (the default) to simulate the GOOGLE_WALLET_* variables unset. */
+  googleWallet: GoogleWalletConfig | undefined;
+  /** Apple Wallet passes; undefined (the default) to simulate the APPLE_WALLET_* variables unset. */
+  appleWallet: AppleWalletConfig | undefined;
   private readonly callers = new Map<string, Caller>();
 
   constructor(readonly db: Db) {
@@ -249,6 +254,8 @@ export class TestApi {
       clipStorage: () => this.clipStorage,
       authAdmin: () => this.authAdmin,
       adminNotifyEmails: () => this.adminNotifyEmails,
+      googleWallet: () => this.googleWallet,
+      appleWallet: () => this.appleWallet,
     };
   }
 
@@ -315,6 +322,16 @@ export class TestApi {
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
     });
     return this.send(handler, req, options.params);
+  }
+
+  /** As call(), but the raw Response (a redirect, or a binary body such as a .pkpass). */
+  async callRaw<P extends Record<string, string>>(
+    handler: Handler<P>,
+    options: { params?: P; query?: Record<string, string>; headers?: Record<string, string> } = {},
+  ): Promise<Response> {
+    const url = new URL(`${SITE_URL}/api/test`);
+    for (const [k, v] of Object.entries(options.query ?? {})) url.searchParams.set(k, v);
+    return runHandler(handler, new Request(url, { headers: options.headers }), (options.params ?? {}) as P, this.deps);
   }
 
   async send<P extends Record<string, string>>(handler: Handler<P>, req: Request, params?: P) {

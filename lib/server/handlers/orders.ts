@@ -19,6 +19,7 @@ import { parseTrackingCode } from "../tracking-codes";
 import type {
   CancelOrderResult,
   CheckoutResult,
+  CustomerOrder,
   CustomerOrderLookup,
   EventRecord,
   OrderLineItem,
@@ -371,7 +372,8 @@ export const CHECKOUT_RATE_LIMITS = {
   paymentPerOrder: { bucket: "order_payment:order", hits: 20, window: "1 minute" },
 } as const;
 
-type KeyedLimit = (typeof CHECKOUT_RATE_LIMITS)[keyof typeof CHECKOUT_RATE_LIMITS];
+/** A fixed-window limit on private.take_client_rate_limit: CHECKOUT_RATE_LIMITS, and the wallet passes' (./wallet.ts). */
+export type KeyedLimit = { readonly bucket: string; readonly hits: number; readonly window: string };
 
 const CHECKOUTS_BUSY = "You've started a lot of checkouts in the last minute. Wait a minute, then try again.";
 const PAYMENT_BUSY = "This checkout has been loaded a lot in the last minute. Wait a minute, then reload the page.";
@@ -389,7 +391,7 @@ async function takeKeyedLimit(db: Db, key: string, limit: KeyedLimit): Promise<b
  * The secret rate-limit keys are salted with, or undefined when it isn't
  * configured (logged, naming only the limits skipped): the caller fails open.
  */
-function rateLimitSecret(deps: Deps, skipped: string): string | undefined {
+export function rateLimitSecret(deps: Deps, skipped: string): string | undefined {
   try {
     return deps.stripeWebhookSecret();
   } catch {
@@ -403,7 +405,7 @@ function rateLimitSecret(deps: Deps, skipped: string): string | undefined {
  * over. True (fails open) without `secret`, or without a usable client IP,
  * logged without any request detail.
  */
-async function takeClientLimit(req: Request, deps: Deps, secret: string | undefined, limit: KeyedLimit, what: string) {
+export async function takeClientLimit(req: Request, deps: Deps, secret: string | undefined, limit: KeyedLimit, what: string) {
   if (!secret) return true;
   const ip = clientIp(req);
   if (!ip) {
@@ -579,22 +581,49 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   return createdPrivate(result);
 };
 
-const ORDER_NOT_FOUND = "Order not found.";
+export const ORDER_NOT_FOUND = "Order not found.";
+
+/**
+ * The ticket page's lookup by the order id it holds (the capability): 404
+ * for an id that isn't shaped like one (no query) or an unknown one; a
+ * pending order is its status only; anything else is the CustomerOrder the
+ * page shows (toCustomerOrder: ticket codes only while it's paid, event
+ * details only while the event is published). Shared with the wallet pass
+ * routes (./wallet.ts), so a pass is only ever what the page would show.
+ */
+export async function lookupCustomerOrder(db: Db, sessionId: string): Promise<CustomerOrderLookup> {
+  // Anything that isn't shaped like an order id can't be one: no query needed.
+  // A refunded order's tickets are void: CUSTOMER_ORDER_SELECT returns codes for paid orders only.
+  if (!ORDER_ID_PATTERN.test(sessionId)) throw new HttpError(404, ORDER_NOT_FOUND);
+  const [row] = await db.query(`${CUSTOMER_ORDER_SELECT} where o.id = $1`, [sessionId]);
+  if (!row) throw new HttpError(404, ORDER_NOT_FOUND);
+  return row.status === "pending" ? { status: "pending" } : toCustomerOrder(row);
+}
+
+/**
+ * Whether an order's tickets can be added to a wallet: it's paid, its event
+ * is still published, and it has tickets. The wallet pass routes serve
+ * nothing else (./wallet.ts).
+ */
+export function walletEligible(lookup: CustomerOrderLookup): lookup is CustomerOrder {
+  return lookup.status === "paid" && lookup.eventListed === true && lookup.tickets.length > 0;
+}
 
 /**
  * GET /api/orders/by-session/[sessionId] — public. The unguessable order id
  * from the confirmation page's URL is the credential (guest checkout has no
  * account), so the response is only what that page shows (CustomerOrder),
  * never cached anywhere. A pending order reveals nothing but its status.
+ * For an order whose tickets can go in a wallet (walletEligible), `wallet`
+ * says which wallets' passes are on, from the server's own configuration
+ * (Deps.googleWallet / appleWallet), so the page never offers a button the
+ * server would refuse.
  */
-export const getOrderBySession: Handler<{ sessionId: string }> = async (_req, { sessionId }, { db }) => {
-  // Anything that isn't shaped like an order id can't be one: no query needed.
-  // A refunded order's tickets are void: CUSTOMER_ORDER_SELECT returns codes for paid orders only.
-  if (!ORDER_ID_PATTERN.test(sessionId)) throw new HttpError(404, ORDER_NOT_FOUND);
-  const [row] = await db.query(`${CUSTOMER_ORDER_SELECT} where o.id = $1`, [sessionId]);
-  if (!row) throw new HttpError(404, ORDER_NOT_FOUND);
-  const lookup: CustomerOrderLookup = row.status === "pending" ? { status: "pending" } : toCustomerOrder(row);
-  return okPrivate(lookup);
+export const getOrderBySession: Handler<{ sessionId: string }> = async (_req, { sessionId }, deps) => {
+  const lookup = await lookupCustomerOrder(deps.db, sessionId);
+  if (!walletEligible(lookup)) return okPrivate(lookup);
+  const order: CustomerOrder = { ...lookup, wallet: { google: !!deps.googleWallet(), apple: !!deps.appleWallet() } };
+  return okPrivate(order);
 };
 
 /**
