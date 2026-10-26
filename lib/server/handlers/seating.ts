@@ -26,12 +26,14 @@ const EVENT_NOT_FOUND = "Event not found.";
 
 /**
  * A published event's map at its current version never changes (a new map is
- * a new version: the URL changes), so it's cached for a year. Any other URL
+ * a new version: the URL changes), so it's cached for a year, in browsers and
+ * at the CDN (`s-maxage`: without it a shared cache such as Vercel's may not
+ * keep it). Any other URL
  * (no `v`, or another version) is a redirect to the current one, itself never
  * cached, so the layout is only ever read and sent at the cacheable URL, and
  * a guessed future version can't be cached with the current map in it.
  */
-export const SEAT_MAP_CACHE = "public, max-age=31536000, immutable";
+export const SEAT_MAP_CACHE = "public, max-age=31536000, s-maxage=31536000, immutable";
 /** Availability: shared by every buyer, at most 5 seconds old at the CDN (docs/SEATING_PLAN.md). */
 export const SEAT_AVAILABILITY_CACHE = "public, max-age=0, s-maxage=5";
 

@@ -10,7 +10,13 @@ import {
   adminSuspendOrganiser,
 } from "@/lib/server/handlers/admin";
 import { getMyEvent } from "@/lib/server/handlers/events";
-import { deleteMyOrganiserLogo, getOrganiserLogo, putMyOrganiserLogo } from "@/lib/server/handlers/organiser-logos";
+import {
+  deleteMyOrganiserLogo,
+  getOrganiserLogo,
+  LOGO_CACHE,
+  LOGO_UNVERSIONED_CACHE,
+  putMyOrganiserLogo,
+} from "@/lib/server/handlers/organiser-logos";
 import { applyAsOrganiser, getMyOrganiser } from "@/lib/server/handlers/organisers";
 import { getPublicEventBySlug, listPublicEvents } from "@/lib/server/handlers/public-events";
 import { getPublicOrganiserProfile } from "@/lib/server/handlers/public-organisers";
@@ -432,7 +438,7 @@ describe("POST /admin/organisers/{id}/remove-logo", () => {
 // ---------------------------------------------------------------------------
 
 describe("GET /organisers/{id}/logo", () => {
-  it("is public for an approved organiser: WebP, cached for a day, ETag and 304", async () => {
+  it("is public for an approved organiser: WebP, shared at the CDN at its current version, ETag and 304", async () => {
     await upload(organiser.token, await smallPng());
     const { version } = (await storedLogo(organiser.organiserId))!;
 
@@ -440,24 +446,38 @@ describe("GET /organisers/{id}/logo", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/webp");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
-    expect(res.headers.get("cache-control")).toBe("public, max-age=86400");
+    // An hour in browsers, 23 more at the CDN: a takedown is gone within a day.
+    expect(LOGO_CACHE).toBe("public, max-age=3600, s-maxage=82800");
+    expect(res.headers.get("cache-control")).toBe(LOGO_CACHE);
     expect(res.headers.get("etag")).toBe(`"${version}-f"`);
     expect((await sharp(Buffer.from(await res.arrayBuffer())).metadata()).width).toBe(512);
 
     const thumb = await getLogo(organiser.organiserId, { query: `?size=thumb&v=${version}` });
     expect(thumb.headers.get("etag")).toBe(`"${version}-t"`);
+    expect(thumb.headers.get("cache-control")).toBe(LOGO_CACHE);
     expect((await sharp(Buffer.from(await thumb.arrayBuffer())).metadata()).width).toBe(96);
 
     const notModified = await getLogo(organiser.organiserId, { headers: { "if-none-match": `"${version}-f"` } });
     expect(notModified.status).toBe(304);
     expect(notModified.headers.get("etag")).toBe(`"${version}-f"`);
-    expect(notModified.headers.get("cache-control")).toBe("public, max-age=86400");
+    // No `v`: browser only.
+    expect(notModified.headers.get("cache-control")).toBe(LOGO_UNVERSIONED_CACHE);
     expect((await notModified.arrayBuffer()).byteLength).toBe(0);
+    const notModifiedVersioned = await getLogo(organiser.organiserId, {
+      query: `?v=${version}`,
+      headers: { "if-none-match": `"${version}-f"` },
+    });
+    expect([notModifiedVersioned.status, notModifiedVersioned.headers.get("cache-control")]).toEqual([304, LOGO_CACHE]);
     // The other size's ETag, or an old version's, gets the image.
     expect((await getLogo(organiser.organiserId, { headers: { "if-none-match": `"${version}-t"` } })).status).toBe(200);
     expect((await getLogo(organiser.organiserId, { headers: { "if-none-match": `"1-f"` } })).status).toBe(200);
-    // `v` only busts caches: any value serves the current logo.
-    expect((await getLogo(organiser.organiserId, { query: "?v=1" })).status).toBe(200);
+    // Any other `v` still serves the current logo, but never shared: a copy
+    // under a URL that isn't the current version could outlive a new logo.
+    expect(LOGO_UNVERSIONED_CACHE).toBe("private, max-age=3600");
+    for (const query of ["", "?v=1", `?v=${Number(version) + 1}`, `?size=thumb&v=${version}0`]) {
+      const other = await getLogo(organiser.organiserId, { query });
+      expect([query, other.status, other.headers.get("cache-control")]).toEqual([query, 200, LOGO_UNVERSIONED_CACHE]);
+    }
   });
 
   it("is a 404 for unknown organisers and organisers without a logo", async () => {

@@ -66,7 +66,7 @@ describe("GET /events/{slug}/calendar.ics (live)", () => {
     expect(res.headers.get("content-type")).toBe("text/calendar; charset=utf-8");
     expect(res.headers.get("content-disposition")).toBe(`inline; filename="${event.slug}.ics"`);
     expect(res.headers.get("cache-control")).toBe(CALENDAR_CACHE_CONTROL);
-    expect(CALENDAR_CACHE_CONTROL).toBe("public, max-age=300");
+    expect(CALENDAR_CACHE_CONTROL).toBe("public, max-age=300, s-maxage=300");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
 
     const lines = unfold(res.text);
@@ -157,7 +157,7 @@ describe("GET /events/{slug}/calendar.ics (demo)", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("text/calendar; charset=utf-8");
     expect(res.headers.get("content-disposition")).toBe('inline; filename="thornbury-dub-session.ics"');
-    expect(res.headers.get("cache-control")).toBe("public, max-age=300");
+    expect(res.headers.get("cache-control")).toBe("public, max-age=300, s-maxage=300");
     const lines = unfold(await res.text());
     expect(lines).toContain("UID:evt-thornbury-dub-session@sheltuh.com.au");
     expect(lines).toContain("DTSTART:20261107T083000Z");

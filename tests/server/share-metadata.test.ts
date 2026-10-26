@@ -5,7 +5,7 @@ import { generateMetadata as organiserPageMetadata } from "@/app/organisers/[org
 import type { Db } from "@/lib/server/db";
 import type { Deps } from "@/lib/server/deps";
 import { adminRejectEvent, adminUnpublishEvent } from "@/lib/server/handlers/admin";
-import { getEventImage, putEventImage } from "@/lib/server/handlers/event-images";
+import { EVENT_IMAGE_CACHE, getEventImage, putEventImage } from "@/lib/server/handlers/event-images";
 import { submitEventForReview } from "@/lib/server/handlers/events";
 import { applyAsOrganiser } from "@/lib/server/handlers/organisers";
 import { runHandler } from "@/lib/server/route";
@@ -139,12 +139,12 @@ describe("live event metadata (generateMetadata on /events/[slug])", () => {
     const shown = await api.call(getPublicEventBySlug, { params: { slug: draft.slug } });
     expect(`${SITE_URL}${shown.body.imageUrl}`).toBe(image.url);
 
-    // Served without a token, publicly cacheable.
+    // Served without a token, and shared at the CDN: the URL is the current version's.
     const path = new URL(image.url);
     const res = await runHandler(getEventImage, new Request(path), { eventId: draft.eventId }, api.deps);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/png");
-    expect(res.headers.get("cache-control")).toBe("public, max-age=86400");
+    expect(res.headers.get("cache-control")).toBe(EVENT_IMAGE_CACHE);
   });
 
   it("holds nothing about tickets, buyers or the organiser's account", async () => {

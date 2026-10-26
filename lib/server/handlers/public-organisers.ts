@@ -1,7 +1,8 @@
-import { HttpError, ok } from "../http";
+import { HttpError, okPublic } from "../http";
 import { isUuid } from "../pagination";
 import { EVENT_SELECT, findPublicOrganiserRow, toPublicEventFromRow, toPublicOrganiserProfile } from "../records";
 import type { Handler } from "../route";
+import { PUBLIC_EVENTS_CACHE_CONTROL } from "./public-events";
 
 /** Most events a profile lists: upcoming ones first, then the most recent past ones. */
 export const PROFILE_EVENT_LIMIT = 24;
@@ -13,8 +14,9 @@ const NOT_FOUND = "Organiser not found.";
  * approved organiser has a profile; anything else (pending, rejected, unknown,
  * or not a uuid) is the same 404. Only public columns are read
  * (findPublicOrganiserRow), events are published ones in the public event
- * shape, and nothing depends on who's asking, so it's cacheable like the
- * public event routes.
+ * shape, and nothing depends on who's asking, so a 200 is shared at the CDN
+ * like the feed (PUBLIC_EVENTS_CACHE_CONTROL: up to about 3 minutes stale,
+ * an organiser's own edits included). Errors are `private, no-store`.
  */
 export const getPublicOrganiserProfile: Handler<{ organiserId: string }> = async (_req, { organiserId }, { db }) => {
   if (!isUuid(organiserId)) throw new HttpError(404, NOT_FOUND);
@@ -39,11 +41,12 @@ export const getPublicOrganiserProfile: Handler<{ organiserId: string }> = async
         )
       : [];
 
-  return ok(
+  return okPublic(
     toPublicOrganiserProfile(
       row,
       upcoming.map(toPublicEventFromRow),
       recent.map(toPublicEventFromRow),
     ),
+    PUBLIC_EVENTS_CACHE_CONTROL,
   );
 };

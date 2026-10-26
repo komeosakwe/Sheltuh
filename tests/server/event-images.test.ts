@@ -1,5 +1,11 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { deleteEventImage, getEventImage, putEventImage } from "@/lib/server/handlers/event-images";
+import {
+  deleteEventImage,
+  EVENT_IMAGE_CACHE,
+  EVENT_IMAGE_UNVERSIONED_CACHE,
+  getEventImage,
+  putEventImage,
+} from "@/lib/server/handlers/event-images";
 import { submitEventForReview } from "@/lib/server/handlers/events";
 import { adminApproveEvent } from "@/lib/server/handlers/admin";
 import { runHandler } from "@/lib/server/route";
@@ -39,8 +45,9 @@ function put(eventId: string, body: BodyInit, token = organiser.token) {
   );
 }
 
-async function getRaw(eventId: string, token?: string) {
-  const req = new Request(SITE, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+async function getRaw(eventId: string, token?: string, version?: string) {
+  const url = version === undefined ? SITE : `${SITE}?v=${encodeURIComponent(version)}`;
+  const req = new Request(url, { headers: token ? { authorization: `Bearer ${token}` } : {} });
   return (await import("@/lib/server/route")).runHandler(getEventImage, req, { eventId }, api.deps);
 }
 
@@ -83,17 +90,40 @@ describe("event images", () => {
     expect((await getRaw(draft.eventId, admin.token)).status).toBe(200);
   });
 
-  it("serves a published event's image publicly, cached for a day (not forever, so a takedown takes effect)", async () => {
+  it("serves a published event's image publicly; shared at the CDN only at its current version, for under a day", async () => {
     const draft = await draftEvent(api, organiser);
     await put(draft.eventId, PNG);
     const params = { eventId: draft.eventId };
     await api.call(submitEventForReview, { token: organiser.token, params, method: "POST" });
     const approved = await api.call(adminApproveEvent, { token: admin.token, params, method: "POST" });
-    expect(approved.body.imageUrl).toBeDefined();
+    const version = new URL(approved.body.imageUrl, SITE).searchParams.get("v")!;
+    expect(version).toMatch(/^\d+$/);
 
-    const read = await getRaw(draft.eventId);
-    expect(read.status).toBe(200);
-    expect(read.headers.get("cache-control")).toBe("public, max-age=86400");
+    // At the URL the API gives out: an hour in browsers, 23 more at the CDN
+    // (a takedown is gone within a day; never `immutable`).
+    expect(EVENT_IMAGE_CACHE).toBe("public, max-age=3600, s-maxage=82800");
+    const current = await getRaw(draft.eventId, undefined, version);
+    expect(current.status).toBe(200);
+    expect(current.headers.get("cache-control")).toBe(EVENT_IMAGE_CACHE);
+    expect(new Uint8Array(await current.arrayBuffer())).toEqual(PNG);
+    // The same for a signed-in caller: nothing in it depends on who asks.
+    const signedIn = await getRaw(draft.eventId, organiser.token, version);
+    expect(signedIn.headers.get("cache-control")).toBe(EVENT_IMAGE_CACHE);
+
+    // Any other `v` (none, an old one, a guessed future one) still gets the
+    // current image, but for the browser only: never shared under a URL that
+    // could outlive a replacement.
+    expect(EVENT_IMAGE_UNVERSIONED_CACHE).toBe("private, max-age=3600");
+    for (const v of [undefined, "", String(Number(version) - 1), String(Number(version) + 60), `${version}x`]) {
+      const res = await getRaw(draft.eventId, undefined, v);
+      expect([v, res.status, res.headers.get("cache-control")]).toEqual([v, 200, EVENT_IMAGE_UNVERSIONED_CACHE]);
+    }
+
+    // Unpublished again: private, whatever `v` says, and only for the owner or an admin.
+    await api.db.query(`update public.events set status = 'draft' where id = $1`, [draft.eventId]);
+    expect((await getRaw(draft.eventId, undefined, version)).status).toBe(404);
+    const owner = await getRaw(draft.eventId, organiser.token, version);
+    expect([owner.status, owner.headers.get("cache-control")]).toEqual([200, "private, no-store"]);
   });
 
   it("rejects non-images (by content, not by declared type) and oversized files", async () => {

@@ -1,7 +1,13 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { adminRejectEvent } from "@/lib/server/handlers/admin";
 import { submitEventForReview } from "@/lib/server/handlers/events";
-import { getPublicEventBySlug, listPublicEvents } from "@/lib/server/handlers/public-events";
+import {
+  getPublicEventBySlug,
+  listPublicEvents,
+  PUBLIC_EVENT_CACHE_CONTROL,
+  PUBLIC_EVENTS_CACHE_CONTROL,
+} from "@/lib/server/handlers/public-events";
+import { getPublicOrganiserProfile } from "@/lib/server/handlers/public-organisers";
 import { TestApi } from "./helpers/api";
 import { approvedOrganiser, draftEvent, publishedEvent, setUpPayouts, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
@@ -228,6 +234,55 @@ describe("upcoming=1 (home page and /events)", () => {
       const res = await api.call(listPublicEvents, { query: { upcoming } });
       expect(res.status, upcoming).toBe(400);
       expect(res.body).toMatchObject({ error: "upcoming must be 1 or 0." });
+    }
+  });
+});
+
+describe("CDN caching (docs/architecture.md, \"CDN windows\")", () => {
+  it("shares the feed for a minute (two more stale) and an event for 15 seconds (45 more stale); browsers always revalidate", async () => {
+    expect(PUBLIC_EVENTS_CACHE_CONTROL).toBe("public, max-age=0, s-maxage=60, stale-while-revalidate=120");
+    expect(PUBLIC_EVENT_CACHE_CONTROL).toBe("public, max-age=0, s-maxage=15, stale-while-revalidate=45");
+    const live = await publishedEvent(api, organiser, admin);
+
+    const queries: Record<string, string>[] = [{}, { upcoming: "1" }, { upcoming: "1", limit: "50", category: "live-music", q: "neon" }];
+    for (const query of queries) {
+      const res = await api.call(listPublicEvents, { query });
+      expect([query, res.status, res.headers.get("cache-control")]).toEqual([query, 200, PUBLIC_EVENTS_CACHE_CONTROL]);
+    }
+    const one = await api.call(getPublicEventBySlug, { params: { slug: live.slug } });
+    expect([one.status, one.headers.get("cache-control")]).toEqual([200, PUBLIC_EVENT_CACHE_CONTROL]);
+  });
+
+  it("never caches an error: a 400 or a 404 (an unpublished event, so it shows as soon as it's approved) is private, no-store", async () => {
+    const draft = await draftEvent(api, organiser);
+    const malformed: Record<string, string>[] = [{ category: "karaoke" }, { cursor: "x" }, { upcoming: "yes" }, { onOrAfter: "2027-02-30" }];
+    for (const query of malformed) {
+      const res = await api.call(listPublicEvents, { query });
+      expect([query, res.status, res.headers.get("cache-control")]).toEqual([query, 400, "private, no-store"]);
+    }
+    for (const slug of [draft.slug, "never-existed"]) {
+      const res = await api.call(getPublicEventBySlug, { params: { slug } });
+      expect([slug, res.status, res.headers.get("cache-control")]).toEqual([slug, 404, "private, no-store"]);
+    }
+  });
+
+  it("answers a signed-in caller exactly as an anonymous one: same body, same shared header", async () => {
+    const live = await publishedEvent(api, organiser, admin);
+    const member = await api.signUp();
+    const callers = [undefined, member.token, organiser.token, admin.token];
+    const reads = [
+      (token?: string) => api.call(listPublicEvents, { query: { upcoming: "1" }, token }),
+      (token?: string) => api.call(getPublicEventBySlug, { params: { slug: live.slug }, token }),
+      (token?: string) =>
+        api.call(getPublicOrganiserProfile, { params: { organiserId: organiser.organiserId }, token }),
+    ];
+    for (const read of reads) {
+      const [anonymous, ...signedIn] = await Promise.all(callers.map(read));
+      expect(anonymous.status).toBe(200);
+      for (const res of signedIn) {
+        expect(res.body).toEqual(anonymous.body);
+        expect(res.headers.get("cache-control")).toBe(anonymous.headers.get("cache-control"));
+      }
     }
   });
 });

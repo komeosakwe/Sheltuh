@@ -138,9 +138,26 @@ export const deleteEventImage: Handler<{ eventId: string }> = async (req, { even
 };
 
 /**
- * GET /api/events/[eventId]/image — public for published events (cached for a
- * day; the URL is versioned). For anything else only the owning organiser or an
- * admin may read it, via a bearer token, and it's never cached.
+ * A published event's image at its current version (`?v=` as EVENT_SELECT's
+ * image_url gives it): the CDN may share it. Browsers keep it an hour, the
+ * CDN 23 hours more, so a takedown (unpublish) or a replaced image stops
+ * being served within a day even if a browser's copy came from the CDN late
+ * in its life. Not `immutable`, for the same reason.
+ */
+export const EVENT_IMAGE_CACHE = "public, max-age=3600, s-maxage=82800";
+/**
+ * Any other `v` (none, an old one, a guessed future one): the current image,
+ * browser only. A shared copy under a URL that isn't the current version
+ * could outlive a replacement (versions are epoch seconds, so a future one
+ * can be guessed and requested before the replacement lands).
+ */
+export const EVENT_IMAGE_UNVERSIONED_CACHE = "private, max-age=3600";
+
+/**
+ * GET /api/events/[eventId]/image?v= — public for published events (shared
+ * at the CDN only at the current version: EVENT_IMAGE_CACHE). For anything
+ * else only the owning organiser or an admin may read it, via a bearer
+ * token, and it's never cached.
  */
 export const getEventImage: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   if (!isUuid(eventId)) throw new HttpError(404, "Image not found.");
@@ -149,8 +166,10 @@ export const getEventImage: Handler<{ eventId: string }> = async (req, { eventId
     data: Uint8Array;
     status: string;
     organiser_id: string;
+    version: string;
   }>(
-    `select i.content_type, i.data, e.status::text as status, e.organiser_id
+    `select i.content_type, i.data, e.status::text as status, e.organiser_id,
+            floor(extract(epoch from i.updated_at))::bigint::text as version
        from public.event_images i join public.events e on e.id = i.event_id
       where i.event_id = $1`,
     [eventId],
@@ -172,12 +191,16 @@ export const getEventImage: Handler<{ eventId: string }> = async (req, { eventId
     if (!caller.isAdmin && organiser?.organiserId !== row.organiser_id) throw new HttpError(404, "Image not found.");
   }
 
+  const currentVersion = new URL(req.url).searchParams.get("v") === row.version;
   return new Response(new Uint8Array(row.data), {
     headers: {
       "content-type": row.content_type,
       "x-content-type-options": "nosniff",
-      // Not `immutable`: a takedown (unpublish) should stop being served within a day.
-      "cache-control": published ? "public, max-age=86400" : "private, no-store",
+      "cache-control": !published
+        ? "private, no-store"
+        : currentVersion
+          ? EVENT_IMAGE_CACHE
+          : EVENT_IMAGE_UNVERSIONED_CACHE,
     },
   });
 };
