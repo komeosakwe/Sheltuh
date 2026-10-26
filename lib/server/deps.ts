@@ -92,8 +92,13 @@ export interface Deps {
   appleWallet(): Promise<AppleWalletConfig | undefined>;
 }
 
-function requireEnv(name: string): string {
-  const value = process.env[name];
+/**
+ * A required environment variable, trimmed: a space or line break pasted into a dashboard
+ * along with a key or secret (a Stripe webhook signing secret above all) would otherwise make
+ * every signature check fail. None of these values can meaningfully start or end with whitespace.
+ */
+export function requireEnv(name: string): string {
+  const value = process.env[name]?.trim();
   if (!value) throw new Error(`Missing required environment variable: ${name}`);
   return value;
 }
