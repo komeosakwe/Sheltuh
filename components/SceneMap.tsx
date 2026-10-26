@@ -3,7 +3,6 @@
 import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import BrandU from "@/components/brand/BrandU";
 import SceneEventRow from "@/components/SceneEventRow";
 import SceneMapFilterBar from "@/components/SceneMapFilterBar";
 import MapStylePreview from "@/components/map/MapStylePreview";
@@ -407,12 +406,12 @@ function SceneMapView({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* The brand line (owner decision 1): screen readers hear "Sheltüh near you." */}
+      {/* Owner (26 Oct 2026): fewer special characters, so "near you" is spelt out and the eyebrow is just "Map". */}
       <PageHeader
         brand
         flush
-        eyebrow="Map · Melbourne"
-        title={<BrandU spoken="Sheltüh near you.">Sheltüh near ü.</BrandU>}
+        eyebrow="Map"
+        title="Sheltüh near you."
         intro="Events on the map. Tap a spot to see what’s on there."
       />
 
