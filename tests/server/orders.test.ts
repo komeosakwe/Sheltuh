@@ -451,7 +451,9 @@ describe("Stripe webhook", () => {
     const refundEvent = (type: string, refundStatus: string) =>
       stripeWebhookRequest({
         type,
-        data: { object: { id: "re_pending", object: "refund", status: refundStatus, metadata: { orderId: second } } },
+        data: {
+          object: { id: "re_pending", object: "refund", status: refundStatus, payment_intent: "pi_test_1", metadata: { orderId: second } },
+        },
       });
 
     // Still pending: no change.
@@ -474,7 +476,7 @@ describe("Stripe webhook", () => {
       stripeWebhook,
       stripeWebhookRequest({
         type: "refund.failed",
-        data: { object: { id: "re_x", object: "refund", status: "failed", metadata: { orderId: second } } },
+        data: { object: { id: "re_x", object: "refund", status: "failed", payment_intent: "pi_test_1", metadata: { orderId: second } } },
       }),
     );
     expect(failed.status).toBe(200);

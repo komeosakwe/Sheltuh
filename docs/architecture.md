@@ -78,8 +78,12 @@ iframe served by Stripe), with the publishable key
 | `ticket_check_ins` | `id` (identity) | The check-in log (see "Check-in"): one row per scan or undo, with a random `public_id` (uuid, unique: the only id the API shows, as `checkInId`; the sequential `id` stays internal, so ids don't reveal platform-wide scan volume), the event scanned for, the ticket `code` (null for an `invalid` scan: what was scanned is never stored), the acting account (the organiser's, or the admin's for a platform-managed organiser's event), the client's `request_id` (unique per event: the idempotency key), the `result` and, for an undo only, its `reason` (3–200 characters). Check constraints tie `invalid` to a null code and `undone` to a reason. Deleted with the event or the ticket, and by `purge_analytics` 25 months after the event ends. No buyer data. |
 | `private.platform_rate_limits` | `bucket` | Platform-wide fixed-window counters (`take_platform_rate_limit`): the hourly and 24-hour confirmation-email caps. Idle rows purged daily. |
 | `private.free_order_refusals` | `(day, reason)` | Counts of refused free bookings per Melbourne day and reason. No personal data. Deleted after 13 months. |
-| `private.email_outbox` | `id` | Transactional email jobs of five kinds: `ticket_email`, one per paid order (`(order_id, kind)` unique), `waitlist_available`, one per person told that tickets are available again (`waitlist_entry_id`; at most one pending or sending per entry), `organiser_new_events`, a follower's new-event email (`follow_id`; at most one pending or sending per follow; see "Following organisers"), and `event_review` / `organiser_review`, the admins' "waiting for your review" email (`event_id` / `organiser_id`; at most one pending or sending per event or application; see "Admin review emails"). A check ties each kind to its key. Status, attempts, next attempt, lease, redacted last error. No address or content (read from the order, the waitlist entry, the follow, the event or the application, at send time). Deleted with the order, the entry, the follow, the event or the organiser. |
+| `private.early_charge_refunds` | `payment_intent_id` | A `charge.refunded` that arrived before its order's payment was recorded, for a payment to one of our organisers' Stripe accounts (any other payment writes nothing): charge, destination, cumulative amount (the greatest seen), full flag (OR-ed), last Stripe event, and `applied_at` / `applied_order_id` once `fulfil_order` acted on it. No buyer data. Deleted 35 days after its last update (`purge_operational_data`). See "Refunds made in Stripe". |
+| `private.refund_status_marks` | `refund_id` | The newest Stripe refund event applied per refund (its status, the event's `created` time and id), written by `record_refund_status` for events only (never for our own refund call's answer, which has no event time). An event older than the mark, delivered later, is `stale` and changes nothing: a `succeeded` that arrives before an older `requires_action` or `failed` leaves a resolved tombstone, so the late one opens no exception. Statuses only, no buyer data. Deleted 35 days after its last update (`purge_operational_data`). |
+| `private.payment_exceptions` | `id` | Payment problems that need a person (see "Refunds made in Stripe"): `kind` `refund_not_completed` (keyed on the refund id, unique), `partial_refund` or `manual_refund_required` (one open per order); `status` open → resolved (`resolution` `auto` or `admin`, with the admin and a 1–500 character note); order (null until a payment is matched to one; set null if the order is deleted), payment intent, refund and latest Stripe event ids and that event's time (older events are ignored); `details`: amounts and statuses only; `alerted_at` (an ops alert queued). Resolved ones are deleted 2 years after resolution; open ones never. |
+| `private.email_outbox` | `id` | Transactional email jobs of six kinds: `ticket_email`, one per paid order (`(order_id, kind)` unique), `waitlist_available`, one per person told that tickets are available again (`waitlist_entry_id`; at most one pending or sending per entry), `organiser_new_events`, a follower's new-event email (`follow_id`; at most one pending or sending per follow; see "Following organisers"), `event_review` / `organiser_review`, the admins' "waiting for your review" email (`event_id` / `organiser_id`; at most one pending or sending per event or application; see "Admin review emails"), and `ops_alert`, keyed on `payment_exception_id` for a payment exception (see "Refunds made in Stripe") or on `ops_event_id` for a checkout surge (see "Checkout idempotency"), exactly one of the two, at most one pending or sending per exception and per event. A check ties each kind to its key. Status, attempts, next attempt, lease, redacted last error. No address or content (read from the order, the waitlist entry, the follow, the event, the application or the exception, at send time). Deleted with the order, the entry, the follow, the event, the organiser or the exception. |
 | `private.email_job_recipients` | `(job_id, recipient_hash)` | Which admins already have a review job's email (the lower-cased address's SHA-256 only), so a retry skips them. Deleted with the job. |
+| `private.cron_runs` | `name` | One row per cron route (only `email_outbox` so far): when its last run finished and that run's counts (claimed, sent, retrying, failed), written by the route. Read by `GET /api/admin/emails/health`. Nothing personal. |
 | `private.event_waitlist` | `id` | One entry per `(event_id, email_key)` (see "Waitlist"): the address as typed and `private.email_key` of it, `user_id` (only when a member joined with their own verified email; deleted with the account), `confirmed_at` (on the list from then: join order), `unsubscribed_at` (left), `notified_at` and `notify_count`. Deleted with the event, and by `purge_social_data` 30 days after the event ends. Never shown to organisers except as a count. |
 | `private.event_waitlist_tokens` | `token_hash` | SHA-256 hashes of emailed waitlist tokens, never the tokens: `confirm` (a guest's join link, 24 hours, used once) and `leave` (one per notification email, valid while the entry exists). Deleted with the entry; expired confirmation links a week after expiry. |
 | `profiles` | `user_id` | A member's social identity: `display_name` (1–40 characters), `adult_confirmed_at` (required: no profile without an 18+ confirmation). Deleted with the Supabase account. `social_suspended_at` is deprecated and ignored (see `private.social_suspensions`). Member profile fields (see "Member profiles"): `public_id` (random uuid, unique: the opaque `profileId`, never the user id; a recreated profile gets a new one), `profile_visible` (opt-in, default false), `bio` (1–200 characters) and `instagram_handle` (Instagram's username pattern, check constraint), both optional. |
@@ -100,7 +104,8 @@ iframe served by Stripe), with the publishable key
 | `event_view_counts` | `(event_id, day, source, coalesce(link_code, ''))` (unique index) | Aggregate page-view counters, one row per event, Melbourne day, source bucket and tracking code: no visitor data of any kind. `link_code` is a plain copy of the code (no foreign key), so a deleted link's counts are kept. Deleted with the event, and by `purge_analytics` after 25 months. |
 | `event_outbound_clicks` | `(event_id, day)` | Clicks on an external event's ticket link, one row per event and Melbourne day: `clicks` (≥ 0) and `cap_reached` (the per-minute click cap was reached that day, so `clicks` is a lower bound). No visitor data of any kind. Deleted with the event, and by `purge_analytics` after 25 months. |
 | `private.event_rate_limits` | `(event_id, bucket)` | Fixed-window counters keyed on an event, never a person (`take_event_rate_limit`): caps the views (bucket `views`) and ticket-link clicks (`outbound`) counted per event per minute. Deleted with the event; idle rows purged daily. |
-| `private.client_rate_limits` | `(client_key, bucket)` | Fixed-window counters keyed on a client (`take_client_rate_limit`): the per-client seat-hold limit (buckets `seat_holds:<event id>` and `seat_holds`, see "Reserved seating"), paid general admission checkouts (`paid_checkouts`) and payment page reads (`order_payment`; see "Payment flow"). One bucket, `order_payment:order`, is keyed on an order instead: its `client_key` is the keyed SHA-256 of the order id (salt labelled `sheltuh/order-key/v1`), never the id. `client_key` is the API's keyed SHA-256 (HMAC) of the client's IP address (an IPv6 address's /64), salted with a value derived from `STRIPE_WEBHOOK_SECRET` (`lib/server/client-key.ts`); the raw address is never stored or sent to the database (check constraint: 64 hex characters). Idle rows purged daily (`purge_operational_data`). |
+| `private.client_rate_limits` | `(client_key, bucket)` | Fixed-window counters keyed on a client (`take_client_rate_limit`): the per-client seat-hold limit (buckets `seat_holds:<event id>` and `seat_holds`, see "Reserved seating"), paid general admission checkouts per minute (`paid_checkouts`) and per 10 minutes (`checkouts:<event id>` and `checkouts`, see "Checkout idempotency"), and payment page reads (`order_payment`; see "Payment flow"). One bucket, `order_payment:order`, is keyed on an order instead: its `client_key` is the keyed SHA-256 of the order id (salt labelled `sheltuh/order-key/v1`), never the id. `client_key` is the API's keyed SHA-256 (HMAC) of the client's IP address (an IPv6 address's /56), salted with a value derived from `STRIPE_WEBHOOK_SECRET` (`lib/server/client-key.ts`); the raw address is never stored or sent to the database (check constraint: 64 hex characters). Idle rows purged daily (`purge_operational_data`). |
+| `private.checkout_attempts` | `idempotency_key` | One paid checkout attempt per `Idempotency-Key` (see "Checkout idempotency"): event, kind (`ga` or `seated`), `fingerprint` (SHA-256 hex of the event, kind, canonical basket, normalised buyer email and tracking code: no email is stored), status (`in_progress` with a lease, `open` with the URL the client was given (our payment page, `/checkout/pay?order=…`) and the session's expiry and, seated, the hold's expiry, `failed`, `completed`), the order id (chosen before the order exists, so no foreign key), and `client_key`: the requester's keyed IP hash (null when the API had none), which a replay must match. Deleted 2 days after creation (`purge_operational_data`; `checkout_attempts_created_idx` serves it). |
 | `private.event_view_cap_days` | `(event_id, day)` | A marker that the event's view cap was reached on that Melbourne day, so reports can flag the day's views as a lower bound. No visitor data. Deleted with the event, and by `purge_analytics` after 25 months. |
 | `private.event_curation` | `event_id` | An admin's trending curation (see "Trending"): `boost` (0.5 to 2, default 1, check constraint) and `excluded`, with who changed it last and when (null until changed). Written only by `set_event_curation`. Deleted with the event. |
 | `private.trending_snapshot` | `rank` | The ranked trending list (at most 24): rank, event (unique), score and when it was computed. Rebuilt as a whole by `refresh_trending`; holds no counts. Deleted with the event. |
@@ -147,13 +152,17 @@ times, which are converted to instants honouring daylight saving
 | `place_free_order` | A member's free order, created and fulfilled in one step under an advisory lock on (event, person): the per-person cap, then the daily allowance, then `fulfil_order`. A refusal or sell-out writes nothing (beyond a refusal count). Returns `paid`, `person_event_limit`, `member_daily_limit` or `sold_out`. |
 | `request_free_order` | A guest's pending free order: the platform's hourly and 24-hour caps (read-only), then, under an advisory lock on the address, the hourly link limit, then a hit on each platform cap. Returns `requested`, `address_limited`, `platform_limited` or `platform_daily_limited`. (The previous 13-argument form delegates to it with the same daily cap, for the deploy window; the app doesn't call it.) |
 | `confirm_free_order` | Confirms by token hash: locks the order, then (event, person), then the event (share) to check every ticket type is still free, then `fulfil_order`'s locks. Idempotent within the link's 24 hours. Returns `confirmed`, `already_confirmed`, `expired_confirmed`, `not_found`, `expired`, `unavailable`, `ended` (the event ended before the link was confirmed: read before the allowance, and again under the event's share lock), `person_event_limit`, `no_longer_free`, `seats_taken` (a seated order's seats went to someone else since the link was sent) or `sold_out` (the last five mark the order `failed`). A seated order takes the seat lock before the order row. |
-| `purge_operational_data` | Retention for free-ticket and outbox data (see "Free tickets" and "Payment flow"); sent outbox jobs after 90 days, failed ones after a year; per-client counters (`client_rate_limits`) idle for a day; account invites 90 days after they were accepted, revoked or expired (`account_invites_deleted`, `20261108000000_account_invites.sql`). Idempotent; Supabase Cron daily. |
+| `purge_operational_data` | Retention for free-ticket and outbox data (see "Free tickets" and "Payment flow"); sent outbox jobs after 90 days, failed ones after a year; per-client counters (`client_rate_limits`) idle for a day; account invites 90 days after they were accepted, revoked or expired (`account_invites_deleted`, `20261108000000_account_invites.sql`); early refund rows and refund status marks 35 days after their last update; resolved payment exceptions 2 years after resolution (open ones never); checkout attempts 2 days after creation, first failing any order a failed attempt kept pending with no session recorded (no Checkout Session lives that long). Idempotent; Supabase Cron daily. |
+| `begin_checkout_attempt` | Claims an `Idempotency-Key` for one request from one client key (see "Checkout idempotency"): insert-or-lock the attempt row, then `mismatch`, `other_client` (the attempt's client key differs; nothing given out or changed), `in_progress` (live lease; seconds left), `replay` (order, URL, hold expiry), `expired`, `completed` (with the order's status), or `create` under a 90-second lease (a new key, or a retry of a failed one). A new key's row and its limits are one subtransaction, so a limit refusal (`client_event_limit`, `client_all_limit`) writes nothing; `alert_queued` says the event's checkout circuit breaker queued an ops alert. A retry reuses a still-pending order with no session that's young enough (`reused`), else takes the limits again and releases the old pending order (seats freed). Lock order: the attempt row, the limit counters, then the seat lock and the order when releasing. |
+| `finish_checkout_attempt` / `fail_checkout_attempt` | Lease-checked (`lost` otherwise, changing nothing). Finish locks the attempt, then the order: records the session on the still-pending order and opens the attempt (`open`), or fails the attempt if the order stopped being pending (`order_closed`). Fail releases the lease and, when asked, the order (`release_checkout_order`: a seated order through `release_seat_holds`, a general admission one directly). |
+| `take_checkout_attempt` | General admission paid checkout limits: per client (skipped for a null key) 'checkouts:<event id>' then 'checkouts' (refusals: `event`, `all`; a refusal keeps no hit), then the event's alert-only circuit breaker, its 'checkouts' bucket (`take_event_rate_limit`): crossing it refuses nobody but queues an ops alert (`queue_checkout_surge_alert`), at most one per event per window (bucket 'checkout_surge_alert') and 10 a day platform-wide (bucket 'ops_alerts_checkout_surge', apart from the payment exceptions' 20). Returns `ok`, `surge` (ok, alert queued), `event` or `all`. `take_checkout_limits` picks it or (seated) `take_seat_hold_attempt`. |
 | `create_account_invite` | An admin's invite (see "Account invites"): marks the address's expired pending invite `expired`; refuses an address with a pending invite (`already_invited`) or, for an organiser invite, one whose account already owns an organiser (`already_organiser`); then a hit on the admin's hourly allowance (`account_invites`) and the platform's daily one (`account_invites_daily`) and the insert, in one subtransaction, so a refusal keeps neither hit and two admins inviting the same address at once can't both succeed (the unique index; the loser is `already_invited`). Returns `created` with the id, or the refusal. |
 | `account_invite_inviter_is_admin` | Whether an invite's `invited_by` still has `app_metadata.role = 'admin'` (false when null: the account was deleted). An invite whose inviter isn't is dead: read as revoked by `view` and `/invites/me`, and marked revoked by the three functions below. |
 | `resend_account_invite` | Locks the invite; only a pending or expired one (`not_pending`; also when its inviter is no longer an admin, which marks it revoked), not within a minute of the last send (`too_soon`); the same allowances, taken only when it's resent; a new token hash, 14 days from now, link count reset, status pending again (`already_invited` if the address has another pending invite by then). |
 | `issue_invite_account_link` | The invite page's "Create account", by token hash: locks the invite; `not_found`, `used`, `revoked` (also when its inviter is no longer an admin, which marks it revoked), `expired`; `has_account` when the address already has a confirmed account; `limit` past the per-link cap; otherwise counts one request and returns the address. |
 | `accept_account_invite` | The invitee's acceptance: locks the invite; the caller's verified email must equal its address, ignoring case (`not_found` otherwise, revealing nothing); the same account again is `already_accepted` (idempotent), another one `used`; `revoked` (also when its inviter is no longer an admin, which marks it revoked), `expired`. An organiser invite inserts the organiser, approved, reviewed by the inviting admin, owned by the caller (`on conflict (owner_user_id) do nothing`: an account with an organiser, or an application committed meanwhile, is `has_organiser`, nothing written), and logs `invite_accepted`; then marks the invite accepted, in one step. |
 | `claim_outbox_jobs`, `finish_email_job`, `resend_email_job`, `admin_resend_email_job` | The email outbox: lease due jobs of any kind (optionally one order's, or one kind) with `skip locked` (an expired lease is taken again; one that expired on the 6th attempt fails), record an outcome only for the current lease holder, and an admin resend of a ticket email (not while leased, not twice in 5 minutes; a waitlist email is `not_found`). `admin_resend_email_job` takes a hit on the admin's hourly allowance only when the resend is queued, in the same transaction (over it: `rate_limited`, nothing changed). `claim_email_jobs`, the earlier form, now claims ticket emails only and is kept for the deploy window (see "Not built yet"). |
+| `email_outbox_health(p_overdue_after)` | Per outbox kind: due, overdue (due, or leased by a worker that died, for longer than `p_overdue_after`), the oldest overdue job's age in seconds, waiting, sending, expired leases, failed and failed in the last 7 days. Sent jobs aren't read. Counts only; `GET /api/admin/emails/health` and the SQL editor (`20261104000100_email_outbox_health.sql`). |
 | `waitlist_join_state` | Whether an event's waitlist takes joins: `open` (published, Sheltüh-ticketed, not ended, has ticket types and every one is sold out), else `not_found` (missing or not published), `external`, `ended` or `not_sold_out`. |
 | `join_waitlist` | A member's join with their own verified email (the API checks it's theirs): on the list at once, idempotently (`already_joined`); someone who left, or never confirmed, joins again at the back. An entry already on the list is linked to the member's account only if its address is exactly theirs (ignoring case), never by a normalised match (`+tag`, Gmail dots). Returns `joined`, `already_joined` or a `waitlist_join_state` refusal. |
 | `request_waitlist_join` | Anyone else's join: the event's state; the platform's hourly and daily caps (read-only, before anything about the address); then under an advisory lock on the address: already on the list (`already_joined`, nothing recorded), the address's hourly cap (`address_limited`), taking both platform caps, and a pending entry with the confirmation token's hash. Returns `requested`, `already_joined`, `address_limited`, `platform_limited`, `platform_daily_limited` or a state refusal. |
@@ -174,10 +183,13 @@ times, which are converted to instants honouring daylight saving
 | `unsubscribe_follow` | Turns a follow's emails off by an unsubscribe token's hash (the follow stays). Idempotent: `unsubscribed` or `not_found`. |
 | `notify_followers` | Run at commit by the deferred constraint trigger `events_followers_announce` (status becomes `published`): for a published, upcoming event of an approved organiser, records the announcement (once per event ever: a republish is a no-op), then, under an advisory lock per organiser, queues one `organiser_new_events` job per follower with emails on and a confirmed email (`auth.users.email_confirmed_at`) who has none waiting, due at the later of now and 24 hours after their last, until the platform's 500 a day. Locks each follow row as it's queued. |
 | `claim_email_outbox` | `claim_outbox_jobs` for every kind, also returning the follow. `claim_outbox_jobs` (the previous release's) now leaves `organiser_new_events` alone, for the deploy window. |
-| `lease_outbox_jobs` | `claim_email_outbox` for every kind, also returning the event and the organiser (the review emails). `claim_email_outbox` (the previous release's) now leaves `event_review` and `organiser_review` alone, for the deploy window. |
+| `lease_outbox_jobs` | `claim_email_outbox` for every kind, also returning the event and the organiser (the review emails). `claim_email_outbox` (the previous release's) now leaves `event_review` and `organiser_review` alone, for the deploy window. Since `20261109000200_payment_reconciliation.sql`, `ops_alert` jobs only when asked for that kind (the app drains them first, then the rest), so a release that can't send them never leases one; `claim_email_outbox` never takes them either. |
 | `queue_review_email` | Queues the admins' review email for an event in review or a pending application of an account's organiser (called by deferred triggers on `events` and `organisers`): nothing if one is already waiting or being sent, due an hour after the last one sent, at most 100 a day platform-wide. An advisory lock per subject serialises calls. Returns whether it queued. A trigger deletes a still-waiting job when its subject leaves review. |
 | `suspend_organiser` | An admin takedown, only from `approved` (a second admin gets 409): locks the organiser row, then its published and pending-review events in id order; sets the organiser `rejected` with the reason and reviewer; moves each published event to draft (`unpublished`) and each pending one to `rejected`, through `transition_event`, so the event moderation log records each with the admin and reason; logs the takedown. Deletes nothing. Returns the result and how many events moved. |
-| `record_payment_refund` | Records a `charge.refunded` by payment intent (see "Refunds made in Stripe"). Locks the order (`for update`), and acts only on a `paid` one. Full refund: `refunded`, the amount recorded, and each line item's quantity taken off its ticket type's `quantity_sold` (never below 0), updating ticket types in `ticketTypeId` order like `fulfil_order`, so the two can't deadlock. Partial: only `amount_refunded_cents`, which only grows. A redelivery (already refunded, or no larger amount) changes nothing, so inventory is released exactly once. Returns `refunded`, `partial`, `unchanged` or `not_found`, with the order id when found (logged by short reference only). A full refund of a seated order also frees its seats (tickets' `seat_id` cleared, then the seats' sale), after the seat lock. |
+| `record_payment_refund` | Records a `charge.refunded` by payment intent (see "Refunds made in Stripe"). Takes the payment intent's lock first, then (seated) the seat lock, then the order (`for update`), and acts only on a `paid` one. Full refund: `refunded`, the amount recorded, and each line item's quantity taken off its ticket type's `quantity_sold` (never below 0), updating ticket types in `ticketTypeId` order like `fulfil_order`, so the two can't deadlock; an open `partial_refund` exception is resolved. Partial: only `amount_refunded_cents`, which only grows, and a `partial_refund` exception. A redelivery (already refunded, or no larger amount) changes nothing, so inventory is released exactly once. No order yet but the charge's destination is one of our organisers' accounts: an `early_charge_refunds` row, `deferred`. Returns `refunded`, `partial`, `unchanged`, `deferred` or `not_found`, with the order id when found (logged by short reference only). A full refund of a seated order also frees its seats (tickets' `seat_id` cleared, then the seats' sale), after the seat lock. The 6-argument form (charge id, destination, Stripe event id) is the app's; the 3-argument form delegates to it without a destination (never defers), for the previous app version during the deploy window (see "Not built yet"). |
+| `lock_payment_intent` | Transaction-scoped advisory lock per payment intent: the first lock `fulfil_order` (paid orders), `record_payment_refund` and `record_refund_status` take, so a refund and its own order's fulfilment serialise. Lock order: payment intent, seat lock, order. |
+| `record_refund_status` | A refund's status (`refund.updated`, `refund.failed`, `charge.refund.updated`, or what our own refund call returned): takes the payment intent's lock; trusts the refund's `metadata.orderId` only when that order's payment intent is the refund's own (otherwise the order is found by payment intent); for an event, compares it with the refund's mark (`refund_status_marks`) and stops (`stale`, nothing written) if it's older than one already applied; then records our automatic refund on its `oversold_refund_required` order (refund id; `refunded` once it succeeded), then `failed` / `canceled` / `requires_action` raise a `refund_not_completed` exception and `succeeded` resolves an open one for the same refund (only for an event strictly newer than the last applied). A payment with no order and no early refund row writes nothing (`not_found`). |
+| `raise_payment_exception`, `resolve_payment_exception` | Open or update an exception (`opened`, `reopened`: an automatically resolved refund exception failing again, `updated`, `unchanged`: one an admin resolved, `stale`: an older event), queuing an `ops_alert` outbox job on `opened` / `reopened` within 20 per 24 hours (platform counter `ops_alerts`). An admin closes an open one with a note (`resolved`, `not_open`, `not_found`). |
 | `replace_seat_map`, `delete_seat_map` | The organiser's map (see "Reserved seating"): the seat lock, then the event row (owned by the organiser, else `not_found`); only while draft or rejected (`not_editable`) and never approved (`frozen`), not external (`external`), and the event has no orders of any status (`has_orders`); then `write_seat_map` / `clear_seat_map`. |
 | `admin_replace_seat_map` | An admin's replacement (layout) or removal (null), any status, only while the event has no orders of any status (`has_orders`); a reason is required; logged `edited` with `changes.seatMap` (old and new `{version, seatCount}`). Nothing changing is `unchanged`, nothing logged. |
 | `write_seat_map`, `clear_seat_map` | Internal: store a layout (the seats derived from it in SQL, so the two can't disagree; at most 5 tiers, `event_seat_maps_max_tiers`; then every tier's `seated` and capacity recomputed) or remove it. An identical layout is `unchanged` (version kept). Either refuses (check_violation, `event_seat_maps_no_orders`, the API's 409) when the event has any order, whatever the caller checked: defence in depth, so no caller can rewrite seats a pending order holds or a paid one has sold. |
@@ -185,7 +197,7 @@ times, which are converted to instants honouring daylight saving
 | `release_seat_holds` | A pending order marked `failed` and its holds cleared, under the seat lock; anything not pending is returned unchanged (its status). |
 | `take_client_rate_limit`, `take_seat_hold_attempt` | `take_rate_limit`'s fixed-window counter keyed on a client key (or, for `order_payment:order`, an order key). `take_seat_hold_attempt` takes one hit on the client's `seat_holds:<event id>` bucket, then one on its `seat_holds` (all events) bucket, in that order (nothing else writes them), and returns `ok`, `event` or `all`; a refusal keeps neither hit (`20261103000000_seat_hold_client_limits.sql`). |
 | `place_free_seated_order`, `request_free_seated_order` | `place_free_order` / `request_free_order` for a seated free order (the seat lock first; the order records its seats). A guest's order holds nothing until confirmed. `seats_unavailable` when a member's seat is gone. |
-| `fulfil_order` | Queues the ticket email in the same step (see "Payment flow"). Takes inventory for every line item, issues the tickets and marks the order paid. If any ticket type has sold out, or the event is no longer published, it takes nothing and marks the order `oversold_refund_required`. Rows are locked in a fixed order, so concurrent orders can't deadlock. It's idempotent, so Stripe's webhook redeliveries are harmless. A seated order takes the event's seat lock first, needs every seat (free, its own hold, or an expired hold) and lines that match its seats exactly (no order buys a seated tier without seats), and gives each ticket one of its tier's seats; otherwise the oversold path, which also clears its holds. |
+| `fulfil_order` | Queues the ticket email in the same step (see "Payment flow"). Takes inventory for every line item, issues the tickets and marks the order paid. If any ticket type has sold out, or the event is no longer published, it takes nothing and marks the order `oversold_refund_required`. Rows are locked in a fixed order, so concurrent orders can't deadlock. It's idempotent, so Stripe's webhook redeliveries are harmless. A seated order takes the event's seat lock first, needs every seat (free, its own hold, or an expired hold) and lines that match its seats exactly (no order buys a seated tier without seats), and gives each ticket one of its tier's seats; otherwise the oversold path, which also clears its holds. A paid order takes the payment intent's lock first and, after the pending check, applies an early refund recorded for its payment (once): in full, the order becomes `refunded` with nothing taken, issued or emailed (holds cleared; returns `refunded`); in part, it's fulfilled as normal, then the amount is recorded and a `partial_refund` exception opened. The body is `fulfil_order_detailed`, which also returns `alert_queued` (that exception queued an ops alert), so the webhook drains the alert outbox only then; `fulfil_order` (same signature, the free paths') returns its status. |
 
 ## Payment flow
 
@@ -230,6 +242,9 @@ times, which are converted to instants honouring daylight saving
      client can make.
    - The order is inserted as `pending` *before* Stripe is called, so a
      payment can never arrive without an order to attach it to.
+   - A paid checkout is one attempt per `Idempotency-Key`: a repeat gets the
+     same order and session, never a second one, and Stripe is asked with a
+     per-order idempotency key (see "Checkout idempotency" below).
    - A Checkout Session is created as a destination charge to the
      organiser's Express account, with `application_fee_amount` set to the
      booking fee. It's an embedded session (`ui_mode: "embedded_page"`) with
@@ -384,6 +399,15 @@ times, which are converted to instants honouring daylight saving
      a refund that fails later is logged by `refund.updated` / `refund.failed`.
    - `charge.refunded` → `record_payment_refund` (see "Refunds made in
      Stripe").
+   - `refund.updated`, `refund.failed`, `charge.refund.updated` →
+     `record_refund_status` (see "Refunds made in Stripe"). Our own refund
+     call's answer goes through it too, with no Stripe event id or time (the
+     webhook's event is the checkout's, not the refund's).
+   - A refund call Stripe answers with `charge_already_refunded` (the charge
+     was already refunded in full, e.g. in the dashboard) is done, not a 500:
+     an oversold order is marked `refunded`, a failed one stays `failed`.
+     An automatic refund with no payment intent on record opens a
+     `manual_refund_required` exception.
    - Any other event type is acknowledged (200) and ignored.
    - Inventory is only taken here, so an abandoned checkout never holds
      tickets.
@@ -396,20 +420,44 @@ times, which are converted to instants honouring daylight saving
      order paid, so it can't be lost; a redelivered webhook never reaches
      that point again, and `(order_id, kind)` is unique.
    - The first attempt runs straight after the response (`Deps.defer`, Next's
-     `after()`), for that order only. `GET /api/cron/email-outbox` (Vercel
-     Cron, `vercel.json`: daily at 17:00 UTC on the Hobby plan, so ticket
-     emails still send right after purchase and only retries wait; every 5
-     minutes once on Pro; bearer `CRON_SECRET` compared in constant time)
-     sends everything else that's due. A run stops claiming
-     jobs after 30 seconds, so the last one claimed can still be sent within
-     the route's 60-second `maxDuration`.
+     `after()`), for that order only. `GET /api/cron/email-outbox` (bearer
+     `CRON_SECRET` compared in constant time) sends everything else that's
+     due, and records the run in `private.cron_runs`. Two schedulers call it:
+     Vercel Cron (`vercel.json`: daily at 17:00 UTC, the Hobby plan's limit;
+     every 5 minutes once on Pro, which needs `vercel.json` edited and
+     redeployed: the plan change alone does nothing) and, on Hobby, Supabase
+     Cron with `pg_net` every 5 minutes, with the secret in Supabase Vault,
+     set up by the owner (`docs/supabase-setup.md` §3; no migration schedules
+     it). Calling it every 5 minutes, or from both at once, is safe: a run
+     takes at most 100 jobs, stops claiming after 30 seconds (so the last
+     one claimed can still be sent within the route's 60-second
+     `maxDuration`), and with nothing due is two indexed claims and one
+     upsert. There's no in-request retry: a second SMTP attempt inside
+     `after()` would share the route's `maxDuration` with the first (each can
+     take about 20 seconds of timeouts), a failure after the server accepted
+     the message would mean a duplicate email, and the 5-minute runner
+     already retries within minutes.
    - Workers lease one job at a time (`claim_email_jobs`, `for update skip
      locked`, 2-minute lease), so concurrent workers never take the same job;
      only the lease holder can record the outcome (`finish_email_job`). A
      worker that dies leaves a lease that expires and is retried.
    - Retries after 1 min, 5 min, 30 min, 2 h and 6 h (±20% jitter); the 6th
-     failed attempt is final (`failed`). An order that's no longer paid, or
-     has no address, fails at once.
+     failed attempt is final (`failed`, the dead letter an admin resends). An
+     order that's no longer paid, or has no address, fails at once. A delay
+     is the earliest the next attempt can run; it runs on the next call of
+     the cron route. Retry timeline after a failed first send:
+
+     | Runner | 2nd attempt | 3rd attempt | 6th (last) attempt |
+     | --- | --- | --- | --- |
+     | every 5 minutes | within about 6 min | within about 17 min | 7 to 11 hours later |
+     | daily Vercel Cron only | up to about 24 hours | at the next day's run | 4 to 5 days later |
+   - `GET /api/admin/emails/health` (admin) shows whether it's working:
+     per kind and in total, due, overdue (more than 15 minutes), the oldest
+     overdue age, waiting, sending, expired leases and failed jobs, when the
+     cron route last finished a run, and whether `CRON_SECRET` is set. Counts
+     only. Overdue or failed jobs don't raise an ops alert (alerts are tied
+     to payment exceptions); check the endpoint after go-live and when
+     buyers report a missing email.
    - Delivery is at-least-once: a crash between SMTP accepting the message
      and recording it means it's sent again.
    - A mail failure never touches the order. `tickets_emailed_at` is set when
@@ -662,6 +710,168 @@ Each event has a refund policy (`lib/refund-policy.ts`, migration `2026110900010
 
 Organisers set it while the event is a draft or rejected; once it's submitted only an admin can change it. Buyers keep what they bought under: a change that makes the policy less generous for an event with pending or paid orders (`private.refund_policy_tightens`: `days_before` → `no_change_of_mind`, or more days' notice; mirrored by `tightensRefundPolicy`, and a test checks they agree) is refused with 409 `code: "refund_policy_tightened"`, for an admin's edit of any event and for an organiser's edit of an unpublished draft that has orders. The check runs under the event row lock, and every order insert share-locks that row first, so no order slips in between. Loosening is always allowed. Admin changes are logged in the `edited` entry (`changes.refundPolicy`, `changes.refundDays`). Refunds themselves stay manual (see "Refunds made in Stripe"); nothing enforces the deadline automatically.
 
+## Checkout idempotency
+
+Payment audit item 4 (`supabase/migrations/20261104000200_checkout_attempts.sql`,
+`lib/server/checkout-attempts.ts`, `lib/api/checkout-attempt.ts`). Before it,
+every paid checkout request made a new pending order and a new Stripe Checkout
+Session, so a double click or a retry after a lost response made two of each
+(and, seated, a second hold attempt).
+
+- **The key.** Every checkout request may send an `Idempotency-Key` header: a
+  random (version 4) UUID the client keeps for one attempt at one basket
+  (lowercased; anything else, the nil UUID or another version or variant
+  included, is a 400 `invalid_idempotency_key`). It's **optional for now** (owner
+  decision D8): without it, the server makes one up, so the request behaves
+  exactly as before (a new order every time). Our own client always sends
+  one. Free checkouts ignore it. Plan for the next release: require it on
+  paid checkouts (a 400 without it) once the current client has been live
+  long enough that no cached old page still posts without it.
+- **The attempt** (`private.checkout_attempts`, one row per key; the key is
+  unique on its own, so a key reused for another event is caught). Its
+  fingerprint is a SHA-256 of the event, kind, the canonical basket (ticket
+  type ids and quantities, map version and seat ids, sorted), the
+  normalised buyer email (trimmed, lowercased) and the tracking code.
+  Prices aren't in it: they come from the database, and a replay returns
+  the order as it was made.
+- **Answers for a key already used:**
+  - the same basket while its session is open (order pending, session and
+    any hold unexpired): **200** with the same `{url, orderId}` (seated also
+    `holdExpiresAt`), `Idempotent-Replayed: true`, `private, no-store`;
+  - still being made by another request (a live lease): **409**
+    `checkout_in_progress`, `Retry-After` and `retryAfterSeconds` (2);
+  - a different basket, buyer, tracking code or event: **422**
+    `idempotency_key_reused`;
+  - its checkout ended (the order was cancelled, Back from Stripe, or
+    failed, or the session or hold expired): **409** `checkout_expired`,
+    "start a new checkout" (the client then uses a new key);
+  - its order is paid, or was paid and then refunded or is being refunded:
+    **409** `checkout_completed`, worded for what happened (only a `paid`
+    order says "check your email for your tickets"; `oversold_refund_required`
+    says it's being refunded in full, `refunded` that it was, with no
+    tickets);
+  - the key belongs to another client: **409** `checkout_other_client`
+    (below), with no URL or order id;
+  - its last try failed: tried again (below).
+  The first look is a plain read, before the request's own checks, so a
+  replay isn't refused for seats its own order holds or tickets sold since.
+  A seated request refused for taken seats looks again, so a double click
+  racing its twin gets the twin's answer rather than "taken".
+  `begin_checkout_attempt` then decides again under the row lock.
+- **Bound to the requester.** The attempt stores the requester's client key
+  (the same keyed IP hash as the per-client limits). A request with the
+  same key from a different client key gets 409 `checkout_other_client`
+  ("started from another connection; start a new checkout"): it can't read
+  the order id (the confirmation page's credential) or the session URL,
+  retry the attempt or take over its lease, and the attempt is unchanged.
+  A key leaked from one buyer's page is therefore useless elsewhere. A
+  buyer whose address changes mid-attempt (wifi to mobile) gets the 409,
+  and the client starts a new attempt. With no usable IP header (never on
+  Vercel) or no `STRIPE_WEBHOOK_SECRET`, the client key is null and null
+  matches only null: the binding then fails open for those requests (they
+  can replay each other's attempts, as before this change), logged as for
+  the limits.
+- **Concurrency.** Two requests with one new key both insert; the second's
+  `on conflict` waits for the first to commit and then sees its live lease
+  (409). The lease is 90 seconds, above the route's `maxDuration` (60), so
+  it only lapses once its request is gone; a later request then takes over.
+  Lock order: the attempt row, the limit counters, then (releasing an old
+  order) the seat lock and the order. Nothing that holds a seat lock or an
+  order row goes on to lock an attempt. Finishing locks the attempt, then
+  the order.
+- **Stripe.** `checkout.sessions.create` gets `idempotencyKey:
+  checkout-session-<orderId>`, a 15-second timeout and one network retry.
+  The session is built from the order as stored (lines, fee, email, title;
+  seated: the seats, and `expires_at` = the order's creation + 31 minutes),
+  so a call repeated for the same order sends the same parameters. Failures:
+  - **No answer** (connection error or timeout, Stripe's 429, or a 409
+    because the same key is still running there): the outcome is unknown, so
+    the order (and its holds) is kept and the attempt marked failed: **503**
+    `payment_provider_unavailable`. A retry with the same key reuses the
+    order and repeats the call with the same Stripe key, so if the first
+    call did make a session, Stripe returns that one. Reuse needs the order
+    still pending, with no session recorded, and younger than 10 minutes
+    (general admission: just a bound on reusing an old price snapshot) or 45
+    seconds (seated: Stripe refuses an `expires_at` less than 30 minutes
+    ahead, and it's fixed at creation + 31). Otherwise the old order is
+    released (seats freed) and a new one made, with a new Stripe key.
+  - **Anything else** (an API error, which Stripe replays for the same key,
+    or an invalid request): the order is released (failed, seats freed),
+    **500**; a retry with the same key makes a new order.
+  A session Stripe made for an order we then released is an orphan nobody
+  has the URL of; it expires on its own (24 hours, seated 31 minutes). A
+  duplicate session isn't a duplicate charge in itself: a buyer pays only on
+  a session's page, through the one URL we return, and a payment for a
+  failed order is refunded automatically ("Payment flow" step 3).
+- **Limits** (owner decision D7), general admission paid checkouts only,
+  taken only when a new order is about to be made (never for replays,
+  in-progress answers, reused orders or refusals decided earlier: sold out,
+  bad input, payouts not set up), in the same subtransaction as a new
+  attempt's row, so a refusal writes nothing: per client (its keyed IP hash,
+  as for seat holds, `lib/server/client-key.ts`; an IPv6 address by its
+  /56) 20 per event and 60 across events, each per 10 minutes: **429**
+  `client_rate_limited` ("You've started a lot of checkouts…"). Per event,
+  across clients, 600 per 10 minutes (`CHECKOUT_LIMITS.perEventAlert`) is an
+  **alert-only circuit breaker** (a manager decision after the security
+  review: as a refusal, about 30 addresses could use it up and lock real
+  buyers out of an on-sale). Crossing it refuses nobody; it queues an
+  `ops_alert` about the event (title and id only), at most one per event per
+  window and 10 a day platform-wide, emailed to `OPS_ALERT_EMAIL` straight
+  after the response, and logs a warning with the event id. Per client
+  fails open, with a log line and no request detail, when there's no IP
+  header or `STRIPE_WEBHOOK_SECRET` isn't set; the circuit breaker still
+  counts.
+  Seated checkouts keep their own limits (`SEAT_HOLD_LIMITS`: per client in
+  `begin_checkout_attempt`, per event in `hold_seats`): nothing is counted
+  twice.
+- **Client** (`lib/api/checkout-attempt.ts`, used by `createCheckoutSession`
+  and `createSeatedCheckout`; components unchanged): one key per event and
+  basket (`crypto.randomUUID()`), at most 30 minutes old; a request in
+  flight is shared, so a double click sends one request; a network failure
+  or 503 is retried once, and an in-progress 409 after its Retry-After (each
+  wait at most 5 seconds) up to 20 times and 35 seconds of waiting in all,
+  which covers the server's worst case for the first request (a 15-second
+  Stripe call and its one network retry), all with the same key. The key is dropped
+  after a success and after any other 4xx; a 5xx or network failure keeps
+  it, so the next press resumes the same attempt. `checkoutErrorCode(err)`
+  reads the code (`CheckoutErrorCode`, `lib/api/types.ts`).
+- **Retention** (D11): attempts are deleted 2 days after creation
+  (`purge_operational_data`); first, an order a failed attempt kept pending
+  with no session recorded is marked failed.
+- **Tests**: `tests/server/checkout-attempts.test.ts` (replay, double click,
+  mismatch, another client, in progress, expired, completed and its
+  wording, Stripe failures and retries with the Stripe key checked and
+  Stripe's messages kept out of the logs, limits and the surge alert, no
+  key, seated double click and
+  retries, purge; its concurrency cases need `TEST_DATABASE_URL`), and
+  `tests/api-orders.test.ts` (the client's key lifecycle).
+
+### Accepted limits (checkout idempotency)
+
+- **The header is optional.** Until it's required, a client that sends no
+  key (an old cached page, a script) still makes a new order per request;
+  the per-client limits bound it.
+- **A distributed attacker can create unpaid sessions, but can't block
+  buyers.** The only event-wide bound on general admission checkouts is the
+  alert-only circuit breaker, so many addresses (each within its 20 per
+  event) can make many pending orders and unpaid Checkout Sessions. They
+  hold no general admission tickets (inventory is only taken at payment)
+  and expire on their own (Stripe's 24 hours; the daily purge fails the
+  orders); the cost is Stripe API calls and rows, and the ops alert says it
+  is happening. Blocking it is a firewall or bot-check job (Turnstile, "Not
+  built yet"). Shared addresses share the per-client 20 (as for seat holds),
+  and an IPv6 /56 shared by a few customers of one ISP counts as one client.
+- **No IP header, no binding.** Off Vercel (or with
+  `STRIPE_WEBHOOK_SECRET` unset), requests have no client key: the
+  per-client limits are skipped and attempts aren't bound to a requester
+  (null matches null), each logged. On Vercel the header is always set.
+- **A kept order can sit pending.** After a 503, if the buyer never retries,
+  a general admission order stays `pending` (holding nothing) until the
+  daily purge fails it after 2 days; seated holds lapse after 35 minutes.
+- **A reload loses the key.** Keys live in page memory, so a reload starts a
+  new attempt; a seated buyer may then see their own earlier hold as
+  "taken" until it's released (Back from Stripe) or lapses.
+
 ## Refunds made in Stripe
 
 Refunds of paid orders are made in the Stripe dashboard (there's no refund
@@ -683,7 +893,50 @@ carries its payment intent, its cumulative `amount_refunded`, and `refunded`
   isn't paid, and check-in must accept `paid` orders only.
 - **Partial refund**: `amount_refunded_cents` is recorded and the order stays
   `paid` with valid tickets. It's logged (`console.error`, by short order
-  reference) for someone to decide what to do, e.g. refund the rest.
+  reference) and opens a `partial_refund` payment exception (with an ops
+  alert) for someone to decide what to do, e.g. refund the rest; a later full
+  refund closes it.
+- **Before the payment is recorded.** `fulfil_order` stores the payment
+  intent, so a `charge.refunded` processed before the order's payment webhook
+  (only possible if that webhook failed and is awaiting Stripe's retry) finds
+  no order. If the charge's `transfer_data.destination` is one of our
+  organisers' accounts, it's kept (`early_charge_refunds`, `deferred`) and
+  applied when the payment arrives: in full, the order becomes `refunded`
+  with no inventory taken and no tickets or email (owner decision D1; the
+  buyer's page says `refundReason: "refunded"`); in part, the tickets are
+  issued, the amount recorded and a `partial_refund` exception opened (D2).
+  Both take the payment intent's advisory lock first, so a refund racing its
+  own fulfilment waits for it and then sees the paid order.
+- **Payment exceptions** (`private.payment_exceptions`, `GET
+  /api/admin/payment-exceptions`): a refund Stripe reports `failed`,
+  `canceled` or `requires_action` (from any of the three refund events, for
+  our automatic refunds and dashboard ones alike) opens a
+  `refund_not_completed` exception for that refund, `urgent` when its order
+  was already voided. A later `succeeded` for the same refund closes it; a
+  failure after that reopens it (a card refund can go from succeeded to
+  failed). Nothing restores tickets or refunds again automatically (D4): an
+  admin re-refunds in the Stripe dashboard and resolves the exception with a
+  note. One reported before the payment had an order (an early refund) is
+  matched to the order at fulfilment.
+- **Out of order, and confirmed.** Stripe doesn't promise delivery order.
+  Each refund's newest applied event is kept (`refund_status_marks`), and an
+  older one delivered later is `stale`: it changes nothing (no exception,
+  no alert, no order change). Before reporting a refund as `failed`,
+  `canceled` or `requires_action` (an event, or our own refund call's
+  answer, which may be Stripe's stored replay of an older state), the app
+  asks Stripe for the refund's current status (`refunds.retrieve`) and acts
+  on that; if Stripe can't be reached, the reported status stands and the
+  mark is what protects. Logged by Stripe's error type and code only.
+- **Whose refund.** A refund's `metadata.orderId` (our automatic refunds
+  set it) is trusted only when that order's payment intent is the refund's
+  own; otherwise the refund is matched by payment intent, as a dashboard
+  refund is.
+- **Ops alerts**: each exception opened (or reopened) queues an `ops_alert`
+  outbox job, at most 20 per 24 hours, emailed to `OPS_ALERT_EMAIL` (the
+  order's short reference, amounts, statuses and Stripe's event id: never the
+  buyer, the order id or the payment intent). Unset: logged with
+  `console.error` and skipped; the exception is still listed. Sent straight
+  after the response and by the outbox cron.
 - **Idempotent.** Stripe redelivers: a delivery for an order already
   `refunded`, or a partial one that doesn't raise the recorded amount, is
   `unchanged`. Two deliveries at once serialise on the order row, so
@@ -692,13 +945,14 @@ carries its payment intent, its cumulative `amount_refunded`, and `refunded`
   payment, or a malformed event) is acknowledged with 200 and logged by
   Stripe's event id, never a 500, so Stripe doesn't retry it for days.
 - **Refund status events for dashboard refunds** (`refund.updated` /
-  `refund.failed` without `metadata.orderId`; only our automatic refunds carry
-  one) change nothing: `charge.refunded` records the refund. They're logged
+  `refund.failed` / `charge.refund.updated` without `metadata.orderId`; only
+  our automatic refunds carry one) never change the order: `charge.refunded`
+  records the refund. They raise or resolve payment exceptions (above). They're logged
   by Stripe's event id and, when the refund's payment intent is one of our
   orders', that order's short reference, so a dashboard refund that failed
   is visible: `failed`, `canceled` and `requires_action` with
   `console.error`, any other status with `console.info`
-  (`logUnmatchedRefund`, `lib/server/handlers/orders.ts`).
+  (`recordRefundStatus`, `lib/server/handlers/orders.ts`).
 - Logs name an order only by its short reference (`#7C1F2E0A`): never its id,
   the buyer, or the payment intent.
 
@@ -714,25 +968,39 @@ carries its payment intent, its cumulative `amount_refunded`, and `refunded`
 - **Who's Going opt-ins survive a refund.** An opt-in isn't revisited when
   its order stops being `paid` (as for a changed email; see "Not built yet").
   The member can't opt in again to an event they hold no paid order for.
-- **A refund that arrives before the payment is recorded is lost.** The
-  payment intent is stored by `fulfil_order`, so a `charge.refunded`
-  processed before the order's own payment webhook commits (only possible if
-  that webhook failed and is awaiting Stripe's retry when the dashboard
-  refund is made) finds no order and is acknowledged; the order then becomes
-  `paid` with valid tickets. The log line (Stripe event id) is the signal to
-  reconcile by hand.
+- **Early refund edge cases.** A refund failure reported before both the
+  payment and its `charge.refunded` (out of order) finds nothing to attach to
+  and writes nothing; the early refund then still voids the order at
+  fulfilment (D3). An early refund row is purged after 35 days, so a payment
+  recorded later than that (no Checkout Session lives that long) isn't voided.
+  Stripe's refund event semantics (which events report a refund failing, and
+  when) are from the SDK types and Stripe's docs, not yet confirmed in test
+  mode (card `4000 0000 0000 5126`, `docs/DEPLOYMENT.md`).
+  Out-of-order refund events: a `succeeded` delivered before an older
+  `requires_action` or `failed` for the same refund leaves a resolved
+  tombstone (`refund_status_marks`, with the event's `created` time), so the
+  late one is `stale` and raises no exception or alert; and a reported
+  failure is confirmed with `stripe.refunds.retrieve` first. Two events of
+  the same second go through (fail safe: a person checks), as does a late
+  failure when the mark was purged (35 days) and Stripe can't be reached.
+  An early partial refund whose order then sells out isn't flagged: the
+  automatic refund repays the rest (the early row is marked applied). An
+  early refund for an order that had already failed is never applied: the
+  failed order's automatic refund repays the rest, or finds the charge
+  already refunded, and the row is purged after 35 days.
 - **A manual refund of an `oversold_refund_required` order** (its automatic
   refund failed) doesn't change it: `charge.refunded` only acts on `paid`
   orders, and a dashboard refund carries no order id for `refund.updated`.
   After refunding it in Stripe, set it `refunded` in SQL
   (`docs/supabase-setup.md`).
-- **A dashboard refund that fails after it voided the order isn't undone.**
-  `charge.refunded` can arrive (and void the order, release its inventory)
-  before the refund settles; if it then fails or is canceled, the order stays
-  `refunded` with void tickets, though the buyer got nothing back. Nothing
-  reverses that automatically: the `console.error` line (Stripe event id and
-  short order reference) is the signal to sort it out by hand, e.g. refund
-  again in Stripe, or restore the order and its inventory in SQL.
+- **A dashboard refund that fails after it voided the order isn't undone**
+  (D3, D4). `charge.refunded` can arrive (and void the order, release its
+  inventory) before the refund settles; if it then fails or is canceled, the
+  order stays `refunded` with void tickets, though the buyer got nothing
+  back. Nothing reverses that automatically: an urgent `refund_not_completed`
+  exception and an ops alert are the signal; refund again in Stripe and
+  resolve it (restoring the order is a reviewed SQL runbook, never automatic).
+- **Disputes stay manual** (D12): see the first bullet.
 - **The money side is Stripe's.** For a destination charge, a dashboard
   refund only reverses the organiser's transfer and refunds Sheltüh's
   application fee if those options are chosen in Stripe. We record only the
@@ -980,8 +1248,9 @@ UI states in `docs/design/brand-direction-one.md` §6.11).
 - **No reservation.** The email is a heads-up; someone not on the list can
   buy the freed ticket first. The email says so.
 - **Delay on Hobby.** Emails the after-response run doesn't send within 30
-  seconds wait for the cron, which is daily on Vercel's Hobby plan (every 5
-  minutes on Pro). A burst of 100 is normally sent in that time.
+  seconds wait for the cron, which is daily on Vercel's Hobby plan unless
+  the Supabase 5-minute runner is set up (every 5 minutes on Pro). A burst
+  of 100 is normally sent in that time.
 - **Cooldown without an email.** A queued email that's skipped (sold out
   again, or the event closed) still counts as the person's notification for
   the 12-hour window.
@@ -2374,9 +2643,10 @@ unchanged.
 - **Per-client hold limit** (a manager decision;
   `20261103000000_seat_hold_client_limits.sql`, `lib/server/client-key.ts`,
   `SEAT_HOLD_LIMITS.perClient`). Before `hold_seats`, every paid seated
-  checkout takes one attempt from its client's allowance
-  (`take_seat_hold_attempt`): 20 per event and 60 across all events per 10
-  minutes (fixed windows). Over either is a 429 `client_rate_limited` with
+  checkout that makes a new order takes one attempt from its client's
+  allowance (`take_seat_hold_attempt`, inside `begin_checkout_attempt`: a
+  replay or a reused order takes none; see "Checkout idempotency"): 20 per
+  event and 60 across all events per 10 minutes (fixed windows). Over either is a 429 `client_rate_limited` with
   the seats asked for ("You've started a lot of checkouts…"), and nothing
   else is written. Unlike the event's counter, every attempt that reaches
   `hold_seats` counts, refused or not: this is the bound on refused attempts
@@ -2389,7 +2659,9 @@ unchanged.
   client working through many events. The client is its IP address as
   Vercel reports it: the first hop of `x-forwarded-for` (Vercel overwrites
   that header, so it can't be spoofed there), else `x-real-ip`; an IPv6
-  address counts by its /64, an IPv4-mapped one as IPv4. Only a keyed
+  address counts by its /56 (many ISPs delegate a /56 to one customer, so
+  anything narrower would let one client rotate through 256 keys), an
+  IPv4-mapped one as IPv4. Only a keyed
   SHA-256 is stored (`client_rate_limits`), never the address; the salt is
   derived (HMAC, labelled `sheltuh/client-key/v1`) from
   `STRIPE_WEBHOOK_SECRET`, which paid checkout needs anyway, so there's no
@@ -2468,7 +2740,7 @@ unchanged.
   nothing to the event, but each briefly takes the event's seat lock (the
   API's early checks turn most taken-seat attempts away before it). Each
   client gets 20 such attempts per event per 10 minutes; a client with many
-  addresses (a botnet, or rotating IPv6 /64s) isn't bounded beyond that. A
+  addresses (a botnet, or IPv6 addresses across many /56s) isn't bounded beyond that. A
   bot check on holds (Turnstile, "Not built yet") is the next step if it's
   abused.
 - **Shared addresses share the per-client limit.** People behind one
@@ -2502,8 +2774,8 @@ application is approved.
 | `POST /events/{eventId}/waitlist` `{email?}` · `DELETE /events/{eventId}/waitlist` | POST: public (a member's token is read, optionally). 201/200 `{status: "joined", maskedEmail, alreadyJoined}` for a member's own verified email; 202 `{status: "confirmation_sent", expiresInHours}` for anyone else, whatever the address's history; 400 email; 404 not published; 409 external, ended or not sold out; 503 busy (the platform caps; the link is emailed after the response, so a failed send isn't reported). DELETE: signed in, leaves (204, idempotent) |
 | `GET /events/{eventId}/waitlist/status` | signed in: `{joined, maskedEmail?}`; 404 not published |
 | `POST /waitlist/confirm` `{token}` · `POST /waitlist/leave` `{token}` | public (the emailed token is the credential). Confirm: 200 `{status: "joined", eventTitle, eventSlug, ticketsAvailable}` (also when already on the list); 400; 404; 410 expired or used; 409 closed. Leave: 200 `{status: "left", eventTitle?}` (the title only while the event is published; idempotent); 400; 404 |
-| `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). 409 for an external event, before anything else is read; 409 for a paid order from a platform-managed organiser. 201 `{url}` (a paid order: `{url, orderId}`, `private, no-store`, `url` being the payment page `/checkout/pay?order={orderId}`; see "Payment flow" and "Reserved seating", "Back from the payment page"); 202 free order waiting on its emailed link; 400 (incl. over 4 free tickets in any order, paid or free); 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance, or this client's paid checkouts used up (10 a minute; `code: "client_rate_limited"`, nothing written); 503 free bookings busy (the guest's link is emailed after the response), or card payments not configured (a paid order, before anything is written: the publishable key is missing or isn't the secret key's mode). 409 for too many of a ticket type names the number left only when it's 10 or fewer |
-| `POST /events/{eventId}/checkout` with `seats: {mapVersion, seatIds}` | public: a seated checkout (see "Reserved seating"). Paid: 201 `{url, holdExpiresAt, orderId}` (private, no-store; `url` as above), or 503 when card payments aren't configured (before any hold or hold attempt). Free: as above (201 member, 202 guest). 400 (bad seats, over 10, a seated tier in `lineItems`, no map); 404; 409 `seats` taken (body `code`, `seatIds`) or `seatMapVersion` changed; 429 too many seats held or hold attempts for the event, or this client's hold attempts used up (`code: "client_rate_limited"`; body `seatIds`) |
+| `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). Optional `Idempotency-Key` header (a random v4 UUID; see "Checkout idempotency"). 409 for an external event, before anything else is read; 409 for a paid order from a platform-managed organiser. 201 `{url}` (a paid order: `{url, orderId}`, `private, no-store`, `url` being the payment page `/checkout/pay?order={orderId}`; see "Payment flow" and "Reserved seating", "Back from the payment page"); a paid order's key again: 200 the same `{url, orderId}` while its session is open, 409 `checkout_in_progress` (Retry-After) / `checkout_expired` / `checkout_completed` (worded for a paid, refunded or being-refunded order) / `checkout_other_client` (the key is another client's: no URL or order id), 422 `idempotency_key_reused`; 400 `invalid_idempotency_key`; 503 `payment_provider_unavailable` (Stripe didn't answer: retry with the same key); 202 free order waiting on its emailed link; 400 (incl. over 4 free tickets in any order, paid or free); 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance, or this client's paid checkouts used up (10 a minute, and 20 per event and 60 in all per 10 minutes; `code: "client_rate_limited"`, nothing written; past 600 per event per 10 minutes only an ops alert is queued, nobody is refused); 503 free bookings busy (the guest's link is emailed after the response), or card payments not configured (a paid order, before anything is written: the publishable key is missing or isn't the secret key's mode). 409 for too many of a ticket type names the number left only when it's 10 or fewer |
+| `POST /events/{eventId}/checkout` with `seats: {mapVersion, seatIds}` | public: a seated checkout (see "Reserved seating"). Paid: 201 `{url, holdExpiresAt, orderId}` (private, no-store; `url` as above), or 503 when card payments aren't configured (before any hold or hold attempt). Free: as above (201 member, 202 guest). 400 (bad seats, over 10, a seated tier in `lineItems`, no map); 404; 409 `seats` taken (body `code`, `seatIds`) or `seatMapVersion` changed; 429 too many seats held or hold attempts for the event, or this client's hold attempts used up (`code: "client_rate_limited"`; body `seatIds`); the `Idempotency-Key` answers as above (200 replay with `holdExpiresAt`) |
 | `GET /events/{eventId}/seat-map?v=` | public once published (`public, max-age=31536000, immutable`, only at the current `v`; any other `v` or none is a `307` to `?v={current}`, `no-store`, no body); before that the owning organiser or an admin (bearer), private. `SeatMapRecord`. 404 no map or not visible |
 | `GET /events/{eventId}/seat-availability` | as above: `SeatAvailability` (the bitmap), `public, max-age=0, s-maxage=5` once published |
 | `PUT /events/{eventId}/seat-map` `{template}` · `DELETE …` | organiser (own event, draft or rejected, never approved). Up to 1 MB. 200 `SeatMapRecord` / 204; 400 `fieldErrors["template.…"]`; 404; 409 not editable, locked, external or has orders |
@@ -2512,11 +2784,13 @@ application is approved.
 | `POST /orders/confirm` `{token}` | public (the emailed token is the credential). 200 `{url}` (also when already confirmed, within 24 hours); 400 malformed; 404 unknown; 410 expired (confirmed or not); 409 sold out, allowance used, or a ticket type no longer free |
 | `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store` |
 | `GET /orders/by-session/{orderId}/payment` | public (id is the credential), read-only. `OrderPaymentLookup` (see "Payment flow", step 2), `private, no-store`: `{status: "open", clientSecret, expiresAt, …summary}`, `{status: "processing", delayed}`, `{status: "done"}`, or `{status: "closed" \| "sold_out", eventTitle, eventSlug?, seated}` (`closed` also when the event is no longer published or has ended while the session is open); 404 malformed (no query), unknown or a guest's free booking; 409 still being set up; 429 over 30 reads a minute from this client, or 20 Stripe reads a minute for this order; 500 an open session without a client secret |
-| `GET /cron/email-outbox` | Vercel Cron (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due outbox emails (tickets, waitlist, followers, admin review emails), returns counts |
+| `GET /cron/email-outbox` | Vercel Cron, and on Hobby Supabase Cron + `pg_net` (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due outbox jobs (ops alerts first, then tickets, waitlist, followers, admin review emails), records the run, returns counts `{claimed, sent, retrying, failed}` |
 | `GET /cron/trending` | Vercel Cron (same secret, 401 otherwise): rebuilds the trending snapshot, returns `{eligible, ranked}` |
 | `GET /events/trending` | public: `{items: [{event, label, goingCount?}]}` (see "Trending"), at most 24, best first; `items: []` with fewer than 3. `cache-control: public, max-age=0, s-maxage=300, stale-while-revalidate=600` |
 | `GET /admin/emails?status&cursor` · `POST /admin/emails/{jobId}/resend` | admin. Status `failed` (default), `pending`, `sending`, `sent`. Resend: 404 unknown, 409 being sent, 429 resent in the last 5 minutes or over 20 an hour |
+| `GET /admin/emails/health` | admin. `EmailOutboxHealth`: counts per kind and in total (due, overdue after 15 minutes, `oldestOverdueSeconds`, waiting, sending, expired leases, failed, failed in 7 days), `lastCronRun` (time and counts), `cronSecretConfigured`. No addresses, orders or tokens. `private, no-store`. No UI yet |
 | `POST /stripe/webhook` | Stripe (signature-verified) |
+| `GET /admin/payment-exceptions?status&cursor&limit` · `POST /admin/payment-exceptions/{exceptionId}/resolve` `{note}` | admin. `AdminPaymentException` (see "Refunds made in Stripe"): status `open` (default, oldest first) or `resolved` (newest resolution first); order by short reference only, no buyer data; `urgent` for a refund that didn't complete after its order was voided. Resolve: note 1–500 characters (400), 404 unknown, 409 already resolved. No UI yet |
 | `POST /organisers/apply` · `GET /organisers/me` · `PATCH /organisers/me` | signed in. PATCH: a rejected application is resubmitted in full (back to pending); an approved organiser edits their profile (see "Organiser profiles"); pending is a 409 |
 | `GET /organisers/{organiserId}/profile` | public (approved organisers only; anything else, or a non-uuid id, is a 404) |
 | `POST /organisers/me/connect/onboard` · `…/connect/refresh` | organiser |
@@ -2628,6 +2902,9 @@ is `cache-control: private, no-store`, and so is every admin response
 - `tests/server/*`: API tests against a real Postgres. By default that's
   PGlite in-process. With `TEST_DATABASE_URL=postgres://…` set, they run
   against a real server through the production driver.
+- `journey/`: the opt-in journey harness (`npm run test:journey`): the real
+  route modules over HTTP with local stand-ins for Supabase Auth, SMTP and
+  Stripe. What each test layer covers: `docs/testing.md`.
 - `app/dashboard/[eventId]/check-in/page.tsx` → `components/check-in/*`: the
   door scanner (`DoorConsole` wires the summary, `useDoorScan`'s scan rules,
   the camera, `ResultPanel`, `RecentScans` and `UndoCheckInDialog`).
@@ -3040,6 +3317,11 @@ sign-up and password reset on the real project after deploying.
   `20261024000200_organiser_follows.sql`) once the deploy window is over.
 - Drop `private.claim_email_outbox` (superseded by `lease_outbox_jobs` in
   `20261107000000_admin_review_emails.sql`) once that deploy window is over.
+- Drop the 3-argument `private.record_payment_refund` (superseded by the
+  6-argument form in `20261109000200_payment_reconciliation.sql`) once the
+  deploy window is over.
+- An admin page for payment exceptions (the API exists:
+  `GET /api/admin/payment-exceptions`).
 
 - Drop `private.claim_email_jobs` (superseded by `claim_outbox_jobs` in
   `20261024000000_waitlist.sql`, kept only so a deploy still running the

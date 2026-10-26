@@ -3,13 +3,22 @@ import { calculateBookingFeeCents, calculateOrderSummary } from "@/lib/fees";
 import type { RefundPolicy } from "@/lib/refund-policy";
 import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
 import type { Deps } from "../deps";
-import { sendTicketEmailSoon, sendWaitlistEmailsSoon } from "../email-outbox";
-import { formatSeatLine } from "@/lib/seating/format";
+import { sendOpsAlertsSoon, sendTicketEmailSoon, sendWaitlistEmailsSoon } from "../email-outbox";
 import { MAX_SEATS_PER_ORDER } from "@/lib/seating/template";
 import { REMAINING_SHOWN_AT_MOST } from "@/lib/api/public-events";
 import { SEAT_HOLD } from "@/lib/api/types";
+import {
+  CHECKOUT_LIMITS,
+  checkoutFingerprint,
+  idempotencyKey,
+  peekCheckoutAttempt,
+  requestClientKey,
+  runPaidCheckout,
+  settledAttemptResponse,
+  stripeErrorLabel,
+} from "../checkout-attempts";
 import { clientIp, clientKey, orderKey } from "../client-key";
-import { createdPrivate, HttpError, ok, okPrivate, readJson } from "../http";
+import { HttpError, ok, okPrivate, readJson } from "../http";
 import { parseCheckoutLineItems } from "../order-input";
 import { parseCheckoutSeats } from "../seat-map-input";
 import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
@@ -18,7 +27,6 @@ import type { Handler } from "../route";
 import { parseTrackingCode } from "../tracking-codes";
 import type {
   CancelOrderResult,
-  CheckoutResult,
   CustomerOrderLookup,
   EventRecord,
   OrderLineItem,
@@ -81,37 +89,190 @@ async function assertAvailable(db: Db, eventId: string, lineItems: OrderLineItem
   }
 }
 
+/**
+ * private.fulfil_order_detailed: the order's status afterwards, and whether
+ * fulfilling it queued an ops alert (an early partial refund applied).
+ */
 async function fulfilOrder(
   db: Db,
   order: OrderRecord,
   payment: { buyerEmail?: string | null; paymentIntentId?: string | null } = {},
-): Promise<OrderStatus | null> {
+): Promise<{ status: OrderStatus | null; alertQueued: boolean }> {
   return withTicketCodes(order.lineItems, async (tickets) => {
-    const [row] = await db.query<{ status: OrderStatus | null }>(
-      `select private.fulfil_order($1, $2, $3, $4::text::jsonb)::text as status`,
+    const [row] = await db.query<{ status: OrderStatus | null; alert_queued: boolean }>(
+      `select f.order_status::text as status, f.alert_queued
+         from private.fulfil_order_detailed($1, $2, $3, $4::text::jsonb) f`,
       [order.orderId, payment.buyerEmail ?? null, payment.paymentIntentId ?? null, JSON.stringify(tickets)],
     );
-    return row.status;
+    return { status: row.status, alertQueued: row.alert_queued === true };
   });
 }
 
+/** Postgres `integer`: an amount beyond it can't be a real charge's. */
+const MAX_INT4 = 2_147_483_647;
+
+/** A Stripe id we store (refund, payment intent, charge, account, event): a non-empty string of at most 255 characters. */
+function stripeId(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 && value.length <= 255 ? value : undefined;
+}
+
+/** An id or an expanded object's id. */
+function expandableId(value: unknown): string | undefined {
+  if (typeof value === "string") return stripeId(value);
+  if (value && typeof value === "object" && "id" in value) return stripeId((value as { id: unknown }).id);
+  return undefined;
+}
+
 /**
- * Records a refund's current state on its order. Only a refund Stripe says
- * has succeeded marks the order `refunded`; a pending one is tracked until a
- * refund.updated webhook settles it, and a failed or cancelled one leaves the
- * order `oversold_refund_required` so it shows up for manual action.
+ * Stripe's answer to refunding a charge that's already refunded in full
+ * (someone refunded it in the dashboard first, or an earlier attempt of ours
+ * did). Nothing more can be refunded, so it's done: not an error to retry.
  */
-async function recordRefund(db: Db, orderId: string, refund: Pick<Stripe.Refund, "id" | "status">) {
-  await db.query(
-    `update public.orders
-     set stripe_refund_id = $2,
-         status = case when $3 = 'succeeded' then 'refunded'::public.order_status else status end
-     where id = $1 and status = 'oversold_refund_required'`,
-    [orderId, refund.id, refund.status],
-  );
-  if (refund.status === "failed" || refund.status === "canceled") {
-    console.error(`Refund ${refund.id} for order ${orderReference(orderId)} ${refund.status} — refund it manually.`);
+function isChargeAlreadyRefunded(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "code" in err && (err as { code: unknown }).code === "charge_already_refunded";
+}
+
+type RefundStatusResult = "opened" | "reopened" | "updated" | "unchanged" | "stale" | "resolved" | "not_found";
+
+/** Where a refund's status came from: a webhook event (its id and creation time), or our own refund call (neither). */
+interface RefundStatusSource {
+  eventId?: string;
+  /** Stripe's event `created` (Unix seconds): events older than the last applied are ignored. */
+  eventCreated?: number;
+  /** Our automatic refunds carry the order id in their metadata. */
+  orderId?: string;
+  /**
+   * Our own refund call: the payment intent we asked Stripe to refund, used
+   * only if the refund object doesn't name one (Stripe's always does).
+   */
+  paymentIntentId?: string;
+}
+
+/** A refund status that needs a person: the refund didn't (or hasn't yet) gone through. */
+const REFUND_NEEDS_PERSON = new Set(["failed", "canceled", "requires_action"]);
+
+function refundStatusOf(value: unknown): string {
+  return typeof value === "string" ? value.replace(/[^a-z_]/g, "").slice(0, 40) || "unknown" : "unknown";
+}
+
+function refundAmountOf(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= MAX_INT4 ? value : null;
+}
+
+/**
+ * Before a refund is reported as not completed, its current status from
+ * Stripe: events arrive out of order (a `succeeded` can come before the
+ * older `requires_action` it replaced), and our own refund call's answer can
+ * be a stored replay (Stripe's idempotency) of an older state. When Stripe
+ * says the refund is fine now, that's what's recorded. When Stripe can't be
+ * asked (or says something unusable), the reported status stands: the
+ * database still drops an event older than the newest one it has for the
+ * refund (private.refund_status_marks), and otherwise a person checks.
+ * Logged by Stripe's error type and code only.
+ */
+async function confirmRefundStatus(deps: Deps, refundId: string, reported: string, label: string) {
+  try {
+    const current = await deps.stripe().refunds.retrieve(refundId);
+    if (current && current.id === refundId && typeof current.status === "string") {
+      return { status: refundStatusOf(current.status), amount: refundAmountOf(current.amount) };
+    }
+    console.warn(`${label}: Stripe's answer for the refund had no usable status; acting on the reported ${reported}.`);
+  } catch (err) {
+    console.warn(`${label}: couldn't confirm the refund's status with Stripe (${stripeErrorLabel(err)}); acting on the reported ${reported}.`);
   }
+  return undefined;
+}
+
+/**
+ * A refund's status (refund.updated, refund.failed, charge.refund.updated, or
+ * what our own refund call returned): private.record_refund_status records
+ * our automatic refund on its oversold order (refunded once it succeeded),
+ * then opens a payment exception for a refund that failed, was canceled or
+ * requires action (above all a refund that failed after its order was
+ * already voided: the buyer has neither tickets nor their money), and
+ * resolves it if the same refund later succeeds. Nothing is ever restored or
+ * refunded again automatically. An opened exception queues an ops alert.
+ * A refund of a payment that isn't ours writes nothing. Logged by Stripe's
+ * event id and the order's short reference: never the order id, the buyer or
+ * the payment intent. Never throws for a payment that isn't ours.
+ */
+async function recordRefundStatus(deps: Deps, refund: Stripe.Refund, source: RefundStatusSource) {
+  const label = source.eventId ? `Stripe ${source.eventId}` : "Our refund call";
+  const refundId = stripeId(refund.id);
+  if (!refundId) {
+    console.warn(`${label}: a refund without a usable id; ignored.`);
+    return;
+  }
+  const paymentIntentId = expandableId(refund.payment_intent) ?? (source.eventId ? undefined : source.paymentIntentId);
+  let status = refundStatusOf(refund.status);
+  let amount = refundAmountOf(refund.amount);
+  if (REFUND_NEEDS_PERSON.has(status)) {
+    const confirmed = await confirmRefundStatus(deps, refundId, status, label);
+    if (confirmed) {
+      status = confirmed.status;
+      amount = confirmed.amount ?? amount;
+    }
+  }
+  const metadataOrderId = source.orderId && ORDER_ID_PATTERN.test(source.orderId) ? source.orderId : null;
+  const created =
+    source.eventCreated !== undefined && Number.isSafeInteger(source.eventCreated) && source.eventCreated > 0
+      ? new Date(source.eventCreated * 1000).toISOString()
+      : null;
+  const [row] = await deps.db.query<{
+    result: RefundStatusResult;
+    order_id: string | null;
+    order_status: OrderStatus | null;
+    alert_queued: boolean;
+  }>(
+    `select result, order_id, order_status, alert_queued
+       from private.record_refund_status($1, $2, $3, $4, $5, $6, $7::text::timestamptz)`,
+    [refundId, paymentIntentId ?? null, metadataOrderId, status, amount, source.eventId ?? null, created],
+  );
+  if (row.result === "stale") {
+    console.info(`${label}: an older refund status (${status}) than one already recorded for the refund; ignored.`);
+    return;
+  }
+  const needsPerson = REFUND_NEEDS_PERSON.has(status);
+  const exception =
+    row.result === "opened" || row.result === "reopened" ? ` Payment exception ${row.result}.` : "";
+  if (row.alert_queued) sendOpsAlertsSoon(deps);
+
+  if (metadataOrderId) {
+    // Our own automatic refund.
+    if (needsPerson) {
+      console.error(`${label}: refund for order ${orderReference(metadataOrderId)} ${status} — refund it manually.${exception}`);
+    }
+    return;
+  }
+  const reference = row.order_id ? orderReference(row.order_id) : undefined;
+  const subject = reference
+    ? `a refund of order ${reference}`
+    : row.result === "not_found"
+      ? "a refund of a payment with no order on record"
+      : "a refund of a payment not yet matched to an order";
+  if (needsPerson) {
+    const voided = row.order_status === "refunded" ? " The order was already voided: the buyer has neither tickets nor their money." : "";
+    console.error(
+      `${label}: ${subject} (made outside Sheltüh) has status ${status}. Check it in the Stripe dashboard.${voided}${exception}`,
+    );
+  } else {
+    console.info(`${label}: ${subject} (made outside Sheltüh) has status ${status}; charge.refunded records it.`);
+  }
+}
+
+/**
+ * An automatic refund we couldn't even ask for (no payment intent on record):
+ * a `manual_refund_required` payment exception (one open per order) and an
+ * ops alert. Logged by short reference.
+ */
+async function raiseManualRefund(deps: Deps, orderId: string, eventId: string | undefined, message: string) {
+  console.error(message);
+  const [row] = await deps.db.query<{ alert_queued: boolean }>(
+    `select alert_queued from private.raise_payment_exception('manual_refund_required', $1, null, null, $2, null,
+       jsonb_build_object('reason', 'no_payment_intent', 'orderStatus', (select o.status::text from public.orders o where o.id = $1)))`,
+    [orderId, eventId ?? null],
+  );
+  if (row.alert_queued) sendOpsAlertsSoon(deps);
 }
 
 /**
@@ -119,26 +280,41 @@ async function recordRefund(db: Db, orderId: string, refund: Pick<Stripe.Refund,
  * was unpublished, before payment confirmed) — including Sheltüh's fee and
  * the organiser's transfer. Stripe's idempotency key makes a retry (e.g.
  * Stripe redelivering the webhook after an earlier attempt failed) refund at
- * most once. Throws on failure so the webhook returns 500 and Stripe tries
- * again later.
+ * most once. A charge already refunded in full (e.g. in the dashboard) is
+ * done: the order is marked refunded. Throws on any other failure so the
+ * webhook returns 500 and Stripe tries again later.
  */
-async function refundOversoldOrder(deps: Deps, orderId: string, paymentIntentId: string | undefined) {
+async function refundOversoldOrder(deps: Deps, orderId: string, paymentIntentId: string | undefined, eventId?: string) {
   if (!paymentIntentId) {
-    console.error(
+    await raiseManualRefund(
+      deps,
+      orderId,
+      eventId,
       `Order ${orderReference(orderId)} couldn't be fulfilled and has no payment intent on record — refund it manually.`,
     );
     return;
   }
-  const refund = await deps.stripe().refunds.create(
-    {
-      payment_intent: paymentIntentId,
-      reverse_transfer: true,
-      refund_application_fee: true,
-      metadata: { orderId, reason: "could_not_fulfil_after_payment" },
-    },
-    { idempotencyKey: `oversold-refund-${orderId}` },
-  );
-  await recordRefund(deps.db, orderId, refund);
+  let refund: Stripe.Refund;
+  try {
+    refund = await deps.stripe().refunds.create(
+      {
+        payment_intent: paymentIntentId,
+        reverse_transfer: true,
+        refund_application_fee: true,
+        metadata: { orderId, reason: "could_not_fulfil_after_payment" },
+      },
+      { idempotencyKey: `oversold-refund-${orderId}` },
+    );
+  } catch (err) {
+    if (!isChargeAlreadyRefunded(err)) throw err;
+    await deps.db.query(`update public.orders set status = 'refunded' where id = $1 and status = 'oversold_refund_required'`, [
+      orderId,
+    ]);
+    console.info(`Order ${orderReference(orderId)} couldn't be fulfilled; its payment was already refunded in full in Stripe: marked refunded.`);
+    return;
+  }
+  // Our own call's answer, not an event: no Stripe event id or time (the webhook's event is the checkout's, not this refund's).
+  await recordRefundStatus(deps, refund, { orderId, paymentIntentId });
 }
 
 /**
@@ -149,14 +325,25 @@ async function refundOversoldOrder(deps: Deps, orderId: string, paymentIntentId:
  * order's seats were released), so it's refunded in full, Sheltüh's fee and
  * the organiser's transfer included, as for an oversold order. Stripe's
  * idempotency key (per order) and the refund id recorded on the order make a
- * redelivery refund at most once. The order stays `failed`. Logged by the
- * order's short reference only. Throws on a Stripe error so the webhook
- * returns 500 and Stripe redelivers.
+ * redelivery refund at most once; a charge already refunded in full is done.
+ * The order stays `failed`. Logged by the order's short reference only.
+ * Throws on any other Stripe error so the webhook returns 500 and Stripe
+ * redelivers.
  */
-async function refundPaymentForFailedOrder(deps: Deps, orderId: string, paymentIntentId: string | undefined) {
+async function refundPaymentForFailedOrder(
+  deps: Deps,
+  orderId: string,
+  paymentIntentId: string | undefined,
+  eventId?: string,
+) {
   const reference = orderReference(orderId);
   if (!paymentIntentId) {
-    console.error(`Order ${reference} was paid after it failed, with no payment intent on record — refund it manually.`);
+    await raiseManualRefund(
+      deps,
+      orderId,
+      eventId,
+      `Order ${reference} was paid after it failed, with no payment intent on record — refund it manually.`,
+    );
     return;
   }
   const [row] = await deps.db.query<{ stripe_refund_id: string | null }>(
@@ -165,15 +352,27 @@ async function refundPaymentForFailedOrder(deps: Deps, orderId: string, paymentI
   );
   if (row?.stripe_refund_id) return;
   console.warn(`Order ${reference} was paid after it failed: refunding the payment.`);
-  const refund = await deps.stripe().refunds.create(
-    {
-      payment_intent: paymentIntentId,
-      reverse_transfer: true,
-      refund_application_fee: true,
-      metadata: { orderId, reason: "paid_after_order_failed" },
-    },
-    { idempotencyKey: `failed-order-refund-${orderId}` },
-  );
+  let refund: Stripe.Refund;
+  try {
+    refund = await deps.stripe().refunds.create(
+      {
+        payment_intent: paymentIntentId,
+        reverse_transfer: true,
+        refund_application_fee: true,
+        metadata: { orderId, reason: "paid_after_order_failed" },
+      },
+      { idempotencyKey: `failed-order-refund-${orderId}` },
+    );
+  } catch (err) {
+    if (!isChargeAlreadyRefunded(err)) throw err;
+    // Refunded in full already (e.g. in the dashboard): nothing more to ask for.
+    await deps.db.query(
+      `update public.orders set stripe_payment_intent_id = coalesce(stripe_payment_intent_id, $2) where id = $1 and status = 'failed'`,
+      [orderId, paymentIntentId],
+    );
+    console.info(`Order ${reference}'s payment was already refunded in full in Stripe.`);
+    return;
+  }
   // Recorded so a redelivery doesn't ask again, and charge.refunded finds the order (it changes only paid ones).
   await deps.db.query(
     `update public.orders
@@ -181,58 +380,26 @@ async function refundPaymentForFailedOrder(deps: Deps, orderId: string, paymentI
       where id = $1 and status = 'failed'`,
     [orderId, refund.id, paymentIntentId],
   );
-  if (refund.status === "failed" || refund.status === "canceled") {
-    console.error(`Refund ${refund.id} for order ${reference} ${refund.status} — refund it manually.`);
-  }
+  // Our own call's answer, not an event: no Stripe event id or time.
+  await recordRefundStatus(deps, refund, { orderId, paymentIntentId });
 }
 
-/**
- * refund.updated / refund.failed for a refund we didn't create (no
- * metadata.orderId): usually one made in the Stripe dashboard. Its success is
- * recorded through charge.refunded; this only makes the rest visible, above
- * all a dashboard refund that failed after its order was already voided (the
- * buyer got nothing back, and the order stays `refunded`). Logged by Stripe's
- * event id and, when the payment intent is one of ours, the order's short
- * reference: never the order id, the buyer or the payment intent. Changes
- * nothing and never throws for a payment that isn't ours.
- */
-async function logUnmatchedRefund(db: Db, eventId: string, refund: Stripe.Refund) {
-  const paymentIntentId = typeof refund.payment_intent === "string" ? refund.payment_intent : refund.payment_intent?.id;
-  let reference: string | undefined;
-  if (paymentIntentId) {
-    const [row] = await db.query<{ id: string }>(
-      `select id from public.orders where stripe_payment_intent_id = $1 limit 1`,
-      [paymentIntentId],
-    );
-    if (row) reference = orderReference(row.id);
-  }
-  const subject = reference ? `a refund of order ${reference}` : "a refund of a payment with no order on record";
-  const status = typeof refund.status === "string" ? refund.status.replace(/[^a-z_]/g, "") : "unknown";
-  if (status === "failed" || status === "canceled" || status === "requires_action") {
-    // Needs a person, like a failed automatic refund.
-    console.error(`Stripe ${eventId}: ${subject} (made outside Sheltüh) has status ${status}. Check it in the Stripe dashboard.`);
-  } else {
-    console.info(`Stripe ${eventId}: ${subject} (made outside Sheltüh) has status ${status}; charge.refunded records it.`);
-  }
-}
-
-type PaymentRefundResult = "refunded" | "partial" | "unchanged" | "not_found";
-
-/** Postgres `integer`: an amount beyond it can't be a real charge's. */
-const MAX_INT4 = 2_147_483_647;
+type PaymentRefundResult = "refunded" | "partial" | "unchanged" | "deferred" | "not_found";
 
 /**
  * charge.refunded: a refund of one of our payments, whoever made it (usually
  * the Stripe dashboard). charge.amount_refunded is cumulative and
  * charge.refunded is true once it covers the whole charge. A full refund of a
  * paid order voids it (`refunded`, tickets void, inventory released); a
- * partial one is only recorded and logged for manual follow-up
- * (private.record_payment_refund). Never throws for a payment that isn't
- * ours: Stripe would retry it for days. Returns the result (undefined when
- * the charge was unusable).
+ * partial one is recorded and opens a payment exception for a person
+ * (private.record_payment_refund). One that arrives before its order's
+ * payment is recorded, for a payment to one of our organisers' accounts, is
+ * held for fulfilment (`deferred`): the order is then voided, or flagged if
+ * partial. Never throws for a payment that isn't ours: Stripe would retry it
+ * for days. Returns the result (undefined when the charge was unusable).
  */
-async function recordPaymentRefund(db: Db, eventId: string, charge: Stripe.Charge): Promise<PaymentRefundResult | undefined> {
-  const paymentIntentId = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
+async function recordPaymentRefund(deps: Deps, eventId: string, charge: Stripe.Charge): Promise<PaymentRefundResult | undefined> {
+  const paymentIntentId = expandableId(charge.payment_intent);
   const amount = charge.amount_refunded;
   if (
     !paymentIntentId ||
@@ -244,19 +411,29 @@ async function recordPaymentRefund(db: Db, eventId: string, charge: Stripe.Charg
     console.warn(`Stripe ${eventId}: charge.refunded without a usable payment intent or amount; ignored.`);
     return undefined;
   }
-  const [row] = await db.query<{ result: PaymentRefundResult; order_id: string | null }>(
-    `select result, order_id from private.record_payment_refund($1, $2, $3)`,
-    [paymentIntentId, amount, charge.refunded],
+  // Only a charge paying out to one of our organisers can be held as an early refund. Today's checkouts are
+  // destination charges (payment_intent_data.transfer_data.destination, lib/server/checkout-attempts.ts), so
+  // the charge itself names the organiser's account. If checkout moves to separate charges and transfers
+  // (planned), the charge has no transfer_data: this match must then change (e.g. to the charge's
+  // transfer_group or metadata.orderId), or every early refund would be dropped as not ours.
+  const destination = expandableId(charge.transfer_data?.destination);
+  const [row] = await deps.db.query<{ result: PaymentRefundResult; order_id: string | null }>(
+    `select result, order_id from private.record_payment_refund($1, $2, $3, $4, $5, $6)`,
+    [paymentIntentId, amount, charge.refunded, stripeId(charge.id) ?? null, destination ?? null, stripeId(eventId) ?? null],
   );
   // Logs name the order by its short reference only: never its id (the confirmation page's credential) or the buyer.
   const reference = row.order_id ? orderReference(row.order_id) : undefined;
   if (row.result === "refunded") {
     console.info(`Order ${reference} was refunded in full in Stripe: marked refunded, tickets void, inventory released.`);
   } else if (row.result === "partial") {
-    // Needs a person, like a failed automatic refund (console.error, as recordRefund does).
+    // Needs a person: a payment exception (and an ops alert) as well as the log line.
     console.error(`Order ${reference} was partly refunded in Stripe; it stays paid and its tickets stay valid. Review it manually.`);
+    sendOpsAlertsSoon(deps);
+  } else if (row.result === "deferred") {
+    console.warn(
+      `Stripe ${eventId}: charge.refunded arrived before its payment was recorded; held for the payment (a full refund voids the order, a partial one is flagged).`,
+    );
   } else if (row.result === "not_found") {
-    // Not ours, or (rarely) a refund delivered before its payment was fulfilled: see docs/architecture.md.
     console.warn(`Stripe ${eventId}: charge.refunded for a payment with no order on record; ignored.`);
   }
   return row.result;
@@ -322,34 +499,17 @@ function refuseWithoutCardPayments(deps: Deps) {
 export const GA_CHECKOUT_SESSION_MINUTES = 60;
 
 /**
- * Payment options shared by both paid Checkout Sessions (general admission
- * and seated).
- * - `adaptive_pricing` is pinned off. Buyers pay exactly the A$ total from
- *   lib/fees.ts that every page shows (ACL all-inclusive pricing). Left to
- *   the Dashboard setting, Stripe could charge a buyer abroad a converted
- *   amount plus its conversion fee.
- * - `payment_method_types` is deliberately never sent (nor
- *   `excluded_payment_method_types` or `wallet_options`), so the platform's
- *   Dashboard payment methods apply: cards, Apple Pay, Google Pay and Link,
- *   switched on there, on domains registered with `npm run payment-domains`.
- * - Nothing is saved for later: no `customer`, no
- *   `saved_payment_method_options`, no `payment_intent_data.setup_future_usage`.
- *   Anyone holding the order id can load the form, so it must never show a
- *   member's saved card. Link's saved cards sit behind its own one-time code.
- */
-const SESSION_PAYMENT_OPTIONS = {
-  adaptive_pricing: { enabled: false },
-} satisfies Pick<Stripe.Checkout.SessionCreateParams, "adaptive_pricing">;
-
-/**
  * Anonymous rate limits on the card checkout routes: fixed windows on
  * private.take_client_rate_limit (no migration: the buckets are new names in
  * client_rate_limits), keyed with lib/server/client-key.ts and salted from
  * STRIPE_WEBHOOK_SECRET, as the per-client seat-hold limit. Each call that
  * gets past them can reach Stripe. Over one: 429, nothing else written.
  * - `paidCheckout`: paid general admission checkouts per client (its IP
- *   address), taken just before the order is written, so only checkouts
- *   that would make an order and a Stripe session count. 10 a minute: a
+ *   address), taken just before the checkout attempt that writes the order
+ *   (after every early refusal, and never for a replay or another settled
+ *   answer of the same Idempotency-Key), so only checkouts that may make an
+ *   order and call Stripe count. The attempt then takes the per-10-minute
+ *   limits (CHECKOUT_LIMITS, ../checkout-attempts.ts). 10 a minute: a
  *   buyer starts one, or a few after going Back; 10 leaves room for several
  *   buyers on one address (venue wifi, a phone network's shared address)
  *   while bounding the pending orders and Stripe sessions one client can
@@ -413,20 +573,6 @@ async function takeClientLimit(req: Request, deps: Deps, secret: string | undefi
   return takeKeyedLimit(deps.db, clientKey(ip, secret), limit);
 }
 
-/** Our payment page for a card checkout (CheckoutResult.url): relative, same origin. */
-function paymentPageUrl(orderId: string): string {
-  return `/checkout/pay?order=${orderId}`;
-}
-
-/**
- * Where Stripe's embedded form sends the buyer once it's done (and back from
- * a redirect-based payment method): the confirmation page, which reads the
- * order (no `{CHECKOUT_SESSION_ID}`: the order id is the only id it needs).
- */
-function checkoutReturnUrl(deps: Deps, orderId: string): string {
-  return `${deps.siteUrl()}/checkout/success?session_id=${orderId}`;
-}
-
 /**
  * POST /api/events/[eventId]/checkout — public guest checkout. A paid order
  * becomes an embedded Stripe Checkout Session (ui_mode embedded_page) paying
@@ -436,10 +582,24 @@ function checkoutReturnUrl(deps: Deps, orderId: string): string {
  * from GET /orders/by-session/{orderId}/payment). The order id also lets the
  * page cancel it (POST /orders/by-session/{orderId}/cancel) if the buyer goes
  * Back. The session can be paid for an hour (GA_CHECKOUT_SESSION_MINUTES).
+ *
+ * A paid checkout is idempotent per `Idempotency-Key` header (optional for
+ * now; ../checkout-attempts.ts): the same key and basket again is a 200 with
+ * the same `{url, orderId}` while the session is open; 409
+ * `checkout_in_progress` (Retry-After), `checkout_expired` or
+ * `checkout_completed` (worded for a paid, refunded or being-refunded order)
+ * or `checkout_other_client` (the key belongs to another client: nothing
+ * about it is given out); 422 `idempotency_key_reused`; 400
+ * `invalid_idempotency_key` (not a random v4 UUID); 503
+ * `payment_provider_unavailable` (Stripe didn't answer: retry with the same
+ * key).
+ *
  * 503 when card payments aren't configured (refuseWithoutCardPayments),
  * before anything is written; then 429 (`code: "client_rate_limited"`) over
- * the client's paid checkouts (CHECKOUT_RATE_LIMITS.paidCheckout), nothing
- * written either. A wholly free order
+ * the client's paid checkouts: 10 a minute (CHECKOUT_RATE_LIMITS.paidCheckout),
+ * then 20 per event and 60 in all per 10 minutes (CHECKOUT_LIMITS, taken in
+ * the attempt), nothing else written either. 600 new checkouts per event per
+ * 10 minutes only queues an ops alert (CHECKOUT_LIMITS). A wholly free order
  * never touches Stripe (./free-orders.ts): 201 with the confirmation page's
  * URL for a member's own verified email, otherwise 202, the confirmation
  * link being emailed straight after the response. Any order, paid or free, holds at most 4 free
@@ -457,8 +617,10 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   refuseEndedEvent(event);
 
   const body = await readJson(req);
+  // Paid checkouts only (free ones ignore it); a malformed one is a 400 on any checkout.
+  const key = idempotencyKey(req);
   // Reserved seating: seats chosen on the map (and any general admission lines with them).
-  if (body.seats !== undefined && body.seats !== null) return createSeatedCheckout(req, deps, event, body);
+  if (body.seats !== undefined && body.seats !== null) return createSeatedCheckout(req, deps, event, body, key);
   const lineItems = parseCheckoutLineItems(body, event.ticketTypes);
   refuseSeatedLines(event, lineItems);
   const totals = orderTotals(lineItems);
@@ -474,15 +636,28 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   }
 
   const buyerEmail = parseBuyerEmail(body, false);
+  // Attribution only (never affects price or status): kept if it's one of the event's tracking codes, else null.
+  const trackingCode = parseTrackingCode(body.trackingCode);
+  // The same key and basket again: the same order and session, before any other check (./checkout-attempts.ts).
+  const fingerprint = checkoutFingerprint({
+    kind: "ga",
+    eventId: event.eventId,
+    lines: lineItems,
+    buyerEmail: body.buyerEmail,
+    trackingCode,
+  });
+  // The attempt is bound to this client: a replay or retry from another client key is refused.
+  const client = requestClientKey(req, deps);
+  const peeked = await peekCheckoutAttempt(db, key, fingerprint, client.key);
+  const settled = peeked && settledAttemptResponse(peeked);
+  if (settled) return settled;
+
   // Free lines in a paid order: the same per-order cap. The Stripe payment identifies the buyer, so there's
   // no emailed confirmation or per-person allowance (those count wholly free orders only).
   await assertFreeTicketsPerOrder(deps, lineItems);
   await assertAvailable(db, eventId, lineItems);
-  // Attribution only (never affects price or status): kept if it's one of the event's tracking codes, else null.
-  const trackingCode = parseTrackingCode(body.trackingCode);
-  const orderId = `ord_${crypto.randomUUID().replace(/-/g, "")}`;
 
-  const insertOrder = () =>
+  const insertOrder = (orderId: string) =>
     db.query(
       `insert into public.orders (id, event_id, organiser_id, event_title, line_items, subtotal_cents,
          buyer_fee_cents, total_cents, application_fee_cents, buyer_email, tracking_code)
@@ -512,71 +687,33 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   }
 
   refuseWithoutCardPayments(deps);
+  // The per-minute limit, before the attempt (whose own limits are per 10 minutes and taken only for a new
+  // order). Replays and other settled answers above never reach it.
   const secret = rateLimitSecret(deps, "the per-client checkout limit was skipped");
   if (!(await takeClientLimit(req, deps, secret, CHECKOUT_RATE_LIMITS.paidCheckout, "Paid checkout"))) {
     throw new HttpError(429, CHECKOUTS_BUSY, undefined, { code: "client_rate_limited" });
   }
-  // The order exists before Stripe does, so no payment can ever arrive
-  // without an order to attach it to.
-  await refuseIfClosed(insertOrder);
-  let session: Stripe.Checkout.Session;
-  try {
-    session = await deps.stripe().checkout.sessions.create({
-      mode: "payment",
-      client_reference_id: orderId,
-      ...(buyerEmail ? { customer_email: buyerEmail } : {}),
-      expires_at: Math.floor(Date.now() / 1000) + GA_CHECKOUT_SESSION_MINUTES * 60,
-      line_items: lineItems.flatMap((line) => {
-        const items: Stripe.Checkout.SessionCreateParams.LineItem[] = [
-          {
-            price_data: {
-              currency: "aud",
-              product_data: { name: `${line.ticketTypeName} — ${event.title}` },
-              unit_amount: line.unitPriceCents,
-            },
-            quantity: line.quantity,
-          },
-        ];
-        if (line.feePolicy === "buyer-pays" && line.unitPriceCents > 0) {
-          items.push({
-            price_data: {
-              currency: "aud",
-              product_data: { name: "Booking fee" },
-              unit_amount: calculateBookingFeeCents(line.unitPriceCents),
-            },
-            quantity: line.quantity,
-          });
-        }
-        return items;
-      }),
-      payment_intent_data: {
-        application_fee_amount: totals.applicationFeeCents,
-        transfer_data: { destination: organiser.stripeAccountId },
-      },
-      // Stripe's form on our own page (/checkout/pay); no cancel_url in this mode (Back is ours).
-      ui_mode: "embedded_page",
-      return_url: checkoutReturnUrl(deps, orderId),
-      metadata: { orderId, eventId },
-      // Exactly the A$ total (Adaptive Pricing off); no payment_method_types, so the Dashboard's wallets
-      // and Link apply; nothing saved. See SESSION_PAYMENT_OPTIONS.
-      ...SESSION_PAYMENT_OPTIONS,
-    });
-  } catch (err) {
-    await db.query(`update public.orders set status = 'failed' where id = $1`, [orderId]);
-    throw err;
-  }
-  if (!session.client_secret) {
-    // Nobody could mount (so pay) it: the order fails now, not when the session expires in an hour.
-    await db.query(`update public.orders set status = 'failed' where id = $1 and status = 'pending'`, [orderId]);
-    throw new Error("Stripe did not return an embedded Checkout Session's client secret.");
-  }
-
-  await db.query(`update public.orders set stripe_checkout_session_id = $2 where id = $1`, [orderId, session.id]);
-  // The order id goes back only to the client that made the order (it's in the payment page's URL and Stripe's
-  // return URL anyway), so the page can cancel it if the buyer goes Back: never cached. The client secret
-  // isn't sent here: the payment page reads it (GET …/payment), so it survives a reload and is never stored.
-  const result: CheckoutResult = { url: paymentPageUrl(orderId), orderId };
-  return createdPrivate(result);
+  return runPaidCheckout(deps, {
+    kind: "ga",
+    event,
+    key,
+    fingerprint,
+    client,
+    clientLabels: { subject: "Checkout", limit: "checkout" },
+    limits: {
+      clientEvent: CHECKOUT_LIMITS.perClient.event,
+      clientAll: CHECKOUT_LIMITS.perClient.allEvents,
+      eventAlert: CHECKOUT_LIMITS.perEventAlert,
+      window: CHECKOUT_LIMITS.window,
+    },
+    stripeAccountId: organiser.stripeAccountId,
+    sessionSeconds: GA_CHECKOUT_SESSION_MINUTES * 60,
+    // The order exists before Stripe does, so no payment can ever arrive without an order to attach it to.
+    createOrder: async (orderId) => {
+      await refuseIfClosed(() => insertOrder(orderId));
+    },
+    limitError: () => new HttpError(429, CLIENT_BUSY, undefined, { code: "client_rate_limited" }),
+  });
 };
 
 const ORDER_NOT_FOUND = "Order not found.";
@@ -617,18 +754,20 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
 
   const received = ok({ received: true });
 
-  // A refund we issued has settled (or failed) after we created it.
-  if (event.type === "refund.updated" || event.type === "refund.failed") {
+  // A refund's status changed: ours (metadata.orderId) or one made in the Stripe dashboard.
+  if (event.type === "refund.updated" || event.type === "refund.failed" || event.type === "charge.refund.updated") {
     const refund = event.data.object as Stripe.Refund;
-    const orderId = refund.metadata?.orderId;
-    if (orderId) await recordRefund(deps.db, orderId, refund);
-    else await logUnmatchedRefund(deps.db, event.id, refund);
+    await recordRefundStatus(deps, refund, {
+      eventId: event.id,
+      eventCreated: event.created,
+      orderId: refund.metadata?.orderId,
+    });
     return received;
   }
 
   // Any refund of a charge, including ones made in the Stripe dashboard.
   if (event.type === "charge.refunded") {
-    const result = await recordPaymentRefund(deps.db, event.id, event.data.object as Stripe.Charge);
+    const result = await recordPaymentRefund(deps, event.id, event.data.object as Stripe.Charge);
     // The released tickets may have queued waitlist emails (private.notify_waitlist, at commit): send them now.
     if (result === "refunded") sendWaitlistEmailsSoon(deps);
     return received;
@@ -646,7 +785,7 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
   if (!order) return received;
   // A redelivery after a refund attempt failed: try the refund again.
   if (order.status === "oversold_refund_required" && isPaymentEvent) {
-    await refundOversoldOrder(deps, order.orderId, order.stripePaymentIntentId);
+    await refundOversoldOrder(deps, order.orderId, order.stripePaymentIntentId, event.id);
     return received;
   }
   // Paid for an order that had already failed (cancelled, expired or a checkout error): refund it.
@@ -654,7 +793,7 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
     if (session.payment_status === "paid") {
       const paymentIntentId =
         typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
-      await refundPaymentForFailedOrder(deps, order.orderId, paymentIntentId);
+      await refundPaymentForFailedOrder(deps, order.orderId, paymentIntentId, event.id);
     }
     return received;
   }
@@ -675,16 +814,21 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
 
   const paymentIntentId =
     typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
-  const status = await fulfilOrder(deps.db, order, {
+  const { status, alertQueued } = await fulfilOrder(deps.db, order, {
     buyerEmail: session.customer_details?.email,
     paymentIntentId,
   });
+  // A partial refund recorded before the payment opened a payment exception and queued its alert.
+  if (alertQueued) sendOpsAlertsSoon(deps);
   if (status === "paid") {
     // Queued by fulfil_order in the same transaction; this is just the first try.
     sendTicketEmailSoon(deps, order.orderId);
   } else if (status === "oversold_refund_required") {
     // Charged, but the last tickets went to someone else first.
-    await refundOversoldOrder(deps, order.orderId, paymentIntentId);
+    await refundOversoldOrder(deps, order.orderId, paymentIntentId, event.id);
+  } else if (status === "refunded") {
+    // Refunded in full in Stripe before this payment was recorded (or, for a redelivery, since): nothing to issue or refund.
+    console.info(`Order ${orderReference(order.orderId)} is refunded in Stripe: nothing issued for this payment.`);
   }
   return received;
 };
@@ -734,29 +878,6 @@ function refuseSeatedLines(event: EventRecord, lineItems: OrderLineItem[]) {
   if (line) fail({ lineItems: `"${line.ticketTypeName}" seats are chosen on the seat map.` });
 }
 
-/**
- * One hold attempt against the client's own allowance (SEAT_HOLD_LIMITS.perClient,
- * private.take_seat_hold_attempt): 429 `client_rate_limited` when it's used
- * up, nothing else written. Fails open, with a log line (never the request's
- * headers), when the request has no usable client IP (always set on Vercel)
- * or the secret the key is salted with isn't configured.
- */
-async function takeClientHoldAttempt(req: Request, deps: Deps, eventId: string, seatIds: string[]) {
-  const ip = clientIp(req);
-  if (!ip) {
-    console.warn("Seat hold without a client IP header: the per-client hold limit was skipped.");
-    return;
-  }
-  const secret = rateLimitSecret(deps, "the per-client hold limit was skipped");
-  if (!secret) return;
-  const { event, allEvents, window } = SEAT_HOLD_LIMITS.perClient;
-  const [row] = await deps.db.query<{ result: "ok" | "event" | "all" }>(
-    `select private.take_seat_hold_attempt($1, $2, $3, $4, $5::interval) as result`,
-    [clientKey(ip, secret), eventId, event, allEvents, window],
-  );
-  if (row.result !== "ok") throw seatError(429, CLIENT_BUSY, "seats", { code: "client_rate_limited", seatIds });
-}
-
 interface ChosenSeat extends TicketSeat {
   id: string;
   ticketTypeId: string;
@@ -776,25 +897,30 @@ function seatLines(event: EventRecord, seats: ChosenSeat[]): OrderLineItem[] {
  * POST …/checkout with `seats: {mapVersion, seatIds}` (and optional
  * `lineItems` for the event's general admission tiers, which don't count
  * towards the 10 seats). Prices come from each seat's tier.
- * - Paid: 503 without card payments (nothing written), then one attempt
- *   against the client's own hold allowance, then the pending order and its
- *   35-minute holds in one step (private.hold_seats), then Stripe (an
- *   embedded session expiring in 31 minutes; a Stripe error, or no client
- *   secret, releases the holds). 201 `{url, holdExpiresAt, orderId}`, `url`
- *   being the payment page.
+ * - Paid: 503 without card payments (nothing written), then an attempt per
+ *   Idempotency-Key (../checkout-attempts.ts: a repeat gets the same order,
+ *   holds and payment page back, never a second hold), then one attempt
+ *   against the client's own hold allowance (SEAT_HOLD_LIMITS.perClient,
+ *   take_seat_hold_attempt, in begin_checkout_attempt), the pending order
+ *   and its 35-minute holds in one step (private.hold_seats), then Stripe (an
+ *   embedded session expiring 31 minutes after the order was made; a Stripe
+ *   error, or no client secret, releases the holds; no answer from Stripe
+ *   keeps them for a retry with the same key). 201 `{url, holdExpiresAt,
+ *   orderId}`, `url` being the payment page.
  * - Free: a member's own verified email gets the seats at once; anyone else
  *   an emailed link, holding nothing until it's confirmed.
  * Refusals write nothing (only a hold counts towards the event's hold
  * attempts): 400 bad input; 409 `seats` taken or unknown (body `seatIds`),
  * `seatMapVersion` changed; 429 too many seats held or holds made for the
  * event, or too many attempts by this client (`client_rate_limited`; body
- * `seatIds`).
+ * `seatIds`); the attempt's own answers as for general admission.
  */
 async function createSeatedCheckout(
   req: Request,
   deps: Deps,
   event: EventRecord,
   body: Record<string, unknown>,
+  key: string,
 ): Promise<Response> {
   const { db } = deps;
   if (!event.seating) fail({ seats: "This event doesn't have reserved seating." });
@@ -812,23 +938,45 @@ async function createSeatedCheckout(
   if (mapVersion !== event.seating.version) {
     throw seatError(409, SEAT_MAP_CHANGED, "seatMapVersion", { code: "seat_map_changed" });
   }
+  const trackingCode = parseTrackingCode(body.trackingCode);
+  // The same key and basket again: the same order and holds, before the seat check (which would see them held).
+  const fingerprint = checkoutFingerprint({
+    kind: "seated",
+    eventId: event.eventId,
+    lines: gaLines,
+    seats: { mapVersion, seatIds },
+    buyerEmail: body.buyerEmail,
+    trackingCode,
+  });
+  const client = requestClientKey(req, deps);
+  const peeked = await peekCheckoutAttempt(db, key, fingerprint, client.key);
+  const settled = peeked && settledAttemptResponse(peeked);
+  if (settled) return settled;
+
+  // A retry's own earlier order may still hold these seats: not "taken" (begin_checkout_attempt reuses or releases it).
+  const ownOrderId = peeked?.order_id ?? null;
   const seats = await db.query<ChosenSeat & { unavailable: boolean }>(
     `select s.id, s.ticket_type_id as "ticketTypeId", s.section_label as section, s.row_label as "row",
             s.seat_label as seat, s.kind,
             (s.blocked or s.sold_order_id is not null
-              or (s.hold_order_id is not null and s.hold_expires_at > now())) as unavailable
+              or (s.hold_order_id is not null and s.hold_order_id is distinct from $3 and s.hold_expires_at > now())) as unavailable
        from public.event_seats s
       where s.event_id = $1 and s.id = any($2::text[])
       order by s.position`,
-    [event.eventId, seatIds],
+    [event.eventId, seatIds, ownOrderId],
   );
   const found = new Set(seats.map((seat) => seat.id));
   const gone = [...seatIds.filter((id) => !found.has(id)), ...seats.filter((seat) => seat.unavailable).map((seat) => seat.id)].sort();
-  if (gone.length > 0) throw seatError(409, SEATS_TAKEN, "seats", { code: "seats_unavailable", seatIds: gone });
+  if (gone.length > 0) {
+    // A duplicate of a request that held these seats since our first look (a double click): its answer, not "taken".
+    const now = await peekCheckoutAttempt(db, key, fingerprint, client.key);
+    const answer = now && settledAttemptResponse(now);
+    if (answer) return answer;
+    throw seatError(409, SEATS_TAKEN, "seats", { code: "seats_unavailable", seatIds: gone });
+  }
 
   const lineItems = [...seatLines(event, seats), ...gaLines];
   const totals = orderTotals(lineItems);
-  const trackingCode = parseTrackingCode(body.trackingCode);
   const labels = seats.map(({ section, row, seat, kind }) => ({ section, row, seat, kind }));
 
   if (totals.totalCents === 0) {
@@ -848,122 +996,76 @@ async function createSeatedCheckout(
   if (!organiser?.stripeAccountId || !organiser.payoutsEnabled) {
     throw new HttpError(409, "This organiser hasn't finished setting up payouts yet — ticket sales aren't open.");
   }
-
   refuseWithoutCardPayments(deps);
-  await takeClientHoldAttempt(req, deps, event.eventId, seatIds);
-  const orderId = `ord_${crypto.randomUUID().replace(/-/g, "")}`;
-  const [hold] = await refuseIfClosed(() =>
-    db.query<{ result: string; hold_expires_at: string | Date | null; unavailable_seat_ids: string[] | null }>(
-      `select result, hold_expires_at, unavailable_seat_ids
-         from private.hold_seats($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11, $12, $13::text[],
-                                 $14::interval, $15, $16::interval, $17, $18)`,
-      [
-        orderId,
-        event.eventId,
-        event.organiserId,
-        event.title,
-        JSON.stringify(lineItems),
-        totals.subtotalCents,
-        totals.buyerFeeCents,
-        totals.totalCents,
-        totals.applicationFeeCents,
-        buyerEmail,
-        trackingCode,
-        mapVersion,
-        seatIds,
-        SEAT_HOLD_LIMITS.hold,
-        SEAT_HOLD_LIMITS.attempts.limit,
-        SEAT_HOLD_LIMITS.attempts.window,
-        SEAT_HOLD_LIMITS.capMin,
-        SEAT_HOLD_LIMITS.capShare,
-      ],
-    ),
-  );
-  switch (hold.result) {
-    case "held":
-      break;
-    case "rate_limited":
-      throw seatError(429, BUSY, "seats", { code: "rate_limited", seatIds });
-    case "hold_cap":
-      throw seatError(429, BUSY, "seats", { code: "hold_cap", seatIds });
-    case "seats_unavailable":
-      throw seatError(409, SEATS_TAKEN, "seats", { code: "seats_unavailable", seatIds: hold.unavailable_seat_ids ?? seatIds });
-    case "version":
-    case "tier_mismatch":
-      throw seatError(409, SEAT_MAP_CHANGED, "seatMapVersion", { code: "seat_map_changed" });
-    case "not_on_sale":
-      throw new HttpError(404, "This event isn't available for booking.");
-    default:
-      throw new Error(`Unexpected hold_seats result: ${hold.result}`);
-  }
 
-  let session: Stripe.Checkout.Session;
-  try {
-    session = await deps.stripe().checkout.sessions.create({
-      mode: "payment",
-      client_reference_id: orderId,
-      ...(buyerEmail ? { customer_email: buyerEmail } : {}),
-      expires_at: Math.floor(Date.now() / 1000) + SEAT_HOLD_LIMITS.stripeSessionMinutes * 60,
-      line_items: lineItems.flatMap((line) => {
-        const lineSeats = seats.filter((seat) => seat.ticketTypeId === line.ticketTypeId);
-        const items: Stripe.Checkout.SessionCreateParams.LineItem[] = [
-          {
-            price_data: {
-              currency: "aud",
-              product_data: {
-                name: `${line.ticketTypeName} — ${event.title}`,
-                ...(lineSeats.length > 0 ? { description: lineSeats.map(formatSeatLine).join("; ") } : {}),
-              },
-              unit_amount: line.unitPriceCents,
-            },
-            quantity: line.quantity,
-          },
-        ];
-        if (line.feePolicy === "buyer-pays" && line.unitPriceCents > 0) {
-          items.push({
-            price_data: {
-              currency: "aud",
-              product_data: { name: "Booking fee" },
-              unit_amount: calculateBookingFeeCents(line.unitPriceCents),
-            },
-            quantity: line.quantity,
-          });
-        }
-        return items;
-      }),
-      payment_intent_data: {
-        application_fee_amount: totals.applicationFeeCents,
-        transfer_data: { destination: organiser.stripeAccountId },
-      },
-      // Stripe's form on our own page (/checkout/pay). Back to the seat page releases the seats at once
-      // (SeatPicker → POST /orders/by-session/{id}/cancel); there's no cancel_url in this mode.
-      ui_mode: "embedded_page",
-      return_url: checkoutReturnUrl(deps, orderId),
-      metadata: { orderId, eventId: event.eventId },
-      // Exactly the A$ total (Adaptive Pricing off); no payment_method_types, so the Dashboard's wallets
-      // and Link apply; nothing saved. See SESSION_PAYMENT_OPTIONS.
-      ...SESSION_PAYMENT_OPTIONS,
-    });
-  } catch (err) {
-    // Nobody can pay for these seats: give them back now, not in 35 minutes.
-    await db.query(`select private.release_seat_holds($1)`, [orderId]);
-    throw err;
-  }
-  if (!session.client_secret) {
-    // Nobody could mount (so pay) it: the same as a Stripe error.
-    await db.query(`select private.release_seat_holds($1)`, [orderId]);
-    throw new Error("Stripe did not return an embedded Checkout Session's client secret.");
-  }
-
-  await db.query(`update public.orders set stripe_checkout_session_id = $2 where id = $1`, [orderId, session.id]);
-  const result: CheckoutResult = {
-    url: paymentPageUrl(orderId),
-    holdExpiresAt: new Date(hold.hold_expires_at as string).toISOString(),
-    // Only to the client that made the order (as for general admission): the seat page keeps it so Back from
-    // the payment page can release the seats at once.
-    orderId,
+  const createOrder = async (orderId: string) => {
+    const [hold] = await refuseIfClosed(() =>
+      db.query<{ result: string; unavailable_seat_ids: string[] | null }>(
+        `select result, unavailable_seat_ids
+           from private.hold_seats($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11, $12, $13::text[],
+                                   $14::interval, $15, $16::interval, $17, $18)`,
+        [
+          orderId,
+          event.eventId,
+          event.organiserId,
+          event.title,
+          JSON.stringify(lineItems),
+          totals.subtotalCents,
+          totals.buyerFeeCents,
+          totals.totalCents,
+          totals.applicationFeeCents,
+          buyerEmail,
+          trackingCode,
+          mapVersion,
+          seatIds,
+          SEAT_HOLD_LIMITS.hold,
+          SEAT_HOLD_LIMITS.attempts.limit,
+          SEAT_HOLD_LIMITS.attempts.window,
+          SEAT_HOLD_LIMITS.capMin,
+          SEAT_HOLD_LIMITS.capShare,
+        ],
+      ),
+    );
+    switch (hold.result) {
+      case "held":
+        return;
+      case "rate_limited":
+        throw seatError(429, BUSY, "seats", { code: "rate_limited", seatIds });
+      case "hold_cap":
+        throw seatError(429, BUSY, "seats", { code: "hold_cap", seatIds });
+      case "seats_unavailable":
+        throw seatError(409, SEATS_TAKEN, "seats", { code: "seats_unavailable", seatIds: hold.unavailable_seat_ids ?? seatIds });
+      case "version":
+      case "tier_mismatch":
+        throw seatError(409, SEAT_MAP_CHANGED, "seatMapVersion", { code: "seat_map_changed" });
+      case "not_on_sale":
+        throw new HttpError(404, "This event isn't available for booking.");
+      default:
+        throw new Error(`Unexpected hold_seats result: ${hold.result}`);
+    }
   };
-  return createdPrivate(result);
+
+  // The response's order id goes only to the client that made the order (as for general admission): the seat
+  // page keeps it so Back from the payment page can release the seats at once.
+  return runPaidCheckout(deps, {
+    kind: "seated",
+    event,
+    key,
+    fingerprint,
+    client,
+    clientLabels: { subject: "Seat hold", limit: "hold" },
+    limits: {
+      clientEvent: SEAT_HOLD_LIMITS.perClient.event,
+      clientAll: SEAT_HOLD_LIMITS.perClient.allEvents,
+      eventAlert: null,
+      window: SEAT_HOLD_LIMITS.perClient.window,
+    },
+    stripeAccountId: organiser.stripeAccountId,
+    sessionSeconds: SEAT_HOLD_LIMITS.stripeSessionMinutes * 60,
+    createOrder,
+    // Seated: only the per-client limit is taken before the hold (hold_seats refuses the event's itself).
+    limitError: () => seatError(429, CLIENT_BUSY, "seats", { code: "client_rate_limited", seatIds }),
+  });
 }
 
 /** Stripe's answer to expiring a session that can't be expired (already complete or expired). */

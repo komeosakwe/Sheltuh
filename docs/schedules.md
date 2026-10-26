@@ -48,7 +48,8 @@ and recent runs with
 | --- | --- | --- | --- | --- |
 | `purge-social-data` | `17 3 * * *` (daily 03:17) | 2:17 pm | 1:17 pm | `private.purge_social_data()`: Who's Going opt-ins 30 days after the event, old conversations and resolved reports, stale rate-limit counters. |
 | `purge-analytics` | `27 3 * * *` (daily 03:27) | 2:27 pm | 1:27 pm | `private.purge_analytics()`: view counters after 25 months, idle view rate limits, check-in records 25 months after the event. |
-| `purge-operational-data` | `37 3 * * *` (daily 03:37) | 2:37 pm | 1:37 pm | `private.purge_operational_data()`: expired unconfirmed guest free orders, idle platform counters, old refusal counts, old outbox jobs, idle per-client counters, account invites 90 days after they were accepted, revoked or expired. |
+| `purge-operational-data` | `37 3 * * *` (daily 03:37) | 2:37 pm | 1:37 pm | `private.purge_operational_data()`: expired unconfirmed guest free orders, idle platform counters, old refusal counts, old outbox jobs, idle per-client counters, account invites 90 days after they were accepted, revoked or expired, early refunds and refund status marks after 35 days, checkout attempts after 2 days, resolved payment exceptions after 2 years (open ones never). |
+| `email-outbox-retry` (Hobby) | `*/5 * * * *` | every 5 min | every 5 min | Calls `GET /api/cron/email-outbox` through `pg_net`, so failed emails are retried within minutes instead of a day: `docs/supabase-setup.md` §3, "The 5-minute runner on Hobby". |
 | `refresh-trending` (optional) | `*/15 * * * *` | every 15 min | every 15 min | `private.refresh_trending()`, only if you chose to run it from the database (below). |
 
 The owner reported scheduling one retention job (job id 1); which one, and
@@ -81,33 +82,17 @@ refuses deployments with more frequent crons.)
   Vercel run overlapping it does no harm.
 - **Email outbox: call the endpoint with `pg_net`.** The sending happens in
   the app (SMTP), so the database has to call the route, with the same
-  `CRON_SECRET`. Keep the secret in Supabase Vault rather than in the job's
-  command text (the command is stored in `cron.job` in plain text):
-
-  ```sql
-  -- Once: Integrations → enable pg_net (and Cron); store the secret.
-  select vault.create_secret('<the CRON_SECRET value>', 'cron_secret');
-
-  select cron.schedule('email-outbox', '*/5 * * * *', $$
-    select net.http_get(
-      url := 'https://YOUR-DOMAIN/api/cron/email-outbox',
-      headers := jsonb_build_object(
-        'Authorization',
-        'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret')
-      ),
-      timeout_milliseconds := 60000
-    );
-  $$);
-  ```
-
-  `pg_net` is asynchronous: the job only queues the request. Responses are
-  kept for a few hours in `net._http_response`
-  (`select status_code, created from net._http_response order by created desc limit 10;`);
-  look there, or at Vercel's function logs, for 401s (wrong secret) or
-  timeouts. The route drains for up to about 30 seconds
-  (`maxDuration` 60), hence the longer timeout. This SQL hasn't been run
-  against a Supabase project from this repo: try it on the test project
-  first.
+  `CRON_SECRET`. The runbook is `docs/supabase-setup.md` §3, "The 5-minute
+  runner on Hobby": job `email-outbox-retry` every 5 minutes, the secret and
+  the route's URL in Supabase Vault (never in the job's command text, which
+  `cron.job` stores in plain text), the checks that `anon` and
+  `authenticated` can't read `pg_net`'s tables, how to pause, rotate and
+  remove it. `pg_net` is asynchronous: the job only queues the request, and
+  the outcome is in `net._http_response` (kept briefly) or Vercel's function
+  logs. Whether it's working shows in `GET /api/admin/emails/health`
+  (`lastCronRun`, `totals.overdue`; same section, "Is it working?"). The
+  SQL hasn't been run against a Supabase project from this repo: try it on
+  the test project first.
 
 ### Trade-offs
 
@@ -124,6 +109,6 @@ Running both at once is safe: the outbox hands out jobs under leases, so two
 drains never send the same job concurrently (delivery is at-least-once
 either way), and trending refreshes are serialised. When moving to Pro,
 unschedule the Supabase jobs that duplicate it
-(`select cron.unschedule('email-outbox');`,
+(`select cron.unschedule('email-outbox-retry');`,
 `select cron.unschedule('refresh-trending');`) so there's one source of
 truth.

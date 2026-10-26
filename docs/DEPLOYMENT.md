@@ -67,7 +67,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261109000100_event_refund_policy.sql`. Never
+      newest, currently `20261109000400_checkout_attempts.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -98,6 +98,30 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       22. `20261109000000_paid_events_need_payouts.sql`
       23. `20261109000100_event_refund_policy.sql` (existing events become
           "No refunds for change of mind"; apply before the app that reads it)
+      24. `20261109000200_payment_reconciliation.sql` (deploy the app with
+          it: the previous version keeps working against it, but only this
+          one sends ops alerts and records refunds that arrive before their
+          payment. It needs `20261107000000_admin_review_emails.sql` and
+          `20261108000000_account_invites.sql` first: it extends their outbox
+          kinds, `private.lease_outbox_jobs` and `purge_operational_data`)
+      25. `20261109000300_email_outbox_health.sql` (schedules nothing:
+          the admin health endpoint and the cron route's last-run record.
+          Run it before deploying the app that uses it, which otherwise
+          answers the cron route with a 500 after sending)
+      26. `20261109000400_checkout_attempts.sql` (paid checkout
+          idempotency and the general admission checkout limits. Run it
+          before deploying the app that uses it: that app refuses every paid
+          checkout (500) without it. The previous app keeps working against
+          it. Retention rides on the existing daily
+          `purge_operational_data` job: nothing new to schedule)
+
+      Files 24 to 26 were written as `20261104000000_payment_reconciliation.sql`,
+      `20261104000100_email_outbox_health.sql` and
+      `20261104000200_checkout_attempts.sql` on the payments audit branch and
+      renamed when it was merged, so they sort after everything production
+      may already have. If a project ever ran the old names, don't run them
+      again: `scripts/check-applied-migrations.sql` judges these files by the
+      objects they create, whatever their name.
 
       **Apply `20261109000000_paid_events_need_payouts.sql` before the code
       that submits events deploys.** The organiser's submit calls
@@ -128,11 +152,35 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       `*/15 * * * *` for `/api/cron/trending`) and redeploy. On Hobby,
       Supabase Cron can run the trending refresh directly or call the outbox
       route through `pg_net` (`schedules.md`, option 2).
+      - **On Hobby:** set up the 5-minute email retry runner in Supabase
+        (Supabase Cron + `pg_net`, `CRON_SECRET` and the route's URL in
+        Supabase Vault: `supabase-setup.md` §3, "The 5-minute runner on
+        Hobby", which replaces the shorter sketch in `schedules.md`). Without
+        it, a ticket email whose first send failed waits up to about 24 hours
+        for its retry. Keep the daily Vercel run as a backstop; two runs at
+        once never send an email twice.
+      - **On Pro:** edit `vercel.json` as above (full file in
+        `supabase-setup.md` §3, "Switching to Vercel Pro"), commit, redeploy,
+        confirm in Vercel → Settings → Cron Jobs, then
+        `select cron.unschedule('email-outbox-retry');` (and
+        `refresh-trending`) in Supabase and delete the two Vault secrets.
+      - **Either way, check** `GET /api/admin/emails/health` as an admin:
+        `lastCronRun.finishedAt` no more than about 10 minutes old and
+        `totals.overdue` 0.
 - [ ] **Stripe webhook `charge.refunded`** on the endpoint, in test **and**
       live mode (configured separately), alongside the checkout and refund
       events listed in `supabase-setup.md` §2. Without it a refund made in
       the Stripe dashboard leaves the order paid and its tickets valid at the
       door.
+- [ ] **Stripe webhook `charge.refund.updated`** too (with `refund.updated`
+      and `refund.failed`): how a dashboard refund that fails after its order
+      was voided becomes a payment exception and an ops alert.
+- [ ] **`OPS_ALERT_EMAIL`** (optional) in Vercel (Production): where ops
+      alerts go (e.g. `support@sheltuh.com.au`). Without it, alerts are only
+      logged; check `GET /api/admin/payment-exceptions` instead. Before go-live,
+      in Stripe test mode, refund a payment made with card
+      `4000 0000 0000 5126` (its refund fails after succeeding) and confirm an
+      exception and an alert appear.
 - [ ] **`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`** (embedded checkout: the
       payment form is on our own page, `/checkout/pay`). In Vercel set it
       per environment, matching that environment's `STRIPE_SECRET_KEY`:
@@ -305,6 +353,8 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        `pk_test_…`). Redeploy after changing any `NEXT_PUBLIC_*` value.
        Optional: `NEXT_PUBLIC_DISABLE_SERVICE_WORKER=1` turns the offline
        service worker off (needs a fresh build; see `docs/pwa.md`).
+       Optional: `OPS_ALERT_EMAIL` (server-only), one address for ops alerts
+       about payment exceptions and checkout surges (unset = logged only).
        Optional: `ADMIN_NOTIFY_EMAILS` (server-only, never `NEXT_PUBLIC_`),
        a comma-separated list of the addresses that get the "event /
        organiser to review" emails. Use an inbox only admins read, never a
@@ -348,7 +398,9 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        page's `GET …/payment` each make several sequential database round
        trips, so a US region would add noticeable delay before the form
        appears.
-3. [ ] Pro plan once you sell tickets (Hobby is non-commercial).
+3. [ ] Pro plan once you sell tickets (Hobby is non-commercial). The plan
+       change alone doesn't touch the cron schedules: edit `vercel.json` and
+       redeploy as in "Cron schedules" above.
 4. [ ] Domain: attach `sheltuh.com.au` (see PROJECT_CONTEXT for the Cloudflare
        notes). The landing page currently lives on a Cloudflare Worker; decide
        when the app replaces it.

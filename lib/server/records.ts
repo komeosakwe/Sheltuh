@@ -6,6 +6,7 @@
 import type { Db } from "./db";
 import type {
   AdminEmailJob,
+  AdminPaymentException,
   AdminMemberProfile,
   AdminEventRecord,
   AdminInviteRecord,
@@ -625,9 +626,12 @@ export function toOrder(row: Row): OrderRecord {
  * isn't paid, and for any event that isn't published (unpublished, back in
  * draft or review, rejected, or gone): those details are no longer public,
  * so the order only says the event is no longer listed (`eventListed`).
- * `tickets_issued` tells a paid-then-refunded order (it had tickets) from one
- * refunded because it couldn't be fulfilled (it never did). Reads the event
- * by primary key and the tickets by tickets_order_idx.
+ * `tickets_issued` and `amount_refunded_cents` tell a refund made in Stripe
+ * (after the tickets were issued, or before the payment was recorded, when
+ * none ever were: the amount is then recorded) from one refunded because it
+ * couldn't be fulfilled (no tickets, and no amount: only charge.refunded
+ * records one). Reads the event by primary key and the tickets by
+ * tickets_order_idx.
  */
 export const CUSTOMER_ORDER_SELECT = `
   select o.id, o.status::text as status, o.event_title, o.buyer_email,
@@ -643,14 +647,23 @@ export const CUSTOMER_ORDER_SELECT = `
                            order by t.ticket_type_id, t.code)
            from public.tickets t where t.order_id = o.id and o.status = 'paid'
          ), '[]'::json) as tickets,
-         exists (select 1 from public.tickets t where t.order_id = o.id) as tickets_issued
+         exists (select 1 from public.tickets t where t.order_id = o.id) as tickets_issued,
+         o.amount_refunded_cents
   from public.orders o
   left join public.events e on e.id = o.event_id`;
 
-/** Why a refunded (or refund-pending) order was refunded; undefined for any other status. */
-function refundReason(status: CustomerOrder["status"], ticketsIssued: boolean): CustomerOrder["refundReason"] {
+/**
+ * Why a refunded (or refund-pending) order was refunded; undefined for any
+ * other status. `refunded`: refunded in Stripe, whether its tickets had been
+ * issued or (refunded before the payment was recorded) never were.
+ */
+function refundReason(
+  status: CustomerOrder["status"],
+  ticketsIssued: boolean,
+  amountRefundedCents: number,
+): CustomerOrder["refundReason"] {
   if (status === "oversold_refund_required") return "oversold";
-  if (status === "refunded") return ticketsIssued ? "refunded" : "oversold";
+  if (status === "refunded") return ticketsIssued || amountRefundedCents > 0 ? "refunded" : "oversold";
   return undefined;
 }
 
@@ -675,7 +688,7 @@ export function toCustomerOrder(row: Row): CustomerOrder {
     : [];
   return {
     status,
-    refundReason: refundReason(status, row.tickets_issued === true),
+    refundReason: refundReason(status, row.tickets_issued === true, Number(row.amount_refunded_cents ?? 0)),
     reference: orderReference(row.id as string),
     eventTitle: row.event_title as string,
     eventSlug: opt(row.event_slug),
@@ -719,6 +732,61 @@ export function toAdminEmailJob(row: Row): AdminEmailJob {
     orderStatus: row.order_status as AdminEmailJob["orderStatus"],
     eventTitle: row.event_title as string,
     maskedEmail: email ? maskEmail(email) : undefined,
+  };
+}
+
+/**
+ * Admin view of a payment exception; append `where …`. Reads the order only
+ * for its reference, status and title: never the buyer.
+ */
+export const ADMIN_PAYMENT_EXCEPTION_SELECT = `
+  select e.id, e.kind, e.status, e.order_id, e.payment_intent_id, e.refund_id, e.stripe_event_id, e.details,
+         e.alerted_at, e.opened_at, e.created_at, e.resolved_at, e.resolution, e.resolved_by, e.resolution_note,
+         o.status::text as order_status, o.event_title
+    from private.payment_exceptions e
+    left join public.orders o on o.id = e.order_id`;
+
+const DETAIL_STRINGS = ["refundStatus", "orderStatus", "source", "reason"] as const;
+const DETAIL_NUMBERS = ["refundAmountCents", "amountRefundedCents", "totalCents"] as const;
+
+/** Only the known amounts and statuses, whatever else the jsonb holds. */
+export function paymentExceptionDetails(raw: unknown): AdminPaymentException["details"] {
+  const source = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const details: AdminPaymentException["details"] = {};
+  for (const key of DETAIL_STRINGS) {
+    const value = source[key];
+    if (typeof value === "string" && /^[a-z_]{1,40}$/.test(value)) details[key] = value;
+  }
+  for (const key of DETAIL_NUMBERS) {
+    const value = source[key];
+    if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) details[key] = value;
+  }
+  return details;
+}
+
+export function toAdminPaymentException(row: Row): AdminPaymentException {
+  const details = paymentExceptionDetails(row.details);
+  const kind = row.kind as AdminPaymentException["kind"];
+  const orderStatus = opt<AdminPaymentException["orderStatus"]>(row.order_status);
+  return {
+    exceptionId: row.id as string,
+    kind,
+    status: row.status as AdminPaymentException["status"],
+    urgent: kind === "refund_not_completed" && (orderStatus ?? details.orderStatus) === "refunded",
+    orderReference: row.order_id ? orderReference(row.order_id as string) : undefined,
+    orderStatus,
+    eventTitle: opt(row.event_title),
+    paymentIntentId: opt(row.payment_intent_id),
+    refundId: opt(row.refund_id),
+    stripeEventId: opt(row.stripe_event_id),
+    details,
+    alertedAt: row.alerted_at ? iso(row.alerted_at) : undefined,
+    openedAt: iso(row.opened_at),
+    createdAt: iso(row.created_at),
+    resolvedAt: row.resolved_at ? iso(row.resolved_at) : undefined,
+    resolution: opt(row.resolution),
+    resolvedBy: opt(row.resolved_by),
+    resolutionNote: opt(row.resolution_note),
   };
 }
 

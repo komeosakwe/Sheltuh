@@ -729,6 +729,129 @@ export interface AdminEmailJob {
   maskedEmail?: string;
 }
 
+/** Every kind of outbox job (private.email_outbox's kind check). */
+export type EmailOutboxKind =
+  | "ticket_email"
+  | "waitlist_available"
+  | "organiser_new_events"
+  | "event_review"
+  | "organiser_review"
+  | "ops_alert";
+
+export const EMAIL_OUTBOX_KINDS: readonly EmailOutboxKind[] = [
+  "ticket_email",
+  "waitlist_available",
+  "organiser_new_events",
+  "event_review",
+  "organiser_review",
+  "ops_alert",
+];
+
+/** One kind's (or every kind's) outbox counts in EmailOutboxHealth. Sent jobs aren't counted. */
+export interface EmailOutboxHealthCounts {
+  /** Waiting for a worker right now. */
+  due: number;
+  /** Due (or leased by a worker that died) for longer than `overdueAfterMinutes`: no run has picked them up. */
+  overdue: number;
+  /** How long the oldest overdue job has been waiting. Unset when none is overdue. */
+  oldestOverdueSeconds?: number;
+  /** A retry (or a follower email) scheduled for later. */
+  waiting: number;
+  /** Being sent right now. */
+  sending: number;
+  /** Leased by a worker that never finished: taken again by the next run. */
+  expiredLeases: number;
+  /** Gave up after the last attempt, or couldn't be sent at all: the dead letters. */
+  failed: number;
+  failedLast7Days: number;
+}
+
+/**
+ * GET /api/admin/emails/health. Whether the email outbox is being worked
+ * (docs/architecture.md, "Payment flow"). Counts and times only: never an
+ * address, an order or a token.
+ */
+export interface EmailOutboxHealth {
+  checkedAt: string;
+  overdueAfterMinutes: number;
+  /** The last run of GET /api/cron/email-outbox that finished, from any scheduler. Unset: none recorded yet. */
+  lastCronRun?: { finishedAt: string; claimed: number; sent: number; retrying: number; failed: number };
+  /** CRON_SECRET is set. Without it the cron route refuses every call and nothing is retried. */
+  cronSecretConfigured: boolean;
+  totals: EmailOutboxHealthCounts;
+  /** Every kind, in EMAIL_OUTBOX_KINDS order (zeros included). */
+  byKind: (EmailOutboxHealthCounts & { kind: EmailOutboxKind })[];
+}
+
+// ---------------------------------------------------------------------------
+// Payment exceptions (admin)
+// ---------------------------------------------------------------------------
+
+/**
+ * - `refund_not_completed`: Stripe reported a refund failed, canceled or
+ *   requires_action. With `urgent`, the order was already voided (its tickets
+ *   are void) but the buyer hasn't been repaid: re-refund in the Stripe
+ *   dashboard.
+ * - `partial_refund`: a paid order was partly refunded; its tickets stand.
+ * - `manual_refund_required`: an automatic refund couldn't be requested (no
+ *   payment on record): refund it in the Stripe dashboard.
+ */
+export type PaymentExceptionKind = "refund_not_completed" | "partial_refund" | "manual_refund_required";
+
+export type PaymentExceptionStatus = "open" | "resolved";
+
+export const PAYMENT_EXCEPTION_STATUSES: readonly PaymentExceptionStatus[] = ["open", "resolved"];
+
+/**
+ * GET /api/admin/payment-exceptions. Something about a payment that needs a
+ * person (docs/architecture.md, "Refunds made in Stripe"). Nothing is ever
+ * restored or refunded automatically: an admin acts in the Stripe dashboard,
+ * then resolves it with a note. The order is shown by its short reference
+ * only, never its id; no buyer data.
+ */
+export interface AdminPaymentException {
+  /** POST /api/admin/payment-exceptions/{exceptionId}/resolve. */
+  exceptionId: string;
+  kind: PaymentExceptionKind;
+  status: PaymentExceptionStatus;
+  /** The order was voided but the refund didn't complete: the buyer has neither tickets nor their money. */
+  urgent: boolean;
+  /** Unset while the payment isn't matched to an order yet. */
+  orderReference?: string;
+  orderStatus?: OrderStatus;
+  eventTitle?: string;
+  /** To find the payment (and refund) in the Stripe dashboard. */
+  paymentIntentId?: string;
+  refundId?: string;
+  /** The latest Stripe event that changed it. */
+  stripeEventId?: string;
+  /** Amounts and statuses only. */
+  details: PaymentExceptionDetails;
+  /** When an ops alert was last queued (unset: none, e.g. over the daily cap). */
+  alertedAt?: string;
+  /** When it was opened, or last reopened. */
+  openedAt: string;
+  createdAt: string;
+  resolvedAt?: string;
+  /** `auto`: Stripe reported the refund succeeded (or the order was then refunded in full). */
+  resolution?: "auto" | "admin";
+  /** The resolving admin's account id. */
+  resolvedBy?: string;
+  resolutionNote?: string;
+}
+
+export interface PaymentExceptionDetails {
+  refundStatus?: string;
+  refundAmountCents?: number;
+  amountRefundedCents?: number;
+  totalCents?: number;
+  /** The order's status when the exception was last updated. */
+  orderStatus?: string;
+  /** `sheltuh`: our automatic refund; `stripe`: one made in the Stripe dashboard. */
+  source?: string;
+  reason?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Admin summary
 // ---------------------------------------------------------------------------
@@ -1610,8 +1733,37 @@ export interface CheckoutSeatsInput {
  * - 409 from POST /api/orders/confirm when a guest's seats went before they
  *   confirmed (`code: "seats_taken"`): `seats` (their labels) and `eventSlug`.
  */
+/**
+ * A paid checkout's error `code` (POST /events/{eventId}/checkout; docs/architecture.md, "Checkout idempotency"):
+ * - `checkout_in_progress` (409): the same attempt is still being set up; retry after `retryAfterSeconds`
+ *   (also the Retry-After header) with the same Idempotency-Key.
+ * - `checkout_expired` (409): this attempt's checkout ended (cancelled, failed or its session expired): start a
+ *   new checkout (a new key).
+ * - `checkout_completed` (409): this attempt's order was paid (its message says whether it was then refunded,
+ *   or is being refunded because the tickets sold out first).
+ * - `checkout_other_client` (409): the key belongs to a checkout started from another connection; nothing about it
+ *   is returned. Start a new checkout (a new key).
+ * - `idempotency_key_reused` (422): the key was used for a different basket, buyer or event.
+ * - `invalid_idempotency_key` (400): the Idempotency-Key header isn't a random (version 4) UUID.
+ * - `client_rate_limited` (429): this client started too many checkouts; `rate_limited` (429, seated only): too
+ *   many seat holds for the event (a seated checkout also has `hold_cap`). General admission has no event-wide
+ *   refusal: past its threshold the server only alerts.
+ * - `payment_provider_unavailable` (503): Stripe didn't answer; retry with the same key.
+ */
+export type CheckoutErrorCode =
+  | "checkout_in_progress"
+  | "checkout_expired"
+  | "checkout_completed"
+  | "checkout_other_client"
+  | "idempotency_key_reused"
+  | "invalid_idempotency_key"
+  | "client_rate_limited"
+  | "rate_limited"
+  | "payment_provider_unavailable";
+
 export interface SeatErrorDetails {
-  code?: "seats_unavailable" | "hold_cap" | "rate_limited" | "client_rate_limited" | "seat_map_changed" | "seats_taken";
+  /** A seat code, or (seated paid checkout) one of the attempt's own CheckoutErrorCode values. */
+  code?: "seats_unavailable" | "hold_cap" | "rate_limited" | "client_rate_limited" | "seat_map_changed" | "seats_taken" | CheckoutErrorCode;
   seatIds?: string[];
   seats?: TicketSeat[];
   eventSlug?: string;

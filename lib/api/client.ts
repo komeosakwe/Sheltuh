@@ -43,6 +43,8 @@ interface FetchOptions {
    * if the response had already arrived.
    */
   signal?: AbortSignal;
+  /** Extra request headers (e.g. `idempotency-key`). Can't replace content-type or authorization. */
+  headers?: Record<string, string>;
 }
 
 /**
@@ -94,6 +96,7 @@ async function send<T>(
     res = await fetch(`${API_BASE}${path}`, {
       method: options.method ?? "GET",
       headers: {
+        ...options.headers,
         "content-type": options.body instanceof Blob ? options.body.type : "application/json",
         ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
       },

@@ -12,6 +12,8 @@ export class HttpError extends Error {
      * the seat ids a seated checkout couldn't have). Never personal data.
      */
     public details?: Record<string, unknown>,
+    /** Extra response headers (e.g. `Retry-After`). Never personal data. */
+    public headers?: Record<string, string>,
   ) {
     super(message);
   }
@@ -35,7 +37,8 @@ export const createdPrivate = (body: unknown) => Response.json(body, { status: 2
 export const noContentPrivate = () => new Response(null, { status: 204, headers: PRIVATE_NO_STORE });
 
 /** An error response: never cached either, since it can be about the caller (e.g. a 404 for their conversation). */
-export const errorJson = (status: number, body: unknown) => Response.json(body, { status, headers: PRIVATE_NO_STORE });
+export const errorJson = (status: number, body: unknown, headers?: Record<string, string>) =>
+  Response.json(body, { status, headers: { ...headers, ...PRIVATE_NO_STORE } });
 
 /**
  * The largest JSON body the API reads (bytes). Far above any real request (an

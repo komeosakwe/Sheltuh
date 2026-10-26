@@ -27,12 +27,16 @@ describe("clientIp / normaliseIp / clientKey", () => {
     expect(clientIp(req({}))).toBeUndefined();
   });
 
-  it("keys IPv6 on its /64, an IPv4-mapped address on its IPv4 address, and drops a zone id", () => {
-    expect(normaliseIp("2001:db8:aa:bb:1:2:3:4")).toBe("2001:db8:aa:bb::/64");
-    expect(normaliseIp("2001:DB8:AA:BB::ffff")).toBe("2001:db8:aa:bb::/64");
-    expect(normaliseIp("2001:0db8:00aa:00bb:0000:0000:0000:0001")).toBe("2001:db8:aa:bb::/64");
-    expect(normaliseIp("::1")).toBe("0:0:0:0::/64");
-    expect(normaliseIp("fe80::1%eth0")).toBe("fe80:0:0:0::/64");
+  it("keys IPv6 on its /56, an IPv4-mapped address on its IPv4 address, and drops a zone id", () => {
+    expect(normaliseIp("2001:db8:aa:bb:1:2:3:4")).toBe("2001:db8:aa:0::/56");
+    expect(normaliseIp("2001:DB8:AA:BB::ffff")).toBe("2001:db8:aa:0::/56");
+    expect(normaliseIp("2001:0db8:00aa:00bb:0000:0000:0000:0001")).toBe("2001:db8:aa:0::/56");
+    // The /56 keeps the fourth group's high byte: 2001:db8:aa:12xx is one client, 2001:db8:aa:13xx another.
+    expect(normaliseIp("2001:db8:aa:12ff::1")).toBe("2001:db8:aa:1200::/56");
+    expect(normaliseIp("2001:db8:aa:1200::2")).toBe("2001:db8:aa:1200::/56");
+    expect(normaliseIp("2001:db8:aa:1300::1")).toBe("2001:db8:aa:1300::/56");
+    expect(normaliseIp("::1")).toBe("0:0:0:0::/56");
+    expect(normaliseIp("fe80::1%eth0")).toBe("fe80:0:0:0::/56");
     expect(normaliseIp("::ffff:203.0.113.7")).toBe(IP);
     expect(normaliseIp(IP)).toBe(IP);
     for (const bad of ["", "1.2.3", "1.2.3.4.5", "999.1.1.1", "2001:db8::g", "[::1]", "::1:2:3:4:5:6:7:8:9"]) {
@@ -206,9 +210,9 @@ describe("per-client hold attempts", () => {
     );
   });
 
-  it("one IPv6 /64 is one client", async () => {
-    await hold(["A1"], { ip: "2001:db8:1:2::a" });
-    await hold(["A2"], { ip: "2001:db8:1:2:ffff::b" });
+  it("one IPv6 /56 is one client (rotating through its 256 /64s gets no new allowance)", async () => {
+    await hold(["A1"], { ip: "2001:db8:1:200::a" });
+    await hold(["A2"], { ip: "2001:db8:1:2ff:ffff::b" });
     const rows = await counters();
     expect(new Set(rows.map((r) => r.client_key)).size).toBe(1);
     expect(rows.map((r) => r.hits)).toEqual([2, 2]);
@@ -257,8 +261,15 @@ describe("per-client hold attempts", () => {
     });
     expect((await hold(["A1"], { headers: { "x-forwarded-for": IP }, on: free })).status).toBe(400); // no email
     const key = clientKey(IP, WEBHOOK_SECRET);
-    // The paid GA checkout took a hit on its own per-client limit (CHECKOUT_RATE_LIMITS.paidCheckout), not a hold attempt.
-    expect((await counters()).filter((c) => c.client_key === key)).toEqual([{ client_key: key, bucket: "paid_checkouts", hits: 1 }]);
+    const mine = (await counters()).filter((c) => c.client_key === key);
+    expect(mine.filter((c) => c.bucket.startsWith("seat_holds"))).toEqual([]);
+    // The paid GA checkout took a hit on its own per-client limits, not a hold attempt: the per-minute one
+    // (CHECKOUT_RATE_LIMITS.paidCheckout) and the per-10-minute ones (tests/server/checkout-attempts.test.ts).
+    expect(mine.map((c) => [c.bucket, c.hits]).sort()).toEqual([
+      ["checkouts", 1],
+      [`checkouts:${ga.eventId}`, 1],
+      ["paid_checkouts", 1],
+    ]);
   });
 });
 

@@ -8,6 +8,35 @@ beforeAll(async () => {
   db = (await createTestDb()).db;
 });
 
+interface FunctionLockdown {
+  fn: string;
+  /** Overloads with this name. */
+  forms: number;
+  /** Every overload sets `search_path = ''`. */
+  pinned: boolean;
+  /** Any overload is executable by anon, authenticated or PUBLIC. */
+  client: boolean;
+}
+
+/** Per name, the `private` functions' lock-down as stored in the catalogue (names that don't exist are missing). */
+function privateFunctions(names: string[]): Promise<FunctionLockdown[]> {
+  return db.query<FunctionLockdown>(
+    `select p.proname as fn, count(*)::int as forms,
+            bool_and(exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c = 'search_path=""')) as pinned,
+            bool_or(has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
+              or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                          where a.grantee = 0 and a.privilege_type = 'EXECUTE')) as client
+       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'private' and p.proname = any($1::text[]) group by p.proname order by 1`,
+    [names],
+  );
+}
+
+/** What privateFunctions should return for `names` (sorted): pinned, not client-executable, one form unless `forms` says otherwise. */
+function locked(names: string[], forms: Record<string, number> = {}): FunctionLockdown[] {
+  return [...names].sort().map((fn) => ({ fn, forms: forms[fn] ?? 1, pinned: true, client: false }));
+}
+
 /**
  * docs/architecture.md: the browser never talks to the database. Supabase's
  * Data API is shut out by RLS *and* by having no grants for the anon and
@@ -113,8 +142,11 @@ describe("Data API lock-out", () => {
     expect(tables).toEqual([
       { table_name: "account_invites", rls: true },
       { table_name: "analytics_settings", rls: true },
+      { table_name: "checkout_attempts", rls: true },
       { table_name: "client_rate_limits", rls: true },
       { table_name: "conversation_pairs", rls: true },
+      { table_name: "cron_runs", rls: true },
+      { table_name: "early_charge_refunds", rls: true },
       { table_name: "email_job_recipients", rls: true },
       { table_name: "email_outbox", rls: true },
       { table_name: "event_clip_uploads", rls: true },
@@ -129,10 +161,12 @@ describe("Data API lock-out", () => {
       { table_name: "organiser_follow_tokens", rls: true },
       { table_name: "organiser_logos", rls: true },
       { table_name: "organiser_profile_edits", rls: true },
+      { table_name: "payment_exceptions", rls: true },
       { table_name: "platform_rate_limits", rls: true },
       { table_name: "profile_avatars", rls: true },
       { table_name: "profile_moderation_log", rls: true },
       { table_name: "rate_limits", rls: true },
+      { table_name: "refund_status_marks", rls: true },
       { table_name: "report_photos", rls: true },
       { table_name: "social_suspensions", rls: true },
       { table_name: "trending_snapshot", rls: true },
@@ -175,17 +209,7 @@ describe("Data API lock-out", () => {
       "ticket_check_ins_guard",
       "ticket_types_platform_free_only",
     ];
-    const rows = await db.query<{ fn: string; pinned: boolean; client: boolean }>(
-      `select p.proname as fn,
-              exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c = 'search_path=""') as pinned,
-              has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
-                or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
-                            where a.grantee = 0 and a.privilege_type = 'EXECUTE') as client
-         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-        where n.nspname = 'private' and p.proname = any($1::text[]) order by 1`,
-      [names],
-    );
-    expect(rows).toEqual(names.map((fn) => ({ fn, pinned: true, client: false })));
+    expect(await privateFunctions(names)).toEqual(locked(names));
   });
 
   it("the trending functions exist, pin search_path and aren't client-executable", async () => {
@@ -197,17 +221,7 @@ describe("Data API lock-out", () => {
       "trending_proximity",
       "trending_shrink",
     ];
-    const rows = await db.query<{ fn: string; pinned: boolean; client: boolean }>(
-      `select p.proname as fn,
-              exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c = 'search_path=""') as pinned,
-              has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
-                or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
-                            where a.grantee = 0 and a.privilege_type = 'EXECUTE') as client
-         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-        where n.nspname = 'private' and p.proname = any($1::text[]) order by 1`,
-      [names],
-    );
-    expect(rows).toEqual(names.map((fn) => ({ fn, pinned: true, client: false })));
+    expect(await privateFunctions(names)).toEqual(locked(names));
   });
 
   it("the waitlist functions and triggers exist, pin search_path and aren't client-executable", async () => {
@@ -222,17 +236,7 @@ describe("Data API lock-out", () => {
       "ticket_types_waitlist_release",
       "waitlist_join_state",
     ];
-    const rows = await db.query<{ fn: string; pinned: boolean; client: boolean }>(
-      `select p.proname as fn,
-              exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c = 'search_path=""') as pinned,
-              has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
-                or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
-                            where a.grantee = 0 and a.privilege_type = 'EXECUTE') as client
-         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-        where n.nspname = 'private' and p.proname = any($1::text[]) order by 1`,
-      [names],
-    );
-    expect(rows).toEqual(names.map((fn) => ({ fn, pinned: true, client: false })));
+    expect(await privateFunctions(names)).toEqual(locked(names));
     // The waitlist's personal data has no policies (RLS on, nothing allowed to the Data API).
     const [policies] = await db.query<{ n: number }>(
       `select count(*)::int as n from pg_policy p join pg_class c on c.oid = p.polrelid
@@ -270,17 +274,7 @@ describe("Data API lock-out", () => {
       "unavailable_seats",
       "write_seat_map",
     ];
-    const rows = await db.query<{ fn: string; pinned: boolean; client: boolean }>(
-      `select p.proname as fn,
-              bool_and(exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c = 'search_path=""')) as pinned,
-              bool_or(has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
-                or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
-                            where a.grantee = 0 and a.privilege_type = 'EXECUTE')) as client
-         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-        where n.nspname = 'private' and p.proname = any($1::text[]) group by p.proname order by 1`,
-      [names],
-    );
-    expect(rows).toEqual(names.map((fn) => ({ fn, pinned: true, client: false })));
+    expect(await privateFunctions(names)).toEqual(locked(names, { record_payment_refund: 2 }));
     // The version sequence isn't the Data API's either.
     const [seq] = await db.query<{ granted: number }>(
       `select count(*)::int as granted from pg_class c, aclexplode(coalesce(c.relacl, acldefault('s', c.relowner))) a
@@ -305,17 +299,7 @@ describe("Data API lock-out", () => {
       "unsubscribe_follow",
       "user_reports_target_type",
     ];
-    const rows = await db.query<{ fn: string; pinned: boolean; client: boolean }>(
-      `select p.proname as fn,
-              exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c = 'search_path=""') as pinned,
-              has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
-                or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
-                            where a.grantee = 0 and a.privilege_type = 'EXECUTE') as client
-         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-        where n.nspname = 'private' and p.proname = any($1::text[]) order by 1`,
-      [names],
-    );
-    expect(rows).toEqual(names.map((fn) => ({ fn, pinned: true, client: false })));
+    expect(await privateFunctions(names)).toEqual(locked(names));
     // Photos, follows, tokens and the moderation log: RLS on, no policies.
     const [policies] = await db.query<{ n: number }>(
       `select count(*)::int as n from pg_policy p join pg_class c on c.oid = p.polrelid
@@ -443,6 +427,56 @@ describe("Data API lock-out", () => {
       { column_name: "refund_days", is_nullable: "YES", column_default: null },
       { column_name: "refund_policy", is_nullable: "NO", column_default: "'no_change_of_mind'::text" },
     ]);
+  });
+
+  it("the payment reconciliation functions exist (both record_payment_refund forms), pin search_path and aren't client-executable", async () => {
+    const names = [
+      "claim_email_outbox",
+      "fulfil_order",
+      "fulfil_order_detailed",
+      "lease_outbox_jobs",
+      "lock_payment_intent",
+      "purge_operational_data",
+      "raise_payment_exception",
+      "record_payment_refund",
+      "record_refund_status",
+      "resolve_payment_exception",
+    ];
+    expect(await privateFunctions(names)).toEqual(locked(names, { record_payment_refund: 2 }));
+    // The new tables: RLS on, no policies.
+    const [policies] = await db.query<{ n: number }>(
+      `select count(*)::int as n from pg_policy p join pg_class c on c.oid = p.polrelid
+         join pg_namespace s on s.oid = c.relnamespace
+        where s.nspname = 'private' and c.relname in ('payment_exceptions', 'early_charge_refunds', 'refund_status_marks')`,
+    );
+    expect(policies.n).toBe(0);
+  });
+
+  it("the email outbox health function exists, pins search_path and isn't client-executable; cron_runs has no policies", async () => {
+    expect(await privateFunctions(["email_outbox_health"])).toEqual(locked(["email_outbox_health"]));
+    const [policies] = await db.query<{ n: number }>(
+      `select count(*)::int as n from pg_policy p where p.polrelid = 'private.cron_runs'::regclass`,
+    );
+    expect(policies.n).toBe(0);
+  });
+
+  it("the checkout attempt functions exist, pin search_path and aren't client-executable; checkout_attempts has no policies", async () => {
+    const names = [
+      "begin_checkout_attempt",
+      "checkout_attempt_state",
+      "fail_checkout_attempt",
+      "finish_checkout_attempt",
+      "purge_operational_data",
+      "queue_checkout_surge_alert",
+      "release_checkout_order",
+      "take_checkout_attempt",
+      "take_checkout_limits",
+    ];
+    expect(await privateFunctions(names)).toEqual(locked(names));
+    const [policies] = await db.query<{ n: number }>(
+      `select count(*)::int as n from pg_policy p where p.polrelid = 'private.checkout_attempts'::regclass`,
+    );
+    expect(policies.n).toBe(0);
   });
 
   it("every `private` function pins its search_path, apart from the two that predate the rule", async () => {
