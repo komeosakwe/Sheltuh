@@ -20,7 +20,7 @@ export function embeddedSession(id: string, extra: Record<string, unknown> = {})
 }
 
 /**
- * The payment options every paid Checkout Session must carry (orders.ts
+ * The payment options every paid Checkout Session must carry (checkout-attempts.ts
  * SESSION_PAYMENT_OPTIONS): Adaptive Pricing pinned off, so buyers pay exactly
  * the A$ total; no payment method list or wallet options, so the Dashboard's
  * cards, Apple Pay, Google Pay and Link apply; and nothing saved for later.

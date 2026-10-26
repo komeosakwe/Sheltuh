@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { calculateBookingFeeCents } from "@/lib/fees";
+import { WORDMARK_CID } from "@/lib/server/email-layout";
 import { ticketQrPayload } from "@/lib/ticket-code";
 import { ticketQrMatrix } from "@/lib/ticket-qr";
 import { buyTickets, checkout, organiserWithPayouts, pay, publishedEvent, scan, sendAndLoseResponse, type Organiser } from "./harness/flows";
@@ -45,14 +46,20 @@ describe.skipIf(!journeyEnabled)("payments and the door (journey harness)", () =
     expect(res.status).toBe(201);
     const orderId = res.body.orderId as string;
     const session = j.stripe.sessionForOrder(orderId);
-    expect(res.body.url).toBe(session.url);
+    // Embedded checkout: our payment page, which reads the session's client secret itself.
+    expect(res.body.url).toBe(`/checkout/pay?order=${orderId}`);
+    expect(session.ui_mode).toBe("embedded_page");
     expect(session.idempotencyKey).toBe(`checkout-session-${orderId}`);
     expect(session.amount_total).toBe(2 * (3000 + FEE));
     expect(session.params.payment_intent_data).toEqual({
       application_fee_amount: String(2 * FEE),
       transfer_data: { destination: organiser.stripeAccountId },
     });
-    expect(session.params.success_url).toBe(`${j.baseUrl}/checkout/success?session_id=${orderId}`);
+    expect(session.params.return_url).toBe(`${j.baseUrl}/checkout/success?session_id=${orderId}`);
+    expect(session.params.adaptive_pricing).toEqual({ enabled: "false" });
+    // The payment page's read: the open session's client secret, through the real route and SDK.
+    const payment = await j.request("GET", `/api/orders/by-session/${orderId}/payment`);
+    expect(payment).toMatchObject({ status: 200, body: { status: "open", clientSecret: session.client_secret } });
     expect(await j.request("GET", `/api/orders/by-session/${orderId}`)).toMatchObject({ status: 200, body: { status: "pending" } });
     expect(await sold(event.eventId)).toBe(0);
 
@@ -82,8 +89,11 @@ describe.skipIf(!journeyEnabled)("payments and the door (journey harness)", () =
     expect(parsed.subject).toMatch(/Journey One/);
     const html = parsed.parts.find((p) => p.contentType === "text/html")!.body.toString("utf8");
     const text = parsed.parts.find((p) => p.contentType === "text/plain")!.body.toString("utf8");
-    const images = parsed.parts.filter((p) => p.contentType === "image/png");
+    // Inline PNGs: one QR per ticket, plus the header wordmark (lib/server/email-layout.ts, attached inline too).
+    const pngs = parsed.parts.filter((p) => p.contentType === "image/png");
+    const images = pngs.filter((p) => p.contentId?.startsWith("ticket-qr-"));
     expect(images).toHaveLength(2);
+    expect(pngs.filter((p) => !images.includes(p)).map((p) => p.contentId)).toEqual([WORDMARK_CID]);
     for (const code of codes) {
       expect(html).toContain(code);
       expect(text).toContain(code);

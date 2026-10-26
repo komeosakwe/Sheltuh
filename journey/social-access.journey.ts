@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ticketQrPayload } from "@/lib/ticket-code";
-import { approvedOrganiser, buyTickets, organiserWithPayouts, publishedEvent, scan, type Organiser } from "./harness/flows";
+import { buyTickets, organiserWithPayouts, publishedEvent, scan, type Organiser } from "./harness/flows";
 import { journeyEnabled, startJourney, type Journey, type User } from "./harness";
 
 /*
@@ -102,7 +102,8 @@ describe.skipIf(!journeyEnabled)("Who's Going and access boundaries (journey har
   it("4. another organiser gets 404 for this event's dashboard, data and door; members and signed-out callers can't scan", async () => {
     const event = await publishedEvent(j, organiser, admin, { title: "Journey Four" });
     const { codes } = await buyTickets(j, event.eventId, "access.buyer@journey.test");
-    const rival = await approvedOrganiser(j, admin);
+    // With payouts: a paid event can't be submitted without them (20261109000000_paid_events_need_payouts.sql).
+    const rival = await organiserWithPayouts(j, admin);
     const rivalEvent = await publishedEvent(j, rival, admin, { title: "Rival night" });
     const base = `/api/organisers/me/events/${event.eventId}`;
 

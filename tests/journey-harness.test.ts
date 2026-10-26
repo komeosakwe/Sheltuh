@@ -83,6 +83,28 @@ describe("journey harness: fake Stripe through the real SDK", () => {
     await expect(wrong.accounts.retrieve(account.id)).rejects.toMatchObject({ statusCode: 401 });
   });
 
+  it("makes embedded sessions as Stripe does: a client secret and no URL, return_url only", async () => {
+    const stripe = createFakeStripeClient(key, fake.port);
+    const account = await stripe.accounts.create({ country: "AU" });
+    fake.activateAccount(account.id);
+    const params = {
+      mode: "payment" as const,
+      client_reference_id: "ord_embedded",
+      line_items: [{ price_data: { currency: "aud", product_data: { name: "GA" }, unit_amount: 3000 }, quantity: 1 }],
+      payment_intent_data: { application_fee_amount: 170, transfer_data: { destination: account.id } },
+      ui_mode: "embedded_page" as const,
+      return_url: "http://127.0.0.1/done",
+    };
+    const session = await stripe.checkout.sessions.create(params);
+    expect(session.url).toBeNull();
+    expect(session.client_secret).toMatch(new RegExp(`^${session.id}_secret_`));
+    expect((await stripe.checkout.sessions.retrieve(session.id)).client_secret).toBe(session.client_secret);
+    await expect(stripe.checkout.sessions.create({ ...params, success_url: "http://127.0.0.1/ok" })).rejects.toMatchObject({
+      statusCode: 400,
+    });
+    await expect(stripe.checkout.sessions.create({ ...params, return_url: undefined })).rejects.toMatchObject({ statusCode: 400 });
+  });
+
   it("refuses a session paying out to an account that can't take charges", async () => {
     const stripe = createFakeStripeClient(key, fake.port);
     const account = await stripe.accounts.create({ country: "AU" });

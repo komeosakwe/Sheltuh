@@ -115,7 +115,7 @@ journeys run at the HTTP level against the real route modules. Pages,
 
 **Not journeyed yet:** email retries (sink refuses → `GET /api/cron/email-outbox` delivers),
 refund-failure alerts (`refund.failed` → ops alert email), seated checkout
-and Back from Stripe, free and guest-confirmed orders, the waitlist, and
+and Back from the payment page, free and guest-confirmed orders, the waitlist, and
 the browser itself. The parts are all there: `smtp.rejectData`,
 `j.cronSecret` and `stripe.event(…)`.
 
@@ -144,7 +144,7 @@ Supabase project before go-live, never against live keys.
 - [ ] Refund in full from the dashboard: `charge.refunded` arrives, the order is refunded, and the door refuses the tickets. Then refund partially: a `partial_refund` exception and an ops alert.
 - [ ] Refund failure with card `4000 0000 0000 5126`. Record **which** events Stripe sends (`refund.failed`, `refund.updated`, `charge.refund.updated`), and in what order they arrive. An exception opens, and the alert email arrives. (Plan risk: unverified.) Then resend an older event for the same refund (`stripe events resend`) after a newer one: it's logged as stale and opens nothing.
 - [ ] Event ordering: resend events with `stripe events resend <evt_id>` to check redeliveries are harmless.
-- [ ] Double click Checkout and use Back from Stripe on a phone: one order, and the seats are released.
+- [ ] Double click Checkout and use Back from the payment page on a phone: one order, and the seats are released.
 
 **Supabase Auth**
 - [ ] Sign up, confirm email, sign in. Signing out or deleting the user stops their token working on the next API call.
@@ -184,7 +184,7 @@ Supabase project before go-live, never against live keys.
 | Who's Going, messages, block, report | ✓ | ✓ (two accounts) | ✓ (profile UI) | – | ☐ |
 | Unauthorised access (404/403/401) | ✓ | ✓ | – | ☐ real Supabase tokens | – |
 | Sold-out race | ✓ | ✓ (concurrent webhooks) | – | – | – |
-| Checkout idempotency, double click | ✓ | ✓ | – | ☐ double click | ☐ Back from Stripe |
+| Checkout idempotency, double click | ✓ | ✓ | – | ☐ double click | ☐ Back from the payment page |
 | Seated checkout, holds, Back | ✓ | – | ✓ | ☐ | ☐ |
 | Email retries, outbox health | ✓ | – (not journeyed yet) | – | ☐ pg_cron run | – |
 | Supabase Auth itself (sign-in, confirm, expiry) | – (token map) | – (stub) | – | ☐ | ☐ |

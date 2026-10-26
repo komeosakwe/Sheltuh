@@ -234,9 +234,11 @@ times, which are converted to instants honouring daylight saving
      (`CHECKOUT_RATE_LIMITS.paidCheckout`: 10 a minute per client, bucket
      `paid_checkouts`, keyed and failing open as the seat-hold limit: see
      "Reserved seating"). Over it: 429 `code: "client_rate_limited"`, nothing
-     written and Stripe not called. Only checkouts that would make an order
-     count (the 404/409/400/503 refusals come first); free orders have their
-     own limits. A buyer starts one, or a few after going Back: 10 leaves
+     written and Stripe not called. Only checkouts that may make an order
+     count (the 404/409/400/503 refusals, and a settled answer for the
+     request's `Idempotency-Key` such as a replay, come first); free orders
+     have their own limits. The checkout attempt then takes the
+     per-10-minute limits (20 per event, 60 in all; "Checkout idempotency"). A buyer starts one, or a few after going Back: 10 leaves
      room for several buyers on one address (venue wifi, a phone network's
      shared address) and bounds the pending orders and Stripe sessions one
      client can make.
@@ -260,7 +262,8 @@ times, which are converted to instants honouring daylight saving
      after the page says `closed`; seated sessions after 31 minutes (see
      "Reserved seating").
    - Both sessions (general admission and seated) carry the same payment
-     options (`SESSION_PAYMENT_OPTIONS`, `lib/server/handlers/orders.ts`):
+     options (`SESSION_PAYMENT_OPTIONS`, `lib/server/checkout-attempts.ts`,
+     which builds both sessions from the stored order):
      - `adaptive_pricing: { enabled: false }`, pinned whatever the Dashboard
        says. Buyers pay exactly the A$ total from `lib/fees.ts` that every
        page shows (ACL all-inclusive pricing). Left on, Stripe could charge
@@ -277,7 +280,9 @@ times, which are converted to instants honouring daylight saving
      `tests/server/helpers/api.ts`) on both kinds of session.
    - If Stripe errors, or returns no `client_secret` (nobody could mount the
      form, so nobody could pay), the general admission order is marked
-     `failed` (a seated one releases its holds) and the checkout is a 500.
+     `failed` (a seated one releases its holds) and the checkout is a 500;
+     if Stripe didn't answer at all, the order is kept for a retry with the
+     same key and the checkout is a 503 (see "Checkout idempotency").
      A missing `NEXT_PUBLIC_SITE_URL` fails the same way, since the
      `return_url` is built in that step.
    - The 201 is `{url, orderId}` (seated adds `holdExpiresAt`), `private,
@@ -736,14 +741,16 @@ Session, so a double click or a retry after a lost response made two of each
   the order as it was made.
 - **Answers for a key already used:**
   - the same basket while its session is open (order pending, session and
-    any hold unexpired): **200** with the same `{url, orderId}` (seated also
-    `holdExpiresAt`), `Idempotent-Replayed: true`, `private, no-store`;
+    any hold unexpired): **200** with the same `{url, orderId}` (`url` is
+    our payment page, `/checkout/pay?order=…`, which reads the embedded
+    session's client secret itself; seated also `holdExpiresAt`),
+    `Idempotent-Replayed: true`, `private, no-store`;
   - still being made by another request (a live lease): **409**
     `checkout_in_progress`, `Retry-After` and `retryAfterSeconds` (2);
   - a different basket, buyer, tracking code or event: **422**
     `idempotency_key_reused`;
-  - its checkout ended (the order was cancelled, Back from Stripe, or
-    failed, or the session or hold expired): **409** `checkout_expired`,
+  - its checkout ended (the order was cancelled, Back from the payment page,
+    or failed, or the session or hold expired): **409** `checkout_expired`,
     "start a new checkout" (the client then uses a new key);
   - its order is paid, or was paid and then refunded or is being refunded:
     **409** `checkout_completed`, worded for what happened (only a `paid`
@@ -762,8 +769,9 @@ Session, so a double click or a retry after a lost response made two of each
   (the same keyed IP hash as the per-client limits). A request with the
   same key from a different client key gets 409 `checkout_other_client`
   ("started from another connection; start a new checkout"): it can't read
-  the order id (the confirmation page's credential) or the session URL,
-  retry the attempt or take over its lease, and the attempt is unchanged.
+  the order id (the confirmation page's credential) or the payment page's
+  URL, retry the attempt or take over its lease, and the attempt is
+  unchanged.
   A key leaked from one buyer's page is therefore useless elsewhere. A
   buyer whose address changes mid-attempt (wifi to mobile) gets the 409,
   and the client starts a new attempt. With no usable IP header (never on
@@ -781,9 +789,12 @@ Session, so a double click or a retry after a lost response made two of each
   the order.
 - **Stripe.** `checkout.sessions.create` gets `idempotencyKey:
   checkout-session-<orderId>`, a 15-second timeout and one network retry.
-  The session is built from the order as stored (lines, fee, email, title;
-  seated: the seats, and `expires_at` = the order's creation + 31 minutes),
-  so a call repeated for the same order sends the same parameters. Failures:
+  The session is the embedded one described in "Payment flow" (`ui_mode`
+  `embedded_page`, `return_url`, Adaptive Pricing off, nothing saved),
+  built from the order as stored (lines, fee, email, title; seated: the
+  seats), with `expires_at` fixed by the order: its creation + 60 minutes
+  (general admission, `GA_CHECKOUT_SESSION_MINUTES`) or + 31 (seated), so a
+  call repeated for the same order sends the same parameters. Failures:
   - **No answer** (connection error or timeout, Stripe's 429, or a 409
     because the same key is still running there): the outcome is unknown, so
     the order (and its holds) is kept and the attempt marked failed: **503**
@@ -791,19 +802,28 @@ Session, so a double click or a retry after a lost response made two of each
     order and repeats the call with the same Stripe key, so if the first
     call did make a session, Stripe returns that one. Reuse needs the order
     still pending, with no session recorded, and younger than 10 minutes
-    (general admission: just a bound on reusing an old price snapshot) or 45
-    seconds (seated: Stripe refuses an `expires_at` less than 30 minutes
-    ahead, and it's fixed at creation + 31). Otherwise the old order is
-    released (seats freed) and a new one made, with a new Stripe key.
+    (general admission: its `expires_at` is then still at least 50 minutes
+    ahead, and it bounds reusing an old price snapshot) or 45 seconds
+    (seated: Stripe refuses an `expires_at` less than 30 minutes ahead, and
+    it's fixed at creation + 31). Otherwise the old order is released (seats
+    freed) and a new one made, with a new Stripe key.
   - **Anything else** (an API error, which Stripe replays for the same key,
-    or an invalid request): the order is released (failed, seats freed),
-    **500**; a retry with the same key makes a new order.
-  A session Stripe made for an order we then released is an orphan nobody
-  has the URL of; it expires on its own (24 hours, seated 31 minutes). A
-  duplicate session isn't a duplicate charge in itself: a buyer pays only on
-  a session's page, through the one URL we return, and a payment for a
-  failed order is refunded automatically ("Payment flow" step 3).
-- **Limits** (owner decision D7), general admission paid checkouts only,
+    or an invalid request), or a session without a client secret: the order
+    is released (failed, seats freed), **500**; a retry with the same key
+    makes a new order.
+  A session Stripe made for an order we then released is an orphan whose
+  client secret nobody gets (the payment page reads only the session
+  recorded on a pending order); it expires on its own (60 minutes, seated
+  31). A duplicate session isn't a duplicate charge in itself: a buyer pays
+  only in the form our payment page mounts for the order's recorded
+  session, and a payment for a failed order is refunded automatically
+  ("Payment flow" step 3).
+- **Limits** (owner decision D7), general admission paid checkouts only.
+  First the per-minute limit from the embedded checkout (10 a minute per
+  client, `CHECKOUT_RATE_LIMITS.paidCheckout`, bucket `paid_checkouts`;
+  "Payment flow"), taken after every early refusal and after a settled
+  answer for the key (a replay or another 409/422 never counts), just
+  before the attempt; then the per-10-minute ones,
   taken only when a new order is about to be made (never for replays,
   in-progress answers, reused orders or refusals decided earlier: sold out,
   bad input, payouts not set up), in the same subtransaction as a new
@@ -856,8 +876,9 @@ Session, so a double click or a retry after a lost response made two of each
   alert-only circuit breaker, so many addresses (each within its 20 per
   event) can make many pending orders and unpaid Checkout Sessions. They
   hold no general admission tickets (inventory is only taken at payment)
-  and expire on their own (Stripe's 24 hours; the daily purge fails the
-  orders); the cost is Stripe API calls and rows, and the ops alert says it
+  and expire on their own (60 minutes; the daily purge fails the orders,
+  and Stripe's `checkout.session.expired` fails them sooner); the cost is
+  Stripe API calls and rows, and the ops alert says it
   is happening. Blocking it is a firewall or bot-check job (Turnstile, "Not
   built yet"). Shared addresses share the per-client 20 (as for seat holds),
   and an IPv6 /56 shared by a few customers of one ISP counts as one client.
@@ -870,7 +891,7 @@ Session, so a double click or a retry after a lost response made two of each
   daily purge fails it after 2 days; seated holds lapse after 35 minutes.
 - **A reload loses the key.** Keys live in page memory, so a reload starts a
   new attempt; a seated buyer may then see their own earlier hold as
-  "taken" until it's released (Back from Stripe) or lapses.
+  "taken" until it's released (Back from the payment page) or lapses.
 
 ## Refunds made in Stripe
 

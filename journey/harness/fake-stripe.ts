@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import Stripe from "stripe";
@@ -23,7 +24,10 @@ export interface FakeSession {
   object: "checkout.session";
   status: "open" | "complete" | "expired";
   payment_status: "unpaid" | "paid";
-  url: string;
+  /** `embedded_page` (the app's checkouts: a client secret, no URL) or `hosted` (a URL, no client secret). */
+  ui_mode: "embedded_page" | "hosted";
+  url: string | null;
+  client_secret: string | null;
   expires_at: number;
   client_reference_id: string | null;
   customer_email: string | null;
@@ -231,6 +235,15 @@ export class FakeStripe {
       if (line.price_data?.currency !== "aud") return invalid("Currency must be aud");
       amount += unit * qty;
     }
+    // As Stripe: an embedded session (mounted with its client secret) returns to return_url and has no
+    // success or cancel URL; a hosted one is the reverse.
+    const embedded = params.ui_mode === "embedded_page";
+    if (params.ui_mode !== undefined && !embedded && params.ui_mode !== "hosted") return invalid("Invalid ui_mode");
+    if (embedded && (params.success_url !== undefined || params.cancel_url !== undefined)) {
+      return invalid("success_url and cancel_url can't be used with ui_mode embedded_page; use return_url");
+    }
+    if (embedded && typeof params.return_url !== "string") return invalid("return_url is required with ui_mode embedded_page");
+    if (!embedded && params.return_url !== undefined) return invalid("return_url can only be used with ui_mode embedded_page");
     const now = Math.floor(Date.now() / 1000);
     const expiresAt = params.expires_at === undefined ? now + 24 * 60 * 60 : Number(params.expires_at);
     // Stripe refuses an expiry under 30 minutes away (the seated checkout relies on it).
@@ -241,7 +254,9 @@ export class FakeStripe {
       object: "checkout.session",
       status: "open",
       payment_status: "unpaid",
-      url: `https://checkout.stripe.invalid/c/pay/${id}`,
+      ui_mode: embedded ? "embedded_page" : "hosted",
+      url: embedded ? null : `https://checkout.stripe.invalid/c/pay/${id}`,
+      client_secret: embedded ? `${id}_secret_${randomBytes(12).toString("hex")}` : null,
       expires_at: expiresAt,
       client_reference_id: (params.client_reference_id as string) ?? null,
       customer_email: (params.customer_email as string) ?? null,
@@ -286,14 +301,16 @@ export class FakeStripe {
 
   /** The session as the API returns it (without the harness's bookkeeping). */
   publicSession(session: FakeSession) {
-    const { id, object, status, payment_status, url, expires_at, client_reference_id, customer_email, customer_details } = session;
-    const { amount_total, currency, metadata, payment_intent } = session;
+    const { id, object, status, payment_status, ui_mode, url, client_secret, expires_at, client_reference_id } = session;
+    const { customer_email, customer_details, amount_total, currency, metadata, payment_intent } = session;
     return {
       id,
       object,
       status,
       payment_status,
+      ui_mode,
       url,
+      client_secret,
       expires_at,
       client_reference_id,
       customer_email,

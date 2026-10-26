@@ -103,6 +103,9 @@ export async function startJourney(): Promise<Journey> {
     NEXT_PUBLIC_SUPABASE_URL: `http://127.0.0.1:${auth.port}`,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: publishableKey,
     STRIPE_SECRET_KEY: stripeKey,
+    // Embedded checkout needs a publishable key of the secret key's mode (lib/server/stripe-keys.ts); only the
+    // payment page's Stripe.js would use it, and the harness has no browser.
+    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: "pk_test_journey_placeholder",
     STRIPE_WEBHOOK_SECRET: webhookSecret,
     SMTP_HOST: "127.0.0.1",
     SMTP_PORT: String(smtp.port),
