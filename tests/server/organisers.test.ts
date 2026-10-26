@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { adminApproveOrganiser, adminListOrganisers, adminRejectOrganiser } from "@/lib/server/handlers/admin";
 import {
   applyAsOrganiser,
@@ -292,6 +292,28 @@ describe("Stripe Connect onboarding", () => {
     expect(api.stripe.accountLinks.create).toHaveBeenLastCalledWith(
       expect.objectContaining({ account: "acct_test_1", return_url: "https://sheltuh.test/dashboard/payouts?connected=1" }),
     );
+  });
+
+  it("passes on Stripe's reason when it refuses onboarding, instead of a bare 500, and saves nothing", async () => {
+    const admin = await signUpAdmin(api);
+    const organiser = await approvedOrganiser(api, admin);
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    api.stripe.accounts.create.mockRejectedValueOnce(
+      Object.assign(new Error("Please complete your platform profile before creating connected accounts."), {
+        type: "StripeInvalidRequestError",
+      }),
+    );
+    const res = await api.call(connectOnboard, { token: organiser.token, method: "POST" });
+    expect(res.status).toBe(502);
+    expect(res.body.error).toBe(
+      "Stripe couldn't start payouts setup: Please complete your platform profile before creating connected accounts.",
+    );
+    expect((await api.call(getMyOrganiser, { token: organiser.token })).body.stripeAccountId).toBeFalsy();
+
+    // Anything that isn't a Stripe API error stays a plain 500.
+    api.stripe.accounts.create.mockRejectedValueOnce(new Error("socket hang up"));
+    expect((await api.call(connectOnboard, { token: organiser.token, method: "POST" })).status).toBe(500);
+    errors.mockRestore();
   });
 
   it("refresh mirrors Stripe's own account status", async () => {
