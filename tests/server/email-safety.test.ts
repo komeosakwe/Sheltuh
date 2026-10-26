@@ -1,7 +1,10 @@
 import nodemailer from "nodemailer";
-import { describe, expect, it } from "vitest";
+import Stripe from "stripe";
+import { describe, expect, it, vi } from "vitest";
 import { isPlainEmailAddress, MAX_EMAIL_LENGTH, redactForLog } from "@/lib/server/email-address";
 import { mailOptions } from "@/lib/server/email";
+import { errorMessageForLog, runHandler } from "@/lib/server/route";
+import type { Deps } from "@/lib/server/deps";
 import { requireEmail } from "@/lib/server/validation";
 
 const HOSTILE = [
@@ -97,5 +100,43 @@ describe("redactForLog", () => {
     const out = redactForLog(text, 2000);
     expect(out).not.toContain("secret");
     expect(out.endsWith(" [address]".slice(0, out.length - 1992))).toBe(true);
+  });
+});
+
+describe("order ids in logs", () => {
+  const ORDER = `ord_${"0123456789abcdef".repeat(2)}`;
+
+  it("redactForLog redacts order ids, whole or cut short", () => {
+    expect(redactForLog(`Try a key other than 'checkout-session-${ORDER}'.`)).toBe(
+      "Try a key other than 'checkout-session-ord_[redacted]'.",
+    );
+    expect(redactForLog(`ORD_${"AB".repeat(16)} and ${ORDER.slice(0, 12)}`)).toBe("ord_[redacted] and ord_[redacted]");
+    // Cut by the scan limit (2,000 here) in the middle of the id: no partial id is left.
+    const text = `${"z".repeat(1990)} ${ORDER}`;
+    expect(redactForLog(text, 2000)).not.toMatch(/ord_[0-9a-f]/);
+  });
+
+  it("an unexpected error that quotes an order id (e.g. Stripe's idempotency error) is logged without it", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stripeError = new Stripe.errors.StripeIdempotencyError({
+      message: `Keys for idempotent requests can only be used with the same parameters they were first used with. Try using a key other than 'checkout-session-${ORDER}' if you meant to execute a different request.`,
+      type: "idempotency_error",
+    });
+    const res = await runHandler(
+      async () => {
+        throw stripeError;
+      },
+      new Request("https://sheltuh.test/api/x"),
+      {},
+      {} as Deps,
+    );
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Something went wrong." });
+    const logged = error.mock.calls.flat().map(String).join("\n");
+    expect(logged).toContain("Unhandled API error:");
+    expect(logged).toContain("checkout-session-ord_[redacted]");
+    expect(logged).not.toContain(ORDER);
+    expect(errorMessageForLog("not an error")).toBe("unknown error");
+    error.mockRestore();
   });
 });

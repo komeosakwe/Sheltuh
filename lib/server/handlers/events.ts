@@ -152,9 +152,10 @@ function withStoredTicketing(body: Record<string, unknown>, current: EventRecord
 }
 
 /**
- * An edit that would make the refund policy of an event with pending or paid
- * orders less generous (private.refund_policy_tightens): buyers keep the
- * terms they bought under. Loosening is always allowed.
+ * An edit that would make the refund policy of an event with paid orders, or
+ * pending ones that can still be paid (private.event_has_payable_orders), less
+ * generous (private.refund_policy_tightens): buyers keep the terms they bought
+ * under. Loosening is always allowed.
  */
 export const REFUND_POLICY_TIGHTENED =
   "This event already has orders, so its refund policy can only become more generous: people who bought tickets keep the refunds they were offered.";

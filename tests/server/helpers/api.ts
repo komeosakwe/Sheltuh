@@ -20,7 +20,7 @@ export function embeddedSession(id: string, extra: Record<string, unknown> = {})
 }
 
 /**
- * The payment options every paid Checkout Session must carry (orders.ts
+ * The payment options every paid Checkout Session must carry (checkout-attempts.ts
  * SESSION_PAYMENT_OPTIONS): Adaptive Pricing pinned off, so buyers pay exactly
  * the A$ total; no payment method list or wallet options, so the Dashboard's
  * cards, Apple Pay, Google Pay and Link apply; and nothing saved for later.
@@ -41,6 +41,7 @@ export function expectSessionPaymentOptions(params: Record<string, unknown>) {
   }
   expect(params.payment_intent_data, "payment_intent_data.setup_future_usage").not.toHaveProperty("setup_future_usage");
 }
+export const OPS_ALERT_EMAIL = "ops@sheltuh.test";
 
 /** Stripe's own offline signing/verification, for realistic webhook tests. */
 const realStripe = new Stripe("sk_test_not_a_real_key");
@@ -66,7 +67,12 @@ export function createFakeStripe() {
         ),
       },
     },
-    refunds: { create: vi.fn().mockResolvedValue({ id: "re_test_1", status: "succeeded" }) },
+    refunds: {
+      create: vi.fn().mockResolvedValue({ id: "re_test_1", status: "succeeded" }),
+      // Asked before a refund is reported as not completed. By default Stripe "can't be reached", so the
+      // reported status stands; a test that needs Stripe's current answer mocks it.
+      retrieve: vi.fn().mockRejectedValue(new Stripe.errors.StripeConnectionError({ message: "not mocked" })),
+    },
     webhooks: realStripe.webhooks,
   };
 }
@@ -74,7 +80,10 @@ export function createFakeStripe() {
 export type FakeStripe = ReturnType<typeof createFakeStripe>;
 
 /** A signed webhook request exactly as Stripe would send it. */
-export function stripeWebhookRequest(event: { type: string; data: { object: unknown } }, secret = WEBHOOK_SECRET) {
+export function stripeWebhookRequest(
+  event: { type: string; data: { object: unknown }; id?: string; created?: number },
+  secret = WEBHOOK_SECRET,
+) {
   const payload = JSON.stringify({ id: "evt_test", object: "event", ...event });
   const signature = realStripe.webhooks.generateTestHeaderString({ payload, secret });
   return new Request(`${SITE_URL}/api/stripe/webhook`, {
@@ -227,6 +236,8 @@ export class TestApi {
   authAdmin: FakeAuthAdmin | undefined;
   /** ADMIN_NOTIFY_EMAILS as Deps reports it (parsed); empty to simulate it unset. */
   adminNotifyEmails: string[] = [];
+  /** Where ops alerts go; undefined to simulate OPS_ALERT_EMAIL being unset. */
+  opsAlertEmail: string | undefined = OPS_ALERT_EMAIL;
   private readonly callers = new Map<string, Caller>();
 
   constructor(readonly db: Db) {
@@ -249,6 +260,7 @@ export class TestApi {
       clipStorage: () => this.clipStorage,
       authAdmin: () => this.authAdmin,
       adminNotifyEmails: () => this.adminNotifyEmails,
+      opsAlertEmail: () => this.opsAlertEmail,
     };
   }
 

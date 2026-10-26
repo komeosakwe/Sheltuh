@@ -388,9 +388,11 @@ describe("an admin's edit", () => {
     expect(await editedEntries(live.eventId)).toEqual([]);
   });
 
-  it("a pending order (a buyer paying now) also blocks tightening; failed and refunded orders don't", async () => {
+  it("a pending order that can be paid (a buyer paying now) also blocks tightening; failed and refunded orders don't", async () => {
     const live = await publishedEvent(api, organiser, admin, { refundPolicy: "days_before", refundDays: 7 });
     const pending = await insertOrder(api, live, "fan@example.com", "pending");
+    // Its Checkout Session is recorded: the payment page can show the form.
+    await api.db.query(`update public.orders set stripe_checkout_session_id = 'cs_test_paying' where id = $1`, [pending]);
     expectTightenedRefused(await adminPatch(live.eventId, adminBody(await adminEvent(live.eventId), { refundPolicy: "no_change_of_mind" })));
 
     await api.db.query(`update public.orders set status = 'failed' where id = $1`, [pending]);
@@ -398,6 +400,31 @@ describe("an admin's edit", () => {
     const res = await adminPatch(live.eventId, adminBody(await adminEvent(live.eventId), { refundPolicy: "no_change_of_mind" }));
     expect(res.status).toBe(200);
     expect(res.body.refundPolicy).toBe("no_change_of_mind");
+  });
+
+  it("a pending card order with no session (Stripe didn't answer, kept for a retry) doesn't block tightening", async () => {
+    const live = await publishedEvent(api, organiser, admin, { refundPolicy: "days_before", refundDays: 7 });
+    // As checkout-attempts.ts keeps it after a 503: pending, no session recorded, nobody can pay it.
+    const kept = await insertOrder(api, live, "fan@example.com", "pending");
+    const res = await adminPatch(live.eventId, adminBody(await adminEvent(live.eventId), { refundPolicy: "no_change_of_mind" }));
+    expect(res.status).toBe(200);
+    expect(res.body.refundPolicy).toBe("no_change_of_mind");
+    // Its session recorded later: payable again, so the next tightening is refused.
+    await api.db.query(`update public.orders set stripe_checkout_session_id = 'cs_test_later' where id = $1`, [kept]);
+    const loosened = await adminPatch(live.eventId, adminBody(await adminEvent(live.eventId), { refundPolicy: "days_before", refundDays: 3 }));
+    expect(loosened.status).toBe(200);
+    expectTightenedRefused(await adminPatch(live.eventId, adminBody(await adminEvent(live.eventId), { refundPolicy: "days_before", refundDays: 10 })));
+  });
+
+  it("a guest's free order waiting on its emailed link blocks tightening (it can still be confirmed)", async () => {
+    const live = await publishedEvent(api, organiser, admin, { refundPolicy: "days_before", refundDays: 7 });
+    const waiting = await insertOrder(api, live, "guest@example.com", "pending");
+    await api.db.query(
+      `update public.orders set confirmation_token_hash = $2, confirmation_expires_at = now() + interval '1 day' where id = $1`,
+      [waiting, "a".repeat(64)],
+    );
+    expectTightenedRefused(await adminPatch(live.eventId, adminBody(await adminEvent(live.eventId), { refundPolicy: "no_change_of_mind" })));
+    expect(await stored(live.eventId)).toEqual({ refund_policy: "days_before", refund_days: 7 });
   });
 
   it("validates the policy like the organiser's form (400)", async () => {
@@ -458,14 +485,52 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("an order placed during a tighte
     const before = await adminEvent(live.eventId);
     const other = postgres(serverUrl!, { max: 1, onnotice: () => {} });
     try {
-      // A checkout's order insert, not yet committed (orders_not_ended share-locks the event row).
+      // A guest's free order insert (payable once its emailed link is confirmed), not yet committed
+      // (orders_not_ended share-locks the event row).
       await other.unsafe("begin");
       await other.unsafe(
         `insert into public.orders (id, event_id, organiser_id, event_title, buyer_email, line_items,
-           subtotal_cents, buyer_fee_cents, total_cents, application_fee_cents, status)
-         values ($1, $2, $3, 'Neon Static', 'fan@example.com', '[]'::jsonb, 0, 0, 0, 0, 'pending')`,
-        [`ord_${crypto.randomUUID().replace(/-/g, "")}`, live.eventId, live.organiserId],
+           subtotal_cents, buyer_fee_cents, total_cents, application_fee_cents, status,
+           confirmation_token_hash, confirmation_expires_at)
+         values ($1, $2, $3, 'Neon Static', 'fan@example.com', '[]'::jsonb, 0, 0, 0, 0, 'pending',
+           $4, now() + interval '1 day')`,
+        [`ord_${crypto.randomUUID().replace(/-/g, "")}`, live.eventId, live.organiserId, "b".repeat(64)],
       );
+      const edit = adminPatch(live.eventId, adminBody(before, { refundPolicy: "no_change_of_mind" }));
+      let settled = false;
+      void edit.then(() => {
+        settled = true;
+      });
+      await new Promise((r) => setTimeout(r, 300));
+      expect(settled).toBe(false);
+      await other.unsafe("commit");
+      expectTightenedRefused(await edit);
+      expect(await stored(live.eventId)).toEqual({ refund_policy: "days_before", refund_days: 7 });
+    } finally {
+      await other.end();
+    }
+  });
+
+  it("recording a card order's session (finish_checkout_attempt) and the edit serialise on the event row", async () => {
+    const live = await publishedEvent(api, organiser, admin, { refundPolicy: "days_before", refundDays: 7 });
+    const before = await adminEvent(live.eventId);
+    // A paid checkout being set up: its order is pending with no session yet (it doesn't block on its own).
+    const orderId = await insertOrder(api, live, "fan@example.com", "pending");
+    const key = crypto.randomUUID();
+    const lease = crypto.randomUUID();
+    await api.db.query(
+      `insert into private.checkout_attempts (event_id, idempotency_key, kind, fingerprint, status, order_id, lease_token, lease_expires_at)
+       values ($1, $2::uuid, 'ga', $3, 'in_progress', $4, $5::uuid, now() + interval '90 seconds')`,
+      [live.eventId, key, "c".repeat(64), orderId, lease],
+    );
+    const other = postgres(serverUrl!, { max: 1, onnotice: () => {} });
+    try {
+      await other.unsafe("begin");
+      const [{ result }] = await other.unsafe<{ result: string }[]>(
+        `select private.finish_checkout_attempt($1, $2::uuid, $3::uuid, 'cs_test_race', $4, now() + interval '1 hour', null) as result`,
+        [live.eventId, key, lease, `/checkout/pay?order=${orderId}`],
+      );
+      expect(result).toBe("open");
       const edit = adminPatch(live.eventId, adminBody(before, { refundPolicy: "no_change_of_mind" }));
       let settled = false;
       void edit.then(() => {

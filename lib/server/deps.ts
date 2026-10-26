@@ -7,7 +7,7 @@ import { createAuthAdmin, type AuthAdmin } from "./auth-admin";
 import { createClipStorage, type ClipStorage } from "./clip-storage";
 import { createPostgresDb, type Db } from "./db";
 import { createSmtpSender, type SendEmail } from "./email";
-import { redactForLog } from "./email-address";
+import { isPlainEmailAddress, redactForLog } from "./email-address";
 import { matchingPublishableKey } from "./stripe-keys";
 
 /**
@@ -59,6 +59,12 @@ export interface Deps {
    * a valid address.
    */
   adminNotifyEmails(): string[];
+  /**
+   * Where ops alerts (payment exceptions) are emailed: OPS_ALERT_EMAIL, one
+   * plain address. Undefined when unset or invalid: alerts are then logged
+   * and skipped (the exceptions are still listed for admins).
+   */
+  opsAlertEmail(): string | undefined;
 }
 
 function requireEnv(name: string): string {
@@ -142,6 +148,15 @@ export function getDeps(): Deps {
         adminNotifyEmails = parsed.emails;
       }
       return adminNotifyEmails;
+    },
+    opsAlertEmail() {
+      const address = process.env.OPS_ALERT_EMAIL?.trim();
+      if (!address) return undefined;
+      if (!isPlainEmailAddress(address)) {
+        console.error("OPS_ALERT_EMAIL isn't one plain email address: ops alerts aren't being emailed.");
+        return undefined;
+      }
+      return address;
     },
   };
   return cached;

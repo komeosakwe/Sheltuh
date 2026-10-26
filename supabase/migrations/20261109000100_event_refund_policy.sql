@@ -17,14 +17,23 @@
 --     window) changes nothing. Same signatures; every function pins its
 --     search_path and has execute revoked again.
 --   * Buyers keep what they bought under: an edit that makes the policy of an
---     event with pending or paid orders less generous (private.refund_policy_tightens:
+--     event with paid orders, or pending ones that can still be paid
+--     (private.event_has_payable_orders: a card order whose Stripe Checkout
+--     Session is recorded, or a guest's free order waiting on its emailed
+--     link), less generous (private.refund_policy_tightens:
 --     days_before → no_change_of_mind, or more days' notice) is refused
 --     ('refund_policy_tightened', nothing written) by both admin_edit_event
 --     (any status) and edit_event_draft (a draft that was published and sold
 --     before it was unpublished). Loosening is allowed. The check runs with the
 --     event row locked (for no key update), and every order insert share-locks
---     the event row first (orders_sheltuh_only, orders_not_ended), so an order
---     can't be placed between the check and the write.
+--     the event row first (orders_sheltuh_only, orders_not_ended), as does
+--     recording a card order's session (private.finish_checkout_attempt,
+--     20261109000400_checkout_attempts.sql), so an order can't become payable
+--     between the check and the write. A pending card order with no session
+--     (being set up, or kept after Stripe didn't answer) doesn't count: nobody
+--     can pay it yet, and its payment page, once it can, reads the policy as it
+--     is then. Counting it would let one unanswered Stripe call block an
+--     organiser's edit until the daily purge fails the order (2 days).
 --   * admin_edit_event logs a policy change in its 'edited' entry
 --     (changes.refundPolicy, changes.refundDays: old and new).
 --
@@ -42,7 +51,7 @@
 -- 20261022000000_external_ticketing.sql (create_event_draft),
 -- 20261101000000_reserved_seating.sql (edit_event_draft) and
 -- 20261022000100_admin_event_authoring.sql (admin_edit_event), drop
--- private.refund_policy_tightens, then drop the two columns (which loses the
+-- private.refund_policy_tightens and private.event_has_payable_orders, then drop the two columns (which loses the
 -- policies organisers chose; the app needs its previous version first, since
 -- it reads the columns).
 
@@ -62,6 +71,25 @@ alter table public.events
 -- ---------------------------------------------------------------------------
 -- The rule
 -- ---------------------------------------------------------------------------
+
+-- Whether p_event_id has orders a tightened refund policy would break faith
+-- with: paid ones, and pending ones that can still be paid (a card order whose
+-- Checkout Session is recorded, or a guest's free order waiting on its emailed
+-- link). A pending card order with no session can't be paid (yet): its
+-- payment page answers 409 until the session is recorded, then shows the
+-- policy as it is. By event (orders_event_idx).
+create function private.event_has_payable_orders(p_event_id uuid) returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.orders o
+     where o.event_id = p_event_id
+       and (o.status = 'paid'
+            or (o.status = 'pending'
+                and (o.stripe_checkout_session_id is not null or o.confirmation_token_hash is not null))));
+$$;
 
 -- Whether changing an event's policy from (p_old_policy, p_old_days) to
 -- (p_new_policy, p_new_days) is worse for a buyer: the change-of-mind refund
@@ -175,7 +203,7 @@ begin
     v_refund_days := v_event.refund_days;
   end if;
   if private.refund_policy_tightens(v_event.refund_policy, v_event.refund_days, v_refund_policy, v_refund_days)
-     and exists (select 1 from public.orders o where o.event_id = p_event_id and o.status in ('pending', 'paid')) then
+     and private.event_has_payable_orders(p_event_id) then
     return 'refund_policy_tightened';
   end if;
 
@@ -325,7 +353,7 @@ begin
     return 'has_orders';
   end if;
   if private.refund_policy_tightens(v_event.refund_policy, v_event.refund_days, v_refund_policy, v_refund_days)
-     and exists (select 1 from public.orders o where o.event_id = p_event_id and o.status in ('pending', 'paid')) then
+     and private.event_has_payable_orders(p_event_id) then
     return 'refund_policy_tightened';
   end if;
   if (v_event.ticketing_mode is distinct from v_mode or v_event.external_ticket_url is distinct from v_url)
@@ -384,6 +412,7 @@ $$;
 -- ---------------------------------------------------------------------------
 
 revoke all on function private.refund_policy_tightens(text, integer, text, integer) from public, anon, authenticated;
+revoke all on function private.event_has_payable_orders(uuid) from public, anon, authenticated;
 revoke all on function private.create_event_draft(uuid, text, jsonb, jsonb) from public, anon, authenticated;
 revoke all on function private.edit_event_draft(uuid, uuid, jsonb, jsonb) from public, anon, authenticated;
 revoke all on function private.admin_edit_event(uuid, uuid, timestamptz, jsonb, jsonb, boolean, text)

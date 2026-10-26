@@ -657,6 +657,12 @@ describe("retention (purge_operational_data)", () => {
       email_jobs_deleted: 1,
       client_rate_limits_deleted: 1,
       account_invites_deleted: 0,
+      // Payment reconciliation's retention (tests/server/payment-reconciliation.test.ts).
+      early_charge_refunds_deleted: 0,
+      payment_exceptions_deleted: 0,
+      refund_status_marks_deleted: 0,
+      // Checkout attempts' retention (tests/server/checkout-attempts.test.ts).
+      checkout_attempts_deleted: 0,
     });
     expect(await api.db.query(`select bucket from private.client_rate_limits`)).toEqual([{ bucket: "seat_holds:recent" }]);
     expect((await orders()).map((o) => [o.buyer_email, o.status]).sort()).toEqual([
@@ -664,7 +670,7 @@ describe("retention (purge_operational_data)", () => {
       ["recent@example.com", "pending"],
     ]);
     const [again] = await api.db.query(`select * from private.purge_operational_data()`);
-    expect(Object.values(again)).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(Object.values(again)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 });
 

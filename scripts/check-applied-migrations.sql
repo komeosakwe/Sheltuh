@@ -15,7 +15,7 @@
 -- that every file has a row: add one here with every new migration.
 
 with fn as (
-  select p.proname, p.prosrc
+  select p.proname, p.prosrc, p.proargnames
     from pg_proc p
    where p.pronamespace = to_regnamespace('private')
 ),
@@ -23,6 +23,12 @@ col as (
   select a.attrelid, a.attname
     from pg_attribute a
    where a.attnum > 0 and not a.attisdropped
+),
+-- The outbox's constraints as Postgres prints them (the kinds and their keys).
+outbox_check as (
+  select c.conname, pg_get_constraintdef(c.oid) as def
+    from pg_constraint c
+   where c.conrelid = to_regclass('private.email_outbox')
 )
 select version, file, coalesce(applied, false) as applied
   from (values
@@ -77,6 +83,27 @@ select version, file, coalesce(applied, false) as applied
     ('20261107000000', 'admin_review_emails', to_regclass('private.email_job_recipients') is not null),
     ('20261108000000', 'account_invites', to_regclass('private.account_invites') is not null),
     ('20261109000000', 'paid_events_need_payouts', exists (select 1 from fn where proname = 'submit_event')),
-    ('20261109000100', 'event_refund_policy', exists (select 1 from fn where proname = 'refund_policy_tightens'))
+    ('20261109000100', 'event_refund_policy',
+      exists (select 1 from fn where proname = 'refund_policy_tightens')
+      and exists (select 1 from fn where proname = 'event_has_payable_orders')),
+    -- 24 to 26 were 20261104000000/…100/…200 on the payments audit branch. Judged by their substance, not
+    -- just their tables: a project that ran the old names before 20261107000000 and 20261108000000 has the
+    -- tables, but those two files then replaced the outbox's kind check, lease_outbox_jobs and the purge
+    -- (docs/DEPLOYMENT.md, "Migrations").
+    ('20261109000200', 'payment_reconciliation',
+      to_regclass('private.payment_exceptions') is not null
+      and exists (select 1 from outbox_check where conname = 'email_outbox_kind_check'
+                   and def like '%ops_alert%' and def like '%event_review%')
+      and exists (select 1 from fn where proname = 'lease_outbox_jobs' and prosrc like '%ops_alert%')
+      and exists (select 1 from fn where proname = 'purge_operational_data'
+                   and 'early_charge_refunds_deleted' = any(proargnames) and 'account_invites_deleted' = any(proargnames))),
+    ('20261109000300', 'email_outbox_health',
+      to_regclass('private.cron_runs') is not null and exists (select 1 from fn where proname = 'email_outbox_health')),
+    ('20261109000400', 'checkout_attempts',
+      to_regclass('private.checkout_attempts') is not null
+      and exists (select 1 from outbox_check where conname = 'email_outbox_kind_key'
+                   and def like '%ops_event_id%' and def like '%organiser_id%')
+      and exists (select 1 from fn where proname = 'purge_operational_data'
+                   and 'checkout_attempts_deleted' = any(proargnames) and 'account_invites_deleted' = any(proargnames)))
   ) as m(version, file, applied)
  order by version;

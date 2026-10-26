@@ -308,8 +308,11 @@ describe("refund.updated / refund.failed for a refund made outside Sheltüh (no 
     expect(logged).not.toContain(orderId);
     expect(logged).not.toContain("pi_dash");
     expect(logged).not.toContain("buyer@example.com");
-    // Recorded state is untouched (charge.refunded owns it).
+    // Recorded state is untouched (charge.refunded owns it): nothing is restored automatically.
     expect(await internal(orderId)).toEqual(before);
+    // One payment exception for that refund, for a person (tests/server/payment-reconciliation.test.ts).
+    const exceptions = await api.db.query(`select kind, status, refund_id from private.payment_exceptions`);
+    expect(exceptions).toEqual([{ kind: "refund_not_completed", status: "open", refund_id: "re_dash" }]);
   });
 
   it("an expanded payment intent object resolves too; a canceled one is an error, a pending one only info", async () => {
@@ -376,7 +379,7 @@ describe("the oversold refund path is unchanged", () => {
       stripeWebhook,
       stripeWebhookRequest({
         type: "refund.updated",
-        data: { object: { id: "re_auto", object: "refund", status: "succeeded", metadata: { orderId: second } } },
+        data: { object: { id: "re_auto", object: "refund", status: "succeeded", payment_intent: "pi_second", metadata: { orderId: second } } },
       }),
     );
     expect(await internal(second)).toEqual({ status: "refunded", amount_refunded_cents: 0, tickets: 0 });
@@ -521,24 +524,35 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
     expect(await sold()).toEqual({ ga: 4, vip: 0 });
   });
 
-  it("a refund delivered while its own order's fulfilment is uncommitted finds no order (accepted limit)", async () => {
-    // fulfil_order records the payment intent; until that commits, nothing has it.
-    // docs/architecture.md, "Refunds made in Stripe": acknowledged and logged, the order ends up paid.
+  it("a refund delivered while its own order's fulfilment is uncommitted waits for it, then voids the order", async () => {
+    // This was an accepted limit: fulfil_order records the payment intent, so a
+    // refund processed before that committed found no order, was dropped, and
+    // the order ended up paid with valid tickets. The expectation changes on
+    // purpose (payment audit item 1, 20261109000200_payment_reconciliation.sql):
+    // both functions now take the payment intent's advisory lock first, so the
+    // refund waits for the fulfilment to commit, then finds the paid order and
+    // voids it (inventory released). The 3-argument form (the previous app
+    // version's, during the deploy window) delegates to the new one, lock included.
+    vi.spyOn(console, "info").mockImplementation(() => {});
     const orderId = await checkout([{ ticketTypeId: "ga", quantity: 1 }]);
     const [one, two] = connections();
     try {
       await one.unsafe("begin");
       expect((await fulfil(one, orderId, "pi_same", [{ id: "ga", n: 1 }]))[0].status).toBe("paid");
-      expect((await recordRefund(two, "pi_same", 3170, true))[0].result).toBe("not_found");
+      const blocked = await waitUntilBlocked(two);
+      const pending = recordRefund(two, "pi_same", 3170, true).execute();
+      await blocked();
       await one.unsafe("commit");
+      expect((await pending)[0].result).toBe("refunded");
     } finally {
       await one.end();
       await two.end();
     }
-    expect(await internal(orderId)).toMatchObject({ status: "paid", amount_refunded_cents: 0 });
-    // A redelivery once the payment is recorded does find it.
+    expect(await internal(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: 3170, tickets: 1 });
+    expect(await sold()).toEqual({ ga: 0, vip: 0 });
+    // A redelivery changes nothing more.
     expect((await api.db.query<{ result: string }>(`select result from private.record_payment_refund('pi_same', 3170, true)`))[0].result).toBe(
-      "refunded",
+      "unchanged",
     );
     expect(await sold()).toEqual({ ga: 0, vip: 0 });
   });

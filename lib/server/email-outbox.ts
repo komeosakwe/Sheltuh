@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import type { EmailOutboxKind } from "@/lib/api/types";
 import { buildEventReviewEmail, buildOrganiserReviewEmail } from "./admin-review-email";
 import { PG_UNDEFINED_FUNCTION, pgErrorCode } from "./db";
 import type { Deps } from "./deps";
@@ -6,15 +7,18 @@ import type { EmailMessage } from "./email";
 import { isPlainEmailAddress, redactForLog } from "./email-address";
 import { buildFollowerNewEventsEmail, FOLLOWER_EMAIL_MAX_EVENTS, followerUnsubscribeLink } from "./follower-email";
 import { findEventById } from "./handlers/event-queries";
+import { CHECKOUT_LIMITS } from "./checkout-attempts";
+import { buildCheckoutSurgeAlertEmail, buildOpsAlertEmail } from "./ops-alert-email";
 import { orderReference } from "./order-reference";
-import { EVENT_SELECT, ORDER_SELECT, toEvent, toOrder } from "./records";
+import { EVENT_SELECT, ORDER_SELECT, paymentExceptionDetails, toEvent, toOrder } from "./records";
 import { buildTicketEmail } from "./ticket-email";
 import { buildWaitlistAvailableEmail, waitlistEventLink, waitlistLeaveLink } from "./waitlist-email";
 
 /**
  * The transactional email outbox (supabase/migrations/20261014000000_email_outbox.sql,
  * 20261024000000_waitlist.sql, 20261024000200_organiser_follows.sql,
- * 20261107000000_admin_review_emails.sql). Five kinds of job:
+ * 20261107000000_admin_review_emails.sql, 20261109000200_payment_reconciliation.sql,
+ * 20261109000400_checkout_attempts.sql). Six kinds of job:
  * - `ticket_email`: private.fulfil_order queues one when an order becomes paid.
  * - `waitlist_available`: private.notify_waitlist queues one per person told
  *   that tickets are available again (docs/architecture.md, "Waitlist").
@@ -24,21 +28,33 @@ import { buildWaitlistAvailableEmail, waitlistEventLink, waitlistLeaveLink } fro
  * - `event_review` / `organiser_review`: queued (by database triggers) when an
  *   event is submitted for review or an organiser application is made or
  *   resubmitted; one email to each admin (docs/architecture.md, "Admin review emails").
+ * - `ops_alert`: private.raise_payment_exception queues one when a payment
+ *   exception is opened or reopened (at most 20 a day), and
+ *   private.queue_checkout_surge_alert one when an event's paid checkouts
+ *   cross the alert-only circuit breaker (at most one per event per window,
+ *   10 a day), sent to OPS_ALERT_EMAIL (docs/architecture.md, "Refunds made
+ *   in Stripe", "Checkout idempotency").
  * This module delivers them: once straight after the response (Deps.defer)
- * and then from the cron route until it's sent or has failed 6 times.
+ * and then from the cron route until it's sent or has failed 6 times. The
+ * cron route is called by Vercel Cron (daily on Hobby, every 5 minutes on
+ * Pro) and, on Hobby, by Supabase Cron every 5 minutes once the owner has
+ * scheduled it (docs/supabase-setup.md §3).
  * Delivery is at-least-once: a worker that dies between SMTP accepting the
  * message and recording it leaves a lease that expires, and the job is sent
  * again. A mail failure never touches the order or the waitlist entry.
  */
 
-export type EmailJobKind =
-  | "ticket_email"
-  | "waitlist_available"
-  | "organiser_new_events"
-  | "event_review"
-  | "organiser_review";
+export type EmailJobKind = EmailOutboxKind;
 
-/** Delays after the 1st … 5th failed attempt: 1 min, 5 min, 30 min, 2 h, 6 h. */
+/**
+ * Delays after the 1st … 5th failed attempt: 1 min, 5 min, 30 min, 2 h, 6 h.
+ * A delay is the earliest the next attempt can run: the job is then sent by
+ * the next run of the cron route. With a runner every 5 minutes (Supabase
+ * Cron, or Vercel Cron on Pro), the 2nd attempt runs within about 6 minutes
+ * of the first failure, the 3rd within about 17, and the 6th and last 7 to 11
+ * hours after it. With only the daily Vercel Cron (Hobby), each retry waits
+ * for the next daily run.
+ */
 export const EMAIL_RETRY_DELAYS_SECONDS = [60, 300, 1800, 7200, 21600] as const;
 /** The 6th failure is final: the job is `failed` and waits for an admin resend. */
 export const MAX_EMAIL_ATTEMPTS = 6;
@@ -409,7 +425,102 @@ async function deliverReviewEmail(deps: Deps, job: ClaimedJob, leaseEndsAt: numb
   }
 }
 
+/**
+ * Sends one ops alert about a checkout surge (an event's paid checkouts over
+ * the alert-only circuit breaker): the event's title and id only.
+ */
+async function deliverCheckoutSurgeAlert(deps: Deps, to: string, jobId: string): Promise<Outcome> {
+  const [row] = await deps.db.query<{ event_id: string; title: string; slug: string | null; created_at: string | Date }>(
+    `select e.id as event_id, e.title, e.slug, j.created_at
+       from private.email_outbox j
+       join public.events e on e.id = j.ops_event_id
+      where j.id = $1::bigint`,
+    [jobId],
+  );
+  if (!row) return skip("the event no longer exists");
+  await deps.sendEmail(
+    buildCheckoutSurgeAlertEmail(
+      to,
+      {
+        eventId: row.event_id,
+        eventTitle: row.title,
+        eventSlug: row.slug ?? undefined,
+        threshold: CHECKOUT_LIMITS.perEventAlert,
+        window: CHECKOUT_LIMITS.window,
+        queuedAt: new Date(row.created_at),
+      },
+      deps.siteUrl(),
+    ),
+  );
+  return { sent: true };
+}
+
+/**
+ * Sends one ops alert to OPS_ALERT_EMAIL: about a payment exception (the
+ * order's short reference, amounts, statuses and Stripe's event id only), or
+ * about a checkout surge (deliverCheckoutSurgeAlert). Skipped (never
+ * retried) when OPS_ALERT_EMAIL isn't set, logged loudly: a payment
+ * exception is still listed for admins. Skipped too if the exception was
+ * resolved (or deleted) before the alert went out. Never throws.
+ */
+async function deliverOpsAlert(deps: Deps, jobId: string): Promise<Outcome> {
+  try {
+    const to = deps.opsAlertEmail();
+    if (!to) {
+      console.error(
+        `Ops alert job ${jobId} not emailed: OPS_ALERT_EMAIL isn't set. A payment exception or checkout surge may ` +
+          "need a person: see GET /api/admin/payment-exceptions.",
+      );
+      return skip("OPS_ALERT_EMAIL isn't set");
+    }
+    const [job] = await deps.db.query<{ about_event: boolean }>(
+      `select j.ops_event_id is not null as about_event from private.email_outbox j where j.id = $1::bigint`,
+      [jobId],
+    );
+    if (job?.about_event) return await deliverCheckoutSurgeAlert(deps, to, jobId);
+    const [row] = await deps.db.query<{
+      kind: "refund_not_completed" | "partial_refund" | "manual_refund_required";
+      status: string;
+      order_id: string | null;
+      order_status: string | null;
+      details: unknown;
+      stripe_event_id: string | null;
+      opened_at: string | Date;
+    }>(
+      `select e.kind, e.status, e.order_id, o.status::text as order_status, e.details, e.stripe_event_id, e.opened_at
+         from private.email_outbox j
+         join private.payment_exceptions e on e.id = j.payment_exception_id
+         left join public.orders o on o.id = e.order_id
+        where j.id = $1::bigint`,
+      [jobId],
+    );
+    if (!row) return skip("the payment exception no longer exists");
+    if (row.status !== "open") return skip("the payment exception was resolved first");
+    const details = paymentExceptionDetails(row.details);
+    const orderStatus = row.order_status ?? details.orderStatus;
+    await deps.sendEmail(
+      buildOpsAlertEmail(
+        to,
+        {
+          kind: row.kind,
+          reference: row.order_id ? orderReference(row.order_id) : undefined,
+          orderStatus: orderStatus ?? undefined,
+          urgent: row.kind === "refund_not_completed" && orderStatus === "refunded",
+          details,
+          stripeEventId: row.stripe_event_id ?? undefined,
+          openedAt: new Date(row.opened_at),
+        },
+        deps.siteUrl(),
+      ),
+    );
+    return { sent: true };
+  } catch (err) {
+    return { sent: false, error: redactForLog(err instanceof Error ? err.message : "unknown error"), permanent: false };
+  }
+}
+
 function deliver(deps: Deps, job: ClaimedJob, leaseEndsAt: number): Promise<Outcome> {
+  if (job.job_kind === "ops_alert") return deliverOpsAlert(deps, String(job.job_id));
   if (job.job_kind === "event_review" || job.job_kind === "organiser_review") {
     return deliverReviewEmail(deps, job, leaseEndsAt);
   }
@@ -451,9 +562,10 @@ async function runJob(deps: Deps, job: ClaimedJob, leaseEndsAt: number, summary:
     }
     return;
   }
-  if (job.job_kind === "waitlist_available" || job.job_kind === "organiser_new_events") {
-    // The job id only: never the address, the entry or the follow.
-    const label = job.job_kind === "waitlist_available" ? "Waitlist" : "Follower";
+  if (job.job_kind === "waitlist_available" || job.job_kind === "organiser_new_events" || job.job_kind === "ops_alert") {
+    // The job id only: never the address, the entry, the follow or the exception.
+    const label =
+      job.job_kind === "waitlist_available" ? "Waitlist" : job.job_kind === "ops_alert" ? "Ops alert" : "Follower";
     const message = `${label} email job ${job.job_id} attempt ${job.job_attempts}`;
     if (outcome.skipped) console.info(`${message} not sent: ${outcome.error}.`);
     else console.error(`${message} ${result === "failed" ? "failed for good" : "failed, will retry"}: ${outcome.error}`);
@@ -502,6 +614,9 @@ async function leaseJobs(deps: Deps, limit: number, orderId: string | null, kind
  * Leases due jobs and sends them, until none are due, `maxJobs` have been
  * taken or `budgetMs` has passed. With `orderId`, only that order's job (the
  * attempt straight after payment); with `kind`, only jobs of that kind.
+ * With neither, ops alerts first (private.lease_outbox_jobs only leases
+ * them when asked for that kind, so a release that can't send them never
+ * takes one), then every other kind.
  * Safe to run concurrently with itself.
  */
 export async function drainEmailOutbox(
@@ -511,13 +626,16 @@ export async function drainEmailOutbox(
   const { orderId, kind, maxJobs = 100, budgetMs = DRAIN_BUDGET_MS, random = Math.random } = options;
   const deadline = Date.now() + budgetMs;
   const summary: DrainSummary = { claimed: 0, sent: 0, retrying: 0, failed: 0 };
-  while (summary.claimed < maxJobs && Date.now() < deadline) {
-    // Taken before the lease starts, so the lease ends no sooner than this says.
-    const leaseEndsAt = Date.now() + EMAIL_LEASE_MS;
-    const jobs = await leaseJobs(deps, Math.min(CLAIM_BATCH, maxJobs - summary.claimed), orderId ?? null, kind ?? null);
-    if (jobs.length === 0) break;
-    summary.claimed += jobs.length;
-    for (const job of jobs) await runJob(deps, job, leaseEndsAt, summary, random);
+  const phases: (EmailJobKind | null)[] = kind ? [kind] : orderId ? [null] : ["ops_alert", null];
+  for (const phase of phases) {
+    while (summary.claimed < maxJobs && Date.now() < deadline) {
+      // Taken before the lease starts, so the lease ends no sooner than this says.
+      const leaseEndsAt = Date.now() + EMAIL_LEASE_MS;
+      const jobs = await leaseJobs(deps, Math.min(CLAIM_BATCH, maxJobs - summary.claimed), orderId ?? null, phase);
+      if (jobs.length === 0) break;
+      summary.claimed += jobs.length;
+      for (const job of jobs) await runJob(deps, job, leaseEndsAt, summary, random);
+    }
   }
   return summary;
 }
@@ -526,6 +644,16 @@ export async function drainEmailOutbox(
 export function sendTicketEmailSoon(deps: Deps, orderId: string): void {
   deps.defer(async () => {
     await drainEmailOutbox(deps, { orderId, maxJobs: 1 });
+  });
+}
+
+/** Ops alerts sent per run straight after a response (at most 20 are queued a day). */
+export const OPS_ALERT_DRAIN_MAX_JOBS = 20;
+
+/** Queues a run over due ops alerts for straight after the response. Cheap when there are none. */
+export function sendOpsAlertsSoon(deps: Deps): void {
+  deps.defer(async () => {
+    await drainEmailOutbox(deps, { kind: "ops_alert", maxJobs: OPS_ALERT_DRAIN_MAX_JOBS });
   });
 }
 
