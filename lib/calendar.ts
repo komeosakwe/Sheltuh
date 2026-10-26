@@ -3,7 +3,7 @@
  * RFC 5545 `.ics` file (served by `GET /events/{slug}/calendar.ics`,
  * lib/server/handlers/event-calendar.ts), and Google Calendar and Outlook
  * links, all built from the event's own data. Times are the event's real instants (stored in
- * UTC from the organiser's Australia/Melbourne wall-clock time, daylight
+ * UTC from the wall-clock time in the event's own zone, daylight
  * saving included) written as UTC with a `Z`, so every calendar app shows them
  * at the right local time without needing a VTIMEZONE block.
  */

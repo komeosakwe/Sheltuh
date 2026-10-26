@@ -3,7 +3,7 @@
 import { useState } from "react";
 import SeatLine from "@/components/seating/SeatLine";
 import type { OrderPaymentLine, OrderPaymentSummary as Summary } from "@/lib/api/types";
-import { formatAud, formatEventDateTimeRange } from "@/lib/format";
+import { eventZone, formatAud, formatEventWhen } from "@/lib/format";
 import { REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { ChevronDownIcon } from "./icons";
 
@@ -17,12 +17,16 @@ import { ChevronDownIcon } from "./icons";
  */
 export default function OrderPaymentSummary({ summary }: { summary: Summary }) {
   const [open, setOpen] = useState(false);
-  const when = summary.eventStartsAt ? formatEventDateTimeRange(summary.eventStartsAt, summary.eventEndsAt) : undefined;
+  // In the event's zone, naming it outside Melbourne's ("… 11:00 pm Perth time").
+  const zone = eventZone(summary.eventTimeZone);
+  const when = summary.eventStartsAt
+    ? formatEventWhen(summary.eventStartsAt, summary.eventEndsAt, summary.eventTimeZone, summary.eventState)
+    : undefined;
   const where = [summary.venueName, summary.suburb].filter((part) => !!part?.trim()).join(", ") || undefined;
   const count = summary.lines.reduce((sum, line) => sum + line.quantity, 0);
   // "Seats" only when every line is seats (a seated order can carry general admission tickets too).
   const allSeats = summary.seated && summary.lines.length > 0 && summary.lines.every((line) => (line.seats?.length ?? 0) > 0);
-  const refunds = refundTermsLine(summary.refundPolicy, summary.refundDays, summary.eventStartsAt);
+  const refunds = refundTermsLine(summary.refundPolicy, summary.refundDays, summary.eventStartsAt, { timeZone: zone });
   const noun = allSeats ? (count === 1 ? "seat" : "seats") : count === 1 ? "ticket" : "tickets";
 
   return (

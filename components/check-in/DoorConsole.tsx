@@ -9,6 +9,7 @@ import { ApiError, type GetToken } from "@/lib/api/client";
 import type { CheckInResult } from "@/lib/api/types";
 import { resultAnnouncement, toneOf, type DoorResult, type UndoTarget } from "@/lib/check-in/door-copy";
 import { canVibrate, DoorSound, vibrateFor } from "@/lib/check-in/feedback";
+import { eventZone } from "@/lib/format";
 import { withNext } from "@/lib/safe-next-path";
 import { CheckInCounters, CheckInTitle } from "./CheckInHeader";
 import DoorSettings from "./DoorSettings";
@@ -58,6 +59,8 @@ export default function DoorConsole({
 }) {
   const returnTo = checkInPath(eventId);
   const summary = useCheckInSummary(eventId, getToken);
+  // The door's clock: scan and check-in times in the event's zone (Melbourne until the summary loads, or without one).
+  const zone = eventZone(summary.summary?.event.timeZone);
   const { scheduleRefresh, adjustCheckedIn, load: reloadSummary } = summary;
   const online = useOnline();
   const [vibrateOn, setVibrateOn] = useDoorPref(VIBRATE_PREF_KEY, true);
@@ -89,9 +92,9 @@ export default function DoorConsole({
       const tone = toneOf(result);
       if (vibrateOn) vibrateFor(tone);
       if (soundOn) sound.play(tone);
-      announceAssertive(resultAnnouncement(result));
+      announceAssertive(resultAnnouncement(result, zone));
     },
-    [announceAssertive, sound, soundOn, vibrateOn],
+    [announceAssertive, sound, soundOn, vibrateOn, zone],
   );
 
   const onServerResult = useCallback(
@@ -257,6 +260,7 @@ export default function DoorConsole({
         onDismiss={() => scan.dismiss()}
         onUndo={(target) => openUndo(target, display.id)}
         onPauseChange={onPanelPauseChange}
+        timeZone={zone}
       />
     ) : display.kind === "checking" && display.showText ? (
       <div className="relative [grid-area:1/1] flex flex-col justify-center gap-1 bg-background p-4">
@@ -317,6 +321,7 @@ export default function DoorConsole({
                 headingRef={recentHeadingRef}
                 onRefresh={() => void summary.refreshNow()}
                 onUndo={(entry) => openUndo(entry, null)}
+                timeZone={zone}
               />
             )}
           </div>
@@ -326,7 +331,7 @@ export default function DoorConsole({
         </div>
       </div>
 
-      <UndoCheckInDialog entry={undoTarget} returnTo={returnTo} onClose={closeUndo} onSubmit={submitUndo} />
+      <UndoCheckInDialog entry={undoTarget} returnTo={returnTo} onClose={closeUndo} onSubmit={submitUndo} timeZone={zone} />
 
       <p aria-live="assertive" aria-atomic="true" className="sr-only" data-testid="result-announcer">
         {assertive}

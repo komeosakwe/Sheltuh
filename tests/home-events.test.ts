@@ -142,6 +142,23 @@ describe("loadHomeEvents (live)", () => {
     expect(listPublicEvents).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps loading past Melbourne's Sunday midnight until every zone's weekend has ended (Perth, then Cocos)", async () => {
+    listPublicEvents
+      .mockResolvedValueOnce({
+        // Mon 26 Oct 02:00 AEDT: after Melbourne's weekend, but 11 pm Sunday in Perth.
+        items: [item("a", "2026-10-22T08:00:00.000Z"), item("perth-sun", "2026-10-25T15:00:00.000Z", "2026-10-25T16:00:00.000Z")],
+        nextCursor: "c1",
+      })
+      .mockResolvedValueOnce({
+        // Mon 26 Oct 05:00 AEDT: after the Cocos Islands' Sunday midnight (04:29:59.999 AEDT), the last of any zone.
+        items: [item("after-all", "2026-10-25T18:00:00.000Z", "2026-10-25T19:00:00.000Z")],
+        nextCursor: "c2",
+      });
+    const events = await loadHomeEvents(NOW);
+    expect(listPublicEvents).toHaveBeenCalledTimes(2);
+    expect(events.map((e) => e.id)).toEqual(["a", "perth-sun", "after-all"]);
+  });
+
   it("makes no second request when the page stops inside the weekend but has no more", async () => {
     listPublicEvents.mockResolvedValue({ items: [item("sat", "2026-10-24T08:00:00.000Z")], nextCursor: undefined });
     await loadHomeEvents(NOW);

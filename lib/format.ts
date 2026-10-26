@@ -1,4 +1,11 @@
-import { cachedDateTimeFormat, PLATFORM_TIME_ZONE, wallClockParts, zoneLabel, type StateCode } from "./time-zones";
+import {
+  cachedDateTimeFormat,
+  PLATFORM_TIME_ZONE,
+  wallClockParts,
+  zoneLabel,
+  zoneShortLabel,
+  type StateCode,
+} from "./time-zones";
 
 /**
  * Formats integer cents as an Australian dollar amount, e.g. 3200 -> "A$32",
@@ -178,4 +185,35 @@ export function formatTimeZoneLabel(
   state?: StateCode | null,
 ): string {
   return zoneLabel(timeZone, isoLike, state);
+}
+
+/** The zone to show an event's own times in: its `timeZone`, or the platform's when it has none (absent means Melbourne). */
+export function eventZone(timeZone?: string | null): string {
+  return timeZone ?? PLATFORM_TIME_ZONE;
+}
+
+/**
+ * The zone note for a compact date line (a card, a list row, an order): ""
+ * for an event in the platform's zone, so a Melbourne event's line reads
+ * exactly as before, and otherwise a space and the zone's city: " Perth
+ * time", " Canberra time" (with the ACT's state). Append it to the time:
+ * "Sat 21 Nov, 8:00 pm Perth time".
+ */
+export function zoneSuffix(timeZone?: string | null, state?: StateCode | null): string {
+  const zone = eventZone(timeZone);
+  return zone === PLATFORM_TIME_ZONE ? "" : ` ${zoneShortLabel(zone, state)}`;
+}
+
+/**
+ * formatEventDateTimeRange in the event's zone (Melbourne when it has none),
+ * naming any zone but Melbourne's (zoneSuffix): "Sat 21 Nov, 8:00 pm – 11:00
+ * pm Perth time", and a Melbourne event's range exactly as before.
+ */
+export function formatEventWhen(
+  startsAt: string,
+  endsAt?: string,
+  timeZone?: string | null,
+  state?: StateCode | null,
+): string {
+  return `${formatEventDateTimeRange(startsAt, endsAt, eventZone(timeZone))}${zoneSuffix(timeZone, state)}`;
 }

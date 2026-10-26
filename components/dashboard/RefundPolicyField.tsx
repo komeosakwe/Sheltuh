@@ -28,6 +28,8 @@ interface Props {
   savedTerms?: Partial<RefundTerms>;
   /** The event's start as typed (an ISO instant), once it's a real one: the preview's date. */
   startsAt?: string;
+  /** The zone the event's times are in, for the preview's date (Melbourne by default). */
+  timeZone?: string;
   /** Admin authoring: "the organiser" rather than "you". */
   admin: boolean;
   /** The chosen option's radio, to focus when a save is refused because of the policy. */
@@ -70,6 +72,7 @@ export default function RefundPolicyField({
   daysError,
   savedTerms,
   startsAt,
+  timeZone,
   admin,
   checkedRef,
   daysRef,
@@ -80,7 +83,7 @@ export default function RefundPolicyField({
   // What buyers will see: dated against the start once there is one, else the plain summary.
   const preview =
     daysChosen && isValidRefundDays(daysNumber)
-      ? (refundTermsLine(policy, daysNumber, startsAt) ?? refundPolicySummary(policy, daysNumber))
+      ? (refundTermsLine(policy, daysNumber, startsAt, { timeZone }) ?? refundPolicySummary(policy, daysNumber))
       : null;
   const savedHint = policyError ? savedRefundTermsHint(savedTerms) : null;
   const errorRef = policyError ? POLICY_ERROR_ID : null;

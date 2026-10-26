@@ -1,4 +1,5 @@
-import { formatEventDateKey } from "./format";
+import { cachedDateTimeFormat } from "./time-zones";
+import { eventZone, formatEventDateKey } from "./format";
 import { getMinBuyerTotalCents } from "./pricing";
 import { isFreeEvent } from "./data";
 import type { SheltuhEvent } from "./types";
@@ -8,26 +9,32 @@ export type ScenePricingFilter = "all" | "free" | "under25";
 
 const UNDER_PRICE_CENTS = 2500;
 
-const weekdayFormatter = new Intl.DateTimeFormat("en-AU", { timeZone: "Australia/Melbourne", weekday: "short" });
 const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 
-function melbourneDateKeyPlusDays(base: Date, days: number): string {
-  const shifted = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
-  return formatEventDateKey(shifted.toISOString());
-}
-
-/** Same Melbourne calendar date as `now`. */
-export function isTonight(event: SheltuhEvent, now: Date): boolean {
-  return formatEventDateKey(event.startsAt) === formatEventDateKey(now.toISOString());
+/** The calendar date `days` after a yyyy-mm-dd (calendar arithmetic: a daylight-saving day is still one day). */
+function dateKeyPlusDays(dateKey: string, days: number): string {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
 }
 
 /**
- * The nearest upcoming Saturday–Sunday, Melbourne calendar time. If `now`
- * falls on a Saturday or Sunday, that weekend (today onward) counts —
- * otherwise it's the coming one.
+ * Same calendar date as `now`, in the event's own zone: tonight in Perth is
+ * Perth's today, which can be a different date from Melbourne's.
+ */
+export function isTonight(event: SheltuhEvent, now: Date): boolean {
+  const zone = eventZone(event.timeZone);
+  return formatEventDateKey(event.startsAt, zone) === formatEventDateKey(now.toISOString(), zone);
+}
+
+/**
+ * The nearest upcoming Saturday–Sunday, in the event's own zone's calendar.
+ * If `now` falls on a Saturday or Sunday there, that weekend (today onward)
+ * counts — otherwise it's the coming one.
  */
 export function isThisWeekend(event: SheltuhEvent, now: Date): boolean {
-  const dayIndex = WEEKDAY_INDEX[weekdayFormatter.format(now)] ?? 0;
+  const zone = eventZone(event.timeZone);
+  const weekday = cachedDateTimeFormat("en-AU", { timeZone: zone, weekday: "short" }).format(now);
+  const dayIndex = WEEKDAY_INDEX[weekday] ?? 0;
   let startOffset: number;
   let endOffset: number;
   if (dayIndex === 0) {
@@ -40,15 +47,19 @@ export function isThisWeekend(event: SheltuhEvent, now: Date): boolean {
     startOffset = 6 - dayIndex;
     endOffset = startOffset + 1;
   }
-  const startKey = melbourneDateKeyPlusDays(now, startOffset);
-  const endKey = melbourneDateKeyPlusDays(now, endOffset);
-  const eventKey = formatEventDateKey(event.startsAt);
+  const todayKey = formatEventDateKey(now.toISOString(), zone);
+  const startKey = dateKeyPlusDays(todayKey, startOffset);
+  const endKey = dateKeyPlusDays(todayKey, endOffset);
+  const eventKey = formatEventDateKey(event.startsAt, zone);
   return eventKey >= startKey && eventKey <= endKey;
 }
 
-/** `dateKey` is a Melbourne-local yyyy-mm-dd, as produced by an `<input type="date">`. */
+/**
+ * `dateKey` is a yyyy-mm-dd, as produced by an `<input type="date">`, matched
+ * against the event's start date in its own zone (as the feed's `onOrAfter`).
+ */
 export function isOnDate(event: SheltuhEvent, dateKey: string): boolean {
-  return formatEventDateKey(event.startsAt) === dateKey;
+  return formatEventDateKey(event.startsAt, eventZone(event.timeZone)) === dateKey;
 }
 
 export function matchesTimeFilter(event: SheltuhEvent, filter: TimeFilter, now: Date, specificDate: string): boolean {

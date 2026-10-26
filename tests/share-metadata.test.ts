@@ -137,6 +137,22 @@ describe("share metadata helpers", () => {
     expect(eventShareDescription({ ...base, description: "" })).toBe("Sat 6 Mar 2027, 8:00 pm · The Tote");
   });
 
+  it("eventShareDescription: in the event's zone, naming it outside Melbourne's", () => {
+    const base = { slug: "x", title: "X", description: "", venueName: "Mojos", suburb: "", startsAt: "2027-03-06T09:00:00.000Z" };
+    // 8:00 pm AEDT is 5:00 pm AWST, 7:30 pm ACDT; Melbourne's unchanged.
+    expect(eventShareDescription({ ...base, timeZone: "Australia/Perth", state: "WA" })).toBe(
+      "Sat 6 Mar 2027, 5:00 pm Perth time · Mojos",
+    );
+    expect(eventShareDescription({ ...base, timeZone: "Australia/Adelaide", state: "SA" })).toBe(
+      "Sat 6 Mar 2027, 7:30 pm Adelaide time · Mojos",
+    );
+    expect(eventShareDescription({ ...base, timeZone: "Australia/Melbourne", state: "VIC" })).toBe("Sat 6 Mar 2027, 8:00 pm · Mojos");
+    // A late Perth start is on Perth's date: 11:30 pm AWST Sat = 2:30 am AEDT Sun.
+    expect(eventShareDescription({ ...base, startsAt: "2027-03-06T15:30:00.000Z", timeZone: "Australia/Perth" })).toBe(
+      "Sat 6 Mar 2027, 11:30 pm Perth time · Mojos",
+    );
+  });
+
   it("inheritedShareImages: none without a parent, or if it fails", async () => {
     expect(await inheritedShareImages(undefined)).toEqual({ openGraph: [], twitter: [] });
     const failed = Promise.reject(new Error("x")) as unknown as ResolvingMetadata;

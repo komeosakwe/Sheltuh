@@ -122,6 +122,50 @@ describe("EventEditor — Melbourne-local date/time inputs, independent of the b
   });
 });
 
+describe("EventEditor — an event outside Victoria: inputs in its own zone (owner plan S5)", () => {
+  const originalTz = process.env.TZ;
+  afterEach(() => {
+    process.env.TZ = originalTz;
+  });
+
+  it("fills a Perth event's date and time in Perth time, says so in the legends, and saves the same wall-clock times without a zone", async () => {
+    process.env.TZ = "America/New_York";
+    // 10:00Z is 6:00 pm AWST, 13:00Z 9:00 pm AWST (8:00 pm and 11:00 pm in Melbourne).
+    updateEventDraft.mockResolvedValue({ ...BASE_EVENT, state: "WA", timeZone: "Australia/Perth" });
+    renderEditor({ state: "WA", timeZone: "Australia/Perth" });
+    expect(screen.getByLabelText("Start date")).toHaveValue("2026-09-25");
+    expect(screen.getByLabelText("Start time")).toHaveValue("18:00");
+    expect(screen.getByLabelText("End time")).toHaveValue("21:00");
+    expect(screen.getByText("Starts (Perth time)")).toBeInTheDocument();
+    expect(screen.getByText("Ends (Perth time)")).toBeInTheDocument();
+    expect(screen.queryByText(/Melbourne time/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(updateEventDraft).toHaveBeenCalledTimes(1));
+    const [, input] = updateEventDraft.mock.calls[0];
+    // Read in the stored zone by the API: the event doesn't move.
+    expect(input.start).toEqual({ date: "2026-09-25", time: "18:00" });
+    expect(input.end).toEqual({ date: "2026-09-25", time: "21:00" });
+    expect(input).not.toHaveProperty("state");
+    expect(input).not.toHaveProperty("timeZone");
+  });
+
+  it("a late Perth start is on Perth's date (11:30 pm Thursday, though Friday in Melbourne)", () => {
+    renderEditor({ state: "WA", timeZone: "Australia/Perth", startsAt: "2026-09-24T15:30:00.000Z" });
+    expect(screen.getByLabelText("Start date")).toHaveValue("2026-09-24");
+    expect(screen.getByLabelText("Start time")).toHaveValue("23:30");
+  });
+
+  it("an ACT event's legends say Canberra time; a Victorian one's still say Melbourne time", () => {
+    renderEditor({ state: "ACT", timeZone: "Australia/Sydney" });
+    expect(screen.getByText("Starts (Canberra time)")).toBeInTheDocument();
+    cleanup();
+    renderEditor({ state: "VIC", timeZone: "Australia/Melbourne" });
+    expect(screen.getByText("Starts (Melbourne time)")).toBeInTheDocument();
+    expect(screen.getByText("Ends (Melbourne time)")).toBeInTheDocument();
+  });
+});
+
 describe("EventEditor — session-expiry recovery preserves the form", () => {
   it("keeps every typed field after an expired-session save, and succeeds once signed back in as the same account", async () => {
     const sessionError = new SessionExpiredError();

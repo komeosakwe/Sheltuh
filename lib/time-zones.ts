@@ -313,3 +313,12 @@ export function zoneLabel(timeZone: string, instant: string | Date, state?: Stat
       : utcOffsetLabel(offsetMinutesAt(epochMs, timeZone));
   return `${cityFor(timeZone, state)} time (${suffix})`;
 }
+
+/**
+ * The zone's short name, for a line with no room for zoneLabel's
+ * abbreviation: "Perth time", "Lord Howe Island time", and, with the ACT's
+ * state, "Canberra time".
+ */
+export function zoneShortLabel(timeZone: string, state?: StateCode | null): string {
+  return `${cityFor(timeZone, state)} time`;
+}

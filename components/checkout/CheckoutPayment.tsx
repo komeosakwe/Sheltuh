@@ -253,7 +253,7 @@ function PaymentFlow({ orderId }: { orderId: string }) {
           hold={
             payment.seated ? (
               <p className="text-xs text-muted">
-                Your seats are held until {formatHoldDeadline(payment.expiresAt)}. Going back releases them.
+                Your seats are held until {formatHoldDeadline(payment.expiresAt, payment.eventTimeZone, payment.eventState)}. Going back releases them.
               </p>
             ) : null
           }

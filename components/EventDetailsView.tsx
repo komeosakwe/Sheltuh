@@ -20,7 +20,7 @@ import WhosGoing from "@/components/WhosGoing";
 import { WhosGoingProvider } from "@/components/whos-going/WhosGoingProvider";
 import WhosGoingSummaryLink from "@/components/whos-going/WhosGoingSummaryLink";
 import { isSafeTicketUrl } from "@/lib/event-url";
-import { formatEventDateShort, formatEventDateTimeRange, formatEventTime, formatTimeZoneLabel } from "@/lib/format";
+import { eventZone, formatEventDateShort, formatEventDateTimeRange, formatEventTime, formatTimeZoneLabel, zoneSuffix } from "@/lib/format";
 import { directionsHref } from "@/lib/maps";
 import { externalProviderLabel, formatFeedPriceParts, isSoldOut } from "@/lib/pricing";
 import { goesToSeatPage, quickBuyLabel } from "@/lib/quick-buy";
@@ -54,7 +54,9 @@ const ENDED_TEXT = "This event has ended.";
 function BookingInfo({ event }: { event: SheltuhEvent }) {
   const linkClass = "underline underline-offset-4 hover:decoration-2";
   // Against the start: the date refunds close, or that they have (lib/refund-policy.ts).
-  const policy = refundTermsLine(event.refundPolicy ?? DEFAULT_REFUND_POLICY, event.refundDays, event.startsAt);
+  const policy = refundTermsLine(event.refundPolicy ?? DEFAULT_REFUND_POLICY, event.refundDays, event.startsAt, {
+    timeZone: eventZone(event.timeZone),
+  });
   return (
     <dl data-booking-info="" className="mt-4 flex flex-col gap-2 border-t border-surface-border pt-4 text-sm leading-5">
       <div>
@@ -84,12 +86,13 @@ function BookingInfo({ event }: { event: SheltuhEvent }) {
 }
 
 /**
- * "Fri 25 Sep, 8:00 pm – Sat 26 Sep, midnight": the shared range, with
- * midnight said in words (people misread "12:00 am"). The formatter always
- * writes the hour as "12:00 am" for midnight, so this is a whole-word swap.
+ * "Fri 25 Sep, 8:00 pm – Sat 26 Sep, midnight": the shared range, in the
+ * event's zone (labelled below it), with midnight said in words (people
+ * misread "12:00 am"). The formatter always writes the hour as "12:00 am"
+ * for midnight, so this is a whole-word swap.
  */
-function whenLabel(startsAt: string, endsAt?: string): string {
-  return formatEventDateTimeRange(startsAt, endsAt).replace(/\b12:00 am\b/g, "midnight");
+function whenLabel(startsAt: string, endsAt: string | undefined, timeZone: string): string {
+  return formatEventDateTimeRange(startsAt, endsAt, timeZone).replace(/\b12:00 am\b/g, "midnight");
 }
 
 /**
@@ -128,7 +131,9 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
   const ticketUrl = external && isSafeTicketUrl(event.externalTicketUrl) ? event.externalTicketUrl : undefined;
   // No price for an external event: we can't vouch for another site's.
   const price = external ? null : formatFeedPriceParts(event);
-  const when = whenLabel(event.startsAt, event.endsAt);
+  // The event's own zone (Melbourne when it has none), named under the time.
+  const zone = eventZone(event.timeZone);
+  const when = whenLabel(event.startsAt, event.endsAt, zone);
   // The buy bar's action: to #tickets, where a sold-out event has its waitlist
   // (§6.10, §6.11). Once an event has ended there's nothing to buy, so there's
   // no bar (docs/design/mobile-redesign.md §6.5).
@@ -138,7 +143,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
   const seatPage = goesToSeatPage(event) && !ended;
   // Refunds only matter where someone can pay: a paid tier, not ended (external has no Booking info at all).
   const paidPurchasePossible = !ended && event.ticketTypes.some((ticket) => ticket.priceCents > 0);
-  const shareText = `${event.title} · ${formatEventDateShort(event.startsAt)}, ${formatEventTime(event.startsAt)} · ${event.venueName}`;
+  const shareText = `${event.title} · ${formatEventDateShort(event.startsAt, zone)}, ${formatEventTime(event.startsAt, zone)}${zoneSuffix(event.timeZone, event.state)} · ${event.venueName}`;
   const saveTarget = { id: event.id, title: event.title, slug: event.slug };
   const organiserHref = organiserProfileHref(event);
   const directions = directionsHref(event);
@@ -218,7 +223,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                         ),
                       )}
                     </p>
-                    <p className="text-sm leading-5 text-muted">{formatTimeZoneLabel(event.startsAt)}</p>
+                    <p className="text-sm leading-5 text-muted">{formatTimeZoneLabel(event.startsAt, zone, event.state)}</p>
                     {/* On its own row, starting at the column's edge, so its menu stays on screen. */}
                     <AddToCalendar event={event} />
                   </dd>

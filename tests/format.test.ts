@@ -8,7 +8,10 @@ import {
   formatEventDateShort,
   formatEventDateTimeRange,
   formatEventTime,
+  formatEventWhen,
   formatTimeZoneLabel,
+  eventZone,
+  zoneSuffix,
   toDateTimeInputParts,
   toMelbourneDateTimeInputParts,
 } from "../lib/format";
@@ -252,5 +255,39 @@ describe("formatters in another event zone (Perth: AWST, no daylight saving; Ade
     expect(formatEventTime(winterLate)).toBe("1:00 am");
     expect(formatEventDateShort(winterLate)).toBe("Thu 13 Aug");
     expect(formatTimeZoneLabel(summer)).toBe("Melbourne time (AEDT)");
+  });
+});
+
+describe("an event's compact line names a zone other than Melbourne's (zoneSuffix, formatEventWhen)", () => {
+  // Fri 15 Jan 2026: 7:30 pm AWST in Perth, 10:00 pm ACDT in Adelaide, 10:30 pm AEDT in Melbourne.
+  const summer = "2026-01-15T11:30:00.000Z";
+  const summerEnd = "2026-01-15T12:30:00.000Z";
+
+  it("defaults the zone to Melbourne", () => {
+    expect(eventZone(undefined)).toBe("Australia/Melbourne");
+    expect(eventZone(null)).toBe("Australia/Melbourne");
+    expect(eventZone("Australia/Perth")).toBe("Australia/Perth");
+  });
+
+  it("Perth: the city's name after the time", () => {
+    expect(zoneSuffix("Australia/Perth")).toBe(" Perth time");
+    expect(formatEventWhen(summer, summerEnd, "Australia/Perth", "WA")).toBe("Thu 15 Jan, 7:30 pm – 8:30 pm Perth time");
+  });
+
+  it("Adelaide: in its own daylight-saving time", () => {
+    expect(zoneSuffix("Australia/Adelaide", "SA")).toBe(" Adelaide time");
+    expect(formatEventWhen(summer, undefined, "Australia/Adelaide", "SA")).toBe("Thu 15 Jan, 10:00 pm Adelaide time");
+  });
+
+  it("the ACT says Canberra; any zone but Melbourne's is named, Sydney's included", () => {
+    expect(zoneSuffix("Australia/Sydney", "ACT")).toBe(" Canberra time");
+    expect(zoneSuffix("Australia/Sydney", "NSW")).toBe(" Sydney time");
+  });
+
+  it("Melbourne (or no zone): nothing added, the line exactly as before", () => {
+    expect(zoneSuffix(undefined)).toBe("");
+    expect(zoneSuffix("Australia/Melbourne", "VIC")).toBe("");
+    expect(formatEventWhen(summer, summerEnd)).toBe(formatEventDateTimeRange(summer, summerEnd));
+    expect(formatEventWhen(summer, summerEnd, "Australia/Melbourne", "VIC")).toBe("Thu 15 Jan, 10:30 pm – 11:30 pm");
   });
 });

@@ -3091,6 +3091,29 @@ Events can be anywhere in Australia (owner plan, steps S3 and S4;
   Perth time (AWST)", "Canberra time (AEDT)": `zoneLabel`); Melbourne's
   stays "AEDT"/"AEST", byte for byte as before. Whether an event crosses
   midnight is judged in its zone.
+- **Shown** (S5): `SheltuhEvent` carries `state` and `timeZone` (mapped in
+  `lib/live/adapt.ts`; absent is VIC / Melbourne, every demo sample). Every
+  screen formats an event's own times in its zone (`lib/format.ts`
+  `eventZone`). The event page names the zone under the time
+  (`formatTimeZoneLabel`: "Perth time (AWST)", "Melbourne time (AEDT)").
+  Compact lines (cards, map, list rows, orders and tickets, the checkout
+  summary, the admin queue, the organiser's dashboard, link previews) add
+  the zone's city after the time only outside Melbourne's zone
+  (`zoneSuffix`, `formatEventWhen`, `lib/event-card.ts` `startLabel`: "Sat
+  21 Nov, 8:00 pm Perth time"; the ACT's "Canberra time"), so a Melbourne
+  event's line is unchanged. The seat hold's end reads "8:31 pm Perth
+  time"; the refund deadline and the door's check-in times are in the
+  event's zone. The editors fill the date and time inputs in the event's
+  zone (legend "Starts (Perth time)") and don't send `state` / `timeZone`
+  yet, so the API reads them in the stored zone and nothing moves.
+- **Grouped** (S6): Tonight, This weekend and a date on /map, and the demo
+  feed's date, use each event's own calendar (`lib/scene-map-filters.ts`).
+  The home's This weekend is the platform's weekend (its heading and
+  whether it's on), but each event is matched against Friday 17:00 to
+  Sunday 23:59:59.999 on its own zone's clock (`weekendWindow(now, zone)`,
+  one per zone), so a Perth gig at 11 pm on Sunday counts; the live home
+  loads pages until the latest zone's weekend has ended
+  (`latestWeekendEnd`: the Cocos Islands').
 - **Platform zone** (owner decision D1): analytics day buckets, trending,
   rate-limit days, retention, and admin and message times stay in
   Australia/Melbourne.

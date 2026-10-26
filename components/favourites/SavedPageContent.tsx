@@ -10,7 +10,7 @@ import SectionHead from "@/components/ui/SectionHead";
 import { listFavourites } from "@/lib/api/favourites";
 import { MAX_FAVOURITES } from "@/lib/api/types";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
-import { formatDayWithYear } from "@/lib/format";
+import { eventZone, formatDayWithYear } from "@/lib/format";
 import { adaptPublicEvent } from "@/lib/live/adapt";
 import { withNext } from "@/lib/safe-next-path";
 import { sampleEvents } from "@/lib/sample-events";
@@ -305,7 +305,7 @@ function PastList({ events, onRemoved }: { events: SheltuhEvent[]; onRemoved: (i
                 >
                   {event.title}
                 </Link>
-                <p className="text-sm text-muted">{formatDayWithYear(event.startsAt)} · Ended</p>
+                <p className="text-sm text-muted">{formatDayWithYear(event.startsAt, new Date(), eventZone(event.timeZone))} · Ended</p>
               </div>
               <Button
                 data-remove-id={event.id}

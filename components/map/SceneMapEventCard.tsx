@@ -4,8 +4,7 @@ import EventArt from "@/components/EventArt";
 import QuickBuyLink from "@/components/QuickBuyLink";
 import { buttonClass } from "@/components/ui/Button";
 import CardPrice from "@/components/ui/CardPrice";
-import { categoryLabel, placeLabel } from "@/lib/event-card";
-import { formatEventDateShort, formatEventTime } from "@/lib/format";
+import { categoryLabel, placeLabel, startDateTimeLine } from "@/lib/event-card";
 import { resolveEventCoordinates, type SuburbLookup } from "@/lib/geo";
 import type { SheltuhEvent } from "@/lib/types";
 
@@ -82,7 +81,7 @@ export default function SceneMapEventCard({
         <div className={`min-w-0 ${sheet ? "flex-1 pr-1" : "px-4 pt-3"}`}>
           <p className="eyebrow text-muted">{categoryLabel(event)}</p>
           <p className="meta mt-1">
-            {formatEventDateShort(event.startsAt)}, {formatEventTime(event.startsAt)}
+            {startDateTimeLine(event)}
           </p>
           <p className="mt-1 line-clamp-2 text-base leading-[1.375rem] font-semibold break-words text-foreground">
             {event.title}

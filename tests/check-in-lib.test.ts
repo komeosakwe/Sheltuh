@@ -243,6 +243,22 @@ describe("door copy", () => {
       icon: "undo",
     });
     expect(undoAbout(base)).toBe("General admission · code ends 2HXD · checked in 8:42 pm");
+    // The door's clock: the event's zone (8:42 pm AEDT is 5:42 pm in Perth, 8:12 pm in Adelaide).
+    expect(undoAbout(base, "Australia/Perth")).toBe("General admission · code ends 2HXD · checked in 5:42 pm");
+    expect(undoAbout(base, "Australia/Adelaide")).toBe("General admission · code ends 2HXD · checked in 8:12 pm");
+  });
+
+  it("says check-in times in the event's zone (Perth, Adelaide); Melbourne by default", () => {
+    const at = "2026-10-17T09:42:00.000Z";
+    expect(formatCheckedInAt(at, new Date("2026-10-17T09:56:00.000Z"), "Australia/Perth")).toBe("5:42 pm (14 min ago)");
+    expect(formatCheckedInAt(at, new Date("2026-10-18T10:00:00.000Z"), "Australia/Perth")).toBe("Sat 17 Oct, 5:42 pm");
+    expect(formatCheckedInAt(at, new Date("2026-10-17T09:56:00.000Z"), "Australia/Adelaide")).toBe("8:12 pm (14 min ago)");
+    expect(formatCheckedInAt(at, new Date("2026-10-17T09:56:00.000Z"), "Australia/Melbourne")).toBe(
+      formatCheckedInAt(at, new Date("2026-10-17T09:56:00.000Z")),
+    );
+    const already = { kind: "server" as const, scan, result: { outcome: "already_checked_in" as const, checkedInAt: at }, ownAgoMs: null };
+    expect(resultAnnouncement(already, "Australia/Perth")).toBe("Don’t let in. Already checked in at 5:42 pm.");
+    expect(resultAnnouncement(already)).toBe("Don’t let in. Already checked in at 8:42 pm.");
   });
 });
 

@@ -2,8 +2,7 @@ import Link from "next/link";
 import EventArt from "@/components/EventArt";
 import QuickBuyLink from "@/components/QuickBuyLink";
 import CardPrice from "@/components/ui/CardPrice";
-import { categoryLabel, placeLabel } from "@/lib/event-card";
-import { formatEventDateShort, formatEventTime } from "@/lib/format";
+import { categoryLabel, placeLabel, startLabel } from "@/lib/event-card";
 import type { SheltuhEvent } from "@/lib/types";
 
 interface SceneEventRowProps {
@@ -26,6 +25,7 @@ interface SceneEventRowProps {
  */
 export default function SceneEventRow({ event, selected, onLocate, hasLocation, detailsHref }: SceneEventRowProps) {
   const place = placeLabel(event);
+  const start = startLabel(event);
   return (
     <div
       className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 border-b border-l-2 border-b-surface-border px-4 py-3 last:border-b-0 ${
@@ -46,8 +46,8 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
           </p>
         )}
         <p className="meta">
-          <span className="whitespace-nowrap">{formatEventDateShort(event.startsAt)}</span>{" "}
-          <span className="whitespace-nowrap">· {formatEventTime(event.startsAt)}</span>
+          <span className="whitespace-nowrap">{start.date}</span>{" "}
+          <span className="whitespace-nowrap">· {start.time}</span>
         </p>
         <Link
           href={detailsHref}

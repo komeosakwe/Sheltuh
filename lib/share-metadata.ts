@@ -1,5 +1,6 @@
 import type { Metadata, ResolvingMetadata } from "next";
-import { formatEventDateKey, formatEventDateShort, formatEventTime } from "./format";
+import { formatEventDateKey, formatEventDateShort, formatEventTime, zoneSuffix } from "./format";
+import type { StateCode } from "./time-zones";
 import { ORGANISER_PAGE_TITLE, ORGANISER_UNAVAILABLE_TITLE, organiserPageTitle } from "./organiser-profile";
 
 /**
@@ -66,6 +67,8 @@ export interface EventShareFields {
   startsAt: string;
   /** The zone the start is shown in (the event's own; absent: Melbourne). */
   timeZone?: string;
+  /** The event's state, for the zone's name (the ACT's "Canberra time"; absent: VIC). */
+  state?: StateCode;
   /** The approved cover image: a path on this site or an absolute URL. Absent: the site's share image. */
   imageUrl?: string;
   /** The image's MIME type, when known (og:image:type). */
@@ -74,16 +77,18 @@ export interface EventShareFields {
 
 /**
  * "Sat 6 Mar 2027, 8:00 pm", in the event's zone (Melbourne by default),
- * always with the year (a preview may be read long after).
+ * always with the year (a preview may be read long after). Outside
+ * Melbourne's zone it names the zone: "Sat 6 Mar 2027, 8:00 pm Perth time"
+ * (zoneSuffix; pass the state for the ACT's "Canberra time").
  */
-export function shareDate(isoLike: string, timeZone?: string): string {
-  return `${formatEventDateShort(isoLike, timeZone)} ${formatEventDateKey(isoLike, timeZone).slice(0, 4)}, ${formatEventTime(isoLike, timeZone)}`;
+export function shareDate(isoLike: string, timeZone?: string, state?: StateCode): string {
+  return `${formatEventDateShort(isoLike, timeZone)} ${formatEventDateKey(isoLike, timeZone).slice(0, 4)}, ${formatEventTime(isoLike, timeZone)}${zoneSuffix(timeZone, state)}`;
 }
 
 /** "Sat 6 Mar 2027, 8:00 pm · The Tote, Collingwood. Four bands, one warehouse." */
 export function eventShareDescription(event: EventShareFields): string {
   const place = [event.venueName.trim(), event.suburb.trim()].filter(Boolean).join(", ");
-  const lead = [shareDate(event.startsAt, event.timeZone), place].filter(Boolean).join(" · ");
+  const lead = [shareDate(event.startsAt, event.timeZone, event.state), place].filter(Boolean).join(" · ");
   const room = SHARE_DESCRIPTION_MAX - lead.length - 2;
   const excerpt = room > 20 ? plainExcerpt(event.description, room) : "";
   return excerpt ? `${lead}. ${excerpt}` : lead;

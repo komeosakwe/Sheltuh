@@ -185,6 +185,26 @@ describe("CheckoutConfirmation", () => {
     expect(screen.getByRole("img", { name: "QR code for ticket A2B3-C4D5" })).toBeInTheDocument();
   });
 
+  it("shows a Perth event's date, check-in time and refund deadline in Perth time, and names it", async () => {
+    getOrderBySession.mockResolvedValue({
+      ...WITH_DETAILS,
+      eventListed: true,
+      eventTimeZone: "Australia/Perth",
+      eventState: "WA",
+      refundPolicy: "days_before",
+      refundDays: 7,
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2027-02-01T00:00:00.000Z"));
+    render(<CheckoutConfirmation />);
+    expect(await screen.findByRole("img", { name: "QR code for ticket 7KQM-2HXD" })).toBeInTheDocument();
+    const tickets = screen.getAllByRole("listitem");
+    // 8:00 pm – 11:30 pm AEDT is 5:00 pm – 8:30 pm AWST; checked in 8:42 pm AEDT is 5:42 pm AWST.
+    for (const ticket of tickets) expect(ticket.textContent).toContain("Sat 6 Mar, 5:00 pm – 8:30 pm Perth time");
+    expect(tickets[0].textContent).toMatch(/Checked in (Sat 6 Mar( 2027)?, )?5:42 pm/);
+    expect(screen.getByText("Refunds available until Sat 27 Feb, 5:00 pm (7 days before the event).")).toBeInTheDocument();
+  });
+
   it("from an older API (no event details or check-in status), shows the tickets without them", async () => {
     getOrderBySession.mockResolvedValue({
       ...ORDER,
@@ -467,6 +487,24 @@ describe("CheckoutConfirmation: back from Stripe without a confirmed order (chec
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Back to Sheltüh" })).toHaveAttribute("href", "/");
+  });
+
+  it("still open, seated, at a Perth event: the hold ends in Perth time, and says so", async () => {
+    getOrderPayment.mockResolvedValue({
+      status: "open",
+      clientSecret: "cs_secret",
+      expiresAt: "2027-03-06T09:31:00.000Z", // 8:31 pm AEDT, 5:31 pm AWST
+      eventTitle: "Off-Kilter",
+      eventTimeZone: "Australia/Perth",
+      eventState: "WA",
+      seated: true,
+      lines: [],
+      subtotalCents: 3000,
+      buyerFeeCents: 170,
+      totalCents: 3170,
+    });
+    await renderPending(2);
+    expect(screen.getByText(/Your seats are held until 5:31 pm Perth time\.$/)).toBeInTheDocument();
   });
 
   it("processing: keeps polling, then says the payment is processing (not an error)", async () => {

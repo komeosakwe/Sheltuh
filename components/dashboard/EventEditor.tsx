@@ -46,7 +46,7 @@ import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import { eventClipsEnabled } from "@/lib/clips-flag";
 import { calculateBookingFeeCents, calculateOrderSummary, describeBookingFee, MIN_PAID_TICKET_CENTS } from "@/lib/fees";
-import { formatAud, toMelbourneDateTimeInputParts } from "@/lib/format";
+import { formatAud, toDateTimeInputParts } from "@/lib/format";
 import {
   DEFAULT_REFUND_POLICY,
   isValidRefundDays,
@@ -55,7 +55,7 @@ import {
   type RefundPolicy,
 } from "@/lib/refund-policy";
 import { checkExternalTicketUrl, sellsPaidTicketsOnSheltuh, type TicketingMode } from "@/lib/ticketing";
-import { localToUtcIso, PLATFORM_TIME_ZONE } from "@/lib/time-zones";
+import { localToUtcIso, PLATFORM_TIME_ZONE, zoneShortLabel } from "@/lib/time-zones";
 import { EVENT_CATEGORIES } from "@/lib/types";
 
 /** A section title in the form (Panel's title style: 20/24, uppercase by the heading base rule, which a legend doesn't get). */
@@ -174,11 +174,11 @@ function invalidControlIds(
   return order.filter(([key]) => errors[key]).map(([, id]) => id);
 }
 
-/** The event's start as an instant, once both parts are filled in and real (Melbourne time); undefined otherwise. */
-function startInstant(start: { date: string; time: string }): string | undefined {
+/** The event's start as an instant, once both parts are filled in and real (in the event's zone); undefined otherwise. */
+function startInstant(start: { date: string; time: string }, timeZone: string): string | undefined {
   if (!start.date || !start.time) return undefined;
   try {
-    return localToUtcIso(start.date, start.time, PLATFORM_TIME_ZONE);
+    return localToUtcIso(start.date, start.time, timeZone);
   } catch {
     // Not a real local time yet (half-typed, or in the daylight-saving gap): no preview date.
     return undefined;
@@ -205,8 +205,13 @@ export default function EventEditor(props: Props) {
   const [venueName, setVenueName] = useState(initial?.venueName ?? "");
   const [venueAddress, setVenueAddress] = useState(initial?.venueAddress ?? "");
   const [suburb, setSuburb] = useState(initial?.suburb ?? "");
-  const [start, setStart] = useState(initial ? toMelbourneDateTimeInputParts(initial.startsAt) : { date: "", time: "" });
-  const [end, setEnd] = useState(initial ? toMelbourneDateTimeInputParts(initial.endsAt) : { date: "", time: "" });
+  // The zone the date and time inputs are in: the saved event's own (the API reads them in its stored
+  // zone when none is sent, and this form doesn't send one yet), Melbourne for a new event.
+  const timeZone = initial?.timeZone ?? PLATFORM_TIME_ZONE;
+  // "Melbourne time", or the event's own zone's city ("Perth time"; the ACT's "Canberra time").
+  const zoneName = zoneShortLabel(timeZone, initial?.state);
+  const [start, setStart] = useState(initial ? toDateTimeInputParts(initial.startsAt, timeZone) : { date: "", time: "" });
+  const [end, setEnd] = useState(initial ? toDateTimeInputParts(initial.endsAt, timeZone) : { date: "", time: "" });
   const [ticketTypes, setTicketTypes] = useState<TicketTypeInput[]>(
     initial?.ticketTypes && initial.ticketTypes.length > 0 ? initial.ticketTypes : [newTicketType()],
   );
@@ -763,7 +768,7 @@ export default function EventEditor(props: Props) {
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <fieldset className="flex min-w-0 flex-col gap-2">
-          <legend className="eyebrow text-muted">Starts (Melbourne time)</legend>
+          <legend className="eyebrow text-muted">Starts ({zoneName})</legend>
           <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,8rem)] gap-2">
             <input
               id="start-date"
@@ -787,7 +792,7 @@ export default function EventEditor(props: Props) {
           {fieldError("start")}
         </fieldset>
         <fieldset className="flex min-w-0 flex-col gap-2">
-          <legend className="eyebrow text-muted">Ends (Melbourne time)</legend>
+          <legend className="eyebrow text-muted">Ends ({zoneName})</legend>
           <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,8rem)] gap-2">
             <input
               id="end-date"
@@ -1039,7 +1044,8 @@ export default function EventEditor(props: Props) {
           policyError={errors.refundPolicy}
           daysError={errors.refundDays}
           savedTerms={savedRecord ?? initial}
-          startsAt={startInstant(start)}
+          startsAt={startInstant(start, timeZone)}
+          timeZone={timeZone}
           admin={isAdmin}
           checkedRef={refundChoiceRef}
           daysRef={refundDaysRef}

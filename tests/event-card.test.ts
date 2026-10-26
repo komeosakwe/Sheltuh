@@ -10,6 +10,8 @@ import {
   hasEnded,
   placeLabel,
   signalLabel,
+  startDateTimeLine,
+  startLabel,
 } from "@/lib/event-card";
 import { getSampleGoing } from "@/lib/sample-going";
 import type { SheltuhEvent, TicketType } from "@/lib/types";
@@ -162,5 +164,37 @@ describe("signalLabel", () => {
     expect(signalLabel({ kind: "going", count: 9 }, true)).toBe("Popular");
     expect(signalLabel({ kind: "just-announced" }, false)).toBe("Just announced");
     expect(signalLabel({ kind: "popular" }, false)).toBe("Popular");
+  });
+});
+
+describe("cardDateLabel in the event's own zone", () => {
+  // Sat 24 Oct 2026, 7:30 pm AEDT = 4:30 pm AWST (Perth) = 7:00 pm ACDT (Adelaide).
+  const perth = event({ state: "WA", timeZone: "Australia/Perth" });
+  const adelaide = event({ state: "SA", timeZone: "Australia/Adelaide" });
+
+  it("Perth: the start in Perth time, and says so", () => {
+    expect(cardDateLabel(perth, BEFORE)).toEqual({ date: "Sat 24 Oct", time: "4:30 pm Perth time" });
+    expect(startDateTimeLine(perth)).toBe("Sat 24 Oct, 4:30 pm Perth time");
+  });
+
+  it("Adelaide: half an hour behind Melbourne in daylight saving", () => {
+    expect(cardDateLabel(adelaide, BEFORE)).toEqual({ date: "Sat 24 Oct", time: "7:00 pm Adelaide time" });
+  });
+
+  it("a late Perth start is on its own date, not Melbourne's next day", () => {
+    // 11:30 pm AWST Sat 24 Oct = 2:30 am AEDT Sun 25 Oct.
+    const late = event({ state: "WA", timeZone: "Australia/Perth", startsAt: "2026-10-24T15:30:00.000Z", endsAt: undefined });
+    expect(cardDateLabel(late, BEFORE)).toEqual({ date: "Sat 24 Oct", time: "11:30 pm Perth time" });
+  });
+
+  it("'Now on · until' in the event's zone, naming it with a time", () => {
+    // 9:00 am AWST: under way, ending 7:30 pm AWST the same day in Perth.
+    expect(cardDateLabel(perth, new Date("2026-10-24T09:00:00.000Z"))).toEqual({ running: "Now on · until 7:30 pm Perth time" });
+  });
+
+  it("a Melbourne event is exactly as before", () => {
+    const melbourne = event({ state: "VIC", timeZone: "Australia/Melbourne" });
+    expect(cardDateLabel(melbourne, BEFORE)).toEqual(cardDateLabel(event(), BEFORE));
+    expect(startLabel(melbourne)).toEqual({ date: "Sat 24 Oct", time: "7:30 pm" });
   });
 });

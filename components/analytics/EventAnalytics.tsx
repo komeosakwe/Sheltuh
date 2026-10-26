@@ -10,7 +10,7 @@ import { rangeLabel, rangeSearch, toQuery, type RangeState } from "@/lib/analyti
 import { downloadEventAnalyticsCsv, getEventAnalytics } from "@/lib/api/analytics";
 import type { GetToken } from "@/lib/api/client";
 import type { EventAnalytics as Report } from "@/lib/api/types";
-import { formatEventDateShort } from "@/lib/format";
+import { eventZone, formatEventDateShort } from "@/lib/format";
 import AnalyticsGate, { NotApprovedOrganiser } from "./AnalyticsGate";
 import Attendance from "./Attendance";
 import DataTable from "./DataTable";
@@ -109,7 +109,7 @@ function EventReport({ eventId, getToken }: { eventId: string; getToken: GetToke
           <h1 className="display-md break-words">{event ? event.title || "Untitled event" : "Event analytics"}</h1>
           {event && (
             <p className="meta text-muted">
-              {[formatEventDateShort(event.startsAt), event.venueName, STATUS_LABEL[event.status]].filter(Boolean).join(" · ")}
+              {[formatEventDateShort(event.startsAt, eventZone(event.timeZone)), event.venueName, STATUS_LABEL[event.status]].filter(Boolean).join(" · ")}
             </p>
           )}
         </div>

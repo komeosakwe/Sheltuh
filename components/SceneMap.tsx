@@ -16,7 +16,8 @@ import { isApiConfigured } from "@/lib/api/client";
 import { listPublicEvents } from "@/lib/api/public-events";
 import { adaptPublicEvent } from "@/lib/live/adapt";
 import { getEventCategories, getUpcomingEvents } from "@/lib/data";
-import { formatEventDateShort, formatEventTime } from "@/lib/format";
+import { startLabel } from "@/lib/event-card";
+import { formatEventDateShort } from "@/lib/format";
 import { useLocationModule } from "@/components/search/useLocationModule";
 import { findListedSuburb, resolveMapCoordinates, type SuburbLookup } from "@/lib/geo";
 import { TILE_STYLE_PARAM, type TileStyleId } from "@/lib/map-tiles";
@@ -375,7 +376,8 @@ function SceneMapView({
     if (filters.time === "tonight") return "Tonight";
     if (filters.time === "weekend") return "This weekend";
     if (filters.time === "date" && filters.specificDate) {
-      return formatEventDateShort(new Date(`${filters.specificDate}T12:00:00`).toISOString());
+      // A calendar date, not an instant: noon UTC read in UTC is that date wherever the browser is.
+      return formatEventDateShort(`${filters.specificDate}T12:00:00.000Z`, "UTC");
     }
     return "";
   }
@@ -643,7 +645,7 @@ function SceneMapView({
 
           <p className="sr-only" aria-live="polite">
             {selectedEvent
-              ? `Selected ${selectedEvent.title}, ${formatEventDateShort(selectedEvent.startsAt)} ${formatEventTime(selectedEvent.startsAt)}, ${selectedEvent.venueName}, ${formatFeedPrice(selectedEvent)}.`
+              ? `Selected ${selectedEvent.title}, ${startLabel(selectedEvent).date} ${startLabel(selectedEvent).time}, ${selectedEvent.venueName}, ${formatFeedPrice(selectedEvent)}.`
               : ""}
           </p>
         </>

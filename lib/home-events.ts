@@ -3,7 +3,7 @@ import { listFollowingEvents } from "@/lib/api/follows";
 import { listPublicEvents } from "@/lib/api/public-events";
 import { getTrendingEvents } from "@/lib/api/trending";
 import { getUpcomingEvents, isUpcomingEvent } from "@/lib/data";
-import { bySoonest, weekendWindow, type TrendingItem } from "@/lib/home-sections";
+import { bySoonest, latestWeekendEnd, type TrendingItem } from "@/lib/home-sections";
 import { adaptPublicEvent } from "@/lib/live/adapt";
 import { getSampleGoing } from "@/lib/sample-going";
 import type { SheltuhEvent } from "@/lib/types";
@@ -24,7 +24,8 @@ const notEnded = (now: Date) => (event: SheltuhEvent) => isUpcomingEvent(event, 
 /**
  * The home page's events that haven't ended, soonest first (docs/design/home.md
  * §6.1). Live: one request for upcoming events; then, while the last loaded
- * event starts no later than the weekend's end and there's a next cursor,
+ * event starts no later than the weekend's end (the latest in any zone: each
+ * event's weekend is its own, latestWeekendEnd) and there's a next cursor,
  * follow that cursor page by page (at most HOME_WEEKEND_TOP_UP_MAX_PAGES more
  * requests), merged by id. Following the cursor rather than jumping to the
  * weekend's first day keeps events that start before the weekend but are
@@ -37,7 +38,7 @@ export async function loadHomeEvents(now: Date): Promise<SheltuhEvent[]> {
     return (await getUpcomingEvents(now)).filter(notEnded(now)).sort(bySoonest);
   }
 
-  const window = weekendWindow(now);
+  const weekendEnd = latestWeekendEnd(now);
   const byId = new Map<string, SheltuhEvent>();
   let page = await listPublicEvents({ upcoming: true, limit: HOME_EVENT_LIMIT });
   for (let topUps = 0; ; topUps += 1) {
@@ -45,7 +46,7 @@ export async function loadHomeEvents(now: Date): Promise<SheltuhEvent[]> {
     const last = page.items.at(-1);
     const lastStart = last ? Date.parse(last.startsAt) : Infinity;
     // Past the weekend's end, or everything is loaded, or the cap is reached: stop.
-    if (!page.nextCursor || lastStart > window.end || topUps >= HOME_WEEKEND_TOP_UP_MAX_PAGES) break;
+    if (!page.nextCursor || lastStart > weekendEnd || topUps >= HOME_WEEKEND_TOP_UP_MAX_PAGES) break;
     page = await listPublicEvents({ upcoming: true, limit: HOME_WEEKEND_TOP_UP_LIMIT, cursor: page.nextCursor });
   }
   return [...byId.values()].filter(notEnded(now)).sort(bySoonest);

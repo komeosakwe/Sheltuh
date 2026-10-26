@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   formatWeekendRange,
+  latestWeekendEnd,
   popularEvents,
   selectHomeSections,
   shownEventIds,
@@ -277,5 +278,61 @@ describe("selectHomeSections: From organisers you follow", () => {
 
   it("shows even one event (the member asked for them)", () => {
     expect(selectHomeSections([thursday], [], NOW, [followedOnly]).following.map((e) => e.id)).toEqual(["followed"]);
+  });
+});
+
+describe("This weekend in each event's own zone (owner plan S6)", () => {
+  const PERTH = { state: "WA", timeZone: "Australia/Perth" } as const;
+
+  it("weekendWindow(now, zone): the heading's weekend, Fri 17:00 to Sun 23:59:59.999 on the zone's clock", () => {
+    // Perth is AWST (UTC+8) all year: Fri 23 Oct 17:00 AWST = 09:00Z; Sun 25 Oct 23:59:59.999 AWST = 15:59:59.999Z.
+    expect(weekendWindow(NOW, "Australia/Perth")).toEqual({
+      start: Date.parse("2026-10-23T09:00:00.000Z"),
+      end: Date.parse("2026-10-25T15:59:59.999Z"),
+      during: false,
+    });
+    // Fri 18:00 AEDT is 15:00 AWST: Melbourne's weekend is on, Perth's starts at 17:00 there.
+    const friEvening = at("2026-10-23T07:00:00.000Z");
+    expect(weekendWindow(friEvening).during).toBe(true);
+    expect(weekendWindow(friEvening, "Australia/Perth")).toMatchObject({ start: Date.parse("2026-10-23T09:00:00.000Z"), during: false });
+    // The default zone is Melbourne's.
+    expect(weekendWindow(NOW, "Australia/Melbourne")).toEqual(weekendWindow(NOW));
+  });
+
+  it("a Perth event at 11 pm on Sunday, Perth time (Monday 2 am in Melbourne), is this weekend", () => {
+    // Sun 25 Oct 23:00 AWST = 15:00Z = Mon 26 Oct 02:00 AEDT.
+    const perthSunday = event("perth-sun", "2026-10-25T15:00:00.000Z", { ...PERTH, endsAt: "2026-10-25T15:45:00.000Z" });
+    // The same instant in Melbourne is Monday: not this weekend.
+    const melbourneMonday = event("melb-mon", "2026-10-25T15:00:00.000Z");
+    const sections = selectHomeSections([perthSunday, melbourneMonday, event("mon", day(26))], [], NOW);
+    expect(sections.weekend.items.map((e) => e.id)).toEqual(["perth-sun"]);
+    // The heading stays Melbourne's.
+    expect(formatWeekendRange(sections.weekend.window)).toBe("Fri 23 – Sun 25 Oct");
+  });
+
+  it("a Perth event at 4 pm on Friday, Perth time (7 pm in Melbourne), isn't: Perth's weekend starts at 5 pm there", () => {
+    const perthFriday = event("perth-fri", "2026-10-23T08:00:00.000Z", { ...PERTH, endsAt: "2026-10-23T08:30:00.000Z" });
+    const melbourneFriday = event("melb-fri", "2026-10-23T08:00:00.000Z", { endsAt: "2026-10-23T08:30:00.000Z" });
+    const sections = selectHomeSections([perthFriday, melbourneFriday], [], NOW);
+    expect(sections.weekend.items.map((e) => e.id)).toEqual(["melb-fri"]);
+  });
+
+  it("an event where the weekend is already over isn't in it (Norfolk Island, late on a Melbourne Sunday)", () => {
+    // Sun 25 Oct 23:30 AEDT = Mon 26 Oct 00:30 on Norfolk Island (UTC+12 in daylight saving).
+    const lateSunday = at("2026-10-25T12:30:00.000Z");
+    const norfolk = weekendWindow(lateSunday, "Pacific/Norfolk");
+    expect(norfolk.start).toBeGreaterThan(norfolk.end);
+    const running = event("norfolk-run", "2026-10-20T00:00:00.000Z", {
+      state: "OT",
+      timeZone: "Pacific/Norfolk",
+      endsAt: "2026-11-20T00:00:00.000Z",
+    });
+    expect(selectHomeSections([running], [], lateSunday).weekend.items).toEqual([]);
+  });
+
+  it("latestWeekendEnd: the Cocos (Keeling) Islands' Sunday midnight, the last in any zone", () => {
+    // Sun 25 Oct 23:59:59.999 at UTC+6:30 = 17:29:59.999Z.
+    expect(latestWeekendEnd(NOW)).toBe(Date.parse("2026-10-25T17:29:59.999Z"));
+    expect(latestWeekendEnd(NOW)).toBeGreaterThan(weekendWindow(NOW, "Australia/Perth").end);
   });
 });

@@ -1,5 +1,6 @@
 import type { RefundPolicy } from "./refund-policy";
 import type { TicketingMode } from "./ticketing";
+import type { AustralianTimeZone, StateCode } from "./time-zones";
 
 export type EventCategory =
   | "live-music"
@@ -121,8 +122,23 @@ export interface SheltuhEvent {
    * (e.g. from the live API) that don't have a geocoded venue location yet.
    */
   coordinates?: Coordinates;
-  /** ISO 8601 datetime, wall-clock time in Australia/Melbourne. */
+  /**
+   * The event's state or territory (lib/time-zones.ts STATE_CODES). Absent
+   * means `VIC`. Only needed to label the zone: the ACT's "Canberra time".
+   */
+  state?: StateCode;
+  /**
+   * The IANA zone the event's times are in, and shown in (lib/format.ts
+   * formatters take it last; eventTimeZone gives the default). Absent means
+   * Australia/Melbourne (every demo sample event).
+   */
+  timeZone?: AustralianTimeZone;
+  /**
+   * ISO 8601 instant (UTC, or with an offset): the moment the event starts,
+   * not a wall-clock time. Show it in `timeZone`.
+   */
   startsAt: string;
+  /** ISO 8601 instant, as `startsAt`. */
   endsAt?: string;
   organiserName: string;
   /**

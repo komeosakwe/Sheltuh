@@ -15,6 +15,7 @@ import {
   type DoorTone,
   type UndoTarget,
 } from "@/lib/check-in/door-copy";
+import { eventZone } from "@/lib/format";
 import { withNext } from "@/lib/safe-next-path";
 import { doorBusyClass } from "./busy-class";
 import DoorIcon, { type DoorIconName } from "./DoorIcon";
@@ -53,7 +54,7 @@ function TicketLine({ ticket }: { ticket: CheckInTicket }) {
   );
 }
 
-function reasonAndDetails(result: DoorResult, now: Date): { reason: string; details: ReactNode } {
+function reasonAndDetails(result: DoorResult, now: Date, timeZone: string): { reason: string; details: ReactNode } {
   if (result.kind === "foreign") {
     return {
       reason: "Not a Sheltüh ticket",
@@ -77,7 +78,7 @@ function reasonAndDetails(result: DoorResult, now: Date): { reason: string; deta
         details: (
           <>
             {ticket && <TicketLine ticket={ticket} />}
-            {checkedInAt && <p className="text-base">First checked in {formatCheckedInAt(checkedInAt, now)}</p>}
+            {checkedInAt && <p className="text-base">First checked in {formatCheckedInAt(checkedInAt, now, timeZone)}</p>}
             {result.ownAgoMs !== null && <p className="text-base">{ownScanNote(result.ownAgoMs)}</p>}
           </>
         ),
@@ -138,6 +139,8 @@ interface Props {
   onUndo?: (target: UndoTarget) => void;
   /** Focus or a pointer is inside: auto-return waits. */
   onPauseChange: (paused: boolean) => void;
+  /** The event's zone, for check-in times (the door's clock); absent means Melbourne. */
+  timeZone?: string;
 }
 
 /**
@@ -168,9 +171,10 @@ export default function ResultPanel({
   onDismiss,
   onUndo,
   onPauseChange,
+  timeZone,
 }: Props) {
   const tone = toneOf(result);
-  const { reason, details } = reasonAndDetails(result, new Date());
+  const { reason, details } = reasonAndDetails(result, new Date(), eventZone(timeZone));
 
   let actions: ReactNode = null;
   if (result.kind === "unverified") {

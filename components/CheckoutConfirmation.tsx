@@ -20,11 +20,11 @@ import {
   formatHoldDeadline,
   type CheckoutOrderContext,
 } from "@/lib/checkout-pay";
-import { formatAud, formatEventDateTimeRange } from "@/lib/format";
+import { eventZone, formatAud, formatEventWhen } from "@/lib/format";
 import { REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { compareSeats } from "@/lib/seating/format";
 import { forgetPendingCheckout } from "@/lib/seating/pending-checkout";
-import type { CustomerOrder } from "@/lib/api/types";
+import type { CustomerOrder, StateCode } from "@/lib/api/types";
 
 export type LoadState =
   | { status: "loading" }
@@ -34,7 +34,14 @@ export type LoadState =
   | { status: "not-found" }
   | { status: "error"; message: string }
   // Back from Stripe without paying (a redirect-based method cancelled or failed): the checkout is still open.
-  | { status: "payment-open"; context: CheckoutOrderContext; expiresAt: string }
+  | {
+      status: "payment-open";
+      context: CheckoutOrderContext;
+      expiresAt: string;
+      /** The event's zone and state, for the seat hold's end ("8:31 pm Perth time"); absent: Melbourne. */
+      eventTimeZone?: string;
+      eventState?: StateCode;
+    }
   // Stripe has the payment but it's taking a while to clear: the tickets follow by email.
   | { status: "processing" }
   | { status: "closed"; context: CheckoutOrderContext }
@@ -136,7 +143,15 @@ export default function CheckoutConfirmation() {
         }
         if (payment.status === "done") return false;
         const context: CheckoutOrderContext = { eventSlug: payment.eventSlug, seated: payment.seated };
-        if (payment.status === "open") setState({ status: "payment-open", context, expiresAt: payment.expiresAt });
+        if (payment.status === "open") {
+          setState({
+            status: "payment-open",
+            context,
+            expiresAt: payment.expiresAt,
+            eventTimeZone: payment.eventTimeZone,
+            eventState: payment.eventState,
+          });
+        }
         else if (payment.status === "closed") setState({ status: "closed", context });
         else setState({ status: "sold-out", context });
         return true;
@@ -275,7 +290,7 @@ export default function CheckoutConfirmation() {
       >
         <p className="max-w-md text-sm text-muted">
           You haven&rsquo;t been charged. Your checkout is still open, so you can try again.
-          {context.seated ? ` Your seats are held until ${formatHoldDeadline(state.expiresAt)}.` : ""}
+          {context.seated ? ` Your seats are held until ${formatHoldDeadline(state.expiresAt, state.eventTimeZone, state.eventState)}.` : ""}
         </p>
       </StateMessage>
     );
@@ -332,14 +347,18 @@ export default function CheckoutConfirmation() {
   const unlisted = order.eventListed === false;
   const eventPath = order.eventSlug && !unlisted ? `/events/${encodeURIComponent(order.eventSlug)}` : null;
   // Each ticket repeats the event, so a screenshot of one says what it's for. Unset from an older API.
+  // In the event's zone, naming it outside Melbourne's ("… 11:00 pm Perth time").
+  const zone = eventZone(order.eventTimeZone);
   const when =
-    order.eventStartsAt && !unlisted ? formatEventDateTimeRange(order.eventStartsAt, order.eventEndsAt) : undefined;
+    order.eventStartsAt && !unlisted
+      ? formatEventWhen(order.eventStartsAt, order.eventEndsAt, order.eventTimeZone, order.eventState)
+      : undefined;
   const where = unlisted
     ? undefined
     : [order.venueName, order.suburb].filter((part) => !!part?.trim()).join(", ") || undefined;
   // The refund policy: only where something was paid (a free order has nothing to refund) and the event is listed.
   const refunds =
-    unlisted || order.totalCents <= 0 ? null : refundTermsLine(order.refundPolicy, order.refundDays, order.eventStartsAt);
+    unlisted || order.totalCents <= 0 ? null : refundTermsLine(order.refundPolicy, order.refundDays, order.eventStartsAt, { timeZone: zone });
   return (
     <div className="flex flex-col gap-8 py-10 sm:py-14">
       <div className="flex flex-col gap-3">
@@ -372,6 +391,7 @@ export default function CheckoutConfirmation() {
               where={where}
               eventUnlisted={unlisted}
               checkedInAt={ticket.checkedInAt}
+              timeZone={zone}
             />
           ))}
         </ul>

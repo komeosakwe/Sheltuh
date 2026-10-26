@@ -68,6 +68,48 @@ describe("isOnDate", () => {
   });
 });
 
+describe("time filters in each event's own zone", () => {
+  const perth = { state: "WA", timeZone: "Australia/Perth" } as const;
+
+  it("tonight: a Perth event is tonight on Perth's date, not Melbourne's", () => {
+    // Sat 24 Oct 2026 23:30 AEDT = 20:30 AWST: still Saturday in both.
+    const now = new Date("2026-10-24T12:30:00.000Z");
+    // 11:30 pm AWST Sat = 2:30 am AEDT Sun: tonight in Perth.
+    expect(isTonight(eventAt("2026-10-24T15:30:00.000Z", perth), now)).toBe(true);
+    // The same instant in Melbourne is tomorrow.
+    expect(isTonight(eventAt("2026-10-24T15:30:00.000Z"), now)).toBe(false);
+  });
+
+  it("tonight: after Melbourne's midnight it's still the evening before in Perth", () => {
+    // Sun 25 Oct 00:30 AEDT = Sat 24 Oct 21:30 AWST.
+    const now = new Date("2026-10-24T13:30:00.000Z");
+    expect(isTonight(eventAt("2026-10-24T14:00:00.000Z", perth), now)).toBe(true); // Sat 10 pm AWST
+    expect(isTonight(eventAt("2026-10-24T14:00:00.000Z"), now)).toBe(true); // Sun 1 am AEDT
+    expect(isTonight(eventAt("2026-10-24T09:00:00.000Z"), now)).toBe(false); // Sat 8 pm AEDT: yesterday in Melbourne
+  });
+
+  it("this weekend: a Perth event at 11 pm on Sunday, Perth time, is in it", () => {
+    const now = new Date("2026-10-21T01:00:00.000Z"); // Wed
+    // Sun 25 Oct 23:00 AWST = Mon 26 Oct 02:00 AEDT.
+    expect(isThisWeekend(eventAt("2026-10-25T15:00:00.000Z", perth), now)).toBe(true);
+    expect(isThisWeekend(eventAt("2026-10-25T15:00:00.000Z"), now)).toBe(false);
+  });
+
+  it("this weekend: counts calendar days across the start of daylight saving", () => {
+    // Sat 3 Oct 2026 23:30 AEST; the clocks go forward that night, so Sunday is 23 hours long.
+    const now = new Date("2026-10-03T13:30:00.000Z");
+    expect(isThisWeekend(eventAt("2026-10-04T08:00:00.000Z"), now)).toBe(true); // Sun 7 pm AEDT
+    expect(isThisWeekend(eventAt("2026-10-05T08:00:00.000Z"), now)).toBe(false); // Mon
+  });
+
+  it("a date: the event's own local date, as the feed's onOrAfter reads it", () => {
+    // 11:30 pm AWST Sat 24 Oct = Sun 25 Oct in Melbourne.
+    expect(isOnDate(eventAt("2026-10-24T15:30:00.000Z", perth), "2026-10-24")).toBe(true);
+    expect(isOnDate(eventAt("2026-10-24T15:30:00.000Z"), "2026-10-25")).toBe(true);
+    expect(matchesTimeFilter(eventAt("2026-10-24T15:30:00.000Z", perth), "date", new Date(), "2026-10-25")).toBe(false);
+  });
+});
+
 describe("matchesTimeFilter", () => {
   const now = new Date("2026-09-18T01:00:00.000Z");
 

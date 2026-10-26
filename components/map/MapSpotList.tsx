@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef } from "react";
 import EventArt from "@/components/EventArt";
-import { formatEventDateShort, formatEventTime } from "@/lib/format";
+import { startDateTimeLine } from "@/lib/event-card";
 import type { SheltuhEvent } from "@/lib/types";
 
 interface MapSpotListProps {
@@ -75,7 +75,7 @@ export default function MapSpotList({ events, onChoose, onClose }: MapSpotListPr
               <span className="min-w-0">
                 <span className="block truncate font-sans text-sm font-semibold text-foreground">{event.title}</span>
                 <span className="block truncate font-sans text-xs text-muted">
-                  {formatEventDateShort(event.startsAt)}, {formatEventTime(event.startsAt)} &middot; {event.venueName}
+                  {startDateTimeLine(event)} &middot; {event.venueName}
                 </span>
               </span>
             </button>

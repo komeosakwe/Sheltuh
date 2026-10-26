@@ -15,6 +15,9 @@ export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
     suburb: event.suburb,
     venueName: event.venueName,
     venueAddress: event.venueAddress,
+    // Only when sent: absent means VIC / Australia/Melbourne, so an older payload adapts as before.
+    ...(event.state ? { state: event.state } : {}),
+    ...(event.timeZone ? { timeZone: event.timeZone } : {}),
     startsAt: event.startsAt,
     endsAt: event.endsAt,
     organiserName: event.organiserName,

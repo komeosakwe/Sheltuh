@@ -21,7 +21,8 @@ import { createCheckoutSession } from "@/lib/api/orders";
 import { createSeatedCheckout, getSeatAvailability, seatErrorDetails } from "@/lib/api/seating";
 import { MAX_FREE_TICKETS_PER_ORDER, SEAT_HOLD } from "@/lib/api/types";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
-import { formatAud, formatEventDateShort, formatEventTime } from "@/lib/format";
+import { startDateTimeLine } from "@/lib/event-card";
+import { eventZone, formatAud, formatEventTime } from "@/lib/format";
 import { getTicketBuyerTotalCents, isSoldOut } from "@/lib/pricing";
 import { unavailablePositions } from "@/lib/seating/availability";
 import { formatSeatLine, speakSeatLine } from "@/lib/seating/format";
@@ -254,6 +255,7 @@ export default function SeatPicker({
 
   // Polling (live, or an admin's preview of a saved map), every 10 seconds while visible.
   const pollToken = poll ? poll.getToken : undefined;
+  const zone = eventZone(event.timeZone);
   const pollAvailability = useCallback(async () => {
     try {
       const result = await getSeatAvailability(event.id, { getToken: pollToken });
@@ -266,7 +268,7 @@ export default function SeatPicker({
       const next = new Set(positions);
       setUnavailable(next);
       setFailures(0);
-      setLastUpdated(formatEventTime(new Date().toISOString()));
+      setLastUpdated(formatEventTime(new Date().toISOString(), zone));
       // Seats taken while choosing leave the selection, and say so.
       const taken = selectedIdsRef.current.map((id) => byId.get(id)).filter((seat): seat is FlatSeat => !!seat && next.has(seat.position));
       if (taken.length > 0) {
@@ -282,7 +284,7 @@ export default function SeatPicker({
     } catch {
       setFailures((n) => n + 1);
     }
-  }, [event.id, pollToken, map.version, map.seatCount, byId, onMapStale, announce]);
+  }, [event.id, zone, pollToken, map.version, map.seatCount, byId, onMapStale, announce]);
   // Not while checking out: the buyer's own just-held seats would come back as "just taken".
   useVisibleInterval(pollAvailability, AVAILABILITY_POLL_MS, { enabled: Boolean(poll) && !readOnly && !busy });
 
@@ -864,7 +866,7 @@ export default function SeatPicker({
     </>
   );
 
-  const dateLine = `${formatEventDateShort(event.startsAt)}, ${formatEventTime(event.startsAt)} · ${event.venueName}`;
+  const dateLine = `${startDateTimeLine(event)} · ${event.venueName}`;
 
   return (
     <div className="relative lg:mx-auto lg:max-w-7xl lg:px-8 lg:pt-6 lg:pb-16">

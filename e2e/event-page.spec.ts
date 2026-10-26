@@ -381,6 +381,34 @@ for (const width of [375, 1280]) {
   });
 }
 
+test.describe("an event outside Victoria (owner plan S5)", () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  test("a Perth event shows its times in Perth time and labels them 'Perth time (AWST)'", async ({ page }) => {
+    // Sat 6 Mar 2027: 6:00 pm – 10:00 pm AWST (9:00 pm – 1:00 am in Melbourne).
+    const event: PublicEvent = {
+      ...asPublic("neon-static"),
+      state: "WA",
+      timeZone: "Australia/Perth",
+      startsAt: "2027-03-06T10:00:00.000Z",
+      endsAt: "2027-03-06T14:00:00.000Z",
+    };
+    await page.route("**/api/**", (route) => {
+      const url = new URL(route.request().url());
+      if (/^\/api\/events\/slug\//.test(url.pathname)) return route.fulfill({ json: event });
+      if (/\/going$/.test(url.pathname)) return route.fulfill({ json: { count: 0, countHidden: false, closed: false } });
+      return route.fulfill({ status: 204 });
+    });
+    await page.goto("/events/neon-static");
+    await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
+    const facts = page.locator("[data-event-facts]");
+    await expect(facts.getByText("Perth time (AWST)", { exact: true })).toBeVisible();
+    await expect(facts).toContainText(/Sat 6 Mar, 6:00 pm – 10:00 pm/);
+    await expect(facts).not.toContainText("Melbourne time");
+    await noSidewaysScroll(page);
+  });
+});
+
 test.describe("refund policy at 320px", () => {
   test.use({ viewport: { width: 320, height: 640 } });
 

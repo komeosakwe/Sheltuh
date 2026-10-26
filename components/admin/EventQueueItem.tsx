@@ -13,7 +13,7 @@ import { isPayoutsRequiredError } from "@/lib/api/events";
 import type { AdminEventRecord, EventStatus } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/session-token";
 import { clipPlayName, clipTimeLabel } from "@/lib/clip-display";
-import { formatEventDateTimeRange } from "@/lib/format";
+import { formatEventWhen } from "@/lib/format";
 import { validateMessage } from "@/lib/message-text";
 import { formatTicketBreakdown, formatTicketHeadline } from "@/lib/pricing";
 import { ticketProviderName } from "@/lib/ticketing";
@@ -95,7 +95,7 @@ export default function EventQueueItem({
             {item.organiserPlatformManaged && <> &middot; Sheltüh-run organiser (no account of its own)</>}
           </p>
           <p className="text-sm text-muted">
-            {formatEventDateTimeRange(item.startsAt, item.endsAt)}
+            {formatEventWhen(item.startsAt, item.endsAt, item.timeZone, item.state)}
             {ended && (
               <>
                 {" "}
