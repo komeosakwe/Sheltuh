@@ -52,7 +52,8 @@
 -- organiser without payouts are left as they are (checkout still refuses
 -- them). Reversible: drop the two triggers, then the functions
 -- private.events_paid_tickets_need_payouts,
--- private.ticket_types_paid_need_payouts and private.submit_event (the API's
+-- private.ticket_types_paid_need_payouts and private.submit_event, and the
+-- constraint organisers_payouts_need_account (the API's
 -- submit then needs its previous version, which called
 -- private.transition_event directly).
 
@@ -67,7 +68,9 @@ as $$
 begin
   if new.ticketing_mode = 'sheltuh'
      and exists (select 1 from public.ticket_types t where t.event_id = new.id and t.price_cents > 0)
-     and not exists (select 1 from public.organisers o where o.id = new.organiser_id and o.payouts_enabled) then
+     -- A platform-managed organiser (no owner) is left to its own free-only rules.
+     and not exists (select 1 from public.organisers o
+                      where o.id = new.organiser_id and (o.payouts_enabled or o.owner_user_id is null)) then
     raise exception 'An event with paid tickets can''t be submitted or published until its organiser has set up payouts.'
       using errcode = 'check_violation', constraint = 'events_paid_tickets_need_payouts';
   end if;
@@ -75,9 +78,12 @@ begin
 end;
 $$;
 
-create trigger events_paid_tickets_need_payouts before update of status on public.events
+-- Also on a change of organiser: moving a submitted or published event to an
+-- organiser without payouts is checked like a submit (by-hand SQL only today).
+create trigger events_paid_tickets_need_payouts before update of status, organiser_id on public.events
   for each row
-  when (new.status in ('pending_review', 'published') and new.status is distinct from old.status)
+  when (new.status in ('pending_review', 'published')
+        and (new.status is distinct from old.status or new.organiser_id is distinct from old.organiser_id))
   execute function private.events_paid_tickets_need_payouts();
 
 -- Every ticket type write comes through private.replace_ticket_types, an
@@ -95,7 +101,8 @@ begin
     return new;
   end if;
   if tg_op = 'UPDATE' then
-    v_newly_paid := old.price_cents = 0;
+    -- Moving a paid type to another event counts as new for that event.
+    v_newly_paid := old.price_cents = 0 or new.event_id is distinct from old.event_id;
   else
     v_newly_paid := not exists (select 1 from public.ticket_types t
                                  where t.event_id = new.event_id and t.id = new.id and t.price_cents > 0);
@@ -115,7 +122,7 @@ begin
 end;
 $$;
 
-create trigger ticket_types_paid_need_payouts before insert or update of price_cents on public.ticket_types
+create trigger ticket_types_paid_need_payouts before insert or update of price_cents, event_id on public.ticket_types
   for each row execute function private.ticket_types_paid_need_payouts();
 
 -- ---------------------------------------------------------------------------
@@ -137,10 +144,14 @@ set search_path = ''
 as $$
 declare
   v_payouts boolean;
+  v_status text;
   v_event record;
 begin
-  select o.payouts_enabled into v_payouts from public.organisers o where o.id = p_organiser_id for share;
-  if not found then
+  select o.payouts_enabled, o.status::text into v_payouts, v_status
+    from public.organisers o where o.id = p_organiser_id for share;
+  -- Re-checked under the lock: a takedown that committed after the handler's
+  -- own (unlocked) check must win.
+  if not found or v_status <> 'approved' then
     return 'not_found';
   end if;
   select e.status, e.ticketing_mode into v_event
@@ -165,6 +176,11 @@ begin
   return 'submitted';
 end;
 $$;
+
+-- Checkout needs both: payouts can't be on without a connected account.
+-- NOT VALID: enforced for every new write, without re-checking existing rows.
+alter table public.organisers add constraint organisers_payouts_need_account
+  check (not payouts_enabled or stripe_account_id is not null) not valid;
 
 revoke all on function private.events_paid_tickets_need_payouts() from public, anon, authenticated;
 revoke all on function private.ticket_types_paid_need_payouts() from public, anon, authenticated;

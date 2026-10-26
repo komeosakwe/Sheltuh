@@ -67,7 +67,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261108000000_account_invites.sql`. Never
+      newest, currently `20261109000000_paid_events_need_payouts.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -95,6 +95,12 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       19. `20261106000200_event_clip_hardening.sql`
       20. `20261107000000_admin_review_emails.sql`
       21. `20261108000000_account_invites.sql`
+      22. `20261109000000_paid_events_need_payouts.sql`
+
+      **Apply `20261109000000_paid_events_need_payouts.sql` before the code
+      that submits events deploys.** The organiser's submit calls
+      `private.submit_event`, which this file creates; without it every
+      submit (free events included) fails with a 500.
 
       **Apply `20261107000000_admin_review_emails.sql` before the code that
       sends admin review emails deploys.** That code leases outbox jobs with

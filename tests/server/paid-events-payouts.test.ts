@@ -396,6 +396,47 @@ describe("the database's rule, whatever the code does", () => {
     expect((await api.call(adminUnpublishEvent, { token: admin.token, params: { eventId: event.eventId }, method: "POST" })).status).toBe(200);
   });
 
+  it("refuses moving a paid ticket type onto a published event whose organiser has no payouts", async () => {
+    const other = await approvedOrganiser(api, admin);
+    const target = await publishedEvent(api, other, admin, { ticketTypes: FREE });
+    const source = await draftEvent(api, organiser, { ticketTypes: PAID });
+    expect(
+      await dbError(
+        api.db.query(`update public.ticket_types set event_id = $1 where event_id = $2 and id = 'ga'`, [target.eventId, source.eventId]),
+      ),
+    ).toEqual({ code: "23514", constraint: "ticket_types_paid_need_payouts" });
+  });
+
+  it("refuses moving a published paid event to an organiser without payouts", async () => {
+    const event = await publishedEvent(api, organiser, admin, { ticketTypes: PAID });
+    const other = await approvedOrganiser(api, admin);
+    expect(
+      await dbError(api.db.query(`update public.events set organiser_id = $1 where id = $2`, [other.organiserId, event.eventId])),
+    ).toEqual({ code: "23514", constraint: "events_paid_tickets_need_payouts" });
+  });
+
+  it("never has payouts on without a connected Stripe account", async () => {
+    expect(
+      await dbError(
+        api.db.query(`update public.organisers set payouts_enabled = true, stripe_account_id = null where id = $1`, [
+          organiser.organiserId,
+        ]),
+      ),
+    ).toEqual({ code: "23514", constraint: "organisers_payouts_need_account" });
+  });
+
+  it("submit_event re-checks the organiser is still approved under its lock", async () => {
+    const draft = await draftEvent(api, organiser, { ticketTypes: FREE });
+    await api.db.query(`update public.organisers set status = 'rejected' where id = $1`, [organiser.organiserId]);
+    const [row] = await api.db.query<{ result: string }>(`select private.submit_event($1, $2, $3) as result`, [
+      draft.eventId,
+      organiser.organiserId,
+      organiser.userId,
+    ]);
+    expect(row.result).toBe("not_found");
+    expect(await status(draft.eventId)).toBe("draft");
+  });
+
   it("the new functions pin search_path and aren't client-executable", async () => {
     const rows = await api.db.query<{ proname: string; pinned: boolean; definer: boolean; client: boolean }>(
       `select p.proname,
