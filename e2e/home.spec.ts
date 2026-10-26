@@ -434,14 +434,17 @@ test.describe("/events", () => {
 test.describe("hero collage at 1280px", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
-  test("shows its lead photo, two poster tiles and the badge, which turns slowly and can be paused", async ({ page }) => {
+  test("shows its lead photo, two photo tiles and the badge, which turns slowly and can be paused", async ({ page }) => {
     await openHome(page);
     const collage = page.locator("[data-hero-collage]");
     await expect(collage).toBeVisible();
-    // Owner (23 Oct 2026, layout polish): one promo photo that no listing repeats; the tiles are poster art.
-    await expect(collage.locator("img")).toHaveCount(1);
-    await expect(collage.locator("img")).toHaveAttribute("src", "/events/gallery-opening.jpg");
-    await expect(collage.locator(":scope > [aria-hidden='true'] svg text")).toHaveCount(2);
+    // Owner (26 Oct 2026): "reuse the event photos for now": the lead and both tiles are photos.
+    await expect(collage.locator("img")).toHaveCount(3);
+    expect(await collage.locator("img").evaluateAll((imgs) => imgs.map((img) => img.getAttribute("src")))).toEqual([
+      "/events/gallery-opening.jpg",
+      "/events/record-shop-dj.jpg",
+      "/events/jazz-drummer.webp",
+    ]);
     const badge = page.getByRole("button", { name: "Pause the badge animation" });
     await expect(badge).toBeVisible();
     // Its name changes with its state, so find the drawing by its own marker (the collage's: the
@@ -500,12 +503,12 @@ for (const vp of [
       });
       await expect(items.nth(2)).toHaveAttribute("data-active", "true");
       await expect(items.nth(0)).toHaveAttribute("data-active", "false");
-      // The art beside the list from 1024px, following the highlight: poster art until the owner supplies
-      // photos (23 Oct 2026: its photos repeated the hero's and the listings').
+      // The photo beside the list from 1024px, following the highlight: sample-event photos for now
+      // (owner, 26 Oct 2026: "reuse the event photos for now").
       const photo = section.locator("[data-what-else-photo='active']");
       await expect(section.locator("[data-what-else-photo='active']")).toHaveCount(1);
-      await expect(photo.locator("svg")).toBeVisible();
-      await expect(section.locator("img")).toHaveCount(0);
+      await expect(photo.locator("img")).toBeVisible();
+      await expect(photo.locator("img")).toHaveAttribute("src", "/events/gallery-opening.jpg");
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow).toBeLessThanOrEqual(0);
     });

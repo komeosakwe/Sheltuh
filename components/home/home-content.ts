@@ -88,14 +88,17 @@ export const HOME_HERO: HomeArt = {
 
 /**
  * The collage's two smaller tiles, beside and under the lead (restored at the
- * owner's request, 23 Oct 2026). Poster art for now: their photos were
- * record-shop-dj (an event's) and gallery-opening (now the lead).
+ * owner's request, 23 Oct 2026). Sample-event photos for now (owner, 26 Oct
+ * 2026: "reuse the event photos for now"), until promo photos of their own
+ * arrive (public/home/README.md); the poster shows if a photo fails to load.
  */
 export const HOME_HERO_TILES: readonly [HomeArt, HomeArt] = [
   {
+    imageUrl: "/events/record-shop-dj.jpg",
     poster: { pattern: "halftone", background: "#fffae7", primary: "#000000", secondary: "#000000" },
   },
   {
+    imageUrl: "/events/jazz-drummer.webp",
     poster: { pattern: "waves", background: "#ff4800", primary: "#000000", secondary: "#fffae7" },
   },
 ];
@@ -104,24 +107,26 @@ export const HOME_HERO_TILES: readonly [HomeArt, HomeArt] = [
  * "What else?" (owner, 23 Oct 2026: kept from the original home): three
  * promises the product keeps (manual curation, all-inclusive prices, no fee
  * on free tickets), each with the photo that shows beside the list while
- * it's the highlighted one. Poster art for now (owner, 23 Oct 2026): its
- * photos were also the hero's and the listings' (gallery-opening,
- * street-market, jazz-drummer).
+ * it's the highlighted one. Sample-event photos for now (owner, 26 Oct 2026:
+ * "reuse the event photos for now"), until promo photos of their own arrive.
  */
 export const HOME_WHAT_ELSE: readonly (HomeArt & { title: string; note: string })[] = [
   {
     title: "Every event reviewed by a person",
     note: "Curated, not scraped.",
+    imageUrl: "/events/vintage-market-stall.jpg",
     poster: { pattern: "rings", background: "#000000", primary: "#fffae7", secondary: "#ff4800" },
   },
   {
     title: "Only the good stuff",
     note: "Hand-picked music, art and pop-ups worth leaving the house for.",
+    imageUrl: "/events/dj-crate-digging.jpg",
     poster: { pattern: "halftone", background: "#ff4800", primary: "#000000", secondary: "#000000" },
   },
   {
     title: "See who’s going",
     note: "Ticket holders can show they’re going. Make a free profile to see who.",
+    imageUrl: "/events/gallery-opening.jpg",
     poster: { pattern: "waves", background: "#fffae7", primary: "#000000", secondary: "#ff4800" },
   },
 ];
