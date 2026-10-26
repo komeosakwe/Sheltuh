@@ -181,7 +181,7 @@ for (const vp of [
         if (vp.phone) {
           // The one facts block under the title (Refinement, 22 Oct 2026): the date and the venue.
           const facts = page.locator("[data-event-facts]");
-          for (const fact of [facts.locator("dd").first().locator("p").first(), facts.locator("[data-directions] > span").first()]) {
+          for (const fact of [facts.locator("dd").first().locator("p").first(), facts.locator("[data-directions]").first()]) {
             const factBox = await fact.boundingBox();
             expect(factBox).not.toBeNull();
             expect((factBox?.y ?? 0) + (factBox?.height ?? Infinity)).toBeLessThanOrEqual(bottom);
@@ -342,7 +342,7 @@ for (const width of [375, 1280]) {
       if (!event) throw new Error("no sample");
       const address = `${event.venueName}, ${event.venueAddress}`;
 
-      // Get directions: the address and the action, one link, out to Google Maps in a new tab.
+      // The address is the directions link, out to Google Maps in a new tab.
       const directions = page.getByRole("link", { name: `Get directions to ${address} (opens Google Maps in a new tab)` });
       await expect(directions).toHaveAttribute("href", `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`);
       await expect(directions).toHaveAttribute("target", "_blank");
@@ -352,11 +352,12 @@ for (const width of [375, 1280]) {
       // The zone in effect at the start (a week out from now: AEST or AEDT).
       await expect(page.getByText(/^Melbourne time \((AEST|AEDT)\)$/)).toBeVisible();
 
-      // The organiser's other events.
-      await expect(page.getByRole("link", { name: `More from ${event.organiserName}` })).toHaveAttribute(
+      // The organiser's name links to their profile; there's no separate More from link.
+      await expect(page.getByRole("link", { name: event.organiserName, exact: true }).first()).toHaveAttribute(
         "href",
-        "/organisers/org-demo#organiser-upcoming",
+        "/organisers/org-demo",
       );
+      await expect(page.getByRole("link", { name: /^More from/ })).toHaveCount(0);
 
       // Who's Going, signed out: the count, no names or faces, and no list to open.
       const going = page.getByRole("region", { name: "Who's going" });

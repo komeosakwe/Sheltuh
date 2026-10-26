@@ -234,7 +234,7 @@ describe("/organisers/[organiserId] (live)", () => {
       if (!section) throw new Error(`${name} section not rendered`);
       expect(screen.getAllByText(name)).toHaveLength(1);
       expect(section.querySelector(".eyebrow")?.textContent ?? "").not.toContain(name);
-      // The #organiser-upcoming target (the event page's "More from") is the heading itself.
+      // The #organiser-upcoming target (a link to their upcoming events) is the heading itself.
       if (name === "Upcoming events") expect(heading).toHaveAttribute("id", "organiser-upcoming");
     }
   });

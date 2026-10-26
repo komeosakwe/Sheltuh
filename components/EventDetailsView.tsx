@@ -7,7 +7,7 @@ import ClipPlayButton from "@/components/events/ClipPlayButton";
 import ExternalTicketLink from "@/components/ExternalTicketLink";
 import OrganiserLogo from "@/components/organisers/OrganiserLogo";
 import SaveButton from "@/components/favourites/SaveButton";
-import { ArrowRightIcon, CalendarIcon, ExternalIcon, PinIcon } from "@/components/home/icons";
+import { CalendarIcon, ExternalIcon, PinIcon } from "@/components/home/icons";
 import SaveOnReturn from "@/components/favourites/SaveOnReturn";
 import SeatedTicketsPanel from "@/components/seating/SeatedTicketsPanel";
 import ShareButton from "@/components/ShareButton";
@@ -32,9 +32,6 @@ import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 // Each term column is the organiser avatar's width, so every row's text starts on the same line.
 const factRowClass = "flex gap-3 [&>dt]:flex [&>dt]:w-8 [&>dt]:shrink-0 [&>dt]:justify-center";
 const factIconClass = "mt-0.5 size-5 shrink-0 text-muted";
-/** The facts' secondary actions (Get directions, More from): 44px tall, underlined. */
-const factActionClass =
-  "inline-flex min-h-11 items-center gap-1 text-sm leading-5 font-semibold underline underline-offset-4 hover:decoration-2";
 
 /** A time in a date range ("10:00 am", "midnight"): the capture keeps it in `split`'s output. */
 const TIME_PATTERN = /(\d{1,2}:\d{2} [ap]m|midnight)/;
@@ -99,8 +96,8 @@ function whenLabel(startsAt: string, endsAt: string | undefined, timeZone: strin
  * The event page (docs/design/brand-direction-one.md §6.10; order from
  * docs/design/mobile-redesign.md, Refinement 22 Oct 2026). In reading order:
  * the photo, then the title (sentence case, title-lg), then one block of
- * facts (when, with the time zone and Add to calendar; where, with Get
- * directions; the organiser, with More from), the going count, and one
+ * facts (when, with the time zone and Add to calendar; where, the address
+ * linked to directions; the organiser, linked to their profile), the going count, and one
  * secondary row with Save and Share (the page's only Save). Then the
  * tickets and Who's Going, then About and Good to know. On phones that's one
  * column; from 1024px the tickets and Who's Going are the right-hand column
@@ -234,8 +231,8 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                     <span className="sr-only">Where</span>
                   </dt>
                   {directions ? (
-                    // One link for the whole place: the address, then the obvious action. It opens
-                    // the maps app where there is one (lib/maps.ts), in a new tab otherwise.
+                    // The address itself links to directions. It opens the maps app where there is
+                    // one (lib/maps.ts), in a new tab otherwise.
                     <dd className="min-w-0">
                       <a
                         href={directions}
@@ -245,13 +242,13 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                         // Spelled out: it starts with the action, holds the visible address, and says
                         // where it goes and that it opens a new tab.
                         aria-label={`Get directions to ${address} (opens Google Maps in a new tab)`}
-                        className="flex w-fit max-w-full flex-col"
+                        // The address is the link: underlined, with the "opens elsewhere" mark, and
+                        // at least 44px tall so it's an easy target.
+                        className="inline-block min-h-11 max-w-full text-base leading-6 break-words underline underline-offset-4 hover:decoration-2"
                       >
-                        <span className="text-base leading-6 break-words">{address}</span>
-                        <span className={factActionClass}>
-                          Get directions
-                          <ExternalIcon />
-                        </span>
+                        {address}
+                        {/* Inline after the last word, so it stays beside the text when it wraps. */}
+                        <ExternalIcon className="ml-1 inline size-4 align-[-2px]" />
                       </a>
                     </dd>
                   ) : (
@@ -286,13 +283,6 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                         event.organiserName
                       )}
                     </p>
-                    {organiserHref && (
-                      // Their other events: the "Upcoming events" section of the same profile.
-                      <Link href={`${organiserHref}#organiser-upcoming`} className={factActionClass}>
-                        More from {event.organiserName}
-                        <ArrowRightIcon />
-                      </Link>
-                    )}
                   </dd>
                 </div>
               </dl>
