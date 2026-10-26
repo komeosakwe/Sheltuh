@@ -61,7 +61,7 @@ for (const vp of VIEWPORTS) {
       const stub = page.getByRole("listitem").filter({ hasText: ticketCode });
       await expect(stub.getByText("Neon Static", { exact: true })).toBeVisible();
       await expect(stub.getByText("Sat 6 Mar, 8:00 pm – 11:30 pm", { exact: true })).toBeVisible();
-      await expect(stub.getByText("The Tote, Collingwood", { exact: true })).toBeVisible();
+      await expect(stub.getByText("The Tote, Collingwood, VIC", { exact: true })).toBeVisible();
       await expect(stub.getByText("Backup code", { exact: true })).toBeVisible();
       await expect(stub.getByText("Ready to scan", { exact: true })).toBeVisible();
 

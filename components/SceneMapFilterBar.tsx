@@ -4,7 +4,7 @@ import { fieldClass } from "@/components/ui/Field";
 import FilterChip, { filterChipClass, SelectedDots } from "@/components/ui/FilterChip";
 import type { ReactNode } from "react";
 import type { EventCategory } from "@/lib/types";
-import type { ScenePricingFilter, TimeFilter } from "@/lib/scene-map-filters";
+import type { ScenePricingFilter, SuburbGroup, TimeFilter } from "@/lib/scene-map-filters";
 
 interface Props {
   search: string;
@@ -16,7 +16,8 @@ interface Props {
   onTimeChange: (value: TimeFilter) => void;
   specificDate: string;
   onSpecificDateChange: (value: string) => void;
-  suburbs: string[];
+  /** The events' suburbs, by state (lib/scene-map-filters.ts suburbsByState). */
+  suburbGroups: SuburbGroup[];
   suburb: string | "all";
   onSuburbChange: (value: string | "all") => void;
   pricing: ScenePricingFilter;
@@ -34,7 +35,7 @@ export default function SceneMapFilterBar({
   onTimeChange,
   specificDate,
   onSpecificDateChange,
-  suburbs,
+  suburbGroups,
   suburb,
   onSuburbChange,
   pricing,
@@ -65,11 +66,15 @@ export default function SceneMapFilterBar({
           <span className="sr-only">Location</span>
           <PinIcon />
           <select value={suburb} onChange={(event) => onSuburbChange(event.target.value)} className={`${fieldClass} pl-10`}>
-            <option value="all">All of Melbourne</option>
-            {suburbs.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
+            <option value="all">All of Australia</option>
+            {suburbGroups.map((group) => (
+              <optgroup key={group.state} label={group.label}>
+                {group.suburbs.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </label>

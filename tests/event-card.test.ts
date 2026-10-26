@@ -55,10 +55,13 @@ describe("categoryLabel and placeLabel", () => {
     expect(categoryLabel(event({ category: "mystery" as SheltuhEvent["category"] }))).toBe("mystery");
   });
 
-  it("joins venue and suburb, never leaving a dangling separator", () => {
-    expect(placeLabel(event())).toBe("The Depot Theatre · Coburg");
-    expect(placeLabel(event({ venueName: "" }))).toBe("Coburg");
+  it("joins venue and suburb with its state (owner decision D4), never leaving a dangling separator", () => {
+    expect(placeLabel(event())).toBe("The Depot Theatre · Coburg, VIC");
+    expect(placeLabel(event({ venueName: "" }))).toBe("Coburg, VIC");
     expect(placeLabel(event({ venueName: "", suburb: "" }))).toBe("");
+    expect(placeLabel(event({ suburb: "Northbridge", state: "WA" }))).toBe("The Depot Theatre · Northbridge, WA");
+    // The table's name for a shared one already carries its state: not said twice.
+    expect(placeLabel(event({ suburb: "Richmond NSW", state: "NSW" }))).toBe("The Depot Theatre · Richmond, NSW");
   });
 });
 

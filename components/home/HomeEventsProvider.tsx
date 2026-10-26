@@ -5,6 +5,26 @@ import { isApiConfigured } from "@/lib/api/client";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { loadHomeEvents, loadHomeFollowing, loadHomeTrending } from "@/lib/home-events";
 import { selectHomeSections, type HomeSections } from "@/lib/home-sections";
+import { loadLocation } from "@/lib/location-loader";
+import { readStoredNear } from "@/lib/near-storage";
+import type { StateCode } from "@/lib/time-zones";
+
+/**
+ * The state of the visitor's saved suburb (lib/near-storage.ts), for the
+ * home to list that state's events first: worked out in the browser with the
+ * suburb table (loaded only when there's a saved suburb), never sent
+ * anywhere. Null without one, or if the table can't load (then the order is
+ * simply Australia-wide).
+ */
+async function savedNearState(): Promise<StateCode | null> {
+  const near = readStoredNear();
+  if (!near) return null;
+  try {
+    return (await loadLocation()).findLocality(near)?.state ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export type HomeEventsState =
   | { status: "loading" }
@@ -30,6 +50,9 @@ const HomeEventsContext = createContext<HomeEventsValue | null>(null);
  * organisers you follow" (a failure only hides that rail). It waits for the
  * session to be known first, so sections are split once and events don't
  * jump between them; signing in or out splits them again.
+ *
+ * With a saved "near" suburb, each section lists its state's events first
+ * (owner decision D5; savedNearState, browser-only).
  */
 export function HomeEventsProvider({ children }: { children: ReactNode }) {
   const mode = isApiConfigured ? "live" : "demo";
@@ -49,10 +72,15 @@ export function HomeEventsProvider({ children }: { children: ReactNode }) {
       loadHomeEvents(now),
       loadHomeTrending(now).catch(() => []),
       getToken ? loadHomeFollowing(getToken, now).catch(() => []) : Promise.resolve([]),
+      savedNearState(),
     ]).then(
-      ([events, trending, following]) => {
+      ([events, trending, following, preferredState]) => {
         if (!cancelled) {
-          setState({ status: "ready", sections: selectHomeSections(events, trending, now, following), now });
+          setState({
+            status: "ready",
+            sections: selectHomeSections(events, trending, now, following, preferredState),
+            now,
+          });
         }
       },
       () => {

@@ -24,7 +24,7 @@ vi.mock("@/lib/server/deps", () => ({ getDeps }));
 
 const SITE_IMAGE = { url: "https://sheltuh.test/opengraph-image?x", width: 1200, height: 630, alt: "Sheltüh" };
 const parent = Promise.resolve({
-  title: { absolute: "Sheltüh — Melbourne creative events", template: null },
+  title: { absolute: "Sheltüh — Creative events across Australia", template: null },
   description: "Sheltüh is a curated guide.",
   openGraph: { images: [SITE_IMAGE] },
   twitter: { images: [SITE_IMAGE] },
@@ -88,7 +88,7 @@ describe("home and partners metadata", () => {
     vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://sheltuh.test");
     const metadata = await homeMetadata({ params: Promise.resolve({}), searchParams: Promise.resolve({}) }, parent);
     expect(metadata).toMatchObject({
-      title: "Sheltüh — Melbourne creative events",
+      title: "Sheltüh — Creative events across Australia",
       description: "Sheltüh is a curated guide.",
       alternates: { canonical: "https://sheltuh.test/" },
       openGraph: { url: "https://sheltuh.test/", images: [SITE_IMAGE], locale: "en_AU" },

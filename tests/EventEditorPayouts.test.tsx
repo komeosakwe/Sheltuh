@@ -297,7 +297,7 @@ describe("EventEditor (admin) — publishing paid tickets for an organiser witho
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Four bands." } });
     fireEvent.change(screen.getByLabelText("Venue name"), { target: { value: "The Tote" } });
     fireEvent.change(screen.getByLabelText("Venue address"), { target: { value: "71 Johnston St" } });
-    fireEvent.change(screen.getByLabelText("Suburb"), { target: { value: "Collingwood" } });
+    fireEvent.change(screen.getByLabelText("Suburb or town"), { target: { value: "Collingwood" } });
     fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2027-03-06" } });
     fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "20:00" } });
     fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2027-03-06" } });

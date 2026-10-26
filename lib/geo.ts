@@ -1,9 +1,10 @@
+import { placeQuery } from "./place";
 import type { Coordinates, SheltuhEvent } from "./types";
 
 /**
  * Approximate centroid for Melbourne inner-city/inner-north suburbs: hand-
- * entered, with no recorded source. The fallback suburb lookup only, for
- * when the ABS table (lib/localities.ts, every Australian suburb, loaded on
+ * entered, with no recorded source. The fallback suburb lookup only (Victorian
+ * events), for when the ABS table (lib/localities.ts, every Australian suburb, loaded on
  * demand through lib/location-loader.ts) isn't available: /map places events
  * with that table once it has loaded (components/SceneMap.tsx, through
  * components/search/useLocationModule.ts).
@@ -31,58 +32,86 @@ export const SUBURB_COORDINATES: Readonly<Record<string, Coordinates>> = {
   thornbury: { lat: -37.7568, lng: 145.0058 },
 };
 
-/** A suburb's centre from its name as written on an event, or null when it isn't known. */
+/**
+ * A suburb's centre from the text that finds it (lib/place.ts placeQuery:
+ * "Fitzroy", "Perth WA", "Richmond NSW"), or null when it isn't known.
+ */
 export type SuburbLookup = (suburb: string) => Coordinates | null;
 
-/** The fallback lookup: SUBURB_COORDINATES, by name, case and outer spaces aside. */
+/**
+ * The fallback lookup: SUBURB_COORDINATES, by name, case and outer spaces
+ * aside. Victoria only: the 20 are inner-Melbourne suburbs, so a suburb
+ * written with another state ("Richmond NSW") isn't one of them.
+ */
 export const findListedSuburb: SuburbLookup = (suburb) => {
-  const key = suburb.trim().toLowerCase();
+  let key = suburb.trim().toLowerCase();
+  const state = /\s(nsw|vic|qld|sa|wa|tas|nt|act|ot)$/.exec(key)?.[1];
+  if (state && state !== "vic") return null;
+  if (state) key = key.slice(0, -" vic".length).trim();
   // Own keys only: a suburb of "constructor" mustn't find Object's.
   return Object.hasOwn(SUBURB_COORDINATES, key) ? SUBURB_COORDINATES[key] : null;
 };
 
 /**
  * Best-effort position for an event: its own geocoded venue coordinates
- * when present, otherwise its suburb's centre (from `findSuburb`: on /map,
- * lib/location.ts `findLocality` over the ABS table), otherwise `null` (the
- * caller should exclude the event from the map rather than guess).
+ * when present, otherwise its suburb's centre (`findSuburb` given
+ * placeQuery's "{suburb} {state}": on /map, lib/location.ts `findLocality`
+ * over the ABS table), otherwise `null` (the caller should exclude the event
+ * from the map rather than guess).
  */
 export function resolveEventCoordinates(
   event: SheltuhEvent,
   findSuburb: SuburbLookup = findListedSuburb,
 ): Coordinates | null {
   if (event.coordinates) return event.coordinates;
-  const centre = findSuburb(event.suburb);
+  const centre = findSuburb(placeQuery(event));
   return centre ? { lat: centre.lat, lng: centre.lng } : null;
 }
 
-/** Roughly bounds inner Melbourne — used as the map's default view. */
+/** Great-circle distance in kilometres. */
+export function distanceKm(a: Coordinates, b: Coordinates): number {
+  const rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad;
+  const dLng = (b.lng - a.lng) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** The centre of Melbourne (the Hoddle grid): lib/location.ts prefers same-named places nearest it. */
 export const MELBOURNE_DEFAULT_CENTER: Coordinates = { lat: -37.808, lng: 144.965 };
-export const MELBOURNE_DEFAULT_ZOOM = 12;
 
 /**
- * Greater Melbourne with a margin (Mornington Peninsula, Yarra Valley, Geelong's
- * edge, Macedon Ranges). The map is kept inside this box so it always reads as
- * a Melbourne map: it can't be panned or zoomed out to the world, and a stray
- * event outside it is not pinned (it would stretch the view away from the city).
+ * Australia with its external territories (Norfolk Island to the east,
+ * Christmas and the Cocos (Keeling) Islands to the west, Tasmania's south
+ * coast) and a margin: the map can't be panned past it, and an event outside
+ * it (a typo'd position overseas) isn't pinned.
  */
-export const MELBOURNE_METRO_BOUNDS = { south: -38.55, west: 144.2, north: -37.35, east: 145.95 } as const;
-export const MELBOURNE_MIN_ZOOM = 9;
+export const AUSTRALIA_BOUNDS = { south: -45, west: 95, north: -8, east: 170 } as const;
 
-export function isInMelbourneMetro(coords: Coordinates): boolean {
-  const b = MELBOURNE_METRO_BOUNDS;
+/**
+ * What an empty map shows: the mainland and Tasmania, which fit a 375px
+ * phone at AUSTRALIA_MIN_ZOOM.
+ */
+export const AUSTRALIA_VIEW = { south: -43.7, west: 112.9, north: -10.6, east: 153.7 } as const;
+
+/** The furthest out the map zooms: Australia whole on a phone. */
+export const AUSTRALIA_MIN_ZOOM = 3;
+
+export function isInAustralia(coords: Coordinates): boolean {
+  const b = AUSTRALIA_BOUNDS;
   return coords.lat >= b.south && coords.lat <= b.north && coords.lng >= b.west && coords.lng <= b.east;
 }
 
 /**
  * Where an event goes on the map: its coordinates when they fall inside
- * Greater Melbourne, otherwise null. Events outside are not pinned, so the
- * list, Locate and the "can't be placed" count treat them as unplaceable too.
+ * Australia (AUSTRALIA_BOUNDS), otherwise null. Events outside are not
+ * pinned, so the list, Locate and the "can't be placed" count treat them as
+ * unplaceable too.
  */
 export function resolveMapCoordinates(
   event: SheltuhEvent,
   findSuburb: SuburbLookup = findListedSuburb,
 ): Coordinates | null {
   const coords = resolveEventCoordinates(event, findSuburb);
-  return coords && isInMelbourneMetro(coords) ? coords : null;
+  return coords && isInAustralia(coords) ? coords : null;
 }

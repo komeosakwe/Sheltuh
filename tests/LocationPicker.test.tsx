@@ -260,11 +260,11 @@ describe("LocationPicker — the typed suburb and the remembered one", () => {
     expect(screen.getByRole("button", { name: "Location: Carlton" })).toBeInTheDocument();
   });
 
-  it("Anywhere in Melbourne clears the field and the remembered suburb, says “Anywhere”, and returns focus", () => {
+  it("Anywhere in Australia clears the field and the remembered suburb, says “Anywhere”, and returns focus", () => {
     localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Brunswick" }));
     renderBar();
     const panel = openPanel();
-    fireEvent.click(within(panel).getByRole("button", { name: "Anywhere in Melbourne", hidden: true }));
+    fireEvent.click(within(panel).getByRole("button", { name: "Anywhere in Australia", hidden: true }));
     expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
     expect(within(panel).getByLabelText("Suburb")).toHaveValue("");
     // The explicit choice shows on the button (for this page view), not the "Your suburb" prompt.
@@ -281,7 +281,7 @@ describe("LocationPicker — the typed suburb and the remembered one", () => {
   it("“Anywhere” lasts only for this page view: a new bar shows the prompt", () => {
     renderBar();
     const panel = openPanel();
-    fireEvent.click(within(panel).getByRole("button", { name: "Anywhere in Melbourne", hidden: true }));
+    fireEvent.click(within(panel).getByRole("button", { name: "Anywhere in Australia", hidden: true }));
     expect(screen.getByRole("button", { name: "Location: Anywhere" })).toBeInTheDocument();
     cleanup();
     renderBar();
@@ -336,7 +336,7 @@ describe("LocationPicker — closing", () => {
     Object.assign(panel, { hidePopover });
     const field = within(panel).getByLabelText("Suburb");
     // Within the panel, back to the location button, or to nothing (a click on the panel's text): stays open.
-    focusOut(field, within(panel).getByRole("button", { name: "Anywhere in Melbourne", hidden: true }));
+    focusOut(field, within(panel).getByRole("button", { name: "Anywhere in Australia", hidden: true }));
     focusOut(field, screen.getByRole("button", { name: /^Location: / }));
     focusOut(field, null);
     expect(hidePopover).not.toHaveBeenCalled();

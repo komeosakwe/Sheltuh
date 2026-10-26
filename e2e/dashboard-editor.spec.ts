@@ -187,6 +187,85 @@ test.describe("/dashboard/new with reserved seating", () => {
   });
 });
 
+test.describe("/dashboard/new: an event in Perth (owner plan S8)", () => {
+  test.use({ viewport: { width: 375, height: 800 } });
+
+  test("the suburb gives the state and zone, the legends say Perth time, and the draft is sent with them", async ({ page }) => {
+    const created: Record<string, unknown>[] = [];
+    await signedInAsOrganiser(page, (request, path) => {
+      const method = request.method();
+      if (method === "POST" && path === "/api/events") {
+        const body: Record<string, unknown> = request.postDataJSON();
+        created.push(body);
+        return { status: 201, json: { ...createdDraft(body), eventId: "evt-e2e-perth", state: body.state, timeZone: body.timeZone } };
+      }
+      if (method === "GET" && path === "/api/organisers/me/events/evt-e2e-perth") {
+        return { json: { ...createdDraft(created[0] ?? {}), eventId: "evt-e2e-perth", state: "WA", timeZone: "Australia/Perth" } };
+      }
+      return null;
+    });
+    await page.goto("/dashboard/new");
+    const form = page.locator("form").filter({ has: page.getByLabel("Title", { exact: true }) });
+    await expect(form.getByLabel("Title", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(form.getByText("Starts (local time)")).toBeVisible();
+
+    await form.getByLabel("Title", { exact: true }).fill("Northbridge Late Sketch");
+    await form.getByLabel("Description").fill("Life drawing with a jazz trio.");
+    await form.getByLabel("Venue name").fill("James Street Studio");
+    await form.getByLabel("Venue address").fill("40 James Street");
+    const suburb = form.getByLabel("Suburb or town");
+    await suburb.fill("Perth");
+    await expect(form.locator("#suburb-hint")).toHaveText("Perth, Western Australia · Perth time (AWST)", { timeout: 30_000 });
+    await expect(suburb).toHaveAccessibleDescription("Perth, Western Australia · Perth time (AWST)");
+    await expect(form.getByText("Starts (Perth time)")).toBeVisible();
+    await expect(form.getByText("Ends (Perth time)")).toBeVisible();
+    // Western Australia has two zones (Eucla's too): the choice is there, Perth's chosen.
+    await expect(form.getByLabel("Time zone")).toHaveValue("Australia/Perth");
+    // 44px targets, and nothing scrolls sideways at 375px.
+    expect((await suburb.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    expect((await form.getByLabel("Time zone").boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+
+    await form.getByLabel("Start date").fill("2027-03-06");
+    await form.getByLabel("Start time").fill("18:30");
+    await form.getByLabel("End date").fill("2027-03-06");
+    await form.getByLabel("End time").fill("21:30");
+    await form.getByLabel("Name", { exact: true }).fill("Drawing place");
+    await form.getByLabel("Price (A$)").fill("30");
+
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await expect.poll(() => created.length, { timeout: 30_000 }).toBe(1);
+    expect(created[0]).toMatchObject({
+      suburb: "Perth",
+      state: "WA",
+      timeZone: "Australia/Perth",
+      start: { date: "2027-03-06", time: "18:30" },
+      end: { date: "2027-03-06", time: "21:30" },
+    });
+    await expect(page).toHaveURL(/\/dashboard\/evt-e2e-perth$/, { timeout: 30_000 });
+  });
+
+  test("an unknown suburb is refused by the field, with a near spelling, and nothing is sent", async ({ page }) => {
+    const created: unknown[] = [];
+    await signedInAsOrganiser(page, (request, path) => {
+      if (request.method() === "POST" && path === "/api/events") created.push(request.postDataJSON());
+      return null;
+    });
+    await page.goto("/dashboard/new");
+    const form = page.locator("form").filter({ has: page.getByLabel("Title", { exact: true }) });
+    await expect(form.getByLabel("Title", { exact: true })).toBeVisible({ timeout: 30_000 });
+    const suburb = form.getByLabel("Suburb or town");
+    await suburb.fill("Fremantel");
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await expect(form.locator("#suburb-error")).toHaveText(
+      "We couldn’t find that suburb or town. Did you mean Fremantle, WA?",
+      { timeout: 30_000 },
+    );
+    await expect(suburb).toHaveAttribute("aria-invalid", "true");
+    expect(created).toEqual([]);
+  });
+});
+
 test.describe("/dashboard/[eventId]: refund policy at 320px", () => {
   test.use({ viewport: { width: 320, height: 640 } });
 

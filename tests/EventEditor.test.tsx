@@ -41,7 +41,7 @@ const BASE_EVENT: EventRecord = {
   category: "live-music",
   venueName: "The Venue",
   venueAddress: "1 Test St",
-  suburb: "Testville",
+  suburb: "Fitzroy",
   // 2026-09-25T10:00:00Z = 8:00pm AEST on the same UTC date.
   startsAt: "2026-09-25T10:00:00.000Z",
   endsAt: "2026-09-25T13:00:00.000Z",
@@ -128,11 +128,11 @@ describe("EventEditor — an event outside Victoria: inputs in its own zone (own
     process.env.TZ = originalTz;
   });
 
-  it("fills a Perth event's date and time in Perth time, says so in the legends, and saves the same wall-clock times without a zone", async () => {
+  it("fills a Perth event's date and time in Perth time, says so in the legends, and saves the same wall-clock times with its place", async () => {
     process.env.TZ = "America/New_York";
     // 10:00Z is 6:00 pm AWST, 13:00Z 9:00 pm AWST (8:00 pm and 11:00 pm in Melbourne).
-    updateEventDraft.mockResolvedValue({ ...BASE_EVENT, state: "WA", timeZone: "Australia/Perth" });
-    renderEditor({ state: "WA", timeZone: "Australia/Perth" });
+    updateEventDraft.mockResolvedValue({ ...BASE_EVENT, suburb: "Perth", state: "WA", timeZone: "Australia/Perth" });
+    renderEditor({ suburb: "Perth", state: "WA", timeZone: "Australia/Perth" });
     expect(screen.getByLabelText("Start date")).toHaveValue("2026-09-25");
     expect(screen.getByLabelText("Start time")).toHaveValue("18:00");
     expect(screen.getByLabelText("End time")).toHaveValue("21:00");
@@ -143,11 +143,10 @@ describe("EventEditor — an event outside Victoria: inputs in its own zone (own
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
     await waitFor(() => expect(updateEventDraft).toHaveBeenCalledTimes(1));
     const [, input] = updateEventDraft.mock.calls[0];
-    // Read in the stored zone by the API: the event doesn't move.
+    // Sent with its place (owner plan S8), read in that zone by the API: the event doesn't move.
     expect(input.start).toEqual({ date: "2026-09-25", time: "18:00" });
     expect(input.end).toEqual({ date: "2026-09-25", time: "21:00" });
-    expect(input).not.toHaveProperty("state");
-    expect(input).not.toHaveProperty("timeZone");
+    expect(input).toMatchObject({ suburb: "Perth", state: "WA", timeZone: "Australia/Perth" });
   });
 
   it("a late Perth start is on Perth's date (11:30 pm Thursday, though Friday in Melbourne)", () => {
@@ -157,7 +156,7 @@ describe("EventEditor — an event outside Victoria: inputs in its own zone (own
   });
 
   it("an ACT event's legends say Canberra time; a Victorian one's still say Melbourne time", () => {
-    renderEditor({ state: "ACT", timeZone: "Australia/Sydney" });
+    renderEditor({ suburb: "Braddon", state: "ACT", timeZone: "Australia/Sydney" });
     expect(screen.getByText("Starts (Canberra time)")).toBeInTheDocument();
     cleanup();
     renderEditor({ state: "VIC", timeZone: "Australia/Melbourne" });
@@ -274,7 +273,7 @@ function fillNewEvent() {
   fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Stalls and music." } });
   fireEvent.change(screen.getByLabelText("Venue name"), { target: { value: "The Venue" } });
   fireEvent.change(screen.getByLabelText("Venue address"), { target: { value: "1 Test St" } });
-  fireEvent.change(screen.getByLabelText("Suburb"), { target: { value: "Testville" } });
+  fireEvent.change(screen.getByLabelText("Suburb or town"), { target: { value: "Fitzroy" } });
   fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2027-03-06" } });
   fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "20:00" } });
   fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2027-03-06" } });

@@ -8,7 +8,7 @@ import { didYouMean, findLocality, parseNearParam } from "@/lib/location";
 
 export const metadata: Metadata = { title: "Search — Sheltüh" };
 
-/** /search for `query`, near `near` when given; without one, all of Melbourne. */
+/** /search for `query`, near `near` when given; without one, all of Australia. */
 function searchHref(query: string, near?: string): string {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
@@ -84,7 +84,7 @@ export default async function SearchPage({
               </>
             )}{" "}
             <Link href={searchHref(query)} className="font-semibold underline underline-offset-4">
-              Search all of Melbourne
+              Search all of Australia
             </Link>
           </Notice>
         </div>

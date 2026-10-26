@@ -19,7 +19,10 @@ if (!FITZROY) throw new Error("Fitzroy is not in the suburb table");
 // A position a little off Fitzroy's centre: the page must never show or store it.
 const HERE = { latitude: FITZROY.lat + 0.0012, longitude: FITZROY.lng - 0.0007 };
 
-/** The sample events (every suburb in the table), and one more in a suburb it doesn't know. */
+/**
+ * The sample events (every suburb in the table: Melbourne's, and Newtown NSW, Fortitude Valley QLD
+ * and Northbridge WA), and one more in a suburb it doesn't know.
+ */
 function fixtures(now: number): PublicEvent[] {
   const listed = sampleEvents.map((event, i) => ({
     organiserId: "org-demo",
@@ -31,6 +34,9 @@ function fixtures(now: number): PublicEvent[] {
     venueName: event.venueName,
     venueAddress: event.venueAddress,
     suburb: event.suburb,
+    // The API always sends the place (absent on a demo sample: Victoria, on Melbourne time).
+    state: event.state ?? "VIC",
+    timeZone: event.timeZone ?? "Australia/Melbourne",
     startsAt: new Date(now + (i + 1) * 26 * HOUR).toISOString(),
     endsAt: new Date(now + (i + 1) * 26 * HOUR + 3 * HOUR).toISOString(),
     organiserName: event.organiserName,
@@ -188,11 +194,18 @@ test.describe("near you, from the home at 390px", () => {
       timeout: 30_000,
     });
     const bands = await page.locator("[data-near-band] h2").allTextContents();
-    const order = ["In Fitzroy", "Within 5 km", "5–15 km", "Further away", "Location not on file"];
+    const order = ["In Fitzroy", "Within 5 km", "5–15 km", "Further away", "Over 100 km", "Location not on file"];
     expect(bands[0]).toBe("In Fitzroy");
     expect(bands.map((b) => order.indexOf(b))).toEqual([...bands.map((b) => order.indexOf(b))].sort((a, b) => a - b));
-    // Only the made-up suburb isn't in the table.
+    // Only the made-up suburb isn't in the table; the interstate events are over 100 km away.
     expect(bands.at(-1)).toBe("Location not on file");
+    expect(bands.at(-2)).toBe("Over 100 km");
+    // Soonest first (the fixtures start in the samples' order).
+    await expect(page.locator("[data-near-band='distant'] h3")).toHaveText([
+      "King Street Fuzz Night",
+      "Valley Risograph Fair",
+      "Northbridge Late Sketch",
+    ]);
     await expect(page.locator("[data-near-band='unknown'] h3")).toHaveText(["Somewhere unmapped"]);
 
     // The API was asked for events and filters only: no suburb, no position.
@@ -214,7 +227,7 @@ test.describe("near you, from the home at 390px", () => {
     await expect(page.getByRole("search")).toHaveCount(1);
   });
 
-  test("remembers the suburb after a reload, and Anywhere in Melbourne forgets it", async ({ page }) => {
+  test("remembers the suburb after a reload, and Anywhere in Australia forgets it", async ({ page }) => {
     await page.addInitScript(
       ([key]) => {
         if (!sessionStorage.getItem("seeded")) {
@@ -232,7 +245,7 @@ test.describe("near you, from the home at 390px", () => {
     await expect(search.getByRole("button", { name: "Location: Carlton" })).toBeVisible({ timeout: 30_000 });
 
     const { panel, location } = await openPanel(page);
-    await panel.getByRole("button", { name: "Anywhere in Melbourne" }).click();
+    await panel.getByRole("button", { name: "Anywhere in Australia" }).click();
     await expect(panel).toBeHidden();
     await expect(location).toBeFocused();
     // The explicit choice shows, rather than the "Your suburb" prompt.
@@ -316,7 +329,7 @@ test.describe("near you, from the home at 390px", () => {
     await page.goto("/");
     const { search, panel } = await openPanel(page);
     const privacy = panel.getByRole("link", { name: "How we use your location" });
-    // Use my current location → Suburb → Anywhere in Melbourne → How we use your location → out.
+    // Use my current location → Suburb → Anywhere in Australia → How we use your location → out.
     for (let i = 0; i < 3; i++) await page.keyboard.press("Tab");
     await expect(privacy).toBeFocused();
     await expect(panel).toBeVisible();
@@ -349,7 +362,7 @@ test.describe("near you, from the home at 390px", () => {
 test.describe("near you, from Perth at 390px", () => {
   test.use({ viewport: { width: 390, height: 844 }, permissions: ["geolocation"], geolocation: { latitude: -31.9523, longitude: 115.8613 } });
 
-  test("names the suburb anywhere in Australia; every Melbourne event is then further away", async ({ page }) => {
+  test("names the suburb anywhere in Australia; Northbridge is near, every Melbourne event over 100 km away", async ({ page }) => {
     await mockApi(page);
     await page.goto("/");
     const { search, panel } = await openPanel(page);
@@ -360,7 +373,12 @@ test.describe("near you, from Perth at 390px", () => {
     await expect(page).toHaveURL(/\/search\?q=&near=Perth$/, { timeout: 30_000 });
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Events near Perth");
     await expect(page.locator("[data-near-band]").first()).toBeVisible({ timeout: 30_000 });
-    expect(await page.locator("[data-near-band] h2").allTextContents()).toEqual(["Further away", "Location not on file"]);
+    expect(await page.locator("[data-near-band] h2").allTextContents()).toEqual([
+      "Within 5 km",
+      "Over 100 km",
+      "Location not on file",
+    ]);
+    await expect(page.locator("[data-near-band='near'] h3")).toHaveText(["Northbridge Late Sketch"]);
   });
 
   test("a suburb typed with its state finds that one", async ({ page }) => {
@@ -368,7 +386,26 @@ test.describe("near you, from Perth at 390px", () => {
     await page.goto("/search?near=Richmond%2C+NSW");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Events near Richmond NSW", { timeout: 30_000 });
     await expect(page.locator("[data-near-band]").first()).toBeVisible({ timeout: 30_000 });
-    expect(await page.locator("[data-near-band] h2").allTextContents()).toEqual(["Further away", "Location not on file"]);
+    // Newtown NSW is about 50 km away; Melbourne's Richmond and the rest, over 100 km.
+    expect(await page.locator("[data-near-band] h2").allTextContents()).toEqual([
+      "Further away",
+      "Over 100 km",
+      "Location not on file",
+    ]);
+    await expect(page.locator("[data-near-band='far'] h3")).toHaveText(["King Street Fuzz Night"]);
+  });
+
+  test("a city's name finds its centre: Brisbane is Brisbane City, and Fortitude Valley is near it", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/search?near=Brisbane");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Events near Brisbane City", { timeout: 30_000 });
+    await expect(page.locator("[data-near-band]").first()).toBeVisible({ timeout: 30_000 });
+    expect(await page.locator("[data-near-band] h2").allTextContents()).toEqual([
+      "Within 5 km",
+      "Over 100 km",
+      "Location not on file",
+    ]);
+    await expect(page.locator("[data-near-band='near'] h3")).toHaveText(["Valley Risograph Fair"]);
   });
 });
 

@@ -6,6 +6,7 @@ import {
   PLATFORM_TIME_ZONE,
   wallClockParts,
   ZONES_BY_STATE,
+  type StateCode,
 } from "@/lib/time-zones";
 import type { SheltuhEvent } from "@/lib/types";
 
@@ -162,6 +163,20 @@ const endMs = (event: SheltuhEvent) => Date.parse(event.endsAt ?? event.startsAt
 export const bySoonest = (a: SheltuhEvent, b: SheltuhEvent) => startMs(a) - startMs(b) || a.id.localeCompare(b.id);
 
 /**
+ * `items` with those whose event is in `state` first, each part in its own
+ * order (a stable reorder; an event without a state is Victorian). No state:
+ * `items` as they are. Owner decision D5: the visitor's saved suburb's state
+ * first, worked out in the browser only.
+ */
+export function preferState<T>(items: T[], state: StateCode | null | undefined, eventOf: (item: T) => SheltuhEvent): T[] {
+  if (!state) return items;
+  const inState = (item: T) => (eventOf(item).state ?? "VIC") === state;
+  return [...items.filter(inState), ...items.filter((item) => !inState(item))];
+}
+
+const itself = (event: SheltuhEvent) => event;
+
+/**
  * Splits the home page's events into its sections (docs/design/home.md §6.2,
  * docs/design/mobile-redesign.md §6.3.2). Ended events are dropped first.
  * Sections then claim events in priority order (This weekend, From
@@ -169,12 +184,16 @@ export const bySoonest = (a: SheltuhEvent, b: SheltuhEvent) => startMs(a) - star
  * and a later section never shows an event an earlier one did. A section
  * that's hidden for having too few events claims nothing. `following`: the
  * signed-in member's followed organisers' upcoming events (empty otherwise).
+ * `preferredState`: the state of the visitor's saved suburb, whose events
+ * come first in every section (preferState), before each section takes its
+ * share; absent, Australia-wide soonest first (owner decision D5).
  */
 export function selectHomeSections(
   events: SheltuhEvent[],
   trending: TrendingItem[],
   now: Date,
   following: SheltuhEvent[] = [],
+  preferredState: StateCode | null = null,
 ): HomeSections {
   const nowMs = now.getTime();
   const upcoming = events.filter((event) => isUpcomingEvent(event, now)).sort(bySoonest);
@@ -201,28 +220,34 @@ export function selectHomeSections(
   };
   const overlapping = upcoming.filter((event) => openDuring(event, windowOf(event)));
   const alreadyRunning = (event: SheltuhEvent) => (startMs(event) < windowOf(event).start ? 1 : 0);
-  const weekendItems = overlapping
-    .filter(unclaimed)
-    .sort((a, b) => alreadyRunning(a) - alreadyRunning(b) || bySoonest(a, b))
-    .slice(0, SECTION_MAX);
+  const weekendItems = preferState(
+    overlapping.filter(unclaimed).sort((a, b) => alreadyRunning(a) - alreadyRunning(b) || bySoonest(a, b)),
+    preferredState,
+    itself,
+  ).slice(0, SECTION_MAX);
   // Nothing on and the weekend has started: hide (Coming up shows what's next). Nothing on yet: say so.
   const weekendStatus = weekendItems.length > 0 ? "cards" : window.during ? "hidden" : "empty";
   claim(weekendItems);
 
   // 1b. From organisers you follow: soonest first, shown with even one event (the member asked for them).
-  const followingItems = following
-    .filter((event) => isUpcomingEvent(event, now) && unclaimed(event))
-    .sort(bySoonest)
-    .filter((event, index, list) => list.findIndex((other) => other.id === event.id) === index)
-    .slice(0, SECTION_MAX);
+  const followingItems = preferState(
+    following
+      .filter((event) => isUpcomingEvent(event, now) && unclaimed(event))
+      .sort(bySoonest)
+      .filter((event, index, list) => list.findIndex((other) => other.id === event.id) === index),
+    preferredState,
+    itself,
+  ).slice(0, SECTION_MAX);
   claim(followingItems);
 
   // 2. Popular right now: trending, in the server's order, with three or more left. Otherwise the
   // same slot is "Coming up": not yet started, soonest first, with two or more.
-  const trendingLeft = trending
-    .filter(({ event }) => isUpcomingEvent(event, now) && unclaimed(event))
-    .slice(0, SECTION_MAX);
-  const comingLeft = notStarted.filter(unclaimed).slice(0, SECTION_MAX);
+  const trendingLeft = preferState(
+    trending.filter(({ event }) => isUpcomingEvent(event, now) && unclaimed(event)),
+    preferredState,
+    (item) => item.event,
+  ).slice(0, SECTION_MAX);
+  const comingLeft = preferState(notStarted.filter(unclaimed), preferredState, itself).slice(0, SECTION_MAX);
   const popular: PopularSection | null =
     trendingLeft.length >= TRENDING_MIN
       ? { kind: "popular", items: trendingLeft }

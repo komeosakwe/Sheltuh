@@ -105,27 +105,28 @@ describe("/search?near= (owner round of 24 Oct 2026)", () => {
     render(await page({ q: "jazz", near: "Brunswik" }));
     const notice = screen.getByText(/We don’t know where “Brunswik” is yet, so these are soonest first\./);
     expect(within(notice).getByRole("link", { name: "Brunswick" })).toHaveAttribute("href", "/search?q=jazz&near=Brunswick");
-    expect(within(notice).getByRole("link", { name: "Search all of Melbourne" })).toHaveAttribute("href", "/search?q=jazz");
+    expect(within(notice).getByRole("link", { name: "Search all of Australia" })).toHaveAttribute("href", "/search?q=jazz");
     cleanup();
     render(await page({ near: "Atlantis" }));
     const atlantis = screen.getByText(/We don’t know where “Atlantis” is yet/);
     expect(screen.queryByText(/Did you mean/)).toBeNull();
-    expect(within(atlantis).getByRole("link", { name: "Search all of Melbourne" })).toHaveAttribute("href", "/search");
+    expect(within(atlantis).getByRole("link", { name: "Search all of Australia" })).toHaveAttribute("href", "/search");
   });
 
   it("demo: lists every upcoming event in bands, nearest first, soonest within each", async () => {
     render(await page({ near: "Fitzroy" }));
     await screen.findByText(/Closest to Fitzroy first/);
     const bands = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-    const order = ["In Fitzroy", "Within 5 km", "5–15 km", "Further away", "Location not on file"];
+    const order = ["In Fitzroy", "Within 5 km", "5–15 km", "Further away", "Over 100 km", "Location not on file"];
     const bandIndexes = bands.map((b) => order.indexOf(b ?? ""));
     // Only band headings, each once, in the bands' order.
     expect(bandIndexes.every((i) => i >= 0)).toBe(true);
     expect(bandIndexes).toEqual([...bandIndexes].sort((a, b) => a - b));
     expect(new Set(bandIndexes).size).toBe(bandIndexes.length);
     expect(bands[0]).toBe("In Fitzroy");
-    // Every sample suburb is in the table.
+    // Every sample suburb is in the table; the interstate samples (owner decision D11) are over 100 km away.
     expect(bands).not.toContain("Location not on file");
+    expect(bands[bands.length - 1]).toBe("Over 100 km");
     const upcoming = sampleEvents.filter((e) => isUpcomingEvent(e, NOW));
     const listed = [...document.querySelectorAll<HTMLElement>("[data-near-band]")].map((band) => within(band).getByRole("list"));
     // No region landmark per band: the h2s are the structure.

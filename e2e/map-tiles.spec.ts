@@ -30,6 +30,9 @@ function fixtures(now: number): PublicEvent[] {
       venueName: event.venueName,
       venueAddress: event.venueAddress,
       suburb: event.suburb,
+      // The API always sends the place (absent on a demo sample: Victoria, on Melbourne time).
+      state: event.state ?? "VIC",
+      timeZone: event.timeZone ?? "Australia/Melbourne",
       startsAt: new Date(start).toISOString(),
       endsAt: new Date(start + 3 * HOUR).toISOString(),
       organiserName: event.organiserName,
@@ -90,3 +93,46 @@ for (const vp of [
     });
   });
 }
+
+test.describe("/map is Australia-wide (owner plan S9) at 1440×900", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  /** The marker for `eventId` on the map: its own, or the cluster it's in. */
+  const pin = (page: Page, eventId: string) =>
+    page.locator(`.leaflet-container [data-event-id="${eventId}"], .leaflet-container [data-event-ids~="${eventId}"]`);
+
+  test("pins Melbourne and Perth events alike, and opens on all of them", async ({ page }) => {
+    await mockNetwork(page);
+    await page.goto("/map");
+    await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
+    // Melbourne's (clustered at this zoom) and Perth's, both drawn in the first view.
+    await expect(pin(page, "evt-neon-static")).toHaveCount(1, { timeout: 20_000 });
+    await expect(pin(page, "evt-northbridge-late-sketch")).toHaveCount(1);
+    await expect(pin(page, "evt-king-street-fuzz-night")).toHaveCount(1);
+    for (const title of ["Neon Static", "Northbridge Late Sketch", "Valley Risograph Fair"]) {
+      await expect(page.getByRole("button", { name: `Locate ${title} on the map` })).toBeEnabled();
+    }
+    await expect(page.getByText(/can.t be placed on the map yet/)).toHaveCount(0);
+    // The location filter: All of Australia, then the suburbs by state.
+    const location = page.getByRole("combobox", { name: "Location" });
+    await expect(location.locator("option").first()).toHaveText("All of Australia");
+    await expect(location.locator("optgroup")).toHaveCount(4);
+    expect(await location.locator("optgroup").evaluateAll((groups) => groups.map((g) => (g as HTMLOptGroupElement).label))).toEqual([
+      "New South Wales",
+      "Queensland",
+      "Victoria",
+      "Western Australia",
+    ]);
+  });
+
+  test("with a saved suburb, opens on the events near it (owner decision D5), the rest still listed", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth" })));
+    await mockNetwork(page);
+    await page.goto("/map");
+    await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
+    await expect(pin(page, "evt-northbridge-late-sketch")).toHaveCount(1, { timeout: 20_000 });
+    // Melbourne is far outside Perth's view: not drawn.
+    await expect(pin(page, "evt-neon-static")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Locate Neon Static on the map" })).toBeEnabled();
+  });
+});

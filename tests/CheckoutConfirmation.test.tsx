@@ -173,7 +173,7 @@ describe("CheckoutConfirmation", () => {
       const text = ticket.textContent ?? "";
       expect(text).toContain("Neon Static");
       expect(text).toContain("Sat 6 Mar, 8:00 pm – 11:30 pm");
-      expect(text).toContain("The Tote, Collingwood");
+      expect(text).toContain("The Tote, Collingwood, VIC");
       expect(text).toContain("Backup code");
       expect(text).toContain(WITH_DETAILS.tickets[i].ticketCode);
     }
@@ -255,7 +255,7 @@ describe("CheckoutConfirmation", () => {
   it("a listed event (eventListed true) shows its details and no support line", async () => {
     getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, eventListed: true });
     render(<CheckoutConfirmation />);
-    expect(await screen.findAllByText("The Tote, Collingwood")).toHaveLength(2);
+    expect(await screen.findAllByText("The Tote, Collingwood, VIC")).toHaveLength(2);
     expect(screen.queryByText(/no longer listed/)).toBeNull();
     expect(screen.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/neon-static");
   });

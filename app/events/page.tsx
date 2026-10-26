@@ -14,7 +14,7 @@ export default async function EventsPage({ searchParams }: PageProps<"/events">)
       {/* The brand line (owner decision 1), in the display face: it reads as written. */}
       <PageHeader
         brand
-        eyebrow="Events · Melbourne"
+        eyebrow="Events · Australia"
         title="What’s on."
         intro="Every live music night, exhibition, workshop and pop-up on Sheltüh. Filter by category, price or date."
       />

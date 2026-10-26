@@ -1,23 +1,32 @@
 /**
- * "Near you" search, in the browser only (docs/architecture.md, "Location"):
- * a visitor's suburb (typed, or worked out from the browser's position and
- * then the position dropped) orders /search results by the distance between
- * suburb centres. Nothing here is sent to the API, and no coordinates leave
- * the function that receives them. Distances are approximate: suburb centre
- * to suburb centre, never venue to venue.
+ * The suburb table's lookups (docs/architecture.md, "Location" and "Events:
+ * state and time zone"), for the browser and the server.
+ *
+ * In the browser, "near you" search: a visitor's suburb (typed, or worked
+ * out from the browser's position and then the position dropped) orders
+ * /search results by the distance between suburb centres. Nothing here is
+ * sent to the API, and no coordinates leave the function that receives them.
+ * Distances are approximate: suburb centre to suburb centre, never venue to
+ * venue. /map places events at their suburb's centre, and the event editor
+ * resolves an organiser's suburb to its state and time zone with it.
+ *
+ * On the server, the write routes check an event's suburb against its state
+ * (lib/server/event-input.ts), and /search resolves `near`.
  *
  * The suburb table (lib/localities.ts: every ABS suburb and locality in
  * Australia) is large, so client components load this module on demand
  * (lib/location-loader.ts) and import only its types statically. Server code
- * (app/search/page.tsx) imports it directly.
+ * (app/search/page.tsx, the event write routes) imports it directly.
  */
-import { MELBOURNE_DEFAULT_CENTER } from "./geo";
+import { distanceKm, MELBOURNE_DEFAULT_CENTER } from "./geo";
 import { LOCALITY_DATA, LOCALITY_REACH_KM } from "./localities";
 import { NEAR_MAX_LENGTH } from "./near-storage";
+import { placeQuery, type PlaceFields } from "./place";
 import type { StateCode } from "./time-zones";
 import type { Coordinates } from "./types";
 
 export type { StateCode };
+export { distanceKm, placeQuery };
 
 /** The table's order. */
 const STATE_CODES = ["NSW", "VIC", "QLD", "SA", "WA", "TAS", "NT", "ACT", "OT"] as const satisfies readonly StateCode[];
@@ -135,15 +144,6 @@ function readings(text: string): Reading[] {
     rest = rest.slice(0, -1);
     found.push({ key: alias(rest.join(" "), null), state: null });
   }
-}
-
-/** Great-circle distance in kilometres. */
-export function distanceKm(a: Coordinates, b: Coordinates): number {
-  const rad = Math.PI / 180;
-  const dLat = (b.lat - a.lat) * rad;
-  const dLng = (b.lng - a.lng) * rad;
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
-  return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
 /**
@@ -373,11 +373,19 @@ export function nearestLocality(position: Coordinates): NearestResult {
   return best === null ? { kind: "outside" } : { kind: "found", locality: placeAt(best) };
 }
 
-/** Bands, nearest first (owner decision D4, 24 Oct 2026: bands, then soonest within each). */
-export const NEARNESS_BANDS = ["here", "near", "mid", "far", "unknown"] as const;
+/**
+ * Bands, nearest first (owner decision D4, 24 Oct 2026: bands, then soonest
+ * within each; "Over 100 km" since events are Australia-wide, owner decision
+ * D8, 26 Oct 2026).
+ */
+export const NEARNESS_BANDS = ["here", "near", "mid", "far", "distant", "unknown"] as const;
 export type NearnessBand = (typeof NEARNESS_BANDS)[number];
 
-/** Where `suburb` sits from `origin`. An unknown suburb is "unknown", never dropped. */
+/**
+ * Where `suburb` (the text that finds it: placeQuery's "Perth WA", or a
+ * name alone) sits from `origin`. An unknown suburb is "unknown", never
+ * dropped.
+ */
 export function nearnessBand(origin: Locality, suburb: string): NearnessBand {
   const place = findLocality(suburb);
   if (!place) return "unknown";
@@ -385,7 +393,8 @@ export function nearnessBand(origin: Locality, suburb: string): NearnessBand {
   const km = distanceKm(origin, place);
   if (km <= 5) return "near";
   if (km <= 15) return "mid";
-  return "far";
+  if (km <= 100) return "far";
+  return "distant";
 }
 
 export function nearnessBandLabel(band: NearnessBand, origin: Locality): string {
@@ -398,6 +407,8 @@ export function nearnessBandLabel(band: NearnessBand, origin: Locality): string 
       return "5–15 km";
     case "far":
       return "Further away";
+    case "distant":
+      return "Over 100 km";
     case "unknown":
       return "Location not on file";
   }
@@ -411,14 +422,15 @@ export interface NearnessGroup<T> {
 
 /**
  * `items` in bands (nearest first, empty bands left out), soonest first
- * within each band, then by id so equal times keep a stable order.
+ * within each band, then by id so equal times keep a stable order. Each
+ * item's suburb is looked up with its state (placeQuery).
  */
-export function orderByNearness<T extends { suburb: string; startsAt: string; id: string }>(
+export function orderByNearness<T extends PlaceFields & { startsAt: string; id: string }>(
   items: readonly T[],
   origin: Locality,
 ): NearnessGroup<T>[] {
   const byBand = new Map<NearnessBand, T[]>(NEARNESS_BANDS.map((band) => [band, []]));
-  for (const item of items) byBand.get(nearnessBand(origin, item.suburb))?.push(item);
+  for (const item of items) byBand.get(nearnessBand(origin, placeQuery(item)))?.push(item);
   return NEARNESS_BANDS.flatMap((band) => {
     const bandItems = byBand.get(band) ?? [];
     if (bandItems.length === 0) return [];

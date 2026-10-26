@@ -7,6 +7,7 @@ import { SUPPORT_EMAIL } from "@/lib/contact";
 import { eventZone, formatDayTime, zoneSuffix } from "@/lib/format";
 import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
 import { organiserEventActions, organiserEventStatus } from "@/lib/organiser-events";
+import { eventPlaceName } from "@/lib/place";
 import { sellsPaidTicketsOnSheltuh } from "@/lib/ticketing";
 
 /**
@@ -39,7 +40,7 @@ export default function OrganiserEventRow({ event, payoutsEnabled }: { event: Ev
   const status = organiserEventStatus(event);
   const actions = organiserEventActions(event);
   const when = startText(event.startsAt, event.timeZone, event.state);
-  const meta = [when, event.suburb].filter(Boolean).join(" · ");
+  const meta = [when, eventPlaceName(event)].filter(Boolean).join(" · ");
   // A draft (or rejected event) with paid tickets can't be submitted until payouts are set up.
   const needsPayouts =
     !payoutsEnabled && (event.status === "draft" || event.status === "rejected") && sellsPaidTicketsOnSheltuh(event);

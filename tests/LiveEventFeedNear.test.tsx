@@ -122,7 +122,7 @@ describe("LiveEventFeed — near a suburb (ordered in the browser)", () => {
     expect(screen.getAllByText("Event a")).toHaveLength(1);
   });
 
-  it("from a long way off (Perth): every Melbourne event under Further away, unknown ones last", async () => {
+  it("from a long way off (Perth): every Melbourne event under Over 100 km, unknown ones last", async () => {
     listPublicEvents.mockResolvedValue({
       items: [
         makeEvent("unknown", "Atlantis", "2026-12-01T09:00:00.000Z"),
@@ -134,7 +134,7 @@ describe("LiveEventFeed — near a suburb (ordered in the browser)", () => {
     render(<LiveEventFeed categories={EVENT_CATEGORIES} near={place("Perth")} />);
     await screen.findByText("Event unknown");
     expect(bandTitles()).toEqual([
-      ["Further away", ["Event yarraville", "Event fitzroy"]],
+      ["Over 100 km", ["Event yarraville", "Event fitzroy"]],
       ["Location not on file", ["Event unknown"]],
     ]);
     expect(screen.getByText(/Closest to Perth first\./)).toBeInTheDocument();

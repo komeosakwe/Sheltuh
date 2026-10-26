@@ -9,6 +9,12 @@ import EventClipField from "@/components/dashboard/EventClipField";
 import EventImageField from "@/components/dashboard/EventImageField";
 import { PayoutsNeededNotice, PayoutsSubmitError, PayoutsSubmitHint } from "@/components/dashboard/PayoutsRequired";
 import RefundPolicyField from "@/components/dashboard/RefundPolicyField";
+import VenueSuburbField, {
+  useVenuePlace,
+  VENUE_SUBURB_ID,
+  venueZoneName,
+  type VenueResolution,
+} from "@/components/dashboard/VenueSuburbField";
 import SeatingChoiceField, {
   initialSeatingChoice,
   seatMapHref,
@@ -55,7 +61,7 @@ import {
   type RefundPolicy,
 } from "@/lib/refund-policy";
 import { checkExternalTicketUrl, sellsPaidTicketsOnSheltuh, type TicketingMode } from "@/lib/ticketing";
-import { localToUtcIso, PLATFORM_TIME_ZONE, zoneShortLabel } from "@/lib/time-zones";
+import { localToUtcIso, PLATFORM_TIME_ZONE } from "@/lib/time-zones";
 import { EVENT_CATEGORIES } from "@/lib/types";
 
 /** A section title in the form (Panel's title style: 20/24, uppercase by the heading base rule, which a legend doesn't get). */
@@ -161,7 +167,9 @@ function invalidControlIds(
     ["description", "description"],
     ["venueName", "venueName"],
     ["venueAddress", "venueAddress"],
-    ["suburb", "suburb"],
+    ["suburb", VENUE_SUBURB_ID],
+    ["state", VENUE_SUBURB_ID],
+    ["timeZone", VENUE_SUBURB_ID],
     ["start", start.date ? "start-time" : "start-date"],
     ["end", end.date ? "end-time" : "end-date"],
     ["externalTicketUrl", "externalTicketUrl"],
@@ -204,14 +212,17 @@ export default function EventEditor(props: Props) {
   const [category, setCategory] = useState(initial?.category ?? EVENT_CATEGORIES[0].value);
   const [venueName, setVenueName] = useState(initial?.venueName ?? "");
   const [venueAddress, setVenueAddress] = useState(initial?.venueAddress ?? "");
-  const [suburb, setSuburb] = useState(initial?.suburb ?? "");
-  // The zone the date and time inputs are in: the saved event's own (the API reads them in its stored
-  // zone when none is sent, and this form doesn't send one yet), Melbourne for a new event.
-  const timeZone = initial?.timeZone ?? PLATFORM_TIME_ZONE;
-  // "Melbourne time", or the event's own zone's city ("Perth time"; the ACT's "Canberra time").
-  const zoneName = zoneShortLabel(timeZone, initial?.state);
-  const [start, setStart] = useState(initial ? toDateTimeInputParts(initial.startsAt, timeZone) : { date: "", time: "" });
-  const [end, setEnd] = useState(initial ? toDateTimeInputParts(initial.endsAt, timeZone) : { date: "", time: "" });
+  // The venue's suburb, and from it the event's state and time zone (owner plan S8), sent together.
+  const venue = useVenuePlace(initial);
+  // The zone the date and time inputs are in: the suburb's (or the zone chosen for it). Until that's
+  // known, the saved event's own, Melbourne for a new one; the inputs keep their wall-clock times
+  // when the place changes.
+  const timeZone = venue.place?.timeZone ?? initial?.timeZone ?? PLATFORM_TIME_ZONE;
+  // "Perth time" (the ACT's "Canberra time"), or "local time" while the suburb isn't known.
+  const zoneName = venueZoneName(venue.place);
+  const initialZone = initial?.timeZone ?? PLATFORM_TIME_ZONE;
+  const [start, setStart] = useState(initial ? toDateTimeInputParts(initial.startsAt, initialZone) : { date: "", time: "" });
+  const [end, setEnd] = useState(initial ? toDateTimeInputParts(initial.endsAt, initialZone) : { date: "", time: "" });
   const [ticketTypes, setTicketTypes] = useState<TicketTypeInput[]>(
     initial?.ticketTypes && initial.ticketTypes.length > 0 ? initial.ticketTypes : [newTicketType()],
   );
@@ -377,13 +388,20 @@ export default function EventEditor(props: Props) {
     return refundDays.trim() === "" ? Number.NaN : Number(refundDays);
   }
 
-  function buildInput(): EventInput | null {
+  /**
+   * The form as the API takes it, or null with the errors shown. `place`: the
+   * suburb resolved (useVenuePlace's resolveForSave): a suburb the table
+   * doesn't know, or one that couldn't be checked, is an error by the field,
+   * and nothing is sent; a known one sends its state and zone with it.
+   */
+  function buildInput(place: VenueResolution): EventInput | null {
     const nextErrors: Record<string, string> = {};
     if (!title.trim()) nextErrors.title = "Enter an event title.";
     if (!description.trim()) nextErrors.description = "Enter a description.";
     if (!venueName.trim()) nextErrors.venueName = "Enter a venue name.";
     if (!venueAddress.trim()) nextErrors.venueAddress = "Enter a venue address.";
-    if (!suburb.trim()) nextErrors.suburb = "Enter a suburb.";
+    if (place.kind === "empty") nextErrors.suburb = "Enter a suburb or town.";
+    else if (place.kind === "unknown" || place.kind === "unavailable") nextErrors.suburb = place.message;
     if (!start.date || !start.time) nextErrors.start = "Enter a start date and time.";
     if (!end.date || !end.time) nextErrors.end = "Enter an end date and time.";
     if (isAdmin && !initial && !createdId && !organiser) nextErrors.organiserId = "Choose an organiser.";
@@ -424,7 +442,9 @@ export default function EventEditor(props: Props) {
       category,
       venueName: venueName.trim(),
       venueAddress: venueAddress.trim(),
-      suburb: suburb.trim(),
+      ...(place.kind === "found"
+        ? { suburb: place.place.name, state: place.place.state, timeZone: place.place.timeZone }
+        : { suburb: venue.suburb.trim() }),
       start,
       end,
       ticketTypes: external ? [] : ticketTypes,
@@ -491,10 +511,14 @@ export default function EventEditor(props: Props) {
     setPayoutsError(null);
     showSessionExpired(false);
     setStatus(null);
-    const input = buildInput();
-    if (input && refuseOtherAccount()) return;
-    // Busy already: the clip's check may still be reading a file just chosen, which the save waits for.
+    // Busy already: the suburb may need checking (the table loading), and the clip's check may
+    // still be reading a file just chosen, which the save waits for.
     setSaving(true);
+    const input = buildInput(await venue.resolveForSave());
+    if (input && refuseOtherAccount()) {
+      setSaving(false);
+      return;
+    }
     const clipReady = await clip.validate();
     if (!input || !clipReady) {
       setSaving(false);
@@ -583,9 +607,12 @@ export default function EventEditor(props: Props) {
     setStatus(null);
     // Submit what's on screen, not the last save: unsaved edits are saved
     // first, and nothing is submitted if they don't validate.
-    const input = buildInput();
-    if (input && refuseOtherAccount()) return;
     setSubmitting(true);
+    const input = buildInput(await venue.resolveForSave());
+    if (input && refuseOtherAccount()) {
+      setSubmitting(false);
+      return;
+    }
     const clipReady = await clip.validate();
     if (!input || !clipReady) {
       setSubmitting(false);
@@ -751,18 +778,13 @@ export default function EventEditor(props: Props) {
           />
           {fieldError("venueAddress")}
         </div>
-        <div className="flex flex-col gap-1 sm:col-span-1">
-          <label htmlFor="suburb" className="eyebrow text-muted">
-            Suburb
-          </label>
-          <input
-            id="suburb"
-            value={suburb}
-            {...invalidProps("suburb")}
-            onChange={(e) => setSuburb(e.target.value)}
-            className={fieldClass}
+        <div className="sm:col-span-1">
+          <VenueSuburbField
+            venue={venue}
+            suburbError={errors.suburb ?? errors.state}
+            timeZoneError={errors.timeZone}
+            startsAt={startInstant(start, timeZone)}
           />
-          {fieldError("suburb")}
         </div>
       </div>
 

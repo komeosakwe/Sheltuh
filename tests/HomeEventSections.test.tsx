@@ -14,6 +14,9 @@ vi.mock("@/lib/home-events", () => ({
   loadHomeTrending: (now: Date) => loadHomeTrending(now),
 }));
 vi.mock("@/lib/api/going", () => ({ getGoingSummary: vi.fn(() => new Promise(() => {})) }));
+// The suburb table, loaded only for a visitor with a saved suburb (owner decision D5).
+const loadLocation = vi.fn();
+vi.mock("@/lib/location-loader", () => ({ loadLocation: () => loadLocation() }));
 
 function event(id: string, startsAt: string, priceCents = 3000): SheltuhEvent {
   return {
@@ -290,5 +293,55 @@ describe("the home's event sections", () => {
     await flush();
     expect(loadHomeEvents.mock.calls[0][0]).toBe(loadHomeTrending.mock.calls[0][0]);
     expect(loadHomeEvents.mock.calls[0][0].toISOString()).toBe(NOW);
+  });
+});
+
+describe("the home with a saved suburb (owner decision D5, browser-only)", () => {
+  const PERTH_SAT = { ...event("perth-sat", "2026-10-24T11:00:00.000Z"), state: "WA" as const, timeZone: "Australia/Perth" as const };
+
+  afterEach(() => localStorage.clear());
+
+  it("lists the saved suburb's state first in each section; the location goes nowhere but the suburb table", async () => {
+    localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth" }));
+    const findLocality = vi.fn(() => ({ name: "Perth", state: "WA", lat: -31.95, lng: 115.86 }));
+    loadLocation.mockResolvedValue({ findLocality });
+    loadHomeEvents.mockResolvedValue([SAT, SUN, PERTH_SAT]);
+    renderHome();
+    await flush();
+    await flush();
+    const weekend = within(screen.getByRole("list", { name: "This weekend" }));
+    expect(weekend.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual([
+      "Event perth-sat",
+      "Event sat",
+      "Event sun",
+    ]);
+    expect(findLocality).toHaveBeenCalledWith("Perth");
+    // The suburb isn't sent with the events' requests.
+    expect(loadHomeEvents).toHaveBeenCalledWith(expect.any(Date));
+  });
+
+  it("without one: soonest first, Australia-wide, and the suburb table isn't loaded", async () => {
+    loadHomeEvents.mockResolvedValue([SAT, SUN, PERTH_SAT]);
+    renderHome();
+    await flush();
+    const weekend = within(screen.getByRole("list", { name: "This weekend" }));
+    expect(weekend.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual([
+      "Event sat",
+      "Event perth-sat",
+      "Event sun",
+    ]);
+    expect(loadLocation).not.toHaveBeenCalled();
+  });
+
+  it("if the table can't load: the usual order, no error", async () => {
+    localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth" }));
+    loadLocation.mockRejectedValue(new Error("chunk failed"));
+    loadHomeEvents.mockResolvedValue([SAT, SUN, PERTH_SAT]);
+    renderHome();
+    await flush();
+    await flush();
+    const weekend = within(screen.getByRole("list", { name: "This weekend" }));
+    expect(weekend.getAllByRole("heading", { level: 3 })[0]).toHaveTextContent("Event sat");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

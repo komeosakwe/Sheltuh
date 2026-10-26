@@ -4,6 +4,8 @@
  * Leaflet) so it can be unit-tested; SceneMapPanel projects lat/lng to pixels
  * at the current zoom, calls this, and projects cluster centres back.
  */
+import { distanceKm } from "./geo";
+import type { Coordinates } from "./types";
 
 export interface MapPoint {
   id: string;
@@ -112,4 +114,18 @@ export function isSinglePoint(positions: { lat: number; lng: number }[]): boolea
   return positions.every(
     (position) => Math.abs(position.lat - first.lat) < 1e-6 && Math.abs(position.lng - first.lng) < 1e-6,
   );
+}
+
+/** /map opens on the events within this distance of the visitor's saved suburb, when there are some. */
+export const NEAR_FRAME_KM = 50;
+
+/**
+ * What the map frames: every marker, except on its first framing with a
+ * saved suburb (`near`, browser-only), when it's the markers within
+ * NEAR_FRAME_KM of it (every marker if none are). Owner decision D5.
+ */
+export function framingTargets<T extends Coordinates>(markers: T[], near: Coordinates | null, firstFraming: boolean): T[] {
+  if (!firstFraming || !near) return markers;
+  const close = markers.filter((marker) => distanceKm(near, marker) <= NEAR_FRAME_KM);
+  return close.length > 0 ? close : markers;
 }

@@ -46,7 +46,7 @@ function validate(values: FormState): FormErrors {
   if (!values.description.trim()) errors.description = "Enter a short description.";
   if (!values.category) errors.category = "Choose a category.";
   if (!values.venue.trim()) errors.venue = "Enter a venue name.";
-  if (!values.suburb.trim()) errors.suburb = "Enter a suburb.";
+  if (!values.suburb.trim()) errors.suburb = "Enter a suburb or town.";
 
   if (!values.date) {
     errors.date = "Enter a date.";
@@ -193,7 +193,7 @@ export default function SubmitEventForm() {
         />
       </Field>
 
-      <Field id="suburb" label="Suburb" error={errors.suburb}>
+      <Field id="suburb" label="Suburb or town" error={errors.suburb}>
         <input
           id="suburb"
           type="text"

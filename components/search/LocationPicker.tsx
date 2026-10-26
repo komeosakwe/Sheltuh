@@ -66,7 +66,7 @@ const sameNear = (a: string, b: string) => a.trim().toLowerCase() === b.trim().t
  * remembered suburb on a /search without `near`), a hint under the bar says
  * to press Search.
  *
- * "Anywhere": after "Anywhere in Melbourne" the button reads "Anywhere"
+ * "Anywhere": after "Anywhere in Australia" the button reads "Anywhere"
  * rather than the "Your suburb" prompt. It's kept for this page view only
  * (storage holds a suburb or nothing), so after the next page load the
  * prompt is back.
@@ -282,7 +282,7 @@ export default function LocationPicker({
     setAnywhere(true);
     clearStoredNear();
     setPanelStatus(null);
-    closeAndReturn("Location cleared: anywhere in Melbourne");
+    closeAndReturn("Location cleared: anywhere in Australia");
   }
 
   const danger = panelStatus?.tone === "danger";
@@ -398,7 +398,7 @@ export default function LocationPicker({
           onClick={clearLocation}
           className="mt-2 flex min-h-11 items-center text-sm leading-5 font-semibold underline underline-offset-4"
         >
-          Anywhere in Melbourne
+          Anywhere in Australia
         </button>
         {/* Outside the location block: also there when the browser can't locate. */}
         <p className="mt-1 text-sm leading-5 text-muted">

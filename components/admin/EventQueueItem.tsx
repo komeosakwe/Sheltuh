@@ -20,6 +20,7 @@ import { ticketProviderName } from "@/lib/ticketing";
 import AdminSessionExpired from "./AdminSessionExpired";
 import { actionErrorText } from "./OrganiserItem";
 import PrivateEventImage from "./PrivateEventImage";
+import { eventPlaceName } from "@/lib/place";
 
 /** The API's limit for a rejection reason (lib/server/handlers/admin.ts, requireReason). */
 export const EVENT_REJECT_REASON_MAX = 1000;
@@ -112,7 +113,7 @@ export default function EventQueueItem({
             </p>
           )}
           <p className="meta text-muted">
-            {item.venueName}, {item.suburb}
+            {[item.venueName, eventPlaceName(item)].filter(Boolean).join(", ")}
           </p>
         </header>
 

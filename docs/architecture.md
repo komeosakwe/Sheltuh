@@ -3121,8 +3121,28 @@ Events can be anywhere in Australia (owner plan, steps S3 and S4;
   event's line is unchanged. The seat hold's end reads "8:31 pm Perth
   time"; the refund deadline and the door's check-in times are in the
   event's zone. The editors fill the date and time inputs in the event's
-  zone (legend "Starts (Perth time)") and don't send `state` / `timeZone`
-  yet, so the API reads them in the stored zone and nothing moves.
+  zone (legend "Starts (Perth time)").
+- **Entered** (S8, `components/dashboard/VenueSuburbField.tsx`): the
+  organiser's and admin's editor has one "Suburb or town" field, suggested
+  and resolved with the suburb table (`lib/location.ts`, loaded on demand):
+  suggestions read "Richmond, VIC" / "Richmond, NSW", a bare shared name is
+  the Victorian one (owner decision D7), and a polite line under the field
+  names the place and zone ("Richmond, Victoria · Melbourne time (AEDT)").
+  The state's default zone (`defaultTimeZone(state, suburb)`) is used, with
+  a "Time zone" choice only where a state has more than one (NSW, WA, OT).
+  The date legends name the zone's city, or "local time" until the suburb
+  is known; changing the suburb or zone keeps the typed wall-clock times.
+  Every save sends `suburb` (the locality's `name`), `state` and `timeZone`
+  together. A suburb the table doesn't know is an error by the field ("Did
+  you mean Fremantle, WA?") and nothing is sent; if the table can't load,
+  saving says so and sends nothing. The API's `fieldErrors.suburb` /
+  `.state` show by the field, `.timeZone` by the zone choice (else the
+  field), `.start` / `.end` (the daylight-saving gap) by the times.
+- **Place display** (owner decision D4): a suburb is shown as "Suburb,
+  STATE" (`lib/place.ts` `placeName`: "Fitzroy, VIC", "Richmond, NSW",
+  never "Richmond NSW, NSW"): cards, map rows and spots, the dashboard row,
+  the admin queue, the organiser profile, the checkout summary and
+  confirmation. Link previews and emails still show the suburb as stored.
 - **Grouped** (S6): Tonight, This weekend and a date on /map, and the demo
   feed's date, use each event's own calendar (`lib/scene-map-filters.ts`).
   The home's This weekend is the platform's weekend (its heading and
@@ -3131,6 +3151,11 @@ Events can be anywhere in Australia (owner plan, steps S3 and S4;
   one per zone), so a Perth gig at 11 pm on Sunday counts; the live home
   loads pages until the latest zone's weekend has ended
   (`latestWeekendEnd`: the Cocos Islands').
+- **Home order** (S10, owner decision D5): Australia-wide, soonest first.
+  With a saved "near" suburb (browser-only), `HomeEventsProvider` finds its
+  state with the suburb table and `selectHomeSections(…, preferredState)`
+  lists that state's events first in each section (a stable reorder, before
+  each takes its six). The state never reaches the API.
 - **Platform zone** (owner decision D1): analytics day buckets, trending,
   rate-limit days, retention, and admin and message times stay in
   Australia/Melbourne.
@@ -3166,7 +3191,10 @@ Search can order results by how close they are to a suburb (owner round,
   on the server and passes the `Locality` down; `EventFeed` →
   `EventBrowser` (demo) / `LiveEventFeed` (live) → `NearbyResults` order the
   results with `orderByNearness`: bands (In {suburb}, Within 5 km,
-  5–15 km, Further away, Location not on file), soonest first within each.
+  5–15 km, Further away (to 100 km), Over 100 km (owner decision D8),
+  Location not on file), soonest first within each. Each event's suburb is
+  looked up with its state (`lib/place.ts` `placeQuery`: "Perth WA",
+  "Richmond NSW", never doubled; the suburb alone for an event without one).
   Live near mode reads at most 4 pages of 50 (the 200 soonest matches) and
   says so when more matched. Distances are suburb centre to suburb centre,
   labelled approximate.
@@ -3190,12 +3218,24 @@ Search can order results by how close they are to a suburb (owner round,
   (`CITY_NAMES`): Brisbane → Brisbane City, Darwin → Darwin City,
   Canberra → City ACT, Gold Coast → Surfers Paradise, Ballarat → Ballarat
   Central, and a few more.
-- `/map` places an event without venue coordinates at its suburb's centre
-  from the same table (`resolveMapCoordinates(event, findLocality)`,
-  through `components/search/useLocationModule.ts`); the map waits for the
-  table when some event has no coordinates, and if it can't load says so, offers Try again, and falls back to
-  the 20 hand-entered centres in `lib/geo.ts`. Only Greater Melbourne is
-  pinned; an unknown suburb (a typo) is listed and counted as unplaced.
+- `/map` (owner plan S9) is Australia-wide: it places an event without
+  venue coordinates at its suburb's centre from the same table
+  (`resolveMapCoordinates(event, findLocality)`, looking up `placeQuery`'s
+  "{suburb} {state}", through `components/search/useLocationModule.ts`);
+  the map waits for the table when some event has no coordinates (or a
+  suburb is saved), and if it can't load says so, offers Try again, and
+  falls back to the 20 hand-entered inner-Melbourne centres in `lib/geo.ts`
+  (Victorian events only). Anything inside `AUSTRALIA_BOUNDS` (-45..-8,
+  95..170: Norfolk, Christmas and the Cocos Islands included) is pinned,
+  and the map can't be panned past it; an unknown suburb (a typo) or a
+  position overseas is listed and counted as unplaced. It opens on every
+  marker; with a saved "near" suburb, on the markers within 50 km of it
+  (`lib/map-layout.ts` `framingTargets`; all of them if none are), and with
+  none, on the mainland and Tasmania (`AUSTRALIA_VIEW`, minimum zoom 3, so
+  it fits a 375px phone). Live, it reads up to 4 pages of 50 at a time (and
+  Load more the next 4). The location filter lists the events' suburbs
+  under "All of Australia", grouped by state (`<optgroup>`,
+  `suburbsByState`). Markers cluster by pixel distance at any zoom.
 - Disclosed at `/privacy#location` (draft) and in the popover.
 - Phase 2 (not built): venue coordinates on events and a server-side
   `GET /api/events?near=<suburb>` checked against the same table.

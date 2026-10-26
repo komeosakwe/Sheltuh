@@ -131,7 +131,7 @@ describe("EventCard anatomy (§6.2.1)", () => {
       expect(lines).toEqual([
         "Glasshouse Sessions",
         "Sun 18 Oct · 7:00 pm",
-        "The Conservatory · Carlton",
+        "The Conservatory · Carlton, VIC",
         `Live music · ${getSampleGoing(event.id).count} going (sample)`,
       ]);
       expect(text.firstElementChild?.tagName).toBe("H3");
@@ -151,7 +151,7 @@ describe("EventCard anatomy (§6.2.1)", () => {
   it("names the card's link title first, then the date, place, price and going count (not the category)", () => {
     render(<EventCard event={event} variant="rail" mode="demo" />);
     expect(cardLink(event)).toHaveAccessibleName(
-      `Glasshouse Sessions Sun 18 Oct · 7:00 pm The Conservatory · Carlton From A$36.90 incl. booking fee ${getSampleGoing(event.id).count} going (sample)`,
+      `Glasshouse Sessions Sun 18 Oct · 7:00 pm The Conservatory · Carlton, VIC From A$36.90 incl. booking fee ${getSampleGoing(event.id).count} going (sample)`,
     );
     expect(cardLink(event)).not.toHaveAccessibleName(/Live music/);
     expect(cardLink(event)).toHaveAttribute("href", "/events/glass-sessions");
@@ -193,7 +193,7 @@ describe("EventCard anatomy (§6.2.1)", () => {
   it("lets the venue · suburb line wrap to two lines rather than cutting the suburb off (A2)", () => {
     const long = { ...event, venueName: "The Very Long Name Of A Community Hall And Garden", suburb: "Brunswick East" };
     render(<EventCard event={long} variant="grid" mode="live" />);
-    const place = screen.getByText(`${long.venueName} · ${long.suburb}`);
+    const place = screen.getByText(`${long.venueName} · ${long.suburb}, VIC`);
     expect(place).toHaveClass("line-clamp-2", "break-words");
     expect(place).not.toHaveClass("truncate");
   });
@@ -298,7 +298,7 @@ describe("EventCard: prices and buttons line up across sibling cards (owner feed
 
   it("puts nothing interactive between the stretched link and the foot, and keeps the link's name", () => {
     render(<EventCard event={event} variant="rail" mode="live" />);
-    expect(cardLink(event)).toHaveAccessibleName("Glasshouse Sessions Sun 18 Oct · 7:00 pm The Conservatory · Carlton From A$36.90 incl. booking fee");
+    expect(cardLink(event)).toHaveAccessibleName("Glasshouse Sessions Sun 18 Oct · 7:00 pm The Conservatory · Carlton, VIC From A$36.90 incl. booking fee");
   });
 });
 
@@ -308,7 +308,7 @@ describe("EventCard variants", () => {
     expect(cardRoot(container)).toHaveClass("w-[min(62vw,15rem)]", "shrink-0", "sm:w-64");
     expect(cardRoot(container)).not.toHaveClass("sm:w-full");
     expect(screen.getByRole("heading", { level: 3 })).toHaveClass("text-lg", "leading-6", "line-clamp-2", "break-words");
-    expect(screen.getByText("The Conservatory · Carlton")).toHaveClass("text-sm", "leading-5");
+    expect(screen.getByText("The Conservatory · Carlton, VIC")).toHaveClass("text-sm", "leading-5");
     expect(screen.getByText("From A$36.90").parentElement).toHaveClass("text-sm", "leading-5");
     const buy = screen.getByRole("link", { name: "Buy tickets for Glasshouse Sessions" });
     expect(buy).toHaveClass("self-start", "px-4", "min-h-11", "sm:min-h-10");
@@ -341,8 +341,8 @@ describe("EventCard variants", () => {
     expect(cardRoot(container)).toHaveClass("w-full");
     expect(screen.getByRole("heading", { level: 3 })).toHaveClass("text-base", "leading-[1.375rem]", "sm:text-lg");
     // 14px at every width (it was 12px on the phone grid).
-    expect(screen.getByText("The Conservatory · Carlton")).toHaveClass("text-sm");
-    expect(screen.getByText("The Conservatory · Carlton").className).not.toMatch(/text-xs/);
+    expect(screen.getByText("The Conservatory · Carlton, VIC")).toHaveClass("text-sm");
+    expect(screen.getByText("The Conservatory · Carlton, VIC").className).not.toMatch(/text-xs/);
     const buy = screen.getByRole("link", { name: "Buy tickets for Glasshouse Sessions" });
     expect(buy).toHaveClass("w-full", "sm:w-auto", "px-2", "text-xs", "text-balance");
     expect(buy.className).not.toMatch(/truncate|whitespace-nowrap/);

@@ -336,3 +336,60 @@ describe("This weekend in each event's own zone (owner plan S6)", () => {
     expect(latestWeekendEnd(NOW)).toBeGreaterThan(weekendWindow(NOW, "Australia/Perth").end);
   });
 });
+
+describe("selectHomeSections: the saved suburb's state first (owner decision D5)", () => {
+  // Thu 22 Oct 2026, noon AEDT: before the weekend.
+  const now = at("2026-10-22T01:00:00.000Z");
+  const sat = (hourUtc: number) => `2026-10-24T${String(hourUtc).padStart(2, "0")}:00:00.000Z`;
+  const vic1 = event("vic-1", sat(1));
+  const wa1 = event("wa-1", sat(2), { state: "WA", timeZone: "Australia/Perth", suburb: "Northbridge" });
+  const vic2 = event("vic-2", sat(3), { state: "VIC" });
+  const wa2 = event("wa-2", sat(4), { state: "WA", timeZone: "Australia/Perth", suburb: "Perth" });
+  const events = [vic1, wa1, vic2, wa2];
+
+  it("without one: Australia-wide, soonest first", () => {
+    expect(selectHomeSections(events, [], now).weekend.items.map((e) => e.id)).toEqual(["vic-1", "wa-1", "vic-2", "wa-2"]);
+    expect(selectHomeSections(events, [], now, [], null).weekend.items.map((e) => e.id)).toEqual([
+      "vic-1",
+      "wa-1",
+      "vic-2",
+      "wa-2",
+    ]);
+  });
+
+  it("with Western Australia: its events first, each part still soonest first (a stable reorder)", () => {
+    expect(selectHomeSections(events, [], now, [], "WA").weekend.items.map((e) => e.id)).toEqual([
+      "wa-1",
+      "wa-2",
+      "vic-1",
+      "vic-2",
+    ]);
+  });
+
+  it("an event without a state counts as Victorian", () => {
+    expect(selectHomeSections(events, [], now, [], "VIC").weekend.items.map((e) => e.id)).toEqual([
+      "vic-1",
+      "vic-2",
+      "wa-1",
+      "wa-2",
+    ]);
+  });
+
+  it("applies to every section before it takes its six: following, Popular and Coming up", () => {
+    const later = (id: string, day: number, state?: "WA") =>
+      event(id, `2026-11-${String(day).padStart(2, "0")}T09:00:00.000Z`, state ? { state, timeZone: "Australia/Perth" } : {});
+    const vics = [1, 2, 3, 4, 5, 6].map((day) => later(`v${day}`, day));
+    const perth = later("p7", 7, "WA");
+    const coming = selectHomeSections([...vics, perth], [], now, [], "WA").popular;
+    expect(coming?.kind).toBe("coming");
+    // Seventh soonest, but first: it isn't cut off by the six before it.
+    expect(popularEvents(coming).map((e) => e.id)).toEqual(["p7", "v1", "v2", "v3", "v4", "v5"]);
+
+    const popular = selectHomeSections([], [...vics, perth].map((e) => trend(e)), now, [], "WA").popular;
+    expect(popular?.kind).toBe("popular");
+    expect(popularEvents(popular)[0].id).toBe("p7");
+
+    const following = selectHomeSections([], [], now, [...vics, perth], "WA").following;
+    expect(following.map((e) => e.id)).toEqual(["p7", "v1", "v2", "v3", "v4", "v5"]);
+  });
+});

@@ -94,7 +94,7 @@ const EVENT: EventRecord = {
   category: "live-music",
   venueName: "The Venue",
   venueAddress: "1 Test St",
-  suburb: "Testville",
+  suburb: "Fitzroy",
   startsAt: "2026-09-25T10:00:00.000Z",
   endsAt: "2026-09-25T13:00:00.000Z",
   organiserName: "Test Org",
@@ -514,7 +514,7 @@ describe("EventClipField: when the clip step fails after the event saved (M2)", 
     fireEvent.change(screen.getByLabelText(/^Description/), { target: { value: "A test event." } });
     fireEvent.change(screen.getByLabelText(/^Venue name/), { target: { value: "The Venue" } });
     fireEvent.change(screen.getByLabelText(/^Venue address/), { target: { value: "1 Test St" } });
-    fireEvent.change(screen.getByLabelText(/^Suburb/), { target: { value: "Testville" } });
+    fireEvent.change(screen.getByLabelText(/^Suburb/), { target: { value: "Fitzroy" } });
     fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-12-01" } });
     fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "19:00" } });
     fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2026-12-01" } });

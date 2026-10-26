@@ -2,6 +2,7 @@ import { eventZone, formatEventDateKey, formatEventDateShort, formatEventTime, z
 import type { TrendingSignal } from "./home-sections";
 import { isSoldOut, pricedTicketTypes } from "./pricing";
 import { quickBuyHref, quickBuyLabel, type QuickBuyLabel } from "./quick-buy";
+import { eventPlaceName } from "./place";
 import { getSampleGoing } from "./sample-going";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "./types";
 
@@ -16,9 +17,13 @@ export function categoryLabel(event: SheltuhEvent): string {
   return EVENT_CATEGORIES.find((category) => category.value === event.category)?.label ?? event.category;
 }
 
-/** "The Depot Theatre · Coburg": the parts that exist, never a dangling separator. Empty when neither does. */
+/**
+ * "The Depot Theatre · Coburg, VIC": the parts that exist, never a dangling
+ * separator, the suburb with its state (owner decision D4, lib/place.ts).
+ * Empty when neither exists.
+ */
 export function placeLabel(event: SheltuhEvent): string {
-  return [event.venueName, event.suburb].filter(Boolean).join(" · ");
+  return [event.venueName, eventPlaceName(event)].filter(Boolean).join(" · ");
 }
 
 export type CardDateLabel = { date: string; time: string } | { running: string };

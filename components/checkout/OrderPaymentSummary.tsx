@@ -4,6 +4,7 @@ import { useState } from "react";
 import SeatLine from "@/components/seating/SeatLine";
 import type { OrderPaymentLine, OrderPaymentSummary as Summary } from "@/lib/api/types";
 import { eventZone, formatAud, formatEventWhen } from "@/lib/format";
+import { placeName } from "@/lib/place";
 import { REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { ChevronDownIcon } from "./icons";
 
@@ -22,7 +23,10 @@ export default function OrderPaymentSummary({ summary }: { summary: Summary }) {
   const when = summary.eventStartsAt
     ? formatEventWhen(summary.eventStartsAt, summary.eventEndsAt, summary.eventTimeZone, summary.eventState)
     : undefined;
-  const where = [summary.venueName, summary.suburb].filter((part) => !!part?.trim()).join(", ") || undefined;
+  const where =
+    [summary.venueName, summary.suburb ? placeName(summary.suburb, summary.eventState) : ""]
+      .filter((part) => !!part?.trim())
+      .join(", ") || undefined;
   const count = summary.lines.reduce((sum, line) => sum + line.quantity, 0);
   // "Seats" only when every line is seats (a seated order can carry general admission tickets too).
   const allSeats = summary.seated && summary.lines.length > 0 && summary.lines.every((line) => (line.seats?.length ?? 0) > 0);

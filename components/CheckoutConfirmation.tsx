@@ -22,6 +22,7 @@ import {
 } from "@/lib/checkout-pay";
 import { eventZone, formatAud, formatEventWhen } from "@/lib/format";
 import { REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
+import { placeName } from "@/lib/place";
 import { compareSeats } from "@/lib/seating/format";
 import { forgetPendingCheckout } from "@/lib/seating/pending-checkout";
 import type { CustomerOrder, StateCode } from "@/lib/api/types";
@@ -355,7 +356,9 @@ export default function CheckoutConfirmation() {
       : undefined;
   const where = unlisted
     ? undefined
-    : [order.venueName, order.suburb].filter((part) => !!part?.trim()).join(", ") || undefined;
+    : [order.venueName, order.suburb ? placeName(order.suburb, order.eventState) : ""]
+        .filter((part) => !!part?.trim())
+        .join(", ") || undefined;
   // The refund policy: only where something was paid (a free order has nothing to refund) and the event is listed.
   const refunds =
     unlisted || order.totalCents <= 0 ? null : refundTermsLine(order.refundPolicy, order.refundDays, order.eventStartsAt, { timeZone: zone });

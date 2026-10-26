@@ -12,8 +12,10 @@ export const NEAR_MAX_EVENTS = 200;
 
 /**
  * /search results near a suburb (owner decision D4, 24 Oct 2026): in bands,
- * nearest first (In {suburb}, Within 5 km, 5–15 km, Further away, Location
+ * nearest first (In {suburb}, Within 5 km, 5–15 km, Further away, Over 100
+ * km (owner decision D8, 26 Oct 2026: events are Australia-wide), Location
  * not on file), soonest first within each, each under a small visible h2.
+ * Each event's suburb is found with its state (lib/place.ts placeQuery).
  * The h2s are the structure: no region landmark per band, and the lists
  * aren't named again with the heading's words.
  * Every event is listed: one whose suburb isn't known goes last, never away.

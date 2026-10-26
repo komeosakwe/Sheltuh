@@ -231,7 +231,7 @@ describe("CheckoutPayment: open", () => {
     const summary = await screen.findByRole("region", { name: "Neon Static" });
     expect(summary).toHaveClass("rounded-card", "border", "border-foreground", "bg-card");
     expect(within(summary).getByText("Sat 6 Mar, 8:00 pm – 11:30 pm")).toBeInTheDocument();
-    expect(within(summary).getByText("The Tote, Collingwood")).toBeInTheDocument();
+    expect(within(summary).getByText("The Tote, Collingwood, VIC")).toBeInTheDocument();
     expect(within(summary).getByText("2 × A$31.70 incl. fee")).toBeInTheDocument();
     expect(within(summary).getByText("1 × Free")).toBeInTheDocument();
     expect(within(summary).getByText("Free", { selector: "p.shrink-0" })).toBeInTheDocument();

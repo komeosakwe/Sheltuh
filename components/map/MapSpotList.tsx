@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef } from "react";
 import EventArt from "@/components/EventArt";
 import { startDateTimeLine } from "@/lib/event-card";
+import { eventPlaceName } from "@/lib/place";
 import type { SheltuhEvent } from "@/lib/types";
 
 interface MapSpotListProps {
@@ -24,8 +25,8 @@ export default function MapSpotList({ events, onChoose, onClose }: MapSpotListPr
     firstButton.current?.focus();
   }, []);
 
-  const suburbs = new Set(events.map((event) => event.suburb));
-  const place = suburbs.size === 1 ? `in ${events[0]?.suburb}` : "at this spot";
+  const places = new Set(events.map(eventPlaceName));
+  const place = places.size === 1 ? `in ${eventPlaceName(events[0])}` : "at this spot";
   const approximate = events.some((event) => !event.coordinates);
 
   return (

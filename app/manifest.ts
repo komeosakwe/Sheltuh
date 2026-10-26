@@ -12,7 +12,7 @@ export default function manifest(): MetadataRoute.Manifest {
     id: "/",
     name: "Sheltüh",
     short_name: "Sheltüh",
-    description: "A curated guide to Melbourne's live music, art, workshops and pop-ups. Find what's on and get tickets.",
+    description: "A curated guide to live music, art, workshops and pop-ups across Australia. Find what's on and get tickets.",
     lang: "en-AU",
     dir: "ltr",
     start_url: "/",

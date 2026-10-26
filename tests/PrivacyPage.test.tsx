@@ -64,7 +64,7 @@ describe("/privacy — Your location", () => {
     expect(section).toHaveTextContent("hosting provider’s request logs");
     expect(section).toHaveTextContent("isn’t saved in our database, isn’t linked to your account, and isn’t sent with our event searches");
     expect(section).toHaveTextContent("We don’t work out where you are from your IP address.");
-    expect(section).toHaveTextContent("“Anywhere in Melbourne”");
+    expect(section).toHaveTextContent("“Anywhere in Australia”");
     expect(section).toHaveTextContent("or search with the location left empty");
     // The address with the suburb in it also lives on in the browser's history.
     expect(section).toHaveTextContent("Search results pages you’ve visited, suburb and all, stay in your browser’s history until you clear it there.");

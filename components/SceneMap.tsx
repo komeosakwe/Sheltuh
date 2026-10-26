@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import SceneEventRow from "@/components/SceneEventRow";
 import SceneMapFilterBar from "@/components/SceneMapFilterBar";
 import MapStylePreview from "@/components/map/MapStylePreview";
@@ -20,13 +20,15 @@ import { startLabel } from "@/lib/event-card";
 import { formatEventDateShort } from "@/lib/format";
 import { useLocationModule } from "@/components/search/useLocationModule";
 import { findListedSuburb, resolveMapCoordinates, type SuburbLookup } from "@/lib/geo";
+import { readStoredNear } from "@/lib/near-storage";
+import { placeName } from "@/lib/place";
 import { TILE_STYLE_PARAM, type TileStyleId } from "@/lib/map-tiles";
 import { formatFeedPrice } from "@/lib/pricing";
 import {
-  distinctSuburbs,
   matchesPricing,
   matchesSearch,
   matchesTimeFilter,
+  suburbsByState,
   type ScenePricingFilter,
   type TimeFilter,
 } from "@/lib/scene-map-filters";
@@ -43,6 +45,14 @@ const SceneMapPanel = dynamic(() => import("@/components/SceneMapPanel"), {
 
 type MobileView = "map" | "list";
 type Status = "loading" | "loaded" | "error";
+
+/** Live /map reads up to this many pages of PAGE_LIMIT at a time (the first load, and each Load more). */
+export const MAP_PAGES_PER_LOAD = 4;
+const PAGE_LIMIT = 50;
+
+// The saved "near" suburb (lib/near-storage.ts), read once in the browser: the map opens on its area.
+const noSubscribe = () => () => {};
+const serverNoNear = () => "";
 
 /** Where the selected-event card sits on the map instead of the phone's bottom sheet (Tailwind's lg). */
 const DESKTOP_QUERY = "(min-width: 64rem)";
@@ -175,11 +185,17 @@ function SceneMapView({
   // needs it, so it isn't in /map's first load; the map waits for it, so markers aren't placed
   // twice. If it can't load, the few hand-entered centres in lib/geo.ts stand in, and the page
   // says so.
+  // The table also finds the visitor's saved suburb (owner decision D5: browser-only, never sent),
+  // for the map to open on the events near it.
+  const savedNear = useSyncExternalStore(noSubscribe, readStoredNear, serverNoNear);
   const needsSuburbs = events.some((event) => !event.coordinates);
-  const suburbTable = useLocationModule(needsSuburbs);
+  const needsTable = needsSuburbs || savedNear !== "";
+  const suburbTable = useLocationModule(needsTable);
   const findSuburb: SuburbLookup = suburbTable.module?.findLocality ?? findListedSuburb;
   const status: Status =
-    eventsStatus === "loaded" && needsSuburbs && !suburbTable.module && !suburbTable.failed ? "loading" : eventsStatus;
+    eventsStatus === "loaded" && needsTable && !suburbTable.module && !suburbTable.failed ? "loading" : eventsStatus;
+  const nearPlace = savedNear && suburbTable.module ? suburbTable.module.findLocality(savedNear) : null;
+  const near = useMemo(() => (nearPlace ? { lat: nearPlace.lat, lng: nearPlace.lng } : null), [nearPlace]);
 
   // Read once on mount — the URL is the source of truth for "coming back",
   // not for reacting to every subsequent change (that would fight typing).
@@ -212,7 +228,7 @@ function SceneMapView({
   const idsBeforeMore = useRef<Set<string> | null>(null);
 
   const now = useMemo(() => new Date(), []);
-  const suburbs = useMemo(() => distinctSuburbs(events), [events]);
+  const suburbGroups = useMemo(() => suburbsByState(events), [events]);
 
   const filtered = useMemo(() => {
     return events
@@ -384,8 +400,14 @@ function SceneMapView({
 
   const chips: { key: string; label: string; onRemove: () => void }[] = [];
   if (filters.search) chips.push({ key: "q", label: `"${filters.search}"`, onRemove: () => setFilters((f) => ({ ...f, search: "" })) });
-  if (filters.suburb !== "all")
-    chips.push({ key: "suburb", label: filters.suburb, onRemove: () => setFilters((f) => ({ ...f, suburb: "all" })) });
+  if (filters.suburb !== "all") {
+    const state = events.find((event) => event.suburb === filters.suburb)?.state;
+    chips.push({
+      key: "suburb",
+      label: placeName(filters.suburb, state),
+      onRemove: () => setFilters((f) => ({ ...f, suburb: "all" })),
+    });
+  }
   if (filters.time !== "all")
     chips.push({
       key: "time",
@@ -439,7 +461,7 @@ function SceneMapView({
         onTimeChange={(time) => setFilters((f) => ({ ...f, time, specificDate: time === "date" ? f.specificDate : "" }))}
         specificDate={filters.specificDate}
         onSpecificDateChange={(specificDate) => setFilters((f) => ({ ...f, specificDate }))}
-        suburbs={suburbs}
+        suburbGroups={suburbGroups}
         suburb={filters.suburb}
         onSuburbChange={(suburb) => setFilters((f) => ({ ...f, suburb }))}
         pricing={filters.pricing}
@@ -492,10 +514,11 @@ function SceneMapView({
         </div>
       )}
 
-      {status === "loaded" && !progress.visible && suburbTable.failed && (
+      {status === "loaded" && !progress.visible && needsSuburbs && suburbTable.failed && (
         <div className="flex flex-col items-start gap-4">
           <Notice tone="danger" role="alert">
-            Couldn’t load suburb locations, so events outside a few inner suburbs aren’t on the map.
+            Couldn’t load suburb locations, so only events with a venue location or in a few inner-Melbourne
+            suburbs are on the map.
           </Notice>
           <Button variant="outline" size="sm" onClick={suburbTable.retry}>
             Try again
@@ -547,6 +570,7 @@ function SceneMapView({
                   <SceneMapPanel
                     events={filtered}
                     findSuburb={findSuburb}
+                    near={near}
                     selectedEventId={selectedEventId}
                     onSelect={handleMapSelect}
                     onSearchArea={setAreaBounds}
@@ -678,6 +702,23 @@ function SceneMapDemo() {
   );
 }
 
+/**
+ * Live /map's events from `cursor` on: upcoming only, 50 a page (without these the map listed the
+ * oldest events, ended ones included), up to MAP_PAGES_PER_LOAD pages at once, so a national map
+ * isn't just the soonest 50. `nextCursor`: where the next Load more starts, if there's more.
+ */
+async function readMapPages(cursor: string | undefined): Promise<{ items: SheltuhEvent[]; nextCursor?: string }> {
+  const items: SheltuhEvent[] = [];
+  let next = cursor;
+  for (let page = 0; page < MAP_PAGES_PER_LOAD; page++) {
+    const result = await listPublicEvents({ upcoming: true, limit: PAGE_LIMIT, cursor: next });
+    items.push(...result.items.map(adaptPublicEvent));
+    next = result.nextCursor;
+    if (!next) break;
+  }
+  return { items, nextCursor: next };
+}
+
 function SceneMapLive({ categories }: { categories: { value: EventCategory; label: string }[] }) {
   const [events, setEvents] = useState<SheltuhEvent[]>([]);
   const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
@@ -693,14 +734,13 @@ function SceneMapLive({ categories }: { categories: { value: EventCategory; labe
     }
     setError(null);
 
-    // Upcoming only, 50 a page: without these the map listed the oldest events, ended ones included.
-    listPublicEvents({ upcoming: true, limit: 50, cursor })
+    readMapPages(cursor)
       .then((page) => {
-        const adapted = page.items.map(adaptPublicEvent);
         setEvents((prev) => {
-          if (replace) return adapted;
-          const seenIds = new Set(prev.map((e) => e.id));
-          return [...prev, ...adapted.filter((e) => !seenIds.has(e.id))];
+          // An event can shift across a page boundary between two reads: keep the first copy.
+          const seenIds = new Set(replace ? [] : prev.map((e) => e.id));
+          const fresh = page.items.filter((e) => !seenIds.has(e.id) && seenIds.add(e.id));
+          return replace ? fresh : [...prev, ...fresh];
         });
         setNextCursor(page.nextCursor);
         setStatus("loaded");

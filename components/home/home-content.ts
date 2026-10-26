@@ -139,7 +139,7 @@ export const HOME_GUIDE: HomeArt & {
   cta: { label: string; href: string };
 } = {
   eyebrow: "City guide",
-  title: "Melbourne after dark, mapped",
+  title: "Australia after dark, mapped",
   body: "Laneway galleries, warehouse stages and back-room workshops. See what’s on near you.",
   cta: { label: "Open the map", href: "/map" },
   imageUrl: "/events/street-market.jpg",

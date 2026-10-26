@@ -49,15 +49,33 @@ describe("resolveEventCoordinates", () => {
 });
 
 describe("resolveMapCoordinates", () => {
-  it("returns coordinates inside Greater Melbourne", () => {
+  it("returns coordinates inside Australia", () => {
     const event = findEvent("neon-static");
     expect(resolveMapCoordinates(event)).toEqual(resolveEventCoordinates(event));
   });
 
-  it("returns null for coordinates outside Greater Melbourne", () => {
-    const event = { ...findEvent("neon-static"), coordinates: { lat: -33.8861, lng: 151.2111 } };
+  it.each([
+    ["Sydney", { lat: -33.8861, lng: 151.2111 }],
+    ["Perth", { lat: -31.9523, lng: 115.8613 }],
+    ["Norfolk Island", { lat: -29.0408, lng: 167.9547 }],
+    ["Christmas Island", { lat: -10.4475, lng: 105.6904 }],
+  ])("pins an event in %s (owner plan S9: the map is Australia-wide)", (_, coordinates) => {
+    const event = { ...findEvent("neon-static"), coordinates };
+    expect(resolveMapCoordinates(event)).toEqual(coordinates);
+  });
+
+  it("returns null for coordinates outside Australia", () => {
+    const event = { ...findEvent("neon-static"), coordinates: { lat: -36.85, lng: 174.76 } }; // Auckland
     expect(resolveEventCoordinates(event)).not.toBeNull();
     expect(resolveMapCoordinates(event)).toBeNull();
+  });
+
+  it("uses the 20 hand-entered centres for Victorian events only", () => {
+    const base = { ...findEvent("neon-static"), coordinates: undefined, suburb: "Richmond" };
+    expect(resolveMapCoordinates({ ...base, state: "VIC" })).not.toBeNull();
+    expect(resolveMapCoordinates({ ...base, suburb: "Richmond VIC" })).not.toBeNull();
+    expect(resolveMapCoordinates({ ...base, state: "NSW" })).toBeNull();
+    expect(resolveMapCoordinates({ ...base, suburb: "Richmond NSW" })).toBeNull();
   });
 
   it("returns null when the event can't be located at all", () => {
@@ -86,9 +104,23 @@ describe("with the ABS suburb table as the lookup (/map)", () => {
     expect(resolveMapCoordinates(at("Box Hill"), findLocality)).toEqual({ lat: -37.822, lng: 145.126 });
     const richmond = resolveMapCoordinates(at("Richmond"), findLocality);
     expect(richmond?.lat).toBeCloseTo(-37.82, 1);
-    // The New South Wales one is outside Greater Melbourne, so not pinned on the Melbourne map.
+    // The New South Wales one is pinned too, now the map is Australia-wide.
     expect(resolveEventCoordinates(at("Richmond NSW"), findLocality)?.lat).toBeCloseTo(-33.6, 1);
-    expect(resolveMapCoordinates(at("Richmond NSW"), findLocality)).toBeNull();
+    expect(resolveMapCoordinates(at("Richmond NSW"), findLocality)?.lat).toBeCloseTo(-33.6, 1);
+  });
+
+  it("looks the suburb up with the event's state ('{suburb} {state}')", () => {
+    const sydney = resolveMapCoordinates({ ...at("Newtown"), state: "NSW" }, findLocality);
+    expect(sydney?.lat).toBeCloseTo(-33.9, 1);
+    const perth = resolveMapCoordinates({ ...at("Perth"), state: "WA" }, findLocality);
+    expect(perth?.lng).toBeCloseTo(115.86, 1);
+    // A Victorian Newtown (Geelong's) when the state says so.
+    expect(resolveMapCoordinates({ ...at("Newtown"), state: "VIC" }, findLocality)?.lat).toBeCloseTo(-38.15, 1);
+    // Stored with its state already ("Richmond NSW"): not doubled.
+    expect(resolveMapCoordinates({ ...at("Richmond NSW"), state: "NSW" }, findLocality)?.lat).toBeCloseTo(-33.6, 1);
+    // A suburb that isn't in the state isn't placed elsewhere.
+    expect(resolveMapCoordinates({ ...at("Fitzroy"), state: "WA" }, findLocality)).toBeNull();
+    expect(resolveMapCoordinates({ ...at("Norfolk Island"), state: "OT" }, findLocality)?.lng).toBeCloseTo(167.95, 1);
   });
 
   it("still prefers the event's own coordinates", () => {

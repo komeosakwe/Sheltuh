@@ -389,7 +389,7 @@ describe("GuideCard and CreatorsCard", () => {
   it("the guide is a white, black-bordered card pointing at the map", () => {
     const { container } = render(<GuideCard />);
     expect(screen.getByRole("region", { name: "Only in the city" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 3, name: "Melbourne after dark, mapped" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "Australia after dark, mapped" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open the map" })).toHaveAttribute("href", "/map");
     expect(container.querySelector(".bg-card.border-foreground")).not.toBeNull();
   });
