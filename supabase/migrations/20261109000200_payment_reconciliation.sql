@@ -1,6 +1,15 @@
 -- Payment reconciliation (payment audit plan, items 1 and 2, with the ops
 -- alerts; docs/architecture.md "Refunds made in Stripe").
 --
+-- Written as 20261104000000_payment_reconciliation.sql on the payments audit
+-- branch and renamed when it was merged, so it sorts after every migration
+-- production may already have. It builds on the latest definitions before
+-- it: the outbox's kinds and private.lease_outbox_jobs from
+-- 20261107000000_admin_review_emails.sql, private.purge_operational_data from
+-- 20261108000000_account_invites.sql, private.fulfil_order and
+-- private.record_payment_refund from 20261101000100_seat_holds.sql (no later
+-- file changes either).
+--
 -- 1. A charge.refunded that arrives before its order's payment is recorded.
 --    Until now it found no order (fulfil_order is what stores the payment
 --    intent) and was dropped, so the order became `paid` with valid tickets
@@ -68,17 +77,21 @@
 --    at most 20 per 24-hour window platform-wide (platform_rate_limits bucket
 --    'ops_alerts'); the exception exists either way. The app emails it to
 --    OPS_ALERT_EMAIL (short order reference, amounts, statuses and the Stripe
---    event id only). private.claim_email_outbox (same signature) leaves
---    ops_alert jobs alone unless asked for that kind, so the previous app
---    version, during the deploy window, never claims one it can't send.
+--    event id only). private.lease_outbox_jobs (same signature, as in
+--    20261107000000_admin_review_emails.sql otherwise) leaves ops_alert jobs
+--    alone unless asked for that kind, so an app version that can't send
+--    them, during the deploy window, never leases one.
+--    private.claim_email_outbox (the release before that) already claims only
+--    the ticket, waitlist and follower kinds: unchanged.
 --
 -- 4. private.fulfil_order_detailed: fulfil_order's body, also reporting
 --    whether it queued an ops alert (an early partial refund applied), so
 --    the webhook drains the alert outbox only then. private.fulfil_order
 --    (same signature, used by the free paths too) returns its status.
 --
--- Retention (private.purge_operational_data, drop and create: three more
--- counts): early refund rows and refund status marks 35 days after their
+-- Retention (private.purge_operational_data, drop and create, as in
+-- 20261108000000_account_invites.sql plus three more counts): early refund
+-- rows and refund status marks 35 days after their
 -- last update (Stripe retries for 3 days, dashboard resends reach 30 days
 -- back), resolved exceptions 2 years after resolution; open exceptions are
 -- never deleted (D11).
@@ -112,11 +125,12 @@
 --
 -- Reversible, not destructive of anything but this migration's own data:
 -- restore private.fulfil_order (plpgsql) and private.record_payment_refund
--- (3 args) from 20261101000100_seat_holds.sql, private.claim_email_outbox
--- from 20261024000200_organiser_follows.sql and
+-- (3 args) from 20261101000100_seat_holds.sql, private.lease_outbox_jobs
+-- from 20261107000000_admin_review_emails.sql and
 -- private.purge_operational_data (drop and create) from
--- 20261103000000_seat_hold_client_limits.sql; delete the ops_alert outbox
--- jobs, restore the outbox's kind checks and drop its payment_exception_id
+-- 20261108000000_account_invites.sql; delete the ops_alert outbox
+-- jobs, restore the outbox's kind checks from
+-- 20261107000000_admin_review_emails.sql and drop its payment_exception_id
 -- column; drop the new functions (the 6-argument record_payment_refund and
 -- fulfil_order_detailed included) and the three tables. Dropping
 -- payment_exceptions discards the exception history (export it first);
@@ -222,23 +236,30 @@ create trigger refund_status_marks_set_updated_at before update on private.refun
 alter table private.refund_status_marks enable row level security;
 revoke all on private.refund_status_marks from public, anon, authenticated;
 
--- The outbox's fourth kind: an ops alert about one payment exception.
+-- The outbox's sixth kind: an ops alert about one payment exception. The
+-- kinds and keys as in 20261107000000_admin_review_emails.sql, plus this one.
 alter table private.email_outbox
   add column payment_exception_id uuid references private.payment_exceptions (id) on delete cascade,
   drop constraint email_outbox_kind_check,
-  add constraint email_outbox_kind_check
-    check (kind in ('ticket_email', 'waitlist_available', 'organiser_new_events', 'ops_alert')),
+  add constraint email_outbox_kind_check check (
+    kind in ('ticket_email', 'waitlist_available', 'organiser_new_events', 'event_review', 'organiser_review',
+             'ops_alert')),
   drop constraint email_outbox_kind_key,
   -- Each kind has exactly its own key.
   add constraint email_outbox_kind_key check (
     case kind
       when 'ticket_email' then order_id is not null and waitlist_entry_id is null and follow_id is null
-                               and payment_exception_id is null
+                               and event_id is null and organiser_id is null and payment_exception_id is null
       when 'waitlist_available' then waitlist_entry_id is not null and order_id is null and follow_id is null
-                                     and payment_exception_id is null
+                                     and event_id is null and organiser_id is null and payment_exception_id is null
       when 'organiser_new_events' then follow_id is not null and order_id is null and waitlist_entry_id is null
-                                       and payment_exception_id is null
-      else payment_exception_id is not null and order_id is null and waitlist_entry_id is null and follow_id is null end);
+                                       and event_id is null and organiser_id is null and payment_exception_id is null
+      when 'event_review' then event_id is not null and order_id is null and waitlist_entry_id is null
+                               and follow_id is null and organiser_id is null and payment_exception_id is null
+      when 'organiser_review' then organiser_id is not null and order_id is null and waitlist_entry_id is null
+                                   and follow_id is null and event_id is null and payment_exception_id is null
+      else payment_exception_id is not null and order_id is null and waitlist_entry_id is null and follow_id is null
+           and event_id is null and organiser_id is null end);
 
 create unique index email_outbox_ops_alert_active_key on private.email_outbox (payment_exception_id)
   where status in ('pending', 'sending');
@@ -878,15 +899,20 @@ $$;
 -- The outbox
 -- ---------------------------------------------------------------------------
 
--- As in 20261024000200_organiser_follows.sql, except that with no p_kind it
--- claims every kind but `ops_alert`: those only with p_kind = 'ops_alert'
--- (which this release's app asks for), so the previous app version, during
--- the deploy window, never claims an alert it can't send.
-create or replace function private.claim_email_outbox(
+-- As in 20261107000000_admin_review_emails.sql (same signature and result:
+-- every kind, every key), except that with no p_kind it leases every kind but
+-- `ops_alert`: those only with p_kind = 'ops_alert' (which this release's app
+-- asks for first, then the rest), so an app version that can't send them,
+-- during the deploy window, never leases one (and fails it as an unknown
+-- job). The lapsed-lease sweep follows the same rule. An ops alert has no
+-- order, so p_order_id never matches one.
+-- private.claim_email_outbox (the release before lease_outbox_jobs) already
+-- leaves every kind but ticket, waitlist and follower emails alone: unchanged.
+create or replace function private.lease_outbox_jobs(
   p_limit integer, p_lease interval, p_max_attempts integer, p_order_id text default null, p_kind text default null
 ) returns table (
   job_id bigint, job_kind text, job_order_id text, job_waitlist_entry_id uuid, job_follow_id uuid,
-  job_lease_token uuid, job_attempts integer)
+  job_event_id uuid, job_organiser_id uuid, job_lease_token uuid, job_attempts integer)
 language plpgsql
 set search_path = ''
 as $$
@@ -914,7 +940,8 @@ begin
          attempts = o.attempts + 1
     from picked
    where o.id = picked.id
-  returning o.id, o.kind, o.order_id, o.waitlist_entry_id, o.follow_id, o.lease_token, o.attempts;
+  returning o.id, o.kind, o.order_id, o.waitlist_entry_id, o.follow_id, o.event_id, o.organiser_id,
+            o.lease_token, o.attempts;
 end;
 $$;
 
@@ -922,16 +949,17 @@ $$;
 -- Retention
 -- ---------------------------------------------------------------------------
 
--- As in 20261103000000_seat_hold_client_limits.sql, plus early refund rows
--- and refund status marks 35 days after their last update and resolved
--- payment exceptions 2 years after resolution (open ones are never deleted).
+-- As in 20261108000000_account_invites.sql, plus early refund rows and
+-- refund status marks 35 days after their last update and resolved payment
+-- exceptions 2 years after resolution (open ones are never deleted).
 drop function private.purge_operational_data();
 
 create function private.purge_operational_data(
   out unconfirmed_orders_deleted integer, out platform_rate_limits_deleted integer,
   out free_order_refusals_deleted integer, out email_jobs_deleted integer,
-  out client_rate_limits_deleted integer, out early_charge_refunds_deleted integer,
-  out payment_exceptions_deleted integer, out refund_status_marks_deleted integer)
+  out client_rate_limits_deleted integer, out account_invites_deleted integer,
+  out early_charge_refunds_deleted integer, out payment_exceptions_deleted integer,
+  out refund_status_marks_deleted integer)
 language plpgsql
 set search_path = ''
 as $$
@@ -956,6 +984,12 @@ begin
 
   delete from private.client_rate_limits where window_started_at < now() - interval '1 day';
   get diagnostics client_rate_limits_deleted = row_count;
+
+  delete from private.account_invites i
+   where (i.status = 'accepted' and i.accepted_at < now() - interval '90 days')
+      or (i.status = 'revoked' and i.revoked_at < now() - interval '90 days')
+      or (i.status in ('pending', 'expired') and i.expires_at < now() - interval '90 days');
+  get diagnostics account_invites_deleted = row_count;
 
   delete from private.early_charge_refunds r where r.updated_at < now() - interval '35 days';
   get diagnostics early_charge_refunds_deleted = row_count;
@@ -983,5 +1017,5 @@ revoke all on function private.record_refund_status(text, text, text, text, inte
   from public, anon, authenticated;
 revoke all on function private.fulfil_order_detailed(text, text, text, jsonb) from public, anon, authenticated;
 revoke all on function private.fulfil_order(text, text, text, jsonb) from public, anon, authenticated;
-revoke all on function private.claim_email_outbox(integer, interval, integer, text, text) from public, anon, authenticated;
+revoke all on function private.lease_outbox_jobs(integer, interval, integer, text, text) from public, anon, authenticated;
 revoke all on function private.purge_operational_data() from public, anon, authenticated;

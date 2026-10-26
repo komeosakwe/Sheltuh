@@ -3,15 +3,22 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { clientKey } from "@/lib/server/client-key";
 import { CHECKOUT_LIMITS, checkoutFingerprint, STRIPE_SESSION_REQUEST } from "@/lib/server/checkout-attempts";
 import { drainEmailOutbox } from "@/lib/server/email-outbox";
-import { cancelPendingOrder, createCheckout, SEAT_HOLD_LIMITS, stripeWebhook } from "@/lib/server/handlers/orders";
+import {
+  CHECKOUT_RATE_LIMITS,
+  cancelPendingOrder,
+  createCheckout,
+  GA_CHECKOUT_SESSION_MINUTES,
+  SEAT_HOLD_LIMITS,
+  stripeWebhook,
+} from "@/lib/server/handlers/orders";
 import type { EventRecord } from "@/lib/server/types";
-import { OPS_ALERT_EMAIL, stripeWebhookRequest, TestApi, WEBHOOK_SECRET } from "./helpers/api";
+import { embeddedSession, expectSessionPaymentOptions, OPS_ALERT_EMAIL, stripeWebhookRequest, TestApi, WEBHOOK_SECRET } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { seatedEvent, seatStates } from "./helpers/seating";
 import { createTestDb } from "./helpers/test-db";
 
 // Paid checkout idempotency and abuse controls
-// (supabase/migrations/20261104000200_checkout_attempts.sql, lib/server/checkout-attempts.ts;
+// (supabase/migrations/20261109000400_checkout_attempts.sql, lib/server/checkout-attempts.ts;
 // docs/architecture.md, "Checkout idempotency").
 
 const KEY = "6f0d7a52-3b1c-4e8f-9a2d-1c5b7e9f0a11";
@@ -31,14 +38,15 @@ let organiser: { token: string; userId: string; organiserId: string };
 let event: EventRecord;
 
 /**
- * Stripe's idempotency, as far as these tests need it: one session per
- * idempotency key (a key's later calls get the first one's session).
+ * Stripe's idempotency, as far as these tests need it: one embedded session
+ * (an id and a client secret, no URL) per idempotency key (a key's later
+ * calls get the first one's session).
  * `failNext`: the next call throws, before Stripe made anything (`refused`:
  * an API error; `unreachable`: no connection) or after (`lost`: the session
  * was made, the answer never arrived).
  */
 function fakeStripeSessions() {
-  const sessions = new Map<string, { id: string; url: string }>();
+  const sessions = new Map<string, ReturnType<typeof embeddedSession>>();
   let made = 0;
   let next: "refused" | "unreachable" | "lost" | "idempotency" | undefined;
   let gate: Promise<void> | undefined;
@@ -60,7 +68,7 @@ function fakeStripeSessions() {
     let session = key ? sessions.get(key) : undefined;
     if (!session) {
       made += 1;
-      session = { id: `cs_test_${made}`, url: `https://checkout.stripe.test/cs_test_${made}` };
+      session = embeddedSession(`cs_test_${made}`);
       if (key) sessions.set(key, session);
     }
     if (mode === "lost") {
@@ -141,12 +149,26 @@ async function attempts() {
 
 const createCalls = () => api.stripe.checkout.sessions.create.mock.calls;
 
+/** What a paid checkout answers: our payment page (the client secret is read there, never sent here). */
+const payPage = (orderId: string) => `/checkout/pay?order=${orderId}`;
+
+/**
+ * The per-minute paid GA checkout limit (CHECKOUT_RATE_LIMITS.paidCheckout, 10 a minute) as if a minute had
+ * passed, so a test can go past it to reach the per-10-minute limits.
+ */
+async function nextMinute() {
+  await api.db.query(
+    `update private.client_rate_limits set window_started_at = now() - interval '61 seconds' where bucket = $1`,
+    [CHECKOUT_RATE_LIMITS.paidCheckout.bucket],
+  );
+}
+
 describe("the same Idempotency-Key and basket", () => {
   it("a lost response's retry gets the same order and session (200), with no second order or Stripe call", async () => {
     const first = await checkout();
     expect(first.status).toBe(201);
     expect(first.headers.get("cache-control")).toBe("private, no-store");
-    expect(Object.keys(first.body).sort()).toEqual(["orderId", "url"]);
+    expect(first.body).toEqual({ url: payPage(first.body.orderId as string), orderId: first.body.orderId });
 
     const again = await checkout({ ...BASKET, buyerEmail: " fan@example.com " }); // the same email, normalised
     expect(again.status).toBe(200);
@@ -163,6 +185,12 @@ describe("the same Idempotency-Key and basket", () => {
     const res = await checkout();
     expect(STRIPE_SESSION_REQUEST).toEqual({ timeout: 15_000, maxNetworkRetries: 1 });
     expect(createCalls()[0][1]).toEqual({ idempotencyKey: `checkout-session-${res.body.orderId}`, timeout: 15_000, maxNetworkRetries: 1 });
+    // An embedded session, as without a key (tests/server/order-payment.test.ts).
+    const params = createCalls()[0][0];
+    expect(params).toMatchObject({ ui_mode: "embedded_page", client_reference_id: res.body.orderId });
+    expect(params).not.toHaveProperty("success_url");
+    expect(params).not.toHaveProperty("cancel_url");
+    expectSessionPaymentOptions(params);
   });
 
   it("a double click (two identical requests at once): one order and one session; the other is told to wait, then replays", async () => {
@@ -196,7 +224,8 @@ describe("the same Idempotency-Key and basket", () => {
       expect(res.headers.get("cache-control")).toBe("private, no-store");
       const text = JSON.stringify(res.body);
       expect(text).not.toContain(first.body.orderId as string);
-      expect(text).not.toContain("checkout.stripe.test");
+      expect(text).not.toContain("/checkout/pay");
+      expect(text).not.toContain("_secret_");
       expect(res.body).not.toHaveProperty("url");
       expect(res.body).not.toHaveProperty("orderId");
     }
@@ -374,7 +403,7 @@ describe("Stripe failures and retries", () => {
 
     const retry = await checkout();
     expect(retry.status).toBe(201);
-    expect(retry.body).toEqual({ url: "https://checkout.stripe.test/cs_test_1", orderId: kept.id });
+    expect(retry.body).toEqual({ url: payPage(kept.id), orderId: kept.id });
     expect(stripe.made()).toBe(1); // Stripe made one session in all
     expect(await orders()).toEqual([{ id: kept.id, status: "pending", stripe_checkout_session_id: "cs_test_1" }]);
     // The same order, so the same idempotency key and the very same parameters.
@@ -382,6 +411,10 @@ describe("Stripe failures and retries", () => {
     expect(options1).toEqual({ idempotencyKey: `checkout-session-${kept.id}`, ...STRIPE_SESSION_REQUEST });
     expect(options2).toEqual(options1);
     expect(params2).toEqual(params1);
+    // expires_at is fixed by the order (an hour after it was made), not the call, so the retry's parameters match.
+    const before = Date.now();
+    expect(params1.expires_at * 1000 - before).toBeGreaterThan((GA_CHECKOUT_SESSION_MINUTES - 1) * 60_000);
+    expect(params1.expires_at * 1000 - before).toBeLessThanOrEqual(GA_CHECKOUT_SESSION_MINUTES * 60_000);
   });
 
   it("Stripe unreachable (nothing made): the retry makes the session for the same order", async () => {
@@ -456,14 +489,20 @@ describe("general admission paid checkout limits", () => {
 
   it("20 new checkouts per event from one client, then 429 client_rate_limited writing nothing; replays don't count", async () => {
     const keys = Array.from({ length: CHECKOUT_LIMITS.perClient.event }, () => crypto.randomUUID());
-    for (const key of keys) expect((await checkout(BASKET, { key, ip: IP })).status).toBe(201);
+    for (const [i, key] of keys.entries()) {
+      // Past the per-minute limit (10) only by waiting a minute: these limits are per 10 minutes.
+      if (i > 0 && i % CHECKOUT_RATE_LIMITS.paidCheckout.hits === 0) await nextMinute();
+      expect((await checkout(BASKET, { key, ip: IP })).status).toBe(201);
+    }
     // Replays of an open checkout aren't new checkouts.
     expect((await checkout(BASKET, { key: keys[0], ip: IP })).status).toBe(200);
 
+    await nextMinute();
     const over = await checkout(BASKET, { key: KEY, ip: IP });
     expect(over.status).toBe(429);
     expect(over.body.code).toBe("client_rate_limited");
-    expect(over.body.error).toMatch(/a lot of checkouts/);
+    // The per-10-minute limit's wording, not the per-minute one's.
+    expect(over.body.error).toBe("You've started a lot of checkouts in the last few minutes. Wait a few minutes, then try again.");
     expect(await orders()).toHaveLength(20);
     expect(await attempts()).toHaveLength(20); // the refused key wasn't recorded
     const hits = await api.db.query<{ bucket: string; hits: number }>(
@@ -473,6 +512,8 @@ describe("general admission paid checkout limits", () => {
     expect(hits).toEqual([
       { bucket: "checkouts", hits: 20 },
       { bucket: `checkouts:${event.eventId}`, hits: 20 },
+      // The refused one took a hit on the per-minute limit, which comes first (and the replay didn't).
+      { bucket: CHECKOUT_RATE_LIMITS.paidCheckout.bucket, hits: 1 },
     ]);
     // Another client still gets through.
     expect((await checkout(BASKET, { key: OTHER_KEY, ip: OTHER_IP })).status).toBe(201);
@@ -708,14 +749,24 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("under concurrency (real Postgre
     expect(hits.hits).toBe(1);
   });
 
-  it("25 different checkouts at once from one client: exactly 20 made, 5 refused, no deadlock", async () => {
-    const results = await Promise.all(
-      Array.from({ length: 25 }, () => checkout(BASKET, { key: crypto.randomUUID(), ip: IP })),
+  it("with 15 of the event's 20 used, 10 different checkouts at once from one client: exactly 5 made, 5 refused, no deadlock", async () => {
+    // 10 at once stay within the per-minute limit (10), so the per-10-minute one decides.
+    await api.db.query(
+      `insert into private.client_rate_limits (client_key, bucket, window_started_at, hits) values ($1, $2, now(), 15)`,
+      [clientKey(IP, WEBHOOK_SECRET), `checkouts:${event.eventId}`],
     );
-    expect(results.filter((r) => r.status === 201)).toHaveLength(20);
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () => checkout(BASKET, { key: crypto.randomUUID(), ip: IP })),
+    );
+    expect(results.filter((r) => r.status === 201)).toHaveLength(5);
     expect(results.filter((r) => r.body?.code === "client_rate_limited")).toHaveLength(5);
-    expect(await orders()).toHaveLength(20);
-    expect(await attempts()).toHaveLength(20);
+    expect(await orders()).toHaveLength(5);
+    expect(await attempts()).toHaveLength(5);
+    const [hits] = await api.db.query<{ hits: number }>(
+      `select hits from private.client_rate_limits where client_key = $1 and bucket = $2`,
+      [clientKey(IP, WEBHOOK_SECRET), `checkouts:${event.eventId}`],
+    );
+    expect(hits.hits).toBe(CHECKOUT_LIMITS.perClient.event); // each refusal's hit was rolled back
   });
 
   it("seated: 6 identical requests at once hold the seats once", async () => {

@@ -5,12 +5,12 @@ import { createCheckout, getOrderBySession, stripeWebhook } from "@/lib/server/h
 import { adminListPaymentExceptions, adminResolvePaymentException } from "@/lib/server/handlers/payment-exceptions";
 import { orderReference } from "@/lib/server/order-reference";
 import type { EventRecord } from "@/lib/server/types";
-import { OPS_ALERT_EMAIL, stripeWebhookRequest, TestApi } from "./helpers/api";
+import { embeddedSession, OPS_ALERT_EMAIL, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, insertOrder, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { seatedEvent, seatStates, tierCounts } from "./helpers/seating";
 import { createTestDb } from "./helpers/test-db";
 
-// Payment reconciliation (supabase/migrations/20261104000000_payment_reconciliation.sql,
+// Payment reconciliation (supabase/migrations/20261109000200_payment_reconciliation.sql,
 // docs/architecture.md "Refunds made in Stripe"): charge.refunded before the
 // payment is recorded, refund status events and payment exceptions, ops
 // alerts, and the admin API. Owner decisions (pending confirmation): D1 an
@@ -57,10 +57,8 @@ beforeEach(async () => {
   event = await publishedEvent(api, organiser, admin, { ticketTypes: TICKETS });
   await enablePayouts(api, organiser.organiserId);
   let sessions = 0;
-  api.stripe.checkout.sessions.create.mockImplementation(async () => {
-    const id = `cs_test_${++sessions}`;
-    return { id, url: `https://checkout.stripe.test/${id}` };
-  });
+  // Embedded sessions (an id and a client secret, no URL), one per call.
+  api.stripe.checkout.sessions.create.mockImplementation(async () => embeddedSession(`cs_test_${++sessions}`));
 });
 
 afterEach(() => {
@@ -839,10 +837,14 @@ describe("ops alerts", () => {
     expect(api.sendEmail).not.toHaveBeenCalled();
   });
 
-  it("the previous app version's claim (no kind) never takes an alert; this version's cron sends it", async () => {
+  it("the previous app versions' claims (no kind) never take an alert; this version's cron sends it", async () => {
     await openException();
     const claimed = await api.db.query(`select * from private.claim_email_outbox(10, '2 minutes', 6, null, null)`);
     expect(claimed).toEqual([]);
+    // The release with admin review emails leases every other kind with lease_outbox_jobs: never an alert either.
+    const leased = await api.db.query(`select * from private.lease_outbox_jobs(10, '2 minutes', 6, null, null)`);
+    expect(leased).toEqual([]);
+    expect(await api.db.query(`select status from private.email_outbox where kind = 'ops_alert'`)).toEqual([{ status: "pending" }]);
     const summary = await drainEmailOutbox(api.deps);
     expect(summary).toMatchObject({ claimed: 1, sent: 1 });
     expect(api.sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: OPS_ALERT_EMAIL }));

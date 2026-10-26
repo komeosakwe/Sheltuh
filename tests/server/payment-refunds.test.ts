@@ -528,7 +528,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
     // This was an accepted limit: fulfil_order records the payment intent, so a
     // refund processed before that committed found no order, was dropped, and
     // the order ended up paid with valid tickets. The expectation changes on
-    // purpose (payment audit item 1, 20261104000000_payment_reconciliation.sql):
+    // purpose (payment audit item 1, 20261109000200_payment_reconciliation.sql):
     // both functions now take the payment intent's advisory lock first, so the
     // refund waits for the fulfilment to commit, then finds the paid order and
     // voids it (inventory released). The 3-argument form (the previous app

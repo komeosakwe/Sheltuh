@@ -1,6 +1,12 @@
 -- Email outbox health (payment audit plan, item 3; docs/architecture.md,
 -- "Payment flow", and docs/supabase-setup.md §3).
 --
+-- Written as 20261104000100_email_outbox_health.sql on the payments audit
+-- branch and renamed when it was merged. Counts every outbox kind there is
+-- (grouped by kind): the admin review emails of
+-- 20261107000000_admin_review_emails.sql and the ops alerts of
+-- 20261109000200_payment_reconciliation.sql included.
+--
 -- Retries of failed ticket emails depend on something calling
 -- GET /api/cron/email-outbox: Vercel Cron once a day on the Hobby plan, and
 -- (once the owner sets it up) Supabase Cron with pg_net every 5 minutes. This

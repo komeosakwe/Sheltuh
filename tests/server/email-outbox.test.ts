@@ -506,7 +506,9 @@ describe("admin health", () => {
       overdueAfterMinutes: 15,
       cronSecretConfigured: true,
       totals: zeros,
-      byKind: ["ticket_email", "waitlist_available", "organiser_new_events", "ops_alert"].map((kind) => ({ kind, ...zeros })),
+      byKind: ["ticket_email", "waitlist_available", "organiser_new_events", "event_review", "organiser_review", "ops_alert"].map(
+        (kind) => ({ kind, ...zeros }),
+      ),
     });
     api.cronSecret = undefined;
     expect((await health(admin.token)).body.cronSecretConfigured).toBe(false);

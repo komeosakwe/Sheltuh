@@ -1,5 +1,13 @@
 -- Paid checkout idempotency and abuse controls (payment audit plan, item 4;
--- docs/architecture.md "Checkout idempotency"). Until now every paid checkout
+-- docs/architecture.md "Checkout idempotency").
+--
+-- Written as 20261104000200_checkout_attempts.sql on the payments audit
+-- branch and renamed when it was merged (after
+-- 20261109000200_payment_reconciliation.sql, which it builds on). Checkout
+-- Sessions are embedded (ui_mode embedded_page) on this branch: an attempt's
+-- `session_url` is the URL the client was given, our payment page
+-- (/checkout/pay?order=…), which reads the session's client secret itself;
+-- the secret is never stored here. Until now every paid checkout
 -- request inserted a new pending order and created a new Stripe Checkout
 -- Session: a double click or a retried request after a lost response made
 -- two orders and two sessions (and, for seats, two hold attempts). Nothing
@@ -21,8 +29,9 @@
 --     it ('other_client' otherwise, a 409 that reveals neither). Status:
 --       in_progress  a request holds the lease (lease_token, lease_expires_at)
 --                    and is making the order and the Stripe session
---       open         the session exists: order_id, session_url,
---                    session_expires_at (and hold_expires_at for seats)
+--       open         the session exists: order_id, session_url (our payment
+--                    page's URL), session_expires_at (and hold_expires_at
+--                    for seats)
 --       failed       the last try failed (a refusal, or Stripe): the key may
 --                    be retried; order_id is kept when the order is still
 --                    pending and may be reused (see begin_checkout_attempt)
@@ -67,7 +76,8 @@
 --     whose lease lapsed: the request that held it died). A retry reuses
 --     the order when it's still pending, has no session recorded and is
 --     younger than p_reuse_within (the API passes 10 minutes for general
---     admission; for seats, 45 seconds, since Stripe needs a session's
+--     admission, whose expires_at is fixed at the order's creation plus 60
+--     minutes; for seats, 45 seconds, since Stripe needs a session's
 --     expires_at, fixed at the order's creation plus 31 minutes, to be at
 --     least 30 minutes ahead): the Stripe call then repeats with the same
 --     idempotency key and parameters, so if the first call did create a
@@ -121,9 +131,9 @@
 --
 -- Reversible: drop the functions above and table private.checkout_attempts;
 -- delete the outbox's ops_alert jobs with an ops_event_id, restore its
--- email_outbox_kind_key check from 20261104000000_payment_reconciliation.sql
+-- email_outbox_kind_key check from 20261109000200_payment_reconciliation.sql
 -- and drop the ops_event_id column; restore private.purge_operational_data
--- from 20261104000000_payment_reconciliation.sql (drop + create). The table
+-- from 20261109000200_payment_reconciliation.sql (drop + create). The table
 -- only holds the last 2 days' attempts (no buyer data beyond hashes):
 -- nothing worth keeping.
 
@@ -162,20 +172,33 @@ alter table private.checkout_attempts enable row level security;
 revoke all on private.checkout_attempts from public, anon, authenticated;
 
 -- An ops alert about an event (the checkout circuit breaker), next to the
--- payment exceptions' alerts.
+-- payment exceptions' alerts. Its own column, not event_id: that one is the
+-- admins' review email's key (one waiting per event,
+-- email_outbox_event_review_active_key). Keys as in
+-- 20261109000200_payment_reconciliation.sql, plus this one.
 alter table private.email_outbox
   add column ops_event_id uuid references public.events (id) on delete cascade,
   drop constraint email_outbox_kind_key,
   add constraint email_outbox_kind_key check (
     case kind
       when 'ticket_email' then order_id is not null and waitlist_entry_id is null and follow_id is null
+                               and event_id is null and organiser_id is null
                                and payment_exception_id is null and ops_event_id is null
       when 'waitlist_available' then waitlist_entry_id is not null and order_id is null and follow_id is null
+                                     and event_id is null and organiser_id is null
                                      and payment_exception_id is null and ops_event_id is null
       when 'organiser_new_events' then follow_id is not null and order_id is null and waitlist_entry_id is null
+                                       and event_id is null and organiser_id is null
                                        and payment_exception_id is null and ops_event_id is null
+      when 'event_review' then event_id is not null and order_id is null and waitlist_entry_id is null
+                               and follow_id is null and organiser_id is null
+                               and payment_exception_id is null and ops_event_id is null
+      when 'organiser_review' then organiser_id is not null and order_id is null and waitlist_entry_id is null
+                                   and follow_id is null and event_id is null
+                                   and payment_exception_id is null and ops_event_id is null
       else (payment_exception_id is not null) <> (ops_event_id is not null)
-           and order_id is null and waitlist_entry_id is null and follow_id is null end);
+           and order_id is null and waitlist_entry_id is null and follow_id is null
+           and event_id is null and organiser_id is null end);
 
 create unique index email_outbox_ops_event_active_key on private.email_outbox (ops_event_id)
   where status in ('pending', 'sending') and ops_event_id is not null;
@@ -548,8 +571,8 @@ $$;
 -- Retention
 -- ---------------------------------------------------------------------------
 
--- As in 20261104000000_payment_reconciliation.sql (refund status marks
--- included), plus checkout attempts 2
+-- As in 20261109000200_payment_reconciliation.sql (account invites and
+-- refund status marks included), plus checkout attempts 2
 -- days after creation (D11). An order a failed or abandoned attempt kept
 -- pending for reuse, with no session ever recorded, is marked failed first:
 -- no Checkout Session lives 2 days, so nothing can be paid for it.
@@ -558,9 +581,9 @@ drop function private.purge_operational_data();
 create function private.purge_operational_data(
   out unconfirmed_orders_deleted integer, out platform_rate_limits_deleted integer,
   out free_order_refusals_deleted integer, out email_jobs_deleted integer,
-  out client_rate_limits_deleted integer, out early_charge_refunds_deleted integer,
-  out payment_exceptions_deleted integer, out refund_status_marks_deleted integer,
-  out checkout_attempts_deleted integer)
+  out client_rate_limits_deleted integer, out account_invites_deleted integer,
+  out early_charge_refunds_deleted integer, out payment_exceptions_deleted integer,
+  out refund_status_marks_deleted integer, out checkout_attempts_deleted integer)
 language plpgsql
 set search_path = ''
 as $$
@@ -585,6 +608,12 @@ begin
 
   delete from private.client_rate_limits where window_started_at < now() - interval '1 day';
   get diagnostics client_rate_limits_deleted = row_count;
+
+  delete from private.account_invites i
+   where (i.status = 'accepted' and i.accepted_at < now() - interval '90 days')
+      or (i.status = 'revoked' and i.revoked_at < now() - interval '90 days')
+      or (i.status in ('pending', 'expired') and i.expires_at < now() - interval '90 days');
+  get diagnostics account_invites_deleted = row_count;
 
   delete from private.early_charge_refunds r where r.updated_at < now() - interval '35 days';
   get diagnostics early_charge_refunds_deleted = row_count;

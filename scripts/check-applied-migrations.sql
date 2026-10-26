@@ -77,6 +77,10 @@ select version, file, coalesce(applied, false) as applied
     ('20261107000000', 'admin_review_emails', to_regclass('private.email_job_recipients') is not null),
     ('20261108000000', 'account_invites', to_regclass('private.account_invites') is not null),
     ('20261109000000', 'paid_events_need_payouts', exists (select 1 from fn where proname = 'submit_event')),
-    ('20261109000100', 'event_refund_policy', exists (select 1 from fn where proname = 'refund_policy_tightens'))
+    ('20261109000100', 'event_refund_policy', exists (select 1 from fn where proname = 'refund_policy_tightens')),
+    -- 24 to 26 were 20261104000000/…100/…200 on the payments audit branch: judged by what they create, whatever their name.
+    ('20261109000200', 'payment_reconciliation', to_regclass('private.payment_exceptions') is not null),
+    ('20261109000300', 'email_outbox_health', to_regclass('private.cron_runs') is not null),
+    ('20261109000400', 'checkout_attempts', to_regclass('private.checkout_attempts') is not null)
   ) as m(version, file, applied)
  order by version;
