@@ -3,7 +3,7 @@ import { formatAud } from "@/lib/format";
 import { formatSeatLine, speakSeatLine } from "@/lib/seating/format";
 import { QR_QUIET_ZONE_MODULES, ticketQrLabel, ticketQrMatrix } from "@/lib/ticket-qr";
 import { subjectLine, type EmailMessage, type InlineImage } from "./email";
-import { button, escapeHtml, eventTitle, heading, INK, LINE, MONO, MUTED, page, SANS, SURFACE } from "./email-layout";
+import { button, escapeHtml, INK, LINE, MONO, MUTED, page, SANS, SURFACE } from "./email-layout";
 import { EMAIL_WORDMARK } from "./email-wordmark";
 import { orderReference } from "./order-reference";
 import { encodePng } from "./png";
@@ -297,9 +297,7 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
     : `<tr><td style="padding:10px 0;font-family:${SANS};font-size:16px;line-height:24px;color:${INK}">This event is no longer listed. Contact <a href="mailto:${escapeHtml(SUPPORT_EMAIL)}" style="color:${INK};text-decoration:underline">${escapeHtml(SUPPORT_EMAIL)}</a> if you have questions.</td></tr>`;
   const tickets = order.tickets.map((t, i) => ticketCard(t.ticketCode, t.ticketTypeName, i, order.tickets.length, qrs[i], t.seat)).join("\n");
   const preheader = `Your ${one ? "ticket" : "tickets"} for ${event.title}. Show your ${anyQr ? "QR code" : "entry code"} at the door.`;
-  const instructions = anyQr
-    ? `Show ${one ? "this QR code" : "these QR codes"} at the door. Turn your screen brightness up. If ${one ? "it" : "one"} won&rsquo;t scan, door staff can type in ${one ? "the" : "its"} backup code.`
-    : `Show ${one ? "this code" : "these codes"} at the door.`;
+
 
   // The official wordmark (black on opaque white, docs/design/theme-white-dark.md §5.12), inline so it
   // shows where remote images are blocked; with all images off, its alt text names the brand.
