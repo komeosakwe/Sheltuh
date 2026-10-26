@@ -5,6 +5,7 @@ import SeatLine from "@/components/seating/SeatLine";
 import type { OrderPaymentLine, OrderPaymentSummary as Summary } from "@/lib/api/types";
 import { formatAud, formatEventDateTimeRange } from "@/lib/format";
 import { REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
+import { SUPPORT_LABEL } from "@/lib/support";
 import { ChevronDownIcon } from "./icons";
 
 /**
@@ -12,8 +13,10 @@ import { ChevronDownIcon } from "./icons";
  * (docs/design/checkout-pay.md §5.3). Every amount comes from the server
  * (priced from the order with lib/fees.ts), never worked out here. The
  * all-inclusive total is the loudest number and is never collapsed; on
- * phones only the lines fold away behind "Show n tickets". The event's
- * refund policy follows the total.
+ * phones only the lines fold away behind "Show n tickets". Support Sheltüh,
+ * when the buyer added some, is its own line after the tickets, and the note
+ * under the total (never folded) says it's included. The event's refund
+ * policy follows the total.
  */
 export default function OrderPaymentSummary({ summary }: { summary: Summary }) {
   const [open, setOpen] = useState(false);
@@ -24,6 +27,8 @@ export default function OrderPaymentSummary({ summary }: { summary: Summary }) {
   const allSeats = summary.seated && summary.lines.length > 0 && summary.lines.every((line) => (line.seats?.length ?? 0) > 0);
   const refunds = refundTermsLine(summary.refundPolicy, summary.refundDays, summary.eventStartsAt);
   const noun = allSeats ? (count === 1 ? "seat" : "seats") : count === 1 ? "ticket" : "tickets";
+  // Unset from an older API, and when there's none.
+  const supportCents = summary.supportCents && summary.supportCents > 0 ? summary.supportCents : 0;
 
   return (
     <section
@@ -74,6 +79,15 @@ export default function OrderPaymentSummary({ summary }: { summary: Summary }) {
               ))}
             </li>
           ))}
+          {supportCents > 0 && (
+            <li data-support-line="" className="flex justify-between gap-4 border-t border-surface-border py-3">
+              <div className="flex min-w-0 flex-col">
+                <p className="text-sm font-semibold text-foreground">{SUPPORT_LABEL}</p>
+                <p className="meta text-muted">To Sheltüh, not the organiser</p>
+              </div>
+              <p className="shrink-0 text-sm whitespace-nowrap tabular-nums text-foreground">{formatAud(supportCents)}</p>
+            </li>
+          )}
         </ul>
       </div>
 
@@ -85,11 +99,7 @@ export default function OrderPaymentSummary({ summary }: { summary: Summary }) {
             {formatAud(summary.totalCents)}
           </p>
         </div>
-        <p className="mt-1 text-xs text-muted">
-          {summary.buyerFeeCents > 0
-            ? `Includes ${formatAud(summary.buyerFeeCents)} in booking fees.`
-            : "No booking fee."}
-        </p>
+        <p className="mt-1 text-xs text-muted">{totalNote(summary.buyerFeeCents, supportCents)}</p>
       </div>
 
       {/* The event's refund policy, before paying (lib/refund-policy.ts). Nothing when an older response has none. */}
@@ -103,6 +113,16 @@ export default function OrderPaymentSummary({ summary }: { summary: Summary }) {
       )}
     </section>
   );
+}
+
+/** What the total includes, under it: the booking fees, and Support Sheltüh when there is some. */
+function totalNote(buyerFeeCents: number, supportCents: number): string {
+  const support = `${formatAud(supportCents)} for ${SUPPORT_LABEL}`;
+  if (buyerFeeCents > 0) {
+    const fees = `${formatAud(buyerFeeCents)} in booking fees`;
+    return supportCents > 0 ? `Includes ${fees} and ${support}.` : `Includes ${fees}.`;
+  }
+  return supportCents > 0 ? `No booking fee. Includes ${support}.` : "No booking fee.";
 }
 
 /** One ticket's all-inclusive price; "incl. fee" only on a line whose buyer pays one (an organiser can absorb it). */

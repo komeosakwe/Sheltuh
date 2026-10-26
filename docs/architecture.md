@@ -768,6 +768,17 @@ booking fee is charged on it.
   only when above 0, with `totalCents` including it; and in the ticket
   email's order summary (HTML and text), above the total, which says
   "incl. booking fees and Support Sheltüh".
+- **The checkout UI** (`components/checkout/SupportSheltuh.tsx`, state and
+  the Other amount's parsing in `lib/support-choice.ts`): right above
+  Checkout in the ticket selector and the seat page (in its phone sheet),
+  only while the order has a paid ticket (the choice is dropped when the
+  last one goes) and never in an organiser's seat-map preview. A native
+  radio group drawn as chips, nothing pre-selected; tapping the chosen chip
+  again, Space on it, or Remove clears it. Other takes A$1 to A$500 in whole
+  cents, with its error by the field (an invalid amount stops Checkout).
+  The amount is its own summary line and in the total; the API's 400
+  `fieldErrors.supportCents` is shown by the chips. The payment page and
+  the ticket page show the line too (the ticket page with a thank-you).
 - **Organisers never see it.** Analytics gross, fees and net, and tracking
   links' gross, use `total_cents − support_cents` ("Organiser analytics");
   per-ticket figures come from the line items, which never include it.

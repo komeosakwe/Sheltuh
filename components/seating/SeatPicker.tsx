@@ -12,6 +12,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { navLinkClass } from "@/components/AuthNavLinks";
+import SupportSheltuh, { SupportSummaryLine } from "@/components/checkout/SupportSheltuh";
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
 import { useIsDesktop } from "@/components/ui/useIsDesktop";
@@ -35,6 +36,7 @@ import {
   sortSeats,
   tierTreatments,
 } from "@/lib/seating/selection";
+import { NO_SUPPORT, supportCentsOf, supportErrorOf, totalIncludesWords, type SupportChoice } from "@/lib/support-choice";
 import { flattenSeats, MAX_SEATS_PER_ORDER, type FlatSeat, type SeatKind, type SeatMapTemplate } from "@/lib/seating/template";
 import { freeTicketsIn, ownLimit, ownLimitHint, type Quantities } from "@/lib/ticket-limits";
 import { getTrackingRef } from "@/lib/tracking-ref";
@@ -183,6 +185,11 @@ export default function SeatPicker({
   const [busy, setBusy] = useState(false);
   const [checkoutError, setCheckoutError] = useState<{ text: string; n: number } | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
+  // Support Sheltüh (components/checkout/SupportSheltuh.tsx): nothing until the buyer picks an amount.
+  const [support, setSupport] = useState<SupportChoice>(NO_SUPPORT);
+  const [revealSupportError, setRevealSupportError] = useState(false);
+  const [supportServerError, setSupportServerError] = useState<string | null>(null);
+  const supportInputRef = useRef<HTMLInputElement>(null);
 
   const mapControl = useRef<SeatMapControl | null>(null);
   const listHeaderRef = useRef<HTMLButtonElement>(null);
@@ -191,7 +198,9 @@ export default function SeatPicker({
   const sheetToggleRef = useRef<HTMLButtonElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
   const removeRefs = useRef(new Map<string, HTMLButtonElement>());
-  const pendingFocus = useRef<{ kind: "remove"; index: number } | { kind: "list" } | { kind: "email" } | { kind: "sheet" } | null>(null);
+  const pendingFocus = useRef<
+    { kind: "remove"; index: number } | { kind: "list" } | { kind: "email" } | { kind: "support" } | { kind: "sheet" } | null
+  >(null);
 
   // What can happen here.
   const ended = Date.parse(event.endsAt ?? event.startsAt) <= new Date().getTime();
@@ -208,7 +217,20 @@ export default function SeatPicker({
 
   // Totals (lib/fees.ts only).
   const gaLines = gaTiers.map((ticket) => ({ ticket, quantity: gaQuantities[ticket.id] ?? 0 })).filter((line) => line.quantity > 0);
-  const totals = seatOrderSummary(selectedSeats, tierById, gaLines);
+  const ticketTotals = seatOrderSummary(selectedSeats, tierById, gaLines);
+  // Support Sheltüh: paid orders only, and not in an organiser's preview. It's in the total the buyer
+  // sees (all-inclusive), never in the face value or booking fees.
+  const hasPaidTickets = ticketTotals.subtotalCents > 0;
+  const offerSupport = hasPaidTickets && mode !== "preview" && !readOnly;
+  // With no paid ticket left (however the selection changed: a seat taken, Find seats, Undo, a new
+  // map), the choice goes, so it's never pre-selected when one comes back.
+  if (!offerSupport && (support.option !== "none" || revealSupportError || supportServerError)) {
+    setSupport(NO_SUPPORT);
+    setRevealSupportError(false);
+    setSupportServerError(null);
+  }
+  const supportCents = offerSupport ? supportCentsOf(support) : 0;
+  const totals = { ...ticketTotals, totalCents: ticketTotals.totalCents + supportCents };
   const gaCount = gaLines.reduce((n, line) => n + line.quantity, 0);
   const hasAnything = selectedSeats.length > 0 || gaCount > 0;
   const freeSeats = selectedSeats.filter((seat) => (tierById.get(seat.ticketTypeId)?.priceCents ?? 0) === 0).length;
@@ -330,6 +352,7 @@ export default function SeatPicker({
     pendingFocus.current = null;
     if (target.kind === "list") listHeaderRef.current?.focus();
     else if (target.kind === "email") emailRef.current?.focus();
+    else if (target.kind === "support") supportInputRef.current?.focus();
     else if (target.kind === "sheet") sheetHeadingRef.current?.focus();
     else {
       const buttons = selectedSeats.map((seat) => removeRefs.current.get(seat.id)).filter((b): b is HTMLButtonElement => !!b);
@@ -338,9 +361,33 @@ export default function SeatPicker({
     }
   });
 
+  /** The total after a change, Support Sheltüh included while there's still a paid ticket. */
+  function totalAfter(seatsAfter: FlatSeat[], ga = gaLines): { total: number; includes: string } {
+    const after = seatOrderSummary(seatsAfter, tierById, ga);
+    const cents = after.subtotalCents > 0 && offerSupport ? supportCentsOf(support) : 0;
+    return { total: after.totalCents + cents, includes: totalIncludesWords(cents) };
+  }
+
   function totalWords(seatsAfter: FlatSeat[], ga = gaLines): string {
-    const total = seatOrderSummary(seatsAfter, tierById, ga).totalCents;
-    return `${plural(seatsAfter.length, "seat", "seats")}, total ${formatAud(total)}${total > 0 ? " incl. booking fees" : ""}.`;
+    const { total, includes } = totalAfter(seatsAfter, ga);
+    return `${plural(seatsAfter.length, "seat", "seats")}, total ${formatAud(total)}${total > 0 ? ` incl. ${includes}` : ""}.`;
+  }
+
+  function changeSupport(next: SupportChoice) {
+    setSupport(next);
+    setRevealSupportError(false);
+    setSupportServerError(null);
+    setCheckoutError(null);
+    // Each pick says the new total; typing an Other amount doesn't (its field has the value).
+    if (next.option === "other" && support.option === "other") return;
+    const cents = supportCentsOf(next);
+    const what =
+      next.option === "none"
+        ? "Support Sheltüh removed."
+        : next.option === "other"
+          ? "Other amount for Support Sheltüh: enter an amount."
+          : `Support Sheltüh: ${formatAud(cents)} added.`;
+    announce(`${what} Total ${formatAud(ticketTotals.totalCents + cents)} incl. ${totalIncludesWords(cents)}.`);
   }
 
   function changeSelection(next: string[]) {
@@ -453,8 +500,8 @@ export default function SeatPicker({
     setInline(null);
     setCheckoutError(null);
     const lines = gaTiers.map((t) => ({ ticket: t, quantity: next[t.id] ?? 0 })).filter((line) => line.quantity > 0);
-    const total = seatOrderSummary(selectedSeats, tierById, lines).totalCents;
-    announce(`${ticket.name}: ${clamped}. Total ${formatAud(total)}${total > 0 ? " incl. booking fees" : ""}.`);
+    const { total, includes } = totalAfter(selectedSeats, lines);
+    announce(`${ticket.name}: ${clamped}. Total ${formatAud(total)}${total > 0 ? ` incl. ${includes}` : ""}.`);
   }
 
   function selectTab(next: SeatTab, focusPanel = false) {
@@ -510,6 +557,14 @@ export default function SeatPicker({
       pendingFocus.current = { kind: "email" };
       return;
     }
+    // An Other amount that can't be sent: say why, by its field, rather than checking out without it.
+    if (offerSupport && supportErrorOf(support)) {
+      setRevealSupportError(true);
+      if (!sheetOpen) setSheetOpen(true);
+      pendingFocus.current = { kind: "support" };
+      return;
+    }
+    setSupportServerError(null);
     setBusy(true);
     // A hold from this tab's last checkout that couldn't be released yet: release it first, so
     // those seats are free for this one and its stored order isn't replaced while still held.
@@ -531,10 +586,20 @@ export default function SeatPicker({
                 lineItems,
                 ...(email ? { buyerEmail: email } : {}),
                 ...(getTrackingRef(event.id) ? { trackingCode: getTrackingRef(event.id) } : {}),
+                // Paid orders only, and only when there is some. Part of the checkout attempt's
+                // basket, so a changed amount gets a new idempotency key.
+                ...(supportCents > 0 ? { supportCents } : {}),
               },
               getToken,
             )
-          : await createCheckoutSession(event.id, lineItems, email, getTrackingRef(event.id), getToken);
+          : await createCheckoutSession(
+              event.id,
+              lineItems,
+              email,
+              getTrackingRef(event.id),
+              getToken,
+              supportCents > 0 ? supportCents : undefined,
+            );
       if ("url" in result) {
         // No setBusy(false): the page is navigating away, and re-enabling Checkout would invite a double press.
         // Coming Back from the payment page resets it and releases the hold (releasePending).
@@ -562,6 +627,11 @@ export default function SeatPicker({
         setEmailError(err.fieldErrors.buyerEmail);
         if (!sheetOpen) setSheetOpen(true);
         pendingFocus.current = { kind: "email" };
+        return;
+      } else if (err instanceof ApiError && err.fieldErrors?.supportCents) {
+        // Said by the chips (in the sheet, on phones).
+        setSupportServerError(err.fieldErrors.supportCents);
+        if (!sheetOpen) setSheetOpen(true);
         return;
       } else if (err instanceof ApiError && err.fieldErrors && Object.keys(err.fieldErrors).length > 0) {
         text = Object.values(err.fieldErrors).filter(Boolean).join(" ") || err.message;
@@ -711,6 +781,7 @@ export default function SeatPicker({
             <dt className="text-muted">Booking fees</dt>
             <dd className="tabular-nums">{formatAud(totals.buyerFeeCents)}</dd>
           </div>
+          <SupportSummaryLine cents={supportCents} />
           {/* The total is the largest number on the page. */}
           <div className="mt-1 flex items-baseline justify-between gap-4 border-t border-foreground pt-3">
             <dt className="text-lg leading-6 font-bold">Total</dt>
@@ -721,6 +792,19 @@ export default function SeatPicker({
           {plural(selectedSeats.length, "seat", "seats")}
           {gaCount > 0 && ` + ${gaCount} general admission`}
         </p>
+
+        {/* Right above Checkout (the desktop card's button, or the phone bar's under the sheet). */}
+        {offerSupport && sentTo === null && (
+          <div className="border-t border-surface-border pt-4">
+            <SupportSheltuh
+              choice={support}
+              onChange={changeSupport}
+              revealError={revealSupportError}
+              serverError={supportServerError}
+              otherInputRef={supportInputRef}
+            />
+          </div>
+        )}
 
         {sentTo !== null && (
           <div className="flex flex-col gap-2">
@@ -987,7 +1071,8 @@ export default function SeatPicker({
                     <span className="text-sm leading-6 font-semibold">{soldOut ? "Sold out" : "All seats held right now"}</span>
                   ) : hasAnything ? (
                     <span className="text-lg leading-6 font-bold tabular-nums">
-                      {formatAud(totals.totalCents)} <span className="text-xs font-normal text-muted">incl. fees</span>
+                      {formatAud(totals.totalCents)}{" "}
+                      <span className="text-xs font-normal text-muted">{supportCents > 0 ? "incl. fees and support" : "incl. fees"}</span>
                     </span>
                   ) : (
                     <span className="flex flex-col">

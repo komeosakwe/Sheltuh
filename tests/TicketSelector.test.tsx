@@ -96,6 +96,8 @@ describe("TicketSelector (live, signed in)", () => {
       "mia@example.com",
       undefined,
       expect.any(Function),
+      // No Support Sheltüh on a free order.
+      undefined,
     );
   });
 
@@ -127,6 +129,8 @@ describe("TicketSelector (live, signed in)", () => {
       "mia@example.com",
       undefined,
       undefined,
+      // Nothing pre-selected: no Support Sheltüh unless the buyer picks some.
+      undefined,
     );
   });
 });
@@ -145,7 +149,7 @@ describe("TicketSelector (live, no auth)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
     expect(screen.queryByText(/Booking as/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
-    expect(createCheckoutSession).toHaveBeenCalledWith(expect.any(String), expect.any(Array), undefined, undefined, undefined);
+    expect(createCheckoutSession).toHaveBeenCalledWith(expect.any(String), expect.any(Array), undefined, undefined, undefined, undefined);
   });
 });
 
@@ -336,7 +340,7 @@ describe("TicketSelector (tracking-link attribution)", () => {
     render(<TicketSelector event={event} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
-    expect(createCheckoutSession).toHaveBeenCalledWith(event.id, expect.any(Array), undefined, "abcd2345", undefined);
+    expect(createCheckoutSession).toHaveBeenCalledWith(event.id, expect.any(Array), undefined, "abcd2345", undefined, undefined);
   });
 });
 
