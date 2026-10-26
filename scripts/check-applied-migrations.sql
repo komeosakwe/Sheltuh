@@ -77,6 +77,8 @@ select version, file, coalesce(applied, false) as applied
     ('20261107000000', 'admin_review_emails', to_regclass('private.email_job_recipients') is not null),
     ('20261108000000', 'account_invites', to_regclass('private.account_invites') is not null),
     ('20261109000000', 'paid_events_need_payouts', exists (select 1 from fn where proname = 'submit_event')),
-    ('20261109000100', 'event_refund_policy', exists (select 1 from fn where proname = 'refund_policy_tightens'))
+    ('20261109000100', 'event_refund_policy', exists (select 1 from fn where proname = 'refund_policy_tightens')),
+    ('20261109000500', 'ticket_wallet_serial',
+      exists (select 1 from col where attrelid = to_regclass('public.tickets') and attname = 'wallet_serial'))
   ) as m(version, file, applied)
  order by version;

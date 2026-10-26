@@ -67,7 +67,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261109000100_event_refund_policy.sql`. Never
+      newest, currently `20261109000500_ticket_wallet_serial.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -98,6 +98,10 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       22. `20261109000000_paid_events_need_payouts.sql`
       23. `20261109000100_event_refund_policy.sql` (existing events become
           "No refunds for change of mind"; apply before the app that reads it)
+      24. `20261109000500_ticket_wallet_serial.sql` (every ticket gets a
+          random wallet pass serial; rewrites `public.tickets` once. Apply
+          before the app with wallet passes deploys: its wallet routes read
+          the column, and answer 500 without it)
 
       **Apply `20261109000000_paid_events_need_payouts.sql` before the code
       that submits events deploys.** The organiser's submit calls

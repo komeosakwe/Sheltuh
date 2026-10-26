@@ -12,7 +12,8 @@ import { createPrivateKey, X509Certificate, type KeyObject } from "node:crypto";
  * put in an error message: a problem is reported by the variable's name
  * only (`problems`), and the caller logs that once. Only node:crypto here
  * (Deps loads this module for every route); node-forge is imported by the
- * Apple pass builder alone (./apple.ts), so only the wallet routes bundle it.
+ * Apple pass builder alone (./apple.ts), which Deps imports dynamically, and
+ * only when an APPLE_WALLET_* variable is set.
  */
 
 export interface GoogleWalletConfig {
@@ -29,8 +30,10 @@ export interface AppleWalletConfig {
   signerCertPem: string;
   signerKey: KeyObject;
   wwdrCertPem: string;
-  /** When the Pass Type ID certificate expires (ms since the epoch): passes are off from then. */
+  /** When the first of the Pass Type ID and WWDR certificates expires (ms since the epoch): passes are off from then. */
   certExpiresAt: number;
+  /** Which of the two expires first, for the log line. */
+  expiresFirst: "APPLE_WALLET_CERT_PEM" | "APPLE_WALLET_WWDR_PEM";
 }
 
 export type ConfigResult<T> = { config: T } | { problems: string[] };
@@ -179,8 +182,59 @@ export function appleWalletConfigFromEnv(
   if (wwdr && Date.parse(wwdr.validTo) <= now) problems.push("APPLE_WALLET_WWDR_PEM has expired");
 
   if (problems.length > 0 || !passTypeId || !teamId || !cert || !key || !wwdr || !certPem || !wwdrPem) return { problems };
+  const certExpiry = Date.parse(cert.validTo);
+  const wwdrExpiry = Date.parse(wwdr.validTo);
   return {
-    config: { passTypeId, teamId, signerCertPem: certPem, signerKey: key, wwdrCertPem: wwdrPem, certExpiresAt: Date.parse(cert.validTo) },
+    config: {
+      passTypeId,
+      teamId,
+      signerCertPem: certPem,
+      signerKey: key,
+      wwdrCertPem: wwdrPem,
+      certExpiresAt: Math.min(certExpiry, wwdrExpiry),
+      expiresFirst: wwdrExpiry < certExpiry ? "APPLE_WALLET_WWDR_PEM" : "APPLE_WALLET_CERT_PEM",
+    },
+  };
+}
+
+/** Whether any Apple Wallet variable is set: only then is the pass builder (and node-forge) loaded. */
+export function hasAppleWalletVariables(values: Record<string, string | undefined> = process.env): boolean {
+  return [
+    "APPLE_WALLET_PASS_TYPE_ID",
+    "APPLE_WALLET_TEAM_ID",
+    "APPLE_WALLET_CERT_PEM",
+    "APPLE_WALLET_KEY_PEM",
+    "APPLE_WALLET_WWDR_PEM",
+  ].some((name) => !!values[name]?.trim());
+}
+
+/**
+ * Deps.appleWallet: loads the configuration once (`load`, which may import
+ * the pass builder), then answers it while both certificates are current.
+ * The first time an expiry turns Apple off on a running instance, that's
+ * logged once, naming the variable. A load that throws is off, logged.
+ */
+export function appleWalletGetter(
+  load: () => Promise<AppleWalletConfig | undefined>,
+  now: () => number = Date.now,
+): () => Promise<AppleWalletConfig | undefined> {
+  let loaded: Promise<AppleWalletConfig | undefined> | undefined;
+  let expiryLogged = false;
+  return async () => {
+    loaded ??= load().catch(() => {
+      console.error("Apple Wallet passes are off: its configuration couldn't be read.");
+      return undefined;
+    });
+    const config = await loaded;
+    if (!config) return undefined;
+    if (config.certExpiresAt <= now()) {
+      if (!expiryLogged) {
+        expiryLogged = true;
+        console.error(`Apple Wallet passes are off: ${config.expiresFirst} has expired.`);
+      }
+      return undefined;
+    }
+    return config;
   };
 }
 

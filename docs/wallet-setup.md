@@ -153,10 +153,17 @@ use OpenSSL, which macOS, Linux and Git Bash on Windows already have.
    reference), and that the QR scans at the door. "Safari cannot download
    this file" means Wallet refused the pass: check the logs for "Apple
    Wallet passes are off", and that the certificate is for this Pass Type
-   ID and team.
+   ID and team. The server also signs a test pass once before showing the
+   button; if it can't (an EC certificate or key, say: use the RSA
+   certificate from step 4 and the G4 intermediate, not G6), the logs name
+   the variable and the button stays hidden.
 10. **Renew** the certificate before it expires (Apple shows the date; about
-    a year). When it expires, Apple passes switch off by themselves (logged)
-    until the new one is in Vercel; passes already in wallets keep working.
+    a year), and check the WWDR G4 certificate's own expiry too
+    (`openssl x509 -enddate -noout -in wwdr-g4.pem`). When either expires,
+    Apple passes switch off by themselves, and the logs say once which
+    (`Apple Wallet passes are off: APPLE_WALLET_CERT_PEM has expired.`, or
+    `APPLE_WALLET_WWDR_PEM`), until a new one is in Vercel and the site is
+    redeployed; passes already in wallets keep working.
     If the key may have leaked, revoke the certificate in the developer
     portal and make a new one.
 

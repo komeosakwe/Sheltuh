@@ -255,7 +255,7 @@ export class TestApi {
       authAdmin: () => this.authAdmin,
       adminNotifyEmails: () => this.adminNotifyEmails,
       googleWallet: () => this.googleWallet,
-      appleWallet: () => this.appleWallet,
+      appleWallet: async () => this.appleWallet,
     };
   }
 

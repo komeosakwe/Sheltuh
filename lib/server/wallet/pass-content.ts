@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { formatEventDateKey, formatEventDateShort, formatEventDateTimeRange, formatEventTime } from "@/lib/format";
 import { formatSeatLine } from "@/lib/seating/format";
 import { TICKET_CODE_PATTERN, ticketQrPayload } from "@/lib/ticket-code";
@@ -13,7 +12,12 @@ import type { TicketSeat } from "../types";
  */
 export interface WalletTicket {
   eventId: string;
-  /** The event's title when the order was placed (the ticket page's). */
+  /**
+   * The event's current title (as the ticket email shows it; the passes are
+   * only made while the event is published, so it's the public one). Google's
+   * class is shared by every ticket for the event, so it can't be any one
+   * order's snapshot.
+   */
   eventTitle: string;
   startsAt: string;
   endsAt?: string;
@@ -34,6 +38,14 @@ export interface WalletTicket {
   qrPayload?: string;
   /** The order's short reference ("#7C1F2E0A"), as on the ticket page. */
   orderReference: string;
+  /**
+   * The pass's id: the ticket's `wallet_serial` (a random uuid, migration
+   * 20261109000500_ticket_wallet_serial.sql) as 32 hex characters. Apple's
+   * serialNumber and the end of Google's object id, so the same ticket is
+   * always the same pass (adding it again replaces it). Random, so it says
+   * nothing about the code.
+   */
+  serial: string;
 }
 
 /**
@@ -50,15 +62,8 @@ export function walletQrPayload(code: string): string | undefined {
   return TICKET_CODE_PATTERN.test(code) ? ticketQrPayload(code) : undefined;
 }
 
-/**
- * A stable, opaque id for a ticket's pass (Apple's serialNumber, the end of
- * Google's object id): 32 hex characters of a labelled SHA-256 of its code,
- * so the same ticket always gets the same pass (adding it again replaces
- * it) and the code itself isn't the id.
- */
-export function walletSerial(code: string): string {
-  return createHash("sha256").update(`sheltuh/wallet-ticket/v1:${code}`, "utf8").digest("hex").slice(0, 32);
-}
+/** A pass serial: 32 lower-case hex characters (a uuid without its dashes). */
+export const WALLET_SERIAL_PATTERN = /^[0-9a-f]{32}$/;
 
 function zoneAbbreviation(iso: string, timeZone: string): string {
   const formatter = cachedDateTimeFormat("en-AU", { timeZone, timeZoneName: "short" });

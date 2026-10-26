@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { clientKey } from "@/lib/server/client-key";
+import { createHash } from "node:crypto";
+import { clientKey, orderKey } from "@/lib/server/client-key";
 import { adminUnpublishEvent } from "@/lib/server/handlers/admin";
 import { confirmFreeOrder } from "@/lib/server/handlers/free-orders";
 import { createCheckout, getOrderBySession, stripeWebhook } from "@/lib/server/handlers/orders";
@@ -30,9 +31,9 @@ let event: EventRecord;
 let intents = 0;
 
 // One credential set per run (key generation is slow); each test decides whether a wallet is on.
-const google = googleWalletEnv();
+const googleCreds = googleWalletEnv();
 const apple = appleWalletEnv();
-const googleConfig = (googleWalletConfigFromEnv(google.env) as { config: GoogleWalletConfig }).config;
+const googleConfig = (googleWalletConfigFromEnv(googleCreds.env) as { config: GoogleWalletConfig }).config;
 const appleConfig = (appleWalletConfigFromEnv(apple.env) as { config: AppleWalletConfig }).config;
 
 const TICKETS = [
@@ -119,7 +120,7 @@ describe("Add to Google Wallet (GET …/wallet/google?ticket={n})", () => {
       expect(res.headers.get("referrer-policy")).toBe("no-referrer");
       const location = res.headers.get("location")!;
       expect(location.startsWith(GOOGLE_SAVE_URL_BASE)).toBe(true);
-      const { claims, verified } = decodeJwt(location.slice(GOOGLE_SAVE_URL_BASE.length), google.keys.publicKey);
+      const { claims, verified } = decodeJwt(location.slice(GOOGLE_SAVE_URL_BASE.length), googleCreds.keys.publicKey);
       expect(verified).toBe(true);
       expect(claims.origins).toEqual([SITE_URL]);
       const [cls] = claims.payload.eventTicketClasses;
@@ -155,6 +156,60 @@ describe("Add to Apple Wallet (GET …/wallet/apple?ticket={n})", () => {
     expect(json.barcodes[0]).toMatchObject({ message: ticketQrPayload(code), altText: code });
     expect(json.eventTicket.auxiliaryFields[0].value).toBe("General admission · Ticket 2 of 2");
     expect(files.get("pass.json")!.toString("utf8")).not.toMatch(new RegExp(`buyer@example\\.com|${orderId}`));
+  });
+});
+
+describe("pass serials (tickets.wallet_serial)", () => {
+  /** Each ticket's stored serial, in the page's order, as 32 hex characters. */
+  const serials = async (orderId: string) =>
+    (
+      await api.db.query<{ code: string; serial: string }>(
+        `select code, replace(wallet_serial::text, '-', '') as serial from public.tickets where order_id = $1 order by ticket_type_id, code`,
+        [orderId],
+      )
+    ).map((r) => r.serial);
+
+  it("every ticket gets its own random serial, and both wallets use it: Apple's serialNumber, Google's object id", async () => {
+    const { orderId } = await paidOrder(2);
+    const stored = await serials(orderId);
+    expect(stored).toHaveLength(2);
+    expect(new Set(stored).size).toBe(2);
+    const codes = ((await page(orderId)).tickets as { ticketCode: string }[]).map((t) => t.ticketCode);
+    for (const [i, serial] of stored.entries()) {
+      expect(serial).toMatch(/^[0-9a-f]{32}$/);
+      // Nothing derived from the code (the earlier hashed serial, for one).
+      expect(serial).not.toBe(createHash("sha256").update(`sheltuh/wallet-ticket/v1:${codes[i]}`).digest("hex").slice(0, 32));
+      const applePass = readZip(Buffer.from(await (await pass(getAppleWalletPass, orderId, String(i + 1))).arrayBuffer()));
+      expect(JSON.parse(applePass.get("pass.json")!.toString("utf8")).serialNumber).toBe(serial);
+      const googleRes = await pass(getGoogleWalletPass, orderId, String(i + 1));
+      const { claims } = decodeJwt(googleRes.headers.get("location")!.slice(GOOGLE_SAVE_URL_BASE.length), googleCreds.keys.publicKey);
+      expect(claims.payload.eventTicketObjects[0].id).toBe(`${googleConfig.issuerId}.sheltuh-ticket-${serial}`);
+    }
+    // Stable: asked again, the same serials (adding a ticket again replaces its pass).
+    expect(await serials(orderId)).toEqual(stored);
+    const again = readZip(Buffer.from(await (await pass(getAppleWalletPass, orderId, "1")).arrayBuffer()));
+    expect(JSON.parse(again.get("pass.json")!.toString("utf8")).serialNumber).toBe(stored[0]);
+  });
+
+  it("the serial is never in the ticket page's response", async () => {
+    const { orderId } = await paidOrder(1);
+    const [serial] = await serials(orderId);
+    const raw = JSON.stringify(await page(orderId));
+    expect(raw).not.toContain(serial);
+    expect(raw).not.toContain(serial.slice(0, 8));
+  });
+});
+
+describe("the event's current details", () => {
+  it("Google's class (and the Apple pass) carry the event's current title, not the order's snapshot", async () => {
+    const { orderId } = await paidOrder(1);
+    await api.db.query(`update public.events set title = 'Neon Static (late show)' where id = $1`, [event.eventId]);
+    expect((await page(orderId)).eventTitle).toBe("Neon Static");
+    const res = await pass(getGoogleWalletPass, orderId);
+    const { claims } = decodeJwt(res.headers.get("location")!.slice(GOOGLE_SAVE_URL_BASE.length), googleCreds.keys.publicKey);
+    expect(claims.payload.eventTicketClasses[0].eventName.defaultValue.value).toBe("Neon Static (late show)");
+    const files = readZip(Buffer.from(await (await pass(getAppleWalletPass, orderId)).arrayBuffer()));
+    expect(JSON.parse(files.get("pass.json")!.toString("utf8")).eventTicket.primaryFields[0].value).toBe("Neon Static (late show)");
   });
 });
 
@@ -231,7 +286,7 @@ describe("the ticket page's capability and rules", () => {
     }
     // Ticket 1 of my order is my ticket, never theirs.
     const res = await pass(getGoogleWalletPass, mine.orderId, "1");
-    const { claims } = decodeJwt(res.headers.get("location")!.slice(GOOGLE_SAVE_URL_BASE.length), google.keys.publicKey);
+    const { claims } = decodeJwt(res.headers.get("location")!.slice(GOOGLE_SAVE_URL_BASE.length), googleCreds.keys.publicKey);
     expect(theirCodes).not.toContain(claims.payload.eventTicketObjects[0].barcode.alternateText);
   });
 
@@ -339,6 +394,30 @@ describe("rate limit", () => {
     expect(JSON.stringify(rows)).not.toContain(IP);
   });
 
+  it(`allows ${WALLET_RATE_LIMITS.perOrder.hits} a minute per order from any number of clients, then 429; another order and unknown ids are unaffected`, async () => {
+    const { orderId } = await paidOrder(1);
+    const other = await paidOrder(1);
+    for (let i = 0; i < WALLET_RATE_LIMITS.perOrder.hits; i++) {
+      const handler = i % 2 ? getGoogleWalletPass : getAppleWalletPass;
+      // A fresh client each time: the per-client limit never applies.
+      expect([200, 302]).toContain((await pass(handler, orderId, "1", `198.51.100.${i + 1}`)).status);
+    }
+    expect(await errorOf(await pass(getGoogleWalletPass, orderId, "1", "203.0.113.200"))).toMatchObject({
+      status: 429,
+      cacheControl: "private, no-store",
+      body: { error: expect.stringContaining("This order") },
+    });
+    expect((await pass(getAppleWalletPass, orderId, "1", "203.0.113.201")).status).toBe(429);
+    expect((await pass(getGoogleWalletPass, other.orderId, "1", "203.0.113.202")).status).toBe(302);
+    // Keyed on an HMAC of the order id, never the id; unknown ids take no per-order hit.
+    await pass(getGoogleWalletPass, `ord_${"2".repeat(32)}`, "1", "203.0.113.203");
+    const rows = await api.db.query<{ client_key: string }>(`select client_key from private.client_rate_limits where bucket = $1`, [
+      WALLET_RATE_LIMITS.perOrder.bucket,
+    ]);
+    expect(rows.map((r) => r.client_key).sort()).toEqual([orderKey(orderId, WEBHOOK_SECRET), orderKey(other.orderId, WEBHOOK_SECRET)].sort());
+    expect(JSON.stringify(rows)).not.toContain(orderId);
+  });
+
   it("malformed requests and a wallet that's off don't count", async () => {
     const { orderId } = await paidOrder(1);
     api.appleWallet = undefined;
@@ -372,7 +451,7 @@ describe("log hygiene", () => {
     expect(await errorOf(failed)).toMatchObject({ status: 500, body: { error: "Something went wrong." } });
     // A misconfigured wallet, as Deps would log it.
     const { loadWalletConfig } = await import("@/lib/server/wallet/config");
-    loadWalletConfig("Google Wallet", () => googleWalletConfigFromEnv({ ...google.env, GOOGLE_WALLET_ISSUER_ID: "x" }));
+    loadWalletConfig("Google Wallet", () => googleWalletConfigFromEnv({ ...googleCreds.env, GOOGLE_WALLET_ISSUER_ID: "x" }));
     loadWalletConfig("Apple Wallet", () => appleWalletConfigFromEnv({ ...apple.env, APPLE_WALLET_TEAM_ID: "x" }));
 
     const logged = spies.flatMap((s) => s.mock.calls.flat()).map(String).join("\n");
@@ -380,8 +459,8 @@ describe("log hygiene", () => {
     for (const secret of [
       orderId,
       ...codes,
-      google.env.GOOGLE_WALLET_PRIVATE_KEY!.slice(30, 90),
-      google.keys.privatePem.split("\n")[1],
+      googleCreds.env.GOOGLE_WALLET_PRIVATE_KEY!.slice(30, 90),
+      googleCreds.keys.privatePem.split("\n")[1],
       apple.env.APPLE_WALLET_CERT_PEM!.slice(0, 40),
       apple.env.APPLE_WALLET_KEY_PEM!.slice(0, 40),
       apple.signerPem.split("\n")[1],

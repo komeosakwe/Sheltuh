@@ -77,7 +77,15 @@ const b64 = (pem: string) => Buffer.from(pem, "utf8").toString("base64");
  * certificate's subject names.
  */
 export function appleWalletEnv(
-  options: { passphrase?: string; expired?: boolean; passTypeId?: string; teamId?: string; otherWwdr?: boolean } = {},
+  options: {
+    passphrase?: string;
+    expired?: boolean;
+    passTypeId?: string;
+    teamId?: string;
+    otherWwdr?: boolean;
+    /** Days until the WWDR certificate expires (default ten years). */
+    wwdrDays?: number;
+  } = {},
 ) {
   const now = Date.now();
   const wwdrKeys = rsaKeyPair();
@@ -94,7 +102,7 @@ export function appleWalletEnv(
     signingKey: wwdrKeys.privatePem,
     serial: "01",
     notBefore: new Date(now - 30 * DAY),
-    notAfter: new Date(now + 3650 * DAY),
+    notAfter: new Date(now + (options.wwdrDays ?? 3650) * DAY),
     ca: true,
   });
   const signerKeys = rsaKeyPair();
@@ -240,6 +248,8 @@ export function verifyDetachedSignature(signature: Buffer, content: Buffer, sign
 }
 
 export const TEST_EVENT_ID = "0b6f5f7e-6a52-4c39-9d2a-3b1f0e5d9c11";
+/** A ticket's wallet serial as the routes read it: a random uuid without its dashes. */
+export const TEST_SERIAL = "3f2b9c4e8a1d4f6b9e0c7a5d2b8e1f43";
 
 /** A ticket's pass content, as the routes build it (lib/server/handlers/wallet.ts). */
 export function sampleTicket(overrides: Partial<WalletTicket> = {}): WalletTicket {
@@ -258,6 +268,7 @@ export function sampleTicket(overrides: Partial<WalletTicket> = {}): WalletTicke
     code: "7KQM-2HXD",
     qrPayload: walletQrPayload("7KQM-2HXD"),
     orderReference: "#7C1F2E0A",
+    serial: TEST_SERIAL,
     ...overrides,
   };
 }

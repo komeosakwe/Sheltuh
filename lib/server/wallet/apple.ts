@@ -3,7 +3,7 @@ import { crc32 } from "node:zlib";
 import forge from "node-forge";
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { appleRgb, WALLET_COLOURS, WALLET_ORGANISATION_NAME } from "./brand";
-import type { AppleWalletConfig } from "./config";
+import { appleWalletConfigFromEnv, loadWalletConfig, type AppleWalletConfig } from "./config";
 import { APPLE_PASS_IMAGES } from "./images";
 import {
   localIsoWithOffset,
@@ -13,7 +13,7 @@ import {
   passTicketNumber,
   passVenue,
   passWhen,
-  walletSerial,
+  WALLET_SERIAL_PATTERN,
   type WalletTicket,
 } from "./pass-content";
 
@@ -85,6 +85,7 @@ type PassField = { key: string; label?: string; value: string };
 
 /** pass.json (exported for tests). */
 export function applePassJson(config: Pick<AppleWalletConfig, "passTypeId" | "teamId">, ticket: WalletTicket) {
+  if (!WALLET_SERIAL_PATTERN.test(ticket.serial)) throw new Error("A wallet pass serial must be 32 hex characters.");
   const venue = passVenue(ticket);
   const seat = passSeat(ticket);
   const ticketLine = [ticket.ticketTypeName, passTicketNumber(ticket)].filter(Boolean).join(" · ");
@@ -112,7 +113,7 @@ export function applePassJson(config: Pick<AppleWalletConfig, "passTypeId" | "te
     formatVersion: 1,
     passTypeIdentifier: config.passTypeId,
     teamIdentifier: config.teamId,
-    serialNumber: walletSerial(ticket.code),
+    serialNumber: ticket.serial,
     organizationName: WALLET_ORGANISATION_NAME,
     description: `Ticket for ${ticket.eventTitle}`,
     groupingIdentifier: `sheltuh-event-${ticket.eventId}`,
@@ -146,6 +147,17 @@ interface ForgeSigner {
   wwdr: forge.pki.Certificate;
 }
 
+/** A configured value node-forge can't use, named by its variable (never its value). */
+class SignerProblem extends Error {}
+
+function readForSigning<T>(variable: string, read: () => T): T {
+  try {
+    return read();
+  } catch {
+    throw new SignerProblem(`${variable} couldn't be read for signing`);
+  }
+}
+
 /** The configuration's certificates and key as node-forge objects, parsed once per configuration. */
 const forgeSigners = new WeakMap<AppleWalletConfig, ForgeSigner>();
 
@@ -153,14 +165,50 @@ function forgeSigner(config: AppleWalletConfig): ForgeSigner {
   let signer = forgeSigners.get(config);
   if (!signer) {
     signer = {
-      cert: forge.pki.certificateFromPem(config.signerCertPem),
+      // forge reads RSA only: an EC certificate (Apple's WWDR G6, say) that node:crypto accepted fails here.
+      cert: readForSigning("APPLE_WALLET_CERT_PEM", () => forge.pki.certificateFromPem(config.signerCertPem)),
       // node:crypto has already decrypted it; forge reads the unencrypted PKCS #8 form.
-      key: forge.pki.privateKeyFromPem(config.signerKey.export({ type: "pkcs8", format: "pem" }).toString()) as forge.pki.rsa.PrivateKey,
-      wwdr: forge.pki.certificateFromPem(config.wwdrCertPem),
+      key: readForSigning(
+        "APPLE_WALLET_KEY_PEM",
+        () => forge.pki.privateKeyFromPem(config.signerKey.export({ type: "pkcs8", format: "pem" }).toString()) as forge.pki.rsa.PrivateKey,
+      ),
+      wwdr: readForSigning("APPLE_WALLET_WWDR_PEM", () => forge.pki.certificateFromPem(config.wwdrCertPem)),
     };
     forgeSigners.set(config, signer);
   }
   return signer;
+}
+
+/**
+ * Why `config` can't sign passes, or undefined when it can: node-forge parses
+ * the certificates and key, then signs a test manifest. Done once, before
+ * Apple passes are offered, so a configuration node:crypto accepted but
+ * forge can't use turns Apple off (logged) instead of failing every pass.
+ */
+export function appleSignerProblem(config: AppleWalletConfig): string | undefined {
+  try {
+    const signature = signManifest(config, Buffer.from("{}", "utf8"));
+    return signature.length > 0 ? undefined : "APPLE_WALLET_CERT_PEM and APPLE_WALLET_KEY_PEM couldn't sign a test pass";
+  } catch (err) {
+    return err instanceof SignerProblem ? err.message : "APPLE_WALLET_CERT_PEM and APPLE_WALLET_KEY_PEM couldn't sign a test pass";
+  }
+}
+
+/**
+ * The Apple Wallet configuration from the environment, checked
+ * (config.ts) and then proven able to sign (appleSignerProblem); undefined,
+ * logged once by variable name, when it isn't. For Deps, which imports this
+ * module (and node-forge) only when an APPLE_WALLET_* variable is set.
+ */
+export function loadAppleWallet(values: Record<string, string | undefined> = process.env, now: number = Date.now()) {
+  const config = loadWalletConfig("Apple Wallet", () => appleWalletConfigFromEnv(values, now));
+  if (!config) return undefined;
+  const problem = appleSignerProblem(config);
+  if (problem) {
+    console.error(`Apple Wallet passes are off: ${problem}.`);
+    return undefined;
+  }
+  return config;
 }
 
 /** The detached PKCS #7 (CMS SignedData) signature over manifest.json, DER. */

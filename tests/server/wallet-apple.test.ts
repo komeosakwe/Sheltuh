@@ -3,16 +3,25 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ticketQrPayload } from "@/lib/ticket-code";
-import { applePassJson, buildApplePass, zipStore } from "@/lib/server/wallet/apple";
-import { appleWalletConfigFromEnv, decodePemVariable, loadWalletConfig, type AppleWalletConfig } from "@/lib/server/wallet/config";
+import { generateKeyPairSync } from "node:crypto";
+import { applePassJson, appleSignerProblem, buildApplePass, loadAppleWallet, zipStore } from "@/lib/server/wallet/apple";
+import {
+  appleWalletConfigFromEnv,
+  appleWalletGetter,
+  decodePemVariable,
+  hasAppleWalletVariables,
+  loadWalletConfig,
+  type AppleWalletConfig,
+} from "@/lib/server/wallet/config";
 import { APPLE_PASS_IMAGES } from "@/lib/server/wallet/images";
-import { walletQrPayload, walletSerial } from "@/lib/server/wallet/pass-content";
+import { walletQrPayload } from "@/lib/server/wallet/pass-content";
 import {
   appleWalletEnv,
   readZip,
   sampleTicket,
   TEST_EVENT_ID,
   TEST_PASS_TYPE_ID,
+  TEST_SERIAL,
   TEST_TEAM_ID,
   verifyDetachedSignature,
 } from "./helpers/wallet";
@@ -103,6 +112,68 @@ describe("Apple Wallet configuration", () => {
   });
 });
 
+describe("Apple Wallet: proven before it's offered", () => {
+  it("expires with the first of its two certificates", () => {
+    const { config } = apple();
+    expect(config.expiresFirst).toBe("APPLE_WALLET_CERT_PEM");
+    const early = apple({ wwdrDays: 30 }).config;
+    expect(early.expiresFirst).toBe("APPLE_WALLET_WWDR_PEM");
+    expect(early.certExpiresAt).toBeLessThan(Date.now() + 31 * 24 * 60 * 60 * 1000);
+  });
+
+  it("signs a test manifest once loaded; a value node-forge can't use turns Apple off, naming the variable", () => {
+    const { config, env } = apple();
+    expect(appleSignerProblem(config)).toBeUndefined();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(loadAppleWallet(env)).toMatchObject({ passTypeId: TEST_PASS_TYPE_ID });
+    expect(error).not.toHaveBeenCalled();
+
+    // An EC key (node:crypto reads it; forge, RSA only, can't) and an unreadable WWDR certificate.
+    const ec = generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey;
+    expect(appleSignerProblem({ ...config, signerKey: ec })).toBe("APPLE_WALLET_KEY_PEM couldn't be read for signing");
+    expect(appleSignerProblem({ ...config, wwdrCertPem: "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----" })).toBe(
+      "APPLE_WALLET_WWDR_PEM couldn't be read for signing",
+    );
+    expect(appleSignerProblem({ ...config, signerCertPem: "nope" })).toBe("APPLE_WALLET_CERT_PEM couldn't be read for signing");
+
+    // Unset: quietly off.
+    expect(loadAppleWallet({})).toBeUndefined();
+    expect(error).not.toHaveBeenCalled();
+    // Invalid: off, logged by name only.
+    expect(loadAppleWallet({ ...env, APPLE_WALLET_TEAM_ID: "x" })).toBeUndefined();
+    expect(error.mock.calls.flat().join(" ")).toContain("Apple Wallet passes are off: APPLE_WALLET_TEAM_ID");
+    expect(error.mock.calls.flat().join(" ")).not.toContain("BEGIN");
+  });
+
+  it("Deps' getter: loads once, then off from the first expiry, logged once naming the variable; a failed load is off", async () => {
+    const { config } = apple({ wwdrDays: 30 });
+    let now = Date.now();
+    const load = vi.fn(async () => config);
+    const get = appleWalletGetter(load, () => now);
+    expect(await get()).toBe(config);
+    expect(await get()).toBe(config);
+    expect(load).toHaveBeenCalledTimes(1);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    now = config.certExpiresAt;
+    expect(await get()).toBeUndefined();
+    expect(await get()).toBeUndefined();
+    expect(error.mock.calls).toEqual([["Apple Wallet passes are off: APPLE_WALLET_WWDR_PEM has expired."]]);
+
+    const failing = appleWalletGetter(async () => {
+      throw new Error("-----BEGIN PRIVATE KEY----- detail");
+    });
+    expect(await failing()).toBeUndefined();
+    expect(error).toHaveBeenLastCalledWith("Apple Wallet passes are off: its configuration couldn't be read.");
+  });
+
+  it("loads the pass builder (and node-forge) only when an Apple variable is set", () => {
+    expect(hasAppleWalletVariables({})).toBe(false);
+    expect(hasAppleWalletVariables({ APPLE_WALLET_TEAM_ID: "  " })).toBe(false);
+    expect(hasAppleWalletVariables({ APPLE_WALLET_KEY_PASSPHRASE: "x" })).toBe(false);
+    expect(hasAppleWalletVariables({ APPLE_WALLET_CERT_PEM: "x" })).toBe(true);
+  });
+});
+
 describe("the .pkpass", () => {
   it("is a zip whose manifest hashes every other file, signed (detached PKCS #7) by the pass certificate with the WWDR intermediate", () => {
     const { config, signerPem, wwdrPem } = apple();
@@ -148,7 +219,7 @@ describe("the .pkpass", () => {
       formatVersion: 1,
       passTypeIdentifier: TEST_PASS_TYPE_ID,
       teamIdentifier: TEST_TEAM_ID,
-      serialNumber: walletSerial("7KQM-2HXD"),
+      serialNumber: TEST_SERIAL,
       organizationName: "Sheltüh",
       description: "Ticket for Neon Static",
       groupingIdentifier: `sheltuh-event-${TEST_EVENT_ID}`,
@@ -180,8 +251,10 @@ describe("the .pkpass", () => {
     });
     // Nothing about the buyer.
     expect(JSON.stringify(pass)).not.toMatch(/@example\.com|ord_/);
-    // The same ticket always gets the same serial: adding it again replaces the pass.
+    // The ticket's stored serial, never anything made from its code.
     expect(applePassJson(config, ticket).serialNumber).toBe(pass.serialNumber);
+    expect(applePassJson(config, sampleTicket({ code: "ABCD-EFGH" })).serialNumber).toBe(TEST_SERIAL);
+    expect(() => applePassJson(config, sampleTicket({ serial: "7KQM-2HXD" }))).toThrow();
   });
 
   it("a code that isn't a canonical one gets no barcode, its entry code on the front instead", () => {

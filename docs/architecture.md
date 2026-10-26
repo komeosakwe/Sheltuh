@@ -74,7 +74,7 @@ iframe served by Stripe), with the publishable key
 | `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Public via `GET /api/events/[id]/image` once published (cached for a day, versioned URL); before that only the owner/admins with a token. Every write (insert, update, delete) bumps the event's `updated_at` in the same transaction (`event_images_touch_event`), so a photo change is a new version of the event (see "Admin authoring"); writers lock the event row (for no key update) before the image row. Move to Storage/CDN if volume grows. |
 | `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished / ticketing_changed / created / edited / curated, by whom, and why. `details` (jsonb object, null for the other actions): for `ticketing_changed`, the old and new value of each ticketing field the admin changed (full ticket links: see "External ticketing"); for `edited`, the old and new value of each other field an admin changed (see "Admin authoring"); for `curated`, the old and new `boost` and `excluded` (see "Trending"). Shown to the event's organiser and to admins (`moderationLog[].changes`), never publicly, except `curated` entries, which only admins see (`GET /admin/events/{id}/curation`). `by` is the actor's account id for admins; the organiser's view shows `"Sheltüh team"` (`SHELTUH_TEAM_ACTOR`) for anyone but the organiser's own account. No update trigger: personal information in `details` or `reason` is redacted in place (`docs/supabase-setup.md`, APP 11/13). |
 | `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed / oversold_refund_required; oversold_refund_required → refunded (our automatic refund); paid → refunded (refunded in full in Stripe, see "Refunds made in Stripe"). `amount_refunded_cents` (≥ 0, default 0) is Stripe's cumulative refunded amount, recorded only for paid orders (a partial refund leaves the order paid). Indexed on `stripe_payment_intent_id` (partial, not null) for the refund webhook, and on `(event_id, created_at)` (partial, `paid`) for the trending refresh's 14-day read. `tickets_emailed_at` records the ticket email. `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). `seat_ids` (1–10): a seated order's seats, set when it's made and never changed (what fulfilment and refunds act on). |
-| `tickets` | `code` | One row per admitted person. Rows are kept when their order is refunded, but only a `paid` order's tickets are valid: check-in checks the order's status. `checked_in_at`: when the ticket was admitted at the door (null until then, and again after an undo; cleared 25 months after the event ends). Indexed on `(event_id, ticket_type_id)` for the check-in counts. `seat_id`: its seat (reserved seating); the foreign key `ticket_seats_sold_fkey` (event, seat, order, ticket type) → `event_seats (event_id, id, sold_order_id, ticket_type_id)` means a ticket can only name a seat sold to its own order in its own tier, and `tickets_seat_key` one ticket per seat. A full refund clears it (the order's `seat_ids` keeps the history). |
+| `tickets` | `code` | One row per admitted person. Rows are kept when their order is refunded, but only a `paid` order's tickets are valid: check-in checks the order's status. `checked_in_at`: when the ticket was admitted at the door (null until then, and again after an undo; cleared 25 months after the event ends). Indexed on `(event_id, ticket_type_id)` for the check-in counts. `seat_id`: its seat (reserved seating); the foreign key `ticket_seats_sold_fkey` (event, seat, order, ticket type) → `event_seats (event_id, id, sold_order_id, ticket_type_id)` means a ticket can only name a seat sold to its own order in its own tier, and `tickets_seat_key` one ticket per seat. A full refund clears it (the order's `seat_ids` keeps the history). `wallet_serial` (uuid, random, unique `tickets_wallet_serial_key`; `20261109000500_ticket_wallet_serial.sql`): the id of the ticket's wallet pass, read only by the wallet routes (see "Wallet passes"). |
 | `ticket_check_ins` | `id` (identity) | The check-in log (see "Check-in"): one row per scan or undo, with a random `public_id` (uuid, unique: the only id the API shows, as `checkInId`; the sequential `id` stays internal, so ids don't reveal platform-wide scan volume), the event scanned for, the ticket `code` (null for an `invalid` scan: what was scanned is never stored), the acting account (the organiser's, or the admin's for a platform-managed organiser's event), the client's `request_id` (unique per event: the idempotency key), the `result` and, for an undo only, its `reason` (3–200 characters). Check constraints tie `invalid` to a null code and `undone` to a reason. Deleted with the event or the ticket, and by `purge_analytics` 25 months after the event ends. No buyer data. |
 | `private.platform_rate_limits` | `bucket` | Platform-wide fixed-window counters (`take_platform_rate_limit`): the hourly and 24-hour confirmation-email caps. Idle rows purged daily. |
 | `private.free_order_refusals` | `(day, reason)` | Counts of refused free bookings per Melbourne day and reason. No personal data. Deleted after 13 months. |
@@ -2511,7 +2511,7 @@ application is approved.
 | `POST /orders/by-session/{orderId}/cancel` | public (the order id is the credential; only the client that made the order gets it: the checkout's 201, the payment page's URL and Stripe's `return_url`, or a pre-embedded hosted session's cancel URL): expires the Stripe session, then cancels the order and releases its seats; a paid order is never changed. 200 `{status: "released" \| "paid" \| "processing", eventTitle, eventSlug?}`; 404; 409 still being set up |
 | `POST /orders/confirm` `{token}` | public (the emailed token is the credential). 200 `{url}` (also when already confirmed, within 24 hours); 400 malformed; 404 unknown; 410 expired (confirmed or not); 409 sold out, allowance used, or a ticket type no longer free |
 | `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store`; `wallet: {google, apple}` when the tickets can be added to a wallet (see "Wallet passes") |
-| `GET /orders/by-session/{orderId}/wallet/google?ticket={n}` · `…/wallet/apple?ticket={n}` | public (id is the credential, as the ticket page; see "Wallet passes"). Google: 302 to `https://pay.google.com/gp/v/save/{jwt}`; Apple: 200 `application/vnd.apple.pkpass`. `private, no-store`. 404 malformed (no query), the wallet not configured (no query), unknown, not paid, the event not published, or no ticket `n`; 400 `fieldErrors.ticket`; 429 over 30 a minute from this client |
+| `GET /orders/by-session/{orderId}/wallet/google?ticket={n}` · `…/wallet/apple?ticket={n}` | public (id is the credential, as the ticket page; see "Wallet passes"). Google: 302 to `https://pay.google.com/gp/v/save/{jwt}`; Apple: 200 `application/vnd.apple.pkpass`. `private, no-store`. 404 malformed (no query), the wallet not configured (no query), unknown, not paid, the event not published, or no ticket `n`; 400 `fieldErrors.ticket`; 429 over 30 a minute from this client, or 60 a minute for this order |
 | `GET /orders/by-session/{orderId}/payment` | public (id is the credential), read-only. `OrderPaymentLookup` (see "Payment flow", step 2), `private, no-store`: `{status: "open", clientSecret, expiresAt, …summary}`, `{status: "processing", delayed}`, `{status: "done"}`, or `{status: "closed" \| "sold_out", eventTitle, eventSlug?, seated}` (`closed` also when the event is no longer published or has ended while the session is open); 404 malformed (no query), unknown or a guest's free booking; 409 still being set up; 429 over 30 reads a minute from this client, or 20 Stripe reads a minute for this order; 500 an open session without a client secret |
 | `GET /cron/email-outbox` | Vercel Cron (`Authorization: Bearer $CRON_SECRET`, 401 otherwise): sends due outbox emails (tickets, waitlist, followers, admin review emails), returns counts |
 | `GET /cron/trending` | Vercel Cron (same secret, 401 otherwise): rebuilds the trending snapshot, returns `{eligible, ranked}` |
@@ -3041,7 +3041,15 @@ instance, as `Deps.clipStorage`):
   `APPLE_WALLET_KEY_PASSPHRASE` only for an encrypted key. Checked: the
   certificate is current, the key is its key, the WWDR certificate issued it,
   and its subject's `UID` and `OU` (when present, as on Apple's) are this
-  Pass Type ID and team. Off from the moment the certificate expires.
+  Pass Type ID and team. Then, once per instance and before Apple is
+  offered, node-forge parses the certificates and key and signs a test
+  manifest (`appleSignerProblem`): a value node:crypto accepts but forge
+  can't use (forge reads RSA only, so an EC certificate such as WWDR G6, or
+  an EC key) turns Apple off, logged naming the variable. `Deps.appleWallet`
+  is async and imports the pass builder, and with it node-forge, only when
+  an `APPLE_WALLET_*` variable is set. Off from the moment the first of the
+  two certificates (the Pass Type ID one or WWDR) expires, logged once
+  naming it (`appleWalletGetter`).
 
 All of a wallet's variables unset is quietly off; anything set but missing
 or invalid is off and logged once, naming the variables and what's wrong
@@ -3071,24 +3079,38 @@ ever a ticket the page shows. In order, every answer `private, no-store`:
 5. unknown, not `paid` (pending, failed, refunded, refund pending: a refunded
    order's tickets are void), or the event not published (unpublished, in
    review, rejected, removed: the page's "no longer listed"): 404 `"Order not
-   found."`; a `ticket` past the order's last: 404 `"Ticket not found."`.
-   `n` is the ticket's number on the page and in the email (ticket type, then
-   code, 1-based), never its code, so no ticket code is ever in a URL. Free
-   orders are the same: a member's is `paid` at once, a guest's once its
-   emailed link is confirmed (`pending`, so 404, until then);
-6. then one read of the event's id and street address (the page's response
-   leaves the address out; the email shows it), again only while it's
-   published.
+   found."`. Free orders are the same: a member's is `paid` at once, a
+   guest's once its emailed link is confirmed (`pending`, so 404, until
+   then);
+6. one hit on the order's allowance (`WALLET_RATE_LIMITS.perOrder`: 60 a
+   minute however many clients ask, bucket `wallet_pass:order`, keyed on an
+   HMAC of the order id as the payment page's `paymentPerOrder`), only for an
+   order that's found; over it, 429. It bounds the passes signed for one
+   order id spread across many addresses;
+7. a `ticket` past the order's last: 404 `"Ticket not found."` (the holder
+   of the order id already knows how many tickets it has). `n` is the
+   ticket's number on the page and in the email (ticket type, then code,
+   1-based), never its code, so the code isn't in these routes' URLs. It
+   *is* in the URL the Google route redirects to: the save link's JWT
+   carries the object, barcode included, signed but not encrypted. That URL
+   goes from our 302 to the browser and Google only (`no-referrer`). Inserting
+   objects with Google's REST API first and sending a "skinny" JWT of ids
+   would remove it (not built: it needs an OAuth token exchange);
+8. then one read of the ticket's `wallet_serial` and the event's id,
+   current title and street address (the page's response leaves the address
+   out; the email shows it), again only while it's published.
 
-Writes nothing but the counter; logs nothing about the order. The order id
+Writes nothing but the counters; logs nothing about the order. The order id
 is in the path, as for every `/orders/by-session` route (the page's own
 URL); the routes are linked from `/checkout/*` pages (`no-referrer`), and
 the Google redirect sets `Referrer-Policy: no-referrer` itself, so Google
 never gets the URL as a Referer.
 
 **What a pass shows** (`lib/server/wallet/pass-content.ts`, built once per
-request so the two can't disagree): the event title (the order's, as the
-page), date and time in the event's zone (`passTimeZone`: Melbourne for
+request so the two can't disagree): the event's current title (as the
+email; Google's class is shared by every ticket for the event, so it can't
+be one order's snapshot, and the passes are only made while the event is
+published), date and time in the event's zone (`passTimeZone`: Melbourne for
 every event today; the one place to change when events get their own
 zone), venue name and address, ticket type, "Ticket n of N", the seat, the
 QR carrying exactly the existing payload (`ticketQrPayload`: `SH1:` + code;
@@ -3107,9 +3129,12 @@ the service account, `aud` `google`, `typ` `savetowallet`, `origins`
 `eventTicketObjects` inline: class `{issuerId}.sheltuh-event-{eventId}`
 (`reviewStatus` `UNDER_REVIEW`, event name, venue, `dateTime` as the venue's
 local time with its offset, logo and hero image URLs on the site), object
-`{issuerId}.sheltuh-ticket-{serial}` (`serial`: 32 hex characters of a
-labelled SHA-256 of the code, so the same ticket is always the same object;
-ids keep to `[A-Za-z0-9._-]`), barcode `QR_CODE`. The route answers 302 to
+`{issuerId}.sheltuh-ticket-{serial}` (`serial`: the ticket's
+`wallet_serial`, a random uuid stored with it, as 32 hex characters, so the
+same ticket is always the same object and the id says nothing about the
+code: a serial hashed from the code could be reversed by trying all 2^40
+codes, and a pass's id can never change once saved; ids keep to
+`[A-Za-z0-9._-]`), barcode `QR_CODE`. The route answers 302 to
 `https://pay.google.com/gp/v/save/{jwt}`. **One ticket per JWT**, not the
 order: the JWT travels in a URL, a typical ticket's is about 2.5 KB (a test
 holds it under 5 KB at the longest field lengths), and a whole order's (10
@@ -3131,27 +3156,37 @@ WWDR intermediate. The zip is written by `zipStore` (stored entries, a fixed
 1980 timestamp). 200 `application/vnd.apple.pkpass`, `Content-Disposition:
 attachment; filename="sheltuh-ticket-{n}.pkpass"`, `nosniff`.
 
-**The dependency: `node-forge`** (runtime) and `@types/node-forge` (dev).
+**The dependency: `node-forge`** (runtime, pinned exactly to `1.4.0`) and
+`@types/node-forge` (dev).
 Node can't make PKCS #7, so forge makes the signature, and nothing else of
 it is used; only `lib/server/wallet/apple.ts` imports it (the configuration
-is read with node:crypto), so of all the routes only the two wallet routes
-bundle it (they share `lib/server/handlers/wallet.ts`). Chosen over `passkit-generator`, which wraps forge and adds `joi`
+is read with node:crypto). The two wallet routes import that module; every
+other route reaches it only through `Deps.appleWallet`'s dynamic import, so
+forge is loaded there only when an `APPLE_WALLET_*` variable is set. Chosen over `passkit-generator`, which wraps forge and adds `joi`
 (five more packages), `tslib` and a zip library. forge has no dependencies,
 is pure JavaScript (fine in Vercel's Node runtime), BSD-3-Clause (or GPL-2.0,
 our choice), Digital Bazaar's, 1.4.0 released March 2026. `npm audit` lists
 one high advisory against every forge version (GHSA-86w9-cpqp-85rv: RSA
 PKCS #1 v1.5 signature *verification* accepts extra nested DigestAlgorithm
 elements, no fix yet). It concerns verifying signatures, which this code
-never asks forge to do (the tests verify with node:crypto); revisit when a
-fix ships.
+never asks forge to do (the tests verify with node:crypto). Guardrails: the
+version is pinned exactly, and an ESLint `no-restricted-imports` rule
+(`eslint.config.mjs`) refuses `node-forge` anywhere but
+`lib/server/wallet/apple.ts` and `tests/server/helpers/wallet.ts`. **Revisit**
+when a forge release fixes the advisory (update the pin and re-run the
+wallet tests), when another advisory names forge's PKCS #7, ASN.1 or RSA
+signing code, or if anything ever needs to verify a signature (use
+node:crypto, never forge).
 
 ### Accepted limits (wallet passes)
 
 - **No updates in v1.** No Apple web service (no `webServiceURL` or
   `authenticationToken`) and no Google REST API: a saved pass never changes.
   If the event's time or venue changes, or the order is refunded, the pass in
-  the wallet still shows what it showed. Google also keeps the first copy of
-  an event's class, so a later change doesn't reach new saves either. The
+  the wallet still shows what it showed. Google keeps a class as it was
+  first saved: an event's later edits (an organiser's or a moderation edit
+  by an admin, its title included) reach neither saved passes nor new saves
+  of the same event's tickets (the class id is per event). The
   door is the authority: check-in refuses a refunded order's code
   (`not_admissible`) whatever a wallet shows. A later option: Apple's pass
   web service (`webServiceURL`, push updates through APNs) and Google's REST

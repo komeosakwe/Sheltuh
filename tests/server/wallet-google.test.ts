@@ -9,8 +9,8 @@ import {
   googleSaveUrl,
   GOOGLE_SAVE_URL_BASE,
 } from "@/lib/server/wallet/google";
-import { localIsoWithOffset, passTimeZone, walletQrPayload, walletSerial } from "@/lib/server/wallet/pass-content";
-import { decodeJwt, googleWalletEnv, rsaKeyPair, sampleTicket, TEST_EVENT_ID as EVENT_ID, TEST_ISSUER_ID, TEST_SERVICE_ACCOUNT } from "./helpers/wallet";
+import { localIsoWithOffset, passTimeZone, walletQrPayload } from "@/lib/server/wallet/pass-content";
+import { decodeJwt, googleWalletEnv, rsaKeyPair, sampleTicket, TEST_EVENT_ID as EVENT_ID, TEST_ISSUER_ID, TEST_SERIAL, TEST_SERVICE_ACCOUNT } from "./helpers/wallet";
 
 // "Add to Google Wallet" (lib/server/wallet/google.ts, config.ts): the
 // configuration's rules, and the signed "Save to Google Wallet" JWT, checked
@@ -130,7 +130,7 @@ describe("the Save to Google Wallet JWT", () => {
     expect(claims.payload.eventTicketObjects).toHaveLength(1);
 
     expect(cls.id).toBe(`${TEST_ISSUER_ID}.sheltuh-event-${EVENT_ID}`);
-    expect(object.id).toBe(`${TEST_ISSUER_ID}.sheltuh-ticket-${walletSerial("7KQM-2HXD")}`);
+    expect(object.id).toBe(`${TEST_ISSUER_ID}.sheltuh-ticket-${TEST_SERIAL}`);
     expect(object.classId).toBe(cls.id);
     for (const id of [cls.id, object.id]) expect(id).toMatch(/^\d+\.[A-Za-z0-9._-]+$/);
 
@@ -204,9 +204,11 @@ describe("the Save to Google Wallet JWT", () => {
   it("ids keep to Google's characters; times carry the zone's offset either side of daylight saving", () => {
     expect(googleIdPart("sheltuh-event-a b/c_d.e~f")).toBe("sheltuh-event-abc_d.ef");
     expect(googleClassId("123", "a!b")).toBe("123.sheltuh-event-ab");
-    expect(googleObjectId("123", "7KQM-2HXD")).toMatch(/^123\.sheltuh-ticket-[0-9a-f]{32}$/);
-    expect(walletSerial("7KQM-2HXD")).toBe(walletSerial("7KQM-2HXD"));
-    expect(walletSerial("7KQM-2HXD")).not.toBe(walletSerial("7KQM-2HXE"));
+    expect(googleObjectId("123", TEST_SERIAL)).toBe(`123.sheltuh-ticket-${TEST_SERIAL}`);
+    // Only a serial: never a code, a uuid with its dashes, or anything else.
+    for (const bad of ["7KQM-2HXD", "3f2b9c4e-8a1d-4f6b-9e0c-7a5d2b8e1f43", TEST_SERIAL.toUpperCase(), ""]) {
+      expect(() => googleObjectId("123", bad)).toThrow();
+    }
     expect(localIsoWithOffset("2027-07-10T10:00:00.000Z", "Australia/Melbourne")).toBe("2027-07-10T20:00:00+10:00");
     expect(localIsoWithOffset("2027-01-10T09:00:00.000Z", "Australia/Melbourne")).toBe("2027-01-10T20:00:00+11:00");
     expect(localIsoWithOffset("2027-01-10T09:00:00.000Z", "Australia/Perth")).toBe("2027-01-10T17:00:00+08:00");

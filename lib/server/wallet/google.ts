@@ -5,7 +5,7 @@ import {
   localIsoWithOffset,
   passAddress,
   passWhen,
-  walletSerial,
+  WALLET_SERIAL_PATTERN,
   type WalletTicket,
 } from "./pass-content";
 
@@ -45,8 +45,10 @@ export function googleClassId(issuerId: string, eventId: string): string {
   return `${issuerId}.${googleIdPart(`sheltuh-event-${eventId}`)}`;
 }
 
-export function googleObjectId(issuerId: string, code: string): string {
-  return `${issuerId}.sheltuh-ticket-${walletSerial(code)}`;
+/** `serial`: the ticket's wallet serial (WalletTicket.serial), never anything derived from its code. */
+export function googleObjectId(issuerId: string, serial: string): string {
+  if (!WALLET_SERIAL_PATTERN.test(serial)) throw new Error("A wallet pass serial must be 32 hex characters.");
+  return `${issuerId}.sheltuh-ticket-${serial}`;
 }
 
 const localized = (value: string) => ({ defaultValue: { language: LANGUAGE, value } });
@@ -78,7 +80,7 @@ export function googleSaveClaims(config: GoogleWalletConfig, ticket: WalletTicke
     homepageUri: { uri: origin, description: WALLET_ORGANISATION_NAME },
   };
   const eventTicketObject = {
-    id: googleObjectId(config.issuerId, ticket.code),
+    id: googleObjectId(config.issuerId, ticket.serial),
     classId,
     state: "ACTIVE",
     ...(ticket.qrPayload

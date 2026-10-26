@@ -622,7 +622,7 @@ export function walletEligible(lookup: CustomerOrderLookup): lookup is CustomerO
 export const getOrderBySession: Handler<{ sessionId: string }> = async (_req, { sessionId }, deps) => {
   const lookup = await lookupCustomerOrder(deps.db, sessionId);
   if (!walletEligible(lookup)) return okPrivate(lookup);
-  const order: CustomerOrder = { ...lookup, wallet: { google: !!deps.googleWallet(), apple: !!deps.appleWallet() } };
+  const order: CustomerOrder = { ...lookup, wallet: { google: !!deps.googleWallet(), apple: !!(await deps.appleWallet()) } };
   return okPrivate(order);
 };
 
