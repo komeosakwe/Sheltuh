@@ -9,6 +9,7 @@ import { Notice } from "@/components/ui/Section";
 import { adminApproveEvent, adminRejectEvent, adminUnpublishEvent } from "@/lib/api/admin";
 import { getClipPreview } from "@/lib/api/clips";
 import { ApiError, type GetToken } from "@/lib/api/client";
+import { isPayoutsRequiredError } from "@/lib/api/events";
 import type { AdminEventRecord, EventStatus } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/session-token";
 import { clipPlayName, clipTimeLabel } from "@/lib/clip-display";
@@ -389,6 +390,12 @@ function Actions({
   }
 
   function failed(err: unknown, action: Action, fallback: string) {
+    if (isPayoutsRequiredError(err)) {
+      // Still waiting for review: its organiser's payouts aren't set up (any more). Say why, here; it stays listed.
+      setError(err.message);
+      setBusy(null);
+      return;
+    }
     if (err instanceof ApiError && (err.status === 409 || err.status === 404)) {
       // Someone else got there first (or the organiser was suspended): say so, and drop it from this list.
       onRemoved(item, `${item.title} couldn’t be changed: ${err.message} It’s been taken off this list.`);

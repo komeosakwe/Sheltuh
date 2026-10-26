@@ -14,7 +14,9 @@ import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
-vi.mock("@/lib/api/events", () => ({
+vi.mock("@/lib/api/events", async (importOriginal) => ({
+  // The real check (it only reads the error): the editor tells a payouts refusal apart with it.
+  isPayoutsRequiredError: (await importOriginal<typeof import("@/lib/api/events")>()).isPayoutsRequiredError,
   updateEventDraft: vi.fn(),
   createEventDraft: vi.fn(),
   submitEventForReview: vi.fn(),

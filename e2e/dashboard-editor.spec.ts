@@ -12,7 +12,8 @@ const DAY = 86_400_000;
 /** Requests to the app's API that no test answered, by method and path (beyond the organiser's own). */
 type ExtraRoute = (request: Request, path: string) => { status?: number; json: unknown } | null;
 
-async function signedInAsOrganiser(page: Page, extra: ExtraRoute = () => null) {
+/** `organiser`: fields of GET /api/organisers/me to change (payoutsEnabled, say). */
+async function signedInAsOrganiser(page: Page, extra: ExtraRoute = () => null, organiser: Record<string, unknown> = {}) {
   const now = Date.now();
   const session = {
     access_token: "e2e.token.x",
@@ -49,6 +50,7 @@ async function signedInAsOrganiser(page: Page, extra: ExtraRoute = () => null) {
           createdAt: new Date(now - 200 * DAY).toISOString(),
           updatedAt: new Date(now - 2 * DAY).toISOString(),
           payoutsEnabled: true,
+          ...organiser,
         },
       });
     }
@@ -179,5 +181,72 @@ test.describe("/dashboard/new with reserved seating", () => {
     expect(created).toHaveLength(1);
     expect(created[0]).toMatchObject({ title: "Neon Static", ticketTypes: [{ name: "Stalls", priceCents: 3500 }] });
     expect(created[0]).not.toHaveProperty("seating");
+  });
+});
+
+test.describe("/dashboard/[eventId]: paid tickets before payouts are set up", () => {
+  test.use({ viewport: { width: 320, height: 640 } });
+
+  test("says so up front, keeps Submit enabled, and a refused submit moves focus to the reason and its link", async ({
+    page,
+  }) => {
+    const draft = {
+      ...createdDraft({
+        title: "Neon Static",
+        description: "Four bands, one room.",
+        category: "live-music",
+        venueName: "The Tote",
+        venueAddress: "71 Johnston St",
+        suburb: "Collingwood",
+        start: { date: "2027-03-06", time: "20:00" },
+        end: { date: "2027-03-06", time: "23:30" },
+        ticketTypes: [{ id: "ga", name: "General admission", priceCents: 3500, feePolicy: "buyer-pays", quantityAvailable: 100 }],
+      }),
+      eventId: "evt-e2e-paid",
+    };
+    const refusal = "Set up payouts before submitting an event with paid tickets. Free events can be submitted now.";
+    const calls: string[] = [];
+    await signedInAsOrganiser(
+      page,
+      (request, path) => {
+        const method = request.method();
+        if (method === "GET" && path === `/api/organisers/me/events/${draft.eventId}`) return { json: draft };
+        if (method === "PATCH" && path === `/api/events/${draft.eventId}`) {
+          calls.push("save");
+          return { json: draft };
+        }
+        if (method === "POST" && path === `/api/events/${draft.eventId}/submit`) {
+          calls.push("submit");
+          return { status: 409, json: { error: refusal, code: "payouts_required" } };
+        }
+        return null;
+      },
+      { payoutsEnabled: false },
+    );
+    await page.goto(`/dashboard/${draft.eventId}`);
+    const form = page.locator("form").filter({ has: page.getByLabel("Title", { exact: true }) });
+    await expect(form.getByLabel("Title", { exact: true })).toHaveValue("Neon Static", { timeout: 30_000 });
+
+    await expect(form.getByText(/^Set up payouts before you can submit this event\./)).toBeVisible();
+    const submit = form.getByRole("button", { name: "Submit for review" });
+    await expect(submit).toBeEnabled();
+    await expect(submit).toHaveAccessibleDescription(/can be submitted once your payouts are set up/);
+    await expect(form.getByRole("button", { name: "Save draft" })).toBeEnabled();
+    for (const link of await form.getByRole("link", { name: "Set up payouts" }).all()) {
+      await expect(link).toHaveAttribute("href", "/dashboard/payouts");
+      expect((await link.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+
+    await submit.click();
+    const reason = form.getByRole("alert").filter({ hasText: refusal });
+    await expect(reason).toBeVisible();
+    // Focus is on the refusal (its container), so the link is the next stop.
+    await expect(page.locator("[data-payouts-error]")).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(page.locator("[data-payouts-error]").getByRole("link", { name: "Set up payouts" })).toBeFocused();
+    await expect(submit).toHaveAccessibleDescription(new RegExp(refusal.slice(0, 30)));
+    expect(calls).toEqual(["save", "submit"]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   });
 });

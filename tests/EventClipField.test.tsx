@@ -47,7 +47,9 @@ const api = vi.hoisted(() => ({
   readMetadata: vi.fn(),
 }));
 
-vi.mock("@/lib/api/events", () => ({
+vi.mock("@/lib/api/events", async (importOriginal) => ({
+  // The real check (it only reads the error): the editor tells a payouts refusal apart with it.
+  isPayoutsRequiredError: (await importOriginal<typeof import("@/lib/api/events")>()).isPayoutsRequiredError,
   updateEventDraft: (...args: unknown[]) => api.updateEventDraft(...args),
   createEventDraft: (...args: unknown[]) => api.createEventDraft(...args),
   submitEventForReview: (...args: unknown[]) => api.submitEventForReview(...args),

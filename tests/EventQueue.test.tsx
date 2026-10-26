@@ -321,6 +321,28 @@ describe("EventQueue", () => {
     expect(screen.getByText(/no longer published .* It’s been taken off this list\./)).toHaveAttribute("role", "status");
   });
 
+  it("approving a paid event whose organiser has no payouts says why on the item, and it stays", async () => {
+    const message =
+      "This organiser hasn't set up payouts, so this event can't have paid tickets while it's submitted or published. Make its tickets free, or wait until they've connected Stripe.";
+    vi.mocked(adminApproveEvent).mockRejectedValue(
+      new ApiError(409, message, undefined, { error: message, code: "payouts_required" }),
+    );
+    vi.mocked(adminListEvents).mockResolvedValue({ items: [NEON, LANEWAY] });
+    renderQueue();
+    fireEvent.click(await screen.findByRole("button", { name: "Approve Neon Static…" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Publish and email followers" }));
+    });
+    const item = screen.getByRole("article", { name: "Neon Static" });
+    expect(within(item).getByRole("alert")).toHaveTextContent(message);
+    // Not "taken off this list": it's still waiting for review.
+    expect(screen.queryByText(/taken off this list/)).toBeNull();
+    expect(screen.getByRole("heading", { level: 3, name: "Neon Static" })).toBeInTheDocument();
+    expect(within(screen.getByRole("article", { name: "Laneway Nights" })).queryByRole("alert")).toBeNull();
+    // Publish can be tried again (once the organiser has connected Stripe).
+    expect(within(item).getByRole("button", { name: "Publish and email followers" })).not.toHaveAttribute("aria-disabled", "true");
+  });
+
   it("a server error is shown in plain words, not the raw message, and the event stays", async () => {
     vi.mocked(adminApproveEvent).mockRejectedValue(new ApiError(500, 'relation "events" does not exist'));
     renderQueue();

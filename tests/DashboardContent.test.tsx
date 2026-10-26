@@ -150,3 +150,29 @@ describe("DashboardContent — door check-in entry point", () => {
     expect(row?.closest("li")).toHaveClass("flex-col", "sm:flex-row");
   });
 });
+
+describe("DashboardContent — payouts before submitting paid events", () => {
+  it("marks a draft or rejected event with paid Sheltüh tickets while payouts aren't set up", async () => {
+    const paid = [{ id: "t", name: "GA", priceCents: 2000, feePolicy: "buyer-pays" as const, quantityAvailable: 10 }];
+    const free = [{ ...paid[0], priceCents: 0 }];
+    listMyEvents.mockResolvedValueOnce({
+      items: [
+        makeRecord("paid-draft", { ticketTypes: paid }),
+        makeRecord("paid-rejected", { ticketTypes: paid, status: "rejected" }),
+        makeRecord("free-draft", { ticketTypes: free }),
+        makeRecord("external-draft", { ticketTypes: [], ticketingMode: "external" }),
+        makeRecord("paid-pending", { ticketTypes: paid, status: "pending_review" }),
+      ],
+    });
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText("Event paid-draft")).toBeInTheDocument());
+    const hint = "Set up payouts to submit (it has paid tickets)";
+    const rowOf = (id: string) => screen.getByRole("link", { name: new RegExp(`^Event ${id}`) });
+    expect(rowOf("paid-draft")).toHaveTextContent(hint);
+    expect(rowOf("paid-rejected")).toHaveTextContent(hint);
+    expect(rowOf("free-draft")).not.toHaveTextContent(hint);
+    expect(rowOf("external-draft")).not.toHaveTextContent(hint);
+    expect(rowOf("paid-pending")).not.toHaveTextContent(hint);
+    expect(screen.getByRole("link", { name: "set up payouts" })).toHaveAttribute("href", "/dashboard/payouts");
+  });
+});

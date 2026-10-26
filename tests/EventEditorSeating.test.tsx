@@ -19,7 +19,9 @@ vi.mock("next/navigation", () => ({
 
 const updateEventDraft = vi.fn();
 const createEventDraft = vi.fn();
-vi.mock("@/lib/api/events", () => ({
+vi.mock("@/lib/api/events", async (importOriginal) => ({
+  // The real check (it only reads the error): the editor tells a payouts refusal apart with it.
+  isPayoutsRequiredError: (await importOriginal<typeof import("@/lib/api/events")>()).isPayoutsRequiredError,
   updateEventDraft: (...args: unknown[]) => updateEventDraft(...args),
   createEventDraft: (...args: unknown[]) => createEventDraft(...args),
   submitEventForReview: vi.fn(),

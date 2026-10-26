@@ -1,12 +1,13 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import InlineReauth, { signedInAgainMessage } from "@/components/auth/InlineReauth";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import AdminOrganiserPicker, { type PickedOrganiser } from "@/components/admin/AdminOrganiserPicker";
 import EventClipField from "@/components/dashboard/EventClipField";
 import EventImageField from "@/components/dashboard/EventImageField";
+import { PayoutsNeededNotice, PayoutsSubmitError, PayoutsSubmitHint } from "@/components/dashboard/PayoutsRequired";
 import SeatingChoiceField, {
   initialSeatingChoice,
   seatMapHref,
@@ -31,6 +32,7 @@ import {
 import {
   createEventDraft,
   deleteEventImage,
+  isPayoutsRequiredError,
   submitEventForReview,
   updateEventDraft,
   uploadEventImage,
@@ -42,7 +44,7 @@ import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import { eventClipsEnabled } from "@/lib/clips-flag";
 import { calculateBookingFeeCents, calculateOrderSummary, describeBookingFee, MIN_PAID_TICKET_CENTS } from "@/lib/fees";
 import { formatAud, toMelbourneDateTimeInputParts } from "@/lib/format";
-import { checkExternalTicketUrl, type TicketingMode } from "@/lib/ticketing";
+import { checkExternalTicketUrl, sellsPaidTicketsOnSheltuh, type TicketingMode } from "@/lib/ticketing";
 import { EVENT_CATEGORIES } from "@/lib/types";
 
 /** A section title in the form (Panel's title style: 20/24, uppercase by the heading base rule, which a legend doesn't get). */
@@ -53,6 +55,13 @@ interface OrganiserProps {
   mode?: "organiser";
   initial?: EventRecord;
   onSaved: (record: EventRecord) => void;
+  /**
+   * The organiser's `payoutsEnabled` (GET /api/organisers/me); undefined while
+   * it isn't known. False: an event with paid Sheltüh tickets says, by its
+   * tickets and its Submit button, that payouts come first (submitting it is
+   * refused with 409 `payouts_required`). Saving a draft never needs them.
+   */
+  payoutsEnabled?: boolean;
   onReload?: never;
   reauthForm?: never;
   onReauthNeeded?: never;
@@ -71,6 +80,7 @@ interface AdminProps {
   mode: "admin";
   initial?: AdminEventRecord;
   onSaved: (record: AdminEventRecord) => void;
+  payoutsEnabled?: never;
   /** Fetch the latest version after a save conflict (remount the editor with it). */
   onReload?: () => void;
   /**
@@ -188,6 +198,25 @@ export default function EventEditor(props: Props) {
   // The polite line by the buttons: said after signing in again in a recovery.
   const [status, setStatus] = useState<string | null>(null);
   const saveRef = useRef<HTMLButtonElement>(null);
+  // Organisers: the submit was refused because payouts aren't set up (the server's message), and
+  // so they're known to be off whatever the page loaded. Focus goes to the message once it's shown.
+  const [payoutsError, setPayoutsError] = useState<string | null>(null);
+  const [payoutsRefused, setPayoutsRefused] = useState(false);
+  const payoutsErrorRef = useRef<HTMLDivElement>(null);
+  const focusPayoutsError = useRef(false);
+
+  useEffect(() => {
+    if (!focusPayoutsError.current || !payoutsErrorRef.current) return;
+    focusPayoutsError.current = false;
+    payoutsErrorRef.current.focus();
+  });
+
+  // Paid Sheltüh tickets, as on screen, while the organiser's payouts are off: submitting will be refused.
+  const payoutsNeeded =
+    props.mode !== "admin" &&
+    (props.payoutsEnabled === false || payoutsRefused) &&
+    sellsPaidTicketsOnSheltuh({ ticketingMode, ticketTypes });
+  const submitDescription = payoutsError ? "submit-payouts-error" : payoutsNeeded ? "submit-payouts-hint" : undefined;
 
   const reauthForm = props.mode === "admin" ? (props.reauthForm ?? true) : true;
 
@@ -216,6 +245,14 @@ export default function EventEditor(props: Props) {
     if (isAdmin && err instanceof ApiError && err.status === 409 && err.fieldErrors?.expectedUpdatedAt) {
       setConflict(true);
       setSubmitError(null);
+      return;
+    }
+    // An organiser's submit, refused until their payouts are set up: the reason and the way to fix it, focused.
+    // (An admin's save gets it as any other refusal: fieldErrors.ticketTypes by the tickets, the message below.)
+    if (!isAdmin && isPayoutsRequiredError(err)) {
+      setPayoutsRefused(true);
+      setPayoutsError(err.message);
+      focusPayoutsError.current = true;
       return;
     }
     if (err instanceof ApiError && err.fieldErrors) setErrors((prev) => ({ ...prev, ...err.fieldErrors }));
@@ -328,6 +365,7 @@ export default function EventEditor(props: Props) {
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitError(null);
+    setPayoutsError(null);
     showSessionExpired(false);
     setStatus(null);
     const input = buildInput();
@@ -417,6 +455,7 @@ export default function EventEditor(props: Props) {
     // Organisers only: an admin publishes from the save itself.
     if (!initial || props.mode === "admin") return;
     setSubmitError(null);
+    setPayoutsError(null);
     showSessionExpired(false);
     setStatus(null);
     // Submit what's on screen, not the last save: unsaved edits are saved
@@ -733,7 +772,12 @@ export default function EventEditor(props: Props) {
             Add ticket type
           </button>
         </div>
-        {errors.ticketTypes && <p className="text-sm text-danger">{errors.ticketTypes}</p>}
+        {payoutsNeeded && <PayoutsNeededNotice />}
+        {errors.ticketTypes && (
+          <p id="ticketTypes-error" className="text-sm text-danger">
+            {errors.ticketTypes}
+          </p>
+        )}
 
         {ticketTypes.map((ticket, index) => {
           const summary = calculateOrderSummary(ticket.priceCents, 1, ticket.feePolicy);
@@ -904,6 +948,12 @@ export default function EventEditor(props: Props) {
         </p>
       )}
 
+      {payoutsError ? (
+        <PayoutsSubmitError id="submit-payouts-error" ref={payoutsErrorRef} message={payoutsError} />
+      ) : (
+        payoutsNeeded && initial && <PayoutsSubmitHint id="submit-payouts-hint" />
+      )}
+
       {/* Always rendered (never display:none), so it's announced when its text changes. */}
       <p role="status" className="text-sm text-foreground empty:sr-only">
         {status}
@@ -923,6 +973,8 @@ export default function EventEditor(props: Props) {
             type="button"
             onClick={handleSubmitForReview}
             disabled={submitting}
+            // Kept enabled while payouts are needed (the refusal is shown, with the fix): this says why first.
+            aria-describedby={submitDescription}
             className="btn btn-outline w-fit"
           >
             {submitting ? "Submitting…" : "Submit for review"}

@@ -8,6 +8,7 @@ import type { EventRecord } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
 import { LoadingState } from "@/components/ui/ProgressLoader";
+import { sellsPaidTicketsOnSheltuh } from "@/lib/ticketing";
 
 const STATUS_LABEL: Record<EventRecord["status"], string> = {
   draft: "Draft",
@@ -182,9 +183,9 @@ export default function DashboardContent() {
         <p className="border-l-2 border-foreground py-1 pl-4 text-sm text-muted">
           Free events don&rsquo;t need this, but{" "}
           <Link href="/dashboard/payouts" className="text-accent underline underline-offset-2">
-            connect Stripe
+            set up payouts
           </Link>{" "}
-          before selling paid tickets.
+          before you submit an event with paid tickets.
         </p>
       )}
 
@@ -206,6 +207,11 @@ export default function DashboardContent() {
             {events.map((event) => {
               const title = event.title || "Untitled event";
               const canCheckIn = event.status === "published";
+              // A draft (or rejected event) with paid tickets can't be submitted until payouts are set up.
+              const needsPayouts =
+                !organiser.payoutsEnabled &&
+                (event.status === "draft" || event.status === "rejected") &&
+                sellsPaidTicketsOnSheltuh(event);
               return (
                 // Under sm the side links drop below the title (two columns), so it isn't squeezed at 320.
                 <li key={event.eventId} className="flex flex-col border-t border-foreground sm:flex-row sm:items-stretch">
@@ -216,6 +222,9 @@ export default function DashboardContent() {
                     <div className="min-w-0">
                       <p className="font-semibold break-words text-foreground underline-offset-4 group-hover:underline">{title}</p>
                       <p className="text-sm text-muted">{event.suburb}</p>
+                      {needsPayouts && (
+                        <p className="text-sm text-foreground">Set up payouts to submit (it has paid tickets)</p>
+                      )}
                     </div>
                     <StatusBadge tone={STATUS_TONE[event.status]}>{STATUS_LABEL[event.status]}</StatusBadge>
                   </Link>
