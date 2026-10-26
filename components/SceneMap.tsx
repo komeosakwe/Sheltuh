@@ -170,13 +170,15 @@ function SceneMapView({
   const searchParams = useSearchParams();
 
   // Events without venue coordinates go at their suburb's centre, from the ABS table of every
-  // Australian suburb (lib/localities.ts). It loads here, after the page, so it isn't in /map's
-  // first load; the map waits for it, so markers aren't placed twice. If it can't load, the few
-  // hand-entered centres in lib/geo.ts stand in, and the page says so.
-  const suburbTable = useLocationModule();
+  // Australian suburb (lib/localities.ts). It loads here, after the page and only if some event
+  // needs it, so it isn't in /map's first load; the map waits for it, so markers aren't placed
+  // twice. If it can't load, the few hand-entered centres in lib/geo.ts stand in, and the page
+  // says so.
+  const needsSuburbs = events.some((event) => !event.coordinates);
+  const suburbTable = useLocationModule(needsSuburbs);
   const findSuburb: SuburbLookup = suburbTable.module?.findLocality ?? findListedSuburb;
   const status: Status =
-    eventsStatus === "loaded" && !suburbTable.module && !suburbTable.failed ? "loading" : eventsStatus;
+    eventsStatus === "loaded" && needsSuburbs && !suburbTable.module && !suburbTable.failed ? "loading" : eventsStatus;
 
   // Read once on mount — the URL is the source of truth for "coming back",
   // not for reacting to every subsequent change (that would fight typing).

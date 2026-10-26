@@ -33,7 +33,9 @@ For each SAL it keeps:
     nearest is X" from "off the coast or overseas".
 
 It drops the rows that aren't places: "No usual address", "Migratory -
-Offshore - Shipping" and "Outside Australia" (they have no geometry).
+Offshore - Shipping" and "Outside Australia" (they have no geometry), and
+the water localities in WATER. CENTRE_OVERRIDES replaces the centroid where
+it isn't where people mean (Melbourne's CBD).
 """
 
 from __future__ import annotations
@@ -63,6 +65,32 @@ STATES = {
 # The bracket's state spelling, as the ABS writes it ("(Vic)", "(Mackay - Qld)").
 ABS_STATE = {"NSW": "NSW", "VIC": "Vic", "QLD": "Qld", "SA": "SA", "WA": "WA", "TAS": "Tas", "NT": "NT", "ACT": "ACT", "OT": "OT"}
 NOT_PLACES = re.compile(r"^(No usual address|Migratory - Offshore - Shipping|Outside Australia)\b")
+# Water, not places: localities that are mostly sea, with a few uninhabited islets spread across
+# it, so their boundary reaches hundreds of km offshore (the Coral Sea's reaches 1,300 km, past
+# Port Moresby). Kept in, they'd name any position out at sea, or in Papua New Guinea, rather than
+# lib/location.ts saying "outside". By (ABS name, state); main() fails if one is missing, so a new
+# edition gets checked.
+WATER = {
+    ("Coral Sea", "QLD"),
+    ("Gulf Of Carpentaria", "QLD"),
+    ("Torres Strait", "QLD"),
+    ("Arafura Sea", "QLD"),
+    ("Cambridge Gulf", "WA"),
+    ("Exmouth Gulf", "WA"),
+    ("Van Diemen Gulf", "NT"),
+}
+
+# Where a locality's area centroid isn't where people mean by its name, a hand-picked centre (lat,
+# lng). Melbourne's locality runs south of the Yarra over Kings Domain and the Botanic Gardens, so
+# its centroid (-37.825, 144.971) is in Kings Domain and the CBD's own streets were nearer other
+# suburbs' centres (Bourke St Mall to Southbank's). Its centre here is the middle of the Hoddle
+# grid (Swanston and Bourke Streets' corner, near enough). The other capital-city CBD localities
+# (Sydney, Brisbane City, Adelaide, Perth, Hobart, Darwin City, City in the ACT) were checked:
+# their centroids are in their CBDs.
+CENTRE_OVERRIDES = {
+    ("Melbourne", "VIC"): (-37.8136, 144.9631),
+}
+
 NAME_OK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 '\-.]*$")
 EARTH_KM = 6371.0
 
@@ -216,6 +244,8 @@ def main(gpkg: str, out: str) -> None:
         raise ValueError(f"unexpected last_change {changed!r}")
     rows: list[tuple[str, str, str, int, int, int]] = []
     skipped = 0
+    water_seen: set[tuple[str, str]] = set()
+    overrides_seen: set[tuple[str, str]] = set()
     query = f'SELECT SAL_NAME_2026, STATE_CODE_2026, GEOM FROM "{LAYER}" ORDER BY SAL_CODE_2026'
     for raw_name, state_code, blob in con.execute(query):
         if not isinstance(raw_name, str) or NOT_PLACES.match(raw_name):
@@ -226,8 +256,18 @@ def main(gpkg: str, out: str) -> None:
         for text in (name, qualifier):
             if text and not (NAME_OK.match(text) and len(text) <= 50):
                 raise ValueError(f"unexpected name {raw_name!r}")
+        if (raw_name, state) in WATER:
+            water_seen.add((raw_name, state))
+            skipped += 1
+            continue
         polygons = read_polygons(gpkg_wkb(blob))
-        x, y = representative_point(polygons)
+        if (raw_name, state) in CENTRE_OVERRIDES:
+            overrides_seen.add((raw_name, state))
+            y, x = CENTRE_OVERRIDES[(raw_name, state)]
+            if not any(inside(rings, x, y) for rings in polygons):
+                raise ValueError(f"the override for {raw_name!r} isn't inside it")
+        else:
+            x, y = representative_point(polygons)
         lat, lng = round(y, 3), round(x, 3)
         if not (-56 < lat < -8 and 95 < lng < 170):
             raise ValueError(f"{raw_name!r} at {lat},{lng} is not in Australia")
@@ -236,10 +276,13 @@ def main(gpkg: str, out: str) -> None:
         if len(rows) % 1000 == 0:
             print(f"{len(rows)} localities...", file=sys.stderr)
 
+    if water_seen != WATER or overrides_seen != set(CENTRE_OVERRIDES):
+        missing = (WATER - water_seen) | (set(CENTRE_OVERRIDES) - overrides_seen)
+        raise ValueError(f"not in this edition: {sorted(missing)}")
     rows.sort(key=lambda r: (list(STATES.values()).index(r[0]), r[1].lower(), r[1], r[2]))
     with open(out, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(render(rows, str(changed)[:10]))
-    print(f"wrote {len(rows)} localities to {out} (skipped {skipped} non-place rows)", file=sys.stderr)
+    print(f"wrote {len(rows)} localities to {out} (skipped {skipped} non-place and water rows)", file=sys.stderr)
 
 
 B36 = "0123456789abcdefghijklmnopqrstuvwxyz"
@@ -314,12 +357,16 @@ HEADER = """\
  *
  * Rows: {rows}
  * ({counts}).
- * The ABS's non-place rows (No usual address, Migratory - Offshore -
- * Shipping, Outside Australia) are left out.
+ * Left out: the ABS's non-place rows (No usual address, Migratory -
+ * Offshore - Shipping, Outside Australia) and its water localities (Coral
+ * Sea, Gulf Of Carpentaria, Torres Strait, Arafura Sea, Cambridge Gulf,
+ * Exmouth Gulf, Van Diemen Gulf): see WATER in the script.
  *
  * Each point is the locality's area-weighted centroid, or a point inside it
  * when the centroid falls outside (odd shapes), rounded to 3 decimals
- * (about 100 m). "Reach" is how far its boundary goes from that point.
+ * (about 100 m); Melbourne's is the middle of the Hoddle grid instead (see
+ * CENTRE_OVERRIDES in the script). "Reach" is how far its boundary goes
+ * from that point.
  *
  * Encoding, per state, rows joined by "|": the ABS name without its
  * bracket, then "~" and the bracket's place qualifier if it has one

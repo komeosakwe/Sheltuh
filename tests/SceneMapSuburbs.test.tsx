@@ -31,9 +31,10 @@ const boxHill: SheltuhEvent = {
   poster: { pattern: "burst", background: "#000000", primary: "#111111", secondary: "#222222" },
   ticketTypes: [{ id: "ga", name: "GA", priceCents: 2000, feePolicy: "buyer-pays", quantityAvailable: 10 }],
 };
+let mockEvents: SheltuhEvent[] = [boxHill];
 vi.mock("@/lib/data", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/data")>();
-  return { ...actual, getEvents: async () => [boxHill], getUpcomingEvents: async () => [boxHill] };
+  return { ...actual, getEvents: async () => mockEvents, getUpcomingEvents: async () => mockEvents };
 });
 
 const loadLocation = vi.fn<() => Promise<LocationModule>>();
@@ -71,6 +72,7 @@ afterAll(() => {
 afterEach(() => {
   cleanup();
   loadLocation.mockReset();
+  mockEvents = [boxHill];
 });
 
 describe("SceneMap — suburb centres from the ABS table", () => {
@@ -84,6 +86,13 @@ describe("SceneMap — suburb centres from the ABS table", () => {
     resolve(location);
     expect(await screen.findByRole("button", { name: "Locate Box Hill Gig on the map" }, { timeout: 5_000 })).toBeEnabled();
     expect(screen.queryByText(/can.t be placed on the map yet/)).toBeNull();
+  });
+
+  it("doesn't load the table when every event has its own coordinates", async () => {
+    mockEvents = [{ ...boxHill, coordinates: { lat: -37.819, lng: 145.122 } }];
+    render(<SceneMap />);
+    expect(await screen.findByRole("button", { name: "Locate Box Hill Gig on the map" }, { timeout: 5_000 })).toBeEnabled();
+    expect(loadLocation).not.toHaveBeenCalled();
   });
 
   it("if the table can't load: says so, falls back, and Try again places the event", async () => {

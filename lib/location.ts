@@ -102,7 +102,7 @@ function alias(key: string, state: StateCode | null): string {
  * One spelling per suburb name, for comparing what people type: case,
  * accents, punctuation, spacing, postcodes, St/Saint, Mt/Mount, Nth/Sth and
  * the CBD's many names. A state stays in ("richmond nsw"): findLocality
- * reads it.
+ * reads it. Exported for its tests only: lookups go through findLocality.
  */
 export function normaliseSuburb(text: string): string {
   return alias(words(text).join(" "), null);
@@ -156,6 +156,7 @@ const STATE: StateCode[] = [];
 const LAT: number[] = [];
 const LNG: number[] = [];
 const REACH_KM: number[] = []; // How far the boundary goes from the centre, rounded up.
+const MELBOURNE_KM: number[] = []; // From the centre of Melbourne: same-named places are preferred nearest first.
 
 /** An ABS name's key: the names are plain ASCII, so this is `words(name)` without the Unicode steps. */
 function nameKey(name: string): string {
@@ -176,14 +177,18 @@ for (const state of STATE_CODES) {
     KEY.push(nameKey(base));
     QUALIFIER.push(tilde < 0 ? "" : item.slice(tilde + 1, end));
     STATE.push(state);
-    LAT.push(-(8000 + parseInt(item.slice(end, end + 3), 36)) / 1000);
-    LNG.push((95000 + parseInt(item.slice(end + 3, end + 7), 36)) / 1000);
-    REACH_KM.push(LOCALITY_REACH_KM[parseInt(item.slice(end + 7), 36)] ?? Infinity);
+    const lat = -(8000 + parseInt(item.slice(end, end + 3), 36)) / 1000;
+    const lng = (95000 + parseInt(item.slice(end + 3, end + 7), 36)) / 1000;
+    const reach = LOCALITY_REACH_KM[parseInt(item.slice(end + 7), 36)];
+    // A row that doesn't decode is a broken table: fail loudly rather than place people wrongly.
+    if (!base || !Number.isFinite(lat) || !Number.isFinite(lng) || reach === undefined) {
+      throw new Error(`lib/localities.ts: can't read the row "${item}"`);
+    }
+    LAT.push(lat);
+    LNG.push(lng);
+    REACH_KM.push(reach);
+    MELBOURNE_KM.push(distanceKm(MELBOURNE_DEFAULT_CENTER, { lat, lng }));
   }
-}
-
-function melbourneKm(row: number): number {
-  return distanceKm(MELBOURNE_DEFAULT_CENTER, { lat: LAT[row], lng: LNG[row] });
 }
 
 /**
@@ -196,7 +201,7 @@ function preferred(a: number, b: number): number {
   return (
     Number(STATE[a] !== "VIC") - Number(STATE[b] !== "VIC") ||
     REACH_KM[a] - REACH_KM[b] ||
-    melbourneKm(a) - melbourneKm(b)
+    MELBOURNE_KM[a] - MELBOURNE_KM[b]
   );
 }
 
@@ -214,10 +219,38 @@ for (let row = 0; row < BASE.length; row++) {
 }
 for (const list of BY_KEY.values()) if (list.length > 1) list.sort(preferred);
 
+/**
+ * Cities people name by a word the ABS doesn't use for any one locality:
+ * "Brisbane" is Brisbane City, "Canberra" is the ACT's City, "Gold Coast"
+ * is Surfers Paradise. Tried only when the words name no locality as they
+ * are (Bendigo, Geelong, Hobart and Perth do).
+ */
+const CITY_NAMES: ReadonlyMap<string, { key: string; state: StateCode }> = new Map([
+  ["brisbane", { key: "brisbane city", state: "QLD" }],
+  ["darwin", { key: "darwin city", state: "NT" }],
+  ["canberra", { key: "city", state: "ACT" }],
+  ["canberra city", { key: "city", state: "ACT" }],
+  ["cairns", { key: "cairns city", state: "QLD" }],
+  ["townsville", { key: "townsville city", state: "QLD" }],
+  ["toowoomba", { key: "toowoomba city", state: "QLD" }],
+  ["gold coast", { key: "surfers paradise", state: "QLD" }],
+  ["sunshine coast", { key: "maroochydore", state: "QLD" }],
+  ["ballarat", { key: "ballarat central", state: "VIC" }],
+]);
+
+function rowFor(key: string, state: StateCode | null): number | null {
+  return BY_KEY.get(key)?.find((row) => state === null || STATE[row] === state) ?? null;
+}
+
 function findRow(text: string): number | null {
-  for (const { key, state } of readings(text)) {
-    const found = BY_KEY.get(key)?.find((row) => state === null || STATE[row] === state);
-    if (found !== undefined) return found;
+  const all = readings(text);
+  for (const { key, state } of all) {
+    const found = rowFor(key, state);
+    if (found !== null) return found;
+  }
+  for (const { key, state } of all) {
+    const city = CITY_NAMES.get(key);
+    if (city && (state === null || state === city.state)) return rowFor(city.key, city.state);
   }
   return null;
 }
@@ -281,10 +314,24 @@ export function suggestLocalities(text: string, limit = 8): Locality[] {
       matches.push(row);
     }
   }
-  return matches
-    .sort((a, b) => Number(KEY[b] === typed) - Number(KEY[a] === typed) || preferred(a, b))
-    .slice(0, limit)
-    .map(placeAt);
+  // "Canb" offers the ACT's City, "Gold" Surfers Paradise.
+  const cities: number[] = [];
+  for (const [name, city] of CITY_NAMES) {
+    const row = name.startsWith(typed) ? rowFor(city.key, city.state) : null;
+    if (row !== null) cities.push(row);
+  }
+  const ordered = [
+    ...cities,
+    ...matches.sort((a, b) => Number(KEY[b] === typed) - Number(KEY[a] === typed) || preferred(a, b)),
+  ];
+  // One per name: a town and the locality around it share one ("Dunolly").
+  const byName = new Map<string, Locality>();
+  for (const row of ordered) {
+    const place = placeAt(row);
+    if (!byName.has(place.name)) byName.set(place.name, place);
+    if (byName.size === limit) break;
+  }
+  return [...byName.values()];
 }
 
 export type NearestResult =
@@ -297,6 +344,16 @@ export type NearestResult =
  * localities whose boundary could reach it (centre to furthest boundary
  * point, plus NEAREST_MARGIN_KM), the one with the nearest centre. The
  * caller keeps only the result's name and drops the position.
+ *
+ * Near a border it can name the neighbour: the table keeps one centre per
+ * locality, not its boundary, so a position closer to the next suburb's
+ * centre than its own gets the next suburb. Checked against the ABS
+ * polygons (Oct 2026, random points inside each locality, which favours
+ * border areas in big ones): about 80% name the locality the point is in,
+ * in Greater Melbourne and nationally, and the rest a neighbour (Southern
+ * Cross Station, inside Docklands' boundary, comes out as South Wharf).
+ * Centres the city's own landmarks are near are right (Bourke St Mall,
+ * Melbourne Central and Flagstaff are Melbourne).
  */
 export function nearestLocality(position: Coordinates): NearestResult {
   if (!Number.isFinite(position.lat) || !Number.isFinite(position.lng)) return { kind: "outside" };
@@ -386,6 +443,44 @@ function editDistance(a: string, b: string, limit: number): number {
   return previous[b.length];
 }
 
+/** Each normalised name, by its distinct two-letter pieces: built the first time didYouMean needs it. */
+let pieceIndex: { names: string[]; byPiece: Map<string, number[]> } | null = null;
+
+function pieces(text: string): Set<string> {
+  const found = new Set<string>();
+  for (let i = 0; i + 1 < text.length; i++) found.add(text.slice(i, i + 2));
+  return found;
+}
+
+function namesToCompare(key: string, allowed: number): string[] {
+  if (!pieceIndex) {
+    const names = [...BY_KEY.keys()];
+    const byPiece = new Map<string, number[]>();
+    names.forEach((name, index) => {
+      for (const piece of pieces(name)) {
+        const list = byPiece.get(piece);
+        if (list) list.push(index);
+        else byPiece.set(piece, [index]);
+      }
+    });
+    pieceIndex = { names, byPiece };
+  }
+  const { names, byPiece } = pieceIndex;
+  // Each edit can break at most two of the typed text's distinct pieces, so a name within
+  // `allowed` edits shares at least this many of them. Too few to filter on: compare them all.
+  const own = pieces(key);
+  const needed = own.size - 2 * allowed;
+  if (needed <= 0) return names.filter((name) => Math.abs(name.length - key.length) <= allowed);
+  const shared = new Map<number, number>();
+  for (const piece of own) for (const index of byPiece.get(piece) ?? []) shared.set(index, (shared.get(index) ?? 0) + 1);
+  const close: string[] = [];
+  for (const [index, count] of shared) {
+    const name = names[index];
+    if (count >= needed && Math.abs(name.length - key.length) <= allowed) close.push(name);
+  }
+  return close;
+}
+
 /**
  * A known suburb one or two letters away from `text` ("Brunswik" →
  * Brunswick), in the state given if there is one ("Brunswik WA"), or null:
@@ -399,10 +494,9 @@ export function didYouMean(text: string): Locality | null {
     let best: number | null = null;
     let bestDistance = allowed + 1;
     let tie = false;
-    for (const [name, rows] of BY_KEY) {
-      if (Math.abs(name.length - key.length) > allowed) continue;
-      const row = rows.find((candidate) => state === null || STATE[candidate] === state);
-      if (row === undefined) continue;
+    for (const name of namesToCompare(key, allowed)) {
+      const row = rowFor(name, state);
+      if (row === null) continue;
       const d = editDistance(key, name, allowed);
       if (d < bestDistance) {
         best = row;

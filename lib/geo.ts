@@ -5,7 +5,8 @@ import type { Coordinates, SheltuhEvent } from "./types";
  * entered, with no recorded source. The fallback suburb lookup only, for
  * when the ABS table (lib/localities.ts, every Australian suburb, loaded on
  * demand through lib/location-loader.ts) isn't available: /map places events
- * with that table once it has loaded (components/map/useSuburbLookup.ts).
+ * with that table once it has loaded (components/SceneMap.tsx, through
+ * components/search/useLocationModule.ts).
  */
 export const SUBURB_COORDINATES: Readonly<Record<string, Coordinates>> = {
   "melbourne cbd": { lat: -37.8136, lng: 144.9631 },

@@ -50,6 +50,27 @@ describe("findLocality", () => {
     expect(findLocality("CBD")?.name).toBe("Melbourne");
   });
 
+  it.each([
+    ["Brisbane", "Brisbane City", "QLD"],
+    ["Brisbane, QLD", "Brisbane City", "QLD"],
+    ["Darwin", "Darwin City", "NT"],
+    ["Canberra", "City ACT", "ACT"],
+    ["Cairns", "Cairns City", "QLD"],
+    ["Gold Coast", "Surfers Paradise", "QLD"],
+    ["Ballarat", "Ballarat Central", "VIC"],
+    ["Bendigo", "Bendigo", "VIC"],
+    ["Geelong", "Geelong", "VIC"],
+    ["Hobart", "Hobart", "TAS"],
+    ["Perth", "Perth", "WA"],
+  ])("knows the city %s as %s", (text, name, state) => {
+    expect(findLocality(text)).toMatchObject({ name, state });
+    expect(didYouMean(text)).toBeNull();
+  });
+
+  it("doesn't take a city name to another state", () => {
+    expect(findLocality("Brisbane NSW")).toBeNull();
+  });
+
   it("knows suburbs and towns all over Australia", () => {
     expect(findLocality("Yarraville")).toMatchObject({ name: "Yarraville", state: "VIC" });
     expect(findLocality("Geelong")).toMatchObject({ name: "Geelong", state: "VIC" });
@@ -162,6 +183,20 @@ describe("nearestLocality", () => {
     expect(found(lat, lng)).toMatchObject({ name, state });
   });
 
+  // The ABS's Melbourne runs south over Kings Domain, so its area centroid was there and the CBD's
+  // own streets were nearer Southbank's or Carlton's centre; its centre is the Hoddle grid now.
+  it.each([
+    ["Bourke St Mall", -37.8136, 144.9653],
+    ["Melbourne Central", -37.8102, 144.9628],
+    ["the State Library", -37.8098, 144.9652],
+    ["Flagstaff station", -37.8119, 144.956],
+    ["Queen Victoria Market", -37.8076, 144.9568],
+    ["Parliament station", -37.811, 144.9728],
+    ["Flinders Street station", -37.8183, 144.9671],
+  ])("%s is in Melbourne (the CBD)", (_where, lat, lng) => {
+    expect(found(lat, lng)).toMatchObject({ name: "Melbourne", state: "VIC" });
+  });
+
   it("names a suburb with its state when the name alone is another one's", () => {
     // Richmond, New South Wales (Hawkesbury), a little off its centre.
     const richmond = place("Richmond NSW");
@@ -179,6 +214,11 @@ describe("nearestLocality", () => {
     ["well off the New South Wales coast", -34.5, 153.5],
     ["in Bass Strait, between the islands", -39.3, 145.5],
     ["Auckland", -36.8485, 174.7633],
+    // The ABS's water localities are left out of the table: they reached far offshore.
+    ["Port Moresby (the Coral Sea locality reached it)", -9.4438, 147.1803],
+    ["Merauke, Indonesia", -8.4932, 140.4018],
+    ["in the Coral Sea, off the reef", -17.5, 151.5],
+    ["in the middle of the Gulf of Carpentaria", -14.5, 139.0],
     ["Bali", -8.65, 115.22],
     ["London", 51.5072, -0.1276],
     ["0, 0", 0, 0],
@@ -308,6 +348,17 @@ describe("suggestLocalities", () => {
 
   it("narrows by state as it's typed", () => {
     expect(suggestLocalities("richmond n").map((p) => p.name)).toEqual(["Richmond NSW"]);
+  });
+
+  it("offers each name once (a town and the locality around it share one)", () => {
+    const names = suggestLocalities("dunol").map((p) => p.name);
+    expect(names).toContain("Dunolly");
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it("offers a city by the name people use", () => {
+    expect(suggestLocalities("canb")[0]?.name).toBe("City ACT");
+    expect(suggestLocalities("gold c")[0]?.name).toBe("Surfers Paradise");
   });
 
   it("waits for two letters, and stops at the limit", () => {

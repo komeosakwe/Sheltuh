@@ -7,15 +7,20 @@ import { loadLocation, loadedLocation, type LocationModule } from "@/lib/locatio
  * lib/location.ts (with the Australia-wide suburb table), loaded on demand
  * the first time a component that needs it mounts (lib/location-loader.ts):
  * `module` is null until then; `failed` if it couldn't load, and `retry`
- * tries again. Used by near-you results and /map.
+ * tries again. Used by near-you results and /map. `enabled: false` loads
+ * nothing (yet): /map needs the table only for events without coordinates.
  */
-export function useLocationModule(): { module: LocationModule | null; failed: boolean; retry: () => void } {
+export function useLocationModule(enabled = true): {
+  module: LocationModule | null;
+  failed: boolean;
+  retry: () => void;
+} {
   const [table, setTable] = useState<LocationModule | null>(loadedLocation);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (table) return;
+    if (!enabled || table) return;
     let current = true;
     loadLocation().then(
       (loaded) => {
@@ -28,7 +33,7 @@ export function useLocationModule(): { module: LocationModule | null; failed: bo
     return () => {
       current = false;
     };
-  }, [table, attempt]);
+  }, [enabled, table, attempt]);
 
   return {
     module: table,

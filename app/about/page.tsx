@@ -38,8 +38,13 @@ export default function AboutPage() {
       </ContentSection>
       <ContentSection title="Credits">
         <p>
-          Suburb locations: Australian Bureau of Statistics, ASGS Edition 4 (2026),{" "}
-          <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>.
+          Suburb centres derived from Australian Bureau of Statistics,{" "}
+          <a href="https://data.gov.au/data/dataset/9c172870-f5e5-4d5b-82bf-51488ed6baf3">
+            ASGS Edition 4 (2026) Suburbs and Localities
+          </a>
+          , licensed under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>. We changed
+          the data: each suburb is reduced to one centre point, a few centres are moved, and water-only
+          localities are left out.
         </p>
       </ContentSection>
     </ContentPage>
