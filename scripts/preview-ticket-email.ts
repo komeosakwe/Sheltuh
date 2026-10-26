@@ -59,6 +59,7 @@ const scenarios: Record<string, { order: OrderRecord; event: EventRecord }> = {
     order: baseOrder([ticket("K7QM-2XPD"), ticket("R4TN-9WJC", "Early bird"), ticket("B8VF-3HLZ", "VIP"), ticket("M2GD-6SYA")], 11690),
     event: baseEvent,
   },
+  "3-free-ticket": { order: baseOrder([ticket("K7QM-2XPD", "Community admission")], 0), event: baseEvent },
   "3-long-names": {
     order: baseOrder([ticket("K7QM-2XPD", "General admission with a very long ticket type name that wraps onto several lines")], 3500),
     event: {
@@ -76,6 +77,7 @@ const scenarios: Record<string, { order: OrderRecord; event: EventRecord }> = {
     order: baseOrder([ticket("K7QM-2XPD")], 0),
     event: { ...baseEvent, title: "Midnight Tape Club", startsAt: "2027-03-05T12:00:00.000Z", endsAt: "2027-03-05T16:30:00.000Z" } as EventRecord,
   },
+  "5-no-image": { order: baseOrder([ticket("K7QM-2XPD")], 2338), event: { ...baseEvent, imageUrl: undefined } as EventRecord },
   "5-missing-optional-info": {
     order: baseOrder([ticket("K7QM-2XPD", "")], 0),
     event: { ...baseEvent, venueName: "", venueAddress: "" } as EventRecord,
@@ -186,9 +188,10 @@ async function main() {
   written += 3;
   if (screenshots) {
     await screenshot(previewFile, 600, "email-preview-600.png");
+    await screenshot(previewFile, 320, "email-preview-320.png");
     await screenshot(previewFile, 375, "email-preview-375.png");
     await screenshot(blockedFile, 375, "email-preview-375-no-images.png");
-    written += 3;
+    written += 4;
   }
   console.log(`Wrote ${written} files to ${outDir}`);
 }
