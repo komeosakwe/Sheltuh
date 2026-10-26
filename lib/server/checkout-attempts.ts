@@ -56,12 +56,19 @@ export const CHECKOUT_ATTEMPT = {
   gaReuseWithin: "10 minutes",
   /**
    * Seated: the session's expires_at is fixed at the order's creation plus
-   * 31 minutes and Stripe refuses one less than 30 minutes ahead, so only a
-   * retry within the first minute (less a 15-second margin) can repeat the
-   * call; later, the old order and its holds are released and a new order
-   * made.
+   * 31 minutes and Stripe refuses one less than 30 minutes ahead, so a
+   * repeated call must reach Stripe within 60 seconds of the order's
+   * creation. A retry that starts within 15 seconds gets there in time even
+   * in the worst case of its own call (a 15-second timeout, the SDK's backoff
+   * of up to 2 seconds, then its one network retry: about 33 seconds in all).
+   * Later, the old order and its holds are released and a new order made.
+   * (Shortening this window was chosen over 32-minute seated sessions, which
+   * would change the hold timings buyers are shown: SEAT_HOLD.) A seated order
+   * is only kept pending for reuse when the request that made it died (its
+   * lease lapsed); after an unknown Stripe outcome it's released at once
+   * (runPaidCheckout).
    */
-  seatedReuseWithin: "45 seconds",
+  seatedReuseWithin: "15 seconds",
   /** The Retry-After for a 409 checkout_in_progress or a 503 (seconds, at most). */
   retryAfterSeconds: 2,
 } as const;
@@ -327,10 +334,18 @@ export interface PaidCheckout {
   /** How the fail-open log line names this checkout and its limit. */
   clientLabels: { subject: string; limit: string };
   /**
-   * Per-client limits passed to begin_checkout_attempt (seated: SEAT_HOLD_LIMITS.perClient), and the
-   * event's alert-only circuit breaker (general admission only; null: none).
+   * Per-client limits passed to begin_checkout_attempt (seated: SEAT_HOLD_LIMITS.perClient), the
+   * event's alert-only circuit breaker (general admission only; null: none), and the per-client
+   * per-minute limit (general admission only, CHECKOUT_RATE_LIMITS.paidCheckout; null: none). All are
+   * taken inside the attempt, only when a new order is about to be made.
    */
-  limits: { clientEvent: number; clientAll: number; eventAlert: number | null; window: string };
+  limits: {
+    clientEvent: number;
+    clientAll: number;
+    eventAlert: number | null;
+    window: string;
+    minute: { hits: number; window: string } | null;
+  };
   stripeAccountId: string;
   /**
    * Stripe's session closes this many seconds after the order was made
@@ -340,8 +355,8 @@ export interface PaidCheckout {
   sessionSeconds: number;
   /** Makes pending order `orderId` (and, seated, its holds): throws on a refusal, having written nothing. */
   createOrder(orderId: string): Promise<void>;
-  /** The 429 for a refused per-client limit. */
-  limitError(): HttpError;
+  /** The 429 for a refused per-client limit: the per-minute one, or one of the per-window ones. */
+  limitError(limit: "minute" | "window"): HttpError;
 }
 
 interface BeginRow {
@@ -506,7 +521,7 @@ export async function runPaidCheckout(deps: Deps, checkout: PaidCheckout): Promi
     `select result, attempt_order_id, reused, attempt_session_url, attempt_hold_expires_at, retry_after_seconds,
             attempt_order_status, alert_queued
        from private.begin_checkout_attempt($1, $2::uuid, $3, $4, $5, $6::uuid, $7::interval, $8::interval,
-                                           $9, $10, $11, $12, $13::interval)`,
+                                           $9, $10, $11, $12, $13::interval, $14, $15::interval)`,
     [
       checkout.event.eventId,
       checkout.key,
@@ -521,6 +536,8 @@ export async function runPaidCheckout(deps: Deps, checkout: PaidCheckout): Promi
       checkout.limits.clientAll,
       checkout.limits.eventAlert,
       checkout.limits.window,
+      checkout.limits.minute?.hits ?? null,
+      checkout.limits.minute?.window ?? null,
     ],
   );
   // The event's circuit breaker tripped: an ops alert was queued (at most one per event per window). Nobody is refused.
@@ -531,9 +548,11 @@ export async function runPaidCheckout(deps: Deps, checkout: PaidCheckout): Promi
   switch (begun.result) {
     case "create":
       break;
+    case "client_minute_limit":
+      throw checkout.limitError("minute");
     case "client_event_limit":
     case "client_all_limit":
-      throw checkout.limitError();
+      throw checkout.limitError("window");
     default: {
       const settled = settledAttemptResponse({
         state: begun.result,
@@ -577,10 +596,18 @@ export async function runPaidCheckout(deps: Deps, checkout: PaidCheckout): Promi
     });
   } catch (err) {
     if (stripeOutcomeUnknown(err)) {
-      // Keep the order (and its holds) for a retry with the same key: the same Stripe idempotency key then
-      // returns the session if this call made one.
-      await failAttempt(db, checkout, lease, false);
-      console.warn(`Checkout for order ${orderReference(orderId)}: Stripe didn't answer; kept for a retry with the same key.`);
+      // General admission: keep the order (it holds nothing) for a retry with the same key: the same Stripe
+      // idempotency key then returns the session if this call made one. Seated: release the order and its
+      // holds now. The client never got the order id, so nothing else could release them before they lapse
+      // (35 minutes), and a retry with the same key holds the seats again under a new order. A session
+      // Stripe may have made for the released order is never shown to anyone (the payment page needs a
+      // session recorded on a pending order), and a payment for a failed order is refunded in full by the
+      // webhook (refundPaymentForFailedOrder, orders.ts).
+      const release = checkout.kind === "seated";
+      await failAttempt(db, checkout, lease, release);
+      console.warn(
+        `Checkout for order ${orderReference(orderId)}: Stripe didn't answer; ${release ? "released, its seats freed" : "kept for a retry with the same key"}.`,
+      );
       throw new HttpError(
         503,
         "We couldn't reach our payment provider. Try again in a moment.",

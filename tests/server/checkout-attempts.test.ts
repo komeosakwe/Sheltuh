@@ -1,7 +1,7 @@
 import Stripe from "stripe";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { clientKey } from "@/lib/server/client-key";
-import { CHECKOUT_LIMITS, checkoutFingerprint, STRIPE_SESSION_REQUEST } from "@/lib/server/checkout-attempts";
+import { CHECKOUT_ATTEMPT, CHECKOUT_LIMITS, checkoutFingerprint, STRIPE_SESSION_REQUEST } from "@/lib/server/checkout-attempts";
 import { drainEmailOutbox } from "@/lib/server/email-outbox";
 import {
   CHECKOUT_RATE_LIMITS,
@@ -363,7 +363,7 @@ describe("after the checkout ended", () => {
     // Under the row lock (a request that passed the first look just before the payment landed).
     const [begun] = await api.db.query<{ result: string }>(
       `select result from private.begin_checkout_attempt($1, $2::uuid, 'ga', $3, $4, gen_random_uuid(), '90 seconds',
-         '10 minutes', null, 20, 60, 600, '10 minutes')`,
+         '10 minutes', null, 20, 60, 600, '10 minutes', 10, '1 minute')`,
       [event.eventId, KEY, (await api.db.query<{ fingerprint: string }>(`select fingerprint from private.checkout_attempts`))[0].fingerprint,
         `ord_${"0".repeat(32)}`],
     );
@@ -512,11 +512,61 @@ describe("general admission paid checkout limits", () => {
     expect(hits).toEqual([
       { bucket: "checkouts", hits: 20 },
       { bucket: `checkouts:${event.eventId}`, hits: 20 },
-      // The refused one took a hit on the per-minute limit, which comes first (and the replay didn't).
-      { bucket: CHECKOUT_RATE_LIMITS.paidCheckout.bucket, hits: 1 },
+      // The per-minute counter as the 20th left it: the refused one's hit was rolled back with the rest, and
+      // the replay never took one.
+      { bucket: CHECKOUT_RATE_LIMITS.paidCheckout.bucket, hits: 10 },
     ]);
     // Another client still gets through.
     expect((await checkout(BASKET, { key: OTHER_KEY, ip: OTHER_IP })).status).toBe(201);
+  });
+
+  it("10 a minute per client, taken in the attempt: the 11th is a 429 with the per-minute wording that writes nothing at all", async () => {
+    const keys = Array.from({ length: CHECKOUT_RATE_LIMITS.paidCheckout.hits }, () => crypto.randomUUID());
+    for (const key of keys) expect((await checkout(BASKET, { key, ip: IP })).status).toBe(201);
+    const over = await checkout(BASKET, { key: KEY, ip: IP });
+    expect([over.status, over.body.code]).toEqual([429, "client_rate_limited"]);
+    expect(over.body.error).toBe("You've started a lot of checkouts in the last minute. Wait a minute, then try again.");
+    // No attempt row, no order, no Stripe call, and no hit in any bucket for the refusal.
+    expect(await attempts()).toHaveLength(10);
+    expect(await orders()).toHaveLength(10);
+    expect(createCalls()).toHaveLength(10);
+    const hits = await api.db.query<{ bucket: string; hits: number }>(
+      `select bucket, hits from private.client_rate_limits where client_key = $1 order by bucket`,
+      [clientKey(IP, WEBHOOK_SECRET)],
+    );
+    expect(hits).toEqual([
+      { bucket: "checkouts", hits: 10 },
+      { bucket: `checkouts:${event.eventId}`, hits: 10 },
+      { bucket: CHECKOUT_RATE_LIMITS.paidCheckout.bucket, hits: 10 },
+    ]);
+  });
+
+  it("only a new order spends the per-minute limit: replays, in-progress answers and a reused order don't", async () => {
+    const minuteHits = async () =>
+      (
+        await api.db.query<{ hits: number }>(`select hits from private.client_rate_limits where client_key = $1 and bucket = $2`, [
+          clientKey(IP, WEBHOOK_SECRET),
+          CHECKOUT_RATE_LIMITS.paidCheckout.bucket,
+        ])
+      )[0]?.hits ?? 0;
+    // A double click: one new order, the twin told to wait.
+    const open = stripe.hold();
+    const results = [checkout(BASKET, { ip: IP }), checkout(BASKET, { ip: IP })];
+    await Promise.race(results);
+    open();
+    expect((await Promise.all(results)).map((r) => r.status).sort()).toEqual([201, 409]);
+    expect(await minuteHits()).toBe(1);
+    // Replays.
+    for (let i = 0; i < 3; i++) expect((await checkout(BASKET, { ip: IP })).status).toBe(200);
+    expect(await minuteHits()).toBe(1);
+    // Stripe didn't answer; the retry with the same key reuses the kept order.
+    stripe.failNext("unreachable");
+    expect((await checkout(BASKET, { key: OTHER_KEY, ip: IP })).status).toBe(503);
+    expect(await minuteHits()).toBe(2);
+    const retry = await checkout(BASKET, { key: OTHER_KEY, ip: IP });
+    expect(retry.status).toBe(201);
+    expect(await minuteHits()).toBe(2);
+    expect(await orders()).toHaveLength(2);
   });
 
   it("60 across events per client: 429 client_rate_limited on any event", async () => {
@@ -656,22 +706,101 @@ describe("seated checkout", () => {
     expect(await api.db.query(`select * from private.client_rate_limits where bucket like 'checkouts%'`)).toEqual([]);
   });
 
-  it("no answer from Stripe: the holds are kept, and a retry within the minute repeats the call for the same order", async () => {
-    stripe.failNext("lost");
-    expect((await seatedCheckout()).status).toBe(503);
-    const [kept] = await orders(seated.eventId);
-    expect(await seatStates(api, seated.eventId)).toMatchObject({ A1: `held:${kept.id}`, A2: `held:${kept.id}` });
+  it("no answer from Stripe: the order fails and its holds are released at once (the client never got its id); a retry with the same key holds the seats again", async () => {
+    stripe.failNext("lost"); // Stripe made the session, but the answer never arrived
+    const first = await seatedCheckout();
+    expect(first.status).toBe(503);
+    expect(first.body).toMatchObject({ code: "payment_provider_unavailable" });
+    expect(first.body).not.toHaveProperty("orderId");
+    const [released] = await orders(seated.eventId);
+    expect(released).toMatchObject({ status: "failed", stripe_checkout_session_id: null });
+    expect(await seatStates(api, seated.eventId)).toMatchObject({ A1: "free", A2: "free" });
+    expect((await attempts())[0]).toMatchObject({ status: "failed", lease_token: null });
 
     const retry = await seatedCheckout();
     expect(retry.status).toBe(201);
-    expect(retry.body.orderId).toBe(kept.id);
-    expect(stripe.made()).toBe(1);
-    const [[params1, options1], [params2, options2]] = createCalls();
-    expect(params2).toEqual(params1); // expires_at is fixed by the order, not the call
-    expect(options2).toEqual(options1);
+    expect(retry.body.orderId).not.toBe(released.id);
+    expect(await seatStates(api, seated.eventId)).toMatchObject({ A1: `held:${retry.body.orderId}`, A2: `held:${retry.body.orderId}` });
+    // A new order, so a new Stripe idempotency key: the orphan session of the released order is never used.
+    expect(createCalls().map(([, options]) => options.idempotencyKey)).toEqual([
+      `checkout-session-${released.id}`,
+      `checkout-session-${retry.body.orderId}`,
+    ]);
+    const [, [params2]] = createCalls();
     const before = Date.now();
-    expect(params1.expires_at * 1000 - before).toBeGreaterThan(30 * 60_000);
-    expect(params1.expires_at * 1000 - before).toBeLessThanOrEqual(SEAT_HOLD_LIMITS.stripeSessionMinutes * 60_000);
+    expect(params2.expires_at * 1000 - before).toBeGreaterThan(30 * 60_000);
+    expect(params2.expires_at * 1000 - before).toBeLessThanOrEqual(SEAT_HOLD_LIMITS.stripeSessionMinutes * 60_000);
+  });
+
+  it("a payment that still arrives for the released order is refunded in full; its seats stay with whoever holds them", async () => {
+    stripe.failNext("lost");
+    expect((await seatedCheckout()).status).toBe(503);
+    const [released] = await orders(seated.eventId);
+    // Someone else holds the seats now.
+    const other = await seatedCheckout(seats(["A1", "A2"]), { key: OTHER_KEY, ip: OTHER_IP });
+    expect(other.status).toBe(201);
+
+    const paid = stripeWebhookRequest({
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_test_1",
+          object: "checkout.session",
+          client_reference_id: released.id,
+          payment_status: "paid",
+          payment_intent: "pi_late_seats",
+          customer_details: { email: "fan@example.com" },
+        },
+      },
+    });
+    expect((await api.send(stripeWebhook, paid)).status).toBe(200);
+    expect(api.stripe.refunds.create).toHaveBeenCalledTimes(1);
+    expect(api.stripe.refunds.create).toHaveBeenCalledWith(
+      expect.objectContaining({ payment_intent: "pi_late_seats", reverse_transfer: true, refund_application_fee: true }),
+      { idempotencyKey: `failed-order-refund-${released.id}` },
+    );
+    expect((await orders(seated.eventId)).find((o) => o.id === released.id)?.status).toBe("failed");
+    expect(await seatStates(api, seated.eventId)).toMatchObject({ A1: `held:${other.body.orderId}`, A2: `held:${other.body.orderId}` });
+    expect(await api.db.query(`select 1 from public.tickets where order_id = $1`, [released.id])).toEqual([]);
+  });
+
+  it("an order kept by a request that died (its lease lapsed) is reused only within 15 seconds of its creation", async () => {
+    expect(CHECKOUT_ATTEMPT.seatedReuseWithin).toBe("15 seconds");
+    // As if the request was killed after holding the seats, before Stripe answered.
+    const dieAfterHold = async (key: string, ageSeconds: number) => {
+      stripe.failNext("unreachable");
+      expect((await seatedCheckout(seats(["A1", "A2"]), { key })).status).toBe(503);
+      const [order] = (await orders(seated.eventId)).slice(-1);
+      // Undo the release, as a dead request never got that far, and lapse its lease.
+      await api.db.query(`update public.orders set status = 'pending', created_at = now() - $2::interval where id = $1`, [
+        order.id,
+        `${ageSeconds} seconds`,
+      ]);
+      await api.db.query(
+        `update public.event_seats set hold_order_id = $1, hold_expires_at = now() + interval '30 minutes'
+          where event_id = $2 and id in ('A1', 'A2')`,
+        [order.id, seated.eventId],
+      );
+      await api.db.query(
+        `update private.checkout_attempts set status = 'in_progress', lease_token = gen_random_uuid(),
+           lease_expires_at = now() - interval '1 second' where idempotency_key = $1::uuid`,
+        [key],
+      );
+      return order.id;
+    };
+
+    const young = await dieAfterHold(KEY, 10);
+    const reused = await seatedCheckout(seats(["A1", "A2"]), { key: KEY });
+    expect(reused.status).toBe(201);
+    expect(reused.body.orderId).toBe(young);
+
+    await api.call(cancelPendingOrder, { params: { sessionId: young }, method: "POST" });
+    const older = await dieAfterHold(OTHER_KEY, 20);
+    const fresh = await seatedCheckout(seats(["A1", "A2"]), { key: OTHER_KEY });
+    expect(fresh.status).toBe(201);
+    expect(fresh.body.orderId).not.toBe(older);
+    expect((await orders(seated.eventId)).find((o) => o.id === older)?.status).toBe("failed");
+    expect(await seatStates(api, seated.eventId)).toMatchObject({ A1: `held:${fresh.body.orderId}`, A2: `held:${fresh.body.orderId}` });
   });
 
   it("a retry after the minute: the old order's seats are released and held again by a new order", async () => {

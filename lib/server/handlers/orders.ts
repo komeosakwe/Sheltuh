@@ -505,11 +505,12 @@ export const GA_CHECKOUT_SESSION_MINUTES = 60;
  * STRIPE_WEBHOOK_SECRET, as the per-client seat-hold limit. Each call that
  * gets past them can reach Stripe. Over one: 429, nothing else written.
  * - `paidCheckout`: paid general admission checkouts per client (its IP
- *   address), taken just before the checkout attempt that writes the order
- *   (after every early refusal, and never for a replay or another settled
- *   answer of the same Idempotency-Key), so only checkouts that may make an
- *   order and call Stripe count. The attempt then takes the per-10-minute
- *   limits (CHECKOUT_LIMITS, ../checkout-attempts.ts). 10 a minute: a
+ *   address), taken inside the checkout attempt (private.begin_checkout_attempt,
+ *   which takes it in private.take_checkout_attempt under this bucket name,
+ *   with the per-10-minute CHECKOUT_LIMITS, ../checkout-attempts.ts) only when
+ *   a new order is about to be made: never for a reused order, a replay or a
+ *   request that lost a race for its Idempotency-Key, nor after an early
+ *   refusal. A refusal keeps no hit in any bucket. 10 a minute: a
  *   buyer starts one, or a few after going Back; 10 leaves room for several
  *   buyers on one address (venue wifi, a phone network's shared address)
  *   while bounding the pending orders and Stripe sessions one client can
@@ -597,8 +598,8 @@ async function takeClientLimit(req: Request, deps: Deps, secret: string | undefi
  * 503 when card payments aren't configured (refuseWithoutCardPayments),
  * before anything is written; then 429 (`code: "client_rate_limited"`) over
  * the client's paid checkouts: 10 a minute (CHECKOUT_RATE_LIMITS.paidCheckout),
- * then 20 per event and 60 in all per 10 minutes (CHECKOUT_LIMITS, taken in
- * the attempt), nothing else written either. 600 new checkouts per event per
+ * 20 per event and 60 in all per 10 minutes (CHECKOUT_LIMITS), all taken in
+ * the attempt, nothing else written either. 600 new checkouts per event per
  * 10 minutes only queues an ops alert (CHECKOUT_LIMITS). A wholly free order
  * never touches Stripe (./free-orders.ts): 201 with the confirmation page's
  * URL for a member's own verified email, otherwise 202, the confirmation
@@ -687,12 +688,6 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
   }
 
   refuseWithoutCardPayments(deps);
-  // The per-minute limit, before the attempt (whose own limits are per 10 minutes and taken only for a new
-  // order). Replays and other settled answers above never reach it.
-  const secret = rateLimitSecret(deps, "the per-client checkout limit was skipped");
-  if (!(await takeClientLimit(req, deps, secret, CHECKOUT_RATE_LIMITS.paidCheckout, "Paid checkout"))) {
-    throw new HttpError(429, CHECKOUTS_BUSY, undefined, { code: "client_rate_limited" });
-  }
   return runPaidCheckout(deps, {
     kind: "ga",
     event,
@@ -705,6 +700,9 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
       clientAll: CHECKOUT_LIMITS.perClient.allEvents,
       eventAlert: CHECKOUT_LIMITS.perEventAlert,
       window: CHECKOUT_LIMITS.window,
+      // Taken in the attempt with the others, only when a new order is about to be made (not for a reused
+      // order, a replay or a request that lost a race for its key); a refusal keeps no hit in any bucket.
+      minute: { hits: CHECKOUT_RATE_LIMITS.paidCheckout.hits, window: CHECKOUT_RATE_LIMITS.paidCheckout.window },
     },
     stripeAccountId: organiser.stripeAccountId,
     sessionSeconds: GA_CHECKOUT_SESSION_MINUTES * 60,
@@ -712,7 +710,8 @@ export const createCheckout: Handler<{ eventId: string }> = async (req, { eventI
     createOrder: async (orderId) => {
       await refuseIfClosed(() => insertOrder(orderId));
     },
-    limitError: () => new HttpError(429, CLIENT_BUSY, undefined, { code: "client_rate_limited" }),
+    limitError: (limit) =>
+      new HttpError(429, limit === "minute" ? CHECKOUTS_BUSY : CLIENT_BUSY, undefined, { code: "client_rate_limited" }),
   });
 };
 
@@ -1059,6 +1058,7 @@ async function createSeatedCheckout(
       clientAll: SEAT_HOLD_LIMITS.perClient.allEvents,
       eventAlert: null,
       window: SEAT_HOLD_LIMITS.perClient.window,
+      minute: null,
     },
     stripeAccountId: organiser.stripeAccountId,
     sessionSeconds: SEAT_HOLD_LIMITS.stripeSessionMinutes * 60,
@@ -1289,7 +1289,8 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { ses
     ...(row.event_venue_name ? { venueName: row.event_venue_name } : {}),
     ...(row.event_suburb ? { suburb: row.event_suburb } : {}),
     seated,
-    // The policy the buyer is paying under (it can't have been tightened while this order was pending).
+    // The policy the buyer is paying under: it can't be tightened once this order's session is recorded
+    // (private.event_has_payable_orders), and this answer needs that session.
     ...(row.event_refund_policy ? { refundPolicy: row.event_refund_policy } : {}),
     ...(row.event_refund_policy === "days_before" && row.event_refund_days !== null
       ? { refundDays: row.event_refund_days }

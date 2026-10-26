@@ -98,10 +98,13 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       22. `20261109000000_paid_events_need_payouts.sql`
       23. `20261109000100_event_refund_policy.sql` (existing events become
           "No refunds for change of mind"; apply before the app that reads it)
-      24. `20261109000200_payment_reconciliation.sql` (deploy the app with
-          it: the previous version keeps working against it, but only this
-          one sends ops alerts and records refunds that arrive before their
-          payment. It needs `20261107000000_admin_review_emails.sql` and
+      24. `20261109000200_payment_reconciliation.sql` (**apply it before
+          this app deploys**: the app's Stripe webhook calls
+          `private.fulfil_order_detailed`, `private.record_refund_status` and
+          the 6-argument `private.record_payment_refund`, which this file
+          creates, so without it every payment and refund event is a 500 and
+          Stripe keeps retrying. The previous app version keeps working
+          against it. It needs `20261107000000_admin_review_emails.sql` and
           `20261108000000_account_invites.sql` first: it extends their outbox
           kinds, `private.lease_outbox_jobs` and `purge_operational_data`)
       25. `20261109000300_email_outbox_health.sql` (schedules nothing:
@@ -119,9 +122,22 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       `20261104000100_email_outbox_health.sql` and
       `20261104000200_checkout_attempts.sql` on the payments audit branch and
       renamed when it was merged, so they sort after everything production
-      may already have. If a project ever ran the old names, don't run them
-      again: `scripts/check-applied-migrations.sql` judges these files by the
-      objects they create, whatever their name.
+      may already have. No project has run them under either name yet. If one
+      ever ran the old names, it ran them *before* files 20 and 21, which then
+      replaced what 24 and 26 had defined: the outbox's kind checks (no
+      `ops_alert` any more; file 20 also fails outright if an `ops_alert` job
+      exists, so delete those first), `private.lease_outbox_jobs` (which
+      file 20 creates without the ops-alert rule) and
+      `purge_operational_data` (which file 21 recreates without the payment
+      and checkout counts). Don't run 24 to 26 again whole (their
+      `create table`s fail): re-run, in this order, 24's `alter table
+      private.email_outbox` constraint clauses (not its `add column`), its
+      `private.lease_outbox_jobs` and its grants, then 26's `email_outbox_kind_key`
+      clauses and its `purge_operational_data` (drop and create) and grants.
+      `scripts/check-applied-migrations.sql` checks that substance (the kind
+      check allows `ops_alert`, `lease_outbox_jobs` holds alerts back, and
+      `purge_operational_data` returns `checkout_attempts_deleted`), so files
+      24 and 26 show `false` on such a project until that's done.
 
       **Apply `20261109000000_paid_events_need_payouts.sql` before the code
       that submits events deploys.** The organiser's submit calls

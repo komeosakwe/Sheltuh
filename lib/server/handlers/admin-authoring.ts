@@ -256,8 +256,8 @@ export const adminCreateEvent: Handler = async (req, _params, deps) => {
  * change). 400 fieldErrors; 404; 409 stale (fieldErrors.expectedUpdatedAt),
  * switching to external an event with orders, removing a sold ticket type or
  * cutting it below what's sold, publishing for an organiser who isn't
- * approved, or making the refund policy of an event with pending or paid
- * orders less generous (`code: "refund_policy_tightened"`,
+ * approved, or making the refund policy of an event with paid orders, or
+ * pending ones that can still be paid, less generous (`code: "refund_policy_tightened"`,
  * fieldErrors.refundPolicy).
  */
 export const adminUpdateEvent: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {

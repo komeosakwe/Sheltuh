@@ -233,12 +233,14 @@ times, which are converted to instants honouring daylight saving
      hit on the client's paid checkout allowance
      (`CHECKOUT_RATE_LIMITS.paidCheckout`: 10 a minute per client, bucket
      `paid_checkouts`, keyed and failing open as the seat-hold limit: see
-     "Reserved seating"). Over it: 429 `code: "client_rate_limited"`, nothing
-     written and Stripe not called. Only checkouts that may make an order
-     count (the 404/409/400/503 refusals, and a settled answer for the
-     request's `Idempotency-Key` such as a replay, come first); free orders
-     have their own limits. The checkout attempt then takes the
-     per-10-minute limits (20 per event, 60 in all; "Checkout idempotency"). A buyer starts one, or a few after going Back: 10 leaves
+     "Reserved seating"), taken inside the checkout attempt with its
+     per-10-minute limits (20 per event, 60 in all; "Checkout idempotency"),
+     only when a new order is about to be made. Over any of them: 429
+     `code: "client_rate_limited"`, nothing written in any bucket and
+     Stripe not called. The 404/409/400/503 refusals, a settled answer for
+     the request's `Idempotency-Key` (a replay, "in progress"), and a retry
+     that reuses a kept order never count; free orders have their own
+     limits. A buyer starts one, or a few after going Back: 10 leaves
      room for several buyers on one address (venue wifi, a phone network's
      shared address) and bounds the pending orders and Stripe sessions one
      client can make.
@@ -281,8 +283,9 @@ times, which are converted to instants honouring daylight saving
    - If Stripe errors, or returns no `client_secret` (nobody could mount the
      form, so nobody could pay), the general admission order is marked
      `failed` (a seated one releases its holds) and the checkout is a 500;
-     if Stripe didn't answer at all, the order is kept for a retry with the
-     same key and the checkout is a 503 (see "Checkout idempotency").
+     if Stripe didn't answer at all, the checkout is a 503: a general
+     admission order is kept for a retry with the same key, a seated one is
+     released at once, seats freed (see "Checkout idempotency").
      A missing `NEXT_PUBLIC_SITE_URL` fails the same way, since the
      `return_url` is built in that step.
    - The 201 is `{url, orderId}` (seated adds `holdExpiresAt`), `private,
@@ -713,7 +716,7 @@ The API answers 409 with `code: "payouts_required"` (`lib/api/events.ts`: `isPay
 
 Each event has a refund policy (`lib/refund-policy.ts`, migration `20261109000100_event_refund_policy.sql`): "No refunds for change of mind" (`no_change_of_mind`, the default, which every earlier event has and which matches `/refunds`) or "Refunds available up to N days before the event" (`days_before`, N from 1 to 30; `events.refund_days`, check constraints `events_refund_policy_check` and `events_refund_days_check`). Buyers see it, with the standing Australian Consumer Law line (`REFUND_ACL_STATEMENT`), on the event page (`PublicEvent`), the payment page (`OrderPaymentSummary`) and the ticket page (`CustomerOrder`, paid and listed only). It applies to Sheltüh-ticketed events; for an external event the ticketing site's terms apply, so the UI doesn't show it.
 
-Organisers set it while the event is a draft or rejected; once it's submitted only an admin can change it. Buyers keep what they bought under: a change that makes the policy less generous for an event with pending or paid orders (`private.refund_policy_tightens`: `days_before` → `no_change_of_mind`, or more days' notice; mirrored by `tightensRefundPolicy`, and a test checks they agree) is refused with 409 `code: "refund_policy_tightened"`, for an admin's edit of any event and for an organiser's edit of an unpublished draft that has orders. The check runs under the event row lock, and every order insert share-locks that row first, so no order slips in between. Loosening is always allowed. Admin changes are logged in the `edited` entry (`changes.refundPolicy`, `changes.refundDays`). Refunds themselves stay manual (see "Refunds made in Stripe"); nothing enforces the deadline automatically.
+Organisers set it while the event is a draft or rejected; once it's submitted only an admin can change it. Buyers keep what they bought under: a change that makes the policy less generous for an event with paid orders, or pending ones that can still be paid (`private.event_has_payable_orders`: a card order whose Checkout Session is recorded, or a guest's free order waiting on its emailed link; a card order still being set up, or kept after Stripe didn't answer, has no session and doesn't count, so one unanswered Stripe call can't block an edit for the 2 days until the purge fails it) (`private.refund_policy_tightens`: `days_before` → `no_change_of_mind`, or more days' notice; mirrored by `tightensRefundPolicy`, and a test checks they agree) is refused with 409 `code: "refund_policy_tightened"`, for an admin's edit of any event and for an organiser's edit of an unpublished draft that has orders. The check runs under the event row lock, and every order insert, and recording a card order's session (`finish_checkout_attempt`), share-locks that row, so no order becomes payable in between. Loosening is always allowed. Admin changes are logged in the `edited` entry (`changes.refundPolicy`, `changes.refundDays`). Refunds themselves stay manual (see "Refunds made in Stripe"); nothing enforces the deadline automatically.
 
 ## Checkout idempotency
 
@@ -796,17 +799,27 @@ Session, so a double click or a retry after a lost response made two of each
   (general admission, `GA_CHECKOUT_SESSION_MINUTES`) or + 31 (seated), so a
   call repeated for the same order sends the same parameters. Failures:
   - **No answer** (connection error or timeout, Stripe's 429, or a 409
-    because the same key is still running there): the outcome is unknown, so
-    the order (and its holds) is kept and the attempt marked failed: **503**
-    `payment_provider_unavailable`. A retry with the same key reuses the
-    order and repeats the call with the same Stripe key, so if the first
-    call did make a session, Stripe returns that one. Reuse needs the order
-    still pending, with no session recorded, and younger than 10 minutes
-    (general admission: its `expires_at` is then still at least 50 minutes
-    ahead, and it bounds reusing an old price snapshot) or 45 seconds
-    (seated: Stripe refuses an `expires_at` less than 30 minutes ahead, and
-    it's fixed at creation + 31). Otherwise the old order is released (seats
-    freed) and a new one made, with a new Stripe key.
+    because the same key is still running there): the outcome is unknown;
+    the attempt is marked failed: **503** `payment_provider_unavailable`.
+    General admission keeps the order (it holds nothing): a retry with the
+    same key reuses it and repeats the call with the same Stripe key, so if
+    the first call did make a session, Stripe returns that one. A seated
+    order is released at once, seats freed: the client never got its id, so
+    nothing else could release its holds before they lapse (35 minutes); a
+    retry with the same key holds the seats again under a new order. (If
+    Stripe did make a session for the released order, nobody is shown it,
+    and a payment for a failed order is refunded in full.) Reuse needs the
+    order still pending, with no session recorded, and younger than 10
+    minutes (general admission: its `expires_at` is then still at least 50
+    minutes ahead, and it bounds reusing an old price snapshot) or 15
+    seconds (seated, which only keeps an order when the request that made
+    it died: Stripe refuses an `expires_at` less than 30 minutes ahead,
+    it's fixed at creation + 31, and a retry starting within 15 seconds
+    reaches Stripe in time even through its own call's 15-second timeout
+    and one network retry; 15 seconds was chosen over 32-minute sessions,
+    which would change the hold timings buyers are told). Otherwise the old
+    order is released (seats freed) and a new one made, with a new Stripe
+    key.
   - **Anything else** (an API error, which Stripe replays for the same key,
     or an invalid request), or a session without a client secret: the order
     is released (failed, seats freed), **500**; a retry with the same key
@@ -818,13 +831,12 @@ Session, so a double click or a retry after a lost response made two of each
   only in the form our payment page mounts for the order's recorded
   session, and a payment for a failed order is refunded automatically
   ("Payment flow" step 3).
-- **Limits** (owner decision D7), general admission paid checkouts only.
-  First the per-minute limit from the embedded checkout (10 a minute per
-  client, `CHECKOUT_RATE_LIMITS.paidCheckout`, bucket `paid_checkouts`;
-  "Payment flow"), taken after every early refusal and after a settled
-  answer for the key (a replay or another 409/422 never counts), just
-  before the attempt; then the per-10-minute ones,
-  taken only when a new order is about to be made (never for replays,
+- **Limits** (owner decision D7), general admission paid checkouts only:
+  the per-minute limit from the embedded checkout (10 a minute per client,
+  `CHECKOUT_RATE_LIMITS.paidCheckout`, bucket `paid_checkouts`; "Payment
+  flow", **429** "…in the last minute") and the per-10-minute ones, all
+  taken by `begin_checkout_attempt` only when a new order is about to be
+  made (never for replays,
   in-progress answers, reused orders or refusals decided earlier: sold out,
   bad input, payouts not set up), in the same subtransaction as a new
   attempt's row, so a refusal writes nothing: per client (its keyed IP hash,
@@ -887,8 +899,9 @@ Session, so a double click or a retry after a lost response made two of each
   per-client limits are skipped and attempts aren't bound to a requester
   (null matches null), each logged. On Vercel the header is always set.
 - **A kept order can sit pending.** After a 503, if the buyer never retries,
-  a general admission order stays `pending` (holding nothing) until the
-  daily purge fails it after 2 days; seated holds lapse after 35 minutes.
+  a general admission order stays `pending` (holding nothing, with no
+  session, so it doesn't block a refund-policy edit: "Refund policy") until
+  the daily purge fails it after 2 days. A seated one is released at once.
 - **A reload loses the key.** Keys live in page memory, so a reload starts a
   new attempt; a seated buyer may then see their own earlier hold as
   "taken" until it's released (Back from the payment page) or lapses.

@@ -47,15 +47,18 @@
 --     its own checks (so a replay of held seats isn't refused as "taken") and
 --     by begin_checkout_attempt under the row lock.
 --   * private.take_checkout_attempt: general admission paid checkout limits,
---     per client (the API's keyed hash of its IP address, as for seat holds;
---     buckets 'checkouts:<event id>' and 'checkouts' in client_rate_limits),
+--     per client (the API's keyed hash of its IP address, as for seat holds):
+--     the per-minute one the embedded checkout introduced (bucket
+--     'paid_checkouts', 10 a minute, CHECKOUT_RATE_LIMITS.paidCheckout in the
+--     API), then buckets 'checkouts:<event id>' and 'checkouts' (per 10
+--     minutes) in client_rate_limits,
 --     then the event's circuit breaker (take_event_rate_limit, bucket
 --     'checkouts'): crossing it refuses nobody (a manager decision: a
 --     distributed client could otherwise use it up and block real buyers)
 --     but queues an ops alert (private.queue_checkout_surge_alert), at most
 --     one per event per window (bucket 'checkout_surge_alert', limit 1).
---     Returns 'ok', 'surge' (ok, and an alert was queued), 'event' or 'all'.
---     A refusal keeps no hit (a subtransaction). A null client key (no IP
+--     Returns 'ok', 'surge' (ok, and an alert was queued), 'minute', 'event'
+--     or 'all'. A refusal keeps no hit, in any bucket (a subtransaction). A null client key (no IP
 --     header or secret: the API fails open, with a log line) counts towards
 --     the circuit breaker only. Seated checkouts keep take_seat_hold_attempt
 --     (their per-client limit) and hold_seats (their per-event limit):
@@ -77,7 +80,7 @@
 --     the order when it's still pending, has no session recorded and is
 --     younger than p_reuse_within (the API passes 10 minutes for general
 --     admission, whose expires_at is fixed at the order's creation plus 60
---     minutes; for seats, 45 seconds, since Stripe needs a session's
+--     minutes; for seats, 15 seconds, since Stripe needs a session's
 --     expires_at, fixed at the order's creation plus 31 minutes, to be at
 --     least 30 minutes ahead): the Stripe call then repeats with the same
 --     idempotency key and parameters, so if the first call did create a
@@ -110,7 +113,9 @@
 -- seat lock or an order row goes on to lock an attempt, so there's no cycle.
 -- hold_seats and the order insert run outside these functions (after
 -- begin_checkout_attempt has committed); finish_checkout_attempt locks the
--- attempt, then the order row.
+-- attempt, then the order row, then shares the event row (the order → event
+-- order fulfil_order uses; the refund-policy edit locks the event and locks
+-- no order).
 --
 -- Concurrency: two requests with one new key both insert; the second's
 -- ON CONFLICT waits for the first to commit, then finds the row and its live
@@ -261,14 +266,15 @@ end;
 $$;
 
 -- One general admission paid checkout: per client (p_client_key, null to
--- skip) p_event_limit for this event and p_all_limit across all events,
--- each per p_window: 'event' or 'all' when refused (writing nothing). Then
+-- skip) p_minute_limit per p_minute_window (null to skip), then p_event_limit
+-- for this event and p_all_limit across all events, each per p_window:
+-- 'minute', 'event' or 'all' when refused (writing nothing). Then
 -- the event's circuit breaker, p_event_wide_limit per p_window across all
 -- clients: never a refusal; crossing it queues an ops alert, at most one
 -- per event per p_window ('surge'). Otherwise 'ok'.
 create function private.take_checkout_attempt(
   p_client_key text, p_event_id uuid, p_event_limit integer, p_all_limit integer,
-  p_event_wide_limit integer, p_window interval
+  p_event_wide_limit integer, p_window interval, p_minute_limit integer, p_minute_window interval
 ) returns text
 language plpgsql
 set search_path = ''
@@ -276,6 +282,11 @@ as $$
 begin
   begin
     if p_client_key is not null then
+      if p_minute_limit is not null then
+        if not private.take_client_rate_limit(p_client_key, 'paid_checkouts', p_minute_limit, p_minute_window) then
+          raise exception 'checkouts this minute' using errcode = 'SH440';
+        end if;
+      end if;
       if not private.take_client_rate_limit(p_client_key, 'checkouts:' || p_event_id::text, p_event_limit, p_window) then
         raise exception 'event checkouts' using errcode = 'SH441';
       end if;
@@ -284,6 +295,7 @@ begin
       end if;
     end if;
   exception
+    when sqlstate 'SH440' then return 'minute';
     when sqlstate 'SH441' then return 'event';
     when sqlstate 'SH442' then return 'all';
   end;
@@ -303,12 +315,13 @@ $$;
 
 -- The limits for one attempt of p_kind: general admission through
 -- take_checkout_attempt; seated through take_seat_hold_attempt (per client
--- only: hold_seats keeps the event's). Returns 'ok', 'ok_alerted' (ok, and
--- a surge alert was queued), 'client_event_limit' or 'client_all_limit'; a
+-- only: hold_seats keeps the event's; p_minute_limit is general admission's
+-- only). Returns 'ok', 'ok_alerted' (ok, and a surge alert was queued),
+-- 'client_minute_limit', 'client_event_limit' or 'client_all_limit'; a
 -- refusal writes nothing.
 create function private.take_checkout_limits(
   p_kind text, p_client_key text, p_event_id uuid, p_client_event_limit integer, p_client_all_limit integer,
-  p_event_limit integer, p_window interval
+  p_event_limit integer, p_window interval, p_minute_limit integer, p_minute_window interval
 ) returns text
 language plpgsql
 set search_path = ''
@@ -323,14 +336,16 @@ begin
     v_result := private.take_seat_hold_attempt(p_client_key, p_event_id, p_client_event_limit, p_client_all_limit, p_window);
   else
     v_result := private.take_checkout_attempt(
-      p_client_key, p_event_id, p_client_event_limit, p_client_all_limit, p_event_limit, p_window);
+      p_client_key, p_event_id, p_client_event_limit, p_client_all_limit, p_event_limit, p_window,
+      p_minute_limit, p_minute_window);
   end if;
-  if v_result is null or v_result not in ('ok', 'surge', 'event', 'all') then
+  if v_result is null or v_result not in ('ok', 'surge', 'minute', 'event', 'all') then
     raise exception 'take_checkout_limits: unexpected result %', v_result using errcode = 'P0001';
   end if;
   return case v_result
     when 'ok' then 'ok'
     when 'surge' then 'ok_alerted'
+    when 'minute' then 'client_minute_limit'
     when 'event' then 'client_event_limit'
     else 'client_all_limit'
   end;
@@ -387,14 +402,16 @@ $$;
 --   'expired'             409 start a new checkout
 --   'completed'           409 already paid (attempt_order_status: paid,
 --                         oversold_refund_required or refunded)
---   'client_event_limit', 'client_all_limit'
---                         429; nothing written
+--   'client_minute_limit', 'client_event_limit', 'client_all_limit'
+--                         429; nothing written (the limits are taken only
+--                         when a new order is about to be made: never for a
+--                         reused order, a replay or any other answer above)
 -- alert_queued: taking the limits queued a checkout surge alert.
 create function private.begin_checkout_attempt(
   p_event_id uuid, p_key uuid, p_kind text, p_fingerprint text, p_new_order_id text,
   p_lease_token uuid, p_lease interval, p_reuse_within interval,
   p_client_key text, p_client_event_limit integer, p_client_all_limit integer,
-  p_event_limit integer, p_window interval,
+  p_event_limit integer, p_window interval, p_minute_limit integer, p_minute_window interval,
   out result text, out attempt_order_id text, out reused boolean, out attempt_session_url text,
   out attempt_hold_expires_at timestamptz, out retry_after_seconds integer, out attempt_order_status text,
   out alert_queued boolean
@@ -420,7 +437,8 @@ begin
     on conflict (idempotency_key) do nothing;
     if found then
       v_limit := private.take_checkout_limits(
-        p_kind, p_client_key, p_event_id, p_client_event_limit, p_client_all_limit, p_event_limit, p_window);
+        p_kind, p_client_key, p_event_id, p_client_event_limit, p_client_all_limit, p_event_limit, p_window,
+        p_minute_limit, p_minute_window);
       if v_limit not in ('ok', 'ok_alerted') then
         raise exception 'checkout limit' using errcode = 'SH449';
       end if;
@@ -480,7 +498,8 @@ begin
     attempt_order_id := v_row.order_id;
   else
     v_limit := private.take_checkout_limits(
-      p_kind, p_client_key, p_event_id, p_client_event_limit, p_client_all_limit, p_event_limit, p_window);
+      p_kind, p_client_key, p_event_id, p_client_event_limit, p_client_all_limit, p_event_limit, p_window,
+        p_minute_limit, p_minute_window);
     if v_limit not in ('ok', 'ok_alerted') then
       result := v_limit;
       return;
@@ -524,6 +543,12 @@ begin
     return 'lost';
   end if;
   select o.status into v_status from public.orders o where o.id = v_row.order_id for update;
+  -- The event's share lock, as every order insert takes: an edit tightening the
+  -- refund policy (which locks the event, then looks for payable orders,
+  -- 20261109000100_event_refund_policy.sql) either sees this session or
+  -- finishes first, so the payment page, which needs the session, shows the
+  -- policy the buyer pays under.
+  perform 1 from public.events e where e.id = v_row.event_id for share;
   if v_status is distinct from 'pending' then
     update private.checkout_attempts a
        set status = 'failed', lease_token = null, lease_expires_at = null, updated_at = now()
@@ -640,10 +665,10 @@ $$;
 
 revoke all on function private.checkout_attempt_state(private.checkout_attempts, text, text) from public, anon, authenticated;
 revoke all on function private.queue_checkout_surge_alert(uuid) from public, anon, authenticated;
-revoke all on function private.take_checkout_attempt(text, uuid, integer, integer, integer, interval) from public, anon, authenticated;
-revoke all on function private.take_checkout_limits(text, text, uuid, integer, integer, integer, interval) from public, anon, authenticated;
+revoke all on function private.take_checkout_attempt(text, uuid, integer, integer, integer, interval, integer, interval) from public, anon, authenticated;
+revoke all on function private.take_checkout_limits(text, text, uuid, integer, integer, integer, interval, integer, interval) from public, anon, authenticated;
 revoke all on function private.release_checkout_order(text) from public, anon, authenticated;
-revoke all on function private.begin_checkout_attempt(uuid, uuid, text, text, text, uuid, interval, interval, text, integer, integer, integer, interval) from public, anon, authenticated;
+revoke all on function private.begin_checkout_attempt(uuid, uuid, text, text, text, uuid, interval, interval, text, integer, integer, integer, interval, integer, interval) from public, anon, authenticated;
 revoke all on function private.finish_checkout_attempt(uuid, uuid, uuid, text, text, timestamptz, timestamptz) from public, anon, authenticated;
 revoke all on function private.fail_checkout_attempt(uuid, uuid, uuid, boolean) from public, anon, authenticated;
 revoke all on function private.purge_operational_data() from public, anon, authenticated;

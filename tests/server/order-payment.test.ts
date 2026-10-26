@@ -782,13 +782,12 @@ describe("rate limits", () => {
       const [{ n }] = await api.db.query<{ n: number }>(`select count(*)::int as n from public.orders`);
       expect(n).toBe(10);
       expect(api.stripe.checkout.sessions.create).toHaveBeenCalledTimes(10);
-      // A refusal keeps no extra hit beyond the limit's cap. The ten checkouts also counted towards the
-      // per-10-minute limits taken in the checkout attempt (tests/server/checkout-attempts.test.ts); the
-      // refused one, stopped first, didn't.
+      // Taken in the checkout attempt with its per-10-minute limits (tests/server/checkout-attempts.test.ts):
+      // a refusal keeps no hit in any bucket.
       expect(await limitCounters()).toEqual([
         { client_key: ipKey(IP), bucket: "checkouts", hits: 10 },
         { client_key: ipKey(IP), bucket: `checkouts:${event.eventId}`, hits: 10 },
-        { client_key: ipKey(IP), bucket: "paid_checkouts", hits: 11 },
+        { client_key: ipKey(IP), bucket: "paid_checkouts", hits: 10 },
       ]);
 
       expect((await checkout(event.eventId, { lineItems: [{ ticketTypeId: "ga", quantity: 1 }] }, OTHER_IP)).status).toBe(201);
@@ -824,7 +823,7 @@ describe("rate limits", () => {
         expect((await checkout(event.eventId, { lineItems: [{ ticketTypeId: "ga", quantity: 1 }] })).status).toBe(201);
       }
       expect(await limitCounters()).toEqual([]);
-      expect(warn).toHaveBeenCalledWith("Paid checkout without a client IP header: the per-client limit was skipped.");
+      expect(warn).toHaveBeenCalledWith("Checkout without a client IP header: the per-client checkout limit was skipped.");
     });
 
     it("fails open, logged, when the secret the keys are salted with isn't configured", async () => {
