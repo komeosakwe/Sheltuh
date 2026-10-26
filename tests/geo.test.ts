@@ -29,6 +29,12 @@ describe("resolveEventCoordinates", () => {
     expect(resolveEventCoordinates(event)).not.toBeNull();
   });
 
+  it.each(["constructor", "__proto__", "toString"])("never finds a position for the suburb %s on Object.prototype", (suburb) => {
+    const event = { ...findEvent("neon-static"), coordinates: undefined, suburb };
+    expect(resolveEventCoordinates(event)).toBeNull();
+    expect(resolveMapCoordinates(event)).toBeNull();
+  });
+
   it("returns null when neither coordinates nor a known suburb are available", () => {
     const event = { ...findEvent("neon-static"), coordinates: undefined, suburb: "Somewhere Unmapped" };
     expect(resolveEventCoordinates(event)).toBeNull();

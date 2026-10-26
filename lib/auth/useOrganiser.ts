@@ -4,65 +4,80 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, isApiConfigured, type GetToken } from "@/lib/api/client";
 import { getMyOrganiser } from "@/lib/api/organisers";
 import type { OrganiserRecord } from "@/lib/api/types";
+import { accountKey } from "./account";
 import { useAuth } from "./AuthContext";
 
-interface OrganiserQueryState {
-  loading: boolean;
+interface OrganiserResult {
   /** null = signed in but no application on file yet. */
   organiser: OrganiserRecord | null;
   error: string | null;
 }
 
-async function fetchOrganiser(getToken: GetToken): Promise<OrganiserQueryState> {
+/** A result, and the account it was fetched for. */
+interface Fetched extends OrganiserResult {
+  account: string;
+}
+
+async function fetchOrganiser(getToken: GetToken): Promise<OrganiserResult> {
   try {
     const organiser = await getMyOrganiser(getToken);
-    return { loading: false, organiser, error: null };
+    return { organiser, error: null };
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) {
-      return { loading: false, organiser: null, error: null };
+      return { organiser: null, error: null };
     }
-    return { loading: false, organiser: null, error: err instanceof Error ? err.message : "Couldn't load your organiser status." };
+    return { organiser: null, error: err instanceof Error ? err.message : "Couldn't load your organiser status." };
   }
 }
 
-/** Loads (and lets callers refetch) the signed-in user's own organiser application. */
+const API_NOT_CONFIGURED = "The live API is not configured in this environment.";
+
+/**
+ * Loads (and lets callers refetch) the signed-in user's own organiser
+ * application. A result belongs to the account it was fetched for, and is
+ * only ever shown for that account: when a different account signs in, it's
+ * `loading` until that account's own has arrived, never showing the last
+ * one's. Each sign-in fetches again; the same account signing back in (after
+ * a sign-out or an expiry) keeps its own last result meanwhile, so it isn't
+ * `loading`. A token refresh fetches nothing. `refetch` keeps the current
+ * result while it runs (`refreshing`), so a page never swaps what it shows (a
+ * form being filled in, above all) for a loader.
+ */
 export function useOrganiser() {
   const auth = useAuth();
   const getToken = auth.getAccessToken;
-  const [state, setState] = useState<OrganiserQueryState>(() =>
-    isApiConfigured
-      ? { loading: true, organiser: null, error: null }
-      : { loading: false, organiser: null, error: "The live API is not configured in this environment." },
-  );
+  const account = accountKey(auth);
+  const [fetched, setFetched] = useState<Fetched | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Explicit re-fetch for use after a user action (submit, resubmit) —
-  // never called directly from an effect body.
+  // Explicit re-fetch for use after a user action (submit, resubmit, try
+  // again) — never called directly from an effect body.
   const refetch = useCallback(async () => {
-    if (!isApiConfigured || auth.status !== "signed-in") return;
-    setState((s) => ({ ...s, loading: true }));
-    setState(await fetchOrganiser(getToken));
-  }, [auth.status, getToken]);
+    if (!isApiConfigured || account === null) return;
+    setRefreshing(true);
+    const result = await fetchOrganiser(getToken);
+    setFetched({ ...result, account });
+    setRefreshing(false);
+  }, [account, getToken]);
 
+  // Each account's own, once it's signed in.
   useEffect(() => {
-    if (!isApiConfigured || auth.status === "loading") return;
+    if (!isApiConfigured || account === null) return;
     let cancelled = false;
-
-    if (auth.status !== "signed-in") {
-      queueMicrotask(() => {
-        if (!cancelled) setState({ loading: false, organiser: null, error: null });
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
-
     fetchOrganiser(getToken).then((result) => {
-      if (!cancelled) setState(result);
+      if (!cancelled) setFetched({ ...result, account });
     });
     return () => {
       cancelled = true;
     };
-  }, [auth.status, getToken]);
+  }, [account, getToken]);
 
-  return { ...state, refetch, authStatus: auth.status };
+  let state: OrganiserResult & { loading: boolean };
+  if (!isApiConfigured) state = { loading: false, organiser: null, error: API_NOT_CONFIGURED };
+  else if (auth.status === "loading") state = { loading: true, organiser: null, error: null };
+  else if (account === null) state = { loading: false, organiser: null, error: null };
+  else if (!fetched || fetched.account !== account) state = { loading: true, organiser: null, error: null };
+  else state = { loading: false, organiser: fetched.organiser, error: fetched.error };
+
+  return { ...state, refreshing, refetch, authStatus: auth.status };
 }

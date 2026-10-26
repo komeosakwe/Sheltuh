@@ -13,13 +13,18 @@ import type { SheltuhEvent } from "@/lib/types";
 interface FeedProps {
   /** Free-text search from /search; both the demo and live feeds honour it. */
   query?: string;
+  /**
+   * A suburb from /search?near=: results in bands by distance from it. Used
+   * only in the browser; never sent to the API.
+   */
+  near?: string;
   /** Starting filters (from /events?category=&pricing=). They only seed the filter state. */
   initialCategory?: CategoryFilter;
   initialPricing?: PricingFilter;
 }
 
 /** The demo/sample-data feed — a small fixed list, so no pagination applies here. */
-function DemoEventFeed({ query, initialCategory, initialPricing }: FeedProps) {
+function DemoEventFeed({ query, near, initialCategory, initialPricing }: FeedProps) {
   const categories = getEventCategories();
   const [events, setEvents] = useState<SheltuhEvent[] | null>(null);
   const [summary, setSummary] = useState("");
@@ -50,6 +55,7 @@ function DemoEventFeed({ query, initialCategory, initialPricing }: FeedProps) {
           events={events}
           categories={categories}
           query={query}
+          near={near}
           initialCategory={initialCategory}
           initialPricing={initialPricing}
           onSummaryChange={setSummary}
@@ -59,17 +65,18 @@ function DemoEventFeed({ query, initialCategory, initialPricing }: FeedProps) {
   );
 }
 
-export default function EventFeed({ query, initialCategory, initialPricing }: FeedProps = {}) {
+export default function EventFeed({ query, near, initialCategory, initialPricing }: FeedProps = {}) {
   const categories = getEventCategories();
 
   if (!isApiConfigured) {
-    return <DemoEventFeed query={query} initialCategory={initialCategory} initialPricing={initialPricing} />;
+    return <DemoEventFeed query={query} near={near} initialCategory={initialCategory} initialPricing={initialPricing} />;
   }
 
   return (
     <LiveEventFeed
       categories={categories}
       query={query}
+      near={near}
       initialCategory={initialCategory}
       initialPricing={initialPricing}
     />

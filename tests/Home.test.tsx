@@ -22,7 +22,7 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     await settle();
 
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
-    expect(screen.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your new thing.");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
     // The brief's order (mobile-redesign.md §6.3.1): Trending and Coming up are one slot, and Free &
     // low-cost and Only in the city have left the home (the latter is at the end of /events).
     // Refinement (22 Oct 2026): the category chips are a labelled nav under the search, with no heading.
@@ -40,7 +40,7 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
   it("puts the category row between the hero and the first event section, each chip to its /events filter", async () => {
     render(<Home />);
     await settle();
-    const hero = screen.getByRole("region", { name: "Find your new thing." });
+    const hero = screen.getByRole("region", { name: "Find your next thing." });
     const categories = screen.getByRole("navigation", { name: "Browse by category" });
     const weekend = screen.getByRole("region", { name: "This weekend" });
     expect(hero.compareDocumentPosition(categories) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -101,7 +101,7 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     // The band's example is a real sample count from a card on the page, labelled too.
     const example = container.querySelector("[data-community-example]");
     expect(example?.querySelector("[data-community-count]")).toHaveTextContent(/^\d+ people going$/);
-    expect(example).toHaveTextContent(/Example event · Sample attendees$/);
+    expect(example?.querySelector("[data-community-note]")).toHaveTextContent(/^Example event · Sample count · Illustrative photos$/);
     const quick = screen.getAllByRole("link", { name: /tickets for/ });
     expect(quick.length).toBeGreaterThan(5);
     for (const link of quick) {
@@ -128,10 +128,13 @@ describe("Home (demo data, Wed 21 Oct 2026)", () => {
     const waitlist = screen.getAllByRole("link", { name: /Join waitlist for/ });
     for (const link of waitlist) expect(link).toHaveClass("btn-outline");
     const orange = Array.from(container.querySelectorAll(".btn-signal"));
-    // Every other card quick-buy is orange (black label), and nothing else: the hero's main action is
-    // the search now, and "Explore all events" is a text link (owner feedback, 22 Oct 2026).
-    expect(orange).toHaveLength(quickBuy.length);
-    expect(orange.filter((el) => !quickBuy.includes(el as HTMLElement))).toEqual([]);
+    // Every other card quick-buy is orange (black label), and the hero's search submit: the hero's main
+    // action is the search (owner feedback, 22 Oct 2026), whose submit is orange since the owner round of
+    // 24 Oct 2026 (the Eventbrite-style bar). "Explore all events" is a text link.
+    const searchSubmit = screen.getByRole("search", { name: "Search events" }).querySelector("button[type='submit']");
+    expect(orange).toHaveLength(quickBuy.length + 1);
+    expect(orange).toContain(searchSubmit);
+    expect(orange.filter((el) => el !== searchSubmit && !quickBuy.includes(el as HTMLElement))).toEqual([]);
     // Never an orange button on the orange band.
     expect(band?.querySelector(".btn-signal")).toBeNull();
   });

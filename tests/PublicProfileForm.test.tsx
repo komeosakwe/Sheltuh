@@ -5,11 +5,15 @@ import PublicProfileForm from "@/components/dashboard/PublicProfileForm";
 import PublicProfilePanel from "@/components/dashboard/PublicProfilePanel";
 import { ApiError } from "@/lib/api/client";
 import type { OrganiserRecord } from "@/lib/api/types";
-import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { SessionExpiredError, type AuthContextValue } from "@/lib/auth/AuthContext";
+import { callsTokenFirst, fakeAuthValue, FakeAuthProvider, switchableSession } from "./test-utils/fakeAuth";
 
 const updateOrganiserProfile = vi.fn();
 vi.mock("@/lib/api/organisers", () => ({
   updateOrganiserProfile: (...args: unknown[]) => updateOrganiserProfile(...args),
+  // The panel's logo field (tested in OrganiserLogoField.test.tsx); never called here.
+  uploadOrganiserLogo: vi.fn(),
+  deleteOrganiserLogo: vi.fn(),
 }));
 
 let organiserState: { loading: boolean; organiser: OrganiserRecord | null; error: string | null };
@@ -38,12 +42,10 @@ beforeEach(() => {
   organiserState = { loading: false, organiser: RECORD, error: null };
 });
 
-const getToken = vi.fn().mockResolvedValue("token");
-
 function renderForm(record: OrganiserRecord = RECORD) {
   render(
     <FakeAuthProvider value={fakeAuthValue()}>
-      <PublicProfileForm organiser={record} getToken={getToken} />
+      <PublicProfileForm organiser={record} />
     </FakeAuthProvider>,
   );
 }
@@ -108,7 +110,8 @@ describe("PublicProfileForm", () => {
 
     expect(updateOrganiserProfile).toHaveBeenCalledTimes(1);
     expect(updateOrganiserProfile.mock.calls[0][0]).toEqual({ description: "New bio.", xHandle: "@nsnoise" });
-    expect(updateOrganiserProfile.mock.calls[0][1]).toBe(getToken);
+    // Sent with the owner's token (the fake session's own).
+    await expect(updateOrganiserProfile.mock.calls[0][1]()).resolves.toBe("fake-access-token");
     const busy = screen.getByRole("button", { name: "Saving…" });
     expect(busy).toHaveAttribute("aria-disabled", "true");
 
@@ -293,6 +296,31 @@ describe("PublicProfilePanel", () => {
     expect(screen.getByLabelText("Bio (required)")).toBeInTheDocument();
   });
 
+  it("puts the logo field (saved on its own) above the profile form", () => {
+    renderPanel();
+    const logo = screen.getByLabelText(/Logo \(optional\)/);
+    expect(logo).toHaveAttribute("type", "file");
+    const bio = screen.getByLabelText("Bio (required)");
+    expect(logo.compareDocumentPosition(bio) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Not part of the form: choosing a logo doesn't submit or wait for "Save profile".
+    expect(logo.closest("form")).toBeNull();
+  });
+
+  it("has no logo field before approval, or where accounts aren't configured (the demo)", () => {
+    organiserState = { loading: false, organiser: { ...RECORD, status: "pending" }, error: null };
+    renderPanel();
+    expect(screen.queryByLabelText(/Logo \(optional\)/)).toBeNull();
+    cleanup();
+    organiserState = { loading: false, organiser: RECORD, error: null };
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ configured: false, status: "signed-out" })}>
+        <PublicProfilePanel />
+      </FakeAuthProvider>,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Accounts aren’t configured in this environment yet.");
+    expect(screen.queryByLabelText(/Logo \(optional\)/)).toBeNull();
+  });
+
   it("has no form until the organiser is approved", () => {
     organiserState = { loading: false, organiser: { ...RECORD, status: "pending" }, error: null };
     renderPanel();
@@ -337,7 +365,7 @@ describe("PublicProfileForm: featured video", () => {
   it("starts with the saved video's link and a preview facade (no player loaded)", () => {
     const { container } = render(
       <FakeAuthProvider value={fakeAuthValue()}>
-        <PublicProfileForm organiser={{ ...RECORD, featuredVideo: { provider: "vimeo", id: "76979871" } }} getToken={getToken} />
+        <PublicProfileForm organiser={{ ...RECORD, featuredVideo: { provider: "vimeo", id: "76979871" } }} />
       </FakeAuthProvider>,
     );
     expect(screen.getByLabelText("Featured video (optional)")).toHaveValue("https://vimeo.com/76979871");
@@ -367,7 +395,7 @@ describe("PublicProfileForm: featured video", () => {
     expect(screen.getByRole("button", { name: /Play video/ })).toBeInTheDocument();
     save();
     await waitFor(() =>
-      expect(updateOrganiserProfile).toHaveBeenCalledWith({ featuredVideoUrl: "youtu.be/dQw4w9WgXcQ" }, getToken),
+      expect(updateOrganiserProfile).toHaveBeenCalledWith({ featuredVideoUrl: "youtu.be/dQw4w9WgXcQ" }, expect.any(Function)),
     );
     // Stored as provider + id: the field shows its canonical link.
     await waitFor(() => expect(field).toHaveValue("https://www.youtube.com/watch?v=dQw4w9WgXcQ"));
@@ -378,6 +406,47 @@ describe("PublicProfileForm: featured video", () => {
     expect(updateOrganiserProfile).toHaveBeenCalledTimes(1);
     fireEvent.change(field, { target: { value: "" } });
     save();
-    await waitFor(() => expect(updateOrganiserProfile).toHaveBeenLastCalledWith({ featuredVideoUrl: null }, getToken));
+    await waitFor(() => expect(updateOrganiserProfile).toHaveBeenLastCalledWith({ featuredVideoUrl: null }, expect.any(Function)));
+  });
+});
+
+describe("PublicProfileForm — never saved as another account", () => {
+  const OWNER = { userId: "user-1", email: "org@example.com" };
+  const OTHER = { userId: "user-2", email: "other@example.com" };
+
+  function renderAs(session = switchableSession(OWNER)) {
+    const tree = (account: Partial<AuthContextValue>) => (
+      <FakeAuthProvider value={fakeAuthValue({ status: "signed-in", ...account, ...session.auth })}>
+        <PublicProfileForm organiser={RECORD} />
+      </FakeAuthProvider>
+    );
+    const view = render(tree(OWNER));
+    return (account: Partial<AuthContextValue>) => view.rerender(tree(account));
+  }
+
+  it("someone else signed in by now (another tab): the recovery opens, locked to the owner, and nothing is saved", async () => {
+    const become = renderAs();
+    fireEvent.change(screen.getByLabelText("Bio (required)"), { target: { value: "New bio." } });
+    become(OTHER);
+    save();
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(new SessionExpiredError().message));
+    expect(updateOrganiserProfile).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Email")).toHaveValue("org@example.com");
+    expect(screen.getByText(/^You're signed in as a different account/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Bio (required)")).toHaveValue("New bio.");
+  });
+
+  it("changed after the check, before the request: the token is refused, so nothing is saved as them", async () => {
+    const session = switchableSession(OWNER);
+    updateOrganiserProfile.mockImplementation((...args: unknown[]) => {
+      session.become(OTHER); // After the check, before the request's token.
+      return callsTokenFirst({ ...RECORD, description: "New bio." })(...args);
+    });
+    renderAs(session);
+    fireEvent.change(screen.getByLabelText("Bio (required)"), { target: { value: "New bio." } });
+    save();
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(new SessionExpiredError().message));
+    expect(screen.queryByText(/Profile saved/)).toBeNull();
+    expect(screen.getByLabelText("Bio (required)")).toHaveValue("New bio.");
   });
 });

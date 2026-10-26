@@ -26,7 +26,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { EmailMessage } from "../lib/server/email";
-import { CREAM } from "../lib/server/email-layout";
+import { PAGE } from "../lib/server/email-layout";
 import { buildFollowerNewEventsEmail } from "../lib/server/follower-email";
 import { buildFreeConfirmationEmail } from "../lib/server/free-confirmation-email";
 import { buildTicketEmail } from "../lib/server/ticket-email";
@@ -107,7 +107,7 @@ function qrSvgPage(code: string, email: EmailMessage): string {
   const png = email.inlineImages?.find((image) => image.cid.startsWith("ticket-qr-"));
   const pngTag = png ? `<img src="data:${png.contentType};base64,${png.content.toString("base64")}" width="174" height="174" alt="PNG">` : "";
   return `<!DOCTYPE html><html lang="en-AU"><head><meta charset="utf-8"><title>QR ${code}</title></head>
-<body style="font-family:sans-serif;background:${CREAM};padding:24px">
+<body style="font-family:sans-serif;background:${PAGE};padding:24px">
 <p>SVG (ticketQrSvgPath) and the email's PNG for ${code}</p>
 <svg role="img" aria-label="${ticketQrLabel(code)}" viewBox="0 0 ${size} ${size}" width="174" height="174" shape-rendering="crispEdges"><rect width="${size}" height="${size}" fill="#fff"/><path d="${d}" fill="#000"/></svg>
 ${pngTag}

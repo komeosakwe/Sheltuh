@@ -108,3 +108,15 @@ describe("adaptPublicEvent: reserved seating", () => {
     expect(adaptPublicEvent({ ...base, ticketTypes: [ga] })).not.toHaveProperty("seating");
   });
 });
+
+describe("adaptPublicEvent: organiser logo", () => {
+  it("carries the logo thumbnail when the API sends one", () => {
+    const url = "/api/organisers/org-1/logo?size=thumb&v=1730000000000";
+    expect(adaptPublicEvent({ ...base, organiserLogoThumbUrl: url }).organiserLogoThumbUrl).toBe(url);
+  });
+
+  it("has no logo field without one (the event page shows initials)", () => {
+    expect(adaptPublicEvent(base)).not.toHaveProperty("organiserLogoThumbUrl");
+    expect(adaptPublicEvent({ ...base, organiserLogoThumbUrl: "" })).not.toHaveProperty("organiserLogoThumbUrl");
+  });
+});

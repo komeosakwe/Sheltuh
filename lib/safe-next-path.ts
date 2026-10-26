@@ -1,3 +1,10 @@
+/**
+ * Where people land after signing in, signing up or verifying when there's
+ * no safe `next`: the events feed. Organisers reach their dashboard from
+ * the header ("My events"); most accounts are attendees.
+ */
+export const DEFAULT_AFTER_SIGN_IN = "/events";
+
 const PLACEHOLDER_ORIGIN = "https://sheltuh.invalid";
 const MAX_LENGTH = 2048;
 // Control characters and whitespace (browsers strip tabs/newlines from URLs,

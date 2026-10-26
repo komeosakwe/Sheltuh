@@ -5,18 +5,30 @@ import OrganiserQueue from "@/components/admin/OrganiserQueue";
 import { ApiError } from "@/lib/api/client";
 import { SessionExpiredError } from "@/lib/auth/session-token";
 import type { AdminOrganiserRecord, OrganiserStatus } from "@/lib/api/types";
+import type { AdminListOrganisersQuery } from "@/lib/api/admin";
 import { formatDayTime } from "@/lib/format";
+import { AdminOwnerProvider } from "@/components/admin/AdminSessionExpired";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { fakeUrl } from "./test-utils/fakeUrl";
+
+vi.mock("next/navigation", async () => (await import("./test-utils/fakeUrl")).fakeNavigation);
 
 const adminListOrganisers = vi.fn();
 const adminApproveOrganiser = vi.fn();
 const adminRejectOrganiser = vi.fn();
 const adminSuspendOrganiser = vi.fn();
+const adminRemoveOrganiserLogo = vi.fn();
 vi.mock("@/lib/api/admin", () => ({
   adminListOrganisers: (...args: unknown[]) => adminListOrganisers(...args),
   adminApproveOrganiser: (...args: unknown[]) => adminApproveOrganiser(...args),
   adminRejectOrganiser: (...args: unknown[]) => adminRejectOrganiser(...args),
   adminSuspendOrganiser: (...args: unknown[]) => adminSuspendOrganiser(...args),
+  adminRemoveFeaturedVideo: vi.fn(),
+  adminRemoveOrganiserLogo: (...args: unknown[]) => adminRemoveOrganiserLogo(...args),
+}));
+const fetchOrganiserLogo = vi.fn();
+vi.mock("@/lib/api/organisers", () => ({
+  fetchOrganiserLogo: (...args: unknown[]) => fetchOrganiserLogo(...args),
 }));
 
 // jsdom has no modal dialogs: give <dialog> what a browser would.
@@ -31,10 +43,16 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  fakeUrl.set("");
+  fakeUrl.replace.mockReset();
   adminListOrganisers.mockReset();
   adminApproveOrganiser.mockReset();
   adminRejectOrganiser.mockReset();
   adminSuspendOrganiser.mockReset();
+  adminRemoveOrganiserLogo.mockReset();
+  fetchOrganiserLogo.mockReset();
+  fetchOrganiserLogo.mockResolvedValue(new Blob(["logo"], { type: "image/webp" }));
+  Object.assign(URL, { createObjectURL: vi.fn(() => "blob:logo"), revokeObjectURL: vi.fn() });
 });
 afterEach(cleanup);
 
@@ -59,14 +77,19 @@ function organiser(id: string, overrides: Partial<AdminOrganiserRecord> = {}): A
 
 /** Lists `items` for `status`, and nothing for any other status. */
 function listing(status: OrganiserStatus, items: AdminOrganiserRecord[]) {
-  adminListOrganisers.mockImplementation(async (asked: OrganiserStatus) => ({ items: asked === status ? items : [] }));
+  adminListOrganisers.mockImplementation(async (asked: AdminListOrganisersQuery) => ({
+    items: asked.status === status ? items : [],
+  }));
 }
 
 function renderQueue() {
   const auth = fakeAuthValue({ isAdmin: true });
   render(
     <FakeAuthProvider value={auth}>
-      <OrganiserQueue />
+      {/* As AdminShell does on every admin page: the admin these pages are open as. */}
+      <AdminOwnerProvider>
+        <OrganiserQueue />
+      </AdminOwnerProvider>
     </FakeAuthProvider>,
   );
   return auth;
@@ -81,7 +104,7 @@ function articleOf(name: string): HTMLElement {
 const TAB_LABELS: Record<OrganiserStatus, string> = {
   pending: "Pending",
   approved: "Approved",
-  rejected: "Rejected & suspended",
+  rejected: "Rejected or suspended",
 };
 
 /** The visible result of the last action (there's also a screen-reader-only one for loads). */
@@ -102,7 +125,7 @@ async function showStatus(status: Exclude<OrganiserStatus, "pending">) {
   renderQueue();
   await screen.findByText("Nothing to review");
   fireEvent.click(screen.getByRole("button", { name: TAB_LABELS[status] }));
-  await waitFor(() => expect(adminListOrganisers).toHaveBeenLastCalledWith(status, expect.any(Function)));
+  await waitFor(() => expect(adminListOrganisers).toHaveBeenLastCalledWith({ status }, expect.any(Function)));
 }
 
 async function showApproved() {
@@ -122,20 +145,21 @@ describe("Admin organisers: statuses", () => {
     listing("approved", [organiser("a1")]);
     renderQueue();
     expect(await screen.findByText("Nothing to review")).toBeInTheDocument();
-    expect(adminListOrganisers).toHaveBeenCalledWith("pending", expect.any(Function));
+    expect(adminListOrganisers).toHaveBeenCalledWith({ status: "pending" }, expect.any(Function));
     expect(screen.getByRole("button", { name: "Pending" })).toHaveAttribute("aria-pressed", "true");
     // Pressed shows the two dots too, not colour alone.
     expect(screen.getByRole("button", { name: "Pending" }).querySelector("[data-selected-dots]")).not.toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Approved" }));
     expect(await screen.findByRole("heading", { name: "Org a1" })).toBeInTheDocument();
-    expect(adminListOrganisers).toHaveBeenLastCalledWith("approved", expect.any(Function));
+    expect(adminListOrganisers).toHaveBeenLastCalledWith({ status: "approved" }, expect.any(Function));
+    expect(fakeUrl.replace).toHaveBeenLastCalledWith("/admin/organisers?status=approved", { scroll: false });
     expect(screen.getByRole("button", { name: "Approved" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Approved organisers");
 
-    fireEvent.click(screen.getByRole("button", { name: "Rejected & suspended" }));
+    fireEvent.click(screen.getByRole("button", { name: "Rejected or suspended" }));
     expect(await screen.findByText("None yet")).toBeInTheDocument();
-    expect(adminListOrganisers).toHaveBeenLastCalledWith("rejected", expect.any(Function));
+    expect(adminListOrganisers).toHaveBeenLastCalledWith({ status: "rejected" }, expect.any(Function));
   });
 
   it("shows a load failure with a way to try again", async () => {
@@ -200,13 +224,13 @@ describe("Admin organisers: website and social handles", () => {
 
 describe("Admin organisers: suspending", () => {
   it("only offers Suspend… to approved organisers", async () => {
-    adminListOrganisers.mockImplementation(async (status: OrganiserStatus) => ({
+    adminListOrganisers.mockImplementation(async ({ status }: AdminListOrganisersQuery) => ({
       items: [organiser(`${status}-1`, { status })],
     }));
     renderQueue();
     await screen.findByRole("heading", { name: "Org pending-1" });
     expect(screen.queryByRole("button", { name: "Suspend…" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Rejected & suspended" }));
+    fireEvent.click(screen.getByRole("button", { name: "Rejected or suspended" }));
     await screen.findByRole("heading", { name: "Org rejected-1" });
     expect(screen.queryByRole("button", { name: "Suspend…" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Approved" }));
@@ -290,9 +314,9 @@ describe("Admin organisers: suspending", () => {
       "Suspended Org a1. 1 event unpublished. 2 submissions rejected.",
     );
     await waitFor(() => expect(screen.getByRole("heading", { name: "Approved organisers (0)" })).toHaveFocus());
-    expect(screen.getByRole("heading", { name: "Approved organisers (0)" })).toHaveAccessibleDescription(
-      "Suspended Org a1. 1 event unpublished. 2 submissions rejected.",
-    );
+    // Said once, by the status line: the heading that takes focus isn't described by it too.
+    expect(actionStatus()).toHaveAttribute("role", "status");
+    expect(screen.getByRole("heading", { name: "Approved organisers (0)" })).not.toHaveAttribute("aria-describedby");
   });
 
   it("Cancel closes the dialog and returns focus to Suspend…", async () => {
@@ -611,7 +635,9 @@ describe("Admin organisers: a suspend in flight", () => {
     const auth = fakeAuthValue({ isAdmin: true, email: "admin@example.com" });
     render(
       <FakeAuthProvider value={auth}>
-        <OrganiserQueue />
+        <AdminOwnerProvider>
+          <OrganiserQueue />
+        </AdminOwnerProvider>
       </FakeAuthProvider>,
     );
     await screen.findByText("Nothing to review");
@@ -721,7 +747,7 @@ describe("Admin organisers: already reviewed", () => {
     expect(actionStatus()).toHaveTextContent("Org p1 was already reviewed, so it’s been taken off this list.");
     const next = screen.getByRole("heading", { name: "Org p2" });
     await waitFor(() => expect(next).toHaveFocus());
-    expect(next).toHaveAccessibleDescription("Org p1 was already reviewed, so it’s been taken off this list.");
+    expect(next).not.toHaveAttribute("aria-describedby");
   });
 });
 
@@ -770,7 +796,7 @@ describe("Admin organisers: an expired session while reviewing", () => {
 
 describe("Admin organisers: loading", () => {
   it("announces each filter's result and shows the count in the heading", async () => {
-    adminListOrganisers.mockImplementation(async (status: OrganiserStatus) => ({
+    adminListOrganisers.mockImplementation(async ({ status }: AdminListOrganisersQuery) => ({
       items:
         status === "pending"
           ? [organiser("p1", { status }), organiser("p2", { status }), organiser("p3", { status })]
@@ -790,7 +816,7 @@ describe("Admin organisers: loading", () => {
   });
 
   it("says when there are more to load", async () => {
-    adminListOrganisers.mockImplementation(async (status: OrganiserStatus) =>
+    adminListOrganisers.mockImplementation(async ({ status }: AdminListOrganisersQuery) =>
       status === "approved" ? { items: [organiser("a1")], nextCursor: "c1" } : { items: [] },
     );
     await showStatus("approved");
@@ -811,4 +837,200 @@ describe("Admin organisers: loading", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "Org p2" })).toHaveFocus());
     expect(screen.queryByRole("alert")).toBeNull();
   });
+});
+
+describe("Admin organisers: logo", () => {
+  const LOGO_URL = "/api/organisers/a1/logo?v=1730000000000";
+
+  it("shows the logo (fetched with the admin's token, whatever their status), or None", async () => {
+    listing("pending", [organiser("p1", { status: "pending", logoUrl: "/api/organisers/p1/logo?v=1" }), organiser("p2", { status: "pending" })]);
+    renderQueue();
+    await screen.findByRole("heading", { name: "Org p1" });
+
+    const logo = await within(articleOf("Org p1")).findByRole("img", { name: "Org p1’s logo" });
+    expect(logo).toHaveAttribute("src", "blob:logo");
+    expect(fetchOrganiserLogo).toHaveBeenCalledWith("/api/organisers/p1/logo?v=1", expect.any(Function), expect.any(AbortSignal));
+    const term = within(articleOf("Org p1")).getByText("Logo", { selector: "dt" });
+    expect(term.nextElementSibling).toContainElement(logo);
+
+    const none = within(articleOf("Org p2")).getByText("Logo", { selector: "dt" }).nextElementSibling;
+    expect(none).toHaveTextContent("None");
+    expect(within(articleOf("Org p2")).queryByRole("button", { name: "Remove logo…" })).toBeNull();
+  });
+
+  it("says when the logo can't be loaded", async () => {
+    fetchOrganiserLogo.mockRejectedValue(new ApiError(404, "Not found."));
+    listing("approved", [organiser("a1", { logoUrl: LOGO_URL })]);
+    await showApproved();
+    expect(await within(articleOf("Org a1")).findByText("Couldn’t load the logo.")).toBeInTheDocument();
+  });
+
+  it("names logo changes on the log, as when each was uploaded", async () => {
+    listing("approved", [
+      organiser("a1", {
+        recentEdits: [
+          {
+            kind: "profile_edit",
+            at: "2026-09-20T02:30:00.000Z",
+            changes: { logo: { old: null, new: "1758335400000" } },
+          },
+        ],
+      }),
+    ]);
+    await showApproved();
+    const log = within(articleOf("Org a1")).getByText(/Recent changes \(1\)/).closest("details") as HTMLElement;
+    expect(within(log).getByText("Logo", { selector: "dt" })).toBeInTheDocument();
+    expect(log).toHaveTextContent(`After: Uploaded ${formatDayTime("2025-09-20T02:30:00.000Z")}`);
+  });
+
+  it("Remove logo… asks for a reason (required, up to 500), removes it, says so and focuses the organiser", async () => {
+    const before = organiser("a1", { logoUrl: LOGO_URL });
+    const after = organiser("a1", {
+      recentEdits: [
+        {
+          kind: "profile_edit",
+          at: "2026-10-21T00:00:00.000Z",
+          byStaff: true,
+          reason: "Not their logo.",
+          changes: { logo: { old: "1730000000000", new: null } },
+        },
+      ],
+    });
+    adminRemoveOrganiserLogo.mockResolvedValue(after);
+    listing("approved", [before]);
+    await showApproved();
+    const article = articleOf("Org a1");
+
+    fireEvent.click(within(article).getByRole("button", { name: "Remove logo…" }));
+    const group = within(article).getByRole("group", { name: "Remove Org a1’s logo?" });
+    const reason = within(group).getByLabelText("Reason (kept on their log)");
+    await waitFor(() => expect(reason).toHaveFocus());
+    expect(group).toHaveTextContent("0/500");
+
+    fireEvent.click(within(group).getByRole("button", { name: "Remove logo" }));
+    expect(reason).toHaveAttribute("aria-invalid", "true");
+    fireEvent.change(reason, { target: { value: "x".repeat(501) } });
+    fireEvent.click(within(group).getByRole("button", { name: "Remove logo" }));
+    expect(reason).toHaveAttribute("aria-invalid", "true");
+    expect(adminRemoveOrganiserLogo).not.toHaveBeenCalled();
+
+    fireEvent.change(reason, { target: { value: "Not their logo." } });
+    fireEvent.click(within(group).getByRole("button", { name: "Remove logo" }));
+    await waitFor(() => expect(adminRemoveOrganiserLogo).toHaveBeenCalledWith("a1", "Not their logo.", expect.any(Function)));
+    await waitFor(() => expect(actionStatus()).toHaveTextContent("Removed Org a1’s logo."));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Org a1" })).toHaveFocus());
+    const updated = articleOf("Org a1");
+    expect(within(updated).queryByRole("button", { name: "Remove logo…" })).toBeNull();
+    // The profile's Logo row (the log below names the field too).
+    expect(within(updated).getAllByText("Logo", { selector: "dt" })[0].nextElementSibling).toHaveTextContent("None");
+    expect(within(updated).getByText("Edit by the Sheltüh team")).toBeInTheDocument();
+  });
+
+  it("Cancel closes it and returns focus to Remove logo…; a failure is shown in place", async () => {
+    adminRemoveOrganiserLogo.mockRejectedValue(new ApiError(500, "Boom."));
+    listing("approved", [organiser("a1", { logoUrl: LOGO_URL })]);
+    await showApproved();
+    const article = articleOf("Org a1");
+
+    fireEvent.click(within(article).getByRole("button", { name: "Remove logo…" }));
+    fireEvent.click(within(article).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(within(article).getByRole("button", { name: "Remove logo…" })).toHaveFocus());
+
+    fireEvent.click(within(article).getByRole("button", { name: "Remove logo…" }));
+    fireEvent.change(within(article).getByLabelText("Reason (kept on their log)"), { target: { value: "Spam." } });
+    fireEvent.click(within(article).getByRole("button", { name: "Remove logo" }));
+    expect(await within(article).findByRole("alert")).toHaveTextContent("Couldn’t remove the logo. Try again.");
+    expect(within(article).getByRole("img", { name: "Org a1’s logo" })).toBeInTheDocument();
+  });
+});
+
+describe("Admin organisers: the URL and search", () => {
+  it("opens on the URL's status and search (the hub's Find an organiser link), with the search in the box", async () => {
+    fakeUrl.set("status=approved&q=neon");
+    listing("approved", [organiser("a1", { displayName: "Neon Nights" })]);
+    renderQueue();
+    expect(await screen.findByRole("heading", { name: "Neon Nights" })).toBeInTheDocument();
+    expect(adminListOrganisers).toHaveBeenCalledWith({ status: "approved", q: "neon" }, expect.any(Function));
+    expect(screen.getByRole("button", { name: "Approved" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("searchbox", { name: "Search by name, email or handle" })).toHaveValue("neon");
+    expect(screen.getByText("Matching “neon”.")).toBeInTheDocument();
+  });
+
+  it("searches on submit and clears, keeping focus in the search box; the same search again reloads", async () => {
+    listing("pending", [organiser("p1", { status: "pending" })]);
+    renderQueue();
+    await screen.findByRole("heading", { name: "Org p1" });
+    const box = screen.getByRole("searchbox", { name: "Search by name, email or handle" });
+    fireEvent.change(box, { target: { value: "  @static  " } });
+    const searchButton = screen.getByRole("button", { name: "Search" });
+    searchButton.focus();
+    fireEvent.click(searchButton);
+    expect(fakeUrl.replace).toHaveBeenLastCalledWith("/admin/organisers?q=%40static", { scroll: false });
+    await waitFor(() =>
+      expect(adminListOrganisers).toHaveBeenLastCalledWith({ status: "pending", q: "@static" }, expect.any(Function)),
+    );
+    // Not remounted: the same box, still focused, showing the search.
+    expect(screen.getByRole("searchbox", { name: "Search by name, email or handle" })).toBe(box);
+    await waitFor(() => expect(box).toHaveFocus());
+    expect(box).toHaveValue("@static");
+    await waitFor(() => expect(loadStatus()).toHaveTextContent("1 pending application matching “@static”."));
+
+    const calls = adminListOrganisers.mock.calls.length;
+    fireEvent.submit(box.closest("form") as HTMLFormElement);
+    await waitFor(() => expect(adminListOrganisers).toHaveBeenCalledTimes(calls + 1));
+    expect(adminListOrganisers).toHaveBeenLastCalledWith({ status: "pending", q: "@static" }, expect.any(Function));
+
+    const clear = await screen.findByRole("button", { name: "Clear search" });
+    clear.focus();
+    fireEvent.click(clear);
+    expect(fakeUrl.replace).toHaveBeenLastCalledWith("/admin/organisers", { scroll: false });
+    await waitFor(() => expect(box).toHaveFocus());
+    expect(box).toHaveValue("");
+    expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
+  });
+
+  it("a search with no match says so, with Clear search", async () => {
+    fakeUrl.set("q=zzz");
+    listing("approved", []);
+    renderQueue();
+    expect(await screen.findByText("Nothing matches “zzz”")).toBeInTheDocument();
+  });
+
+  it.each(["succeeds", "fails"] as const)(
+    "a Load more that %s after the filter changed leaves the new list alone",
+    async (outcome) => {
+      let finishMore: (page: { items: AdminOrganiserRecord[] }) => void = () => {};
+      let failMore: (err: unknown) => void = () => {};
+      adminListOrganisers.mockImplementation(async ({ status, cursor }: AdminListOrganisersQuery) => {
+        if (cursor === "c1") {
+          return new Promise((resolve, reject) => {
+            finishMore = resolve;
+            failMore = reject;
+          });
+        }
+        return status === "pending"
+          ? { items: [organiser("p1", { status })], nextCursor: "c1" }
+          : { items: [organiser("a1")], nextCursor: "c9" };
+      });
+      renderQueue();
+      await screen.findByRole("heading", { name: "Org p1" });
+      fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+      expect(screen.getByRole("button", { name: "Loading…" })).toBeInTheDocument();
+      const approved = screen.getByRole("button", { name: "Approved" });
+      approved.focus();
+      fireEvent.click(approved);
+      await screen.findByRole("heading", { name: "Org a1" });
+      // The new list's own Load more isn't busy.
+      expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
+      if (outcome === "succeeds") finishMore({ items: [organiser("p2", { status: "pending" })] });
+      else failMore(new ApiError(500, "boom"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      // Nothing from the pending list's second page: no organiser, no error, no focus move, no busy button.
+      expect(screen.queryByRole("heading", { name: "Org p2" })).toBeNull();
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(approved).toHaveFocus();
+      expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Approved organisers (1+)");
+    },
+  );
 });

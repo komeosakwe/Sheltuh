@@ -3,7 +3,7 @@ import { adminUnpublishEvent } from "@/lib/server/handlers/admin";
 import { updateEventDraft } from "@/lib/server/handlers/events";
 import { createCheckout, getOrderBySession, orderTotals, stripeWebhook } from "@/lib/server/handlers/orders";
 import { orderReference } from "@/lib/server/order-reference";
-import { stripeWebhookRequest, TestApi } from "./helpers/api";
+import { expectSessionPaymentOptions, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, eventInput, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
@@ -199,17 +199,20 @@ describe("paid checkout", () => {
       body: { lineItems: [{ ticketTypeId: "ga", quantity: 2, priceCents: 1 }, { ticketTypeId: "vip", quantity: 1 }] },
     });
     expect(res.status).toBe(201);
-    expect(res.body.url).toBe("https://checkout.stripe.test/cs_test_1");
 
     const params = api.stripe.checkout.sessions.create.mock.calls[0][0];
     const orderId = params.client_reference_id;
     expect(orderId).toMatch(/^ord_[0-9a-f]{32}$/);
+    // Our payment page, never Stripe's: the client secret is read from GET …/payment.
+    expect(res.body).toStrictEqual({ url: `/checkout/pay?order=${orderId}`, orderId });
     expect(params.payment_intent_data).toEqual({
       application_fee_amount: 710,
       transfer_data: { destination: "acct_test_1" },
     });
-    expect(params.success_url).toBe(`https://sheltuh.test/checkout/success?session_id=${orderId}`);
+    expect(params.return_url).toBe(`https://sheltuh.test/checkout/success?session_id=${orderId}`);
     expect(params.customer_email).toBeUndefined(); // Stripe collects it unless the buyer already gave one
+    // Exactly the A$ total (Adaptive Pricing off); the Dashboard's wallets and Link; nothing saved.
+    expectSessionPaymentOptions(params);
     expect(params.line_items.map((l: { price_data: { unit_amount: number } }) => l.price_data.unit_amount)).toEqual([
       3000, 170, 8000,
     ]);
@@ -293,7 +296,7 @@ describe("paid checkout", () => {
         { ticketTypeId: "kids", quantity: 2 },
       ]);
       expect(res.status).toBe(201);
-      expect(res.body.url).toBe("https://checkout.stripe.test/cs_test_1");
+      expect(res.body.url).toBe(`/checkout/pay?order=${res.body.orderId}`);
       expect(api.sendEmail).not.toHaveBeenCalled();
       const [order] = await api.db.query(
         `select status::text as status, total_cents, buyer_email_key, confirmation_token_hash from public.orders`,

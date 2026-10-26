@@ -259,7 +259,7 @@ describe("ForgotPasswordForm", () => {
 describe("InlineReauth", () => {
   it("asks for the password before calling Supabase, and focuses it", async () => {
     const signIn = vi.fn();
-    renderWith(<InlineReauth expectedEmail="owner@example.com" onSignedIn={vi.fn()} />, { signIn });
+    renderWith(<InlineReauth expectedAccount={{ email: "owner@example.com" }} onSignedIn={vi.fn()} />, { signIn });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     const password = screen.getByLabelText("Password");
     await waitFor(() => expect(document.activeElement).toBe(password));
@@ -268,7 +268,7 @@ describe("InlineReauth", () => {
   });
 
   it("wrong credentials mark both fields; with the email locked, focus goes to the password", async () => {
-    renderWith(<InlineReauth expectedEmail="owner@example.com" onSignedIn={vi.fn()} />, {
+    renderWith(<InlineReauth expectedAccount={{ email: "owner@example.com" }} onSignedIn={vi.fn()} />, {
       signIn: vi.fn().mockRejectedValue(new Error("Invalid login credentials")),
     });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "wrong" } });

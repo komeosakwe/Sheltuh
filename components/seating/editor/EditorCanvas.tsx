@@ -19,7 +19,7 @@ type Drag =
 
 /**
  * The editor's canvas (docs/design/seating.md §5.13): the buyer's renderer on
- * cream with a 32u grid. Click selects a seat, Shift+click adds or removes
+ * the page background with a 32u grid. Click selects a seat, Shift+click adds or removes
  * it, dragging on empty space draws a marquee, dragging selected seats moves
  * them (snapped to 4u), and the focus point (the orange square) drags too.
  * Every drag has a non-drag alternative in the toolbar and inspector. The
@@ -231,7 +231,7 @@ export default function EditorCanvas({
         )}
         {seats.length === 0 && !ghost && (
           <div className="pointer-events-none absolute inset-x-8 top-1/3">
-            <EmptyState title="No seats yet">Add a section on the left, or import a seat map.</EmptyState>
+            <EmptyState title="No seats yet">Start from a layout (Layouts, above), add a section on the left, or import a seat map.</EmptyState>
           </div>
         )}
       </div>

@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import nextConfig from "../next.config";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD, PHASE_PRODUCTION_SERVER } from "next/constants";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import config, { assertOAuthLogos, assertStripePublishableKey, nextConfig } from "../next.config";
 
 async function headersFor(source: string) {
   const rules = await nextConfig.headers?.();
@@ -9,9 +13,13 @@ async function headersFor(source: string) {
 }
 
 describe("next.config headers", () => {
-  it("forbids framing on every path: X-Frame-Options DENY and CSP frame-ancestors 'none', nothing else", async () => {
+  it("forbids framing on every path (X-Frame-Options DENY, CSP frame-ancestors 'none') and sends HSTS, nothing else", async () => {
     const byKey = await headersFor("/:path*");
-    expect(byKey).toEqual({ "x-frame-options": "DENY", "content-security-policy": "frame-ancestors 'none'" });
+    expect(byKey).toEqual({
+      "x-frame-options": "DENY",
+      "content-security-policy": "frame-ancestors 'none'",
+      "strict-transport-security": "max-age=63072000",
+    });
     // First, so a more specific rule's header of the same name (the /sw.js CSP) overrides it (the last match wins).
     const rules = (await nextConfig.headers?.()) ?? [];
     expect(rules[0].source).toBe("/:path*");
@@ -31,13 +39,21 @@ describe("next.config headers", () => {
     expect(byKey["x-robots-tag"]).toMatch(/\bnoindex\b/);
   });
 
-  it.each(["/waitlist/:path*", "/following/:path*"])(
+  it.each(["/waitlist/:path*", "/following/:path*", "/invite"])(
     "keeps the emailed-link page %s (a token in its fragment) out of Referers and search indexes, like checkout",
     async (source) => {
       const byKey = await headersFor(source);
       expect(byKey).toEqual({ "referrer-policy": "no-referrer", "x-robots-tag": "noindex, nofollow" });
     },
   );
+
+  it("keeps the OAuth callback (/auth/callback?code=…, a one-time sign-in code) out of Referers and search indexes", async () => {
+    expect(await headersFor("/auth/:path*")).toEqual({ "referrer-policy": "no-referrer", "x-robots-tag": "noindex, nofollow" });
+  });
+
+  it("sends only the origin as a Referer from /search, whose address can hold the visitor's suburb (near=)", async () => {
+    expect(await headersFor("/search")).toEqual({ "referrer-policy": "strict-origin" });
+  });
 
   it("caches the door scanner's versioned WASM decoder for a year, as immutable", async () => {
     const byKey = await headersFor("/vendor/zxing-wasm/:path*");
@@ -63,7 +79,116 @@ describe("next.config headers", () => {
       "/checkout/:path*",
       "/waitlist/:path*",
       "/following/:path*",
+      "/invite",
+      "/auth/:path*",
+      "/search",
       "/vendor/zxing-wasm/:path*",
     ]);
+  });
+});
+
+describe("next.config: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY guard", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("accepts it unset or blank (demo mode, CI), and any pk_test_ or pk_live_ key, e2e's placeholder included", () => {
+    for (const value of [undefined, "", "   ", "pk_test_e2e_placeholder", "pk_live_" + "51AbCdEf", " pk_test_51AbCdEf\n"]) {
+      expect(() => assertStripePublishableKey(value)).not.toThrow();
+    }
+  });
+
+  it("refuses anything else, naming the variable and never the value", () => {
+    const bad = [
+      "sk_live_" + "51SecretValue",
+      "sk_test_" + "51SecretValue",
+      "rk_live_" + "51SecretValue",
+      "whsec_" + "51SecretValue",
+      "pk_51SecretValue",
+      "PK_TEST_51SecretValue",
+      "pk_prod_51SecretValue",
+      "51SecretValue",
+    ];
+    for (const value of bad) {
+      let message = "";
+      try {
+        assertStripePublishableKey(value);
+      } catch (err) {
+        message = err instanceof Error ? err.message : String(err);
+      }
+      expect(message).toMatch(/^NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY must be a Stripe publishable key/);
+      expect(message).not.toContain("51SecretValue");
+    }
+  });
+
+  it("runs when the config is loaded: a bad key fails the load (so `next build`), a good or missing one doesn't", async () => {
+    vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "sk_live_" + "51SecretValue");
+    vi.resetModules();
+    await expect(import("../next.config")).rejects.toThrow(/NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY must be/);
+
+    vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "pk_test_e2e_placeholder");
+    vi.resetModules();
+    expect((await import("../next.config")).nextConfig.headers).toBeTypeOf("function");
+
+    vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", undefined);
+    vi.resetModules();
+    expect((await import("../next.config")).nextConfig.headers).toBeTypeOf("function");
+  });
+});
+
+describe("next.config: the official sign-in logos must be there for each provider NEXT_PUBLIC_AUTH_PROVIDERS lists", () => {
+  let dir = "";
+  const publicDir = () => path.join(dir, "public");
+  const addLogos = (...files: string[]) => {
+    mkdirSync(path.join(publicDir(), "auth"), { recursive: true });
+    for (const file of files) writeFileSync(path.join(publicDir(), "auth", file), "<svg/>");
+  };
+
+  beforeEach(() => {
+    dir = mkdtempSync(path.join(tmpdir(), "sheltuh-logos-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("passes with no provider listed (the default), whatever is in public/auth", () => {
+    for (const value of [undefined, "", " , ", "github"]) expect(() => assertOAuthLogos(value, publicDir())).not.toThrow();
+  });
+
+  it("fails naming every missing file (and where to read about them) for each listed provider", () => {
+    addLogos("README.md");
+    expect(() => assertOAuthLogos("google,apple", publicDir())).toThrow(
+      "NEXT_PUBLIC_AUTH_PROVIDERS lists a provider whose official logo artwork is missing: " +
+        "public/auth/google-g.svg, public/auth/apple-logo-white.svg, public/auth/apple-logo-black.svg. " +
+        "Add the files described in docs/auth-logos.md, or take the provider out of NEXT_PUBLIC_AUTH_PROVIDERS.",
+    );
+    addLogos("apple-logo-white.svg");
+    expect(() => assertOAuthLogos("apple", publicDir())).toThrow(/missing: public\/auth\/apple-logo-black\.svg\. /);
+  });
+
+  it("passes once a provider's files are all there, checking only the providers listed", () => {
+    addLogos("google-g.svg");
+    expect(() => assertOAuthLogos("google", publicDir())).not.toThrow();
+    expect(() => assertOAuthLogos("apple", publicDir())).toThrow(/apple-logo-white\.svg, public\/auth\/apple-logo-black\.svg/);
+    addLogos("apple-logo-white.svg", "apple-logo-black.svg");
+    expect(() => assertOAuthLogos(" Google , APPLE ", publicDir())).not.toThrow();
+  });
+
+  it("runs in the production-build phase only (`next build`, `next typegen`), so `next dev` and `next start` load without the files", () => {
+    vi.spyOn(process, "cwd").mockReturnValue(dir);
+    vi.stubEnv("NEXT_PUBLIC_AUTH_PROVIDERS", "google,apple");
+    expect(() => config(PHASE_PRODUCTION_BUILD)).toThrow(/public\/auth\/google-g\.svg/);
+    expect(config(PHASE_DEVELOPMENT_SERVER)).toBe(nextConfig);
+    expect(config(PHASE_PRODUCTION_SERVER)).toBe(nextConfig);
+
+    addLogos("google-g.svg", "apple-logo-white.svg", "apple-logo-black.svg");
+    expect(config(PHASE_PRODUCTION_BUILD)).toBe(nextConfig);
+
+    vi.stubEnv("NEXT_PUBLIC_AUTH_PROVIDERS", "");
+    rmSync(path.join(publicDir(), "auth"), { recursive: true });
+    expect(config(PHASE_PRODUCTION_BUILD)).toBe(nextConfig);
   });
 });

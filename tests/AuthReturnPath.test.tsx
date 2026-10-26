@@ -92,10 +92,10 @@ describe("VerifyForm", () => {
   });
 
   it.each([undefined, "//evil.example", "/.//evil.example", "https://evil.example"])(
-    "falls back to the dashboard for next=%j",
+    "falls back to the events feed for next=%j",
     async (next) => {
       search = new URLSearchParams({ email: "mia@example.com", ...(next ? { next } : {}) });
-      expect(await verify()).toBe("/dashboard");
+      expect(await verify()).toBe("/events");
     },
   );
 });

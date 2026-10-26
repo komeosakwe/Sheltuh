@@ -1,13 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import EventResults from "@/components/EventResults";
 import FeedLoading from "@/components/FeedLoading";
 import { useLoadingProgress } from "@/components/ui/ProgressLoader";
 import { Button } from "@/components/ui/Button";
 import { EmptyState, Notice } from "@/components/ui/Section";
 import EventFilterBar, { type PricingFilter } from "@/components/EventFilterBar";
-import { listPublicEvents } from "@/lib/api/public-events";
+import NearbyResults, { NEAR_MAX_EVENTS } from "@/components/search/NearbyResults";
+import { listPublicEvents, type PublicEvent } from "@/lib/api/public-events";
+import { findLocality } from "@/lib/location";
 import { adaptPublicEvent } from "@/lib/live/adapt";
 import type { EventCategory, SheltuhEvent } from "@/lib/types";
 
@@ -15,6 +17,11 @@ interface Props {
   categories: { value: EventCategory; label: string }[];
   /** Free-text search (from /search); sent to the API alongside the filters. */
   query?: string;
+  /**
+   * A suburb from /search?near=. Results are ordered by distance from it
+   * here in the browser (lib/location.ts); it's never sent to the API.
+   */
+  near?: string;
   /** Starting filters (from /events?category=&pricing=); "Reset filters" still clears to all. */
   initialCategory?: EventCategory | "all";
   initialPricing?: PricingFilter;
@@ -26,12 +33,31 @@ type Status = "loading" | "loaded" | "error";
 // loop below, so a pathological run of empty pages can't hang a request.
 const MAX_EMPTY_PAGES_TO_SKIP = 10;
 
+// Near a suburb, the soonest NEAR_MAX_EVENTS matches are read (4 pages of the
+// API's largest page, the HOME_WEEKEND_TOP_UP_MAX_PAGES precedent) and then
+// ordered by distance, so there's no "Load more" in that mode.
+const NEAR_PAGE_LIMIT = 50;
+const NEAR_MAX_PAGES = NEAR_MAX_EVENTS / NEAR_PAGE_LIMIT;
+
+interface FetchResult {
+  items: PublicEvent[];
+  nextCursor: string | undefined;
+  /** Near mode only: more matched than were read. */
+  capped: boolean;
+}
+
 /**
  * The live (API-backed) event feed: sends category/date/pricing filters to
  * the API rather than filtering an already-fetched list, and paginates via
  * the API's opaque `nextCursor` instead of ever loading everything at once.
  */
-export default function LiveEventFeed({ categories, query, initialCategory = "all", initialPricing = "all" }: Props) {
+export default function LiveEventFeed({
+  categories,
+  query,
+  near = "",
+  initialCategory = "all",
+  initialPricing = "all",
+}: Props) {
   const [category, setCategory] = useState<EventCategory | "all">(initialCategory);
   const [pricing, setPricing] = useState<PricingFilter>(initialPricing);
   const [onOrAfter, setOnOrAfter] = useState("");
@@ -41,6 +67,8 @@ export default function LiveEventFeed({ categories, query, initialCategory = "al
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [capped, setCapped] = useState(false);
+  const origin = useMemo(() => (near ? findLocality(near) : null), [near]);
 
   // Bumped whenever a new request supersedes any in flight (a filter change,
   // or a fresh "load more" click), so a response that arrives late from an
@@ -70,27 +98,47 @@ export default function LiveEventFeed({ categories, query, initialCategory = "al
   // leave a whole page with no matches without the result set being
   // exhausted) until it finds one with items or genuinely runs out.
   const fetchNonEmptyPage = useCallback(
-    async (cursor: string | undefined, myRequestId: number) => {
+    async (cursor: string | undefined, myRequestId: number): Promise<FetchResult | "stale"> => {
+      // The filters only: the suburb (`near`) and any position never go to the API.
+      const filters = {
+        category: category === "all" ? undefined : category,
+        pricing: pricing === "all" ? undefined : pricing,
+        onOrAfter: onOrAfter || undefined,
+        q: query || undefined,
+        // Past events are never listed: only ones that haven't ended.
+        upcoming: true,
+      } as const;
+      if (origin) {
+        // Near mode: read the soonest pages, then the results are ordered by distance.
+        const items: PublicEvent[] = [];
+        const seen = new Set<string>();
+        let cur = cursor;
+        for (let i = 0; i < NEAR_MAX_PAGES; i++) {
+          const page = await listPublicEvents({ ...filters, limit: NEAR_PAGE_LIMIT, cursor: cur });
+          if (requestIdRef.current !== myRequestId) return "stale";
+          // As "Load more" does: an event can shift across a page boundary between two reads.
+          for (const item of page.items) {
+            if (seen.has(item.eventId)) continue;
+            seen.add(item.eventId);
+            items.push(item);
+          }
+          cur = page.nextCursor;
+          if (!cur) break;
+        }
+        return { items, nextCursor: undefined, capped: cur !== undefined };
+      }
       let cur = cursor;
       for (let i = 0; i < MAX_EMPTY_PAGES_TO_SKIP; i++) {
-        const page = await listPublicEvents({
-          category: category === "all" ? undefined : category,
-          pricing: pricing === "all" ? undefined : pricing,
-          onOrAfter: onOrAfter || undefined,
-          q: query || undefined,
-          // Past events are never listed: only ones that haven't ended.
-          upcoming: true,
-          cursor: cur,
-        });
-        if (requestIdRef.current !== myRequestId) return "stale" as const;
+        const page = await listPublicEvents({ ...filters, cursor: cur });
+        if (requestIdRef.current !== myRequestId) return "stale";
         if (page.items.length > 0 || !page.nextCursor) {
-          return { items: page.items, nextCursor: page.nextCursor };
+          return { items: page.items, nextCursor: page.nextCursor, capped: false };
         }
         cur = page.nextCursor;
       }
-      return { items: [], nextCursor: cur };
+      return { items: [], nextCursor: cur, capped: false };
     },
-    [category, pricing, onOrAfter, query],
+    [category, pricing, onOrAfter, query, origin],
   );
 
   const load = useCallback(
@@ -123,6 +171,7 @@ export default function LiveEventFeed({ categories, query, initialCategory = "al
             return [...prev, ...adapted.filter((e) => !seenIds.has(e.id))];
           });
           setNextCursor(result.nextCursor);
+          setCapped(result.capped);
           setStatus("loaded");
         })
         .catch((err) => {
@@ -157,7 +206,7 @@ export default function LiveEventFeed({ categories, query, initialCategory = "al
     // those directly here, rather than on `load`, is what limits this effect
     // to firing on an actual filter change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category, pricing, onOrAfter, query]);
+  }, [category, pricing, onOrAfter, query, origin]);
 
   function handleRetry() {
     requestIdRef.current += 1;
@@ -234,6 +283,8 @@ export default function LiveEventFeed({ categories, query, initialCategory = "al
                 ? "Try a different search, category, an earlier date, or clearing the price filter."
                 : "Check back soon."}
             </EmptyState>
+          ) : origin ? (
+            <NearbyResults events={events} origin={origin} capped={capped} />
           ) : (
             <>
               <EventResults events={events} heading="Events" listRef={listRef} />

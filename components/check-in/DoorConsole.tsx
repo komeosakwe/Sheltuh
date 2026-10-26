@@ -25,6 +25,7 @@ import { useCamera } from "./useCamera";
 import { useCheckInSummary } from "./useCheckInSummary";
 import { SOUND_PREF_KEY, useDoorPref, VIBRATE_PREF_KEY } from "./useDoorPref";
 import { useDoorScan } from "./useDoorScan";
+import { ADMIN_WAY_BACK, type DoorWayBack } from "./way-back";
 
 const noSubscribe = () => () => {};
 
@@ -46,9 +47,12 @@ export default function DoorConsole({
   eventId,
   getToken,
   doorRef,
+  wayBack,
 }: {
   eventId: string;
   getToken: GetToken;
+  /** "← Your events", or the admin door list for an admin. */
+  wayBack: DoorWayBack;
   /** The door wrapper, scrolled to the top on Start camera. */
   doorRef: RefObject<HTMLDivElement | null>;
 }) {
@@ -234,7 +238,7 @@ export default function DoorConsole({
   if (firstError) {
     return (
       <div className={pageClass}>
-        <FirstLoadError error={firstError} returnTo={returnTo} onRetry={summary.retryFirstLoad} />
+        <FirstLoadError error={firstError} returnTo={returnTo} wayBack={wayBack} onRetry={summary.retryFirstLoad} />
       </div>
     );
   }
@@ -247,6 +251,7 @@ export default function DoorConsole({
         result={display.result}
         retrying={display.retrying}
         returnTo={returnTo}
+        wayBack={wayBack}
         panelRef={panelRef}
         onRetry={scan.retry}
         onDismiss={() => scan.dismiss()}
@@ -265,7 +270,7 @@ export default function DoorConsole({
     <>
       <OfflineBanner online={online} />
       <div className={pageClass}>
-        <CheckInTitle summary={data} />
+        <CheckInTitle summary={data} wayBack={wayBack} />
         <div className="md:mt-6 md:grid md:grid-cols-12 md:grid-rows-[auto_auto_1fr] md:gap-x-8 md:gap-y-8">
           <div className="mt-3 md:col-span-5 md:col-start-8 md:row-start-1 md:mt-0">
             <CheckInCounters summary={data} updatedAt={summary.updatedAt} refreshFailed={summary.refreshFailed} />
@@ -334,7 +339,17 @@ export default function DoorConsole({
 }
 
 /** §5.A1: the summary's first load failed, so there's nothing to check in against. */
-function FirstLoadError({ error, returnTo, onRetry }: { error: unknown; returnTo: string; onRetry: () => void }) {
+function FirstLoadError({
+  error,
+  returnTo,
+  wayBack,
+  onRetry,
+}: {
+  error: unknown;
+  returnTo: string;
+  wayBack: DoorWayBack;
+  onRetry: () => void;
+}) {
   const status = error instanceof ApiError ? error.status : null;
   if (status === 401) {
     return (
@@ -363,13 +378,14 @@ function FirstLoadError({ error, returnTo, onRetry }: { error: unknown; returnTo
         headingLevel={1}
         title="Event not found"
         action={
-          <ButtonLink variant="outline" size="lg" href="/dashboard">
-            Back to your events
+          <ButtonLink variant="outline" size="lg" href={wayBack.href}>
+            {wayBack.backTo}
           </ButtonLink>
         }
       >
-        It may have been deleted, or it belongs to another organiser account. Only the organiser who owns an event can
-        check people in.
+        {wayBack === ADMIN_WAY_BACK
+          ? "It may have been deleted, or it isn’t a Sheltüh-run event. Admins check people in only at Sheltüh-run (platform-managed) organisers’ events; organisers run their own doors."
+          : "It may have been deleted, or it belongs to another organiser account. Only the organiser who owns an event can check people in."}
       </EmptyState>
     );
   }

@@ -1,6 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
+import { buildEventReviewEmail, buildOrganiserReviewEmail } from "./admin-review-email";
+import { PG_UNDEFINED_FUNCTION, pgErrorCode } from "./db";
 import type { Deps } from "./deps";
-import { redactForLog } from "./email-address";
+import type { EmailMessage } from "./email";
+import { isPlainEmailAddress, redactForLog } from "./email-address";
 import { buildFollowerNewEventsEmail, FOLLOWER_EMAIL_MAX_EVENTS, followerUnsubscribeLink } from "./follower-email";
 import { findEventById } from "./handlers/event-queries";
 import { orderReference } from "./order-reference";
@@ -10,13 +13,17 @@ import { buildWaitlistAvailableEmail, waitlistEventLink, waitlistLeaveLink } fro
 
 /**
  * The transactional email outbox (supabase/migrations/20261014000000_email_outbox.sql,
- * 20261024000000_waitlist.sql, 20261024000200_organiser_follows.sql). Three kinds of job:
+ * 20261024000000_waitlist.sql, 20261024000200_organiser_follows.sql,
+ * 20261107000000_admin_review_emails.sql). Five kinds of job:
  * - `ticket_email`: private.fulfil_order queues one when an order becomes paid.
  * - `waitlist_available`: private.notify_waitlist queues one per person told
  *   that tickets are available again (docs/architecture.md, "Waitlist").
  * - `organiser_new_events`: private.notify_followers queues one per follower
  *   (with notifications on) when an organiser they follow publishes a new
  *   event, at most one a day each (docs/architecture.md, "Following organisers").
+ * - `event_review` / `organiser_review`: queued (by database triggers) when an
+ *   event is submitted for review or an organiser application is made or
+ *   resubmitted; one email to each admin (docs/architecture.md, "Admin review emails").
  * This module delivers them: once straight after the response (Deps.defer)
  * and then from the cron route until it's sent or has failed 6 times.
  * Delivery is at-least-once: a worker that dies between SMTP accepting the
@@ -24,7 +31,12 @@ import { buildWaitlistAvailableEmail, waitlistEventLink, waitlistLeaveLink } fro
  * again. A mail failure never touches the order or the waitlist entry.
  */
 
-export type EmailJobKind = "ticket_email" | "waitlist_available" | "organiser_new_events";
+export type EmailJobKind =
+  | "ticket_email"
+  | "waitlist_available"
+  | "organiser_new_events"
+  | "event_review"
+  | "organiser_review";
 
 /** Delays after the 1st … 5th failed attempt: 1 min, 5 min, 30 min, 2 h, 6 h. */
 export const EMAIL_RETRY_DELAYS_SECONDS = [60, 300, 1800, 7200, 21600] as const;
@@ -32,6 +44,17 @@ export const EMAIL_RETRY_DELAYS_SECONDS = [60, 300, 1800, 7200, 21600] as const;
 export const MAX_EMAIL_ATTEMPTS = 6;
 /** How long a worker holds a job. Comfortably more than one SMTP send (lib/server/email.ts timeouts). */
 export const EMAIL_LEASE = "2 minutes";
+/** EMAIL_LEASE in milliseconds. */
+export const EMAIL_LEASE_MS = 2 * 60_000;
+/**
+ * A review job sends to its admins one at a time, all on one lease. Before
+ * each send it stops (a non-permanent failure: retried later, skipping the
+ * admins who already have it) once less than this is left of the lease, so a
+ * slow SMTP server can't outlive the lease and have another worker send the
+ * same email again. More than one send's worst case (lib/server/email.ts:
+ * 10 s connection + 10 s greeting + 30 s socket timeouts).
+ */
+export const REVIEW_SEND_LEASE_MARGIN_MS = 60_000;
 /**
  * Jobs leased at a time. One: a job is leased just before it's sent, so even
  * a send that runs into every SMTP timeout ends well inside its lease, and a
@@ -64,6 +87,8 @@ interface ClaimedJob {
   job_order_id: string | null;
   job_waitlist_entry_id: string | null;
   job_follow_id: string | null;
+  job_event_id: string | null;
+  job_organiser_id: string | null;
   job_lease_token: string;
   job_attempts: number;
 }
@@ -244,7 +269,150 @@ async function deliverFollowerEmail(deps: Deps, followId: string): Promise<Outco
   }
 }
 
-function deliver(deps: Deps, job: ClaimedJob): Promise<Outcome> {
+/** Logged once per process when a review email finds nobody to send to (never any address). */
+let warnedNoAdminRecipients = false;
+
+/**
+ * Who gets the admins' review emails: ADMIN_NOTIFY_EMAILS when it has any
+ * valid address, otherwise every admin account (app_metadata role `admin`)
+ * with a confirmed, plain email address that isn't banned or deleted in
+ * Supabase Auth. Repeats (ignoring case) once.
+ */
+export async function adminReviewRecipients(deps: Deps): Promise<string[]> {
+  const configured = deps.adminNotifyEmails();
+  if (configured.length > 0) return configured;
+  const rows = await deps.db.query<{ email: string }>(
+    `select u.email from auth.users u
+      where u.raw_app_meta_data ->> 'role' = 'admin' and u.email is not null and u.email_confirmed_at is not null
+        and (u.banned_until is null or u.banned_until <= now()) and u.deleted_at is null
+      order by u.email`,
+  );
+  const seen = new Set<string>();
+  const emails: string[] = [];
+  for (const { email } of rows) {
+    const key = email.toLowerCase();
+    if (!isPlainEmailAddress(email) || seen.has(key)) continue;
+    seen.add(key);
+    emails.push(email);
+  }
+  return emails;
+}
+
+/** A recipient's key in private.email_job_recipients: the lower-cased address's SHA-256, never the address. */
+function recipientHash(email: string): string {
+  return createHash("sha256").update(email.toLowerCase(), "utf8").digest("hex");
+}
+
+/** The email about one review job, for `to`; or why there's nothing to send. */
+async function reviewEmailBuilder(
+  deps: Deps,
+  job: ClaimedJob,
+): Promise<{ build: (to: string) => EmailMessage } | { skip: string }> {
+  const siteUrl = deps.siteUrl();
+  if (job.job_kind === "event_review" && job.job_event_id) {
+    const [row] = await deps.db.query<{
+      title: string;
+      starts_at: Date | string;
+      waiting: boolean;
+      organiser_name: string;
+      resubmitted: boolean;
+    }>(
+      `select e.title, e.starts_at, e.status = 'pending_review' as waiting, o.display_name as organiser_name,
+              exists (select 1 from public.event_moderation_log l where l.event_id = e.id and l.action = 'rejected') as resubmitted
+         from public.events e join public.organisers o on o.id = e.organiser_id
+        where e.id = $1`,
+      [job.job_event_id],
+    );
+    if (!row) return { skip: "the event no longer exists" };
+    if (!row.waiting) return { skip: "the event isn't waiting for review any more" };
+    const startsAt = new Date(row.starts_at).toISOString();
+    return {
+      build: (to) =>
+        buildEventReviewEmail({
+          to,
+          title: row.title,
+          organiserName: row.organiser_name,
+          startsAt,
+          resubmitted: row.resubmitted,
+          siteUrl,
+        }),
+    };
+  }
+  if (job.job_kind === "organiser_review" && job.job_organiser_id) {
+    const [row] = await deps.db.query<{ display_name: string; waiting: boolean }>(
+      `select o.display_name, o.status = 'pending' as waiting from public.organisers o where o.id = $1`,
+      [job.job_organiser_id],
+    );
+    if (!row) return { skip: "the application no longer exists" };
+    if (!row.waiting) return { skip: "the application isn't waiting for review any more" };
+    return { build: (to) => buildOrganiserReviewEmail({ to, organiserName: row.display_name, siteUrl }) };
+  }
+  return { skip: "unknown job" };
+}
+
+/**
+ * Sends one review job's email to each admin recipient who doesn't have it
+ * yet (private.email_job_recipients, recorded after each send), so a retry
+ * after a partial failure reaches only the ones it missed. Stops, to be
+ * retried, once less than REVIEW_SEND_LEASE_MARGIN_MS is left before
+ * `leaseEndsAt` (ms since the epoch). Skipped, not retried, if the event or
+ * application has been reviewed (or deleted) since, or there's nobody to send
+ * to (logged once per process, without addresses). Never throws.
+ */
+async function deliverReviewEmail(deps: Deps, job: ClaimedJob, leaseEndsAt: number): Promise<Outcome> {
+  try {
+    const email = await reviewEmailBuilder(deps, job);
+    if ("skip" in email) return skip(email.skip);
+
+    const recipients = await adminReviewRecipients(deps);
+    if (recipients.length === 0) {
+      if (!warnedNoAdminRecipients) {
+        warnedNoAdminRecipients = true;
+        console.warn(
+          "Admin review emails aren't being sent: no ADMIN_NOTIFY_EMAILS and no admin account with a confirmed email.",
+        );
+      }
+      return skip("no admin address to send to");
+    }
+
+    const done = new Set(
+      (
+        await deps.db.query<{ recipient_hash: string }>(
+          `select recipient_hash from private.email_job_recipients where job_id = $1::bigint`,
+          [String(job.job_id)],
+        )
+      ).map((r) => r.recipient_hash),
+    );
+    let lastError: string | undefined;
+    for (const to of recipients) {
+      const hash = recipientHash(to);
+      if (done.has(hash)) continue;
+      if (leaseEndsAt - Date.now() < REVIEW_SEND_LEASE_MARGIN_MS) {
+        return { sent: false, error: "the lease ran short; the rest are sent on the next attempt", permanent: false };
+      }
+      try {
+        await deps.sendEmail(email.build(to));
+      } catch (err) {
+        lastError = redactForLog(err instanceof Error ? err.message : "unknown error");
+        continue;
+      }
+      await deps.db.query(
+        `insert into private.email_job_recipients (job_id, recipient_hash) values ($1::bigint, $2) on conflict do nothing`,
+        [String(job.job_id), hash],
+      );
+      done.add(hash);
+    }
+    if (lastError !== undefined) return { sent: false, error: lastError, permanent: false };
+    return { sent: true };
+  } catch (err) {
+    return { sent: false, error: redactForLog(err instanceof Error ? err.message : "unknown error"), permanent: false };
+  }
+}
+
+function deliver(deps: Deps, job: ClaimedJob, leaseEndsAt: number): Promise<Outcome> {
+  if (job.job_kind === "event_review" || job.job_kind === "organiser_review") {
+    return deliverReviewEmail(deps, job, leaseEndsAt);
+  }
   if (job.job_kind === "waitlist_available" && job.job_waitlist_entry_id) {
     return deliverWaitlistEmail(deps, job.job_waitlist_entry_id);
   }
@@ -255,8 +423,8 @@ function deliver(deps: Deps, job: ClaimedJob): Promise<Outcome> {
   return Promise.resolve({ sent: false, error: "unknown job", permanent: true });
 }
 
-async function runJob(deps: Deps, job: ClaimedJob, summary: DrainSummary, random: () => number) {
-  const outcome = await deliver(deps, job);
+async function runJob(deps: Deps, job: ClaimedJob, leaseEndsAt: number, summary: DrainSummary, random: () => number) {
+  const outcome = await deliver(deps, job, leaseEndsAt);
   const retryIn = outcome.sent || outcome.permanent ? null : retryDelaySeconds(job.job_attempts, random);
   const [{ result }] = await deps.db.query<{ result: string }>(
     `select private.finish_email_job($1::bigint, $2::uuid, $3, $4, $5::interval) as result`,
@@ -273,6 +441,16 @@ async function runJob(deps: Deps, job: ClaimedJob, summary: DrainSummary, random
   else if (result === "failed") summary.failed += 1;
 
   if (outcome.sent) return;
+  if (job.job_kind === "event_review" || job.job_kind === "organiser_review") {
+    // A skip is routine (an admin reviewed it first) and isn't logged; the job id only, never an address.
+    if (!outcome.skipped) {
+      console.error(
+        `Admin review email job ${job.job_id} attempt ${job.job_attempts} ` +
+          `${result === "failed" ? "failed for good" : "failed, will retry"}: ${outcome.error}`,
+      );
+    }
+    return;
+  }
   if (job.job_kind === "waitlist_available" || job.job_kind === "organiser_new_events") {
     // The job id only: never the address, the entry or the follow.
     const label = job.job_kind === "waitlist_available" ? "Waitlist" : "Follower";
@@ -286,6 +464,38 @@ async function runJob(deps: Deps, job: ClaimedJob, summary: DrainSummary, random
     `Ticket email job ${job.job_id} (order ${job.job_order_id ? orderReference(job.job_order_id) : "unknown"}) attempt ${job.job_attempts} ` +
       `${result === "failed" ? "failed for good" : "failed, will retry"}: ${outcome.error}`,
   );
+}
+
+/** Logged once per process while the database lacks private.lease_outbox_jobs. */
+let warnedOldClaimer = false;
+
+/**
+ * Leases up to `limit` due jobs with private.lease_outbox_jobs. In a deploy
+ * window where this code runs before 20261107000000_admin_review_emails.sql
+ * is applied, that function doesn't exist yet (undefined_function): then it
+ * leases with the previous release's private.claim_email_outbox instead, so
+ * ticket, waitlist and follower emails keep going out. That claimer never
+ * takes review jobs; they wait until the migration is applied.
+ */
+async function leaseJobs(deps: Deps, limit: number, orderId: string | null, kind: EmailJobKind | null) {
+  const params = [limit, EMAIL_LEASE, MAX_EMAIL_ATTEMPTS, orderId, kind];
+  try {
+    return await deps.db.query<ClaimedJob>(`select * from private.lease_outbox_jobs($1, $2::interval, $3, $4, $5)`, params);
+  } catch (err) {
+    if (pgErrorCode(err) !== PG_UNDEFINED_FUNCTION) throw err;
+  }
+  if (!warnedOldClaimer) {
+    warnedOldClaimer = true;
+    console.warn(
+      "Email outbox: private.lease_outbox_jobs is missing (migration 20261107000000_admin_review_emails.sql " +
+        "isn't applied); using private.claim_email_outbox. Admin review emails wait until it is.",
+    );
+  }
+  const rows = await deps.db.query<Omit<ClaimedJob, "job_event_id" | "job_organiser_id">>(
+    `select * from private.claim_email_outbox($1, $2::interval, $3, $4, $5)`,
+    params,
+  );
+  return rows.map((row): ClaimedJob => ({ ...row, job_event_id: null, job_organiser_id: null }));
 }
 
 /**
@@ -302,13 +512,12 @@ export async function drainEmailOutbox(
   const deadline = Date.now() + budgetMs;
   const summary: DrainSummary = { claimed: 0, sent: 0, retrying: 0, failed: 0 };
   while (summary.claimed < maxJobs && Date.now() < deadline) {
-    const jobs = await deps.db.query<ClaimedJob>(
-      `select * from private.claim_email_outbox($1, $2::interval, $3, $4, $5)`,
-      [Math.min(CLAIM_BATCH, maxJobs - summary.claimed), EMAIL_LEASE, MAX_EMAIL_ATTEMPTS, orderId ?? null, kind ?? null],
-    );
+    // Taken before the lease starts, so the lease ends no sooner than this says.
+    const leaseEndsAt = Date.now() + EMAIL_LEASE_MS;
+    const jobs = await leaseJobs(deps, Math.min(CLAIM_BATCH, maxJobs - summary.claimed), orderId ?? null, kind ?? null);
     if (jobs.length === 0) break;
     summary.claimed += jobs.length;
-    for (const job of jobs) await runJob(deps, job, summary, random);
+    for (const job of jobs) await runJob(deps, job, leaseEndsAt, summary, random);
   }
   return summary;
 }
@@ -364,5 +573,19 @@ export function sendPublishEmailsSoon(deps: Deps): void {
     if (left > 0) {
       await drainEmailOutbox(deps, { kind: "organiser_new_events", maxJobs: FOLLOWER_DRAIN_MAX_JOBS, budgetMs: left });
     }
+  });
+}
+
+/** Review emails sent straight after a submission or application (any due ones, of that kind). */
+export const REVIEW_DRAIN_MAX_JOBS = 10;
+
+/**
+ * Queues a run over due admin review emails of `kind` for straight after the
+ * response that queued one (a submission, an application). Cheap when there
+ * are none; one queued for later (the hourly throttle) waits for the cron route.
+ */
+export function sendReviewEmailsSoon(deps: Deps, kind: "event_review" | "organiser_review"): void {
+  deps.defer(async () => {
+    await drainEmailOutbox(deps, { kind, maxJobs: REVIEW_DRAIN_MAX_JOBS });
   });
 }

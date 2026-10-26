@@ -23,6 +23,9 @@ export function createPostgresDb(databaseUrl: string): Db {
     prepare: false,
     max: 5,
     idle_timeout: 20,
+    // Fail fast (seconds) when the database can't be reached, e.g. a paused
+    // project, instead of holding the request open for postgres.js's 30s default.
+    connect_timeout: 10,
   });
   return {
     async query<T>(text: string, params: unknown[] = []) {
@@ -48,3 +51,4 @@ export function pgConstraint(err: unknown): string | undefined {
 export const PG_UNIQUE_VIOLATION = "23505";
 export const PG_FOREIGN_KEY_VIOLATION = "23503";
 export const PG_CHECK_VIOLATION = "23514";
+export const PG_UNDEFINED_FUNCTION = "42883";

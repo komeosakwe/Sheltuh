@@ -58,6 +58,7 @@ const EVENT: AdminEventRecord = {
   createdAt: "2026-10-01T00:00:00.000Z",
   updatedAt: "2026-10-20T01:00:00.000Z",
   organiserPlatformManaged: false,
+  curation: { boost: 1, excluded: false },
 };
 
 it("after a save that changes the photo, the next save carries the photo save's version", async () => {

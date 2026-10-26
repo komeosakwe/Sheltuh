@@ -6,12 +6,13 @@ import { ArrowRightIcon } from "./icons";
 /**
  * For organisers (mobile-redesign.md §6.3.1): an ink card (the scope inverts
  * its text and outline button). A 2:1 photo on phones keeps it short; from
- * 640px the photo is the right half.
+ * 640px the photo is the right half. In Dark a 1px inset white edge keeps
+ * the black card off the black page, as every card has.
  */
 export default function CreatorsCard({ className = "" }: { className?: string }) {
   return (
     <section aria-labelledby="home-creators" className={className}>
-      <div data-surface="ink" className="overflow-hidden rounded-card sm:grid sm:grid-cols-2">
+      <div data-surface="ink" className="overflow-hidden rounded-card sm:grid sm:grid-cols-2 dark:outline dark:-outline-offset-1 dark:outline-foreground">
         <EventArt
           poster={HOME_CREATORS.poster}
           imageUrl={HOME_CREATORS.imageUrl}

@@ -260,16 +260,25 @@ export default function EventArt({
         {renderPattern(poster)}
       </svg>
       )}
-      {/* A cream poster on the cream page would have no edge: a 1px inset black line gives it one. */}
-      {!showImage && isCream(poster.background) && (
-        <span className="pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-foreground ring-inset" />
+      {/* A paper-tone poster on the white page (Light), or a black one on the black page (Dark),
+          would have no edge: a 1px inset foreground line gives it one, in that theme only. */}
+      {!showImage && isPaperTone(poster.background) && (
+        <span className="pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-foreground ring-inset dark:hidden" />
+      )}
+      {!showImage && isInkTone(poster.background) && (
+        <span className="pointer-events-none absolute inset-0 hidden rounded-[inherit] ring-1 ring-foreground ring-inset dark:block" />
       )}
       {children && <div className="absolute inset-0 flex items-end p-3">{children}</div>}
     </div>
   );
 }
 
-/** The page's own colours (cream, white, sunken cream), on which a poster needs an edge. */
-function isCream(colour: string): boolean {
-  return ["#fffae7", "#ffffff", "#f2ecd6"].includes(colour.toLowerCase());
+/** Light page colours (the cream poster colourway, white, sunken paper), on which a poster needs an edge in Light. */
+function isPaperTone(colour: string): boolean {
+  return ["#fffae7", "#ffffff", "#f2ecd6", "#f3f2ee"].includes(colour.toLowerCase());
+}
+
+/** Black, the Dark page's own colour, on which a poster needs an edge in Dark. */
+function isInkTone(colour: string): boolean {
+  return ["#000000", "#000"].includes(colour.toLowerCase());
 }

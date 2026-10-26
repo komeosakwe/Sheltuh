@@ -4,7 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import MessageField from "@/components/messages/MessageField";
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
-import { adminApproveOrganiser, adminRejectOrganiser, adminRemoveFeaturedVideo } from "@/lib/api/admin";
+import {
+  adminApproveOrganiser,
+  adminRejectOrganiser,
+  adminRemoveFeaturedVideo,
+  adminRemoveOrganiserLogo,
+} from "@/lib/api/admin";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import { featuredVideoPageUrl } from "@/lib/api/featured-video";
 import type { AdminOrganiserRecord } from "@/lib/api/types";
@@ -13,8 +18,10 @@ import { formatDayTime } from "@/lib/format";
 import { validateMessage } from "@/lib/message-text";
 import { SOCIAL_HANDLE_FIELDS, websiteHostname } from "@/lib/organiser-profile";
 import { EVENT_CATEGORIES } from "@/lib/types";
+import AdminOrganiserLogo from "./AdminOrganiserLogo";
 import AdminSessionExpired from "./AdminSessionExpired";
 import OrganiserEditLog from "./OrganiserEditLog";
+import { SUSPEND_REASON_MAX } from "./SuspendOrganiserDialog";
 import { formatLoggedVideo, formatOrganiserFieldValue, ORGANISER_FIELD_LABELS } from "./organiser-fields";
 
 /** A failed action's message: the API's for a 4xx, an expired session's, otherwise `fallback`. */
@@ -63,28 +70,25 @@ function categoryLabel(value: string) {
  * and the actions for their status: Approve / Reject while pending, Suspend…
  * once approved (the dialog itself is the queue's). Rejected organisers say
  * whether they were rejected or suspended, when, and why. A featured video
- * can be removed, with a reason, whatever their status (`onUpdated` gets the
- * record without it).
+ * or a logo can be removed, with a reason, whatever their status (`onUpdated`
+ * gets the record without it).
  */
 export default function OrganiserItem({
   item,
   getToken,
   onRemoved,
   onSuspend,
-  headingDescribedBy,
   reauthOwner,
   onClaimReauth,
   onUpdated,
 }: {
   item: AdminOrganiserRecord;
   getToken: GetToken;
-  /** The record changed in place (its featured video removed); `message` is announced. */
+  /** The record changed in place (its featured video or logo removed); `message` is announced. */
   onUpdated?: (item: AdminOrganiserRecord, message: string) => void;
   /** It left this list (approved or rejected here, or already reviewed); `message` is announced. */
   onRemoved: (item: AdminOrganiserRecord, message: string) => void;
   onSuspend: (item: AdminOrganiserRecord) => void;
-  /** Set when focus moved to this heading after a removal: the announcement's id. */
-  headingDescribedBy?: string;
   /** Who shows the sign-in form after a session expired (only one may). */
   reauthOwner: string | null;
   onClaimReauth: (owner: string | null) => void;
@@ -105,7 +109,6 @@ export default function OrganiserItem({
           <h3
             id={headingId}
             tabIndex={-1}
-            aria-describedby={headingDescribedBy}
             className="font-sans text-base font-semibold normal-case tracking-normal break-words outline-offset-2"
           >
             {item.displayName}
@@ -166,9 +169,24 @@ export default function OrganiserItem({
               )}
             </dd>
           </div>
+          <div className={ROW_CLASS}>
+            <dt className="text-muted">{ORGANISER_FIELD_LABELS.logo}</dt>
+            <dd className="flex min-w-0 flex-col items-start">
+              {item.logoUrl ? (
+                <AdminOrganiserLogo logoUrl={item.logoUrl} organiserName={item.displayName} getToken={getToken} />
+              ) : (
+                <span className="text-muted italic">None</span>
+              )}
+            </dd>
+          </div>
         </dl>
 
-        {item.featuredVideo && onUpdated && <RemoveVideo item={item} getToken={getToken} onUpdated={onUpdated} />}
+        {onUpdated && (item.featuredVideo || item.logoUrl) && (
+          <div className="flex flex-col items-start gap-3">
+            {item.featuredVideo && <RemoveContent kind="video" item={item} getToken={getToken} onUpdated={onUpdated} />}
+            {item.logoUrl && <RemoveContent kind="logo" item={item} getToken={getToken} onUpdated={onUpdated} />}
+          </div>
+        )}
 
         {standing && <StandingLine standing={standing} />}
 
@@ -456,23 +474,47 @@ function ReviewActions({
   );
 }
 
+/** What an admin can take off an organiser's public profile, each with its own words and route. */
+const REMOVABLE = {
+  video: {
+    open: "Remove video…",
+    confirm: "Remove video",
+    question: (name: string) => `Remove ${name}’s featured video?`,
+    done: (name: string) => `Removed ${name}’s featured video.`,
+    failed: "Couldn’t remove the video. Try again.",
+    request: (id: string, reason: string, getToken: GetToken) => adminRemoveFeaturedVideo(id, reason, getToken),
+  },
+  logo: {
+    open: "Remove logo…",
+    confirm: "Remove logo",
+    question: (name: string) => `Remove ${name}’s logo?`,
+    done: (name: string) => `Removed ${name}’s logo.`,
+    failed: "Couldn’t remove the logo. Try again.",
+    request: (id: string, reason: string, getToken: GetToken) => adminRemoveOrganiserLogo(id, reason, getToken),
+  },
+} as const;
+
 /**
- * "Remove video…": a reason (required, logged on the organiser's log as an
- * edit by the Sheltüh team; the organiser isn't emailed), then Remove. The
- * public profile stops showing it at once.
+ * "Remove video…" / "Remove logo…": a reason (required, up to 500
+ * characters, as for a suspension; logged on the organiser's log as an edit
+ * by the Sheltüh team; the organiser isn't emailed), then Remove. The public
+ * profile (and, for a logo, their event pages) stop showing it at once.
  */
-function RemoveVideo({
+function RemoveContent({
+  kind,
   item,
   getToken,
   onUpdated,
 }: {
+  kind: keyof typeof REMOVABLE;
   item: AdminOrganiserRecord;
   getToken: GetToken;
   onUpdated: (item: AdminOrganiserRecord, message: string) => void;
 }) {
   const id = item.organiserId;
-  const openId = `remove-video-open-${id}`;
-  const reasonId = `remove-video-reason-${id}`;
+  const copy = REMOVABLE[kind];
+  const openId = `remove-${kind}-open-${id}`;
+  const reasonId = `remove-${kind}-reason-${id}`;
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState<string | null>(null);
@@ -491,7 +533,7 @@ function RemoveVideo({
   async function remove() {
     if (busy) return;
     setError(null);
-    const invalid = validateMessage(reason, { label: "Reasons", empty: "Enter a reason." });
+    const invalid = validateMessage(reason, { label: "Reasons", max: SUSPEND_REASON_MAX, empty: "Enter a reason." });
     setReasonError(invalid);
     if (invalid) {
       document.getElementById(reasonId)?.focus();
@@ -499,14 +541,14 @@ function RemoveVideo({
     }
     setBusy(true);
     try {
-      const record = await adminRemoveFeaturedVideo(id, reason.trim(), getToken);
-      onUpdated(record, `Removed ${item.displayName}’s featured video.`);
+      const record = await copy.request(id, reason.trim(), getToken);
+      onUpdated(record, copy.done(item.displayName));
     } catch (err) {
       if (err instanceof ApiError && err.fieldErrors?.reason) {
         setReasonError(err.fieldErrors.reason);
         document.getElementById(reasonId)?.focus();
       } else {
-        setError(actionErrorText(err, "Couldn’t remove the video. Try again."));
+        setError(actionErrorText(err, copy.failed));
       }
       setBusy(false);
     }
@@ -514,27 +556,29 @@ function RemoveVideo({
 
   if (!open) {
     return (
-      <div>
-        <Button
-          id={openId}
-          variant="outline"
-          size="sm"
-          className="min-h-11"
-          onClick={() => {
-            pendingFocus.current = reasonId;
-            setOpen(true);
-          }}
-        >
-          Remove video…
-        </Button>
-      </div>
+      <Button
+        id={openId}
+        variant="outline"
+        size="sm"
+        className="min-h-11"
+        onClick={() => {
+          pendingFocus.current = reasonId;
+          setOpen(true);
+        }}
+      >
+        {copy.open}
+      </Button>
     );
   }
 
   return (
-    <div role="group" aria-labelledby={`${openId}-title`} className="flex flex-col gap-3 border-l-2 border-foreground pl-4">
+    <div
+      role="group"
+      aria-labelledby={`${openId}-title`}
+      className="flex w-full flex-col gap-3 border-l-2 border-foreground pl-4"
+    >
       <p id={`${openId}-title`} className="text-sm font-semibold">
-        Remove {item.displayName}&rsquo;s featured video?
+        {copy.question(item.displayName)}
       </p>
       <MessageField
         id={reasonId}
@@ -546,6 +590,7 @@ function RemoveVideo({
         }}
         error={reasonError}
         rows={2}
+        max={SUSPEND_REASON_MAX}
       />
       {error && (
         <Notice tone="danger" role="alert">
@@ -554,7 +599,7 @@ function RemoveVideo({
       )}
       <div className="flex flex-wrap gap-2">
         <Button variant="danger" size="sm" className="min-h-11" busy={busy} onClick={remove}>
-          {busy ? "Removing…" : "Remove video"}
+          {busy ? "Removing…" : copy.confirm}
         </Button>
         <Button
           variant="outline"

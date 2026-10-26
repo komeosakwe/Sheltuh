@@ -15,7 +15,11 @@ export default function PrivacyPage() {
     >
       <ContentSection title="What we collect">
         <ul>
-          <li>Your email address and password when you create an account.</li>
+          <li>
+            Your email address and password when you create an account, or, if we offer sign-in with
+            Google or Apple and you use it, what they share with us (see{" "}
+            <a href="#google-apple">Signing in with Google or Apple</a>).
+          </li>
           <li>
             The email address you enter at checkout, so we can send your tickets, and your order
             details.
@@ -35,6 +39,49 @@ export default function PrivacyPage() {
           </li>
         </ul>
         <p>We only collect what we need to run the service.</p>
+      </ContentSection>
+      <ContentSection title="Signing in with Google or Apple" id="google-apple">
+        <p>
+          If we offer sign-in with Google or Apple, you can use it to create an account or sign in
+          instead of a password. If you do, they ask you first, then share some details with us
+          through Supabase, which runs our sign-in:
+        </p>
+        <ul>
+          <li>
+            Google: your name, email address, the web address of your profile photo, and your Google
+            account ID.
+          </li>
+          <li>
+            Apple: your email address (your real one, or a private relay address if you choose Hide
+            My Email), an Apple account ID and, if you let Apple share it, your name. Apple only
+            sends your name the first time.
+          </li>
+        </ul>
+        <p>
+          We use only the email address and the account ID: to sign you in, and to send your
+          tickets and account emails. The other details are kept with your sign-in record, but we
+          don&rsquo;t use them or show them to anyone. Your Who&rsquo;s Going display name is
+          always the one you choose.
+        </p>
+        <ul>
+          <li>
+            If the email address Google or Apple shares is verified and already belongs to a
+            Sheltüh account, you&rsquo;re signed in to that account: the two are linked
+            automatically, and your password keeps working. So anyone who can sign in to that Google
+            or Apple account can sign in to your Sheltüh account. Keep it secure.
+          </li>
+          <li>
+            With Apple&rsquo;s Hide My Email, your account&rsquo;s email is a private relay address
+            (ending in @privaterelay.appleid.com) that Apple forwards to you. It won&rsquo;t match an
+            account you made with your own address, so you&rsquo;ll have a separate Sheltüh account.
+            Your account page shows the address; for Who&rsquo;s Going, book tickets with it. You
+            can manage forwarding in your Apple account settings.
+          </li>
+          <li>
+            Google&rsquo;s and Apple&rsquo;s own privacy policies apply to what you give them.
+            Signing out of Sheltüh doesn&rsquo;t sign you out of Google or Apple.
+          </li>
+        </ul>
       </ContentSection>
       <ContentSection title="Who’s Going" id="whos-going">
         <p>
@@ -104,15 +151,53 @@ export default function PrivacyPage() {
           </li>
         </ul>
       </ContentSection>
+      <ContentSection title="Your location" id="location">
+        <p>
+          Search can put what&rsquo;s on near you first. It&rsquo;s up to you whether to use it, and
+          how.
+        </p>
+        <ul>
+          <li>
+            If you choose &ldquo;Use my current location&rdquo;, your browser asks you first. If you
+            allow it, your device&rsquo;s position is used only in your browser, to find the nearest
+            suburb we know, and is then thrown away. It isn&rsquo;t sent to us, stored, or put in a
+            web address.
+          </li>
+          <li>
+            You can type a suburb instead. Either way, only the suburb&rsquo;s name is kept: on this
+            device, in your browser&rsquo;s storage, so the search bar remembers it; and in the
+            address of the search results page (for example /search?near=Fitzroy).
+          </li>
+          <li>
+            Like any address you visit, that one reaches our website and our hosting
+            provider&rsquo;s request logs. The suburb isn&rsquo;t saved in our database, isn&rsquo;t
+            linked to your account, and isn&rsquo;t sent with our event searches: results are put in
+            order in your browser.
+          </li>
+          <li>We don&rsquo;t work out where you are from your IP address.</li>
+        </ul>
+        <p>
+          To forget the suburb, choose &ldquo;Anywhere in Melbourne&rdquo; under the search
+          bar&rsquo;s location (or search with the location left empty), or clear this
+          site&rsquo;s data in your browser. Search results pages you&rsquo;ve visited, suburb and
+          all, stay in your browser&rsquo;s history until you clear it there. You can turn
+          location off for this site in your browser&rsquo;s settings at any time.
+        </p>
+      </ContentSection>
       <ContentSection title="Payments">
         <p>
           Card payments are handled by Stripe. We never see or store your card number. Stripe’s
           own privacy policy applies to the information you give it.
         </p>
+        <p>
+          Stripe&rsquo;s script loads on our payment page, including when you open it and
+          don&rsquo;t pay, and collects information about your device and how the page is used, to
+          help prevent fraud. Stripe&rsquo;s privacy policy covers that too.
+        </p>
       </ContentSection>
       <ContentSection title="Who we share it with">
         <p>
-          We use service providers to run Sheltüh — for hosting, our database (located in Sydney),
+          We use service providers to run Sheltüh — for hosting, sign-in, our database (located in Sydney),
           payments and sending email. They only handle data on our behalf. Organisers can see the
           orders for their own events. We don’t sell your personal information.
         </p>

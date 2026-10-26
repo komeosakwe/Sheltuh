@@ -1,5 +1,5 @@
 import { apiFetch, type GetToken } from "./client";
-import type { CheckoutResult, ConfirmFreeOrderResult, CustomerOrderLookup } from "./types";
+import type { CheckoutResult, ConfirmFreeOrderResult, CustomerOrderLookup, OrderPaymentLookup } from "./types";
 
 export interface CheckoutLineItemInput {
   ticketTypeId: string;
@@ -8,9 +8,10 @@ export interface CheckoutLineItemInput {
 
 /**
  * Public — guest checkout, no account needed. Resolves to `{url}` (go there:
- * Stripe for a paid order, the confirmation page for a free one issued
- * straight away) or, for a free order that needs confirming by email,
- * `{status: "confirmation_sent"}` (show "check your inbox").
+ * our payment page, /checkout/pay?order=…, for a paid order; the
+ * confirmation page for a free one issued straight away) or, for a free
+ * order that needs confirming by email, `{status: "confirmation_sent"}`
+ * (show "check your inbox").
  *
  * `buyerEmail` is required when the order is free (it's the only way the
  * tickets reach the buyer). For paid orders it's optional: Stripe collects
@@ -27,9 +28,12 @@ export interface CheckoutLineItemInput {
  *
  * ApiError: 400 (fieldErrors `buyerEmail` / `lineItems`, e.g. over 4 free
  * tickets in any order, paid or free), 404 event not on sale, 409 sold out or this email already has its
- * free tickets for the event, 429 too many free bookings today (members),
- * 503 free bookings busy (the link is emailed after the answer, so a failed
- * send isn't reported here).
+ * free tickets for the event, 429 too many free bookings today (members)
+ * or too many paid checkouts from this connection in the last minute (body
+ * `code: "client_rate_limited"`; nothing was created), 503 free bookings
+ * busy (the link is emailed after the answer, so a failed send isn't
+ * reported here), or card payments aren't available (paid orders; nothing
+ * was created).
  */
 export async function createCheckoutSession(
   eventId: string,
@@ -75,4 +79,16 @@ export async function confirmFreeOrder(token: string) {
  */
 export async function getOrderBySession(sessionId: string) {
   return apiFetch<CustomerOrderLookup>(`/orders/by-session/${encodeURIComponent(sessionId)}`);
+}
+
+/**
+ * Public — the payment page's (/checkout/pay?order={orderId}) view of a card
+ * checkout, by the same unguessable order id: Stripe's client secret and a
+ * server-priced summary while it's `open`, else where to go
+ * (OrderPaymentLookup). Read-only. ApiError 404 unknown, malformed or not a
+ * card checkout; 409 still being set up (try again in a moment); 429 asked
+ * too often in the last minute (try again in a minute).
+ */
+export async function getOrderPayment(orderId: string) {
+  return apiFetch<OrderPaymentLookup>(`/orders/by-session/${encodeURIComponent(orderId)}/payment`);
 }

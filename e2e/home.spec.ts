@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import type { PublicEvent } from "@/lib/api/public-events";
 import { weekendWindow } from "@/lib/home-sections";
 import { sampleEvents } from "@/lib/sample-events";
@@ -91,7 +91,7 @@ for (const vp of VIEWPORTS) {
       await openHome(page);
 
       await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
-      await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your new thing.");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveAccessibleName("Find your next thing.");
       // No Up next any more (docs/design/mobile-redesign.md §6.1).
       await expect(page.getByRole("region", { name: "Up next" })).toHaveCount(0);
 
@@ -117,11 +117,15 @@ for (const vp of VIEWPORTS) {
         expect(title.y + title.height).toBeLessThanOrEqual(fold);
       }
 
-      // Each event at most once across every section.
+      // Each event at most once across every section. The auto-scroll's copies of a rail's cards
+      // (aria-hidden and out of the tab order, `li[data-rail-clone]`) aren't the page listing an event again.
       const hrefs = await page
         .locator("main a[href^='/events/']")
         .evaluateAll((links) =>
-          links.map((a) => a.getAttribute("href") ?? "").filter((href) => /^\/events\/[^?#/]+$/.test(href)),
+          links
+            .filter((a) => !a.closest("[data-rail-clone]"))
+            .map((a) => a.getAttribute("href") ?? "")
+            .filter((href) => /^\/events\/[^?#/]+$/.test(href)),
         );
       expect(hrefs.length).toBeGreaterThan(5);
       expect(new Set(hrefs).size).toBe(hrefs.length);
@@ -165,6 +169,14 @@ test.describe("the photo push-in (the hero photo shows from 1024px)", () => {
   });
 });
 
+/** Moves the mouse onto `target` without waiting for it to hold still (an auto-scrolling rail holds still under the pointer). */
+async function pointAt(page: Page, target: Locator) {
+  await target.evaluate((el) => el.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" }));
+  const box = await target.boundingBox();
+  if (!box) throw new Error("not rendered");
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+}
+
 test("a card's Buy tickets lands on the event page with focus on the tickets", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   const events = fixtures(Date.now());
@@ -179,6 +191,8 @@ test("a card's Buy tickets lands on the event page with focus on the tickets", a
   const quickBuy = section.getByRole("link", { name: /^(?:Buy tickets|Get free tickets) for / }).first();
   const href = await quickBuy.getAttribute("href");
   expect(href).toMatch(/^\/events\/[^/]+#tickets$/);
+  // A rail that auto-scrolls never stops moving by itself; the pointer over it holds it, as for a person.
+  await pointAt(page, quickBuy);
   await quickBuy.click();
   // The dev server compiles the event route on first visit, which can take a while under load.
   await expect(page).toHaveURL(/#tickets$/, { timeout: 30_000 });
@@ -228,6 +242,8 @@ for (const width of [375, 1280]) {
         "See who’s going. Find your people.",
         "Bring your event to life",
       ]);
+      // What else? is in the page from 640px only (owner, 23 Oct 2026): hidden, not removed, on phones.
+      await expect(page.locator("[data-what-else]")).toBeVisible({ visible: width >= 640 });
       const hero = await page.getByRole("search", { name: "Search events" }).boundingBox();
       const chips = await page.getByRole("navigation", { name: "Browse by category" }).boundingBox();
       const weekend = await page.getByRole("heading", { level: 2, name: "This weekend" }).boundingBox();
@@ -268,9 +284,15 @@ for (const width of [375, 1280]) {
       await expect(band.getByRole("link")).toHaveCount(1);
       await expect(band.getByRole("link", { name: "Create profile now" })).toHaveAttribute("href", "/signup");
       await expect(band.getByRole("listitem")).toHaveCount(0);
-      // Live, with a trending list but no going counts in it: no example card, so no number at all.
+      // Live with no going counts: the card still shows the illustrative faces, but no event and no number.
+      const card = band.locator("[data-community-card]");
+      await expect(card).toBeVisible();
       await expect(band.locator("[data-community-example]")).toHaveCount(0);
-      // Two columns would need the card; the pitch's heading is two lines at every width.
+      await expect(card).toContainText("Know who’ll be there");
+      await expect(card.locator("[data-community-note]")).toHaveText("Illustrative photos");
+      await expect(card.locator("[data-community-faces] img")).toHaveCount(5);
+      expect(await band.textContent()).not.toMatch(/\d/);
+      // The pitch's heading is two lines at every width.
       const lines = await band.getByRole("heading", { level: 2 }).evaluate((h2) => {
         const lineHeight = parseFloat(getComputedStyle(h2).lineHeight);
         return Math.round(h2.getBoundingClientRect().height / lineHeight);
@@ -280,7 +302,8 @@ for (const width of [375, 1280]) {
   });
 }
 
-// Owner mockup (23 Oct 2026): the pitch, and a white "A look inside" card from a real count.
+// Owner mockup (23 Oct 2026): the pitch, and a white "A look inside" card from a real count, with the
+// owner's illustrative portraits (always labelled as such).
 for (const vp of [
   { width: 1280, height: 800, desktop: true },
   { width: 390, height: 844, desktop: false },
@@ -288,27 +311,42 @@ for (const vp of [
   test.describe(`Find your people at ${vp.width}px`, () => {
     test.use({ viewport: { width: vp.width, height: vp.height } });
 
-    test("shows a trending event's real count in the card, with plain circles and an honest note", async ({ page }) => {
+    test("shows a trending event's real count in the card, with the illustrative faces and an honest note", async ({ page }) => {
       await openHome(page, { trending: true, going: 22 });
       const band = page.locator("#find-your-people");
-      const card = band.locator("[data-community-example]");
+      const card = band.locator("[data-community-card][data-community-example]");
       await expect(card).toBeVisible();
       await expect(card.getByText("A look inside")).toBeVisible();
       await expect(card.locator("[data-community-count]")).toHaveText("22 people going");
-      await expect(card).toContainText("Popular right now · Real count");
+      await expect(card.locator("[data-community-note]")).toHaveText("Popular right now · Real count · Illustrative photos");
       await expect(card).not.toContainText(/sample/i);
-      // Four round circles, hidden from assistive tech, with no initials (live never shows anyone).
+      // Five round portraits, hidden from assistive tech, empty alt, and actually loaded.
       const faces = card.locator("[data-community-faces]");
       await expect(faces).toHaveAttribute("aria-hidden", "true");
+      await faces.scrollIntoViewIfNeeded();
+      await expect
+        .poll(() => faces.locator("img").evaluateAll((imgs) => imgs.filter((img) => (img as HTMLImageElement).naturalWidth > 0).length))
+        .toBe(5);
       const circles = await faces.locator(":scope > span").evaluateAll((spans) =>
-        spans.map((span) => ({ text: span.textContent, size: span.getBoundingClientRect().width, radius: getComputedStyle(span).borderRadius })),
+        spans.map((span) => ({
+          text: span.textContent,
+          alt: span.querySelector("img")?.getAttribute("alt"),
+          size: span.getBoundingClientRect().width,
+          radius: getComputedStyle(span).borderRadius,
+        })),
       );
-      expect(circles).toHaveLength(4);
+      expect(circles).toHaveLength(5);
       for (const circle of circles) {
         expect(circle.text).toBe("");
-        expect(circle.size).toBe(vp.desktop ? 80 : 64);
+        expect(circle.alt).toBe("");
+        expect(circle.size).toBe(vp.desktop ? 80 : 56);
         expect(parseFloat(circle.radius)).toBeGreaterThanOrEqual(circle.size / 2);
       }
+      // The faces stay inside the card.
+      const cardBox = await card.boundingBox();
+      const facesBox = await faces.boundingBox();
+      if (!cardBox || !facesBox) throw new Error("card not laid out");
+      expect(facesBox.x + facesBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
       // Side by side on a desktop, stacked on a phone.
       const pitch = await band.getByRole("heading", { level: 2 }).boundingBox();
       const box = await card.boundingBox();
@@ -326,6 +364,29 @@ for (const vp of [
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow).toBeLessThanOrEqual(0);
     });
+  });
+}
+
+// The band's card at the narrowest phone, the tightest two-column width and a wide desktop: the five
+// faces stay inside the card and nothing scrolls sideways, with or without a real example.
+for (const width of [320, 1024, 1440]) {
+  test.describe(`Find your people's card at ${width}px`, () => {
+    test.use({ viewport: { width, height: 800 } });
+
+    for (const going of [undefined, 22]) {
+      test(`fits ${going === undefined ? "without" : "with"} a real example`, async ({ page }) => {
+        await openHome(page, { trending: true, going });
+        const card = page.locator("#find-your-people [data-community-card]");
+        await card.scrollIntoViewIfNeeded();
+        await expect(card.locator("[data-community-note]")).toContainText("Illustrative photos");
+        const cardBox = await card.boundingBox();
+        const facesBox = await card.locator("[data-community-faces]").boundingBox();
+        if (!cardBox || !facesBox) throw new Error("card not laid out");
+        expect(facesBox.x + facesBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        expect(overflow).toBeLessThanOrEqual(0);
+      });
+    }
   });
 }
 
@@ -373,15 +434,19 @@ test.describe("/events", () => {
 test.describe("hero collage at 1280px", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
-  test("shows three photos and the badge, which turns slowly and can be paused", async ({ page }) => {
+  test("shows its lead photo, two poster tiles and the badge, which turns slowly and can be paused", async ({ page }) => {
     await openHome(page);
     const collage = page.locator("[data-hero-collage]");
     await expect(collage).toBeVisible();
-    await expect(collage.locator("img")).toHaveCount(3);
+    // Owner (23 Oct 2026, layout polish): one promo photo that no listing repeats; the tiles are poster art.
+    await expect(collage.locator("img")).toHaveCount(1);
+    await expect(collage.locator("img")).toHaveAttribute("src", "/events/gallery-opening.jpg");
+    await expect(collage.locator(":scope > [aria-hidden='true'] svg text")).toHaveCount(2);
     const badge = page.getByRole("button", { name: "Pause the badge animation" });
     await expect(badge).toBeVisible();
-    // Its name changes with its state, so find the drawing by its own marker.
-    const art = page.locator("[data-hero-badge-art]");
+    // Its name changes with its state, so find the drawing by its own marker (the collage's: the
+    // thumbnail's still copy, hidden from 1024px, has one too).
+    const art = collage.locator("[data-hero-badge-art]");
     const spin = await art.evaluate((svg) => {
       const style = getComputedStyle(svg);
       return { name: style.animationName, duration: style.animationDuration, count: style.animationIterationCount, state: style.animationPlayState };
@@ -402,7 +467,7 @@ test.describe("hero collage at 1280px", () => {
     await openHome(page);
     await expect(page.locator("[data-hero-collage]")).toBeVisible();
     await expect(page.getByRole("button", { name: /badge animation/ })).toHaveCount(0);
-    expect(await page.locator("[data-hero-badge-art]").evaluate((svg) => getComputedStyle(svg).animationName)).toBe("none");
+    expect(await page.locator("[data-hero-collage] [data-hero-badge-art]").evaluate((svg) => getComputedStyle(svg).animationName)).toBe("none");
   });
 });
 
@@ -413,15 +478,20 @@ for (const vp of [
   test.describe(`What else? at ${vp.width}px`, () => {
     test.use({ viewport: { width: vp.width, height: vp.height } });
 
-    test("lights each promise in turn as it crosses the middle of the screen; the rest stay readable", async ({ page }) => {
+    test("on desktop, lights each promise in turn as it crosses the middle of the screen (the rest stay readable); not on phones", async ({ page }) => {
       await openHome(page);
       // No collage on phones: the hero stays short.
       await expect(page.locator("[data-hero-collage]")).toBeVisible({ visible: vp.desktop });
+      if (!vp.desktop) {
+        // Not on phones at all (owner, 23 Oct 2026).
+        await expect(page.locator("[data-what-else]")).toBeHidden();
+        return;
+      }
       const section = page.getByRole("region", { name: "What else?" });
       const items = section.getByRole("listitem");
       await expect(items).toHaveCount(3);
       await expect(items.nth(0)).toHaveAttribute("data-active", "true");
-      // Inactive items: the muted token (5.39:1 on cream), fully opaque.
+      // Inactive items: the muted token (5.65:1 on white), fully opaque.
       const inactive = await items.nth(1).evaluate((li) => ({ color: getComputedStyle(li).color, opacity: getComputedStyle(li).opacity }));
       expect(inactive).toEqual({ color: "rgb(107, 103, 94)", opacity: "1" });
       await items.nth(2).evaluate((li) => {
@@ -430,10 +500,12 @@ for (const vp of [
       });
       await expect(items.nth(2)).toHaveAttribute("data-active", "true");
       await expect(items.nth(0)).toHaveAttribute("data-active", "false");
-      // The photo beside the list from 1024px, following the highlight.
+      // The art beside the list from 1024px, following the highlight: poster art until the owner supplies
+      // photos (23 Oct 2026: its photos repeated the hero's and the listings').
       const photo = section.locator("[data-what-else-photo='active']");
-      if (vp.desktop) await expect(photo.locator("img")).toHaveAttribute("src", "/events/jazz-drummer.webp");
-      else await expect(photo).toBeHidden();
+      await expect(section.locator("[data-what-else-photo='active']")).toHaveCount(1);
+      await expect(photo.locator("svg")).toBeVisible();
+      await expect(section.locator("img")).toHaveCount(0);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow).toBeLessThanOrEqual(0);
     });

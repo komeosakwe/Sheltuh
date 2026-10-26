@@ -1,3 +1,5 @@
+import { IN_APP_BROWSER_TOKENS } from "@/lib/auth/in-app-browser";
+
 /**
  * Rules for the "add to home screen" affordance (components/pwa/InstallPrompt.tsx).
  * See docs/pwa.md.
@@ -32,17 +34,23 @@ export function installPromptAllowedOn(pathname: string | null | undefined): boo
   return typeof pathname === "string" && INSTALL_PROMPT_PATHS.has(pathname);
 }
 
-/** Other iOS browsers and in-app browsers, where Safari's steps would be wrong. */
-const NOT_SAFARI =
-  /CriOS|FxiOS|EdgiOS|OPiOS|OPT\/|YaBrowser|DuckDuckGo|GSA\/|Instagram|FBAN|FBAV|FB_IAB|Line\/|Snapchat|Twitter|LinkedInApp|Pinterest|TikTok|musical_ly|WhatsApp/i;
+/** Other iOS browsers and in-app browsers (lib/auth/in-app-browser.ts), where Safari's steps would be wrong. */
+const NOT_SAFARI = new RegExp(
+  `CriOS|FxiOS|EdgiOS|OPiOS|OPT\\/|YaBrowser|DuckDuckGo|${IN_APP_BROWSER_TOKENS.source}`,
+  "i",
+);
+
+/** An iPhone, iPod or iPad (an iPad with a Mac user agent too: a "Macintosh" with a touch screen). */
+export function isIosDevice(userAgent: string, maxTouchPoints = 0): boolean {
+  return /iPhone|iPad|iPod/.test(userAgent) || (/Macintosh/.test(userAgent) && maxTouchPoints > 1);
+}
 
 /**
  * Safari on iPhone, iPod or iPad. iPadOS Safari reports a Mac user agent by
  * default, so a "Macintosh" with a touch screen counts as an iPad.
  */
 export function isIosSafari(userAgent: string, maxTouchPoints = 0): boolean {
-  const iosDevice = /iPhone|iPad|iPod/.test(userAgent) || (/Macintosh/.test(userAgent) && maxTouchPoints > 1);
-  if (!iosDevice) return false;
+  if (!isIosDevice(userAgent, maxTouchPoints)) return false;
   if (NOT_SAFARI.test(userAgent)) return false;
   return /Version\/[\d.]+/.test(userAgent) && /Safari\//.test(userAgent);
 }
@@ -55,6 +63,15 @@ export function isStandalone(win: Window): boolean {
   return ["standalone", "fullscreen", "minimal-ui"].some(
     (mode) => win.matchMedia(`(display-mode: ${mode})`).matches,
   );
+}
+
+/**
+ * Sheltüh added to the home screen on an iPhone or iPad. Its storage is its
+ * own, apart from Safari's: a link it opens in a new tab opens in Safari,
+ * where signing in never reaches the app (InlineReauth's new-tab sign-in).
+ */
+export function isIosHomeScreenApp(win: Window): boolean {
+  return isStandalone(win) && isIosDevice(win.navigator.userAgent, win.navigator.maxTouchPoints ?? 0);
 }
 
 export type InstallPlatform = "standalone" | "ios-safari" | "other";

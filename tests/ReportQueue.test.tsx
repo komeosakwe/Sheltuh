@@ -5,6 +5,9 @@ import ReportQueue from "@/components/admin/ReportQueue";
 import { ApiError } from "@/lib/api/client";
 import type { AdminReport } from "@/lib/api/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { fakeUrl } from "./test-utils/fakeUrl";
+
+vi.mock("next/navigation", async () => (await import("./test-utils/fakeUrl")).fakeNavigation);
 
 vi.mock("@/lib/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/client")>()),
@@ -18,6 +21,8 @@ vi.mock("@/lib/api/admin", () => ({
 }));
 
 beforeEach(() => {
+  fakeUrl.set("");
+  fakeUrl.replace.mockReset();
   adminListReports.mockReset();
   adminResolveReport.mockReset();
 });
@@ -137,6 +142,8 @@ describe("Admin: member reports", () => {
     fireEvent.click(screen.getByRole("button", { name: "Dismissed" }));
     const heading = await screen.findByRole("heading", { name: /Person r9/ });
     expect(adminListReports).toHaveBeenLastCalledWith("dismissed", expect.any(Function));
+    expect(fakeUrl.replace).toHaveBeenLastCalledWith("/admin/reports?status=dismissed", { scroll: false });
+    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Dismissed reports");
     const article = heading.closest("article") as HTMLElement;
     expect(article).toHaveTextContent("Note: Fine");
     expect(within(article).queryByRole("button")).toBeNull();
@@ -169,5 +176,20 @@ describe("Admin: member reports", () => {
     expect(article).toHaveTextContent(/Reported .* 2024, /);
     const summary = article.querySelector("summary");
     expect(summary?.querySelector("[aria-hidden='true']")).toHaveTextContent("▸");
+  });
+
+  it("keeps its filter in ?status=, with plain labels: a suspended member's reports are under Member suspended", async () => {
+    fakeUrl.set("status=actioned");
+    adminListReports.mockResolvedValue({ items: [] });
+    renderQueue();
+    expect(await screen.findByText("None yet")).toBeInTheDocument();
+    expect(adminListReports).toHaveBeenCalledWith("actioned", expect.any(Function));
+    const group = screen.getByRole("group", { name: "Show reports" });
+    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(["Open", "Member suspended", "Dismissed"]);
+    expect(within(group).getByRole("button", { name: "Member suspended" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Reports: member suspended");
+    fireEvent.click(within(group).getByRole("button", { name: "Open" }));
+    expect(fakeUrl.replace).toHaveBeenLastCalledWith("/admin/reports", { scroll: false });
+    await waitFor(() => expect(adminListReports).toHaveBeenLastCalledWith("open", expect.any(Function)));
   });
 });

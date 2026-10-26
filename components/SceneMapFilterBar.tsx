@@ -102,7 +102,7 @@ export default function SceneMapFilterBar({
               // Selected (black), the browser's own calendar icon and text go light too.
               className={filterChipClass(
                 time === "date",
-                `focus-visible:outline-offset-0 ${time === "date" ? "pl-8 scheme-dark" : ""}`,
+                `focus-visible:outline-offset-0 ${time === "date" ? "pl-8 scheme-dark dark:scheme-light" : ""}`,
               )}
             />
           </label>

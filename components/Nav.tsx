@@ -8,6 +8,7 @@ import Wordmark from "@/components/brand/Wordmark";
 import SearchBar from "@/components/SearchBar";
 import SavedNavLink from "@/components/favourites/SavedNavLink";
 import { useUnread } from "@/components/messages/UnreadProvider";
+import ThemeSwitch from "@/components/theme/ThemeSwitch";
 import { ButtonLink } from "@/components/ui/Button";
 
 const MENU_ID = "site-menu";
@@ -88,8 +89,9 @@ export default function Nav() {
     menuRef.current?.hidePopover?.();
   }, [pathname]);
 
+  // Links and actions close the menu; the theme switch doesn't: the sheet re-skinning around you is the feedback.
   function closeMenuOnAction(event: MouseEvent<HTMLElement>) {
-    if (event.target instanceof Element && event.target.closest("a, button")) {
+    if (event.target instanceof Element && event.target.closest("a, button") && !event.target.closest("[data-theme-switch]")) {
       menuRef.current?.hidePopover?.();
     }
   }
@@ -159,14 +161,39 @@ export default function Nav() {
       </div>
 
       {/* Desktop row. */}
-      <div className="mx-auto hidden max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4 sm:px-8 lg:flex">
+      <div className="mx-auto hidden max-w-6xl min-h-17 flex-wrap items-center gap-x-6 gap-y-3 px-5 py-3 sm:px-8 lg:flex">
         <Link href="/" aria-label="Sheltüh home" className="flex items-center py-1">
           <Wordmark className="h-6 w-auto" />
         </Link>
-        {/* The home's hero has the page's search; a second field beside it would only compete. */}
-        {pathname !== "/" && (
-          <div className="order-last w-full lg:order-none lg:max-w-sm lg:flex-1">
-            <SearchBar label="Search the site" placeholder="Search events" />
+        {/* The home's hero and /search have the page's search; a second field (and a second
+            location) beside it would only compete (owner, 24 Oct 2026, D7). Black submit here.
+            The bar takes the room the nav leaves (up to 384px), so the row never wraps: signed in,
+            the nav is wider. Under 13rem (an admin's nav at 1024px) "Search events" would no
+            longer fit beside the pin and the submit, so this slot shows the search icon link
+            instead, as phones do. 13rem is that measure (no container size token is this small). */}
+        {pathname !== "/" && pathname !== "/search" && (
+          <div data-header-search="" className="@container flex max-w-sm min-w-9 flex-1 items-center">
+            <div className="hidden w-full @min-[13rem]:block">
+              <SearchBar label="Search the site" placeholder="Search events" tone="plain" />
+            </div>
+            <Link
+              href="/search"
+              aria-label="Search"
+              className="flex size-9 items-center justify-center rounded-control text-foreground hover:bg-foreground hover:text-background @min-[13rem]:hidden"
+            >
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                className="size-5"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg>
+            </Link>
           </div>
         )}
         <nav aria-label="Primary" className="ml-auto flex flex-wrap items-center gap-x-1 gap-y-1 sm:gap-x-3">
@@ -226,6 +253,7 @@ export default function Nav() {
           <ButtonLink href="/organisers/apply" variant="outline" size="lg" className="mt-8 w-full">
             For organisers
           </ButtonLink>
+          <ThemeSwitch className="mt-8" />
           <p className="eyebrow mt-auto pt-8 text-muted">Melbourne · Australia</p>
         </nav>
       </div>

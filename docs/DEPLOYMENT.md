@@ -67,7 +67,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261105000000_organiser_logos.sql`. Never
+      newest, currently `20261108000000_account_invites.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -90,6 +90,20 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       14. `20261103000000_seat_hold_client_limits.sql`
       15. `20261103000100_refuse_ended_event_orders.sql`
       16. `20261105000000_organiser_logos.sql`
+      17. `20261106000000_event_clips.sql`
+      18. `20261106000100_event_clip_dimensions.sql`
+      19. `20261106000200_event_clip_hardening.sql`
+      20. `20261107000000_admin_review_emails.sql`
+      21. `20261108000000_account_invites.sql`
+
+      **Apply `20261107000000_admin_review_emails.sql` before the code that
+      sends admin review emails deploys.** That code leases outbox jobs with
+      `private.lease_outbox_jobs`, which this file creates. If the code goes
+      out first it falls back to the previous claimer, so ticket, waitlist
+      and follower emails keep sending and only review emails wait (the
+      server logs "private.lease_outbox_jobs is missing" once). Then apply
+      the file and call `/api/cron/email-outbox` once (with the
+      `CRON_SECRET` bearer) to send whatever waited.
 
       The 21 files before these are on `main`. Whether production has them
       all is also unverified: the check above covers every file.
@@ -111,12 +125,28 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       events listed in `supabase-setup.md` §2. Without it a refund made in
       the Stripe dashboard leaves the order paid and its tickets valid at the
       door.
-- [ ] **Email footer banner** hosted at exactly
-      `https://sheltuh.com.au/images/email-footer.png` (the ticket email
-      links this fixed URL, `EMAIL_FOOTER_IMAGE_URL` in
-      `lib/server/ticket-email.ts`). The file is `public/images/email-footer.png`;
-      while `sheltuh.com.au` is still the Cloudflare Worker landing page,
-      upload it there too. Open the URL in a private window to check. This is
+- [ ] **`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`** (embedded checkout: the
+      payment form is on our own page, `/checkout/pay`). In Vercel set it
+      per environment, matching that environment's `STRIPE_SECRET_KEY`:
+      **Production** the live key (`pk_live_…`), **Preview** the test key
+      (`pk_test_…`). Then **redeploy**: it's baked in at build time. If it's
+      missing or its mode differs from the secret key's, every paid checkout
+      is a 503 ("Card payments aren't available right now.") and nothing is
+      written; free tickets still work. A value that isn't `pk_test_…` or
+      `pk_live_…` at all (a secret `sk_…` key pasted in the wrong box, say)
+      fails the build (`next.config.ts`), naming the variable but not the
+      value, so it never reaches the browser bundle. Before going live, run the "Owner
+      sandbox checklist (embedded checkout)" in `architecture.md` in test
+      mode, switch on the payment methods and register the payment method
+      domain(s) for Apple Pay, Google Pay and Link (`npm run payment-domains`),
+      and set Stripe's branding (`supabase-setup.md` §2, steps 4–5).
+- [x] **Email footer banner** hosted at exactly
+      `https://sheltuh.com.au/sheltuh_email_signature_logo.png` (the ticket
+      email links this fixed URL, `EMAIL_FOOTER_IMAGE_URL` in
+      `lib/server/ticket-email.ts`; the owner confirmed it loads, 24 Oct 2026).
+      The file is `public/sheltuh_email_signature_logo.png`; while
+      `sheltuh.com.au` is still the Cloudflare Worker landing page it must stay
+      there too. Open the URL in a private window to check. This is
       the only remote image in any email: the free-ticket confirmation,
       waitlist and follower emails have none.
 - **Email wordmark: nothing to host.** The ticket email's header wordmark
@@ -134,6 +164,44 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
     scanning account: the organiser, or a Sheltüh admin for platform-managed
     organisers' events) is recorded, shown with the ticket (its ticket page),
     and deleted 25 months after the event.
+  - Signing in with Google or Apple: drafted on `/privacy#google-apple`
+    (what each provider shares, that we use only the email and account ID,
+    automatic linking by verified email, Hide My Email), worded as "if we
+    offer it" while the flag is off. Still marked draft.
+  - Payments: Stripe's script loads on `/checkout/pay` (even for visits
+    that don't pay) and collects device and fraud-prevention signals under
+    Stripe's policy; drafted in `/privacy`'s Payments section. Still marked
+    draft.
+  - Account invites (`architecture.md`, "Account invites"): when someone
+    asks, a Sheltüh admin can set up an invite (their email address and, for
+    an organiser, the organiser details they gave) and email them a link; it
+    is deleted 90 days after it was accepted, withdrawn or expired. Review
+    the invite email's wording alongside the Privacy Policy and, once
+    drafted, link the Organiser Agreement from it.
+- [ ] **Google and Apple sign-in** (optional; off until the flag is set;
+      `supabase-setup.md` §1, "Sign in with Google and Apple", and
+      `architecture.md`, same section). In order:
+      - Decide which entity enrols with Apple (Apple's user IDs and relay
+        addresses are per developer team; `PROJECT_CONTEXT.md`).
+      - Set up the Google client, and the Apple App ID, Services ID, key and
+        client secret (`npm run apple-client-secret`), then Supabase's
+        providers. Site URL is exactly `https://app.sheltuh.com.au`; **no
+        Redirect URLs entries**, and **never a `*.vercel.app` wildcard**.
+        "Confirm email" stays **on**; manual linking stays **off**.
+      - Register the email senders as Apple email sources, or mail to Hide My
+        Email addresses bounces.
+      - **Official logo files in `public/auth/`** (Apple's from Apple Design
+        Resources, Google's G from its branding kit), as
+        `components/auth/OAuthButtons.tsx` expects them: they aren't in the
+        repo, and **the build fails without them**. No placeholder logos.
+      - `NEXT_PUBLIC_AUTH_PROVIDERS=google,apple` (or `google`) in Vercel for
+        **Production only** (previews share the production Supabase project
+        and can't be registered), then **redeploy**. List only providers
+        enabled in Supabase, or the button leads to a raw error page.
+      - Run the "Google and Apple sign-in" smoke tests below.
+      - A calendar reminder to rotate the Apple client secret **every
+        ~5 months** (it stops working after at most 6; Apple sign-in then
+        fails for everyone).
 - [ ] **Bootzy font files.** The licensed display face isn't in the repo;
       headlines fall back to Instrument Sans. Add
       `app/fonts/bootzy/Bootzy-Regular.woff2` and its licence file, then
@@ -176,20 +244,93 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 1. [ ] **Test mode:** enable Accounts v1 support (the "Something went wrong"
        at checkout came from this being off), create the webhook endpoint
        `https://YOUR-DOMAIN/api/stripe/webhook`, copy the signing secret.
-2. [ ] Run a full test purchase: paid ticket, free ticket, refund.
-3. [ ] Only then repeat with **live** keys.
+       Copy the publishable key (`pk_test_…`) too, for
+       `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
+2. [ ] Branding (white background, black button): `supabase-setup.md` §2,
+       step 4.
+3. [ ] Payment methods (`supabase-setup.md` §2, step 5): Cards, Apple Pay,
+       Google Pay and Link **on**; Afterpay, Klarna, Zip, PayPal and other
+       buy-now-pay-later **off**; Adaptive Pricing **off** (the code pins it
+       off too, so buyers pay exactly the A$ total shown).
+4. [ ] Payment method domains: `npm run payment-domains -- --register
+       app.sheltuh.com.au preview.sheltuh.com.au` with a **test** restricted
+       key (`STRIPE_DOMAINS_KEY`), or Stripe → Settings → Payment method
+       domains. It must exit 0: every domain enabled, Apple Pay, Google Pay
+       and Link `active`. For a stable preview domain: add
+       `preview.sheltuh.com.au` in Vercel and assign it to the branch you
+       test on, add its CNAME in Cloudflare as **DNS only** (grey cloud), and
+       give that branch's Preview environment
+       `NEXT_PUBLIC_SITE_URL=https://preview.sheltuh.com.au` and the test
+       keys, then redeploy. Per-deployment `*.vercel.app` URLs show cards
+       only.
+5. [ ] Run a full test purchase: paid ticket, free ticket, refund; then the
+       "Owner sandbox checklist (embedded checkout)" in `architecture.md`,
+       including the wallet, Link and Adaptive Pricing items (11–13) on real
+       devices. Unverified until then: wallets and Link with `no-referrer`,
+       in Instagram's in-app browser and the installed iOS app, and whether
+       a domain registration covers both modes.
+6. [ ] Only then repeat with **live** keys (secret, publishable and webhook
+       secret all change together), steps 3–4 included: run
+       `npm run payment-domains -- --register app.sheltuh.com.au` again with
+       a **live** restricted key, then delete that key.
 
 ## Vercel
 
 1. [ ] Environment variables (Production and Preview), from `.env.example`:
        `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
        `NEXT_PUBLIC_SITE_URL`, `DATABASE_URL` (transaction pooler, port 6543),
-       `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SMTP_*`, `EMAIL_FROM`.
+       `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`,
+       `STRIPE_WEBHOOK_SECRET`, `SMTP_*`, `EMAIL_FROM`. The two Stripe keys
+       are a pair from one account and mode: Production live
+       (`sk_live_…` + `pk_live_…`), Preview test (`sk_test_…` +
+       `pk_test_…`). Redeploy after changing any `NEXT_PUBLIC_*` value.
        Optional: `NEXT_PUBLIC_DISABLE_SERVICE_WORKER=1` turns the offline
        service worker off (needs a fresh build; see `docs/pwa.md`).
-       **Never** add `SUPABASE_SECRET_KEY` (local script only).
-2. [ ] Pro plan once you sell tickets (Hobby is non-commercial).
-3. [ ] Domain: attach `sheltuh.com.au` (see PROJECT_CONTEXT for the Cloudflare
+       Optional: `ADMIN_NOTIFY_EMAILS` (server-only, never `NEXT_PUBLIC_`),
+       a comma-separated list of the addresses that get the "event /
+       organiser to review" emails. Use an inbox only admins read, never a
+       customer-facing one (`bookings@`, `support@`). When an admin leaves,
+       remove their address from it as well as their admin role. Unset =
+       every admin account's confirmed email (see `docs/architecture.md`,
+       "Admin review emails"); with neither, those emails are skipped and
+       logged once. Needs `SMTP_*` like every email.
+       **Never** add `SUPABASE_SECRET_KEY` or `STRIPE_DOMAINS_KEY` (local
+       scripts only). The one
+       exception is `SUPABASE_CLIP_STORAGE_KEY`: a *separate*, separately
+       revocable secret key used only by `lib/server/clip-storage.ts` for the
+       private `event-clips` bucket (event clips; unset = clip routes 503).
+       It is still a **full Supabase secret key** (Supabase can't scope
+       them): service-role powers over the whole project, meaning the Data
+       API without RLS, Supabase Auth admin (including making any account an
+       admin) and every Storage bucket. Set it for **Production only**,
+       unless Preview deployments point at a separate Supabase project (then
+       give Preview that project's own key, never Production's). Revoke it
+       at once if it may have leaked.
+       The same goes for `SUPABASE_ADMIN_INVITE_KEY` (account invites; unset =
+       creating invites answers 503 and invitees use the ordinary sign-up):
+       a *separate* secret key (Supabase → API Keys → Create new secret key,
+       `account-invites`) read only by `lib/server/auth-admin.ts`, still a
+       **full Supabase secret key** with the same whole-project powers. Set
+       it for **Production only**, redeploy, and revoke it at once if it may
+       have leaked. No Supabase template change is needed, and **don't use
+       the dashboard's "Invite user" button** (its link doesn't land in the
+       app); invite from `/admin/invites`.
+       Optional: `NEXT_PUBLIC_EVENT_CLIPS=1` turns clip uploads on (the
+       editor's clip field, the admin queue's clip row), once that key is set.
+       Without it the server also refuses new uploads (503), whatever a
+       browser sends; existing clips still play, and can be re-described or
+       removed. Before turning it on, check in the SQL editor that
+       `select policyname from pg_policies where schemaname = 'storage';`
+       returns **0 rows** and that Storage → Buckets shows `event-clips` as
+       **private**.
+2. [ ] Settings → Functions → Region is **Sydney (syd1)**, next to the
+       database (`supabase-setup.md` §4). `vercel.json` sets no `regions`, so
+       this setting decides it; not yet checked. Checkout and the payment
+       page's `GET …/payment` each make several sequential database round
+       trips, so a US region would add noticeable delay before the form
+       appears.
+3. [ ] Pro plan once you sell tickets (Hobby is non-commercial).
+4. [ ] Domain: attach `sheltuh.com.au` (see PROJECT_CONTEXT for the Cloudflare
        notes). The landing page currently lives on a Cloudflare Worker; decide
        when the app replaces it.
 
@@ -203,11 +344,43 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 - [ ] Organiser flow: apply, approve as admin, submit an event with a photo,
       approve, see it on the home page.
 - [ ] Check the phone layout on a real phone.
+- [ ] **Account invites** (once `SUPABASE_ADMIN_INVITE_KEY` is set): the
+      smoke tests in `supabase-setup.md` §1, "Account invites": a fresh
+      address on a phone ends on the dashboard as an approved organiser; an
+      existing account; Google from the invite page; expired and revoked
+      invites.
+- [ ] **After the PKCE switch (whether or not Google and Apple are on):**
+      email sign-up with the emailed code, and password reset with its code,
+      both still work; so does signing in with a password.
+- [ ] **Google and Apple sign-in** (once the flag is on), each on desktop
+      Chrome, iPhone Safari, the **iPhone home-screen app** (the installed
+      PWA: unverified whether the sign-in survives the round trip; a launch
+      gate) and Android Chrome:
+  - [ ] Continue with Google and with Apple from `/login` and `/signup`;
+        land back where you started (e.g. an event's Who's Going, via
+        `next`), signed in; `/account` shows the email.
+  - [ ] Cancel on Google's and Apple's screens: our "Sign-in cancelled"
+        page, nothing changed.
+  - [ ] An existing email-and-password account, then Google with the same
+        email: the same account (its tickets and profile), and the password
+        still works.
+  - [ ] Apple with Hide My Email: a separate account with the
+        `@privaterelay.appleid.com` address; book a free ticket with it and
+        check the ticket email arrives through the relay.
+  - [ ] **Instagram's in-app browser** (open the site from a DM or bio
+        link): Google shows the "open in your browser" notice instead of
+        Google's error; check whether Apple works there.
+  - [ ] Sign out, then Continue with Google: Google asks which account.
+  - [ ] On the **test** project, start a sign-in with `redirect_to` set to
+        `http://<site host>/auth/callback`, then to
+        `https://<site host>:8443/auth/callback`: note whether Supabase
+        sends the code there or falls back to the Site URL, and record the
+        result in `architecture.md` ("`next`: no open redirect").
 
 ## Needs your decision or sign-off before launch
 
-- **Legal:** consent wording, the privacy policy sections for Who's Going and
-  messaging (still marked draft), Terms, Organiser Agreement. Check whether
+- **Legal:** consent wording, the privacy policy sections for Who's Going,
+  messaging and Google/Apple sign-in (still marked draft), Terms, Organiser Agreement. Check whether
   messaging brings Sheltüh under the under-16 social media minimum-age rules
   and the upcoming Children's Online Privacy Code.
 - **Evidence gap:** if a member deletes their profile before being reported,

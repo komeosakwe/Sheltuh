@@ -34,7 +34,7 @@ export default function SeatedTicketsPanel({ event, demo }: { event: SheltuhEven
   const price = formatFeedPriceParts(event);
   const allFree = pricedTicketTypes(event).every((t) => t.priceCents === 0);
   const buyerPaysAFee = event.ticketTypes.some((t) => t.priceCents > 0 && t.feePolicy === "buyer-pays");
-  const steps = allFree ? ["Choose seats", "Confirm by email", "Tickets"] : ["Choose seats", "Pay on Stripe", "Tickets by email"];
+  const steps = allFree ? ["Choose seats", "Confirm by email", "Tickets"] : ["Choose seats", "Pay", "Tickets by email"];
   const low = seated.find((ticket) => !ticket.soldOut && ticket.remaining !== undefined && ticket.remaining > 0);
 
   return (

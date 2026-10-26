@@ -10,9 +10,13 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "promote-admin": "node --env-file-if-exists=.env.local --import tsx scripts/promote-admin.ts",
-    "seed-dev-data": "node --env-file-if-exists=.env.local --import tsx scripts/seed-dev-data.ts"
+    "payment-domains": "node --env-file-if-exists=.env.local --import tsx scripts/register-payment-domains.ts",
+    "seed-dev-data": "node --env-file-if-exists=.env.local --import tsx scripts/seed-dev-data.ts",
+    "apple-client-secret": "node --import tsx scripts/generate-apple-client-secret.ts"
   },
   "dependencies": {
+    "@stripe/react-stripe-js": "^7.0.0",
+    "@stripe/stripe-js": "^10.1.0",
     "@supabase/supabase-js": "^2.117.2",
     "barcode-detector": "3.2.2",
     "leaflet": "^1.9.4",

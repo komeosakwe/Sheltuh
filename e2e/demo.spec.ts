@@ -169,6 +169,27 @@ for (const vp of [
       checkNoApiCalls();
     });
 
+    test("/checkout/pay says checkout isn't available in the demo, and never loads Stripe.js", async ({ page }) => {
+      const checkNoApiCalls = noApiCalls(page);
+      const stripeRequests: string[] = [];
+      page.on("request", (request) => {
+        if (new URL(request.url()).hostname.endsWith("stripe.com")) stripeRequests.push(request.url());
+      });
+      // Answered here if it were ever asked for, so a request can't hang the test.
+      await page.route("https://js.stripe.com/**", (route) => route.fulfill({ contentType: "application/javascript", body: "" }));
+      await page.goto(`/checkout/pay?order=ord_${"0".repeat(32)}`);
+      await expect(page.getByRole("heading", { level: 1, name: "Checkout isn’t available in this demo" })).toBeVisible({
+        timeout: 60_000,
+      });
+      await expect(page.getByRole("link", { name: "Browse events" })).toHaveAttribute("href", "/");
+      // Not even a preconnect to Stripe.js.
+      await expect(page.locator('link[href*="stripe.com"]')).toHaveCount(0);
+      await noSidewaysScroll(page);
+      await page.waitForLoadState("networkidle");
+      expect(stripeRequests).toEqual([]);
+      checkNoApiCalls();
+    });
+
     test("the inbox lists the sample conversations, each opening its thread", async ({ page }) => {
       const checkNoApiCalls = noApiCalls(page);
       await page.goto("/messages");
@@ -178,6 +199,18 @@ for (const vp of [
       await expect(page).toHaveURL(/\/messages\/priya-r$/);
       await expect(page.getByRole("list", { name: "Messages with Priya R." }).getByRole("listitem")).toHaveCount(3);
       await noSidewaysScroll(page);
+      checkNoApiCalls();
+    });
+
+    test("sign in and sign up offer no Apple or Google buttons (no accounts in the demo)", async ({ page }) => {
+      const checkNoApiCalls = noApiCalls(page);
+      for (const path of ["/login", "/signup"]) {
+        await page.goto(path);
+        await expect(page.getByText("Accounts aren’t configured in this environment yet.")).toBeVisible({ timeout: 60_000 });
+        await expect(page.getByRole("button", { name: /Continue with (Apple|Google)/ })).toHaveCount(0);
+        await expect(page.locator('img[src^="/auth/"]')).toHaveCount(0);
+        await noSidewaysScroll(page);
+      }
       checkNoApiCalls();
     });
   });

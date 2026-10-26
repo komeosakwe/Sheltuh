@@ -221,8 +221,34 @@ describe("AccountContent", () => {
     expect(screen.getByRole("link", { name: "My events" })).toHaveAttribute("href", "/dashboard");
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(auth.signOut).toHaveBeenCalledTimes(1);
+    // No scope: the default, global sign-out (every device), which is also what marks it as the
+    // person's own, so no tab keeps a form on screen for it.
+    expect(auth.signOut).toHaveBeenCalledWith();
     expect(push).toHaveBeenCalledWith("/");
     await screen.findByLabelText("Display name");
+  });
+
+  it("says how the account signs in (Supabase's providers), as text, in a fixed order", async () => {
+    getMyProfile.mockResolvedValue(PROFILE);
+    renderAccount(fakeAuthValue({ email: "mia@example.com", providers: ["google", "email"] }));
+    expect(screen.getByText("Sign-in methods: Email and password, Google")).toBeInTheDocument();
+    await screen.findByLabelText("Display name");
+    cleanup();
+
+    renderAccount(fakeAuthValue({ email: "x@privaterelay.appleid.com", providers: ["apple"] }));
+    expect(screen.getByText("Sign-in methods: Apple")).toBeInTheDocument();
+    await screen.findByLabelText("Display name");
+  });
+
+  it("leaves the sign-in methods line out when they aren't known", async () => {
+    getMyProfile.mockResolvedValue(PROFILE);
+    renderAccount(fakeAuthValue({ email: "mia@example.com", providers: ["github"] }));
+    await screen.findByLabelText("Display name");
+    expect(screen.queryByText(/^Sign-in methods:/)).toBeNull();
+    cleanup();
+    renderAccount(fakeAuthValue({ email: "mia@example.com" }));
+    await screen.findByLabelText("Display name");
+    expect(screen.queryByText(/^Sign-in methods:/)).toBeNull();
   });
 
   it("keeps focus on Save name while saving (busy, not disabled), and after it's saved", async () => {

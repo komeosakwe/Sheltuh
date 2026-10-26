@@ -78,6 +78,27 @@ export interface Coordinates {
   lng: number;
 }
 
+/**
+ * An event's short silent video (docs/design/event-clips.md): shown only
+ * when someone presses Play on the event's image. Absent when the event has
+ * none, so an event without a clip has the same payload as before.
+ */
+export interface EventClip {
+  /**
+   * Same-origin and versioned: `/api/events/{eventId}/clip?v={ms}`. It
+   * redirects (302) to a short-lived signed Storage URL, for published
+   * events only; use it as the `<video>` src.
+   */
+  url: string;
+  /** At most 15.5 s (shown rounded to whole seconds, at most 15). */
+  durationMs: number;
+  /** As shown, in pixels (a phone's rotated portrait clip is already turned): sets the video box's shape. */
+  width: number;
+  height: number;
+  /** The clip's text alternative (1–300 characters), shown with it. */
+  description: string;
+}
+
 export interface SheltuhEvent {
   id: string;
   /**
@@ -103,9 +124,17 @@ export interface SheltuhEvent {
   startsAt: string;
   endsAt?: string;
   organiserName: string;
+  /**
+   * The organiser's logo thumbnail (96 px square, public, versioned), only on
+   * a live event whose organiser has a logo and is approved. Absent in the
+   * demo and otherwise: the event page shows their initials instead.
+   */
+  organiserLogoThumbUrl?: string;
   poster: EventPoster;
   /** Optional event photo/poster (path under /public or absolute URL). Falls back to `poster` art when absent or failing to load. */
   imageUrl?: string;
+  /** Live events only, and only with a clip: its short silent video (a Play button over the image). */
+  clip?: EventClip;
   /** Always empty for an external event (tickets sold on another site). */
   ticketTypes: TicketType[];
   /**

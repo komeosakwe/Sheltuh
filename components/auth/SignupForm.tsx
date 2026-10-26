@@ -7,10 +7,9 @@ import AuthField, { fieldsForAuthError, useFocusAfterRender, type AuthErrorField
 import LegalNote from "@/components/auth/LegalNote";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { PASSWORD_HINT, PASSWORD_REGEX } from "@/lib/auth/password-rules";
 import { withNext } from "@/lib/safe-next-path";
 
-const PASSWORD_HINT = "At least 8 characters, with an uppercase letter, a lowercase letter and a number.";
-const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
 const FORM_ERROR_ID = "signup-error";
 
 type Field = "email" | "password" | "confirmPassword";

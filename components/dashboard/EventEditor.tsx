@@ -1,11 +1,18 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import InlineReauth from "@/components/auth/InlineReauth";
+import InlineReauth, { signedInAgainMessage } from "@/components/auth/InlineReauth";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import AdminOrganiserPicker, { type PickedOrganiser } from "@/components/admin/AdminOrganiserPicker";
+import EventClipField from "@/components/dashboard/EventClipField";
 import EventImageField from "@/components/dashboard/EventImageField";
+import SeatingChoiceField, {
+  initialSeatingChoice,
+  seatMapHref,
+  type SeatingChoice,
+} from "@/components/dashboard/SeatingChoice";
+import { ClipSyncError, useEventClip, type ClipRoutes } from "@/components/dashboard/useEventClip";
 import { fieldClass } from "@/components/ui/Field";
 import {
   adminCreateEvent,
@@ -13,6 +20,14 @@ import {
   adminUpdateEvent,
   adminUploadEventImage,
 } from "@/lib/api/admin";
+import {
+  adminAttachClip,
+  adminDeleteClip,
+  adminRequestClipUpload,
+  attachClip,
+  deleteClip,
+  requestClipUpload,
+} from "@/lib/api/clips";
 import {
   createEventDraft,
   deleteEventImage,
@@ -22,8 +37,10 @@ import {
   type EventInput,
 } from "@/lib/api/events";
 import type { AdminEventRecord, EventRecord, TicketTypeInput } from "@/lib/api/types";
-import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
-import { calculateOrderSummary, MIN_PAID_TICKET_CENTS } from "@/lib/fees";
+import { SessionExpiredError } from "@/lib/auth/AuthContext";
+import { useAccountOwner } from "@/lib/auth/useAccountOwner";
+import { eventClipsEnabled } from "@/lib/clips-flag";
+import { calculateBookingFeeCents, calculateOrderSummary, describeBookingFee, MIN_PAID_TICKET_CENTS } from "@/lib/fees";
 import { formatAud, toMelbourneDateTimeInputParts } from "@/lib/format";
 import { checkExternalTicketUrl, type TicketingMode } from "@/lib/ticketing";
 import { EVENT_CATEGORIES } from "@/lib/types";
@@ -37,6 +54,8 @@ interface OrganiserProps {
   initial?: EventRecord;
   onSaved: (record: EventRecord) => void;
   onReload?: never;
+  reauthForm?: never;
+  onReauthNeeded?: never;
 }
 
 /**
@@ -54,6 +73,15 @@ interface AdminProps {
   onSaved: (record: AdminEventRecord) => void;
   /** Fetch the latest version after a save conflict (remount the editor with it). */
   onReload?: () => void;
+  /**
+   * The admin edit page has one sign-in form for the editor and its Trending
+   * panel (InlineReauth's fields have fixed ids). `onReauthNeeded(true)`: a
+   * save found the session expired; `(false)`: it no longer needs the form.
+   * `reauthForm`: this editor shows the form (default true); otherwise the
+   * message points to the Trending panel's, below it.
+   */
+  reauthForm?: boolean;
+  onReauthNeeded?: (needed: boolean) => void;
 }
 
 type Props = OrganiserProps | AdminProps;
@@ -62,6 +90,23 @@ const PLATFORM_FREE_ONLY = "A platform-managed organiser can only offer free tic
 
 function isPlatformManaged(record: EventRecord | AdminEventRecord | undefined): boolean {
   return Boolean(record && "organiserPlatformManaged" in record && record.organiserPlatformManaged);
+}
+
+/** The organiser's clip routes (their own draft or rejected event). */
+const ORGANISER_CLIP_ROUTES: ClipRoutes<EventRecord> = {
+  request: requestClipUpload,
+  attach: attachClip,
+  remove: deleteClip,
+};
+
+/** The admin's clip routes (any event, any status), with the save's note for the event's log. */
+function adminClipRoutes(reason: string): ClipRoutes<AdminEventRecord> {
+  const note = reason || undefined;
+  return {
+    request: adminRequestClipUpload,
+    attach: (eventId, input, getToken) => adminAttachClip(eventId, { ...input, ...(note ? { reason: note } : {}) }, getToken),
+    remove: (eventId, getToken) => adminDeleteClip(eventId, getToken, note),
+  };
 }
 
 function newTicketType(): TicketTypeInput {
@@ -77,12 +122,15 @@ function newTicketType(): TicketTypeInput {
 export default function EventEditor(props: Props) {
   const { getToken, initial, onReload } = props;
   const router = useRouter();
-  const auth = useAuth();
   const isAdmin = props.mode === "admin";
-  // Captured once at mount: the account this draft belongs to, so that if
+  // Captured while signed in: the account this draft belongs to, so that if
   // the session expires mid-edit, recovery only accepts signing back in as
-  // this same account — never a different one saving over it.
-  const [ownerEmail] = useState(() => auth.email);
+  // this same account, and nothing is saved while someone else is signed in
+  // (another tab) — never a different one saving over it. Every request a
+  // save makes (the event, its photo, its clip; an admin's new organiser)
+  // uses `saveToken`, bound to this account when it's called; `getToken`
+  // (the page's) is only for reading (photo and clip previews).
+  const { owner, otherAccount, getOwnerToken: saveToken } = useAccountOwner();
   const locked = !isAdmin && initial ? initial.status === "pending_review" || initial.status === "published" : false;
 
   const [title, setTitle] = useState(initial?.title ?? "");
@@ -100,6 +148,11 @@ export default function EventEditor(props: Props) {
   const [ticketingMode, setTicketingMode] = useState<TicketingMode>(initial?.ticketingMode ?? "sheltuh");
   const [externalTicketUrl, setExternalTicketUrl] = useState(initial?.externalTicketUrl ?? "");
   const [externalFree, setExternalFree] = useState(initial?.externalFree === true);
+  // Reserved seating (docs/design/seating.md §5.13): not a field of its own. An existing
+  // event's comes from its seat map; a new event's decides where saving goes next.
+  const [seatingChoice, setSeatingChoice] = useState<SeatingChoice>(() => initialSeatingChoice(initial));
+  // Only for Sheltüh-ticketed events: a seat map can't go with external ticketing.
+  const reservedSeating = ticketingMode === "sheltuh" && seatingChoice === "reserved";
 
   // Admin mode only.
   const [organiser, setOrganiser] = useState<PickedOrganiser | null>(null);
@@ -116,15 +169,47 @@ export default function EventEditor(props: Props) {
   // it instead of creating a duplicate.
   const [createdId, setCreatedId] = useState<string | null>(null);
 
+  // The event's clip (docs/design/event-clips.md §5.4), while clip uploads are switched on. With
+  // them off, an admin still sees a clip the event already has, and can describe or remove it
+  // (decided at mount, so the field stays after it's removed); only choosing a new one needs the flag.
+  const clipsOn = eventClipsEnabled();
+  const [clipField] = useState(() => clipsOn || (isAdmin && Boolean(initial?.clip)));
+  const clip = useEventClip({ enabled: clipField, getToken: saveToken, saved: initial?.clip });
+  // The event as last saved, here: its photo is what the photo field shows, even when the
+  // clip step after it failed (and the page wasn't told, or left).
+  const [savedRecord, setSavedRecord] = useState<EventRecord | undefined>(initial);
+  const formRef = useRef<HTMLFormElement>(null);
+
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // The polite line by the buttons: said after signing in again in a recovery.
+  const [status, setStatus] = useState<string | null>(null);
+  const saveRef = useRef<HTMLButtonElement>(null);
+
+  const reauthForm = props.mode === "admin" ? (props.reauthForm ?? true) : true;
+
+  /** The expired-session message (and the sign-in form, if this editor has it) is shown, or gone. */
+  function showSessionExpired(expired: boolean) {
+    setSessionExpired(expired);
+    if (props.mode === "admin" && (expired || sessionExpired)) props.onReauthNeeded?.(expired);
+  }
+
+  /** Someone else is signed in by now (another tab): open the recovery, which takes only this draft's account. */
+  function refuseOtherAccount(): boolean {
+    if (!otherAccount) return false;
+    showSessionExpired(true);
+    setSubmitError(new SessionExpiredError().message);
+    return true;
+  }
 
   function handleError(err: unknown, fallback: string) {
+    // The clip step failed or was cancelled: the clip field already says why (the event itself was saved).
+    if (err instanceof ClipSyncError) return;
     if (err instanceof SessionExpiredError) {
-      setSessionExpired(true);
+      showSessionExpired(true);
       setSubmitError(err.message);
       return;
     }
@@ -210,12 +295,12 @@ export default function EventEditor(props: Props) {
     remove: (eventId: string, getToken: GetToken) => Promise<R>,
   ): Promise<R> {
     if (imageFile) {
-      const updated = await upload(record.eventId, imageFile, getToken);
+      const updated = await upload(record.eventId, imageFile, saveToken);
       setImageFile(null);
       return updated;
     }
     if (imageRemoved && record.imageUrl) {
-      const updated = await remove(record.eventId, getToken);
+      const updated = await remove(record.eventId, saveToken);
       setImageRemoved(false);
       return updated;
     }
@@ -229,12 +314,12 @@ export default function EventEditor(props: Props) {
       const record = await adminUpdateEvent(
         existingId,
         { ...input, ticketingMode, expectedUpdatedAt: version ?? "", publish, reason: reason.trim() || null },
-        getToken,
+        saveToken,
       );
       setVersion(record.updatedAt);
       return record;
     }
-    const record = await adminCreateEvent({ ...input, organiserId: organiser?.organiserId ?? "", publish }, getToken);
+    const record = await adminCreateEvent({ ...input, organiserId: organiser?.organiserId ?? "", publish }, saveToken);
     setCreatedId(record.eventId);
     setVersion(record.updatedAt);
     return record;
@@ -243,21 +328,43 @@ export default function EventEditor(props: Props) {
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitError(null);
-    setSessionExpired(false);
+    showSessionExpired(false);
+    setStatus(null);
     const input = buildInput();
-    if (!input) return;
-
+    if (input && refuseOtherAccount()) return;
+    // Busy already: the clip's check may still be reading a file just chosen, which the save waits for.
     setSaving(true);
+    const clipReady = await clip.validate();
+    if (!input || !clipReady) {
+      setSaving(false);
+      return;
+    }
+
     setConflict(false);
     try {
       if (props.mode === "admin") {
+        const note = reason.trim();
         let record = await adminSave(input);
         setPublish(false);
         record = await syncImage(record, adminUploadEventImage, adminDeleteEventImage);
         // A photo change bumps the event's version too: the next save is made against it.
         setVersion(record.updatedAt);
+        // So does a clip change: the admin routes answer with the event, whose version is the next.
+        const onSaved = props.onSaved;
+        record = await syncClip(record, adminClipRoutes(note), (kept) => {
+          // The save is in the event's log with this note now.
+          setReason("");
+          if (initial) onSaved(kept);
+        });
+        setVersion(record.updatedAt);
+        setSavedRecord(record);
         if (!initial) {
-          router.push(`/admin/events/${encodeURIComponent(record.eventId)}/edit`);
+          // Reserved seating: on to the new event's seat map, to add the seats.
+          router.push(
+            reservedSeating
+              ? seatMapHref(record.eventId, true)
+              : `/admin/events/${encodeURIComponent(record.eventId)}/edit`,
+          );
           return;
         }
         setReason("");
@@ -265,12 +372,18 @@ export default function EventEditor(props: Props) {
       } else {
         const existingId = initial?.eventId ?? createdId;
         let record = existingId
-          ? await updateEventDraft(existingId, input, getToken)
-          : await createEventDraft(input, getToken);
+          ? await updateEventDraft(existingId, input, saveToken)
+          : await createEventDraft(input, saveToken);
         if (!existingId) setCreatedId(record.eventId);
         record = await syncImage(record, uploadEventImage, deleteEventImage);
+        const onSaved = props.onSaved;
+        record = await syncClip(record, ORGANISER_CLIP_ROUTES, (kept) => {
+          if (initial) onSaved(kept);
+        });
+        setSavedRecord(record);
         if (!initial) {
-          router.push(`/dashboard/${record.eventId}`);
+          // Reserved seating: on to the new draft's seat map, to lay out the seats.
+          router.push(reservedSeating ? seatMapHref(record.eventId, false) : `/dashboard/${record.eventId}`);
           return;
         }
         props.onSaved(record);
@@ -284,20 +397,44 @@ export default function EventEditor(props: Props) {
     }
   }
 
+  /**
+   * The clip step, after the event and its photo were saved. If it doesn't finish (refused,
+   * cancelled, or the session ran out), that saved record is kept here, so the photo and the
+   * version are the server's, and `kept` gets it (to tell the page of an existing event, as a
+   * save does); then the error goes on, so a new event isn't navigated to and nothing is submitted.
+   */
+  async function syncClip<R extends EventRecord>(record: R, routes: ClipRoutes<R>, kept: (record: R) => void): Promise<R> {
+    try {
+      return await clip.sync(record, routes);
+    } catch (err) {
+      setSavedRecord(record);
+      kept(record);
+      throw err;
+    }
+  }
+
   async function handleSubmitForReview() {
     // Organisers only: an admin publishes from the save itself.
     if (!initial || props.mode === "admin") return;
     setSubmitError(null);
-    setSessionExpired(false);
+    showSessionExpired(false);
+    setStatus(null);
     // Submit what's on screen, not the last save: unsaved edits are saved
     // first, and nothing is submitted if they don't validate.
     const input = buildInput();
-    if (!input) return;
+    if (input && refuseOtherAccount()) return;
     setSubmitting(true);
+    const clipReady = await clip.validate();
+    if (!input || !clipReady) {
+      setSubmitting(false);
+      return;
+    }
     try {
-      const saved = await updateEventDraft(initial.eventId, input, getToken);
-      await syncImage(saved, uploadEventImage, deleteEventImage);
-      const record = await submitEventForReview(initial.eventId, getToken);
+      const saved = await updateEventDraft(initial.eventId, input, saveToken);
+      const withImage = await syncImage(saved, uploadEventImage, deleteEventImage);
+      // Waits for a clip upload a save already started, and never submits without the clip.
+      setSavedRecord(await syncClip(withImage, ORGANISER_CLIP_ROUTES, props.onSaved));
+      const record = await submitEventForReview(initial.eventId, saveToken);
       props.onSaved(record);
     } catch (err) {
       handleError(err, "Couldn't submit this event for review.");
@@ -321,7 +458,7 @@ export default function EventEditor(props: Props) {
   }
 
   return (
-    <form onSubmit={handleSave} className="flex flex-col gap-6" noValidate>
+    <form ref={formRef} onSubmit={handleSave} className="flex flex-col gap-6" noValidate>
       {initial?.status === "rejected" && initial.rejectionReason && (
         <div className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
           <p className="font-medium">Not approved — reviewer note:</p>
@@ -342,7 +479,7 @@ export default function EventEditor(props: Props) {
       )}
       {isAdmin && !initial && !createdId && (
         <AdminOrganiserPicker
-          getToken={getToken}
+          getToken={saveToken}
           value={organiser}
           onChange={(picked) => {
             setOrganiser(picked);
@@ -489,13 +626,24 @@ export default function EventEditor(props: Props) {
 
       <EventImageField
         getToken={getToken}
-        existingUrl={initial?.imageUrl}
+        existingUrl={savedRecord?.imageUrl}
         pending={imageFile}
         onPendingChange={setImageFile}
         removed={imageRemoved}
         onRemovedChange={setImageRemoved}
         error={errors.image}
       />
+
+      {clipField && (
+        <EventClipField
+          draft={clip}
+          getToken={getToken}
+          canUpload={clipsOn}
+          eventId={initial?.eventId ?? createdId ?? undefined}
+          // The upload stopped: save again (the event, then the clip).
+          onRetry={() => formRef.current?.requestSubmit()}
+        />
+      )}
 
       {isAdmin && (
         <fieldset className="flex flex-col gap-3">
@@ -563,6 +711,17 @@ export default function EventEditor(props: Props) {
       )}
 
       {ticketingMode === "sheltuh" && (
+        <SeatingChoiceField
+          value={seatingChoice}
+          onChange={setSeatingChoice}
+          event={initial}
+          admin={isAdmin}
+          locked={!isAdmin && initial?.ticketingLocked === true}
+          legendClassName={SECTION_TITLE}
+        />
+      )}
+
+      {ticketingMode === "sheltuh" && (
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className={SECTION_TITLE}>Ticket types</h2>
@@ -622,11 +781,13 @@ export default function EventEditor(props: Props) {
                     id={`ticket-${index}-fee-policy`}
                     value={ticket.feePolicy}
                     onChange={(e) => updateTicket(index, { feePolicy: e.target.value as TicketTypeInput["feePolicy"] })}
+                    aria-describedby={`ticket-${index}-fee-help`}
                     className={fieldClass}
                   >
                     <option value="buyer-pays">Buyer pays</option>
                     <option value="organiser-absorbs">Organiser absorbs</option>
                   </select>
+                  <FeePolicyHelp id={`ticket-${index}-fee-help`} priceCents={ticket.priceCents} isAdmin={isAdmin} />
                 </div>
                 <div className="flex flex-col gap-1">
                   <label htmlFor={`ticket-${index}-qty`} className="eyebrow text-muted">
@@ -722,13 +883,19 @@ export default function EventEditor(props: Props) {
       {submitError && sessionExpired && (
         <div role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
           <p>{submitError}</p>
-          <InlineReauth
-            expectedEmail={ownerEmail}
-            onSignedIn={() => {
-              setSessionExpired(false);
-              setSubmitError(null);
-            }}
-          />
+          {reauthForm ? (
+            <InlineReauth
+              expectedAccount={owner}
+              onSignedIn={() => {
+                showSessionExpired(false);
+                setSubmitError(null);
+                setStatus(signedInAgainMessage("save"));
+                saveRef.current?.focus();
+              }}
+            />
+          ) : (
+            <p>Sign in again with the form below (under Trending), then save again.</p>
+          )}
         </div>
       )}
       {submitError && !sessionExpired && (
@@ -737,13 +904,19 @@ export default function EventEditor(props: Props) {
         </p>
       )}
 
+      {/* Always rendered (never display:none), so it's announced when its text changes. */}
+      <p role="status" className="text-sm text-foreground empty:sr-only">
+        {status}
+      </p>
+
       <div className="flex flex-wrap gap-3">
         <button
+          ref={saveRef}
           type="submit"
           disabled={saving}
           className="btn btn-solid w-fit"
         >
-          {saving ? "Saving…" : isAdmin ? (initial || createdId ? "Save changes" : "Create event") : "Save draft"}
+          {saving ? "Saving…" : saveLabel(isAdmin, Boolean(initial), Boolean(createdId), reservedSeating)}
         </button>
         {initial && !isAdmin && (
           <button
@@ -757,5 +930,50 @@ export default function EventEditor(props: Props) {
         )}
       </div>
     </form>
+  );
+}
+
+/**
+ * The save button's words. Saving a new event with reserved seating goes on to
+ * its seat map, and says so.
+ */
+function saveLabel(isAdmin: boolean, existing: boolean, created: boolean, reserved: boolean): string {
+  const toSeats = reserved && !existing;
+  if (isAdmin) {
+    if (existing) return "Save changes";
+    if (toSeats) return created ? "Save and set up seats" : "Create event and set up seats";
+    return created ? "Save changes" : "Create event";
+  }
+  return toSeats ? "Save draft and set up seats" : "Save draft";
+}
+
+/**
+ * What each booking-fee choice means for this ticket, in plain words, under
+ * "Who pays the booking fee?". Amounts come from lib/fees.ts.
+ */
+function FeePolicyHelp({ id, priceCents, isAdmin }: { id: string; priceCents: number; isAdmin: boolean }) {
+  const you = isAdmin ? "the organiser receives" : "you receive";
+  if (priceCents <= 0) {
+    return (
+      <p id={id} className="text-xs text-muted">
+        Free tickets have no booking fee, so this choice doesn&rsquo;t apply.
+      </p>
+    );
+  }
+  const fee = calculateBookingFeeCents(priceCents);
+  const price = formatAud(priceCents);
+  return (
+    <div id={id} className="flex flex-col gap-1 text-xs text-muted">
+      <p>Sheltüh&rsquo;s booking fee is {describeBookingFee()}: {formatAud(fee)} on this ticket.</p>
+      <p>
+        <span className="font-semibold text-foreground">Buyer pays:</span> the fee is added on top. The buyer pays{" "}
+        {formatAud(priceCents + fee)} and {you} the full {price}.
+      </p>
+      <p>
+        <span className="font-semibold text-foreground">Organiser absorbs:</span> the buyer pays just {price} and the fee
+        comes out of it, so {you} {formatAud(Math.max(priceCents - fee, 0))}. Handy for keeping a round price.
+      </p>
+      <p>Card processing costs are covered by Sheltüh either way.</p>
+    </div>
   );
 }

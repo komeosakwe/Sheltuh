@@ -18,6 +18,7 @@ import {
 import { withNext } from "@/lib/safe-next-path";
 import { doorBusyClass } from "./busy-class";
 import DoorIcon, { type DoorIconName } from "./DoorIcon";
+import type { DoorWayBack } from "./way-back";
 
 /** Each panel resets the tokens locally, so text, focus ring and outline pills follow its fill (§5.A4). */
 const TONE_CLASS: Record<DoorTone, string> = {
@@ -124,6 +125,8 @@ interface Props {
   retrying: boolean;
   /** Where Sign in comes back to (this page). */
   returnTo: string;
+  /** Where "Back to…" goes when this account can't check in here. */
+  wayBack: DoorWayBack;
   panelRef: RefObject<HTMLDivElement | null>;
   onRetry: () => void;
   onDismiss: () => void;
@@ -155,7 +158,17 @@ export function undoTargetOf(result: DoorResult): UndoTarget | null {
  * or not verified, each with its own headline, icon and panel treatment.
  * Not a live region and never focused: the assertive announcer speaks it.
  */
-export default function ResultPanel({ result, retrying, returnTo, panelRef, onRetry, onDismiss, onUndo, onPauseChange }: Props) {
+export default function ResultPanel({
+  result,
+  retrying,
+  returnTo,
+  wayBack,
+  panelRef,
+  onRetry,
+  onDismiss,
+  onUndo,
+  onPauseChange,
+}: Props) {
   const tone = toneOf(result);
   const { reason, details } = reasonAndDetails(result, new Date());
 
@@ -179,8 +192,8 @@ export default function ResultPanel({ result, retrying, returnTo, panelRef, onRe
           </ButtonLink>
         )}
         {result.reason === "no-access" && (
-          <ButtonLink variant="solid" size="lg" href="/dashboard" className="w-full sm:w-auto">
-            Back to your events
+          <ButtonLink variant="solid" size="lg" href={wayBack.href} className="w-full sm:w-auto">
+            {wayBack.backTo}
           </ButtonLink>
         )}
         {scanAnother}

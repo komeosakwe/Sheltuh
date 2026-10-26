@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import CheckoutConfirmation from "@/components/CheckoutConfirmation";
 
-export const metadata: Metadata = { title: "Order confirmed — Sheltüh" };
+// Neutral: the page can also say a payment wasn't completed, or an order wasn't found.
+// CheckoutConfirmation sets the title for each answer once it has one.
+export const metadata: Metadata = { title: "Your order — Sheltüh" };
 
 export default function CheckoutSuccessPage() {
   return (

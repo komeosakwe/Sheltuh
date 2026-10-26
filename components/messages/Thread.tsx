@@ -353,13 +353,14 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
     }
   }
 
-  async function send(body: string): Promise<SendOutcome> {
+  /** `sendToken`: the composer's, bound to the account that wrote the message. */
+  async function send(body: string, sendToken: GetToken): Promise<SendOutcome> {
     const current = dataRef.current;
     if (!current) return { ok: false, gone: true };
     const other = current.conversation.otherDisplayName;
     const generation = generationRef.current;
     try {
-      const message = await sendMessage(conversationId, body, getToken);
+      const message = await sendMessage(conversationId, body, sendToken);
       if (generationRef.current !== generation) return { ok: false, gone: true };
       const accepting = dataRef.current?.conversation.status === "request_received";
       if (accepting) statusVersionRef.current += 1;
@@ -476,9 +477,10 @@ export default function Thread({ conversationId, getToken }: { conversationId: s
     }
   }
 
-  async function report(reason: ReportReason, details: string | undefined): Promise<ReportOutcome> {
+  /** `reportToken`: the dialog's, bound to the account that wrote the report. */
+  async function report(reason: ReportReason, details: string | undefined, reportToken: GetToken): Promise<ReportOutcome> {
     try {
-      await reportMember({ conversationId, reason, details }, getToken);
+      await reportMember({ conversationId, reason, details }, reportToken);
       setReportOpen(false);
       setReported(true);
       pendingFocus.current = "reported";

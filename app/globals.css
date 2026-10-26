@@ -2,26 +2,27 @@
 
 /*
  * Sheltüh design tokens: Brand Direction One, "Structured Expression"
- * (docs/design/brand-direction-one.md). Cream and white foundations, black
- * structure, Signal Orange as a field or a mark (never small text on light).
- * Every component reads these semantic tokens, so the whole app re-skins here.
+ * (docs/design/brand-direction-one.md), on a white foundation with a Light / Dark
+ * switch (docs/design/theme-white-dark.md). Black and white structure, Signal Orange
+ * as a field or a mark (never small text on light). Every component reads these
+ * semantic tokens, so the whole app re-skins here.
  * Hex is lowercase and :root comes first: tests/pwa-manifest.test.ts reads the
  * first --background, and tests/brand-tokens.test.ts pins the brand values.
  */
 :root {
-  --background: #fffae7; /* Cream: the site foundation */
-  --card: #ffffff; /* White: cards, fields, sheets, dialogs */
-  --surface: #f2ecd6; /* sunken cream: skeletons, placeholders. Never behind orange marks (2.87:1) */
-  --surface-border: #ddd5ba; /* soft hairline, decorative dividers only (never a control boundary) */
+  --background: #ffffff; /* White: the site foundation */
+  --card: #ffffff; /* White: cards, fields, sheets, dialogs (the 1px foreground border carries them) */
+  --surface: #f3f2ee; /* sunken paper grey: skeletons, placeholders, hover. Never behind orange marks (3.03:1) */
+  --surface-border: #dedcd5; /* soft hairline, decorative dividers only (never a control boundary) */
   --foreground: #000000; /* Black: text, structure rules, nav */
-  --muted: #6b675e; /* 5.39:1 on cream, 5.63:1 on white, 4.76:1 on surface */
-  --accent: #000000; /* default solid buttons and text links: stays black (orange text fails on cream) */
+  --muted: #6b675e; /* 5.65:1 on white, 5.04:1 on surface */
+  --accent: #000000; /* default solid buttons and text links: stays black (orange text fails on white) */
   --accent-strong: #262626;
-  --accent-foreground: #fffae7;
+  --accent-foreground: #ffffff;
   --signal: #ff4800; /* Signal Orange: fills, marks, the one conversion CTA, large display only */
   --signal-foreground: #000000; /* 6.18:1, the only small-text pairing on orange */
   --ink: #000000; /* constants, never re-scoped (e.g. .btn-signal:hover) */
-  --cream: #fffae7;
+  --paper: #ffffff; /* (e.g. the SaveButton's ring gap) */
   --danger: #b3261e;
   --danger-foreground: #ffffff;
   /* Door check-in only (components/check-in/, docs/design/check-in.md; enforced by
@@ -33,20 +34,37 @@
   --door-refuse-foreground: #f3f0e8;
   --door-hold: #ffb020; /* "Not verified": frame, hazard stripes, icon, headline; offline banner fill */
   --door-hold-foreground: #0b0b0b;
-  /* Faces (app/fonts.ts). */
+  /* Faces (app/fonts.ts). --face-sans is plain Instrument Sans for all running text, buttons,
+     prices and nav. --face-dots is Instrument Sans Dots (every vowel drawn with the brand's two
+     dots, in the font only, so the text stays plainly spelled), first in the line: only the big
+     headlines use it (display-lg, display-md section titles and --face-display), which the
+     owner asked for on 23 Oct 2026 after all-text dots proved too distracting; the home h1 is
+     plain but for two letters (`display-plain` + `font-dots`, 24 Oct 2026). Anything it lacks
+     falls through to the plain face. Form fields use --face-sans-plain. Mono stays plain. */
   --face-sans: var(--font-instrument), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --face-dots: var(--font-instrument-dots), var(--face-sans);
+  --face-sans-plain: var(--face-sans);
   --face-mono: var(--font-plex-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   /* THE display token. Bootzy isn't licensed into the repo yet: the fallback is Instrument Sans 700,
      set tight, which is how the brand book sets its own headlines. Flip this block when Bootzy
      lands (brand-direction-one.md §3.4): --face-display: var(--font-bootzy), var(--face-sans);
      --display-weight: 400; --display-tracking: -0.01em; --display-leading: 0.9. */
-  --face-display: var(--face-sans);
+  --face-display: var(--face-dots);
   --display-weight: 700;
   --display-tracking: -0.045em;
   --display-leading: 0.88;
   --header-h: 3.5rem; /* 56px compact header, < lg */
   --buybar-h: 4rem; /* 64px sticky event-page buy bar, < lg (before the safe area) */
   --seatbar-h: 5.5rem; /* 88px phone summary bar on /events/[slug]/seats (before safe area) */
+  /* Continue with Apple / Google (docs/design/social-sign-in.md §2): the vendors' own button
+     colours, a pair that inverts with the page like btn-solid. White theme: Apple Black and
+     Google Dark. Page backgrounds only, so never re-scoped in [data-surface=*]. The Google
+     values are from memory of Google's guidelines, to check against its kit (unverified). */
+  --apple-fill: #000000;
+  --apple-ink: #ffffff;
+  --google-fill: #131314;
+  --google-stroke: #8e918f; /* 3.2:1 on white: the button's boundary */
+  --google-text: #e3e3e3;
 }
 
 @media (min-width: 64rem) {
@@ -55,17 +73,55 @@
   }
 }
 
+/* Dark (docs/design/theme-white-dark.md §2.2): set on <html> by the no-flash script
+   (lib/theme.ts) when the visitor chose it. Screen only, so printed tickets always use Light.
+   --signal, --signal-foreground, --ink, --paper and --door-* are constants and don't change. */
+@media screen {
+  [data-theme="dark"] {
+    color-scheme: dark;
+    --background: #000000;
+    --card: #141414;
+    --surface: #262626;
+    --surface-border: #333333;
+    --foreground: #ffffff;
+    --muted: #a39e93; /* 7.87:1 on black, 6.90:1 on card, 5.67:1 on surface */
+    --accent: #ffffff;
+    --accent-strong: #e0e0e0;
+    --accent-foreground: #000000;
+    --danger: #ff6b5e; /* 7.51:1 on black */
+    --danger-foreground: #000000;
+    /* Apple White and Google Light on the black page. */
+    --apple-fill: #ffffff;
+    --apple-ink: #000000;
+    --google-fill: #ffffff;
+    --google-stroke: #747775;
+    --google-text: #1f1f1f;
+  }
+}
+
+/* The Dark theme's variant (docs/design/theme-white-dark.md §2.2): screen only, so print always
+   gets Light. Used for separation only (a rule where ink meets an ink page, an edge on black art),
+   never to recolour content: components read the semantic tokens. */
+@custom-variant dark {
+  @media screen {
+    &:where([data-theme="dark"], [data-theme="dark"] *) {
+      @slot;
+    }
+  }
+}
+
 /* Ink and orange are sections, not themes (brand-direction-one.md §2.3): every shared
-   component inverts inside them with no class changes. Light only: no dark-mode theme. */
+   component inverts inside them with no class changes. The page theme is Light (:root) or
+   Dark ([data-theme="dark"]); paper pins a subtree to Light. */
 [data-surface="ink"] {
   --background: #000000;
   --card: #141414;
   --surface: #1a1a1a;
   --surface-border: #333333;
-  --foreground: #fffae7;
+  --foreground: #ffffff;
   --muted: #a39e93; /* 7.87:1 on black */
-  --accent: #fffae7;
-  --accent-strong: #ffffff;
+  --accent: #ffffff;
+  --accent-strong: #e0e0e0;
   --accent-foreground: #000000;
   --danger: #ff6b5e; /* 7.52:1 on black */
   --danger-foreground: #000000;
@@ -81,7 +137,29 @@
   --surface-border: #000000;
   --accent: #000000;
   --accent-strong: #262626;
-  --accent-foreground: #fffae7;
+  --accent-foreground: #ffffff;
+  /* White card and sunken surface in both themes, so nothing inside picks up Dark's colours. */
+  --card: #ffffff;
+  --surface: #f3f2ee;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* Pins a subtree to Light in both themes (the map canvas, SceneMapPanel): the Light colour
+   tokens exactly as in :root. */
+[data-surface="paper"] {
+  color-scheme: light;
+  --background: #ffffff;
+  --card: #ffffff;
+  --surface: #f3f2ee;
+  --surface-border: #dedcd5;
+  --foreground: #000000;
+  --muted: #6b675e;
+  --accent: #000000;
+  --accent-strong: #262626;
+  --accent-foreground: #ffffff;
+  --danger: #b3261e;
+  --danger-foreground: #ffffff;
   background: var(--background);
   color: var(--foreground);
 }
@@ -119,7 +197,7 @@
   --color-signal: var(--signal);
   --color-signal-foreground: var(--signal-foreground);
   --color-ink: var(--ink);
-  --color-cream: var(--cream);
+  --color-paper: var(--paper);
   --color-danger: var(--danger);
   --color-danger-foreground: var(--danger-foreground);
   --color-door-admit: var(--door-admit);
@@ -134,7 +212,7 @@
 
 /* The brand's rounded squares (the umlaut dots, the logomark, the palette swatches). No pills,
    no circles (rounded-full survives only on native radios and checkboxes), no shadows:
-   elevation is white on cream plus a 1px border. */
+   elevation is a 1px foreground border. */
 @theme {
   --radius-card: 0.75rem; /* 12px: event media, info cards, sheets, ticket stub, map card */
   --radius-control: 0.5rem; /* 8px: buttons, inputs, selects, search, chips, steppers, menus */
@@ -178,6 +256,17 @@ body {
   padding-right: env(safe-area-inset-right);
 }
 
+/* Form fields keep the plain Instrument Sans (no dotted vowels), so typed text looks the way it
+   was typed. Base layer: a field that asks for font-mono (a code entry) still gets mono. */
+@layer base {
+  input,
+  textarea,
+  select,
+  [contenteditable]:not([contenteditable="false"]) {
+    font-family: var(--face-sans-plain);
+  }
+}
+
 /* Headings: Instrument Sans 700 in sentence case (docs/design/mobile-redesign.md, Refinement
    22 Oct). Heavy uppercase is kept for a page's main headline only (display-lg). */
 @layer base {
@@ -209,10 +298,11 @@ h4 {
 /* A page's main headline (the home's h1, page headers): the one heavy uppercase style.
    Instrument Sans 700, 32–40px on phones, 56–72px from lg. Event titles use title-lg. */
 @utility display-lg {
-  font-family: var(--face-sans);
+  font-family: var(--face-dots);
   font-weight: 700;
   font-size: clamp(2rem, 8.5vw, 2.5rem);
-  line-height: 0.95;
+  /* 1.08, not 0.95: room for the dots over the second line's capitals. */
+  line-height: 1.08;
   letter-spacing: -0.035em;
   text-transform: uppercase;
   @media (width >= 40rem) {
@@ -266,8 +356,25 @@ h4 {
     font-family: var(--face-display);
     font-weight: var(--display-weight);
     letter-spacing: var(--display-tracking);
-    line-height: 0.9;
+    line-height: 1.05; /* room for the dots over the second line's capitals */
   }
+  /* The home h1 (owner, 24 Oct 2026: "only two letters with dots"): the display headline in the
+     plain face, with only its `font-dots` letters dotted (HOME_TITLE_LINES in
+     components/home/home-content.ts). Three classes, so it wins over the rule above. */
+  .display-lg.font-display.display-plain {
+    font-family: var(--face-sans);
+  }
+  /* Any other display-lg title in plain words (owner, 24 Oct 2026: section titles are normal
+     words), e.g. the home's "What else?". */
+  .display-lg.display-plain {
+    font-family: var(--face-sans);
+  }
+}
+
+/* One letter in the dotted face (Instrument Sans Dots) inside a plain headline: the text stays
+   plainly spelled, only its drawing gets the brand's two dots. */
+@utility font-dots {
+  font-family: var(--face-dots);
 }
 
 /* Labels, straps, field labels: IBM Plex Mono 500, 12/16, light tracking. */
@@ -308,7 +415,7 @@ h4 {
     opacity: 0;
     pointer-events: none;
   }
-  /* The dots alone are orange on cream (3.25:1, non-text): the current page also gets a
+  /* The dots alone are orange on white (3.40:1, non-text): the current page also gets a
      2px underline in the text colour, so it doesn't rest on colour and small marks only. */
   /* "true": the section you're in, e.g. Discover on an event's page. */
   /* aria-selected: the seat page's Map / List tabs (docs/design/seating.md §5.4). */
@@ -428,7 +535,7 @@ h4 {
   }
 }
 
-/* Never orange: next to .btn-signal it would merge with the fill. Cream inside ink scopes. */
+/* Never orange: next to .btn-signal it would merge with the fill. White inside ink scopes and in Dark. */
 :focus-visible {
   outline: 2px solid var(--foreground);
   outline-offset: 3px;
@@ -651,7 +758,7 @@ h4 {
       background: var(--foreground);
       color: var(--background);
     }
-    /* 6.18:1 orange on black, on cream pages and inside ink alike. */
+    /* 6.18:1 orange on black, on white pages and inside ink alike. */
     .btn-signal:hover:not(:disabled, [aria-disabled="true"]) {
       background: var(--ink);
       border-color: var(--signal);
@@ -675,5 +782,81 @@ h4 {
     background: var(--surface);
     border-color: var(--surface-border);
     color: var(--muted);
+  }
+
+  /* Continue with Apple / Google (docs/design/social-sign-in.md §2, components/auth/OAuthButtons.tsx).
+     Vendor marks, not .btn: their colours never change, busy included (no grey disabled look).
+     --face-oauth is declared here rather than in :root because --font-roboto exists only inside
+     OAuthButtons (next/font's variable class on its root), and a custom property resolves its
+     var()s where it's declared. */
+  .btn-oauth {
+    --face-oauth: var(--font-roboto, Roboto), Roboto, "Helvetica Neue", Arial, sans-serif;
+    position: relative;
+    display: flex;
+    width: 100%;
+    min-height: 3rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-control);
+    font-family: var(--face-oauth);
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  /* The hover wash: 8% of the title's colour over the fill, which itself never changes. */
+  .btn-oauth::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: currentColor;
+    opacity: 0;
+    pointer-events: none;
+  }
+  /* Apple HIG: the title is 43% of the button's height (the one off-scale size), and at least
+     8% of the button's width is left clear to the right of it. The logo file is the button's
+     full height, with its own padding. */
+  .btn-oauth-apple {
+    background: var(--apple-fill);
+    color: var(--apple-ink);
+    border: 0;
+    padding-inline: 0 8%;
+    font-size: calc(3rem * 0.43);
+    line-height: 1;
+  }
+  /* Google's 40px button scaled to 48px: Roboto Medium 17/24 and a 24px G (unverified). */
+  .btn-oauth-google {
+    background: var(--google-fill);
+    color: var(--google-text);
+    border: 1px solid var(--google-stroke);
+    padding-inline: 1rem;
+    gap: 0.75rem;
+    font-size: 1.0625rem;
+    line-height: 1.5rem;
+  }
+  @media (hover: hover) {
+    .btn-oauth:hover:not([aria-disabled="true"])::after {
+      opacity: 0.08;
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .btn-oauth::after {
+      transition: opacity 150ms ease-out;
+    }
+    .btn-oauth:active:not([aria-disabled="true"]) {
+      transform: translateY(1px);
+    }
+  }
+  .btn-oauth[aria-disabled="true"] {
+    cursor: progress;
+  }
+  /* Forced colours (Windows contrast themes) replace the fills with the system's, so each
+     button's edge has to be a border: Apple's has none of its own, so one is added in
+     ButtonText; Google's 1px stroke is already one, and is forced to the system colour like any
+     other border. */
+  @media (forced-colors: active) {
+    .btn-oauth-apple {
+      border: 1px solid ButtonText;
+    }
   }
 }

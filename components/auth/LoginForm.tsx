@@ -6,9 +6,17 @@ import { useRef, useState, type FormEvent } from "react";
 import AuthField, { fieldsForAuthError, useFocusAfterRender, type AuthErrorField } from "@/components/auth/AuthField";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { safeNextPath, withNext } from "@/lib/safe-next-path";
+import { oauthProviderNames, offeredOAuthProviders } from "@/lib/auth/oauth";
+import { DEFAULT_AFTER_SIGN_IN, safeNextPath, withNext } from "@/lib/safe-next-path";
 
 const FORM_ERROR_ID = "login-error";
+
+/** Supabase Auth's message for a wrong email or password (it won't say which). */
+const INVALID_CREDENTIALS = "invalid login credentials";
+
+function noPasswordHint(names: string): string {
+  return `Signed up with ${names}? Use Continue with ${names} above — there’s no password.`;
+}
 
 /**
  * `next` is the raw `?next=` value: where to go after signing in. Only a
@@ -17,6 +25,11 @@ const FORM_ERROR_ID = "login-error";
  * Empty fields are caught here, before Supabase is called; on any error,
  * focus goes to the first invalid field, which is marked and described by
  * its error. A wrong email or password marks both (the service won't say which).
+ *
+ * With Apple or Google offered above the form (OAuthButtons), the password
+ * field's hint says an account made with one of them has no password, and a
+ * wrong email or password says to use that button (such an account has no
+ * password to get right).
  */
 export default function LoginForm({ next }: { next?: string } = {}) {
   const auth = useAuth();
@@ -30,6 +43,7 @@ export default function LoginForm({ next }: { next?: string } = {}) {
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const focusAfterRender = useFocusAfterRender();
+  const providers = offeredOAuthProviders(auth.configured);
 
   if (!auth.configured) {
     return (
@@ -56,11 +70,16 @@ export default function LoginForm({ next }: { next?: string } = {}) {
     setLoading(true);
     try {
       await auth.signIn(email.trim(), password);
-      router.push(safeNextPath(next) ?? "/dashboard");
+      router.push(safeNextPath(next) ?? DEFAULT_AFTER_SIGN_IN);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Couldn't sign in.";
       const fields = fieldsForAuthError(message, ["email", "password"]);
-      setError(message);
+      const wrongCredentials = providers.length > 0 && message.trim().toLowerCase() === INVALID_CREDENTIALS;
+      setError(
+        wrongCredentials
+          ? `That email and password don’t match. If you signed up with ${oauthProviderNames(providers, ["apple", "google"])}, use that button above.`
+          : message,
+      );
       setErrorFields(fields);
       if (fields.includes("email")) focusAfterRender(emailRef.current);
       else if (fields.includes("password")) focusAfterRender(passwordRef.current);
@@ -96,6 +115,7 @@ export default function LoginForm({ next }: { next?: string } = {}) {
         onChange={(e) => setPassword(e.target.value)}
         error={fieldErrors.password}
         invalidBy={invalidBy("password")}
+        hint={providers.length > 0 ? noPasswordHint(oauthProviderNames(providers, ["google", "apple"])) : undefined}
         labelAside={
           <Link
             href={withNext("/forgot-password", next)}

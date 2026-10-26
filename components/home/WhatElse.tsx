@@ -17,7 +17,7 @@ const MIDDLE_BAND = "-45% 0px -45% 0px";
  * tall photo from 1024px. One item at a time is in full black: the first at
  * load, then whichever crosses the middle of the screen as you scroll (or
  * is under the pointer), and the photo changes to that item's. The others
- * stay readable in the muted text colour (5.39:1 on cream), never faded
+ * stay readable in the muted text colour (5.65:1 on white), never faded
  * out: nothing waits for a scroll to be legible. The photo cross-fade and
  * the colour change ease only for people who haven't asked for less motion.
  * The photo is decoration (hidden below 1024px, where it would cost a phone
@@ -61,7 +61,7 @@ export default function WhatElse({ className = "" }: { className?: string }) {
         ))}
       </div>
       <div className="lg:col-span-6 lg:col-start-7">
-        <h2 id="home-what-else" className="display-lg">
+        <h2 id="home-what-else" className="display-lg display-plain">
           What else?
         </h2>
         <ul className="mt-6 flex flex-col gap-6 sm:mt-8 sm:gap-8">

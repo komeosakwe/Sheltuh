@@ -2,25 +2,41 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import TicketStub from "@/components/tickets/TicketStub";
-import { ButtonLink } from "@/components/ui/Button";
+import { ButtonLink, buttonClass } from "@/components/ui/Button";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 import Strap from "@/components/ui/Strap";
 import { ApiError } from "@/lib/api/client";
-import { getOrderBySession } from "@/lib/api/orders";
+import { getOrderBySession, getOrderPayment } from "@/lib/api/orders";
+import {
+  CHECKOUT_CLOSED_LABEL,
+  checkoutClosedBody,
+  checkoutEndedAction,
+  checkoutSoldOutBody,
+  checkoutSoldOutLabel,
+  eventPathFor,
+  formatHoldDeadline,
+  type CheckoutOrderContext,
+} from "@/lib/checkout-pay";
 import { formatAud, formatEventDateTimeRange } from "@/lib/format";
 import { compareSeats } from "@/lib/seating/format";
 import { forgetPendingCheckout } from "@/lib/seating/pending-checkout";
 import type { CustomerOrder } from "@/lib/api/types";
 
-type LoadState =
+export type LoadState =
   | { status: "loading" }
   | { status: "confirming" } // paid on Stripe's side, waiting on our webhook to land
   | { status: "ready"; order: CustomerOrder }
   | { status: "oversold"; order: CustomerOrder }
   | { status: "not-found" }
-  | { status: "error"; message: string };
+  | { status: "error"; message: string }
+  // Back from Stripe without paying (a redirect-based method cancelled or failed): the checkout is still open.
+  | { status: "payment-open"; context: CheckoutOrderContext; expiresAt: string }
+  // Stripe has the payment but it's taking a while to clear: the tickets follow by email.
+  | { status: "processing" }
+  | { status: "closed"; context: CheckoutOrderContext }
+  | { status: "sold-out"; context: CheckoutOrderContext };
 
 /** Each ticket with its number in the API's (and the email's) order, seated ones sorted by seat. */
 function sortTicketsBySeat(tickets: CustomerOrder["tickets"]) {
@@ -31,8 +47,38 @@ function sortTicketsBySeat(tickets: CustomerOrder["tickets"]) {
   );
 }
 
+/**
+ * The tab's title for each answer (the route's own, "Your order — Sheltüh", stays while it's loading):
+ * what happened, never "Order confirmed" for an order that wasn't.
+ */
+export function confirmationTitle(state: LoadState): string | null {
+  switch (state.status) {
+    case "loading":
+    case "confirming":
+      return null;
+    case "ready":
+      return "Order confirmed — Sheltüh";
+    case "oversold":
+      return state.order.refundReason === "refunded" ? "Order refunded — Sheltüh" : "Tickets not reserved — Sheltüh";
+    case "not-found":
+      return "Order not found — Sheltüh";
+    case "error":
+      return "Something went wrong — Sheltüh";
+    case "payment-open":
+      return "Payment not completed — Sheltüh";
+    case "processing":
+      return "Payment processing — Sheltüh";
+    case "closed":
+      return "Checkout closed — Sheltüh";
+    case "sold-out":
+      return "Sold out — Sheltüh";
+  }
+}
+
 const POLL_INTERVAL_MS = 2000;
 const MAX_POLLS = 12; // ~24s — generous for a webhook that's normally near-instant
+/** After this many "still pending" answers, ask once whether the payment went through at all. */
+const PAYMENT_CHECK_AFTER_POLLS = 2;
 
 /**
  * /checkout/success (docs/design/brand-direction-one.md §6.9): a quiet,
@@ -45,11 +91,15 @@ export default function CheckoutConfirmation() {
   const sessionId = searchParams.get("session_id");
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const pollCount = useRef(0);
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
-  // Paid: going Back to the seat page mustn't try to release this order's seats.
+  // Settled (paid, refunded or oversold, or Stripe has the payment): going Back to the seat page mustn't
+  // try to release this order's seats. Not before: a checkout that's still open (payment not
+  // completed), or one that closed or sold out, is still released on Back.
+  const settled = state.status === "ready" || state.status === "oversold" || state.status === "processing";
   useEffect(() => {
-    if (sessionId) forgetPendingCheckout(sessionId);
-  }, [sessionId]);
+    if (settled && sessionId) forgetPendingCheckout(sessionId);
+  }, [settled, sessionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,6 +115,34 @@ export default function CheckoutConfirmation() {
       };
     }
 
+    // What Stripe says about this checkout (read-only, asked once): "processing" when it has the payment.
+    let stripeHasPayment = false;
+
+    /**
+     * Still pending after a couple of polls: has the buyer paid at all? Coming back from a payment
+     * method that redirects (and was cancelled or failed) leaves the checkout open. True when that
+     * answered the page (stop polling). Any failure here just lets polling carry on, which reports
+     * its own errors.
+     */
+    async function checkPayment(): Promise<boolean> {
+      try {
+        const payment = await getOrderPayment(sessionId as string);
+        if (cancelled) return true;
+        if (payment.status === "processing") {
+          stripeHasPayment = true;
+          return false;
+        }
+        if (payment.status === "done") return false;
+        const context: CheckoutOrderContext = { eventSlug: payment.eventSlug, seated: payment.seated };
+        if (payment.status === "open") setState({ status: "payment-open", context, expiresAt: payment.expiresAt });
+        else if (payment.status === "closed") setState({ status: "closed", context });
+        else setState({ status: "sold-out", context });
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
     async function poll() {
       try {
         const result = await getOrderBySession(sessionId as string);
@@ -72,11 +150,17 @@ export default function CheckoutConfirmation() {
 
         if (result.status === "pending") {
           pollCount.current += 1;
+          if (pollCount.current === PAYMENT_CHECK_AFTER_POLLS && (await checkPayment())) return;
+          if (cancelled) return;
           if (pollCount.current >= MAX_POLLS) {
-            setState({
-              status: "error",
-              message: "Your payment is taking longer than usual to confirm. Refresh this page in a minute, or check your email.",
-            });
+            setState(
+              stripeHasPayment
+                ? { status: "processing" }
+                : {
+                    status: "error",
+                    message: "Your payment is taking longer than usual to confirm. Refresh this page in a minute, or check your email.",
+                  },
+            );
             return;
           }
           setState({ status: "confirming" });
@@ -108,6 +192,17 @@ export default function CheckoutConfirmation() {
     };
   }, [sessionId]);
 
+  const title = confirmationTitle(state);
+  useEffect(() => {
+    if (title) document.title = title;
+  }, [title]);
+
+  // Focus follows the page's answer when it's a message rather than the tickets (checkout-pay.md §6).
+  const messageShown = state.status !== "loading" && state.status !== "confirming" && state.status !== "ready";
+  useEffect(() => {
+    if (messageShown) headingRef.current?.focus();
+  }, [messageShown, state.status]);
+
   if (state.status === "loading" || state.status === "confirming") {
     return (
       <div className="flex flex-col items-start gap-3 py-10 sm:py-14">
@@ -119,7 +214,7 @@ export default function CheckoutConfirmation() {
 
   if (state.status === "not-found") {
     return (
-      <StateMessage title="We couldn’t find that order">
+      <StateMessage headingRef={headingRef} title="We couldn’t find that order">
         <p className="max-w-md text-sm text-muted">
           The link may be incomplete or expired. If you were charged, check your email for a receipt from Stripe.
         </p>
@@ -129,7 +224,7 @@ export default function CheckoutConfirmation() {
 
   if (state.status === "error") {
     return (
-      <StateMessage title="Something went wrong">
+      <StateMessage headingRef={headingRef} title="Something went wrong">
         <p role="alert" className="max-w-md text-sm text-danger">
           {state.message}
         </p>
@@ -140,12 +235,91 @@ export default function CheckoutConfirmation() {
   if (state.status === "oversold") {
     const refundedAfterPayment = state.order.refundReason === "refunded";
     return (
-      <StateMessage title={refundedAfterPayment ? "This order has been refunded" : "We couldn\u2019t reserve your tickets"}>
+      <StateMessage headingRef={headingRef} title={refundedAfterPayment ? "This order has been refunded" : "We couldn\u2019t reserve your tickets"}>
         <p className="max-w-md text-sm text-muted">
           {refundedAfterPayment
             ? `Your payment for ${state.order.eventTitle} was refunded, so the tickets for this order are no longer valid.`
             : `${state.order.eventTitle} sold out or stopped taking bookings in the moments between your payment and confirming it. Your payment is being refunded in full \u2014 no tickets were issued for this order.`}
         </p>
+      </StateMessage>
+    );
+  }
+
+  if (state.status === "payment-open") {
+    const { context } = state;
+    const eventLink = context.eventSlug
+      ? { href: eventPathFor(context.eventSlug), label: "Back to the event" }
+      : { href: "/", label: "Back to Sheltüh" };
+    return (
+      <StateMessage
+        headingRef={headingRef}
+        title="Payment not completed"
+        actions={
+          <div className="mt-3 flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
+            {/* A plain link, not next/link: a full page load, so the payment page gets its own document with
+                its Content Security Policy (proxy.ts sets it on the document's response only). Arriving, the
+                browser reads the new page's title, and focus starts at the top of the page. */}
+            <a
+              href={`/checkout/pay?order=${encodeURIComponent(sessionId ?? "")}`}
+              className={buttonClass("solid", "lg", "w-full sm:w-auto")}
+            >
+              Return to payment
+            </a>
+            <Link href={eventLink.href} className={`${linkClass} text-sm`}>
+              {eventLink.label}
+            </Link>
+          </div>
+        }
+      >
+        <p className="max-w-md text-sm text-muted">
+          You haven&rsquo;t been charged. Your checkout is still open, so you can try again.
+          {context.seated ? ` Your seats are held until ${formatHoldDeadline(state.expiresAt)}.` : ""}
+        </p>
+      </StateMessage>
+    );
+  }
+
+  if (state.status === "processing") {
+    return (
+      <StateMessage headingRef={headingRef} title="Your payment is processing">
+        <p className="max-w-md text-sm text-muted">
+          Some payment methods take a little longer to clear. We&rsquo;ll email your tickets as soon as it does; you
+          don&rsquo;t need to keep this page open. You won&rsquo;t be charged twice.
+        </p>
+      </StateMessage>
+    );
+  }
+
+  if (state.status === "closed") {
+    const action = checkoutEndedAction({ ...state.context, seated: false }, CHECKOUT_CLOSED_LABEL);
+    return (
+      <StateMessage
+        headingRef={headingRef}
+        title="This checkout has closed"
+        actions={
+          <Link href={action.href} className={`${linkClass} text-sm`}>
+            {action.label}
+          </Link>
+        }
+      >
+        <p className="max-w-md text-sm text-muted">{checkoutClosedBody(state.context.seated)}</p>
+      </StateMessage>
+    );
+  }
+
+  if (state.status === "sold-out") {
+    const action = checkoutEndedAction(state.context, checkoutSoldOutLabel(state.context.seated));
+    return (
+      <StateMessage
+        headingRef={headingRef}
+        title="These tickets have just sold out"
+        actions={
+          <ButtonLink variant="solid" size="lg" href={action.href} className="w-full sm:w-auto">
+            {action.label}
+          </ButtonLink>
+        }
+      >
+        <p className="max-w-md text-sm text-muted">{checkoutSoldOutBody(state.context.seated)}</p>
       </StateMessage>
     );
   }
@@ -249,15 +423,34 @@ export default function CheckoutConfirmation() {
 
 const linkClass = "inline-flex min-h-11 items-center text-accent underline underline-offset-4";
 
-/** A state that ends the page (not found, an error, a refund): left-aligned, with its own h1 and a way back. */
-function StateMessage({ title, children }: { title: string; children: ReactNode }) {
+/**
+ * A state that ends the page (not found, an error, a refund, a checkout not paid): left-aligned, with its
+ * own h1 (focused when it appears) and a way out: `actions`, or "Back to Sheltüh".
+ */
+function StateMessage({
+  title,
+  children,
+  actions,
+  headingRef,
+}: {
+  title: string;
+  children: ReactNode;
+  actions?: ReactNode;
+  headingRef?: Ref<HTMLHeadingElement>;
+}) {
   return (
     <div className="flex flex-col items-start gap-3 py-10 sm:py-14">
-      <h1 className="display-md">{title}</h1>
+      {/* Focused by script to say what happened (tabIndex -1); it's not a control, so no focus ring. Important
+          (`!`): the global :focus-visible ring in globals.css is unlayered, so it beats any utility otherwise. */}
+      <h1 ref={headingRef} tabIndex={-1} className="display-md text-balance outline-offset-2 focus:outline-none!">
+        {title}
+      </h1>
       {children}
-      <Link href="/" className={`${linkClass} text-sm`}>
-        Back to Sheltüh
-      </Link>
+      {actions ?? (
+        <Link href="/" className={`${linkClass} text-sm`}>
+          Back to Sheltüh
+        </Link>
+      )}
     </div>
   );
 }

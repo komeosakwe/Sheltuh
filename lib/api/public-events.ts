@@ -1,5 +1,5 @@
 import type { TicketingMode } from "@/lib/ticketing";
-import type { EventCategory } from "@/lib/types";
+import type { EventCategory, EventClip } from "@/lib/types";
 import { apiFetch } from "./client";
 import type { Paginated, TicketTypeInput } from "./types";
 
@@ -38,6 +38,8 @@ export interface PublicEvent {
   endsAt: string;
   organiserName: string;
   imageUrl?: string;
+  /** Only when the event has a clip (absent otherwise): its short silent video, played when someone presses Play. */
+  clip?: EventClip;
   /**
    * The organiser's logo thumbnail: `/api/organisers/{organiserId}/logo?size=thumb&v={version}`
    * (96 px square WebP, public, cached for a day). Only when the organiser has

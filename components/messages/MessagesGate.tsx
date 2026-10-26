@@ -1,9 +1,10 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { ButtonLink } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/Section";
 import { isApiConfigured, type GetToken } from "@/lib/api/client";
+import { accountKey } from "@/lib/auth/account";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { withNext } from "@/lib/safe-next-path";
 import { LoadingState } from "@/components/ui/ProgressLoader";
@@ -13,8 +14,10 @@ import { LoadingState } from "@/components/ui/ProgressLoader";
  * `demo`, which lays itself out like the live page, and never calls the
  * API; while auth resolves it says so; signed out
  * it offers Sign in, coming back to `returnTo`. Otherwise it renders the
- * page with a token getter. Whether the member is verified is the API's call
- * (403), which each page explains.
+ * page with a token getter, keyed by account: if someone else signs in
+ * (another tab), the page is mounted afresh as them, never showing (or
+ * replying in) the last account's conversation. Whether the member is
+ * verified is the API's call (403), which each page explains.
  */
 export default function MessagesGate({
   returnTo,
@@ -58,5 +61,5 @@ export default function MessagesGate({
       </EmptyState>,
     );
   }
-  return <>{children(auth.getAccessToken)}</>;
+  return <Fragment key={accountKey(auth) ?? ""}>{children(auth.getAccessToken)}</Fragment>;
 }

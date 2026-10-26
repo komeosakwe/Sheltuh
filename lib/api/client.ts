@@ -45,11 +45,50 @@ interface FetchOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * How long a request may take before it fails with "took too long", so a
+ * stalled server or database shows the page's error state instead of a
+ * spinner that never ends. Uploads send a whole file, so they get longer.
+ */
+export const REQUEST_TIMEOUT_MS = 30_000;
+export const UPLOAD_TIMEOUT_MS = 120_000;
+const TIMED_OUT_MESSAGE = "The server took too long to respond. Try again.";
+
 export async function apiFetch<T>(path: string, options: FetchOptions = {}): Promise<T> {
   if (!isApiConfigured) {
     throw new Error("The live API is not configured in this environment (Supabase is unset).");
   }
 
+  // One signal for the request: the caller's, plus the timeout. Built by
+  // hand rather than with AbortSignal.any, which older Safari lacks.
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(
+    () => {
+      timedOut = true;
+      controller.abort();
+    },
+    options.body instanceof Blob ? UPLOAD_TIMEOUT_MS : REQUEST_TIMEOUT_MS,
+  );
+  const callerSignal = options.signal;
+  const forwardAbort = () => controller.abort(callerSignal?.reason);
+  if (callerSignal?.aborted) forwardAbort();
+  else callerSignal?.addEventListener("abort", forwardAbort, { once: true });
+
+  try {
+    return await send<T>(path, options, controller.signal, () => timedOut);
+  } finally {
+    clearTimeout(timer);
+    callerSignal?.removeEventListener("abort", forwardAbort);
+  }
+}
+
+async function send<T>(
+  path: string,
+  options: FetchOptions,
+  signal: AbortSignal,
+  timedOut: () => boolean,
+): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, {
@@ -64,10 +103,14 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
           : options.body instanceof Blob
             ? options.body
             : JSON.stringify(options.body),
-      ...(options.signal ? { signal: options.signal } : {}),
+      signal,
+      // The page's address can hold a visitor's suburb (/search?near=…): send
+      // only the origin as a Referer. No handler reads Referer.
+      referrerPolicy: "strict-origin",
     });
   } catch (err) {
     if (options.signal?.aborted) throw err;
+    if (timedOut()) throw new ApiError(0, TIMED_OUT_MESSAGE);
     throw new ApiError(0, "Couldn't reach the server. Check your connection and try again.");
   }
 
@@ -75,6 +118,7 @@ export async function apiFetch<T>(path: string, options: FetchOptions = {}): Pro
   const data = contentType.includes("application/json") ? await res.json().catch(() => undefined) : undefined;
   // Aborted while the body was being read: never hand back a missing body as a result.
   options.signal?.throwIfAborted();
+  if (timedOut()) throw new ApiError(0, TIMED_OUT_MESSAGE);
 
   if (!res.ok) {
     const message = (data && typeof data.error === "string" && data.error) || `Request failed (${res.status}).`;

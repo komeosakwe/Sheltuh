@@ -88,7 +88,9 @@ describe("FilterChip", () => {
     );
     const chip = screen.getByRole("button", { name: "Tonight" });
     expect(chip).toHaveAttribute("aria-pressed", "false");
-    expect(chip).toHaveClass("rounded-control", "border-foreground", "bg-card");
+    // Owner (23 Oct 2026): unselected chips keep the card colour with a subtle boundary.
+    expect(chip).toHaveClass("rounded-control", "border-foreground/50", "bg-card", "text-foreground");
+    expect(chip).not.toHaveClass("bg-foreground");
     expect(container.querySelector("[data-selected-dots]")).toBeNull();
     fireEvent.click(chip);
     expect(onClick).toHaveBeenCalledTimes(1);
@@ -99,7 +101,9 @@ describe("FilterChip", () => {
       </FilterChip>,
     );
     expect(chip).toHaveAttribute("aria-pressed", "true");
-    expect(chip).toHaveClass("bg-foreground", "text-background");
+    // Selected: solid foreground with background-coloured text (white on black in Light, black on white in Dark).
+    expect(chip).toHaveClass("border-foreground", "bg-foreground", "text-background");
+    expect(chip).not.toHaveClass("border-foreground/50", "bg-card");
     // The two orange squares on the black chip (6.18:1), hidden from screen readers.
     const dots = container.querySelector("[data-selected-dots]");
     expect(dots).toHaveAttribute("aria-hidden", "true");

@@ -26,6 +26,7 @@ import {
   type SeatNumbering,
   type SeatPatch,
 } from "@/lib/seating/editing";
+import type { SeatLayout } from "@/lib/seating/layouts";
 import { seatedTierIds, seatedTiers, tierTreatments } from "@/lib/seating/selection";
 import { flattenSeats, MAX_SEATED_TIERS, type SeatMapStage, type SeatMapTemplate } from "@/lib/seating/template";
 import type { SheltuhEvent } from "@/lib/types";
@@ -36,6 +37,7 @@ import EditorCanvas, { type SelectMode } from "./EditorCanvas";
 import GeneratorPanel, { type GeneratorDraft } from "./GeneratorPanel";
 import ImportDialog, { exportSeatMap } from "./ImportExport";
 import InspectorPanel from "./InspectorPanel";
+import LayoutPicker from "./LayoutPicker";
 import SelectionToolbar, { type Tri } from "./SelectionToolbar";
 
 export type SeatMapStatus = "Draft" | "In review" | "Approved · locked";
@@ -89,6 +91,10 @@ export default function SeatMapEditor({
   const [renaming, setRenaming] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
+  // "Start from a layout": open by itself on an empty map; the toolbar's Layouts button shows and hides it.
+  const [layoutsOpen, setLayoutsOpen] = useState(() => !locked && !initial);
+  const [pendingLayout, setPendingLayout] = useState<{ layout: SeatLayout; template: SeatMapTemplate } | null>(null);
+  const layoutsButton = useRef<HTMLButtonElement>(null);
   const sectionButtons = useRef(new Map<string, HTMLButtonElement>());
   const focusSection = useRef<string | null>(null);
   // Where focus goes when the control that had it is removed (dialogs' fallbackFocus, the toolbar's Delete).
@@ -109,6 +115,9 @@ export default function SeatMapEditor({
     () => (usedTiers.size >= MAX_SEATED_TIERS ? usedTiers : new Set([...tierIds.slice(0, MAX_SEATED_TIERS), ...usedTiers])),
     [usedTiers, tierIds],
   );
+  // A layout replaces the map, so any of the first five tiers will do; it starts on the first seated one.
+  const layoutTierIds = useMemo(() => new Set(tierIds.slice(0, MAX_SEATED_TIERS)), [tierIds]);
+  const layoutTierId = tiers.find((t) => t.seated && layoutTierIds.has(t.id))?.id ?? tierIds[0] ?? "";
   const seats = useMemo(() => flattenSeats(template), [template]);
   const selection = useMemo(() => seats.filter((seat) => selectedIds.has(seat.id)), [seats, selectedIds]);
   const stats = useMemo(() => templateStats(template), [template]);
@@ -207,6 +216,25 @@ export default function SeatMapEditor({
     });
   }
 
+  /** Puts a layout on the map (replacing whatever is there: undo brings it back) and closes the picker. */
+  function applyLayout(layout: SeatLayout, next: SeatMapTemplate) {
+    const count = flattenSeats(next).length;
+    commit(next, `${layout.name}: ${count} seats. Save to keep it, or undo.`);
+    setSelectedIds(new Set());
+    setLayoutsOpen(false);
+    setPendingLayout(null);
+  }
+
+  function pickLayout(layout: SeatLayout, next: SeatMapTemplate) {
+    if (template.sections.length > 0) {
+      setPendingLayout({ layout, template: next });
+      return;
+    }
+    // The picker (and the card that had focus) closes: focus goes to the button that reopens it.
+    layoutsButton.current?.focus();
+    applyLayout(layout, next);
+  }
+
   async function save() {
     if (readOnly) return;
     if (issues.length > 0) {
@@ -282,6 +310,18 @@ export default function SeatMapEditor({
           <span className="meta text-muted">{counts}</span>
           {dirty && !readOnly && <span className="meta text-muted">· Unsaved changes</span>}
           <span className="flex-1" />
+          {!readOnly && !preview && (
+            <button
+              ref={layoutsButton}
+              type="button"
+              aria-expanded={layoutsOpen}
+              aria-controls={layoutsOpen ? `${id}-layouts` : undefined}
+              onClick={() => setLayoutsOpen((v) => !v)}
+              className={toolbarButton}
+            >
+              Layouts
+            </button>
+          )}
           {!readOnly && (
             <>
               <button type="button" onClick={undo} aria-disabled={past.length === 0 || undefined} className={`${toolbarButton} hidden lg:inline-flex`}>
@@ -337,6 +377,16 @@ export default function SeatMapEditor({
             </Notice>
           </div>
         )}
+        {!readOnly && !preview && layoutsOpen && (
+          <LayoutPicker
+            id={`${id}-layouts`}
+            tiers={tiers}
+            usableTierIds={layoutTierIds}
+            defaultTierId={layoutTierId}
+            replacing={template.sections.length > 0}
+            onPick={pickLayout}
+          />
+        )}
       </div>
 
       {preview ? (
@@ -350,7 +400,7 @@ export default function SeatMapEditor({
       ) : (
         <>
           <div className="px-4 py-6 lg:hidden">
-            <Notice>The seat map editor needs a screen at least 1024px wide.</Notice>
+            <Notice>To draw or change seats one by one, the seat map editor needs a screen at least 1024px wide.</Notice>
           </div>
           <div className="hidden overflow-y-auto border-r border-foreground p-4 lg:block">
             <GeneratorPanel
@@ -499,6 +549,25 @@ export default function SeatMapEditor({
             Cancel
           </Button>
         </div>
+      </SeatDialog>
+
+      <SeatDialog open={pendingLayout !== null} title="Replace the seat map?" onClose={() => setPendingLayout(null)} fallbackFocus={layoutsButton}>
+        {pendingLayout && (
+          <>
+            <p className="text-base">
+              {pendingLayout.layout.name} ({flattenSeats(pendingLayout.template).length} seats) takes the place of the {stats.total.seats}{" "}
+              {stats.total.seats === 1 ? "seat" : "seats"} on the map now. You can undo this before saving.
+            </p>
+            <div className="flex flex-col gap-3 sm:flex-row-reverse sm:justify-start">
+              <Button variant="solid" onClick={() => applyLayout(pendingLayout.layout, pendingLayout.template)}>
+                Replace map
+              </Button>
+              <Button variant="outline" onClick={() => setPendingLayout(null)}>
+                Cancel
+              </Button>
+            </div>
+          </>
+        )}
       </SeatDialog>
 
       <SeatDialog open={removeOpen} title="Remove the seat map?" onClose={() => setRemoveOpen(false)} fallbackFocus={headingRef}>

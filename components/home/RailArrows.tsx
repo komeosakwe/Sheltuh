@@ -69,8 +69,37 @@ export function railPageStep(el: HTMLElement): number {
   return whole * (card + gap);
 }
 
-const ARROW =
-  "hidden size-11 shrink-0 items-center justify-center rounded-control border border-foreground bg-card text-foreground transition-colors hover:bg-surface aria-disabled:cursor-default aria-disabled:border-surface-border aria-disabled:text-muted aria-disabled:hover:bg-card sm:flex";
+/**
+ * The rail position that puts the nearest card's start on the rail's start
+ * inset (where mandatory snapping settles it), within the scroll range; the
+ * current position when no card has a size (no layout yet). A rail at rest
+ * is already there; one the auto-scroll is drifting usually isn't.
+ */
+export function nearestCardLeft(el: HTMLElement): number {
+  const max = Math.max(0, el.scrollWidth - el.clientWidth);
+  const inset = parseFloat(getComputedStyle(el).paddingInlineStart) || 0;
+  const railLeft = el.getBoundingClientRect().left + el.clientLeft;
+  let best = el.scrollLeft;
+  let bestDistance = Infinity;
+  for (const card of Array.from(el.children)) {
+    if (!(card instanceof HTMLLIElement)) continue;
+    const box = card.getBoundingClientRect();
+    if (!(box.width > 0)) continue;
+    const left = Math.min(max, Math.max(0, el.scrollLeft + box.left - railLeft - inset));
+    const distance = Math.abs(left - el.scrollLeft);
+    if (distance < bestDistance) {
+      best = left;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+/** A rail control in the section head: a 44px outlined square (the arrows and the auto-scroll Pause/Play). */
+export const RAIL_BUTTON =
+  "size-11 shrink-0 items-center justify-center rounded-control border border-foreground bg-card text-foreground transition-colors hover:bg-surface";
+
+const ARROW = `hidden ${RAIL_BUTTON} aria-disabled:cursor-default aria-disabled:border-surface-border aria-disabled:text-muted aria-disabled:hover:bg-card sm:flex`;
 
 /**
  * A rail's Previous and Next buttons (the original carousel's arrows, now in
@@ -78,13 +107,16 @@ const ARROW =
  * only: on phones a swipe is the control. Shown only while the rail
  * overflows. At an end the button is `aria-disabled` rather than `disabled`,
  * so a keyboard user who pages to the end keeps focus on it. A press pages
- * by the cards wholly in view, instantly under reduced motion.
+ * by the cards wholly in view, from the nearest card's start (so it lands on
+ * a card even mid-drift), instantly under reduced motion, and calls `onPage`
+ * first (the visitor scrolled the rail: its auto-scroll stops).
  */
 export default function RailArrows({
   railRef,
   controls,
   title,
   scroll,
+  onPage,
 }: {
   railRef: RefObject<HTMLElement | null>;
   /** The rail's id (aria-controls). */
@@ -92,14 +124,20 @@ export default function RailArrows({
   /** The section's title, so each section's buttons have their own names. */
   title: string;
   scroll: RailScroll;
+  /** Called when a press scrolls the rail. */
+  onPage?: () => void;
 }) {
   if (!scroll.canPrev && !scroll.canNext) return null;
 
   function page(sign: 1 | -1, enabled: boolean) {
     const el = railRef.current;
     if (!el || !enabled) return;
+    onPage?.();
     const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    el.scrollBy({ left: sign * railPageStep(el), behavior: reduce ? "auto" : "smooth" });
+    // From a card's start (where a rail at rest already is): a press during the auto-scroll's
+    // drift, between cards, still lands on one, in one movement.
+    const fromCard = nearestCardLeft(el) - el.scrollLeft;
+    el.scrollBy({ left: sign * railPageStep(el) + fromCard, behavior: reduce ? "auto" : "smooth" });
   }
 
   return (

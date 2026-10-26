@@ -115,6 +115,16 @@ Go-live steps: `docs/supabase-setup.md`. Design: `docs/architecture.md`.
 5. Go live on the stack above: Supabase project, Stripe Connect (test →
    live), Vercel deploy, promote admins (see `docs/supabase-setup.md`)
 6. Plan sole trader → Pty Ltd transition timing
+7. Google and Apple sign-in (built, off until set up: `docs/supabase-setup.md`):
+   - Decide which entity enrols in the Apple Developer Program (US$99/yr)
+     **before** turning Apple on. Apple's user IDs and Hide My Email relay
+     addresses are per developer team, so enrolling as the sole trader and
+     moving to a Pty Ltd team later breaks sign-in matching for people who
+     hid their email. Either enrol now and accept that, or wait for the Pty
+     Ltd (launch with Google only meanwhile).
+   - Once Apple is on: rotate its client secret about every 5 months
+     (`npm run apple-client-secret`; Apple caps it at 6 months, and Apple
+     sign-in fails for everyone when it lapses). Keep a recurring reminder.
 
 ## Working style
 

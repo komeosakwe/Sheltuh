@@ -156,6 +156,12 @@ describe("check-in gate", () => {
     expect(api.getCheckInSummary).toHaveBeenCalledWith("evt-1", expect.any(Function));
     expect(screen.getByLabelText("Type a code")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Apply as an organiser" })).not.toBeInTheDocument();
+    // The way back is the admin door list, not the organiser dashboard.
+    expect(screen.getByRole("link", { name: "← Admin door list" })).toHaveAttribute(
+      "href",
+      "/admin/events?status=published&view=door",
+    );
+    expect(screen.queryByRole("link", { name: "← Your events" })).toBeNull();
   });
 
   it("an admin on an organiser's event: the API's 404 shows Event not found", async () => {
@@ -163,6 +169,11 @@ describe("check-in gate", () => {
     api.getCheckInSummary.mockRejectedValue(new ApiError(404, "Not found."));
     await renderPage(fakeAuthValue({ isAdmin: true }));
     expect(screen.getByRole("heading", { level: 1, name: "Event not found" })).toBeInTheDocument();
+    expect(screen.getByText(/Admins check people in only at Sheltüh-run \(platform-managed\) organisers’ events/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to the admin door list" })).toHaveAttribute(
+      "href",
+      "/admin/events?status=published&view=door",
+    );
   });
 
   it("not your event (404): Event not found, with the way back", async () => {
@@ -506,6 +517,17 @@ describe("outcomes", () => {
     expect(s.getByRole("link", { name: "Back to your events" })).toHaveAttribute("href", "/dashboard");
     await nextFrame();
     expect(resultAnnouncer()).toHaveTextContent("Not verified. Don’t let in yet. This account can’t check people in for this event.");
+  });
+
+  it("403/404 for an admin: back to the admin door list", async () => {
+    organiserState = { loading: false, organiser: null, error: null };
+    api.checkInTicket.mockRejectedValue(new ApiError(404, "x"));
+    await renderPage(fakeAuthValue({ isAdmin: true }));
+    await typeAndCheck("7KQM-2HXD");
+    expect(within(slot()).getByRole("link", { name: "Back to the admin door list" })).toHaveAttribute(
+      "href",
+      "/admin/events?status=published&view=door",
+    );
   });
 });
 

@@ -410,9 +410,26 @@ A tool surface (BD1 §6.16): quiet, dense and black-structured, never `font-disp
 - h1 `font-heading text-xl` "Seat map".
 - Status badge (BD1 §6.3): "Draft" (outline), "In review" (outline) or "Approved · locked" (black).
 - `meta` muted "412 seats · 3 tiers".
-- A spacer, then `btn-outline btn-sm` buttons: Undo, Redo, "Import", "Export", and "Preview as buyer" (opens the §5.2 preview in a new tab, with sr-only "(opens in a new tab)").
+- A spacer, then `btn-outline btn-sm` buttons: "Layouts" (shows and hides "Start from a layout", below), Undo, Redo, "Import", "Export", and "Preview as buyer" (opens the §5.2 preview in a new tab, with sr-only "(opens in a new tab)").
 - `btn-solid btn-sm` "Save".
 - All buttons are `min-h-10`.
+
+**Start from a layout** (`LayoutPicker.tsx`, layouts in `lib/seating/layouts.ts`; owner request, 25 Oct 2026): a band under the toolbar notices, `border-b border-foreground px-4 py-4`, at every width (it's the one way to make a map on a phone).
+- The toolbar's `btn-outline btn-sm min-h-10` "Layouts" (before Undo; `aria-expanded`, `aria-controls`) shows and hides it. It's open by itself on an empty map and closed when the map has seats. Never shown when the map is locked or in "Preview as buyer".
+- h2 `font-heading text-lg` "Start from a layout", a 14/20 muted line ("Pick one to fill the map in one go, then change anything with the tools."; on a map with seats it adds "It replaces the seats on the map now (you can undo).").
+- Two fields (BD1 §6.2, `sm:grid-cols-2`, `lg:max-w-2xl`): "About how many seats" (text, `inputMode="numeric"`, starts at 150; hint "Each layout keeps to its own size: the cards show the seats you'll get.") and "Price tier for these seats" (the event's ticket types with all-inclusive prices; starts on the first seated tier, else the first; the 6th tier onwards disabled). A number it can't read is a `role="alert"` error under the fields, `aria-invalid` on the input, and focus goes back to it.
+- Five cards in a `ul`, one column, two from `sm`, five from `lg`. Each is a `<button>` (`rounded-card border border-foreground bg-card p-3 min-h-11`, `hover:bg-surface`): a schematic (SVG, `aria-hidden`: the stage outlined on `surface`, each row a black bar, aisles as gaps; drawn at a fixed size per layout), the name (14/20 600, the button's name), the one-line description and `meta` "{n} seats · 2 wheelchair spaces" (its description). Picking is one tap or Enter.
+
+| Layout | Model | Range |
+| --- | --- | --- |
+| Rows facing a stage | One section "Stalls", straight rows about twice as wide as deep | 10–2,000 |
+| Theatre with a centre aisle | One section, each row split by a two-seat aisle, numbered straight across; wheelchair spaces either side of the aisle | 12–2,000 |
+| Stalls and side sections | "Left", "Stalls", "Right": the sides turned 20° towards the stage | 30–2,000 |
+| Curved rows | One section in a 100° fan around the stage, more seats towards the back, each seat facing it | 20–1,200 |
+| Small room | One section "Seats", at most 8 rows of 12 (about 40 is 4 rows of 10) | 8–96 |
+
+Every layout has a stage with the focus point at its centre, rows A, B, C… front to back, seats 1, 2, 3… left to right, and in the front row two wheelchair spaces, each with a companion seat beside it. Cabaret tables aren't offered: the model has no table shape.
+- **Empty map:** picking applies straight away; the band closes and focus moves to "Layouts". **Map with seats:** a `SeatDialog` "Replace the seat map?" ("{layout} ({n} seats) takes the place of the {m} seats on the map now. You can undo this before saving.") with `btn-solid` "Replace map" and `btn-outline` "Cancel". Either way it's one Undo step, the selection clears, and the live region says "{layout}: {n} seats. Save to keep it, or undo."
 
 **Generators panel** (left, `border-r border-foreground p-4`), in `Panel`-style sections:
 1. **"Add a section":**
@@ -480,9 +497,9 @@ A tool surface (BD1 §6.16): quiet, dense and black-structured, never `font-disp
 - The canvas still pans and zooms. There's no selection toolbar.
 - A `Notice` under the toolbar: "This seat map is locked because the event is approved. To change it, contact Sheltüh."
 
-**Small screens (<1024px):** the editor shows the status, the counts, the `Notice` "The seat map editor needs a screen at least 1024px wide.", and Export, Import and Preview as buyer. This is a behaviour limitation, listed in §8.
+**Small screens (<1024px):** the editor shows the status, the counts, "Start from a layout" (above), the `Notice` "To draw or change seats one by one, the seat map editor needs a screen at least 1024px wide.", and Layouts, Import, Export, Preview as buyer and Save. This is a behaviour limitation, listed in §8.
 
-**Empty map:** an `EmptyState` (BD1 §6.14) in the canvas, titled "No seats yet", with the body "Add a section on the left, or import a seat map." and no action button (the panel is right there).
+**Empty map:** an `EmptyState` (BD1 §6.14) in the canvas, titled "No seats yet", with the body "Start from a layout (Layouts, above), add a section on the left, or import a seat map." and no action button (the panel is right there).
 
 ### 5.14 Admin preview
 

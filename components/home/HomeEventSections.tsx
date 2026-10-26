@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/Button";
 import EventCard, { EventCardPlaceholder } from "@/components/ui/EventCard";
 import { Notice } from "@/components/ui/Section";
 import { formatWeekendRange } from "@/lib/home-sections";
+import { titleText, WEEKEND_TITLE } from "./home-content";
 import { useHomeEvents } from "./HomeEventsProvider";
-import { HOME_CONTAINER, HomeRailItem, RAIL_SKELETON } from "./HomeRail";
+import { HOME_CONTAINER, HomeRailItem, isPairRail, RAIL_SKELETON } from "./HomeRail";
 import HomeRailSection from "./HomeRailSection";
 
 /** The page's one load error (docs/design/mobile-redesign.md §6.3.4). */
@@ -28,7 +29,8 @@ const SECTION = "mt-6 sm:mt-10 lg:mt-12";
  * start: nothing waits for a scroll to appear. Each section's head sits in
  * the page column and its cards run full width as a horizontal rail at
  * every width (`HomeRailSection`, `HomeRail`), so the caller places this
- * outside the page column.
+ * outside the page column. A section of one or two cards is a pair: a
+ * two-column grid of wide cards from 1024px (`isPairRail`, EventCard `wide`).
  *
  * The first slot holds the page's loading skeleton, its one load error (with
  * Try again), or, with nothing upcoming at all, a note saying so. Try again
@@ -117,7 +119,8 @@ export default function HomeEventSections() {
       {weekend && (
         <HomeRailSection
           id="home-weekend"
-          title="This weekend"
+          title={titleText(WEEKEND_TITLE)}
+          dottedTitle={WEEKEND_TITLE}
           note={formatWeekendRange(weekend.window)}
           // /events isn't filtered to the weekend, so the link says where it goes.
           link={weekend.status === "cards" ? { href: "/events", label: "All events" } : undefined}
@@ -134,7 +137,7 @@ export default function HomeEventSections() {
           {weekend.status === "cards" &&
             weekend.items.map((event) => (
               <HomeRailItem key={event.id}>
-                <EventCard event={event} variant="rail" mode={mode} now={now} />
+                <EventCard event={event} variant="rail" wide={isPairRail(weekend.items.length)} mode={mode} now={now} />
               </HomeRailItem>
             ))}
         </HomeRailSection>
@@ -150,7 +153,7 @@ export default function HomeEventSections() {
         >
           {sections.following.map((event) => (
             <HomeRailItem key={event.id}>
-              <EventCard event={event} variant="rail" mode={mode} now={now} />
+              <EventCard event={event} variant="rail" wide={isPairRail(sections.following.length)} mode={mode} now={now} />
             </HomeRailItem>
           ))}
         </HomeRailSection>
@@ -168,12 +171,12 @@ export default function HomeEventSections() {
           {popular.kind === "popular"
             ? popular.items.map(({ event, signal }) => (
                 <HomeRailItem key={event.id}>
-                  <EventCard event={event} variant="rail" mode={mode} signal={signal} now={now} />
+                  <EventCard event={event} variant="rail" wide={isPairRail(popular.items.length)} mode={mode} signal={signal} now={now} />
                 </HomeRailItem>
               ))
             : popular.items.map((event) => (
                 <HomeRailItem key={event.id}>
-                  <EventCard event={event} variant="rail" mode={mode} now={now} />
+                  <EventCard event={event} variant="rail" wide={isPairRail(popular.items.length)} mode={mode} now={now} />
                 </HomeRailItem>
               ))}
         </HomeRailSection>

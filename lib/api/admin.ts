@@ -1,16 +1,21 @@
 import { apiFetch, type GetToken } from "./client";
 import type { EventInput } from "./events";
 import type {
+  AdminCreateInviteInput,
   AdminCreateOrganiserInput,
   AdminEmailJob,
+  AdminInviteRecord,
+  AdminInviteSendResult,
   AdminMemberProfile,
   AdminEventRecord,
   AdminOrganiserRecord,
   AdminReport,
   AdminSetEventTicketingInput,
+  AdminSummary,
   EmailJobStatus,
   EventRecord,
   EventStatus,
+  InviteStatus,
   OrganiserStatus,
   Paginated,
   RemoveProfileContentInput,
@@ -113,10 +118,61 @@ export async function adminSuspendOrganiser(organiserId: string, reason: string,
   });
 }
 
-export async function adminListEvents(status: EventStatus, getToken: GetToken, cursor?: string) {
+/** GET /api/admin/events query. */
+export interface AdminListEventsQuery {
+  status: EventStatus;
+  /**
+   * Search: the title or the organiser's name containing it, ignoring case
+   * and accents. Blank: every event in `status`. At most 100 characters are used.
+   */
+  q?: string;
+  /**
+   * true: only events that haven't ended (in progress included); false:
+   * every event. Omitted: the server's default, true for `published` and
+   * false for every other status.
+   */
+  upcoming?: boolean;
+  /** true: only platform-managed organisers' events; false: only organisers with an account. Omitted: both. */
+  platformManaged?: boolean;
+  /** Page size: 20 by default, at most 50. */
+  limit?: number;
+  cursor?: string;
+}
+
+/**
+ * Events in one status, soonest first. `published` lists only events that
+ * haven't ended unless `upcoming: false` is sent. Called with a query
+ * object (its `cursor` included), or as `(status, getToken, cursor)`: the
+ * overloads keep a third argument off the object form, where it would be
+ * ignored. ApiError 400 for a bad status.
+ */
+export function adminListEvents(query: AdminListEventsQuery, getToken: GetToken): Promise<Paginated<AdminEventRecord>>;
+export function adminListEvents(
+  status: EventStatus,
+  getToken: GetToken,
+  cursor?: string,
+): Promise<Paginated<AdminEventRecord>>;
+export async function adminListEvents(query: EventStatus | AdminListEventsQuery, getToken: GetToken, cursor?: string) {
   const token = await getToken();
-  const qs = new URLSearchParams({ status, ...(cursor ? { cursor } : {}) });
-  return apiFetch<Paginated<EventRecord>>(`/admin/events?${qs}`, { token });
+  const options: AdminListEventsQuery = typeof query === "string" ? { status: query, cursor } : query;
+  const { status, q, upcoming, platformManaged, limit, cursor: pageCursor } = options;
+  const qs = new URLSearchParams({ status });
+  if (q?.trim()) qs.set("q", q.trim());
+  if (upcoming !== undefined) qs.set("upcoming", upcoming ? "1" : "0");
+  if (platformManaged !== undefined) qs.set("platformManaged", platformManaged ? "1" : "0");
+  if (limit !== undefined) qs.set("limit", String(limit));
+  if (pageCursor) qs.set("cursor", pageCursor);
+  return apiFetch<Paginated<AdminEventRecord>>(`/admin/events?${qs}`, { token });
+}
+
+/**
+ * What's waiting for an admin, as counts (open reports, events and organiser
+ * applications to review, failed and retrying ticket emails, door check-ins
+ * in the next 24 hours). ApiError 401/403 for anyone but an admin.
+ */
+export async function adminGetSummary(getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminSummary>("/admin/summary", { token });
 }
 
 export async function adminApproveEvent(eventId: string, getToken: GetToken) {
@@ -293,6 +349,53 @@ export async function adminRemoveProfileContent(profileId: string, input: Remove
   return apiFetch<AdminMemberProfile>(`/admin/profiles/${encodeURIComponent(profileId)}/remove-content`, {
     method: "POST",
     body: input,
+    token,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Account invites (docs/architecture.md, "Account invites")
+// ---------------------------------------------------------------------------
+
+/** Invites in one status (default `pending`), newest first. `expired` includes pending invites whose link has run out. */
+export async function adminListInvites(status: InviteStatus, getToken: GetToken, cursor?: string) {
+  const token = await getToken();
+  const qs = new URLSearchParams({ status, ...(cursor ? { cursor } : {}) });
+  return apiFetch<Paginated<AdminInviteRecord>>(`/admin/invites?${qs}`, { token });
+}
+
+/**
+ * Invites someone who asked to join, and emails them the link (14 days).
+ * 201 `{invite, emailSent}` (`emailSent: false`: saved, but the email failed:
+ * resend it). ApiError 400 (fieldErrors `kind`, `email`, `consent`,
+ * `organiser.<field>`), 409 the address already has a pending invite, or (an
+ * organiser invite) its account already has an organiser, 429 over 20 an hour
+ * (this admin) or 100 a day (everyone), 503 invites aren't configured.
+ */
+export async function adminCreateInvite(input: AdminCreateInviteInput, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminInviteSendResult>("/admin/invites", { method: "POST", body: input, token });
+}
+
+/**
+ * Emails a new link (the old one stops working; 14 days from now). A pending
+ * or expired invite. ApiError 404, 409 accepted or revoked (or the address
+ * has another pending invite), 429 sent in the last minute or over the
+ * allowances, 503 invites aren't configured.
+ */
+export async function adminResendInvite(inviteId: string, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminInviteSendResult>(`/admin/invites/${encodeURIComponent(inviteId)}/resend`, {
+    method: "POST",
+    token,
+  });
+}
+
+/** Revokes a pending invite: its link stops working at once. ApiError 404, 409 not pending (accepted, revoked or expired). */
+export async function adminRevokeInvite(inviteId: string, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<AdminInviteRecord>(`/admin/invites/${encodeURIComponent(inviteId)}/revoke`, {
+    method: "POST",
     token,
   });
 }

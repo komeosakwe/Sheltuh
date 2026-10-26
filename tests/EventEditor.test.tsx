@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventEditor from "@/components/dashboard/EventEditor";
 import type { EventRecord } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/session-token";
-import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { callsTokenFirst, fakeAuthValue, FakeAuthProvider, switchableSession } from "./test-utils/fakeAuth";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -146,11 +146,39 @@ describe("EventEditor — session-expiry recovery preserves the form", () => {
     await waitFor(() => expect(signIn).toHaveBeenCalledWith("owner@example.com", "hunter2"));
     // Recovery never navigated away — the field is still there after sign-in.
     expect(screen.getByLabelText("Title")).toHaveValue("Updated title");
+    // Said politely, with focus on the button to try again (the sign-in form has gone).
+    expect(screen.getByRole("status")).toHaveTextContent("Signed in again. Your changes are still here — save when you’re ready.");
+    expect(screen.getByRole("button", { name: "Save draft" })).toHaveFocus();
 
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
     expect(updateEventDraft).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("EventEditor — never saves as another account", () => {
+  it("someone else signed in by now (another tab): opens the recovery, locked to the draft's owner, and saves nothing", async () => {
+    const auth = (overrides: Parameters<typeof fakeAuthValue>[0]) => fakeAuthValue({ getAccessToken: vi.fn().mockResolvedValue("t"), ...overrides });
+    const getToken = vi.fn().mockResolvedValue("token");
+    const view = render(
+      <FakeAuthProvider value={auth({ userId: "user-owner", email: "owner@example.com" })}>
+        <EventEditor getToken={getToken} initial={BASE_EVENT} onSaved={vi.fn()} />
+      </FakeAuthProvider>,
+    );
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Updated title" } });
+    view.rerender(
+      <FakeAuthProvider value={auth({ userId: "user-other", email: "other@example.com" })}>
+        <EventEditor getToken={getToken} initial={BASE_EVENT} onSaved={vi.fn()} />
+      </FakeAuthProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(new SessionExpiredError().message));
+    expect(updateEventDraft).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Email")).toHaveValue("owner@example.com");
+    expect(screen.getByText(/^You're signed in as a different account/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Title")).toHaveValue("Updated title");
   });
 });
 
@@ -187,5 +215,126 @@ describe("EventEditor — submitting for review", () => {
 
     await waitFor(() => expect(screen.getByText(/at least A\$1/)).toBeInTheDocument());
     expect(updateEventDraft).not.toHaveBeenCalled();
+  });
+});
+
+const OWNER = { userId: "user-owner", email: "owner@example.com" };
+const OTHER = { userId: "user-other", email: "other@example.com" };
+
+/** Fills a new event's required fields (its default ticket is a free one, already valid once named). */
+function fillNewEvent() {
+  fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Night Market" } });
+  fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Stalls and music." } });
+  fireEvent.change(screen.getByLabelText("Venue name"), { target: { value: "The Venue" } });
+  fireEvent.change(screen.getByLabelText("Venue address"), { target: { value: "1 Test St" } });
+  fireEvent.change(screen.getByLabelText("Suburb"), { target: { value: "Testville" } });
+  fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2027-03-06" } });
+  fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "20:00" } });
+  fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2027-03-06" } });
+  fireEvent.change(screen.getByLabelText("End time"), { target: { value: "23:30" } });
+  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "General Admission" } });
+}
+
+/** The editor (an existing draft, or a new event) as OWNER; `become` changes who React says is signed in. */
+function renderAs(initial: EventRecord | undefined, session = switchableSession(OWNER), onSaved = vi.fn()) {
+  const tree = (account: typeof OWNER) => (
+    <FakeAuthProvider value={fakeAuthValue({ status: "signed-in", ...account, ...session.auth })}>
+      <EventEditor getToken={vi.fn().mockResolvedValue("page-token")} initial={initial} onSaved={onSaved} />
+    </FakeAuthProvider>
+  );
+  const view = render(tree(OWNER));
+  return { onSaved, become: (account: typeof OWNER) => view.rerender(tree(account)) };
+}
+
+async function expectRecoveryForOwner() {
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(new SessionExpiredError().message));
+  expect(screen.getByLabelText("Email")).toHaveValue("owner@example.com");
+}
+
+describe("EventEditor — the other-account check on every action", () => {
+  it("Submit for review: someone else signed in by now: nothing is saved or submitted", async () => {
+    const { become } = renderAs(BASE_EVENT);
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Edited title" } });
+    become(OTHER);
+    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
+    await expectRecoveryForOwner();
+    expect(updateEventDraft).not.toHaveBeenCalled();
+    expect(submitEventForReview).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Title")).toHaveValue("Edited title");
+  });
+
+  it("a new event: someone else signed in by now: it isn't created", async () => {
+    const { become } = renderAs(undefined);
+    fillNewEvent();
+    become(OTHER);
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await expectRecoveryForOwner();
+    expect(createEventDraft).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Title")).toHaveValue("Night Market");
+  });
+});
+
+describe("EventEditor — an account change mid-save (after the check, before the request) is refused", () => {
+  it("Save draft: the request's token is the owner's or none", async () => {
+    const session = switchableSession(OWNER);
+    updateEventDraft.mockImplementation(callsTokenFirst(BASE_EVENT));
+    const { onSaved } = renderAs(BASE_EVENT, session);
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    // The check has passed (React still says OWNER); another tab signs in as OTHER before the request.
+    session.become(OTHER);
+    await expectRecoveryForOwner();
+    expect(session.auth.getAccessTokenFor).toHaveBeenCalledWith(OWNER);
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it("Submit for review: changed after the save, before the submit: never submitted as them", async () => {
+    const session = switchableSession(OWNER);
+    updateEventDraft.mockImplementation(async (...args: unknown[]) => {
+      const saved = await callsTokenFirst(BASE_EVENT)(...args);
+      session.become(OTHER);
+      return saved;
+    });
+    submitEventForReview.mockImplementation(callsTokenFirst({ ...BASE_EVENT, status: "pending_review" }));
+    const { onSaved } = renderAs(BASE_EVENT, session);
+    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
+    await expectRecoveryForOwner();
+    expect(submitEventForReview).toHaveBeenCalledTimes(1);
+    expect(onSaved).not.toHaveBeenCalledWith(expect.objectContaining({ status: "pending_review" }));
+  });
+
+  it("a new event: never created as them", async () => {
+    const session = switchableSession(OWNER);
+    createEventDraft.mockImplementation(callsTokenFirst({ ...BASE_EVENT, eventId: "evt-new" }));
+    renderAs(undefined, session);
+    fillNewEvent();
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    session.become(OTHER);
+    await expectRecoveryForOwner();
+    expect(screen.getByLabelText("Title")).toHaveValue("Night Market");
+  });
+
+  it("with no change, the save goes through with the owner's token", async () => {
+    const session = switchableSession(OWNER);
+    updateEventDraft.mockImplementation(callsTokenFirst(BASE_EVENT));
+    const { onSaved } = renderAs(BASE_EVENT, session);
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    await expect(updateEventDraft.mock.calls[0][2]()).resolves.toBe("user-owner-token");
+  });
+});
+
+describe("EventEditor — explains the booking-fee choice", () => {
+  it("says what the buyer pays and what the organiser receives for each choice, and is tied to the select", () => {
+    renderEditor({
+      ticketTypes: [{ id: "tt-1", name: "GA", priceCents: 3000, quantityAvailable: 10, feePolicy: "buyer-pays" }],
+    } as Partial<EventRecord>);
+    const select = screen.getByLabelText("Who pays the booking fee?");
+    const help = document.getElementById(select.getAttribute("aria-describedby") ?? "");
+    expect(help).not.toBeNull();
+    const text = help?.textContent ?? "";
+    // A$30 ticket: fee 4% + A$0.50 = A$1.70.
+    expect(text).toContain("A$1.70 on this ticket");
+    expect(text).toContain("The buyer pays A$31.70 and you receive the full A$30");
+    expect(text).toContain("the buyer pays just A$30 and the fee comes out of it, so you receive A$28.30");
   });
 });

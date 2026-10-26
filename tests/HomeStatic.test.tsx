@@ -5,8 +5,8 @@ import CategoryRow from "@/components/home/CategoryRow";
 import CreatorsCard from "@/components/home/CreatorsCard";
 import GuideCard from "@/components/home/GuideCard";
 import HomeHero from "@/components/home/HomeHero";
-import { HOME_INTRO } from "@/components/home/home-content";
-import HomeRail, { HOME_CONTAINER, HomeRailItem } from "@/components/home/HomeRail";
+import { HOME_INTRO, HOME_TITLE, HOME_TITLE_LINES, titleParts, titleText } from "@/components/home/home-content";
+import HomeRail, { HOME_CONTAINER, HomeRailItem, isPairRail, PAIR_MAX } from "@/components/home/HomeRail";
 import SectionHead from "@/components/ui/SectionHead";
 
 afterEach(() => {
@@ -28,37 +28,116 @@ function tabTo(el: HTMLElement) {
 }
 
 describe("HomeHero (mobile-redesign.md §6.1)", () => {
-  it("has one h1, 'Find your new thing.', on two lines that may wrap (never nowrap), in the display face", () => {
+  it("has one h1, 'Find your next thing.', on two lines that may wrap (never nowrap), in the display face", () => {
     render(<HomeHero />);
     const h1 = screen.getByRole("heading", { level: 1 });
-    expect(h1).toHaveAccessibleName("Find your new thing.");
-    expect(Array.from(h1.children).map((line) => line.textContent)).toEqual(["Find your", "new thing."]);
+    expect(h1).toHaveAccessibleName("Find your next thing.");
+    expect(h1.textContent).toBe("Find your next thing.");
+    expect(Array.from(h1.children).map((line) => line.textContent)).toEqual(["Find your", "next thing."]);
     for (const line of h1.children) expect(line).toHaveClass("block");
     expect(h1.innerHTML).not.toMatch(/nowrap/);
     expect(h1).toHaveClass("display-lg", "font-display");
+  });
+
+  // Owner (24 Oct 2026): "only two letters with dots". The h1 is plain; YOÜR and THÏNG are drawn by the
+  // dotted face on two letters, while the text itself stays plainly spelled.
+  it("draws only two letters in the dotted face, the u of 'your' and the i of 'thing', in a plain h1", () => {
+    render(<HomeHero />);
+    const h1 = screen.getByRole("heading", { level: 1 });
+    expect(h1).toHaveClass("display-plain");
+    expect(h1).not.toHaveClass("font-dots");
+    const dotted = Array.from(h1.querySelectorAll(".font-dots"));
+    expect(dotted.map((el) => el.textContent)).toEqual(["u", "i"]);
+    for (const el of dotted) {
+      expect(el.tagName).toBe("SPAN");
+      expect(el).toHaveAttribute("data-dotted-letter");
+      expect(el.children).toHaveLength(0);
+    }
+    const [first, second] = Array.from(h1.children);
+    expect(first.contains(dotted[0])).toBe(true);
+    expect(second.contains(dotted[1])).toBe(true);
+    // Nothing else in the h1 is a dotted run, and no real diacritics are in the text.
+    expect(h1.querySelectorAll("[data-dotted-letter]")).toHaveLength(2);
+    expect(h1.textContent).not.toMatch(/[À-ɏ]/);
+  });
+
+  it("chooses the dotted letters in one place: HOME_TITLE_LINES, read by titleParts", () => {
+    expect(HOME_TITLE_LINES).toEqual(["Find yo^ur", "next th^ing."]);
+    expect(HOME_TITLE).toBe("Find your next thing.");
+    expect(HOME_TITLE_LINES.map(titleText)).toEqual(["Find your", "next thing."]);
+    expect(titleParts("Find yo^ur")).toEqual([
+      { text: "Find yo", dotted: false },
+      { text: "u", dotted: true },
+      { text: "r", dotted: false },
+    ]);
+    // A mark at the start or the end of a line, two in a row, or none at all.
+    expect(titleParts("^ab^c")).toEqual([
+      { text: "a", dotted: true },
+      { text: "b", dotted: false },
+      { text: "c", dotted: true },
+    ]);
+    expect(titleParts("^a^b")).toEqual([
+      { text: "a", dotted: true },
+      { text: "b", dotted: true },
+    ]);
+    expect(titleParts("plain")).toEqual([{ text: "plain", dotted: false }]);
+  });
+
+  // Owner (24 Oct 2026): "little image should be there", in the empty space beside the phone headline.
+  it("puts a small decorative tile of the collage's lead photo beside the eyebrow and h1, below 1024px only", () => {
+    const { container } = render(<HomeHero />);
+    const thumb = container.querySelector("[data-hero-thumb]");
+    expect(thumb).toHaveAttribute("aria-hidden", "true");
+    expect(thumb).toHaveClass("lg:hidden", "shrink-0", "size-18", "min-[375px]:size-22", "sm:size-28");
+    const img = thumb?.querySelector("img");
+    expect(img).toHaveAttribute("src", "/events/gallery-opening.jpg");
+    expect(img).toHaveAttribute("alt", "");
+    // Hidden from 1024px, so lazy (never fetched there), first where it shows; it doesn't push in.
+    expect(img).toHaveAttribute("loading", "lazy");
+    expect(img).toHaveAttribute("fetchpriority", "high");
+    expect(img).not.toHaveClass("ken-burns");
+    // In the same row as the eyebrow and the h1, after them, in a column of its own.
+    const row = thumb?.parentElement;
+    expect(row).toHaveClass("flex", "items-start");
+    const text = row?.firstElementChild;
+    expect(text).toHaveClass("min-w-0", "flex-1");
+    expect(text?.querySelector("h1")).not.toBeNull();
+    expect(text?.querySelector("p.eyebrow")).not.toBeNull();
+    // Its badge is a still copy: too small for a 44px Pause/Play target, so never a control.
+    expect(thumb?.querySelector("[data-hero-badge]")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.queryByRole("button", { name: /badge animation/ })).toBeNull();
   });
 
   // Refinement (owner, 22 Oct 2026): a shorter hero, so the first event's image and title reach a
   // phone's first screen.
   it("has the eyebrow (the page's one use of the brand dots) and one short sentence", () => {
     const { container } = render(<HomeHero />);
-    expect(screen.getByText("Melbourne • What’s on")).toHaveClass("eyebrow");
-    expect(screen.getByText(HOME_INTRO)).toBeInTheDocument();
+    expect(screen.getByText("What’s on near you")).toHaveClass("eyebrow");
+    // Owner (23 Oct 2026, layout polish): these words, muted, at every width (no longer hidden on phones).
+    expect(HOME_INTRO).toBe("Music, art and pop-ups. See who’s going.");
+    const intro = screen.getByText(HOME_INTRO);
+    expect(intro).toHaveClass("text-muted", "mt-2");
+    expect(intro.className).not.toMatch(/\bhidden\b/);
     expect(HOME_INTRO.length).toBeLessThanOrEqual(60);
     expect(container.querySelectorAll("p.eyebrow svg")).toHaveLength(1);
   });
 
-  it("makes search the main action, with one search icon (the submit button) and no orange button or link", () => {
+  // Owner round of 24 Oct 2026 (the Eventbrite-style bar with a location): the submit is orange now, and
+  // the bar has two icons, the location pin and the submit's magnifier.
+  it("makes search the main action: an orange submit (the hero's one orange button), a pin and one magnifier", () => {
     const { container } = render(<HomeHero />);
     const search = screen.getByRole("search", { name: "Search events" });
     // A3 (WCAG 2.5.3): the field's name is the words it shows, so "Search events" works by voice too.
     expect(within(search).getByRole("searchbox", { name: "Search events" })).toHaveAttribute("placeholder", "Search events");
-    expect(within(search).getByRole("button", { name: "Search" })).toHaveAttribute("type", "submit");
-    // No second magnifier at the field's start: the submit button's is the only one.
-    expect(search.querySelectorAll("svg")).toHaveLength(1);
-    expect(container.querySelector(".btn-signal")).toBeNull();
-    // Browsing is the category row under the hero; the hero itself has no links.
-    expect(screen.queryAllByRole("link")).toEqual([]);
+    const submit = within(search).getByRole("button", { name: "Search" });
+    expect(submit).toHaveAttribute("type", "submit");
+    expect(within(search).getByRole("button", { name: "Location: Your suburb" })).toBeInTheDocument();
+    // No second magnifier at the field's start: the pin and the submit button's magnifier.
+    expect(search.querySelectorAll("svg")).toHaveLength(2);
+    expect(Array.from(container.querySelectorAll(".btn-signal"))).toEqual([submit]);
+    // Browsing is the category row under the hero; the hero itself has no links. (Where the browser
+    // has geolocation, the location popover's Privacy link is in the closed popover, display: none.)
+    expect(screen.queryAllByRole("link").filter((link) => !link.closest("[popover]"))).toEqual([]);
     expect(screen.queryByRole("navigation")).toBeNull();
   });
 
@@ -74,16 +153,19 @@ describe("HomeHero (mobile-redesign.md §6.1)", () => {
 
   it("shows the photo from lg only, beside the text, with the one-cycle push-in", () => {
     const { container } = render(<HomeHero />);
-    const img = container.querySelector("img");
+    const img = container.querySelector("[data-hero-collage] img");
     expect(img).toHaveClass("ken-burns");
     expect(img?.closest(".hidden.lg\\:block")).not.toBeNull();
   });
 
-  it("never fetches the photo where it's hidden (below lg): lazy, with a high fetch priority where it shows", () => {
+  it("never fetches a photo where it's hidden (the collage below lg, the tile from lg): lazy, with a high fetch priority where it shows", () => {
     const { container } = render(<HomeHero />);
-    const img = container.querySelector("img");
-    expect(img).toHaveAttribute("loading", "lazy");
-    expect(img).toHaveAttribute("fetchpriority", "high");
+    const imgs = Array.from(container.querySelectorAll("img"));
+    expect(imgs).toHaveLength(2);
+    for (const img of imgs) {
+      expect(img).toHaveAttribute("loading", "lazy");
+      expect(img).toHaveAttribute("fetchpriority", "high");
+    }
   });
 
   it("has no sticker graphics", () => {
@@ -195,6 +277,40 @@ describe("HomeRail", () => {
     expect(within(list).getAllByRole("listitem")[0]).toHaveClass("snap-start", "shrink-0");
   });
 
+  // Owner (23 Oct 2026, layout polish): one or two cards left most of a desktop row empty.
+  it("a pair (one or two cards) is the same rail below 1024px and a two-column grid in the page column from 1024px", () => {
+    expect(PAIR_MAX).toBe(2);
+    expect([0, 1, 2, 3, 5].map(isPairRail)).toEqual([false, true, true, false, false]);
+    render(
+      <HomeRail labelledBy="x" pair>
+        <HomeRailItem>a</HomeRailItem>
+        <HomeRailItem>b</HomeRailItem>
+      </HomeRail>,
+    );
+    const list = screen.getByRole("list");
+    expect(list).toHaveAttribute("data-rail-layout", "pair");
+    // Below 1024px: the carousel, untouched.
+    expect(list).toHaveClass("flex", "snap-x", "snap-mandatory", "overflow-x-auto", "ps-5", "pe-0", "after:block");
+    // From 1024px: two columns between the column's edges, nothing to scroll or snap, no end spacer.
+    expect(list).toHaveClass(
+      "lg:grid",
+      "lg:grid-cols-2",
+      "lg:overflow-visible",
+      "lg:snap-none",
+      "sm:ps-[max(2rem,(100%_-_72rem)/2_+_2rem)]",
+      "lg:pe-[max(2rem,(100%_-_72rem)/2_+_2rem)]",
+      "lg:after:hidden",
+    );
+    cleanup();
+    render(
+      <HomeRail labelledBy="x">
+        <HomeRailItem>a</HomeRailItem>
+      </HomeRail>,
+    );
+    expect(screen.getByRole("list")).toHaveAttribute("data-rail-layout", "rail");
+    expect(screen.getByRole("list").className).not.toMatch(/lg:/);
+  });
+
   it("starts its first card on the page column's edge (the gutter on phones), and snaps to the same line", () => {
     render(
       <HomeRail labelledBy="x">
@@ -283,5 +399,24 @@ describe("GuideCard and CreatorsCard", () => {
     expect(cta).toHaveAttribute("href", "/organisers/apply");
     expect(cta).toHaveClass("btn-outline");
     expect(container.querySelector("[data-surface='ink']")).not.toBeNull();
+  });
+});
+
+describe("section title dots (owner, 24 Oct 2026)", () => {
+  it("This weekend dots exactly one letter, and its text and name stay plain", async () => {
+    const { titleText, titleParts, WEEKEND_TITLE } = await import("@/components/home/home-content");
+    expect(titleText(WEEKEND_TITLE)).toBe("This weekend");
+    expect(titleParts(WEEKEND_TITLE).filter((p) => p.dotted).map((p) => p.text)).toEqual(["i"]);
+  });
+});
+
+describe("SectionHead dottedTitle", () => {
+  it("draws only the marked letter in the dotted face; the h2's name stays plain", () => {
+    render(<SectionHead id="w" title="This weekend" dottedTitle="Th^is weekend" />);
+    const h2 = screen.getByRole("heading", { level: 2, name: "This weekend" });
+    const dots = h2.querySelectorAll("[data-dotted-letter]");
+    expect([...dots].map((el) => el.textContent)).toEqual(["i"]);
+    expect(dots[0]).toHaveClass("font-dots");
+    expect(h2.textContent).toBe("This weekend");
   });
 });

@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
+import type { GetToken } from "@/lib/api/client";
+import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import { validateMessage } from "@/lib/message-text";
 import MessageField from "./MessageField";
 import SessionExpiredNotice from "./SessionExpiredNotice";
@@ -32,7 +34,9 @@ type Problem = { kind: "message"; message: string } | { kind: "session" };
  * error is announced if focus is already in the box (Ctrl/Cmd+Enter),
  * otherwise focus moves to the box and reads it; any other failure takes
  * focus itself. An expired session signs in again right here. The draft is
- * always kept.
+ * always kept. `onSend` gets the token getter to send with: bound to the
+ * account that wrote the draft (lib/auth/useAccountOwner.ts), so a change of
+ * account after the check below is refused as an expired session.
  */
 export default function Composer({
   otherName,
@@ -44,7 +48,7 @@ export default function Composer({
   otherName: string;
   mode: "reply" | "accept" | "waiting";
   waitingNote?: string;
-  onSend: (body: string) => Promise<SendOutcome>;
+  onSend: (body: string, getToken: GetToken) => Promise<SendOutcome>;
   returnTo: string;
 }) {
   const [text, setText] = useState("");
@@ -56,6 +60,8 @@ export default function Composer({
   // Applied once the render that shows the error (or clears the box) has committed.
   const pendingFocus = useRef<"input" | "problem" | null>(null);
   const waiting = mode === "waiting";
+  // Whose draft this is (captured while signed in), for the expired-session sign-in.
+  const { owner, otherAccount, getOwnerToken } = useAccountOwner();
 
   useEffect(() => {
     const target = pendingFocus.current;
@@ -82,8 +88,14 @@ export default function Composer({
       return;
     }
     setFieldError(null);
+    if (otherAccount) {
+      // Signed in as someone else by now (another tab): never send this as them.
+      setProblem({ kind: "session" });
+      pendingFocus.current = "problem";
+      return;
+    }
     setBusy(true);
-    const outcome = await onSend(text.trim());
+    const outcome = await onSend(text.trim(), getOwnerToken);
     setBusy(false);
     if (outcome.ok) {
       setText("");
@@ -132,6 +144,7 @@ export default function Composer({
       {problem?.kind === "session" && (
         <SessionExpiredNotice
           what="message"
+          owner={owner}
           noticeRef={problemRef}
           onSignedIn={() => {
             setProblem(null);

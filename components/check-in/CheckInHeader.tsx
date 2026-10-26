@@ -8,18 +8,20 @@ import type { CheckInSummary } from "@/lib/api/types";
 import { checkedInPercent } from "@/lib/check-in/door-copy";
 import { DOOR_TIMING } from "@/lib/check-in/timing";
 import { formatEventDateTimeRange, formatEventTime } from "@/lib/format";
+import type { DoorWayBack } from "./way-back";
 
 /**
- * "← Your events" and the eyebrow, then the event title (§5.A2). The eyebrow
+ * The way back ("← Your events", or "← Admin door list" for an admin) and
+ * the eyebrow, then the event title (§5.A2). The eyebrow
  * carries the date: under "Door check-in" on phones (inside the 44px row, so
  * it costs no height above the scanner), after it from md.
  */
-export function CheckInTitle({ summary }: { summary: CheckInSummary | null }) {
+export function CheckInTitle({ summary, wayBack }: { summary: CheckInSummary | null; wayBack: DoorWayBack }) {
   return (
     <header>
       <div className="flex min-h-11 items-center justify-between gap-3">
-        <Link href="/dashboard" className={backLinkClass}>
-          &larr; Your events
+        <Link href={wayBack.href} className={backLinkClass}>
+          &larr; {wayBack.label}
         </Link>
         <p className="eyebrow text-right text-muted">
           Door check-in

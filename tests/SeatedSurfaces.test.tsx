@@ -97,6 +97,16 @@ describe("seated panel tier rows (V6: the standard ticket row)", () => {
   });
 });
 
+describe("seated panel steps (checkout-pay.md §5.6)", () => {
+  it("says Pay, not Pay on Stripe", () => {
+    render(<SeatedTicketsPanel event={seated} demo />);
+    expect(screen.getByRole("list", { name: "How booking works" })).toHaveTextContent(
+      "1 Choose seats→2 Pay→3 Tickets by email",
+    );
+    expect(screen.queryByText(/Stripe/)).toBeNull();
+  });
+});
+
 describe("seated panel once the event has ended (§5.1)", () => {
   it("no Choose your seats: says sales have ended", () => {
     vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));
@@ -162,7 +172,7 @@ describe("organiser seat-map editor (§5.13)", () => {
   it("adds a rectangular section and saves the validated map", async () => {
     const onSave = vi.fn(async (template) => ({ eventId: event.id, version: 4, seatCount: 20, template }));
     render(<SeatMapEditor event={event} initial={null} status="Draft" locked={false} onSave={onSave} />);
-    expect(screen.getByText("The seat map editor needs a screen at least 1024px wide.")).toBeInTheDocument();
+    expect(screen.getByText("To draw or change seats one by one, the seat map editor needs a screen at least 1024px wide.")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Section name"), { target: { value: "Stalls" } });
     fireEvent.change(screen.getByLabelText("Rows"), { target: { value: "2" } });
     fireEvent.click(screen.getByRole("button", { name: "Add section" }));

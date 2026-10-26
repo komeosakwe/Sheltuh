@@ -17,8 +17,22 @@ export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
     startsAt: event.startsAt,
     endsAt: event.endsAt,
     organiserName: event.organiserName,
+    // Only while the organiser has a logo (and is approved): absent means initials.
+    ...(event.organiserLogoThumbUrl ? { organiserLogoThumbUrl: event.organiserLogoThumbUrl } : {}),
     poster: assignPoster(event.slug),
     imageUrl: event.imageUrl,
+    // Only with a clip: an event without one adapts exactly as before.
+    ...(event.clip
+      ? {
+          clip: {
+            url: event.clip.url,
+            durationMs: event.clip.durationMs,
+            width: event.clip.width,
+            height: event.clip.height,
+            description: event.clip.description,
+          },
+        }
+      : {}),
     // Only the fields the UI knows: what's left comes from the server's own
     // `soldOut` / `remaining` (shown only at 10 or fewer), never worked out here.
     ticketTypes: event.ticketTypes.map((ticket) => ({

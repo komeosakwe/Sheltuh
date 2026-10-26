@@ -5,8 +5,10 @@ import EventResults from "@/components/EventResults";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/Section";
 import EventFilterBar, { type PricingFilter } from "@/components/EventFilterBar";
+import NearbyResults from "@/components/search/NearbyResults";
 import { isFreeEvent, isPaidEvent } from "@/lib/data";
 import { formatEventDateKey } from "@/lib/format";
+import { findLocality } from "@/lib/location";
 import type { EventCategory, SheltuhEvent } from "@/lib/types";
 
 interface EventBrowserProps {
@@ -14,6 +16,8 @@ interface EventBrowserProps {
   categories: { value: EventCategory; label: string }[];
   /** Free-text search (from /search), matched the same way the live API does. */
   query?: string;
+  /** A suburb from /search?near=: results in bands by distance from it (lib/location.ts). */
+  near?: string;
   /** Starting filters (from /events?category=&pricing=); "Reset filters" still clears to all. */
   initialCategory?: EventCategory | "all";
   initialPricing?: PricingFilter;
@@ -37,6 +41,7 @@ export default function EventBrowser({
   events,
   categories,
   query = "",
+  near = "",
   initialCategory = "all",
   initialPricing = "all",
   onSummaryChange,
@@ -58,6 +63,7 @@ export default function EventBrowser({
       .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   }, [events, query, category, pricing, onOrAfter]);
 
+  const origin = useMemo(() => (near ? findLocality(near) : null), [near]);
   const hasActiveFilters = category !== "all" || pricing !== "all" || onOrAfter !== "";
   const summary = `Showing ${filteredEvents.length} of ${events.length} events`;
 
@@ -94,6 +100,8 @@ export default function EventBrowser({
         >
           Try a different category, an earlier date, or clearing the price filter.
         </EmptyState>
+      ) : origin ? (
+        <NearbyResults events={filteredEvents} origin={origin} />
       ) : (
         <EventResults events={filteredEvents} heading="Events" />
       )}

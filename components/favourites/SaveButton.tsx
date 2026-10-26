@@ -29,12 +29,12 @@ function classes(variant: SaveButtonVariant, saved: boolean) {
         icon: "size-5 motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90",
       };
     // On a photo, which can be dark: the page's black outline could vanish into it, so
-    // keyboard focus rings the 36px mark instead, black on a cream gap that shows on any
-    // photo (never orange). Explicit ink/cream: it's the same on every surface.
+    // keyboard focus rings the 36px mark instead, black on a white gap that shows on any
+    // photo (never orange). Explicit ink/paper: it's the same on every surface and theme.
     case "overlay":
       return {
-        target: "group/save flex size-11 items-center justify-center rounded-control focus-visible:outline-none",
-        mark: `${discBase} border-foreground group-focus-visible/save:ring-2 group-focus-visible/save:ring-ink group-focus-visible/save:ring-offset-2 group-focus-visible/save:ring-offset-cream ${
+        target: "group/save flex size-11 items-center justify-center rounded-control focus-visible:outline-none!",
+        mark: `${discBase} border-foreground group-focus-visible/save:ring-2 group-focus-visible/save:ring-ink group-focus-visible/save:ring-offset-2 group-focus-visible/save:ring-offset-paper ${
           saved
             ? "bg-foreground text-background group-hover/save:bg-accent-strong"
             : "bg-background text-foreground group-hover/save:ring-1 group-hover/save:ring-foreground"

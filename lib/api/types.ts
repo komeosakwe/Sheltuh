@@ -1,10 +1,11 @@
 import type { TicketingMode } from "@/lib/ticketing";
-import type { EventCategory, FeePolicy } from "@/lib/types";
+import type { EventCategory, EventClip, FeePolicy } from "@/lib/types";
 import type { FeaturedVideo } from "./featured-video";
 import type { PublicEvent } from "./public-events";
 import type { SeatMapTemplate, TicketSeat } from "@/lib/seating/template";
 
 export type { FeaturedVideo, FeaturedVideoProvider } from "./featured-video";
+export type { EventClip } from "@/lib/types";
 
 export type { TicketingMode } from "@/lib/ticketing";
 export type { SeatKind, SeatMapTemplate, TicketSeat } from "@/lib/seating/template";
@@ -76,9 +77,12 @@ export interface OrganiserEditChange {
  * One entry of an organiser's append-only change log (admin only).
  * `profile_edit`: the approved organiser changed their public profile
  * (no review). `suspended`: an admin took them down, with `reason`.
+ * `invite_accepted`: the organiser's account accepted an admin's invite,
+ * which created the organiser, approved.
  */
 export interface OrganiserEditEntry {
-  kind: "profile_edit" | "suspended";
+  /** `invite_accepted`: the organiser was created by an accepted admin invite (`changes.status`: null → approved). */
+  kind: "profile_edit" | "suspended" | "invite_accepted";
   at: string;
   /** Only the fields that changed. */
   changes: Partial<Record<OrganiserLogField, OrganiserEditChange>>;
@@ -191,7 +195,8 @@ export interface TicketingChanges {
  * What an admin's edit changed (`edited`): only the fields that did. Dates
  * are ISO instants with an offset; ticket types are the whole list before
  * and after. `image` is "set" while there's a photo, null otherwise (set →
- * set is a replaced photo).
+ * set is a replaced photo). `clip` is the clip's version (the `v` of its
+ * URL, milliseconds as a string), null for none; `clipDescription` its text.
  */
 export interface EventEditChanges {
   title?: TicketingFieldChange<string>;
@@ -206,6 +211,10 @@ export interface EventEditChanges {
   image?: TicketingFieldChange<"set">;
   /** An admin replaced or removed the seat map (or switched the event to external ticketing, removing it). */
   seatMap?: TicketingFieldChange<EventSeating>;
+  /** An admin added, replaced or removed the clip (its versions). */
+  clip?: TicketingFieldChange<string>;
+  /** An admin changed the clip's description. */
+  clipDescription?: TicketingFieldChange<string>;
 }
 
 /** ModerationLogEntry.by for an admin's entry in an organiser's view: never the admin's account id. */
@@ -257,6 +266,12 @@ export interface EventRecord {
   organiserName: string;
   /** Same-origin path of the organiser's photo, if one was uploaded. Versioned (?v=) so it caches safely. */
   imageUrl?: string;
+  /**
+   * The event's clip, only when it has one (absent otherwise). Its `url`
+   * plays only once the event is published; before that, the owner or an
+   * admin previews it with GET /events/{id}/clip/preview (lib/api/clips.ts).
+   */
+  clip?: EventClip;
   /**
    * The organiser's logo thumbnail (96 px square WebP, public, versioned),
    * only when they have a logo and are approved.
@@ -322,6 +337,20 @@ export interface AdminEventRecord extends EventRecord {
    * tickets or external ticketing, and only admins check its events in.
    */
   organiserPlatformManaged: boolean;
+  /**
+   * The event's trending curation (set through PUT
+   * /admin/events/{eventId}/curation, whose GET also has the log). An event
+   * an admin never curated: boost 1, excluded false.
+   */
+  curation: AdminEventCurationState;
+}
+
+/** An event's trending curation as AdminEventRecord carries it. */
+export interface AdminEventCurationState {
+  /** Multiplies the event's trending score: 0.5 to 2, default 1. */
+  boost: number;
+  /** Kept out of trending whatever its score. */
+  excluded: boolean;
 }
 
 /**
@@ -404,27 +433,31 @@ export const MAX_FREE_TICKETS_PER_ORDER = 4;
 
 /**
  * POST /api/events/{eventId}/checkout.
- * - 201 `{url}`: go there. Stripe's checkout for a paid order (with
- *   `orderId`); the confirmation page for a free order by a signed-in member
- *   booking with their own (verified) account email.
+ * - 201 `{url}`: go there. For a paid order (with `orderId`) it's our own
+ *   payment page, `/checkout/pay?order={orderId}` (relative), which mounts
+ *   Stripe's embedded form (getOrderPayment); for a free order by a signed-in
+ *   member booking with their own (verified) account email, the confirmation
+ *   page.
  * - 202 `{status: "confirmation_sent"}`: a free order by anyone else. A link
  *   to confirm it has been emailed to the address given (valid for
  *   `expiresInHours`); nothing is issued or held until it's confirmed.
+ * - 503: card payments aren't configured on this deploy (paid orders only;
+ *   nothing was created or held).
  */
 export type CheckoutResult =
   | {
       url: string;
       /**
        * A seated paid checkout only: when the seats' hold ends (ISO 8601).
-       * Stripe's page closes a few minutes before (SEAT_HOLD.stripeMinutes).
+       * Stripe's form closes a few minutes before (SEAT_HOLD.stripeMinutes).
        */
       holdExpiresAt?: string;
       /**
        * A paid (Stripe) checkout only, seated or not: the pending order's id
-       * (`ord_` + 32 hex). Only this client gets it (it's also in Stripe's
-       * success and cancel URLs); keep it for the session only and pass it to
-       * cancelPendingOrder when the buyer comes Back from Stripe. It's the
-       * order's credential: never log it or put it anywhere shared.
+       * (`ord_` + 32 hex). Only this client gets it (it's also in `url` and in
+       * Stripe's return URL); keep it for the session only and pass it to
+       * cancelPendingOrder when the buyer goes Back from the payment page.
+       * It's the order's credential: never log it or put it anywhere shared.
        */
       orderId?: string;
     }
@@ -552,6 +585,75 @@ export interface CustomerTicket {
 
 export type CustomerOrderLookup = CustomerOrder | { status: "pending" };
 
+/** One line of OrderPaymentSummary. Amounts are the buyer's (booking fee included when they pay it; lib/fees.ts). */
+export interface OrderPaymentLine {
+  ticketTypeName: string;
+  quantity: number;
+  /** One ticket, all-inclusive: 0 for a free line. */
+  unitTotalCents: number;
+  /** `quantity` tickets, all-inclusive. */
+  lineTotalCents: number;
+  /**
+   * Whether this line's amounts include a booking fee the buyer pays: its
+   * ticket type is buyer-pays and paid. False for a free line or one whose
+   * organiser absorbs the fee, whatever the order's other lines do.
+   */
+  buyerPaysFee: boolean;
+  /** A seated tier's seats in this order, in map order; unset for general admission. */
+  seats?: TicketSeat[];
+}
+
+/**
+ * What the payment page shows beside Stripe's form, priced by the server
+ * from the order (never by the client). No ids, fee split, email or Stripe
+ * ids.
+ */
+export interface OrderPaymentSummary {
+  /** The event's title when the order was placed. */
+  eventTitle: string;
+  /** The event's current slug (unset if the event is gone): /events/{slug}, or /events/{slug}/seats when `seated`. */
+  eventSlug?: string;
+  /** The event's current start and end (ISO instants), venue name and suburb: only while it's published. */
+  eventStartsAt?: string;
+  eventEndsAt?: string;
+  venueName?: string;
+  suburb?: string;
+  /** A reserved-seating order (it holds seats until the hold ends). */
+  seated: boolean;
+  /** In the order's line order. */
+  lines: OrderPaymentLine[];
+  subtotalCents: number;
+  /** Booking fees the buyer pays (not any the organiser absorbs). */
+  buyerFeeCents: number;
+  /** What the buyer pays, all-inclusive: the same amount as Stripe's form. */
+  totalCents: number;
+}
+
+/**
+ * GET /api/orders/by-session/{orderId}/payment: the payment page's view of a
+ * card checkout (the order id is the only credential; `private, no-store`;
+ * reading it changes nothing).
+ * - `open`: Stripe's form can be mounted with `clientSecret` (Stripe.js
+ *   embedded checkout) until `expiresAt` (ISO; for a seated order, before
+ *   its seats' hold ends). Re-fetch once it passes. The secret is for
+ *   Stripe.js only: never log or store it.
+ * - `processing`: Stripe has the payment; go to /checkout/success. `delayed`:
+ *   a payment method that takes time to clear (the tickets follow by email).
+ * - `done`: settled (paid, or refunded); go to /checkout/success.
+ * - `closed`: the checkout expired or was cancelled, or the event can no
+ *   longer be booked (unpublished, or ended); nothing was charged.
+ * - `sold_out`: the tickets (or some of the seats) went to someone else
+ *   while it was open; nothing was charged.
+ * ApiError 404 unknown, malformed, or not a card checkout; 409 still being
+ * set up (try again in a moment); 429 asked too often in the last minute
+ * (by this connection, or for this order: try again in a minute).
+ */
+export type OrderPaymentLookup =
+  | ({ status: "open"; clientSecret: string; expiresAt: string } & OrderPaymentSummary)
+  | { status: "processing"; delayed: boolean }
+  | { status: "done" }
+  | { status: "closed" | "sold_out"; eventTitle: string; eventSlug?: string; seated: boolean };
+
 // ---------------------------------------------------------------------------
 // Ticket email outbox (admin)
 // ---------------------------------------------------------------------------
@@ -589,6 +691,42 @@ export interface AdminEmailJob {
   eventTitle: string;
   /** "m***@example.com". */
   maskedEmail?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Admin summary
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/admin/summary: what's waiting for an admin, as counts only (no
+ * titles, names or addresses). Times are ISO 8601; null when nothing is
+ * waiting.
+ */
+export interface AdminSummary {
+  /** Open member reports (GET /admin/reports?status=open). `oldestAt`: when the oldest was filed. */
+  reportsOpen: { count: number; oldestAt: string | null };
+  /**
+   * Events waiting for review (GET /admin/events?status=pending_review).
+   * `soonestStartsAt` and `startingSoon` only count those that haven't
+   * ended: the soonest start, and how many start within `startingSoonHours`
+   * (72) from now, in progress included.
+   */
+  eventsPending: { count: number; soonestStartsAt: string | null; startingSoon: number; startingSoonHours: number };
+  /**
+   * Organiser applications waiting for review (GET /admin/organisers?status=pending).
+   * `oldestAt`: the oldest one's last update (its submission or resubmission).
+   */
+  organisersPending: { count: number; oldestAt: string | null };
+  /** Ticket emails that gave up and need a resend (GET /admin/emails?status=failed). */
+  emailsFailed: { count: number };
+  /** Ticket emails waiting for another attempt after at least one failed (in GET /admin/emails?status=pending). */
+  emailsRetrying: { count: number };
+  /**
+   * Published, Sheltüh-ticketed events of platform-managed organisers (the
+   * ones only admins check in) that haven't ended and start within
+   * `windowHours` (24) from now.
+   */
+  doorEvents: { count: number; windowHours: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -1444,8 +1582,9 @@ export interface SeatErrorDetails {
 }
 
 /**
- * POST /api/orders/by-session/{orderId}/cancel: the buyer left Stripe's page
- * (its cancel_url, /checkout/cancelled?order={orderId}).
+ * POST /api/orders/by-session/{orderId}/cancel: the buyer left the payment
+ * page (Back from /checkout/pay, or a hosted session's cancel_url,
+ * /checkout/cancelled?order={orderId}).
  * - `released`: nothing was charged; the order is cancelled and its seats are
  *   free again (also when that had already happened).
  * - `paid`: it's paid already (show /checkout/success?session_id={orderId}).
@@ -1464,4 +1603,109 @@ export interface AdminSeatMapInput {
   template: SeatMapTemplate;
   /** 1–500 characters, logged (the organiser sees it). */
   reason: string;
+}
+
+// ---------------------------------------------------------------------------
+// Account invites (docs/architecture.md, "Account invites")
+// ---------------------------------------------------------------------------
+
+/** `organiser`: comes with an organiser, approved when accepted. `member`: an account only. */
+export type InviteKind = "organiser" | "member";
+
+/**
+ * `expired`: the link's 14 days have passed (also before anything has
+ * marked it). Only `pending` invites can be accepted or revoked; `pending`
+ * and `expired` ones can be resent.
+ */
+export type InviteStatus = "pending" | "accepted" | "revoked" | "expired";
+
+/** An invite as admins see it (GET /api/admin/invites). Never the link or its token. */
+export interface AdminInviteRecord {
+  inviteId: string;
+  kind: InviteKind;
+  /** As the admin typed it. */
+  email: string;
+  status: InviteStatus;
+  /** An organiser invite's organiser name. */
+  organiserName?: string;
+  /** The inviting admin's account id (unset once that account is deleted). */
+  invitedBy?: string;
+  createdAt: string;
+  /** When the current link stops working. */
+  expiresAt: string;
+  /** When the email was last sent (or attempted). */
+  lastSentAt?: string;
+  /** Set when the last send failed: resend it. */
+  lastSendFailedAt?: string;
+  /** Emails sent for this invite, the first included. */
+  sendCount: number;
+  acceptedAt?: string;
+  /** The organiser an accepted organiser invite created. */
+  acceptedOrganiserId?: string;
+  revokedAt?: string;
+}
+
+/**
+ * POST /api/admin/invites. `consent` must be true: the person asked to be
+ * invited (Spam Act 2003). `organiser`: required for an organiser invite
+ * (the application's fields and rules, the bio included; fieldErrors are
+ * `organiser.<field>`), refused for a member invite.
+ */
+export interface AdminCreateInviteInput {
+  kind: InviteKind;
+  email: string;
+  consent: true;
+  organiser?: AdminCreateOrganiserInput;
+}
+
+/** POST /api/admin/invites (201) and …/{inviteId}/resend (200). `emailSent: false`: saved, but the email failed; resend it. */
+export interface AdminInviteSendResult {
+  invite: AdminInviteRecord;
+  emailSent: boolean;
+}
+
+/** POST /api/invites/view {token}: what the invite page shows before anything is pressed. */
+export interface InviteView {
+  kind: InviteKind;
+  /** "m***@example.com": the invite's address. */
+  maskedEmail: string;
+  organiserName?: string;
+  expiresAt: string;
+  /**
+   * `existing`: the address already has a confirmed account, so the person
+   * signs in instead of creating one. `unconfirmed`: it has only an account
+   * that was never confirmed (perhaps registered by someone else). "Create
+   * account" still works when `passwordSetup` is true (the server replaces
+   * that account); otherwise, or when account-link answers 503, send them to
+   * the password reset (`/forgot-password`), never the ordinary sign-up:
+   * resetting confirms the address and replaces whatever password it had.
+   * `new`: no account yet.
+   */
+  account: "new" | "existing" | "unconfirmed";
+  /**
+   * Whether "Create account" with a password works here (the server can
+   * issue the sign-up token). false: send them to the ordinary sign-up
+   * (`/signup?next=/invite`), or the password reset for `unconfirmed`;
+   * acceptance works the same once they're verified.
+   */
+  passwordSetup: boolean;
+}
+
+/** POST /api/invites/account-link {token}: the sign-up token's hash, for `verifyOtp({token_hash, type: "invite"})`. */
+export interface InviteAccountLink {
+  tokenHash: string;
+}
+
+/** GET /api/invites/me: the pending invite for the caller's verified email. */
+export interface MyInvite {
+  inviteId: string;
+  kind: InviteKind;
+  organiserName?: string;
+  expiresAt: string;
+}
+
+/** POST /api/invites/accept {inviteId}. `organiserId`: the organiser created (organiser invites). */
+export interface AcceptInviteResult {
+  kind: InviteKind;
+  organiserId?: string;
 }

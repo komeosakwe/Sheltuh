@@ -610,7 +610,10 @@ describe("private.purge_social_data (retention)", () => {
     expect(await attendeeRows(old.eventId)).toEqual([]);
     expect(await attendeeRows(recent.eventId)).toEqual([{ user_id: m.userId }]);
     expect(await attendeeRows(event.eventId)).toEqual([{ user_id: m.userId }]);
-    expect(await api.db.query(`select bucket from private.rate_limits`)).toEqual([{ bucket: "fresh" }]);
+    // This member's rows (the setup's organiser has its own, fresh `review_emails` row).
+    expect(await api.db.query(`select bucket from private.rate_limits where user_id = $1`, [m.userId])).toEqual([
+      { bucket: "fresh" },
+    ]);
     // The profile, orders and events themselves are kept.
     expect(await api.db.query(`select 1 from public.profiles where user_id = $1`, [m.userId])).toHaveLength(1);
     expect(await api.db.query(`select 1 from public.events where id = $1`, [old.eventId])).toHaveLength(1);

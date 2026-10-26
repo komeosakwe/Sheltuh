@@ -17,6 +17,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "."),
+      // Font loaders only work inside Next's compiler (tests/test-utils/next-font-google.ts).
+      "next/font/google": path.resolve(import.meta.dirname, "tests/test-utils/next-font-google.ts"),
     },
   },
 });

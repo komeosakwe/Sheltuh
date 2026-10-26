@@ -3,7 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { useAdminSummary } from "@/components/admin/AdminSummaryProvider";
 import { useUnread } from "@/components/messages/UnreadProvider";
+import CountBadge from "@/components/ui/CountBadge";
+import { needsYouTotal } from "@/lib/admin-summary";
 import { useAuth } from "@/lib/auth/AuthContext";
 
 /**
@@ -29,6 +32,8 @@ export default function AuthNavLinks({
   const auth = useAuth();
   const pathname = usePathname();
   const unread = useUnread();
+  const adminSummary = useAdminSummary()?.summary;
+  const adminWaiting = adminSummary ? needsYouTotal(adminSummary) : 0;
 
   function accountLink(href: string, label: string, extra?: ReactNode) {
     const active = pathname === href || pathname.startsWith(`${href}/`);
@@ -66,7 +71,12 @@ export default function AuthNavLinks({
 
   return (
     <>
-      {auth.isAdmin && accountLink("/admin", "Admin")}
+      {auth.isAdmin &&
+        accountLink(
+          "/admin",
+          "Admin",
+          <CountBadge count={adminWaiting} srText={`, ${adminWaiting} waiting`} dataAttribute="data-admin-badge" />,
+        )}
       {accountLink("/messages", "Messages", <UnreadBadge count={unread?.count ?? null} />)}
       {!compact && accountLink("/dashboard", "My events")}
       {accountLink("/account", "Account")}
@@ -80,18 +90,5 @@ export default function AuthNavLinks({
  * part of the link's name instead ("Messages, 2 unread"), read when the link is.
  */
 function UnreadBadge({ count }: { count: number | null }) {
-  if (!count) return null;
-  const shown = count > 99 ? "99+" : String(count);
-  return (
-    <>
-      <span
-        aria-hidden="true"
-        data-unread-badge=""
-        className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-badge bg-foreground px-1 align-middle text-xs leading-5 font-semibold tracking-normal text-background tabular-nums normal-case"
-      >
-        {shown}
-      </span>
-      <span className="sr-only">, {count} unread</span>
-    </>
-  );
+  return <CountBadge count={count} srText={`, ${count} unread`} dataAttribute="data-unread-badge" />;
 }

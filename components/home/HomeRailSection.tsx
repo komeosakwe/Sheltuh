@@ -1,9 +1,12 @@
 "use client";
 
 import { useRef, type ReactNode } from "react";
+import { useClipViewer } from "@/components/events/ClipViewer";
 import SectionHead from "@/components/ui/SectionHead";
-import HomeRail, { HOME_CONTAINER } from "./HomeRail";
+import HomeRail, { HOME_CONTAINER, isPairRail } from "./HomeRail";
 import RailArrows, { useRailScroll } from "./RailArrows";
+import RailAutoScrollButton from "./RailAutoScrollButton";
+import { useRailAutoScroll } from "./useRailAutoScroll";
 
 /**
  * A rail with five or more cards overflows at every width up to about
@@ -17,12 +20,23 @@ const SURELY_OVERFLOWS = 5;
  * the page column (title, optional note and link, and from 640px the rail's
  * Previous/Next buttons while it overflows), then its cards as a
  * full-width rail (`HomeRail`). `empty` replaces the rail with a line of
- * text (This weekend with nothing on). `data-home-section` marks it for
- * Try again's focus move and the e2e suite.
+ * text (This weekend with nothing on). One or two cards are a pair: a
+ * two-column grid from 1024px (`isPairRail`; the caller gives those cards
+ * EventCard's `wide`). `data-home-section` marks it for Try again's focus
+ * move and the e2e suite.
+ *
+ * A rail that overflows (not a pair) is an endless marquee: its cards drift
+ * slowly and continuously from the right edge of the screen to the left,
+ * looping seamlessly on copies of the cards that only it renders
+ * (`useRailAutoScroll`, `HomeRail` `clones`), with a Pause/Play button in the
+ * head before the arrows, at every width; never under reduced motion. A pair
+ * never does, at any width: from 1024px it's a grid, and below it there's
+ * barely anything to scroll.
  */
 export default function HomeRailSection({
   id,
   title,
+  dottedTitle,
   note,
   link,
   count,
@@ -33,6 +47,8 @@ export default function HomeRailSection({
   /** The h2's id; the rail is `${id}-rail`. */
   id: string;
   title: string;
+  /** The title with a `^`-marked dotted letter, for the h2 only (`SectionHead`). */
+  dottedTitle?: string;
   note?: string;
   link?: { href: string; label?: string; srLabel?: string };
   /** How many cards the rail holds (for the server render's arrows). */
@@ -41,25 +57,40 @@ export default function HomeRailSection({
   className?: string;
   children?: ReactNode;
 }) {
+  const rootRef = useRef<HTMLElement>(null);
   const railRef = useRef<HTMLUListElement>(null);
   const railId = `${id}-rail`;
   const scroll = useRailScroll(railRef, !empty && count >= SURELY_OVERFLOWS, empty ? -1 : count);
   const overflows = !empty && (scroll.canPrev || scroll.canNext);
+  const pair = isPairRail(count);
+  // Every rail holds still while the page's clip viewer is open (docs/design/event-clips.md §5.2).
+  const clipViewer = useClipViewer();
+  const auto = useRailAutoScroll({ rootRef, railRef, enabled: overflows && !pair, held: clipViewer?.isOpen ?? false });
 
   return (
-    <section aria-labelledby={id} data-home-section className={className}>
+    <section ref={rootRef} aria-labelledby={id} data-home-section className={className}>
       <div className={HOME_CONTAINER}>
         <SectionHead
           id={id}
           title={title}
+          dottedTitle={dottedTitle}
           note={note}
           link={link}
-          actions={overflows ? <RailArrows railRef={railRef} controls={railId} title={title} scroll={scroll} /> : undefined}
+          actions={
+            overflows ? (
+              <>
+                {auto.showControl && (
+                  <RailAutoScrollButton playing={auto.playing} onToggle={auto.toggle} controls={railId} title={title} />
+                )}
+                <RailArrows railRef={railRef} controls={railId} title={title} scroll={scroll} onPage={auto.stop} />
+              </>
+            ) : undefined
+          }
         />
         {empty}
       </div>
       {!empty && (
-        <HomeRail ref={railRef} id={railId} labelledBy={id}>
+        <HomeRail ref={railRef} id={railId} labelledBy={id} pair={pair} clones={auto.clones}>
           {children}
         </HomeRail>
       )}

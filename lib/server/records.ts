@@ -8,6 +8,7 @@ import type {
   AdminEmailJob,
   AdminMemberProfile,
   AdminEventRecord,
+  AdminInviteRecord,
   AdminOrganiserRecord,
   AdminReport,
   BlockRecord,
@@ -32,7 +33,7 @@ import type {
   TicketTypeInput,
 } from "./types";
 import { REMAINING_SHOWN_AT_MOST, type PublicTicketType } from "@/lib/api/public-events";
-import { SHELTUH_TEAM_ACTOR } from "@/lib/api/types";
+import { SHELTUH_TEAM_ACTOR, type EventClip } from "@/lib/api/types";
 import { isFeaturedVideo, type FeaturedVideo } from "@/lib/api/featured-video";
 import { ticketProviderName, type TicketingMode } from "@/lib/ticketing";
 import { maskEmail } from "./email-address";
@@ -269,6 +270,11 @@ const EVENT_COLUMNS = `
          case when o.status = 'approved' then ${organiserLogoVersionOf("e.organiser_id")} end as organiser_logo_version,
          (select '/api/events/' || e.id::text || '/image?v=' || floor(extract(epoch from i.updated_at))::bigint::text
             from public.event_images i where i.event_id = e.id) as image_url,
+         -- The clip (private.event_clips, by primary key), versioned in milliseconds (every write moves it on).
+         (select json_build_object('version', floor(extract(epoch from c.updated_at) * 1000)::bigint::text,
+                                   'durationMs', c.duration_ms, 'width', c.width, 'height', c.height,
+                                   'description', c.description)
+            from private.event_clips c where c.event_id = e.id) as clip,
          coalesce((
            select json_agg(json_strip_nulls(json_build_object(
                     'id', t.id, 'name', t.name, 'description', t.description,
@@ -311,10 +317,19 @@ export const eventSelectWith = (extraColumns: string) => `
   select ${EVENT_COLUMNS},
          ${extraColumns}${EVENT_FROM}`;
 
-/** EVENT_SELECT plus whether the organiser is platform-managed (no owner account). Admin only. */
+/**
+ * EVENT_SELECT plus whether the organiser is platform-managed (no owner
+ * account) and the event's trending curation (private.event_curation: null
+ * columns when an admin never curated it). Admin only. Callers append a
+ * `where` over `e` / `o`: the curation join is on the table's primary key,
+ * at most one row per event, so it never changes the rows or their order.
+ */
 export const ADMIN_EVENT_SELECT = `
   select ${EVENT_COLUMNS},
-         o.owner_user_id is null as organiser_platform_managed${EVENT_FROM}`;
+         o.owner_user_id is null as organiser_platform_managed,
+         ec.boost as curation_boost,
+         ec.excluded as curation_excluded${EVENT_FROM}
+  left join private.event_curation ec on ec.event_id = e.id`;
 
 /** The fields a log entry's `changes` can name (ModerationLogEntry.changes). */
 const LOG_CHANGE_FIELDS = [
@@ -332,6 +347,8 @@ const LOG_CHANGE_FIELDS = [
   "ticketTypes",
   "image",
   "seatMap",
+  "clip",
+  "clipDescription",
 ] as const satisfies readonly (keyof NonNullable<ModerationLogEntry["changes"]>)[];
 
 /** One change as stored: json_strip_nulls has dropped a side that was null. */
@@ -390,6 +407,24 @@ function organiserLogoThumbOf(row: Row): { organiserLogoThumbUrl?: string } {
     : { organiserLogoThumbUrl: organiserLogoUrls(row.organiser_id as string, version).logoThumbUrl };
 }
 
+/** The `clip` field for a row of EVENT_SELECT: absent with no clip. */
+function clipOf(row: Row): { clip?: EventClip } {
+  const stored = row.clip as
+    | { version: string; durationMs: number; width: number; height: number; description: string }
+    | null
+    | undefined;
+  if (!stored) return {};
+  return {
+    clip: {
+      url: `/api/events/${row.id as string}/clip?v=${stored.version}`,
+      durationMs: stored.durationMs,
+      width: stored.width,
+      height: stored.height,
+      description: stored.description,
+    },
+  };
+}
+
 function mapEvent(row: Row, audience: LogAudience): EventRecord {
   const log = row.moderation_log as StoredLogEntry[];
   const ticketingMode = (row.ticketing_mode ?? "sheltuh") as TicketingMode;
@@ -408,6 +443,7 @@ function mapEvent(row: Row, audience: LogAudience): EventRecord {
     endsAt: iso(row.ends_at),
     organiserName: row.organiser_name as string,
     imageUrl: opt(row.image_url),
+    ...clipOf(row),
     ...organiserLogoThumbOf(row),
     ticketTypes: row.ticket_types as TicketTypeInput[],
     ticketingMode,
@@ -425,9 +461,19 @@ function mapEvent(row: Row, audience: LogAudience): EventRecord {
   };
 }
 
-/** For rows of ADMIN_EVENT_SELECT. */
+/**
+ * For rows of ADMIN_EVENT_SELECT. An event with no curation row has the
+ * defaults GET /admin/events/{id}/curation reports: boost 1, not excluded.
+ */
 export function toAdminEvent(row: Row): AdminEventRecord {
-  return { ...toEventForAdmin(row), organiserPlatformManaged: row.organiser_platform_managed === true };
+  return {
+    ...toEventForAdmin(row),
+    organiserPlatformManaged: row.organiser_platform_managed === true,
+    curation: {
+      boost: row.curation_boost === null || row.curation_boost === undefined ? 1 : Number(row.curation_boost),
+      excluded: row.curation_excluded === true,
+    },
+  };
 }
 
 /**
@@ -471,6 +517,18 @@ export function toPublicEvent(event: EventRecord, remaining?: Record<string, num
     endsAt: event.endsAt,
     organiserName: event.organiserName,
     imageUrl: event.imageUrl,
+    // Only with a clip (and, like every field here, only ever on a published event's public shape).
+    ...(event.clip
+      ? {
+          clip: {
+            url: event.clip.url,
+            durationMs: event.clip.durationMs,
+            width: event.clip.width,
+            height: event.clip.height,
+            description: event.clip.description,
+          },
+        }
+      : {}),
     // Only with a logo: an event without one keeps its payload unchanged.
     ...(event.organiserLogoThumbUrl ? { organiserLogoThumbUrl: event.organiserLogoThumbUrl } : {}),
     ticketTypes,
@@ -640,6 +698,41 @@ export function toAdminEmailJob(row: Row): AdminEmailJob {
     orderStatus: row.order_status as AdminEmailJob["orderStatus"],
     eventTitle: row.event_title as string,
     maskedEmail: email ? maskEmail(email) : undefined,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Account invites
+// ---------------------------------------------------------------------------
+
+/**
+ * Admin view of an invite; append `where …`. Never the token hash, the
+ * organiser's other details or who accepted it. `lapsed`: the link has run
+ * out (a pending invite then reads `expired`).
+ */
+export const ADMIN_INVITE_SELECT = `
+  select i.id, i.kind, i.email, i.status, i.expires_at <= now() as lapsed,
+         i.organiser_profile ->> 'display_name' as organiser_name, i.invited_by, i.created_at, i.expires_at,
+         i.last_sent_at, i.last_send_failed_at, i.send_count, i.accepted_at, i.accepted_organiser_id, i.revoked_at
+    from private.account_invites i`;
+
+export function toAdminInvite(row: Row): AdminInviteRecord {
+  const stored = row.status as AdminInviteRecord["status"];
+  return {
+    inviteId: row.id as string,
+    kind: row.kind as AdminInviteRecord["kind"],
+    email: row.email as string,
+    status: stored === "pending" && row.lapsed === true ? "expired" : stored,
+    organiserName: opt(row.organiser_name),
+    invitedBy: opt(row.invited_by),
+    createdAt: iso(row.created_at),
+    expiresAt: iso(row.expires_at),
+    lastSentAt: row.last_sent_at ? iso(row.last_sent_at) : undefined,
+    lastSendFailedAt: row.last_send_failed_at ? iso(row.last_send_failed_at) : undefined,
+    sendCount: row.send_count as number,
+    acceptedAt: row.accepted_at ? iso(row.accepted_at) : undefined,
+    acceptedOrganiserId: opt(row.accepted_organiser_id),
+    revokedAt: row.revoked_at ? iso(row.revoked_at) : undefined,
   };
 }
 

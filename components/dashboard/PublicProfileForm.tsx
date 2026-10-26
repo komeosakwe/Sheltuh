@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import InlineReauth from "@/components/auth/InlineReauth";
+import InlineReauth, { signedInAgainMessage } from "@/components/auth/InlineReauth";
 import FeaturedVideoField, {
   featuredVideoChanged,
   featuredVideoInitial,
@@ -10,10 +10,11 @@ import FeaturedVideoField, {
 import SocialHandleFields from "@/components/organisers/SocialHandleFields";
 import { Button } from "@/components/ui/Button";
 import { fieldClass } from "@/components/ui/Field";
-import { ApiError, type GetToken } from "@/lib/api/client";
+import { ApiError } from "@/lib/api/client";
 import { updateOrganiserProfile, type OrganiserProfileInput } from "@/lib/api/organisers";
 import type { OrganiserRecord } from "@/lib/api/types";
-import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
+import { SessionExpiredError } from "@/lib/auth/AuthContext";
+import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import {
   MAX_BIO_LENGTH,
   SOCIAL_HANDLE_FIELDS,
@@ -57,7 +58,6 @@ function characters(count: number) {
 
 interface Props {
   organiser: OrganiserRecord;
-  getToken: GetToken;
   /** Called with the saved record after a successful save. */
   onSaved?: (record: OrganiserRecord) => void;
 }
@@ -67,11 +67,11 @@ interface Props {
  * featured video. Saved straight away (no new review). Only the fields that
  * changed are sent; a blank website, handle or video clears it.
  */
-export default function PublicProfileForm({ organiser, getToken, onSaved }: Props) {
-  const auth = useAuth();
+export default function PublicProfileForm({ organiser, onSaved }: Props) {
   // As in the application form: an expired-session recovery may only resume
-  // as the account that was editing.
-  const [ownerEmail] = useState(() => auth.email);
+  // as the account that was editing, and nothing is saved as anyone else
+  // (the save's token is bound to that account: getOwnerToken).
+  const { owner, otherAccount, getOwnerToken } = useAccountOwner();
   const [saved, setSaved] = useState(organiser);
   const [description, setDescription] = useState(organiser.description);
   const [websiteUrl, setWebsiteUrl] = useState(organiser.websiteUrl ?? "");
@@ -83,6 +83,7 @@ export default function PublicProfileForm({ organiser, getToken, onSaved }: Prop
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const focusFirstError = useRef(false);
+  const saveRef = useRef<HTMLButtonElement>(null);
   const statusTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
@@ -168,9 +169,16 @@ export default function PublicProfileForm({ organiser, getToken, onSaved }: Prop
       return;
     }
 
+    if (otherAccount) {
+      // Someone else is signed in by now (another tab): the recovery below takes only this account.
+      setSessionExpired(true);
+      setSubmitError(new SessionExpiredError().message);
+      return;
+    }
+
     setSaving(true);
     try {
-      const record = await updateOrganiserProfile(input, getToken);
+      const record = await updateOrganiserProfile(input, getOwnerToken);
       setSaved(record);
       // Show what was stored (e.g. a handle typed with '@' comes back without it).
       setDescription(record.description);
@@ -294,10 +302,12 @@ export default function PublicProfileForm({ organiser, getToken, onSaved }: Prop
         <div role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
           <p>{submitError}</p>
           <InlineReauth
-            expectedEmail={ownerEmail}
+            expectedAccount={owner}
             onSignedIn={() => {
               setSessionExpired(false);
               setSubmitError(null);
+              showStatus(signedInAgainMessage("save"));
+              saveRef.current?.focus();
             }}
           />
         </div>
@@ -315,7 +325,7 @@ export default function PublicProfileForm({ organiser, getToken, onSaved }: Prop
         {status}
       </p>
 
-      <Button type="submit" size="lg" busy={saving} className="w-fit">
+      <Button ref={saveRef} type="submit" size="lg" busy={saving} className="w-fit">
         {saving ? "Saving…" : "Save profile"}
       </Button>
     </form>

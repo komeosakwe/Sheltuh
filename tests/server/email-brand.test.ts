@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { buildEventReviewEmail, buildOrganiserReviewEmail } from "@/lib/server/admin-review-email";
 import type { EmailMessage } from "@/lib/server/email";
 import { button, EMAIL_COLOURS, escapeHtml, INK, SIGNAL, supportFooter } from "@/lib/server/email-layout";
 import { buildFollowerNewEventsEmail } from "@/lib/server/follower-email";
 import { buildFreeConfirmationEmail } from "@/lib/server/free-confirmation-email";
+import { buildInviteEmail } from "@/lib/server/invite-email";
 import { buildTicketEmail } from "@/lib/server/ticket-email";
 import type { EventRecord, OrderLineItem, OrderRecord, TicketSeat } from "@/lib/server/types";
 import { buildWaitlistAvailableEmail, buildWaitlistConfirmationEmail } from "@/lib/server/waitlist-email";
@@ -66,6 +68,36 @@ const emails: Record<string, () => EmailMessage> = {
     buildWaitlistAvailableEmail("fan@example.com", event, `${site}/events/neon-static#tickets`, `${site}/waitlist/leave#token=x`),
   followerOne: () => follower(1, [event]),
   followerMany: () => follower(9, [event, { ...event, slug: "second" } as EventRecord]),
+  eventReview: () =>
+    buildEventReviewEmail({
+      to: "ops@sheltuh.test",
+      title: event.title,
+      organiserName: "Cellar Door Sound",
+      startsAt: event.startsAt,
+      resubmitted: false,
+      siteUrl: site,
+    }),
+  eventReviewResubmitted: () =>
+    buildEventReviewEmail({
+      to: "ops@sheltuh.test",
+      title: event.title,
+      organiserName: "Cellar Door Sound",
+      startsAt: event.startsAt,
+      resubmitted: true,
+      siteUrl: site,
+    }),
+  organiserReview: () => buildOrganiserReviewEmail({ to: "ops@sheltuh.test", organiserName: "Cellar Door Sound", siteUrl: site }),
+  inviteOrganiser: () =>
+    buildInviteEmail({
+      to: "fan@example.com",
+      kind: "organiser",
+      organiserName: "Cellar Door <Sound>",
+      link: `${site}/invite#token=x`,
+      daysValid: 14,
+      siteUrl: site,
+    }),
+  inviteMember: () =>
+    buildInviteEmail({ to: "fan@example.com", kind: "member", link: `${site}/invite#token=x`, daysValid: 14, siteUrl: site }),
 };
 
 /** Every colour value in the markup: style properties and bgcolor attributes. */
@@ -100,7 +132,7 @@ describe("every transactional email uses the shared brand layout", () => {
   it.each(Object.entries(emails))("%s: the shared page, card, heading and support line", (_name, build) => {
     const { html } = build();
     expect(html).toContain('<meta name="color-scheme" content="light only">');
-    expect(html).toContain(`bgcolor="${EMAIL_COLOURS.cream}" style="background-color:${EMAIL_COLOURS.cream}"`);
+    expect(html).toContain(`bgcolor="${EMAIL_COLOURS.page}" style="background-color:${EMAIL_COLOURS.page}"`);
     expect(html).toContain(
       `bgcolor="${EMAIL_COLOURS.card}" class="px" style="background-color:${EMAIL_COLOURS.card};border:1px solid ${INK};border-radius:12px`,
     );
@@ -122,7 +154,7 @@ describe("every transactional email uses the shared brand layout", () => {
     expect(paid.html.match(/<img src="cid:/g)).toHaveLength(3);
     expect(paid.html).toContain('<img src="cid:sheltuh-wordmark@sheltuh.com.au"');
     expect(paid.html).toContain("incl. booking fees");
-    expect(paid.html).toContain('src="https://sheltuh.com.au/images/email-footer.png"');
+    expect(paid.html).toContain('src="https://sheltuh.com.au/sheltuh_email_signature_logo.png"');
     expect(emails.ticketSeated().html).toContain("Stalls · Row A · Seat 2");
     const seated = emails.freeConfirmationSeated();
     expect(seated.html).toContain("Stalls · Row A · Seat 2");

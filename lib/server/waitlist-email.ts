@@ -12,7 +12,7 @@ import type { EventRecord } from "./types";
  * second carries a working leave link (Spam Act 2003: a functional
  * unsubscribe facility) in the body and as `List-Unsubscribe`.
  *
- * The brand look (cream, one white card, Signal Orange only on the button,
+ * The brand look (white page, one white card, Signal Orange only on the button,
  * black text on it) is lib/server/email-layout.ts, shared with every email.
  * Everything essential is real text.
  */

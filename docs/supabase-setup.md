@@ -43,14 +43,24 @@ Stripe (payments) and Vercel (hosting).
 The sign-up and password-reset screens ask people to type a code from their
 email, rather than click a link. Supabase sends links by default, so:
 
-- **Sign In / Providers → Email:** keep "Confirm email" **on**.
+- **Sign In / Providers → Email:** keep "Confirm email" **on**. Account
+  invites depend on it: accepting one needs only a verified email, so with
+  confirmation off anyone could sign up with an invited address and accept
+  the invite.
 - **Emails → Templates → "Confirm signup":** put `{{ .Token }}` in the body,
   e.g. `Your Sheltüh verification code is {{ .Token }}`.
 - **Emails → Templates → "Reset password":** the same, with `{{ .Token }}`.
+- **Don't use Users → "Invite user"** (or change the "Invite user"
+  template). Its link goes to Supabase's own verify page, which this app
+  doesn't pick up (sign-in uses PKCE), so the person would land nowhere.
+  Invite people from `/admin/invites` instead ("Account invites" below): that
+  email is ours, sent through the SMTP settings, and needs no template change.
 - **Policies / Passwords:** minimum length 8, and require lowercase,
   uppercase and digits. This matches what the sign-up form already tells
   people.
-- **URL Configuration:** set the Site URL to your real domain.
+- **URL Configuration:** set the Site URL to your real domain: the exact
+  origin people use, e.g. `https://app.sheltuh.com.au` (Google and Apple
+  sign-in rely on it; see the next section).
 - **SMTP:** Supabase's built-in email is heavily rate-limited and meant for
   testing only. Before real organisers sign up, set a custom SMTP sender
   (Emails → SMTP Settings). Your Google Workspace works
@@ -58,6 +68,117 @@ email, rather than click a link. Supabase sends links by default, so:
   transactional provider such as Resend also works; if you use one, **add
   its include to your existing SPF record** rather than creating a second
   `v=spf1` record.
+
+### Sign in with Google and Apple (optional)
+
+"Continue with Google" and "Continue with Apple" on `/login` and `/signup`
+(design in `docs/architecture.md`, "Sign in with Google and Apple"). They
+stay hidden until both providers are set up here **and**
+`NEXT_PUBLIC_AUTH_PROVIDERS` lists them, so do this first and set the flag
+last. You can do just Google; Apple costs US$99 a year. Decide first which
+entity enrols with Apple: Apple's user IDs and relay addresses belong to the
+developer team, so moving to another team later (e.g. a Pty Ltd's) breaks
+sign-in matching for people who hid their email (`PROJECT_CONTEXT.md`).
+
+Throughout, `<ref>` is your Supabase project ref, and the **callback URL**
+is `https://<ref>.supabase.co/auth/v1/callback` (copy it from Supabase →
+Authentication → Sign In / Providers → Google or Apple). Google's console
+labels below come from Supabase's Google guide; Google's own docs weren't
+checked.
+
+**Google** (console.cloud.google.com → Google Auth Platform)
+
+1. Create or pick the project "Sheltuh".
+2. **Branding** (the consent screen): app name "Sheltüh"; support email
+   `support@sheltuh.com.au`; home page `https://app.sheltuh.com.au`; privacy
+   policy `https://app.sheltuh.com.au/privacy`; terms
+   `https://app.sheltuh.com.au/terms`; authorised domain `sheltuh.com.au`
+   (add `supabase.co` too if the console insists on the callback's domain);
+   developer contact `info@sheltuh.com.au`.
+3. **Data Access:** add `openid`; keep `…/auth/userinfo.email` and
+   `…/auth/userinfo.profile`; nothing else.
+4. **Audience:** External, then **Publish app**. In "Testing" only the test
+   users you list can sign in.
+5. **Clients → Create client → Web application:**
+   - Authorised JavaScript origins: `https://app.sheltuh.com.au`.
+   - Authorised redirect URIs: the callback URL.
+   - Copy the client ID and secret (the secret is shown once; keep it in
+     your password manager).
+6. Optional: branding verification (free, a few days). Until it's done (or
+   there's a Supabase custom domain), Google's screen shows
+   `<ref>.supabase.co`.
+
+**Apple** (developer.apple.com/account; needs the Apple Developer Program)
+
+1. Enrol. Note the **Team ID** (Membership details).
+2. **Certificates, Identifiers & Profiles → Identifiers → + → App IDs →
+   App:** description "Sheltuh", explicit bundle ID `au.com.sheltuh.app`,
+   tick **Sign in with Apple** (as a primary App ID). Leave the
+   server-to-server notification endpoint empty: Supabase doesn't use it.
+3. **Identifiers → + → Services IDs:** description "Sheltüh" (people see
+   it on Apple's screen), identifier `au.com.sheltuh.web`. Open it, tick
+   Sign in with Apple → **Configure**: primary App ID the one above; domain
+   `<ref>.supabase.co`; return URL the callback URL. Save. Don't register
+   `app.sheltuh.com.au`: in this flow Apple only ever returns to Supabase.
+   If the portal asks you to verify the domain, follow its prompt
+   (Supabase's guide lists no such step).
+4. **Keys → +:** name it, tick Sign in with Apple → Configure → the primary
+   App ID. Register and **download `AuthKey_<KeyID>.p8`: Apple lets you
+   download it once.** Keep it in your password manager, never in the repo
+   (`*.p8` is git-ignored as a backstop), Vercel or email. Note the **Key ID**.
+5. **Make the client secret** (a JWT Apple accepts for at most 6 months),
+   on your own machine:
+
+   ```bash
+   npm run apple-client-secret -- --key ~/secure/AuthKey_ABCDE12345.p8 \
+     --team-id <TEAM ID> --key-id <KEY ID> --services-id au.com.sheltuh.web
+   ```
+
+   It prints the JWT (stdout; e.g. add `| pbcopy` on a Mac to copy it
+   without it showing) and its expiry date (stderr), never the key. Default
+   180 days; `--days` up to 182, and it refuses more (Apple's limit is
+   15,777,000 seconds). The JWT is a secret too: paste it straight into
+   Supabase, don't save it in a file or a note. Supabase's Apple guide also
+   has an in-browser generator (not in Safari).
+6. **Services → Sign in with Apple for Email Communication → Configure:**
+   register every address that emails people as an **email source**:
+   `EMAIL_FROM` and the Supabase SMTP sender (or the whole domain
+   `sheltuh.com.au`). Those messages must pass SPF or DKIM (Workspace DKIM
+   is already on). Without this, Apple's relay rejects mail to
+   `…@privaterelay.appleid.com` addresses: no tickets, no codes.
+7. **Set a reminder to rotate the secret about every 5 months** (step 5
+   again, then paste the new JWT into Supabase). If it lapses, Apple sign-in
+   fails for everyone; Google and email keep working. The key itself
+   doesn't expire; revoke and replace it only if it leaks (then make a new
+   secret straight away).
+
+**Supabase** (Authentication)
+
+1. **URL Configuration:** Site URL `https://app.sheltuh.com.au`, exactly
+   the origin people use. **Redirect URLs: none for production**: Supabase
+   accepts any return path on the Site URL's host (whether it also checks
+   the scheme and port is unverified: `architecture.md`, "`next`: no open
+   redirect"). Only for an HTTPS host you own
+   and control add an exact entry, e.g.
+   `https://staging.sheltuh.com.au/auth/callback**`. **Never add a
+   `*.vercel.app` wildcard** (such as `https://*-<team>.vercel.app/**`):
+   anyone can create a Vercel project with a matching URL and collect
+   sign-in codes through it. So Google and Apple stay off on previews.
+2. **Sign In / Providers → Google:** enable; Client IDs = the web client ID;
+   Client Secret; leave "Skip nonce check" **off**; "Allow users without an
+   email" **off** (if shown).
+3. **Sign In / Providers → Apple:** enable; Client IDs = `au.com.sheltuh.web`
+   (first, if you ever add more); Secret Key (for OAuth) = the JWT from
+   step 5; "Allow users without an email" **off** (if shown).
+4. Keep **"Confirm email" on** (Email provider). Supabase links a Google or
+   Apple sign-in to an existing account with the same email automatically,
+   and trusts only verified emails for that while confirmation is on. Keep
+   sign-ups on, and **manual linking off** ("Allow manual linking" under
+   Sign In / Providers): the app doesn't use it.
+5. **Vercel:** `NEXT_PUBLIC_AUTH_PROVIDERS=google,apple` (or just `google`)
+   for **Production only**, then redeploy. List only providers enabled in
+   steps 2 and 3, or the button leads to Supabase's raw error page. Then the
+   smoke tests in `DEPLOYMENT.md`.
 
 ### Make yourself an admin
 
@@ -72,7 +193,12 @@ email, rather than click a link. Supabase sends links by default, so:
 3. Sign out and back in. The Admin link appears in the nav.
 
 `--revoke` removes admin access. This script is the only way anyone becomes
-an admin: no API route or form can grant it.
+an admin: no API route or form can grant it. When offboarding an admin, also
+remove their address from `ADMIN_NOTIFY_EMAILS` if it's there (it gets the
+"waiting for your review" emails whatever the account's role). Any invites
+they sent that are still pending stop working (the page says the invite was
+withdrawn) and can't be resent by another admin; send new ones if those
+people should still join. Deleting the account has the same effect.
 
 ### Optional: sample data for a dev project
 
@@ -493,8 +619,10 @@ have recorded.
 
 Guest free orders that were never confirmed are deleted a week after their
 link expired, along with idle platform counters, free-booking refusal counts
-older than 13 months, and ticket-email jobs (sent ones after 90 days, failed
-ones after a year), by `private.purge_operational_data()`:
+older than 13 months, ticket-email jobs (sent ones after 90 days, failed
+ones after a year), idle per-client counters, and account invites 90 days
+after they were accepted, withdrawn or expired, by
+`private.purge_operational_data()`:
 
 ```sql
 select cron.schedule('purge-operational-data', '37 3 * * *', $$select private.purge_operational_data()$$);
@@ -543,12 +671,124 @@ select id, display_name, website_url from public.organisers
 where website_url ~* '^http://' or website_url ~ '^[A-Za-z]+://[^/?#]*@';
 ```
 
+### Event clips (optional)
+
+Short silent clips on events live in the private Storage bucket
+`event-clips`, created by migration `20261106000000_event_clips.sql`
+(check Storage → Buckets shows it as **private**, 10 MB limit), with
+`20261106000100_event_clip_dimensions.sql` and
+`20261106000200_event_clip_hardening.sql` after it. Check that no Storage
+policy lets a client at any bucket; this must return **0 rows**:
+
+```sql
+select policyname from pg_policies where schemaname = 'storage';
+```
+
+Then create a dedicated secret key (Project Settings → API Keys → Create
+new secret key, named `event-clips`) and set it in Vercel as
+`SUPABASE_CLIP_STORAGE_KEY` (server-only, never `NEXT_PUBLIC_`), for
+**Production only** unless Preview deployments use a separate Supabase
+project (then that project's own key). Be clear about what it is: Supabase
+secret keys can't be scoped, so this is a **full secret key with
+service-role powers** over the whole project: the Data API without RLS
+(every table), Supabase Auth admin (including setting
+`app_metadata.role = "admin"` on any account) and every Storage bucket. The
+app only uses it for `event-clips`, through `lib/server/clip-storage.ts`;
+being a separate key means it can be revoked alone, nothing more. Revoke it
+at once if it may have leaked. Without it, clip uploads and playback answer
+503 and everything else works. Clips are served for ~1 hour per signed URL,
+so plan on Supabase Pro bandwidth before turning clips on.
+Uploads stay off until `NEXT_PUBLIC_EVENT_CLIPS=1` is set in Vercel (and
+redeployed): it shows the editor's clip field and the admin queue's clip
+row, and the server refuses new uploads (503) without it, whatever a
+browser sends. Existing clips still play, and can be re-described or
+removed, either way.
+
+### Account invites (optional)
+
+Admins invite people who asked to join, as an organiser or a member, from
+`/admin/invites` (`docs/architecture.md`, "Account invites"; migration
+`20261108000000_account_invites.sql`). The invite email is ours, sent through
+the SMTP settings (§3), so there's **no Supabase template, Site URL or
+Redirect URL change**. Don't use the dashboard's **Invite user** button: its
+link wouldn't land in this app.
+
+When the invitee presses "Create account", the server asks Supabase Auth for
+a sign-up token for the invited address there and then. That needs a
+dedicated secret key: Project Settings → API Keys → **Create new secret key**,
+named `account-invites`, set in Vercel as `SUPABASE_ADMIN_INVITE_KEY`
+(server-only, never `NEXT_PUBLIC_`) for **Production only**, then redeploy.
+Be clear about what it is: Supabase secret keys can't be scoped, so this is a
+**full secret key with service-role powers** over the whole project: the Data
+API without RLS (every table), Supabase Auth admin (including setting
+`app_metadata.role = "admin"` on any account) and every Storage bucket. The
+app only uses it for that one call, through `lib/server/auth-admin.ts`; being
+a separate key means it can be revoked alone, nothing more. Revoke it at once
+if it may have leaked. Without it, creating and resending invites answer 503,
+and anyone holding an invite already sent signs up the ordinary way (with a
+code), or resets the password if their address already has an unconfirmed
+account, and accepts it from the same page.
+
+Before minting the sign-up token, the server **deletes any unconfirmed
+account** someone registered with the invited address (one that was never
+confirmed and has never signed in), so the invitee always gets an account
+without a password someone else may know. The passwordless account an
+earlier "Create account" made (in another tab, say) is kept and reused, not
+deleted. A confirmed account is never deleted.
+
+Smoke-test on the **test** project before relying on it (these Supabase
+behaviours aren't covered by the automated tests):
+
+1. Invite a fresh address you can read on a phone, as an organiser. Open the
+   email, Create account with a password: you land on the dashboard as an
+   approved organiser, and the admin's organiser queue shows it with "Joined
+   by invite".
+2. Invite an address that already has an account: the page says to sign in;
+   after signing in, accept.
+3. From the invite page, continue with Google instead: you come back signed
+   in and can accept.
+4. An expired invite (or set `expires_at` in the past in SQL) and a revoked
+   one: the page says so.
+5. Sign up through the ordinary form with a fresh address and don't
+   confirm it; invite that address and press Create account: the
+   unconfirmed account is replaced (a new user id in Authentication →
+   Users), and the old password doesn't sign in afterwards.
+6. Without the key (a Preview deployment, which doesn't have
+   `SUPABASE_ADMIN_INVITE_KEY`, or a local run without it): sign up through
+   the ordinary form with a fresh address and don't confirm it; invite that
+   address. The invite page sends you to reset the password: reset it with
+   the code Supabase emails, sign in with the new password, and accept. The
+   account should show as confirmed in Authentication → Users, and the first
+   password shouldn't sign in. If no code arrives, or the account stays
+   unconfirmed, the fallback doesn't work (`docs/architecture.md`,
+   "Unverified Supabase behaviour").
+7. Invite a fresh address and open the link in two tabs; press Create
+   account in both. Authentication → Users shows one account for the
+   address (the same user id both times, none deleted); finish in the tab
+   pressed last. If the other tab's code is refused, pressing Create account
+   there again works.
+8. Note whether Supabase answers "already exists" for a confirmed address,
+   reuses an unconfirmed one, and whether the account shows as confirmed
+   after the token is verified (`docs/architecture.md`, "Accepted risks
+   (account invites)"). Delete any unconfirmed accounts an abandoned test
+   left in Authentication → Users.
+
 ## 2. Stripe (Connect)
 
 1. In the Stripe dashboard, stay in **test mode** and enable **Connect**. Use
    the platform profile "marketplace", with **Express** accounts, based in
    Australia.
-2. Developers → API keys → secret key → `STRIPE_SECRET_KEY`.
+2. Developers → API keys:
+   - Secret key (`sk_test_…`) → `STRIPE_SECRET_KEY`.
+   - Publishable key (`pk_test_…`) → `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
+     The payment page (`/checkout/pay`) mounts Stripe's embedded checkout
+     form with it. It must come from the **same account and mode** as the
+     secret key (`pk_test_` with `sk_test_`, `pk_live_` with `sk_live_`):
+     if it's missing or the modes differ, every paid checkout is refused
+     with a 503 ("Card payments aren't available right now.") and the
+     server log says which variable is wrong (never the key). Free tickets
+     still work. It's public by design (it ends up in the browser), but it's
+     baked in at build time, so redeploy after changing it.
 3. Developers → Webhooks → Add endpoint:
    - URL: `https://<your-domain>/api/stripe/webhook`
    - Events: `checkout.session.completed`,
@@ -559,8 +799,62 @@ where website_url ~* '^http://' or website_url ~ '^[A-Za-z]+://[^/?#]*@';
 
    For local testing: `stripe listen --forward-to localhost:3000/api/stripe/webhook`
    prints a temporary signing secret to use instead.
-4. Repeat steps 2–3 in live mode when you're ready to take real money.
-   Live mode uses different keys and a different webhook secret.
+4. **Branding** (Settings → Branding; no code): the embedded form follows
+   it. Background `#ffffff`, brand and accent colour `#000000` (a black
+   button with a white label), shapes "Rounded" (not Pill), the plainest
+   font on offer (Instrument Sans isn't one), and the Sheltüh U mark on
+   white as the icon (`docs/design/checkout-pay.md` §2). Test and live mode
+   may each need it set; check both.
+5. **Payment methods, wallets and Link** (no code: the Checkout Sessions
+   never send `payment_method_types`, so these Dashboard settings apply).
+   - Settings → Payment methods (the platform's default configuration):
+     **on**: Cards, Apple Pay, Google Pay, Link. **Off**: Afterpay/Clearpay,
+     Klarna, Zip, PayPal and other buy-now-pay-later or redirect methods
+     (`docs/FEATURE_PLAN.md`: not without repricing). Redirect-based ones
+     would send the buyer away and back to `/checkout/success`.
+   - Settings → Adaptive Pricing: **off**. The code pins it off on every
+     session anyway (`adaptive_pricing: { enabled: false }`), so buyers pay
+     exactly the A$ total the site shows; keep the Dashboard matching.
+   - **Payment method domains** (Settings → Payment methods → Payment method
+     domains): register every domain that serves `/checkout/pay`:
+     `app.sheltuh.com.au` (live, and test if you test there), a stable
+     preview domain such as `preview.sheltuh.com.au` (test), and
+     `sheltuh.com.au` if the app moves there. Stripe shows Apple Pay, Google
+     Pay and Link in the embedded form only where the domain is registered
+     and that method is `active`. Per-deployment `*.vercel.app` URLs can't
+     be registered ahead of time, so they show cards only.
+   - Or use the script. It reads `STRIPE_DOMAINS_KEY`, else
+     `STRIPE_SECRET_KEY` (e.g. from `.env.local`), and never prints the key.
+     Best is a **restricted key** (Developers → API keys → Create restricted
+     key) with write access to payment method domains only (the
+     permission's exact name in the Dashboard is unverified), made for this
+     run and deleted afterwards. Keep it out of shell history, e.g.
+     `read -rs STRIPE_DOMAINS_KEY && export STRIPE_DOMAINS_KEY`, and never
+     add it to Vercel.
+
+     ```sh
+     npm run payment-domains -- app.sheltuh.com.au preview.sheltuh.com.au             # check (default; changes nothing)
+     npm run payment-domains -- --register app.sheltuh.com.au preview.sheltuh.com.au  # create, re-enable, validate
+     ```
+
+     Hostnames only (no `https://`, path or port). `--register` creates a
+     missing domain enabled, re-enables a disabled one, and asks Stripe to
+     validate it when Apple Pay, Google Pay or Link isn't active. Each run
+     prints the key's mode, every domain's `livemode`, whether it's enabled,
+     and each method's status with Stripe's error message, and exits
+     non-zero unless every domain is enabled with all three `active`. If one
+     stays inactive, follow the error message, then run `--register` again.
+   - **Unverified** (none of this has been tried against Stripe): whether one
+     registration covers both modes (run the script with a test key and
+     again with a live key); whether Apple Pay still asks for the
+     `/.well-known/apple-developer-merchantid-domain-association` file (if
+     its error message does, it goes in `public/.well-known/`); that Connect
+     destination charges use the platform's settings here. Check in test
+     mode on real devices over HTTPS: `docs/architecture.md`, "Owner sandbox
+     checklist", items 11–13.
+6. Repeat steps 2–5 in live mode when you're ready to take real money.
+   Live mode uses different keys and a different webhook secret, and the
+   publishable key changes with the secret key.
 
 **`charge.refunded` is required in both test and live mode.** Test-mode and
 live-mode endpoints are configured separately, so check the event list on
@@ -603,7 +897,7 @@ and wait for the confirmation page to show the ticket codes. Then:
 **Orders that can't be fulfilled are refunded automatically.** This covers
 two buyers paying for the last ticket within seconds of each other (the
 database guarantees only one gets it), or an admin unpublishing an event
-while a buyer is still on Stripe's checkout page. The buyer is refunded in
+while a buyer is still on the payment page. The buyer is refunded in
 full: their payment, Sheltüh's fee and the organiser's share. The order is
 marked `refunded` once Stripe confirms the refund succeeded; a pending
 refund is settled by the `refund.updated` webhook. If the refund call itself
@@ -702,15 +996,25 @@ where j.status in ('failed', 'pending') order by j.created_at desc;
 1. Import the GitHub repo into Vercel. It detects Next.js with no extra
    config.
 2. Settings → Environment Variables: add everything in `.env.example`
-   **except** `SUPABASE_SECRET_KEY`. Set `NEXT_PUBLIC_SITE_URL` to the
-   production domain.
+   **except** `SUPABASE_SECRET_KEY` and `STRIPE_DOMAINS_KEY` (local scripts
+   only). Set `NEXT_PUBLIC_SITE_URL` to the
+   production domain. `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` goes in each
+   environment with the matching secret key: Production the live pair
+   (`pk_live_…` with `sk_live_…`), Preview the test pair (`pk_test_…` with
+   `sk_test_…`).
 3. Settings → Functions → Region: **Sydney (syd1)**, next to the database.
 4. Point a domain at it. The live landing page on `sheltuh.com.au` stays on
    Cloudflare Workers until you decide to swap it. A subdomain such as
    `app.sheltuh.com.au` avoids touching it for now.
 
+`SUPABASE_CLIP_STORAGE_KEY` and `SUPABASE_ADMIN_INVITE_KEY` are full
+Supabase secret keys: **Production only** (§1, "Event clips" and "Account
+invites").
+
 `NEXT_PUBLIC_*` values are baked in at build time, so redeploy after
-changing them.
+changing them. `NEXT_PUBLIC_AUTH_PROVIDERS` (Google and Apple sign-in) goes in
+**Production only**, once the providers are set up (§1, "Sign in with Google
+and Apple").
 
 ## 5. Smoke test (test mode)
 
@@ -726,9 +1030,12 @@ changing them.
      free tickets" email arrives; open its link, press Confirm, and the
      tickets are issued and the ticket email arrives. Signed in with the
      same email, the tickets are issued straight away.
-   - Buy the paid ticket with card `4242 4242 4242 4242`. The confirmation
-     page shows ticket codes once Stripe's webhook arrives, usually within
-     seconds.
+   - Buy the paid ticket with card `4242 4242 4242 4242` in the payment
+     form on `/checkout/pay`. The confirmation page shows ticket codes once
+     Stripe's webhook arrives, usually within seconds. The fuller test-mode
+     run (declines, 3D Secure, duplicate webhooks, sold out, seat expiry) is
+     the "Owner sandbox checklist (embedded checkout)" in
+     `docs/architecture.md`.
 6. In Stripe, check that the payment shows the application fee, with the
    rest transferred to the organiser's connected account.
 

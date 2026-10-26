@@ -13,6 +13,7 @@ const MAX_ENTRIES = 20;
 const KIND_LABELS: Record<OrganiserEditEntry["kind"], string> = {
   profile_edit: "Profile edit",
   suspended: "Suspended",
+  invite_accepted: "Joined by invite",
 };
 
 /**

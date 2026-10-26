@@ -4,7 +4,7 @@ import { EVENT_ENDED } from "@/lib/server/handlers/event-queries";
 import { confirmFreeOrder } from "@/lib/server/handlers/free-orders";
 import { createCheckout, getOrderBySession, stripeWebhook } from "@/lib/server/handlers/orders";
 import type { EventRecord } from "@/lib/server/types";
-import { stripeWebhookRequest, TestApi } from "./helpers/api";
+import { embeddedSession, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { seatedEvent, seatStates } from "./helpers/seating";
 import { createTestDb } from "./helpers/test-db";
@@ -39,7 +39,7 @@ beforeEach(async () => {
   let n = 0;
   api.stripe.checkout.sessions.create.mockImplementation(async () => {
     n += 1;
-    return { id: `cs_test_${n}`, url: `https://checkout.stripe.test/cs_test_${n}` };
+    return embeddedSession(`cs_test_${n}`);
   });
 });
 
@@ -201,7 +201,8 @@ describe("free orders", () => {
     await api.runDeferred();
     expect(api.sendEmail).not.toHaveBeenCalled();
     expect(await orders(event.eventId)).toEqual([]);
-    expect(await db.query(`select * from private.platform_rate_limits`)).toEqual([]);
+    // The free-order caps' counters (the setup's submission takes an admin_review_emails_daily hit).
+    expect(await db.query(`select * from private.platform_rate_limits where bucket like 'free\\_order\\_%'`)).toEqual([]);
   });
 
   it("a guest's request racing the end: request_free_order is refused by the database, 409, no cap used", async () => {
@@ -212,7 +213,8 @@ describe("free orders", () => {
     await raced.runDeferred();
     expect(raced.sendEmail).not.toHaveBeenCalled();
     expect(await orders(event.eventId)).toEqual([]);
-    expect(await db.query(`select * from private.platform_rate_limits`)).toEqual([]);
+    // The free-order caps' counters (the setup's submission takes an admin_review_emails_daily hit).
+    expect(await db.query(`select * from private.platform_rate_limits where bucket like 'free\\_order\\_%'`)).toEqual([]);
   });
 
   it("a guest's link confirmed after the end issues nothing: 409, the order failed", async () => {

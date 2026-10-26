@@ -8,7 +8,8 @@ export const ORDER_ID_PATTERN = /^ord_[0-9a-f]{32}$/;
 /**
  * A short reference for support and logs: the first 8 characters of the order
  * id's random part (the `ord_` prefix and any dashes are dropped first so the
- * reference is 8 useful characters). Not a credential: 32 bits of a 128-bit id.
+ * reference is 8 useful characters). Not a credential: 32 of the id's 122
+ * random bits (a UUIDv4: 128 bits, 6 of them fixed).
  */
 export function orderReference(orderId: string): string {
   return `#${orderId.replace(/^ord_/, "").replace(/-/g, "").slice(0, 8).toUpperCase()}`;

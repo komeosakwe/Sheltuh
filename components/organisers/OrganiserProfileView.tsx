@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Ref } from "react";
 import FollowButton from "@/components/organisers/FollowButton";
 import OrganiserLinks from "@/components/organisers/OrganiserLinks";
+import OrganiserLogo from "@/components/organisers/OrganiserLogo";
 import VideoFacade from "@/components/organisers/VideoFacade";
 import { RESULTS_GRID } from "@/components/EventResults";
 import BackLink from "@/components/ui/BackLink";
@@ -15,9 +16,9 @@ import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 const countFormatter = new Intl.NumberFormat("en-AU");
 
 /**
- * An approved organiser's public profile: who they are, Follow, their
- * numbers (followers once there are 10, events hosted), their links and
- * featured video, then their events: `upcoming` (soonest first) and `past`
+ * An approved organiser's public profile: who they are (with their logo,
+ * when they have one), Follow, their numbers (followers once there are 10,
+ * events hosted), their links and featured video, then their events: `upcoming` (soonest first) and `past`
  * (most recent first), already in the screens' shape (a live profile's
  * events adapted by LiveOrganiserProfile, or the demo's sample events).
  * `headingRef` makes the h1 focusable from script (tabIndex -1), for a caller
@@ -38,6 +39,18 @@ export default function OrganiserProfileView({
     (value) => EVENT_CATEGORIES.find((category) => category.value === value)?.label ?? value,
   );
   const hasLinks = Boolean(profile.websiteUrl) || Object.values(profile.socialLinks).some(Boolean);
+  const title = (
+    <>
+      <Strap label="Organiser" rule={false} />
+      <h1
+        ref={headingRef}
+        tabIndex={headingRef ? -1 : undefined}
+        className="display-lg break-words outline-offset-2"
+      >
+        {profile.displayName}
+      </h1>
+    </>
+  );
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-5 pt-2 pb-12 sm:gap-14 sm:px-8 sm:py-14">
@@ -45,14 +58,16 @@ export default function OrganiserProfileView({
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-14">
         <header className="flex flex-col gap-5 lg:col-span-7">
-          <Strap label="Organiser" rule={false} />
-          <h1
-            ref={headingRef}
-            tabIndex={headingRef ? -1 : undefined}
-            className="display-lg break-words outline-offset-2"
-          >
-            {profile.displayName}
-          </h1>
+          {profile.logoUrl ? (
+            // Their logo beside the strap and name from sm (stacked on phones, as on a member's
+            // profile). Decorative: the h1 names them. If it can't load, it's left out.
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:gap-6">
+              <OrganiserLogo name={profile.displayName} url={profile.logoUrl} size="lg" fallback="none" />
+              <div className="flex min-w-0 flex-col gap-5">{title}</div>
+            </div>
+          ) : (
+            title
+          )}
           <p className="meta text-muted">Member since {formatMemberSince(profile.memberSince)}</p>
           {/* Followers only once the API sends a count (10 or more); events hosted (past events). */}
           <dl className="flex flex-wrap gap-x-8 gap-y-3 empty:hidden">

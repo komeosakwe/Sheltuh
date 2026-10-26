@@ -1,5 +1,5 @@
 import type { EventCategory } from "@/lib/types";
-import { apiFetch, type GetToken } from "./client";
+import { ApiError, apiFetch, isApiConfigured, type GetToken } from "./client";
 import type { OrganiserRecord, PublicOrganiserProfile } from "./types";
 
 /**
@@ -85,6 +85,31 @@ export async function uploadOrganiserLogo(image: Blob, getToken: GetToken) {
 export async function deleteOrganiserLogo(getToken: GetToken) {
   const token = await getToken();
   return apiFetch<OrganiserRecord>("/organisers/me/logo", { method: "DELETE", token });
+}
+
+/** The only shape `logoUrl` takes (lib/server/records.ts organiserLogoUrls): no `..` or other routes. */
+const LOGO_URL = /^\/api\/organisers\/[0-9a-f-]{36}\/logo(\?[^#]*)?$/i;
+export const isOrganiserLogoUrl = (url: string) => LOGO_URL.test(url);
+
+/**
+ * Fetches an organiser's logo with the bearer token (an <img> can't send
+ * one): how an admin, or the owner, sees a logo that isn't public (the
+ * organiser isn't approved). Only `/api/organisers/…` URLs, as the API sends
+ * them in `logoUrl`. ApiError 404 when it can't be seen; status 0 offline.
+ */
+export async function fetchOrganiserLogo(url: string, getToken: GetToken, signal?: AbortSignal): Promise<Blob> {
+  if (!isApiConfigured) throw new Error("The live API is not configured in this environment (Supabase is unset).");
+  if (!isOrganiserLogoUrl(url)) throw new Error("Not a logo URL.");
+  const token = await getToken();
+  let res: Response;
+  try {
+    res = await fetch(url, { headers: { authorization: `Bearer ${token}` }, ...(signal ? { signal } : {}) });
+  } catch (err) {
+    if (signal?.aborted) throw err;
+    throw new ApiError(0, "Couldn't reach the server. Check your connection and try again.");
+  }
+  if (!res.ok) throw new ApiError(res.status, `Request failed (${res.status}).`);
+  return res.blob();
 }
 
 /** Public: an approved organiser's profile and their published events. 404 for anything else. */

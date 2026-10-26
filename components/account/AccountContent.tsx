@@ -15,6 +15,7 @@ import { ApiError } from "@/lib/api/client";
 import { deleteMyProfile, saveMyProfile } from "@/lib/api/profiles";
 import type { ProfileRecord } from "@/lib/api/types";
 import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
+import { signInMethodsLabel } from "@/lib/auth/oauth";
 import { useProfile } from "@/lib/auth/useProfile";
 import { endSentence, validateDisplayName } from "@/lib/display-name";
 import { withNext } from "@/lib/safe-next-path";
@@ -37,6 +38,8 @@ export default function AccountContent() {
   const auth = useAuth();
   const router = useRouter();
   const { state, setProfile, reload } = useProfile();
+  // How this account signs in (Apple's guidelines: show it). Text only, no logos.
+  const signInMethods = signInMethodsLabel(auth.providers);
 
   function handleSignOut() {
     auth.signOut();
@@ -64,6 +67,7 @@ export default function AccountContent() {
         <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 flex-col gap-1">
             <p className="text-base break-words">{auth.email}</p>
+            {signInMethods && <p className="text-sm text-muted">Sign-in methods: {signInMethods}</p>}
             <p className="text-sm text-muted">
               Organising?{" "}
               <Link href="/dashboard" className={linkClass}>

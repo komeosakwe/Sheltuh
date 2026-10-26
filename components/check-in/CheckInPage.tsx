@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
 import { withNext } from "@/lib/safe-next-path";
 import DoorConsole, { checkInPath, pageClass } from "./DoorConsole";
+import { ADMIN_WAY_BACK, ORGANISER_WAY_BACK } from "./way-back";
 
 /**
  * /dashboard/[eventId]/check-in (docs/design/check-in.md): the organiser's
@@ -15,7 +16,8 @@ import DoorConsole, { checkInPath, pageClass } from "./DoorConsole";
  * gate: demo mode, loading, signed out and not an approved organiser use the
  * shared states, which re-skin in the door scope. An admin goes straight to
  * the console: admins check in for platform-managed organisers' events, and
- * the API answers 404 for any other event, which the console shows.
+ * the API answers 404 for any other event, which the console shows. Their
+ * way back is the admin door list, not the organiser dashboard.
  */
 export default function CheckInPage({ eventId }: { eventId: string }) {
   const doorRef = useRef<HTMLDivElement>(null);
@@ -66,7 +68,9 @@ function Gate({ eventId, doorRef }: { eventId: string; doorRef: RefObject<HTMLDi
       </Shell>
     );
   }
-  if (auth.isAdmin) return <DoorConsole eventId={eventId} getToken={auth.getAccessToken} doorRef={doorRef} />;
+  if (auth.isAdmin) {
+    return <DoorConsole eventId={eventId} getToken={auth.getAccessToken} doorRef={doorRef} wayBack={ADMIN_WAY_BACK} />;
+  }
   if (error) {
     return (
       <Shell>
@@ -88,5 +92,5 @@ function Gate({ eventId, doorRef }: { eventId: string; doorRef: RefObject<HTMLDi
       </Shell>
     );
   }
-  return <DoorConsole eventId={eventId} getToken={auth.getAccessToken} doorRef={doorRef} />;
+  return <DoorConsole eventId={eventId} getToken={auth.getAccessToken} doorRef={doorRef} wayBack={ORGANISER_WAY_BACK} />;
 }

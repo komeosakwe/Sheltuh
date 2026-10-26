@@ -8,9 +8,9 @@ The brand rollout is in progress, following the increments in `brand-direction-o
 
 ## The system in one screen
 
-- **Colour:** Cream `#fffae7` background, White `#ffffff` cards and fields, Black `#000000` text and structure, and **Signal Orange `#ff4800`** for signature fills, the primary conversion CTA (one per view) and large display text only.
+- **Colour:** White `#ffffff` background, cards and fields (cards are set apart by their 1px black border; see [`design/theme-white-dark.md`](design/theme-white-dark.md)), Black `#000000` text and structure, and **Signal Orange `#ff4800`** for signature fills, the primary conversion CTA (one per view) and large display text only.
   - Orange is **never small text on light backgrounds** (3.25:1). Black on orange is 6.18:1.
-  - Light only. Ink sections use `data-surface="ink"`; the one orange band per page uses `data-surface="signal"`.
+  - Light by default, with a **Light / Dark switch** in the footer and the phone menu (`data-theme="dark"` on `<html>`, stored per browser; [`design/theme-white-dark.md`](design/theme-white-dark.md)). Ink sections use `data-surface="ink"`; the one orange band per page uses `data-surface="signal"`; the map canvas is pinned Light with `data-surface="paper"`.
   - The door check-in keeps its own functional palette (`[data-door]`, `--door-*`, `docs/design/check-in.md`).
 - **Type:**
   - **Bootzy** (display token `--face-display`). Not yet licensed into the repo; Instrument Sans 700 set tight stands in, and it swaps with one token block (§3.4).
@@ -18,6 +18,7 @@ The brand rollout is in progress, following the increments in `brand-direction-o
   - **IBM Plex Mono** for metadata, labels and dates (`eyebrow`, `meta`).
 - **Logo:** the official vectors in `public/brand/` (wordmark, lowercase wordmark, secondary ü, two-dot mark), inlined via `components/brand/*`. Never typeset the wordmark.
 - **Shape:** rounded squares, from the umlaut. `rounded-card` 12px, `rounded-control` 8px, `rounded-badge` 4px, `rounded-dot` 28% for avatars and markers. No pills, no circles, no shadows. Structure comes from 1px black rules and the mono "strap".
+  - **Owner-approved exceptions** (`rounded-full`): the round portraits (`CommunitySection`), the hero badge (`HeroBadge`), and, from 24 Oct 2026, the **search bar**: a pill with a round submit and a round location segment, as in the owner's Eventbrite reference ("our search bar similar and a close location", decision D1). Nothing else is round.
 - **Motif:** the two dots appear only in the places listed in `brand-direction-one.md` §5 (strap marker, active-nav umlaut, selected chip, loader, connection states, empty states).
 - **Pricing:** the all-inclusive total is always first and most prominent; partial prices are secondary (§6.8). Checkout is quiet: black, no orange (§6.9).
 - **Motion:** the photo push-in runs one cycle of 5 seconds or less and holds. Nothing loops except the loader while loading. Everything respects `prefers-reduced-motion`.
@@ -27,7 +28,8 @@ The brand rollout is in progress, following the increments in `brand-direction-o
 | Component | Use | Brand spec |
 | --- | --- | --- |
 | `Button`, `ButtonLink`, `buttonClass` | `signal` (new, orange, max one per view, never in checkout), `solid` (black), `outline`, `danger`; sizes `sm` 32 / `md` 40 / `lg` 48px. CSS in `.btn*`. | §6.1 |
-| `Field`, `fieldClass`, `SearchBar` | White, 1px black, `rounded-control`, mono labels | §6.2 |
+| `Field`, `fieldClass` | White, 1px black, `rounded-control`, mono labels | §6.2 |
+| `SearchBar` + `search/LocationPicker` | One bar in the hero, the desktop header and `/search` (24 Oct 2026): a `rounded-full` pill, 1px black, `bg-card`; the words (`q`, named by its placeholder) \| divider \| location segment ("Your suburb" / the suburb; opens the "Find events near you" popover: "Use my current location" only on click, or a typed suburb `near`) \| round submit. `tone="signal"` orange submit, black icon (hero, `/search`); `tone="plain"` black, orange on hover (header). `size="lg"` 52px, 16px text; `size="sm"` 44px (header). The header leaves it out on `/` and `/search`. | §6.2, amended 24 Oct 2026 |
 | `Page`, `PageHeader`, `Strap` | Page container; page header (mono strap + display h1) | §6.4 |
 | `SectionHead` | The one section head, site-wide (home, profiles, Saved): black rule, dots + `display-md` h2 (balanced), optional note, optional link on the h2's baseline ("See all …", or "All events" where the target isn't the section's own list). No strap repeating the title. Replaced `SectionHeader` in P2. | `mobile-redesign.md` §6.3.3 |
 | `BackLink`, `backLinkClass` | The one back link: Instrument 14/20 semibold, underlined, 44px tall, decorative arrow | `mobile-redesign.md` §3.2 |
@@ -44,7 +46,7 @@ Home (`components/home/`, spec `docs/design/mobile-redesign.md`, which supersede
 Favourites (`components/favourites/`, spec `docs/design/favourites-analytics.md`):
 - `SaveButton` has variants `overlay` over art, `plain` on compact cards, `onDark` in the buy bar, and `pill` by the event title. It's a toggle with a fixed name and `aria-pressed`, and a sign-in link when signed out.
 - Also `HeartIcon`, `SavedNavLink`, and the `FavouritesNotice` band (an ink bar, never a toast).
-- The heart is black (cream on ink), never orange.
+- The heart is black (white on ink), never orange.
 
 Analytics (`components/analytics/`):
 - `StatGrid`: Instrument Sans tabular numerals on a hairline, change in words.
@@ -57,7 +59,7 @@ Analytics (`components/analytics/`):
 ## Review gates (tests)
 
 - `tests/door-tokens.test.ts`: the door palette stays scoped to the scanner. Unchanged by the brand rollout.
-- `tests/pwa-manifest.test.ts`: `APP_THEME_COLOR` equals the first `--background` in `globals.css` (Cream after increment 1).
+- `tests/pwa-manifest.test.ts`: `APP_THEME_COLOR` equals the first `--background` in `globals.css` (White since 23 Oct 2026, `theme-white-dark.md`).
 - `tests/brand-tokens.test.ts` (added in increment 1, extended in increments 5 and 11): brand hex values defined; no `pop`, `highlight` or `shadow-card` in components; `text-signal` never combined with small-text classes. It replaces `tests/phone-home-tokens.test.ts`.
 
 ## Legacy (until the increments land)

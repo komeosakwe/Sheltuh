@@ -63,10 +63,20 @@ export default defineConfig({
       // Placeholder Supabase settings switch the app into live mode; every
       // request to the app's own /api/* routes is then intercepted by each
       // test's page.route(), so nothing here ever reaches a real Supabase
-      // project or database.
+      // project or database. A placeholder Stripe publishable key turns on
+      // the payment page's form; Stripe.js itself is stubbed per test
+      // (e2e/stripe-stub.ts), so nothing reaches Stripe either.
       command:
+        `NEXT_PUBLIC_MAPBOX_TOKEN= NEXT_PUBLIC_MAPBOX_STYLE= ` +
         `NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:${PORT}/supabase-mock ` +
-        `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=e2e-placeholder npx next dev -p ${PORT}`,
+        `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=e2e-placeholder ` +
+        `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_e2e_placeholder ` +
+        // Event clips' uploads on (e2e/event-clips.spec.ts): the editor's clip field and the admin queue's clip row.
+        `NEXT_PUBLIC_EVENT_CLIPS=1 ` +
+        // Continue with Apple / Google on (e2e/oauth.spec.ts). Only for this dev server: `next build`
+        // refuses the flag without the official logo files (next.config.ts), which aren't committed;
+        // the spec answers /auth/*.svg itself.
+        `NEXT_PUBLIC_AUTH_PROVIDERS=google,apple npx next dev -p ${PORT}`,
       url: `http://127.0.0.1:${PORT}`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
@@ -75,8 +85,21 @@ export default defineConfig({
       // Empty values win over any .env.local, so this is always the demo.
       // A build of its own (next build writes .next, next dev .next/dev, so
       // it can run beside the dev server above), served by next start.
+      // A placeholder public Mapbox token, as a Vercel preview with the map
+      // style preview on (docs/mapbox-preview.md): e2e/mapbox-preview.demo.spec.ts
+      // answers every tile request itself. The live server above has none,
+      // so the rest of the suite sees /map exactly as production does.
       command: `npx next build && npx next start -p ${DEMO_PORT}`,
-      env: { NEXT_PUBLIC_SUPABASE_URL: "", NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "" },
+      env: {
+        NEXT_PUBLIC_SUPABASE_URL: "",
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "",
+        NEXT_PUBLIC_MAPBOX_TOKEN: "pk.e2e-placeholder",
+        NEXT_PUBLIC_MAPBOX_STYLE: "",
+        // Even with a key, the demo never loads Stripe.js (e2e/demo.spec.ts).
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: "pk_test_e2e_placeholder",
+        // As the Vercel previews: no Apple / Google sign-in (e2e/demo.spec.ts checks there are no buttons).
+        NEXT_PUBLIC_AUTH_PROVIDERS: "",
+      },
       url: `http://127.0.0.1:${DEMO_PORT}`,
       reuseExistingServer: !process.env.CI,
       timeout: 600_000,

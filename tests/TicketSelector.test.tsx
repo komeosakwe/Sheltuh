@@ -401,7 +401,7 @@ describe("TicketSelector pricing (ACCC all-inclusive, brand-direction-one.md §6
   it("says what happens next before anything is chosen: paid and free", () => {
     render(<TicketSelector event={live("neon-static")} />);
     const steps = screen.getByRole("list", { name: "How booking works" });
-    expect(steps).toHaveTextContent("1 Choose tickets→2 Pay on Stripe→3 Tickets by email");
+    expect(steps).toHaveTextContent("1 Choose tickets→2 Pay→3 Tickets by email");
     cleanup();
     render(<TicketSelector event={live("brunswick-zine-fair")} />);
     expect(screen.getByRole("list", { name: "How booking works" })).toHaveTextContent(
@@ -412,6 +412,27 @@ describe("TicketSelector pricing (ACCC all-inclusive, brand-direction-one.md §6
 });
 
 describe("TicketSelector checkout focus and errors (WCAG 2.2)", () => {
+  it("back from the payment page (restored from the back/forward cache), Checkout works again", async () => {
+    // Navigating away: the request has answered and the page has gone, so nothing resets the button.
+    createCheckoutSession.mockReturnValue(new Promise(() => {}));
+    render(<TicketSelector event={live("neon-static")} />);
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
+    const checkout = screen.getByRole("button", { name: "Checkout" });
+    fireEvent.click(checkout);
+    expect(checkout).toHaveTextContent("Opening checkout…");
+    // A fresh load isn't a restore: nothing to reset.
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: false }));
+    });
+    expect(checkout).toHaveTextContent("Opening checkout…");
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+    });
+    expect(checkout).toHaveTextContent("Checkout");
+    expect(checkout).not.toHaveAttribute("aria-disabled", "true");
+    expect(checkout).toBeEnabled();
+  });
+
   it("keeps focus on Checkout while it works and after a failed checkout (busy, not disabled)", async () => {
     let reject: (err: unknown) => void = () => {};
     createCheckoutSession.mockReturnValue(new Promise((_, r) => (reject = r)));
@@ -420,7 +441,7 @@ describe("TicketSelector checkout focus and errors (WCAG 2.2)", () => {
     const checkout = screen.getByRole("button", { name: "Checkout" });
     checkout.focus();
     fireEvent.click(checkout);
-    expect(checkout).toHaveTextContent("Redirecting to checkout…");
+    expect(checkout).toHaveTextContent("Opening checkout…");
     expect(checkout).toHaveAttribute("aria-disabled", "true");
     expect(checkout).not.toBeDisabled();
     expect(checkout).toHaveFocus();
@@ -536,7 +557,10 @@ describe("TicketSelector before anything is chosen", () => {
     expect(screen.queryByText(/No payment step/)).toBeNull();
     // Once chosen, the copy follows the total.
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
-    expect(screen.getByText("You'll pay securely on Stripe's own checkout page.")).toBeInTheDocument();
+    expect(
+      screen.getByText("You'll pay on the next page, in a secure form from Stripe, our payment provider."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Stripe's own checkout page/)).toBeNull();
     expect(screen.queryByText("Choose tickets to continue.")).toBeNull();
   });
 

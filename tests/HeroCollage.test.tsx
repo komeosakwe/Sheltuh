@@ -55,6 +55,16 @@ describe("HeroBadge", () => {
     expect(screen.getByRole("button", { name: "Pause the badge animation" })).toBe(play);
   });
 
+  // The phone hero's thumbnail (owner, 24 Oct 2026): a badge too small to be a 44px Pause/Play target.
+  it("`still`: holds still and isn't a control even where motion is fine", () => {
+    stubMotion(true);
+    const { container } = render(<HeroBadge still />);
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(container.querySelector("[data-hero-badge]")).toHaveAttribute("aria-hidden", "true");
+    expect(container.querySelector("[data-hero-badge-art]")?.getAttribute("class")).not.toMatch(/animate/);
+    expect(container.querySelector("textPath")?.textContent).toBe(HERO_BADGE_TEXT.toUpperCase());
+  });
+
   it("holds still and isn't a control for people who prefer reduced motion (and on the server render)", () => {
     stubMotion(false);
     const { container } = render(<HeroBadge />);
@@ -66,17 +76,17 @@ describe("HeroBadge", () => {
 });
 
 describe("HeroCollage", () => {
-  it("has three decorative photos (the lead with its one-off push-in), the asterisk and the badge", () => {
+  // Owner (23 Oct 2026, layout polish): no promo photo repeats an event's or another promo's. The lead
+  // is the one photo; the two tiles are brand poster art until the owner supplies photos.
+  it("has three decorative tiles (a lead photo with its one-off push-in, two posters), the asterisk and the badge", () => {
     stubMotion(false);
     const { container } = render(<HeroCollage />);
     const collage = container.querySelector("[data-hero-collage]");
     const art = collage?.querySelector(":scope > [aria-hidden='true']");
-    expect(art?.querySelectorAll("img")).toHaveLength(3);
     expect(Array.from(art?.querySelectorAll("img") ?? []).map((img) => img.getAttribute("src"))).toEqual([
-      "/events/vintage-market-stall.jpg",
-      "/events/record-shop-dj.jpg",
       "/events/gallery-opening.jpg",
     ]);
+    expect(art?.querySelectorAll("svg[viewBox='0 0 100 100'] text")).toHaveLength(2);
     expect(art?.querySelectorAll("img.ken-burns")).toHaveLength(1);
     // The gaps between the photos are the page's own background, whatever colour the site is.
     expect(art?.querySelectorAll(".border-background")).toHaveLength(2);
@@ -87,5 +97,15 @@ describe("HeroCollage", () => {
     stubMotion(false);
     const { container } = render(<HomeHero />);
     expect(container.querySelector("[data-hero-collage]")).toHaveClass("hidden", "lg:block", "lg:col-span-5");
+  });
+
+  it("where motion is fine, the hero has one badge control (the collage's): the thumbnail's badge stays still", () => {
+    stubMotion(true);
+    const { container } = render(<HomeHero />);
+    expect(screen.getAllByRole("button", { name: "Pause the badge animation" })).toHaveLength(1);
+    expect(container.querySelector("[data-hero-collage] button[data-hero-badge]")).not.toBeNull();
+    const thumbBadge = container.querySelector("[data-hero-thumb] [data-hero-badge]");
+    expect(thumbBadge?.tagName).toBe("SPAN");
+    expect(thumbBadge?.querySelector("[data-hero-badge-art]")?.getAttribute("class")).not.toMatch(/animate/);
   });
 });
