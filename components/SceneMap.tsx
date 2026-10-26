@@ -691,7 +691,8 @@ function SceneMapLive({ categories }: { categories: { value: EventCategory; labe
     }
     setError(null);
 
-    listPublicEvents({ cursor })
+    // Upcoming only, 50 a page: without these the map listed the oldest events, ended ones included.
+    listPublicEvents({ upcoming: true, limit: 50, cursor })
       .then((page) => {
         const adapted = page.items.map(adaptPublicEvent);
         setEvents((prev) => {
