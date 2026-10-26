@@ -140,7 +140,8 @@ async function expectDistinctTicketsAndQrs(orderId: string, count: number) {
   expect(qrs).toHaveLength(count);
   for (const [i, code] of codes.entries()) {
     // The email's QR for ticket n is ticket n's code, in the same order as the page.
-    expect(qrs[i].content.equals(encodePng(ticketQrMatrix(code)!, 12, 4))).toBe(true);
+    // 16 px a module, 4-module quiet zone (lib/server/ticket-email.ts).
+    expect(qrs[i].content.equals(encodePng(ticketQrMatrix(code)!, 16, 4))).toBe(true);
     expect(email.html).toContain(`>${code}</td>`);
     expect(email.text).toContain(`Entry code: ${code}`);
   }

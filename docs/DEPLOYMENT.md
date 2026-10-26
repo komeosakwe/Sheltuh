@@ -140,15 +140,26 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       mode, switch on the payment methods and register the payment method
       domain(s) for Apple Pay, Google Pay and Link (`npm run payment-domains`),
       and set Stripe's branding (`supabase-setup.md` §2, steps 4–5).
-- [x] **Email footer banner** hosted at exactly
-      `https://sheltuh.com.au/sheltuh_email_signature_logo.png` (the ticket
-      email links this fixed URL, `EMAIL_FOOTER_IMAGE_URL` in
-      `lib/server/ticket-email.ts`; the owner confirmed it loads, 24 Oct 2026).
-      The file is `public/sheltuh_email_signature_logo.png`; while
-      `sheltuh.com.au` is still the Cloudflare Worker landing page it must stay
-      there too. Open the URL in a private window to check. This is
-      the only remote image in any email: the free-ticket confirmation,
-      waitlist and follower emails have none.
+- [ ] **Email footer image.** The ticket and free-ticket confirmation emails
+      link `${NEXT_PUBLIC_SITE_URL}/brand/sheltuh-email-footer.png`
+      (`public/brand/sheltuh-email-footer.png`, deployed with the app;
+      `emailFooterImageUrl` in `lib/server/email-layout.ts`), only when
+      `NEXT_PUBLIC_SITE_URL` is `https://`. After deploying, open that URL in
+      a private window to check. The old banner,
+      `https://sheltuh.com.au/sheltuh_email_signature_logo.png`, is no longer
+      used by any email (keep it if the Workspace signature uses it). The
+      waitlist, follower, review and invite emails have no images.
+- [ ] **Event images in ticket emails.** The ticket email shows the event's
+      own image from `${NEXT_PUBLIC_SITE_URL}/api/events/{id}/image?v=…` (public
+      for published events), only when `NEXT_PUBLIC_SITE_URL` is `https://`.
+      After deploying, open one such URL for a published event in a private
+      window, then send a test order to a real Gmail, Apple Mail and Outlook
+      inbox and check the image, QR, button and footer.
+- [ ] **Google Workspace "Append footer"** (Admin console → Apps → Google
+      Workspace → Gmail → Compliance → Append footer): if it adds the
+      signature logo to outgoing mail, every ticket email ends with a second,
+      left-aligned logo under the template's own footer. Turn it off for the
+      sending account (or exclude automated mail) if that's not wanted.
 - **Email wordmark: nothing to host.** The ticket email's header wordmark
   (`lib/server/email-wordmark.ts`, from `public/brand/sheltuh-wordmark-email.png`)
   is attached to each email inline (`cid:`), like the QR codes, so it shows
