@@ -110,10 +110,12 @@ export interface PageInput {
   footer?: string;
   /** Markup after the footer, full card width, e.g. the ticket email's banner. */
   after?: string;
+  /** Optional page tint for an individual email; shared default remains white. */
+  pageBackground?: string;
 }
 
 /** The brand email page: white, one white card with a black hairline, the support line under it. */
-export function page({ title, body, preheader, header, footer = supportFooter, after }: PageInput): string {
+export function page({ title, body, preheader, header, footer = supportFooter, after, pageBackground = PAGE }: PageInput): string {
   return `<!DOCTYPE html>
 <html lang="en-AU" xmlns="http://www.w3.org/1999/xhtml">
 <head>
@@ -130,8 +132,8 @@ export function page({ title, body, preheader, header, footer = supportFooter, a
   }
 </style>
 </head>
-<body bgcolor="${PAGE}" style="margin:0;padding:0;background-color:${PAGE};font-family:${SANS};color:${INK};-webkit-text-size-adjust:100%">
-${preheader ? `<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px">${escapeHtml(preheader)}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>\n` : ""}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${PAGE}" style="background-color:${PAGE}">
+<body bgcolor="${pageBackground}" style="margin:0;padding:0;background-color:${pageBackground};font-family:${SANS};color:${INK};-webkit-text-size-adjust:100%">
+${preheader ? `<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px">${escapeHtml(preheader)}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>\n` : ""}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${pageBackground}" style="background-color:${pageBackground}">
 <tr><td align="center" style="padding:24px 12px">
 <!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px">
