@@ -299,7 +299,7 @@ describe("EventClipField: saving", () => {
     expect(screen.queryByRole("progressbar")).toBeNull();
     expect(api.attachClip).not.toHaveBeenCalled();
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByRole("button", { name: "Save draft" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save draft" })).not.toHaveAttribute("aria-disabled", "true");
   });
 
   it("says when the server checks it, then that it's saved, and previews the saved clip", async () => {
@@ -375,7 +375,7 @@ describe("EventClipField: saving", () => {
     expect(api.attachClip.mock.calls[0].slice(0, 2)).toEqual(["evt-1", { description: "Dancers, a mirror ball, confetti." }]);
     expect(api.requestClipUpload).not.toHaveBeenCalled();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).not.toHaveAttribute("aria-disabled", "true"));
     fireEvent.click(screen.getByRole("button", { name: "Remove clip" }));
     expect(screen.getByText("No clip yet")).toBeInTheDocument();
     expect(status()).toHaveTextContent("The clip will be removed when you save.");
@@ -423,7 +423,7 @@ describe("EventClipField: admin mode", () => {
     expect(api.requestClipUpload).not.toHaveBeenCalled();
     expect(api.attachClip).not.toHaveBeenCalled();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).not.toHaveAttribute("aria-disabled", "true"));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(api.adminUpdateEvent).toHaveBeenCalledTimes(2));
     expect(api.adminUpdateEvent.mock.calls[1][1].expectedUpdatedAt).toBe("2026-10-20T03:00:00.000Z");
@@ -442,14 +442,14 @@ describe("EventClipField: a file still being checked (M1)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
     await act(async () => {});
     expect(api.updateEventDraft).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Saving…" })).toHaveAttribute("aria-disabled", "true");
 
     // The check passes: the clip is in, so the save now needs its description and rights.
     await act(async () => read({ durationMs: 9000, width: 1080, height: 1920 }));
     expect(await screen.findByText(CLIP_MESSAGES.describe)).toBeInTheDocument();
     expect(screen.getByText(CLIP_MESSAGES.rights)).toBeInTheDocument();
     expect(api.updateEventDraft).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Save draft" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save draft" })).not.toHaveAttribute("aria-disabled", "true");
   });
 
   it("a file refused while Save waited stops the save, with the reason shown", async () => {
@@ -527,7 +527,7 @@ describe("EventClipField: when the clip step fails after the event saved (M2)", 
     expect(onSaved).not.toHaveBeenCalled();
     await waitFor(() => expect(api.fetchPrivateEventImage).toHaveBeenCalledWith(SAVED_PHOTO, expect.any(Function)));
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).not.toHaveAttribute("aria-disabled", "true"));
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard/evt-1"));
     expect(api.createEventDraft).toHaveBeenCalledTimes(1);
@@ -557,7 +557,7 @@ describe("EventClipField: when the clip step fails after the event saved (M2)", 
     expect(await screen.findByRole("alert")).toHaveTextContent(CLIP_MESSAGES.unavailable);
     expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ updatedAt: "2026-10-20T02:00:00.000Z" }));
     expect(screen.getByLabelText(/Note for the event/)).toHaveValue("");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).not.toHaveAttribute("aria-disabled", "true"));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(api.adminUpdateEvent).toHaveBeenCalledTimes(2));
     expect(api.adminUpdateEvent.mock.calls[1][1]).toMatchObject({ expectedUpdatedAt: "2026-10-20T02:00:00.000Z", reason: null });
@@ -585,7 +585,7 @@ describe("EventClipField: Cancel with a Submit queued (L3), and edits while uplo
     await waitFor(() => expect(api.updateEventDraft).toHaveBeenCalledTimes(2));
     fireEvent.click(screen.getByRole("button", { name: "Cancel upload" }));
     await waitFor(() => expect(status()).toHaveTextContent("Upload cancelled. The event was saved without the new clip."));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Submit for review" })).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Submit for review" })).not.toHaveAttribute("aria-disabled", "true"));
     expect(api.requestClipUpload).toHaveBeenCalledTimes(1);
     expect(api.uploadClipToStorage).toHaveBeenCalledTimes(1);
     expect(api.submitEventForReview).not.toHaveBeenCalled();
@@ -640,7 +640,7 @@ describe("EventClipField: Remove, Discard and the preview (UX #4, L5)", () => {
     expect(screen.getByRole("button", { name: "Remove clip" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
     await waitFor(() => expect(api.updateEventDraft).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).not.toHaveAttribute("aria-disabled", "true"));
     expect(api.deleteClip).not.toHaveBeenCalled();
   });
 

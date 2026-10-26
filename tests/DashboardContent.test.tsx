@@ -145,6 +145,33 @@ describe("DashboardContent — New event is an action, not a tab", () => {
     expect(screen.getByText("Your organiser application is still pending review.")).toBeInTheDocument();
     expect(listMyEvents).not.toHaveBeenCalled();
   });
+
+  it("is a 1.75 stroke plus, hidden from screen readers", async () => {
+    listMyEvents.mockResolvedValueOnce({ items: [makeRecord("a")], nextCursor: undefined });
+    renderDashboard();
+    const newEvent = await screen.findByRole("link", { name: "New event" });
+    const icon = newEvent.querySelector("svg");
+    expect(icon).toHaveAttribute("aria-hidden", "true");
+    expect(icon).toHaveAttribute("stroke-width", "1.75");
+  });
+
+  it("isn't in the header while the list loads or is empty (the empty state has Create your first event)", async () => {
+    let resolve: (page: { items: EventRecord[] }) => void = () => {};
+    listMyEvents.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+    renderDashboard();
+    await waitFor(() => expect(listMyEvents).toHaveBeenCalled());
+    expect(screen.queryByRole("link", { name: "New event" })).toBeNull();
+    resolve({ items: [] });
+    await screen.findByRole("link", { name: "Create your first event" });
+    expect(screen.queryByRole("link", { name: "New event" })).toBeNull();
+  });
+
+  it("stays offered when the list couldn't load", async () => {
+    listMyEvents.mockRejectedValueOnce(new Error("Couldn't load your events."));
+    renderDashboard();
+    await screen.findByRole("alert");
+    expect(screen.getByRole("link", { name: "New event" })).toHaveAttribute("href", "/dashboard/new");
+  });
 });
 
 describe("DashboardContent — empty state", () => {
@@ -209,41 +236,80 @@ describe("DashboardContent — each event's status, date and actions", () => {
       ["Edit", "Edit dad", "/dashboard/d"],
       ["Analytics", "Analytics for dad", "/dashboard/events/d/analytics"],
     ]);
-    // Pending review can't be edited (the API refuses): View, and its seat map.
+    // Waiting for review can't be edited (the API refuses): View submission, and its seat map.
     expect(actionsOf("Waiting")).toEqual([
-      ["View", "View Waiting", "/dashboard/p"],
+      ["View submission", "View submission for Waiting", "/dashboard/p"],
       ["Analytics", "Analytics for Waiting", "/dashboard/events/p/analytics"],
       ["Seat map", "Seat map for Waiting", "/dashboard/p/seat-map"],
     ]);
+    // Published: no View (the editor is locked); its public page is the main action.
     expect(actionsOf("Live")).toEqual([
-      ["View", "View Live", "/dashboard/l"],
+      ["View public page", "View public page for Live", "/events/live-night"],
       ["Analytics", "Analytics for Live", "/dashboard/events/l/analytics"],
       ["Check-in", "Check-in for Live", "/dashboard/l/check-in"],
       ["Seat map", "Seat map for Live", "/dashboard/l/seat-map"],
-      ["View public page", "View public page for Live", "/events/live-night"],
     ]);
     // Ticketed on another site: no door check-in here.
     expect(actionsOf("Elsewhere")).toEqual([
-      ["View", "View Elsewhere", "/dashboard/x"],
-      ["Analytics", "Analytics for Elsewhere", "/dashboard/events/x/analytics"],
       ["View public page", "View public page for Elsewhere", "/events/elsewhere"],
+      ["Analytics", "Analytics for Elsewhere", "/dashboard/events/x/analytics"],
     ]);
     expect(actionsOf("Nope").map(([label]) => label)).toEqual(["Edit", "Analytics"]);
     expect(actionsOf("Taken down").map(([label]) => label)).toEqual(["Edit", "Analytics"]);
 
-    for (const link of within(rowOf("Live")).getAllByRole("link")) {
+    for (const link of within(within(rowOf("Live")).getByRole("list", { name: "Actions for Live" })).getAllByRole("link")) {
       expect(link).toHaveClass("min-h-11");
     }
-    // The main action is the outlined button; the rest are quieter.
-    expect(screen.getByRole("link", { name: "View Live" })).toHaveClass("btn-outline");
-    expect(screen.getByRole("link", { name: "Analytics for Live" })).not.toHaveClass("btn");
+    // The main action is the outlined button; the rest are tertiary links (underlined words).
+    expect(screen.getByRole("link", { name: "View public page for Live" })).toHaveClass("btn-outline");
+    expect(screen.getByRole("link", { name: "Edit dad" })).toHaveClass("btn-outline");
+    expect(screen.getByRole("link", { name: "View submission for Waiting" })).toHaveClass("btn-outline");
+    for (const name of ["Analytics for Live", "Check-in for Live", "Seat map for Live"]) {
+      const link = screen.getByRole("link", { name });
+      expect(link).not.toHaveClass("btn");
+      expect(link).toHaveClass("underline", "text-sm", "font-semibold");
+    }
+  });
+
+  it("a published event without a slug still has a way in: View", async () => {
+    listMyEvents.mockResolvedValueOnce({ items: [makeRecord("l", { title: "Live", slug: "", status: "published" })] });
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText("Live")).toBeInTheDocument());
+    expect(actionsOf("Live")[0]).toEqual(["View", "View Live", "/dashboard/l"]);
+  });
+
+  it("each status's hint: a rejected event points at Edit; a published one links Contact Sheltüh to support", async () => {
+    listMyEvents.mockResolvedValueOnce({
+      items: [
+        makeRecord("r", { title: "Nope", status: "rejected" }),
+        makeRecord("l", { title: "Live", status: "published" }),
+        makeRecord("p", { title: "Waiting", status: "pending_review" }),
+      ],
+    });
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText("Nope")).toBeInTheDocument());
+    expect(rowOf("Nope")).toHaveTextContent("Open Edit to read the reviewer’s note.");
+    expect(rowOf("Live")).toHaveTextContent("Live on Sheltüh. Contact Sheltüh to change it.");
+    expect(within(rowOf("Live")).getByRole("link", { name: "Contact Sheltüh" })).toHaveAttribute(
+      "href",
+      "mailto:support@sheltuh.com.au",
+    );
+    expect(within(rowOf("Waiting")).queryByRole("link", { name: "Contact Sheltüh" })).toBeNull();
+    // Hint lines wrap evenly.
+    expect(within(rowOf("Nope")).getByText("Open Edit to read the reviewer’s note.")).toHaveClass("text-pretty");
   });
 
   it("wraps the actions instead of scrolling sideways", async () => {
     listMyEvents.mockResolvedValueOnce({ items: [makeRecord("l", { title: "Live", status: "published" })] });
     renderDashboard();
     await waitFor(() => expect(screen.getByText("Live")).toBeInTheDocument());
-    expect(within(rowOf("Live")).getByRole("list", { name: "Actions for Live" })).toHaveClass("flex", "flex-wrap");
+    expect(within(rowOf("Live")).getByRole("list", { name: "Actions for Live" })).toHaveClass(
+      "flex",
+      "flex-wrap",
+      "items-center",
+      "gap-x-4",
+      "gap-y-0",
+    );
   });
 });
 
@@ -262,13 +328,20 @@ describe("DashboardContent — payouts before submitting paid events", () => {
     });
     renderDashboard();
     await waitFor(() => expect(screen.getByText("Event paid-draft")).toBeInTheDocument());
-    const hint = "Set up payouts to submit (it has paid tickets)";
+    const hint = "Paid tickets: set up payouts before you submit it.";
     expect(rowOf("Event paid-draft")).toHaveTextContent(hint);
     expect(rowOf("Event paid-rejected")).toHaveTextContent(hint);
     expect(rowOf("Event free-draft")).not.toHaveTextContent(hint);
     expect(rowOf("Event external-draft")).not.toHaveTextContent(hint);
     expect(rowOf("Event paid-pending")).not.toHaveTextContent(hint);
-    expect(screen.getByRole("link", { name: "set up payouts" })).toHaveAttribute("href", "/dashboard/payouts");
+    // The row's own link to payouts, and the banner's.
+    expect(within(rowOf("Event paid-draft")).getByRole("link", { name: "set up payouts" })).toHaveAttribute(
+      "href",
+      "/dashboard/payouts",
+    );
+    for (const link of screen.getAllByRole("link", { name: "set up payouts" })) {
+      expect(link).toHaveAttribute("href", "/dashboard/payouts");
+    }
   });
 
   it("drops the banner and the marks once payouts are set up", async () => {
@@ -277,7 +350,7 @@ describe("DashboardContent — payouts before submitting paid events", () => {
     listMyEvents.mockResolvedValueOnce({ items: [makeRecord("paid-draft", { ticketTypes: paid })] });
     renderDashboard();
     await waitFor(() => expect(screen.getByText("Event paid-draft")).toBeInTheDocument());
-    expect(rowOf("Event paid-draft")).not.toHaveTextContent("Set up payouts to submit");
+    expect(rowOf("Event paid-draft")).not.toHaveTextContent("Paid tickets:");
     expect(screen.queryByRole("link", { name: "set up payouts" })).toBeNull();
   });
 });

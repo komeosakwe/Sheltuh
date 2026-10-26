@@ -4,7 +4,7 @@ import { useState } from "react";
 import SeatLine from "@/components/seating/SeatLine";
 import type { OrderPaymentLine, OrderPaymentSummary as Summary } from "@/lib/api/types";
 import { formatAud, formatEventDateTimeRange } from "@/lib/format";
-import { REFUND_ACL_STATEMENT, refundTermsSummary } from "@/lib/refund-policy";
+import { REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { ChevronDownIcon } from "./icons";
 
 /**
@@ -22,7 +22,7 @@ export default function OrderPaymentSummary({ summary }: { summary: Summary }) {
   const count = summary.lines.reduce((sum, line) => sum + line.quantity, 0);
   // "Seats" only when every line is seats (a seated order can carry general admission tickets too).
   const allSeats = summary.seated && summary.lines.length > 0 && summary.lines.every((line) => (line.seats?.length ?? 0) > 0);
-  const refunds = refundTermsSummary(summary.refundPolicy, summary.refundDays);
+  const refunds = refundTermsLine(summary.refundPolicy, summary.refundDays, summary.eventStartsAt);
   const noun = allSeats ? (count === 1 ? "seat" : "seats") : count === 1 ? "ticket" : "tickets";
 
   return (
@@ -96,9 +96,9 @@ export default function OrderPaymentSummary({ summary }: { summary: Summary }) {
       {refunds && (
         <div data-refund-policy="" className="flex flex-col gap-1 border-t border-surface-border pt-3 text-sm">
           <p className="text-foreground">
-            <span className="font-semibold">Refunds:</span> {refunds}
+            <span className="font-semibold">Refund policy:</span> {refunds}
           </p>
-          <p className="text-xs text-muted">{REFUND_ACL_STATEMENT}</p>
+          <p className="text-sm text-muted">{REFUND_ACL_STATEMENT}</p>
         </div>
       )}
     </section>

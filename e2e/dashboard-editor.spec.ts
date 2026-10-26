@@ -238,14 +238,19 @@ test.describe("/dashboard/[eventId]: refund policy at 320px", () => {
     }
 
     await days.fill("3");
+    // What buyers will see, dated from the start (Sat 6 Mar 2027, 8:00 pm), as it's typed.
+    await expect(policy.locator("#refundDays-preview")).toContainText("(3 days before the event)");
     await form.getByRole("button", { name: "Save draft" }).click();
     await expect.poll(() => saved.length).toBe(1);
     expect(saved[0]).toMatchObject({ refundPolicy: "days_before", refundDays: 3 });
 
     await none.check();
-    await expect(days).toBeDisabled();
+    // Never disabled: using it would choose days again.
+    await expect(days).toBeEnabled();
     await form.getByRole("button", { name: "Save draft" }).click();
     await expect(policy.getByText(refusal)).toBeVisible();
+    // The saved terms, and what they can become.
+    await expect(policy).toContainText("It’s currently 3 days: choose 3 or fewer, or keep it.");
     await expect(none).toBeFocused();
     await expect(form.getByRole("alert")).toContainText("See Refund policy.");
     expect(saved[1]).toMatchObject({ refundPolicy: "no_change_of_mind" });
@@ -309,7 +314,8 @@ test.describe("/dashboard/[eventId]: paid tickets before payouts are set up", ()
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
 
     await submit.click();
-    const reason = form.getByRole("alert").filter({ hasText: refusal });
+    // Named by the reason and focused, which announces it (no role="alert" too).
+    const reason = form.getByRole("group", { name: refusal });
     await expect(reason).toBeVisible();
     // Focus is on the refusal (its container), so the link is the next stop.
     await expect(page.locator("[data-payouts-error]")).toBeFocused();

@@ -7,6 +7,7 @@ import {
   MAX_EMAIL_ATTEMPTS,
   retryDelaySeconds,
 } from "@/lib/server/email-outbox";
+import { refundTermsLine } from "@/lib/refund-policy";
 import { adminUnpublishEvent } from "@/lib/server/handlers/admin";
 import { adminListEmailJobs, adminResendEmailJob, runEmailOutboxCron } from "@/lib/server/handlers/email-outbox";
 import { submitEventForReview } from "@/lib/server/handlers/events";
@@ -23,6 +24,7 @@ let serverUrl: string | undefined;
 let admin: { token: string; userId: string };
 let organiser: { token: string; userId: string; organiserId: string };
 let eventId: string;
+let eventStartsAt: string;
 
 beforeAll(async () => {
   const testDb = await createTestDb();
@@ -40,6 +42,7 @@ beforeEach(async () => {
     ticketTypes: [{ id: "ga", name: "GA", priceCents: 3000, feePolicy: "buyer-pays", quantityAvailable: 50 }],
   });
   eventId = event.eventId;
+  eventStartsAt = event.startsAt;
   await enablePayouts(api, organiser.organiserId);
 });
 
@@ -151,8 +154,11 @@ describe("queueing", () => {
     await api.db.query(`update public.events set refund_policy = 'days_before', refund_days = 10 where id = $1`, [eventId]);
     await paidOrder("fan@example.com", { runDeferred: true });
     const { text, html } = api.sendEmail.mock.calls[1][0];
-    expect(text).toContain("Refund policy: Refunds available up to 10 days before the event.");
-    expect(html).toContain("Refunds available up to 10 days before the event.");
+    // Dated from the event's start (Sat 6 Mar 2027, 8:00 pm): until 10 days before, then closed.
+    const line = refundTermsLine("days_before", 10, eventStartsAt);
+    expect(line).toMatch(/^Refunds available until Wed 24 Feb 2027, 8:00 pm \(10 days before the event\)\.$|has closed/);
+    expect(text).toContain(`Refund policy: ${line}`);
+    expect(html).toContain(line);
   });
 
   it("a duplicate webhook, before or after the send, never queues or sends a second email", async () => {

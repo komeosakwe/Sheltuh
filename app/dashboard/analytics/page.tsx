@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Analytics — Sheltüh" };
 
 export default function AnalyticsPage() {
   return (
-    <Page>
+    <Page padding="subNav">
       {/* The range lives in the URL (useSearchParams), so the report renders on the client. */}
       <Suspense fallback={<LoadingIndicator label="Loading analytics" />}>
         <AnalyticsOverview />

@@ -1,7 +1,7 @@
 /**
  * Where people land after signing in, signing up or verifying when there's
  * no safe `next`: the events feed. Organisers reach their dashboard from
- * the header ("My events"); most accounts are attendees.
+ * the header ("Your events"); most accounts are attendees.
  */
 export const DEFAULT_AFTER_SIGN_IN = "/events";
 

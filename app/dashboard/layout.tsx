@@ -1,11 +1,6 @@
-import OrganiserSubNav from "@/components/dashboard/OrganiserSubNav";
+import OrganiserShell from "@/components/dashboard/OrganiserShell";
 
-/** Every organiser page: the organiser sub-nav (hidden at the door scanner), then the page. */
+/** Every organiser page: the organiser sub-nav for an approved organiser (hidden at the door scanner), then the page. */
 export default function DashboardLayout({ children }: LayoutProps<"/dashboard">) {
-  return (
-    <>
-      <OrganiserSubNav />
-      {children}
-    </>
-  );
+  return <OrganiserShell>{children}</OrganiserShell>;
 }

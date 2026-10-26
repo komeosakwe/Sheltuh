@@ -15,6 +15,7 @@ import {
   orderReference,
   ticketPageLink,
   ticketDirectionsLink,
+  ticketEmailRefundPolicy,
   ticketQrAlt,
   ticketWhen,
 } from "@/lib/server/ticket-email";
@@ -447,11 +448,15 @@ describe("buildTicketEmail", () => {
     const ACL = "You're always entitled to a refund if the event is cancelled or significantly changed, as the Australian Consumer Law requires.";
     const ACL_HTML = ACL.replace("'", "&#39;");
 
+    // The event starts Sat 6 Mar 2027, 8:00 pm AEDT; the email is built on 1 Nov 2026.
+    const BUILT = new Date("2026-11-01T00:00:00.000Z");
+
     it("a paid order: the event's policy and the ACL line, under the order summary, in the HTML and the plain text", () => {
       const days = { ...event, refundPolicy: "days_before", refundDays: 7 } as EventRecord;
-      const { html, text } = buildTicketEmail(order, days, "https://x");
-      expect(text).toContain("Refund policy: Refunds available up to 7 days before the event.\n" + ACL);
-      expect(html).toContain('<span style="font-weight:bold">Refund policy:</span> Refunds available up to 7 days before the event.</p>');
+      const { html, text } = buildTicketEmail(order, days, "https://x", BUILT);
+      const line = "Refunds available until Sat 27 Feb 2027, 8:00 pm (7 days before the event).";
+      expect(text).toContain(`Refund policy: ${line}\n` + ACL);
+      expect(html).toContain(`<span style="font-weight:bold">Refund policy:</span> ${line}</p>`);
       expect(html).toContain(`>${ACL_HTML}</p>`);
       // After the reference and total, before the footer's "Need a hand?".
       const at = html.indexOf("Refund policy:");
@@ -463,11 +468,33 @@ describe("buildTicketEmail", () => {
 
     it("1 day, and no_change_of_mind (also what an event without the field has)", () => {
       const one = { ...event, refundPolicy: "days_before", refundDays: 1 } as EventRecord;
-      expect(buildTicketEmail(order, one, "https://x").text).toContain("Refund policy: Refunds available up to 1 day before the event.");
+      expect(buildTicketEmail(order, one, "https://x", BUILT).text).toContain(
+        "Refund policy: Refunds available until Fri 5 Mar 2027, 8:00 pm (1 day before the event).",
+      );
       const none = { ...event, refundPolicy: "no_change_of_mind" } as EventRecord;
       for (const e of [none, event]) {
         expect(buildTicketEmail(order, e, "https://x").text).toContain("Refund policy: No refunds for change of mind.");
       }
+    });
+
+    it("bought (or resent) after the deadline: the refund window has closed, in both parts", () => {
+      const days = { ...event, refundPolicy: "days_before", refundDays: 7 } as EventRecord;
+      // Three days before the event.
+      const { html, text } = buildTicketEmail(order, days, "https://x", new Date("2027-03-03T09:00:00.000Z"));
+      const closed = "The refund window for this event has closed. No refunds for change of mind.";
+      expect(text).toContain(`Refund policy: ${closed}\n` + ACL);
+      expect(html).toContain(`<span style="font-weight:bold">Refund policy:</span> ${closed}</p>`);
+      expect(text).not.toContain("up to 7 days");
+    });
+
+    it("ticketEmailRefundPolicy: dated in Melbourne time, against now by default", () => {
+      const days = { ...event, refundPolicy: "days_before", refundDays: 7 } as EventRecord;
+      expect(ticketEmailRefundPolicy(order, days, BUILT)).toBe(
+        "Refunds available until Sat 27 Feb 2027, 8:00 pm (7 days before the event).",
+      );
+      // An event long past: closed, whenever the test runs.
+      const past = { ...days, startsAt: "2020-01-10T09:00:00.000Z", endsAt: "2020-01-10T11:00:00.000Z" } as EventRecord;
+      expect(ticketEmailRefundPolicy(order, past)).toBe("The refund window for this event has closed. No refunds for change of mind.");
     });
 
     it("none for a free order, an event that isn't listed, an external event, or days_before without valid days", () => {

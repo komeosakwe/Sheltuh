@@ -214,11 +214,11 @@ describe("AccountContent", () => {
     expect(deleteMyProfile).toHaveBeenCalledTimes(2);
   });
 
-  it("signs out from here (the nav no longer has Sign out) and links to My events", async () => {
+  it("signs out from here (the nav no longer has Sign out) and links to Your events", async () => {
     getMyProfile.mockResolvedValue(PROFILE);
     const auth = fakeAuthValue({ email: "mia@example.com" });
     renderAccount(auth);
-    expect(screen.getByRole("link", { name: "My events" })).toHaveAttribute("href", "/dashboard");
+    expect(screen.getByRole("link", { name: "Your events" })).toHaveAttribute("href", "/dashboard");
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(auth.signOut).toHaveBeenCalledTimes(1);
     // No scope: the default, global sign-out (every device), which is also what marks it as the

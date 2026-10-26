@@ -79,7 +79,7 @@ it("after a save that changes the photo, the next save carries the photo save's 
   await waitFor(() => expect(adminDeleteEventImage).toHaveBeenCalledTimes(1));
   expect(adminUpdateEvent.mock.calls[0][1].expectedUpdatedAt).toBe("2026-10-20T01:00:00.000Z");
 
-  await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).not.toBeDisabled());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).not.toHaveAttribute("aria-disabled", "true"));
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await waitFor(() => expect(adminUpdateEvent).toHaveBeenCalledTimes(2));
   // Not 02:00 (the event save's): the photo removal after it made that stale.

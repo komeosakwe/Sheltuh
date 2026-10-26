@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Event analytics — Sheltüh" };
 export default async function EventAnalyticsPage({ params }: PageProps<"/dashboard/events/[id]/analytics">) {
   const { id } = await params;
   return (
-    <Page>
+    <Page padding="subNav">
       <Suspense fallback={<p className="text-sm text-muted">Loading&hellip;</p>}>
         <EventAnalytics eventId={id} />
       </Suspense>

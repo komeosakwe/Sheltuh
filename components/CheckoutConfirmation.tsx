@@ -20,7 +20,7 @@ import {
   type CheckoutOrderContext,
 } from "@/lib/checkout-pay";
 import { formatAud, formatEventDateTimeRange } from "@/lib/format";
-import { REFUND_ACL_STATEMENT, refundTermsSummary } from "@/lib/refund-policy";
+import { REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { compareSeats } from "@/lib/seating/format";
 import { forgetPendingCheckout } from "@/lib/seating/pending-checkout";
 import type { CustomerOrder } from "@/lib/api/types";
@@ -337,7 +337,8 @@ export default function CheckoutConfirmation() {
     ? undefined
     : [order.venueName, order.suburb].filter((part) => !!part?.trim()).join(", ") || undefined;
   // The refund policy: only where something was paid (a free order has nothing to refund) and the event is listed.
-  const refunds = unlisted || order.totalCents <= 0 ? null : refundTermsSummary(order.refundPolicy, order.refundDays);
+  const refunds =
+    unlisted || order.totalCents <= 0 ? null : refundTermsLine(order.refundPolicy, order.refundDays, order.eventStartsAt);
   return (
     <div className="flex flex-col gap-8 py-10 sm:py-14">
       <div className="flex flex-col gap-3">
@@ -404,7 +405,7 @@ export default function CheckoutConfirmation() {
             <p className="text-foreground">
               <span className="font-semibold">Refund policy:</span> {refunds}
             </p>
-            <p className="text-xs text-muted">{REFUND_ACL_STATEMENT}</p>
+            <p className="text-sm text-muted">{REFUND_ACL_STATEMENT}</p>
             <p className="text-xs text-muted">
               To ask for one, use{" "}
               <Link href="/refunds" className="text-foreground underline underline-offset-2">

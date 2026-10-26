@@ -71,7 +71,7 @@ export default function AccountContent() {
             <p className="text-sm text-muted">
               Organising?{" "}
               <Link href="/dashboard" className={linkClass}>
-                My events
+                Your events
               </Link>
             </p>
           </div>

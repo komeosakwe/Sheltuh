@@ -102,11 +102,12 @@ const daysInput = () => within(group()).getByLabelText("Days before the event");
 const save = () => fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
 describe("EventEditor — refund policy (organiser)", () => {
-  it("defaults to no refunds for change of mind, with the days off, and says what buyers see (the ACL line)", () => {
+  it("defaults to no refunds for change of mind, and says what buyers see (the ACL line)", () => {
     renderOrganiser();
     expect(noRefunds()).toBeChecked();
     expect(daysBefore()).not.toBeChecked();
-    expect(daysInput()).toBeDisabled();
+    // Never disabled: using it chooses its option.
+    expect(daysInput()).toBeEnabled();
     const help = document.getElementById("refund-policy-help");
     expect(help).toHaveTextContent(REFUND_ACL_STATEMENT);
     expect(help).toHaveTextContent("After you submit, only Sheltüh can change it");
@@ -170,7 +171,7 @@ describe("EventEditor — refund policy (organiser)", () => {
     updateEventDraft.mockResolvedValue(EVENT);
     renderOrganiser({ refundPolicy: "days_before", refundDays: 5 });
     fireEvent.click(noRefunds());
-    expect(daysInput()).toBeDisabled();
+    expect(daysBefore()).not.toBeChecked();
     expect(daysInput()).toHaveValue(5);
     save();
     await waitFor(() => expect(updateEventDraft).toHaveBeenCalledTimes(1));
@@ -194,9 +195,15 @@ describe("EventEditor — refund policy (organiser)", () => {
     fireEvent.click(noRefunds());
     save();
 
-    const error = await within(group()).findByText(TIGHTENED_MESSAGE);
-    expect(error).toHaveAttribute("id", "refundPolicy-error");
-    expect(group()).toHaveAttribute("aria-describedby", "refund-policy-help refundPolicy-error");
+    await waitFor(() => expect(document.getElementById("refundPolicy-error")).toHaveTextContent(TIGHTENED_MESSAGE));
+    // What it is now, from the saved policy, and what it can become.
+    expect(document.getElementById("refundPolicy-error")).toHaveTextContent("It’s currently 7 days: choose 7 or fewer, or keep it.");
+    // The fieldset keeps its help; each radio is described by the error.
+    expect(group()).toHaveAttribute("aria-describedby", "refund-policy-help");
+    expect(noRefunds().getAttribute("aria-describedby")?.split(" ")).toContain("refundPolicy-error");
+    expect(daysBefore()).toHaveAttribute("aria-describedby", "refundPolicy-error");
+    expect(noRefunds()).toHaveAccessibleDescription(expect.stringContaining(TIGHTENED_MESSAGE));
+    // From days to no refunds: the choice is what to change, so it's focused.
     await waitFor(() => expect(noRefunds()).toHaveFocus());
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Not saved: the refund policy can’t be made less generous now. See Refund policy.",
@@ -207,6 +214,75 @@ describe("EventEditor — refund policy (organiser)", () => {
     // Choosing again clears it.
     fireEvent.click(daysBefore());
     expect(within(group()).queryByText(TIGHTENED_MESSAGE)).toBeNull();
+    expect(daysBefore()).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("the days input chooses its option when focused or typed in, and a click anywhere on its card does too", () => {
+    renderOrganiser();
+    fireEvent.focus(daysInput());
+    expect(daysBefore()).toBeChecked();
+
+    fireEvent.click(noRefunds());
+    expect(noRefunds()).toBeChecked();
+    fireEvent.change(daysInput(), { target: { value: "4" } });
+    expect(daysBefore()).toBeChecked();
+    expect(daysInput()).toHaveValue(4);
+
+    fireEvent.click(noRefunds());
+    const card = daysBefore().closest("label")?.parentElement;
+    if (!card) throw new Error("No card around the days option.");
+    fireEvent.click(within(card).getByText("A whole number from 1 to 30.", { exact: false }));
+    expect(daysBefore()).toBeChecked();
+  });
+
+  it("says a bigger number closes refunds earlier", () => {
+    renderOrganiser();
+    expect(daysInput()).toHaveAccessibleDescription(expect.stringContaining("A bigger number closes refunds earlier."));
+  });
+
+  it("each card says what it means (the first has its own help line), and they don't stretch to match", () => {
+    renderOrganiser();
+    expect(noRefunds()).toHaveAccessibleDescription("Buyers can’t get their money back for changing their mind.");
+    const grid = noRefunds().closest("label")?.parentElement;
+    expect(grid).toHaveClass("sm:grid-cols-2", "sm:items-start");
+  });
+
+  it("previews what buyers will see once the days are valid, dated from the start", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-26T00:00:00.000Z"));
+    try {
+      // Starts Sat 6 Mar 2027, 8:00 pm in Melbourne (AEDT).
+      renderOrganiser({ refundPolicy: "days_before", refundDays: 7 });
+      const preview = document.getElementById("refundDays-preview");
+      expect(preview).toHaveTextContent("Buyers will see: Refunds available until Sat 27 Feb 2027, 8:00 pm (7 days before the event).");
+      expect(daysInput().getAttribute("aria-describedby")?.split(" ")).toContain("refundDays-preview");
+
+      // Live: it follows the days, and goes while they're not valid.
+      fireEvent.change(daysInput(), { target: { value: "1" } });
+      expect(document.getElementById("refundDays-preview")).toHaveTextContent("until Fri 5 Mar 2027, 8:00 pm (1 day before the event).");
+      fireEvent.change(daysInput(), { target: { value: "40" } });
+      expect(document.getElementById("refundDays-preview")).toBeNull();
+      expect(daysInput().getAttribute("aria-describedby")).not.toContain("refundDays-preview");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("previews the plain summary while the start isn't set", () => {
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ email: "owner@example.com" })}>
+        <EventEditor getToken={vi.fn().mockResolvedValue("token")} onSaved={vi.fn()} />
+      </FakeAuthProvider>,
+    );
+    fireEvent.change(daysInput(), { target: { value: "3" } });
+    expect(document.getElementById("refundDays-preview")).toHaveTextContent(
+      "Buyers will see: Refunds available up to 3 days before the event.",
+    );
+  });
+
+  it("no preview for no refunds", () => {
+    renderOrganiser();
+    expect(document.getElementById("refundDays-preview")).toBeNull();
   });
 
   it("an external event has no refund policy field, and saving doesn't send one", async () => {
@@ -255,12 +331,24 @@ describe("EventEditor — refund policy (admin)", () => {
     expect(adminUpdateEvent.mock.calls[0][1]).not.toHaveProperty("refundPolicy");
   });
 
-  it("a refused tightening is shown by the policy too", async () => {
+  it("a refused tightening is shown by the policy too: from days to more days, the days are focused", async () => {
     adminUpdateEvent.mockRejectedValue(tightened());
     renderAdmin({ ...ADMIN_EVENT, refundPolicy: "days_before", refundDays: 7 });
     fireEvent.change(daysInput(), { target: { value: "14" } });
     saveChanges();
     expect(await within(group()).findByText(TIGHTENED_MESSAGE)).toBeInTheDocument();
+    expect(within(group()).getByText("It’s currently 7 days: choose 7 or fewer, or keep it.")).toBeInTheDocument();
+    await waitFor(() => expect(daysInput()).toHaveFocus());
+  });
+
+  it("from no refunds, a refused save (stale terms) focuses the chosen option and says nothing about days", async () => {
+    adminUpdateEvent.mockRejectedValue(tightened());
+    renderAdmin({ ...ADMIN_EVENT, refundPolicy: "no_change_of_mind" });
+    fireEvent.click(daysBefore());
+    fireEvent.change(daysInput(), { target: { value: "3" } });
+    saveChanges();
+    expect(await within(group()).findByText(TIGHTENED_MESSAGE)).toBeInTheDocument();
+    expect(within(group()).queryByText(/It’s currently/)).toBeNull();
     await waitFor(() => expect(daysBefore()).toHaveFocus());
   });
 });

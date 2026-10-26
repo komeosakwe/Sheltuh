@@ -9,13 +9,20 @@ interface SubNavLink {
   label: string;
 }
 
-/** The organiser area's sections, in a fixed order. New event isn't one: it's an action on Your events. */
+/**
+ * The organiser area's sections, in a fixed order, with short labels so the
+ * row fits at 320px (the pages' own h1s say "Your events" and "Public
+ * profile"). New event isn't one: it's an action on Your events.
+ */
 export const ORGANISER_SUB_NAV: SubNavLink[] = [
-  { href: "/dashboard", label: "Your events" },
+  { href: "/dashboard", label: "Events" },
   { href: "/dashboard/payouts", label: "Payouts" },
   { href: "/dashboard/analytics", label: "Analytics" },
-  { href: "/dashboard/profile", label: "Public profile" },
+  { href: "/dashboard/profile", label: "Profile" },
 ];
+
+/** The main nav's link style, a little narrower on phones so the four tabs fit on one row at 320px. */
+const subNavLinkClass = `${navLinkClass.replace(/\bpx-2\b/, "px-1.5 sm:px-2")} inline-flex min-h-11 items-center`;
 
 /** The door scanner (docs/design/check-in.md): its own full-screen surface with its own way back, so no sub-nav. */
 const DOOR_PATH = /^\/dashboard\/[^/]+\/check-in\/?$/;
@@ -37,8 +44,8 @@ export function organiserSectionFor(pathname: string): string | null {
 }
 
 /**
- * The organiser sub-nav, on every organiser page (app/dashboard/layout.tsx)
- * except the door scanner. Tabs in the main nav's style: the current
+ * The organiser sub-nav, on every organiser page for a signed-in approved
+ * organiser (OrganiserShell, app/dashboard/layout.tsx) except the door scanner. Tabs in the main nav's style: the current
  * section has aria-current (the umlaut and an underline), "page" on the
  * section's own page and "true" on a page inside it (an event's editor is in
  * Your events). Wraps on phones: no sideways scrolling, every link 44px tall.
@@ -56,7 +63,7 @@ export default function OrganiserSubNav() {
             <Link
               href={link.href}
               aria-current={section === link.href ? (pathname === link.href ? "page" : "true") : undefined}
-              className={`${navLinkClass} inline-flex min-h-11 items-center`}
+              className={subNavLinkClass}
             >
               {link.label}
             </Link>

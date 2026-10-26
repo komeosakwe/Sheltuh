@@ -5,8 +5,9 @@ import type { EventRecord, EventStatus } from "./api/types";
  * (components/dashboard/OrganiserEventRow.tsx). The rules mirror the routes:
  *
  * - The editor (/dashboard/{id}) saves only a draft or rejected event; a
- *   pending or published one opens read-only (PATCH /api/events/{id} is a
- *   409), so its action is View, not Edit.
+ *   pending one opens read-only (PATCH /api/events/{id} is a 409), so its
+ *   action is "View submission", not Edit. A published one's main action is
+ *   its public page instead (the editor would only say it's locked).
  * - Analytics (/dashboard/events/{id}/analytics) works for any status.
  * - Door check-in only for a published event ticketed on Sheltüh (an
  *   external event's check-in is a 409: it has no admissions).
@@ -27,6 +28,8 @@ export interface OrganiserEventStatus {
   tone: OrganiserEventTone;
   /** One line on what the organiser can do next. */
   hint: string;
+  /** The hint goes on with "Contact Sheltüh to change it.", the first two words a link to Sheltüh's support email. */
+  contactToChange?: boolean;
 }
 
 const STATUS: Record<OrganiserEventState, Omit<OrganiserEventStatus, "state">> = {
@@ -36,8 +39,8 @@ const STATUS: Record<OrganiserEventState, Omit<OrganiserEventStatus, "state">> =
     tone: "pending",
     hint: "Sheltüh is reviewing it. You can’t edit it until then.",
   },
-  published: { label: "Published", tone: "approved", hint: "Live on Sheltüh. Contact Sheltüh to change it." },
-  rejected: { label: "Rejected", tone: "rejected", hint: "Read the reviewer’s note, edit it, then submit it again." },
+  published: { label: "Published", tone: "approved", hint: "Live on Sheltüh.", contactToChange: true },
+  rejected: { label: "Rejected", tone: "rejected", hint: "Open Edit to read the reviewer’s note." },
   unpublished: { label: "Unpublished", tone: "neutral", hint: "Taken off Sheltüh. Edit it, then submit it again." },
 };
 
@@ -67,7 +70,11 @@ export interface OrganiserEventAction {
   href: string;
 }
 
-/** The actions that apply to this event, in a fixed order: the main one (Edit or View) first. */
+/**
+ * The actions that apply to this event, in a fixed order, the main one first:
+ * Edit (draft, rejected), View submission (pending), or View public page
+ * (published; View, for the read-only editor, only if it has no slug).
+ */
 export function organiserEventActions(
   event: Pick<EventRecord, "eventId" | "slug" | "title" | "status" | "ticketingMode" | "seating">,
 ): OrganiserEventAction[] {
@@ -77,8 +84,22 @@ export function organiserEventActions(
   const published = event.status === "published";
   const actions: OrganiserEventAction[] = [];
 
+  const publicPage: OrganiserEventAction | null =
+    published && event.slug
+      ? {
+          kind: "public-page",
+          label: "View public page",
+          name: `View public page for ${title}`,
+          href: `/events/${encodeURIComponent(event.slug)}`,
+        }
+      : null;
+
   if (canEditEvent(event)) {
     actions.push({ kind: "edit", label: "Edit", name: `Edit ${title}`, href: `/dashboard/${id}` });
+  } else if (publicPage) {
+    actions.push(publicPage);
+  } else if (event.status === "pending_review") {
+    actions.push({ kind: "view", label: "View submission", name: `View submission for ${title}`, href: `/dashboard/${id}` });
   } else {
     actions.push({ kind: "view", label: "View", name: `View ${title}`, href: `/dashboard/${id}` });
   }
@@ -88,14 +109,6 @@ export function organiserEventActions(
   }
   if (event.seating && !external) {
     actions.push({ kind: "seat-map", label: "Seat map", name: `Seat map for ${title}`, href: `/dashboard/${id}/seat-map` });
-  }
-  if (published && event.slug) {
-    actions.push({
-      kind: "public-page",
-      label: "View public page",
-      name: `View public page for ${title}`,
-      href: `/events/${encodeURIComponent(event.slug)}`,
-    });
   }
   return actions;
 }

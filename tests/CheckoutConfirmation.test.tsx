@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CheckoutConfirmation from "@/components/CheckoutConfirmation";
@@ -238,17 +238,26 @@ describe("CheckoutConfirmation", () => {
     expect(screen.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/neon-static");
   });
 
-  it("shows the event's refund policy by the totals, with the ACL line and how to ask for a refund", async () => {
-    getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, eventListed: true, refundPolicy: "days_before", refundDays: 14 });
-    render(<CheckoutConfirmation />);
-    await screen.findByText("Total paid");
-    const refunds = document.querySelector<HTMLElement>("[data-refund-policy]");
-    if (!refunds) throw new Error("no refund policy");
-    expect(refunds).toHaveTextContent("Refund policy: Refunds available up to 14 days before the event.");
-    expect(refunds).toHaveTextContent(REFUND_ACL_STATEMENT);
-    expect(screen.getByRole("link", { name: "Request a refund" })).toHaveAttribute("href", "/refunds");
-    // After the total.
-    expect(screen.getByText("Total paid").compareDocumentPosition(refunds) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  it("shows the event's refund policy by the totals, dated from its start, with the ACL line and how to ask for a refund", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-01T00:00:00.000Z"));
+    try {
+      getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, eventListed: true, refundPolicy: "days_before", refundDays: 14 });
+      render(<CheckoutConfirmation />);
+      await screen.findByText("Total paid");
+      const refunds = document.querySelector<HTMLElement>("[data-refund-policy]");
+      if (!refunds) throw new Error("no refund policy");
+      // The event starts Sat 6 Mar 2027, 8:00 pm AEDT.
+      expect(refunds).toHaveTextContent(
+        "Refund policy: Refunds available until Sat 20 Feb 2027, 8:00 pm (14 days before the event).",
+      );
+      expect(within(refunds).getByText(REFUND_ACL_STATEMENT)).toHaveClass("text-sm", "text-muted");
+      expect(screen.getByRole("link", { name: "Request a refund" })).toHaveAttribute("href", "/refunds");
+      // After the total.
+      expect(screen.getByText("Total paid").compareDocumentPosition(refunds) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("says no_change_of_mind too", async () => {

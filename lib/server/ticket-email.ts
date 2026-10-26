@@ -1,7 +1,7 @@
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { formatAud } from "@/lib/format";
 import { directionsHref } from "@/lib/maps";
-import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsSummary } from "@/lib/refund-policy";
+import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { formatSeatLine, speakSeatLine } from "@/lib/seating/format";
 import { QR_QUIET_ZONE_MODULES, ticketQrLabel, ticketQrMatrix } from "@/lib/ticket-qr";
 import { subjectLine, type EmailMessage, type InlineImage } from "./email";
@@ -277,18 +277,36 @@ ${qrRow}<tr><td align="center" class="tpx" style="padding:${qr ? 16 : 20}px 20px
  * Sheltüh (another site's terms apply to an external event). The event is the
  * live one the outbox loads on every attempt (findEventById), so a resend
  * says the policy as it stands then; it can only have become more generous
- * since the order (an event with orders can't be tightened).
+ * since the order (an event with orders can't be tightened). A `days_before`
+ * policy is said against the event's start and `now` (when the email is
+ * built): the date and time refunds close, in Melbourne time like the rest of
+ * the email, or that they have (lib/refund-policy.ts, refundTermsLine).
  */
-export function ticketEmailRefundPolicy(order: Pick<OrderRecord, "totalCents">, event: EventRecord): string | null {
+export function ticketEmailRefundPolicy(
+  order: Pick<OrderRecord, "totalCents">,
+  event: EventRecord,
+  now: Date = new Date(),
+): string | null {
   if (order.totalCents <= 0 || event.status !== "published" || event.ticketingMode === "external") return null;
-  return refundTermsSummary(event.refundPolicy ?? DEFAULT_REFUND_POLICY, event.refundDays);
+  return refundTermsLine(event.refundPolicy ?? DEFAULT_REFUND_POLICY, event.refundDays, event.startsAt, {
+    timeZone: MELBOURNE_TZ,
+    now,
+  });
 }
 
 /** The orange "YOU'RE IN" label: black text on Signal Orange (6.18:1), 14px bold, barely tracked. */
 const YOURE_IN_LABEL = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 12px 0"><tr><td bgcolor="${SIGNAL}" style="background-color:${SIGNAL};border-radius:4px;padding:4px 10px;${text(14, 20, INK, "font-weight:bold;letter-spacing:0.5px")}">YOU&rsquo;RE IN</td></tr></table>`;
 
-/** The sent email: one 600px-max column, with a plain-text alternative. */
-export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl: string): EmailMessage {
+/**
+ * The sent email: one 600px-max column, with a plain-text alternative. `now`
+ * (when it's built) dates the refund policy (ticketEmailRefundPolicy).
+ */
+export function buildTicketEmail(
+  order: OrderRecord,
+  event: EventRecord,
+  siteUrl: string,
+  now: Date = new Date(),
+): EmailMessage {
   const link = ticketPageLink(siteUrl, order.orderId);
   const one = order.tickets.length === 1;
   // /checkout/success lists every ticket code, so the button can say "tickets".
@@ -306,7 +324,7 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
   const qrs = order.tickets.map((t, i) => ticketQr(t.ticketCode, i));
   const anyQr = qrs.some((qr) => qr !== null);
   const total = order.tickets.length;
-  const refunds = ticketEmailRefundPolicy(order, event);
+  const refunds = ticketEmailRefundPolicy(order, event, now);
 
   // --- Plain text ---
   const plain = [

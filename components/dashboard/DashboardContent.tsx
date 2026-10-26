@@ -16,7 +16,7 @@ const NEW_EVENT_HREF = "/dashboard/new";
 /** Decorative: the words beside it name the action. */
 function PlusIcon() {
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" className="h-4 w-4 shrink-0">
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" className="h-4 w-4 shrink-0">
       <path d="M12 5v14M5 12h14" />
     </svg>
   );
@@ -25,7 +25,8 @@ function PlusIcon() {
 /**
  * New event: an action beside the "Your events" heading, not a tab. An
  * outlined button with a plus, so it never reads as the current page (the
- * sub-nav's underlined tabs carry that); 44px tall at every width.
+ * sub-nav's underlined tabs carry that); 44px tall at every width. Not while
+ * the list is loading or empty: the empty state has "Create your first event".
  */
 function NewEventLink() {
   return (
@@ -126,9 +127,12 @@ export default function DashboardContent() {
   }
 
   const approved = organiser?.status === "approved";
+  // Once there's a list to add to (or it couldn't load, when this is the way to create one anyway).
+  const listShown = (events !== null && events.length > 0) || eventsError !== null;
+  const canCreate = auth.status === "signed-in" && approved && !organiserError && listShown;
   return (
     <div className="flex flex-col gap-8">
-      <Header action={auth.status === "signed-in" && approved && !organiserError ? <NewEventLink /> : undefined} />
+      <Header action={canCreate ? <NewEventLink /> : undefined} />
       {renderBody()}
     </div>
   );

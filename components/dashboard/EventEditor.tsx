@@ -15,6 +15,7 @@ import SeatingChoiceField, {
   type SeatingChoice,
 } from "@/components/dashboard/SeatingChoice";
 import { ClipSyncError, useEventClip, type ClipRoutes } from "@/components/dashboard/useEventClip";
+import { Button } from "@/components/ui/Button";
 import { fieldClass } from "@/components/ui/Field";
 import {
   adminCreateEvent,
@@ -54,6 +55,7 @@ import {
   type RefundPolicy,
 } from "@/lib/refund-policy";
 import { checkExternalTicketUrl, sellsPaidTicketsOnSheltuh, type TicketingMode } from "@/lib/ticketing";
+import { localToUtcIso, PLATFORM_TIME_ZONE } from "@/lib/time-zones";
 import { EVENT_CATEGORIES } from "@/lib/types";
 
 /** A section title in the form (Panel's title style: 20/24, uppercase by the heading base rule, which a legend doesn't get). */
@@ -138,6 +140,51 @@ function newTicketType(): TicketTypeInput {
   };
 }
 
+/** A field error's element id: the control's id plus "-error" (`refundDays` → `refundDays-error`). */
+function errorId(key: string): string {
+  return `${key}-error`;
+}
+
+/**
+ * The control to focus for each client-side error, in the form's order: the
+ * first one present is focused when a save doesn't validate.
+ */
+function invalidControlIds(
+  errors: Record<string, string>,
+  ticketCount: number,
+  start: { date: string },
+  end: { date: string },
+): string[] {
+  const order: [string, string][] = [
+    ["organiserId", "organiserId"],
+    ["title", "title"],
+    ["description", "description"],
+    ["venueName", "venueName"],
+    ["venueAddress", "venueAddress"],
+    ["suburb", "suburb"],
+    ["start", start.date ? "start-time" : "start-date"],
+    ["end", end.date ? "end-time" : "end-date"],
+    ["externalTicketUrl", "externalTicketUrl"],
+    ["ticketTypes", "add-ticket-type"],
+  ];
+  for (let i = 0; i < ticketCount; i++) {
+    for (const field of ["name", "price", "qty"]) order.push([`ticket-${i}-${field}`, `ticket-${i}-${field}`]);
+  }
+  order.push(["refundDays", "refundDays"]);
+  return order.filter(([key]) => errors[key]).map(([, id]) => id);
+}
+
+/** The event's start as an instant, once both parts are filled in and real (Melbourne time); undefined otherwise. */
+function startInstant(start: { date: string; time: string }): string | undefined {
+  if (!start.date || !start.time) return undefined;
+  try {
+    return localToUtcIso(start.date, start.time, PLATFORM_TIME_ZONE);
+  } catch {
+    // Not a real local time yet (half-typed, or in the daylight-saving gap): no preview date.
+    return undefined;
+  }
+}
+
 export default function EventEditor(props: Props) {
   const { getToken, initial, onReload } = props;
   const router = useRouter();
@@ -217,14 +264,26 @@ export default function EventEditor(props: Props) {
   const [payoutsRefused, setPayoutsRefused] = useState(false);
   const payoutsErrorRef = useRef<HTMLDivElement>(null);
   const focusPayoutsError = useRef(false);
-  // A save refused for making the refund policy less generous: focus goes to the policy's chosen option.
+  // A save refused for making the refund policy less generous: focus goes to the days (from one number
+  // of days to another), else to the policy's chosen option.
   const refundChoiceRef = useRef<HTMLInputElement>(null);
-  const focusRefundChoice = useRef(false);
+  const refundDaysRef = useRef<HTMLInputElement>(null);
+  const focusRefund = useRef<"choice" | "days" | null>(null);
+  // A save that didn't validate here: focus goes to the first field that needs fixing, once its error is shown.
+  const focusInvalidId = useRef<string | null>(null);
 
   useEffect(() => {
-    if (focusRefundChoice.current && refundChoiceRef.current) {
-      focusRefundChoice.current = false;
-      refundChoiceRef.current.focus();
+    if (focusInvalidId.current) {
+      const element = document.getElementById(focusInvalidId.current);
+      focusInvalidId.current = null;
+      element?.focus();
+    }
+    if (focusRefund.current) {
+      const element = focusRefund.current === "days" ? refundDaysRef.current : refundChoiceRef.current;
+      if (element) {
+        focusRefund.current = null;
+        element.focus();
+      }
     }
     if (!focusPayoutsError.current || !payoutsErrorRef.current) return;
     focusPayoutsError.current = false;
@@ -280,7 +339,9 @@ export default function EventEditor(props: Props) {
     if (isRefundPolicyTightenedError(err)) {
       setErrors((prev) => ({ ...prev, ...err.fieldErrors, refundPolicy: err.fieldErrors?.refundPolicy ?? err.message }));
       setSubmitError("Not saved: the refund policy can\u2019t be made less generous now. See Refund policy.");
-      focusRefundChoice.current = true;
+      // From one number of days to more: the days are what to change. Otherwise the choice is.
+      const saved = savedRecord ?? initial;
+      focusRefund.current = saved?.refundPolicy === "days_before" && refundPolicy === "days_before" ? "days" : "choice";
       return;
     }
     if (err instanceof ApiError && err.fieldErrors) setErrors((prev) => ({ ...prev, ...err.fieldErrors }));
@@ -344,7 +405,13 @@ export default function EventEditor(props: Props) {
         nextErrors.refundDays = `Enter a whole number of days from ${MIN_REFUND_DAYS} to ${MAX_REFUND_DAYS}.`;
     }
     setErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0) return null;
+    if (Object.keys(nextErrors).length > 0) {
+      // Focus the first field to fix (its error is read with it), and say how many there are by the buttons.
+      focusInvalidId.current = invalidControlIds(nextErrors, ticketTypes.length, start, end)[0] ?? null;
+      const count = Object.keys(nextErrors).length;
+      setStatus(`Not saved: ${count === 1 ? "1 field needs" : `${count} fields need`} fixing. The first one is focused.`);
+      return null;
+    }
 
     const input: EventInput = {
       title: title.trim(),
@@ -534,16 +601,33 @@ export default function EventEditor(props: Props) {
   }
 
   if (locked) {
+    // The same words as the dashboard's status badge (lib/organiser-events.ts).
+    const published = initial?.status === "published";
     return (
       <div className="bg-surface p-4 text-foreground">
-        <p className="font-heading text-xl">
-          {initial?.status === "published" ? "Published" : "Pending review"}
-        </p>
+        <h2 className="font-heading text-xl">{published ? "Published" : "Waiting for review"}</h2>
         <p className="mt-2 text-sm text-muted">
-          This event can&rsquo;t be edited while it&rsquo;s{" "}
-          {initial?.status === "published" ? "published" : "pending review"}.
+          This event can&rsquo;t be edited while it&rsquo;s {published ? "published" : "waiting for review"}.
         </p>
       </div>
+    );
+  }
+
+  /** A field's error wiring: aria-invalid, and aria-describedby pointing at its error, while it has one. */
+  function invalidProps(key: string) {
+    return {
+      "aria-invalid": errors[key] ? true : undefined,
+      "aria-describedby": errors[key] ? errorId(key) : undefined,
+    };
+  }
+
+  /** A field's error message, with the id invalidProps points at. */
+  function fieldError(name: string) {
+    if (!errors[name]) return null;
+    return (
+      <p id={errorId(name)} className="text-sm text-danger">
+        {errors[name]}
+      </p>
     );
   }
 
@@ -595,10 +679,11 @@ export default function EventEditor(props: Props) {
         <input
           id="title"
           value={title}
+          {...invalidProps("title")}
           onChange={(e) => setTitle(e.target.value)}
           className={fieldClass}
         />
-        {errors.title && <p className="text-sm text-danger">{errors.title}</p>}
+        {fieldError("title")}
       </div>
 
       <div className="flex flex-col gap-1">
@@ -609,10 +694,11 @@ export default function EventEditor(props: Props) {
           id="description"
           rows={4}
           value={description}
+          {...invalidProps("description")}
           onChange={(e) => setDescription(e.target.value)}
           className={fieldClass}
         />
-        {errors.description && <p className="text-sm text-danger">{errors.description}</p>}
+        {fieldError("description")}
       </div>
 
       <div className="flex flex-col gap-1">
@@ -641,10 +727,11 @@ export default function EventEditor(props: Props) {
           <input
             id="venueName"
             value={venueName}
+            {...invalidProps("venueName")}
             onChange={(e) => setVenueName(e.target.value)}
             className={fieldClass}
           />
-          {errors.venueName && <p className="text-sm text-danger">{errors.venueName}</p>}
+          {fieldError("venueName")}
         </div>
         <div className="flex flex-col gap-1 sm:col-span-1">
           <label htmlFor="venueAddress" className="eyebrow text-muted">
@@ -653,10 +740,11 @@ export default function EventEditor(props: Props) {
           <input
             id="venueAddress"
             value={venueAddress}
+            {...invalidProps("venueAddress")}
             onChange={(e) => setVenueAddress(e.target.value)}
             className={fieldClass}
           />
-          {errors.venueAddress && <p className="text-sm text-danger">{errors.venueAddress}</p>}
+          {fieldError("venueAddress")}
         </div>
         <div className="flex flex-col gap-1 sm:col-span-1">
           <label htmlFor="suburb" className="eyebrow text-muted">
@@ -665,10 +753,11 @@ export default function EventEditor(props: Props) {
           <input
             id="suburb"
             value={suburb}
+            {...invalidProps("suburb")}
             onChange={(e) => setSuburb(e.target.value)}
             className={fieldClass}
           />
-          {errors.suburb && <p className="text-sm text-danger">{errors.suburb}</p>}
+          {fieldError("suburb")}
         </div>
       </div>
 
@@ -677,40 +766,49 @@ export default function EventEditor(props: Props) {
           <legend className="eyebrow text-muted">Starts (Melbourne time)</legend>
           <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,8rem)] gap-2">
             <input
+              id="start-date"
               type="date"
               aria-label="Start date"
+              {...invalidProps("start")}
               value={start.date}
               onChange={(e) => setStart((s) => ({ ...s, date: e.target.value }))}
               className={`${fieldClass} min-w-0`}
             />
             <input
+              id="start-time"
               type="time"
               aria-label="Start time"
+              {...invalidProps("start")}
               value={start.time}
               onChange={(e) => setStart((s) => ({ ...s, time: e.target.value }))}
               className={`${fieldClass} min-w-0`}
             />
           </div>
-          {(errors.start || errors.end) && <p className="text-sm text-danger">{errors.start || errors.end}</p>}
+          {fieldError("start")}
         </fieldset>
         <fieldset className="flex min-w-0 flex-col gap-2">
           <legend className="eyebrow text-muted">Ends (Melbourne time)</legend>
           <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,8rem)] gap-2">
             <input
+              id="end-date"
               type="date"
               aria-label="End date"
+              {...invalidProps("end")}
               value={end.date}
               onChange={(e) => setEnd((s) => ({ ...s, date: e.target.value }))}
               className={`${fieldClass} min-w-0`}
             />
             <input
+              id="end-time"
               type="time"
               aria-label="End time"
+              {...invalidProps("end")}
               value={end.time}
               onChange={(e) => setEnd((s) => ({ ...s, time: e.target.value }))}
               className={`${fieldClass} min-w-0`}
             />
           </div>
+          {fieldError("end")}
         </fieldset>
       </div>
 
@@ -760,7 +858,7 @@ export default function EventEditor(props: Props) {
               On another site
             </label>
           </div>
-          {errors.ticketingMode && <p className="text-sm text-danger">{errors.ticketingMode}</p>}
+          {fieldError("ticketingMode")}
           {ticketingMode === "external" && (
             <>
               <div className="flex flex-col gap-1">
@@ -816,9 +914,11 @@ export default function EventEditor(props: Props) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className={SECTION_TITLE}>Ticket types</h2>
           <button
+            id="add-ticket-type"
             type="button"
             onClick={() => setTicketTypes((prev) => [...prev, newTicketType()])}
-            className="btn btn-outline"
+            aria-describedby={errors.ticketTypes ? errorId("ticketTypes") : undefined}
+            className="btn btn-outline min-h-11"
           >
             Add ticket type
           </button>
@@ -843,11 +943,10 @@ export default function EventEditor(props: Props) {
                     id={`ticket-${index}-name`}
                     value={ticket.name}
                     onChange={(e) => updateTicket(index, { name: e.target.value })}
+                    {...invalidProps(`ticket-${index}-name`)}
                     className={fieldClass}
                   />
-                  {errors[`ticket-${index}-name`] && (
-                    <p className="text-sm text-danger">{errors[`ticket-${index}-name`]}</p>
-                  )}
+                  {fieldError(`ticket-${index}-name`)}
                 </div>
                 <div className="flex flex-col gap-1">
                   <label htmlFor={`ticket-${index}-price`} className="eyebrow text-muted">
@@ -862,11 +961,10 @@ export default function EventEditor(props: Props) {
                     onChange={(e) =>
                       updateTicket(index, { priceCents: Math.round(Number(e.target.value) * 100) || 0 })
                     }
+                    {...invalidProps(`ticket-${index}-price`)}
                     className={fieldClass}
                   />
-                  {errors[`ticket-${index}-price`] && (
-                    <p className="text-sm text-danger">{errors[`ticket-${index}-price`]}</p>
-                  )}
+                  {fieldError(`ticket-${index}-price`)}
                 </div>
                 <div className="flex flex-col gap-1">
                   <label htmlFor={`ticket-${index}-fee-policy`} className="eyebrow text-muted">
@@ -894,11 +992,10 @@ export default function EventEditor(props: Props) {
                     min={1}
                     value={ticket.quantityAvailable}
                     onChange={(e) => updateTicket(index, { quantityAvailable: Number(e.target.value) || 0 })}
+                    {...invalidProps(`ticket-${index}-qty`)}
                     className={fieldClass}
                   />
-                  {errors[`ticket-${index}-qty`] && (
-                    <p className="text-sm text-danger">{errors[`ticket-${index}-qty`]}</p>
-                  )}
+                  {fieldError(`ticket-${index}-qty`)}
                 </div>
               </div>
               <p className="text-xs text-muted">
@@ -941,8 +1038,11 @@ export default function EventEditor(props: Props) {
           }}
           policyError={errors.refundPolicy}
           daysError={errors.refundDays}
+          savedTerms={savedRecord ?? initial}
+          startsAt={startInstant(start)}
           admin={isAdmin}
           checkedRef={refundChoiceRef}
+          daysRef={refundDaysRef}
           legendClassName={SECTION_TITLE}
         />
       )}
@@ -1031,25 +1131,28 @@ export default function EventEditor(props: Props) {
       </p>
 
       <div className="flex flex-wrap gap-3">
-        <button
+        {/* busy, not disabled: the button keeps focus while it works (a disabled one drops it to the page). */}
+        <Button
           ref={saveRef}
           type="submit"
-          disabled={saving}
-          className="btn btn-solid w-fit"
+          variant="solid"
+          busy={saving}
+          className="min-h-11 w-fit"
         >
           {saving ? "Saving…" : saveLabel(isAdmin, Boolean(initial), Boolean(createdId), reservedSeating)}
-        </button>
+        </Button>
         {initial && !isAdmin && (
-          <button
-            type="button"
+          <Button
+            variant="outline"
             onClick={handleSubmitForReview}
-            disabled={submitting}
-            // Kept enabled while payouts are needed (the refusal is shown, with the fix): this says why first.
+            // Pressing it during a save is fine: it waits for that save's clip upload.
+            busy={submitting}
+            // Kept usable while payouts are needed (the refusal is shown, with the fix): this says why first.
             aria-describedby={submitDescription}
-            className="btn btn-outline w-fit"
+            className="min-h-11 w-fit"
           >
             {submitting ? "Submitting…" : "Submit for review"}
-          </button>
+          </Button>
         )}
       </div>
     </form>

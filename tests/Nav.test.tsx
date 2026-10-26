@@ -69,7 +69,7 @@ describe("Nav — phone menu", () => {
     expect(within(menu).getByRole("link", { name: "Sign in", hidden: true })).toHaveAttribute("href", "/login");
   });
 
-  it("offers Admin, Messages, My events and Account to a signed-in admin (Sign out is on /account)", () => {
+  it("offers Admin, Messages, Your events and Account to a signed-in admin (Sign out is on /account)", () => {
     const { menu } = renderNav(fakeAuthValue({ isAdmin: true }));
     expect(linkHrefs(menu)).toEqual([
       ["Discover", "/"],
@@ -77,7 +77,7 @@ describe("Nav — phone menu", () => {
       ["Saved", "/saved"],
       ["Admin", "/admin"],
       ["Messages", "/messages"],
-      ["My events", "/dashboard"],
+      ["Your events", "/dashboard"],
       ["Account", "/account"],
       ["For organisers", "/organisers/apply"],
     ]);
@@ -87,7 +87,7 @@ describe("Nav — phone menu", () => {
   it("hides Admin from a signed-in organiser", () => {
     const { menu } = renderNav(fakeAuthValue({ isAdmin: false }));
     expect(within(menu).queryByRole("link", { name: "Admin", hidden: true })).not.toBeInTheDocument();
-    expect(within(menu).getByRole("link", { name: "My events", hidden: true })).toBeInTheDocument();
+    expect(within(menu).getByRole("link", { name: "Your events", hidden: true })).toBeInTheDocument();
   });
 
   it("shows the loading placeholder while auth resolves", () => {
@@ -202,7 +202,7 @@ describe("Nav — phone menu", () => {
 });
 
 describe("Nav — desktop row", () => {
-  it("signed in: Messages and Account (plus Admin); My events is in the menu and on /account", () => {
+  it("signed in: Messages and Account (plus Admin); Your events is in the menu and on /account", () => {
     renderNav(fakeAuthValue({ isAdmin: true }));
     const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
     expect(linkHrefs(desktopNav)).toEqual([
@@ -223,7 +223,7 @@ describe("Nav — desktop row", () => {
     const accountLinks = screen.getAllByRole("link", { name: "Account", hidden: true });
     expect(accountLinks).toHaveLength(2);
     for (const link of accountLinks) expect(link).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "My events", hidden: true })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: "Your events", hidden: true })).not.toHaveAttribute("aria-current");
   });
 
   it("keeps the inline site search and the same destinations", () => {

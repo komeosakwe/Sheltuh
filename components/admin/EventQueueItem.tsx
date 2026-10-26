@@ -391,9 +391,15 @@ function Actions({
 
   function failed(err: unknown, action: Action, fallback: string) {
     if (isPayoutsRequiredError(err)) {
-      // Still waiting for review: its organiser's payouts aren't set up (any more). Say why, here; it stays listed.
+      // Still waiting for review: its organiser's payouts aren't set up (any more). Say why, here; it stays
+      // listed. The question is over (publishing can't work yet): close it, keep the notice, and put focus
+      // back on Approve…, where the admin started.
       setError(err.message);
       setBusy(null);
+      if (action === "approve") {
+        pendingFocus.current = ids.approve;
+        setOpen(null);
+      }
       return;
     }
     if (err instanceof ApiError && (err.status === 409 || err.status === 404)) {

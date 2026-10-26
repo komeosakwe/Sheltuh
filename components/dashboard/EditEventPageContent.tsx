@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import EventEditor from "@/components/dashboard/EventEditor";
 import { seatMapHref, seatMapLinkLabel } from "@/components/dashboard/SeatingChoice";
 import { ButtonLink } from "@/components/ui/Button";
+import { PageHeader } from "@/components/ui/Section";
 import type { GetToken } from "@/lib/api/client";
 import { getMyEvent } from "@/lib/api/events";
 import type { EventRecord } from "@/lib/api/types";
@@ -15,6 +16,19 @@ import { useKeptWhileSignedOut } from "@/lib/auth/useKeptWhileSignedOut";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 
+/**
+ * The page's h1, by what can be done with the event: "Edit event" for a
+ * draft or rejected one (and while it loads), "Your submission" while it's
+ * waiting for review (the dashboard's "View submission" leads here), and
+ * "Your event" once it's published. Both of those open read-only.
+ */
+export function editEventPageTitle(event: Pick<EventRecord, "status"> | null): string {
+  if (event?.status === "pending_review") return "Your submission";
+  if (event?.status === "published") return "Your event";
+  return "Edit event";
+}
+
+/** The edit page's header and body (app/dashboard/[eventId]/page.tsx): the h1 says what the page is for this event. */
 export default function EditEventPageContent() {
   const auth = useAuth();
   const params = useParams<{ eventId: string }>();
@@ -52,51 +66,60 @@ export default function EditEventPageContent() {
     };
   }, [ready, account, getToken, params.eventId]);
 
-  if (!auth.configured) {
-    return (
-      <p role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
-        Accounts aren&rsquo;t configured in this environment yet.
-      </p>
-    );
-  }
+  return (
+    <>
+      <PageHeader flush size="md" eyebrow="Organiser" title={editEventPageTitle(event)} />
+      {renderBody()}
+    </>
+  );
 
-  if (event && editor?.value) {
-    const as = editor.account;
-    return (
-      <EditorView
-        key={as}
-        event={event}
-        getToken={getToken}
-        payoutsEnabled={organiser ? organiser.payoutsEnabled === true : undefined}
-        onSaved={(record) => setLoaded({ account: as, event: record, error: null })}
-      />
-    );
-  }
+  function renderBody() {
+    if (!auth.configured) {
+      return (
+        <p role="alert" className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
+          Accounts aren&rsquo;t configured in this environment yet.
+        </p>
+      );
+    }
 
-  if (auth.status === "loading" || organiserLoading) {
-    return <LoadingState text="Loading…" />;
-  }
+    if (event && editor?.value) {
+      const as = editor.account;
+      return (
+        <EditorView
+          key={as}
+          event={event}
+          getToken={getToken}
+          payoutsEnabled={organiser ? organiser.payoutsEnabled === true : undefined}
+          onSaved={(record) => setLoaded({ account: as, event: record, error: null })}
+        />
+      );
+    }
 
-  if (auth.status !== "signed-in" || !organiser || organiser.status !== "approved") {
-    return (
-      <div className="rounded-card border border-foreground bg-card p-4">
-        <p className="mb-3 text-foreground">You need an approved organiser application to manage events.</p>
-        <Link href="/organisers/apply" className="btn btn-solid">
-          Apply as an organiser
-        </Link>
-      </div>
-    );
-  }
+    if (auth.status === "loading" || organiserLoading) {
+      return <LoadingState text="Loading…" />;
+    }
 
-  if (error) {
-    return (
-      <p role="alert" className="text-sm text-danger">
-        {error}
-      </p>
-    );
-  }
+    if (auth.status !== "signed-in" || !organiser || organiser.status !== "approved") {
+      return (
+        <div className="rounded-card border border-foreground bg-card p-4">
+          <p className="mb-3 text-foreground">You need an approved organiser application to manage events.</p>
+          <Link href="/organisers/apply" className="btn btn-solid">
+            Apply as an organiser
+          </Link>
+        </div>
+      );
+    }
 
-  return <LoadingState text="Loading event…" />;
+    if (error) {
+      return (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      );
+    }
+
+    return <LoadingState text="Loading event…" />;
+  }
 }
 
 /** The editor and its links. One component wherever it's shown from, so it's never remounted (losing edits). */

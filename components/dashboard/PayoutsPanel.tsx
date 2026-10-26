@@ -70,9 +70,9 @@ export default function PayoutsPanel() {
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-card border border-foreground bg-card p-4">
+    <div className="flex flex-col gap-3 border-t border-foreground pt-5">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="font-heading text-xl text-foreground">Payouts</h2>
+        <h2 className="font-heading text-xl text-foreground">Stripe account</h2>
         <StatusBadge tone={enabled ? "approved" : "pending"}>{enabled ? "Connected" : "Not set up"}</StatusBadge>
       </div>
 

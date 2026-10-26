@@ -119,9 +119,12 @@ describe("EventEditor (organiser) — payouts before submitting paid tickets", (
     const links = screen.getAllByRole("link", { name: "Set up payouts" });
     expect(links).toHaveLength(2);
     for (const link of links) expect(link).toHaveAttribute("href", "/dashboard/payouts");
-    expect(screen.getByRole("button", { name: "Save draft" })).toBeEnabled();
-    expect(submitButton()).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Save draft" })).not.toHaveAttribute("aria-disabled", "true");
+    expect(submitButton()).not.toHaveAttribute("aria-disabled", "true");
     expect(submitButton()).toHaveAccessibleDescription(new RegExp(PAYOUTS_SUBMIT_HINT.slice(0, 40)));
+    // Leaving for payouts leaves the editor: both say to save first.
+    expect(screen.getAllByText("(save your changes first)")).toHaveLength(2);
+    expect(document.getElementById("submit-payouts-hint")).toHaveTextContent("(save your changes first)");
   });
 
   it("free tickets: nothing to say", () => {
@@ -173,17 +176,19 @@ describe("EventEditor (organiser) — payouts before submitting paid tickets", (
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("a refused submit shows the server's reason with the link, and focus moves to it", async () => {
+  it("a refused submit shows the server's reason with the link, and focus moves to it (which announces it)", async () => {
     updateEventDraft.mockResolvedValue(PAID_DRAFT);
     submitEventForReview.mockRejectedValue(submitRefused());
     const { onSaved } = renderOrganiser(PAID_DRAFT, false);
     fireEvent.click(submitButton());
 
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(SUBMIT_REFUSED_MESSAGE);
-    const box = alert.parentElement;
-    if (!box) throw new Error("The refusal has no container.");
+    // A group named by the message, focused: arriving there reads it. No role="alert" as well (read twice).
+    const box = await screen.findByRole("group", { name: SUBMIT_REFUSED_MESSAGE });
+    expect(box).toHaveTextContent(SUBMIT_REFUSED_MESSAGE);
     await waitFor(() => expect(box).toHaveFocus());
+    expect(screen.queryByRole("alert")).toBeNull();
+    // Submitting saved the changes first: no "save first" here.
+    expect(box).not.toHaveTextContent("save your changes first");
     expect(within(box).getByRole("link", { name: "Set up payouts" })).toHaveAttribute("href", "/dashboard/payouts");
     // Submit now names the refusal (the hint it replaces isn't shown twice).
     expect(submitButton()).toHaveAccessibleDescription(new RegExp(SUBMIT_REFUSED_MESSAGE.slice(0, 40)));
@@ -191,7 +196,7 @@ describe("EventEditor (organiser) — payouts before submitting paid tickets", (
     // The edits were saved first; nothing says it was submitted.
     expect(updateEventDraft).toHaveBeenCalledTimes(1);
     expect(onSaved).not.toHaveBeenCalledWith(expect.objectContaining({ status: "pending_review" }));
-    expect(submitButton()).toBeEnabled();
+    expect(submitButton()).not.toHaveAttribute("aria-disabled", "true");
   });
 
   it("refused although the page thought payouts were on: the notice shows from then on", async () => {
@@ -200,7 +205,7 @@ describe("EventEditor (organiser) — payouts before submitting paid tickets", (
     renderOrganiser(PAID_DRAFT, true);
     expect(notice()).toBeNull();
     fireEvent.click(submitButton());
-    await screen.findByRole("alert");
+    await screen.findByRole("group", { name: SUBMIT_REFUSED_MESSAGE });
     expect(notice()).toBeInTheDocument();
   });
 
@@ -209,7 +214,7 @@ describe("EventEditor (organiser) — payouts before submitting paid tickets", (
     submitEventForReview.mockRejectedValueOnce(submitRefused()).mockResolvedValueOnce({ ...PAID_DRAFT, status: "pending_review" });
     const { onSaved } = renderOrganiser(PAID_DRAFT, false);
     fireEvent.click(submitButton());
-    await screen.findByRole("alert");
+    await screen.findByRole("group", { name: SUBMIT_REFUSED_MESSAGE });
     fireEvent.click(submitButton());
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ status: "pending_review" })));
     expect(screen.queryByText(SUBMIT_REFUSED_MESSAGE)).toBeNull();
@@ -307,6 +312,6 @@ describe("EventEditor (admin) — publishing paid tickets for an organiser witho
     expect(adminCreateEvent).toHaveBeenCalledWith(expect.objectContaining({ publish: true }), expect.any(Function));
     expect(push).not.toHaveBeenCalled();
     // Still a new event: the organiser can be changed, and Create is offered again.
-    expect(screen.getByRole("button", { name: "Create event" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Create event" })).not.toHaveAttribute("aria-disabled", "true");
   });
 });

@@ -250,16 +250,41 @@ describe("CheckoutPayment: open", () => {
     expect(total?.compareDocumentPosition(fee) ?? 0).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
-  it("says the event's refund policy, with the ACL line, under the total (before paying)", async () => {
-    getOrderPayment.mockResolvedValue({ ...OPEN_GA, refundPolicy: "days_before", refundDays: 7 });
-    render(<CheckoutPayment />);
-    const summary = await screen.findByRole("region", { name: "Neon Static" });
-    const refunds = summary.querySelector<HTMLElement>("[data-refund-policy]");
-    if (!refunds) throw new Error("no refund policy");
-    expect(refunds).toHaveTextContent("Refunds: Refunds available up to 7 days before the event.");
-    expect(within(refunds).getByText(REFUND_ACL_STATEMENT)).toHaveClass("text-xs", "text-muted");
-    const total = summary.querySelector("[data-order-total]");
-    expect(total?.compareDocumentPosition(refunds) ?? 0).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  it("says the event's refund policy, dated from its start, with the ACL line, under the total (before paying)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-01T00:00:00.000Z"));
+    try {
+      // The event starts Sat 6 Mar 2027, 8:00 pm AEDT.
+      getOrderPayment.mockResolvedValue({ ...OPEN_GA, refundPolicy: "days_before", refundDays: 7 });
+      render(<CheckoutPayment />);
+      const summary = await screen.findByRole("region", { name: "Neon Static" });
+      const refunds = summary.querySelector<HTMLElement>("[data-refund-policy]");
+      if (!refunds) throw new Error("no refund policy");
+      // "Refund policy:", not "Refunds: Refunds available…".
+      expect(refunds).toHaveTextContent(
+        "Refund policy: Refunds available until Sat 27 Feb 2027, 8:00 pm (7 days before the event).",
+      );
+      expect(within(refunds).getByText(REFUND_ACL_STATEMENT)).toHaveClass("text-sm", "text-muted");
+      const total = summary.querySelector("[data-order-total]");
+      expect(total?.compareDocumentPosition(refunds) ?? 0).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says the refund window has closed once the deadline has passed", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2027-03-03T09:00:00.000Z"));
+    try {
+      getOrderPayment.mockResolvedValue({ ...OPEN_GA, refundPolicy: "days_before", refundDays: 7 });
+      render(<CheckoutPayment />);
+      const summary = await screen.findByRole("region", { name: "Neon Static" });
+      expect(summary.querySelector("[data-refund-policy]")).toHaveTextContent(
+        "Refund policy: The refund window for this event has closed. No refunds for change of mind.",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("no_change_of_mind says so; a response without a policy (or with invalid days) says nothing about refunds", async () => {

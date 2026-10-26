@@ -21,9 +21,10 @@ export const navLinkClass =
  * defaults to the desktop nav style (the phone menu passes its own).
  *
  * `compact` (the desktop row): Messages and Account (and Admin for admins),
- * leaving out My events so the search field stays usable at 1024px (it
- * gets a shorter placeholder there). My events and Sign out are on
- * /account; the phone menu has room and also lists My events.
+ * leaving out Your events so the search field stays usable at 1024px (it
+ * gets a shorter placeholder there). Your events and Sign out are on
+ * /account; the phone menu has room and also lists Your events (worded as
+ * the organiser dashboard's h1).
  */
 export default function AuthNavLinks({
   className: linkClass = navLinkClass,
@@ -78,7 +79,7 @@ export default function AuthNavLinks({
           <CountBadge count={adminWaiting} srText={`, ${adminWaiting} waiting`} dataAttribute="data-admin-badge" />,
         )}
       {accountLink("/messages", "Messages", <UnreadBadge count={unread?.count ?? null} />)}
-      {!compact && accountLink("/dashboard", "My events")}
+      {!compact && accountLink("/dashboard", "Your events")}
       {accountLink("/account", "Account")}
     </>
   );

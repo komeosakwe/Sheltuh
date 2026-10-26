@@ -8,7 +8,7 @@ import type { Stat } from "./StatGrid";
 
 export const STATUS_LABEL: Record<EventStatus, string> = {
   draft: "Draft",
-  pending_review: "Pending review",
+  pending_review: "Waiting for review",
   published: "Published",
   rejected: "Rejected",
 };

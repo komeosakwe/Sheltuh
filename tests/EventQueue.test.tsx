@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useSyncExternalStore } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventQueue from "@/components/admin/EventQueue";
@@ -321,7 +321,7 @@ describe("EventQueue", () => {
     expect(screen.getByText(/no longer published .* It’s been taken off this list\./)).toHaveAttribute("role", "status");
   });
 
-  it("approving a paid event whose organiser has no payouts says why on the item, and it stays", async () => {
+  it("approving a paid event whose organiser has no payouts says why on the item, closes the question, and it stays", async () => {
     const message =
       "This organiser hasn't set up payouts, so this event can't have paid tickets while it's submitted or published. Make its tickets free, or wait until they've connected Stripe.";
     vi.mocked(adminApproveEvent).mockRejectedValue(
@@ -339,8 +339,12 @@ describe("EventQueue", () => {
     expect(screen.queryByText(/taken off this list/)).toBeNull();
     expect(screen.getByRole("heading", { level: 3, name: "Neon Static" })).toBeInTheDocument();
     expect(within(screen.getByRole("article", { name: "Laneway Nights" })).queryByRole("alert")).toBeNull();
-    // Publish can be tried again (once the organiser has connected Stripe).
-    expect(within(item).getByRole("button", { name: "Publish and email followers" })).not.toHaveAttribute("aria-disabled", "true");
+    // The question is closed (publishing can't work yet); focus is back on Approve…, which can be tried again
+    // once the organiser has connected Stripe. The notice stays.
+    expect(within(item).queryByRole("button", { name: "Publish and email followers" })).toBeNull();
+    expect(within(item).queryByRole("group")).toBeNull();
+    await waitFor(() => expect(within(item).getByRole("button", { name: "Approve Neon Static…" })).toHaveFocus());
+    expect(within(item).getByRole("alert")).toHaveTextContent(message);
   });
 
   it("a server error is shown in plain words, not the raw message, and the event stays", async () => {

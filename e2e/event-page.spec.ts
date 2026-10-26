@@ -384,8 +384,15 @@ for (const width of [375, 1280]) {
 test.describe("refund policy at 320px", () => {
   test.use({ viewport: { width: 320, height: 640 } });
 
-  test("a days_before event says so beside the tickets, before checkout, without sideways scroll", async ({ page }) => {
-    const event = { ...asPublic("neon-static"), refundPolicy: "days_before" as const, refundDays: 7 };
+  test("a days_before event says when refunds close beside the tickets, before checkout, without sideways scroll", async ({ page }) => {
+    const startsAt = Date.now() + 30 * DAY;
+    const event = {
+      ...asPublic("neon-static"),
+      startsAt: new Date(startsAt).toISOString(),
+      endsAt: new Date(startsAt + 3 * 3_600_000).toISOString(),
+      refundPolicy: "days_before" as const,
+      refundDays: 7,
+    };
     await page.route("**/api/**", (route) => {
       const url = new URL(route.request().url());
       if (/^\/api\/events\/slug\//.test(url.pathname)) return route.fulfill({ json: event });
@@ -394,11 +401,39 @@ test.describe("refund policy at 320px", () => {
     });
     await page.goto("/events/neon-static");
     const policy = page.locator("#tickets [data-refund-policy]");
-    await expect(policy).toHaveText("Refunds available up to 7 days before the event.", { timeout: 30_000 });
+    await expect(policy).toHaveText(
+      /^Refunds available until \w{3} \d{1,2} \w{3}( \d{4})?, \d{1,2}:\d{2} [ap]m \(7 days before the event\)\.$/,
+      { timeout: 30_000 },
+    );
     await expect(page.locator("#tickets [data-booking-info]")).toContainText(REFUND_ACL_STATEMENT);
     await policy.scrollIntoViewIfNeeded();
     await expect(policy).toBeVisible();
     await noSidewaysScroll(page);
+  });
+});
+
+test.describe("refund window already closed", () => {
+  test("an event 3 days away with a 7-day policy says the window has closed, never 'up to 7 days before'", async ({ page }) => {
+    const startsAt = Date.now() + 3 * DAY;
+    const event = {
+      ...asPublic("neon-static"),
+      startsAt: new Date(startsAt).toISOString(),
+      endsAt: new Date(startsAt + 3 * 3_600_000).toISOString(),
+      refundPolicy: "days_before" as const,
+      refundDays: 7,
+    };
+    await page.route("**/api/**", (route) => {
+      const url = new URL(route.request().url());
+      if (/^\/api\/events\/slug\//.test(url.pathname)) return route.fulfill({ json: event });
+      if (/\/going$/.test(url.pathname)) return route.fulfill({ json: { count: 0, countHidden: false, closed: false } });
+      return route.fulfill({ status: 204 });
+    });
+    await page.goto("/events/neon-static");
+    await expect(page.locator("#tickets [data-refund-policy]")).toHaveText(
+      "The refund window for this event has closed. No refunds for change of mind.",
+      { timeout: 30_000 },
+    );
+    await expect(page.locator("#tickets [data-booking-info]")).toContainText(REFUND_ACL_STATEMENT);
   });
 });
 

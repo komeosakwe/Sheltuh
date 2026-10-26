@@ -9,6 +9,9 @@
  * committed to.
  */
 
+import { formatDayTime } from "./format";
+import { PLATFORM_TIME_ZONE } from "./time-zones";
+
 /**
  * - `no_change_of_mind`: no refunds for change of mind (the default, and what
  *   every event created before the policy existed has).
@@ -62,6 +65,58 @@ export function refundPolicySummary(policy: RefundPolicy, days?: number | null):
   return `Refunds available up to ${days} ${days === 1 ? "day" : "days"} before the event.`;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * When a `days_before` policy's refunds close: `days` × 24 hours before the
+ * event starts (an exact span of time, so across a daylight-saving change
+ * the clock time differs from the start's by the hour). Null for an invalid
+ * start or `days`.
+ */
+export function refundDeadline(startsAt: string, days: number): Date | null {
+  const start = Date.parse(startsAt);
+  if (Number.isNaN(start) || !isValidRefundDays(days)) return null;
+  return new Date(start - days * DAY_MS);
+}
+
+/** What buyers are told once a `days_before` event's refund window has closed. */
+export const REFUND_WINDOW_CLOSED = "The refund window for this event has closed. No refunds for change of mind.";
+
+export interface RefundTermsLineOptions {
+  /** The event's IANA zone, for the deadline's date and time (Melbourne by default). */
+  timeZone?: string;
+  /** The moment to compare the deadline with (now by default). */
+  now?: Date;
+}
+
+/**
+ * The buyer-facing sentence for an event's policy, against its start:
+ * - `no_change_of_mind`: "No refunds for change of mind."
+ * - `days_before`, before the deadline (refundDeadline): "Refunds available
+ *   until Sat 21 Nov, 7:00 pm (7 days before the event)." in the event's
+ *   zone, with the year when it isn't `now`'s.
+ * - `days_before`, from the deadline on: REFUND_WINDOW_CLOSED.
+ *
+ * Null (say nothing) when there's no policy, or a `days_before` without
+ * valid days. A `days_before` event without a usable start falls back to
+ * refundPolicySummary. Callers for which absent means the default (a
+ * PublicEvent, a demo event) pass `policy ?? DEFAULT_REFUND_POLICY`.
+ */
+export function refundTermsLine(
+  policy: RefundPolicy | null | undefined,
+  days: number | null | undefined,
+  startsAt: string | null | undefined,
+  { timeZone = PLATFORM_TIME_ZONE, now = new Date() }: RefundTermsLineOptions = {},
+): string | null {
+  const summary = refundTermsSummary(policy, days);
+  if (summary === null || policy !== "days_before" || !isValidRefundDays(days)) return summary;
+  const deadline = startsAt ? refundDeadline(startsAt, days) : null;
+  if (!deadline) return summary;
+  if (now.getTime() >= deadline.getTime()) return REFUND_WINDOW_CLOSED;
+  const span = `${days} ${days === 1 ? "day" : "days"} before the event`;
+  return `Refunds available until ${formatDayTime(deadline.toISOString(), now, timeZone)} (${span}).`;
+}
+
 /**
  * refundPolicySummary for a policy as a payload carries it, for display:
  * null (say nothing) when there's no policy, or a `days_before` without valid
@@ -86,7 +141,7 @@ export interface RefundTerms {
  * (Infinity: the window closed before anyone bought) for
  * `no_change_of_mind`. Smaller is more generous.
  */
-function refundDeadline(terms: RefundTerms): number {
+function refundNoticeDays(terms: RefundTerms): number {
   return terms.refundPolicy === "days_before" && typeof terms.refundDays === "number" ? terms.refundDays : Infinity;
 }
 
@@ -100,5 +155,5 @@ function refundDeadline(terms: RefundTerms): number {
  * is edited.
  */
 export function tightensRefundPolicy(before: RefundTerms, after: RefundTerms): boolean {
-  return refundDeadline(after) > refundDeadline(before);
+  return refundNoticeDays(after) > refundNoticeDays(before);
 }

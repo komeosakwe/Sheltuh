@@ -24,7 +24,7 @@ import { formatEventDateShort, formatEventDateTimeRange, formatEventTime, format
 import { directionsHref } from "@/lib/maps";
 import { externalProviderLabel, formatFeedPriceParts, isSoldOut } from "@/lib/pricing";
 import { goesToSeatPage, quickBuyLabel } from "@/lib/quick-buy";
-import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsSummary } from "@/lib/refund-policy";
+import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { organiserProfileHref } from "@/lib/sample-organisers";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 
@@ -53,7 +53,8 @@ const ENDED_TEXT = "This event has ended.";
  */
 function BookingInfo({ event }: { event: SheltuhEvent }) {
   const linkClass = "underline underline-offset-4 hover:decoration-2";
-  const policy = refundTermsSummary(event.refundPolicy ?? DEFAULT_REFUND_POLICY, event.refundDays);
+  // Against the start: the date refunds close, or that they have (lib/refund-policy.ts).
+  const policy = refundTermsLine(event.refundPolicy ?? DEFAULT_REFUND_POLICY, event.refundDays, event.startsAt);
   return (
     <dl data-booking-info="" className="mt-4 flex flex-col gap-2 border-t border-surface-border pt-4 text-sm leading-5">
       <div>
@@ -64,7 +65,7 @@ function BookingInfo({ event }: { event: SheltuhEvent }) {
               {policy}
             </p>
           )}
-          {policy && <p className="text-muted">{REFUND_ACL_STATEMENT}</p>}
+          {policy && <p className="text-sm text-muted">{REFUND_ACL_STATEMENT}</p>}
           <p>
             Refund conditions are in our{" "}
             <Link href="/purchase-terms" className={linkClass}>

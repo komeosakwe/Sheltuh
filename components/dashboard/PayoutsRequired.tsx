@@ -25,6 +25,16 @@ function SetUpPayoutsLink() {
   );
 }
 
+/** The link, and that leaving for it leaves the editor: unsaved changes would be lost. */
+function SetUpPayoutsLine() {
+  return (
+    <p className="flex flex-wrap items-center gap-x-2">
+      <SetUpPayoutsLink />
+      <span className="text-muted">(save your changes first)</span>
+    </p>
+  );
+}
+
 /**
  * The organiser's event editor, by its ticket types: this event sells paid
  * tickets through Sheltüh and the organiser's payouts aren't set up, so it
@@ -35,10 +45,7 @@ export function PayoutsNeededNotice() {
   return (
     <Notice>
       <p>{PAYOUTS_NEEDED_TO_SUBMIT}</p>
-      <p className="flex flex-wrap items-center gap-x-2">
-        <SetUpPayoutsLink />
-        <span className="text-muted">(save your changes first)</span>
-      </p>
+      <SetUpPayoutsLine />
     </Notice>
   );
 }
@@ -48,15 +55,17 @@ export function PayoutsSubmitHint({ id }: { id: string }) {
   return (
     <div id={id} className="flex flex-col text-sm text-muted">
       <p>{PAYOUTS_SUBMIT_HINT}</p>
-      <SetUpPayoutsLink />
+      <SetUpPayoutsLine />
     </div>
   );
 }
 
 /**
- * The submit was refused (409 `payouts_required`): the server's message (an
- * alert) and the way to fix it. Focus moves here (`ref`), as to an error
- * summary, so the link is the next stop.
+ * The submit was refused (409 `payouts_required`): the server's message and
+ * the way to fix it. Focus moves here (`ref`), as to an error summary, so the
+ * link is the next stop. That focus move is what announces it: the group is
+ * named by the message, which a screen reader reads on arriving (no
+ * role="alert" too, which would read it twice).
  */
 export function PayoutsSubmitError({ id, message, ref }: { id: string; message: string; ref: Ref<HTMLDivElement> }) {
   return (
@@ -64,10 +73,13 @@ export function PayoutsSubmitError({ id, message, ref }: { id: string; message: 
       ref={ref}
       id={id}
       tabIndex={-1}
+      role="group"
+      aria-labelledby={`${id}-message`}
       data-payouts-error=""
       className="flex flex-col border-l-2 border-danger py-1 pl-4 text-sm text-foreground"
     >
-      <p role="alert">{message}</p>
+      <p id={`${id}-message`}>{message}</p>
+      {/* No "save first": submitting saved the changes before it was refused. */}
       <SetUpPayoutsLink />
     </div>
   );

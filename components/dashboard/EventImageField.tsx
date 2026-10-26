@@ -110,7 +110,8 @@ export default function EventImageField({
             accept="image/jpeg,image/png,image/webp"
             onChange={(e) => handlePick(e.target.files?.[0])}
             aria-labelledby="event-image-title event-image-pick"
-            aria-describedby="event-image-hint"
+            aria-describedby={pickError || error ? "event-image-hint event-image-error" : "event-image-hint"}
+            aria-invalid={pickError || error ? true : undefined}
             className="peer sr-only"
           />
           <label
@@ -142,7 +143,11 @@ export default function EventImageField({
           )}
         </div>
       </div>
-      {(pickError || error) && <p className="text-sm text-danger">{pickError ?? error}</p>}
+      {(pickError || error) && (
+        <p id="event-image-error" className="text-sm text-danger">
+          {pickError ?? error}
+        </p>
+      )}
     </div>
   );
 }

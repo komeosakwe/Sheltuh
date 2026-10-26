@@ -463,16 +463,56 @@ describe("EventDetailsView booking info beside the tickets", () => {
     expect(within(info).getByRole("link", { name: "Request a refund" })).toHaveAttribute("href", "/refunds");
   });
 
-  it("says a days_before policy, with day or days", () => {
-    for (const [days, text] of [
-      [7, "Refunds available up to 7 days before the event."],
-      [1, "Refunds available up to 1 day before the event."],
-    ] as const) {
-      const { container, unmount } = render(
-        <EventDetailsView event={{ ...findEvent("neon-static"), refundPolicy: "days_before", refundDays: days }} demo />,
+  it("says a days_before policy as the date and time refunds close (Melbourne time), with day or days", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-01T00:00:00.000Z"));
+    try {
+      // Sat 28 Nov 2026, 7:00 pm AEDT.
+      const startsAt = "2026-11-28T08:00:00.000Z";
+      const endsAt = "2026-11-28T11:00:00.000Z";
+      for (const [days, text] of [
+        [7, "Refunds available until Sat 21 Nov, 7:00 pm (7 days before the event)."],
+        [1, "Refunds available until Fri 27 Nov, 7:00 pm (1 day before the event)."],
+      ] as const) {
+        const { container, unmount } = render(
+          <EventDetailsView
+            event={{ ...findEvent("neon-static"), startsAt, endsAt, refundPolicy: "days_before", refundDays: days }}
+            demo
+          />,
+        );
+        expect(tickets(container).querySelector("[data-refund-policy]")).toHaveTextContent(text);
+        // The ACL line is one size on every page: text-sm, muted.
+        expect(within(tickets(container)).getByText(REFUND_ACL_STATEMENT)).toHaveClass("text-sm", "text-muted");
+        unmount();
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an event closer than its policy's days says the refund window has closed (never 'up to 7 days before')", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // Three days before the event.
+    vi.setSystemTime(new Date("2026-11-25T08:00:00.000Z"));
+    try {
+      const { container } = render(
+        <EventDetailsView
+          event={{
+            ...findEvent("neon-static"),
+            startsAt: "2026-11-28T08:00:00.000Z",
+            endsAt: "2026-11-28T11:00:00.000Z",
+            refundPolicy: "days_before",
+            refundDays: 7,
+          }}
+          demo
+        />,
       );
-      expect(tickets(container).querySelector("[data-refund-policy]")).toHaveTextContent(text);
-      unmount();
+      expect(tickets(container).querySelector("[data-refund-policy]")).toHaveTextContent(
+        "The refund window for this event has closed. No refunds for change of mind.",
+      );
+      expect(container).not.toHaveTextContent("up to 7 days");
+    } finally {
+      vi.useRealTimers();
     }
   });
 
