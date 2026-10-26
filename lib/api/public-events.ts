@@ -54,7 +54,7 @@ export interface PublicEvent {
   clip?: EventClip;
   /**
    * The organiser's logo thumbnail: `/api/organisers/{organiserId}/logo?size=thumb&v={version}`
-   * (96 px square WebP, public, cached for a day). Only when the organiser has
+   * (96 px square WebP, public, shared at the CDN for an hour). Only when the organiser has
    * a logo; absent otherwise (show initials).
    */
   organiserLogoThumbUrl?: string;
@@ -142,6 +142,15 @@ export function listPublicEvents(params: ListPublicEventsParams = {}) {
   return apiFetch<Paginated<PublicEvent>>(`/events${suffix}`);
 }
 
-export function getPublicEventBySlug(slug: string) {
-  return apiFetch<PublicEvent>(`/events/slug/${encodeURIComponent(slug)}`);
+/**
+ * One published event by slug. The response is shared at the CDN for up to
+ * about a minute. `seatMapVersion` (the seat page, after it sees a new map
+ * version) adds `?seatMapVersion=` to the URL: the server ignores it, but it
+ * makes a different cache key, so the CDN's copy from before the map changed
+ * isn't served and the tiers and prices match the new map. Everyone who
+ * reloads for the same version still shares one copy.
+ */
+export function getPublicEventBySlug(slug: string, options: { seatMapVersion?: number } = {}) {
+  const suffix = options.seatMapVersion === undefined ? "" : `?seatMapVersion=${encodeURIComponent(String(options.seatMapVersion))}`;
+  return apiFetch<PublicEvent>(`/events/slug/${encodeURIComponent(slug)}${suffix}`);
 }

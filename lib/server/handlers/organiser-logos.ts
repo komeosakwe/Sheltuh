@@ -19,11 +19,12 @@ const LOGO_NOT_FOUND = "Logo not found.";
 
 /**
  * An approved organiser's logo at its current version (`?v=` as
- * organiserLogoUrls gives it): the CDN may share it. An hour in browsers, 23
- * more at the CDN, so a takedown (suspension) or a new logo stops being
- * served within a day. Not `immutable`, for the same reason.
+ * organiserLogoUrls gives it): the CDN may share it, for an hour, so a
+ * takedown (suspension) or a new logo stops being served within about an
+ * hour. Not `immutable`, for the same reason. `max-age` equals `s-maxage` so
+ * a CDN copy is never stale on arrival in the browser (see EVENT_IMAGE_CACHE).
  */
-export const LOGO_CACHE = "public, max-age=3600, s-maxage=82800";
+export const LOGO_CACHE = "public, max-age=3600, s-maxage=3600";
 /** Any other `v` (none, or not the current one): browser only, never shared (see EVENT_IMAGE_UNVERSIONED_CACHE). */
 export const LOGO_UNVERSIONED_CACHE = "private, max-age=3600";
 

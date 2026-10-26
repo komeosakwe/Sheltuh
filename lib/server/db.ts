@@ -17,58 +17,101 @@ export interface Db {
 }
 
 /** Hosts reached without leaving the machine: no TLS needed (local test clusters, the dev database). */
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+
+/** What postgres.js resolved a URL (plus PGHOST, PGSSL, …) to: where it will connect, and its TLS setting. */
+export interface ResolvedConnection {
+  host: string[];
+  path: string | false;
+  ssl: unknown;
+}
+
+/** TLS settings that encrypt and can't be talked down to plain text by the network. */
+export type DatabaseTls = "require" | { ca: string; rejectUnauthorized: true };
 
 /**
- * Whether a connection to `databaseUrl` must be forced onto TLS: the URL
- * says nothing about TLS itself (no `sslmode` or `ssl` parameter, no
- * `sslrootcert=system`), and some host isn't this machine (localhost,
- * 127.0.0.1, ::1, or a unix socket directory). postgres.js otherwise
- * connects in plain text when the URL doesn't ask for TLS, and the
- * connection carries buyers' personal data and the database password.
- *
- * An explicit `sslmode` in the URL always wins, `disable` included (a local
- * cluster reached by another name, say). A URL with no host at all falls
- * back to PGHOST or localhost in postgres.js, so it isn't forced.
+ * TLS settings postgres.js may connect without: off (false, an empty value,
+ * "disable"/"false" from PGSSL, which postgres.js only maps to off when they
+ * come from the URL), "prefer" (falls back to plain text if the server, or
+ * someone in the middle, declines TLS) and "allow".
  */
-export function requiresForcedTls(databaseUrl: string): boolean {
-  const schemeEnd = databaseUrl.indexOf("://");
-  if (schemeEnd < 0) return false;
-  const rest = databaseUrl.slice(schemeEnd + 3);
-  // Read by hand, not with `new URL`: postgres.js accepts several hosts
-  // (`host1:5432,host2:5432`), which URL can't parse.
-  const queryStart = rest.indexOf("?");
-  const query = new URLSearchParams(queryStart < 0 ? "" : rest.slice(queryStart + 1).split("#")[0]);
-  if (query.has("sslmode") || query.has("ssl") || query.get("sslrootcert") === "system") return false;
-  // The authority as written (`user:pass@host1:5432,host2`), percent-encoded
-  // socket directories ("%2Ftmp") included.
-  const authority = rest.split(/[/?#]/)[0];
-  const hostList = authority.slice(authority.lastIndexOf("@") + 1);
-  if (!hostList) return false;
-  const hosts = hostList.split(",").map((entry) => {
-    let host: string;
-    try {
-      host = decodeURIComponent(entry);
-    } catch {
-      host = entry;
-    }
-    // Drop the port: "[::1]:5432" → "[::1]", "db.example:6543" → "db.example".
-    if (host.startsWith("[")) return host.slice(0, host.indexOf("]") + 1);
-    return host.includes("/") ? host : host.split(":")[0];
-  });
-  return hosts.some((host) => !(LOCAL_HOSTS.has(host.toLowerCase()) || host.startsWith("/")));
+function isWeakTls(ssl: unknown): boolean {
+  return !ssl || ssl === "disable" || ssl === "false" || ssl === "prefer" || ssl === "allow";
+}
+
+/**
+ * The CA certificate from DATABASE_CA_CERT (PEM), if set: optional hardening
+ * that turns TLS into full verification (the certificate must chain to this
+ * CA and name the host), which stops an attacker in the middle as well as an
+ * eavesdropper. A value pasted with literal "\n" sequences is accepted.
+ * Throws, naming only the variable, when it's set but isn't a PEM certificate.
+ */
+export function databaseCaCert(env: Record<string, string | undefined> = process.env): string | undefined {
+  const raw = env.DATABASE_CA_CERT?.trim();
+  if (!raw) return undefined;
+  const pem = raw.replace(/\\n/g, "\n");
+  if (!pem.includes("-----BEGIN CERTIFICATE-----") || !pem.includes("-----END CERTIFICATE-----")) {
+    throw new Error("DATABASE_CA_CERT is set but isn't a PEM certificate (-----BEGIN CERTIFICATE----- …)");
+  }
+  return pem;
+}
+
+/**
+ * The TLS setting to force on a connection, or undefined to leave
+ * postgres.js's own setting alone. Decided from what postgres.js itself
+ * parsed (`postgres(url).options`), so the URL is never read two different
+ * ways: several hosts, a password holding "@" or "," and the PGHOST and
+ * PGSSL fallbacks all count exactly as postgres.js will use them.
+ *
+ * - Every host on this machine (localhost, 127.0.0.1, ::1) or a unix socket:
+ *   left alone. Local test clusters and the dev database don't do TLS.
+ * - Any other host: TLS is always required, whatever the URL says. A setting
+ *   that allows plain text (none, disable, false, an empty value, allow,
+ *   prefer) is overridden to "require", so a pasted `sslmode=disable` can't
+ *   send buyers' personal data and the database password in the clear. A
+ *   stronger setting already in force (require, verify-full, from the URL or
+ *   PGSSL) is kept.
+ * - With a CA certificate (DATABASE_CA_CERT), any other host gets full
+ *   verification against that CA instead, whatever else was set.
+ *
+ * "require" encrypts without checking the server's certificate (as libpq's
+ * sslmode=require): it beats eavesdropping, not an active attacker in the
+ * middle. The CA certificate closes that gap.
+ */
+export function forcedDatabaseTls(resolved: ResolvedConnection, caCert?: string): DatabaseTls | undefined {
+  const local =
+    Boolean(resolved.path) ||
+    (resolved.host.length > 0 && resolved.host.every((host) => LOCAL_HOSTS.has(host.toLowerCase())));
+  if (local) return undefined;
+  if (caCert) return { ca: caCert, rejectUnauthorized: true };
+  return isWeakTls(resolved.ssl) ? "require" : undefined;
+}
+
+type ConnectOptions = Omit<postgres.Options<Record<string, postgres.PostgresType>>, "ssl" | "host" | "path">;
+
+/**
+ * A postgres.js client with forcedDatabaseTls applied. Everything that
+ * connects with DATABASE_URL goes through here (the app, the dev seed
+ * script). Creating a postgres.js client doesn't connect (connections open
+ * on the first query), so the first client is only used to read how
+ * postgres.js resolved the URL, and is kept when nothing needs forcing.
+ */
+export function connectPostgres(
+  databaseUrl: string,
+  options: ConnectOptions,
+  env: Record<string, string | undefined> = process.env,
+): postgres.Sql {
+  const sql = postgres(databaseUrl, options);
+  const { host, path, ssl: parsedSsl } = sql.options;
+  const ssl = forcedDatabaseTls({ host, path: path || false, ssl: parsedSsl }, databaseCaCert(env));
+  return ssl === undefined ? sql : postgres(databaseUrl, { ...options, ssl });
 }
 
 export function createPostgresDb(databaseUrl: string): Db {
-  const sql = postgres(databaseUrl, {
+  const sql = connectPostgres(databaseUrl, {
     // Supabase's transaction-mode pooler (port 6543), which serverless
     // hosting should use, doesn't support prepared statements.
     prepare: false,
-    // TLS for any database off this machine, even if the URL forgot
-    // `sslmode=require` (requiresForcedTls). "require" encrypts without
-    // checking the server's certificate, as libpq's sslmode=require; a URL
-    // with its own sslmode (e.g. verify-full) keeps it.
-    ...(requiresForcedTls(databaseUrl) ? { ssl: "require" as const } : {}),
     max: 5,
     idle_timeout: 20,
     // Fail fast (seconds) when the database can't be reached, e.g. a paused

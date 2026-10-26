@@ -127,8 +127,12 @@ export interface SeatPickerProps {
   initialUnavailable: number[];
   /** Live and preview of a saved map: poll availability (with a token before the event is published). */
   poll?: { getToken?: GetToken } | false;
-  /** The availability (or a checkout) was for another map version: reload the map. */
-  onMapStale?: () => void;
+  /**
+   * The availability (or a checkout) was for another map version: reload the
+   * map. `version` is the one the availability named, when known (not after
+   * a checkout's 409).
+   */
+  onMapStale?: (version?: number) => void;
   /** Where "back" goes (default: the event page). */
   backHref?: string;
 }
@@ -290,7 +294,7 @@ export default function SeatPicker({
     try {
       const result = await getSeatAvailability(event.id, { getToken: pollToken });
       if (result.version !== map.version) {
-        onMapStale?.();
+        onMapStale?.(result.version);
         return;
       }
       const positions = unavailablePositions(result.unavailable, map.seatCount);

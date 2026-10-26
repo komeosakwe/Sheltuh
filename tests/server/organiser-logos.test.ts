@@ -446,8 +446,9 @@ describe("GET /organisers/{id}/logo", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/webp");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
-    // An hour in browsers, 23 more at the CDN: a takedown is gone within a day.
-    expect(LOGO_CACHE).toBe("public, max-age=3600, s-maxage=82800");
+    // An hour at the CDN, max-age as long (a CDN copy isn't stale on
+    // arrival): a takedown is gone within about an hour.
+    expect(LOGO_CACHE).toBe("public, max-age=3600, s-maxage=3600");
     expect(res.headers.get("cache-control")).toBe(LOGO_CACHE);
     expect(res.headers.get("etag")).toBe(`"${version}-f"`);
     expect((await sharp(Buffer.from(await res.arrayBuffer())).metadata()).width).toBe(512);

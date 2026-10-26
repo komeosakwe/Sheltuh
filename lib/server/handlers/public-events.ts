@@ -1,9 +1,9 @@
-import { HttpError, okPublic } from "../http";
+import { HttpError, okPrivate, okPublic } from "../http";
 import { decodeCursor, parseLimit, toPage } from "../pagination";
 import { EVENT_SELECT, toPublicEventFromRow } from "../records";
 import type { Handler } from "../route";
 import { EVENT_CATEGORIES, type EventCategory } from "../types";
-import { upcomingPageCte } from "../upcoming-page";
+import { upcomingPageQuery } from "../upcoming-page";
 
 /**
  * The feed (GET /api/events): the same for every caller (no handler here
@@ -33,7 +33,8 @@ function isCalendarDate(text: string): boolean {
  * GET /api/events — public, unauthenticated. Every query here is pinned to
  * status = 'published'; nothing else is reachable through these routes.
  * Nothing reads the caller: 200s are shared at the CDN
- * (PUBLIC_EVENTS_CACHE_CONTROL); errors are `private, no-store`.
+ * (PUBLIC_EVENTS_CACHE_CONTROL), except a search (`q`), which is
+ * `private, no-store`; errors are `private, no-store`.
  */
 export const listPublicEvents: Handler = async (req, _params, { db }) => {
   const qs = new URL(req.url).searchParams;
@@ -84,7 +85,7 @@ export const listPublicEvents: Handler = async (req, _params, { db }) => {
   // between two page loads drops out and shifts later rows up by one, as any
   // change to the feed does with an offset cursor. Absent, empty, 0 or false
   // means every published event (the original behaviour); anything else is a
-  // 400. The page's ids come first (upcomingPageCte: in progress through
+  // 400. The page's ids come first (upcomingPageQuery: in progress through
   // events_status_ends_idx, not started through events_status_starts_idx).
   const upcomingParam = qs.get("upcoming");
   let upcoming = false;
@@ -113,14 +114,17 @@ export const listPublicEvents: Handler = async (req, _params, { db }) => {
   const offsetParam = `$${params.length}`;
   const rows = await db.query(
     upcoming
-      ? `${upcomingPageCte(where.join(" and "), limitParam, offsetParam)}
-         ${EVENT_SELECT} join page p on p.id = e.id
-         order by e.starts_at, e.id`
+      ? upcomingPageQuery(EVENT_SELECT, where, limitParam, offsetParam)
       : `${EVENT_SELECT} where ${where.join(" and ")}
          order by e.starts_at, e.id limit ${limitParam} offset ${offsetParam}`,
     params,
   );
-  return okPublic(toPage(rows.map(toPublicEventFromRow), offset, limit), PUBLIC_EVENTS_CACHE_CONTROL);
+  const page = toPage(rows.map(toPublicEventFromRow), offset, limit);
+  // A search is never shared: a CDN copy under `?q=…` would tell anyone who
+  // asks for the same URL (Age, x-vercel-cache) that someone searched for
+  // that term a moment ago. Any non-empty `q` counts, blank-after-trim too.
+  if (qs.get("q")) return okPrivate(page);
+  return okPublic(page, PUBLIC_EVENTS_CACHE_CONTROL);
 };
 
 /**

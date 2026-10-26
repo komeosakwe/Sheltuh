@@ -10,7 +10,7 @@ import { ADMIN_EVENT_SELECT, ADMIN_ORGANISER_SELECT, toAdminEvent, toAdminOrgani
 import type { Handler } from "../route";
 import { MAX_TICKETING_REASON_LENGTH, parseTicketing } from "../ticketing-input";
 import type { AdminOrganiserRecord, AdminSummary, EventStatus, OrganiserStatus, SuspendOrganiserResult } from "../types";
-import { upcomingPageCte } from "../upcoming-page";
+import { upcomingPageQuery } from "../upcoming-page";
 import { fail, requireString } from "../validation";
 import { requireEventForAdmin } from "./event-queries";
 
@@ -300,7 +300,7 @@ export const adminRemoveOrganiserLogo: Handler<{ organiserId: string }> = async 
  *
  * Anything else for a boolean is a 400 (fieldErrors on the parameter).
  * Served by events_status_starts_idx (status, starts_at, id); with
- * `upcoming`, the page's ids come first (upcomingPageCte: events in progress
+ * `upcoming`, the page's ids come first (upcomingPageQuery: events in progress
  * through events_status_ends_idx, not started ones through the starts
  * index), so ended events aren't walked. The search has no index (a
  * substring of a folded expression, as for organisers) and filters one
@@ -335,9 +335,7 @@ export const adminListEvents: Handler = async (req, _params, { db, verifyAccessT
 
   const rows = await db.query(
     upcoming
-      ? `${upcomingPageCte(where.join(" and "), limitParam, offsetParam)}
-         ${ADMIN_EVENT_SELECT} join page p on p.id = e.id
-         order by e.starts_at, e.id`
+      ? upcomingPageQuery(ADMIN_EVENT_SELECT, where, limitParam, offsetParam)
       : `${ADMIN_EVENT_SELECT} where ${where.join(" and ")}
          order by e.starts_at, e.id limit ${limitParam} offset ${offsetParam}`,
     params,

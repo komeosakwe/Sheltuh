@@ -743,6 +743,12 @@ describe("profile photos", () => {
     const own = await raw(getMyAvatar, rawRequest("GET", m.token), {});
     expect(own.status).toBe(200);
     expect(own.headers.get("content-type")).toBe("image/webp");
+    // Private and revalidated, never shared; a matching ETag is a 304 with the same header.
+    expect(own.headers.get("cache-control")).toBe("private, no-cache");
+    const etag = own.headers.get("etag") ?? "";
+    expect(etag).toMatch(/^"\d+-f"$/);
+    const notModified = await raw(getMyAvatar, rawRequest("GET", m.token, undefined, { "if-none-match": etag }), {});
+    expect([notModified.status, notModified.headers.get("cache-control")]).toEqual([304, "private, no-cache"]);
 
     expect((await api.call(deleteMyAvatar, { token: m.token, method: "DELETE" })).status).toBe(204);
     expect((await api.call(deleteMyAvatar, { token: m.token, method: "DELETE" })).status).toBe(204);

@@ -15,7 +15,7 @@ import { adminEmailOutboxHealth, adminListEmailJobs, runEmailOutboxCron } from "
 import { getMyEvent, listMyEvents } from "@/lib/server/handlers/events";
 import { listFavouriteIds, listFavourites } from "@/lib/server/handlers/favourites";
 import { getFollow, listFollowingEvents, listMyFollowing } from "@/lib/server/handlers/follows";
-import { getMyGoing, listGoingAttendees } from "@/lib/server/handlers/going";
+import { getGoingSummary, getMyGoing, listGoingAttendees } from "@/lib/server/handlers/going";
 import { adminListInvites } from "@/lib/server/handlers/invites";
 import { adminGetMemberProfile } from "@/lib/server/handlers/member-profiles";
 import { getUnreadCount, listConversations } from "@/lib/server/handlers/messages";
@@ -116,13 +116,17 @@ const PRIVATE_GETS: Case[] = [
   { name: "getCheckInSummary", handler: h(getCheckInSummary), as: asOrganiser, params: event },
 ];
 
-/** GETs shared at the CDN on purpose: the same for every caller (their own tests pin the header). */
+/**
+ * Public GETs that may be shared at the CDN on purpose (their own tests pin
+ * the header): the shared responses are the same for every caller. Some
+ * answer `private` on some paths (a search, an unpublished event's image for
+ * its owner, any non-current `v`).
+ */
 const PUBLIC_GETS = new Set([
   "listPublicEvents",
   "getPublicEventBySlug",
   "getPublicOrganiserProfile",
   "getTrendingEvents",
-  "getGoingSummary",
   "getEventImage",
   "getOrganiserLogo",
   "getSeatMap",
@@ -131,12 +135,21 @@ const PUBLIC_GETS = new Set([
   "eventCalendarRoute",
 ]);
 
+/**
+ * Public GETs that set no cache header: the same for every caller (they
+ * never read a token), but not marked shareable, so no CDN keeps them.
+ * Pinned below, so adding a header to one is a deliberate move to PUBLIC_GETS.
+ */
+const PUBLIC_UNCACHED_GETS: Case[] = [
+  { name: "getGoingSummary", handler: h(getGoingSummary), as: asMember, params: event },
+];
+
 /** Private GETs that need more state than a table row; each file named asserts the header. */
 const COVERED_ELSEWHERE: Record<string, string> = {
   getMessages: "messages.test.ts (a conversation between two members)",
   getMemberProfile: "member-profiles.test.ts (another member visible through a shared event)",
   getMemberAvatar: "member-profiles.test.ts (`private, no-cache` with an ETag)",
-  getMyAvatar: "member-profiles.test.ts (`private, no-cache` with an ETag)",
+  getMyAvatar: "member-profiles.test.ts (`private, no-cache` with an ETag, 304 included)",
   adminGetReportAvatar: "member-profiles.test.ts (a report with a photo)",
   getMyInvite: "invites.test.ts (a pending invite)",
   getEventClipPreview: "event-clips.test.ts (an uploaded clip)",
@@ -158,7 +171,48 @@ describe("authenticated GETs are private", () => {
   }
 });
 
-/** Every `export const GET = …(handler)` under app/: the handler's name. */
+describe("public GETs without a cache header", () => {
+  for (const c of PUBLIC_UNCACHED_GETS) {
+    it(c.name, async () => {
+      const responses = await Promise.all(
+        [undefined, c.as()].map((token) =>
+          runHandler(
+            c.handler,
+            new Request(`${SITE_URL}/api/test`, { headers: token ? { authorization: `Bearer ${token}` } : {} }),
+            c.params?.() ?? {},
+            api.deps,
+          ),
+        ),
+      );
+      for (const res of responses) {
+        expect([c.name, res.status, res.headers.get("cache-control")]).toEqual([c.name, 200, null]);
+      }
+      // Nothing in it depends on who asks.
+      const [anonymous, signedIn] = await Promise.all(responses.map((res) => res.json()));
+      expect(signedIn).toEqual(anonymous);
+    });
+  }
+});
+
+/**
+ * The handler a route file's GET export names, or null when it exports no
+ * GET. Only `export const GET = route(handler);` or `export const GET =
+ * handler;` is understood; any other way of exporting GET (a function,
+ * `export { … }` naming it, `export *`, a second export) throws, so a route
+ * the guard can't read fails it rather than being skipped.
+ */
+function routeGetHandler(source: string): string | null {
+  // Anything that could export GET: a declaration, an export list naming it
+  // (`GET`, `x as GET`), or a re-export of everything.
+  const anyGetExport =
+    source.match(/export\s+(?:const|let|var|(?:async\s+)?function\*?)\s+GET\b|export\s*\{[^}]*\bGET\b[^}]*\}|export\s*\*/g) ?? [];
+  const recognised = [...source.matchAll(/^export const GET = (?:route\((\w+)\)|(\w+));$/gm)];
+  if (anyGetExport.length === 0) return null;
+  if (anyGetExport.length !== 1 || recognised.length !== 1) throw new Error("GET export not recognised");
+  return recognised[0][1] ?? recognised[0][2];
+}
+
+/** Every GET export of a route file under app/, as the handler's name. */
 function getRouteHandlers(): string[] {
   const root = path.resolve(import.meta.dirname, "../../app");
   const names: string[] = [];
@@ -166,13 +220,14 @@ function getRouteHandlers(): string[] {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
-      else if (entry.name === "route.ts") {
-        const source = readFileSync(full, "utf8");
-        const match = /export const GET = (?:route\((\w+)\)|(\w+));/.exec(source);
-        if (source.includes("export const GET") || source.includes("export async function GET")) {
-          expect(match, `${full}: GET export not recognised`).not.toBeNull();
-          names.push(match![1] ?? match![2]);
+      else if (/^route\.(?:ts|tsx|js|mjs)$/.test(entry.name)) {
+        let name: string | null;
+        try {
+          name = routeGetHandler(readFileSync(full, "utf8"));
+        } catch (err) {
+          throw new Error(`${full}: ${String(err)}`);
         }
+        if (name) names.push(name);
       }
     }
   };
@@ -180,9 +235,37 @@ function getRouteHandlers(): string[] {
   return names;
 }
 
+describe("the route finder", () => {
+  it("reads the two supported forms and nothing else", () => {
+    expect(routeGetHandler(`import { route } from "x";\nexport const GET = route(getThing);\n`)).toBe("getThing");
+    expect(routeGetHandler(`export const GET = eventCalendarRoute;\n`)).toBe("eventCalendarRoute");
+    expect(routeGetHandler(`export const POST = route(postThing);\n`)).toBeNull();
+  });
+
+  it("fails on a GET export it can't read", () => {
+    for (const source of [
+      `export function GET() {}\n`,
+      `export async function GET(req: Request) {}\n`,
+      `const handler = route(x);\nexport { handler as GET };\n`,
+      `export { GET } from "./other";\n`,
+      `export * from "./other";\n`,
+      `export const GET = wrap(route(x));\n`,
+      `export const GET = route(a);\nexport const GET = route(b);\n`,
+      `export let GET = route(x);\n`,
+    ]) {
+      expect(() => routeGetHandler(source), source).toThrow(/not recognised/);
+    }
+  });
+});
+
 describe("every GET route is classified", () => {
   it("as private (tested above), public on purpose, or covered by its own tests", () => {
-    const listed = new Set([...PRIVATE_GETS.map((c) => c.name), ...PUBLIC_GETS, ...Object.keys(COVERED_ELSEWHERE)]);
+    const listed = new Set([
+      ...PRIVATE_GETS.map((c) => c.name),
+      ...PUBLIC_GETS,
+      ...PUBLIC_UNCACHED_GETS.map((c) => c.name),
+      ...Object.keys(COVERED_ELSEWHERE),
+    ]);
     const routes = getRouteHandlers();
     expect(routes.length).toBeGreaterThan(50);
     expect(routes.filter((name) => !listed.has(name))).toEqual([]);

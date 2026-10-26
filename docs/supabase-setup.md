@@ -36,12 +36,14 @@ Stripe (payments) and Vercel (hosting).
 4. **Database URL** (Connect button → "Transaction pooler", port 6543) →
    `DATABASE_URL`, with `?sslmode=require` on the end. Use the pooler, not
    the direct connection. Serverless hosting opens many short-lived
-   connections, and the pooler exists to absorb them. The app forces TLS
-   for any database that isn't on the same machine even without
-   `sslmode` (`lib/server/db.ts`), but keep it in the URL so every tool
+   connections, and the pooler exists to absorb them. The app requires TLS
+   for any database that isn't on the same machine, whatever `sslmode`
+   says (`lib/server/db.ts`), but keep it in the URL so every other tool
    that reads it does the same. Then turn on **Enforce SSL** (Project
    Settings → Database → SSL Configuration), so the database refuses a
-   plain-text connection from anything.
+   plain-text connection from anything. Optionally, for full certificate
+   verification, download the CA certificate from the same page and set
+   it as `DATABASE_CA_CERT` (`docs/DEPLOYMENT.md`, Supabase step 7).
 
 ### Auth settings (Authentication in the dashboard)
 

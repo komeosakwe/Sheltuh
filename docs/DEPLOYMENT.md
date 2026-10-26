@@ -407,10 +407,34 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        **6543**, not the direct connection on 5432) and add
        `?sslmode=require` for `DATABASE_URL`. Turn on **Enforce SSL**
        (Project Settings → Database → SSL Configuration), so a plain-text
-       connection is refused. The app also forces TLS for any non-local host
-       (`lib/server/db.ts`), so a URL missing `sslmode` still connects
-       encrypted. Note the compute tier's pooler client limit (see
+       connection is refused. The app also requires TLS for any non-local
+       host whatever the URL says (`lib/server/db.ts`): a missing,
+       `disable`, `allow` or `prefer` `sslmode` still connects encrypted.
+       Note the compute tier's pooler client limit (see
        `docs/architecture.md`, "Hosting: region, database connection, CDN").
+       **Needs verification:** that Enforce SSL also covers the transaction
+       pooler (Supavisor, port 6543), not just direct connections. Check:
+       `psql "postgresql://postgres.REF@aws-0-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=disable"`
+       must be refused (it prompts for the password; type it there, never
+       on the command line), and the same URL with `sslmode=require` must
+       connect. If the pooler still accepts plain text, the app's own TLS
+       rule is what protects it: note it here.
+7. [ ] Optional hardening: **`DATABASE_CA_CERT`** (full certificate
+       verification). `sslmode=require` encrypts but doesn't check who the
+       server is, so it beats eavesdropping, not someone in the middle
+       (spoofed DNS, say). Download Supabase's CA certificate (Project
+       Settings → Database → SSL Configuration → Download certificate) and
+       paste the whole PEM, `-----BEGIN CERTIFICATE-----` to
+       `-----END CERTIFICATE-----`, into Vercel as `DATABASE_CA_CERT`
+       (Production and Preview; newlines or literal `\n` both work). The app
+       then verifies the server's certificate against it and its host name
+       for any remote database (`lib/server/db.ts`). Not a secret (it's a
+       public certificate), but a wrong value stops the app with an error
+       naming the variable, so check it: after redeploying, a page that
+       reads the database (the home feed) must load. **Needs
+       verification:** that the pooler's certificate chains to that CA and
+       names the pooler host; if the feed fails with a certificate error,
+       remove the variable, redeploy, and note it here.
 
 ## Stripe
 
@@ -452,7 +476,8 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 1. [ ] Environment variables (Production and Preview), from `.env.example`:
        `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
        `NEXT_PUBLIC_SITE_URL`, `DATABASE_URL` (transaction pooler, port 6543,
-       ending `?sslmode=require`),
+       ending `?sslmode=require`), optionally `DATABASE_CA_CERT` (see
+       Supabase step 7),
        `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`,
        `STRIPE_WEBHOOK_SECRET`, `SMTP_*`, `EMAIL_FROM`. The two Stripe keys
        are a pair from one account and mode: Production live
@@ -551,11 +576,44 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       `x-vercel-cache: HIT` (and an `age`), and `/api/organisers/me` (a
       401 without a token: `private, no-store`) **never** `HIT`. Signed in,
       the same holds with the token: copy one from the browser's network
-      panel and add `-H "authorization: Bearer …"`; it must stay
-      `private, no-store` and never `HIT`. Also check an image with a wrong
-      `v` (`?v=1`) is `private, max-age=3600` and never `HIT`. If public
-      routes never `HIT`, the CDN isn't keeping them: note it, the site
-      still works, just with more database load.
+      panel, read it into a variable without echoing it or leaving it in
+      your shell history, and use the variable:
+
+      ```sh
+      read -rs TOKEN   # paste the token, then Enter
+      curl -sI -H "authorization: Bearer $TOKEN" "$SITE/api/organisers/me" | grep -iE '^(cache-control|x-vercel-cache|age):'
+      unset TOKEN
+      ```
+
+      It must stay `private, no-store` and never `HIT`. Also check an image
+      with a wrong `v` (`?v=1`) is `private, max-age=3600` and never `HIT`,
+      and a search (`$SITE/api/events?q=test&upcoming=1`) is
+      `private, no-store` and never `HIT`. If public routes never `HIT`,
+      the CDN isn't keeping them: note it, the site still works, just with
+      more database load.
+- [ ] **A 304 is never cached as an empty image** (needs verification:
+      images and logos answer a matching `If-None-Match` with a 304 that
+      carries the same `public` header as the 200). With `$ORG_ID` and the
+      `v` in an approved organiser's `logoUrl` (`$LV`), and a URL no one has
+      fetched yet (the extra `x` parameter makes a fresh cache key):
+
+      ```sh
+      X=$RANDOM
+      curl -sI -H "if-none-match: \"$LV-f\"" "$SITE/api/organisers/$ORG_ID/logo?v=$LV&x=$X" | head -1
+      curl -s -o /dev/null -w '%{http_code} %{size_download}\n' "$SITE/api/organisers/$ORG_ID/logo?v=$LV&x=$X"
+      ```
+
+      The first is a `304`; the second must be `200` with a non-zero size,
+      never `304` or `200 0`. Do the same for an event image (a new `X`,
+      `-H "if-none-match: \"$V\""` on `/api/events/$EVENT_ID/image?v=$V&x=$X`). If an empty body comes back,
+      Vercel stored the 304: purge the CDN cache and report it, since every
+      visitor would see a broken image for up to an hour.
+- [ ] **Browser reuse of images** (`age`): the image and logo `max-age`
+      equals their `s-maxage` (an hour) so a CDN copy with a large `age` is
+      still fresh in the browser. On a second `curl -sI` of an image, check
+      the response has an `age` header and `cache-control: public,
+      max-age=3600, s-maxage=3600` (if Vercel rewrites the header sent to
+      the browser, note what it sends).
 - [ ] Sign up, verify email code, sign in, `/account`.
 - [ ] Buy a ticket with your account email, then add yourself to Who's Going
       on that event (opt-in form, 18+ box). Withdraw.

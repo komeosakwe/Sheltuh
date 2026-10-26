@@ -3,6 +3,7 @@ import { adminListEvents, foldOrganiserSearch } from "@/lib/server/handlers/admi
 import { adminCreateEvent, adminCreateOrganiser } from "@/lib/server/handlers/admin-authoring";
 import { listPublicEvents } from "@/lib/server/handlers/public-events";
 import { encodeCursor } from "@/lib/server/pagination";
+import { upcomingPageQuery } from "@/lib/server/upcoming-page";
 import { TestApi } from "./helpers/api";
 import { application, approvedOrganiser, draftEvent, eventInput, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
@@ -275,5 +276,35 @@ describe("GET /api/admin/events (upcoming): the page-ids query gives the plain q
     const titles = res.body.items.map((e: { title: string }) => e.title);
     expect(titles[0]).toBe("Ended long ago");
     expect(titles).toContain("Ended just now");
+  });
+});
+
+describe("upcomingPageQuery", () => {
+  const SELECT = "select e.id, e.title from public.events e join public.organisers o on o.id = e.organiser_id";
+
+  it("brackets each condition: a top-level `or` in one can't bring in unpublished or ended events", async () => {
+    const rows = await api.db.query<{ id: string; title: string }>(
+      upcomingPageQuery(SELECT, ["e.status = 'published'", "e.title like 'Draft%' or true"], "$1", "$2"),
+      [50, 0],
+    );
+    // Unbracketed, `… and e.title like 'Draft%' or true and e.starts_at > now()`
+    // would have matched the drafts. Bracketed: exactly the published, not-ended feed.
+    expect(rows.map((row) => row.id)).toEqual(await plainFeedIds({}, 50, 0));
+    expect(rows.map((row) => row.title)).not.toContain("Draft tonight");
+    expect(rows.map((row) => row.title)).not.toContain("Ended long ago");
+  });
+
+  it("refuses a limit or offset that isn't a parameter placeholder, and no conditions", () => {
+    for (const [limit, offset] of [
+      ["10", "$2"],
+      ["$1", "0"],
+      ["$1; drop table x", "$2"],
+      ["$1", "$2 or 1=1"],
+      ["", "$2"],
+    ]) {
+      expect(() => upcomingPageQuery(SELECT, ["true"], limit, offset)).toThrow(/placeholders/);
+    }
+    expect(() => upcomingPageQuery(SELECT, [], "$1", "$2")).toThrow(/condition/);
+    expect(() => upcomingPageQuery(SELECT, ["true"], "$3", "$4")).not.toThrow();
   });
 });

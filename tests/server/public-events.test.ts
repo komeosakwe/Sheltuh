@@ -244,13 +244,38 @@ describe("CDN caching (docs/architecture.md, \"CDN windows\")", () => {
     expect(PUBLIC_EVENT_CACHE_CONTROL).toBe("public, max-age=0, s-maxage=15, stale-while-revalidate=45");
     const live = await publishedEvent(api, organiser, admin);
 
-    const queries: Record<string, string>[] = [{}, { upcoming: "1" }, { upcoming: "1", limit: "50", category: "live-music", q: "neon" }];
+    const queries: Record<string, string>[] = [{}, { upcoming: "1" }, { upcoming: "1", limit: "50", category: "live-music" }, { q: "" }];
     for (const query of queries) {
       const res = await api.call(listPublicEvents, { query });
       expect([query, res.status, res.headers.get("cache-control")]).toEqual([query, 200, PUBLIC_EVENTS_CACHE_CONTROL]);
     }
     const one = await api.call(getPublicEventBySlug, { params: { slug: live.slug } });
     expect([one.status, one.headers.get("cache-control")]).toEqual([200, PUBLIC_EVENT_CACHE_CONTROL]);
+    // The seat page's cache-busting `seatMapVersion` (and any other unknown
+    // parameter) changes only the cache key: same event, same shared header.
+    const bustingQueries: Record<string, string>[] = [{ seatMapVersion: "7" }, { seatMapVersion: "x", other: "1" }];
+    for (const query of bustingQueries) {
+      const busted = await api.call(getPublicEventBySlug, { params: { slug: live.slug }, query });
+      expect([query, busted.status, busted.headers.get("cache-control")]).toEqual([query, 200, PUBLIC_EVENT_CACHE_CONTROL]);
+      expect(busted.body).toEqual(one.body);
+    }
+  });
+
+  it("never shares a search: any non-empty `q` is private, no-store (a CDN hit would reveal a recent search)", async () => {
+    const live = await publishedEvent(api, organiser, admin, { title: "Neon Search Night" });
+    const queries: Record<string, string>[] = [
+      { q: "neon" },
+      { upcoming: "1", limit: "50", category: "live-music", q: "neon" },
+      { upcoming: "1", q: "no such event anywhere" },
+      { q: "   " },
+    ];
+    for (const query of queries) {
+      const res = await api.call(listPublicEvents, { query });
+      expect([query, res.status, res.headers.get("cache-control")]).toEqual([query, 200, "private, no-store"]);
+    }
+    // Still the search's results, not a different response.
+    const found = await api.call(listPublicEvents, { query: { q: "neon search" } });
+    expect(found.body.items.map((e: { eventId: string }) => e.eventId)).toContain(live.eventId);
   });
 
   it("never caches an error: a 400 or a 404 (an unpublished event, so it shows as soon as it's approved) is private, no-store", async () => {

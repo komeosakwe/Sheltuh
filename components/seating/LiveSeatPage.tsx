@@ -80,14 +80,24 @@ export default function LiveSeatPage({ slug }: { slug: string }) {
 
   // The availability poll (or a checkout) saw another map version: load the event again (its tiers,
   // prices and seated flags may have changed with the map), then the current map. The picker keeps
-  // its selection and drops seats that are no longer on the map.
+  // its selection and drops seats that are no longer on the map. The event is fetched under a URL
+  // keyed by the new map version (getPublicEventBySlug's seatMapVersion), so the CDN's copy from
+  // before the change can't come back with the old tiers. After a checkout's 409 the version isn't
+  // known yet: the availability (a few seconds old at most) gives it.
+  const eventIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    eventIdRef.current = state.status === "ready" || state.status === "no-map" ? state.event.id : eventIdRef.current;
+  }, [state]);
   const reloading = useRef(false);
-  const reloadMap = useCallback(() => {
+  const reloadMap = useCallback((seenVersion?: number) => {
     if (reloading.current) return;
     reloading.current = true;
     (async () => {
       try {
-        const event = adaptPublicEvent(await getPublicEventBySlug(slug));
+        const eventId = eventIdRef.current;
+        const seatMapVersion =
+          seenVersion ?? (eventId === null ? undefined : (await getSeatAvailability(eventId)).version);
+        const event = adaptPublicEvent(await getPublicEventBySlug(slug, { seatMapVersion }));
         if (!event.seating) {
           setState({ status: "no-map", event });
           return;

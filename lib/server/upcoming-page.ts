@@ -1,7 +1,10 @@
 /**
- * One page of events that haven't ended yet (`ends_at > now()`, in progress
- * included), soonest first by (starts_at, id), as a CTE of ids for a full
- * select to hydrate.
+ * The statement for one page of events that haven't ended yet
+ * (`ends_at > now()`, in progress included), soonest first by
+ * (starts_at, id): a CTE picks the page's ids, then `select` (a full select
+ * over `e`, public.events, ending at its last join: EVENT_SELECT,
+ * ADMIN_EVENT_SELECT) hydrates them. The join to the page and the final
+ * order are added here, so a caller can't forget either.
  *
  * Why not just `where … and e.ends_at > now() order by e.starts_at, e.id
  * limit … offset …`: ended events are never deleted, so they pile up at the
@@ -9,9 +12,14 @@
  * every one of them (a LIMIT plan assumes matching rows are spread evenly
  * along starts_at). The cost grew with the platform's whole history.
  *
- * Instead the ids come from two branches that each use an index well:
- * - in progress (`starts_at <= now() and ends_at > now()`): few rows, found
- *   through events_status_ends_idx;
+ * Instead the ids come from two branches that each use an index:
+ * - in progress (`starts_at <= now() and ends_at > now()`): few rows come
+ *   out, but finding them is a range scan of events_status_ends_idx over
+ *   `ends_at > now()`, i.e. every event that hasn't ended (future ones
+ *   included), with a heap fetch each to test starts_at. So its cost is
+ *   O(upcoming events), not O(page): fine at today's scale, and it still
+ *   never touches ended history. An index on (status, ends_at) include
+ *   (starts_at) would make it index-only if that ever matters.
  * - not started (`starts_at > now()`): a walk of events_status_starts_idx
  *   from now. events' check (ends_at > starts_at) makes `ends_at > now()`
  *   true for all of them, so it isn't repeated (it would cost a heap fetch
@@ -22,14 +30,21 @@
  * disjoint, so nothing is counted twice. now() is the statement's one
  * instant in both.
  *
- * `where` is the caller's other conditions, over `e` (public.events) and `o`
- * (its organiser, joined as in EVENT_SELECT); `limit` and `offset` are
- * parameter placeholders (e.g. "$4"), the limit being the rows to fetch
- * (the page size plus one). The CTEs are `in_progress` and `page`; the
- * hydrating select joins `page p on p.id = e.id` and orders by e.starts_at,
- * e.id again (a join keeps no order).
+ * `conditions` are the caller's other conditions (the status first), over
+ * `e` and `o` (its organiser, joined as in EVENT_SELECT). Each one is
+ * parenthesised here before they're and-ed, so a top-level `or` in one
+ * can't escape the status condition or the branch tests and let other
+ * events into a feed. `limit` and `offset` must be parameter placeholders (e.g. "$4"),
+ * the limit being the rows to fetch (the page size plus one); anything else
+ * throws. The CTEs are named `in_progress` and `page`, and the page is
+ * joined as `p`.
  */
-export function upcomingPageCte(where: string, limit: string, offset: string): string {
+export function upcomingPageQuery(select: string, conditions: string[], limit: string, offset: string): string {
+  if (!/^\$\d+$/.test(limit) || !/^\$\d+$/.test(offset)) {
+    throw new Error("upcomingPageQuery: limit and offset must be parameter placeholders ($n).");
+  }
+  if (conditions.length === 0) throw new Error("upcomingPageQuery: at least one condition (the status) is required.");
+  const where = conditions.map((condition) => `(${condition})`).join(" and ");
   const from = `from public.events e
         join public.organisers o on o.id = e.organiser_id`;
   // in_progress is materialized on its own so that it's planned without the
@@ -51,5 +66,7 @@ export function upcomingPageCte(where: string, limit: string, offset: string): s
     ) u
     order by u.starts_at, u.id
     limit ${limit}::bigint offset ${offset}::bigint
-  )`;
+  )
+  ${select} join page p on p.id = e.id
+  order by e.starts_at, e.id`;
 }

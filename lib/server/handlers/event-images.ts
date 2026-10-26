@@ -139,40 +139,55 @@ export const deleteEventImage: Handler<{ eventId: string }> = async (req, { even
 
 /**
  * A published event's image at its current version (`?v=` as EVENT_SELECT's
- * image_url gives it): the CDN may share it. Browsers keep it an hour, the
- * CDN 23 hours more, so a takedown (unpublish) or a replaced image stops
- * being served within a day even if a browser's copy came from the CDN late
- * in its life. Not `immutable`, for the same reason.
+ * image_url gives it): the CDN may share it, for an hour, so a takedown
+ * (unpublish) or a replaced image stops being served within about an hour
+ * without a manual purge. Not `immutable`, for the same reason.
+ *
+ * `max-age` equals `s-maxage` on purpose. A browser counts the CDN copy's
+ * `Age` against `max-age` (RFC 9111 §4.2.3), so with a shorter `max-age` a
+ * copy that sat at the CDN longer than that would arrive already stale and
+ * be re-requested on every view. Equal, a copy is never stale on arrival and
+ * the whole chain (CDN plus browser) still ends an hour after the function
+ * answered. A CDN that dropped `Age` would stretch that to two hours at most.
+ * Revalidation is cheap either way: the ETag gets a 304 without the bytes.
  */
-export const EVENT_IMAGE_CACHE = "public, max-age=3600, s-maxage=82800";
-/**
- * Any other `v` (none, an old one, a guessed future one): the current image,
- * browser only. A shared copy under a URL that isn't the current version
- * could outlive a replacement (versions are epoch seconds, so a future one
- * can be guessed and requested before the replacement lands).
- */
+export const EVENT_IMAGE_CACHE = "public, max-age=3600, s-maxage=3600";
 export const EVENT_IMAGE_UNVERSIONED_CACHE = "private, max-age=3600";
+
+function imageEtag(version: string): string {
+  return `"${version}"`;
+}
+
+/** The version an If-None-Match header names, if it's exactly one of our ETags. */
+function claimedImageVersion(req: Request): string | null {
+  const match = /^"(\d{1,20})"$/.exec(req.headers.get("if-none-match") ?? "");
+  return match ? match[1] : null;
+}
 
 /**
  * GET /api/events/[eventId]/image?v= — public for published events (shared
  * at the CDN only at the current version: EVENT_IMAGE_CACHE). For anything
  * else only the owning organiser or an admin may read it, via a bearer
- * token, and it's never cached.
+ * token, and it's never cached. ETag (the version) and Last-Modified; a
+ * matching If-None-Match gets a 304 with the same headers, after the same
+ * access check, and the bytes aren't even read.
  */
 export const getEventImage: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   if (!isUuid(eventId)) throw new HttpError(404, "Image not found.");
   const [row] = await db.query<{
     content_type: string;
-    data: Uint8Array;
+    data: Uint8Array | null;
     status: string;
     organiser_id: string;
     version: string;
   }>(
-    `select i.content_type, i.data, e.status::text as status, e.organiser_id,
-            floor(extract(epoch from i.updated_at))::bigint::text as version
-       from public.event_images i join public.events e on e.id = i.event_id
+    `select i.content_type, e.status::text as status, e.organiser_id, v.version,
+            case when v.version = $2::text then null else i.data end as data
+       from public.event_images i
+       join public.events e on e.id = i.event_id
+      cross join lateral (select floor(extract(epoch from i.updated_at))::bigint::text as version) v
       where i.event_id = $1`,
-    [eventId],
+    [eventId, claimedImageVersion(req)],
   );
   if (!row) throw new HttpError(404, "Image not found.");
 
@@ -192,15 +207,17 @@ export const getEventImage: Handler<{ eventId: string }> = async (req, { eventId
   }
 
   const currentVersion = new URL(req.url).searchParams.get("v") === row.version;
-  return new Response(new Uint8Array(row.data), {
-    headers: {
-      "content-type": row.content_type,
-      "x-content-type-options": "nosniff",
-      "cache-control": !published
-        ? "private, no-store"
-        : currentVersion
-          ? EVENT_IMAGE_CACHE
-          : EVENT_IMAGE_UNVERSIONED_CACHE,
-    },
-  });
+  const headers = {
+    "content-type": row.content_type,
+    "x-content-type-options": "nosniff",
+    "cache-control": !published
+      ? "private, no-store"
+      : currentVersion
+        ? EVENT_IMAGE_CACHE
+        : EVENT_IMAGE_UNVERSIONED_CACHE,
+    etag: imageEtag(row.version),
+    "last-modified": new Date(Number(row.version) * 1000).toUTCString(),
+  };
+  if (row.data === null) return new Response(null, { status: 304, headers });
+  return new Response(new Uint8Array(row.data), { status: 200, headers });
 };
