@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, type ReactNode } from "react";
 import ApplicationForm from "@/components/organisers/ApplicationForm";
 import { Button } from "@/components/ui/Button";
 import { LoadingState } from "@/components/ui/ProgressLoader";
@@ -53,6 +54,13 @@ export default function ApplyPageContent() {
   const kept = useKeptWhileSignedOut<OrganiserRecord | null | false>(error ? false : current, settled);
   const keptForm = !settled && kept && kept.value !== false ? formViewFor(kept.value) : null;
   const onSuccess = (record: OrganiserRecord, as: string) => setJustSubmitted({ record, account: as });
+  // Owner (26 Oct 2026): "if someone is already an organiser clicking for organiser should take them
+  // to the dashboard". Every "For organisers" link lands here, so an approved organiser goes straight on.
+  const router = useRouter();
+  const approved = settled && !error && current?.status === "approved";
+  useEffect(() => {
+    if (approved) router.replace("/dashboard");
+  }, [approved, router]);
 
   if (!auth.configured) {
     return (
@@ -112,10 +120,13 @@ export default function ApplyPageContent() {
     );
   }
 
+  // Shown only for the moment before the redirect above (or if it's blocked).
   return (
     <StatusCard>
       <p className="font-heading text-2xl text-foreground">You&rsquo;re an approved organiser</p>
-      <p className="mt-2 mb-3 text-sm text-muted">You can now create and submit events.</p>
+      <p role="status" className="mt-2 mb-3 text-sm text-muted">
+        Taking you to your dashboard…
+      </p>
       <Link href="/dashboard" className="btn btn-solid">
         Go to your dashboard
       </Link>
