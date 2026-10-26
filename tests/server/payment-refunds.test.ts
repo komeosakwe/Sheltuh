@@ -3,7 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { createCheckout, getOrderBySession, stripeWebhook } from "@/lib/server/handlers/orders";
 import { orderReference } from "@/lib/server/order-reference";
 import type { EventRecord } from "@/lib/server/types";
-import { embeddedSession, stripeWebhookRequest, TestApi } from "./helpers/api";
+import { embeddedSession, sessionAmount, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, insertOrder, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
@@ -74,7 +74,7 @@ async function checkout(lineItems: { ticketTypeId: string; quantity: number }[])
   return api.stripe.checkout.sessions.create.mock.calls.at(-1)![0].client_reference_id as string;
 }
 
-function completed(orderId: string, paymentIntent: string) {
+async function completed(orderId: string, paymentIntent: string) {
   return stripeWebhookRequest({
     type: "checkout.session.completed",
     data: {
@@ -82,6 +82,7 @@ function completed(orderId: string, paymentIntent: string) {
         id: `cs_${paymentIntent}`,
         object: "checkout.session",
         client_reference_id: orderId,
+        ...(await sessionAmount(api.db, orderId)),
         payment_status: "paid",
         payment_intent: paymentIntent,
         customer_details: { email: "buyer@example.com" },

@@ -9,7 +9,7 @@ import { orderReference, ticketPageLink } from "@/lib/server/ticket-email";
 import type { EventRecord } from "@/lib/server/types";
 import { TICKET_CODE_PATTERN } from "@/lib/ticket-code";
 import { ticketQrMatrix } from "@/lib/ticket-qr";
-import { embeddedSession, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
+import { embeddedSession, sessionAmount, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
@@ -76,6 +76,7 @@ async function paidOrder(lineItems: { ticketTypeId: string; quantity: number }[]
           id: `cs_${paymentIntent}`,
           object: "checkout.session",
           client_reference_id: orderId,
+          ...(await sessionAmount(api.db, orderId)),
           payment_status: "paid",
           payment_intent: paymentIntent,
           customer_details: { email: "buyer@example.com" },

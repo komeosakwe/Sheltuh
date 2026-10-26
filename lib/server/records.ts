@@ -749,8 +749,8 @@ export const ADMIN_PAYMENT_EXCEPTION_SELECT = `
     from private.payment_exceptions e
     left join public.orders o on o.id = e.order_id`;
 
-const DETAIL_STRINGS = ["refundStatus", "orderStatus", "source", "reason"] as const;
-const DETAIL_NUMBERS = ["refundAmountCents", "amountRefundedCents", "totalCents"] as const;
+const DETAIL_STRINGS = ["refundStatus", "orderStatus", "source", "reason", "currency"] as const;
+const DETAIL_NUMBERS = ["refundAmountCents", "amountRefundedCents", "totalCents", "supportCents", "amountChargedCents"] as const;
 
 /** Only the known amounts and statuses, whatever else the jsonb holds. */
 export function paymentExceptionDetails(raw: unknown): AdminPaymentException["details"] {

@@ -14,7 +14,15 @@ import { calculateOrderSummary, describeBookingFee, sumOrderSummaries } from "@/
 import { formatAud } from "@/lib/format";
 import { formatTicketBreakdown, formatTicketHeadline, isSoldOut, pricedTicketTypes } from "@/lib/pricing";
 import { freeTicketsIn, isLow, ownLimit, ownLimitHint, type Quantities } from "@/lib/ticket-limits";
-import { NO_SUPPORT, supportCentsOf, supportErrorOf, totalIncludesWords, type SupportChoice } from "@/lib/support-choice";
+import {
+  isEmptyOther,
+  NO_SUPPORT,
+  supportAddedHint,
+  supportCentsOf,
+  supportErrorOf,
+  totalIncludesWords,
+  type SupportChoice,
+} from "@/lib/support-choice";
 import { getTrackingRef } from "@/lib/tracking-ref";
 import type { SheltuhEvent, TicketType } from "@/lib/types";
 import { stepperButtonClass } from "@/components/ui/stepper";
@@ -179,7 +187,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         : next.option === "other"
           ? "Other amount for Support Sheltüh: enter an amount."
           : `Support Sheltüh: ${formatAud(cents)} added.`;
-    announce(`${what} Total ${formatAud(total)} incl. ${totalIncludesWords(cents)}.`);
+    announce(`${what} Total ${formatAud(total)} incl. ${totalIncludesWords(cents)}.${supportAddedHint(next)}`);
   }
 
   const lineSummaries = useMemo(
@@ -231,6 +239,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
       supportInputRef.current?.focus();
       return;
     }
+    // Other chosen but left empty is no support: shown as nothing chosen, and nothing sent.
+    if (isEmptyOther(support)) setSupport(NO_SUPPORT);
     setLoading(true);
     try {
       const lineItems = lineSummaries

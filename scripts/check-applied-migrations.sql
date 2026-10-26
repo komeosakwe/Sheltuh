@@ -109,6 +109,13 @@ select version, file, coalesce(applied, false) as applied
       exists (select 1 from col where attrelid = to_regclass('public.tickets') and attname = 'wallet_serial')),
     ('20261110000100', 'order_support',
       exists (select 1 from col where attrelid = to_regclass('public.orders') and attname = 'support_cents')
-      and exists (select 1 from fn where proname = 'hold_seats' and 'p_support_cents' = any(proargnames)))
+      and exists (select 1 from fn where proname = 'hold_seats' and 'p_support_cents' = any(proargnames))),
+    ('20261110000150', 'support_in_exceptions',
+      exists (select 1 from pg_constraint c
+               where c.conrelid = to_regclass('private.payment_exceptions') and c.conname = 'payment_exceptions_kind_check'
+                 and pg_get_constraintdef(c.oid) like '%amount_mismatch%')
+      and exists (select 1 from fn where proname = 'raise_payment_exception' and prosrc like '%amount_mismatch%')
+      and exists (select 1 from fn where proname = 'record_refund_status' and prosrc like '%supportCents%')
+      and exists (select 1 from fn where proname = 'fulfil_order_detailed' and prosrc like '%supportCents%'))
   ) as m(version, file, applied)
  order by version;

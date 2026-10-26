@@ -5,7 +5,7 @@
  * "Other" amount the same way. The limits and copy are lib/support.ts's.
  */
 import { formatAud } from "./format";
-import { isValidSupportCents, SUPPORT_MAX_CENTS, SUPPORT_MIN_CENTS } from "./support";
+import { SUPPORT_MAX_CENTS, SUPPORT_MIN_CENTS } from "./support";
 
 /** Nothing picked (the start: nothing is ever pre-selected), one of the presets, or Other with what's typed. */
 export type SupportChoice =
@@ -18,12 +18,17 @@ export const NO_SUPPORT: SupportChoice = { option: "none" };
 /** An "Other" amount as typed: whole cents (0 when nothing's typed), or why it can't be used. */
 export type ParsedSupportAmount = { ok: true; cents: number } | { ok: false; error: string };
 
-export const SUPPORT_RANGE_ERROR = `Enter an amount from ${formatAud(SUPPORT_MIN_CENTS)} to ${formatAud(SUPPORT_MAX_CENTS)}.`;
+/** An "Other" amount below SUPPORT_MIN_CENTS (0 included, once something's typed). */
+export const SUPPORT_MIN_ERROR = `The smallest amount is ${formatAud(SUPPORT_MIN_CENTS)}.`;
+
+/** An "Other" amount above SUPPORT_MAX_CENTS. */
+export const SUPPORT_MAX_ERROR = `The most you can add is ${formatAud(SUPPORT_MAX_CENTS)}.`;
 
 /**
  * Reads an "Other" amount in dollars ("7", "7.5", "7.50", "$7", "A$7"). Empty
  * is 0 (nothing added, no error). Otherwise it must be whole cents from
- * SUPPORT_MIN_CENTS to SUPPORT_MAX_CENTS (isValidSupportCents).
+ * SUPPORT_MIN_CENTS to SUPPORT_MAX_CENTS (what isValidSupportCents, the
+ * API's check, allows), each limit with its own error.
  */
 export function parseSupportAmount(text: string): ParsedSupportAmount {
   const trimmed = text.trim().replace(/^a?\$\s*/i, "");
@@ -37,7 +42,8 @@ export function parseSupportAmount(text: string): ParsedSupportAmount {
   if (fraction.length > 2) return { ok: false, error: "Use whole cents, like 7.50." };
   // Digits only, so no floating-point rounding: dollars × 100 plus the cents.
   const cents = Number(whole || "0") * 100 + Number(fraction.padEnd(2, "0"));
-  if (cents === 0 || !isValidSupportCents(cents)) return { ok: false, error: SUPPORT_RANGE_ERROR };
+  if (cents < SUPPORT_MIN_CENTS) return { ok: false, error: SUPPORT_MIN_ERROR };
+  if (cents > SUPPORT_MAX_CENTS) return { ok: false, error: SUPPORT_MAX_ERROR };
   return { ok: true, cents };
 }
 
@@ -61,4 +67,18 @@ export function supportErrorOf(choice: SupportChoice): string | null {
 /** What a total "includes", for the status announcements: "booking fees", plus Support Sheltüh when there is some. */
 export function totalIncludesWords(supportCents: number): string {
   return supportCents > 0 ? "booking fees and Support Sheltüh" : "booking fees";
+}
+
+/**
+ * Other chosen with nothing typed (or only spaces): no support. Checkout
+ * treats it as none, clearing the choice (so nothing shows as chosen) and
+ * sending nothing.
+ */
+export function isEmptyOther(choice: SupportChoice): boolean {
+  return choice.option === "other" && choice.text.trim() === "";
+}
+
+/** After an amount is added (a preset chosen), how to take it off, for the status announcement. */
+export function supportAddedHint(next: SupportChoice): string {
+  return next.option === "preset" ? " Choose it again or press Remove to take it off." : "";
 }

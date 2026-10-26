@@ -872,33 +872,86 @@ recorded in `private.payment_exceptions` and listed by
 `GET /api/admin/payment-exceptions` (admin; `?status=resolved` for closed
 ones): a refund Stripe reports `failed`, `canceled` or `requires_action`
 (`urgent` when its order was already voided: the buyer has neither tickets
-nor their money), a partial refund, or an automatic refund the app couldn't
-request. Each new one emails an ops alert to `OPS_ALERT_EMAIL` (at most 20 a
+nor their money), a partial refund, an automatic refund the app couldn't
+request, or a payment whose amount or currency wasn't the order's
+(`amount_mismatch`, below). Details include the order's total and its
+Support Sheltüh amount (`supportCents`), for splitting a refund. Each new one emails an ops alert to `OPS_ALERT_EMAIL` (at most 20 a
 day; unset: logged only). Nothing is ever restored or refunded again
 automatically: refund again in the Stripe dashboard if needed, then close it
 with `POST /api/admin/payment-exceptions/{exceptionId}/resolve {"note": "…"}`.
 A refund that later succeeds closes its exception by itself.
 
 **Refunding a paid order.** Refund it from the Stripe dashboard (Payments →
-the payment → Refund). For a destination charge, choose whether to reverse
-the organiser's transfer and refund Sheltüh's application fee there; the app
-doesn't decide. A **full** refund marks the order `refunded`: its tickets are
-void (the confirmation page no longer shows them) and they go back on sale.
-A **partial** refund is only recorded: the order stays `paid` and its tickets
-stay valid, the server logs `Order #… was partly refunded in Stripe …
-Review it manually.` and a `partial_refund` payment exception is opened.
-Refunding the rest voids the whole order (and closes the exception). A
-refund made before the order's payment webhook was processed (only if that
-webhook failed and is waiting for Stripe's retry) is held until the payment
-arrives: in full, the order becomes `refunded` with no tickets ever issued;
-in part, the tickets are issued and the exception opened. Disputes
-aren't handled automatically (docs/architecture.md, "Refunds made in
-Stripe"). Partly refunded orders:
+the payment → Refund). Every Sheltüh payment is a destination charge: the
+organiser's transfer is `total_cents − application_fee_cents −
+support_cents`, and Sheltüh's application fee is `application_fee_cents +
+support_cents` (the booking fee plus any Support Sheltüh, which is
+Sheltüh's alone). The refund form's two options decide who pays the buyer
+back; the app doesn't. Look the order up first (its payment intent is on the
+payment's page in Stripe):
 
 ```sql
-select id, total_cents, amount_refunded_cents, created_at
+select id, status, total_cents, application_fee_cents, support_cents,
+       total_cents - application_fee_cents - support_cents as organiser_transfer_cents,
+       amount_refunded_cents, stripe_payment_intent_id, created_at
+from orders where stripe_payment_intent_id = 'pi_…';
+```
+
+- **Full refund** (the whole order, support included): refund the full
+  amount and tick **both** "reverse transfer" and "refund application
+  fee". The organiser returns their transfer and Sheltüh its booking fee
+  and the support. This is what the app's own automatic refunds do.
+- **Support only** (the buyer wants their Support Sheltüh back, tickets
+  kept): refund exactly `support_cents` with **neither** box ticked.
+  Sheltüh's balance pays it (it received the support in the application
+  fee); the organiser's transfer is untouched. The order stays `paid` and a
+  `partial_refund` exception opens: resolve it with a note.
+- **Tickets only** (keep the support): the buyer gets
+  `total_cents − support_cents`. Stripe reverses the transfer and the
+  application fee *in proportion* to the amount refunded when the boxes are
+  ticked, which would take part of the support back too, so work out the
+  split from `support_cents`: refund `total_cents − support_cents` with
+  neither box ticked (Sheltüh's balance pays it), then reverse the
+  organiser's transfer by exactly `organiser_transfer_cents` (Connect →
+  Transfers → the transfer → Reverse, partial amount). Net: the organiser
+  returns their whole transfer, Sheltüh returns the booking fee
+  (`application_fee_cents`) and keeps the support. Don't also refund the
+  application fee: that would send the support to the organiser. Check the
+  amounts in test mode first. The order stays `paid` and its tickets valid
+  (the remaining support isn't refunded, so it's a partial refund): resolve
+  the `partial_refund` exception with a note, and void the tickets only by
+  refunding the rest.
+- **Lost dispute (chargeback)**: Stripe takes the disputed amount (and its
+  dispute fee) from Sheltüh's balance, and nothing is automatic (the order
+  stays `paid`). To recover the organiser's share, reverse their transfer by
+  at most `total_cents − application_fee_cents − support_cents`
+  (`organiser_transfer_cents` above): never more, since the booking fee and
+  the support were never theirs.
+
+A **full** refund marks the order `refunded`: its tickets are void (the
+confirmation page no longer shows them) and they go back on sale. A
+**partial** refund is only recorded: the order stays `paid` and its tickets
+stay valid, the server logs `Order #… was partly refunded in Stripe …
+Review it manually.` and a `partial_refund` payment exception is opened
+(its details and ops alert include `supportCents`). Refunding the rest
+voids the whole order (and closes the exception). A refund made before the
+order's payment webhook was processed (only if that webhook failed and is
+waiting for Stripe's retry) is held until the payment arrives: in full, the
+order becomes `refunded` with no tickets ever issued; in part, the tickets
+are issued and the exception opened. Disputes aren't handled automatically
+(docs/architecture.md, "Refunds made in Stripe"). Partly refunded orders:
+
+```sql
+select id, total_cents, application_fee_cents, support_cents, amount_refunded_cents, created_at
 from orders where status = 'paid' and amount_refunded_cents > 0;
 ```
+
+**Payment amount mismatch** (`amount_mismatch` exception, "Payment amount
+mismatch" ops alert): Stripe reported a paid session whose amount or
+currency isn't the order's total in AUD. No tickets were issued and the
+order is still `pending`. Compare the payment in Stripe with the order
+(the SQL above), refund it in full (both boxes ticked), then resolve the
+exception with a note.
 
 **Testing refunds in test mode.** Buy a ticket with `4242 4242 4242 4242`
 and wait for the confirmation page to show the ticket codes. Then:

@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { EmailOutboxKind } from "@/lib/api/types";
+import type { EmailOutboxKind, PaymentExceptionKind } from "@/lib/api/types";
 import { buildEventReviewEmail, buildOrganiserReviewEmail } from "./admin-review-email";
 import { PG_UNDEFINED_FUNCTION, pgErrorCode } from "./db";
 import type { Deps } from "./deps";
@@ -481,7 +481,7 @@ async function deliverOpsAlert(deps: Deps, jobId: string): Promise<Outcome> {
     );
     if (job?.about_event) return await deliverCheckoutSurgeAlert(deps, to, jobId);
     const [row] = await deps.db.query<{
-      kind: "refund_not_completed" | "partial_refund" | "manual_refund_required";
+      kind: PaymentExceptionKind;
       status: string;
       order_id: string | null;
       order_status: string | null;

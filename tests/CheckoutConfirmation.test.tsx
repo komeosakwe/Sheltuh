@@ -679,4 +679,18 @@ describe("CheckoutConfirmation: Support Sheltüh", () => {
     expect(screen.queryByText("Support Sheltüh")).toBeNull();
     expect(screen.queryByText("Thanks for supporting Sheltüh.")).toBeNull();
   });
+
+  it("with support, the refund terms say it's refunded only with the whole order; not without it", async () => {
+    const note = "Support Sheltüh is refunded only if your whole order is refunded.";
+    getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, refundPolicy: "no_change_of_mind", supportCents: 500 });
+    const { unmount } = render(<CheckoutConfirmation />);
+    const policy = (await screen.findByText(/No refunds for change of mind/)).closest("[data-refund-policy]") as HTMLElement;
+    expect(within(policy).getByText(note)).toBeInTheDocument();
+    unmount();
+
+    getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, refundPolicy: "no_change_of_mind" });
+    render(<CheckoutConfirmation />);
+    await screen.findByText(/No refunds for change of mind/);
+    expect(screen.queryByText(note)).toBeNull();
+  });
 });

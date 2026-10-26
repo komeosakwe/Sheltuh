@@ -5,7 +5,7 @@ import { createCheckout, getOrderBySession, stripeWebhook } from "@/lib/server/h
 import { adminListPaymentExceptions, adminResolvePaymentException } from "@/lib/server/handlers/payment-exceptions";
 import { orderReference } from "@/lib/server/order-reference";
 import type { EventRecord } from "@/lib/server/types";
-import { embeddedSession, OPS_ALERT_EMAIL, stripeWebhookRequest, TestApi } from "./helpers/api";
+import { embeddedSession, OPS_ALERT_EMAIL, sessionAmount, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, insertOrder, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { seatedEvent, seatStates, tierCounts } from "./helpers/seating";
 import { createTestDb } from "./helpers/test-db";
@@ -75,7 +75,7 @@ async function checkout(lineItems: { ticketTypeId: string; quantity: number }[],
   return res.body.orderId as string;
 }
 
-function completed(orderId: string, paymentIntent: string | null) {
+async function completed(orderId: string, paymentIntent: string | null) {
   return stripeWebhookRequest({
     id: `evt_paid_${paymentIntent}`,
     type: "checkout.session.completed",
@@ -84,6 +84,7 @@ function completed(orderId: string, paymentIntent: string | null) {
         id: `cs_${orderId}`,
         object: "checkout.session",
         client_reference_id: orderId,
+        ...(await sessionAmount(api.db, orderId)),
         payment_status: "paid",
         payment_intent: paymentIntent,
         customer_details: { email: "buyer@example.com" },
@@ -294,7 +295,8 @@ describe("a partial refund that arrives before the payment is recorded (D2)", ()
     expect(await sold()).toEqual({ ga: 2, vip: 0 });
     const [exception] = await exceptions();
     expect(exception).toMatchObject({ kind: "partial_refund", status: "open", order_id: orderId, alerted: true });
-    expect(exception.details).toEqual({ amountRefundedCents: 3170, totalCents: 6340, orderStatus: "paid" });
+    // supportCents too (0: none), to split a dashboard refund (20261110000150_support_in_exceptions.sql).
+    expect(exception.details).toEqual({ amountRefundedCents: 3170, totalCents: 6340, supportCents: 0, orderStatus: "paid" });
     expect(await alertJobs()).toEqual([{ status: "pending", payment_exception_id: exception.id }]);
 
     // After the response: the ticket email and the ops alert.
@@ -305,6 +307,7 @@ describe("a partial refund that arrives before the payment is recorded (D2)", ()
     expect(alert.subject).toBe(`Sheltüh payment exception: Partial refund ${orderReference(orderId)}`);
     expect(alert.text).toContain("Refunded so far: A$31.70");
     expect(alert.text).toContain("Order total: A$63.40");
+    expect(alert.text).toContain("Support Sheltüh (in the total, Sheltüh's): A$0.00");
     expect(alert.text).toContain("Stripe event: evt_partial");
     for (const part of [alert.subject, alert.text, alert.html]) {
       expect(part).not.toContain(orderId);
@@ -421,7 +424,14 @@ describe("a dashboard refund that doesn't complete after its order was voided (D
       }
       const rows = await exceptions();
       expect(rows).toEqual([expect.objectContaining({ kind: "refund_not_completed", status: "open", order_id: orderId, refund_id: "re_dash", alerted: true })]);
-      expect(rows[0].details).toEqual({ refundStatus: status, refundAmountCents: 3170, orderStatus: "refunded", source: "stripe" });
+      expect(rows[0].details).toEqual({
+        refundStatus: status,
+        refundAmountCents: 3170,
+        orderStatus: "refunded",
+        totalCents: 3170,
+        supportCents: 0,
+        source: "stripe",
+      });
       expect(await alertJobs()).toHaveLength(1);
       // Never restored, never refunded again.
       expect(await internal(orderId)).toMatchObject({ status: "refunded", tickets: 1 });
@@ -765,7 +775,7 @@ describe("our own automatic refunds", () => {
     await paySecond();
     const rows = await exceptions();
     expect(rows).toEqual([expect.objectContaining({ kind: "manual_refund_required", status: "open", order_id: second })]);
-    expect(rows[0].details).toEqual({ reason: "no_payment_intent", orderStatus: "oversold_refund_required" });
+    expect(rows[0].details).toEqual({ reason: "no_payment_intent", orderStatus: "oversold_refund_required", totalCents: 8000, supportCents: 0 });
     expect(await alertJobs()).toHaveLength(1);
     expect(api.stripe.refunds.create).not.toHaveBeenCalled();
 

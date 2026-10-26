@@ -15,11 +15,21 @@
 /** The label everywhere: checkout, the payment page, Stripe's line item, the ticket page and email. */
 export const SUPPORT_LABEL = "Support Sheltüh";
 
+/** Beside the label at checkout (muted), so it's clear before the amounts that nothing has to be added. */
+export const SUPPORT_OPTIONAL = "(optional)";
+
 /** One line under the label at checkout. */
 export const SUPPORT_BLURB = "Add a little to support Sheltüh's mission: keeping the creative scene discoverable.";
 
-/** Who gets it, said plainly before the buyer pays. */
-export const SUPPORT_RECIPIENT_NOTE = "Optional. It goes to Sheltüh, not the event organiser.";
+/** Who gets it, said plainly before the amounts (right after the blurb) and before the buyer pays. */
+export const SUPPORT_RECIPIENT_NOTE = "It goes to Sheltüh, not the event organiser.";
+
+/**
+ * With the refund terms, wherever the buyer sees them on an order that has
+ * support (the payment page, the ticket page, the ticket email): a partial
+ * refund (of tickets) never returns it; a full refund of the order does.
+ */
+export const SUPPORT_REFUND_NOTE = "Support Sheltüh is refunded only if your whole order is refunded.";
 
 /** The one-tap amounts (A$2, A$5, A$10), plus "Other". None is pre-selected; tapping the chosen one again removes it. */
 export const SUPPORT_PRESETS_CENTS: readonly number[] = [200, 500, 1000];

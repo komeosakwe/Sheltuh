@@ -23,6 +23,7 @@ import {
 } from "@/lib/checkout-pay";
 import { formatAud, formatEventDateTimeRange } from "@/lib/format";
 import { REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
+import { SUPPORT_REFUND_NOTE } from "@/lib/support";
 import { compareSeats } from "@/lib/seating/format";
 import { forgetPendingCheckout } from "@/lib/seating/pending-checkout";
 import type { CustomerOrder } from "@/lib/api/types";
@@ -434,6 +435,9 @@ export default function CheckoutConfirmation() {
             <p className="text-foreground">
               <span className="font-semibold">Refund policy:</span> {refunds}
             </p>
+            {order.supportCents !== undefined && order.supportCents > 0 && (
+              <p className="text-foreground">{SUPPORT_REFUND_NOTE}</p>
+            )}
             <p className="text-sm text-muted">{REFUND_ACL_STATEMENT}</p>
             <p className="text-xs text-muted">
               To ask for one, use{" "}

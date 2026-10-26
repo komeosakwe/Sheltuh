@@ -94,6 +94,17 @@ export function stripeWebhookRequest(
   });
 }
 
+/**
+ * What a paid Checkout Session for this order says it charged, as Stripe sends
+ * it (`amount_total`, `currency`): the order's stored total in AUD, which is
+ * all the webhook fulfils (lib/server/handlers/orders.ts,
+ * sessionMoneyMismatch). Nothing for an order that doesn't exist.
+ */
+export async function sessionAmount(db: Db, orderId: string): Promise<{ amount_total?: number; currency?: string }> {
+  const [row] = await db.query<{ total_cents: number }>(`select total_cents from public.orders where id = $1`, [orderId]);
+  return row ? { amount_total: Number(row.total_cents), currency: "aud" } : {};
+}
+
 /** The fake Storage's origin: its URLs are never fetched. */
 export const FAKE_STORAGE_ORIGIN = "https://project.supabase.test";
 
@@ -346,8 +357,9 @@ export class TestApi {
     return runHandler(handler, new Request(url, { headers: options.headers }), (options.params ?? {}) as P, this.deps);
   }
 
-  async send<P extends Record<string, string>>(handler: Handler<P>, req: Request, params?: P) {
-    const res = await runHandler(handler, req, (params ?? {}) as P, this.deps);
+  /** A request, or one still being built (a webhook fixture that reads the order's amount first). */
+  async send<P extends Record<string, string>>(handler: Handler<P>, req: Request | Promise<Request>, params?: P) {
+    const res = await runHandler(handler, await req, (params ?? {}) as P, this.deps);
     const text = await res.text();
     return { status: res.status, body: text ? JSON.parse(text) : undefined, headers: res.headers };
   }

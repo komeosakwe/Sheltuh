@@ -3,7 +3,7 @@ import { formatAud } from "@/lib/format";
 import { directionsHref } from "@/lib/maps";
 import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { formatSeatLine, speakSeatLine } from "@/lib/seating/format";
-import { SUPPORT_LABEL } from "@/lib/support";
+import { SUPPORT_LABEL, SUPPORT_REFUND_NOTE } from "@/lib/support";
 import { QR_QUIET_ZONE_MODULES, ticketQrLabel, ticketQrMatrix } from "@/lib/ticket-qr";
 import { subjectLine, type EmailMessage, type InlineImage } from "./email";
 import {
@@ -421,7 +421,7 @@ export function buildTicketEmail(
     `Order reference: ${reference}`,
     ...(support ? [`${SUPPORT_LABEL}: ${formatAud(support)}`] : []),
     `Total paid: ${totalText}`,
-    ...(refunds ? ["", `Refund policy: ${refunds}`, REFUND_ACL_STATEMENT] : []),
+    ...(refunds ? ["", `Refund policy: ${refunds}`, ...(support ? [SUPPORT_REFUND_NOTE] : []), REFUND_ACL_STATEMENT] : []),
     "",
     `Need a hand? Email ${SUPPORT_EMAIL}`,
     "Sheltüh, Melbourne",
@@ -486,7 +486,9 @@ ${support ? `<tr><td style="padding:4px 12px 4px 0;${text(15, 22, MUTED, "white-
         `<span style="font-weight:bold">Refund policy:</span> ${escapeHtml(refunds)}`,
         text(15, 22, INK),
         "14px 0 0 0",
-      ) + para(escapeHtml(REFUND_ACL_STATEMENT), text(14, 20, MUTED), "4px 0 0 0")
+      ) +
+      (support ? para(escapeHtml(SUPPORT_REFUND_NOTE), text(15, 22, INK), "4px 0 0 0") : "") +
+      para(escapeHtml(REFUND_ACL_STATEMENT), text(14, 20, MUTED), "4px 0 0 0")
     : "";
 
   const body = `${details}

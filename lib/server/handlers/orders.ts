@@ -270,10 +270,63 @@ async function raiseManualRefund(deps: Deps, orderId: string, eventId: string | 
   console.error(message);
   const [row] = await deps.db.query<{ alert_queued: boolean }>(
     `select alert_queued from private.raise_payment_exception('manual_refund_required', $1, null, null, $2, null,
-       jsonb_build_object('reason', 'no_payment_intent', 'orderStatus', (select o.status::text from public.orders o where o.id = $1)))`,
+       jsonb_strip_nulls(jsonb_build_object('reason', 'no_payment_intent',
+         'orderStatus', (select o.status::text from public.orders o where o.id = $1),
+         'totalCents', (select o.total_cents from public.orders o where o.id = $1),
+         'supportCents', (select o.support_cents from public.orders o where o.id = $1))))`,
     [orderId, eventId ?? null],
   );
   if (row.alert_queued) sendOpsAlertsSoon(deps);
+}
+
+/** Why a paid Checkout Session's money isn't its order's, or null when it is (sessionMoneyMismatch). */
+type MoneyMismatch = "amount_mismatch" | "currency_mismatch";
+
+/**
+ * Defence in depth before fulfilling a paid order: the session must have
+ * charged exactly the order's stored total (support included), in AUD. The
+ * session is built from the stored order (checkout-attempts.ts: per-ticket
+ * prices and fees, the support line, Adaptive Pricing off), so a difference
+ * means the session or the order isn't what we made, and no tickets go out.
+ */
+function sessionMoneyMismatch(session: Stripe.Checkout.Session, order: OrderRecord): MoneyMismatch | null {
+  if (session.currency !== "aud") return "currency_mismatch";
+  if (session.amount_total !== order.totalCents) return "amount_mismatch";
+  return null;
+}
+
+/**
+ * A paid session whose amount or currency isn't the order's: nothing is
+ * issued (the order stays `pending`), an `amount_mismatch` payment exception
+ * is opened (one open per order: a redelivery only updates it) with the
+ * amounts from the session and the stored order, and an ops alert queued. An
+ * admin checks the payment in Stripe and refunds it there. Logged by short
+ * reference only.
+ */
+async function raiseAmountMismatch(
+  deps: Deps,
+  order: OrderRecord,
+  session: Stripe.Checkout.Session,
+  paymentIntentId: string | undefined,
+  eventId: string,
+  reason: MoneyMismatch,
+) {
+  const charged = session.amount_total;
+  const amountCharged = typeof charged === "number" && Number.isSafeInteger(charged) && charged >= 0 && charged <= MAX_INT4 ? charged : null;
+  const currency = typeof session.currency === "string" && /^[a-z]{3}$/.test(session.currency) ? session.currency : null;
+  console.error(
+    `Order ${orderReference(order.orderId)} was paid with ${reason === "currency_mismatch" ? "another currency" : "another amount"} ` +
+      "than its total: no tickets issued. See GET /api/admin/payment-exceptions.",
+  );
+  const [row] = await deps.db.query<{ alert_queued: boolean }>(
+    `select alert_queued from private.raise_payment_exception('amount_mismatch', $1, $2, null, $3, null,
+       (select jsonb_strip_nulls(jsonb_build_object(
+                 'reason', $4::text, 'amountChargedCents', $5::integer, 'currency', $6::text,
+                 'totalCents', o.total_cents, 'supportCents', o.support_cents, 'orderStatus', o.status::text))
+          from public.orders o where o.id = $1))`,
+    [order.orderId, paymentIntentId ?? null, eventId, reason, amountCharged, currency],
+  );
+  if (row?.alert_queued) sendOpsAlertsSoon(deps);
 }
 
 /**
@@ -780,7 +833,9 @@ export const getOrderBySession: Handler<{ sessionId: string }> = async (_req, { 
  * POST /api/stripe/webhook — Stripe calls this directly; the signature is
  * the only trust boundary. Payment confirmation is the only point an order
  * becomes paid and inventory is taken, so an abandoned checkout never holds
- * tickets.
+ * tickets. A paid session is fulfilled only when it charged exactly the
+ * order's stored total in AUD (sessionMoneyMismatch); otherwise nothing is
+ * issued and an `amount_mismatch` payment exception is opened.
  */
 export const stripeWebhook: Handler = async (req, _params, deps) => {
   const signature = req.headers.get("stripe-signature");
@@ -856,6 +911,13 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
 
   const paymentIntentId =
     typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id;
+  // Only the amount the order was priced at, in AUD, fulfils it. (Free orders never reach here: they
+  // have no Checkout Session, and their own paths fulfil them.)
+  const mismatch = sessionMoneyMismatch(session, order);
+  if (mismatch) {
+    await raiseAmountMismatch(deps, order, session, paymentIntentId, event.id, mismatch);
+    return received;
+  }
   const { status, alertQueued } = await fulfilOrder(deps.db, order, {
     buyerEmail: session.customer_details?.email,
     paymentIntentId,

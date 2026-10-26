@@ -38,9 +38,13 @@
 -- Access model as everywhere else: hold_seats pins search_path = '' and has
 -- execute revoked from PUBLIC, anon and authenticated.
 --
--- Apply before the app that writes support_cents deploys (its general
--- admission insert and its 19-argument hold_seats call fail without it). The
--- previous app keeps working against it.
+-- APPLY THIS FILE FIRST, before the app with Support Sheltüh deploys. That
+-- app selects support_cents wherever it reads an order, so shipping it
+-- before this file breaks: Stripe fulfilment (the webhook's findOrder selects
+-- support_cents: paid orders stay pending while Stripe retries), the ticket
+-- emails, the ticket and payment pages, wallet passes, analytics, and every
+-- paid checkout (its general admission insert and its 19-argument
+-- hold_seats call fail too). The previous app keeps working against it.
 --
 -- Additive. Adding a not-null column with a constant default is a catalogue
 -- change (no table rewrite); the two constraints scan public.orders once

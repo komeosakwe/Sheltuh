@@ -4,7 +4,9 @@ import { subjectLine, type EmailMessage } from "./email";
 /**
  * The ops alert about one payment exception (docs/architecture.md, "Refunds
  * made in Stripe"), sent to OPS_ALERT_EMAIL. Deliberately thin: the order's
- * short reference, amounts, statuses and Stripe's event id. Never the buyer's
+ * short reference, amounts (its Support Sheltüh amount included, to split a
+ * refund: docs/supabase-setup.md, "Refunding a paid order"), statuses and
+ * Stripe's event id. Never the buyer's
  * address, the order id (the confirmation page's credential) or the payment
  * intent: the admin API (GET /api/admin/payment-exceptions) has the rest.
  */
@@ -24,6 +26,7 @@ const TITLES: Record<PaymentExceptionKind, string> = {
   refund_not_completed: "Refund not completed",
   partial_refund: "Partial refund",
   manual_refund_required: "Manual refund required",
+  amount_mismatch: "Payment amount mismatch",
 };
 
 const ACTIONS: Record<PaymentExceptionKind, string> = {
@@ -36,6 +39,10 @@ const ACTIONS: Record<PaymentExceptionKind, string> = {
   manual_refund_required:
     "The automatic refund couldn't be requested. Refund the payment in the Stripe dashboard, " +
     "then resolve the exception with a note.",
+  amount_mismatch:
+    "Stripe charged a different amount or currency from the order's total, so no tickets were issued and the " +
+    "order is still pending. Check the payment in the Stripe dashboard, refund it there in full (tick both " +
+    '"reverse transfer" and "refund application fee"), then resolve the exception with a note.',
 };
 
 function dollars(cents: number): string {
@@ -62,7 +69,18 @@ export function opsAlertLines(alert: OpsAlert): string[] {
   if (details.refundStatus) lines.push(`Refund status: ${details.refundStatus}`);
   if (details.refundAmountCents !== undefined) lines.push(`Refund amount: ${dollars(details.refundAmountCents)}`);
   if (details.amountRefundedCents !== undefined) lines.push(`Refunded so far: ${dollars(details.amountRefundedCents)}`);
+  if (details.amountChargedCents !== undefined) {
+    // In the session's currency (its minor unit); A$ when it's AUD or unknown.
+    const charged =
+      details.currency && details.currency !== "aud"
+        ? `${(details.amountChargedCents / 100).toFixed(2)} ${details.currency.toUpperCase()}`
+        : dollars(details.amountChargedCents);
+    lines.push(`Amount charged: ${charged}`);
+  } else if (details.currency) {
+    lines.push(`Currency charged: ${details.currency.toUpperCase()}`);
+  }
   if (details.totalCents !== undefined) lines.push(`Order total: ${dollars(details.totalCents)}`);
+  if (details.supportCents !== undefined) lines.push(`Support Sheltüh (in the total, Sheltüh's): ${dollars(details.supportCents)}`);
   if (details.source) lines.push(`Refund made by: ${details.source === "sheltuh" ? "Sheltüh (automatic)" : "the Stripe dashboard"}`);
   const eventId = stripeEventId(alert.stripeEventId);
   if (eventId) lines.push(`Stripe event: ${eventId}`);

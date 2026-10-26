@@ -80,7 +80,7 @@ iframe served by Stripe), with the publishable key
 | `private.free_order_refusals` | `(day, reason)` | Counts of refused free bookings per Melbourne day and reason. No personal data. Deleted after 13 months. |
 | `private.early_charge_refunds` | `payment_intent_id` | A `charge.refunded` that arrived before its order's payment was recorded, for a payment to one of our organisers' Stripe accounts (any other payment writes nothing): charge, destination, cumulative amount (the greatest seen), full flag (OR-ed), last Stripe event, and `applied_at` / `applied_order_id` once `fulfil_order` acted on it. No buyer data. Deleted 35 days after its last update (`purge_operational_data`). See "Refunds made in Stripe". |
 | `private.refund_status_marks` | `refund_id` | The newest Stripe refund event applied per refund (its status, the event's `created` time and id), written by `record_refund_status` for events only (never for our own refund call's answer, which has no event time). An event older than the mark, delivered later, is `stale` and changes nothing: a `succeeded` that arrives before an older `requires_action` or `failed` leaves a resolved tombstone, so the late one opens no exception. Statuses only, no buyer data. Deleted 35 days after its last update (`purge_operational_data`). |
-| `private.payment_exceptions` | `id` | Payment problems that need a person (see "Refunds made in Stripe"): `kind` `refund_not_completed` (keyed on the refund id, unique), `partial_refund` or `manual_refund_required` (one open per order); `status` open → resolved (`resolution` `auto` or `admin`, with the admin and a 1–500 character note); order (null until a payment is matched to one; set null if the order is deleted), payment intent, refund and latest Stripe event ids and that event's time (older events are ignored); `details`: amounts and statuses only; `alerted_at` (an ops alert queued). Resolved ones are deleted 2 years after resolution; open ones never. |
+| `private.payment_exceptions` | `id` | Payment problems that need a person (see "Refunds made in Stripe"): `kind` `refund_not_completed` (keyed on the refund id, unique), `partial_refund`, `manual_refund_required` or `amount_mismatch` (`20261110000150_support_in_exceptions.sql`; one open per order); `status` open → resolved (`resolution` `auto` or `admin`, with the admin and a 1–500 character note); order (null until a payment is matched to one; set null if the order is deleted), payment intent, refund and latest Stripe event ids and that event's time (older events are ignored); `details`: amounts and statuses only (the order's total and its Support Sheltüh amount, `supportCents`, when the order is known; `20261110000150_support_in_exceptions.sql`); `alerted_at` (an ops alert queued). Resolved ones are deleted 2 years after resolution; open ones never. |
 | `private.email_outbox` | `id` | Transactional email jobs of six kinds: `ticket_email`, one per paid order (`(order_id, kind)` unique), `waitlist_available`, one per person told that tickets are available again (`waitlist_entry_id`; at most one pending or sending per entry), `organiser_new_events`, a follower's new-event email (`follow_id`; at most one pending or sending per follow; see "Following organisers"), `event_review` / `organiser_review`, the admins' "waiting for your review" email (`event_id` / `organiser_id`; at most one pending or sending per event or application; see "Admin review emails"), and `ops_alert`, keyed on `payment_exception_id` for a payment exception (see "Refunds made in Stripe") or on `ops_event_id` for a checkout surge (see "Checkout idempotency"), exactly one of the two, at most one pending or sending per exception and per event. A check ties each kind to its key. Status, attempts, next attempt, lease, redacted last error. No address or content (read from the order, the waitlist entry, the follow, the event, the application or the exception, at send time). Deleted with the order, the entry, the follow, the event, the organiser or the exception. |
 | `private.email_job_recipients` | `(job_id, recipient_hash)` | Which admins already have a review job's email (the lower-cased address's SHA-256 only), so a retry skips them. Deleted with the job. |
 | `private.cron_runs` | `name` | One row per cron route (only `email_outbox` so far): when its last run finished and that run's counts (claimed, sent, retrying, failed), written by the route. Read by `GET /api/admin/emails/health`. Nothing personal. |
@@ -392,7 +392,20 @@ times, which are converted to instants honouring daylight saving
 3. `POST /api/stripe/webhook`:
    - The signature is verified.
    - `checkout.session.completed` (when the session is paid) or
-     `async_payment_succeeded` → `fulfil_order`.
+     `async_payment_succeeded` → `fulfil_order`, but only when the session
+     charged exactly the order's stored total in AUD (`amount_total` =
+     `total_cents`, Support Sheltüh included, and `currency` = `aud`;
+     `sessionMoneyMismatch`, `lib/server/handlers/orders.ts`). The session
+     is built from the stored order, so this is defence in depth: on a
+     mismatch (or a session with no amount or currency) nothing is issued
+     or taken, the order stays `pending`, an `amount_mismatch` payment
+     exception is opened (one open per order, so a redelivery only updates
+     it; details: the reason, `amountChargedCents`, `currency`, the order's
+     `totalCents` and `supportCents`) with an ops alert, and the webhook
+     answers 200. An admin checks the payment in Stripe and refunds it in
+     the dashboard. Free orders never reach this (no Checkout Session), and
+     the refund paths for oversold and failed orders above it are
+     unchanged.
    - If `fulfil_order` finds the tickets sold out, or the event no longer
      published, the payment is refunded straight away (`reverse_transfer`
      and `refund_application_fee`, idempotency-keyed per order). The order
@@ -776,15 +789,41 @@ booking fee is charged on it.
   radio group drawn as chips, nothing pre-selected; tapping the chosen chip
   again, Space on it, or Remove clears it. Other takes A$1 to A$500 in whole
   cents, with its error by the field (an invalid amount stops Checkout).
-  The amount is its own summary line and in the total; the API's 400
-  `fieldErrors.supportCents` is shown by the chips. The payment page and
-  the ticket page show the line too (the ticket page with a thank-you).
-- **Organisers never see it.** Analytics gross, fees and net, and tracking
-  links' gross, use `total_cents − support_cents` ("Organiser analytics");
-  per-ticket figures come from the line items, which never include it.
-  Their transfer and payouts don't include it either.
+  The legend says "(optional)", and who gets it ("It goes to Sheltüh, not
+  the event organiser.") is said with the blurb, before the chips; only
+  Remove is under them. Other's hint and error share one slot two lines
+  tall (whichever shows is the field's description), so the error that
+  appears when the field is left, which pressing Checkout does, moves
+  nothing below it: Checkout stays under the press. Below A$1: "The
+  smallest amount is A$1."; above A$500: "The most you can add is A$500.".
+  Other chosen but left empty is none: Checkout clears it (nothing shown as
+  chosen) and sends nothing. Adding an amount is announced with "Choose it
+  again or press Remove to take it off." The chips go to one column in a
+  narrow container (below 10rem, e.g. large text on a phone) and their
+  labels wrap rather than overflow. The amount is its own summary line and
+  in the total; the API's 400 `fieldErrors.supportCents` is shown by the
+  chips. The payment page shows the line outside the phone fold ("Show n
+  tickets"), and the ticket page shows it with a thank-you.
+- **Refund terms.** Wherever the buyer sees the event's refund policy on an
+  order with support (the payment page, the ticket page, the ticket email
+  in HTML and text), one more sentence follows it: "Support Sheltüh is
+  refunded only if your whole order is refunded." (`SUPPORT_REFUND_NOTE`).
+- **Organisers' figures in Sheltüh exclude it.** Analytics gross, fees and
+  net, and tracking links' gross, use `total_cents − support_cents`
+  ("Organiser analytics"); per-ticket figures come from the line items,
+  which never include it. Their transfer and payouts don't include it
+  either.
+- **Known limit: the organiser's Stripe dashboard.** With destination
+  charges, support travels in `application_fee_amount`, so an organiser's
+  Stripe Express dashboard may show it inside the charge's "fee" (the
+  platform's application fee is shown as one amount). Sheltüh's own pages
+  never show it to them, but Stripe's can. The planned move to separate
+  charges and transfers (organisers paid 2 days after the event, a transfer
+  of their own amount only) removes this; until then it's accepted.
 - **Refunds.** See "Refunds made in Stripe": a full refund returns it;
-  partial refunds stay manual.
+  partial refunds stay manual (the runbook in `docs/supabase-setup.md`,
+  "Refunding a paid order", has the dashboard recipes). Payment exceptions
+  and their ops alerts carry the order's `supportCents`.
 
 ## Checkout idempotency
 

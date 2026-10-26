@@ -60,7 +60,9 @@ function liveEvent(slug: string): SheltuhEvent {
 const NEON = "neon-static";
 const addGa = () => fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
 const removeGa = () => fireEvent.click(screen.getByRole("button", { name: "Decrease quantity for General admission" }));
-const group = () => screen.getByRole("group", { name: "Support Sheltüh" });
+/** The legend: the label, then a muted "(optional)", before any amount. */
+const GROUP_NAME = "Support Sheltüh (optional)";
+const group = () => screen.getByRole("group", { name: GROUP_NAME });
 const chip = (name: string) => within(group()).getByRole("radio", { name });
 const total = () => screen.getByText("Total").nextElementSibling;
 const status = () => screen.getAllByRole("status").find((el) => el.className.includes("sr-only")) as HTMLElement;
@@ -68,14 +70,20 @@ const status = () => screen.getAllByRole("status").find((el) => el.className.inc
 describe("Support Sheltüh in the ticket selector (general admission)", () => {
   it("is hidden until a paid ticket is chosen, then offers A$2, A$5, A$10 and Other right above Checkout, none selected", () => {
     render(<TicketSelector event={liveEvent(NEON)} />);
-    expect(screen.queryByRole("group", { name: "Support Sheltüh" })).toBeNull();
+    expect(screen.queryByRole("group", { name: GROUP_NAME })).toBeNull();
     addGa();
     const radios = within(group()).getAllByRole("radio");
     expect(radios.map((r) => r.getAttribute("value"))).toEqual(["200", "500", "1000", "other"]);
     expect(radios.map((r) => (r as HTMLInputElement).checked)).toEqual([false, false, false, false]);
     expect(radios.map((r) => r.closest("label")?.textContent)).toEqual(["A$2", "A$5", "A$10", "Other"]);
-    // The blurb and the recipient note describe the group.
+    // The blurb and the recipient note describe the group, and come before the chips; "(optional)" is muted in the legend.
     expect(group()).toHaveAccessibleDescription(`${SUPPORT_BLURB} ${SUPPORT_RECIPIENT_NOTE}`);
+    expect(SUPPORT_RECIPIENT_NOTE).toBe("It goes to Sheltüh, not the event organiser.");
+    const note = within(group()).getByText(SUPPORT_RECIPIENT_NOTE);
+    expect(note.compareDocumentPosition(radios[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(note).not.toHaveClass("text-xs");
+    expect(within(group()).getByText("(optional)")).toHaveClass("text-muted");
+    expect(group().querySelector("legend")).toHaveTextContent("Support Sheltüh (optional)");
     // Right above Checkout: nothing interactive between the last chip and the button but Remove (none yet).
     const checkout = screen.getByRole("button", { name: "Checkout" });
     expect(group().compareDocumentPosition(checkout) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -98,7 +106,9 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     // The tickets' own lines don't change: it's not a fee.
     expect(screen.getByText("Tickets").nextElementSibling).toHaveTextContent("A$30");
     expect(screen.getByText("Booking fees").nextElementSibling).toHaveTextContent("A$1.70");
-    expect(status()).toHaveTextContent("Support Sheltüh: A$5 added. Total A$36.70 incl. booking fees and Support Sheltüh.");
+    expect(status()).toHaveTextContent(
+      "Support Sheltüh: A$5 added. Total A$36.70 incl. booking fees and Support Sheltüh. Choose it again or press Remove to take it off.",
+    );
     // The selected chip is orange with black text, plus a check (never colour alone).
     expect(chip("A$5").nextElementSibling).toHaveClass("peer-checked:bg-signal", "peer-checked:text-signal-foreground");
     expect(chip("A$5").nextElementSibling?.querySelector("svg")).not.toBeNull();
@@ -192,21 +202,30 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     fireEvent.change(field, { target: { value: "0.5" } });
     expect(screen.queryByRole("alert")).toBeNull();
     expect(total()).toHaveTextContent("A$31.70");
+    const slot = screen.getByText("In Australian dollars, from A$1 to A$500.").parentElement as HTMLElement;
+    expect(slot).toHaveClass("min-h-10");
     fireEvent.blur(field);
-    expect(screen.getByRole("alert")).toHaveTextContent("Enter an amount from A$1 to A$500.");
+    expect(screen.getByRole("alert")).toHaveTextContent("The smallest amount is A$1.");
     expect(field).toHaveAttribute("aria-invalid", "true");
-    expect(field).toHaveAccessibleDescription("In Australian dollars, from A$1 to A$500. Enter an amount from A$1 to A$500.");
+    // The error takes the hint's place, in the same slot (nothing below moves): never both.
+    expect(field).toHaveAccessibleDescription("The smallest amount is A$1.");
+    expect(screen.queryByText("In Australian dollars, from A$1 to A$500.")).toBeNull();
+    expect(slot).toContainElement(screen.getByRole("alert"));
+    expect(slot.children).toHaveLength(1);
 
     // Checkout with it invalid: refused here, focus on the field, nothing sent.
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     expect(field).toHaveFocus();
     expect(createCheckoutSession).not.toHaveBeenCalled();
 
+    fireEvent.change(field, { target: { value: "500.01" } });
+    expect(screen.getByRole("alert")).toHaveTextContent("The most you can add is A$500.");
     fireEvent.change(field, { target: { value: "7.505" } });
     expect(screen.getByRole("alert")).toHaveTextContent("Use whole cents, like 7.50.");
     fireEvent.change(field, { target: { value: "7.50" } });
     expect(screen.queryByRole("alert")).toBeNull();
     expect(field).not.toHaveAttribute("aria-invalid");
+    expect(field).toHaveAccessibleDescription("In Australian dollars, from A$1 to A$500.");
     expect(total()).toHaveTextContent("A$39.20");
     expect(screen.getByText("Support Sheltüh", { selector: "dt" }).nextElementSibling).toHaveTextContent("A$7.50");
 
@@ -228,14 +247,18 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     expect(screen.getByLabelText("Other amount")).toBeInTheDocument();
   });
 
-  it("Checkout with Other open and nothing typed checks out without support", async () => {
+  it("Checkout with Other open and nothing typed treats it as none: nothing shown as chosen, nothing sent", async () => {
     createCheckoutSession.mockReturnValue(new Promise(() => {}));
     render(<TicketSelector event={liveEvent(NEON)} />);
     addGa();
     fireEvent.click(chip("Other"));
+    fireEvent.change(screen.getByLabelText("Other amount"), { target: { value: "  " } });
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
     await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
     expect(createCheckoutSession.mock.calls[0][5]).toBeUndefined();
+    expect(chip("Other")).not.toBeChecked();
+    expect(screen.queryByLabelText("Other amount")).toBeNull();
+    expect(screen.queryByText("Support Sheltüh", { selector: "dt" })).toBeNull();
   });
 
   it("goes (and is forgotten) when no paid ticket is left, and isn't pre-selected when one comes back", () => {
@@ -243,7 +266,7 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     addGa();
     fireEvent.click(chip("A$10"));
     removeGa();
-    expect(screen.queryByRole("group", { name: "Support Sheltüh" })).toBeNull();
+    expect(screen.queryByRole("group", { name: GROUP_NAME })).toBeNull();
     expect(total()).toHaveTextContent("A$0");
     expect(status()).toHaveTextContent("General admission: 0. Total A$0.");
     addGa();
@@ -262,7 +285,7 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
     };
     render(<TicketSelector event={event} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Listener" }));
-    expect(screen.queryByRole("group", { name: "Support Sheltüh" })).toBeNull();
+    expect(screen.queryByRole("group", { name: GROUP_NAME })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Paid" }));
     expect(group()).toBeInTheDocument();
   });
@@ -270,7 +293,7 @@ describe("Support Sheltüh in the ticket selector (general admission)", () => {
   it("isn't offered for a free-only event", () => {
     render(<TicketSelector event={liveEvent("brunswick-zine-fair")} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for Free entry" }));
-    expect(screen.queryByRole("group", { name: "Support Sheltüh" })).toBeNull();
+    expect(screen.queryByRole("group", { name: GROUP_NAME })).toBeNull();
   });
 
   it("says the API's refusal of the amount by the chips, not as a general error, and clears it on a new pick", async () => {
@@ -329,7 +352,7 @@ describe("Support Sheltüh on the seat page", () => {
   it("is offered once a paid seat is chosen, adds to the total, and is sent with the seated checkout", async () => {
     createSeatedCheckout.mockReturnValue(new Promise(() => {}));
     render(<SeatPicker event={{ ...seated, organiserId: "org-1" }} map={map} mode="live" initialUnavailable={sample.unavailable} />);
-    expect(screen.queryByRole("group", { name: "Support Sheltüh" })).toBeNull();
+    expect(screen.queryByRole("group", { name: GROUP_NAME })).toBeNull();
     chooseSeat();
     expect(within(group()).getAllByRole("radio").every((r) => !(r as HTMLInputElement).checked)).toBe(true);
     const totals = screen.getByText("Total").closest("dl") as HTMLElement;
@@ -352,7 +375,7 @@ describe("Support Sheltüh on the seat page", () => {
     chooseSeat();
     fireEvent.click(chip("A$5"));
     fireEvent.click(screen.getByRole("button", { name: "Remove North, Row A, Seat 1" }));
-    expect(screen.queryByRole("group", { name: "Support Sheltüh" })).toBeNull();
+    expect(screen.queryByRole("group", { name: GROUP_NAME })).toBeNull();
     chooseSeat();
     expect(chip("A$5")).not.toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
@@ -367,15 +390,26 @@ describe("Support Sheltüh on the seat page", () => {
     const field = screen.getByLabelText("Other amount");
     fireEvent.change(field, { target: { value: "600" } });
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("Enter an amount from A$1 to A$500.");
+    expect(screen.getByRole("alert")).toHaveTextContent("The most you can add is A$500.");
     expect(field).toHaveFocus();
     expect(createSeatedCheckout).not.toHaveBeenCalled();
+  });
+
+  it("Other left empty at Checkout is none: unchosen, and the seated checkout carries no amount", async () => {
+    createSeatedCheckout.mockReturnValue(new Promise(() => {}));
+    render(<SeatPicker event={{ ...seated, organiserId: "org-1" }} map={map} mode="live" initialUnavailable={sample.unavailable} />);
+    chooseSeat();
+    fireEvent.click(chip("Other"));
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    await waitFor(() => expect(createSeatedCheckout).toHaveBeenCalledTimes(1));
+    expect(createSeatedCheckout.mock.calls[0][1]).not.toHaveProperty("supportCents");
+    expect(chip("Other")).not.toBeChecked();
   });
 
   it("isn't in an organiser's preview of the seat page", () => {
     render(<SeatPicker event={seated} map={map} mode="preview" initialUnavailable={sample.unavailable} />);
     chooseSeat();
-    expect(screen.queryByRole("group", { name: "Support Sheltüh" })).toBeNull();
+    expect(screen.queryByRole("group", { name: GROUP_NAME })).toBeNull();
   });
 });
 
@@ -393,6 +427,9 @@ describe("Support Sheltüh on the payment page's summary", () => {
   it("is its own line, and the total (which includes it) says so", () => {
     render(<OrderPaymentSummary summary={{ ...base, supportCents: 500, totalCents: 6840 }} />);
     const line = document.querySelector("[data-support-line]") as HTMLElement;
+    // Outside the phone fold ("Show n tickets"): seen before paying with the ticket lines closed.
+    expect(document.getElementById("order-lines")).toHaveClass("hidden");
+    expect(document.getElementById("order-lines")).not.toContainElement(line);
     expect(line).toHaveTextContent("Support Sheltüh");
     expect(line).toHaveTextContent("To Sheltüh, not the organiser");
     expect(line).toHaveTextContent("A$5");
@@ -403,6 +440,19 @@ describe("Support Sheltüh on the payment page's summary", () => {
   it("with no booking fee, still says the total includes it", () => {
     render(<OrderPaymentSummary summary={{ ...base, buyerFeeCents: 0, supportCents: 200, totalCents: 6200 }} />);
     expect(screen.getByText("No booking fee. Includes A$2 for Support Sheltüh.")).toBeInTheDocument();
+  });
+
+  it("with support, the refund terms say it's refunded only with the whole order; not without it", () => {
+    const note = "Support Sheltüh is refunded only if your whole order is refunded.";
+    const { unmount } = render(
+      <OrderPaymentSummary summary={{ ...base, supportCents: 500, totalCents: 6840, refundPolicy: "no_change_of_mind" }} />,
+    );
+    const policy = document.querySelector("[data-refund-policy]") as HTMLElement;
+    expect(within(policy).getByText(note)).toBeInTheDocument();
+    unmount();
+    render(<OrderPaymentSummary summary={{ ...base, refundPolicy: "no_change_of_mind" }} />);
+    expect(document.querySelector("[data-refund-policy]")).not.toBeNull();
+    expect(screen.queryByText(note)).toBeNull();
   });
 
   it("isn't there without it (unset, or from an older API)", () => {

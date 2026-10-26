@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { NO_SUPPORT, parseSupportAmount, supportCentsOf, supportErrorOf, totalIncludesWords } from "@/lib/support-choice";
+import {
+  isEmptyOther,
+  NO_SUPPORT,
+  parseSupportAmount,
+  supportAddedHint,
+  supportCentsOf,
+  supportErrorOf,
+  totalIncludesWords,
+} from "@/lib/support-choice";
 import { isValidSupportCents } from "@/lib/support";
 
 describe("parseSupportAmount (Support Sheltüh's Other amount)", () => {
@@ -28,9 +36,12 @@ describe("parseSupportAmount (Support Sheltüh's Other amount)", () => {
     expect(parseSupportAmount("   ")).toEqual({ ok: true, cents: 0 });
   });
 
-  it("refuses amounts outside A$1 to A$500", () => {
-    for (const text of ["0", "0.00", "0.99", ".99", "500.01", "501", "100000"]) {
-      expect(parseSupportAmount(text)).toEqual({ ok: false, error: "Enter an amount from A$1 to A$500." });
+  it("refuses amounts below A$1 and above A$500, saying which limit", () => {
+    for (const text of ["0", "0.00", "0.99", ".99", "0.5"]) {
+      expect(parseSupportAmount(text), text).toEqual({ ok: false, error: "The smallest amount is A$1." });
+    }
+    for (const text of ["500.01", "501", "100000", "99999999999999999999"]) {
+      expect(parseSupportAmount(text), text).toEqual({ ok: false, error: "The most you can add is A$500." });
     }
   });
 
@@ -47,7 +58,7 @@ describe("supportCentsOf / supportErrorOf", () => {
     expect(supportCentsOf(NO_SUPPORT)).toBe(0);
     expect(supportCentsOf({ option: "other", text: "" })).toBe(0);
     expect(supportCentsOf({ option: "other", text: "0.5" })).toBe(0);
-    expect(supportErrorOf({ option: "other", text: "0.5" })).toBe("Enter an amount from A$1 to A$500.");
+    expect(supportErrorOf({ option: "other", text: "0.5" })).toBe("The smallest amount is A$1.");
   });
 
   it("adds a preset, or a valid Other, as it is", () => {
@@ -55,6 +66,20 @@ describe("supportCentsOf / supportErrorOf", () => {
     expect(supportCentsOf({ option: "other", text: "12.34" })).toBe(1234);
     expect(supportErrorOf({ option: "preset", cents: 500 })).toBeNull();
     expect(supportErrorOf({ option: "other", text: "" })).toBeNull();
+  });
+
+  it("isEmptyOther: Other with nothing (or only spaces) typed, which Checkout treats as none", () => {
+    expect(isEmptyOther({ option: "other", text: "" })).toBe(true);
+    expect(isEmptyOther({ option: "other", text: "  " })).toBe(true);
+    expect(isEmptyOther({ option: "other", text: "0.5" })).toBe(false);
+    expect(isEmptyOther({ option: "preset", cents: 500 })).toBe(false);
+    expect(isEmptyOther(NO_SUPPORT)).toBe(false);
+  });
+
+  it("supportAddedHint: how to take it off, only when an amount was added", () => {
+    expect(supportAddedHint({ option: "preset", cents: 500 })).toBe(" Choose it again or press Remove to take it off.");
+    expect(supportAddedHint({ option: "other", text: "" })).toBe("");
+    expect(supportAddedHint(NO_SUPPORT)).toBe("");
   });
 
   it("says what a total includes", () => {

@@ -36,7 +36,15 @@ import {
   sortSeats,
   tierTreatments,
 } from "@/lib/seating/selection";
-import { NO_SUPPORT, supportCentsOf, supportErrorOf, totalIncludesWords, type SupportChoice } from "@/lib/support-choice";
+import {
+  isEmptyOther,
+  NO_SUPPORT,
+  supportAddedHint,
+  supportCentsOf,
+  supportErrorOf,
+  totalIncludesWords,
+  type SupportChoice,
+} from "@/lib/support-choice";
 import { flattenSeats, MAX_SEATS_PER_ORDER, type FlatSeat, type SeatKind, type SeatMapTemplate } from "@/lib/seating/template";
 import { freeTicketsIn, ownLimit, ownLimitHint, type Quantities } from "@/lib/ticket-limits";
 import { getTrackingRef } from "@/lib/tracking-ref";
@@ -387,7 +395,7 @@ export default function SeatPicker({
         : next.option === "other"
           ? "Other amount for Support Sheltüh: enter an amount."
           : `Support Sheltüh: ${formatAud(cents)} added.`;
-    announce(`${what} Total ${formatAud(ticketTotals.totalCents + cents)} incl. ${totalIncludesWords(cents)}.`);
+    announce(`${what} Total ${formatAud(ticketTotals.totalCents + cents)} incl. ${totalIncludesWords(cents)}.${supportAddedHint(next)}`);
   }
 
   function changeSelection(next: string[]) {
@@ -564,6 +572,8 @@ export default function SeatPicker({
       pendingFocus.current = { kind: "support" };
       return;
     }
+    // Other chosen but left empty is no support: shown as nothing chosen, and nothing sent.
+    if (isEmptyOther(support)) setSupport(NO_SUPPORT);
     setSupportServerError(null);
     setBusy(true);
     // A hold from this tab's last checkout that couldn't be released yet: release it first, so

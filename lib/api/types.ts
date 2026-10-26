@@ -825,8 +825,12 @@ export interface EmailOutboxHealth {
  * - `partial_refund`: a paid order was partly refunded; its tickets stand.
  * - `manual_refund_required`: an automatic refund couldn't be requested (no
  *   payment on record): refund it in the Stripe dashboard.
+ * - `amount_mismatch`: Stripe reported a paid Checkout Session whose amount
+ *   or currency isn't the order's stored total in AUD. No tickets were
+ *   issued (the order stays `pending`): check the payment in the Stripe
+ *   dashboard and refund it there.
  */
-export type PaymentExceptionKind = "refund_not_completed" | "partial_refund" | "manual_refund_required";
+export type PaymentExceptionKind = "refund_not_completed" | "partial_refund" | "manual_refund_required" | "amount_mismatch";
 
 export type PaymentExceptionStatus = "open" | "resolved";
 
@@ -875,6 +879,16 @@ export interface PaymentExceptionDetails {
   refundAmountCents?: number;
   amountRefundedCents?: number;
   totalCents?: number;
+  /**
+   * The order's Support Sheltüh amount (in totalCents and in the application
+   * fee; 0 for none), to split a dashboard refund (docs/supabase-setup.md,
+   * "Refunding a paid order"). Unset on exceptions opened before it was recorded.
+   */
+  supportCents?: number;
+  /** `amount_mismatch`: what Stripe's session says was charged (amount_total), in `currency`'s minor unit. */
+  amountChargedCents?: number;
+  /** `amount_mismatch`: the session's currency, lower case as Stripe sends it ("aud"). */
+  currency?: string;
   /** The order's status when the exception was last updated. */
   orderStatus?: string;
   /** `sheltuh`: our automatic refund; `stripe`: one made in the Stripe dashboard. */

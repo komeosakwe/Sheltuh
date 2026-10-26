@@ -3,7 +3,15 @@
 import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import { formatAud } from "@/lib/format";
 import { NO_SUPPORT, supportErrorOf, type SupportChoice } from "@/lib/support-choice";
-import { SUPPORT_BLURB, SUPPORT_LABEL, SUPPORT_PRESETS_CENTS, SUPPORT_RECIPIENT_NOTE } from "@/lib/support";
+import {
+  SUPPORT_BLURB,
+  SUPPORT_LABEL,
+  SUPPORT_MAX_CENTS,
+  SUPPORT_MIN_CENTS,
+  SUPPORT_OPTIONAL,
+  SUPPORT_PRESETS_CENTS,
+  SUPPORT_RECIPIENT_NOTE,
+} from "@/lib/support";
 import { CheckIcon } from "./icons";
 
 interface SupportSheltuhProps {
@@ -31,14 +39,19 @@ function keyOf(choice: SupportChoice): OptionKey | null {
  * Sheltüh"): one-tap amounts (A$2, A$5, A$10) and Other, right above
  * Checkout, for paid orders only (the parent leaves it out otherwise).
  *
+ * "(optional)" is in the legend, and who gets it (Sheltüh, not the
+ * organiser) is said with the blurb, before the amounts.
+ *
  * A radio group of native radios drawn as chips (each radio transparent over
  * its chip): Tab reaches it, the arrow keys move through it, and its state is
  * announced. Nothing is pre-selected (ACCC). Tapping the chosen chip again
  * removes it (Space on it does the same), and a Remove button says so plainly
  * for everyone else. The selected chip is Signal Orange with black text and a
  * check, never colour alone. Other opens an A$ field, checked with
- * isValidSupportCents (via lib/support-choice.ts): its error shows once the
- * field is left, or when Checkout is pressed.
+ * isValidSupportCents's limits (via lib/support-choice.ts): its error shows
+ * once the field is left, or when Checkout is pressed, in the hint's place
+ * (one slot two lines tall), so nothing below it moves: leaving the field by
+ * pressing Checkout must not move Checkout from under the press.
  */
 export default function SupportSheltuh({ choice, onChange, revealError = false, serverError, otherInputRef }: SupportSheltuhProps) {
   const id = useId();
@@ -111,16 +124,27 @@ export default function SupportSheltuh({ choice, onChange, revealError = false, 
       className="min-w-0"
       data-support-sheltuh=""
     >
-      <legend className="text-base leading-6 font-semibold text-foreground">{SUPPORT_LABEL}</legend>
+      {/* "(optional)" is part of the group's name, before any amount. */}
+      <legend className="text-base leading-6 font-semibold text-foreground">
+        {SUPPORT_LABEL} <span className="font-normal text-muted">{SUPPORT_OPTIONAL}</span>
+      </legend>
       <div className="flex flex-col gap-3">
-        <p id={blurbId} className="text-sm text-muted">
-          {SUPPORT_BLURB}
-        </p>
+        {/* Who gets it, before the amounts: with the blurb, in the body text's size. */}
+        <div className="flex flex-col gap-1 text-sm">
+          <p id={blurbId} className="text-muted">
+            {SUPPORT_BLURB}
+          </p>
+          <p id={noteId} className="text-foreground">
+            {SUPPORT_RECIPIENT_NOTE}
+          </p>
+        </div>
 
-        {/* Two by two in a narrow panel (phones up to about 400px), one row of four from 320px of
-            room, where even "✓ A$10" fits its chip. */}
+        {/* Two by two in a narrow panel (phones up to about 400px), one row of four from 20rem of
+            room, where even "✓ A$10" fits its chip. One column below 10rem (large text on a phone:
+            the sizes are in rem, so the steps follow the text size), and a label that still
+            doesn't fit wraps rather than spilling out of its chip. */}
         <div className="@container">
-          <div className="grid grid-cols-2 gap-2 @xs:grid-cols-4">
+          <div className="grid grid-cols-1 gap-2 @min-[10rem]:grid-cols-2 @xs:grid-cols-4">
             {options.map((option, index) => {
               const checked = option.key === selected;
               return (
@@ -157,7 +181,7 @@ export default function SupportSheltuh({ choice, onChange, revealError = false, 
                     // (closing the seat page's phone sheet, which closes when focus leaves it).
                     className="peer absolute inset-0 m-0 size-full cursor-pointer appearance-none opacity-0"
                   />
-                  <span className="flex min-h-12 w-full cursor-pointer items-center justify-center gap-1.5 rounded-control border border-foreground bg-card px-1 text-base leading-6 font-semibold whitespace-nowrap tabular-nums text-foreground peer-hover:bg-surface peer-checked:bg-signal peer-checked:text-signal-foreground peer-checked:peer-hover:bg-signal peer-focus-visible:outline-2 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-foreground motion-safe:transition-colors">
+                  <span className="flex min-h-12 w-full cursor-pointer flex-wrap items-center justify-center gap-x-1.5 rounded-control border border-foreground bg-card px-1 py-1 text-center text-base leading-6 font-semibold break-words tabular-nums text-foreground peer-hover:bg-surface peer-checked:bg-signal peer-checked:text-signal-foreground peer-checked:peer-hover:bg-signal peer-focus-visible:outline-2 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-foreground motion-safe:transition-colors">
                     {checked && <CheckIcon />}
                     {option.label}
                   </span>
@@ -186,27 +210,32 @@ export default function SupportSheltuh({ choice, onChange, revealError = false, 
                 onChange={(event) => onChange({ option: "other", text: event.target.value })}
                 onBlur={() => setOtherLeft(true)}
                 aria-invalid={shownOtherError ? true : undefined}
-                aria-describedby={shownOtherError ? `${otherHintId} ${otherErrorId}` : otherHintId}
+                // Whichever of the hint and the error is showing (never both).
+                aria-describedby={shownOtherError ? otherErrorId : otherHintId}
                 // 16px text so iOS doesn't zoom on focus, and a 48px target (as the email field).
                 className="min-h-12 w-full py-2 pr-3 pl-10 text-base tabular-nums"
               />
             </div>
-            <p id={otherHintId} className="text-xs text-muted">
-              In Australian dollars, from A$1 to A$500.
-            </p>
-            {shownOtherError && (
-              <p id={otherErrorId} role="alert" className="text-sm text-danger">
-                {shownOtherError}
-              </p>
-            )}
+            {/* One slot, two lines of the error's text tall, for the hint or the error (never both):
+                the error appears when the field is left, which a press on Checkout does, and
+                anything below moving then would take Checkout from under the press. The longest
+                error fits in two lines in a 320px-wide page. */}
+            <div className="min-h-10" data-support-other-message="">
+              {shownOtherError ? (
+                <p id={otherErrorId} role="alert" className="text-sm text-danger">
+                  {shownOtherError}
+                </p>
+              ) : (
+                <p id={otherHintId} className="text-xs text-muted">
+                  In Australian dollars, from {formatAud(SUPPORT_MIN_CENTS)} to {formatAud(SUPPORT_MAX_CENTS)}.
+                </p>
+              )}
+            </div>
           </div>
         )}
 
         {/* Always the height of the Remove button, so choosing doesn't move Checkout. */}
-        <div className="flex min-h-11 items-center justify-between gap-3">
-          <p id={noteId} className="text-xs text-muted">
-            {SUPPORT_RECIPIENT_NOTE}
-          </p>
+        <div className="flex min-h-11 items-center justify-end">
           {choice.option !== "none" && (
             <button
               type="button"

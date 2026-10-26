@@ -4,7 +4,7 @@ import { EVENT_ENDED } from "@/lib/server/handlers/event-queries";
 import { confirmFreeOrder } from "@/lib/server/handlers/free-orders";
 import { createCheckout, getOrderBySession, stripeWebhook } from "@/lib/server/handlers/orders";
 import type { EventRecord } from "@/lib/server/types";
-import { embeddedSession, stripeWebhookRequest, TestApi } from "./helpers/api";
+import { embeddedSession, sessionAmount, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { seatedEvent, seatStates } from "./helpers/seating";
 import { createTestDb } from "./helpers/test-db";
@@ -91,7 +91,7 @@ async function sold(eventId: string) {
   return Object.fromEntries(rows.map((r) => [r.id, r.quantity_sold]));
 }
 
-function completed(orderId: string) {
+async function completed(orderId: string) {
   return stripeWebhookRequest({
     type: "checkout.session.completed",
     data: {
@@ -99,6 +99,7 @@ function completed(orderId: string) {
         id: "cs_test_1",
         object: "checkout.session",
         client_reference_id: orderId,
+        ...(await sessionAmount(api.db, orderId)),
         payment_status: "paid",
         payment_intent: `pi_${orderId}`,
         customer_details: { email: "buyer@example.com" },

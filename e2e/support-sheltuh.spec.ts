@@ -225,7 +225,7 @@ test.describe("general admission at 1280×900", () => {
     await field.fill("501");
     // Leaving the field says what's wrong, by it.
     await page.keyboard.press("Tab");
-    await expect(tickets.getByRole("alert")).toHaveText("Enter an amount from A$1 to A$500.");
+    await expect(tickets.getByRole("alert")).toHaveText("The most you can add is A$500.");
     await expect(field).toHaveAttribute("aria-invalid", "true");
     // Checkout refuses it and takes focus back to the field.
     await tickets.getByRole("button", { name: "Checkout" }).click();
@@ -237,6 +237,109 @@ test.describe("general admission at 1280×900", () => {
     await tickets.getByRole("button", { name: "Checkout" }).click();
     await expect(page).toHaveURL(`/checkout/pay?order=${GA_ORDER}`);
     expect(seen.checkouts).toEqual([{ lineItems: [{ ticketTypeId: "neon-static-ga", quantity: 1 }], supportCents: 1250 }]);
+  });
+});
+
+/**
+ * An Other amount that isn't valid, the field still focused, then one press on Checkout: the press
+ * blurs the field, which shows the error. It must take the hint's place without moving Checkout,
+ * or the press (down on Checkout, up somewhere else) misses it. After one press Checkout has run:
+ * it refused the amount and put focus back in the field.
+ */
+async function invalidOtherThenCheckout(page: Page) {
+  await page.goto(`/events/${neon.slug}`);
+  const tickets = page.locator("#tickets");
+  await tickets.getByRole("button", { name: "Increase quantity for General admission" }).click({ timeout: 30_000 });
+  const support = tickets.getByRole("group", { name: "Support Sheltüh" });
+  await support.locator("label", { hasText: "Other" }).click();
+  const field = tickets.getByLabel("Other amount");
+  await expect(field).toBeFocused();
+  await field.fill("0.5");
+  await expect(tickets.getByRole("alert")).toHaveCount(0);
+  const button = tickets.getByRole("button", { name: "Checkout" });
+  await button.scrollIntoViewIfNeeded();
+  const before = (await button.boundingBox())!;
+  return { tickets, field, button, before };
+}
+
+test.describe("Checkout's first press after an invalid Other amount, at 1280×900 (mouse)", () => {
+  // Reduced motion: a pressed .btn moves down 1px otherwise (globals.css), which isn't a layout shift.
+  test.use({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
+
+  test("one press: the error shows in the hint's place, Checkout doesn't move, and focus goes to the field", async ({ page }) => {
+    const seen = await mockApi(page);
+    const { tickets, field, button, before } = await invalidOtherThenCheckout(page);
+    await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+    await page.mouse.down();
+    // The blur on mouse down has shown the error by now; Checkout must still be under the pointer.
+    await expect(tickets.getByRole("alert")).toHaveText("The smallest amount is A$1.");
+    expect(await button.boundingBox()).toEqual(before);
+    await page.mouse.up();
+    await expect(field).toBeFocused();
+    expect(await button.boundingBox()).toEqual(before);
+    await expect(field).toHaveAttribute("aria-invalid", "true");
+    await expect(tickets.getByText("In Australian dollars, from A$1 to A$500.")).toHaveCount(0);
+    expect(seen.checkouts).toEqual([]);
+  });
+});
+
+test.describe("Checkout's first press after an invalid Other amount, on a 320px touch phone", () => {
+  test.use({ viewport: { width: 320, height: 568 }, hasTouch: true, isMobile: true });
+
+  test("one tap: Checkout doesn't move, and focus goes to the field", async ({ page }) => {
+    const seen = await mockApi(page);
+    const { tickets, field, button, before } = await invalidOtherThenCheckout(page);
+    await page.touchscreen.tap(before.x + before.width / 2, before.y + before.height / 2);
+    await expect(tickets.getByRole("alert")).toHaveText("The smallest amount is A$1.");
+    await expect(field).toBeFocused();
+    expect(await button.boundingBox()).toEqual(before);
+    expect(seen.checkouts).toEqual([]);
+  });
+
+  test("the longest Other error fits the slot's two lines, so nothing below it moves", async ({ page }) => {
+    await mockApi(page);
+    const { tickets, field, button, before } = await invalidOtherThenCheckout(page);
+    const slot = tickets.locator("[data-support-other-message]");
+    await expect(slot).toHaveText("In Australian dollars, from A$1 to A$500.");
+    const slotBefore = (await slot.boundingBox())!;
+    for (const [text, message] of [
+      ["abc", "Enter an amount in dollars, like 7 or 7.50."],
+      ["501", "The most you can add is A$500."],
+      ["7.505", "Use whole cents, like 7.50."],
+      ["0.5", "The smallest amount is A$1."],
+    ]) {
+      await field.fill(text);
+      await field.blur();
+      await expect(tickets.getByRole("alert")).toHaveText(message);
+      expect((await slot.boundingBox())!.height, message).toBe(slotBefore.height);
+      expect(await button.boundingBox(), message).toEqual(before);
+    }
+  });
+});
+
+test.describe("large text (root font size 200%) at 320×640", () => {
+  test.use({ viewport: { width: 320, height: 640 } });
+
+  test("the chips go to one column and no label spills out of its chip", async ({ page }) => {
+    await mockApi(page);
+    await page.goto(`/events/${neon.slug}`);
+    await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
+    const tickets = page.locator("#tickets");
+    await tickets.getByRole("button", { name: "Increase quantity for General admission" }).click({ timeout: 30_000 });
+    const support = tickets.getByRole("group", { name: "Support Sheltüh" });
+    await support.locator("label", { hasText: "A$10" }).click();
+    await support.scrollIntoViewIfNeeded();
+    const boxes = [];
+    for (const name of ["A$2", "A$5", "A$10", "Other"]) boxes.push((await support.locator("label", { hasText: name }).boundingBox())!);
+    // One above the other, the same x.
+    expect(new Set(boxes.map((box) => Math.round(box.x))).size).toBe(1);
+    for (let i = 1; i < boxes.length; i += 1) expect(boxes[i].y).toBeGreaterThan(boxes[i - 1].y);
+    const overflow = await support.locator("label span").evaluateAll((spans) => spans.map((el) => el.scrollWidth - el.clientWidth));
+    expect(Math.max(...overflow)).toBeLessThanOrEqual(0);
+    // The group itself stays inside the page.
+    const group = (await support.boundingBox())!;
+    expect(group.x).toBeGreaterThanOrEqual(0);
+    expect(group.x + group.width).toBeLessThanOrEqual(320);
   });
 });
 
@@ -323,5 +426,30 @@ test.describe("seated checkout on a phone at 375", () => {
     await seatBar.getByRole("button", { name: "Checkout" }).click();
     await expect(page).toHaveURL(`/checkout/pay?order=${SEATED_ORDER}`);
     expect(seen.checkouts).toEqual([{ seats: { mapVersion: seatSample.version, seatIds: ["N-A1"] }, supportCents: 200 }]);
+  });
+});
+
+test.describe("payment page on a phone at 375", () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  test("the Support Sheltüh line shows with the ticket lines folded away", async ({ page }) => {
+    await stubStripeJs(page);
+    const seen = await mockApi(page);
+    await page.goto(`/events/${neon.slug}`);
+    const tickets = page.locator("#tickets");
+    await tickets.getByRole("button", { name: "Increase quantity for General admission" }).click({ timeout: 30_000 });
+    await tickets.getByRole("group", { name: "Support Sheltüh" }).locator("label", { hasText: "A$2" }).click();
+    await tickets.getByRole("button", { name: "Checkout" }).click();
+    await expect(page).toHaveURL(`/checkout/pay?order=${GA_ORDER}`);
+    expect(seen.checkouts.at(-1)?.supportCents).toBe(200);
+
+    const summary = page.getByRole("region", { name: neon.title });
+    await expect(summary).toBeVisible({ timeout: 30_000 });
+    const toggle = summary.getByRole("button", { name: "Show 1 ticket" });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(summary.getByText("General admission")).toBeHidden();
+    await expect(summary.locator("[data-support-line]")).toBeVisible();
+    await expect(summary.locator("[data-support-line]")).toContainText("A$2");
+    await expect(summary.locator("[data-order-total]")).toHaveText("A$33.70");
   });
 });
