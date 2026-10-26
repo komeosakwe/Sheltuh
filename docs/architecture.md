@@ -733,6 +733,47 @@ a local server (`npm run dev`, port 3000).
     `X-Robots-Tag: noindex, nofollow`; no other page requests
     `js.stripe.com`.
 
+## Booking fee
+
+6% of the ticket's face value, rounded to the nearest cent (half a cent
+up), plus A$0.50, per paid ticket; free tickets carry none, and a paid
+ticket costs at least A$1.00 (`MIN_PAID_TICKET_CENTS`, whose fee, 56 cents,
+stays below it). It's defined only in `lib/fees.ts` (`BOOKING_FEE_RATE`,
+`BOOKING_FEE_FLAT_CENTS`); the UI's prices and the checkout API's order
+totals both come from it, and buyer-facing copy uses `describeBookingFee()`
+so it can't drift. The database holds no rate: an order records the amounts
+the API computed (`buyer_fee_cents`, `application_fee_cents`, `total_cents`)
+and nothing recomputes them later. Owner decision, October 2026: 6% +
+A$0.50, up from September 2026's 4% + A$0.50 (`docs/PROJECT_CONTEXT.md`).
+
+**Changing the booking fee** (edit `lib/fees.ts`, then the tests that pin
+amounts):
+
+- **Existing orders keep their recorded fee.** Paid, refunded and pending
+  orders aren't repriced; refunds, payment exceptions and analytics read
+  the stored amounts, so they stay consistent with what Stripe charged.
+- **Checkouts already open keep their Stripe amount.** A Checkout Session
+  created before the change was priced from its order and isn't changed by
+  a deploy. The webhook fulfils only when the session's `amount_total`
+  equals the order's stored `total_cents` (`sessionMoneyMismatch`,
+  `lib/server/handlers/orders.ts`), so an old session paid after the
+  change matches its old order and is fulfilled as normal.
+- **A kept order isn't sent at the new fee.** The session's booking fee
+  lines are priced by `lib/fees.ts` when the session is made, while the
+  order's total was fixed when the order was. They can only differ for an
+  order made before a change and reused by a retry after it (Stripe didn't
+  answer; within `CHECKOUT_ATTEMPT.gaReuseWithin` or `seatedReuseWithin`).
+  `runPaidCheckout` checks the session's line total against the stored
+  `total_cents` before calling Stripe; on a difference it ends the attempt
+  (the order failed, any seats released) with 409 `checkout_expired`, and
+  the buyer's next press makes a new order at the current fee. Without the
+  check, that session would charge more than the order and the webhook
+  would refund it in full as an `amount_mismatch`.
+- **Organisers who absorb the fee see a larger deduction** from each new
+  sale (an A$30 ticket: A$2.30 instead of A$1.70), and buyer-pays prices
+  rise by the same amount; the change applies only to sales after the
+  deploy.
+
 ## Payouts before paid events
 
 An organiser has to set up payouts (Stripe Connect, `organisers.payouts_enabled`) before an event with a paid Sheltüh ticket type can be submitted for review or published. Migration `20261109000000_paid_events_need_payouts.sql` enforces this in the database, whatever the code does:
@@ -785,10 +826,10 @@ booking fee is charged on it.
   exactly what it is without support. An order without support gets the
   very same parameters as before, and a retry for the same order the same
   ones.
-- **Example.** Two A$30 buyer-pays tickets (booking fee A$1.70 each) and
-  A$5 support: subtotal A$60, buyer fee A$3.40, support A$5, total A$68.40;
-  application fee A$3.40 + A$5 = A$8.40; the organiser's transfer A$60,
-  the same as without support (A$63.40 − A$3.40). Stripe's processing fee
+- **Example.** Two A$30 buyer-pays tickets (booking fee A$2.30 each) and
+  A$5 support: subtotal A$60, buyer fee A$4.60, support A$5, total A$69.60;
+  application fee A$4.60 + A$5 = A$9.60; the organiser's transfer A$60,
+  the same as without support (A$64.60 − A$4.60). Stripe's processing fee
   comes out of the platform's share, as ever.
 - **Buyers see it** as its own line: `OrderPaymentSummary.supportCents` (the
   payment page) and `CustomerOrder.supportCents` (the ticket page), each
@@ -1839,9 +1880,11 @@ reads 0). Orders (and so their `tracking_code`) are kept as financial records.
 - Orders by referrer source: orders only carry a tracking code, not the
   view's source bucket.
 
-Booking fee: 4% of face value + A$0.50 per paid ticket (`lib/fees.ts`,
-which the API and the UI both use). It's either buyer-paid or absorbed by
-the organiser, set per ticket type. Either way the platform keeps it.
+Booking fee: 6% of face value + A$0.50 per paid ticket (`lib/fees.ts`,
+which the API and the UI both use; see "Booking fee"). It's either
+buyer-paid or absorbed by the organiser, set per ticket type. Either way the
+platform keeps it. The Fees figure sums each order's recorded
+`application_fee_cents`, so a range spanning a fee change mixes both rates.
 
 ## Trending
 

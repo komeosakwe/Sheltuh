@@ -514,7 +514,7 @@ describe("checking a ticket in", () => {
   it("a ticket refunded in Stripe (charge.refunded) is not admissible, before or after it was checked in", async () => {
     const refunded = await paidOrder(event.eventId, [{ ticketTypeId: "ga", quantity: 2 }]);
     await scan(organiser.token, refunded.codes[1]); // in before the refund
-    await refundInFull(refunded.paymentIntent, 6340);
+    await refundInFull(refunded.paymentIntent, 6460);
 
     for (const code of refunded.codes) {
       const res = await scan(organiser.token, code);
@@ -535,7 +535,7 @@ describe("checking a ticket in", () => {
       stripeWebhook,
       stripeWebhookRequest({
         type: "charge.refunded",
-        data: { object: { id: "ch_p", object: "charge", payment_intent: order.paymentIntent, amount_refunded: 3170, refunded: false } },
+        data: { object: { id: "ch_p", object: "charge", payment_intent: order.paymentIntent, amount_refunded: 3230, refunded: false } },
       }),
     );
     expect((await scan(organiser.token, order.codes[0])).body.outcome).toBe("admitted");
@@ -850,7 +850,7 @@ describe("summary", () => {
     ]);
     const refunded = await paidOrder(event.eventId, [{ ticketTypeId: "ga", quantity: 1 }]);
     await scan(organiser.token, refunded.codes[0]);
-    await refundInFull(refunded.paymentIntent, 3170);
+    await refundInFull(refunded.paymentIntent, 3230);
     await scan(organiser.token, a.codes[0]);
     await scan(organiser.token, a.codes.at(-1)!); // the VIP
 
@@ -1165,7 +1165,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
       await one.unsafe("begin");
       expect((await checkIn(one, organiser.userId, codes[0]))[0].result).toBe("admitted");
       const blocked = await waitUntilBlocked(two);
-      const pending = recordRefund(two, paymentIntent, 6340).execute();
+      const pending = recordRefund(two, paymentIntent, 6460).execute();
       await blocked();
       await one.unsafe("commit");
       expect((await pending)[0].result).toBe("refunded");
@@ -1181,7 +1181,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
     const [one, two] = connections();
     try {
       await one.unsafe("begin");
-      expect((await recordRefund(one, paymentIntent, 3170))[0].result).toBe("refunded");
+      expect((await recordRefund(one, paymentIntent, 3230))[0].result).toBe("refunded");
       const blocked = await waitUntilBlocked(two);
       const pending = checkIn(two, organiser.userId, codes[0]).execute();
       await blocked();
@@ -1203,7 +1203,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
     try {
       await Promise.all([
         ...orders.map((o, i) => checkIn(conns[i % 2], staff[i % 2].userId, o.codes[0]).execute()),
-        ...orders.map((o, i) => recordRefund(conns[2 + (i % 2)], o.paymentIntent, 3170).execute()),
+        ...orders.map((o, i) => recordRefund(conns[2 + (i % 2)], o.paymentIntent, 3230).execute()),
       ]);
     } finally {
       await Promise.all(conns.map((c) => c.end()));

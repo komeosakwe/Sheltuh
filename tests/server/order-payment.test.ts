@@ -152,10 +152,10 @@ describe("the embedded Checkout Session", () => {
       expires_at: expect.any(Number),
       line_items: [
         { price_data: { currency: "aud", product_data: { name: "GA — Neon Static" }, unit_amount: 3000 }, quantity: 2 },
-        { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 170 }, quantity: 2 },
+        { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 230 }, quantity: 2 },
         { price_data: { currency: "aud", product_data: { name: "VIP — Neon Static" }, unit_amount: 8000 }, quantity: 1 },
       ],
-      payment_intent_data: { application_fee_amount: 710, transfer_data: { destination: "acct_test_1" } },
+      payment_intent_data: { application_fee_amount: 990, transfer_data: { destination: "acct_test_1" } },
       ui_mode: "embedded_page",
       return_url: `${SITE_URL}/checkout/success?session_id=${orderId}`,
       metadata: { orderId, eventId: event.eventId },
@@ -193,7 +193,7 @@ describe("the embedded Checkout Session", () => {
           },
           quantity: 1,
         },
-        { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 250 }, quantity: 1 },
+        { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 350 }, quantity: 1 },
         {
           price_data: {
             currency: "aud",
@@ -202,9 +202,9 @@ describe("the embedded Checkout Session", () => {
           },
           quantity: 1,
         },
-        { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 170 }, quantity: 1 },
+        { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 230 }, quantity: 1 },
       ],
-      payment_intent_data: { application_fee_amount: 420, transfer_data: { destination: "acct_test_1" } },
+      payment_intent_data: { application_fee_amount: 580, transfer_data: { destination: "acct_test_1" } },
       ui_mode: "embedded_page",
       return_url: `${SITE_URL}/checkout/success?session_id=${orderId}`,
       metadata: { orderId, eventId: event.eventId },
@@ -325,13 +325,13 @@ describe("GET /orders/by-session/{id}/payment", () => {
       seated: false,
       refundPolicy: "no_change_of_mind",
       lines: [
-        { ticketTypeName: "GA", quantity: 2, unitTotalCents: 3170, lineTotalCents: 6340, buyerPaysFee: true },
+        { ticketTypeName: "GA", quantity: 2, unitTotalCents: 3230, lineTotalCents: 6460, buyerPaysFee: true },
         // The organiser absorbs VIP's fee: the buyer pays face value.
         { ticketTypeName: "VIP", quantity: 1, unitTotalCents: 8000, lineTotalCents: 8000, buyerPaysFee: false },
       ],
       subtotalCents: 14000,
-      buyerFeeCents: 340,
-      totalCents: 14340,
+      buyerFeeCents: 460,
+      totalCents: 14460,
     });
     // No ids, fee split, email or other Stripe ids.
     const text = JSON.stringify(res.body);
@@ -355,12 +355,12 @@ describe("GET /orders/by-session/{id}/payment", () => {
     expect(body.status).toBe("open");
     // RSVP is "buyer-pays" too, but free: no fee. VIP is paid, but the organiser absorbs its fee.
     expect(body.lines).toStrictEqual([
-      { ticketTypeName: "GA", quantity: 1, unitTotalCents: 3170, lineTotalCents: 3170, buyerPaysFee: true },
+      { ticketTypeName: "GA", quantity: 1, unitTotalCents: 3230, lineTotalCents: 3230, buyerPaysFee: true },
       { ticketTypeName: "VIP", quantity: 1, unitTotalCents: 8000, lineTotalCents: 8000, buyerPaysFee: false },
       { ticketTypeName: "RSVP", quantity: 1, unitTotalCents: 0, lineTotalCents: 0, buyerPaysFee: false },
     ]);
-    expect(body.buyerFeeCents).toBe(170);
-    expect(body.totalCents).toBe(3170 + 8000);
+    expect(body.buyerFeeCents).toBe(230);
+    expect(body.totalCents).toBe(3230 + 8000);
   });
 
   it("open (seated): each tier's seats on its line, and seated: true", async () => {
@@ -372,25 +372,25 @@ describe("GET /orders/by-session/{id}/payment", () => {
     const orderId = res.body.orderId as string;
     api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(openSession());
     const body = (await payment(orderId)).body;
-    expect(body).toMatchObject({ status: "open", seated: true, eventSlug: event.slug, totalCents: 5250 + 3170 + 2 * 2130 });
+    expect(body).toMatchObject({ status: "open", seated: true, eventSlug: event.slug, totalCents: 5350 + 3230 + 2 * 2170 });
     expect(body.lines).toStrictEqual([
       {
         ticketTypeName: "Premium",
         quantity: 1,
-        unitTotalCents: 5250,
-        lineTotalCents: 5250,
+        unitTotalCents: 5350,
+        lineTotalCents: 5350,
         buyerPaysFee: true,
         seats: [{ section: "Stalls", row: "A", seat: "1", kind: "standard" }],
       },
       {
         ticketTypeName: "Standard",
         quantity: 1,
-        unitTotalCents: 3170,
-        lineTotalCents: 3170,
+        unitTotalCents: 3230,
+        lineTotalCents: 3230,
         buyerPaysFee: true,
         seats: [{ section: "Stalls", row: "B", seat: "2", kind: "standard" }],
       },
-      { ticketTypeName: "Standing", quantity: 2, unitTotalCents: 2130, lineTotalCents: 4260, buyerPaysFee: true },
+      { ticketTypeName: "Standing", quantity: 2, unitTotalCents: 2170, lineTotalCents: 4340, buyerPaysFee: true },
     ]);
     // The lines add up to the order's total (the same amount Stripe's form shows).
     expect(body.lines.reduce((sum: number, l: { lineTotalCents: number }) => sum + l.lineTotalCents, 0)).toBe(body.totalCents);

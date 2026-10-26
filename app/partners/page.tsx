@@ -1,6 +1,7 @@
 import type { Metadata, ResolvingMetadata } from "next";
 import ContentPage, { ContentSection } from "@/components/ContentPage";
 import { ButtonLink } from "@/components/ui/Button";
+import { describeBookingFee } from "@/lib/fees";
 import { inheritedShareImages, pageShareMetadata, siteOrigin } from "@/lib/share-metadata";
 
 /** Title, canonical URL and link preview: this page is the one shared with venues and promoters. */
@@ -29,7 +30,7 @@ export default function PartnersPage() {
           <li>Your events in front of people looking for what’s on near them.</li>
           <li>Ticketing with payouts to your own Stripe account.</li>
           <li>Free events listed for free.</li>
-          <li>A booking fee of 4% + A$0.50 per paid ticket, which you or your buyer can cover.</li>
+          <li>A booking fee of {describeBookingFee()}, which you or your buyer can cover.</li>
         </ul>
       </ContentSection>
       <ContentSection title="How it works">

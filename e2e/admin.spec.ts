@@ -205,7 +205,7 @@ for (const vp of [
       const { listQueries } = await signedInAsAdmin(page);
       await page.goto("/admin/events");
       await expect(page.getByRole("heading", { level: 3, name: "Event 1" })).toBeVisible({ timeout: 30_000 });
-      await expect(page.getByRole("article", { name: "Event 1" })).toContainText("General: A$31.70 incl. booking fee");
+      await expect(page.getByRole("article", { name: "Event 1" })).toContainText("General: A$32.30 incl. booking fee");
       await noSidewaysScroll(page);
 
       await page.getByRole("group", { name: "Show events" }).getByRole("button", { name: "Published" }).click();

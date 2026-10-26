@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import ContentPage, { ContentSection } from "@/components/ContentPage";
+import { describeBookingFee } from "@/lib/fees";
 
 export const metadata: Metadata = { title: "Help & FAQs — Sheltüh" };
 
@@ -28,9 +29,9 @@ export default function HelpPage() {
       </ContentSection>
       <ContentSection title="What is the booking fee?">
         <p>
-          A booking fee of 4% of the ticket price plus A$0.50 applies to each paid ticket. Free
-          tickets never carry a fee. The organiser chooses whether the buyer pays it or they absorb
-          it; either way the total you pay is shown before you check out.
+          The booking fee is {describeBookingFee()}. Free tickets never carry a fee. The organiser
+          chooses whether the buyer pays it or they absorb it; either way the total you pay is shown
+          before you check out.
         </p>
       </ContentSection>
       <ContentSection title="What if I need a refund?">

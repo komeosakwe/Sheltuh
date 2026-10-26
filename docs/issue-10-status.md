@@ -80,7 +80,7 @@ No social bio document exists in `docs/`.
 ## 4. Organiser pitch page: Partial
 
 - **Exists:** `app/partners/page.tsx` ("Become a partner"): benefits, the
-  fee (4% + A$0.50, matching `lib/fees.ts`), how review works, and a link to
+  fee (from `describeBookingFee` in `lib/fees.ts`, now 6% + A$0.50), how review works, and a link to
   `app/organisers/apply/page.tsx` (the application form). Since Task A it has
   its own canonical URL and Open Graph/Twitter metadata, so it previews
   properly when shared.

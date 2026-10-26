@@ -1,22 +1,22 @@
 import { formatAud } from "./format";
 import type { FeePolicy } from "./types";
 
-/** Percentage of ticket face value charged as a booking fee. */
-export const BOOKING_FEE_RATE = 0.04;
+/** Share of ticket face value charged as a booking fee (6%). */
+export const BOOKING_FEE_RATE = 0.06;
 /** Flat booking fee component, in integer cents. */
 export const BOOKING_FEE_FLAT_CENTS = 50;
 
 /**
  * Smallest price a paid ticket can have. Below this the booking fee can
  * exceed the ticket price when the organiser absorbs it (e.g. A$0.50 carries
- * a A$0.52 fee), which Stripe rejects; A$0.50 is also Stripe's minimum AUD
+ * a A$0.53 fee), which Stripe rejects; A$0.50 is also Stripe's minimum AUD
  * charge. Enforced by the API, the database (ticket_types_min_paid_price)
  * and the event editor.
  */
 export const MIN_PAID_TICKET_CENTS = 100;
 
 /**
- * The booking fee as buyers read it, e.g. "4% of ticket face value + A$0.50
+ * The booking fee as buyers read it, e.g. "6% of ticket face value + A$0.50
  * per paid ticket". Built from BOOKING_FEE_RATE and BOOKING_FEE_FLAT_CENTS so
  * the copy can't drift from what's charged.
  */
@@ -28,7 +28,8 @@ export function describeBookingFee(): string {
 }
 
 /**
- * Booking fee for a single paid ticket: 4% of face value + A$0.50.
+ * Booking fee for a single paid ticket: 6% of face value (rounded to the
+ * nearest cent) + A$0.50.
  * Always A$0 for a free ticket (priceCents <= 0).
  */
 export function calculateBookingFeeCents(ticketPriceCents: number): number {

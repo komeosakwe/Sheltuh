@@ -5,13 +5,16 @@ import {
   calculateBookingFeeCents,
   describeBookingFee,
   calculateOrderSummary,
+  MIN_PAID_TICKET_CENTS,
   sumOrderSummaries,
 } from "../lib/fees";
 
 describe("calculateBookingFeeCents", () => {
-  it("is 4% of face value plus A$0.50 for a paid ticket", () => {
-    // A$30 ticket: round(3000 * 0.04) + 50 = 120 + 50 = 170 cents = A$1.70.
-    expect(calculateBookingFeeCents(3000)).toBe(170);
+  it("is 6% of face value plus A$0.50 for a paid ticket", () => {
+    // A$30 ticket: round(3000 * 0.06) + 50 = 180 + 50 = 230 cents = A$2.30.
+    expect(calculateBookingFeeCents(3000)).toBe(230);
+    // A$10 ticket: 60 + 50 = 110 cents = A$1.10.
+    expect(calculateBookingFeeCents(1000)).toBe(110);
   });
 
   it("is A$0 for a free ticket", () => {
@@ -19,8 +22,16 @@ describe("calculateBookingFeeCents", () => {
   });
 
   it("rounds to the nearest cent", () => {
-    // 4% of 1999 = 79.96 -> rounds to 80, + 50 flat = 130.
-    expect(calculateBookingFeeCents(1999)).toBe(130);
+    // 6% of 1999 = 119.94 -> rounds to 120, + 50 flat = 170.
+    expect(calculateBookingFeeCents(1999)).toBe(170);
+    // 6% of 1025 = 61.5 exactly -> half a cent rounds up to 62, + 50 flat = 112.
+    expect(calculateBookingFeeCents(1025)).toBe(112);
+  });
+
+  it("stays below the cheapest paid ticket, so an organiser-absorbed fee never exceeds the payment", () => {
+    // A$1.00: 6 + 50 = 56 cents, leaving the organiser A$0.44.
+    expect(calculateBookingFeeCents(MIN_PAID_TICKET_CENTS)).toBe(56);
+    expect(calculateBookingFeeCents(MIN_PAID_TICKET_CENTS)).toBeLessThan(MIN_PAID_TICKET_CENTS);
   });
 
   it("matches the rate and flat constants directly", () => {
@@ -31,11 +42,11 @@ describe("calculateBookingFeeCents", () => {
 });
 
 describe("calculateOrderSummary", () => {
-  it("A$30 ticket, buyer pays fee: A$1.70 fee, A$31.70 total", () => {
+  it("A$30 ticket, buyer pays fee: A$2.30 fee, A$32.30 total", () => {
     const summary = calculateOrderSummary(3000, 1, "buyer-pays");
     expect(summary.subtotalCents).toBe(3000);
-    expect(summary.buyerFeeCents).toBe(170);
-    expect(summary.totalCents).toBe(3170);
+    expect(summary.buyerFeeCents).toBe(230);
+    expect(summary.totalCents).toBe(3230);
   });
 
   it("A$30 ticket, organiser absorbs fee: A$30 buyer total, no buyer fee", () => {
@@ -61,8 +72,8 @@ describe("calculateOrderSummary", () => {
   it("scales linearly with quantity when the buyer pays the fee", () => {
     const summary = calculateOrderSummary(3000, 3, "buyer-pays");
     expect(summary.subtotalCents).toBe(9000);
-    expect(summary.buyerFeeCents).toBe(510);
-    expect(summary.totalCents).toBe(9510);
+    expect(summary.buyerFeeCents).toBe(690);
+    expect(summary.totalCents).toBe(9690);
   });
 
   it("returns zeroed totals for zero quantity", () => {
@@ -91,10 +102,10 @@ describe("sumOrderSummaries", () => {
       orderForTicket(vip, quantitiesById, vip.id),
     ]);
 
-    // GA: A$30 + A$1.70 fee = A$31.70. VIP: A$55, fee absorbed = A$55. Combined A$86.70.
+    // GA: A$30 + A$2.30 fee = A$32.30. VIP: A$55, fee absorbed = A$55. Combined A$87.30.
     expect(total.subtotalCents).toBe(8500);
-    expect(total.buyerFeeCents).toBe(170);
-    expect(total.totalCents).toBe(8670);
+    expect(total.buyerFeeCents).toBe(230);
+    expect(total.totalCents).toBe(8730);
   });
 
   it("changing one ticket type's quantity never affects another's contribution", () => {
@@ -110,8 +121,8 @@ describe("sumOrderSummaries", () => {
       orderForTicket(vip, { ga: 2, vip: 1 }, vip.id),
     ]);
 
-    // Only GA's contribution changes (+A$31.70); VIP's A$55 is unaffected.
-    expect(gaQuantityDoubled.totalCents - baseline.totalCents).toBe(3170);
+    // Only GA's contribution changes (+A$32.30); VIP's A$55 is unaffected.
+    expect(gaQuantityDoubled.totalCents - baseline.totalCents).toBe(3230);
   });
 
   it("sums to zero for an empty order", () => {
@@ -120,8 +131,8 @@ describe("sumOrderSummaries", () => {
 });
 
 describe("describeBookingFee", () => {
-  it("states the fee buyers are charged: 4% + A$0.50 per paid ticket", () => {
-    expect(describeBookingFee()).toBe("4% of ticket face value + A$0.50 per paid ticket");
+  it("states the fee buyers are charged: 6% + A$0.50 per paid ticket", () => {
+    expect(describeBookingFee()).toBe("6% of ticket face value + A$0.50 per paid ticket");
   });
 
   it("is built from the same constants calculateBookingFeeCents uses", () => {

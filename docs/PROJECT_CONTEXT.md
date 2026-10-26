@@ -28,15 +28,18 @@ Pre-launch MVP. 15 Melbourne creative interviews done:
 
 | Revenue stream       | Price                   | Timing     |
 | -------------------- | ----------------------- | ---------- |
-| Ticketing fees       | 3–5% per transaction    | From launch |
+| Ticketing fees       | 6% + A$0.50 per paid ticket | From launch |
 | Promoted listings    | $50–150 / week          | ~Month 3   |
 | Brand partnerships   | $2K–20K / deal          | ~Month 6   |
 
-Booking fee (decided Sept 2026): **4% of the ticket price + A$0.50 per paid
-ticket**, in `lib/fees.ts` (used by both the UI and the checkout API). The
-A$0.50 keeps cheap tickets profitable, because Stripe's processing fee
-(roughly 1.7% + A$0.30 on Australian cards) comes out of the platform's
-share. Free tickets carry no fee, and paid tickets cost at least A$1.00.
+Booking fee (decided October 2026, replacing September 2026's 4% + A$0.50):
+**6% of the ticket price + A$0.50 per paid ticket**, in `lib/fees.ts` (used
+by both the UI and the checkout API). The A$0.50 keeps cheap tickets
+profitable, because Stripe's processing fee (roughly 1.7% + A$0.30 on
+Australian cards) comes out of the platform's share. Free tickets carry no
+fee, and paid tickets cost at least A$1.00. The change applies to new
+checkouts only: existing orders keep the fee recorded on them (see
+`docs/architecture.md`, "Changing the booking fee").
 
 ## Legal / registration status
 

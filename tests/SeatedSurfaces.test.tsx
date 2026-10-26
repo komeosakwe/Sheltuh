@@ -53,7 +53,7 @@ describe("event page for a seated event (docs/design/seating.md §5.1)", () => {
     expect(within(tickets).queryByRole("button", { name: /Increase quantity/ })).toBeNull();
     expect(within(tickets).getByText("1 Choose seats")).toBeInTheDocument();
     expect(within(tickets).getByRole("link", { name: "Choose your seats" })).toHaveAttribute("href", "/events/off-kilter-a-new-play/seats");
-    expect(within(tickets).getByText("A$36.90 incl. booking fee")).toBeInTheDocument();
+    expect(within(tickets).getByText("A$37.60 incl. booking fee")).toBeInTheDocument();
     expect(within(tickets).getByText("Only 10 seats left")).toBeInTheDocument();
     expect(within(tickets).getByText("Few seats left in Concession.")).toBeInTheDocument();
     expect(within(tickets).getByText("Nothing is held until you press Checkout on the next page.")).toBeInTheDocument();

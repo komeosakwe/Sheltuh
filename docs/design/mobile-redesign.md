@@ -435,7 +435,7 @@ div.group/card.relative.flex.min-w-0.flex-col[data-event-card][data-variant]   (
 - The amount comes first: `font-semibold tabular-nums` black. Then a space and the note in `text-muted`, from `formatFeedPriceParts` (unchanged): "incl. booking fee", "No booking fee", "Paid tickets incl. booking fee".
 - The price is always the all-inclusive buyer total (`getMinBuyerTotalCents`). "From" appears when on-sale tiers vary.
 - New prop `now?: Date`: an ended event renders "Ended" and nothing else.
-- The note never wraps under the amount at 375 for "A$31.70 incl. booking fee" (14px ≈ 170px at 232 wide). On a 134px `grid` card it wraps after the amount, which is acceptable: the amount stays first.
+- The note never wraps under the amount at 375 for "A$32.30 incl. booking fee" (14px ≈ 170px at 232 wide). On a 134px `grid` card it wraps after the amount, which is acceptable: the amount stays first.
 - **The note's last two words never split (V15):** they sit in one `whitespace-nowrap` span ("incl. <nowrap>booking fee</nowrap>"), so "fee" is never alone on a line. Choice: not a whole-note `nowrap`, which would overflow a 134px card with "Paid tickets incl. booking fee"; and ordinary spaces, not a no-break space, so the text and accessible names read exactly as before.
 
 #### 6.2.5 Going on cards (`cardGoing`) *[Superseded: Refinement — a count only, "(sample)" in the demo, threshold 3]*
@@ -681,7 +681,7 @@ Action row (unchanged logic: demo disabled "Add yourself" + DemoNotice; signed-o
   - All sold out: the waitlist (unchanged).
   - None yet: "Tickets coming soon."
   - "Only N left" only from the server's `remaining` (unchanged).
-- **Fees:** the existing line ("Booking fee: 4% of ticket face value + A$0.50 per paid ticket. Free tickets never carry a fee.") and the per-tier "A$X incl. booking fee" + breakdown (unchanged).
+- **Fees:** the existing line ("Booking fee: 6% of ticket face value + A$0.50 per paid ticket. Free tickets never carry a fee.") and the per-tier "A$X incl. booking fee" + breakdown (unchanged).
 - **Waitlist explainer** (`WaitlistBlock` idle state): keep "We’ll email you if tickets are released. Joining doesn’t reserve a ticket or charge you." and add one existing-policy sentence after it: "If tickets come up, it’s first come, first served." (the same policy the joined state already states).
 - **Booking info: only where a paid purchase is possible (A6):** a Sheltüh-ticketed event with at least one paid tier that hasn't ended (sold out included, since tickets can come back through the waitlist; demo included). Not on a free-only, ended or external event.
   ```
@@ -692,7 +692,7 @@ Action row (unchanged logic: demo disabled "Add yourself" + DemoNotice; signed-o
   ```
   It links the existing pages and invents no policy. **No age restriction here (V5):** it's in Good to know, once.
 - External events keep their own copy ("Their terms apply"). No Booking info there.
-- **Seated tier rows (V6)** match the standard ticket row: the name, the all-inclusive price under it at every width (no right-hand column), then the breakdown ("A$30.00 ticket + A$1.70 booking fee") or "Standing · chosen on the next page" in `mt-1 text-xs text-muted`, not mono.
+- **Seated tier rows (V6)** match the standard ticket row: the name, the all-inclusive price under it at every width (no right-hand column), then the breakdown ("A$30.00 ticket + A$2.30 booking fee") or "Standing · chosen on the next page" in `mt-1 text-xs text-muted`, not mono.
 
 **Sticky buy bar (`[data-buy-bar]`):**
 - Kept as is: `sticky bottom-0`, last in the grid so it settles under the tickets, `min-h-18`, `pb-[calc(0.75rem+env(safe-area-inset-bottom))]`, `html:has([data-buy-bar]) scroll-padding-bottom`.

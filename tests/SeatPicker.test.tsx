@@ -89,8 +89,8 @@ describe("seat page: map and list are equivalent (docs/design/seating.md §7)", 
     expect(within(row("North, Row A")).getByRole("checkbox", { name: "Seat 3, unavailable" })).toBeDisabled();
 
     // Choose in the list: the map shows it chosen (orange with a check).
-    fireEvent.click(within(row("North, Row A")).getByRole("checkbox", { name: "Seat 1, Full price, A$36.90 incl. booking fee" }));
-    expect(status()).toHaveTextContent("Added North, Row A, Seat 1, A$36.90. 1 seat, total A$36.90 incl. booking fees.");
+    fireEvent.click(within(row("North, Row A")).getByRole("checkbox", { name: "Seat 1, Full price, A$37.60 incl. booking fee" }));
+    expect(status()).toHaveTextContent("Added North, Row A, Seat 1, A$37.60. 1 seat, total A$37.60 incl. booking fees.");
     fireEvent.click(screen.getByRole("tab", { name: "Map" }));
     const chosen = container.querySelector('[data-seat="N-A1"]');
     expect(chosen).toHaveAttribute("data-state", "selected");
@@ -147,7 +147,7 @@ describe("seat page: limits and prompts (§5.8)", () => {
     renderPicker();
     showList();
     const westC = row("West, Row C");
-    const space = within(westC).getByRole("checkbox", { name: "Seat 1, wheelchair space, Full price, A$36.90 incl. booking fee" });
+    const space = within(westC).getByRole("checkbox", { name: "Seat 1, wheelchair space, Full price, A$37.60 incl. booking fee" });
     fireEvent.click(space);
     const dialog = screen.getByRole("dialog", { name: "Wheelchair space" });
     expect(dialog).toHaveTextContent("Book it only if you or someone in your group needs it.");
@@ -177,17 +177,17 @@ describe("seat page: summary (§5.10; ACCC all-inclusive prices)", () => {
       expect.stringContaining("North · Row C · Seat 1"),
     ]);
     expect(lines[0]).toHaveTextContent("Full price");
-    expect(lines[0]).toHaveTextContent("A$36.90");
+    expect(lines[0]).toHaveTextContent("A$37.60");
     expect(lines[1]).toHaveTextContent("Concession");
-    expect(lines[1]).toHaveTextContent("A$26.50");
+    expect(lines[1]).toHaveTextContent(/A\$27(?![.\d])/); // A$25 + A$2 fee: a whole-dollar total reads "A$27"
     // Each line's price includes its fee, and says so; the lines add up to the total.
     expect(within(lines[0]).getByText("incl. fee")).toBeInTheDocument();
     const totals = within(card).getByText("Total").closest("dl") as HTMLElement;
     // Face value + fees = total (the same total the lines add up to).
     expect(within(totals).getByText("Ticket face value")).toBeInTheDocument();
     expect(within(totals).getByText("A$60")).toBeInTheDocument();
-    expect(within(totals).getByText("A$3.40")).toBeInTheDocument();
-    expect(within(totals).getByText("A$63.40")).toHaveClass("text-xl", "font-bold");
+    expect(within(totals).getByText("A$4.60")).toBeInTheDocument();
+    expect(within(totals).getByText("A$64.60")).toHaveClass("text-xl", "font-bold");
     // Demo: checkout is off, and says so.
     expect(screen.getByRole("button", { name: "Checkout unavailable in this demo" })).toBeDisabled();
   });
@@ -199,7 +199,7 @@ describe("seat page: summary (§5.10; ACCC all-inclusive prices)", () => {
     fireEvent.click(within(row("North, Row A")).getByRole("checkbox", { name: /^Seat 2, / }));
     fireEvent.click(screen.getByRole("button", { name: "Remove North, Row A, Seat 1" }));
     expect(screen.getByRole("button", { name: "Remove North, Row A, Seat 2" })).toHaveFocus();
-    expect(status()).toHaveTextContent("Removed North, Row A, Seat 1. 1 seat, total A$36.90 incl. booking fees.");
+    expect(status()).toHaveTextContent("Removed North, Row A, Seat 1. 1 seat, total A$37.60 incl. booking fees.");
     fireEvent.click(screen.getByRole("button", { name: "Remove North, Row A, Seat 2" }));
     expect(screen.getByRole("heading", { name: "Your seats" })).toHaveFocus();
     expect(screen.getByText("No seats chosen yet. Choose up to 10 seats.")).toBeInTheDocument();

@@ -158,7 +158,7 @@ async function paidOrder(email: string, quantity: number, paymentIntent: string)
   await api.db.query(
     `insert into public.orders (id, event_id, organiser_id, event_title, buyer_email, line_items,
        subtotal_cents, buyer_fee_cents, total_cents, application_fee_cents, status, stripe_payment_intent_id)
-     values ($1, $2, $3, 'Neon Static', $4, $5::text::jsonb, 3000, 170, 3170, 170, 'paid', $6)`,
+     values ($1, $2, $3, 'Neon Static', $4, $5::text::jsonb, 3000, 230, 3230, 230, 'paid', $6)`,
     [
       orderId,
       event.eventId,
@@ -176,7 +176,7 @@ async function refundInFull(paymentIntent: string) {
     stripeWebhook,
     stripeWebhookRequest({
       type: "charge.refunded",
-      data: { object: { id: "ch_1", object: "charge", payment_intent: paymentIntent, amount_refunded: 3170, refunded: true } },
+      data: { object: { id: "ch_1", object: "charge", payment_intent: paymentIntent, amount_refunded: 3230, refunded: true } },
     }),
   );
   expect(res.status).toBe(200);
@@ -938,7 +938,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
     }
     const [one, two] = await connections();
     const refund = (conn: postgres.Sql, pi: string) =>
-      conn.unsafe(`select result from private.record_payment_refund($1, 3170, true)`, [pi]);
+      conn.unsafe(`select result from private.record_payment_refund($1, 3230, true)`, [pi]);
     try {
       await one.unsafe("begin");
       expect((await refund(one, "pi_1"))[0].result).toBe("refunded");

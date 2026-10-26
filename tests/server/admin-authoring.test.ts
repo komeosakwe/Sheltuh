@@ -629,7 +629,7 @@ describe("platform-managed organisers: no paid Sheltüh tickets; only admins at 
     expect(await dbError(api.db.query(
       `insert into public.orders (id, event_id, organiser_id, event_title, line_items, subtotal_cents, buyer_fee_cents,
          total_cents, application_fee_cents, status)
-       values ('ord_${"a".repeat(32)}', $1, $2, 'x', '[]'::jsonb, 2000, 130, 2130, 130, 'pending')`,
+       values ('ord_${"a".repeat(32)}', $1, $2, 'x', '[]'::jsonb, 2000, 170, 2170, 170, 'pending')`,
       [free.eventId, platformId],
     ))).toEqual({ code: "23514", constraint: "orders_platform_free_only" });
     expect(await dbError(api.db.query(

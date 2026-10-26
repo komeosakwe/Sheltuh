@@ -36,7 +36,7 @@ const TITLE: Record<EventCardVariant, string> = {
 const SMALL = "text-sm leading-5";
 /**
  * The price line's box. The phone grid's price nearly always wraps to two
- * lines ("From A$36.90 incl. / booking fee" at 134px), so there it keeps two
+ * lines ("From A$37.60 incl. / booking fee" at 134px), so there it keeps two
  * lines' room whatever it says, and "Sold out" lines up with its neighbours.
  */
 const PRICE_BOX: Record<EventCardVariant, string> = {

@@ -381,9 +381,9 @@ describe("EventEditor — explains the booking-fee choice", () => {
     const help = document.getElementById(select.getAttribute("aria-describedby") ?? "");
     expect(help).not.toBeNull();
     const text = help?.textContent ?? "";
-    // A$30 ticket: fee 4% + A$0.50 = A$1.70.
-    expect(text).toContain("A$1.70 on this ticket");
-    expect(text).toContain("The buyer pays A$31.70 and you receive the full A$30");
-    expect(text).toContain("the buyer pays just A$30 and the fee comes out of it, so you receive A$28.30");
+    // A$30 ticket: fee 6% + A$0.50 = A$2.30.
+    expect(text).toContain("A$2.30 on this ticket");
+    expect(text).toContain("The buyer pays A$32.30 and you receive the full A$30");
+    expect(text).toContain("the buyer pays just A$30 and the fee comes out of it, so you receive A$27.70");
   });
 });

@@ -253,7 +253,7 @@ describe("the ticket page's capability and rules", () => {
       stripeWebhook,
       stripeWebhookRequest({
         type: "charge.refunded",
-        data: { object: { id: "ch_test", object: "charge", payment_intent: paymentIntent, amount_refunded: 3170, refunded: true } },
+        data: { object: { id: "ch_test", object: "charge", payment_intent: paymentIntent, amount_refunded: 3230, refunded: true } },
       }),
     );
     expect((await page(orderId)).status).toBe("refunded");

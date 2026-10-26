@@ -284,7 +284,7 @@ describe("the ticket page (GET /api/orders/by-session/{id})", () => {
       stripeWebhook,
       stripeWebhookRequest({
         type: "charge.refunded",
-        data: { object: { id: "ch_test", object: "charge", payment_intent: paymentIntent, amount_refunded: 6340, refunded: true } },
+        data: { object: { id: "ch_test", object: "charge", payment_intent: paymentIntent, amount_refunded: 6460, refunded: true } },
       }),
     );
     const body = await page(orderId);

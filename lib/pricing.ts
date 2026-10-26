@@ -73,7 +73,7 @@ export function formatFeedPrice(event: SheltuhEvent): string {
 }
 
 export interface FeedPriceParts {
-  /** The all-inclusive headline, e.g. "Free", "A$55" or "From A$31.70"; or, for an external event, "Tickets on {provider}" when it isn't free. */
+  /** The all-inclusive headline, e.g. "Free", "A$55" or "From A$32.30"; or, for an external event, "Tickets on {provider}" when it isn't free. */
   amount: string;
   /** What the amount includes, e.g. "incl. booking fee" or "No booking fee"; where a free external event's tickets are; empty for a paid external event (no price, so nothing to qualify). */
   note: string;

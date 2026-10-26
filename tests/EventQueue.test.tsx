@@ -380,7 +380,7 @@ describe("EventQueue", () => {
     });
     renderQueue();
     const neon = await screen.findByRole("article", { name: "Neon Static" });
-    expect(neon).toHaveTextContent("General: A$31.70 incl. booking fee (A$30 ticket + A$1.70 booking fee) · 120 available");
+    expect(neon).toHaveTextContent("General: A$32.30 incl. booking fee (A$30 ticket + A$2.30 booking fee) · 120 available");
     expect(neon).toHaveTextContent("VIP: A$50 incl. booking fee (A$50 ticket (booking fee included by organiser))");
     expect(neon).toHaveTextContent("Door list: Free · 20 available");
     const elsewhere = screen.getByRole("article", { name: "Elsewhere" });

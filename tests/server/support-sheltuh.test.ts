@@ -63,13 +63,13 @@ const PAID_TICKETS = [
 ];
 const MIXED_TICKETS = [...PAID_TICKETS, { id: "rsvp", name: "RSVP", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 5 }];
 const FREE_TICKETS = [{ id: "rsvp", name: "RSVP", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 5 }];
-/** 2 × GA (A$30 + A$1.70 fee, buyer pays) and 1 × VIP (A$80, A$3.70 fee absorbed): A$143.40 paid, A$7.10 booking fees. */
+/** 2 × GA (A$30 + A$2.30 fee, buyer pays) and 1 × VIP (A$80, A$5.30 fee absorbed): A$144.60 paid, A$9.90 booking fees. */
 const BASKET = [
   { ticketTypeId: "ga", quantity: 2 },
   { ticketTypeId: "vip", quantity: 1 },
 ];
-const BASKET_TOTAL = 2 * 3170 + 8000;
-const BASKET_FEES = 2 * 170 + 370;
+const BASKET_TOTAL = 2 * 3230 + 8000;
+const BASKET_FEES = 2 * 230 + 530;
 
 async function paidEvent(ticketTypes: unknown[] = PAID_TICKETS) {
   const event = await publishedEvent(api, organiser, admin, { ticketTypes });
@@ -239,8 +239,8 @@ describe("validation at checkout", () => {
       const res = await checkout(event.eventId, { lineItems: [{ ticketTypeId: "ga", quantity: 1 }], ...extra });
       expect(res.status).toBe(201);
       expect(lastParams().line_items).toHaveLength(2); // the ticket and its booking fee
-      expect(lastParams().payment_intent_data.application_fee_amount).toBe(170);
-      expect(await storedOrder(res.body.orderId)).toMatchObject({ support_cents: 0, total_cents: 3170 });
+      expect(lastParams().payment_intent_data.application_fee_amount).toBe(230);
+      expect(await storedOrder(res.body.orderId)).toMatchObject({ support_cents: 0, total_cents: 3230 });
     }
   });
 
@@ -264,7 +264,7 @@ describe("validation at checkout", () => {
       supportCents: 200,
     });
     expect(res.status).toBe(201);
-    expect(await storedOrder(res.body.orderId)).toMatchObject({ subtotal_cents: 3000, support_cents: 200, total_cents: 3370 });
+    expect(await storedOrder(res.body.orderId)).toMatchObject({ subtotal_cents: 3000, support_cents: 200, total_cents: 3430 });
   });
 
   it("seated: a bad amount, or any amount on free seats, is 400 fieldErrors.supportCents, nothing held", async () => {
@@ -303,7 +303,7 @@ describe("validation at checkout", () => {
     expect(res.status).toBe(201);
     expect(await storedOrder(res.body.orderId)).toMatchObject({
       subtotal_cents: 14_000,
-      buyer_fee_cents: 340,
+      buyer_fee_cents: 460,
       application_fee_cents: BASKET_FEES,
       support_cents: 500,
       total_cents: BASKET_TOTAL + 500,
@@ -329,7 +329,7 @@ describe("the Checkout Session", () => {
       expires_at: expect.any(Number),
       line_items: [
         { price_data: { currency: "aud", product_data: { name: "GA — Neon Static" }, unit_amount: 3000 }, quantity: 2 },
-        { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 170 }, quantity: 2 },
+        { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 230 }, quantity: 2 },
         { price_data: { currency: "aud", product_data: { name: "VIP — Neon Static" }, unit_amount: 8000 }, quantity: 1 },
         { price_data: { currency: "aud", product_data: { name: "Support Sheltüh" }, unit_amount: 500 }, quantity: 1 },
       ],
@@ -343,7 +343,7 @@ describe("the Checkout Session", () => {
     expect(await storedOrder(orderId)).toEqual({
       status: "pending",
       subtotal_cents: 14_000,
-      buyer_fee_cents: 340,
+      buyer_fee_cents: 460,
       total_cents: BASKET_TOTAL + 500,
       application_fee_cents: BASKET_FEES,
       support_cents: 500,
@@ -363,18 +363,18 @@ describe("the Checkout Session", () => {
       l.price_data.unit_amount,
     ])).toEqual([
       ["Premium — Neon Static", 5000],
-      ["Booking fee", 250],
+      ["Booking fee", 350],
       ["Standard — Neon Static", 3000],
-      ["Booking fee", 170],
+      ["Booking fee", 230],
       ["Support Sheltüh", 1000],
     ]);
     expect(params.line_items.at(-1).quantity).toBe(1);
-    expect(params.payment_intent_data).toStrictEqual({ application_fee_amount: 420 + 1000, transfer_data: { destination: "acct_test_1" } });
+    expect(params.payment_intent_data).toStrictEqual({ application_fee_amount: 580 + 1000, transfer_data: { destination: "acct_test_1" } });
     expect(await storedOrder(res.body.orderId)).toMatchObject({
       subtotal_cents: 8000,
-      buyer_fee_cents: 420,
-      total_cents: 9420,
-      application_fee_cents: 420,
+      buyer_fee_cents: 580,
+      total_cents: 9580,
+      application_fee_cents: 580,
       support_cents: 1000,
     });
   });
@@ -386,7 +386,7 @@ describe("the Checkout Session", () => {
     await checkout(event.eventId, { lineItems: BASKET, supportCents: 1000 });
     const withSupport = money(lastParams());
     expect(withSupport.transfer).toBe(without.transfer);
-    expect(withSupport.transfer).toBe(14_000 - 370); // face value less the absorbed VIP fee
+    expect(withSupport.transfer).toBe(14_000 - 530); // face value less the absorbed VIP fee
     expect(withSupport.charged - without.charged).toBe(1000);
     expect(withSupport.fee - without.fee).toBe(1000);
   });
@@ -479,7 +479,7 @@ describe("after payment", () => {
     expect(page.body).toMatchObject({
       status: "paid",
       subtotalCents: 14_000,
-      buyerFeeCents: 340,
+      buyerFeeCents: 460,
       supportCents: 500,
       totalCents: BASKET_TOTAL + 500,
     });
@@ -487,10 +487,10 @@ describe("after payment", () => {
     await api.runDeferred();
     expect(api.sendEmail).toHaveBeenCalledTimes(1);
     const email = api.sendEmail.mock.calls[0][0];
-    expect(email.text).toContain("Support Sheltüh: A$5\nTotal paid: A$148.40 (incl. booking fees and Support Sheltüh)");
+    expect(email.text).toContain("Support Sheltüh: A$5\nTotal paid: A$149.60 (incl. booking fees and Support Sheltüh)");
     expect(email.html).toContain(">Support Sheltüh</td>");
     expect(email.html).toContain(">A$5</td>");
-    expect(email.html).toContain("A$148.40");
+    expect(email.html).toContain("A$149.60");
     expect(email.html).toContain("incl. booking fees and Support Sheltüh");
   });
 
@@ -504,7 +504,7 @@ describe("after payment", () => {
     const email = api.sendEmail.mock.calls[0][0];
     expect(email.text).not.toContain("Support Sheltüh");
     expect(email.html).not.toContain("Support Sheltüh");
-    expect(email.text).toContain("Total paid: A$143.40 (incl. booking fees)");
+    expect(email.text).toContain("Total paid: A$144.60 (incl. booking fees)");
   });
 
   it("the payment page's summary has supportCents (only when there's some) and a total including it", async () => {
@@ -516,13 +516,13 @@ describe("after payment", () => {
 
     const a = await read(withSupport.body.orderId);
     expect(a.status).toBe(200);
-    expect(a.body).toMatchObject({ status: "open", subtotalCents: 14_000, buyerFeeCents: 340, supportCents: 1000, totalCents: BASKET_TOTAL + 1000 });
+    expect(a.body).toMatchObject({ status: "open", subtotalCents: 14_000, buyerFeeCents: 460, supportCents: 1000, totalCents: BASKET_TOTAL + 1000 });
     // The lines are the tickets only: support is its own field, never a ticket line.
     expect(a.body.lines.map((l: { ticketTypeName: string }) => l.ticketTypeName)).toEqual(["GA", "VIP"]);
 
     const b = await read(without.body.orderId);
     expect(b.body).not.toHaveProperty("supportCents");
-    expect(b.body.totalCents).toBe(3170);
+    expect(b.body.totalCents).toBe(3230);
   });
 
   it("a full refund in Stripe (the whole charge, support included) voids the order and records it all", async () => {
@@ -762,7 +762,7 @@ describe("a tickets-only refund (everything but the support) voids the order", (
     const res = await checkout(event.eventId, { lineItems: [{ ticketTypeId: "ga", quantity: 1 }], supportCents: 5000 });
     const orderId = res.body.orderId as string;
     await api.send(stripeWebhook, completed(orderId, "cs_test_1", `pi_${orderId}`));
-    expect(await storedOrder(orderId)).toMatchObject({ status: "paid", total_cents: 3170 + 5000 });
+    expect(await storedOrder(orderId)).toMatchObject({ status: "paid", total_cents: 3230 + 5000 });
     // A$50 refunded ≥ A$81.70 − A$50: the amount alone reads as the tickets refunded (docs/supabase-setup.md).
     await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, 5000, false, "evt_support_back"));
     expect(await storedOrder(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: 5000 });
@@ -895,8 +895,8 @@ describe("the webhook fulfils a paid order only for exactly its total, in AUD", 
     expect(alert.subject).toBe(`URGENT: Sheltüh payment exception: Payment amount mismatch ${orderReference(orderId)}`);
     expect(alert.text).toContain("URGENT: a payment didn't match its order.");
     expect(alert.text).toContain("Order status: failed");
-    expect(alert.text).toContain("Amount charged: A$143.40");
-    expect(alert.text).toContain("Order total: A$148.40");
+    expect(alert.text).toContain("Amount charged: A$144.60");
+    expect(alert.text).toContain("Order total: A$149.60");
     expect(alert.text).toContain("Support Sheltüh (in the total, Sheltüh's): A$5.00");
     expect(alert.text).toContain("no tickets were issued, the order was marked failed and the payment is being refunded in full automatically");
     for (const part of [alert.subject, alert.text, alert.html]) {
@@ -1005,7 +1005,7 @@ describe("the webhook fulfils a paid order only for exactly its total, in AUD", 
     });
     await api.runDeferred();
     const usdAlert = api.sendEmail.mock.calls.map(([m]) => m).find((m) => m.subject.includes(orderReference(usd)))!;
-    expect(usdAlert.text).toContain("Amount charged: 143.40 USD");
+    expect(usdAlert.text).toContain("Amount charged: 144.60 USD");
   });
 
   it("seated: another amount takes no seats, releases the holds, issues nothing and refunds", async () => {
@@ -1158,13 +1158,13 @@ describe("the database", () => {
   it("refuses support on a free order, beyond A$500 or below 0, and a total that leaves it out", async () => {
     await paidEvent();
     await expect(insert({ subtotal: 0, fee: 0, total: 500, support: 500 })).rejects.toThrow(/orders_support_paid_only/);
-    await expect(insert({ subtotal: 3000, fee: 170, total: 3170 + 50_001, support: 50_001 })).rejects.toThrow(
+    await expect(insert({ subtotal: 3000, fee: 230, total: 3230 + 50_001, support: 50_001 })).rejects.toThrow(
       /orders_support_cents_check/,
     );
-    await expect(insert({ subtotal: 3000, fee: 170, total: 3170, support: -1 })).rejects.toThrow(/orders_support_cents_check/);
-    await expect(insert({ subtotal: 3000, fee: 170, total: 3170, support: 500 })).rejects.toThrow(/orders_support_in_total/);
-    await insert({ subtotal: 3000, fee: 170, total: 3670, support: 500 });
-    await insert({ subtotal: 3000, fee: 170, total: 3170, support: 0 });
+    await expect(insert({ subtotal: 3000, fee: 230, total: 3230, support: -1 })).rejects.toThrow(/orders_support_cents_check/);
+    await expect(insert({ subtotal: 3000, fee: 230, total: 3230, support: 500 })).rejects.toThrow(/orders_support_in_total/);
+    await insert({ subtotal: 3000, fee: 230, total: 3730, support: 500 });
+    await insert({ subtotal: 3000, fee: 230, total: 3230, support: 0 });
   });
 
   it("hold_seats has one form, its new argument defaulting to 0, so the previous app's 18-argument call still holds seats", async () => {
@@ -1182,11 +1182,11 @@ describe("the database", () => {
     const [held] = await api.db.query<{ result: string }>(
       `select result from private.hold_seats($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11, $12, $13::text[],
                                              $14::interval, $15, $16::interval, $17, $18)`,
-      [orderId, event.eventId, event.organiserId, event.title, JSON.stringify(lines), 5000, 250, 5250, 250, null, null, map.version, ["A1"],
+      [orderId, event.eventId, event.organiserId, event.title, JSON.stringify(lines), 5000, 350, 5350, 350, null, null, map.version, ["A1"],
         "35 minutes", 120, "10 minutes", 20, 0.3],
     );
     expect(held.result).toBe("held");
-    expect(await storedOrder(orderId)).toMatchObject({ status: "pending", total_cents: 5250, support_cents: 0 });
+    expect(await storedOrder(orderId)).toMatchObject({ status: "pending", total_cents: 5350, support_cents: 0 });
   });
 });
 
@@ -1203,7 +1203,7 @@ describe("ticket email (unit)", () => {
   const order = {
     orderId: "ord_abc",
     buyerEmail: "fan@example.com",
-    totalCents: 3670,
+    totalCents: 3730,
     supportCents: 500,
     tickets: [{ ticketCode: "ABCD-EFGH", ticketTypeId: "ga", ticketTypeName: "GA" }],
   } as OrderRecord;
@@ -1211,13 +1211,13 @@ describe("ticket email (unit)", () => {
   it("a Support Sheltüh row above the total (HTML and text); none for an order without it", () => {
     const email = buildTicketEmail(order, event, "https://sheltuh.com.au");
     expect(email.text).toContain("Order reference: #");
-    expect(email.text).toContain("\nSupport Sheltüh: A$5\nTotal paid: A$36.70 (incl. booking fees and Support Sheltüh)\n");
+    expect(email.text).toContain("\nSupport Sheltüh: A$5\nTotal paid: A$37.30 (incl. booking fees and Support Sheltüh)\n");
     const row = email.html.indexOf(">Support Sheltüh</td>");
     expect(row).toBeGreaterThan(email.html.indexOf(">Order reference</td>"));
     expect(row).toBeLessThan(email.html.indexOf(">Total paid</td>"));
 
-    const plain = buildTicketEmail({ ...order, totalCents: 3170, supportCents: undefined }, event, "https://sheltuh.com.au");
-    expect(plain.text).toContain("Total paid: A$31.70 (incl. booking fees)");
+    const plain = buildTicketEmail({ ...order, totalCents: 3230, supportCents: undefined }, event, "https://sheltuh.com.au");
+    expect(plain.text).toContain("Total paid: A$32.30 (incl. booking fees)");
     expect(plain.text).not.toContain("Support Sheltüh");
     expect(plain.html).not.toContain("Support Sheltüh");
   });
@@ -1232,7 +1232,7 @@ describe("ticket email (unit)", () => {
     expect(at).toBeGreaterThan(email.html.indexOf("Refund policy:</span>"));
     expect(at).toBeLessThan(email.html.indexOf("You&#39;re always entitled"));
 
-    for (const without of [{ ...order, totalCents: 3170, supportCents: undefined }, { ...order, totalCents: 3170, supportCents: 0 }]) {
+    for (const without of [{ ...order, totalCents: 3230, supportCents: undefined }, { ...order, totalCents: 3230, supportCents: 0 }]) {
       const plain = buildTicketEmail(without as OrderRecord, withPolicy, "https://sheltuh.com.au");
       expect(plain.text).toContain("Refund policy: No refunds for change of mind.");
       expect(plain.text).not.toContain(SUPPORT_REFUND_NOTE);

@@ -78,8 +78,8 @@ describe("fee maths", () => {
       { ticketTypeId: "ga", ticketTypeName: "GA", unitPriceCents: 3000, feePolicy: "buyer-pays", quantity: 2 },
       { ticketTypeId: "vip", ticketTypeName: "VIP", unitPriceCents: 8000, feePolicy: "organiser-absorbs", quantity: 1 },
     ]);
-    // GA fee: 4% of 3000 + 50 = 170 each. VIP fee: 320 + 50 = 370.
-    expect(totals).toEqual({ subtotalCents: 14000, buyerFeeCents: 340, totalCents: 14340, applicationFeeCents: 710 });
+    // GA fee: 6% of 3000 + 50 = 230 each. VIP fee: 480 + 50 = 530.
+    expect(totals).toEqual({ subtotalCents: 14000, buyerFeeCents: 460, totalCents: 14460, applicationFeeCents: 990 });
   });
 });
 
@@ -209,7 +209,7 @@ describe("paid checkout", () => {
     // Our payment page, never Stripe's: the client secret is read from GET …/payment.
     expect(res.body).toStrictEqual({ url: `/checkout/pay?order=${orderId}`, orderId });
     expect(params.payment_intent_data).toEqual({
-      application_fee_amount: 710,
+      application_fee_amount: 990,
       transfer_data: { destination: "acct_test_1" },
     });
     expect(params.return_url).toBe(`https://sheltuh.test/checkout/success?session_id=${orderId}`);
@@ -217,7 +217,7 @@ describe("paid checkout", () => {
     // Exactly the A$ total (Adaptive Pricing off); the Dashboard's wallets and Link; nothing saved.
     expectSessionPaymentOptions(params);
     expect(params.line_items.map((l: { price_data: { unit_amount: number } }) => l.price_data.unit_amount)).toEqual([
-      3000, 170, 8000,
+      3000, 230, 8000,
     ]);
 
     // Pending orders reveal nothing but their status, and hold no inventory.
@@ -304,7 +304,7 @@ describe("paid checkout", () => {
       const [order] = await api.db.query(
         `select status::text as status, total_cents, buyer_email_key, confirmation_token_hash from public.orders`,
       );
-      expect(order).toEqual({ status: "pending", total_cents: 6 * 3170, buyer_email_key: null, confirmation_token_hash: null });
+      expect(order).toEqual({ status: "pending", total_cents: 6 * 3230, buyer_email_key: null, confirmation_token_hash: null });
     });
   });
 
@@ -354,8 +354,8 @@ describe("Stripe webhook", () => {
       buyer_email: "buyer@example.com",
       stripe_checkout_session_id: "cs_test_1",
       stripe_payment_intent_id: "pi_test_1",
-      total_cents: 6340,
-      application_fee_cents: 340,
+      total_cents: 6460,
+      application_fee_cents: 460,
     });
     const order = await api.call(getOrderBySession, { params: { sessionId: orderId } });
     expect(order.body.tickets).toHaveLength(2);
@@ -570,8 +570,8 @@ describe("guest order lookup (GET /api/orders/by-session/{orderId})", () => {
       refundPolicy: "no_change_of_mind",
       maskedEmail: "m***@example.com",
       subtotalCents: 6000,
-      buyerFeeCents: 340,
-      totalCents: 6340,
+      buyerFeeCents: 460,
+      totalCents: 6460,
       tickets: codes.map((c) => ({ ticketCode: c.code, ticketTypeName: "GA", checkedInAt: null })),
       // Which wallet passes the server makes: none, as this API has no wallet credentials (wallet-passes.test.ts).
       wallet: { google: false, apple: false },
