@@ -32,15 +32,32 @@ export default function MapEventMarker({ event, selected, onSelect }: MapEventMa
       data-event-id={event.id}
       className="group block h-12 w-12 cursor-pointer rounded-dot"
     >
-      <span
-        className={`block h-full w-full rounded-dot p-1 motion-safe:transition-transform ${
-          selected
-            ? "scale-110 bg-signal ring-2 ring-foreground ring-offset-2 ring-offset-background"
-            : "bg-foreground ring-2 ring-background group-hover:scale-105"
-        }`}
-      >
-        <EventArt poster={event.poster} title={event.title} imageUrl={event.imageUrl} className="h-full w-full rounded-dot" />
-      </span>
+      <EventMarkerMark event={event} selected={selected} />
     </button>
+  );
+}
+
+/**
+ * The marker's look on its own (no button): the photo or poster art in a
+ * black ring, Signal Orange when selected. MapEventMarker wraps it in its
+ * button; the event page's Location map shows it as a plain pin.
+ */
+export function EventMarkerMark({
+  event,
+  selected = false,
+}: {
+  event: Pick<SheltuhEvent, "poster" | "title" | "imageUrl">;
+  selected?: boolean;
+}) {
+  return (
+    <span
+      className={`block h-full w-full rounded-dot p-1 motion-safe:transition-transform ${
+        selected
+          ? "scale-110 bg-signal ring-2 ring-foreground ring-offset-2 ring-offset-background"
+          : "bg-foreground ring-2 ring-background group-hover:scale-105"
+      }`}
+    >
+      <EventArt poster={event.poster} title={event.title} imageUrl={event.imageUrl} className="h-full w-full rounded-dot" />
+    </span>
   );
 }

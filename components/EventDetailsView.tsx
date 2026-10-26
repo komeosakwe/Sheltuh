@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import AddToCalendar from "@/components/AddToCalendar";
 import EventViewBeacon from "@/components/analytics/EventViewBeacon";
 import EventArt from "@/components/EventArt";
+import EventLocation from "@/components/events/EventLocation";
 import ClipPlayButton from "@/components/events/ClipPlayButton";
 import ExternalTicketLink from "@/components/ExternalTicketLink";
 import OrganiserLogo from "@/components/organisers/OrganiserLogo";
@@ -99,7 +100,8 @@ function whenLabel(startsAt: string, endsAt: string | undefined, timeZone: strin
  * facts (when, with the time zone and Add to calendar; where, the address
  * linked to directions; the organiser, linked to their profile), the going count, and one
  * secondary row with Save and Share (the page's only Save). Then the
- * tickets and Who's Going, then About and Good to know. On phones that's one
+ * tickets and Who's Going, then About, Location (the venue, a small map and
+ * Open in Maps) and Good to know. On phones that's one
  * column; from 1024px the tickets and Who's Going are the right-hand column
  * (sticky), beside the photo, title and facts, and About below those. Below
  * 1024px a compact buy bar sticks to the bottom (price and the one ticket
@@ -352,6 +354,9 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
             <Panel title="About this event" titleId="about-title">
               <p className="max-w-2xl text-base leading-7">{event.description}</p>
             </Panel>
+
+            {/* Where it is, with a small map and "Open in Maps" (none without a venue or suburb). */}
+            <EventLocation event={event} />
 
             {goodToKnow.length > 0 && (
               <Panel title="Good to know" titleId="good-to-know-title">
