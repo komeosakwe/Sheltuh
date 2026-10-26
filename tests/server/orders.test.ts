@@ -561,6 +561,7 @@ describe("guest order lookup (GET /api/orders/by-session/{orderId})", () => {
       eventEndsAt: "2027-03-06T12:30:00.000Z",
       venueName: "The Tote",
       suburb: "Collingwood",
+      refundPolicy: "no_change_of_mind",
       maskedEmail: "m***@example.com",
       subtotalCents: 6000,
       buyerFeeCents: 340,

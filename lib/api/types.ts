@@ -1,3 +1,4 @@
+import type { RefundPolicy } from "@/lib/refund-policy";
 import type { TicketingMode } from "@/lib/ticketing";
 import type { EventCategory, EventClip, FeePolicy } from "@/lib/types";
 import type { FeaturedVideo } from "./featured-video";
@@ -8,6 +9,7 @@ export type { FeaturedVideo, FeaturedVideoProvider } from "./featured-video";
 export type { EventClip } from "@/lib/types";
 
 export type { TicketingMode } from "@/lib/ticketing";
+export type { RefundPolicy } from "@/lib/refund-policy";
 export type { SeatKind, SeatMapTemplate, TicketSeat } from "@/lib/seating/template";
 
 export type OrganiserStatus = "pending" | "approved" | "rejected";
@@ -215,6 +217,10 @@ export interface EventEditChanges {
   clip?: TicketingFieldChange<string>;
   /** An admin changed the clip's description. */
   clipDescription?: TicketingFieldChange<string>;
+  /** An admin changed the refund policy (lib/refund-policy.ts). */
+  refundPolicy?: TicketingFieldChange<RefundPolicy>;
+  /** An admin changed the refund policy's days (null for `no_change_of_mind`). */
+  refundDays?: TicketingFieldChange<number>;
 }
 
 /** ModerationLogEntry.by for an admin's entry in an organiser's view: never the admin's account id. */
@@ -303,6 +309,19 @@ export interface EventRecord {
    * 409); only an admin can. Always sent.
    */
   ticketingLocked?: boolean;
+  /**
+   * The event's refund policy (lib/refund-policy.ts: refundPolicySummary
+   * says it): `no_change_of_mind` (the default) or `days_before`. Always sent
+   * by the API; optional so older fixtures stay valid (absent means
+   * `no_change_of_mind`). The organiser can change it only while the event is
+   * a draft or rejected; once it has pending or paid orders (an unpublished
+   * event, or an admin's edit of any event), only to a more generous one
+   * (lib/refund-policy.ts, tightensRefundPolicy): ApiError 409 `code:
+   * "refund_policy_tightened"` otherwise.
+   */
+  refundPolicy?: RefundPolicy;
+  /** `days_before` only: refunds up to this many days (1–30) before the event starts. Absent otherwise. */
+  refundDays?: number;
   /**
    * The event's seat map, when it has one. The organiser can change the map
    * only while `ticketingLocked` is false (never approved) and the event is a
@@ -556,6 +575,13 @@ export interface CustomerOrder {
   eventEndsAt?: string;
   venueName?: string;
   suburb?: string;
+  /**
+   * The event's current refund policy (lib/refund-policy.ts), with
+   * `refundDays` for `days_before`. Like the date and venue: only for a
+   * `paid` order whose event is published (`eventListed`).
+   */
+  refundPolicy?: RefundPolicy;
+  refundDays?: number;
   /** The buyer's address, masked: "m***@example.com". Unset if none is on record. */
   maskedEmail?: string;
   subtotalCents: number;
@@ -620,6 +646,16 @@ export interface OrderPaymentSummary {
   suburb?: string;
   /** A reserved-seating order (it holds seats until the hold ends). */
   seated: boolean;
+  /**
+   * The event's current refund policy, to show before paying with
+   * REFUND_ACL_STATEMENT (lib/refund-policy.ts: refundPolicySummary). It can
+   * only have become more generous since the order was made (an event with
+   * pending orders can't be tightened). Always sent by the API; optional for
+   * older responses (absent: say nothing about the policy).
+   */
+  refundPolicy?: RefundPolicy;
+  /** `days_before` only (1–30). */
+  refundDays?: number;
   /** In the order's line order. */
   lines: OrderPaymentLine[];
   subtotalCents: number;

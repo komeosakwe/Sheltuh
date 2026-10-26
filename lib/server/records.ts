@@ -36,6 +36,7 @@ import { REMAINING_SHOWN_AT_MOST, type PublicTicketType } from "@/lib/api/public
 import { SHELTUH_TEAM_ACTOR, type EventClip } from "@/lib/api/types";
 import { isFeaturedVideo, type FeaturedVideo } from "@/lib/api/featured-video";
 import { ticketProviderName, type TicketingMode } from "@/lib/ticketing";
+import { DEFAULT_REFUND_POLICY, type RefundPolicy } from "@/lib/refund-policy";
 import { maskEmail } from "./email-address";
 import { orderReference } from "./order-reference";
 import { socialLinks } from "./organiser-input";
@@ -264,7 +265,7 @@ const EVENT_COLUMNS = `
          e.id, e.organiser_id, e.slug, e.title, e.description, e.category::text as category,
          e.venue_name, e.venue_address, e.suburb, e.starts_at, e.ends_at,
          e.status::text as status, e.rejection_reason, e.created_at, e.updated_at,
-         e.ticketing_mode, e.external_ticket_url, e.external_free,
+         e.ticketing_mode, e.external_ticket_url, e.external_free, e.refund_policy, e.refund_days,
          o.display_name as organiser_name,
          -- Only while the organiser is approved: the logo route is a 404 otherwise.
          case when o.status = 'approved' then ${organiserLogoVersionOf("e.organiser_id")} end as organiser_logo_version,
@@ -349,6 +350,8 @@ const LOG_CHANGE_FIELDS = [
   "seatMap",
   "clip",
   "clipDescription",
+  "refundPolicy",
+  "refundDays",
 ] as const satisfies readonly (keyof NonNullable<ModerationLogEntry["changes"]>)[];
 
 /** One change as stored: json_strip_nulls has dropped a side that was null. */
@@ -425,6 +428,18 @@ function clipOf(row: Row): { clip?: EventClip } {
   };
 }
 
+/**
+ * `refundPolicy` (always; a row without the column, from before its
+ * migration, reads as the default) and `refundDays` (only for `days_before`),
+ * from `refund_policy` / `refund_days` columns.
+ */
+function refundTermsOf(row: Row): { refundPolicy: RefundPolicy; refundDays?: number } {
+  const refundPolicy = (opt<string>(row.refund_policy) ?? DEFAULT_REFUND_POLICY) as RefundPolicy;
+  return refundPolicy === "days_before" && typeof row.refund_days === "number"
+    ? { refundPolicy, refundDays: row.refund_days }
+    : { refundPolicy };
+}
+
 function mapEvent(row: Row, audience: LogAudience): EventRecord {
   const log = row.moderation_log as StoredLogEntry[];
   const ticketingMode = (row.ticketing_mode ?? "sheltuh") as TicketingMode;
@@ -452,6 +467,7 @@ function mapEvent(row: Row, audience: LogAudience): EventRecord {
     externalProvider: externalTicketUrl ? ticketProviderName(externalTicketUrl) : null,
     // Once approved, the ticketing is frozen for the organiser (private.edit_event_draft).
     ticketingLocked: log.some((entry) => entry.action === "approved"),
+    ...refundTermsOf(row),
     ...(row.seating ? { seating: row.seating as EventSeating } : {}),
     status: row.status as EventRecord["status"],
     rejectionReason: opt(row.rejection_reason),
@@ -541,6 +557,9 @@ export function toPublicEvent(event: EventRecord, remaining?: Record<string, num
       : {}),
     externalFree: event.externalFree === true,
     externalProvider: event.externalProvider ?? null,
+    refundPolicy: event.refundPolicy ?? DEFAULT_REFUND_POLICY,
+    // Only for days_before.
+    ...(event.refundPolicy === "days_before" && event.refundDays !== undefined ? { refundDays: event.refundDays } : {}),
     // Seated events only: a general admission event's payload is unchanged.
     ...(event.seating ? { seating: { version: event.seating.version } } : {}),
   };
@@ -616,6 +635,7 @@ export const CUSTOMER_ORDER_SELECT = `
          e.slug as event_slug, e.status::text as event_status,
          e.starts_at as event_starts_at, e.ends_at as event_ends_at,
          e.venue_name as event_venue_name, e.suburb as event_suburb,
+         e.refund_policy, e.refund_days,
          coalesce((
            select json_agg(json_strip_nulls(json_build_object('ticketCode', t.code, 'ticketTypeName', t.ticket_type_name,
                                                               'seat', ${TICKET_SEAT_JSON},
@@ -665,6 +685,7 @@ export function toCustomerOrder(row: Row): CustomerOrder {
     eventEndsAt: details && row.event_ends_at ? iso(row.event_ends_at) : undefined,
     venueName: details ? opt(row.event_venue_name) : undefined,
     suburb: details ? opt(row.event_suburb) : undefined,
+    ...(details ? refundTermsOf(row) : {}),
     maskedEmail: email ? maskEmail(email) : undefined,
     subtotalCents: row.subtotal_cents as number,
     buyerFeeCents: row.buyer_fee_cents as number,

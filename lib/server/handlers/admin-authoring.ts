@@ -23,6 +23,7 @@ import {
   eventFields,
   isPayoutsRefusal,
   payoutsRequired,
+  refundPolicyTightened,
   ticketTypeConflict,
   withSeatedCapacity,
   withUniqueSlug,
@@ -247,14 +248,17 @@ export const adminCreateEvent: Handler = async (req, _params, deps) => {
  * `ticketingMode` (required here), `expectedUpdatedAt` (the version's
  * `updatedAt`, required), optional `publish` and optional `reason` (at most
  * 500 characters; required to change the mode or link of an event that has
- * been approved before). One step (private.admin_edit_event): ticketing
+ * been approved before). `refundPolicy` / `refundDays` are optional (absent:
+ * the stored policy is kept). One step (private.admin_edit_event): ticketing
  * changes as PATCH …/ticketing does (logged `ticketing_changed`), every other
  * change one `edited` entry with old and new values, then the publish. 200
  * with the AdminEventRecord (unchanged, nothing logged, if nothing would
  * change). 400 fieldErrors; 404; 409 stale (fieldErrors.expectedUpdatedAt),
  * switching to external an event with orders, removing a sold ticket type or
- * cutting it below what's sold, or publishing for an organiser who isn't
- * approved.
+ * cutting it below what's sold, publishing for an organiser who isn't
+ * approved, or making the refund policy of an event with pending or paid
+ * orders less generous (`code: "refund_policy_tightened"`,
+ * fieldErrors.refundPolicy).
  */
 export const adminUpdateEvent: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const { db, verifyAccessToken } = deps;
@@ -307,6 +311,8 @@ export const adminUpdateEvent: Handler<{ eventId: string }> = async (req, { even
       });
     case "platform_paid":
       throw new HttpError(400, PLATFORM_PAID_REFUSED, { ticketTypes: PLATFORM_PAID_REFUSED });
+    case "refund_policy_tightened":
+      throw refundPolicyTightened();
     case "reason_required":
       throw new HttpError(400, "Please fix the highlighted fields.", {
         reason: "Give a reason for changing where an approved event's tickets are sold.",

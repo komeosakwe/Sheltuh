@@ -421,6 +421,7 @@ describe("public reads", () => {
       "ticketingMode",
       "externalFree",
       "externalProvider",
+      "refundPolicy",
     ]);
     expect(plain.body.ticketTypes).toEqual([
       { id: "ga", name: "General admission", priceCents: 3000, feePolicy: "buyer-pays", quantityAvailable: 10, soldOut: false, remaining: 10 },

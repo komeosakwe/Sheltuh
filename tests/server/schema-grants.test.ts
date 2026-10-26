@@ -419,6 +419,32 @@ describe("Data API lock-out", () => {
     expect(grants).toEqual([]);
   });
 
+  it("the refund policy's functions pin search_path, aren't security definer and aren't client-executable", async () => {
+    const names = ["admin_edit_event", "create_event_draft", "edit_event_draft", "refund_policy_tightens"];
+    const rows = await db.query<{ fn: string; pinned: boolean; definer: boolean; client: boolean }>(
+      `select p.proname as fn,
+              exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c = 'search_path=""') as pinned,
+              p.prosecdef as definer,
+              has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
+                or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                            where a.grantee = 0 and a.privilege_type = 'EXECUTE') as client
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'private' and p.proname = any($1::text[]) order by 1`,
+      [names],
+    );
+    expect(rows).toEqual(names.map((fn) => ({ fn, pinned: true, definer: false, client: false })));
+    // The columns carry no grants of their own (the table's lock-out covers them; checked above for every column).
+    const columns = await db.query<{ column_name: string; is_nullable: string; column_default: string | null }>(
+      `select column_name, is_nullable, column_default from information_schema.columns
+        where table_schema = 'public' and table_name = 'events' and column_name in ('refund_policy', 'refund_days')
+        order by 1`,
+    );
+    expect(columns).toEqual([
+      { column_name: "refund_days", is_nullable: "YES", column_default: null },
+      { column_name: "refund_policy", is_nullable: "NO", column_default: "'no_change_of_mind'::text" },
+    ]);
+  });
+
   it("every `private` function pins its search_path, apart from the two that predate the rule", async () => {
     // A function without a pinned search_path resolves names through the
     // caller's. New ones must set it (`set search_path = ''`); these two

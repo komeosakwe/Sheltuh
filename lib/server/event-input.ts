@@ -1,3 +1,10 @@
+import {
+  isValidRefundDays,
+  MAX_REFUND_DAYS,
+  MIN_REFUND_DAYS,
+  REFUND_POLICIES,
+  type RefundPolicy,
+} from "@/lib/refund-policy";
 import { checkExternalTicketUrl, TICKETING_MODES, type TicketingMode } from "@/lib/ticketing";
 import type { EventCategory, TicketTypeInput } from "./types";
 import {
@@ -24,6 +31,13 @@ export interface EventInput {
   externalTicketUrl: string | null;
   /** External only (false otherwise). */
   externalFree: boolean;
+  /**
+   * Absent when the body didn't send one (parseRefundPolicy): the database
+   * then uses the default on create and keeps the stored policy on edit.
+   */
+  refundPolicy?: RefundPolicy;
+  /** With `refundPolicy` only: the days for `days_before`, null for `no_change_of_mind`. */
+  refundDays?: number | null;
 }
 
 /** An event's ticketing, as stored. */
@@ -42,6 +56,8 @@ interface RawEventBody {
   ticketingMode?: unknown;
   externalTicketUrl?: unknown;
   externalFree?: unknown;
+  refundPolicy?: unknown;
+  refundDays?: unknown;
 }
 
 const absent = (value: unknown) => value === undefined || value === null || value === "";
@@ -88,6 +104,41 @@ export function parseTicketing(body: RawEventBody, errors: Record<string, string
   return { ticketingMode, externalTicketUrl, externalFree };
 }
 
+/** The event's refund policy as parseRefundPolicy returns it: nothing sent, or both fields. */
+export type RefundInput = Pick<EventInput, "refundPolicy" | "refundDays">;
+
+/**
+ * `refundPolicy` and `refundDays` (lib/refund-policy.ts), with errors under
+ * those field names:
+ * - neither sent (absent or null): `{}`, so the stored policy is kept on edit
+ *   and the default (`no_change_of_mind`) used on create;
+ * - `days_before`: `refundDays` must be a whole number from 1 to 30;
+ * - `no_change_of_mind`: `refundDays` must be absent or null (it's stored as
+ *   null, clearing any days the event had), rather than being silently dropped;
+ * - anything else as the policy, or days without a policy, is an error.
+ */
+export function parseRefundPolicy(body: RawEventBody, errors: Record<string, string>): RefundInput {
+  const daysSent = body.refundDays !== undefined && body.refundDays !== null;
+  if (body.refundPolicy === undefined || body.refundPolicy === null) {
+    if (daysSent) errors.refundPolicy = "Choose a refund policy.";
+    return {};
+  }
+  if (typeof body.refundPolicy !== "string" || !REFUND_POLICIES.includes(body.refundPolicy as RefundPolicy)) {
+    errors.refundPolicy = "Choose a refund policy.";
+    return {};
+  }
+  const refundPolicy = body.refundPolicy as RefundPolicy;
+  if (refundPolicy === "no_change_of_mind") {
+    if (daysSent) errors.refundDays = "Only for refunds up to a number of days before the event.";
+    return { refundPolicy, refundDays: null };
+  }
+  if (!isValidRefundDays(body.refundDays)) {
+    errors.refundDays = `Enter a whole number of days from ${MIN_REFUND_DAYS} to ${MAX_REFUND_DAYS}.`;
+    return { refundPolicy, refundDays: null };
+  }
+  return { refundPolicy, refundDays: body.refundDays };
+}
+
 export function parseEventInput(body: RawEventBody): EventInput {
   const errors: Record<string, string> = {};
 
@@ -100,6 +151,7 @@ export function parseEventInput(body: RawEventBody): EventInput {
   const startsAt = requireMelbourneDateTime(body.start, "start", errors);
   const endsAt = requireMelbourneDateTime(body.end, "end", errors);
   const ticketing = parseTicketing(body, errors);
+  const refund = parseRefundPolicy(body, errors);
 
   // An external event has no Sheltüh ticket types: none may be sent (an
   // absent, null or empty list is fine), rather than being silently dropped.
@@ -130,5 +182,6 @@ export function parseEventInput(body: RawEventBody): EventInput {
     endsAt: endsAt as string,
     ticketTypes,
     ...ticketing,
+    ...refund,
   };
 }

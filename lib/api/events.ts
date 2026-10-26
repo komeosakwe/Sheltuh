@@ -1,3 +1,4 @@
+import { REFUND_POLICY_TIGHTENED_CODE, type RefundPolicy } from "@/lib/refund-policy";
 import type { TicketingMode } from "@/lib/ticketing";
 import type { EventCategory } from "@/lib/types";
 import { ApiError, apiFetch, type GetToken } from "./client";
@@ -31,6 +32,22 @@ export interface EventInput {
   externalTicketUrl?: string | null;
   /** `external` only: entry is free. Absent or false for `sheltuh`. */
   externalFree?: boolean;
+  /**
+   * The refund policy (lib/refund-policy.ts). Absent (or null):
+   * `no_change_of_mind` when creating; when editing, the stored policy and
+   * days are kept. Any other value: ApiError 400, fieldErrors.refundPolicy.
+   * Making the policy of an event with pending or paid orders less generous
+   * is ApiError 409 (isRefundPolicyTightenedError).
+   */
+  refundPolicy?: RefundPolicy;
+  /**
+   * `days_before`: required, a whole number from 1 to 30 (MIN_REFUND_DAYS,
+   * MAX_REFUND_DAYS), else ApiError 400 fieldErrors.refundDays.
+   * `no_change_of_mind`: absent or null (the stored days are cleared); a
+   * number is a 400 fieldErrors.refundDays. Sent without `refundPolicy`: 400
+   * fieldErrors.refundPolicy.
+   */
+  refundDays?: number | null;
 }
 
 export async function createEventDraft(input: EventInput, getToken: GetToken) {
@@ -56,6 +73,17 @@ export const PAYOUTS_REQUIRED_CODE = "payouts_required";
 /** Whether `err` is the 409 with `code: "payouts_required"` (PAYOUTS_REQUIRED_CODE). */
 export function isPayoutsRequiredError(err: unknown): err is ApiError {
   return err instanceof ApiError && err.status === 409 && err.body?.code === PAYOUTS_REQUIRED_CODE;
+}
+
+/**
+ * Whether `err` is the 409 with `code: "refund_policy_tightened"`
+ * (REFUND_POLICY_TIGHTENED_CODE; fieldErrors.refundPolicy carries the
+ * message): an edit (the organiser's, of a draft that has orders, or an
+ * admin's) would make the refund policy of an event with pending or paid
+ * orders less generous (lib/refund-policy.ts, tightensRefundPolicy).
+ */
+export function isRefundPolicyTightenedError(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.status === 409 && err.body?.code === REFUND_POLICY_TIGHTENED_CODE;
 }
 
 /**

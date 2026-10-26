@@ -255,6 +255,9 @@ export async function adminCreateEvent(input: AdminCreateEventInput, getToken: G
  * `expectedUpdatedAt` (reload, then edit again); 409 also for a sold ticket
  * type removed or cut below what's sold, switching to external an event with
  * orders, or publishing for an organiser who isn't approved; 409 `code:
+ * "refund_policy_tightened"` (fieldErrors.refundPolicy,
+ * isRefundPolicyTightenedError) when the event has pending or paid orders and
+ * the edit would make its refund policy less generous; 409 `code:
  * "payouts_required"` (fieldErrors.ticketTypes) when the organiser's payouts
  * aren't set up and the edit would publish paid tickets, or add a paid ticket
  * type (or make a free one paid) on a submitted or published event. 400

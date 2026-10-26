@@ -264,6 +264,8 @@ describe("listing", () => {
         "externalProvider",
         // Waitlist (B-WL): always sent.
         "soldOut",
+        // Refund policy: always sent; refundDays only for days_before.
+        "refundPolicy",
         "favouritedAt",
       ].sort(),
     );

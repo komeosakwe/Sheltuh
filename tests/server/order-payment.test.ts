@@ -320,6 +320,7 @@ describe("GET /orders/by-session/{id}/payment", () => {
       venueName: "The Tote",
       suburb: "Collingwood",
       seated: false,
+      refundPolicy: "no_change_of_mind",
       lines: [
         { ticketTypeName: "GA", quantity: 2, unitTotalCents: 3170, lineTotalCents: 6340, buyerPaysFee: true },
         // The organiser absorbs VIP's fee: the buyer pays face value.

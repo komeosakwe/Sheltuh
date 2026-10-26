@@ -68,9 +68,11 @@ describe("public event visibility", () => {
         "externalProvider",
         // Waitlist (B-WL): always sent.
         "soldOut",
+        // Refund policy: always sent; refundDays only for days_before.
+        "refundPolicy",
       ].sort(),
     );
-    expect(res.body).toMatchObject({ ticketingMode: "sheltuh", externalFree: false, externalProvider: null });
+    expect(res.body).toMatchObject({ ticketingMode: "sheltuh", externalFree: false, externalProvider: null, refundPolicy: "no_change_of_mind" });
     const list = await api.call(listPublicEvents);
     expect(list.body.items[0]).toEqual(res.body);
   });

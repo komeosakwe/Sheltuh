@@ -6,6 +6,7 @@ import {
   pgConstraint,
   pgErrorCode,
 } from "../db";
+import { REFUND_POLICY_TIGHTENED_CODE } from "@/lib/refund-policy";
 import { sendReviewEmailsSoon } from "../email-outbox";
 import { parseEventInput, type EventInput } from "../event-input";
 import { created, HttpError, ok, readJson } from "../http";
@@ -150,6 +151,21 @@ function withStoredTicketing(body: Record<string, unknown>, current: EventRecord
   };
 }
 
+/**
+ * An edit that would make the refund policy of an event with pending or paid
+ * orders less generous (private.refund_policy_tightens): buyers keep the
+ * terms they bought under. Loosening is always allowed.
+ */
+export const REFUND_POLICY_TIGHTENED =
+  "This event already has orders, so its refund policy can only become more generous: people who bought tickets keep the refunds they were offered.";
+
+/** The 409 for a refused tightening: `code: "refund_policy_tightened"`, fieldErrors.refundPolicy. */
+export function refundPolicyTightened(): HttpError {
+  return new HttpError(409, REFUND_POLICY_TIGHTENED, { refundPolicy: REFUND_POLICY_TIGHTENED }, {
+    code: REFUND_POLICY_TIGHTENED_CODE,
+  });
+}
+
 /** Shown when an organiser tries to change an approved event's ticketing. */
 export const TICKETING_FROZEN =
   "This event's ticketing was approved, so where tickets are sold and the ticket link can't be changed here. Contact Sheltüh to change them.";
@@ -160,7 +176,10 @@ export const TICKETING_FROZEN =
  * and ticket link are frozen: a change to either is a 409 with fieldErrors
  * (only an admin can change them: PATCH /api/admin/events/[eventId]/ticketing).
  * The free flag of an external event, and everything else, stay editable.
- * Without `ticketingMode`, the stored ticketing is kept (withStoredTicketing).
+ * Without `ticketingMode`, the stored ticketing is kept (withStoredTicketing);
+ * without `refundPolicy`, the stored refund policy. A draft that has orders
+ * (it was published, then unpublished) can't have its refund policy made less
+ * generous: 409 `code: "refund_policy_tightened"` (refundPolicyTightened).
  */
 export const updateEventDraft: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
@@ -170,7 +189,9 @@ export const updateEventDraft: Handler<{ eventId: string }> = async (req, { even
 
   let result: string;
   try {
-    const [row] = await db.query<{ result: "updated" | "not_found" | "not_editable" | "ticketing_frozen" }>(
+    const [row] = await db.query<{
+      result: "updated" | "not_found" | "not_editable" | "ticketing_frozen" | "refund_policy_tightened";
+    }>(
       `select private.edit_event_draft($1, $2, $3::text::jsonb, $4::text::jsonb) as result`,
       [eventId, organiser.organiserId, JSON.stringify(eventFields(input)), JSON.stringify(input.ticketTypes)],
     );
@@ -188,6 +209,7 @@ export const updateEventDraft: Handler<{ eventId: string }> = async (req, { even
     if ((current.externalTicketUrl ?? null) !== input.externalTicketUrl) fieldErrors.externalTicketUrl = TICKETING_FROZEN;
     throw new HttpError(409, TICKETING_FROZEN, fieldErrors);
   }
+  if (result === "refund_policy_tightened") throw refundPolicyTightened();
   return ok(await requireEvent(db, eventId));
 };
 

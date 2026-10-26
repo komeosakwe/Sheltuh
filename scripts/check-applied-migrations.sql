@@ -76,6 +76,7 @@ select version, file, coalesce(applied, false) as applied
     ('20261106000200', 'event_clip_hardening', to_regclass('private.event_clip_uploads') is not null),
     ('20261107000000', 'admin_review_emails', to_regclass('private.email_job_recipients') is not null),
     ('20261108000000', 'account_invites', to_regclass('private.account_invites') is not null),
-    ('20261109000000', 'paid_events_need_payouts', exists (select 1 from fn where proname = 'submit_event'))
+    ('20261109000000', 'paid_events_need_payouts', exists (select 1 from fn where proname = 'submit_event')),
+    ('20261109000100', 'event_refund_policy', exists (select 1 from fn where proname = 'refund_policy_tightens'))
   ) as m(version, file, applied)
  order by version;

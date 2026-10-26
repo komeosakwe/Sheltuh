@@ -1,3 +1,4 @@
+import type { RefundPolicy } from "@/lib/refund-policy";
 import type { TicketingMode } from "@/lib/ticketing";
 import type { EventCategory, EventClip } from "@/lib/types";
 import { apiFetch } from "./client";
@@ -74,6 +75,17 @@ export interface PublicEvent {
    * Sheltüh-ticketed events.
    */
   externalProvider?: string | null;
+  /**
+   * The event's refund policy, to show before anyone buys, with
+   * REFUND_ACL_STATEMENT (lib/refund-policy.ts: refundPolicySummary).
+   * `no_change_of_mind` (the default) or `days_before`. Always sent by the
+   * API; optional so older fixtures stay valid (absent means
+   * `no_change_of_mind`). It applies to tickets sold on Sheltüh: for an
+   * external event the ticketing site's own terms apply, so don't show it.
+   */
+  refundPolicy?: RefundPolicy;
+  /** `days_before` only: refunds up to this many days (1–30) before the event starts. Absent otherwise. */
+  refundDays?: number;
   /**
    * Only for an event with a seat map (reserved seating): its version, for
    * GET /events/{id}/seat-map?v={version}. Its seated tiers carry

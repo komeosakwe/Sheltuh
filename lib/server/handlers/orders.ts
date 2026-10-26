@@ -1,5 +1,6 @@
 import type Stripe from "stripe";
 import { calculateBookingFeeCents, calculateOrderSummary } from "@/lib/fees";
+import type { RefundPolicy } from "@/lib/refund-policy";
 import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
 import type { Deps } from "../deps";
 import { sendTicketEmailSoon, sendWaitlistEmailsSoon } from "../email-outbox";
@@ -1129,11 +1130,14 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { ses
     event_ends_at: string | Date | null;
     event_venue_name: string | null;
     event_suburb: string | null;
+    event_refund_policy: RefundPolicy | null;
+    event_refund_days: number | null;
   }>(
     `select o.status::text as status, o.stripe_checkout_session_id, o.confirmation_token_hash is not null as free_link,
             o.event_id, o.event_title, o.line_items, o.seat_ids, o.subtotal_cents, o.buyer_fee_cents, o.total_cents,
             e.slug as event_slug, e.status::text as event_status, e.ends_at <= now() as event_ended, e.starts_at as event_starts_at,
-            e.ends_at as event_ends_at, e.venue_name as event_venue_name, e.suburb as event_suburb
+            e.ends_at as event_ends_at, e.venue_name as event_venue_name, e.suburb as event_suburb,
+            e.refund_policy as event_refund_policy, e.refund_days as event_refund_days
        from public.orders o
        left join public.events e on e.id = o.event_id
       where o.id = $1`,
@@ -1183,6 +1187,11 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { ses
     ...(row.event_venue_name ? { venueName: row.event_venue_name } : {}),
     ...(row.event_suburb ? { suburb: row.event_suburb } : {}),
     seated,
+    // The policy the buyer is paying under (it can't have been tightened while this order was pending).
+    ...(row.event_refund_policy ? { refundPolicy: row.event_refund_policy } : {}),
+    ...(row.event_refund_policy === "days_before" && row.event_refund_days !== null
+      ? { refundDays: row.event_refund_days }
+      : {}),
     lines: paymentLines(row.line_items, state.seats),
     subtotalCents: row.subtotal_cents,
     buyerFeeCents: row.buyer_fee_cents,
