@@ -14,9 +14,10 @@
 import { MELBOURNE_DEFAULT_CENTER } from "./geo";
 import { LOCALITY_DATA, LOCALITY_REACH_KM } from "./localities";
 import { NEAR_MAX_LENGTH } from "./near-storage";
+import type { StateCode } from "./time-zones";
 import type { Coordinates } from "./types";
 
-export type StateCode = keyof typeof LOCALITY_DATA;
+export type { StateCode };
 
 /** The table's order. */
 const STATE_CODES = ["NSW", "VIC", "QLD", "SA", "WA", "TAS", "NT", "ACT", "OT"] as const satisfies readonly StateCode[];

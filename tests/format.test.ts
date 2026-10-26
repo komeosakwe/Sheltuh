@@ -9,6 +9,7 @@ import {
   formatEventDateTimeRange,
   formatEventTime,
   formatTimeZoneLabel,
+  toDateTimeInputParts,
   toMelbourneDateTimeInputParts,
 } from "../lib/format";
 
@@ -180,5 +181,76 @@ describe("formatTimeZoneLabel (the event page's zone, at the event's start)", ()
 
   it("AEST again once daylight saving ends (5 Apr 2026)", () => {
     expect(formatTimeZoneLabel("2026-04-10T08:00:00.000Z")).toBe("Melbourne time (AEST)");
+  });
+});
+
+describe("formatters in another event zone (Perth: AWST, no daylight saving; Adelaide: ACST/ACDT)", () => {
+  // 2026-01-15T11:30:00Z is 7:30 pm AWST (+8) in Perth, 10:00 pm ACDT (+10:30)
+  // in Adelaide and 10:30 pm AEDT (+11) in Melbourne, all on Thu 15 Jan.
+  const summer = "2026-01-15T11:30:00.000Z";
+  // 2026-08-12T15:00:00Z is 11:00 pm AWST on Wed 12 Aug in Perth, but
+  // 12:30 am ACST and 1:00 am AEST on Thu 13 Aug in Adelaide and Melbourne.
+  const winterLate = "2026-08-12T15:00:00.000Z";
+
+  it("formats the day and time in the given zone", () => {
+    expect(formatEventTime(summer, "Australia/Perth")).toBe("7:30 pm");
+    expect(formatEventTime(summer, "Australia/Adelaide")).toBe("10:00 pm");
+    expect(formatEventTime(summer)).toBe("10:30 pm");
+    expect(formatEventDateShort(winterLate, "Australia/Perth")).toBe("Wed 12 Aug");
+    expect(formatEventDateShort(winterLate, "Australia/Adelaide")).toBe("Thu 13 Aug");
+    expect(formatEventTime(winterLate, "Australia/Adelaide")).toBe("12:30 am");
+    expect(formatEventDateKey(winterLate, "Australia/Perth")).toBe("2026-08-12");
+    expect(formatEventDateKey(winterLate, "Australia/Adelaide")).toBe("2026-08-13");
+  });
+
+  it("decides 'same day' in the given zone", () => {
+    // 9:00 pm to 11:00 pm in Perth; in Melbourne that ends after midnight.
+    const start = "2026-08-12T13:00:00.000Z";
+    expect(formatEventDateTimeRange(start, winterLate, "Australia/Perth")).toBe("Wed 12 Aug, 9:00 pm – 11:00 pm");
+    expect(formatEventDateTimeRange(start, winterLate, "Australia/Adelaide")).toBe(
+      "Wed 12 Aug, 10:30 pm – Thu 13 Aug, 12:30 am",
+    );
+    expect(formatDateBadge(start, winterLate, "Australia/Perth")).toEqual({ range: "12", month: "AUG" });
+    expect(formatDateBadge(start, winterLate, "Australia/Adelaide")).toEqual({ range: "12–13", month: "AUG" });
+    const now = new Date("2026-08-12T14:00:00.000Z"); // 10:00 pm in Perth, 12:00 am (13 Aug) in Melbourne
+    expect(formatMessageTime(start, now, "Australia/Perth")).toBe("9:00 pm");
+    expect(formatMessageTime(start, now)).toBe("Wed 12 Aug, 11:00 pm");
+    expect(formatDayTime(start, now, "Australia/Perth")).toBe("Wed 12 Aug, 9:00 pm");
+    expect(formatDayWithYear("2025-12-31T17:00:00.000Z", now, "Australia/Perth")).toBe("Thu 1 Jan");
+    expect(formatDayWithYear("2025-12-31T15:00:00.000Z", now, "Australia/Perth")).toBe("Wed 31 Dec 2025");
+  });
+
+  it("splits an instant into the zone's date/time input values", () => {
+    expect(toDateTimeInputParts(summer, "Australia/Perth")).toEqual({ date: "2026-01-15", time: "19:30" });
+    expect(toDateTimeInputParts(summer, "Australia/Adelaide")).toEqual({ date: "2026-01-15", time: "22:00" });
+    expect(toDateTimeInputParts(winterLate, "Australia/Adelaide")).toEqual({ date: "2026-08-13", time: "00:30" });
+    expect(toDateTimeInputParts(summer, "Australia/Melbourne")).toEqual(toMelbourneDateTimeInputParts(summer));
+  });
+
+  it("labels the zone with its city and abbreviation", () => {
+    expect(formatTimeZoneLabel(summer, "Australia/Perth")).toBe("Perth time (AWST)");
+    expect(formatTimeZoneLabel(winterLate, "Australia/Perth")).toBe("Perth time (AWST)");
+    expect(formatTimeZoneLabel(summer, "Australia/Adelaide")).toBe("Adelaide time (ACDT)");
+    expect(formatTimeZoneLabel(winterLate, "Australia/Adelaide")).toBe("Adelaide time (ACST)");
+    expect(formatTimeZoneLabel(summer, "Australia/Sydney", "ACT")).toBe("Canberra time (AEDT)");
+  });
+
+  it("leaves Melbourne output unchanged: no zone is the same as Australia/Melbourne", () => {
+    const now = new Date("2026-09-26T10:00:00.000Z");
+    for (const iso of [summer, winterLate, "2026-10-03T16:00:00.000Z", "2026-04-04T15:30:00.000Z", "2025-12-31T12:30:00.000Z"]) {
+      const tz = "Australia/Melbourne";
+      expect(formatEventDateKey(iso)).toBe(formatEventDateKey(iso, tz));
+      expect(formatEventDateShort(iso)).toBe(formatEventDateShort(iso, tz));
+      expect(formatEventTime(iso)).toBe(formatEventTime(iso, tz));
+      expect(formatDayWithYear(iso, now)).toBe(formatDayWithYear(iso, now, tz));
+      expect(formatMessageTime(iso, now)).toBe(formatMessageTime(iso, now, tz));
+      expect(formatDayTime(iso, now)).toBe(formatDayTime(iso, now, tz));
+      expect(formatEventDateTimeRange(iso, winterLate)).toBe(formatEventDateTimeRange(iso, winterLate, tz));
+      expect(formatDateBadge(iso, winterLate)).toEqual(formatDateBadge(iso, winterLate, tz));
+      expect(formatTimeZoneLabel(iso)).toBe(formatTimeZoneLabel(iso, tz));
+    }
+    expect(formatEventTime(winterLate)).toBe("1:00 am");
+    expect(formatEventDateShort(winterLate)).toBe("Thu 13 Aug");
+    expect(formatTimeZoneLabel(summer)).toBe("Melbourne time (AEDT)");
   });
 });
