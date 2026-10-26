@@ -104,6 +104,8 @@ select version, file, coalesce(applied, false) as applied
       and exists (select 1 from outbox_check where conname = 'email_outbox_kind_key'
                    and def like '%ops_event_id%' and def like '%organiser_id%')
       and exists (select 1 from fn where proname = 'purge_operational_data'
-                   and 'checkout_attempts_deleted' = any(proargnames) and 'account_invites_deleted' = any(proargnames)))
+                   and 'checkout_attempts_deleted' = any(proargnames) and 'account_invites_deleted' = any(proargnames))),
+    ('20261109000500', 'ticket_wallet_serial',
+      exists (select 1 from col where attrelid = to_regclass('public.tickets') and attname = 'wallet_serial'))
   ) as m(version, file, applied)
  order by version;

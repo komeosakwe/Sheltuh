@@ -569,6 +569,8 @@ describe("guest order lookup (GET /api/orders/by-session/{orderId})", () => {
       buyerFeeCents: 340,
       totalCents: 6340,
       tickets: codes.map((c) => ({ ticketCode: c.code, ticketTypeName: "GA", checkedInAt: null })),
+      // Which wallet passes the server makes: none, as this API has no wallet credentials (wallet-passes.test.ts).
+      wallet: { google: false, apple: false },
     });
     const raw = JSON.stringify(res.body);
     const [{ created_at: createdAt }] = await api.db.query<{ created_at: Date | string }>(

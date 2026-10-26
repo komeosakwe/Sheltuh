@@ -48,6 +48,7 @@ export type {
   ConversationSummary,
   CustomerOrder,
   CustomerOrderLookup,
+  WalletAvailability,
   OrderPaymentLine,
   OrderPaymentLookup,
   OrderPaymentSummary,

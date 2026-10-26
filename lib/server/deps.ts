@@ -9,6 +9,14 @@ import { createPostgresDb, type Db } from "./db";
 import { createSmtpSender, type SendEmail } from "./email";
 import { isPlainEmailAddress, redactForLog } from "./email-address";
 import { matchingPublishableKey } from "./stripe-keys";
+import {
+  appleWalletGetter,
+  googleWalletConfigFromEnv,
+  hasAppleWalletVariables,
+  loadWalletConfig,
+  type AppleWalletConfig,
+  type GoogleWalletConfig,
+} from "./wallet/config";
 
 /**
  * Everything a handler needs from the outside world. Route files get the
@@ -65,6 +73,23 @@ export interface Deps {
    * and skipped (the exceptions are still listed for admins).
    */
   opsAlertEmail(): string | undefined;
+  /**
+   * "Add to Google Wallet" (lib/server/wallet/): the issuer and service
+   * account, read once from GOOGLE_WALLET_ISSUER_ID,
+   * GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL and GOOGLE_WALLET_PRIVATE_KEY;
+   * undefined when any is unset or invalid (logged once, by variable name
+   * only), and Google passes are then off: no button, and their route is a 404.
+   */
+  googleWallet(): GoogleWalletConfig | undefined;
+  /**
+   * "Add to Apple Wallet": the Pass Type ID certificate and key, read once
+   * from the APPLE_WALLET_* variables and proven by signing a test manifest
+   * (lib/server/wallet/apple.ts, loaded with node-forge only when one of them
+   * is set); undefined when any required one is unset or invalid, or can't
+   * sign (logged once), or once either certificate has expired (logged once),
+   * and Apple passes are then off.
+   */
+  appleWallet(): Promise<AppleWalletConfig | undefined>;
 }
 
 function requireEnv(name: string): string {
@@ -89,7 +114,11 @@ export function getDeps(): Deps {
   let clipStorage: ClipStorage | null | undefined;
   let authAdmin: AuthAdmin | null | undefined;
   let adminNotifyEmails: string[] | undefined;
+  let googleWallet: GoogleWalletConfig | null | undefined;
   const smtp = createSmtpSender();
+  const appleWallet = appleWalletGetter(async () =>
+    hasAppleWalletVariables() ? (await import("./wallet/apple")).loadAppleWallet() : undefined,
+  );
 
   cached = {
     db,
@@ -158,6 +187,11 @@ export function getDeps(): Deps {
       }
       return address;
     },
+    googleWallet() {
+      if (googleWallet === undefined) googleWallet = loadWalletConfig("Google Wallet", () => googleWalletConfigFromEnv()) ?? null;
+      return googleWallet ?? undefined;
+    },
+    appleWallet,
   };
   return cached;
 }
