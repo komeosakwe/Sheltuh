@@ -120,7 +120,8 @@ async function renderMap(events: SheltuhEvent[]) {
   await waitFor(() => expect(document.querySelector(".leaflet-container")).not.toBeNull());
 }
 
-const markerButton = (title: string) => screen.findByRole("button", { name: new RegExp(`^${title}\\.`) });
+const markerButton = (title: string, timeout?: number) =>
+  screen.findByRole("button", { name: new RegExp(`^${title}\\.`) }, timeout ? { timeout } : undefined);
 const mapPanel = () => document.querySelector(".leaflet-container") as HTMLElement;
 
 describe("SceneMap photo markers", () => {
@@ -223,6 +224,21 @@ describe("SceneMap photo markers", () => {
     expect(markerNames).toHaveLength(1);
     expect(markerNames.join()).not.toMatch(/Somewhere Unknown/);
     expect(screen.getByRole("button", { name: "Locate Somewhere Unknown on the map" })).toBeDisabled();
+    expect(screen.getByText(/1 event can.t be placed on the map yet/)).toBeInTheDocument();
+  });
+
+  it("pins an event with no coordinates at its suburb's centre from the ABS table, beyond the old 20 suburbs", async () => {
+    const boxHill = makeEvent({ id: "box-hill", title: "Box Hill Gig", suburb: "Box Hill", startsAt: "2026-11-23T09:00:00.000Z" });
+    const yarraville = makeEvent({ id: "yarraville", title: "Yarraville Gig", suburb: "Yarraville VIC", startsAt: "2026-11-24T09:00:00.000Z" });
+    const typo = makeEvent({ id: "typo", title: "Typo Gig", suburb: "Fitzroyy", startsAt: "2026-11-25T09:00:00.000Z" });
+    await renderMap([withPhoto, boxHill, yarraville, typo]);
+
+    expect(await markerButton("Box Hill Gig", 10_000)).toBeInTheDocument();
+    expect(await markerButton("Yarraville Gig")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Locate Box Hill Gig on the map" })).toBeEnabled();
+    // A suburb that really isn't known (a typo) is still listed, not pinned, and counted.
+    expect(screen.getByRole("link", { name: "Typo Gig" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Locate Typo Gig on the map" })).toBeDisabled();
     expect(screen.getByText(/1 event can.t be placed on the map yet/)).toBeInTheDocument();
   });
 

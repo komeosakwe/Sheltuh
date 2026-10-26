@@ -35,10 +35,11 @@ async function page(searchParams: Params) {
 }
 
 describe("/search?near= (owner round of 24 Oct 2026)", () => {
-  it("passes a known suburb, by its own name, to the feed and the bar; the feed restarts when it changes", async () => {
+  it("passes a known suburb, found on the server, to the feed and the bar; the feed restarts when it changes", async () => {
     const tree = await page({ q: " jazz ", near: ["  st kilda ", "Fitzroy"] });
     const feed = findElement(tree, EventFeed);
-    expect(feed?.props).toMatchObject({ query: "jazz", near: "St Kilda" });
+    expect(feed?.props).toMatchObject({ query: "jazz", near: { name: "St Kilda", state: "VIC" } });
+    expect(Object.keys((feed?.props as { near: object }).near).sort()).toEqual(["lat", "lng", "name", "state"]);
     expect(feed?.key).toBe("jazz|St Kilda");
     // The bar mirrors the address as typed, not the remembered suburb.
     expect(findElement(tree, SearchBar)?.props).toMatchObject({ near: "st kilda", defaultValue: "jazz", tone: "signal", size: "lg" });
@@ -85,6 +86,8 @@ describe("/search?near= (owner round of 24 Oct 2026)", () => {
     [{ near: "Fitzroy" }, "Events near Fitzroy"],
     [{ q: "jazz", near: "fitzroy" }, "“jazz” near Fitzroy"],
     [{ q: "jazz", near: "Atlantis" }, "“jazz”"],
+    [{ near: "Richmond, NSW" }, "Events near Richmond NSW"],
+    [{ near: "Perth" }, "Events near Perth"],
   ])("h1 for %j: %s", async (params, h1) => {
     render(await page(params));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(h1);
@@ -121,7 +124,8 @@ describe("/search?near= (owner round of 24 Oct 2026)", () => {
     expect(bandIndexes).toEqual([...bandIndexes].sort((a, b) => a - b));
     expect(new Set(bandIndexes).size).toBe(bandIndexes.length);
     expect(bands[0]).toBe("In Fitzroy");
-    expect(bands.at(-1)).toBe("Location not on file");
+    // Every sample suburb is in the table.
+    expect(bands).not.toContain("Location not on file");
     const upcoming = sampleEvents.filter((e) => isUpcomingEvent(e, NOW));
     const listed = [...document.querySelectorAll<HTMLElement>("[data-near-band]")].map((band) => within(band).getByRole("list"));
     // No region landmark per band: the h2s are the structure.

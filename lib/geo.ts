@@ -1,12 +1,11 @@
 import type { Coordinates, SheltuhEvent } from "./types";
 
 /**
- * Approximate centroid for Melbourne inner-city/inner-north suburbs, used
- * only as a fallback when an event has no geocoded `coordinates` of its
- * own (e.g. every event from the live API today — see adaptPublicEvent,
- * which doesn't carry a venue location yet). These are suburb-level
- * approximations, not surveyed venue positions. Also the interim suburb table
- * for "near you" search (lib/localities.ts) until a sourced one lands.
+ * Approximate centroid for Melbourne inner-city/inner-north suburbs: hand-
+ * entered, with no recorded source. The fallback suburb lookup only, for
+ * when the ABS table (lib/localities.ts, every Australian suburb, loaded on
+ * demand through lib/location-loader.ts) isn't available: /map places events
+ * with that table once it has loaded (components/map/useSuburbLookup.ts).
  */
 export const SUBURB_COORDINATES: Readonly<Record<string, Coordinates>> = {
   "melbourne cbd": { lat: -37.8136, lng: 144.9631 },
@@ -31,16 +30,29 @@ export const SUBURB_COORDINATES: Readonly<Record<string, Coordinates>> = {
   thornbury: { lat: -37.7568, lng: 145.0058 },
 };
 
-/**
- * Best-effort position for an event: its own geocoded venue coordinates
- * when present, otherwise its suburb's centroid, otherwise `null` (the
- * caller should exclude the event from the map rather than guess).
- */
-export function resolveEventCoordinates(event: SheltuhEvent): Coordinates | null {
-  if (event.coordinates) return event.coordinates;
-  const key = event.suburb.trim().toLowerCase();
+/** A suburb's centre from its name as written on an event, or null when it isn't known. */
+export type SuburbLookup = (suburb: string) => Coordinates | null;
+
+/** The fallback lookup: SUBURB_COORDINATES, by name, case and outer spaces aside. */
+export const findListedSuburb: SuburbLookup = (suburb) => {
+  const key = suburb.trim().toLowerCase();
   // Own keys only: a suburb of "constructor" mustn't find Object's.
   return Object.hasOwn(SUBURB_COORDINATES, key) ? SUBURB_COORDINATES[key] : null;
+};
+
+/**
+ * Best-effort position for an event: its own geocoded venue coordinates
+ * when present, otherwise its suburb's centre (from `findSuburb`: on /map,
+ * lib/location.ts `findLocality` over the ABS table), otherwise `null` (the
+ * caller should exclude the event from the map rather than guess).
+ */
+export function resolveEventCoordinates(
+  event: SheltuhEvent,
+  findSuburb: SuburbLookup = findListedSuburb,
+): Coordinates | null {
+  if (event.coordinates) return event.coordinates;
+  const centre = findSuburb(event.suburb);
+  return centre ? { lat: centre.lat, lng: centre.lng } : null;
 }
 
 /** Roughly bounds inner Melbourne — used as the map's default view. */
@@ -66,7 +78,10 @@ export function isInMelbourneMetro(coords: Coordinates): boolean {
  * Greater Melbourne, otherwise null. Events outside are not pinned, so the
  * list, Locate and the "can't be placed" count treat them as unplaceable too.
  */
-export function resolveMapCoordinates(event: SheltuhEvent): Coordinates | null {
-  const coords = resolveEventCoordinates(event);
+export function resolveMapCoordinates(
+  event: SheltuhEvent,
+  findSuburb: SuburbLookup = findListedSuburb,
+): Coordinates | null {
+  const coords = resolveEventCoordinates(event, findSuburb);
   return coords && isInMelbourneMetro(coords) ? coords : null;
 }

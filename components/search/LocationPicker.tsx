@@ -9,18 +9,8 @@ import {
   readStoredNear,
   writeStoredNear,
 } from "@/lib/near-storage";
-
-type LocationModule = typeof import("@/lib/location");
-
 // The suburb table loads only when someone opens the picker or asks for their location.
-let locationModule: Promise<LocationModule> | null = null;
-function loadLocation(): Promise<LocationModule> {
-  locationModule ??= import("@/lib/location").catch((error: unknown) => {
-    locationModule = null;
-    throw error;
-  });
-  return locationModule;
-}
+import { loadLocation, type LocationModule } from "@/lib/location-loader";
 
 function subscribeStorage(onChange: () => void) {
   function handle(event: StorageEvent) {
@@ -59,7 +49,8 @@ const sameNear = (a: string, b: string) => a.trim().toLowerCase() === b.trim().t
  *
  * Privacy (docs/architecture.md, "Location"): the browser's position is
  * asked for only when "Use my current location" is pressed, never on load;
- * it's turned into the nearest known suburb here and dropped. Only the
+ * it's turned into the suburb it's in (anywhere in Australia, from the
+ * ABS table in lib/localities.ts) here and dropped. Only the
  * suburb's name is kept (localStorage, `{suburb}`) and submitted
  * (`/search?near=`); coordinates never reach storage, the URL or the API.
  *
@@ -99,6 +90,8 @@ export default function LocationPicker({
   const popoverRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const moduleRef = useRef<LocationModule | null>(null);
+  // The same module, for rendering the suggestions once it has loaded.
+  const [table, setTable] = useState<LocationModule | null>(null);
   const locatingRef = useRef(false);
 
   const stored = useSyncExternalStore(subscribeStorage, readStoredNear, serverEmpty);
@@ -107,7 +100,6 @@ export default function LocationPicker({
   const [draft, setDraft] = useState<string | null>(null);
   const value = draft ?? near ?? stored;
   const [anywhere, setAnywhere] = useState(false);
-  const [suggestions, setSuggestions] = useState<readonly string[]>([]);
   const [panelStatus, setPanelStatus] = useState<PanelStatus>(null);
   // Announced outside the popover, which has closed by the time it changes.
   const [announcement, setAnnouncement] = useState("");
@@ -117,6 +109,8 @@ export default function LocationPicker({
   const shown = label || (anywhere ? "Anywhere" : "Your suburb");
   const styles = SIZES[size];
   const outOfDate = appliedNear !== undefined && !sameNear(label, appliedNear);
+  // Suburbs starting with what's typed (two letters or more); none until the table has loaded.
+  const suggestions = table ? table.suggestLocalities(label).map((place) => place.name) : [];
 
   // Place the panel under the bar: the bar's full width on phones; from 640px, 320px under
   // this segment, kept within the bar's edges.
@@ -176,12 +170,12 @@ export default function LocationPicker({
       window.addEventListener("resize", place);
       popover?.querySelector<HTMLElement>("button, input")?.focus();
       loadLocation()
-        .then((location) => {
-          moduleRef.current = location;
-          setSuggestions(location.MELBOURNE_LOCALITIES.map((place) => place.name));
+        .then((loaded) => {
+          moduleRef.current = loaded;
+          setTable(loaded);
         })
         // The suggestions are a convenience: typing still works without them.
-        .catch(() => setSuggestions([]));
+        .catch(() => setTable(null));
     }
     // Tabbing out of the panel closes it, as clicking outside does (popover="auto").
     // Only when focus lands somewhere else: a click on the panel's own text blurs to nothing.
@@ -252,17 +246,15 @@ export default function LocationPicker({
         // The position lives only in this callback: it's matched to a suburb, then dropped.
         const here = { lat: position.coords.latitude, lng: position.coords.longitude };
         loadLocation()
-          .then((location) => {
-            moduleRef.current = location;
-            const result = location.nearestLocality(here);
+          .then((loaded) => {
+            moduleRef.current = loaded;
+            setTable(loaded);
+            const result = loaded.nearestLocality(here);
             if (result.kind === "outside") {
-              failLocating("You seem to be outside Melbourne. Type a Melbourne suburb instead.");
+              failLocating("We couldn’t match your location to an Australian suburb. Type your suburb instead.");
               return;
             }
-            if (result.kind === "unmatched") {
-              failLocating("We couldn’t match your location to a suburb yet. Type your suburb instead.");
-              return;
-            }
+            // Its name says the state when the suburb's name alone is another one's ("Richmond NSW").
             const suburb = result.locality.name;
             setDraft(suburb);
             setAnywhere(false);

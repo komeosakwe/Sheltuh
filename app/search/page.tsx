@@ -90,7 +90,7 @@ export default async function SearchPage({
         </div>
       )}
       {/* key: a new search starts a fresh feed with its own filters. */}
-      <EventFeed key={`${query}|${place?.name ?? ""}`} query={query} near={place?.name} />
+      <EventFeed key={`${query}|${place?.name ?? ""}`} query={query} near={place ?? undefined} />
     </Page>
   );
 }

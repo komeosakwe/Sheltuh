@@ -17,7 +17,8 @@ import { listPublicEvents } from "@/lib/api/public-events";
 import { adaptPublicEvent } from "@/lib/live/adapt";
 import { getEventCategories, getUpcomingEvents } from "@/lib/data";
 import { formatEventDateShort, formatEventTime } from "@/lib/format";
-import { resolveMapCoordinates } from "@/lib/geo";
+import { useLocationModule } from "@/components/search/useLocationModule";
+import { findListedSuburb, resolveMapCoordinates, type SuburbLookup } from "@/lib/geo";
 import { TILE_STYLE_PARAM, type TileStyleId } from "@/lib/map-tiles";
 import { formatFeedPrice } from "@/lib/pricing";
 import {
@@ -157,7 +158,7 @@ interface SceneMapViewProps {
 function SceneMapView({
   events,
   categories,
-  status,
+  status: eventsStatus,
   error,
   onRetry,
   hasMore,
@@ -167,6 +168,15 @@ function SceneMapView({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+
+  // Events without venue coordinates go at their suburb's centre, from the ABS table of every
+  // Australian suburb (lib/localities.ts). It loads here, after the page, so it isn't in /map's
+  // first load; the map waits for it, so markers aren't placed twice. If it can't load, the few
+  // hand-entered centres in lib/geo.ts stand in, and the page says so.
+  const suburbTable = useLocationModule();
+  const findSuburb: SuburbLookup = suburbTable.module?.findLocality ?? findListedSuburb;
+  const status: Status =
+    eventsStatus === "loaded" && !suburbTable.module && !suburbTable.failed ? "loading" : eventsStatus;
 
   // Read once on mount — the URL is the source of truth for "coming back",
   // not for reacting to every subsequent change (that would fight typing).
@@ -210,7 +220,7 @@ function SceneMapView({
       .filter((event) => matchesSearch(event, filters.search))
       .filter((event) => {
         if (!areaBounds) return true;
-        const coords = resolveMapCoordinates(event);
+        const coords = resolveMapCoordinates(event, findSuburb);
         if (!coords) return false;
         return (
           coords.lat <= areaBounds.north &&
@@ -220,7 +230,7 @@ function SceneMapView({
         );
       })
       .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
-  }, [events, filters, now, areaBounds]);
+  }, [events, filters, now, areaBounds, findSuburb]);
 
   // Derived rather than synced via effect: a selection that no longer
   // matches the active filters is simply treated as no selection.
@@ -306,7 +316,7 @@ function SceneMapView({
     };
   }, [sheetShown]);
 
-  const withoutLocationCount = filtered.filter((event) => resolveMapCoordinates(event) === null).length;
+  const withoutLocationCount = filtered.filter((event) => resolveMapCoordinates(event, findSuburb) === null).length;
 
   const hasActiveFilters =
     filters.category !== "all" ||
@@ -478,6 +488,17 @@ function SceneMapView({
         </div>
       )}
 
+      {status === "loaded" && !progress.visible && suburbTable.failed && (
+        <div className="flex flex-col items-start gap-4">
+          <Notice tone="danger" role="alert">
+            Couldn’t load suburb locations, so events outside a few inner suburbs aren’t on the map.
+          </Notice>
+          <Button variant="outline" size="sm" onClick={suburbTable.retry}>
+            Try again
+          </Button>
+        </div>
+      )}
+
       {status === "loaded" && !progress.visible && (
         <>
           {/* How many are listed, soonest first; the status above is what announces it. */}
@@ -521,6 +542,7 @@ function SceneMapView({
                 >
                   <SceneMapPanel
                     events={filtered}
+                    findSuburb={findSuburb}
                     selectedEventId={selectedEventId}
                     onSelect={handleMapSelect}
                     onSearchArea={setAreaBounds}
@@ -532,6 +554,7 @@ function SceneMapView({
                     <SceneMapEventCard
                       variant="overlay"
                       event={selectedEvent}
+                      findSuburb={findSuburb}
                       detailsHref={`/events/${selectedEvent.slug}`}
                       onDismiss={handleDismiss}
                       className="absolute bottom-3 left-3 z-10 hidden w-72 lg:block"
@@ -563,7 +586,7 @@ function SceneMapView({
                         event={event}
                         selected={event.id === selectedEventId}
                         onLocate={handleLocate}
-                        hasLocation={resolveMapCoordinates(event) !== null}
+                        hasLocation={resolveMapCoordinates(event, findSuburb) !== null}
                         detailsHref={`/events/${event.slug}`}
                       />
                     </div>
@@ -609,6 +632,7 @@ function SceneMapView({
               ref={sheetRef}
               variant="sheet"
               event={selectedEvent}
+              findSuburb={findSuburb}
               detailsHref={`/events/${selectedEvent.slug}`}
               onDismiss={handleDismiss}
               className="fixed right-[calc(0.75rem+env(safe-area-inset-right))] bottom-[calc(0.75rem+env(safe-area-inset-bottom))] left-[calc(0.75rem+env(safe-area-inset-left))] z-[1200] lg:hidden"

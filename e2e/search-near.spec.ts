@@ -19,8 +19,9 @@ if (!FITZROY) throw new Error("Fitzroy is not in the suburb table");
 // A position a little off Fitzroy's centre: the page must never show or store it.
 const HERE = { latitude: FITZROY.lat + 0.0012, longitude: FITZROY.lng - 0.0007 };
 
+/** The sample events (every suburb in the table), and one more in a suburb it doesn't know. */
 function fixtures(now: number): PublicEvent[] {
-  return sampleEvents.map((event, i) => ({
+  const listed = sampleEvents.map((event, i) => ({
     organiserId: "org-demo",
     eventId: event.id,
     slug: event.slug,
@@ -40,6 +41,8 @@ function fixtures(now: number): PublicEvent[] {
     externalFree: event.externalFree ?? false,
     externalProvider: event.externalProvider ?? null,
   }));
+  const unmapped = { ...listed[0], eventId: "e2e-unmapped", slug: "e2e-unmapped", title: "Somewhere unmapped", suburb: "Atlantis" };
+  return [...listed, unmapped];
 }
 
 /** Every Referer the page sent with its /api/* requests ("" when none), by mockApi. */
@@ -188,7 +191,9 @@ test.describe("near you, from the home at 390px", () => {
     const order = ["In Fitzroy", "Within 5 km", "5–15 km", "Further away", "Location not on file"];
     expect(bands[0]).toBe("In Fitzroy");
     expect(bands.map((b) => order.indexOf(b))).toEqual([...bands.map((b) => order.indexOf(b))].sort((a, b) => a - b));
-    expect(bands).toContain("Location not on file");
+    // Only the made-up suburb isn't in the table.
+    expect(bands.at(-1)).toBe("Location not on file");
+    await expect(page.locator("[data-near-band='unknown'] h3")).toHaveText(["Somewhere unmapped"]);
 
     // The API was asked for events and filters only: no suburb, no position.
     const eventsCalls = requested.filter((u) => u.startsWith("/api/events?"));
@@ -338,6 +343,32 @@ test.describe("near you, from the home at 390px", () => {
     // The bar is still in view, below the site header.
     const header = await page.locator("body header").first().boundingBox();
     expect(bar.y).toBeGreaterThanOrEqual((header?.y ?? 0) + (header?.height ?? 0));
+  });
+});
+
+test.describe("near you, from Perth at 390px", () => {
+  test.use({ viewport: { width: 390, height: 844 }, permissions: ["geolocation"], geolocation: { latitude: -31.9523, longitude: 115.8613 } });
+
+  test("names the suburb anywhere in Australia; every Melbourne event is then further away", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/");
+    const { search, panel } = await openPanel(page);
+    await panel.getByRole("button", { name: "Use my current location" }).click();
+    await expect(search.getByRole("button", { name: "Location: Perth" })).toBeVisible({ timeout: 10_000 });
+    expect(JSON.parse((await page.evaluate((key) => localStorage.getItem(key), NEAR_STORAGE_KEY)) ?? "null")).toEqual({ suburb: "Perth" });
+    await search.getByRole("button", { name: "Search" }).click();
+    await expect(page).toHaveURL(/\/search\?q=&near=Perth$/, { timeout: 30_000 });
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Events near Perth");
+    await expect(page.locator("[data-near-band]").first()).toBeVisible({ timeout: 30_000 });
+    expect(await page.locator("[data-near-band] h2").allTextContents()).toEqual(["Further away", "Location not on file"]);
+  });
+
+  test("a suburb typed with its state finds that one", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/search?near=Richmond%2C+NSW");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Events near Richmond NSW", { timeout: 30_000 });
+    await expect(page.locator("[data-near-band]").first()).toBeVisible({ timeout: 30_000 });
+    expect(await page.locator("[data-near-band] h2").allTextContents()).toEqual(["Further away", "Location not on file"]);
   });
 });
 

@@ -36,6 +36,12 @@ export default function AboutPage() {
           <ButtonLink href="/partners">Become a partner</ButtonLink>
         </div>
       </ContentSection>
+      <ContentSection title="Credits">
+        <p>
+          Suburb locations: Australian Bureau of Statistics, ASGS Edition 4 (2026),{" "}
+          <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>.
+        </p>
+      </ContentSection>
     </ContentPage>
   );
 }

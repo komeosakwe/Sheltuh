@@ -144,24 +144,42 @@ describe("LocationPicker — asking for the browser's position", () => {
     expect(screen.getByRole("button", { name: "Location: Your suburb" })).toBeInTheDocument();
   });
 
-  it("outside Melbourne: says so, moves to the suburb field, and stores nothing", async () => {
+  it("outside Australia (Auckland): says so, moves to the suburb field, and stores nothing", async () => {
     renderBar();
     const panel = openPanel();
-    getCurrentPosition.mockImplementation((success) => success(position(-33.8688, 151.2093)));
+    getCurrentPosition.mockImplementation((success) => success(position(-36.8485, 174.7633)));
     fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
-    await waitFor(() => expectFailure(panel, "You seem to be outside Melbourne. Type a Melbourne suburb instead."));
+    await waitFor(() =>
+      expectFailure(panel, "We couldn’t match your location to an Australian suburb. Type your suburb instead."),
+    );
     expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
   });
 
-  it("in Melbourne but far from any suburb we know: asks for the suburb rather than guessing", async () => {
+  it.each([
+    ["Frankston, outside the old inner-Melbourne table", -38.1425, 145.1257, "Frankston"],
+    ["Geelong", -38.1446, 144.3612, "Geelong"],
+    ["central Sydney", -33.8688, 151.2093, "Sydney"],
+    ["central Perth", -31.9523, 115.8613, "Perth"],
+  ])("anywhere in Australia (%s): names the suburb", async (_where, lat, lng, suburb) => {
     renderBar();
     const panel = openPanel();
-    getCurrentPosition.mockImplementation((success) => success(position(-38.1446, 145.1236)));
+    getCurrentPosition.mockImplementation((success) => success(position(lat, lng)));
     fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
-    await waitFor(() =>
-      expectFailure(panel, "We couldn’t match your location to a suburb yet. Type your suburb instead."),
-    );
-    expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
+    await screen.findByRole("button", { name: `Location: ${suburb}` });
+    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb });
+  });
+
+  it("names a suburb with its state when the name alone is Melbourne's (Richmond NSW)", async () => {
+    renderBar();
+    const panel = openPanel();
+    const richmond = findLocality("Richmond NSW");
+    if (!richmond) throw new Error("fixture");
+    getCurrentPosition.mockImplementation((success) => success(position(richmond.lat + 0.001, richmond.lng - 0.001)));
+    fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
+    await screen.findByRole("button", { name: "Location: Richmond NSW" });
+    expect(within(panel).getByLabelText("Suburb")).toHaveValue("Richmond NSW");
+    expect(screen.getAllByRole("status").some((s) => s.textContent === "Location set: Richmond NSW")).toBe(true);
+    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "Richmond NSW" });
   });
 
   it("clears a stale message when the panel opens again, and when the suburb is typed", () => {
@@ -200,15 +218,23 @@ describe("LocationPicker — asking for the browser's position", () => {
 });
 
 describe("LocationPicker — the typed suburb and the remembered one", () => {
-  it("offers the known suburbs as suggestions once opened; a 16px field of at most 60 characters", async () => {
+  it("suggests suburbs starting with what's typed, from two letters, a few at a time; a 16px field of at most 60 characters", async () => {
     renderBar();
     const panel = openPanel();
     const input = within(panel).getByLabelText("Suburb");
     expect(input).toHaveClass("text-base");
     expect(input).toHaveAttribute("maxlength", "60");
     const list = document.getElementById(input.getAttribute("list") ?? "");
-    await waitFor(() => expect(list?.querySelectorAll("option").length).toBeGreaterThan(0));
-    expect(list?.querySelector("option[value='Fitzroy']")).not.toBeNull();
+    const options = () => [...(list?.querySelectorAll("option") ?? [])].map((option) => option.value);
+    fireEvent.change(input, { target: { value: "Fitz" } });
+    await waitFor(() => expect(options().slice(0, 2)).toEqual(["Fitzroy", "Fitzroy North"]));
+    expect(options().length).toBeLessThanOrEqual(8);
+    // A state narrows them, by the names that find them again.
+    fireEvent.change(input, { target: { value: "Richmond n" } });
+    expect(options()).toEqual(["Richmond NSW"]);
+    // Not a list of all 15,000 places before anything's typed.
+    fireEvent.change(input, { target: { value: "F" } });
+    expect(options()).toEqual([]);
   });
 
   it("shows what's typed on the segment", () => {
@@ -286,11 +312,15 @@ describe("LocationPicker — the typed suburb and the remembered one", () => {
     const form = screen.getByRole<HTMLFormElement>("search");
     const panel = openPanel();
     const input = within(panel).getByLabelText("Suburb");
+    fireEvent.change(input, { target: { value: "st kilda" } });
     // The suburb table has loaded once the suggestions are there.
     await waitFor(() => expect(document.getElementById(input.getAttribute("list") ?? "")?.querySelector("option")).not.toBeNull());
-    fireEvent.change(input, { target: { value: "st kilda" } });
     submittedData(form);
     expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "St Kilda" });
+    // A state picks the place, which is remembered by the name that finds it again.
+    fireEvent.change(input, { target: { value: "richmond, nsw" } });
+    expect(submittedData(form).get("near")).toBe("richmond, nsw");
+    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "Richmond NSW" });
   });
 });
 

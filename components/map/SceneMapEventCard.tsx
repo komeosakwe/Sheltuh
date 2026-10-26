@@ -6,7 +6,7 @@ import { buttonClass } from "@/components/ui/Button";
 import CardPrice from "@/components/ui/CardPrice";
 import { categoryLabel, placeLabel } from "@/lib/event-card";
 import { formatEventDateShort, formatEventTime } from "@/lib/format";
-import { resolveEventCoordinates } from "@/lib/geo";
+import { resolveEventCoordinates, type SuburbLookup } from "@/lib/geo";
 import type { SheltuhEvent } from "@/lib/types";
 
 interface SceneMapEventCardProps {
@@ -18,6 +18,8 @@ interface SceneMapEventCardProps {
   /** Must position the card (`absolute`/`fixed`/`relative`): the dismiss button is placed against it. */
   className: string;
   ref?: Ref<HTMLElement>;
+  /** Where an event without coordinates of its own goes: its suburb's centre (lib/geo.ts). */
+  findSuburb?: SuburbLookup;
 }
 
 /**
@@ -29,9 +31,17 @@ interface SceneMapEventCardProps {
  * carries `data-map-sheet`, so globals.css keeps focused things on the page
  * clear of it while it's open (WCAG 2.4.11).
  */
-export default function SceneMapEventCard({ event, detailsHref, onDismiss, variant, className, ref }: SceneMapEventCardProps) {
+export default function SceneMapEventCard({
+  event,
+  detailsHref,
+  onDismiss,
+  variant,
+  className,
+  ref,
+  findSuburb,
+}: SceneMapEventCardProps) {
   const place = placeLabel(event);
-  const pinned = resolveEventCoordinates(event);
+  const pinned = resolveEventCoordinates(event, findSuburb);
   const locationNote = !pinned
     ? "Not on the map yet: no venue location on file."
     : !event.coordinates

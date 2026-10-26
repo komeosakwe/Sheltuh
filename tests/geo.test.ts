@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveEventCoordinates, resolveMapCoordinates } from "../lib/geo";
+import { findLocality } from "../lib/location";
 import { sampleEvents } from "../lib/sample-events";
 import type { SheltuhEvent } from "../lib/types";
 
@@ -62,5 +63,40 @@ describe("resolveMapCoordinates", () => {
   it("returns null when the event can't be located at all", () => {
     const event = { ...findEvent("neon-static"), coordinates: undefined, suburb: "Nowhereville" };
     expect(resolveMapCoordinates(event)).toBeNull();
+  });
+});
+
+describe("with the ABS suburb table as the lookup (/map)", () => {
+  const at = (suburb: string, coordinates?: { lat: number; lng: number }) => ({
+    ...findEvent("neon-static"),
+    coordinates,
+    suburb,
+  });
+
+  it.each(["Footscray", "Box Hill", "Yarraville", "Docklands", "Frankston", "Box Hill VIC", "Box Hill, Victoria"])(
+    "places an event in %s, outside the old 20-suburb table too",
+    (suburb) => {
+      const resolved = resolveMapCoordinates(at(suburb), findLocality);
+      expect(resolved).not.toBeNull();
+      expect(Object.keys(resolved ?? {}).sort()).toEqual(["lat", "lng"]);
+    },
+  );
+
+  it("puts Box Hill at the Box Hill centre, Melbourne's Richmond for plain 'Richmond'", () => {
+    expect(resolveMapCoordinates(at("Box Hill"), findLocality)).toEqual({ lat: -37.822, lng: 145.126 });
+    const richmond = resolveMapCoordinates(at("Richmond"), findLocality);
+    expect(richmond?.lat).toBeCloseTo(-37.82, 1);
+    // The New South Wales one is outside Greater Melbourne, so not pinned on the Melbourne map.
+    expect(resolveEventCoordinates(at("Richmond NSW"), findLocality)?.lat).toBeCloseTo(-33.6, 1);
+    expect(resolveMapCoordinates(at("Richmond NSW"), findLocality)).toBeNull();
+  });
+
+  it("still prefers the event's own coordinates", () => {
+    const own = { lat: -37.81, lng: 144.96 };
+    expect(resolveMapCoordinates(at("Box Hill", own), findLocality)).toEqual(own);
+  });
+
+  it.each(["Fitzroyy", "Nowhereville", "", "constructor", "__proto__"])("leaves %j unplaced", (suburb) => {
+    expect(resolveMapCoordinates(at(suburb), findLocality)).toBeNull();
   });
 });

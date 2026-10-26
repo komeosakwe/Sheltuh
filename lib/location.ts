@@ -5,20 +5,39 @@
  * suburb centres. Nothing here is sent to the API, and no coordinates leave
  * the function that receives them. Distances are approximate: suburb centre
  * to suburb centre, never venue to venue.
+ *
+ * The suburb table (lib/localities.ts: every ABS suburb and locality in
+ * Australia) is large, so client components load this module on demand
+ * (lib/location-loader.ts) and import only its types statically. Server code
+ * (app/search/page.tsx) imports it directly.
  */
-import { isInMelbourneMetro } from "./geo";
-import { MELBOURNE_LOCALITIES, type Locality } from "./localities";
+import { MELBOURNE_DEFAULT_CENTER } from "./geo";
+import { LOCALITY_DATA, LOCALITY_REACH_KM } from "./localities";
 import { NEAR_MAX_LENGTH } from "./near-storage";
 import type { Coordinates } from "./types";
 
-export { MELBOURNE_LOCALITIES, type Locality } from "./localities";
+export type StateCode = keyof typeof LOCALITY_DATA;
+
+/** The table's order. */
+const STATE_CODES = ["NSW", "VIC", "QLD", "SA", "WA", "TAS", "NT", "ACT", "OT"] as const satisfies readonly StateCode[];
+
+export interface Locality extends Coordinates {
+  /**
+   * What the suburb is called here, and text that finds it again: the ABS
+   * name alone where that's unambiguous ("Fitzroy", and "Richmond" for
+   * Melbourne's), otherwise with its state ("Richmond NSW"), and for a name
+   * used twice in one state with the ABS's qualifier ("Richmond (Mackay) QLD").
+   */
+  name: string;
+  state: StateCode;
+}
 
 /**
- * How far the browser's position may be from the nearest known suburb centre
- * and still be called that suburb. Beyond it the visitor is asked to type
- * their suburb rather than being told they're somewhere they're not.
+ * Slack, in km, on a locality's reach when placing the browser's position:
+ * a coarse fix (Wi-Fi or cell, `enableHighAccuracy: false`) can be a
+ * kilometre or two out, which matters on the coast.
  */
-export const NEAREST_MAX_KM = 5;
+export const NEAREST_MARGIN_KM = 2;
 
 // Maps, not object literals: what people type is looked up here, and a plain
 // object would answer "constructor" or "__proto__" from its prototype.
@@ -38,34 +57,83 @@ const WORDS: ReadonlyMap<string, string> = new Map([
   ["sth", "south"],
 ]);
 
-/** Words that say where a suburb is, not which one: "Fitzroy, VIC 3065" is Fitzroy. */
-const PLACE_WORDS = new Set(["vic", "victoria", "australia", "au"]);
+/** A state written after the suburb: "Richmond NSW", "Richmond, New South Wales", "Richmond (Vic)". */
+const STATE_WORDS: ReadonlyMap<string, StateCode> = new Map([
+  ["nsw", "NSW"],
+  ["new south wales", "NSW"],
+  ["vic", "VIC"],
+  ["victoria", "VIC"],
+  ["qld", "QLD"],
+  ["queensland", "QLD"],
+  ["sa", "SA"],
+  ["south australia", "SA"],
+  ["wa", "WA"],
+  ["western australia", "WA"],
+  ["tas", "TAS"],
+  ["tasmania", "TAS"],
+  ["nt", "NT"],
+  ["northern territory", "NT"],
+  ["act", "ACT"],
+  ["australian capital territory", "ACT"],
+  ["ot", "OT"],
+]);
 
-/**
- * One spelling per suburb, for comparing what people type: case, accents,
- * punctuation, spacing, "VIC" and postcodes, St/Saint, Mt/Mount, Nth/Sth,
- * and the CBD's many names.
- */
-export function normaliseSuburb(text: string): string {
-  const words = text
+const COUNTRY_WORDS = new Set(["australia", "au"]);
+
+/** Lower case, no accents or punctuation, no postcodes, St/Mt/Nth/Sth spelt one way. */
+function words(text: string): string[] {
+  return text
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
     .split(" ")
-    .filter((word) => word && !PLACE_WORDS.has(word) && !/^\d{4}$/.test(word))
+    .filter((word) => word && !/^\d{4}$/.test(word))
     .map((word) => WORDS.get(word) ?? word);
-  const joined = words.join(" ");
-  return ALIASES.get(joined) ?? joined;
 }
 
-const BY_NAME = new Map<string, Locality>(MELBOURNE_LOCALITIES.map((locality) => [normaliseSuburb(locality.name), locality]));
+/** The CBD's many names are Melbourne's (Melbourne-first), unless another state is named. */
+function alias(key: string, state: StateCode | null): string {
+  return state === null || state === "VIC" ? (ALIASES.get(key) ?? key) : key;
+}
 
-/** The known suburb `text` names, or null. */
-export function findLocality(text: string): Locality | null {
-  const key = normaliseSuburb(text);
-  return key ? (BY_NAME.get(key) ?? null) : null;
+/**
+ * One spelling per suburb name, for comparing what people type: case,
+ * accents, punctuation, spacing, postcodes, St/Saint, Mt/Mount, Nth/Sth and
+ * the CBD's many names. A state stays in ("richmond nsw"): findLocality
+ * reads it.
+ */
+export function normaliseSuburb(text: string): string {
+  return alias(words(text).join(" "), null);
+}
+
+interface Reading {
+  key: string;
+  state: StateCode | null;
+}
+
+/**
+ * The ways to read what was typed, most literal first: all of it (there are
+ * places called Mount Victoria and Port Victoria), then without a trailing
+ * country, then without a trailing state, which narrows the search ("Fitzroy,
+ * VIC 3065, Australia" is Fitzroy in Victoria).
+ */
+function readings(text: string): Reading[] {
+  let rest = words(text);
+  const found: Reading[] = [{ key: alias(rest.join(" "), null), state: null }];
+  for (;;) {
+    for (const size of [3, 2, 1]) {
+      const state = rest.length > size ? STATE_WORDS.get(rest.slice(-size).join(" ")) : undefined;
+      if (state) {
+        found.push({ key: alias(rest.slice(0, -size).join(" "), state), state });
+        return found;
+      }
+    }
+    if (rest.length < 2 || !COUNTRY_WORDS.has(rest[rest.length - 1])) return found;
+    rest = rest.slice(0, -1);
+    found.push({ key: alias(rest.join(" "), null), state: null });
+  }
 }
 
 /** Great-circle distance in kilometres. */
@@ -77,29 +145,174 @@ export function distanceKm(a: Coordinates, b: Coordinates): number {
   return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-export type NearestResult =
-  | { kind: "found"; locality: Locality }
-  /** Outside Greater Melbourne. */
-  | { kind: "outside" }
-  /** In Greater Melbourne, but no known suburb centre within NEAREST_MAX_KM. */
-  | { kind: "unmatched" };
+/**
+ * The table, decoded into columns (one entry per locality, by state then
+ * name): no object per row until one is asked for, so loading stays quick.
+ */
+const BASE: string[] = []; // The ABS name without its bracket ("Richmond").
+const KEY: string[] = []; // BASE, normalised (without the CBD aliases: the ACT has a suburb called City).
+const QUALIFIER: string[] = []; // The ABS's in-state qualifier ("Mackay" for "Richmond (Mackay - Qld)"), or "".
+const STATE: StateCode[] = [];
+const LAT: number[] = [];
+const LNG: number[] = [];
+const REACH_KM: number[] = []; // How far the boundary goes from the centre, rounded up.
+
+/** An ABS name's key: the names are plain ASCII, so this is `words(name)` without the Unicode steps. */
+function nameKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\b(saint|mt|nth|sth)\b/g, (word) => WORDS.get(word) ?? word);
+}
+
+// lib/localities.ts, row by row: name[~qualifier], then base-36 latitude (3), longitude (4) and reach (1).
+for (const state of STATE_CODES) {
+  for (const item of LOCALITY_DATA[state].split("|")) {
+    const end = item.length - 8;
+    const tilde = item.indexOf("~");
+    const base = item.slice(0, tilde < 0 ? end : tilde);
+    BASE.push(base);
+    KEY.push(nameKey(base));
+    QUALIFIER.push(tilde < 0 ? "" : item.slice(tilde + 1, end));
+    STATE.push(state);
+    LAT.push(-(8000 + parseInt(item.slice(end, end + 3), 36)) / 1000);
+    LNG.push((95000 + parseInt(item.slice(end + 3, end + 7), 36)) / 1000);
+    REACH_KM.push(LOCALITY_REACH_KM[parseInt(item.slice(end + 7), 36)] ?? Infinity);
+  }
+}
+
+function melbourneKm(row: number): number {
+  return distanceKm(MELBOURNE_DEFAULT_CENTER, { lat: LAT[row], lng: LNG[row] });
+}
 
 /**
- * The suburb a position is in, as near as the table can say. The caller
- * keeps only the result's name and drops the position.
+ * Same-named places, preferred first: Victoria's (Melbourne-first), then the
+ * more compact (a city suburb rather than a rural locality: Perth WA over
+ * Perth TAS, the town of Dunolly over the farmland around it), then the one
+ * nearest Melbourne.
  */
-export function nearestLocality(position: Coordinates, maxKm = NEAREST_MAX_KM): NearestResult {
-  if (!isInMelbourneMetro(position)) return { kind: "outside" };
-  let best: Locality | null = null;
+function preferred(a: number, b: number): number {
+  return (
+    Number(STATE[a] !== "VIC") - Number(STATE[b] !== "VIC") ||
+    REACH_KM[a] - REACH_KM[b] ||
+    melbourneKm(a) - melbourneKm(b)
+  );
+}
+
+/** Normalised name → the rows it could mean, preferred first. */
+const BY_KEY = new Map<string, number[]>();
+function addKey(key: string, row: number) {
+  const list = BY_KEY.get(key);
+  if (list) list.push(row);
+  else BY_KEY.set(key, [row]);
+}
+for (let row = 0; row < BASE.length; row++) {
+  addKey(KEY[row], row);
+  // "Richmond (Mackay) QLD" reads as "richmond mackay", in Queensland.
+  if (QUALIFIER[row]) addKey(`${KEY[row]} ${nameKey(QUALIFIER[row])}`, row);
+}
+for (const list of BY_KEY.values()) if (list.length > 1) list.sort(preferred);
+
+function findRow(text: string): number | null {
+  for (const { key, state } of readings(text)) {
+    const found = BY_KEY.get(key)?.find((row) => state === null || STATE[row] === state);
+    if (found !== undefined) return found;
+  }
+  return null;
+}
+
+/**
+ * The first of "Richmond", "Richmond NSW", "Richmond (Mackay) QLD" that finds
+ * this row again. The ABS has two pairs with one name in one state and no
+ * qualifier, a town and the locality around it ("Dunolly" and "Dunolly
+ * (Vic)"): the surrounds take the town's name, and are found as the town.
+ */
+function nameFor(row: number): string {
+  const base = BASE[row];
+  if (BY_KEY.get(KEY[row])?.[0] === row && !ALIASES.has(KEY[row])) return base;
+  const names = [base, `${base} ${STATE[row]}`];
+  if (QUALIFIER[row]) names.push(`${base} (${QUALIFIER[row]}) ${STATE[row]}`);
+  const name = names.find((candidate) => findRow(candidate) === row);
+  if (name) return name;
+  const town = findRow(`${base} ${STATE[row]}`);
+  return town !== null && town !== row ? nameFor(town) : names[names.length - 1];
+}
+
+const PLACES: (Locality | undefined)[] = [];
+
+/** Row `row` as a Locality: made the first time it's asked for, then the same object every time. */
+function placeAt(row: number): Locality {
+  return (PLACES[row] ??= Object.freeze({ name: nameFor(row), state: STATE[row], lat: LAT[row], lng: LNG[row] }));
+}
+
+/** How many suburbs and localities the table has. */
+export const LOCALITY_COUNT = BASE.length;
+
+/** Every suburb and locality in Australia, by state then name (lib/localities.ts). */
+export function allLocalities(): Locality[] {
+  return BASE.map((_, row) => placeAt(row));
+}
+
+/**
+ * The suburb `text` names, or null. A name in more than one state is
+ * Victoria's unless a state is given ("Richmond" is Melbourne's; "Richmond
+ * NSW", "Richmond, NSW" and "Richmond (NSW)" are the one near Sydney); with
+ * no Victorian one, the more compact, then the one nearest Melbourne.
+ */
+export function findLocality(text: string): Locality | null {
+  const row = findRow(text);
+  return row === null ? null : placeAt(row);
+}
+
+/**
+ * Up to `limit` suburbs whose name starts with what's been typed (at least
+ * two letters), for the location field's suggestions: an exact name first,
+ * then as preferred for a shared name (Victoria's, the more compact, nearest
+ * Melbourne). "Richmond n" finds Richmond NSW.
+ */
+export function suggestLocalities(text: string, limit = 8): Locality[] {
+  const typed = words(text).join(" ");
+  if (typed.length < 2) return [];
+  const matches: number[] = [];
+  for (let row = 0; row < KEY.length; row++) {
+    const key = KEY[row];
+    if (key.startsWith(typed) || (typed.startsWith(key) && `${key} ${STATE[row].toLowerCase()}`.startsWith(typed))) {
+      matches.push(row);
+    }
+  }
+  return matches
+    .sort((a, b) => Number(KEY[b] === typed) - Number(KEY[a] === typed) || preferred(a, b))
+    .slice(0, limit)
+    .map(placeAt);
+}
+
+export type NearestResult =
+  | { kind: "found"; locality: Locality }
+  /** Not in (nor within NEAREST_MARGIN_KM of) any Australian locality: overseas or out at sea. */
+  | { kind: "outside" };
+
+/**
+ * The suburb a position is in, as near as the table can say: of the
+ * localities whose boundary could reach it (centre to furthest boundary
+ * point, plus NEAREST_MARGIN_KM), the one with the nearest centre. The
+ * caller keeps only the result's name and drops the position.
+ */
+export function nearestLocality(position: Coordinates): NearestResult {
+  if (!Number.isFinite(position.lat) || !Number.isFinite(position.lng)) return { kind: "outside" };
+  let best: number | null = null;
   let bestKm = Infinity;
-  for (const locality of MELBOURNE_LOCALITIES) {
-    const km = distanceKm(position, locality);
-    if (km < bestKm) {
-      best = locality;
+  for (let row = 0; row < LAT.length; row++) {
+    const reach = REACH_KM[row] + NEAREST_MARGIN_KM;
+    // A degree of latitude is about 111 km: skip the far ones before the trigonometry.
+    if (Math.abs(LAT[row] - position.lat) * 111 > Math.min(reach, bestKm)) continue;
+    const km = distanceKm(position, { lat: LAT[row], lng: LNG[row] });
+    if (km <= reach && km < bestKm) {
+      best = row;
       bestKm = km;
     }
   }
-  return best && bestKm <= maxKm ? { kind: "found", locality: best } : { kind: "unmatched" };
+  return best === null ? { kind: "outside" } : { kind: "found", locality: placeAt(best) };
 }
 
 /** Bands, nearest first (owner decision D4, 24 Oct 2026: bands, then soonest within each). */
@@ -156,13 +369,18 @@ export function orderByNearness<T extends { suburb: string; startsAt: string; id
   });
 }
 
-function editDistance(a: string, b: string): number {
+/** Edit distance from `a` to `b`, or `limit + 1` once it's sure to be more than `limit`. */
+function editDistance(a: string, b: string, limit: number): number {
+  if (Math.abs(a.length - b.length) > limit) return limit + 1;
   let previous = Array.from({ length: b.length + 1 }, (_, j) => j);
   for (let i = 1; i <= a.length; i++) {
     const current = [i];
+    let rowMin = i;
     for (let j = 1; j <= b.length; j++) {
       current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      rowMin = Math.min(rowMin, current[j]);
     }
+    if (rowMin > limit) return limit + 1;
     previous = current;
   }
   return previous[b.length];
@@ -170,27 +388,33 @@ function editDistance(a: string, b: string): number {
 
 /**
  * A known suburb one or two letters away from `text` ("Brunswik" →
- * Brunswick), or null: none close, more than one equally close, or `text`
- * already names one.
+ * Brunswick), in the state given if there is one ("Brunswik WA"), or null:
+ * none close, more than one equally close, or `text` already names one.
  */
 export function didYouMean(text: string): Locality | null {
-  const key = normaliseSuburb(text);
-  if (!key || BY_NAME.has(key)) return null;
-  const allowed = key.length >= 6 ? 2 : 1;
-  let best: Locality | null = null;
-  let bestDistance = allowed + 1;
-  let tie = false;
-  for (const [name, locality] of BY_NAME) {
-    const d = editDistance(key, name);
-    if (d < bestDistance) {
-      best = locality;
-      bestDistance = d;
-      tie = false;
-    } else if (d === bestDistance) {
-      tie = true;
+  if (findRow(text) !== null) return null;
+  for (const { key, state } of readings(text)) {
+    if (!key) continue;
+    const allowed = key.length >= 6 ? 2 : 1;
+    let best: number | null = null;
+    let bestDistance = allowed + 1;
+    let tie = false;
+    for (const [name, rows] of BY_KEY) {
+      if (Math.abs(name.length - key.length) > allowed) continue;
+      const row = rows.find((candidate) => state === null || STATE[candidate] === state);
+      if (row === undefined) continue;
+      const d = editDistance(key, name, allowed);
+      if (d < bestDistance) {
+        best = row;
+        bestDistance = d;
+        tie = false;
+      } else if (d === bestDistance && row !== best) {
+        tie = true;
+      }
     }
+    if (best !== null && !tie) return placeAt(best);
   }
-  return best && !tie ? best : null;
+  return null;
 }
 
 /** The `near` search parameter: its first value, trimmed, at most NEAR_MAX_LENGTH characters. */

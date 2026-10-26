@@ -16,6 +16,7 @@ import {
   MELBOURNE_METRO_BOUNDS,
   MELBOURNE_MIN_ZOOM,
   resolveMapCoordinates,
+  type SuburbLookup,
 } from "@/lib/geo";
 import type { Coordinates, SheltuhEvent } from "@/lib/types";
 import { usePrefersReducedMotion } from "@/lib/use-reduced-motion";
@@ -253,6 +254,8 @@ interface SceneMapPanelProps {
   onShowList?: () => void;
   /** The basemap (lib/map-tiles.ts): Esri unless the Mapbox preview is on. */
   tileStyle?: TileStyle;
+  /** Where an event without coordinates of its own goes: its suburb's centre (lib/geo.ts). */
+  findSuburb?: SuburbLookup;
 }
 
 const TILE_LOAD_TIMEOUT_MS = 9000;
@@ -273,6 +276,7 @@ export default function SceneMapPanel({
   onSearchArea,
   onShowList,
   tileStyle = ESRI_STYLE,
+  findSuburb,
 }: SceneMapPanelProps) {
   const [status, setStatus] = useState<TileStatus>("loading");
   const [retryKey, setRetryKey] = useState(0);
@@ -287,10 +291,10 @@ export default function SceneMapPanel({
   const markers = useMemo<MarkerDatum[]>(() => {
     return events.flatMap((event) => {
       // Outside Greater Melbourne = not pinned (the map is Melbourne-only).
-      const coords = resolveMapCoordinates(event);
+      const coords = resolveMapCoordinates(event, findSuburb);
       return coords ? [{ event, lat: coords.lat, lng: coords.lng }] : [];
     });
-  }, [events]);
+  }, [events, findSuburb]);
 
   // Always start on Melbourne; the controller then fits the events within it.
   const center: Coordinates = MELBOURNE_DEFAULT_CENTER;
