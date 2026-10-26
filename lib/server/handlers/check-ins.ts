@@ -12,6 +12,7 @@ import {
   type UndoCheckInResult,
 } from "@/lib/api/types";
 import { parseTicketCode } from "@/lib/ticket-code";
+import { PLATFORM_TIME_ZONE } from "@/lib/time-zones";
 import { requireCaller, type Caller } from "../auth";
 import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
 import type { Deps } from "../deps";
@@ -354,7 +355,14 @@ export const getCheckInSummary: Handler<{ eventId: string }> = async (req, { eve
   }));
   const sum = (key: "checkedIn" | "ticketsSold" | "capacity") => byTicketType.reduce((n, t) => n + t[key], 0);
   const summary: CheckInSummary = {
-    event: { eventId: event.eventId, title: event.title, startsAt: event.startsAt, endsAt: event.endsAt },
+    event: {
+      eventId: event.eventId,
+      title: event.title,
+      startsAt: event.startsAt,
+      endsAt: event.endsAt,
+      timeZone: event.timeZone ?? PLATFORM_TIME_ZONE,
+      state: event.state ?? "VIC",
+    },
     checkedIn: sum("checkedIn"),
     ticketsSold: sum("ticketsSold"),
     capacity: sum("capacity"),

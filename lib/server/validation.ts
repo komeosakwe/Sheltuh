@@ -1,8 +1,8 @@
 import { MIN_PAID_TICKET_CENTS } from "@/lib/fees";
 import { URL_DISALLOWED } from "@/lib/ticketing";
+import { localToUtcIso, PLATFORM_TIME_ZONE } from "@/lib/time-zones";
 import { isPlainEmailAddress, MAX_EMAIL_LENGTH } from "./email-address";
 import { HttpError } from "./http";
-import { melbourneLocalToUtcIso } from "./melbourne-time";
 import { EVENT_CATEGORIES, type EventCategory, type FeePolicy, type TicketTypeInput } from "./types";
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
@@ -117,14 +117,31 @@ export function optionalUrl(
   return trimmed;
 }
 
+/** A local time that never happens: the clocks go forward over it (daylight saving starts). */
+export const DST_GAP_MESSAGE =
+  "That time doesn't exist on that day: the clocks go forward an hour for daylight saving. Choose a time after the change.";
+
+/** Whether "YYYY-MM-DD" "HH:mm" (already pattern-checked) is a real calendar date and time of day, in any zone. */
+function isCalendarDateTime(date: string, time: string): boolean {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  if (hour > 23 || minute > 59) return false;
+  const roundTrip = new Date(Date.UTC(year, month - 1, day));
+  return roundTrip.getUTCFullYear() === year && roundTrip.getUTCMonth() === month - 1 && roundTrip.getUTCDate() === day;
+}
+
 /**
- * Validates a Melbourne-local {date, time} pair and converts it to a UTC
- * ISO instant. Returns undefined (and records an error) if invalid.
+ * Validates a {date, time} pair that's local to `timeZone` (an IANA zone the
+ * caller has already checked) and converts it to a UTC ISO instant
+ * (localToUtcIso, lib/time-zones.ts). A time in a daylight-saving gap is an
+ * error (DST_GAP_MESSAGE); a time that happens twice (the clocks go back) is
+ * its earlier instant. Returns undefined (and records an error) if invalid.
  */
-export function requireMelbourneDateTime(
+export function requireLocalDateTime(
   value: unknown,
   field: string,
   errors: Record<string, string>,
+  timeZone: string,
 ): string | undefined {
   if (typeof value !== "object" || value === null) {
     errors[field] = "Enter a date and time.";
@@ -140,11 +157,21 @@ export function requireMelbourneDateTime(
     return undefined;
   }
   try {
-    return melbourneLocalToUtcIso(date, time);
+    return localToUtcIso(date, time, timeZone);
   } catch {
-    errors[field] = "Enter a valid date and time.";
+    // A real date and time that localToUtcIso refused can only be one the zone skips.
+    errors[field] = isCalendarDateTime(date, time) ? DST_GAP_MESSAGE : "Enter a valid date and time.";
     return undefined;
   }
+}
+
+/** requireLocalDateTime in Australia/Melbourne, the platform's zone. */
+export function requireMelbourneDateTime(
+  value: unknown,
+  field: string,
+  errors: Record<string, string>,
+): string | undefined {
+  return requireLocalDateTime(value, field, errors, PLATFORM_TIME_ZONE);
 }
 
 export function requireTicketTypes(value: unknown, field: string, errors: Record<string, string>): TicketTypeInput[] {

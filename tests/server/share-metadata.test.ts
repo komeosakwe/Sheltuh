@@ -212,6 +212,7 @@ describe("live event metadata (generateMetadata on /events/[slug])", () => {
       description: "Four bands, one warehouse.",
       venueName: "The Tote",
       suburb: "Collingwood",
+      timeZone: "Australia/Melbourne",
       startsAt: "2027-03-06T09:00:00.000Z",
     });
     await api.call(adminUnpublishEvent, { token: admin.token, params: { eventId: event.eventId }, method: "POST" });

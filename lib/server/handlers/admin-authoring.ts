@@ -8,7 +8,7 @@
 import { requireAdmin } from "../auth";
 import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
 import { sendFollowerEmailsSoon, sendPublishEmailsSoon } from "../email-outbox";
-import { parseEventInput, type EventInput } from "../event-input";
+import { parseEventInput, storedPlaceOf, type EventInput, type ParseEventOptions } from "../event-input";
 import { createdPrivate, HttpError, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
 import { isUuid } from "../pagination";
@@ -113,12 +113,16 @@ type Errors = Record<string, string>;
  * The event body (lib/server/event-input.ts, the organiser's rules) plus the
  * admin route's own fields, with every field error reported together.
  */
-function parseAdminEventBody<T>(body: Record<string, unknown>, parseExtra: (errors: Errors) => T) {
+function parseAdminEventBody<T>(
+  body: Record<string, unknown>,
+  parseExtra: (errors: Errors) => T,
+  options: ParseEventOptions = {},
+) {
   const errors: Errors = {};
   const extra = parseExtra(errors);
   let input: EventInput | undefined;
   try {
-    input = parseEventInput(body);
+    input = parseEventInput(body, options);
   } catch (err) {
     if (!(err instanceof HttpError) || err.statusCode !== 400 || !err.fieldErrors) throw err;
     Object.assign(errors, err.fieldErrors);
@@ -249,8 +253,9 @@ export const adminCreateEvent: Handler = async (req, _params, deps) => {
  * `updatedAt`, required), optional `publish` and optional `reason` (at most
  * 500 characters; required to change the mode or link of an event that has
  * been approved before). `refundPolicy` / `refundDays` are optional (absent:
- * the stored policy is kept). One step (private.admin_edit_event): ticketing
- * changes as PATCH …/ticketing does (logged `ticketing_changed`), every other
+ * the stored policy is kept), and so are `state` / `timeZone`, together
+ * (absent: the stored place is kept and the times read in its zone). One
+ * step (private.admin_edit_event): ticketing changes as PATCH …/ticketing does (logged `ticketing_changed`), every other
  * change one `edited` entry with old and new values, then the publish. 200
  * with the AdminEventRecord (unchanged, nothing logged, if nothing would
  * change). 400 fieldErrors; 404; 409 stale (fieldErrors.expectedUpdatedAt),
@@ -266,20 +271,26 @@ export const adminUpdateEvent: Handler<{ eventId: string }> = async (req, { even
   // An id that can't be an event is a 404 before the body is even read.
   if (!isUuid(eventId)) throw new HttpError(404, EVENT_NOT_FOUND);
   const body = await readJson(req);
-  const { input, extra } = parseAdminEventBody(body, (errors) => {
-    // Required here (the organiser's form defaults it to sheltuh): an admin
-    // edit without it must never quietly turn an external event back.
-    if (body.ticketingMode === undefined || body.ticketingMode === null) {
-      errors.ticketingMode = "Choose where tickets are sold.";
-    }
-    return {
-      expectedUpdatedAt: parseExpectedUpdatedAt(body.expectedUpdatedAt, errors),
-      publish: parsePublish(body.publish, errors),
-      reason: parseOptionalReason(body.reason, errors),
-    };
-  });
-
+  // Read first: without `state` and `timeZone`, the times are read in the stored zone. A change to the event
+  // between this read and the write moves its updatedAt, so the write is then stale (409).
   const current = await findAdminEvent(db, eventId);
+  const { input, extra } = parseAdminEventBody(
+    body,
+    (errors) => {
+      // Required here (the organiser's form defaults it to sheltuh): an admin
+      // edit without it must never quietly turn an external event back.
+      if (body.ticketingMode === undefined || body.ticketingMode === null) {
+        errors.ticketingMode = "Choose where tickets are sold.";
+      }
+      return {
+        expectedUpdatedAt: parseExpectedUpdatedAt(body.expectedUpdatedAt, errors),
+        publish: parsePublish(body.publish, errors),
+        reason: parseOptionalReason(body.reason, errors),
+      };
+    },
+    current ? { storedPlace: storedPlaceOf(current) } : {},
+  );
+
   const edit = current ? withSeatedCapacity(input, current) : input;
   let result: string;
   try {

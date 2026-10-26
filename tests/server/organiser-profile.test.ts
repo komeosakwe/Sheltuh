@@ -54,6 +54,9 @@ const PUBLIC_EVENT_KEYS = [
   "soldOut",
   // Refund policy: always sent; refundDays only for days_before.
   "refundPolicy",
+  // Events Australia-wide: always sent.
+  "state",
+  "timeZone",
 ].sort();
 
 function profile(organiserId: string) {

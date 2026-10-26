@@ -64,21 +64,26 @@ export interface EventShareFields {
   venueName: string;
   suburb: string;
   startsAt: string;
+  /** The zone the start is shown in (the event's own; absent: Melbourne). */
+  timeZone?: string;
   /** The approved cover image: a path on this site or an absolute URL. Absent: the site's share image. */
   imageUrl?: string;
   /** The image's MIME type, when known (og:image:type). */
   imageType?: string;
 }
 
-/** "Sat 6 Mar 2027, 8:00 pm", Melbourne time, always with the year (a preview may be read long after). */
-export function shareDate(isoLike: string): string {
-  return `${formatEventDateShort(isoLike)} ${formatEventDateKey(isoLike).slice(0, 4)}, ${formatEventTime(isoLike)}`;
+/**
+ * "Sat 6 Mar 2027, 8:00 pm", in the event's zone (Melbourne by default),
+ * always with the year (a preview may be read long after).
+ */
+export function shareDate(isoLike: string, timeZone?: string): string {
+  return `${formatEventDateShort(isoLike, timeZone)} ${formatEventDateKey(isoLike, timeZone).slice(0, 4)}, ${formatEventTime(isoLike, timeZone)}`;
 }
 
 /** "Sat 6 Mar 2027, 8:00 pm · The Tote, Collingwood. Four bands, one warehouse." */
 export function eventShareDescription(event: EventShareFields): string {
   const place = [event.venueName.trim(), event.suburb.trim()].filter(Boolean).join(", ");
-  const lead = [shareDate(event.startsAt), place].filter(Boolean).join(" · ");
+  const lead = [shareDate(event.startsAt, event.timeZone), place].filter(Boolean).join(" · ");
   const room = SHARE_DESCRIPTION_MAX - lead.length - 2;
   const excerpt = room > 20 ? plainExcerpt(event.description, room) : "";
   return excerpt ? `${lead}. ${excerpt}` : lead;

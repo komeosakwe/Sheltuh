@@ -8,7 +8,7 @@ import {
 } from "../db";
 import { REFUND_POLICY_TIGHTENED_CODE } from "@/lib/refund-policy";
 import { sendReviewEmailsSoon } from "../email-outbox";
-import { parseEventInput, type EventInput } from "../event-input";
+import { parseEventInput, storedPlaceOf, type EventInput } from "../event-input";
 import { created, HttpError, ok, readJson } from "../http";
 import { decodeCursor, parseLimit, toPage } from "../pagination";
 import { EVENT_SELECT, toEvent } from "../records";
@@ -181,12 +181,16 @@ export const TICKETING_FROZEN =
  * without `refundPolicy`, the stored refund policy. A draft that has orders
  * (it was published, then unpublished) can't have its refund policy made less
  * generous: 409 `code: "refund_policy_tightened"` (refundPolicyTightened).
+ * Without `state` and `timeZone`, the stored place is kept and the times are
+ * read in the stored zone (parseEventInput), so a client that predates them
+ * re-saves an event outside Melbourne unchanged.
  */
 export const updateEventDraft: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
   const organiser = await requireApprovedOrganiser(db, caller);
   const current = await requireOwnEvent(db, organiser.organiserId, eventId);
-  const input = withSeatedCapacity(parseEventInput(withStoredTicketing(await readJson(req), current)), current);
+  const body = withStoredTicketing(await readJson(req), current);
+  const input = withSeatedCapacity(parseEventInput(body, { storedPlace: storedPlaceOf(current) }), current);
 
   let result: string;
   try {

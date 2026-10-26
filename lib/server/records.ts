@@ -38,6 +38,7 @@ import { SHELTUH_TEAM_ACTOR, type EventClip } from "@/lib/api/types";
 import { isFeaturedVideo, type FeaturedVideo } from "@/lib/api/featured-video";
 import { ticketProviderName, type TicketingMode } from "@/lib/ticketing";
 import { DEFAULT_REFUND_POLICY, type RefundPolicy } from "@/lib/refund-policy";
+import { PLATFORM_TIME_ZONE, type AustralianTimeZone, type StateCode } from "@/lib/time-zones";
 import { maskEmail } from "./email-address";
 import { orderReference } from "./order-reference";
 import { socialLinks } from "./organiser-input";
@@ -264,7 +265,7 @@ export function toPublicOrganiserProfile(
 
 const EVENT_COLUMNS = `
          e.id, e.organiser_id, e.slug, e.title, e.description, e.category::text as category,
-         e.venue_name, e.venue_address, e.suburb, e.starts_at, e.ends_at,
+         e.venue_name, e.venue_address, e.suburb, e.state, e.time_zone, e.starts_at, e.ends_at,
          e.status::text as status, e.rejection_reason, e.created_at, e.updated_at,
          e.ticketing_mode, e.external_ticket_url, e.external_free, e.refund_policy, e.refund_days,
          o.display_name as organiser_name,
@@ -344,6 +345,8 @@ const LOG_CHANGE_FIELDS = [
   "venueName",
   "venueAddress",
   "suburb",
+  "state",
+  "timeZone",
   "startsAt",
   "endsAt",
   "ticketTypes",
@@ -441,6 +444,18 @@ function refundTermsOf(row: Row): { refundPolicy: RefundPolicy; refundDays?: num
     : { refundPolicy };
 }
 
+/**
+ * `state` and `timeZone` from `stateColumn` / `zoneColumn` (always set: the
+ * columns are not null; a row from before their migration reads as VIC,
+ * Melbourne, which is what it meant).
+ */
+function placeOf(row: Row, stateColumn = "state", zoneColumn = "time_zone"): { state: StateCode; timeZone: AustralianTimeZone } {
+  return {
+    state: opt<StateCode>(row[stateColumn]) ?? "VIC",
+    timeZone: opt<AustralianTimeZone>(row[zoneColumn]) ?? PLATFORM_TIME_ZONE,
+  };
+}
+
 function mapEvent(row: Row, audience: LogAudience): EventRecord {
   const log = row.moderation_log as StoredLogEntry[];
   const ticketingMode = (row.ticketing_mode ?? "sheltuh") as TicketingMode;
@@ -455,6 +470,7 @@ function mapEvent(row: Row, audience: LogAudience): EventRecord {
     venueName: row.venue_name as string,
     venueAddress: row.venue_address as string,
     suburb: row.suburb as string,
+    ...placeOf(row),
     startsAt: iso(row.starts_at),
     endsAt: iso(row.ends_at),
     organiserName: row.organiser_name as string,
@@ -530,6 +546,8 @@ export function toPublicEvent(event: EventRecord, remaining?: Record<string, num
     venueName: event.venueName,
     venueAddress: event.venueAddress,
     suburb: event.suburb,
+    state: event.state ?? "VIC",
+    timeZone: event.timeZone ?? PLATFORM_TIME_ZONE,
     startsAt: event.startsAt,
     endsAt: event.endsAt,
     organiserName: event.organiserName,
@@ -639,6 +657,7 @@ export const CUSTOMER_ORDER_SELECT = `
          e.slug as event_slug, e.status::text as event_status,
          e.starts_at as event_starts_at, e.ends_at as event_ends_at,
          e.venue_name as event_venue_name, e.suburb as event_suburb,
+         e.state as event_state, e.time_zone as event_time_zone,
          e.refund_policy, e.refund_days,
          coalesce((
            select json_agg(json_strip_nulls(json_build_object('ticketCode', t.code, 'ticketTypeName', t.ticket_type_name,
@@ -665,6 +684,12 @@ function refundReason(
   if (status === "oversold_refund_required") return "oversold";
   if (status === "refunded") return ticketsIssued || amountRefundedCents > 0 ? "refunded" : "oversold";
   return undefined;
+}
+
+/** `eventTimeZone` and `eventState`, from a row's `event_time_zone` / `event_state` (placeOf). */
+export function eventPlaceOf(row: Row): { eventTimeZone: AustralianTimeZone; eventState: StateCode } {
+  const { state, timeZone } = placeOf(row, "event_state", "event_time_zone");
+  return { eventTimeZone: timeZone, eventState: state };
 }
 
 // json_strip_nulls drops a missing seat (general admission) and a null check-in time.
@@ -696,6 +721,8 @@ export function toCustomerOrder(row: Row): CustomerOrder {
     eventListed: paid ? listed : undefined,
     eventStartsAt: details && row.event_starts_at ? iso(row.event_starts_at) : undefined,
     eventEndsAt: details && row.event_ends_at ? iso(row.event_ends_at) : undefined,
+    // The zone (and state, for its label) the times are shown in: sent with them.
+    ...(details && row.event_starts_at ? eventPlaceOf(row) : {}),
     venueName: details ? opt(row.event_venue_name) : undefined,
     suburb: details ? opt(row.event_suburb) : undefined,
     ...(details ? refundTermsOf(row) : {}),

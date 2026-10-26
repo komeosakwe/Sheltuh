@@ -561,6 +561,9 @@ describe("guest order lookup (GET /api/orders/by-session/{orderId})", () => {
       eventListed: true,
       eventStartsAt: "2027-03-06T09:00:00.000Z",
       eventEndsAt: "2027-03-06T12:30:00.000Z",
+      // The zone the times are shown in, and the state for its label: sent with them.
+      eventTimeZone: "Australia/Melbourne",
+      eventState: "VIC",
       venueName: "The Tote",
       suburb: "Collingwood",
       refundPolicy: "no_change_of_mind",

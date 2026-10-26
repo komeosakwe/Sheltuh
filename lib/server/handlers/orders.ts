@@ -22,7 +22,7 @@ import { HttpError, ok, okPrivate, readJson } from "../http";
 import { parseCheckoutLineItems } from "../order-input";
 import { parseCheckoutSeats } from "../seat-map-input";
 import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
-import { CUSTOMER_ORDER_SELECT, ORDER_SELECT, toCustomerOrder, toOrder } from "../records";
+import { CUSTOMER_ORDER_SELECT, eventPlaceOf, ORDER_SELECT, toCustomerOrder, toOrder } from "../records";
 import type { Handler } from "../route";
 import { parseTrackingCode } from "../tracking-codes";
 import type {
@@ -1261,6 +1261,8 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { ses
     event_ends_at: string | Date | null;
     event_venue_name: string | null;
     event_suburb: string | null;
+    event_state: string | null;
+    event_time_zone: string | null;
     event_refund_policy: RefundPolicy | null;
     event_refund_days: number | null;
   }>(
@@ -1268,6 +1270,7 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { ses
             o.event_id, o.event_title, o.line_items, o.seat_ids, o.subtotal_cents, o.buyer_fee_cents, o.total_cents,
             e.slug as event_slug, e.status::text as event_status, e.ends_at <= now() as event_ended, e.starts_at as event_starts_at,
             e.ends_at as event_ends_at, e.venue_name as event_venue_name, e.suburb as event_suburb,
+            e.state as event_state, e.time_zone as event_time_zone,
             e.refund_policy as event_refund_policy, e.refund_days as event_refund_days
        from public.orders o
        left join public.events e on e.id = o.event_id
@@ -1315,6 +1318,8 @@ export const getOrderPayment: Handler<{ sessionId: string }> = async (req, { ses
     ...(row.event_slug ? { eventSlug: row.event_slug } : {}),
     ...(row.event_starts_at ? { eventStartsAt: new Date(row.event_starts_at).toISOString() } : {}),
     ...(row.event_ends_at ? { eventEndsAt: new Date(row.event_ends_at).toISOString() } : {}),
+    // The zone (and state, for its label) to show the times in.
+    ...(row.event_starts_at ? eventPlaceOf(row) : {}),
     ...(row.event_venue_name ? { venueName: row.event_venue_name } : {}),
     ...(row.event_suburb ? { suburb: row.event_suburb } : {}),
     seated,

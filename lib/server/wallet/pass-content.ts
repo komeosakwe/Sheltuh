@@ -49,12 +49,12 @@ export interface WalletTicket {
 }
 
 /**
- * The zone an event's times are shown in on its passes. Every event is in
- * Melbourne time today; when events get their own zone, take the event here
- * and return its zone (the one place the passes take it from).
+ * The zone an event's times are shown in on its passes: the event's own, as
+ * the ticket page reads it (CustomerOrder.eventTimeZone), or Melbourne when
+ * there's none (an order read without it). The one place the passes take it from.
  */
-export function passTimeZone(): string {
-  return PLATFORM_TIME_ZONE;
+export function passTimeZone(order: { eventTimeZone?: string } = {}): string {
+  return order.eventTimeZone ?? PLATFORM_TIME_ZONE;
 }
 
 /** The QR payload for a code, as lib/ticket-qr.ts encodes it: none for a code that isn't a canonical one. */

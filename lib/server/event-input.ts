@@ -5,12 +5,20 @@ import {
   REFUND_POLICIES,
   type RefundPolicy,
 } from "@/lib/refund-policy";
+import { didYouMean, findLocality } from "@/lib/location";
 import { checkExternalTicketUrl, TICKETING_MODES, type TicketingMode } from "@/lib/ticketing";
+import {
+  PLATFORM_TIME_ZONE,
+  STATE_CODES,
+  ZONES_BY_STATE,
+  type AustralianTimeZone,
+  type StateCode,
+} from "@/lib/time-zones";
 import type { EventCategory, TicketTypeInput } from "./types";
 import {
   fail,
   requireCategory,
-  requireMelbourneDateTime,
+  requireLocalDateTime,
   requireString,
   requireTicketTypes,
 } from "./validation";
@@ -21,7 +29,16 @@ export interface EventInput {
   category: EventCategory;
   venueName: string;
   venueAddress: string;
+  /**
+   * As typed, when the body sent no `state` / `timeZone`; with them, the ABS
+   * locality's display name (lib/location.ts `Locality.name`: "Fitzroy",
+   * "Richmond NSW", "Brisbane City").
+   */
   suburb: string;
+  /** The event's state or territory: as sent, or (neither sent) the stored one on edit, VIC on create. */
+  state: StateCode;
+  /** The zone `startsAt` and `endsAt` were read in, saved with them: as `state`. */
+  timeZone: AustralianTimeZone;
   startsAt: string;
   endsAt: string;
   /** Always empty for an external event. */
@@ -50,6 +67,8 @@ interface RawEventBody {
   venueName?: unknown;
   venueAddress?: unknown;
   suburb?: unknown;
+  state?: unknown;
+  timeZone?: unknown;
   start?: unknown;
   end?: unknown;
   ticketTypes?: unknown;
@@ -139,7 +158,111 @@ export function parseRefundPolicy(body: RawEventBody, errors: Record<string, str
   return { refundPolicy, refundDays: body.refundDays };
 }
 
-export function parseEventInput(body: RawEventBody): EventInput {
+/** An event's state and the zone its times are entered and shown in, as stored. */
+export type EventPlace = Pick<EventInput, "state" | "timeZone">;
+
+/** A new event's place when the body sends none: Melbourne, as every event was before events had a zone. */
+export const DEFAULT_EVENT_PLACE: EventPlace = { state: "VIC", timeZone: PLATFORM_TIME_ZONE };
+
+/** An event's stored place (EventRecord's `state` / `timeZone`; absent in a record from before them: the default). */
+export function storedPlaceOf(event: { state?: StateCode; timeZone?: AustralianTimeZone }): EventPlace {
+  return event.state && event.timeZone ? { state: event.state, timeZone: event.timeZone } : DEFAULT_EVENT_PLACE;
+}
+
+/** The state, as `state` is sent: one of STATE_CODES exactly. */
+function isStateCode(value: unknown): value is StateCode {
+  return typeof value === "string" && (STATE_CODES as readonly string[]).includes(value);
+}
+
+/** Whether `zone` is one an event in `state` may use (ZONES_BY_STATE: the events_place_check constraint's table). */
+export function isZoneOfState(state: StateCode, zone: unknown): zone is AustralianTimeZone {
+  return typeof zone === "string" && (ZONES_BY_STATE[state] as readonly string[]).includes(zone);
+}
+
+/**
+ * The suburb `suburb` names in `state`, or null: the text with the state
+ * after it ("Richmond NSW"), or the text alone when it already names the
+ * state ("Richmond NSW" as the API returned it, which "Richmond NSW NSW"
+ * wouldn't find). Only ever a locality in `state`.
+ */
+function localityIn(suburb: string, state: StateCode) {
+  for (const text of [`${suburb} ${state}`, suburb]) {
+    const place = findLocality(text);
+    if (place?.state === state) return place;
+  }
+  return null;
+}
+
+/**
+ * `state` and `timeZone`, sent together or not at all (errors under those
+ * names), and the suburb checked against the state:
+ * - neither sent (absent or null): `fallback` (the stored place on edit, the
+ *   default on create), and the suburb as typed, so a client that predates
+ *   them keeps working, its times read in the stored zone;
+ * - both: `state` one of STATE_CODES, `timeZone` one of ZONES_BY_STATE[state],
+ *   and `suburb` a locality in that state (lib/location.ts), saved as its
+ *   display name; otherwise fieldErrors.suburb, with a near spelling in the
+ *   state when there's one ("Did you mean Fremantle?");
+ * - only one: an error on the missing one.
+ *
+ * `zoneForTimes` is the zone to read the times in: null when the place is in
+ * error (the times then aren't converted).
+ */
+export function parsePlace(
+  body: RawEventBody,
+  suburb: string,
+  errors: Record<string, string>,
+  fallback: EventPlace = DEFAULT_EVENT_PLACE,
+): { place: EventPlace; suburb: string; zoneForTimes: AustralianTimeZone | null } {
+  const stateSent = body.state !== undefined && body.state !== null;
+  const zoneSent = body.timeZone !== undefined && body.timeZone !== null;
+  if (!stateSent && !zoneSent) return { place: fallback, suburb, zoneForTimes: fallback.timeZone };
+  if (!stateSent || !zoneSent) {
+    if (!stateSent) errors.state = "Choose the event's state or territory (sent with its time zone).";
+    if (!zoneSent) errors.timeZone = "Choose the event's time zone (sent with its state or territory).";
+    return { place: fallback, suburb, zoneForTimes: null };
+  }
+  if (!isStateCode(body.state)) {
+    errors.state = "Choose a state or territory.";
+    return { place: fallback, suburb, zoneForTimes: null };
+  }
+  const state = body.state;
+  if (!isZoneOfState(state, body.timeZone)) {
+    errors.timeZone = `Choose a time zone used in ${state}.`;
+    return { place: fallback, suburb, zoneForTimes: null };
+  }
+  const place: EventPlace = { state, timeZone: body.timeZone };
+  // An empty suburb already has its "required" error.
+  if (!suburb || errors.suburb) return { place, suburb, zoneForTimes: place.timeZone };
+  const locality = localityIn(suburb, state);
+  if (!locality) {
+    const near = didYouMean(`${suburb} ${state}`);
+    errors.suburb =
+      near && near.state === state
+        ? `We couldn't find that suburb in ${state}. Did you mean ${near.name}?`
+        : `We couldn't find that suburb in ${state}. Check the spelling, or choose the state it's in.`;
+    return { place, suburb, zoneForTimes: place.timeZone };
+  }
+  return { place, suburb: locality.name, zoneForTimes: place.timeZone };
+}
+
+/** What parseEventInput needs besides the body. */
+export interface ParseEventOptions {
+  /**
+   * The event's stored place, on edit: used when the body sends neither
+   * `state` nor `timeZone`, so its times are read in the zone they were
+   * entered in. Absent (create): DEFAULT_EVENT_PLACE.
+   */
+  storedPlace?: EventPlace;
+}
+
+/**
+ * The event body for POST and PATCH (organiser and admin alike), validated:
+ * 400 with fieldErrors for everything wrong at once. `start` and `end` are
+ * local {date, time} pairs, read in the event's zone (parsePlace: the one
+ * sent, else the stored one on edit, else Melbourne).
+ */
+export function parseEventInput(body: RawEventBody, options: ParseEventOptions = {}): EventInput {
   const errors: Record<string, string> = {};
 
   const title = requireString(body.title, "title", errors, 150);
@@ -147,9 +270,11 @@ export function parseEventInput(body: RawEventBody): EventInput {
   const category = requireCategory(body.category, "category", errors);
   const venueName = requireString(body.venueName, "venueName", errors, 150);
   const venueAddress = requireString(body.venueAddress, "venueAddress", errors, 250);
-  const suburb = requireString(body.suburb, "suburb", errors, 100);
-  const startsAt = requireMelbourneDateTime(body.start, "start", errors);
-  const endsAt = requireMelbourneDateTime(body.end, "end", errors);
+  const typedSuburb = requireString(body.suburb, "suburb", errors, 100);
+  const { place, suburb, zoneForTimes } = parsePlace(body, typedSuburb, errors, options.storedPlace);
+  // With the place in error, the times can't be read yet: their errors wait for a valid zone.
+  const startsAt = zoneForTimes ? requireLocalDateTime(body.start, "start", errors, zoneForTimes) : undefined;
+  const endsAt = zoneForTimes ? requireLocalDateTime(body.end, "end", errors, zoneForTimes) : undefined;
   const ticketing = parseTicketing(body, errors);
   const refund = parseRefundPolicy(body, errors);
 
@@ -178,6 +303,7 @@ export function parseEventInput(body: RawEventBody): EventInput {
     venueName,
     venueAddress,
     suburb,
+    ...place,
     startsAt: startsAt as string,
     endsAt: endsAt as string,
     ticketTypes,

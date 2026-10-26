@@ -4,6 +4,7 @@ import type { EventCategory, EventClip, FeePolicy } from "@/lib/types";
 import type { FeaturedVideo } from "./featured-video";
 import type { PublicEvent } from "./public-events";
 import type { SeatMapTemplate, TicketSeat } from "@/lib/seating/template";
+import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
 
 export type { FeaturedVideo, FeaturedVideoProvider } from "./featured-video";
 export type { EventClip } from "@/lib/types";
@@ -11,6 +12,7 @@ export type { EventClip } from "@/lib/types";
 export type { TicketingMode } from "@/lib/ticketing";
 export type { RefundPolicy } from "@/lib/refund-policy";
 export type { SeatKind, SeatMapTemplate, TicketSeat } from "@/lib/seating/template";
+export type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
 
 export type OrganiserStatus = "pending" | "approved" | "rejected";
 
@@ -207,6 +209,10 @@ export interface EventEditChanges {
   venueName?: TicketingFieldChange<string>;
   venueAddress?: TicketingFieldChange<string>;
   suburb?: TicketingFieldChange<string>;
+  /** An admin moved the event to another state or territory. */
+  state?: TicketingFieldChange<StateCode>;
+  /** An admin changed the zone the event's times are in (the instants are in `startsAt` / `endsAt` when they moved). */
+  timeZone?: TicketingFieldChange<AustralianTimeZone>;
   startsAt?: TicketingFieldChange<string>;
   endsAt?: TicketingFieldChange<string>;
   ticketTypes?: TicketingFieldChange<TicketTypeInput[]>;
@@ -266,7 +272,28 @@ export interface EventRecord {
   category: EventCategory;
   venueName: string;
   venueAddress: string;
+  /**
+   * The suburb. Saved with `state` and `timeZone`, it's the ABS locality's
+   * display name (lib/location.ts `Locality.name`): the name alone where
+   * that's unambiguous ("Fitzroy"), with its state otherwise ("Richmond
+   * NSW"). Saved without them (an older client), as typed.
+   */
   suburb: string;
+  /**
+   * The event's state or territory (lib/time-zones.ts STATE_CODES; `OT` the
+   * other territories). Always sent by the API; optional so older fixtures
+   * stay valid (absent means `VIC`).
+   */
+  state?: StateCode;
+  /**
+   * The IANA zone the event's times are entered and shown in, one of
+   * ZONES_BY_STATE[state] (absent means `Australia/Melbourne`). Format
+   * `startsAt` / `endsAt` with it (lib/format.ts), label it with
+   * formatTimeZoneLabel(startsAt, timeZone, state), and fill the editor's
+   * date and time inputs with toDateTimeInputParts(…, timeZone). Always sent
+   * by the API; optional so older fixtures stay valid.
+   */
+  timeZone?: AustralianTimeZone;
   startsAt: string;
   endsAt: string;
   organiserName: string;
@@ -573,6 +600,14 @@ export interface CustomerOrder {
    */
   eventStartsAt?: string;
   eventEndsAt?: string;
+  /**
+   * The zone to show `eventStartsAt` / `eventEndsAt` in (EventRecord.timeZone)
+   * and the event's state (for formatTimeZoneLabel: the ACT's "Canberra
+   * time"). Sent whenever the times are; absent otherwise (and from an older
+   * API: then Melbourne).
+   */
+  eventTimeZone?: AustralianTimeZone;
+  eventState?: StateCode;
   venueName?: string;
   suburb?: string;
   /**
@@ -655,6 +690,9 @@ export interface OrderPaymentSummary {
   /** The event's current start and end (ISO instants), venue name and suburb: only while it's published. */
   eventStartsAt?: string;
   eventEndsAt?: string;
+  /** As CustomerOrder's: the zone and state for the times, sent whenever they are (absent from an older API: Melbourne). */
+  eventTimeZone?: AustralianTimeZone;
+  eventState?: StateCode;
   venueName?: string;
   suburb?: string;
   /** A reserved-seating order (it holds seats until the hold ends). */
@@ -1383,6 +1421,13 @@ export interface AnalyticsEventSummary {
   status: EventStatus;
   startsAt: string;
   endsAt: string;
+  /**
+   * The zone to show `startsAt` / `endsAt` in, and the event's state (for
+   * its label). Analytics days stay Melbourne days. Always sent; optional so
+   * older fixtures stay valid (absent: Melbourne).
+   */
+  timeZone?: AustralianTimeZone;
+  state?: StateCode;
   venueName: string;
   /** It's been approved at least once (it may since have been unpublished). */
   everPublished: boolean;
@@ -1466,6 +1511,9 @@ export interface AnalyticsOverviewEvent {
   slug: string;
   status: EventStatus;
   startsAt: string;
+  /** As AnalyticsEventSummary's: the zone for `startsAt`, and the state. Always sent; optional for older fixtures. */
+  timeZone?: AustralianTimeZone;
+  state?: StateCode;
   totals: AnalyticsTotals;
   /** With `compare=prevPeriod`. */
   previous?: AnalyticsTotals;
@@ -1644,7 +1692,18 @@ export interface CheckInLogEntry {
 
 /** GET /api/organisers/me/events/{eventId}/check-ins. */
 export interface CheckInSummary {
-  event: { eventId: string; title: string; startsAt: string; endsAt: string };
+  /**
+   * `timeZone` and `state`: the zone to show the times in, and the state for
+   * its label. Always sent; optional so older fixtures stay valid (absent: Melbourne).
+   */
+  event: {
+    eventId: string;
+    title: string;
+    startsAt: string;
+    endsAt: string;
+    timeZone?: AustralianTimeZone;
+    state?: StateCode;
+  };
   /** Tickets of paid orders checked in. */
   checkedIn: number;
   /** Tickets in paid orders. */

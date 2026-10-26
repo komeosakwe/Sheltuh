@@ -67,7 +67,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261109000500_ticket_wallet_serial.sql`. Never
+      newest, currently `20261110000000_event_place_time_zone.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -121,6 +121,14 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           random wallet pass serial; rewrites `public.tickets` once. Apply
           before the app with wallet passes deploys: its wallet routes read
           the column, and answer 500 without it)
+      28. `20261110000000_event_place_time_zone.sql` (every event gets a
+          state and a time zone: existing events become VIC,
+          Australia/Melbourne, which is what they meant; redefines
+          `private.create_event_draft`, `edit_event_draft` and
+          `admin_edit_event`. **Apply it before this app deploys**: every
+          event read (`EVENT_SELECT`) selects the new columns, so without it
+          every event page, list and order lookup is a 500. The previous app
+          keeps working against it)
 
       Files 24 to 26 were written as `20261104000000_payment_reconciliation.sql`,
       `20261104000100_email_outbox_health.sql` and

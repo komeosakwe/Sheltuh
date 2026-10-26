@@ -317,6 +317,8 @@ describe("GET /orders/by-session/{id}/payment", () => {
       eventSlug: event.slug,
       eventStartsAt: new Date(event.startsAt).toISOString(),
       eventEndsAt: new Date(event.endsAt).toISOString(),
+      eventTimeZone: "Australia/Melbourne",
+      eventState: "VIC",
       venueName: "The Tote",
       suburb: "Collingwood",
       seated: false,

@@ -1,5 +1,6 @@
 import { REFUND_POLICY_TIGHTENED_CODE, type RefundPolicy } from "@/lib/refund-policy";
 import type { TicketingMode } from "@/lib/ticketing";
+import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
 import type { EventCategory } from "@/lib/types";
 import { ApiError, apiFetch, type GetToken } from "./client";
 import type { EventRecord, Paginated, TicketTypeInput } from "./types";
@@ -10,7 +11,37 @@ export interface EventInput {
   category: EventCategory;
   venueName: string;
   venueAddress: string;
+  /**
+   * With `state` and `timeZone`: a suburb or locality in that state, as
+   * lib/location.ts findLocality finds it with the state after it (the name
+   * alone, or the `Locality.name` the API returned, such as "Richmond NSW").
+   * It's saved as the locality's display name. Not one in the state:
+   * ApiError 400 fieldErrors.suburb ("We couldn't find that suburb in WA.",
+   * with "Did you mean …?" when there's a near spelling). Without them, saved
+   * as typed (older clients).
+   */
   suburb: string;
+  /**
+   * The event's state or territory (lib/time-zones.ts STATE_CODES), sent
+   * together with `timeZone` or not at all; one without the other is
+   * ApiError 400 (fieldErrors on the missing one). Neither: Melbourne when
+   * creating (VIC, Australia/Melbourne); when editing, the stored state and
+   * zone are kept, and `start` / `end` are read in the stored zone. Not one
+   * of the codes: 400 fieldErrors.state.
+   */
+  state?: StateCode;
+  /**
+   * The zone `start` and `end` are local to: one of ZONES_BY_STATE[state]
+   * (defaultTimeZone(state, suburb) is the likely one), else ApiError 400
+   * fieldErrors.timeZone. Sent with `state` (see there).
+   */
+  timeZone?: AustralianTimeZone;
+  /**
+   * Local to the event's zone (`timeZone`, else the stored or default one).
+   * A time the zone skips (the clocks go forward: 2:30 am on the first Sunday
+   * of October in Sydney) is ApiError 400 fieldErrors.start / .end; a time it
+   * has twice (the clocks go back) is the earlier one.
+   */
   start: { date: string; time: string };
   end: { date: string; time: string };
   /** At least one for a Sheltüh-ticketed event; must be empty for an external one. */

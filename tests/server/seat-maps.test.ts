@@ -413,6 +413,8 @@ describe("public reads", () => {
       "venueName",
       "venueAddress",
       "suburb",
+      "state",
+      "timeZone",
       "startsAt",
       "endsAt",
       "organiserName",
