@@ -22,6 +22,7 @@ vi.mock("@/lib/api/events", async (importOriginal) => {
   return {
     PAYOUTS_REQUIRED_CODE: actual.PAYOUTS_REQUIRED_CODE,
     isPayoutsRequiredError: actual.isPayoutsRequiredError,
+    isRefundPolicyTightenedError: actual.isRefundPolicyTightenedError,
     updateEventDraft: (...args: unknown[]) => updateEventDraft(...args),
     createEventDraft: (...args: unknown[]) => createEventDraft(...args),
     submitEventForReview: (...args: unknown[]) => submitEventForReview(...args),

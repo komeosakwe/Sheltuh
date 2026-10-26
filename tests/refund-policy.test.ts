@@ -7,6 +7,7 @@ import {
   REFUND_ACL_STATEMENT,
   REFUND_POLICIES,
   refundPolicySummary,
+  refundTermsSummary,
   tightensRefundPolicy,
 } from "@/lib/refund-policy";
 
@@ -27,6 +28,14 @@ describe("refundPolicySummary", () => {
     for (const days of [undefined, null, 0, 31, 2.5, Number.NaN]) {
       expect(() => refundPolicySummary("days_before", days), String(days)).toThrow(RangeError);
     }
+  });
+
+  it("refundTermsSummary: the same sentence, or null (never a throw) when there's nothing true to say", () => {
+    expect(refundTermsSummary("no_change_of_mind")).toBe("No refunds for change of mind.");
+    expect(refundTermsSummary("days_before", 7)).toBe("Refunds available up to 7 days before the event.");
+    for (const days of [undefined, null, 0, 31, 2.5]) expect(refundTermsSummary("days_before", days), String(days)).toBeNull();
+    expect(refundTermsSummary(undefined)).toBeNull();
+    expect(refundTermsSummary(null, 7)).toBeNull();
   });
 
   it("the Australian Consumer Law line", () => {

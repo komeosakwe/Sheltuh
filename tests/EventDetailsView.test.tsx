@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventDetailsView from "@/components/EventDetailsView";
 import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
 import { describeBookingFee } from "@/lib/fees";
+import { REFUND_ACL_STATEMENT } from "@/lib/refund-policy";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
 import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
@@ -445,17 +446,40 @@ describe("EventDetailsView booking info beside the tickets", () => {
     return el;
   }
 
-  // A6 (accessibility review, 22 Oct 2026): one plain sentence, linking the existing pages.
-  it("where a paid purchase is possible: refund conditions are in the Purchase Terms, and how to ask for one", () => {
+  // A6 (accessibility review, 22 Oct 2026): one plain sentence, linking the existing pages; then the
+  // event's own refund policy before it (docs/architecture.md, Refund policy).
+  it("where a paid purchase is possible: the event's refund policy, the ACL line, the Purchase Terms, and how to ask for one", () => {
     const { container } = render(<EventDetailsView event={findEvent("neon-static")} demo />);
     const info = tickets(container).querySelector<HTMLElement>("[data-booking-info]");
     if (!info) throw new Error("no booking info");
     expect(within(info).getByText("Refunds").tagName).toBe("DT");
-    expect(info.querySelector("dd")).toHaveTextContent(
+    // A demo sample event has the default policy.
+    expect([...info.querySelectorAll("dd > p")].map((p) => p.textContent)).toEqual([
+      "No refunds for change of mind.",
+      REFUND_ACL_STATEMENT,
       "Refund conditions are in our Purchase Terms. To ask for one, use Request a refund.",
-    );
+    ]);
     expect(within(info).getByRole("link", { name: "Purchase Terms" })).toHaveAttribute("href", "/purchase-terms");
     expect(within(info).getByRole("link", { name: "Request a refund" })).toHaveAttribute("href", "/refunds");
+  });
+
+  it("says a days_before policy, with day or days", () => {
+    for (const [days, text] of [
+      [7, "Refunds available up to 7 days before the event."],
+      [1, "Refunds available up to 1 day before the event."],
+    ] as const) {
+      const { container, unmount } = render(
+        <EventDetailsView event={{ ...findEvent("neon-static"), refundPolicy: "days_before", refundDays: days }} demo />,
+      );
+      expect(tickets(container).querySelector("[data-refund-policy]")).toHaveTextContent(text);
+      unmount();
+    }
+  });
+
+  it("says nothing untrue for a days_before policy without valid days (the links stay)", () => {
+    const { container } = render(<EventDetailsView event={{ ...findEvent("neon-static"), refundPolicy: "days_before" }} demo />);
+    expect(container.querySelector("[data-refund-policy]")).toBeNull();
+    expect(within(tickets(container)).getByRole("link", { name: "Request a refund" })).toBeInTheDocument();
   });
 
   it("no refunds row where nothing can be paid for: free-only, ended, or external", () => {
@@ -467,6 +491,8 @@ describe("EventDetailsView booking info beside the tickets", () => {
       const { container, unmount } = render(<EventDetailsView event={event} demo />);
       expect(container.querySelector("[data-booking-info]")).toBeNull();
       expect(within(tickets(container)).queryByText("Refunds")).toBeNull();
+      expect(container.querySelector("[data-refund-policy]")).toBeNull();
+      expect(container).not.toHaveTextContent(REFUND_ACL_STATEMENT);
       unmount();
     }
     vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));

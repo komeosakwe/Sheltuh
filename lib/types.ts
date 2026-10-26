@@ -1,3 +1,4 @@
+import type { RefundPolicy } from "./refund-policy";
 import type { TicketingMode } from "./ticketing";
 
 export type EventCategory =
@@ -160,6 +161,15 @@ export interface SheltuhEvent {
    * event are chosen on /events/{slug}/seats.
    */
   seating?: EventSeatingRef;
+  /**
+   * The refund policy for tickets sold on Sheltüh (lib/refund-policy.ts).
+   * Absent means `no_change_of_mind` (DEFAULT_REFUND_POLICY): every demo
+   * sample event, and an external event, whose ticketing site's own terms
+   * apply (never shown for one).
+   */
+  refundPolicy?: RefundPolicy;
+  /** `days_before` only: refunds up to this many days (1–30) before the event starts. */
+  refundDays?: number;
   /**
    * Optional organiser-supplied context — shown on the details page only
    * when present. Never inferred or invented: the live API doesn't collect

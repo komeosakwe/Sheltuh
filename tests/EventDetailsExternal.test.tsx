@@ -99,6 +99,14 @@ describe("external event: the tickets section", () => {
     expect(within(container).getAllByRole("link", { name: /^Get directions to / })).toHaveLength(1);
   });
 
+  it("never shows a Sheltüh refund policy, even if one came with the event", () => {
+    const { container } = render(
+      <EventDetailsView event={{ ...HUMANITIX, refundPolicy: "days_before", refundDays: 7 }} demo={false} />,
+    );
+    expect(container.querySelector("[data-refund-policy]")).toBeNull();
+    expect(container).not.toHaveTextContent(/Refunds available|change of mind|Australian Consumer Law/);
+  });
+
   it("counts the click with the beacon, without stopping the link", () => {
     const { container } = render(<EventDetailsView event={HUMANITIX} demo={false} />);
     const link = within(parts(container).tickets).getByRole("link", { name: /^Get tickets on Humanitix/ });

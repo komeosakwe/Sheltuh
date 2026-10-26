@@ -1,4 +1,5 @@
 import type { PublicEvent } from "@/lib/api/public-events";
+import { DEFAULT_REFUND_POLICY } from "@/lib/refund-policy";
 import type { SheltuhEvent } from "@/lib/types";
 import { assignPoster } from "./assign-poster";
 
@@ -51,6 +52,15 @@ export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
     ticketingMode: event.ticketingMode ?? "sheltuh",
     // Reserved seating: only the map's version (the seat page loads the map itself).
     ...(event.seating && event.ticketingMode !== "external" ? { seating: { version: event.seating.version } } : {}),
+    // Sheltüh-ticketed only (an external event's ticketing site has its own terms); days only for days_before.
+    ...(event.ticketingMode !== "external"
+      ? {
+          refundPolicy: event.refundPolicy ?? DEFAULT_REFUND_POLICY,
+          ...(event.refundPolicy === "days_before" && typeof event.refundDays === "number"
+            ? { refundDays: event.refundDays }
+            : {}),
+        }
+      : {}),
     ...(event.ticketingMode === "external"
       ? {
           externalTicketUrl: event.externalTicketUrl,

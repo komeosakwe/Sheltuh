@@ -5,6 +5,7 @@ import CheckoutPayment from "@/components/checkout/CheckoutPayment";
 import StripePreconnect from "@/components/checkout/StripePreconnect";
 import { ApiError } from "@/lib/api/client";
 import type { OrderPaymentLookup } from "@/lib/api/types";
+import { REFUND_ACL_STATEMENT } from "@/lib/refund-policy";
 
 /**
  * /checkout/pay (docs/design/checkout-pay.md): every state, with Stripe.js
@@ -247,6 +248,34 @@ describe("CheckoutPayment: open", () => {
     expect(fee).toHaveClass("text-xs");
     // The fee note comes after the total, never before it.
     expect(total?.compareDocumentPosition(fee) ?? 0).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("says the event's refund policy, with the ACL line, under the total (before paying)", async () => {
+    getOrderPayment.mockResolvedValue({ ...OPEN_GA, refundPolicy: "days_before", refundDays: 7 });
+    render(<CheckoutPayment />);
+    const summary = await screen.findByRole("region", { name: "Neon Static" });
+    const refunds = summary.querySelector<HTMLElement>("[data-refund-policy]");
+    if (!refunds) throw new Error("no refund policy");
+    expect(refunds).toHaveTextContent("Refunds: Refunds available up to 7 days before the event.");
+    expect(within(refunds).getByText(REFUND_ACL_STATEMENT)).toHaveClass("text-xs", "text-muted");
+    const total = summary.querySelector("[data-order-total]");
+    expect(total?.compareDocumentPosition(refunds) ?? 0).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("no_change_of_mind says so; a response without a policy (or with invalid days) says nothing about refunds", async () => {
+    getOrderPayment.mockResolvedValue({ ...OPEN_GA, refundPolicy: "no_change_of_mind" });
+    render(<CheckoutPayment />);
+    expect(await screen.findByText("No refunds for change of mind.", { exact: false })).toBeInTheDocument();
+    cleanup();
+
+    for (const lookup of [OPEN_GA, { ...OPEN_GA, refundPolicy: "days_before" as const }]) {
+      getOrderPayment.mockResolvedValue(lookup);
+      render(<CheckoutPayment />);
+      await screen.findByRole("region", { name: "Neon Static" });
+      expect(document.querySelector("[data-refund-policy]")).toBeNull();
+      expect(screen.queryByText(REFUND_ACL_STATEMENT)).toBeNull();
+      cleanup();
+    }
   });
 
   it("a buyer who pays no booking fee is told so, and no line says 'incl. fee'", async () => {

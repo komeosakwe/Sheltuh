@@ -81,8 +81,8 @@ for (const vp of [
 
       const formBox = await page.locator("form").filter({ has: title }).boundingBox();
       expect(formBox).not.toBeNull();
-      for (const name of ["Start date", "Start time", "End date", "End time"]) {
-        const box = await page.getByLabel(name).boundingBox();
+      for (const name of ["Start date", "Start time", "End date", "End time", "Days before the event"]) {
+        const box = await page.getByLabel(name, { exact: true }).boundingBox();
         expect(box, name).not.toBeNull();
         expect((box?.x ?? 0) + (box?.width ?? 0), name).toBeLessThanOrEqual((formBox?.x ?? 0) + (formBox?.width ?? 0) + 1);
         expect(box?.x ?? -1, name).toBeGreaterThanOrEqual((formBox?.x ?? 0) - 1);
@@ -181,6 +181,76 @@ test.describe("/dashboard/new with reserved seating", () => {
     expect(created).toHaveLength(1);
     expect(created[0]).toMatchObject({ title: "Neon Static", ticketTypes: [{ name: "Stalls", priceCents: 3500 }] });
     expect(created[0]).not.toHaveProperty("seating");
+    // The refund policy left as it was: the default.
+    expect(created[0]).toMatchObject({ refundPolicy: "no_change_of_mind" });
+    expect(created[0]).not.toHaveProperty("refundDays");
+  });
+});
+
+test.describe("/dashboard/[eventId]: refund policy at 320px", () => {
+  test.use({ viewport: { width: 320, height: 640 } });
+
+  test("choosing days saves them; a refused tightening is shown by the policy, with focus there", async ({ page }) => {
+    const draft = {
+      ...createdDraft({
+        title: "Neon Static",
+        description: "Four bands, one room.",
+        category: "live-music",
+        venueName: "The Tote",
+        venueAddress: "71 Johnston St",
+        suburb: "Collingwood",
+        start: { date: "2027-03-06", time: "20:00" },
+        end: { date: "2027-03-06", time: "23:30" },
+        ticketTypes: [{ id: "ga", name: "General admission", priceCents: 3500, feePolicy: "buyer-pays", quantityAvailable: 100 }],
+      }),
+      eventId: "evt-e2e-refunds",
+      refundPolicy: "days_before",
+      refundDays: 7,
+    };
+    const refusal =
+      "This event already has orders, so its refund policy can only become more generous: people who bought tickets keep the refunds they were offered.";
+    const saved: Record<string, unknown>[] = [];
+    await signedInAsOrganiser(page, (request, path) => {
+      const method = request.method();
+      if (method === "GET" && path === `/api/organisers/me/events/${draft.eventId}`) return { json: draft };
+      if (method === "PATCH" && path === `/api/events/${draft.eventId}`) {
+        const body: Record<string, unknown> = request.postDataJSON();
+        saved.push(body);
+        // The first save loosens (allowed); the second tightens (refused).
+        if (saved.length === 1) return { json: { ...draft, refundDays: body.refundDays } };
+        return { status: 409, json: { error: refusal, code: "refund_policy_tightened", fieldErrors: { refundPolicy: refusal } } };
+      }
+      return null;
+    });
+    await page.goto(`/dashboard/${draft.eventId}`);
+    const form = page.locator("form").filter({ has: page.getByLabel("Title", { exact: true }) });
+    await expect(form.getByLabel("Title", { exact: true })).toHaveValue("Neon Static", { timeout: 30_000 });
+
+    const policy = form.getByRole("group", { name: "Refund policy" });
+    const days = policy.getByLabel("Days before the event", { exact: true });
+    const none = policy.getByRole("radio", { name: "No refunds for change of mind" });
+    await expect(policy.getByRole("radio", { name: "Refunds up to a number of days before the event" })).toBeChecked();
+    await expect(days).toHaveValue("7");
+    await expect(policy).toContainText("Australian Consumer Law");
+    // Each choice is a 44px target.
+    for (const option of await policy.locator("label").filter({ has: page.getByRole("radio") }).all()) {
+      expect((await option.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+
+    await days.fill("3");
+    await form.getByRole("button", { name: "Save draft" }).click();
+    await expect.poll(() => saved.length).toBe(1);
+    expect(saved[0]).toMatchObject({ refundPolicy: "days_before", refundDays: 3 });
+
+    await none.check();
+    await expect(days).toBeDisabled();
+    await form.getByRole("button", { name: "Save draft" }).click();
+    await expect(policy.getByText(refusal)).toBeVisible();
+    await expect(none).toBeFocused();
+    await expect(form.getByRole("alert")).toContainText("See Refund policy.");
+    expect(saved[1]).toMatchObject({ refundPolicy: "no_change_of_mind" });
+    expect(saved[1]).not.toHaveProperty("refundDays");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   });
 });
 

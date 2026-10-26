@@ -8,6 +8,7 @@ import AdminOrganiserPicker, { type PickedOrganiser } from "@/components/admin/A
 import EventClipField from "@/components/dashboard/EventClipField";
 import EventImageField from "@/components/dashboard/EventImageField";
 import { PayoutsNeededNotice, PayoutsSubmitError, PayoutsSubmitHint } from "@/components/dashboard/PayoutsRequired";
+import RefundPolicyField from "@/components/dashboard/RefundPolicyField";
 import SeatingChoiceField, {
   initialSeatingChoice,
   seatMapHref,
@@ -33,6 +34,7 @@ import {
   createEventDraft,
   deleteEventImage,
   isPayoutsRequiredError,
+  isRefundPolicyTightenedError,
   submitEventForReview,
   updateEventDraft,
   uploadEventImage,
@@ -44,6 +46,13 @@ import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import { eventClipsEnabled } from "@/lib/clips-flag";
 import { calculateBookingFeeCents, calculateOrderSummary, describeBookingFee, MIN_PAID_TICKET_CENTS } from "@/lib/fees";
 import { formatAud, toMelbourneDateTimeInputParts } from "@/lib/format";
+import {
+  DEFAULT_REFUND_POLICY,
+  isValidRefundDays,
+  MAX_REFUND_DAYS,
+  MIN_REFUND_DAYS,
+  type RefundPolicy,
+} from "@/lib/refund-policy";
 import { checkExternalTicketUrl, sellsPaidTicketsOnSheltuh, type TicketingMode } from "@/lib/ticketing";
 import { EVENT_CATEGORIES } from "@/lib/types";
 
@@ -163,6 +172,10 @@ export default function EventEditor(props: Props) {
   const [seatingChoice, setSeatingChoice] = useState<SeatingChoice>(() => initialSeatingChoice(initial));
   // Only for Sheltüh-ticketed events: a seat map can't go with external ticketing.
   const reservedSeating = ticketingMode === "sheltuh" && seatingChoice === "reserved";
+  // The refund policy (Sheltüh-ticketed events only; docs/architecture.md, "Refund policy"). The days
+  // are kept as typed, and while the other option is chosen, so switching back doesn't lose them.
+  const [refundPolicy, setRefundPolicy] = useState<RefundPolicy>(initial?.refundPolicy ?? DEFAULT_REFUND_POLICY);
+  const [refundDays, setRefundDays] = useState(initial?.refundDays !== undefined ? String(initial.refundDays) : "");
 
   // Admin mode only.
   const [organiser, setOrganiser] = useState<PickedOrganiser | null>(null);
@@ -204,8 +217,15 @@ export default function EventEditor(props: Props) {
   const [payoutsRefused, setPayoutsRefused] = useState(false);
   const payoutsErrorRef = useRef<HTMLDivElement>(null);
   const focusPayoutsError = useRef(false);
+  // A save refused for making the refund policy less generous: focus goes to the policy's chosen option.
+  const refundChoiceRef = useRef<HTMLInputElement>(null);
+  const focusRefundChoice = useRef(false);
 
   useEffect(() => {
+    if (focusRefundChoice.current && refundChoiceRef.current) {
+      focusRefundChoice.current = false;
+      refundChoiceRef.current.focus();
+    }
     if (!focusPayoutsError.current || !payoutsErrorRef.current) return;
     focusPayoutsError.current = false;
     payoutsErrorRef.current.focus();
@@ -255,8 +275,27 @@ export default function EventEditor(props: Props) {
       focusPayoutsError.current = true;
       return;
     }
+    // The event has orders, and the policy may only become more generous: the reason is by the policy
+    // (fieldErrors.refundPolicy), focus goes there, and the line by the buttons points to it.
+    if (isRefundPolicyTightenedError(err)) {
+      setErrors((prev) => ({ ...prev, ...err.fieldErrors, refundPolicy: err.fieldErrors?.refundPolicy ?? err.message }));
+      setSubmitError("Not saved: the refund policy can\u2019t be made less generous now. See Refund policy.");
+      focusRefundChoice.current = true;
+      return;
+    }
     if (err instanceof ApiError && err.fieldErrors) setErrors((prev) => ({ ...prev, ...err.fieldErrors }));
     setSubmitError(err instanceof Error ? err.message : fallback);
+  }
+
+  /** A refund field changed: its old error (ours or the server's) no longer applies. */
+  function clearRefundErrors() {
+    setErrors((prev) => {
+      if (!prev.refundPolicy && !prev.refundDays) return prev;
+      const next = { ...prev };
+      delete next.refundPolicy;
+      delete next.refundDays;
+      return next;
+    });
   }
 
   function updateTicket(index: number, patch: Partial<TicketTypeInput>) {
@@ -265,6 +304,11 @@ export default function EventEditor(props: Props) {
 
   function removeTicket(index: number) {
     setTicketTypes((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  /** The days as typed, as a number (NaN when it isn't one: blank, or not a number). */
+  function refundDaysNumber(): number {
+    return refundDays.trim() === "" ? Number.NaN : Number(refundDays);
   }
 
   function buildInput(): EventInput | null {
@@ -296,6 +340,8 @@ export default function EventEditor(props: Props) {
         if (!Number.isInteger(t.quantityAvailable) || t.quantityAvailable < 1)
           nextErrors[`ticket-${i}-qty`] = "Enter how many are available.";
       });
+      if (refundPolicy === "days_before" && !isValidRefundDays(refundDaysNumber()))
+        nextErrors.refundDays = `Enter a whole number of days from ${MIN_REFUND_DAYS} to ${MAX_REFUND_DAYS}.`;
     }
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return null;
@@ -311,6 +357,11 @@ export default function EventEditor(props: Props) {
       end,
       ticketTypes: external ? [] : ticketTypes,
     };
+    // The refund policy is for tickets sold here: an external event's is left as stored (not sent).
+    if (!external) {
+      input.refundPolicy = refundPolicy;
+      if (refundPolicy === "days_before") input.refundDays = refundDaysNumber();
+    }
     // Ticketing is sent by an admin, and for an organiser's external event
     // (unchanged, so saving never turns it back into a Sheltüh-ticketed one).
     if (isAdmin || external) {
@@ -874,6 +925,26 @@ export default function EventEditor(props: Props) {
           );
         })}
       </div>
+      )}
+
+      {ticketingMode === "sheltuh" && (
+        <RefundPolicyField
+          policy={refundPolicy}
+          onPolicyChange={(policy) => {
+            setRefundPolicy(policy);
+            clearRefundErrors();
+          }}
+          days={refundDays}
+          onDaysChange={(days) => {
+            setRefundDays(days);
+            clearRefundErrors();
+          }}
+          policyError={errors.refundPolicy}
+          daysError={errors.refundDays}
+          admin={isAdmin}
+          checkedRef={refundChoiceRef}
+          legendClassName={SECTION_TITLE}
+        />
       )}
 
       {isAdmin && initial && (

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CheckoutConfirmation from "@/components/CheckoutConfirmation";
 import { ApiError } from "@/lib/api/client";
 import type { CustomerOrder, OrderPaymentLookup } from "@/lib/api/types";
+import { REFUND_ACL_STATEMENT } from "@/lib/refund-policy";
 import { rememberPendingCheckout } from "@/lib/seating/pending-checkout";
 
 // The real next/link, marked, so a test can tell its links from plain ones (a full page load).
@@ -235,6 +236,42 @@ describe("CheckoutConfirmation", () => {
     expect(await screen.findAllByText("The Tote, Collingwood")).toHaveLength(2);
     expect(screen.queryByText(/no longer listed/)).toBeNull();
     expect(screen.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/neon-static");
+  });
+
+  it("shows the event's refund policy by the totals, with the ACL line and how to ask for a refund", async () => {
+    getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, eventListed: true, refundPolicy: "days_before", refundDays: 14 });
+    render(<CheckoutConfirmation />);
+    await screen.findByText("Total paid");
+    const refunds = document.querySelector<HTMLElement>("[data-refund-policy]");
+    if (!refunds) throw new Error("no refund policy");
+    expect(refunds).toHaveTextContent("Refund policy: Refunds available up to 14 days before the event.");
+    expect(refunds).toHaveTextContent(REFUND_ACL_STATEMENT);
+    expect(screen.getByRole("link", { name: "Request a refund" })).toHaveAttribute("href", "/refunds");
+    // After the total.
+    expect(screen.getByText("Total paid").compareDocumentPosition(refunds) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("says no_change_of_mind too", async () => {
+    getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, refundPolicy: "no_change_of_mind" });
+    render(<CheckoutConfirmation />);
+    await screen.findByText("Total paid");
+    expect(document.querySelector("[data-refund-policy]")).toHaveTextContent("Refund policy: No refunds for change of mind.");
+  });
+
+  it("no refund line without a policy (an older API, an unlisted event), for a free order, or with invalid days", async () => {
+    for (const order of [
+      WITH_DETAILS,
+      { ...WITH_DETAILS, eventListed: false, refundPolicy: "no_change_of_mind" as const },
+      { ...WITH_DETAILS, subtotalCents: 0, buyerFeeCents: 0, totalCents: 0, refundPolicy: "no_change_of_mind" as const },
+      { ...WITH_DETAILS, refundPolicy: "days_before" as const },
+    ]) {
+      getOrderBySession.mockResolvedValue(order);
+      render(<CheckoutConfirmation />);
+      await screen.findByText("Total paid");
+      expect(document.querySelector("[data-refund-policy]")).toBeNull();
+      expect(screen.queryByText(REFUND_ACL_STATEMENT)).toBeNull();
+      cleanup();
+    }
   });
 
   it("keeps the sold-out wording for an oversold refund", async () => {

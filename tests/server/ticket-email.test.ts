@@ -443,6 +443,50 @@ describe("buildTicketEmail", () => {
     }
   });
 
+  describe("refund policy (docs/architecture.md, Refund policy)", () => {
+    const ACL = "You're always entitled to a refund if the event is cancelled or significantly changed, as the Australian Consumer Law requires.";
+    const ACL_HTML = ACL.replace("'", "&#39;");
+
+    it("a paid order: the event's policy and the ACL line, under the order summary, in the HTML and the plain text", () => {
+      const days = { ...event, refundPolicy: "days_before", refundDays: 7 } as EventRecord;
+      const { html, text } = buildTicketEmail(order, days, "https://x");
+      expect(text).toContain("Refund policy: Refunds available up to 7 days before the event.\n" + ACL);
+      expect(html).toContain('<span style="font-weight:bold">Refund policy:</span> Refunds available up to 7 days before the event.</p>');
+      expect(html).toContain(`>${ACL_HTML}</p>`);
+      // After the reference and total, before the footer's "Need a hand?".
+      const at = html.indexOf("Refund policy:");
+      expect(at).toBeGreaterThan(html.indexOf(">Total paid<"));
+      expect(at).toBeLessThan(html.indexOf("Need a hand?"));
+      expect(text.indexOf("Refund policy:")).toBeGreaterThan(text.indexOf("Total paid:"));
+      expect(text.indexOf("Refund policy:")).toBeLessThan(text.indexOf("Need a hand?"));
+    });
+
+    it("1 day, and no_change_of_mind (also what an event without the field has)", () => {
+      const one = { ...event, refundPolicy: "days_before", refundDays: 1 } as EventRecord;
+      expect(buildTicketEmail(order, one, "https://x").text).toContain("Refund policy: Refunds available up to 1 day before the event.");
+      const none = { ...event, refundPolicy: "no_change_of_mind" } as EventRecord;
+      for (const e of [none, event]) {
+        expect(buildTicketEmail(order, e, "https://x").text).toContain("Refund policy: No refunds for change of mind.");
+      }
+    });
+
+    it("none for a free order, an event that isn't listed, an external event, or days_before without valid days", () => {
+      const cases: [OrderRecord, EventRecord][] = [
+        [{ ...order, totalCents: 0 }, event],
+        [order, { ...event, status: "draft" } as EventRecord],
+        [order, { ...event, ticketingMode: "external" } as EventRecord],
+        [order, { ...event, refundPolicy: "days_before" } as EventRecord],
+      ];
+      for (const [o, e] of cases) {
+        const { html, text } = buildTicketEmail(o, e, "https://x");
+        for (const body of [html, text]) {
+          expect(body).not.toContain("Refund policy");
+          expect(body).not.toContain("Australian Consumer Law");
+        }
+      }
+    });
+  });
+
   it("includes a plain-text alternative, a preheader and support contact, without inviting replies", () => {
     const { html, text } = buildTicketEmail(order, event, "https://x");
     expect(text).toContain("YOU'RE IN");
@@ -480,6 +524,8 @@ describe("buildTicketEmail", () => {
       "View your tickets: https://x/checkout/success?session_id=ord_abc",
       "Order reference: #ABC",
       "Total paid: A$64 (incl. booking fees)",
+      "Refund policy: No refunds for change of mind.",
+      "You're always entitled to a refund if the event is cancelled or significantly changed, as the Australian Consumer Law requires.",
       "Need a hand? Email support@sheltuh.com.au",
       "Sheltüh, Melbourne",
     ];

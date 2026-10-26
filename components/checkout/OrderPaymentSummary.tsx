@@ -4,6 +4,7 @@ import { useState } from "react";
 import SeatLine from "@/components/seating/SeatLine";
 import type { OrderPaymentLine, OrderPaymentSummary as Summary } from "@/lib/api/types";
 import { formatAud, formatEventDateTimeRange } from "@/lib/format";
+import { REFUND_ACL_STATEMENT, refundTermsSummary } from "@/lib/refund-policy";
 import { ChevronDownIcon } from "./icons";
 
 /**
@@ -11,7 +12,8 @@ import { ChevronDownIcon } from "./icons";
  * (docs/design/checkout-pay.md §5.3). Every amount comes from the server
  * (priced from the order with lib/fees.ts), never worked out here. The
  * all-inclusive total is the loudest number and is never collapsed; on
- * phones only the lines fold away behind "Show n tickets".
+ * phones only the lines fold away behind "Show n tickets". The event's
+ * refund policy follows the total.
  */
 export default function OrderPaymentSummary({ summary }: { summary: Summary }) {
   const [open, setOpen] = useState(false);
@@ -20,6 +22,7 @@ export default function OrderPaymentSummary({ summary }: { summary: Summary }) {
   const count = summary.lines.reduce((sum, line) => sum + line.quantity, 0);
   // "Seats" only when every line is seats (a seated order can carry general admission tickets too).
   const allSeats = summary.seated && summary.lines.length > 0 && summary.lines.every((line) => (line.seats?.length ?? 0) > 0);
+  const refunds = refundTermsSummary(summary.refundPolicy, summary.refundDays);
   const noun = allSeats ? (count === 1 ? "seat" : "seats") : count === 1 ? "ticket" : "tickets";
 
   return (
@@ -88,6 +91,16 @@ export default function OrderPaymentSummary({ summary }: { summary: Summary }) {
             : "No booking fee."}
         </p>
       </div>
+
+      {/* The event's refund policy, before paying (lib/refund-policy.ts). Nothing when an older response has none. */}
+      {refunds && (
+        <div data-refund-policy="" className="flex flex-col gap-1 border-t border-surface-border pt-3 text-sm">
+          <p className="text-foreground">
+            <span className="font-semibold">Refunds:</span> {refunds}
+          </p>
+          <p className="text-xs text-muted">{REFUND_ACL_STATEMENT}</p>
+        </div>
+      )}
     </section>
   );
 }

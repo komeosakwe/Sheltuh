@@ -120,3 +120,31 @@ describe("adaptPublicEvent: organiser logo", () => {
     expect(adaptPublicEvent({ ...base, organiserLogoThumbUrl: "" })).not.toHaveProperty("organiserLogoThumbUrl");
   });
 });
+
+describe("adaptPublicEvent: refund policy (docs/architecture.md, Refund policy)", () => {
+  it("carries the policy, and the days only for days_before", () => {
+    expect(adaptPublicEvent({ ...base, refundPolicy: "days_before", refundDays: 7 })).toMatchObject({
+      refundPolicy: "days_before",
+      refundDays: 7,
+    });
+    const none = adaptPublicEvent({ ...base, refundPolicy: "no_change_of_mind" });
+    expect(none.refundPolicy).toBe("no_change_of_mind");
+    expect(none).not.toHaveProperty("refundDays");
+  });
+
+  it("a payload without the field gets the default", () => {
+    expect(adaptPublicEvent(base).refundPolicy).toBe("no_change_of_mind");
+  });
+
+  it("an external event has none (the ticketing site's terms apply)", () => {
+    const adapted = adaptPublicEvent({
+      ...base,
+      ticketingMode: "external",
+      externalTicketUrl: "https://events.humanitix.com/neon-static",
+      refundPolicy: "days_before",
+      refundDays: 7,
+    });
+    expect(adapted).not.toHaveProperty("refundPolicy");
+    expect(adapted).not.toHaveProperty("refundDays");
+  });
+});

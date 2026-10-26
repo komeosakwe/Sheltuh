@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { PublicEvent } from "@/lib/api/public-events";
+import { REFUND_ACL_STATEMENT } from "@/lib/refund-policy";
 import { sampleEvents } from "@/lib/sample-events";
 
 /**
@@ -92,6 +93,9 @@ test.describe("external event (Humanitix) at 1440×900", () => {
     await expect(tickets).toContainText("sold and priced by Humanitix, not Sheltüh");
     await expect(tickets).not.toContainText("Tickets coming soon");
     await expect(tickets).not.toContainText("A$");
+    // No Sheltüh refund policy: Humanitix's terms apply.
+    await expect(tickets).not.toContainText("change of mind");
+    await expect(tickets).not.toContainText("Australian Consumer Law");
     await expect(page.getByRole("heading", { name: /who.s going/i })).toHaveCount(0);
 
     const [popup] = await Promise.all([page.waitForEvent("popup"), link.click()]);
@@ -366,6 +370,9 @@ for (const width of [375, 1280]) {
       // (Live, the selector's own "By booking you agree to the Purchase Terms" line links them too:
       // that's consent at checkout; this is where refund conditions are.)
       const refunds = tickets.locator("dl").filter({ hasText: "Refunds" });
+      // The event's own policy (the default here), with the line that always applies.
+      await expect(refunds.locator("[data-refund-policy]")).toHaveText("No refunds for change of mind.");
+      await expect(refunds).toContainText(REFUND_ACL_STATEMENT);
       await expect(refunds.getByRole("link", { name: "Request a refund" })).toHaveAttribute("href", "/refunds");
       await expect(refunds.getByRole("link", { name: "Purchase Terms" })).toHaveAttribute("href", "/purchase-terms");
 
@@ -373,6 +380,27 @@ for (const width of [375, 1280]) {
     });
   });
 }
+
+test.describe("refund policy at 320px", () => {
+  test.use({ viewport: { width: 320, height: 640 } });
+
+  test("a days_before event says so beside the tickets, before checkout, without sideways scroll", async ({ page }) => {
+    const event = { ...asPublic("neon-static"), refundPolicy: "days_before" as const, refundDays: 7 };
+    await page.route("**/api/**", (route) => {
+      const url = new URL(route.request().url());
+      if (/^\/api\/events\/slug\//.test(url.pathname)) return route.fulfill({ json: event });
+      if (/\/going$/.test(url.pathname)) return route.fulfill({ json: { count: 0, countHidden: false, closed: false } });
+      return route.fulfill({ status: 204 });
+    });
+    await page.goto("/events/neon-static");
+    const policy = page.locator("#tickets [data-refund-policy]");
+    await expect(policy).toHaveText("Refunds available up to 7 days before the event.", { timeout: 30_000 });
+    await expect(page.locator("#tickets [data-booking-info]")).toContainText(REFUND_ACL_STATEMENT);
+    await policy.scrollIntoViewIfNeeded();
+    await expect(policy).toBeVisible();
+    await noSidewaysScroll(page);
+  });
+});
 
 test.describe("ended event at 375px", () => {
   test.use({ viewport: { width: 375, height: 812 } });

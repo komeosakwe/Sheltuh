@@ -24,6 +24,7 @@ import { formatEventDateShort, formatEventDateTimeRange, formatEventTime, format
 import { directionsHref } from "@/lib/maps";
 import { externalProviderLabel, formatFeedPriceParts, isSoldOut } from "@/lib/pricing";
 import { goesToSeatPage, quickBuyLabel } from "@/lib/quick-buy";
+import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsSummary } from "@/lib/refund-policy";
 import { organiserProfileHref } from "@/lib/sample-organisers";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 
@@ -44,26 +45,37 @@ const ENDED_TEXT = "This event has ended.";
 /**
  * Refunds beside the tickets (docs/design/mobile-redesign.md §6.5), only
  * where a paid purchase on Sheltüh is possible: an external event's own site
- * has its terms, and nothing is refunded on a free-only or ended event. It
- * points at the existing Purchase Terms and refund pages and invents no
- * policy. (The age restriction is in Good to know, once.)
+ * has its terms, and nothing is refunded on a free-only or ended event. The
+ * event's own refund policy (lib/refund-policy.ts; the default for a demo
+ * event), the Australian Consumer Law line that always applies, then the
+ * existing Purchase Terms and refund pages. (The age restriction is in Good
+ * to know, once.)
  */
-function BookingInfo() {
+function BookingInfo({ event }: { event: SheltuhEvent }) {
   const linkClass = "underline underline-offset-4 hover:decoration-2";
+  const policy = refundTermsSummary(event.refundPolicy ?? DEFAULT_REFUND_POLICY, event.refundDays);
   return (
     <dl data-booking-info="" className="mt-4 flex flex-col gap-2 border-t border-surface-border pt-4 text-sm leading-5">
       <div>
         <dt className="eyebrow text-muted">Refunds</dt>
-        <dd className="mt-1">
-          Refund conditions are in our{" "}
-          <Link href="/purchase-terms" className={linkClass}>
-            Purchase Terms
-          </Link>
-          . To ask for one, use{" "}
-          <Link href="/refunds" className={linkClass}>
-            Request a refund
-          </Link>
-          .
+        <dd className="mt-1 flex flex-col gap-1">
+          {policy && (
+            <p data-refund-policy="" className="font-semibold">
+              {policy}
+            </p>
+          )}
+          {policy && <p className="text-muted">{REFUND_ACL_STATEMENT}</p>}
+          <p>
+            Refund conditions are in our{" "}
+            <Link href="/purchase-terms" className={linkClass}>
+              Purchase Terms
+            </Link>
+            . To ask for one, use{" "}
+            <Link href="/refunds" className={linkClass}>
+              Request a refund
+            </Link>
+            .
+          </p>
         </dd>
       </div>
     </dl>
@@ -331,7 +343,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                         <TicketSelector event={event} />
                       </div>
                     )}
-                    {paidPurchasePossible && <BookingInfo />}
+                    {paidPurchasePossible && <BookingInfo event={event} />}
                   </>
                 )}
               </Panel>

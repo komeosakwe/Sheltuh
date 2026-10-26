@@ -145,6 +145,16 @@ describe("queueing", () => {
     expect(order.emailed).toBe(true);
   });
 
+  it("the email says the event's refund policy, as stored on the event (docs/architecture.md, Refund policy)", async () => {
+    await paidOrder("fan@example.com", { runDeferred: true });
+    expect(api.sendEmail.mock.calls[0][0].text).toContain("Refund policy: No refunds for change of mind.");
+    await api.db.query(`update public.events set refund_policy = 'days_before', refund_days = 10 where id = $1`, [eventId]);
+    await paidOrder("fan@example.com", { runDeferred: true });
+    const { text, html } = api.sendEmail.mock.calls[1][0];
+    expect(text).toContain("Refund policy: Refunds available up to 10 days before the event.");
+    expect(html).toContain("Refunds available up to 10 days before the event.");
+  });
+
   it("a duplicate webhook, before or after the send, never queues or sends a second email", async () => {
     const orderId = await paidOrder();
     await api.send(stripeWebhook, paidWebhook(orderId)); // redelivered before the first send ran

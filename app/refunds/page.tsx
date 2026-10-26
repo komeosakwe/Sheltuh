@@ -18,7 +18,15 @@ export default function RefundsPage() {
           can.
         </p>
       </ContentSection>
+      <ContentSection title="Each event’s refund policy">
+        <p>
+          Every event shows its own refund policy beside its tickets, and again before you pay:
+          either no refunds for change of mind, or refunds for any reason up to a set number of
+          days before the event. Events with tickets sold on another site follow that site’s terms.
+        </p>
+      </ContentSection>
       <ContentSection title="When you’re refunded">
+        <p>Whatever the event’s policy:</p>
         <ul>
           <li>The event is cancelled.</li>
           <li>

@@ -22,6 +22,7 @@ const createEventDraft = vi.fn();
 vi.mock("@/lib/api/events", async (importOriginal) => ({
   // The real check (it only reads the error): the editor tells a payouts refusal apart with it.
   isPayoutsRequiredError: (await importOriginal<typeof import("@/lib/api/events")>()).isPayoutsRequiredError,
+  isRefundPolicyTightenedError: (await importOriginal<typeof import("@/lib/api/events")>()).isRefundPolicyTightenedError,
   updateEventDraft: (...args: unknown[]) => updateEventDraft(...args),
   createEventDraft: (...args: unknown[]) => createEventDraft(...args),
   submitEventForReview: vi.fn(),
@@ -158,11 +159,12 @@ describe("EventEditor seating — organiser, new event", () => {
 
     await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard/evt-9/seat-map"));
     expect(push).toHaveBeenCalledTimes(1);
-    // No seating field is invented: the same draft as general admission.
+    // No seating field is invented: the same draft as general admission (with its refund policy, the default).
     const [input] = createEventDraft.mock.calls[0];
     expect(Object.keys(input).sort()).toEqual(
-      ["category", "description", "end", "start", "suburb", "ticketTypes", "title", "venueAddress", "venueName"].sort(),
+      ["category", "description", "end", "refundPolicy", "start", "suburb", "ticketTypes", "title", "venueAddress", "venueName"].sort(),
     );
+    expect(input.refundPolicy).toBe("no_change_of_mind");
   });
 
   it("with general admission: saving goes to the event, as before", async () => {

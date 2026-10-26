@@ -62,6 +62,18 @@ export function refundPolicySummary(policy: RefundPolicy, days?: number | null):
   return `Refunds available up to ${days} ${days === 1 ? "day" : "days"} before the event.`;
 }
 
+/**
+ * refundPolicySummary for a policy as a payload carries it, for display:
+ * null (say nothing) when there's no policy, or a `days_before` without valid
+ * days, instead of throwing. Callers for which absent means the default (a
+ * PublicEvent, a demo event) pass `policy ?? DEFAULT_REFUND_POLICY`.
+ */
+export function refundTermsSummary(policy: RefundPolicy | null | undefined, days?: number | null): string | null {
+  if (policy !== "no_change_of_mind" && policy !== "days_before") return null;
+  if (policy === "days_before" && !isValidRefundDays(days)) return null;
+  return refundPolicySummary(policy, days);
+}
+
 /** A policy as stored: `refundDays` is set only for `days_before`. */
 export interface RefundTerms {
   refundPolicy: RefundPolicy;

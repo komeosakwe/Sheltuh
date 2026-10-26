@@ -1,6 +1,7 @@
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { formatAud } from "@/lib/format";
 import { directionsHref } from "@/lib/maps";
+import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsSummary } from "@/lib/refund-policy";
 import { formatSeatLine, speakSeatLine } from "@/lib/seating/format";
 import { QR_QUIET_ZONE_MODULES, ticketQrLabel, ticketQrMatrix } from "@/lib/ticket-qr";
 import { subjectLine, type EmailMessage, type InlineImage } from "./email";
@@ -34,8 +35,11 @@ import type { EventRecord, OrderRecord, TicketSeat } from "./types";
  * white ticket panel per ticket (type, "Ticket n of N", seat, a dashed
  * perforation, the QR, "Show this code at the door." and the backup code);
  * the "View your ticket(s) →" button to the order's ticket page, with a text
- * fallback link; the order reference and total; "Need a hand?" with the
- * support address; and the branded footer (the footer image, once).
+ * fallback link; the order reference and total; for a paid order, the
+ * event's refund policy and the Australian Consumer Law line
+ * (ticketEmailRefundPolicy);
+ * "Need a hand?" with the support address; and the branded footer (the
+ * footer image, once).
  *
  * Everything essential (event, when, where, every ticket code and seat, the
  * total) is real text, so it reads the same with images blocked; every image
@@ -266,6 +270,20 @@ ${qrRow}<tr><td align="center" class="tpx" style="padding:${qr ? 16 : 20}px 20px
 </table>`;
 }
 
+/**
+ * The event's refund policy for the email (lib/refund-policy.ts), or null:
+ * only for an order that cost something (nothing to refund on a free one), of
+ * a listed event (the same rule as the ticket page's details), ticketed on
+ * Sheltüh (another site's terms apply to an external event). The event is the
+ * live one the outbox loads on every attempt (findEventById), so a resend
+ * says the policy as it stands then; it can only have become more generous
+ * since the order (an event with orders can't be tightened).
+ */
+export function ticketEmailRefundPolicy(order: Pick<OrderRecord, "totalCents">, event: EventRecord): string | null {
+  if (order.totalCents <= 0 || event.status !== "published" || event.ticketingMode === "external") return null;
+  return refundTermsSummary(event.refundPolicy ?? DEFAULT_REFUND_POLICY, event.refundDays);
+}
+
 /** The orange "YOU'RE IN" label: black text on Signal Orange (6.18:1), 14px bold, barely tracked. */
 const YOURE_IN_LABEL = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 12px 0"><tr><td bgcolor="${SIGNAL}" style="background-color:${SIGNAL};border-radius:4px;padding:4px 10px;${text(14, 20, INK, "font-weight:bold;letter-spacing:0.5px")}">YOU&rsquo;RE IN</td></tr></table>`;
 
@@ -288,6 +306,7 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
   const qrs = order.tickets.map((t, i) => ticketQr(t.ticketCode, i));
   const anyQr = qrs.some((qr) => qr !== null);
   const total = order.tickets.length;
+  const refunds = ticketEmailRefundPolicy(order, event);
 
   // --- Plain text ---
   const plain = [
@@ -326,6 +345,7 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
     "",
     `Order reference: ${reference}`,
     `Total paid: ${totalText}`,
+    ...(refunds ? ["", `Refund policy: ${refunds}`, REFUND_ACL_STATEMENT] : []),
     "",
     `Need a hand? Email ${SUPPORT_EMAIL}`,
     "Sheltüh, Melbourne",
@@ -382,12 +402,20 @@ ${
 <tr><td style="padding:14px 12px 4px 0;${text(15, 22, MUTED, "white-space:nowrap")}">Order reference</td><td align="right" style="padding:14px 0 4px 0;${text(15, 22, INK, `font-family:${MONO}`)}">${escapeHtml(reference)}</td></tr>
 <tr><td valign="top" style="padding:4px 12px 14px 0;${text(16, 24, INK, "font-weight:bold;white-space:nowrap")}">Total paid</td><td align="right" valign="top" style="padding:4px 0 14px 0;${text(16, 24, INK, "font-weight:bold")}">${escapeHtml(free ? "Free" : formatAud(order.totalCents))}${free ? "" : `<br><span style="font-size:14px;line-height:20px;font-weight:normal;color:${MUTED}">incl. booking fees</span>`}</td></tr>
 </table>`;
+  // Under the summary: the policy in black, the ACL line muted.
+  const refundNote = refunds
+    ? para(
+        `<span style="font-weight:bold">Refund policy:</span> ${escapeHtml(refunds)}`,
+        text(15, 22, INK),
+        "14px 0 0 0",
+      ) + para(escapeHtml(REFUND_ACL_STATEMENT), text(14, 20, MUTED), "4px 0 0 0")
+    : "";
 
   const body = `${details}
 ${panels}
 ${tip}${button(`${buttonLabel} →`, link, "4px 0 12px 0", true)}
 ${fallback}
-${summary}`;
+${summary}${refundNote}`;
 
   const preheader = `Your ${one ? "ticket" : "tickets"} for ${event.title}. Show your ${anyQr ? "QR code" : "entry code"} at the door.`;
   const html = page({
