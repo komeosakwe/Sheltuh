@@ -192,6 +192,51 @@ for (const vp of [
   });
 }
 
+// Owner request (26 Oct 2026): on a phone, Save and Share are on the first screen too, above the
+// buy bar, with a two-line title and a two-line address. 390×664 is a 390×844 phone less its
+// browser chrome; 375×667 is the small iPhone.
+for (const vp of [
+  { width: 390, height: 664 },
+  { width: 375, height: 667 },
+]) {
+  test.describe(`Save and Share on the first screen at ${vp.width}×${vp.height}`, () => {
+    test.use({ viewport: vp });
+
+    test("laneway-projections-after-dark: the actions row ends above the buy bar", async ({ page }) => {
+      await mockApi(page);
+      await page.goto("/events/laneway-projections-after-dark");
+      const h1 = page.getByRole("heading", { level: 1 });
+      await expect(h1).toBeVisible({ timeout: 30_000 });
+      expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+      // The case it's for: the title and the address each take two lines.
+      const lines = (el: HTMLElement) => Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight));
+      expect(await h1.evaluate(lines)).toBe(2);
+      const address = page.locator("[data-event-facts] [data-directions]");
+      expect(await address.evaluate(lines)).toBe(2);
+
+      const bar = await page.locator("[data-buy-bar]").boundingBox();
+      if (!bar) throw new Error("no buy bar");
+      const actions = page.locator("[data-event-actions]");
+      const save = actions.getByRole("link", { name: "Sign in to save Laneway Projections: After Dark" });
+      const share = actions.getByRole("button", { name: "Share Laneway Projections: After Dark" });
+      for (const control of [save, share]) {
+        const box = await control.boundingBox();
+        if (!box) throw new Error("not laid out");
+        expect(box.height).toBeGreaterThanOrEqual(44);
+        expect(box.y + box.height).toBeLessThanOrEqual(bar.y);
+      }
+      // Add to calendar keeps its 44px target, and doesn't overlap the address link below it.
+      const calendar = await page.getByRole("button", { name: "Add to calendar" }).boundingBox();
+      const addressBox = await address.boundingBox();
+      if (!calendar || !addressBox) throw new Error("not laid out");
+      expect(calendar.height).toBeGreaterThanOrEqual(44);
+      expect(calendar.y + calendar.height).toBeLessThanOrEqual(addressBox.y);
+      await noSidewaysScroll(page);
+    });
+  });
+}
+
 test.describe("live event page that can't load", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
@@ -542,3 +587,103 @@ test.describe("organiser logo at 375px", () => {
     });
   }
 });
+
+/** A 16×16 grey PNG for every basemap tile (as e2e/map-tiles.spec.ts): the map loads without the network. */
+const TILE = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAGklEQVR42mM4QSJgOHHixCNSwKiGUQ1DRwMAAaucrZWSFIMAAAAASUVORK5CYII=",
+  "base64",
+);
+
+// The Location section (owner request, 26 Oct 2026): after About in the main column, the venue, a
+// small map loaded only as it nears the screen (a live event has no coordinates, so the pin is its
+// suburb's centre, from the suburb table), and "Open in Maps". Tiles are answered here.
+for (const vp of [
+  { width: 320, height: 640 },
+  { width: 390, height: 844 },
+  { width: 1280, height: 800 },
+]) {
+  test.describe(`location section at ${vp.width}px`, () => {
+    test.use({ viewport: vp });
+
+    test("after About, with the venue, a decorative map loaded on approach, and Open in Maps", async ({ page }) => {
+      await mockApi(page);
+      const tiles: string[] = [];
+      await page.route("https://server.arcgisonline.com/**", (route) => {
+        tiles.push(route.request().url());
+        return route.fulfill({ contentType: "image/png", body: TILE });
+      });
+      // Google Maps: a stub page, never the real site.
+      await page.context().route(/^https:\/\/www\.google\.com\/maps\//, (route) =>
+        route.fulfill({ contentType: "text/html", body: "<title>Maps</title><p>stub</p>" }),
+      );
+      await page.goto("/events/neon-static");
+      await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
+      const event = sampleEvents.find((e) => e.slug === "neon-static");
+      if (!event) throw new Error("no sample");
+      const address = `${event.venueName}, ${event.venueAddress}`;
+      const href = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
+
+      // Straight after About (the live API sends no Good to know details).
+      const headings = await page.getByRole("heading", { level: 2 }).allTextContents();
+      expect(headings.slice(headings.indexOf("About this event"), headings.indexOf("About this event") + 2)).toEqual([
+        "About this event",
+        "Location",
+      ]);
+      const location = page.getByRole("region", { name: "Location" });
+      await expect(location).toContainText(event.venueName);
+      await expect(location).toContainText(event.venueAddress);
+
+      // Below the fold on a phone: nothing of the map has loaded yet.
+      const map = location.locator("[data-event-map]");
+      if (vp.width < 1024) {
+        await expect(location.locator(".leaflet-container")).toHaveCount(0);
+        expect(tiles).toEqual([]);
+      }
+
+      await map.scrollIntoViewIfNeeded();
+      await expect(location.locator(".leaflet-container")).toBeVisible({ timeout: 20_000 });
+      await expect(location.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
+      expect(tiles.length).toBeGreaterThan(0);
+      // One pin, in /map's marker style, and Esri's credit on show.
+      await expect(location.locator(".leaflet-marker-icon")).toHaveCount(1);
+      await expect(location.locator(".leaflet-control-attribution")).toContainText("Esri");
+      // A suburb's centre, said so; never a claim of the exact spot.
+      await expect(location).toContainText("The pin marks Collingwood, VIC, not the venue’s exact spot.");
+
+      // Hidden from assistive technology and the keyboard: the one named control is Open in Maps.
+      await expect(map).toHaveAttribute("aria-hidden", "true");
+      const link = location.getByRole("link", {
+        name: `Open in Maps: directions to ${address} (opens Google Maps in a new tab)`,
+      });
+      await expect(link).toHaveAttribute("href", href);
+      await expect(link).toHaveAttribute("target", "_blank");
+      await expect(location.getByRole("link")).toHaveCount(1);
+      const linkBox = await link.boundingBox();
+      expect(linkBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+      // The box keeps its size: ~200px on phones, 256px on desktop.
+      const box = await map.locator("[data-surface]").boundingBox();
+      expect(box?.height).toBe(vp.width < 1024 ? 208 : 256);
+
+      // A wheel over the map scrolls the page, never the map.
+      const before = await page.evaluate(() => window.scrollY);
+      const centre = { x: (box?.x ?? 0) + (box?.width ?? 0) / 2, y: (box?.y ?? 0) + (box?.height ?? 0) / 2 };
+      await page.mouse.move(centre.x, centre.y);
+      await page.mouse.wheel(0, 200);
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(before);
+
+      await noSidewaysScroll(page);
+
+      // A tap on the map opens directions too.
+      await map.scrollIntoViewIfNeeded();
+      const mapBox = await map.locator("[data-surface]").boundingBox();
+      if (!mapBox) throw new Error("map not laid out");
+      const [popup] = await Promise.all([
+        page.waitForEvent("popup"),
+        page.mouse.click(mapBox.x + mapBox.width / 2, mapBox.y + mapBox.height / 3),
+      ]);
+      await expect(popup).toHaveURL(href);
+      await popup.close();
+    });
+  });
+}

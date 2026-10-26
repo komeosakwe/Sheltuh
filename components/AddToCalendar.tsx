@@ -46,7 +46,21 @@ type Links = { google: string; outlook: string };
  * links. If the event's date can't be read, there's nothing to add, and a
  * short message says so instead.
  */
-export default function AddToCalendar({ event, className = "" }: { event: CalendarEvent; className?: string }) {
+export default function AddToCalendar({
+  event,
+  className = "",
+  menuFromParent = false,
+}: {
+  event: CalendarEvent;
+  className?: string;
+  /**
+   * Set where the button sits inline, after other text: the menu then opens
+   * from the nearest positioned ancestor (the caller makes one, e.g. the
+   * column), so it starts at that edge and stays on screen, rather than from
+   * the button.
+   */
+  menuFromParent?: boolean;
+}) {
   const [links, setLinks] = useState<Links | null>(null);
   const [android, setAndroid] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
@@ -111,7 +125,7 @@ export default function AddToCalendar({ event, className = "" }: { event: Calend
   return (
     <div
       ref={rootRef}
-      className={`relative w-fit ${className}`.trim()}
+      className={`${menuFromParent ? "" : "relative "}w-fit ${className}`.trim()}
       onKeyDown={(e) => {
         if (e.key === "Escape" && open) {
           e.stopPropagation();
