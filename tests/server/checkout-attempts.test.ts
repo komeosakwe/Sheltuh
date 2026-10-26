@@ -12,7 +12,7 @@ import {
   stripeWebhook,
 } from "@/lib/server/handlers/orders";
 import type { EventRecord } from "@/lib/server/types";
-import { embeddedSession, expectSessionPaymentOptions, OPS_ALERT_EMAIL, stripeWebhookRequest, TestApi, WEBHOOK_SECRET } from "./helpers/api";
+import { embeddedSession, expectSessionPaymentOptions, OPS_ALERT_EMAIL, sessionAmount, stripeWebhookRequest, TestApi, WEBHOOK_SECRET } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { seatedEvent, seatStates } from "./helpers/seating";
 import { createTestDb } from "./helpers/test-db";
@@ -747,6 +747,7 @@ describe("seated checkout", () => {
           id: "cs_test_1",
           object: "checkout.session",
           client_reference_id: released.id,
+          ...(await sessionAmount(api.db, released.id)),
           payment_status: "paid",
           payment_intent: "pi_late_seats",
           customer_details: { email: "fan@example.com" },

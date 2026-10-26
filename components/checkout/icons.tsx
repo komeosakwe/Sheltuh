@@ -18,6 +18,14 @@ export function ArrowLeftIcon({ className = "size-4 shrink-0" }: { className?: s
   );
 }
 
+export function CheckIcon({ className = "size-4 shrink-0" }: { className?: string }) {
+  return (
+    <svg {...common} strokeWidth={2.5} className={className}>
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+}
+
 export function ChevronDownIcon({ className = "size-4 shrink-0" }: { className?: string }) {
   return (
     <svg {...common} className={className}>

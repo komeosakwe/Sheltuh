@@ -10,7 +10,7 @@ import {
   stripeWebhook,
 } from "@/lib/server/handlers/orders";
 import { joinWaitlist } from "@/lib/server/handlers/waitlist";
-import { embeddedSession, expectSessionPaymentOptions, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
+import { embeddedSession, expectSessionPaymentOptions, sessionAmount, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { orderIdFromUrl, seatedEvent, seatStates, tierCounts } from "./helpers/seating";
 import { createTestDb } from "./helpers/test-db";
@@ -58,7 +58,7 @@ async function orders() {
   );
 }
 
-function completed(orderId: string, paymentIntent = `pi_${orderId}`) {
+async function completed(orderId: string, paymentIntent = `pi_${orderId}`) {
   return stripeWebhookRequest({
     type: "checkout.session.completed",
     data: {
@@ -66,6 +66,7 @@ function completed(orderId: string, paymentIntent = `pi_${orderId}`) {
         id: "cs_test_1",
         object: "checkout.session",
         client_reference_id: orderId,
+        ...(await sessionAmount(api.db, orderId)),
         payment_status: "paid",
         payment_intent: paymentIntent,
         customer_details: { email: "buyer@example.com" },

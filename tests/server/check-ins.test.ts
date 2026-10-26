@@ -9,7 +9,7 @@ import { createCheckout, getOrderBySession, stripeWebhook } from "@/lib/server/h
 import { applyAsOrganiser } from "@/lib/server/handlers/organisers";
 import { runHandler } from "@/lib/server/route";
 import type { EventRecord } from "@/lib/server/types";
-import { embeddedSession, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
+import { embeddedSession, sessionAmount, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { application, approvedOrganiser, enablePayouts, eventInput, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
@@ -76,6 +76,7 @@ async function paidOrder(eventId: string, lineItems: { ticketTypeId: string; qua
           id: `cs_${paymentIntent}`,
           object: "checkout.session",
           client_reference_id: orderId,
+          ...(await sessionAmount(api.db, orderId)),
           payment_status: "paid",
           payment_intent: paymentIntent,
           customer_details: { email: "buyer@example.com" },

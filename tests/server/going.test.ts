@@ -11,7 +11,7 @@ import {
 import { deleteMyProfile, putMyProfile } from "@/lib/server/handlers/profiles";
 import { createCheckout, stripeWebhook } from "@/lib/server/handlers/orders";
 import type { EventRecord } from "@/lib/server/types";
-import { stripeWebhookRequest, TestApi } from "./helpers/api";
+import { sessionAmount, stripeWebhookRequest, TestApi } from "./helpers/api";
 import {
   approvedOrganiser,
   draftEvent,
@@ -121,6 +121,7 @@ describe("opting in: who is eligible", () => {
             id: "cs_test_1",
             object: "checkout.session",
             client_reference_id: id,
+            ...(await sessionAmount(api.db, id)),
             payment_status: "paid",
             payment_intent: "pi_test_1",
             customer_details: { email: "payer@example.com" },

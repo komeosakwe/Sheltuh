@@ -67,7 +67,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261109000500_ticket_wallet_serial.sql`. Never
+      newest, currently `20261110000300_amount_mismatch_refund.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -121,6 +121,42 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           random wallet pass serial; rewrites `public.tickets` once. Apply
           before the app with wallet passes deploys: its wallet routes read
           the column, and answer 500 without it)
+      28. `20261110000100_order_support.sql` (Support Sheltüh: the
+          `orders.support_cents` column, its checks, and `private.hold_seats`
+          taking the amount). **Apply it first, before the app with Support
+          Sheltüh deploys.** That app reads `support_cents` everywhere an
+          order is read, so shipping it without this file breaks: Stripe
+          fulfilment (the webhook's `findOrder` selects `support_cents`, so
+          every paid order stays pending and Stripe keeps retrying), the
+          ticket emails, the ticket and payment pages, wallet passes,
+          analytics, and every paid checkout, general admission and seated
+          (all 500s). The previous app keeps working against it: its
+          18-argument `hold_seats` call takes the new form's default, and
+          its general admission insert the column's.
+      29. `20261110000150_support_in_exceptions.sql` (payment exceptions
+          carry the order's `supportCents`, and the new `amount_mismatch`
+          kind: a paid session whose amount or currency isn't the order's.
+          Needs file 28 (it reads `support_cents`). Apply it before the app
+          that opens `amount_mismatch` exceptions deploys: without it that
+          app's webhook fails (500, Stripe retries) on a mismatched payment,
+          since `raise_payment_exception` refuses the unknown kind; matching
+          payments are fulfilled as ever. The previous app keeps working against it)
+      30. `20261110000200_support_ticket_refund.sql` (`charge.refunded`:
+          an order with Support Sheltüh refunded by at least `total_cents −
+          support_cents`, the runbook's "tickets only" recipe, is voided as a
+          full refund, its tickets void and its stock released, the support
+          kept. Redefines `private.record_payment_refund` only; needs file 28.
+          Apply it before the app that documents the new runbook deploys; the
+          previous app keeps working against it, and without it a
+          tickets-only refund leaves the tickets valid, as before)
+      31. `20261110000300_amount_mismatch_refund.sql` (creates
+          `private.fail_mismatched_order`: a paid session whose amount or
+          currency isn't the order's fails the order and the app refunds it.
+          Needs files 28 and 29. **Apply it before this app deploys**: this
+          app's webhook calls the function on a mismatched payment, and
+          without it that call fails (500, Stripe retries, the order stays
+          pending); matching payments are fulfilled as ever. The previous app
+          keeps working against it: it never calls the function)
 
       Files 24 to 26 were written as `20261104000000_payment_reconciliation.sql`,
       `20261104000100_email_outbox_health.sql` and
@@ -201,6 +237,24 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       in Stripe test mode, refund a payment made with card
       `4000 0000 0000 5126` (its refund fails after succeeding) and confirm an
       exception and an alert appear.
+- [ ] **Support Sheltüh refunds** (docs/supabase-setup.md, "Refunding a paid
+      order"): before go-live, in Stripe test mode, buy a ticket with A$5
+      support and try each recipe: a full refund with both "reverse
+      transfer" and "refund application fee" ticked; the support alone with
+      neither ticked; and the tickets only (refund `total_cents −
+      support_cents` with neither ticked, then reverse the transfer by the
+      organiser's net, `total_cents − application_fee_cents −
+      support_cents`). Confirm that the transfer object shows the order's
+      `total_cents` and the application fee object `application_fee_cents +
+      support_cents` (Stripe transfers the whole charge and collects the fee
+      back), that the organiser's and Sheltüh's balances end where the
+      runbook says (Sheltüh up by `support_cents`), that the support-only
+      refund leaves the order `paid` with its `partial_refund` exception and
+      alert showing `supportCents`, and that the tickets-only refund makes
+      the order `refunded` (no ticket codes on its page, stock back on
+      sale). Also note what the organiser's Express dashboard shows
+      for the fee (docs/architecture.md, "Support Sheltüh": a known limit
+      until separate charges and transfers).
 - [ ] **`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`** (embedded checkout: the
       payment form is on our own page, `/checkout/pay`). In Vercel set it
       per environment, matching that environment's `STRIPE_SECRET_KEY`:

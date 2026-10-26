@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { EmailOutboxKind } from "@/lib/api/types";
+import type { EmailOutboxKind, PaymentExceptionKind } from "@/lib/api/types";
 import { buildEventReviewEmail, buildOrganiserReviewEmail } from "./admin-review-email";
 import { PG_UNDEFINED_FUNCTION, pgErrorCode } from "./db";
 import type { Deps } from "./deps";
@@ -10,7 +10,7 @@ import { findEventById } from "./handlers/event-queries";
 import { CHECKOUT_LIMITS } from "./checkout-attempts";
 import { buildCheckoutSurgeAlertEmail, buildOpsAlertEmail } from "./ops-alert-email";
 import { orderReference } from "./order-reference";
-import { EVENT_SELECT, ORDER_SELECT, paymentExceptionDetails, toEvent, toOrder } from "./records";
+import { EVENT_SELECT, ORDER_SELECT, paymentExceptionDetails, paymentExceptionUrgent, toEvent, toOrder } from "./records";
 import { buildTicketEmail } from "./ticket-email";
 import { buildWaitlistAvailableEmail, waitlistEventLink, waitlistLeaveLink } from "./waitlist-email";
 
@@ -481,7 +481,7 @@ async function deliverOpsAlert(deps: Deps, jobId: string): Promise<Outcome> {
     );
     if (job?.about_event) return await deliverCheckoutSurgeAlert(deps, to, jobId);
     const [row] = await deps.db.query<{
-      kind: "refund_not_completed" | "partial_refund" | "manual_refund_required";
+      kind: PaymentExceptionKind;
       status: string;
       order_id: string | null;
       order_status: string | null;
@@ -507,7 +507,7 @@ async function deliverOpsAlert(deps: Deps, jobId: string): Promise<Outcome> {
           kind: row.kind,
           reference: row.order_id ? orderReference(row.order_id) : undefined,
           orderStatus: orderStatus ?? undefined,
-          urgent: row.kind === "refund_not_completed" && orderStatus === "refunded",
+          urgent: paymentExceptionUrgent(row.kind, orderStatus),
           details,
           stripeEventId: row.stripe_event_id ?? undefined,
           openedAt: new Date(row.opened_at),

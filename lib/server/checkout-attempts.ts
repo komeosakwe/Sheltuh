@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type Stripe from "stripe";
 import { calculateBookingFeeCents } from "@/lib/fees";
 import { formatSeatLine } from "@/lib/seating/format";
+import { SUPPORT_LABEL } from "@/lib/support";
 import { clientIp, clientKey } from "./client-key";
 import type { Db } from "./db";
 import type { Deps } from "./deps";
@@ -160,13 +161,18 @@ export interface CheckoutBasket {
   /** As sent: normalised here (trimmed, lowercased). */
   buyerEmail: unknown;
   trackingCode: string | null;
+  /** Support Sheltüh (validated: 0 for none). */
+  supportCents?: number;
 }
 
 /**
  * SHA-256 (hex) over the event, the kind, the canonical basket (lines sorted
- * by ticket type, seats sorted, the map version), the normalised buyer email
- * and the tracking code. Stored instead of the basket, so the attempts table
- * holds no email.
+ * by ticket type, seats sorted, the map version), the normalised buyer email,
+ * the tracking code and, only when there is one, the Support Sheltüh amount
+ * (so a basket without it hashes exactly as before it existed, and an attempt
+ * begun before a deploy still replays). Stored instead of the basket, so the
+ * attempts table holds no email. A replay with another support amount is a
+ * mismatch (422), like any other change.
  */
 export function checkoutFingerprint(basket: CheckoutBasket): string {
   const lines = basket.lines
@@ -181,6 +187,7 @@ export function checkoutFingerprint(basket: CheckoutBasket): string {
     basket.seats ? [basket.seats.mapVersion, [...basket.seats.seatIds].sort()] : null,
     email,
     basket.trackingCode,
+    ...(basket.supportCents && basket.supportCents > 0 ? [basket.supportCents] : []),
   ]);
   return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
@@ -373,6 +380,8 @@ interface BeginRow {
 interface SessionOrder {
   line_items: OrderLineItem[];
   application_fee_cents: number;
+  /** Support Sheltüh: all of it is the platform's (added to the application fee). */
+  support_cents: number;
   buyer_email: string | null;
   event_title: string;
   created_epoch: number;
@@ -383,7 +392,7 @@ interface SessionOrder {
 /** Everything the session is made from, read back from the order, so a retry for the same order sends Stripe the same parameters. */
 async function loadSessionOrder(db: Db, orderId: string): Promise<SessionOrder | undefined> {
   const [row] = await db.query<SessionOrder>(
-    `select o.line_items, o.application_fee_cents, o.buyer_email, o.event_title,
+    `select o.line_items, o.application_fee_cents, o.support_cents, o.buyer_email, o.event_title,
             floor(extract(epoch from o.created_at))::float8 as created_epoch,
             case when o.seat_ids is not null then
               (select coalesce(jsonb_agg(jsonb_build_object('ticketTypeId', s.ticket_type_id, 'section', s.section_label,
@@ -401,6 +410,11 @@ async function loadSessionOrder(db: Db, orderId: string): Promise<SessionOrder |
 /**
  * The embedded Checkout Session's parameters, all from the stored order (and
  * its seats), so a retry for the same order sends exactly the same ones.
+ * Support Sheltüh (lib/support.ts), when the order has it, is one more line
+ * after the tickets and their fees, and is added to application_fee_amount:
+ * all of it is Sheltüh's, and the organiser's transfer (the total less the
+ * application fee) is exactly what it is without it. An order without it
+ * gets the very same parameters as before support existed.
  */
 function sessionParams(
   order: SessionOrder,
@@ -441,11 +455,21 @@ function sessionParams(
         });
       }
       return items;
-    }),
+    }).concat(
+      order.support_cents > 0
+        ? [
+            {
+              price_data: { currency: "aud", product_data: { name: SUPPORT_LABEL }, unit_amount: order.support_cents },
+              quantity: 1,
+            },
+          ]
+        : [],
+    ),
     // A destination charge: the organiser's transfer is part of the payment (charge.refunded's
     // transfer_data.destination is how an early refund is matched to one of our organisers: orders.ts).
+    // The application fee is the booking fee plus any Support Sheltüh, so the transfer never includes support.
     payment_intent_data: {
-      application_fee_amount: order.application_fee_cents,
+      application_fee_amount: order.application_fee_cents + order.support_cents,
       transfer_data: { destination: checkout.stripeAccountId },
     },
     // Stripe's form on our own page (/checkout/pay); no cancel_url in this mode (Back is ours: for seats,

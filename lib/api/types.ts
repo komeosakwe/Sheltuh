@@ -434,8 +434,12 @@ export interface OrderRecord {
   lineItems: OrderLineItem[];
   subtotalCents: number;
   buyerFeeCents: number;
+  /** What the buyer paid: subtotal, buyer-paid fees and any Support Sheltüh. */
   totalCents: number;
+  /** The booking fee (the platform's, whoever paid it). Never includes Support Sheltüh. */
   applicationFeeCents: number;
+  /** Support Sheltüh (lib/support.ts), all of it the platform's: only when the buyer added some. */
+  supportCents?: number;
   status: OrderStatus;
   /** Unset for free orders, which never touch Stripe. */
   stripeCheckoutSessionId?: string;
@@ -587,6 +591,13 @@ export interface CustomerOrder {
   subtotalCents: number;
   /** Booking fees the buyer paid (not any the organiser absorbed). */
   buyerFeeCents: number;
+  /**
+   * What the buyer added for Support Sheltüh (lib/support.ts: SUPPORT_LABEL),
+   * shown as its own line. Only when they added some; unset otherwise (and
+   * from an older API).
+   */
+  supportCents?: number;
+  /** What the buyer paid, all-inclusive: subtotal, buyer-paid fees and any Support Sheltüh. */
   totalCents: number;
   /**
    * Only for a `paid` order; empty for every other status (a refunded order's
@@ -674,7 +685,13 @@ export interface OrderPaymentSummary {
   subtotalCents: number;
   /** Booking fees the buyer pays (not any the organiser absorbs). */
   buyerFeeCents: number;
-  /** What the buyer pays, all-inclusive: the same amount as Stripe's form. */
+  /**
+   * Support Sheltüh the buyer chose at checkout (lib/support.ts: SUPPORT_LABEL),
+   * its own line in the summary and in Stripe's form. Only when there is some;
+   * unset otherwise (and from an older API).
+   */
+  supportCents?: number;
+  /** What the buyer pays, all-inclusive (Support Sheltüh included): the same amount as Stripe's form. */
   totalCents: number;
 }
 
@@ -808,8 +825,13 @@ export interface EmailOutboxHealth {
  * - `partial_refund`: a paid order was partly refunded; its tickets stand.
  * - `manual_refund_required`: an automatic refund couldn't be requested (no
  *   payment on record): refund it in the Stripe dashboard.
+ * - `amount_mismatch`: Stripe reported a paid Checkout Session whose amount
+ *   or currency isn't the order's stored total in AUD. No tickets were
+ *   issued, the order was marked `failed` and the payment refunded in full
+ *   automatically: check the refund and the payment in the Stripe
+ *   dashboard. Always `urgent`.
  */
-export type PaymentExceptionKind = "refund_not_completed" | "partial_refund" | "manual_refund_required";
+export type PaymentExceptionKind = "refund_not_completed" | "partial_refund" | "manual_refund_required" | "amount_mismatch";
 
 export type PaymentExceptionStatus = "open" | "resolved";
 
@@ -817,9 +839,10 @@ export const PAYMENT_EXCEPTION_STATUSES: readonly PaymentExceptionStatus[] = ["o
 
 /**
  * GET /api/admin/payment-exceptions. Something about a payment that needs a
- * person (docs/architecture.md, "Refunds made in Stripe"). Nothing is ever
- * restored or refunded automatically: an admin acts in the Stripe dashboard,
- * then resolves it with a note. The order is shown by its short reference
+ * person (docs/architecture.md, "Refunds made in Stripe"). Nothing is
+ * restored or refunded again because of one (an `amount_mismatch` payment's
+ * automatic refund is requested as it opens): an admin acts in the Stripe
+ * dashboard, then resolves it with a note. The order is shown by its short reference
  * only, never its id; no buyer data.
  */
 export interface AdminPaymentException {
@@ -827,7 +850,10 @@ export interface AdminPaymentException {
   exceptionId: string;
   kind: PaymentExceptionKind;
   status: PaymentExceptionStatus;
-  /** The order was voided but the refund didn't complete: the buyer has neither tickets nor their money. */
+  /**
+   * Needs a person first: a `refund_not_completed` whose order was voided (the
+   * buyer has neither tickets nor their money), or any `amount_mismatch`.
+   */
   urgent: boolean;
   /** Unset while the payment isn't matched to an order yet. */
   orderReference?: string;
@@ -858,6 +884,22 @@ export interface PaymentExceptionDetails {
   refundAmountCents?: number;
   amountRefundedCents?: number;
   totalCents?: number;
+  /**
+   * The order's Support Sheltüh amount (in totalCents and in the application
+   * fee; 0 for none), to split a dashboard refund (docs/supabase-setup.md,
+   * "Refunding a paid order"). Unset on exceptions opened before it was recorded.
+   */
+  supportCents?: number;
+  /** `amount_mismatch`: what Stripe's session says was charged (amount_total), in `currency`'s minor unit. */
+  amountChargedCents?: number;
+  /** `amount_mismatch`: the session's currency, lower case as Stripe sends it ("aud"). */
+  currency?: string;
+  /**
+   * A `partial_refund` resolved by a tickets-only refund (at least the total
+   * less the support refunded, so the order was voided): the Support Sheltüh
+   * amount kept.
+   */
+  supportKeptCents?: number;
   /** The order's status when the exception was last updated. */
   orderStatus?: string;
   /** `sheltuh`: our automatic refund; `stripe`: one made in the Stripe dashboard. */
@@ -1299,7 +1341,7 @@ export interface DateRange {
 
 /** Money in integer cents. `netCents` = `grossCents` − `feesCents`. */
 export interface MoneyTotals {
-  /** What buyers paid, booking fees they paid included. */
+  /** What buyers paid for the event, booking fees they paid included; never Support Sheltüh (the platform's). */
   grossCents: number;
   /** Sheltüh's booking fees (lib/fees.ts), whether the buyer paid them or the organiser absorbed them. */
   feesCents: number;

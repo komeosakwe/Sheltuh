@@ -14,7 +14,7 @@ import { applyAsOrganiser, getMyOrganiser, resubmitOrganiser } from "@/lib/serve
 import { getPublicEventBySlug, listPublicEvents } from "@/lib/server/handlers/public-events";
 import { getPublicOrganiserProfile } from "@/lib/server/handlers/public-organisers";
 import { ADMIN_ORGANISER_EDIT_LIMIT } from "@/lib/server/records";
-import { stripeWebhookRequest, TestApi } from "./helpers/api";
+import { sessionAmount, stripeWebhookRequest, TestApi } from "./helpers/api";
 import {
   application,
   approvedOrganiser,
@@ -219,6 +219,7 @@ describe("POST /admin/organisers/{id}/suspend: takedown", () => {
           id: "cs_test_1",
           object: "checkout.session",
           client_reference_id: orderId,
+          ...(await sessionAmount(api.db, orderId)),
           payment_status: "paid",
           payment_intent: "pi_test_1",
           customer_details: { email: "buyer@example.com" },

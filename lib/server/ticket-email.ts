@@ -3,6 +3,7 @@ import { formatAud } from "@/lib/format";
 import { directionsHref } from "@/lib/maps";
 import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { formatSeatLine, speakSeatLine } from "@/lib/seating/format";
+import { SUPPORT_LABEL, SUPPORT_REFUND_NOTE } from "@/lib/support";
 import { QR_QUIET_ZONE_MODULES, ticketQrLabel, ticketQrMatrix } from "@/lib/ticket-qr";
 import { subjectLine, type EmailMessage, type InlineImage } from "./email";
 import {
@@ -37,8 +38,9 @@ import type { EventRecord, OrderRecord, TicketSeat, WalletAvailability } from ".
  * while the event is listed, "Add to Apple Wallet" / "Add to Google Wallet"
  * for each wallet the server has on: ticketWalletLinks);
  * the "View your ticket(s) →" button to the order's ticket page, with a text
- * fallback link; the order reference and total; for a paid order, the
- * event's refund policy and the Australian Consumer Law line
+ * fallback link; the order reference, any Support Sheltüh the buyer added
+ * (its own line, lib/support.ts) and the total, which includes it; for a
+ * paid order, the event's refund policy and the Australian Consumer Law line
  * (ticketEmailRefundPolicy);
  * "Need a hand?" with the support address; and the branded footer (the
  * footer image, once).
@@ -370,7 +372,10 @@ export function buildTicketEmail(
   const imageUrl = listed ? eventImageEmailUrl(siteUrl, event.imageUrl) : null;
   const reference = orderReference(order.orderId);
   const free = order.totalCents === 0;
-  const totalText = free ? "Free" : `${formatAud(order.totalCents)} (incl. booking fees)`;
+  // Support Sheltüh the buyer added (paid orders only): its own line above the total, which includes it.
+  const support = !free && order.supportCents && order.supportCents > 0 ? order.supportCents : 0;
+  const includes = support ? `incl. booking fees and ${SUPPORT_LABEL}` : "incl. booking fees";
+  const totalText = free ? "Free" : `${formatAud(order.totalCents)} (${includes})`;
   const qrs = order.tickets.map((t, i) => ticketQr(t.ticketCode, i));
   const anyQr = qrs.some((qr) => qr !== null);
   const total = order.tickets.length;
@@ -414,8 +419,9 @@ export function buildTicketEmail(
     `${buttonLabel}: ${link}`,
     "",
     `Order reference: ${reference}`,
+    ...(support ? [`${SUPPORT_LABEL}: ${formatAud(support)}`] : []),
     `Total paid: ${totalText}`,
-    ...(refunds ? ["", `Refund policy: ${refunds}`, REFUND_ACL_STATEMENT] : []),
+    ...(refunds ? ["", `Refund policy: ${refunds}`, ...(support ? [SUPPORT_REFUND_NOTE] : []), REFUND_ACL_STATEMENT] : []),
     "",
     `Need a hand? Email ${SUPPORT_EMAIL}`,
     "Sheltüh, Melbourne",
@@ -472,7 +478,7 @@ ${
   );
   const summary = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid ${LINE};border-bottom:1px solid ${LINE};margin:28px 0 0 0">
 <tr><td style="padding:14px 12px 4px 0;${text(15, 22, MUTED, "white-space:nowrap")}">Order reference</td><td align="right" style="padding:14px 0 4px 0;${text(15, 22, INK, `font-family:${MONO}`)}">${escapeHtml(reference)}</td></tr>
-<tr><td valign="top" style="padding:4px 12px 14px 0;${text(16, 24, INK, "font-weight:bold;white-space:nowrap")}">Total paid</td><td align="right" valign="top" style="padding:4px 0 14px 0;${text(16, 24, INK, "font-weight:bold")}">${escapeHtml(free ? "Free" : formatAud(order.totalCents))}${free ? "" : `<br><span style="font-size:14px;line-height:20px;font-weight:normal;color:${MUTED}">incl. booking fees</span>`}</td></tr>
+${support ? `<tr><td style="padding:4px 12px 4px 0;${text(15, 22, MUTED, "white-space:nowrap")}">${escapeHtml(SUPPORT_LABEL)}</td><td align="right" style="padding:4px 0 4px 0;${text(15, 22, INK)}">${escapeHtml(formatAud(support))}</td></tr>\n` : ""}<tr><td valign="top" style="padding:4px 12px 14px 0;${text(16, 24, INK, "font-weight:bold;white-space:nowrap")}">Total paid</td><td align="right" valign="top" style="padding:4px 0 14px 0;${text(16, 24, INK, "font-weight:bold")}">${escapeHtml(free ? "Free" : formatAud(order.totalCents))}${free ? "" : `<br><span style="font-size:14px;line-height:20px;font-weight:normal;color:${MUTED}">${escapeHtml(includes)}</span>`}</td></tr>
 </table>`;
   // Under the summary: the policy in black, the ACL line muted.
   const refundNote = refunds
@@ -480,7 +486,9 @@ ${
         `<span style="font-weight:bold">Refund policy:</span> ${escapeHtml(refunds)}`,
         text(15, 22, INK),
         "14px 0 0 0",
-      ) + para(escapeHtml(REFUND_ACL_STATEMENT), text(14, 20, MUTED), "4px 0 0 0")
+      ) +
+      (support ? para(escapeHtml(SUPPORT_REFUND_NOTE), text(15, 22, INK), "4px 0 0 0") : "") +
+      para(escapeHtml(REFUND_ACL_STATEMENT), text(14, 20, MUTED), "4px 0 0 0")
     : "";
 
   const body = `${details}

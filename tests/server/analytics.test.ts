@@ -16,7 +16,7 @@ import { createCheckout, stripeWebhook } from "@/lib/server/handlers/orders";
 import { applyAsOrganiser } from "@/lib/server/handlers/organisers";
 import { createTrackingLink, deleteTrackingLink, listTrackingLinks } from "@/lib/server/handlers/tracking-links";
 import type { EventRecord } from "@/lib/server/types";
-import { embeddedSession, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
+import { embeddedSession, sessionAmount, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
 import {
   application,
   approvedOrganiser,
@@ -129,6 +129,7 @@ async function paidOrder(lineItems: { ticketTypeId: string; quantity: number }[]
           id: `cs_test_${sessionCounter}`,
           object: "checkout.session",
           client_reference_id: orderId,
+          ...(await sessionAmount(api.db, orderId)),
           payment_status: "paid",
           payment_intent: `pi_test_${sessionCounter}`,
           customer_details: { email: `buyer${sessionCounter}@example.com` },

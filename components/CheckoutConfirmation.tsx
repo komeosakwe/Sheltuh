@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
+import { SupportSummaryLine } from "@/components/checkout/SupportSheltuh";
 import TicketStub from "@/components/tickets/TicketStub";
 import WalletButtons from "@/components/tickets/WalletButtons";
 import { ButtonLink, buttonClass } from "@/components/ui/Button";
@@ -22,6 +23,7 @@ import {
 } from "@/lib/checkout-pay";
 import { formatAud, formatEventDateTimeRange } from "@/lib/format";
 import { REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
+import { SUPPORT_REFUND_NOTE } from "@/lib/support";
 import { compareSeats } from "@/lib/seating/format";
 import { forgetPendingCheckout } from "@/lib/seating/pending-checkout";
 import type { CustomerOrder } from "@/lib/api/types";
@@ -416,18 +418,26 @@ export default function CheckoutConfirmation() {
             <dt className="text-muted">Booking fees</dt>
             <dd className="tabular-nums text-foreground">{formatAud(order.buyerFeeCents)}</dd>
           </div>
+          {/* Only when they added some (unset otherwise, and from an older API); in the total paid. */}
+          <SupportSummaryLine cents={order.supportCents} />
           {/* The total is the largest number here (brand-direction-one.md §6.8). */}
           <div className="mt-1 flex items-baseline justify-between gap-4 border-t border-foreground pt-3">
             <dt className="text-lg leading-6 font-bold text-foreground">Total paid</dt>
             <dd className="text-xl leading-7 font-bold tabular-nums text-foreground">{formatAud(order.totalCents)}</dd>
           </div>
         </dl>
+        {order.supportCents !== undefined && order.supportCents > 0 && (
+          <p className="mt-3 text-sm text-foreground">Thanks for supporting Sheltüh.</p>
+        )}
         {/* The event's refund policy (the API sends it for listed events only). */}
         {refunds && (
           <div data-refund-policy="" className="mt-4 flex flex-col gap-1 border-t border-surface-border pt-3 text-sm">
             <p className="text-foreground">
               <span className="font-semibold">Refund policy:</span> {refunds}
             </p>
+            {order.supportCents !== undefined && order.supportCents > 0 && (
+              <p className="text-foreground">{SUPPORT_REFUND_NOTE}</p>
+            )}
             <p className="text-sm text-muted">{REFUND_ACL_STATEMENT}</p>
             <p className="text-xs text-muted">
               To ask for one, use{" "}

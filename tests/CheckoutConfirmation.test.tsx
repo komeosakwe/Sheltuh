@@ -655,3 +655,42 @@ describe("CheckoutConfirmation: the tab's title follows the answer", () => {
     await waitFor(() => expect(document.title).toBe(title));
   });
 });
+
+describe("CheckoutConfirmation: Support Sheltüh", () => {
+  it("is its own line in the totals, in the total paid, with a thank-you", async () => {
+    getOrderBySession.mockResolvedValue({ ...ORDER, supportCents: 500, totalCents: 3670 });
+    render(<CheckoutConfirmation />);
+    const term = await screen.findByText("Support Sheltüh", { selector: "dt" });
+    expect(term.nextElementSibling).toHaveTextContent("A$5");
+    expect(term.nextElementSibling).toHaveClass("tabular-nums");
+    // After the booking fees, before the total paid (which includes it).
+    const totalTerm = screen.getByText("Total paid");
+    expect(screen.getByText("Booking fees").compareDocumentPosition(term) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(term.compareDocumentPosition(totalTerm) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(totalTerm.nextElementSibling).toHaveTextContent("A$36.70");
+    expect(screen.getByText("Thanks for supporting Sheltüh.")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/donat/i);
+  });
+
+  it("isn't there without it (unset, or from an older API)", async () => {
+    getOrderBySession.mockResolvedValue(ORDER);
+    render(<CheckoutConfirmation />);
+    await screen.findByText("Total paid");
+    expect(screen.queryByText("Support Sheltüh")).toBeNull();
+    expect(screen.queryByText("Thanks for supporting Sheltüh.")).toBeNull();
+  });
+
+  it("with support, the refund terms say it's refunded only with the whole order; not without it", async () => {
+    const note = "Support Sheltüh is refunded only if your whole order is refunded.";
+    getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, refundPolicy: "no_change_of_mind", supportCents: 500 });
+    const { unmount } = render(<CheckoutConfirmation />);
+    const policy = (await screen.findByText(/No refunds for change of mind/)).closest("[data-refund-policy]") as HTMLElement;
+    expect(within(policy).getByText(note)).toBeInTheDocument();
+    unmount();
+
+    getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, refundPolicy: "no_change_of_mind" });
+    render(<CheckoutConfirmation />);
+    await screen.findByText(/No refunds for change of mind/);
+    expect(screen.queryByText(note)).toBeNull();
+  });
+});

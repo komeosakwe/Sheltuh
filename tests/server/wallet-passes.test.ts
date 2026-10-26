@@ -10,7 +10,7 @@ import type { EventRecord } from "@/lib/server/types";
 import { appleWalletConfigFromEnv, googleWalletConfigFromEnv, type AppleWalletConfig, type GoogleWalletConfig } from "@/lib/server/wallet/config";
 import { GOOGLE_SAVE_URL_BASE } from "@/lib/server/wallet/google";
 import { ticketQrPayload } from "@/lib/ticket-code";
-import { embeddedSession, SITE_URL, stripeWebhookRequest, TestApi, WEBHOOK_SECRET } from "./helpers/api";
+import { embeddedSession, sessionAmount, SITE_URL, stripeWebhookRequest, TestApi, WEBHOOK_SECRET } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 import { appleWalletEnv, decodeJwt, googleWalletEnv, readZip, verifyDetachedSignature } from "./helpers/wallet";
@@ -83,6 +83,7 @@ async function paidOrder(quantity = 2) {
           id: `cs_${paymentIntent}`,
           object: "checkout.session",
           client_reference_id: orderId,
+          ...(await sessionAmount(api.db, orderId)),
           payment_status: "paid",
           payment_intent: paymentIntent,
           customer_details: { email: "buyer@example.com" },

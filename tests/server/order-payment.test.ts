@@ -13,7 +13,7 @@ import {
 import { runHandler } from "@/lib/server/route";
 import { adminSuspendOrganiser } from "@/lib/server/handlers/admin";
 import type { EventRecord } from "@/lib/server/types";
-import { embeddedSession, SITE_URL, stripeWebhookRequest, TestApi, WEBHOOK_SECRET } from "./helpers/api";
+import { embeddedSession, sessionAmount, SITE_URL, stripeWebhookRequest, TestApi, WEBHOOK_SECRET } from "./helpers/api";
 import { approvedOrganiser, disablePayouts, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { seatedEvent, seatStates, tierCounts } from "./helpers/seating";
 import { createTestDb } from "./helpers/test-db";
@@ -70,7 +70,7 @@ const payment = (orderId: string, ip: string | null = IP) =>
   api.call(getOrderPayment, { params: { sessionId: orderId }, headers: ip ? { "x-forwarded-for": ip } : {} });
 const lastParams = () => api.stripe.checkout.sessions.create.mock.lastCall![0];
 
-function completed(orderId: string, sessionId: string, paymentIntent = "pi_test_1") {
+async function completed(orderId: string, sessionId: string, paymentIntent = "pi_test_1") {
   // checkout.session.completed as Stripe sends it for an embedded session: no url, the return_url, ui_mode.
   return stripeWebhookRequest({
     type: "checkout.session.completed",
@@ -86,6 +86,7 @@ function completed(orderId: string, sessionId: string, paymentIntent = "pi_test_
         status: "complete",
         mode: "payment",
         client_reference_id: orderId,
+        ...(await sessionAmount(api.db, orderId)),
         payment_status: "paid",
         payment_intent: paymentIntent,
         customer_details: { email: "buyer@example.com" },

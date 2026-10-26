@@ -25,6 +25,12 @@ export interface CheckoutLineItemInput {
  * (lib/tracking-ref.ts), for attribution only: the server ignores anything
  * that isn't one of the event's codes, and it never changes the price.
  *
+ * `supportCents`: Support Sheltüh (lib/support.ts), sent only when above 0:
+ * a whole number of cents from SUPPORT_MIN_CENTS to SUPPORT_MAX_CENTS, and
+ * only with a paid ticket in the order (400 `fieldErrors.supportCents`
+ * otherwise). It's part of the basket, so a changed amount starts a new
+ * attempt.
+ *
  * `getToken`: pass it for a free order when signed in. Booking with the
  * account's own (verified) email then issues the tickets straight away; any
  * other email still gets a confirmation link. A token that can't be had is
@@ -37,7 +43,7 @@ export interface CheckoutLineItemInput {
  * new attempt. Network failures, 503s and an in-progress 409 are retried
  * with the same key before the promise rejects.
  *
- * ApiError: 400 (fieldErrors `buyerEmail` / `lineItems`, e.g. over 4 free
+ * ApiError: 400 (fieldErrors `buyerEmail` / `lineItems` / `supportCents`, e.g. over 4 free
  * tickets in any order, paid or free), 404 event not on sale, 409 sold out or this email already has its
  * free tickets for the event, 429 too many free bookings today (members)
  * or too many paid checkouts from this connection (body
@@ -54,8 +60,14 @@ export async function createCheckoutSession(
   buyerEmail?: string,
   trackingCode?: string,
   getToken?: GetToken,
+  supportCents?: number,
 ) {
-  const body = { lineItems, ...(buyerEmail ? { buyerEmail } : {}), ...(trackingCode ? { trackingCode } : {}) };
+  const body = {
+    lineItems,
+    ...(buyerEmail ? { buyerEmail } : {}),
+    ...(trackingCode ? { trackingCode } : {}),
+    ...(supportCents && supportCents > 0 ? { supportCents } : {}),
+  };
   return runCheckoutAttempt(eventId, body, async (key) => {
     let token: string | undefined;
     if (getToken) {

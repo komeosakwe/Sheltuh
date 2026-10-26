@@ -21,7 +21,7 @@ import { submitEventForReview } from "@/lib/server/handlers/events";
 import { createCheckout, stripeWebhook } from "@/lib/server/handlers/orders";
 import { orderReference } from "@/lib/server/order-reference";
 import { EVENT_UNLISTED_TEXT } from "@/lib/server/ticket-email";
-import { CRON_SECRET, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
+import { CRON_SECRET, sessionAmount, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, draftEvent, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
@@ -69,7 +69,7 @@ async function paidOrder(email = "fan@example.com", { runDeferred = false } = {}
   return orderId;
 }
 
-function paidWebhook(orderId: string, email = "fan@example.com") {
+async function paidWebhook(orderId: string, email = "fan@example.com") {
   return stripeWebhookRequest({
     type: "checkout.session.completed",
     data: {
@@ -77,6 +77,7 @@ function paidWebhook(orderId: string, email = "fan@example.com") {
         id: `cs_${session}`,
         object: "checkout.session",
         client_reference_id: orderId,
+        ...(await sessionAmount(api.db, orderId)),
         payment_status: "paid",
         payment_intent: `pi_${session}`,
         customer_details: { email },

@@ -3,7 +3,7 @@ import { adminUnpublishEvent } from "@/lib/server/handlers/admin";
 import { updateEventDraft } from "@/lib/server/handlers/events";
 import { createCheckout, getOrderBySession, orderTotals, stripeWebhook } from "@/lib/server/handlers/orders";
 import { orderReference } from "@/lib/server/order-reference";
-import { expectSessionPaymentOptions, stripeWebhookRequest, TestApi } from "./helpers/api";
+import { expectSessionPaymentOptions, sessionAmount, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, disablePayouts, enablePayouts, eventInput, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
@@ -54,7 +54,7 @@ function orderIdFromUrl(url: string) {
   return new URL(url).searchParams.get("session_id")!;
 }
 
-function completedSession(orderId: string, overrides: Record<string, unknown> = {}) {
+async function completedSession(orderId: string, overrides: Record<string, unknown> = {}) {
   return {
     type: "checkout.session.completed",
     data: {
@@ -62,6 +62,7 @@ function completedSession(orderId: string, overrides: Record<string, unknown> = 
         id: "cs_test_1",
         object: "checkout.session",
         client_reference_id: orderId,
+        ...(await sessionAmount(api.db, orderId)),
         payment_status: "paid",
         payment_intent: "pi_test_1",
         customer_details: { email: "buyer@example.com" },
@@ -335,7 +336,7 @@ describe("Stripe webhook", () => {
 
   it("rejects a request without a valid signature", async () => {
     const { orderId } = await pendingOrder();
-    const forged = stripeWebhookRequest(completedSession(orderId), "whsec_wrong");
+    const forged = stripeWebhookRequest(await completedSession(orderId), "whsec_wrong");
     expect((await api.send(stripeWebhook, forged)).status).toBe(400);
 
     const unsigned = new Request("https://sheltuh.test/api/stripe/webhook", { method: "POST", body: "{}" });
@@ -345,7 +346,7 @@ describe("Stripe webhook", () => {
 
   it("marks the order paid, takes inventory and issues one ticket per unit", async () => {
     const { event, orderId } = await pendingOrder(2);
-    const res = await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId)));
+    const res = await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(orderId)));
     expect(res.status).toBe(200);
 
     expect(await internal(orderId)).toEqual({
@@ -364,15 +365,15 @@ describe("Stripe webhook", () => {
     await api.runDeferred();
     expect(api.sendEmail).toHaveBeenCalledTimes(1);
     expect(api.sendEmail.mock.calls[0][0].to).toBe("buyer@example.com");
-    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId)));
+    await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(orderId)));
     await api.runDeferred();
     expect(api.sendEmail).toHaveBeenCalledTimes(1);
   });
 
   it("is idempotent — Stripe's redelivery doesn't take inventory or issue tickets twice", async () => {
     const { event, orderId } = await pendingOrder(1);
-    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId)));
-    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId)));
+    await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(orderId)));
+    await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(orderId)));
     expect(await sold(event.eventId)).toEqual({ ga: 1, vip: 0 });
     expect((await api.call(getOrderBySession, { params: { sessionId: orderId } })).body.tickets).toHaveLength(1);
   });
@@ -384,8 +385,8 @@ describe("Stripe webhook", () => {
     const second = api.stripe.checkout.sessions.create.mock.calls.at(-1)![0].client_reference_id as string;
 
     // ...but there were only 3. Whoever pays second loses the race.
-    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(first)));
-    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(second, { payment_intent: "pi_test_2" })));
+    await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(first)));
+    await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(second, { payment_intent: "pi_test_2" })));
 
     const lost = await api.call(getOrderBySession, { params: { sessionId: second } });
     expect(lost.body).toMatchObject({ status: "refunded", tickets: [] });
@@ -407,16 +408,16 @@ describe("Stripe webhook", () => {
     const { event, orderId: first } = await pendingOrder(2);
     await api.call(createCheckout, { params: { eventId: event.eventId }, body: { lineItems: [{ ticketTypeId: "ga", quantity: 2 }] } });
     const second = api.stripe.checkout.sessions.create.mock.calls.at(-1)![0].client_reference_id as string;
-    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(first)));
+    await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(first)));
 
     api.stripe.refunds.create.mockRejectedValueOnce(new Error("Stripe is down"));
-    const failed = await api.send(stripeWebhook, stripeWebhookRequest(completedSession(second)));
+    const failed = await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(second)));
     expect(failed.status).toBe(500); // so Stripe retries
     expect((await api.call(getOrderBySession, { params: { sessionId: second } })).body.status).toBe(
       "oversold_refund_required",
     );
 
-    const retried = await api.send(stripeWebhook, stripeWebhookRequest(completedSession(second)));
+    const retried = await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(second)));
     expect(retried.status).toBe(200);
     expect((await api.call(getOrderBySession, { params: { sessionId: second } })).body.status).toBe("refunded");
     expect(api.stripe.refunds.create).toHaveBeenCalledTimes(2);
@@ -427,7 +428,7 @@ describe("Stripe webhook", () => {
     const { event, orderId } = await pendingOrder(1);
     await api.call(adminUnpublishEvent, { token: admin.token, params: { eventId: event.eventId }, method: "POST" });
 
-    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId)));
+    await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(orderId)));
 
     const order = await api.call(getOrderBySession, { params: { sessionId: orderId } });
     expect(order.body).toMatchObject({ status: "refunded", tickets: [] });
@@ -441,10 +442,10 @@ describe("Stripe webhook", () => {
     const { event, orderId: first } = await pendingOrder(2);
     await api.call(createCheckout, { params: { eventId: event.eventId }, body: { lineItems: [{ ticketTypeId: "ga", quantity: 2 }] } });
     const second = api.stripe.checkout.sessions.create.mock.calls.at(-1)![0].client_reference_id as string;
-    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(first)));
+    await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(first)));
 
     api.stripe.refunds.create.mockResolvedValueOnce({ id: "re_pending", status: "pending" });
-    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(second)));
+    await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(second)));
     const status = async () => (await api.call(getOrderBySession, { params: { sessionId: second } })).body.status;
     expect(await status()).toBe("oversold_refund_required");
 
@@ -468,9 +469,9 @@ describe("Stripe webhook", () => {
     const { event, orderId: first } = await pendingOrder(2);
     await api.call(createCheckout, { params: { eventId: event.eventId }, body: { lineItems: [{ ticketTypeId: "ga", quantity: 2 }] } });
     const second = api.stripe.checkout.sessions.create.mock.calls.at(-1)![0].client_reference_id as string;
-    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(first)));
+    await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(first)));
     api.stripe.refunds.create.mockResolvedValueOnce({ id: "re_x", status: "pending" });
-    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(second)));
+    await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(second)));
 
     const failed = await api.send(
       stripeWebhook,
@@ -501,8 +502,8 @@ describe("Stripe webhook", () => {
     await checkout([{ ticketTypeId: "vip", quantity: 1 }]);
     const vipOnly = api.stripe.checkout.sessions.create.mock.calls.at(-1)![0].client_reference_id;
 
-    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(vipOnly)));
-    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(both)));
+    await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(vipOnly)));
+    await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(both)));
 
     // The VIP line failed, so the GA line in the same order wasn't taken either.
     expect(await sold(event.eventId)).toEqual({ ga: 0, vip: 1 });
@@ -511,14 +512,14 @@ describe("Stripe webhook", () => {
 
   it("waits for delayed payment methods, and fails expired sessions", async () => {
     const { event, orderId } = await pendingOrder(1);
-    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId, { payment_status: "unpaid" })));
+    await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(orderId, { payment_status: "unpaid" })));
     expect((await api.call(getOrderBySession, { params: { sessionId: orderId } })).body.status).toBe("pending");
 
-    await api.send(stripeWebhook, stripeWebhookRequest({ ...completedSession(orderId), type: "checkout.session.async_payment_succeeded" }));
+    await api.send(stripeWebhook, stripeWebhookRequest({ ...(await completedSession(orderId)), type: "checkout.session.async_payment_succeeded" }));
     expect((await api.call(getOrderBySession, { params: { sessionId: orderId } })).body.status).toBe("paid");
 
     const { orderId: abandoned } = await pendingOrder(1);
-    await api.send(stripeWebhook, stripeWebhookRequest({ ...completedSession(abandoned), type: "checkout.session.expired" }));
+    await api.send(stripeWebhook, stripeWebhookRequest({ ...(await completedSession(abandoned)), type: "checkout.session.expired" }));
     expect((await api.call(getOrderBySession, { params: { sessionId: abandoned } })).body.status).toBe("failed");
     expect((await sold(event.eventId)).ga).toBe(1);
   });
@@ -530,7 +531,7 @@ describe("Stripe webhook", () => {
       stripeWebhookRequest({ type: "charge.dispute.created", data: { object: { id: "dp_test_1", object: "dispute" } } }),
     );
     expect({ status: ignored.status, body: ignored.body }).toEqual({ status: 200, body: { received: true } });
-    const unknown = await api.send(stripeWebhook, stripeWebhookRequest(completedSession("ord_unknown")));
+    const unknown = await api.send(stripeWebhook, stripeWebhookRequest(await completedSession("ord_unknown")));
     expect(unknown.status).toBe(200);
   });
 });
@@ -546,7 +547,7 @@ describe("guest order lookup (GET /api/orders/by-session/{orderId})", () => {
 
   it("returns only what the confirmation page shows: no ids, fee split, Stripe ids, line items, order timestamps, street address or full email", async () => {
     const { event, orderId } = await paidOrderId();
-    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId, { customer_details: { email: "mia@example.com" } })));
+    await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(orderId, { customer_details: { email: "mia@example.com" } })));
 
     const res = await api.call(getOrderBySession, { params: { sessionId: orderId } });
     expect(res.status).toBe(200);
@@ -631,12 +632,12 @@ describe("log hygiene", () => {
     const first = api.stripe.checkout.sessions.create.mock.calls.at(-1)![0].client_reference_id as string;
     await checkout();
     const second = api.stripe.checkout.sessions.create.mock.calls.at(-1)![0].client_reference_id as string;
-    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(first)));
+    await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(first)));
     api.stripe.refunds.create.mockResolvedValueOnce({ id: "re_x", status: "failed" });
 
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      await api.send(stripeWebhook, stripeWebhookRequest(completedSession(second)));
+      await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(second)));
       const logged = error.mock.calls.flat().map(String).join("\n");
       expect(logged).toContain(orderReference(second));
       expect(logged).not.toContain(second);
@@ -712,12 +713,12 @@ describe("a payment for an order that had already failed", () => {
     const orderId = api.stripe.checkout.sessions.create.mock.lastCall![0].client_reference_id as string;
     expect(res.status).toBe(201);
     // Cancelled or expired before Stripe reported the (late) payment.
-    await api.send(stripeWebhook, stripeWebhookRequest({ type: "checkout.session.expired", data: completedSession(orderId).data }));
+    await api.send(stripeWebhook, stripeWebhookRequest({ type: "checkout.session.expired", data: (await completedSession(orderId)).data }));
     expect((await internal(orderId)).status).toBe("failed");
 
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     api.stripe.refunds.create.mockResolvedValueOnce({ id: "re_failed_1", status: "pending" });
-    const paid = await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId)));
+    const paid = await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(orderId)));
     expect(paid.status).toBe(200);
     expect(api.stripe.refunds.create).toHaveBeenCalledTimes(1);
     expect(api.stripe.refunds.create).toHaveBeenCalledWith(
@@ -733,8 +734,8 @@ describe("a payment for an order that had already failed", () => {
     expect(await sold(event.eventId)).toEqual({ ga: 0, vip: 0 });
 
     // A redelivery (or the async success after the completed event) doesn't refund again.
-    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId)));
-    await api.send(stripeWebhook, stripeWebhookRequest({ type: "checkout.session.async_payment_succeeded", data: completedSession(orderId).data }));
+    await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(orderId)));
+    await api.send(stripeWebhook, stripeWebhookRequest({ type: "checkout.session.async_payment_succeeded", data: (await completedSession(orderId)).data }));
     expect(api.stripe.refunds.create).toHaveBeenCalledTimes(1);
   });
 
@@ -747,12 +748,12 @@ describe("a payment for an order that had already failed", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId, { payment_status: "unpaid" })));
+    await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(orderId, { payment_status: "unpaid" })));
     expect(api.stripe.refunds.create).not.toHaveBeenCalled();
 
     api.stripe.refunds.create.mockRejectedValueOnce(new Error("stripe down"));
-    expect((await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId)))).status).toBe(500);
-    expect((await api.send(stripeWebhook, stripeWebhookRequest(completedSession(orderId)))).status).toBe(200);
+    expect((await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(orderId)))).status).toBe(500);
+    expect((await api.send(stripeWebhook, stripeWebhookRequest(await completedSession(orderId)))).status).toBe(200);
     expect(api.stripe.refunds.create).toHaveBeenCalledTimes(2);
     expect(api.stripe.refunds.create.mock.calls.map(([, opts]) => opts.idempotencyKey)).toEqual([
       `failed-order-refund-${orderId}`,

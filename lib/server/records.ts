@@ -581,7 +581,7 @@ const TICKET_SEAT_JSON = `(select json_build_object('section', s.section_label, 
 
 export const ORDER_SELECT = `
   select o.id, o.event_id, o.organiser_id, o.event_title, o.buyer_email, o.line_items,
-         o.subtotal_cents, o.buyer_fee_cents, o.total_cents, o.application_fee_cents,
+         o.subtotal_cents, o.buyer_fee_cents, o.total_cents, o.application_fee_cents, o.support_cents,
          o.status::text as status, o.stripe_checkout_session_id, o.stripe_payment_intent_id,
          o.created_at, o.updated_at, o.seat_ids,
          (select e.slug from public.events e where e.id = o.event_id) as event_slug,
@@ -606,6 +606,7 @@ export function toOrder(row: Row): OrderRecord {
     buyerFeeCents: row.buyer_fee_cents as number,
     totalCents: row.total_cents as number,
     applicationFeeCents: row.application_fee_cents as number,
+    ...(Number(row.support_cents ?? 0) > 0 ? { supportCents: Number(row.support_cents) } : {}),
     status: row.status as OrderRecord["status"],
     stripeCheckoutSessionId: opt(row.stripe_checkout_session_id),
     stripePaymentIntentId: opt(row.stripe_payment_intent_id),
@@ -635,7 +636,7 @@ export function toOrder(row: Row): OrderRecord {
  */
 export const CUSTOMER_ORDER_SELECT = `
   select o.id, o.status::text as status, o.event_title, o.buyer_email,
-         o.subtotal_cents, o.buyer_fee_cents, o.total_cents,
+         o.subtotal_cents, o.buyer_fee_cents, o.total_cents, o.support_cents,
          e.slug as event_slug, e.status::text as event_status,
          e.starts_at as event_starts_at, e.ends_at as event_ends_at,
          e.venue_name as event_venue_name, e.suburb as event_suburb,
@@ -702,6 +703,8 @@ export function toCustomerOrder(row: Row): CustomerOrder {
     maskedEmail: email ? maskEmail(email) : undefined,
     subtotalCents: row.subtotal_cents as number,
     buyerFeeCents: row.buyer_fee_cents as number,
+    // Support Sheltüh, its own line: only when the buyer added some (totalCents includes it).
+    ...(Number(row.support_cents ?? 0) > 0 ? { supportCents: Number(row.support_cents) } : {}),
     totalCents: row.total_cents as number,
     tickets,
   };
@@ -746,8 +749,26 @@ export const ADMIN_PAYMENT_EXCEPTION_SELECT = `
     from private.payment_exceptions e
     left join public.orders o on o.id = e.order_id`;
 
-const DETAIL_STRINGS = ["refundStatus", "orderStatus", "source", "reason"] as const;
-const DETAIL_NUMBERS = ["refundAmountCents", "amountRefundedCents", "totalCents"] as const;
+const DETAIL_STRINGS = ["refundStatus", "orderStatus", "source", "reason", "currency"] as const;
+const DETAIL_NUMBERS = [
+  "refundAmountCents",
+  "amountRefundedCents",
+  "totalCents",
+  "supportCents",
+  "amountChargedCents",
+  "supportKeptCents",
+] as const;
+
+/**
+ * An exception that can't wait: a refund that didn't complete for an order
+ * already voided (the buyer has neither tickets nor their money), or any
+ * payment whose amount or currency wasn't its order's (the money went
+ * somewhere it shouldn't have: the automatic refund needs checking). Shared
+ * by the admin list and the ops alert email.
+ */
+export function paymentExceptionUrgent(kind: string, orderStatus: string | null | undefined): boolean {
+  return kind === "amount_mismatch" || (kind === "refund_not_completed" && orderStatus === "refunded");
+}
 
 /** Only the known amounts and statuses, whatever else the jsonb holds. */
 export function paymentExceptionDetails(raw: unknown): AdminPaymentException["details"] {
@@ -772,7 +793,7 @@ export function toAdminPaymentException(row: Row): AdminPaymentException {
     exceptionId: row.id as string,
     kind,
     status: row.status as AdminPaymentException["status"],
-    urgent: kind === "refund_not_completed" && (orderStatus ?? details.orderStatus) === "refunded",
+    urgent: paymentExceptionUrgent(kind, orderStatus ?? details.orderStatus),
     orderReference: row.order_id ? orderReference(row.order_id as string) : undefined,
     orderStatus,
     eventTitle: opt(row.event_title),

@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createCheckout, stripeWebhook } from "@/lib/server/handlers/orders";
 import type { EventRecord } from "@/lib/server/types";
-import { embeddedSession, stripeWebhookRequest, TestApi } from "./helpers/api";
+import { embeddedSession, sessionAmount, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, signUpAdmin } from "./helpers/fixtures";
 import { seatedEvent, seatStates } from "./helpers/seating";
 import { createTestDb } from "./helpers/test-db";
@@ -58,7 +58,7 @@ const hold = (event: EventRecord, seatIds: string[], extra: Record<string, unkno
     body: { seats: { mapVersion: event.seating!.version, seatIds }, ...extra },
   });
 
-function completed(orderId: string) {
+async function completed(orderId: string) {
   return stripeWebhookRequest({
     type: "checkout.session.completed",
     data: {
@@ -66,6 +66,7 @@ function completed(orderId: string) {
         id: `cs_${orderId}`,
         object: "checkout.session",
         client_reference_id: orderId,
+        ...(await sessionAmount(api.db, orderId)),
         payment_status: "paid",
         payment_intent: `pi_${orderId}`,
         customer_details: { email: "buyer@example.com" },
