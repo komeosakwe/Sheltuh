@@ -422,7 +422,7 @@ describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => 
   });
 });
 
-describe("EventDetailsView Where: Get directions (mobile-redesign.md §6.5)", () => {
+describe("EventDetailsView Where: the address links to directions", () => {
   it("makes the address one link to directions, opening Google Maps in a new tab with a clear name", () => {
     const event = findEvent("neon-static");
     render(<EventDetailsView event={event} demo />);
@@ -433,38 +433,24 @@ describe("EventDetailsView Where: Get directions (mobile-redesign.md §6.5)", ()
     const link = links[0];
     const address = `${event.venueName}, ${event.venueAddress}`;
     expect(link).toHaveAccessibleName(`Get directions to ${address} (opens Google Maps in a new tab)`);
-    expect(link).toHaveTextContent(`${address}Get directions`);
+    expect(link).toHaveTextContent(address);
+    expect(link).not.toHaveTextContent("Get directions");
     expect(link).toHaveAttribute(
       "href",
       `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`,
     );
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
-    // The action itself is a 44px target.
-    expect(within(link).getByText("Get directions")).toHaveClass("min-h-11");
+    // The address itself is the 44px target.
+    expect(link).toHaveClass("min-h-11");
   });
 });
 
-describe("EventDetailsView More from the organiser", () => {
-  it("live: links to the organiser profile's upcoming events", () => {
+describe("EventDetailsView organiser row", () => {
+  it("links the organiser's name to their profile, with no separate More from link", () => {
     const event = { ...findEvent("neon-static"), organiserId: "org 1", organiserName: "Northside Noise" };
     render(<EventDetailsView event={event} demo={false} />);
-    expect(screen.getByRole("link", { name: "More from Northside Noise" })).toHaveAttribute(
-      "href",
-      "/organisers/org%201#organiser-upcoming",
-    );
-  });
-
-  it("demo: links to the sample organiser's page", () => {
-    render(<EventDetailsView event={findEvent("dead-letter-office")} demo />);
-    expect(screen.getByRole("link", { name: "More from Small Hours Theatre" })).toHaveAttribute(
-      "href",
-      "/organisers/small-hours-theatre#organiser-upcoming",
-    );
-  });
-
-  it("isn't offered when there's no profile to link to", () => {
-    render(<EventDetailsView event={{ ...findEvent("neon-static"), organiserName: "Nobody In The Samples" }} demo />);
+    expect(screen.getByRole("link", { name: "Northside Noise" })).toHaveAttribute("href", "/organisers/org%201");
     expect(screen.queryByRole("link", { name: /^More from/ })).toBeNull();
   });
 });
