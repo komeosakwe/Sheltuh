@@ -5,6 +5,7 @@ import EventFeed from "@/components/EventFeed";
 import SearchBar from "@/components/SearchBar";
 import { Notice, Page, PageHeader } from "@/components/ui/Section";
 import { didYouMean, findLocality, parseNearParam } from "@/lib/location";
+import { placeName } from "@/lib/place";
 
 export const metadata: Metadata = { title: "Search — Sheltüh" };
 
@@ -78,7 +79,7 @@ export default async function SearchPage({
                 {" "}
                 Did you mean{" "}
                 <Link href={searchHref(query, suggestion.name)} className="font-semibold underline underline-offset-4">
-                  {suggestion.name}
+                  {placeName(suggestion.name, suggestion.state)}
                 </Link>
                 ?
               </>

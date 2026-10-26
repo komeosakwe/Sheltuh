@@ -10,6 +10,9 @@ import { sellsPaidTicketsOnSheltuh } from "@/lib/ticketing";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
 const push = vi.fn();
+// The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
+vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
 }));

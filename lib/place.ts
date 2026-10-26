@@ -27,8 +27,8 @@ export interface PlaceFields {
   state?: StateCode | null;
 }
 
-/** The state code a suburb ends with ("Richmond NSW", "Richmond, NSW"), or null. */
-function trailingState(suburb: string): StateCode | null {
+/** The state code a suburb ends with ("Richmond NSW", "Richmond, NSW"), or null ("Fitzroy"). */
+export function trailingState(suburb: string): StateCode | null {
   const match = /[\s,]+([A-Za-z]{2,3})$/.exec(suburb.trim());
   if (!match) return null;
   const code = match[1].toUpperCase();
@@ -54,10 +54,19 @@ export function bareSuburb(suburb: string, state?: StateCode | null): string {
  * names, else Victoria. Empty for an empty suburb.
  */
 export function placeName(suburb: string, state?: StateCode | null): string {
+  const parts = placeNameParts(suburb, state);
+  return parts ? `${parts.suburb}, ${parts.state}` : "";
+}
+
+/**
+ * placeName's two parts, for a line that cuts the suburb short but never
+ * the state: `{ suburb: "Richmond", state: "NSW" }`. Null for an empty suburb.
+ */
+export function placeNameParts(suburb: string, state?: StateCode | null): { suburb: string; state: StateCode } | null {
   const trimmed = suburb.trim();
-  if (!trimmed) return "";
+  if (!trimmed) return null;
   const shown = state ?? trailingState(trimmed) ?? "VIC";
-  return `${bareSuburb(trimmed, shown)}, ${shown}`;
+  return { suburb: bareSuburb(trimmed, shown), state: shown };
 }
 
 /** placeName for an event (or anything with a suburb and a state). */

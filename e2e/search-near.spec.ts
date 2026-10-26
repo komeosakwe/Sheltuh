@@ -176,7 +176,7 @@ test.describe("near you, from the home at 390px", () => {
     // Nothing submitted by itself (WCAG 3.2.2).
     expect(new URL(page.url()).pathname).toBe("/");
     const stored = await page.evaluate((key) => localStorage.getItem(key), NEAR_STORAGE_KEY);
-    expect(JSON.parse(stored ?? "null")).toEqual({ suburb: "Fitzroy" });
+    expect(JSON.parse(stored ?? "null")).toEqual({ suburb: "Fitzroy", state: "VIC" });
     const lat = String(HERE.latitude).slice(0, 7);
     const lng = String(HERE.longitude).slice(0, 7);
     const everything = await page.evaluate(() => JSON.stringify({ ...localStorage }) + document.documentElement.outerHTML);
@@ -190,12 +190,12 @@ test.describe("near you, from the home at 390px", () => {
     expect(page.url()).not.toContain(lat.slice(1));
 
     // Bands, nearest first; the note says the distances are approximate.
-    await expect(page.getByText(/Closest to Fitzroy first\. Distances are between suburb centres, so they’re approximate\./)).toBeVisible({
+    await expect(page.getByText(/Closest to Fitzroy, VIC first\. Distances are between suburb centres, so they’re approximate\./)).toBeVisible({
       timeout: 30_000,
     });
     const bands = await page.locator("[data-near-band] h2").allTextContents();
-    const order = ["In Fitzroy", "Within 5 km", "5–15 km", "Further away", "Over 100 km", "Location not on file"];
-    expect(bands[0]).toBe("In Fitzroy");
+    const order = ["In Fitzroy, VIC", "Within 5 km", "5–15 km", "15–100 km", "Over 100 km", "Location not on file"];
+    expect(bands[0]).toBe("In Fitzroy, VIC");
     expect(bands.map((b) => order.indexOf(b))).toEqual([...bands.map((b) => order.indexOf(b))].sort((a, b) => a - b));
     // Only the made-up suburb isn't in the table; the interstate events are over 100 km away.
     expect(bands.at(-1)).toBe("Location not on file");
@@ -368,7 +368,7 @@ test.describe("near you, from Perth at 390px", () => {
     const { search, panel } = await openPanel(page);
     await panel.getByRole("button", { name: "Use my current location" }).click();
     await expect(search.getByRole("button", { name: "Location: Perth" })).toBeVisible({ timeout: 10_000 });
-    expect(JSON.parse((await page.evaluate((key) => localStorage.getItem(key), NEAR_STORAGE_KEY)) ?? "null")).toEqual({ suburb: "Perth" });
+    expect(JSON.parse((await page.evaluate((key) => localStorage.getItem(key), NEAR_STORAGE_KEY)) ?? "null")).toEqual({ suburb: "Perth", state: "WA" });
     await search.getByRole("button", { name: "Search" }).click();
     await expect(page).toHaveURL(/\/search\?q=&near=Perth$/, { timeout: 30_000 });
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Events near Perth");
@@ -388,7 +388,7 @@ test.describe("near you, from Perth at 390px", () => {
     await expect(page.locator("[data-near-band]").first()).toBeVisible({ timeout: 30_000 });
     // Newtown NSW is about 50 km away; Melbourne's Richmond and the rest, over 100 km.
     expect(await page.locator("[data-near-band] h2").allTextContents()).toEqual([
-      "Further away",
+      "15–100 km",
       "Over 100 km",
       "Location not on file",
     ]);

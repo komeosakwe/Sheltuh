@@ -4,11 +4,11 @@ import { HOME_GUIDE } from "./home-content";
 import { ArrowRightIcon } from "./icons";
 import SectionHead from "@/components/ui/SectionHead";
 
-/** "Only in the city": one static editorial card, white with a black border (not itself a link; its button is). */
+/** "After dark": one static editorial card, white with a black border (not itself a link; its button is). */
 export default function GuideCard({ className = "" }: { className?: string }) {
   return (
     <section aria-labelledby="home-guide" className={className}>
-      <SectionHead id="home-guide" title="Only in the city" />
+      <SectionHead id="home-guide" title="After dark" />
       <div className="overflow-hidden rounded-card border border-foreground bg-card sm:grid sm:grid-cols-2">
         <EventArt
           poster={HOME_GUIDE.poster}

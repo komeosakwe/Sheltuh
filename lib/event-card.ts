@@ -2,8 +2,9 @@ import { eventZone, formatEventDateKey, formatEventDateShort, formatEventTime, z
 import type { TrendingSignal } from "./home-sections";
 import { isSoldOut, pricedTicketTypes } from "./pricing";
 import { quickBuyHref, quickBuyLabel, type QuickBuyLabel } from "./quick-buy";
-import { eventPlaceName } from "./place";
+import { eventPlaceName, placeNameParts } from "./place";
 import { getSampleGoing } from "./sample-going";
+import type { StateCode } from "./time-zones";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "./types";
 
 /**
@@ -26,29 +27,57 @@ export function placeLabel(event: SheltuhEvent): string {
   return [event.venueName, eventPlaceName(event)].filter(Boolean).join(" · ");
 }
 
-export type CardDateLabel = { date: string; time: string } | { running: string };
+/**
+ * placeLabel's parts, for a narrow card that shows the venue and the place
+ * on a line each, so the venue never pushes the state out of view, and cuts
+ * the suburb's name short but never its state: `{ venue: "The Depot
+ * Theatre", place: { suburb: "Coburg", state: "VIC" } }` (venue "" or place
+ * null when there's none). Read together, with a hidden " · " between them,
+ * they're placeLabel, which stays the accessible text.
+ */
+export function placeParts(event: SheltuhEvent): { venue: string; place: { suburb: string; state: StateCode } | null } {
+  return { venue: event.venueName.trim(), place: placeNameParts(event.suburb, event.state) };
+}
+
+/**
+ * A start's date and time in the event's own zone. `zone` names any zone but
+ * the platform's ("Perth time", zoneSuffix), "" for Melbourne's: kept apart
+ * from `time` so a narrow line can wrap before it rather than overflow.
+ */
+export interface StartLabel {
+  date: string;
+  time: string;
+  zone: string;
+}
+
+export type CardDateLabel = StartLabel | { running: string };
 
 /** What a start label needs from an event (a SheltuhEvent, or anything with its start and place). */
 export type EventStartFields = Pick<SheltuhEvent, "startsAt" | "timeZone" | "state">;
 
 /**
- * The start's date and time in the event's own zone, the time naming any
- * zone but the platform's (zoneSuffix): `{ date: "Sat 21 Nov", time: "8:00 pm
- * Perth time" }`, and for a Melbourne event exactly as before ("7:30 pm").
- * Every compact event line (cards, map, list rows) uses it.
+ * The start's date and time in the event's own zone, with any zone but the
+ * platform's named (zoneSuffix): `{ date: "Sat 21 Nov", time: "8:00 pm",
+ * zone: "Perth time" }`, and for a Melbourne event exactly as before
+ * (`zone: ""`). Every compact event line (cards, map, list rows) uses it.
  */
-export function startLabel(event: EventStartFields): { date: string; time: string } {
+export function startLabel(event: EventStartFields): StartLabel {
   const zone = eventZone(event.timeZone);
   return {
     date: formatEventDateShort(event.startsAt, zone),
-    time: `${formatEventTime(event.startsAt, zone)}${zoneSuffix(event.timeZone, event.state)}`,
+    time: formatEventTime(event.startsAt, zone),
+    zone: zoneSuffix(event.timeZone, event.state).trim(),
   };
 }
 
-/** startLabel as one line: "Sat 21 Nov, 8:00 pm Perth time". */
-export function startDateTimeLine(event: EventStartFields): string {
-  const { date, time } = startLabel(event);
-  return `${date}, ${time}`;
+/**
+ * startLabel as one line: "Sat 21 Nov, 8:00 pm Perth time". `zone: false`
+ * leaves the zone off, for a list whose events are all at one place (the
+ * map's spot list).
+ */
+export function startDateTimeLine(event: EventStartFields, { zone = true }: { zone?: boolean } = {}): string {
+  const start = startLabel(event);
+  return `${start.date}, ${start.time}${zone && start.zone ? ` ${start.zone}` : ""}`;
 }
 
 /**

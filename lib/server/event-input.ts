@@ -6,6 +6,7 @@ import {
   type RefundPolicy,
 } from "@/lib/refund-policy";
 import { didYouMean, findLocality } from "@/lib/location";
+import { placeName } from "@/lib/place";
 import type { TicketingMode } from "@/lib/ticketing";
 import {
   PLATFORM_TIME_ZONE,
@@ -160,7 +161,9 @@ function localityIn(suburb: string, state: StateCode) {
  * - both: `state` one of STATE_CODES, `timeZone` one of ZONES_BY_STATE[state],
  *   and `suburb` a locality in that state (lib/location.ts), saved as its
  *   display name; otherwise fieldErrors.suburb, with a near spelling in the
- *   state when there's one ("Did you mean Fremantle?");
+ *   state when there's one ("Did you mean Fremantle, WA?"), else how to
+ *   name a place in another state ("Richmond, NSW", as the editor's field
+ *   takes it: it has no state control of its own);
  * - only one: an error on the missing one.
  *
  * `zoneForTimes` is the zone to read the times in: null when the place is in
@@ -197,8 +200,8 @@ export function parsePlace(
     const near = didYouMean(`${suburb} ${state}`);
     errors.suburb =
       near && near.state === state
-        ? `We couldn't find that suburb in ${state}. Did you mean ${near.name}?`
-        : `We couldn't find that suburb in ${state}. Check the spelling, or choose the state it's in.`;
+        ? `We couldn't find that suburb in ${state}. Did you mean ${placeName(near.name, near.state)}?`
+        : `We couldn't find that suburb in ${state}. Check the spelling, or add the state it's in (“Richmond, NSW”).`;
     return { place, suburb, zoneForTimes: place.timeZone };
   }
   return { place, suburb: locality.name, zoneForTimes: place.timeZone };

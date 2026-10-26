@@ -259,6 +259,7 @@ describe("nearnessBand", () => {
     expect(nearnessBand(origin, "Perth WA")).toBe("distant");
     expect(nearnessBand(place("Newtown NSW"), "Fortitude Valley QLD")).toBe("distant");
     expect(nearnessBandLabel("distant", origin)).toBe("Over 100 km");
+    expect(nearnessBandLabel("far", origin)).toBe("15–100 km");
   });
 
   it("tells same-named suburbs apart by their state", () => {
@@ -283,7 +284,7 @@ describe("orderByNearness", () => {
   it("groups into bands nearest first, soonest first within each, missing locations last", () => {
     const groups = orderByNearness(events, origin);
     expect(groups.map((g) => [g.band, g.label])).toEqual([
-      ["here", "In Fitzroy"],
+      ["here", "In Fitzroy, VIC"],
       ["near", "Within 5 km"],
       ["mid", "5–15 km"],
       ["unknown", "Location not on file"],

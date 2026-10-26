@@ -253,8 +253,8 @@ for (const width of [375, 1280]) {
       const first = await page.locator("main h2").first().boundingBox();
       expect((h1?.y ?? Infinity) < (first?.y ?? -1)).toBe(true);
       await expect(page.locator("footer")).toBeAttached();
-      // Gone from the home: Trending and Coming up as separate sections, Free & low-cost, Only in the city.
-      for (const name of ["Trending", "Coming up near you", "Free & low-cost", "Only in the city"]) {
+      // Gone from the home: Trending and Coming up as separate sections, Free & low-cost, the guide card (After dark).
+      for (const name of ["Trending", "Coming up near you", "Free & low-cost", "After dark"]) {
         await expect(page.getByRole("heading", { name, exact: true })).toHaveCount(0);
       }
       // Each event section has a clear link onward, named for where it goes: "All events" where the
@@ -412,7 +412,7 @@ test.describe("rail cards on a phone (375×667)", () => {
 test.describe("/events", () => {
   test.use({ viewport: { width: 375, height: 812 } });
 
-  test("ends with Only in the city (moved off the home), pointing at the map", async ({ page }) => {
+  test("ends with the After dark guide card (moved off the home), pointing at the map", async ({ page }) => {
     const events = fixtures(Date.now()).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
     await page.route("**/api/**", (route) =>
       new URL(route.request().url()).pathname === "/api/events"
@@ -420,7 +420,7 @@ test.describe("/events", () => {
         : route.fulfill({ status: 404, json: { error: "not mocked in e2e" } }),
     );
     await page.goto("/events");
-    const guide = page.getByRole("region", { name: "Only in the city" });
+    const guide = page.getByRole("region", { name: "After dark" });
     await expect(guide).toBeVisible({ timeout: 30_000 });
     await expect(guide.getByRole("link", { name: "Open the map" })).toHaveAttribute("href", "/map");
     const feed = await page.getByRole("list", { name: "Events" }).boundingBox();

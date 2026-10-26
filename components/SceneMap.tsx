@@ -16,7 +16,7 @@ import { isApiConfigured } from "@/lib/api/client";
 import { listPublicEvents } from "@/lib/api/public-events";
 import { adaptPublicEvent } from "@/lib/live/adapt";
 import { getEventCategories, getUpcomingEvents } from "@/lib/data";
-import { startLabel } from "@/lib/event-card";
+import { startDateTimeLine } from "@/lib/event-card";
 import { formatEventDateShort } from "@/lib/format";
 import { useLocationModule } from "@/components/search/useLocationModule";
 import { findListedSuburb, resolveMapCoordinates, type SuburbLookup } from "@/lib/geo";
@@ -669,7 +669,7 @@ function SceneMapView({
 
           <p className="sr-only" aria-live="polite">
             {selectedEvent
-              ? `Selected ${selectedEvent.title}, ${startLabel(selectedEvent).date} ${startLabel(selectedEvent).time}, ${selectedEvent.venueName}, ${formatFeedPrice(selectedEvent)}.`
+              ? `Selected ${selectedEvent.title}, ${startDateTimeLine(selectedEvent)}, ${selectedEvent.venueName}, ${formatFeedPrice(selectedEvent)}.`
               : ""}
           </p>
         </>

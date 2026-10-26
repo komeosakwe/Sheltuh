@@ -520,7 +520,8 @@ h4 {
     border-color: var(--surface-border);
     color: var(--muted);
   }
-  input[aria-invalid="true"],
+  /* As specific as the input rule above (its :not()s count), or the border stays black. */
+  input:not([type="checkbox"]):not([type="radio"])[aria-invalid="true"],
   select[aria-invalid="true"],
   textarea[aria-invalid="true"] {
     border-color: var(--danger);

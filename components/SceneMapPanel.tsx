@@ -425,8 +425,11 @@ export default function SceneMapPanel({
         ))}
         <TileWatcher status={status} retryKey={retryKey} programmaticMoveRef={programmaticMoveRef} />
         <ResizeSync programmaticMoveRef={programmaticMoveRef} />
-        {/* Before the controller: sibling effects run in order, so the markers listen for the map's
-            moves before the controller's first framing moves it (from Australia to the events). */}
+        {/* Before the controller: sibling effects run in order, so the markers and "Search this area"
+            listen for the map's moves before the controller's first framing moves it (from
+            Australia to the events). That framing can be too big a jump to animate, and then its
+            moveend fires inside the controller's effect: a listener added after it would miss it,
+            leave the move marked as the map's own, and take the visitor's first zoom for it. */}
         <EventMarkerLayer
           markers={markers}
           selectedEventId={selectedEventId}
@@ -436,13 +439,6 @@ export default function SceneMapPanel({
           onAnnounce={setAnnouncement}
           reducedMotion={reducedMotion}
           programmaticMoveRef={programmaticMoveRef}
-        />
-        <MapController
-          markers={markers}
-          near={near}
-          selectedEventId={selectedEventId}
-          programmaticMoveRef={programmaticMoveRef}
-          reducedMotion={reducedMotion}
         />
         <SearchThisAreaControl
           programmaticMoveRef={programmaticMoveRef}
@@ -454,6 +450,13 @@ export default function SceneMapPanel({
               west: bounds.getWest(),
             })
           }
+        />
+        <MapController
+          markers={markers}
+          near={near}
+          selectedEventId={selectedEventId}
+          programmaticMoveRef={programmaticMoveRef}
+          reducedMotion={reducedMotion}
         />
       </MapContainer>
 

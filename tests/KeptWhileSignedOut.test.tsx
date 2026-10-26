@@ -10,6 +10,9 @@ import type { AuthContextValue } from "@/lib/auth/AuthContext";
 import { useKeptWhileSignedOut } from "@/lib/auth/useKeptWhileSignedOut";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
+// The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
+vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+
 vi.mock("next/navigation", () => ({ useParams: () => ({ eventId: "evt-1" }), useRouter: () => ({ push: vi.fn() }) }));
 
 /** What useOrganiser says right now (set per step). */

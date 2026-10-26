@@ -371,6 +371,12 @@ describe("buildTicketEmail", () => {
     expect(formatTicketDate("2027-12-31T10:00:00.000Z", "2028-01-01T14:00:00.000Z")).toBe("Friday 31 December 2027 – Sunday 2 January 2028".replace("Sunday 2 January", "Sunday 2 January"));
   });
 
+  it("with no street address, gives the suburb as \"Suburb, STATE\" (owner decision D4)", () => {
+    const { html, text } = buildTicketEmail(order, { ...event, venueAddress: "", suburb: "Fremantle", state: "WA", timeZone: "Australia/Perth" } as EventRecord, "https://x");
+    expect(text).toContain("Address: Fremantle, WA");
+    expect(html).toContain(">Fremantle, WA</p>");
+  });
+
   it("omits a venue and address that are empty, and an empty ticket type", () => {
     const { html, text } = buildTicketEmail(
       { ...order, tickets: [{ ticketCode: "ZZZZ-9999", ticketTypeId: "t", ticketTypeName: "" }] } as OrderRecord,

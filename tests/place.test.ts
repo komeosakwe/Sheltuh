@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { bareSuburb, eventPlaceName, placeName, placeQuery, STATE_NAMES } from "@/lib/place";
+import { bareSuburb, eventPlaceName, placeName, placeNameParts, placeQuery, STATE_NAMES } from "@/lib/place";
 import { STATE_CODES } from "@/lib/time-zones";
+
+describe("placeNameParts (a line that cuts the suburb short, never the state)", () => {
+  it("splits placeName's suburb and state, and is null for an empty suburb", () => {
+    expect(placeNameParts("Fortitude Valley", "QLD")).toEqual({ suburb: "Fortitude Valley", state: "QLD" });
+    expect(placeNameParts("Richmond NSW", "NSW")).toEqual({ suburb: "Richmond", state: "NSW" });
+    expect(placeNameParts("Richmond NSW")).toEqual({ suburb: "Richmond", state: "NSW" });
+    expect(placeNameParts("Fitzroy")).toEqual({ suburb: "Fitzroy", state: "VIC" });
+    expect(placeNameParts("  ")).toBeNull();
+    for (const [suburb, state] of [["Perth", "WA"], ["Richmond (Mackay) QLD", "QLD"], ["Newtown", null]] as const) {
+      const parts = placeNameParts(suburb, state);
+      expect(parts && `${parts.suburb}, ${parts.state}`).toBe(placeName(suburb, state));
+    }
+  });
+});
 
 describe("placeName (owner decision D4: \"Suburb, STATE\")", () => {
   it.each([

@@ -42,7 +42,7 @@ describe("demo event metadata", () => {
     const metadata = await eventMeta("neon-static");
     expect(metadata.title).toBe("Neon Static — Sheltüh");
     // Fri 25 Sep 2026, 8 pm in Melbourne (AEST); ICU versions spell September "Sep" or "Sept", as everywhere lib/format.ts is used.
-    expect(metadata.description).toMatch(/^Fri 25 Sept? 2026, 8:00 pm · Warehouse 9, Collingwood\. A night of fuzzed-out guitars/);
+    expect(metadata.description).toMatch(/^Fri 25 Sept? 2026, 8:00 pm · Warehouse 9, Collingwood, VIC\. A night of fuzzed-out guitars/);
     expect(metadata.description!.length).toBeLessThanOrEqual(200);
     expect(metadata.alternates).toEqual({ canonical: "https://demo.sheltuh.test/events/neon-static" });
     expect(metadata.openGraph).toMatchObject({
@@ -151,6 +151,18 @@ describe("share metadata helpers", () => {
     expect(eventShareDescription({ ...base, startsAt: "2027-03-06T15:30:00.000Z", timeZone: "Australia/Perth" })).toBe(
       "Sat 6 Mar 2027, 11:30 pm Perth time · Mojos",
     );
+  });
+
+  it("eventShareDescription: the suburb as \"Suburb, STATE\" (owner decision D4), never the state twice", () => {
+    const base = { slug: "x", title: "X", description: "", venueName: "Mojos", startsAt: "2027-03-06T09:00:00.000Z" };
+    expect(eventShareDescription({ ...base, suburb: "Fremantle", state: "WA", timeZone: "Australia/Perth" })).toBe(
+      "Sat 6 Mar 2027, 5:00 pm Perth time · Mojos, Fremantle, WA",
+    );
+    expect(eventShareDescription({ ...base, suburb: "Richmond NSW", state: "NSW", timeZone: "Australia/Sydney" })).toBe(
+      "Sat 6 Mar 2027, 8:00 pm Sydney time · Mojos, Richmond, NSW",
+    );
+    // No state (an older event): Victoria.
+    expect(eventShareDescription({ ...base, suburb: "Fitzroy" })).toBe("Sat 6 Mar 2027, 8:00 pm · Mojos, Fitzroy, VIC");
   });
 
   it("inheritedShareImages: none without a parent, or if it fails", async () => {

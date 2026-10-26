@@ -20,7 +20,7 @@ export default async function EventsPage({ searchParams }: PageProps<"/events">)
       />
       {/* key: a new ?category=/?pricing= starts a fresh feed with those filters. */}
       <EventFeed key={`${category}|${pricing}`} initialCategory={category} initialPricing={pricing} />
-      {/* "Only in the city", the editorial card, after the listings (moved off the home,
+      {/* "After dark", the editorial card, after the listings (moved off the home,
           docs/design/mobile-redesign.md §6.3.5). */}
       <GuideCard className="mt-12 sm:mt-16" />
     </Page>

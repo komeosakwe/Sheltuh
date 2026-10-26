@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  distinctSuburbs,
   isOnDate,
   isThisWeekend,
   isTonight,
@@ -181,15 +180,8 @@ describe("matchesSearch", () => {
   });
 });
 
-describe("distinctSuburbs", () => {
-  it("dedupes and sorts alphabetically", () => {
-    const events = [eventAt("2026-01-01T00:00:00Z"), eventAt("2026-01-01T00:00:00Z", { suburb: "Brunswick" })];
-    expect(distinctSuburbs(events)).toEqual(["Brunswick", "Fitzroy"]);
-  });
-});
-
 describe("suburbsByState (the map's location filter, grouped by state)", () => {
-  it("groups the events' suburbs by state, states and suburbs by name, a suburb's own state left off its label", () => {
+  it("groups the events' suburbs by state, states and suburbs by name, each labelled \"Suburb, STATE\"", () => {
     const at = "2026-11-21T10:00:00.000Z";
     const groups = suburbsByState([
       eventAt(at, { suburb: "Northbridge", state: "WA" }),
@@ -204,19 +196,19 @@ describe("suburbsByState (the map's location filter, grouped by state)", () => {
         state: "NSW",
         label: "New South Wales",
         suburbs: [
-          { value: "Newtown", label: "Newtown" },
-          { value: "Richmond NSW", label: "Richmond" },
+          { value: "Newtown", label: "Newtown, NSW" },
+          { value: "Richmond NSW", label: "Richmond, NSW" },
         ],
       },
       {
         state: "VIC",
         label: "Victoria",
         suburbs: [
-          { value: "Collingwood", label: "Collingwood" },
-          { value: "Fitzroy", label: "Fitzroy" },
+          { value: "Collingwood", label: "Collingwood, VIC" },
+          { value: "Fitzroy", label: "Fitzroy, VIC" },
         ],
       },
-      { state: "WA", label: "Western Australia", suburbs: [{ value: "Northbridge", label: "Northbridge" }] },
+      { state: "WA", label: "Western Australia", suburbs: [{ value: "Northbridge", label: "Northbridge, WA" }] },
     ]);
   });
 });

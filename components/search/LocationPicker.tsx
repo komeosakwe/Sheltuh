@@ -11,6 +11,7 @@ import {
 } from "@/lib/near-storage";
 // The suburb table loads only when someone opens the picker or asks for their location.
 import { loadLocation, type LocationModule } from "@/lib/location-loader";
+import { placeName } from "@/lib/place";
 
 function subscribeStorage(onChange: () => void) {
   function handle(event: StorageEvent) {
@@ -51,7 +52,7 @@ const sameNear = (a: string, b: string) => a.trim().toLowerCase() === b.trim().t
  * asked for only when "Use my current location" is pressed, never on load;
  * it's turned into the suburb it's in (anywhere in Australia, from the
  * ABS table in lib/localities.ts) here and dropped. Only the
- * suburb's name is kept (localStorage, `{suburb}`) and submitted
+ * suburb's name (and its state) is kept (localStorage, `{suburb, state}`) and the name submitted
  * (`/search?near=`); coordinates never reach storage, the URL or the API.
  *
  * `near`: when the address has one (/search?near=…), the bar mirrors it;
@@ -109,8 +110,9 @@ export default function LocationPicker({
   const shown = label || (anywhere ? "Anywhere" : "Your suburb");
   const styles = SIZES[size];
   const outOfDate = appliedNear !== undefined && !sameNear(label, appliedNear);
-  // Suburbs starting with what's typed (two letters or more); none until the table has loaded.
-  const suggestions = table ? table.suggestLocalities(label).map((place) => place.name) : [];
+  // Suburbs starting with what's typed (two letters or more), as "Suburb, STATE" (owner decision D4:
+  // "Richmond, VIC" beside "Richmond, NSW"; each finds its own again); none until the table has loaded.
+  const suggestions = table ? table.suggestLocalities(label).map((place) => placeName(place.name, place.state)) : [];
 
   // Place the panel under the bar: the bar's full width on phones; from 640px, 320px under
   // this segment, kept within the bar's edges.
@@ -197,7 +199,7 @@ export default function LocationPicker({
   }, []);
 
   // On submit: leave an empty `near` out of the address (so /search?q=jazz stays clean) and
-  // forget the remembered suburb; remember a suburb the table knows, by its own name.
+  // forget the remembered suburb; remember a suburb the table knows, by its own name, with its state.
   useEffect(() => {
     const form = inputRef.current?.form;
     if (!form) return;
@@ -211,7 +213,7 @@ export default function LocationPicker({
       }
       event.formData.set("near", typed);
       const place = moduleRef.current?.findLocality(typed);
-      if (place) writeStoredNear(place.name);
+      if (place) writeStoredNear(place.name, place.state);
     }
     form.addEventListener("formdata", handleFormData);
     return () => form.removeEventListener("formdata", handleFormData);
@@ -255,12 +257,12 @@ export default function LocationPicker({
               return;
             }
             // Its name says the state when the suburb's name alone is another one's ("Richmond NSW").
-            const suburb = result.locality.name;
+            const { name: suburb, state } = result.locality;
             setDraft(suburb);
             setAnywhere(false);
-            writeStoredNear(suburb);
+            writeStoredNear(suburb, state);
             setPanelStatus(null);
-            closeAndReturn(`Location set: ${suburb}`);
+            closeAndReturn(`Location set: ${placeName(suburb, state)}`);
           })
           .catch(() => failLocating("Couldn’t find your location. Type your suburb instead."))
           .finally(finishLocating);

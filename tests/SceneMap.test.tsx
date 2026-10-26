@@ -23,6 +23,7 @@ vi.mock("@/lib/data", async (importOriginal) => {
 });
 
 import SceneMap from "@/components/SceneMap";
+import { loadLocation } from "@/lib/location-loader";
 
 const sizeDescriptors = {
   clientWidth: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth"),
@@ -41,6 +42,9 @@ beforeAll(async () => {
     },
   );
   Element.prototype.scrollIntoView = vi.fn();
+  // The suburb table (~15k rows) decodes once, here, not inside whichever test first needs it
+  // (an event without coordinates, or a saved suburb).
+  await loadLocation();
   // The map panel is a next/dynamic import (React.lazy behind Suspense) of Leaflet and
   // react-leaflet, and its first mount pays one-off costs: importing those modules (~0.3s idle,
   // over 2s under a full-suite load), React's 300ms throttle on revealing suspended content, and
@@ -286,7 +290,8 @@ describe("SceneMap photo markers", () => {
     } finally {
       localStorage.removeItem("sheltuh:near:v1");
     }
-  });
+    // Three map mounts with 5s waits inside: more than the default 5s for the whole test.
+  }, 30_000);
 
   it("groups the location filter's suburbs by state, under All of Australia", async () => {
     await renderMap([withPhoto, interstate, westSide]);
@@ -298,8 +303,9 @@ describe("SceneMap photo markers", () => {
       Array.from(group.querySelectorAll("option")).map((option) => option.textContent),
     ]);
     expect(groups).toEqual([
-      ["New South Wales", ["Surry Hills"]],
-      ["Victoria", ["Fitzroy", "Footscray"]],
+      // Each option says its state, so the closed select does too (owner decision D4).
+      ["New South Wales", ["Surry Hills, NSW"]],
+      ["Victoria", ["Fitzroy, VIC", "Footscray, VIC"]],
     ]);
     fireEvent.change(select, { target: { value: "Surry Hills" } });
     // The chip names the state too (owner decision D4).

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { useLocationModule } from "@/components/search/useLocationModule";
 import { Notice } from "@/components/ui/Section";
 import type { Locality } from "@/lib/location";
+import { placeName } from "@/lib/place";
 import type { SheltuhEvent } from "@/lib/types";
 
 /** Live near mode reads at most this many events (4 pages of 50) before ordering them by distance. */
@@ -12,7 +13,7 @@ export const NEAR_MAX_EVENTS = 200;
 
 /**
  * /search results near a suburb (owner decision D4, 24 Oct 2026): in bands,
- * nearest first (In {suburb}, Within 5 km, 5–15 km, Further away, Over 100
+ * nearest first (In {Suburb, STATE}, Within 5 km, 5–15 km, 15–100 km, Over 100
  * km (owner decision D8, 26 Oct 2026: events are Australia-wide), Location
  * not on file), soonest first within each, each under a small visible h2.
  * Each event's suburb is found with its state (lib/place.ts placeQuery).
@@ -37,6 +38,8 @@ export default function NearbyResults({
   capped?: boolean;
 }) {
   const { module: location, failed, retry } = useLocationModule();
+  // "Fitzroy, VIC", "Richmond, NSW" (owner decision D4).
+  const originName = placeName(origin.name, origin.state);
 
   if (!location) {
     if (failed) {
@@ -44,7 +47,7 @@ export default function NearbyResults({
         <div className="flex flex-col gap-6">
           <div className="flex flex-col items-start gap-4">
             <Notice tone="danger" role="alert">
-              Couldn’t sort these by distance from {origin.name}, so they’re soonest first.
+              Couldn’t sort these by distance from {originName}, so they’re soonest first.
             </Notice>
             <Button variant="outline" size="sm" onClick={retry}>
               Try again
@@ -56,7 +59,7 @@ export default function NearbyResults({
     }
     return (
       <p role="status" className="text-sm leading-5 text-muted">
-        Sorting by distance from {origin.name}…
+        Sorting by distance from {originName}…
       </p>
     );
   }
@@ -65,7 +68,7 @@ export default function NearbyResults({
   return (
     <div className="flex flex-col gap-8 sm:gap-10">
       <p data-near-note="" className="text-sm leading-5 text-muted">
-        Closest to {origin.name} first. Distances are between suburb centres, so they’re approximate.
+        Closest to {originName} first. Distances are between suburb centres, so they’re approximate.
         {capped && ` Sorted the ${NEAR_MAX_EVENTS} soonest events by distance.`}
       </p>
       {groups.map((group) => (

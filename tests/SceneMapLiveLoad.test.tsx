@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { loadLocation } from "@/lib/location-loader";
 
 /*
  * Live /map asks only for upcoming events, 50 a page. Without these it got the
@@ -25,6 +26,11 @@ vi.mock("@/lib/api/public-events", async (importOriginal) => ({
 }));
 
 const { default: SceneMap } = await import("@/components/SceneMap");
+
+// The suburb table (~15k rows) decodes once, here, not inside the first test that places a pin by its suburb.
+beforeAll(async () => {
+  await loadLocation();
+});
 
 afterEach(() => {
   cleanup();
@@ -67,7 +73,8 @@ describe("live /map loading", () => {
     for (let n = 0; n < 6; n++) listPublicEvents.mockResolvedValueOnce(page(n * 50, 50, `c${n + 1}`));
     listPublicEvents.mockResolvedValueOnce(page(300, 10));
     render(<SceneMap />);
-    await waitFor(() => expect(screen.getAllByText(/^200 upcoming events$/).length).toBeGreaterThan(0));
+    // Explicit waits: rendering 200, then 310, rows takes more than waitFor's 1s under a loaded full run.
+    await waitFor(() => expect(screen.getAllByText(/^200 upcoming events$/).length).toBeGreaterThan(0), { timeout: 10_000 });
     expect(listPublicEvents.mock.calls.map(([args]) => (args as { cursor?: string }).cursor)).toEqual([
       undefined,
       "c1",
@@ -77,7 +84,7 @@ describe("live /map loading", () => {
     for (const [args] of listPublicEvents.mock.calls) expect(args).toMatchObject({ upcoming: true, limit: 50 });
 
     fireEvent.click(screen.getByRole("button", { name: "Load more events" }));
-    await waitFor(() => expect(screen.getAllByText(/^310 upcoming events$/).length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText(/^310 upcoming events$/).length).toBeGreaterThan(0), { timeout: 10_000 });
     expect(listPublicEvents.mock.calls.slice(4).map(([args]) => (args as { cursor?: string }).cursor)).toEqual([
       "c4",
       "c5",

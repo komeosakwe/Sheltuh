@@ -17,7 +17,7 @@ import { getTrendingEvents } from "@/lib/server/handlers/trending";
 import { buildTicketEmail, formatTicketTime, ticketEmailRefundPolicy, ticketWhen } from "@/lib/server/ticket-email";
 import type { AdminEventRecord, EventRecord, OrderRecord } from "@/lib/server/types";
 import { DST_GAP_MESSAGE } from "@/lib/server/validation";
-import { buildWaitlistAvailableEmail, when } from "@/lib/server/waitlist-email";
+import { buildWaitlistAvailableEmail, when, where } from "@/lib/server/waitlist-email";
 import { passTimeZone, passWhen } from "@/lib/server/wallet/pass-content";
 import { STATE_CODES, wallClockParts, ZONES_BY_STATE } from "@/lib/time-zones";
 import { TestApi } from "./helpers/api";
@@ -273,12 +273,12 @@ describe("POST /api/events", () => {
     const elsewhere = await create(eventInput({ suburb: "Fremantle", state: "VIC", timeZone: "Australia/Melbourne" }));
     expect(elsewhere.status).toBe(400);
     expect(elsewhere.body.fieldErrors).toEqual({
-      suburb: "We couldn't find that suburb in VIC. Check the spelling, or choose the state it's in.",
+      suburb: "We couldn't find that suburb in VIC. Check the spelling, or add the state it's in (“Richmond, NSW”).",
     });
 
     const typo = await create(eventInput({ suburb: "Fremantel", state: "WA", timeZone: "Australia/Perth" }));
     expect(typo.status).toBe(400);
-    expect(typo.body.fieldErrors).toEqual({ suburb: "We couldn't find that suburb in WA. Did you mean Fremantle?" });
+    expect(typo.body.fieldErrors).toEqual({ suburb: "We couldn't find that suburb in WA. Did you mean Fremantle, WA?" });
 
     // Reported with the other fields' errors, all at once.
     const both = await create(eventInput({ suburb: "Nowhereville", title: "", state: "SA", timeZone: "Australia/Adelaide" }));
@@ -599,6 +599,8 @@ describe("emails say the event's own time", () => {
     const event = (await findEventById(api.db, created.eventId))!;
     const line = "Saturday 6 March 2027, 8:00 pm – 11:30 pm Perth time (AWST)";
     expect(buildWaitlistAvailableEmail("fan@example.com", event, "https://x/e", "https://x/l").text).toContain(line);
+    // The place as "Suburb, STATE" (owner decision D4).
+    expect(where(event)).toBe(`${event.venueName}, Fremantle, WA`);
     expect(
       buildFollowerNewEventsEmail({
         to: "fan@example.com",

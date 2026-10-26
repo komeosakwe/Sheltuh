@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import EventEditor from "@/components/dashboard/EventEditor";
 import { ApiError } from "@/lib/api/client";
+import { loadLocation } from "@/lib/location-loader";
 import type { EventRecord } from "@/lib/api/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
@@ -30,6 +31,11 @@ vi.mock("@/lib/api/events", async (importOriginal) => {
     deleteEventImage: vi.fn(),
   };
 });
+
+// The suburb table (~15k rows) decodes once per file: here, rather than inside the first test's timeout.
+beforeAll(async () => {
+  await loadLocation();
+}, 30_000);
 
 afterEach(cleanup);
 beforeEach(() => {
@@ -98,8 +104,9 @@ describe("VenueSuburbField — resolving the suburb", () => {
     expect(screen.getByText("Ends (local time)")).toBeInTheDocument();
     expect(hint()).toHaveAttribute("aria-live", "polite");
 
-    typeSuburb("Collingwood");
-    await waitFor(() => expect(hint()).toHaveTextContent(/^Collingwood, Victoria · Melbourne time \((AEDT|AEST)\)$/));
+    // A name no other state has, so the line is just the place and its zone.
+    typeSuburb("Footscray");
+    await waitFor(() => expect(hint()).toHaveTextContent(/^Footscray, Victoria · Melbourne time \((AEDT|AEST)\)$/));
     expect(screen.getByText("Starts (Melbourne time)")).toBeInTheDocument();
     expect(suburbField()).toHaveAccessibleDescription(hint()?.textContent ?? "");
     // One zone in Victoria: no choice.
@@ -223,10 +230,17 @@ describe("VenueSuburbField — resolving the suburb", () => {
     );
     renderEditor(PERTH_EVENT);
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
-    await waitFor(() => expect(screen.getByLabelText("Time zone")).toHaveAccessibleDescription("Choose a time zone used in WA."));
+    // The error, then why there's a choice at all.
+    await waitFor(() =>
+      expect(screen.getByLabelText("Time zone")).toHaveAccessibleDescription(
+        "Choose a time zone used in WA. Most of Western Australia is on Perth time. Change this only if the venue keeps Eucla time.",
+      ),
+    );
     expect(screen.getByLabelText("Start time")).toHaveAccessibleDescription(
       "That time doesn't exist in Perth: the clocks skip it.",
     );
+    // Focus goes to the first field refused: the zone, by its choice (the one carrying the message).
+    await waitFor(() => expect(screen.getByLabelText("Time zone")).toHaveFocus());
     cleanup();
 
     updateEventDraft.mockRejectedValue(
@@ -236,5 +250,139 @@ describe("VenueSuburbField — resolving the suburb", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
     await waitFor(() => expect(suburbField()).toHaveAttribute("aria-invalid", "true"));
     expect(document.getElementById("suburb-error")).toHaveTextContent("We couldn't find that suburb in WA.");
+    await waitFor(() => expect(suburbField()).toHaveFocus());
+    cleanup();
+
+    // In Victoria there's no zone choice: a zone error goes by the suburb, and focus with it.
+    const melbourne: EventRecord = { ...PERTH_EVENT, suburb: "Fitzroy", state: "VIC", timeZone: "Australia/Melbourne" };
+    updateEventDraft.mockRejectedValue(new ApiError(400, "Check the event's details.", { timeZone: "Choose a time zone used in VIC." }));
+    renderEditor(melbourne);
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(suburbField()).toHaveAccessibleDescription(/Choose a time zone used in VIC\.$/));
+    expect(screen.queryByLabelText("Time zone")).toBeNull();
+    await waitFor(() => expect(suburbField()).toHaveFocus());
+  });
+
+  it("an error goes as soon as the suburb is changed, and a near spelling is a button that fills it in", async () => {
+    createEventDraft.mockResolvedValue({ ...PERTH_EVENT, eventId: "evt-new" });
+    renderEditor();
+    fillTheRest();
+    typeSuburb("Fremantel");
+    fireEvent.click(screen.getByRole("button", { name: /Save draft/ }));
+    await waitFor(() => expect(suburbField()).toHaveAttribute("aria-invalid", "true"));
+    const use = screen.getByRole("button", { name: "Use Fremantle, WA" });
+    fireEvent.click(use);
+    expect(suburbField()).toHaveValue("Fremantle, WA");
+    expect(suburbField()).toHaveFocus();
+    // The error went with the change: never beside the line saying the place is found.
+    expect(suburbField()).not.toHaveAttribute("aria-invalid");
+    expect(document.getElementById("suburb-error")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Use / })).toBeNull();
+    await waitFor(() => expect(hint()).toHaveTextContent(/^Fremantle, Western Australia · Perth time \(AWST\)$/));
+    expect(suburbField().getAttribute("aria-describedby")).toBe("suburb-hint");
+
+    // Typing clears it too (UX review: the stale error contradicted the hint).
+    typeSuburb("Fremantel");
+    fireEvent.click(screen.getByRole("button", { name: /Save draft/ }));
+    await waitFor(() => expect(suburbField()).toHaveAttribute("aria-invalid", "true"));
+    typeSuburb("Fremantle");
+    expect(suburbField()).not.toHaveAttribute("aria-invalid");
+    expect(document.getElementById("suburb-error")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Save draft/ }));
+    await waitFor(() => expect(createEventDraft).toHaveBeenCalledTimes(1));
+    expect(createEventDraft.mock.calls[0][0]).toMatchObject({ suburb: "Fremantle", state: "WA", timeZone: "Australia/Perth" });
+  });
+
+  it("says where else a bare shared name is (D7 picks Victoria's), and not once the state is given", async () => {
+    renderEditor();
+    typeSuburb("Newtown");
+    await waitFor(() =>
+      expect(hint()).toHaveTextContent(
+        /^Newtown, Victoria · Melbourne time \(AE[DS]T\) Also in NSW, QLD\. Add the state \(“Newtown, NSW”\) or pick it from the list\.$/,
+      ),
+    );
+    typeSuburb("Newtown, NSW");
+    await waitFor(() => expect(hint()).toHaveTextContent(/^Newtown, New South Wales · Sydney time \(AE[DS]T\)$/));
+  });
+
+  it("a capital's CBD or City is that capital; CBD or City alone asks which city, and nothing is sent", async () => {
+    renderEditor();
+    fillTheRest();
+    typeSuburb("Sydney CBD");
+    await waitFor(() => expect(hint()).toHaveTextContent(/^Sydney, New South Wales · Sydney time/));
+    typeSuburb("Perth City");
+    await waitFor(() => expect(hint()).toHaveTextContent(/^Perth, Western Australia · Perth time/));
+    typeSuburb("Brisbane CBD");
+    await waitFor(() => expect(hint()).toHaveTextContent(/^Brisbane City, Queensland · Brisbane time/));
+    typeSuburb("CBD, NSW");
+    await waitFor(() => expect(hint()).toHaveTextContent(/^Sydney, New South Wales/));
+
+    for (const bare of ["CBD", "City"]) {
+      typeSuburb(bare);
+      // Never silently Melbourne's.
+      await waitFor(() => expect(hint()).toBeEmptyDOMElement());
+      expect(screen.getByText("Starts (local time)")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: /Save draft/ }));
+      await waitFor(() =>
+        expect(document.getElementById("suburb-error")).toHaveTextContent(
+          "Which city’s centre? Add the city or its state (“Sydney CBD”, “CBD, NSW”). Did you mean Melbourne, VIC?",
+        ),
+      );
+      expect(screen.getByRole("button", { name: "Use Melbourne, VIC" })).toBeInTheDocument();
+    }
+    expect(createEventDraft).not.toHaveBeenCalled();
+    // The ACT's suburb called City, with its state, is found.
+    typeSuburb("City, ACT");
+    await waitFor(() => expect(hint()).toHaveTextContent(/^City, Australian Capital Territory · Canberra time/));
+  });
+
+  it("a saved event's suburb keeps its saved state once the table loads (an older bare \"Newtown\" in NSW)", async () => {
+    const newtown: EventRecord = { ...PERTH_EVENT, suburb: "Newtown", state: "NSW", timeZone: "Australia/Sydney" };
+    updateEventDraft.mockResolvedValue(newtown);
+    renderEditor(newtown);
+    await waitFor(() => expect(hint()).toHaveTextContent(/^Newtown, New South Wales · Sydney time/));
+    // It's the event's own place: no "Also in" for it.
+    expect(hint()).not.toHaveTextContent(/Also in/);
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(updateEventDraft).toHaveBeenCalledTimes(1));
+    expect(updateEventDraft.mock.calls[0][1]).toMatchObject({ suburb: "Newtown NSW", state: "NSW", timeZone: "Australia/Sydney" });
+  });
+
+  it("names the zones by their cities, in a row of their own, with why there's a choice", async () => {
+    renderEditor();
+    typeSuburb("Broken Hill");
+    const zone = await screen.findByLabelText("Time zone");
+    expect(within(zone).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "Sydney time",
+      "Broken Hill time",
+      "Lord Howe Island time",
+    ]);
+    expect(zone).toHaveAccessibleDescription(
+      "Most of New South Wales is on Sydney time. Change this only if the venue keeps Broken Hill time or Lord Howe Island time.",
+    );
+    // Its row spans the venue's three columns.
+    expect(zone.closest(".sm\\:col-span-3")).not.toBeNull();
+  });
+
+  it("says when a change of zone moves the times (their wall-clock values stay)", async () => {
+    renderEditor(PERTH_EVENT);
+    const note = () => document.querySelector("[data-zone-note]");
+    expect(note()).toHaveAttribute("aria-live", "polite");
+    expect(note()).toBeEmptyDOMElement();
+    typeSuburb("Fitzroy");
+    await waitFor(() => expect(note()).toHaveTextContent("Times are now Melbourne time (were Perth time)."));
+    expect(screen.getByLabelText("Start time")).toHaveValue("18:30");
+    typeSuburb("Broken Hill");
+    await waitFor(() => expect(note()).toHaveTextContent("Times are now Broken Hill time (were Melbourne time)."));
+    fireEvent.change(screen.getByLabelText("Time zone"), { target: { value: "Australia/Sydney" } });
+    expect(note()).toHaveTextContent("Times are now Sydney time (were Broken Hill time).");
+  });
+
+  it("a new event with no times yet: no note when the place is first found", async () => {
+    renderEditor();
+    typeSuburb("Perth");
+    await waitFor(() => expect(screen.getByText("Starts (Perth time)")).toBeInTheDocument());
+    expect(document.querySelector("[data-zone-note]")).toBeEmptyDOMElement();
   });
 });

@@ -10,8 +10,11 @@ import EventImageField from "@/components/dashboard/EventImageField";
 import { PayoutsNeededNotice, PayoutsSubmitError, PayoutsSubmitHint } from "@/components/dashboard/PayoutsRequired";
 import RefundPolicyField from "@/components/dashboard/RefundPolicyField";
 import VenueSuburbField, {
+  hasZoneChoice,
   useVenuePlace,
   VENUE_SUBURB_ID,
+  VENUE_TIME_ZONE_ID,
+  VenueZoneField,
   venueZoneName,
   type VenueResolution,
 } from "@/components/dashboard/VenueSuburbField";
@@ -61,7 +64,7 @@ import {
   type RefundPolicy,
 } from "@/lib/refund-policy";
 import { checkExternalTicketUrl, sellsPaidTicketsOnSheltuh, type TicketingMode } from "@/lib/ticketing";
-import { localToUtcIso, PLATFORM_TIME_ZONE } from "@/lib/time-zones";
+import { localToUtcIso, PLATFORM_TIME_ZONE, zoneShortLabel } from "@/lib/time-zones";
 import { EVENT_CATEGORIES } from "@/lib/types";
 
 /** A section title in the form (Panel's title style: 20/24, uppercase by the heading base rule, which a legend doesn't get). */
@@ -152,14 +155,17 @@ function errorId(key: string): string {
 }
 
 /**
- * The control to focus for each client-side error, in the form's order: the
- * first one present is focused when a save doesn't validate.
+ * The control to focus for each error (this form's, or the API's
+ * fieldErrors), in the form's order: the first one present is focused when
+ * a save doesn't validate or is refused. A zone error goes to the zone
+ * choice while it's shown (`zoneChoice`), else to the suburb it comes from.
  */
 function invalidControlIds(
   errors: Record<string, string>,
   ticketCount: number,
   start: { date: string },
   end: { date: string },
+  zoneChoice: boolean,
 ): string[] {
   const order: [string, string][] = [
     ["organiserId", "organiserId"],
@@ -169,7 +175,7 @@ function invalidControlIds(
     ["venueAddress", "venueAddress"],
     ["suburb", VENUE_SUBURB_ID],
     ["state", VENUE_SUBURB_ID],
-    ["timeZone", VENUE_SUBURB_ID],
+    ["timeZone", zoneChoice ? VENUE_TIME_ZONE_ID : VENUE_SUBURB_ID],
     ["start", start.date ? "start-time" : "start-date"],
     ["end", end.date ? "end-time" : "end-date"],
     ["externalTicketUrl", "externalTicketUrl"],
@@ -220,9 +226,23 @@ export default function EventEditor(props: Props) {
   const timeZone = venue.place?.timeZone ?? initial?.timeZone ?? PLATFORM_TIME_ZONE;
   // "Perth time" (the ACT's "Canberra time"), or "local time" while the suburb isn't known.
   const zoneName = venueZoneName(venue.place);
+  const zoneChoice = hasZoneChoice(venue.place);
   const initialZone = initial?.timeZone ?? PLATFORM_TIME_ZONE;
   const [start, setStart] = useState(initial ? toDateTimeInputParts(initial.startsAt, initialZone) : { date: "", time: "" });
   const [end, setEnd] = useState(initial ? toDateTimeInputParts(initial.endsAt, initialZone) : { date: "", time: "" });
+  // The times keep their wall-clock values when the place's zone changes, so the instant moves: say
+  // so by them ("Times are now Melbourne time (were Perth time)."). `shownZone`: the last known
+  // place's zone (a saved event's own to start with; none for a new one, whose legends said
+  // "local time"), updated while rendering when the place's zone changes.
+  const [shownZone, setShownZone] = useState<string | null>(
+    initial?.timeZone ? zoneShortLabel(initial.timeZone, initial.state) : null,
+  );
+  const [zoneNote, setZoneNote] = useState("");
+  if (venue.place && zoneName !== shownZone) {
+    setShownZone(zoneName);
+    const timesTyped = Boolean(start.date || start.time || end.date || end.time);
+    setZoneNote(shownZone && timesTyped ? `Times are now ${zoneName} (were ${shownZone}).` : "");
+  }
   const [ticketTypes, setTicketTypes] = useState<TicketTypeInput[]>(
     initial?.ticketTypes && initial.ticketTypes.length > 0 ? initial.ticketTypes : [newTicketType()],
   );
@@ -360,8 +380,23 @@ export default function EventEditor(props: Props) {
       focusRefund.current = saved?.refundPolicy === "days_before" && refundPolicy === "days_before" ? "days" : "choice";
       return;
     }
-    if (err instanceof ApiError && err.fieldErrors) setErrors((prev) => ({ ...prev, ...err.fieldErrors }));
+    if (err instanceof ApiError && err.fieldErrors) {
+      const fieldErrors = err.fieldErrors;
+      setErrors((prev) => ({ ...prev, ...fieldErrors }));
+      // Focus the first field the API refused, as for this form's own errors (its message is read with it).
+      focusInvalidId.current = invalidControlIds(fieldErrors, ticketTypes.length, start, end, zoneChoice)[0] ?? null;
+    }
     setSubmitError(err instanceof Error ? err.message : fallback);
+  }
+
+  /** Fields were edited: their old errors (ours or the server's) no longer apply. */
+  function clearErrors(...keys: string[]) {
+    setErrors((prev) => {
+      if (!keys.some((key) => prev[key])) return prev;
+      const next = { ...prev };
+      for (const key of keys) delete next[key];
+      return next;
+    });
   }
 
   /** A refund field changed: its old error (ours or the server's) no longer applies. */
@@ -430,7 +465,7 @@ export default function EventEditor(props: Props) {
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) {
       // Focus the first field to fix (its error is read with it), and say how many there are by the buttons.
-      focusInvalidId.current = invalidControlIds(nextErrors, ticketTypes.length, start, end)[0] ?? null;
+      focusInvalidId.current = invalidControlIds(nextErrors, ticketTypes.length, start, end, zoneChoice)[0] ?? null;
       const count = Object.keys(nextErrors).length;
       setStatus(`Not saved: ${count === 1 ? "1 field needs" : `${count} fields need`} fixing. The first one is focused.`);
       return null;
@@ -784,8 +819,16 @@ export default function EventEditor(props: Props) {
             suburbError={errors.suburb ?? errors.state}
             timeZoneError={errors.timeZone}
             startsAt={startInstant(start, timeZone)}
+            // The place (and with it the zone) comes from the suburb: all three errors go with it.
+            onSuburbEdit={() => clearErrors("suburb", "state", "timeZone")}
           />
         </div>
+        {zoneChoice && (
+          // A row of its own, so the zones' names have room.
+          <div className="sm:col-span-3">
+            <VenueZoneField venue={venue} timeZoneError={errors.timeZone} onZoneEdit={() => clearErrors("timeZone")} />
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
@@ -838,6 +881,11 @@ export default function EventEditor(props: Props) {
           {fieldError("end")}
         </fieldset>
       </div>
+      {/* Always there (never display:none), so it's announced when its text changes; out of the
+          layout while empty (absolute, so the form's gap doesn't count it). */}
+      <p data-zone-note="" aria-live="polite" className="-mt-3 text-sm text-foreground empty:sr-only">
+        {zoneNote}
+      </p>
 
       <EventImageField
         getToken={getToken}

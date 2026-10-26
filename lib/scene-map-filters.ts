@@ -2,7 +2,7 @@ import { cachedDateTimeFormat } from "./time-zones";
 import { eventZone, formatEventDateKey } from "./format";
 import { getMinBuyerTotalCents } from "./pricing";
 import { isFreeEvent } from "./data";
-import { bareSuburb, STATE_NAMES } from "./place";
+import { placeName, STATE_NAMES } from "./place";
 import type { StateCode } from "./time-zones";
 import type { SheltuhEvent } from "./types";
 
@@ -90,17 +90,15 @@ export function matchesSearch(event: SheltuhEvent, query: string): boolean {
   );
 }
 
-/** Distinct suburbs actually present in a list of events, alphabetised. */
-export function distinctSuburbs(events: SheltuhEvent[]): string[] {
-  return Array.from(new Set(events.map((event) => event.suburb))).sort((a, b) => a.localeCompare(b));
-}
-
 /** One state's suburbs in the map's location filter. */
 export interface SuburbGroup {
   state: StateCode;
   /** The state's name, the group's label ("Victoria"). */
   label: string;
-  /** `value`: the suburb as stored (the filter matches it); `label`: without a trailing state ("Richmond"). */
+  /**
+   * `value`: the suburb as stored (the filter matches it); `label`: "Suburb, STATE" (owner decision
+   * D4), so the closed select still says which state ("Richmond, NSW", never "Richmond NSW, NSW").
+   */
   suburbs: { value: string; label: string }[];
 }
 
@@ -115,7 +113,7 @@ export function suburbsByState(events: SheltuhEvent[]): SuburbGroup[] {
     const state = event.state ?? "VIC";
     let suburbs = byState.get(state);
     if (!suburbs) byState.set(state, (suburbs = new Map()));
-    if (!suburbs.has(event.suburb)) suburbs.set(event.suburb, bareSuburb(event.suburb, state));
+    if (!suburbs.has(event.suburb)) suburbs.set(event.suburb, placeName(event.suburb, state));
   }
   return [...byState]
     .map(([state, suburbs]) => ({

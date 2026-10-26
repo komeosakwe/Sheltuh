@@ -215,8 +215,11 @@ test.describe("/dashboard/new: an event in Perth (owner plan S8)", () => {
     await form.getByLabel("Venue address").fill("40 James Street");
     const suburb = form.getByLabel("Suburb or town");
     await suburb.fill("Perth");
-    await expect(form.locator("#suburb-hint")).toHaveText("Perth, Western Australia · Perth time (AWST)", { timeout: 30_000 });
-    await expect(suburb).toHaveAccessibleDescription("Perth, Western Australia · Perth time (AWST)");
+    // The place and its zone, and (a bare name, no state given) where else there's a Perth.
+    const perthHint =
+      "Perth, Western Australia · Perth time (AWST) Also in TAS. Add the state (“Perth, TAS”) or pick it from the list.";
+    await expect(form.locator("#suburb-hint")).toHaveText(perthHint, { timeout: 30_000 });
+    await expect(suburb).toHaveAccessibleDescription(perthHint);
     await expect(form.getByText("Starts (Perth time)")).toBeVisible();
     await expect(form.getByText("Ends (Perth time)")).toBeVisible();
     // Western Australia has two zones (Eucla's too): the choice is there, Perth's chosen.
@@ -262,7 +265,25 @@ test.describe("/dashboard/new: an event in Perth (owner plan S8)", () => {
       { timeout: 30_000 },
     );
     await expect(suburb).toHaveAttribute("aria-invalid", "true");
+    // Its border is the danger colour (globals.css: the invalid rule as specific as the base input rule).
+    const danger = await page.evaluate(() => {
+      const probe = document.createElement("div");
+      probe.style.color = "var(--danger)";
+      document.body.append(probe);
+      const colour = getComputedStyle(probe).color;
+      probe.remove();
+      return colour;
+    });
+    expect(await suburb.evaluate((el) => getComputedStyle(el).borderTopColor)).toBe(danger);
     expect(created).toEqual([]);
+
+    // The near spelling is a button that fills the field in, and the error goes with the change.
+    await form.getByRole("button", { name: "Use Fremantle, WA" }).click();
+    await expect(suburb).toHaveValue("Fremantle, WA");
+    await expect(suburb).toBeFocused();
+    await expect(form.locator("#suburb-error")).toHaveCount(0);
+    await expect(suburb).not.toHaveAttribute("aria-invalid", "true");
+    await expect(form.locator("#suburb-hint")).toHaveText("Fremantle, Western Australia · Perth time (AWST)");
   });
 });
 

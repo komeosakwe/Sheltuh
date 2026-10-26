@@ -76,7 +76,8 @@ export default function MapSpotList({ events, onChoose, onClose }: MapSpotListPr
               <span className="min-w-0">
                 <span className="block truncate font-sans text-sm font-semibold text-foreground">{event.title}</span>
                 <span className="block truncate font-sans text-xs text-muted">
-                  {startDateTimeLine(event)} &middot; {event.venueName}
+                  {/* No zone: every event here is at one place, and the venue keeps its room. */}
+                  {startDateTimeLine(event, { zone: false })} &middot; {event.venueName}
                 </span>
               </span>
             </button>

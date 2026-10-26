@@ -3127,22 +3127,35 @@ Events can be anywhere in Australia (owner plan, steps S3 and S4;
   and resolved with the suburb table (`lib/location.ts`, loaded on demand):
   suggestions read "Richmond, VIC" / "Richmond, NSW", a bare shared name is
   the Victorian one (owner decision D7), and a polite line under the field
-  names the place and zone ("Richmond, Victoria · Melbourne time (AEDT)").
-  The state's default zone (`defaultTimeZone(state, suburb)`) is used, with
-  a "Time zone" choice only where a state has more than one (NSW, WA, OT).
-  The date legends name the zone's city, or "local time" until the suburb
-  is known; changing the suburb or zone keeps the typed wall-clock times.
-  Every save sends `suburb` (the locality's `name`), `state` and `timeZone`
-  together. A suburb the table doesn't know is an error by the field ("Did
-  you mean Fremantle, WA?") and nothing is sent; if the table can't load,
-  saving says so and sends nothing. The API's `fieldErrors.suburb` /
-  `.state` show by the field, `.timeZone` by the zone choice (else the
-  field), `.start` / `.end` (the daylight-saving gap) by the times.
+  names the place and zone ("Richmond, Victoria · Melbourne time (AEDT)")
+  and where else a bare name is ("Also in NSW, QLD, SA, TAS. Add the
+  state…", `sameNameElsewhere`). A capital's "CBD" or "City" is that
+  capital ("Sydney CBD", "CBD, NSW"); "CBD" or "City" alone asks which city
+  (`isBareCityCentre`) rather than becoming Melbourne's. A saved event's
+  suburb, unchanged, is looked up with its saved state (`placeQuery`) and
+  saves without the table. The state's default zone
+  (`defaultTimeZone(state, suburb)`) is used, with a "Time zone" choice
+  ("Sydney time", "Broken Hill time"; a row of its own, with why) only
+  where a state has more than one (NSW, WA, OT). The date legends name the
+  zone's city, or "local time" until the suburb is known; changing the
+  suburb or zone keeps the typed wall-clock times, and a polite line says
+  so ("Times are now Melbourne time (were Perth time)."). Every save sends
+  `suburb` (the locality's `name`), `state` and `timeZone` together. A
+  suburb the table doesn't know is an error by the field ("Did you mean
+  Fremantle, WA?", with a "Use Fremantle, WA" button that fills it in) and
+  nothing is sent; if the table can't load, the field says so as it's used
+  (with Try again), and saving a new suburb says so and sends nothing. The
+  suburb's, state's and zone's errors go when the suburb (or zone) is
+  changed. The API's `fieldErrors.suburb` / `.state` show by the field,
+  `.timeZone` by the zone choice (else the field), `.start` / `.end` (the
+  daylight-saving gap) by the times, and focus goes to the first of them.
 - **Place display** (owner decision D4): a suburb is shown as "Suburb,
   STATE" (`lib/place.ts` `placeName`: "Fitzroy, VIC", "Richmond, NSW",
   never "Richmond NSW, NSW"): cards, map rows and spots, the dashboard row,
   the admin queue, the organiser profile, the checkout summary and
-  confirmation. Link previews and emails still show the suburb as stored.
+  confirmation, link previews, the waitlist and follower emails' place
+  line and the ticket email's address when there's no street address. Wallet passes and
+  the other emails still show the suburb as stored.
 - **Grouped** (S6): Tonight, This weekend and a date on /map, and the demo
   feed's date, use each event's own calendar (`lib/scene-map-filters.ts`).
   The home's This weekend is the platform's weekend (its heading and
@@ -3152,10 +3165,14 @@ Events can be anywhere in Australia (owner plan, steps S3 and S4;
   loads pages until the latest zone's weekend has ended
   (`latestWeekendEnd`: the Cocos Islands').
 - **Home order** (S10, owner decision D5): Australia-wide, soonest first.
-  With a saved "near" suburb (browser-only), `HomeEventsProvider` finds its
-  state with the suburb table and `selectHomeSections(…, preferredState)`
-  lists that state's events first in each section (a stable reorder, before
-  each takes its six). The state never reaches the API.
+  With a saved "near" suburb (browser-only), `HomeEventsProvider` reads its
+  state from storage (`readStoredNearState`: the state saved with the
+  suburb, or for an entry saved before that, the state code its name ends
+  with, "Richmond NSW") and `selectHomeSections(…, preferredState)` lists
+  that state's events first in each section (a stable reorder, before each
+  takes its six). The home never loads the suburb table, so nothing waits on
+  it; a bare name saved without a state leaves the order Australia-wide. The
+  state never reaches the API.
 - **Platform zone** (owner decision D1): analytics day buckets, trending,
   rate-limit days, retention, and admin and message times stay in
   Australia/Melbourne.
@@ -3176,8 +3193,9 @@ Search can order results by how close they are to a suburb (owner round,
   The table has one centre per locality, not boundaries, so near a border
   the position can be named for the neighbouring suburb (about 1 in 5
   random points inside localities, checked against the ABS polygons).
-- Only the suburb's name leaves that function: localStorage
-  `sheltuh:near:v1` = `{"suburb": …}` (`lib/near-storage.ts`), and the
+- Only the suburb's name (and its state) leaves that function: localStorage
+  `sheltuh:near:v1` = `{"suburb": …, "state": …}` (`lib/near-storage.ts`;
+  the state is for the home's order, above), and the
   `/search?near=` parameter (≤ 60 characters). Coordinates never reach
   storage, the URL, the API or logs. An empty `near` is dropped on submit
   and forgets the stored suburb (and `/search` redirects `near=` away for a
@@ -3190,8 +3208,8 @@ Search can order results by how close they are to a suburb (owner round,
 - `/search` resolves `near` against the suburb table (`lib/localities.ts`)
   on the server and passes the `Locality` down; `EventFeed` →
   `EventBrowser` (demo) / `LiveEventFeed` (live) → `NearbyResults` order the
-  results with `orderByNearness`: bands (In {suburb}, Within 5 km,
-  5–15 km, Further away (to 100 km), Over 100 km (owner decision D8),
+  results with `orderByNearness`: bands (In {Suburb, STATE}, Within 5 km,
+  5–15 km, 15–100 km, Over 100 km (owner decision D8),
   Location not on file), soonest first within each. Each event's suburb is
   looked up with its state (`lib/place.ts` `placeQuery`: "Perth WA",
   "Richmond NSW", never doubled; the suburb alone for an event without one).

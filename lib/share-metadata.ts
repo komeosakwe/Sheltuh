@@ -1,5 +1,6 @@
 import type { Metadata, ResolvingMetadata } from "next";
 import { formatEventDateKey, formatEventDateShort, formatEventTime, zoneSuffix } from "./format";
+import { eventPlaceName } from "./place";
 import type { StateCode } from "./time-zones";
 import { ORGANISER_PAGE_TITLE, ORGANISER_UNAVAILABLE_TITLE, organiserPageTitle } from "./organiser-profile";
 
@@ -85,9 +86,9 @@ export function shareDate(isoLike: string, timeZone?: string, state?: StateCode)
   return `${formatEventDateShort(isoLike, timeZone)} ${formatEventDateKey(isoLike, timeZone).slice(0, 4)}, ${formatEventTime(isoLike, timeZone)}${zoneSuffix(timeZone, state)}`;
 }
 
-/** "Sat 6 Mar 2027, 8:00 pm · The Tote, Collingwood. Four bands, one warehouse." */
+/** "Sat 6 Mar 2027, 8:00 pm · The Tote, Collingwood, VIC. Four bands, one warehouse." (the suburb as "Suburb, STATE", owner decision D4) */
 export function eventShareDescription(event: EventShareFields): string {
-  const place = [event.venueName.trim(), event.suburb.trim()].filter(Boolean).join(", ");
+  const place = [event.venueName.trim(), eventPlaceName(event)].filter(Boolean).join(", ");
   const lead = [shareDate(event.startsAt, event.timeZone, event.state), place].filter(Boolean).join(" · ");
   const room = SHARE_DESCRIPTION_MAX - lead.length - 2;
   const excerpt = room > 20 ? plainExcerpt(event.description, room) : "";

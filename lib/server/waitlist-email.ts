@@ -1,5 +1,6 @@
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { publicEventUrl } from "@/lib/event-url";
+import { eventPlaceName } from "@/lib/place";
 import { subjectLine, type EmailMessage } from "./email";
 import { button, escapeHtml, eventBlock, heading, INK, MUTED, page } from "./email-layout";
 import { formatTicketDate, formatTicketTime } from "./ticket-email";
@@ -43,7 +44,7 @@ export function when(event: EventRecord): string {
 }
 
 export function where(event: EventRecord): string {
-  return [event.venueName, event.suburb].filter(Boolean).join(", ");
+  return [event.venueName, eventPlaceName(event)].filter(Boolean).join(", ");
 }
 
 function eventDetails(event: EventRecord): string {

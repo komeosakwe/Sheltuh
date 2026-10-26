@@ -1,6 +1,7 @@
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { formatAud } from "@/lib/format";
 import { directionsHref } from "@/lib/maps";
+import { placeName } from "@/lib/place";
 import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { formatSeatLine, speakSeatLine } from "@/lib/seating/format";
 import { QR_QUIET_ZONE_MODULES, ticketQrLabel, ticketQrMatrix } from "@/lib/ticket-qr";
@@ -410,7 +411,7 @@ export function buildTicketEmail(
   const listed = event.status === "published";
   const when = listed ? ticketWhen(event.startsAt, event.endsAt, event) : null;
   const venue = listed ? (event.venueName?.trim() ?? "") : "";
-  const address = listed ? (event.venueAddress?.trim() || event.suburb?.trim() || "") : "";
+  const address = listed ? (event.venueAddress?.trim() || placeName(event.suburb ?? "", event.state)) : "";
   const directions = listed ? ticketDirectionsLink(event) : null;
   const imageUrl = listed ? eventImageEmailUrl(siteUrl, event.imageUrl) : null;
   const reference = orderReference(order.orderId);

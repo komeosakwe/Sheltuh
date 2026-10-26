@@ -5,6 +5,7 @@ import ClipPlayButton from "@/components/events/ClipPlayButton";
 import SaveButton from "@/components/favourites/SaveButton";
 import QuickBuyLink from "@/components/QuickBuyLink";
 import CardPrice from "@/components/ui/CardPrice";
+import PlaceLines from "@/components/ui/PlaceLines";
 import { isApiConfigured } from "@/lib/api/client";
 import { cardCta, cardDateLabel, cardGoing, cardState, categoryLabel, placeLabel, signalLabel } from "@/lib/event-card";
 import type { TrendingSignal } from "@/lib/home-sections";
@@ -188,19 +189,22 @@ export default function EventCard({
             date.running
           ) : (
             // Each part stays whole: a narrow card wraps between them, never inside "7:00 pm",
-            // and the separator goes down with the time, so no line ends on "·".
+            // and the separator goes down with the time, so no line ends on "·". The zone ("Perth
+            // time") is a part of its own, so it wraps under the time rather than out of the card.
             <>
               <span className="whitespace-nowrap">{date.date}</span>{" "}
               <span className="whitespace-nowrap">· {date.time}</span>
+              {date.zone && (
+                <>
+                  {" "}
+                  <span className="whitespace-nowrap">{date.zone}</span>
+                </>
+              )}
             </>
           )}
         </p>
-        {place && (
-          // Two lines at most, so a narrow card shows the suburb rather than cutting it off.
-          <p id={ids.place} className={`line-clamp-2 break-words text-muted ${SMALL}`}>
-            {place}
-          </p>
-        )}
+        {/* The venue, then "Suburb, STATE", a line each: a narrow card cuts each short, never the state off. */}
+        <PlaceLines event={event} id={ids.place} className={`text-muted ${SMALL}`} />
         {/* Secondary and small: what kind of event, and how many are going (a count only). */}
         <p data-card-secondary="" className="mt-1 line-clamp-2 text-xs leading-4 text-muted">
           {secondary}

@@ -104,7 +104,7 @@ describe("/search?near= (owner round of 24 Oct 2026)", () => {
   it("an unknown suburb: a notice, a suggestion when one is close, and the usual results", async () => {
     render(await page({ q: "jazz", near: "Brunswik" }));
     const notice = screen.getByText(/We don’t know where “Brunswik” is yet, so these are soonest first\./);
-    expect(within(notice).getByRole("link", { name: "Brunswick" })).toHaveAttribute("href", "/search?q=jazz&near=Brunswick");
+    expect(within(notice).getByRole("link", { name: "Brunswick, VIC" })).toHaveAttribute("href", "/search?q=jazz&near=Brunswick");
     expect(within(notice).getByRole("link", { name: "Search all of Australia" })).toHaveAttribute("href", "/search?q=jazz");
     cleanup();
     render(await page({ near: "Atlantis" }));
@@ -115,15 +115,15 @@ describe("/search?near= (owner round of 24 Oct 2026)", () => {
 
   it("demo: lists every upcoming event in bands, nearest first, soonest within each", async () => {
     render(await page({ near: "Fitzroy" }));
-    await screen.findByText(/Closest to Fitzroy first/);
+    await screen.findByText(/Closest to Fitzroy, VIC first/);
     const bands = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-    const order = ["In Fitzroy", "Within 5 km", "5–15 km", "Further away", "Over 100 km", "Location not on file"];
+    const order = ["In Fitzroy, VIC", "Within 5 km", "5–15 km", "15–100 km", "Over 100 km", "Location not on file"];
     const bandIndexes = bands.map((b) => order.indexOf(b ?? ""));
     // Only band headings, each once, in the bands' order.
     expect(bandIndexes.every((i) => i >= 0)).toBe(true);
     expect(bandIndexes).toEqual([...bandIndexes].sort((a, b) => a - b));
     expect(new Set(bandIndexes).size).toBe(bandIndexes.length);
-    expect(bands[0]).toBe("In Fitzroy");
+    expect(bands[0]).toBe("In Fitzroy, VIC");
     // Every sample suburb is in the table; the interstate samples (owner decision D11) are over 100 km away.
     expect(bands).not.toContain("Location not on file");
     expect(bands[bands.length - 1]).toBe("Over 100 km");
