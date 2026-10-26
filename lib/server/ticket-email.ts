@@ -55,13 +55,15 @@ export const EMAIL_FOOTER_IMAGE_URL = "https://sheltuh.com.au/sheltuh_email_sign
  */
 
 const MELBOURNE_TZ = "Australia/Melbourne";
+const IVORY = "#faf7f0";
+const ORANGE = "#ff4800";
 
 /**
  * QR size: 21 modules plus a 4-module quiet zone each side = 29 modules,
  * shown 6 px a module (174 px). The PNG has 12 px a module, so it stays sharp
  * on high-density screens, and halving it lands on whole pixels everywhere else.
  */
-const QR_DISPLAY_PX_PER_MODULE = 6;
+const QR_DISPLAY_PX_PER_MODULE = 7; // 29 modules including quiet zone: 203px, close to the 220px target
 const QR_PNG_PX_PER_MODULE = 12;
 
 /** The wordmark's inline attachment. Its name is the brand's, never anything about the order. */
@@ -123,7 +125,7 @@ export { orderReference };
 
 function detailRow(label: string, value: string): string {
   return (
-    `<tr><td valign="top" width="96" style="padding:10px 12px 10px 0;font-family:${SANS};font-size:12px;line-height:20px;letter-spacing:1.2px;text-transform:uppercase;font-weight:bold;color:${MUTED}">${escapeHtml(label)}</td>` +
+    `<tr><td valign="top" width="96" style="padding:10px 12px 10px 0;font-family:${SANS};font-size:13px;line-height:20px;font-weight:bold;color:${MUTED}">${escapeHtml(label)}</td>` +
     `<td valign="top" style="padding:10px 0;font-family:${SANS};font-size:16px;line-height:24px;color:${INK}">${escapeHtml(value)}</td></tr>`
   );
 }
@@ -183,15 +185,15 @@ function ticketCard(
   qr: TicketQr | null,
   seat?: TicketSeat,
 ): string {
-  const label = total > 1 ? `Ticket ${index + 1} of ${total}` : "Your ticket";
+  const label = `Ticket ${index + 1} of ${total}`;
   const qrRow = qr
-    ? `<tr><td align="center" style="padding:16px 18px 10px 18px"><img src="cid:${escapeHtml(qr.image.cid)}" width="${qr.px}" height="${qr.px}" alt="${escapeHtml(qr.alt)}" style="display:block;border:0;width:${qr.px}px;height:${qr.px}px;image-rendering:pixelated;-ms-interpolation-mode:nearest-neighbor;font-family:${SANS};font-size:13px;line-height:18px;color:${INK}"></td></tr>\n`
+    ? `<tr><td align="center" bgcolor="#ffffff" style="padding:16px 18px 10px 18px;background-color:#ffffff"><img src="cid:${escapeHtml(qr.image.cid)}" width="${qr.px}" height="${qr.px}" alt="${escapeHtml(qr.alt)}" style="display:block;border:0;width:${qr.px}px;height:${qr.px}px;max-width:100%;image-rendering:pixelated;-ms-interpolation-mode:nearest-neighbor;font-family:${SANS};font-size:13px;line-height:18px;color:${INK}"></td></tr>\n`
     : "";
   const codeLabel = qr ? "Backup code" : "Entry code";
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:2px solid ${INK};border-radius:10px;margin:0 0 14px 0">
-<tr><td style="padding:16px 18px ${seat ? 4 : 12}px 18px;font-family:${SANS};font-size:12px;line-height:18px;letter-spacing:1.2px;text-transform:uppercase;font-weight:bold;color:${MUTED}">${escapeHtml(label)}${typeName ? ` &middot; ${escapeHtml(typeName)}` : ""}</td></tr>
-${seat ? `<tr><td style="padding:0 18px 12px 18px;font-family:${SANS};font-size:16px;line-height:24px;font-weight:bold;color:${INK}">${escapeHtml(formatSeatLine(seat))}</td></tr>\n` : ""}<tr><td style="border-top:2px dashed ${INK};font-size:0;line-height:0">&nbsp;</td></tr>
-${qrRow}<tr><td style="padding:${qr ? "0" : "16px"} 18px 16px 18px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" style="padding:0 0 6px 0;font-family:${SANS};font-size:11px;line-height:16px;letter-spacing:1.2px;text-transform:uppercase;font-weight:bold;color:${MUTED}">${codeLabel}</td></tr><tr><td class="code" bgcolor="${SURFACE}" align="center" style="background-color:${SURFACE};border-radius:8px;padding:14px 8px;font-family:${MONO};font-size:28px;line-height:34px;font-weight:bold;letter-spacing:3px;color:${INK};word-break:break-all">${escapeHtml(code)}</td></tr></table></td></tr>
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid ${LINE};border-radius:8px;margin:0 0 16px 0">
+<tr><td style="padding:18px 18px ${seat ? 4 : 12}px 18px;font-family:${SANS};font-size:16px;line-height:24px;font-weight:bold;color:${INK}">${escapeHtml(typeName || "Admission")}<br><span style="font-weight:normal;font-size:14px;color:${MUTED}">${escapeHtml(label)}</span></td></tr>
+${seat ? `<tr><td style="padding:0 18px 12px 18px;font-family:${SANS};font-size:16px;line-height:24px;font-weight:bold;color:${INK}">${escapeHtml(formatSeatLine(seat))}</td></tr>\n` : ""}<tr><td style="border-top:1px dashed ${LINE};font-size:0;line-height:0">&nbsp;</td></tr>
+${qrRow}<tr><td style="padding:${qr ? "0" : "16px"} 18px 16px 18px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" style="padding:0 0 6px 0;font-family:${SANS};font-size:13px;line-height:20px;font-weight:normal;color:${MUTED}">${codeLabel}</td></tr><tr><td class="code" bgcolor="${SURFACE}" align="center" style="background-color:${SURFACE};border-radius:8px;padding:14px 8px;font-family:${MONO};font-size:20px;line-height:28px;font-weight:bold;letter-spacing:1px;color:${INK};word-break:break-all">${escapeHtml(code)}</td></tr></table></td></tr>
 </table>`;
 }
 
@@ -208,6 +210,25 @@ export function ticketPageLink(siteUrl: string, orderId: string): string {
  */
 export const EVENT_UNLISTED_TEXT = `This event is no longer listed. Contact ${SUPPORT_EMAIL} if you have questions.`;
 
+/** Only publicly reachable event images may be used; no private or authenticated paths. */
+function publicEventImage(imageUrl: string | undefined, siteUrl: string): string | null {
+  if (!imageUrl) return null;
+  try {
+    const origin = new URL(siteUrl);
+    if (origin.protocol !== "https:") return null;
+    const url = new URL(imageUrl, origin);
+    if (url.protocol !== "https:" || url.username || url.password || url.origin !== origin.origin) return null;
+    if (!url.pathname.startsWith("/api/events/") && !url.pathname.startsWith("/events/") && !url.pathname.startsWith("/images/") && !url.pathname.startsWith("/uploads/")) return null;
+    return url.toString();
+  } catch { return null; }
+}
+
+function directionsLink(venue: string, address: string): string | null {
+  const location = [venue, address].filter(Boolean).join(", ").trim();
+  if (!address) return null;
+  return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(location);
+}
+
 /** The sent email: a 600px-wide card, with a plain-text alternative. */
 export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl: string): EmailMessage {
   const link = ticketPageLink(siteUrl, order.orderId);
@@ -220,6 +241,8 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
   const venue = listed ? (event.venueName?.trim() ?? "") : "";
   const address = listed ? (event.venueAddress?.trim() ?? "") : "";
   const reference = orderReference(order.orderId);
+  const eventImage = listed ? publicEventImage(event.imageUrl, siteUrl) : null;
+  const directions = listed ? directionsLink(venue, address) : null;
   const total = order.totalCents === 0 ? "Free" : `${formatAud(order.totalCents)} (incl. booking fees)`;
   const qrs = order.tickets.map((t, i) => ticketQr(t.ticketCode, i));
   const anyQr = qrs.some((qr) => qr !== null);
@@ -238,6 +261,7 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
           `Time: ${when}`,
           ...(venue ? [`Venue: ${venue}`] : []),
           ...(address ? [`Address: ${address}`] : []),
+          ...(directions ? [`Directions: ${directions}`] : []),
         ]
       : [EVENT_UNLISTED_TEXT]),
     "",
@@ -263,12 +287,13 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
     `Total paid: ${total}`,
     "",
     `Need help? Email ${SUPPORT_EMAIL}`,
+    "MUSIC. ART. FASHION. CULTURE.",
     "Sheltüh, Melbourne",
   ].join("\n");
 
   // --- HTML ---
   const details = listed
-    ? detailRow("Date", date) + detailRow("Time", when) + (venue ? detailRow("Venue", venue) : "") + (address ? detailRow("Address", address) : "")
+    ? detailRow("Date", date) + detailRow("Time", when) + (venue ? detailRow("Venue", venue) : "") + (address ? detailRow("Address", address) : "") + (directions ? `<tr><td colspan="2" style="padding:10px 0 16px 0;font-family:${SANS};font-size:16px"><a href="${escapeHtml(directions)}" style="color:${INK};text-decoration:underline">Get directions &#8599;</a></td></tr>` : "")
     : `<tr><td style="padding:10px 0;font-family:${SANS};font-size:16px;line-height:24px;color:${INK}">This event is no longer listed. Contact <a href="mailto:${escapeHtml(SUPPORT_EMAIL)}" style="color:${INK};text-decoration:underline">${escapeHtml(SUPPORT_EMAIL)}</a> if you have questions.</td></tr>`;
   const tickets = order.tickets.map((t, i) => ticketCard(t.ticketCode, t.ticketTypeName, i, order.tickets.length, qrs[i], t.seat)).join("\n");
   const preheader = `Your ${one ? "ticket" : "tickets"} for ${event.title}. Show your ${anyQr ? "QR code" : "entry code"} at the door.`;
@@ -279,13 +304,16 @@ export function buildTicketEmail(order: OrderRecord, event: EventRecord, siteUrl
   // The official wordmark (black on opaque white, docs/design/theme-white-dark.md §5.12), inline so it
   // shows where remote images are blocked; with all images off, its alt text names the brand.
   const header = `<img src="cid:${WORDMARK_CID}" width="${EMAIL_WORDMARK.displayWidth}" height="${EMAIL_WORDMARK.displayHeight}" alt="SHELT&Uuml;H" style="display:block;border:0;width:${EMAIL_WORDMARK.displayWidth}px;height:${EMAIL_WORDMARK.displayHeight}px;font-family:${SANS};font-size:20px;line-height:24px;font-weight:bold;color:${INK}">`;
-  const body = `    ${heading("You&rsquo;re in.", 8)}
-    ${eventTitle(event.title, 24)}
+  const body = `    <p style="margin:0 0 12px 0;font-family:${SANS};font-size:14px;line-height:20px;font-weight:bold;color:${ORANGE}">YOU&rsquo;RE IN</p>
+    <h1 style="margin:0 0 22px 0;font-family:${SANS};font-size:32px;line-height:1.2;font-weight:bold;color:${INK};overflow-wrap:break-word">${escapeHtml(event.title)}</h1>
+    ${eventImage ? `<img src="${escapeHtml(eventImage)}" width="536" alt="${escapeHtml(event.title)} event artwork" style="display:block;width:100%;max-width:536px;height:auto;border:0;margin:0 0 24px 0">` : ""}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid ${LINE};border-bottom:1px solid ${LINE};margin:0 0 28px 0">${details}</table>
     <p style="margin:0 0 6px 0;font-family:${SANS};font-size:18px;line-height:26px;font-weight:bold;color:${INK}">Your ${one ? "ticket" : "tickets"}</p>
-    <p style="margin:0 0 16px 0;font-family:${SANS};font-size:16px;line-height:24px;color:${INK}">${instructions}</p>
+
 ${tickets}
-    ${button(buttonLabel, link, "14px 0 28px 0")}
+    <p style="margin:0 0 18px 0;font-family:${SANS};font-size:15px;line-height:23px;color:${INK}">${anyQr ? "Show this code at the door." : "Show your entry code at the door."}</p>
+    ${button(buttonLabel + " →", link, "14px 0 28px 0")}
+    <p style="margin:0 0 24px 0;font-family:${SANS};font-size:13px;line-height:19px;color:${MUTED}">Button not working? <a href="${escapeHtml(link)}" style="color:${INK};text-decoration:underline">Open your tickets</a>.</p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid ${LINE}">
       <tr><td style="padding:14px 12px 4px 0;font-family:${SANS};font-size:14px;line-height:20px;color:${MUTED};white-space:nowrap">Order reference</td><td align="right" style="padding:14px 0 4px 0;font-family:${MONO};font-size:14px;line-height:20px;color:${INK}">${escapeHtml(reference)}</td></tr>
       <tr><td valign="top" style="padding:4px 12px 0 0;font-family:${SANS};font-size:16px;line-height:24px;font-weight:bold;color:${INK};white-space:nowrap">Total paid</td><td align="right" valign="top" style="padding:4px 0 0 0;font-family:${SANS};font-size:16px;line-height:24px;font-weight:bold;color:${INK}">${escapeHtml(order.totalCents === 0 ? "Free" : formatAud(order.totalCents))}${order.totalCents === 0 ? "" : `<br><span style="font-size:13px;line-height:18px;font-weight:normal;color:${MUTED}">incl. booking fees</span>`}</td></tr>
@@ -295,7 +323,9 @@ ${tickets}
     preheader,
     header,
     body,
-    after: `<img src="${EMAIL_FOOTER_IMAGE_URL}" width="600" alt="Sheltüh. Music. Art. Fashion. Culture." style="display:block;border:0;width:100%;max-width:600px;height:auto">`,
+    pageBackground: IVORY,
+    footer: `Need a hand? <a href="mailto:${escapeHtml(SUPPORT_EMAIL)}" style="color:${INK};text-decoration:underline">${escapeHtml(SUPPORT_EMAIL)}</a><br><span style="font-size:12px;line-height:18px">MUSIC. ART. FASHION. CULTURE.</span>`,
+    after: `<img src="${EMAIL_FOOTER_IMAGE_URL}" width="600" alt="SHELTÜH — Music. Art. Fashion. Culture." style="display:block;border:0;width:100%;max-width:600px;height:auto">`,
   });
 
   const inlineImages = [wordmarkImage(), ...qrs.flatMap((qr) => (qr ? [qr.image] : []))];
