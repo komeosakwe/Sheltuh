@@ -297,36 +297,38 @@ function sessionMoneyMismatch(session: Stripe.Checkout.Session, order: OrderReco
 
 /**
  * A paid session whose amount or currency isn't the order's: nothing is
- * issued (the order stays `pending`), an `amount_mismatch` payment exception
- * is opened (one open per order: a redelivery only updates it) with the
- * amounts from the session and the stored order, and an ops alert queued. An
- * admin checks the payment in Stripe and refunds it there. Logged by short
+ * issued. private.fail_mismatched_order, in one transaction, marks the order
+ * `failed` with the payment intent on it (so the refund's own webhooks find
+ * it), releases a seated order's holds, and opens an `amount_mismatch`
+ * payment exception (one open per order) with the amounts from the session
+ * and the stored order, queuing an ops alert. Returns the order's status
+ * afterwards: `failed` (now, or by a concurrent delivery) means the caller
+ * refunds the payment (refundPaymentForFailedOrder). Logged by short
  * reference only.
  */
-async function raiseAmountMismatch(
+async function failMismatchedOrder(
   deps: Deps,
   order: OrderRecord,
   session: Stripe.Checkout.Session,
   paymentIntentId: string | undefined,
   eventId: string,
   reason: MoneyMismatch,
-) {
+): Promise<OrderStatus | null> {
   const charged = session.amount_total;
   const amountCharged = typeof charged === "number" && Number.isSafeInteger(charged) && charged >= 0 && charged <= MAX_INT4 ? charged : null;
   const currency = typeof session.currency === "string" && /^[a-z]{3}$/.test(session.currency) ? session.currency : null;
   console.error(
-    `Order ${orderReference(order.orderId)} was paid with ${reason === "currency_mismatch" ? "another currency" : "another amount"} ` +
-      "than its total: no tickets issued. See GET /api/admin/payment-exceptions.",
+    `Order ${orderReference(order.orderId)} was paid with ${reason === "currency_mismatch" ? "a different currency" : "a different amount"} ` +
+      "from its total: no tickets issued; failing the order and refunding the payment. See GET /api/admin/payment-exceptions.",
   );
-  const [row] = await deps.db.query<{ alert_queued: boolean }>(
-    `select alert_queued from private.raise_payment_exception('amount_mismatch', $1, $2, null, $3, null,
-       (select jsonb_strip_nulls(jsonb_build_object(
-                 'reason', $4::text, 'amountChargedCents', $5::integer, 'currency', $6::text,
-                 'totalCents', o.total_cents, 'supportCents', o.support_cents, 'orderStatus', o.status::text))
-          from public.orders o where o.id = $1))`,
+  const [row] = await deps.db.query<{ order_status: OrderStatus | null; alert_queued: boolean }>(
+    `select f.order_status::text as order_status, f.alert_queued
+       from private.fail_mismatched_order($1, $2, $3,
+              jsonb_strip_nulls(jsonb_build_object('reason', $4::text, 'amountChargedCents', $5::integer, 'currency', $6::text))) f`,
     [order.orderId, paymentIntentId ?? null, eventId, reason, amountCharged, currency],
   );
   if (row?.alert_queued) sendOpsAlertsSoon(deps);
+  return row?.order_status ?? null;
 }
 
 /**
@@ -375,14 +377,21 @@ async function refundOversoldOrder(deps: Deps, orderId: string, paymentIntentId:
  * A payment for an order that had already failed: its checkout errored or was
  * cancelled, or its session expired, before Stripe reported the payment
  * (e.g. a delayed payment method, or a session Stripe created although the
- * call to create it failed). There's nothing to fulfil it with (a seated
- * order's seats were released), so it's refunded in full, Sheltüh's fee and
- * the organiser's transfer included, as for an oversold order. Stripe's
- * idempotency key (per order) and the refund id recorded on the order make a
- * redelivery refund at most once; a charge already refunded in full is done.
- * The order stays `failed`. Logged by the order's short reference only.
- * Throws on any other Stripe error so the webhook returns 500 and Stripe
- * redelivers.
+ * call to create it failed), or the payment's amount or currency wasn't the
+ * order's (failMismatchedOrder failed it). There's nothing to fulfil it with
+ * (a seated order's seats were released), so it's refunded in full, Sheltüh's
+ * fee and the organiser's transfer included, as for an oversold order.
+ * Stripe's idempotency key (per order) and the refund id recorded on the
+ * order make a redelivery refund at most once; a charge already refunded in
+ * full is done. The refund's metadata reason is `amount_mismatch` when the
+ * order has an `amount_mismatch` exception (any status), else
+ * `paid_after_order_failed`: decided from the database, so every retry sends
+ * Stripe the same parameters. The payment intent is recorded on the order
+ * before Stripe is asked, so the refund's charge.refunded finds the order
+ * (and changes nothing: it isn't paid) instead of being held as a refund
+ * "before its payment was recorded". The order stays `failed`. Logged by the
+ * order's short reference only. Throws on any other Stripe error so the
+ * webhook returns 500 and Stripe redelivers.
  */
 async function refundPaymentForFailedOrder(
   deps: Deps,
@@ -400,12 +409,27 @@ async function refundPaymentForFailedOrder(
     );
     return;
   }
-  const [row] = await deps.db.query<{ stripe_refund_id: string | null }>(
-    `select stripe_refund_id from public.orders where id = $1`,
+  const [row] = await deps.db.query<{ stripe_refund_id: string | null; mismatched: boolean }>(
+    `select o.stripe_refund_id,
+            exists (select 1 from private.payment_exceptions e
+                     where e.order_id = o.id and e.kind = 'amount_mismatch') as mismatched
+       from public.orders o
+      where o.id = $1 and o.status = 'failed'`,
     [orderId],
   );
-  if (row?.stripe_refund_id) return;
-  console.warn(`Order ${reference} was paid after it failed: refunding the payment.`);
+  if (!row || row.stripe_refund_id) return;
+  // Recorded before Stripe is asked (if the order has none yet), so every webhook about this refund finds the order.
+  await deps.db.query(
+    `update public.orders set stripe_payment_intent_id = $2
+      where id = $1 and status = 'failed' and stripe_payment_intent_id is null`,
+    [orderId, paymentIntentId],
+  );
+  const reason = row.mismatched ? "amount_mismatch" : "paid_after_order_failed";
+  console.warn(
+    row.mismatched
+      ? `Order ${reference} was paid with a different amount or currency from its total: refunding the payment.`
+      : `Order ${reference} was paid after it failed: refunding the payment.`,
+  );
   let refund: Stripe.Refund;
   try {
     refund = await deps.stripe().refunds.create(
@@ -413,27 +437,18 @@ async function refundPaymentForFailedOrder(
         payment_intent: paymentIntentId,
         reverse_transfer: true,
         refund_application_fee: true,
-        metadata: { orderId, reason: "paid_after_order_failed" },
+        metadata: { orderId, reason },
       },
       { idempotencyKey: `failed-order-refund-${orderId}` },
     );
   } catch (err) {
     if (!isChargeAlreadyRefunded(err)) throw err;
     // Refunded in full already (e.g. in the dashboard): nothing more to ask for.
-    await deps.db.query(
-      `update public.orders set stripe_payment_intent_id = coalesce(stripe_payment_intent_id, $2) where id = $1 and status = 'failed'`,
-      [orderId, paymentIntentId],
-    );
     console.info(`Order ${reference}'s payment was already refunded in full in Stripe.`);
     return;
   }
-  // Recorded so a redelivery doesn't ask again, and charge.refunded finds the order (it changes only paid ones).
-  await deps.db.query(
-    `update public.orders
-        set stripe_refund_id = $2, stripe_payment_intent_id = coalesce(stripe_payment_intent_id, $3)
-      where id = $1 and status = 'failed'`,
-    [orderId, refund.id, paymentIntentId],
-  );
+  // Recorded so a redelivery doesn't ask again.
+  await deps.db.query(`update public.orders set stripe_refund_id = $2 where id = $1 and status = 'failed'`, [orderId, refund.id]);
   // Our own call's answer, not an event: no Stripe event id or time.
   await recordRefundStatus(deps, refund, { orderId, paymentIntentId });
 }
@@ -444,9 +459,11 @@ type PaymentRefundResult = "refunded" | "partial" | "unchanged" | "deferred" | "
  * charge.refunded: a refund of one of our payments, whoever made it (usually
  * the Stripe dashboard). charge.amount_refunded is cumulative and
  * charge.refunded is true once it covers the whole charge. A full refund of a
- * paid order voids it (`refunded`, tickets void, inventory released); a
- * partial one is recorded and opens a payment exception for a person
- * (private.record_payment_refund). One that arrives before its order's
+ * paid order voids it (`refunded`, tickets void, inventory released), and so
+ * does a refund of everything but an order's Support Sheltüh amount (the
+ * runbook's "tickets only": at least total − support refunded, the support
+ * kept); any other partial one is recorded and opens a payment exception for
+ * a person (private.record_payment_refund). One that arrives before its order's
  * payment is recorded, for a payment to one of our organisers' accounts, is
  * held for fulfilment (`deferred`): the order is then voided, or flagged if
  * partial. Never throws for a payment that isn't ours: Stripe would retry it
@@ -478,7 +495,11 @@ async function recordPaymentRefund(deps: Deps, eventId: string, charge: Stripe.C
   // Logs name the order by its short reference only: never its id (the confirmation page's credential) or the buyer.
   const reference = row.order_id ? orderReference(row.order_id) : undefined;
   if (row.result === "refunded") {
-    console.info(`Order ${reference} was refunded in full in Stripe: marked refunded, tickets void, inventory released.`);
+    console.info(
+      charge.refunded
+        ? `Order ${reference} was refunded in full in Stripe: marked refunded, tickets void, inventory released.`
+        : `Order ${reference}'s tickets were refunded in Stripe (Support Sheltüh kept): marked refunded, tickets void, inventory released.`,
+    );
   } else if (row.result === "partial") {
     // Needs a person: a payment exception (and an ops alert) as well as the log line.
     console.error(`Order ${reference} was partly refunded in Stripe; it stays paid and its tickets stay valid. Review it manually.`);
@@ -835,7 +856,8 @@ export const getOrderBySession: Handler<{ sessionId: string }> = async (_req, { 
  * becomes paid and inventory is taken, so an abandoned checkout never holds
  * tickets. A paid session is fulfilled only when it charged exactly the
  * order's stored total in AUD (sessionMoneyMismatch); otherwise nothing is
- * issued and an `amount_mismatch` payment exception is opened.
+ * issued, the order fails, an `amount_mismatch` payment exception is opened
+ * and the payment is refunded in full.
  */
 export const stripeWebhook: Handler = async (req, _params, deps) => {
   const signature = req.headers.get("stripe-signature");
@@ -915,7 +937,9 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
   // have no Checkout Session, and their own paths fulfil them.)
   const mismatch = sessionMoneyMismatch(session, order);
   if (mismatch) {
-    await raiseAmountMismatch(deps, order, session, paymentIntentId, event.id, mismatch);
+    // Failed, then refunded in full (once, however often Stripe redelivers: a redelivery takes the failed-order path above).
+    const status = await failMismatchedOrder(deps, order, session, paymentIntentId, event.id, mismatch);
+    if (status === "failed") await refundPaymentForFailedOrder(deps, order.orderId, paymentIntentId, event.id);
     return received;
   }
   const { status, alertQueued } = await fulfilOrder(deps.db, order, {

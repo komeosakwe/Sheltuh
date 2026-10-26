@@ -116,6 +116,10 @@ select version, file, coalesce(applied, false) as applied
                  and pg_get_constraintdef(c.oid) like '%amount_mismatch%')
       and exists (select 1 from fn where proname = 'raise_payment_exception' and prosrc like '%amount_mismatch%')
       and exists (select 1 from fn where proname = 'record_refund_status' and prosrc like '%supportCents%')
-      and exists (select 1 from fn where proname = 'fulfil_order_detailed' and prosrc like '%supportCents%'))
+      and exists (select 1 from fn where proname = 'fulfil_order_detailed' and prosrc like '%supportCents%')),
+    ('20261110000200', 'support_ticket_refund',
+      exists (select 1 from fn where proname = 'record_payment_refund' and prosrc like '%supportKeptCents%')),
+    ('20261110000300', 'amount_mismatch_refund',
+      exists (select 1 from fn where proname = 'fail_mismatched_order'))
   ) as m(version, file, applied)
  order by version;

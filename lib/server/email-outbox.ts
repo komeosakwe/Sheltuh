@@ -10,7 +10,7 @@ import { findEventById } from "./handlers/event-queries";
 import { CHECKOUT_LIMITS } from "./checkout-attempts";
 import { buildCheckoutSurgeAlertEmail, buildOpsAlertEmail } from "./ops-alert-email";
 import { orderReference } from "./order-reference";
-import { EVENT_SELECT, ORDER_SELECT, paymentExceptionDetails, toEvent, toOrder } from "./records";
+import { EVENT_SELECT, ORDER_SELECT, paymentExceptionDetails, paymentExceptionUrgent, toEvent, toOrder } from "./records";
 import { buildTicketEmail } from "./ticket-email";
 import { buildWaitlistAvailableEmail, waitlistEventLink, waitlistLeaveLink } from "./waitlist-email";
 
@@ -507,7 +507,7 @@ async function deliverOpsAlert(deps: Deps, jobId: string): Promise<Outcome> {
           kind: row.kind,
           reference: row.order_id ? orderReference(row.order_id) : undefined,
           orderStatus: orderStatus ?? undefined,
-          urgent: row.kind === "refund_not_completed" && orderStatus === "refunded",
+          urgent: paymentExceptionUrgent(row.kind, orderStatus),
           details,
           stripeEventId: row.stripe_event_id ?? undefined,
           openedAt: new Date(row.opened_at),

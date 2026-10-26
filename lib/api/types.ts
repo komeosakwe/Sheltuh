@@ -827,8 +827,9 @@ export interface EmailOutboxHealth {
  *   payment on record): refund it in the Stripe dashboard.
  * - `amount_mismatch`: Stripe reported a paid Checkout Session whose amount
  *   or currency isn't the order's stored total in AUD. No tickets were
- *   issued (the order stays `pending`): check the payment in the Stripe
- *   dashboard and refund it there.
+ *   issued, the order was marked `failed` and the payment refunded in full
+ *   automatically: check the refund and the payment in the Stripe
+ *   dashboard. Always `urgent`.
  */
 export type PaymentExceptionKind = "refund_not_completed" | "partial_refund" | "manual_refund_required" | "amount_mismatch";
 
@@ -838,9 +839,10 @@ export const PAYMENT_EXCEPTION_STATUSES: readonly PaymentExceptionStatus[] = ["o
 
 /**
  * GET /api/admin/payment-exceptions. Something about a payment that needs a
- * person (docs/architecture.md, "Refunds made in Stripe"). Nothing is ever
- * restored or refunded automatically: an admin acts in the Stripe dashboard,
- * then resolves it with a note. The order is shown by its short reference
+ * person (docs/architecture.md, "Refunds made in Stripe"). Nothing is
+ * restored or refunded again because of one (an `amount_mismatch` payment's
+ * automatic refund is requested as it opens): an admin acts in the Stripe
+ * dashboard, then resolves it with a note. The order is shown by its short reference
  * only, never its id; no buyer data.
  */
 export interface AdminPaymentException {
@@ -848,7 +850,10 @@ export interface AdminPaymentException {
   exceptionId: string;
   kind: PaymentExceptionKind;
   status: PaymentExceptionStatus;
-  /** The order was voided but the refund didn't complete: the buyer has neither tickets nor their money. */
+  /**
+   * Needs a person first: a `refund_not_completed` whose order was voided (the
+   * buyer has neither tickets nor their money), or any `amount_mismatch`.
+   */
   urgent: boolean;
   /** Unset while the payment isn't matched to an order yet. */
   orderReference?: string;
@@ -889,6 +894,12 @@ export interface PaymentExceptionDetails {
   amountChargedCents?: number;
   /** `amount_mismatch`: the session's currency, lower case as Stripe sends it ("aud"). */
   currency?: string;
+  /**
+   * A `partial_refund` resolved by a tickets-only refund (at least the total
+   * less the support refunded, so the order was voided): the Support Sheltüh
+   * amount kept.
+   */
+  supportKeptCents?: number;
   /** The order's status when the exception was last updated. */
   orderStatus?: string;
   /** `sheltuh`: our automatic refund; `stripe`: one made in the Stripe dashboard. */

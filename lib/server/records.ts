@@ -750,7 +750,25 @@ export const ADMIN_PAYMENT_EXCEPTION_SELECT = `
     left join public.orders o on o.id = e.order_id`;
 
 const DETAIL_STRINGS = ["refundStatus", "orderStatus", "source", "reason", "currency"] as const;
-const DETAIL_NUMBERS = ["refundAmountCents", "amountRefundedCents", "totalCents", "supportCents", "amountChargedCents"] as const;
+const DETAIL_NUMBERS = [
+  "refundAmountCents",
+  "amountRefundedCents",
+  "totalCents",
+  "supportCents",
+  "amountChargedCents",
+  "supportKeptCents",
+] as const;
+
+/**
+ * An exception that can't wait: a refund that didn't complete for an order
+ * already voided (the buyer has neither tickets nor their money), or any
+ * payment whose amount or currency wasn't its order's (the money went
+ * somewhere it shouldn't have: the automatic refund needs checking). Shared
+ * by the admin list and the ops alert email.
+ */
+export function paymentExceptionUrgent(kind: string, orderStatus: string | null | undefined): boolean {
+  return kind === "amount_mismatch" || (kind === "refund_not_completed" && orderStatus === "refunded");
+}
 
 /** Only the known amounts and statuses, whatever else the jsonb holds. */
 export function paymentExceptionDetails(raw: unknown): AdminPaymentException["details"] {
@@ -775,7 +793,7 @@ export function toAdminPaymentException(row: Row): AdminPaymentException {
     exceptionId: row.id as string,
     kind,
     status: row.status as AdminPaymentException["status"],
-    urgent: kind === "refund_not_completed" && (orderStatus ?? details.orderStatus) === "refunded",
+    urgent: paymentExceptionUrgent(kind, orderStatus ?? details.orderStatus),
     orderReference: row.order_id ? orderReference(row.order_id as string) : undefined,
     orderStatus,
     eventTitle: opt(row.event_title),

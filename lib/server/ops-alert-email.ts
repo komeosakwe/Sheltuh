@@ -15,7 +15,7 @@ export interface OpsAlert {
   /** The order's short reference ("#7C1F2E0A"), when the payment is matched to an order. */
   reference?: string;
   orderStatus?: string;
-  /** The order was voided but its refund didn't complete. */
+  /** Needs a person first (paymentExceptionUrgent, lib/server/records.ts). */
   urgent: boolean;
   details: PaymentExceptionDetails;
   stripeEventId?: string;
@@ -40,13 +40,36 @@ const ACTIONS: Record<PaymentExceptionKind, string> = {
     "The automatic refund couldn't be requested. Refund the payment in the Stripe dashboard, " +
     "then resolve the exception with a note.",
   amount_mismatch:
-    "Stripe charged a different amount or currency from the order's total, so no tickets were issued and the " +
-    "order is still pending. Check the payment in the Stripe dashboard, refund it there in full (tick both " +
-    '"reverse transfer" and "refund application fee"), then resolve the exception with a note.',
+    "Stripe charged a different amount or currency from the order's total, so no tickets were issued, the " +
+    "order was marked failed and the payment is being refunded in full automatically (transfer reversed and " +
+    "application fee refunded). Check the payment and its refund in the Stripe dashboard, find out how the " +
+    "amount came to differ, then resolve the exception with a note.",
+};
+
+const URGENT: Partial<Record<PaymentExceptionKind, string>> = {
+  refund_not_completed: "URGENT: the order was voided (its tickets are void) but the refund didn't complete.",
+  amount_mismatch: "URGENT: a payment didn't match its order. Check it, and its automatic refund, in Stripe.",
 };
 
 function dollars(cents: number): string {
   return `A$${(cents / 100).toFixed(2)}`;
+}
+
+/**
+ * An amount in a currency's minor unit, with the currency's code: Intl's
+ * digits for that currency (0 for JPY or KRW, 3 for KWD, 2 for most), so a
+ * zero-decimal amount isn't divided by 100. A code Intl can't format: the
+ * raw minor units.
+ */
+function minorUnits(amount: number, currency: string): string {
+  const code = currency.toUpperCase();
+  try {
+    const digits = new Intl.NumberFormat("en-AU", { style: "currency", currency: code }).resolvedOptions().maximumFractionDigits ?? 2;
+    const number = new Intl.NumberFormat("en-AU", { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: false });
+    return `${number.format(amount / 10 ** digits)} ${code}`;
+  } catch {
+    return `${amount} ${code} (minor units)`;
+  }
 }
 
 function escapeHtml(value: string): string {
@@ -62,7 +85,7 @@ export function opsAlertLines(alert: OpsAlert): string[] {
   const { details } = alert;
   const lines: string[] = [];
   if (alert.urgent) {
-    lines.push("URGENT: the order was voided (its tickets are void) but the refund didn't complete.");
+    lines.push(URGENT[alert.kind] ?? "URGENT: check it first.");
   }
   lines.push(`Order: ${alert.reference ?? "not matched to an order yet"}`);
   if (alert.orderStatus ?? details.orderStatus) lines.push(`Order status: ${alert.orderStatus ?? details.orderStatus}`);
@@ -73,7 +96,7 @@ export function opsAlertLines(alert: OpsAlert): string[] {
     // In the session's currency (its minor unit); A$ when it's AUD or unknown.
     const charged =
       details.currency && details.currency !== "aud"
-        ? `${(details.amountChargedCents / 100).toFixed(2)} ${details.currency.toUpperCase()}`
+        ? minorUnits(details.amountChargedCents, details.currency)
         : dollars(details.amountChargedCents);
     lines.push(`Amount charged: ${charged}`);
   } else if (details.currency) {

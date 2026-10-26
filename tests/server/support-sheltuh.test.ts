@@ -7,6 +7,8 @@ import { adminListPaymentExceptions } from "@/lib/server/handlers/payment-except
 import { orderReference } from "@/lib/server/order-reference";
 import { createTrackingLink, listTrackingLinks } from "@/lib/server/handlers/tracking-links";
 import { parseSupportCents } from "@/lib/server/order-input";
+import { opsAlertLines } from "@/lib/server/ops-alert-email";
+import { paymentExceptionUrgent } from "@/lib/server/records";
 import { buildTicketEmail } from "@/lib/server/ticket-email";
 import type { EventRecord, OrderRecord } from "@/lib/server/types";
 import {
@@ -21,7 +23,7 @@ import {
 } from "@/lib/support";
 import { embeddedSession, OPS_ALERT_EMAIL, sessionAmount, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
-import { seatedEvent } from "./helpers/seating";
+import { seatedEvent, seatStates } from "./helpers/seating";
 import { createTestDb } from "./helpers/test-db";
 
 // Support Sheltüh (docs/architecture.md, "Support Sheltüh";
@@ -546,31 +548,6 @@ describe("after payment", () => {
     );
     expect(res.status).toBe(200);
     expect(await storedOrder(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: BASKET_TOTAL + 500 });
-    // Refunding only the tickets' amount isn't a full refund: it stays paid, flagged for a person (manual, as ever).
-    const other = await paidOrder(event.eventId, 500);
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    await api.send(
-      stripeWebhook,
-      stripeWebhookRequest({
-        id: "evt_refund_part",
-        type: "charge.refunded",
-        data: {
-          object: {
-            id: "ch_2",
-            object: "charge",
-            payment_intent: `pi_${other}`,
-            amount: BASKET_TOTAL + 500,
-            amount_refunded: BASKET_TOTAL,
-            refunded: false,
-            transfer_data: { destination: "acct_test_1" },
-          },
-        },
-      }),
-    );
-    expect(await storedOrder(other)).toMatchObject({ status: "paid", amount_refunded_cents: BASKET_TOTAL });
-    expect(await api.db.query(`select kind from private.payment_exceptions where order_id = $1`, [other])).toEqual([
-      { kind: "partial_refund" },
-    ]);
   });
 
   it("an oversold order's automatic refund is the whole payment, with the transfer reversed and the application fee (support included) refunded", async () => {
@@ -617,6 +594,182 @@ describe("after payment", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Refunding everything but the support (supabase/migrations/20261110000200_support_ticket_refund.sql)
+// ---------------------------------------------------------------------------
+
+/** charge.refunded for `pi_<orderId>`: Stripe's cumulative amount refunded and whether the charge is now fully refunded. */
+function chargeRefunded(paymentIntent: string, amountRefunded: number, refunded: boolean, eventId: string) {
+  return stripeWebhookRequest({
+    id: eventId,
+    type: "charge.refunded",
+    data: {
+      object: {
+        id: `ch_${paymentIntent}`,
+        object: "charge",
+        payment_intent: paymentIntent,
+        amount_refunded: amountRefunded,
+        refunded,
+        transfer_data: { destination: "acct_test_1" },
+      },
+    },
+  });
+}
+
+async function soldOf(eventId: string) {
+  const rows = await api.db.query<{ id: string; quantity_sold: number }>(
+    `select id, quantity_sold from public.ticket_types where event_id = $1 order by id`,
+    [eventId],
+  );
+  return Object.fromEntries(rows.map((r) => [r.id, r.quantity_sold]));
+}
+
+/** Tickets that would still check in or show (check-ins.ts and the ticket page read only paid orders' tickets). */
+async function validTickets(orderId: string) {
+  const [{ n }] = await api.db.query<{ n: number }>(
+    `select count(*)::int as n from public.tickets t join public.orders o on o.id = t.order_id and o.status = 'paid' where t.order_id = $1`,
+    [orderId],
+  );
+  return n;
+}
+
+describe("a tickets-only refund (everything but the support) voids the order", () => {
+  it("total − support refunded: the order is refunded, its tickets void and its stock back; the support kept is recorded", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const event = await paidEvent();
+    const orderId = await paidOrder(event.eventId, 500);
+    expect(await soldOf(event.eventId)).toEqual({ ga: 2, vip: 1 });
+    expect(await validTickets(orderId)).toBe(3);
+
+    const res = await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, BASKET_TOTAL, false, "evt_tickets_only"));
+    expect(res.status).toBe(200);
+    // Refunded with less than its total: what's left (the support) is what Sheltüh kept.
+    expect(await storedOrder(orderId)).toMatchObject({
+      status: "refunded",
+      total_cents: BASKET_TOTAL + 500,
+      support_cents: 500,
+      amount_refunded_cents: BASKET_TOTAL,
+    });
+    expect(await validTickets(orderId)).toBe(0);
+    expect(await soldOf(event.eventId)).toEqual({ ga: 0, vip: 0 });
+    const page = await api.call(getOrderBySession, { params: { sessionId: orderId } });
+    expect(page.body).toMatchObject({ status: "refunded", refundReason: "refunded", tickets: [] });
+    // Nothing for a person: no exception, no alert.
+    expect(await exceptionsOf(orderId)).toEqual([]);
+    expect(await opsAlertJobs()).toEqual([]);
+    const logged = info.mock.calls.map((args) => args.join(" ")).join("\n");
+    expect(logged).toContain(`Order ${orderReference(orderId)}'s tickets were refunded in Stripe (Support Sheltüh kept)`);
+    expect(logged).not.toContain(orderId);
+
+    // A redelivery, and a later refund of the support, change nothing: the stock is given back exactly once.
+    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, BASKET_TOTAL, false, "evt_tickets_only"));
+    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, BASKET_TOTAL + 500, true, "evt_support_later"));
+    expect(await soldOf(event.eventId)).toEqual({ ga: 0, vip: 0 });
+    expect(await storedOrder(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: BASKET_TOTAL });
+  });
+
+  it("after an earlier partial refund: the open partial_refund exception is resolved, noting the support kept", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const event = await paidEvent();
+    const orderId = await paidOrder(event.eventId, 500);
+    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, 1000, false, "evt_part"));
+    expect(await storedOrder(orderId)).toMatchObject({ status: "paid", amount_refunded_cents: 1000 });
+    expect((await exceptionsOf(orderId)).map((e) => [e.kind, e.status])).toEqual([["partial_refund", "open"]]);
+
+    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, BASKET_TOTAL, false, "evt_rest_of_tickets"));
+    expect(await storedOrder(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: BASKET_TOTAL });
+    expect(await soldOf(event.eventId)).toEqual({ ga: 0, vip: 0 });
+    const [ex] = await api.db.query<{ status: string; resolution: string; resolution_note: string; details: Record<string, unknown> }>(
+      `select status, resolution, resolution_note, details from private.payment_exceptions where order_id = $1`,
+      [orderId],
+    );
+    expect(ex).toMatchObject({
+      status: "resolved",
+      resolution: "auto",
+      resolution_note: "Tickets refunded in Stripe, Support Sheltüh kept: the order was voided.",
+      details: { amountRefundedCents: BASKET_TOTAL, orderStatus: "refunded", supportKeptCents: 500, supportCents: 500 },
+    });
+    const list = await api.call(adminListPaymentExceptions, { token: admin.token, query: { status: "resolved" } });
+    expect(list.body.items[0].details).toMatchObject({ supportKeptCents: 500, amountRefundedCents: BASKET_TOTAL });
+  });
+
+  it("seated: the seats are freed as for a full refund", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const { event, map } = await seatedEvent(api, organiser, admin);
+    const res = await checkout(event.eventId, { seats: { mapVersion: map.version, seatIds: ["A1", "A2"] }, supportCents: 300 });
+    expect(res.status).toBe(201);
+    const orderId = res.body.orderId as string;
+    await api.send(stripeWebhook, completed(orderId, "cs_test_1", `pi_${orderId}`));
+    const { total_cents: total } = (await storedOrder(orderId)) as { total_cents: number };
+    expect((await seatStates(api, event.eventId)).A1).toBe(`sold:${orderId}`);
+
+    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, total - 300, false, "evt_seated_tickets"));
+    expect(await storedOrder(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: total - 300 });
+    expect(await seatStates(api, event.eventId)).toMatchObject({ A1: "free", A2: "free" });
+    expect(await api.db.query(`select seat_id from public.tickets where order_id = $1`, [orderId])).toEqual([
+      { seat_id: null },
+      { seat_id: null },
+    ]);
+  });
+
+  it("a smaller refund (a cent short of total − support) stays partial: paid, tickets valid, flagged", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const event = await paidEvent();
+    const orderId = await paidOrder(event.eventId, 500);
+    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, BASKET_TOTAL - 1, false, "evt_short"));
+    expect(await storedOrder(orderId)).toMatchObject({ status: "paid", amount_refunded_cents: BASKET_TOTAL - 1 });
+    expect(await validTickets(orderId)).toBe(3);
+    expect(await soldOf(event.eventId)).toEqual({ ga: 2, vip: 1 });
+    expect((await exceptionsOf(orderId)).map((e) => [e.kind, e.status])).toEqual([["partial_refund", "open"]]);
+  });
+
+  it("a full refund is as before: refunded, and an open partial_refund resolved with the full-refund note (no supportKeptCents)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const event = await paidEvent();
+    const orderId = await paidOrder(event.eventId, 500);
+    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, 500, false, "evt_support_only"));
+    expect(await storedOrder(orderId)).toMatchObject({ status: "paid", amount_refunded_cents: 500 });
+    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, BASKET_TOTAL + 500, true, "evt_all"));
+    expect(await storedOrder(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: BASKET_TOTAL + 500 });
+    expect(await soldOf(event.eventId)).toEqual({ ga: 0, vip: 0 });
+    const [ex] = await api.db.query<{ status: string; resolution_note: string; details: Record<string, unknown> }>(
+      `select status, resolution_note, details from private.payment_exceptions where order_id = $1`,
+      [orderId],
+    );
+    expect(ex.status).toBe("resolved");
+    expect(ex.resolution_note).toBe("Refunded in full in Stripe: the order was voided.");
+    expect(ex.details).not.toHaveProperty("supportKeptCents");
+  });
+
+  it("orders without support are unchanged: only Stripe's full refund voids them", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const event = await paidEvent();
+    const orderId = await paidOrder(event.eventId);
+    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, BASKET_TOTAL - 1, false, "evt_nearly"));
+    expect(await storedOrder(orderId)).toMatchObject({ status: "paid", support_cents: 0, amount_refunded_cents: BASKET_TOTAL - 1 });
+    expect(await validTickets(orderId)).toBe(3);
+    expect((await exceptionsOf(orderId)).map((e) => e.kind)).toEqual(["partial_refund"]);
+    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, BASKET_TOTAL, true, "evt_whole"));
+    expect(await storedOrder(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: BASKET_TOTAL });
+    expect(await soldOf(event.eventId)).toEqual({ ga: 0, vip: 0 });
+  });
+
+  it("the documented limit: when the support is at least the tickets' amount, refunding just the support voids the tickets too", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const event = await paidEvent();
+    const res = await checkout(event.eventId, { lineItems: [{ ticketTypeId: "ga", quantity: 1 }], supportCents: 5000 });
+    const orderId = res.body.orderId as string;
+    await api.send(stripeWebhook, completed(orderId, "cs_test_1", `pi_${orderId}`));
+    expect(await storedOrder(orderId)).toMatchObject({ status: "paid", total_cents: 3170 + 5000 });
+    // A$50 refunded ≥ A$81.70 − A$50: the amount alone reads as the tickets refunded (docs/supabase-setup.md).
+    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, 5000, false, "evt_support_back"));
+    expect(await storedOrder(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: 5000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The webhook's amount check (defence in depth)
 // ---------------------------------------------------------------------------
 
@@ -633,21 +786,60 @@ describe("the webhook fulfils a paid order only for exactly its total, in AUD", 
     expect(await opsAlertJobs()).toEqual([]);
   });
 
-  it("another amount (the support left out): no tickets, nothing sold, an amount_mismatch exception and one alert, however often it's redelivered", async () => {
+  it("another amount (the support left out): no tickets, the order failed, refunded in full once, an urgent amount_mismatch exception and one alert, however often it's redelivered", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const event = await paidEvent();
     const res = await checkout(event.eventId, { lineItems: BASKET, supportCents: 500 });
     const orderId = res.body.orderId as string;
-    for (let i = 0; i < 2; i += 1) {
-      const hook = await api.send(stripeWebhook, paidWithMoney(orderId, { amount_total: BASKET_TOTAL, currency: "aud" }, "pi_short"));
+    const payable = async () =>
+      (await api.db.query<{ p: boolean }>(`select private.event_has_payable_orders($1::uuid) as p`, [event.eventId]))[0].p;
+    // A pending order with a Checkout Session can still be paid: it counts (private.event_has_payable_orders).
+    expect(await payable()).toBe(true);
+
+    const deliveries = [
+      paidWithMoney(orderId, { amount_total: BASKET_TOTAL, currency: "aud" }, "pi_short"),
+      paidWithMoney(orderId, { amount_total: BASKET_TOTAL, currency: "aud" }, "pi_short"),
+      stripeWebhookRequest({
+        id: "evt_async",
+        type: "checkout.session.async_payment_succeeded",
+        data: {
+          object: {
+            id: "cs_test_1",
+            object: "checkout.session",
+            client_reference_id: orderId,
+            payment_status: "paid",
+            payment_intent: "pi_short",
+            amount_total: BASKET_TOTAL,
+            currency: "aud",
+          },
+        },
+      }),
+    ];
+    for (const delivery of deliveries) {
+      const hook = await api.send(stripeWebhook, delivery);
       expect(hook.status).toBe(200);
     }
-    expect(await storedOrder(orderId)).toMatchObject({ status: "pending", support_cents: 500 });
-    expect(await api.db.query(`select code from public.tickets where order_id = $1`, [orderId])).toEqual([]);
-    expect(await api.db.query(`select id, quantity_sold from public.ticket_types where event_id = $1 order by id`, [event.eventId])).toEqual([
-      { id: "ga", quantity_sold: 0 },
-      { id: "vip", quantity_sold: 0 },
+    // Refunded once, in full (no amount), as a failed order's payment is: transfer reversed, application fee refunded.
+    expect(api.stripe.refunds.create.mock.calls).toStrictEqual([
+      [
+        {
+          payment_intent: "pi_short",
+          reverse_transfer: true,
+          refund_application_fee: true,
+          metadata: { orderId, reason: "amount_mismatch" },
+        },
+        { idempotencyKey: `failed-order-refund-${orderId}` },
+      ],
     ]);
+    const [stored] = await api.db.query<Record<string, unknown>>(
+      `select status::text as status, support_cents, stripe_payment_intent_id, stripe_refund_id from public.orders where id = $1`,
+      [orderId],
+    );
+    expect(stored).toEqual({ status: "failed", support_cents: 500, stripe_payment_intent_id: "pi_short", stripe_refund_id: "re_test_1" });
+    expect(await api.db.query(`select code from public.tickets where order_id = $1`, [orderId])).toEqual([]);
+    expect(await soldOf(event.eventId)).toEqual({ ga: 0, vip: 0 });
+    expect(await payable()).toBe(false);
     expect(await exceptionsOf(orderId)).toEqual([
       {
         kind: "amount_mismatch",
@@ -660,43 +852,68 @@ describe("the webhook fulfils a paid order only for exactly its total, in AUD", 
           currency: "aud",
           totalCents: BASKET_TOTAL + 500,
           supportCents: 500,
-          orderStatus: "pending",
+          orderStatus: "failed",
         },
       },
     ]);
     expect(await opsAlertJobs()).toEqual([{ status: "pending" }]);
     // Logged by short reference only.
-    const logged = error.mock.calls.map((args) => args.join(" ")).join("\n");
-    expect(logged).toContain(`Order ${orderReference(orderId)} was paid with another amount than its total: no tickets issued.`);
+    const logged = [...error.mock.calls, ...warn.mock.calls].map((args) => args.join(" ")).join("\n");
+    expect(logged).toContain(`Order ${orderReference(orderId)} was paid with a different amount from its total: no tickets issued;`);
+    expect(logged).toContain(`Order ${orderReference(orderId)} was paid with a different amount or currency from its total: refunding the payment.`);
     expect(logged).not.toContain(orderId);
     expect(logged).not.toContain("buyer@example.com");
 
-    // After the response: the ops alert, and no ticket email.
+    // The refund's own charge.refunded then finds the order (failed, so nothing changes): never held as an early refund.
+    const refunded = await api.send(
+      stripeWebhook,
+      stripeWebhookRequest({
+        id: "evt_mismatch_refunded",
+        type: "charge.refunded",
+        data: {
+          object: {
+            id: "ch_short",
+            object: "charge",
+            payment_intent: "pi_short",
+            amount_refunded: BASKET_TOTAL,
+            refunded: true,
+            transfer_data: { destination: "acct_test_1" },
+          },
+        },
+      }),
+    );
+    expect(refunded.status).toBe(200);
+    expect(await api.db.query(`select payment_intent_id from private.early_charge_refunds`)).toEqual([]);
+    expect(warn.mock.calls.flat().join("\n")).not.toContain("arrived before its payment was recorded");
+    expect(await storedOrder(orderId)).toMatchObject({ status: "failed", amount_refunded_cents: 0 });
+
+    // After the response: the ops alert (urgent), and no ticket email.
     await api.runDeferred();
     expect(api.sendEmail).toHaveBeenCalledTimes(1);
     const alert = api.sendEmail.mock.calls[0][0];
     expect(alert.to).toBe(OPS_ALERT_EMAIL);
-    expect(alert.subject).toBe(`Sheltüh payment exception: Payment amount mismatch ${orderReference(orderId)}`);
-    expect(alert.text).toContain("Order status: pending");
+    expect(alert.subject).toBe(`URGENT: Sheltüh payment exception: Payment amount mismatch ${orderReference(orderId)}`);
+    expect(alert.text).toContain("URGENT: a payment didn't match its order.");
+    expect(alert.text).toContain("Order status: failed");
     expect(alert.text).toContain("Amount charged: A$143.40");
     expect(alert.text).toContain("Order total: A$148.40");
     expect(alert.text).toContain("Support Sheltüh (in the total, Sheltüh's): A$5.00");
-    expect(alert.text).toContain("no tickets were issued");
+    expect(alert.text).toContain("no tickets were issued, the order was marked failed and the payment is being refunded in full automatically");
     for (const part of [alert.subject, alert.text, alert.html]) {
       expect(part).not.toContain(orderId);
       expect(part).not.toContain("pi_short");
       expect(part).not.toContain("buyer@example.com");
     }
 
-    // The admin list has it, with the known details only.
+    // The admin list has it, urgent, with the known details only.
     const list = await api.call(adminListPaymentExceptions, { token: admin.token });
     expect(list.body.items).toEqual([
       expect.objectContaining({
         kind: "amount_mismatch",
         status: "open",
-        urgent: false,
+        urgent: true,
         orderReference: orderReference(orderId),
-        orderStatus: "pending",
+        orderStatus: "failed",
         paymentIntentId: "pi_short",
         details: {
           reason: "amount_mismatch",
@@ -704,14 +921,67 @@ describe("the webhook fulfils a paid order only for exactly its total, in AUD", 
           currency: "aud",
           totalCents: BASKET_TOTAL + 500,
           supportCents: 500,
-          orderStatus: "pending",
+          orderStatus: "failed",
         },
       }),
     ]);
   });
 
-  it("the right amount in another currency, or no amount and currency at all: not fulfilled (fail closed)", async () => {
+  it("the refund's charge.refunded arriving while Stripe is still answering our refund call finds the order", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const event = await paidEvent();
+    const orderId = (await checkout(event.eventId, { lineItems: BASKET, supportCents: 500 })).body.orderId as string;
+    let early: { status: number } | undefined;
+    api.stripe.refunds.create.mockImplementationOnce(async () => {
+      early = await api.send(
+        stripeWebhook,
+        stripeWebhookRequest({
+          id: "evt_refunded_first",
+          type: "charge.refunded",
+          data: {
+            object: {
+              id: "ch_fast",
+              object: "charge",
+              payment_intent: "pi_fast",
+              amount_refunded: BASKET_TOTAL,
+              refunded: true,
+              transfer_data: { destination: "acct_test_1" },
+            },
+          },
+        }),
+      );
+      return { id: "re_fast", status: "succeeded" };
+    });
+    await api.send(stripeWebhook, paidWithMoney(orderId, { amount_total: BASKET_TOTAL, currency: "aud" }, "pi_fast"));
+    expect(early?.status).toBe(200);
+    expect(await api.db.query(`select payment_intent_id from private.early_charge_refunds`)).toEqual([]);
+    expect(warn.mock.calls.flat().join("\n")).not.toContain("arrived before its payment was recorded");
+    expect(await storedOrder(orderId)).toMatchObject({ status: "failed" });
+  });
+
+  it("a Stripe error on the refund is a 500; the redelivery asks again with the very same parameters, then never again", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const event = await paidEvent();
+    const orderId = (await checkout(event.eventId, { lineItems: BASKET, supportCents: 500 })).body.orderId as string;
+    api.stripe.refunds.create.mockRejectedValueOnce(new Error("stripe down"));
+    const send = () => api.send(stripeWebhook, paidWithMoney(orderId, { amount_total: BASKET_TOTAL, currency: "aud" }, "pi_retry"));
+    expect((await send()).status).toBe(500);
+    // Failed and flagged already: the retry only refunds.
+    expect(await storedOrder(orderId)).toMatchObject({ status: "failed" });
+    expect((await exceptionsOf(orderId)).map((e) => e.kind)).toEqual(["amount_mismatch"]);
+    expect((await send()).status).toBe(200);
+    expect((await send()).status).toBe(200);
+    expect(api.stripe.refunds.create).toHaveBeenCalledTimes(2);
+    expect(api.stripe.refunds.create.mock.calls[1]).toStrictEqual(api.stripe.refunds.create.mock.calls[0]);
+    expect(api.stripe.refunds.create.mock.calls[0][0].metadata).toEqual({ orderId, reason: "amount_mismatch" });
+    expect(await opsAlertJobs()).toEqual([{ status: "pending" }]);
+  });
+
+  it("the right amount in another currency, or no amount and currency at all: not fulfilled (fail closed), failed and refunded", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     const event = await paidEvent();
     const usd = (await checkout(event.eventId, { lineItems: BASKET })).body.orderId as string;
     await api.send(stripeWebhook, paidWithMoney(usd, { amount_total: BASKET_TOTAL, currency: "usd" }));
@@ -719,9 +989,10 @@ describe("the webhook fulfils a paid order only for exactly its total, in AUD", 
     await api.send(stripeWebhook, paidWithMoney(bare, { amount_total: null, currency: null }));
 
     for (const orderId of [usd, bare]) {
-      expect(await storedOrder(orderId)).toMatchObject({ status: "pending" });
+      expect(await storedOrder(orderId)).toMatchObject({ status: "failed" });
       expect(await api.db.query(`select code from public.tickets where order_id = $1`, [orderId])).toEqual([]);
     }
+    expect(api.stripe.refunds.create.mock.calls.map(([params]) => params.payment_intent)).toEqual([`pi_${usd}`, `pi_${bare}`]);
     expect((await exceptionsOf(usd))[0]).toMatchObject({
       kind: "amount_mismatch",
       details: { reason: "currency_mismatch", amountChargedCents: BASKET_TOTAL, currency: "usd", totalCents: BASKET_TOTAL, supportCents: 0 },
@@ -730,26 +1001,30 @@ describe("the webhook fulfils a paid order only for exactly its total, in AUD", 
       reason: "currency_mismatch",
       totalCents: BASKET_TOTAL,
       supportCents: 0,
-      orderStatus: "pending",
+      orderStatus: "failed",
     });
     await api.runDeferred();
     const usdAlert = api.sendEmail.mock.calls.map(([m]) => m).find((m) => m.subject.includes(orderReference(usd)))!;
     expect(usdAlert.text).toContain("Amount charged: 143.40 USD");
   });
 
-  it("seated: another amount takes no seats and issues nothing", async () => {
+  it("seated: another amount takes no seats, releases the holds, issues nothing and refunds", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     const { event, map } = await seatedEvent(api, organiser, admin);
     await enablePayouts(api, organiser.organiserId);
     const res = await checkout(event.eventId, { seats: { mapVersion: map.version, seatIds: ["A1"] }, supportCents: 200 });
     expect(res.status).toBe(201);
     const orderId = res.body.orderId as string;
+    expect((await seatStates(api, event.eventId)).A1).toBe(`held:${orderId}`);
     const [{ total_cents: total }] = await api.db.query<{ total_cents: number }>(`select total_cents from public.orders where id = $1`, [orderId]);
     await api.send(stripeWebhook, paidWithMoney(orderId, { amount_total: total - 200, currency: "aud" }));
-    expect(await storedOrder(orderId)).toMatchObject({ status: "pending" });
-    expect(await api.db.query(`select id from public.event_seats where event_id = $1 and sold_order_id is not null`, [event.eventId])).toEqual([]);
+    expect(await storedOrder(orderId)).toMatchObject({ status: "failed" });
+    expect((await seatStates(api, event.eventId)).A1).toBe("free");
+    expect(await api.db.query(`select id from public.event_seats where event_id = $1 and hold_order_id = $2`, [event.eventId, orderId])).toEqual([]);
     expect(await api.db.query(`select code from public.tickets where order_id = $1`, [orderId])).toEqual([]);
     expect((await exceptionsOf(orderId)).map((e) => e.kind)).toEqual(["amount_mismatch"]);
+    expect(api.stripe.refunds.create).toHaveBeenCalledTimes(1);
   });
 
   it("paths that don't fulfil a session are unchanged: a failed order's payment is still refunded, and a member's free booking is issued at once", async () => {
@@ -760,7 +1035,11 @@ describe("the webhook fulfils a paid order only for exactly its total, in AUD", 
     // Even with an amount that isn't the order's: the money goes back in full, as before.
     await api.send(stripeWebhook, paidWithMoney(failed, { amount_total: 1, currency: "aud" }, "pi_late_failed"));
     expect(api.stripe.refunds.create).toHaveBeenCalledTimes(1);
-    expect(api.stripe.refunds.create.mock.calls[0][0]).toMatchObject({ payment_intent: "pi_late_failed" });
+    // No amount_mismatch exception on it: the reason is the order having failed, as before.
+    expect(api.stripe.refunds.create.mock.calls[0][0]).toMatchObject({
+      payment_intent: "pi_late_failed",
+      metadata: { orderId: failed, reason: "paid_after_order_failed" },
+    });
     expect(await exceptionsOf(failed)).toEqual([]);
 
     const free = await publishedEvent(api, organiser, admin, { ticketTypes: FREE_TICKETS });
@@ -959,5 +1238,31 @@ describe("ticket email (unit)", () => {
       expect(plain.text).not.toContain(SUPPORT_REFUND_NOTE);
       expect(plain.html).not.toContain(SUPPORT_REFUND_NOTE);
     }
+  });
+});
+
+describe("ops alert amounts and urgency (unit)", () => {
+  const alert = (details: Record<string, unknown>, kind: "amount_mismatch" | "refund_not_completed" = "amount_mismatch", urgent = true) =>
+    opsAlertLines({ kind, urgent, details, openedAt: new Date("2026-11-10T00:00:00Z") });
+
+  it("the amount charged is in its currency's own minor unit: zero-decimal and three-decimal currencies aren't divided by 100", () => {
+    expect(alert({ amountChargedCents: 14340, currency: "aud" })).toContain("Amount charged: A$143.40");
+    expect(alert({ amountChargedCents: 14340, currency: "usd" })).toContain("Amount charged: 143.40 USD");
+    expect(alert({ amountChargedCents: 14340, currency: "jpy" })).toContain("Amount charged: 14340 JPY");
+    expect(alert({ amountChargedCents: 14340, currency: "krw" })).toContain("Amount charged: 14340 KRW");
+    expect(alert({ amountChargedCents: 14340, currency: "kwd" })).toContain("Amount charged: 14.340 KWD");
+    expect(alert({ amountChargedCents: 14340 })).toContain("Amount charged: A$143.40");
+  });
+
+  it("amount_mismatch is always urgent; refund_not_completed only once its order was voided; each says why", () => {
+    expect(paymentExceptionUrgent("amount_mismatch", "failed")).toBe(true);
+    expect(paymentExceptionUrgent("amount_mismatch", undefined)).toBe(true);
+    expect(paymentExceptionUrgent("refund_not_completed", "refunded")).toBe(true);
+    expect(paymentExceptionUrgent("refund_not_completed", "paid")).toBe(false);
+    expect(paymentExceptionUrgent("partial_refund", "paid")).toBe(false);
+    expect(paymentExceptionUrgent("manual_refund_required", "failed")).toBe(false);
+    expect(alert({})[0]).toBe("URGENT: a payment didn't match its order. Check it, and its automatic refund, in Stripe.");
+    expect(alert({}, "refund_not_completed")[0]).toBe("URGENT: the order was voided (its tickets are void) but the refund didn't complete.");
+    expect(alert({}, "amount_mismatch", false)[0]).toBe("Order: not matched to an order yet");
   });
 });
