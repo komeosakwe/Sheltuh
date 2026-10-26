@@ -24,7 +24,7 @@ import { adminListEmailJobs, runEmailOutboxCron } from "@/lib/server/handlers/em
 import { createEventDraft, submitEventForReview, updateEventDraft } from "@/lib/server/handlers/events";
 import { applyAsOrganiser, resubmitOrganiser } from "@/lib/server/handlers/organisers";
 import { CRON_SECRET, SITE_URL, TestApi } from "./helpers/api";
-import { application, approvedOrganiser, draftEvent, eventInput, signUpAdmin } from "./helpers/fixtures";
+import { application, approvedOrganiser, draftEvent, eventInput, setUpPayouts, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
 // The admins' "waiting for your review" emails: docs/architecture.md, "Admin
@@ -48,6 +48,8 @@ beforeEach(async () => {
   api = new TestApi(api.db);
   admin = await signUpAdmin(api);
   organiser = await approvedOrganiser(api, admin);
+  // Its events have paid tickets (eventInput), which need payouts to be submitted or published.
+  await setUpPayouts(api, organiser.organiserId);
   // The setup's own application email: reviewed (approved) before it was sent, so nothing went out.
   await api.runDeferred();
   api.sendEmail.mockClear();
@@ -300,6 +302,7 @@ describe("an event submitted for review", () => {
 
   it("stops queueing at 10 a day per account, without taking platform slots or stopping another organiser's emails", async () => {
     const other = await approvedOrganiser(api, admin, { displayName: "Other Collective" });
+    await setUpPayouts(api, other.organiserId);
     await api.runDeferred();
     api.sendEmail.mockClear();
     const platformHits = async () =>

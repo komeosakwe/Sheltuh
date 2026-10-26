@@ -4,7 +4,7 @@ import { updateEventDraft } from "@/lib/server/handlers/events";
 import { createCheckout, getOrderBySession, orderTotals, stripeWebhook } from "@/lib/server/handlers/orders";
 import { orderReference } from "@/lib/server/order-reference";
 import { expectSessionPaymentOptions, stripeWebhookRequest, TestApi } from "./helpers/api";
-import { approvedOrganiser, enablePayouts, eventInput, publishedEvent, signUpAdmin } from "./helpers/fixtures";
+import { approvedOrganiser, disablePayouts, enablePayouts, eventInput, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
 let api: TestApi;
@@ -181,6 +181,8 @@ describe("free checkout (member, own verified email)", () => {
 describe("paid checkout", () => {
   it("won't sell until the organiser can be paid out", async () => {
     const event = await publishedEvent(api, organiser, admin, { ticketTypes: PAID_TICKETS });
+    // Payouts turned off (Stripe restricted the account) after the event was published.
+    await disablePayouts(api, organiser.organiserId);
     const res = await api.call(createCheckout, {
       params: { eventId: event.eventId },
       body: { lineItems: [{ ticketTypeId: "ga", quantity: 1 }] },

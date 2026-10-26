@@ -44,6 +44,44 @@ export function ticketTypeConflict(err: unknown): never {
   throw err;
 }
 
+/** The error body's `code` when an event with paid tickets needs its organiser's payouts first. */
+export const PAYOUTS_REQUIRED_CODE = "payouts_required";
+
+/** The organiser's submit of an event with a paid ticket type, before their payouts are set up. */
+export const PAYOUTS_REQUIRED_TO_SUBMIT =
+  "Set up payouts before submitting an event with paid tickets. Free events can be submitted now.";
+
+/**
+ * An admin's approval, publish or ticket-type edit that would list paid
+ * tickets for an organiser whose payouts aren't set up (or were turned off by
+ * Stripe since they submitted).
+ */
+export const ADMIN_PAYOUTS_REQUIRED =
+  "This organiser hasn't set up payouts, so this event can't have paid tickets while it's submitted or published. Make its tickets free, or wait until they've connected Stripe.";
+
+/** A 409 with `code: "payouts_required"` (docs/architecture.md, "Payouts before paid events"). */
+export function payoutsRequired(message: string, fieldErrors?: Record<string, string>): HttpError {
+  return new HttpError(409, message, fieldErrors, { code: PAYOUTS_REQUIRED_CODE });
+}
+
+/**
+ * Whether the database's payouts rule refused the write
+ * (supabase/migrations/20261109000000_paid_events_need_payouts.sql): a paid
+ * event moving to pending review or published, or a new paid ticket type on
+ * one, while the organiser's payouts are off.
+ */
+export function isPayoutsRefusal(err: unknown): boolean {
+  if (pgErrorCode(err) !== PG_CHECK_VIOLATION) return false;
+  const constraint = pgConstraint(err);
+  return constraint === "events_paid_tickets_need_payouts" || constraint === "ticket_types_paid_need_payouts";
+}
+
+/** Throws payoutsRequired(message) for the payouts rule's refusal (isPayoutsRefusal); rethrows anything else. */
+export function payoutsRefused(err: unknown, message: string): never {
+  if (isPayoutsRefusal(err)) throw payoutsRequired(message);
+  throw err;
+}
+
 /**
  * A seated tier's capacity is set by the seat map (its unblocked seats; the
  * database's ticket_types_seated_capacity trigger enforces it whatever is
@@ -157,19 +195,31 @@ export const updateEventDraft: Handler<{ eventId: string }> = async (req, { even
  * POST /api/events/[eventId]/submit — draft or rejected → pending review. The
  * admins' "event to review" email is queued by the database in the same
  * transaction (private.queue_review_email: at most one waiting per event, an
- * hour apart) and sent straight after the response.
+ * hour apart) and sent straight after the response. An event with a paid
+ * Sheltüh ticket type needs the organiser's payouts set up first
+ * (private.submit_event): 409 `code: "payouts_required"` otherwise. Free and
+ * external events never need payouts.
  */
 export const submitEventForReview: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const caller = await requireCaller(req, deps.verifyAccessToken);
   const organiser = await requireApprovedOrganiser(deps.db, caller);
   await requireOwnEvent(deps.db, organiser.organiserId, eventId);
 
-  const [row] = await deps.db.query<{ moved: boolean }>(
-    `select private.transition_event($1, array['draft', 'rejected']::public.event_status[], 'pending_review',
-       'submitted', $2, null, $3) as moved`,
-    [eventId, caller.userId, organiser.organiserId],
-  );
-  if (!row.moved) throw new HttpError(409, "Only a draft or rejected event can be submitted for review.");
+  let result: "submitted" | "not_found" | "not_submittable" | "payouts_required";
+  try {
+    const [row] = await deps.db.query<{ result: typeof result }>(`select private.submit_event($1, $2, $3) as result`, [
+      eventId,
+      organiser.organiserId,
+      caller.userId,
+    ]);
+    result = row.result;
+  } catch (err) {
+    // Belt and braces: the events trigger (events_paid_tickets_need_payouts) behind private.submit_event's own check.
+    payoutsRefused(err, PAYOUTS_REQUIRED_TO_SUBMIT);
+  }
+  if (result === "not_found") throw new HttpError(404, "Event not found.");
+  if (result === "not_submittable") throw new HttpError(409, "Only a draft or rejected event can be submitted for review.");
+  if (result === "payouts_required") throw payoutsRequired(PAYOUTS_REQUIRED_TO_SUBMIT);
   sendReviewEmailsSoon(deps, "event_review");
   return ok(await requireEvent(deps.db, eventId));
 };

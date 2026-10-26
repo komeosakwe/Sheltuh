@@ -22,6 +22,7 @@ import {
   enablePayouts,
   insertOrder,
   publishedEvent,
+  setUpPayouts,
   signUpAdmin,
 } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
@@ -324,6 +325,8 @@ describe("POST /admin/organisers/{id}/suspend: takedown", () => {
 describe("after a takedown", () => {
   it("an event can't be published for a suspended organiser, even one that reached review in a race", async () => {
     const organiser = await approvedOrganiser(api, admin);
+    // Its tickets are paid (eventInput): with payouts set up, so only the takedown stands in the way.
+    await setUpPayouts(api, organiser.organiserId);
     const draft = await draftEvent(api, organiser);
     expect((await suspend(organiser.organiserId)).status).toBe(200);
 

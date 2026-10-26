@@ -4,7 +4,7 @@ import { confirmFreeOrder, FREE_LIMITS } from "@/lib/server/handlers/free-orders
 import { createCheckout, getOrderBySession } from "@/lib/server/handlers/orders";
 import type { EventRecord } from "@/lib/server/types";
 import { SITE_URL, TestApi } from "./helpers/api";
-import { approvedOrganiser, publishedEvent, signUpAdmin } from "./helpers/fixtures";
+import { approvedOrganiser, publishedEvent, setUpPayouts, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
 let api: TestApi;
@@ -603,7 +603,8 @@ describe("confirmation re-checks", () => {
   it("a ticket type that's no longer free issues nothing: 409, and the order is failed", async () => {
     await book("fan@example.com", 2);
     const token = tokenFromEmail();
-    // The organiser unpublished, priced it, and it was published again.
+    // The organiser set up payouts, unpublished, priced it, and it was published again.
+    await setUpPayouts(api, event.organiserId);
     await api.db.query(`update public.ticket_types set price_cents = 1500 where event_id = $1 and id = 'rsvp'`, [event.eventId]);
     const res = await confirm(token);
     expect(res.status).toBe(409);

@@ -5,7 +5,7 @@ import { adminApproveEvent } from "@/lib/server/handlers/admin";
 import { runHandler } from "@/lib/server/route";
 import type { Db } from "@/lib/server/db";
 import { TestApi } from "./helpers/api";
-import { approvedOrganiser, draftEvent, signUpAdmin } from "./helpers/fixtures";
+import { approvedOrganiser, draftEvent, setUpPayouts, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
@@ -27,6 +27,8 @@ beforeEach(async () => {
   api = new TestApi(api.db);
   admin = await signUpAdmin(api);
   organiser = await approvedOrganiser(api, admin);
+  // Its events have paid tickets (eventInput), which need payouts to be submitted or published.
+  await setUpPayouts(api, organiser.organiserId);
 });
 
 function put(eventId: string, body: BodyInit, token = organiser.token) {

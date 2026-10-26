@@ -22,6 +22,7 @@ import {
   eventInput,
   insertOrder,
   publishedEvent,
+  setUpPayouts,
   signUpAdmin,
 } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
@@ -62,6 +63,8 @@ async function reschedule(eventId: string, startHours: number, endHours: number)
 
 async function pendingEvent(organiser: { token: string }, overrides: Record<string, unknown> = {}) {
   const draft = await draftEvent(api, organiser, overrides);
+  // A paid event (eventInput's default) needs payouts to be submitted.
+  await setUpPayouts(api, draft.organiserId);
   const res = await api.call(submitEventForReview, { token: organiser.token, params: { eventId: draft.eventId }, method: "POST" });
   if (res.status !== 200) throw new Error(`submit failed: ${JSON.stringify(res.body)}`);
   return draft;

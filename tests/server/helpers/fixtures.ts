@@ -55,10 +55,43 @@ export async function publishedEvent(
   overrides: Record<string, unknown> = {},
 ) {
   const draft = await draftEvent(api, organiser, overrides);
+  // A paid event can only be submitted once its organiser can be paid out
+  // (private.submit_event), so an organiser selling paid tickets has set up
+  // payouts first. Tests of an organiser whose payouts are off since then use
+  // disablePayouts after this.
+  if (hasPaidSheltuhTickets(draft)) await setUpPayouts(api, draft.organiserId);
   const params = { eventId: draft.eventId };
   await api.call(submitEventForReview, { token: organiser.token, params, method: "POST" });
   const res = await api.call(adminApproveEvent, { token: admin.token, params, method: "POST" });
   return res.body as EventRecord;
+}
+
+function hasPaidSheltuhTickets(event: EventRecord): boolean {
+  return (event.ticketingMode ?? "sheltuh") === "sheltuh" && event.ticketTypes.some((t) => t.priceCents > 0);
+}
+
+/**
+ * Payouts on for an organiser that doesn't have them yet, keeping any Stripe
+ * account it has (or giving it one of its own: account ids are unique, so
+ * unlike enablePayouts this works for any number of organisers). A paid
+ * event can only be submitted or published once its organiser has them.
+ */
+export async function setUpPayouts(api: TestApi, organiserId: string) {
+  await api.db.query(
+    `update public.organisers
+        set stripe_account_id = coalesce(stripe_account_id, 'acct_test_' || replace(id::text, '-', '')),
+            payouts_enabled = true
+      where id = $1 and not payouts_enabled`,
+    [organiserId],
+  );
+}
+
+/**
+ * Payouts off again (Stripe restricted the account, say) for an organiser
+ * whose paid event is already submitted or published.
+ */
+export async function disablePayouts(api: TestApi, organiserId: string) {
+  await api.db.query(`update public.organisers set payouts_enabled = false where id = $1`, [organiserId]);
 }
 
 /** Marks an organiser's Stripe Connect account ready to take payments. */

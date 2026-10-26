@@ -18,7 +18,15 @@ import type { AdminEventRecord } from "../types";
 import { fail } from "../validation";
 import { MAX_TICKETING_REASON_LENGTH } from "./admin";
 import { readEventImage } from "./event-images";
-import { eventFields, ticketTypeConflict, withSeatedCapacity, withUniqueSlug } from "./events";
+import {
+  ADMIN_PAYOUTS_REQUIRED,
+  eventFields,
+  isPayoutsRefusal,
+  payoutsRequired,
+  ticketTypeConflict,
+  withSeatedCapacity,
+  withUniqueSlug,
+} from "./events";
 import { parseApplication } from "./organisers";
 
 /** Shown when a platform-managed organiser's event would have a paid Sheltüh ticket. */
@@ -157,11 +165,16 @@ function parseOptionalReason(value: unknown, errors: Errors): string | null {
   return reason || null;
 }
 
-/** The database refused a write: a paid ticket for a platform-managed organiser, or an inventory guard. */
+/**
+ * The database refused a write: a paid ticket for a platform-managed
+ * organiser, paid tickets submitted or published for an organiser without
+ * payouts (409 `code: "payouts_required"`), or an inventory guard.
+ */
 function writeRefused(err: unknown): never {
   if (pgErrorCode(err) === PG_CHECK_VIOLATION && pgConstraint(err) === "ticket_types_platform_free_only") {
     throw new HttpError(400, PLATFORM_PAID_REFUSED, { ticketTypes: PLATFORM_PAID_REFUSED });
   }
+  if (isPayoutsRefusal(err)) throw payoutsRequired(ADMIN_PAYOUTS_REQUIRED, { ticketTypes: ADMIN_PAYOUTS_REQUIRED });
   return ticketTypeConflict(err);
 }
 

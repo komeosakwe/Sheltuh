@@ -14,7 +14,7 @@ import { runHandler } from "@/lib/server/route";
 import { adminSuspendOrganiser } from "@/lib/server/handlers/admin";
 import type { EventRecord } from "@/lib/server/types";
 import { embeddedSession, SITE_URL, stripeWebhookRequest, TestApi, WEBHOOK_SECRET } from "./helpers/api";
-import { approvedOrganiser, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
+import { approvedOrganiser, disablePayouts, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { seatedEvent, seatStates, tierCounts } from "./helpers/seating";
 import { createTestDb } from "./helpers/test-db";
 
@@ -275,7 +275,8 @@ describe("without a usable publishable key", () => {
 
   it("the usual refusals still come first, and free tickets don't need it", async () => {
     const event = await publishedEvent(api, organiser, admin, { ticketTypes: [...PAID_TICKETS, ...FREE_TICKETS] });
-    // Payouts not set up yet: that 409, not the 503.
+    await disablePayouts(api, organiser.organiserId);
+    // Payouts off (turned off since the event was published): that 409, not the 503.
     expect((await checkout(event.eventId, { lineItems: [{ ticketTypeId: "ga", quantity: 1 }] })).status).toBe(409);
     await enablePayouts(api, organiser.organiserId);
     expect((await checkout(event.eventId, { lineItems: [{ ticketTypeId: "ga", quantity: 9 }] })).status).toBe(409);
@@ -788,7 +789,8 @@ describe("rate limits", () => {
 
     it("only checkouts that would make an order count: early refusals, free orders and seated checkouts don't", async () => {
       const event = await publishedEvent(api, organiser, admin, { ticketTypes: [...PAID_TICKETS, ...FREE_TICKETS] });
-      // Payouts not set up: 409 before the limit.
+      await disablePayouts(api, organiser.organiserId);
+      // Payouts off (turned off since the event was published): 409 before the limit.
       expect((await checkout(event.eventId, { lineItems: [{ ticketTypeId: "ga", quantity: 1 }] }, IP)).status).toBe(409);
       await enablePayouts(api, organiser.organiserId);
       // Sold out (too many asked for), bad input: refused before it.

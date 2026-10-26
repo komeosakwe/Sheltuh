@@ -14,7 +14,7 @@ import {
 } from "@/lib/server/handlers/events";
 import { applyAsOrganiser } from "@/lib/server/handlers/organisers";
 import { TestApi } from "./helpers/api";
-import { application, approvedOrganiser, draftEvent, eventInput, signUpAdmin } from "./helpers/fixtures";
+import { application, approvedOrganiser, draftEvent, eventInput, setUpPayouts, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
 let api: TestApi;
@@ -33,6 +33,8 @@ beforeEach(async () => {
   api = new TestApi(api.db);
   admin = await signUpAdmin(api);
   organiser = await approvedOrganiser(api, admin);
+  // Its events have paid tickets (eventInput), which need payouts to be submitted or published.
+  await setUpPayouts(api, organiser.organiserId);
 });
 
 describe("event drafts", () => {

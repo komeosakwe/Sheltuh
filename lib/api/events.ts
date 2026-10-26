@@ -1,6 +1,6 @@
 import type { TicketingMode } from "@/lib/ticketing";
 import type { EventCategory } from "@/lib/types";
-import { apiFetch, type GetToken } from "./client";
+import { ApiError, apiFetch, type GetToken } from "./client";
 import type { EventRecord, Paginated, TicketTypeInput } from "./types";
 
 export interface EventInput {
@@ -43,6 +43,27 @@ export async function updateEventDraft(eventId: string, input: EventInput, getTo
   return apiFetch<EventRecord>(`/events/${eventId}`, { method: "PATCH", body: input, token });
 }
 
+/**
+ * The error body's `code` (ApiError.body.code) when an event with a paid
+ * Sheltüh ticket type can't be submitted, approved or published, or get a new
+ * paid ticket type while submitted or published, because the organiser's
+ * payouts aren't set up (`OrganiserRecord.payoutsEnabled` false: Stripe
+ * Connect at /dashboard/payouts). Always a 409. Free and external events never
+ * need payouts, and drafts can always be saved.
+ */
+export const PAYOUTS_REQUIRED_CODE = "payouts_required";
+
+/** Whether `err` is the 409 with `code: "payouts_required"` (PAYOUTS_REQUIRED_CODE). */
+export function isPayoutsRequiredError(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.status === 409 && err.body?.code === PAYOUTS_REQUIRED_CODE;
+}
+
+/**
+ * Draft or rejected → pending review. ApiError 409 when it isn't a draft or
+ * rejected, or (`code: "payouts_required"`, isPayoutsRequiredError) when it
+ * has a paid Sheltüh ticket type and the organiser's payouts aren't set up;
+ * 404 unknown event.
+ */
 export async function submitEventForReview(eventId: string, getToken: GetToken) {
   const token = await getToken();
   return apiFetch<EventRecord>(`/events/${eventId}/submit`, { method: "POST", token });

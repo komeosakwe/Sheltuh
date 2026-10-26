@@ -175,6 +175,12 @@ export async function adminGetSummary(getToken: GetToken) {
   return apiFetch<AdminSummary>("/admin/summary", { token });
 }
 
+/**
+ * Pending review → published. ApiError 409 when it's no longer pending, its
+ * organiser isn't approved, or (`code: "payouts_required"`, lib/api/events.ts
+ * isPayoutsRequiredError) it has a paid Sheltüh ticket type and the
+ * organiser's payouts aren't set up (or were turned off since they submitted).
+ */
 export async function adminApproveEvent(eventId: string, getToken: GetToken) {
   const token = await getToken();
   return apiFetch<EventRecord>(`/admin/events/${eventId}/approve`, { method: "POST", token });
@@ -233,7 +239,9 @@ export async function adminGetEvent(eventId: string, getToken: GetToken) {
  * Creates an event for any approved organiser (logged `created`), and
  * publishes it straight away with `publish: true`. ApiError 400 (fieldErrors,
  * including organiserId, and ticketTypes for a paid ticket of a
- * platform-managed organiser), 409 organiser not approved.
+ * platform-managed organiser), 409 organiser not approved, or (`code:
+ * "payouts_required"`, fieldErrors.ticketTypes) publishing paid tickets for an
+ * organiser whose payouts aren't set up.
  */
 export async function adminCreateEvent(input: AdminCreateEventInput, getToken: GetToken) {
   const token = await getToken();
@@ -246,7 +254,11 @@ export async function adminCreateEvent(input: AdminCreateEventInput, getToken: G
  * fieldErrors.expectedUpdatedAt when someone else changed it since
  * `expectedUpdatedAt` (reload, then edit again); 409 also for a sold ticket
  * type removed or cut below what's sold, switching to external an event with
- * orders, or publishing for an organiser who isn't approved. 400 fieldErrors.
+ * orders, or publishing for an organiser who isn't approved; 409 `code:
+ * "payouts_required"` (fieldErrors.ticketTypes) when the organiser's payouts
+ * aren't set up and the edit would publish paid tickets, or add a paid ticket
+ * type (or make a free one paid) on a submitted or published event. 400
+ * fieldErrors.
  */
 export async function adminUpdateEvent(eventId: string, input: AdminUpdateEventInput, getToken: GetToken) {
   const token = await getToken();

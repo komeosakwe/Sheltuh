@@ -21,7 +21,7 @@ import { getPublicEventBySlug } from "@/lib/server/handlers/public-events";
 import type { Handler } from "@/lib/server/route";
 import type { AdminEventRecord } from "@/lib/server/types";
 import { SITE_URL, TestApi } from "./helpers/api";
-import { application, approvedOrganiser, draftEvent, eventInput, insertOrder, publishedEvent, signUpAdmin } from "./helpers/fixtures";
+import { application, approvedOrganiser, draftEvent, eventInput, insertOrder, publishedEvent, setUpPayouts, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
 /**
@@ -53,6 +53,8 @@ beforeEach(async () => {
   api = new TestApi(api.db);
   admin = await signUpAdmin(api);
   organiser = await approvedOrganiser(api, admin);
+  // Its events have paid tickets (eventInput), which need payouts to be submitted or published.
+  await setUpPayouts(api, organiser.organiserId);
 });
 
 const platformOrganiserBody = {

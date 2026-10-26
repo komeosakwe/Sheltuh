@@ -18,7 +18,7 @@ import {
   ORGANISER_NOT_FOUND_METADATA,
 } from "@/lib/share-metadata";
 import { SITE_URL, TestApi } from "./helpers/api";
-import { application, approvedOrganiser, draftEvent, publishedEvent, signUpAdmin } from "./helpers/fixtures";
+import { application, approvedOrganiser, draftEvent, publishedEvent, setUpPayouts, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
 /** Demo or live, as the pages decide it (lib/api/client's isApiConfigured), and the live pages' deps. */
@@ -120,6 +120,8 @@ describe("live event metadata (generateMetadata on /events/[slug])", () => {
   it("its cover image as an absolute, versioned URL that anyone (a crawler) can fetch", async () => {
     const draft = await draftEvent(api, organiser);
     await withImage(draft.eventId);
+    // Its tickets are paid (eventInput), which needs payouts to be submitted.
+    await setUpPayouts(api, organiser.organiserId);
     await api.call(submitEventForReview, { token: organiser.token, params: { eventId: draft.eventId }, method: "POST" });
     const { adminApproveEvent } = await import("@/lib/server/handlers/admin");
     await api.call(adminApproveEvent, { token: admin.token, params: { eventId: draft.eventId }, method: "POST" });

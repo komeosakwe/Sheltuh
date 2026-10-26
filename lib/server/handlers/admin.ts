@@ -11,6 +11,7 @@ import type { Handler } from "../route";
 import type { AdminOrganiserRecord, AdminSummary, EventStatus, OrganiserStatus, SuspendOrganiserResult } from "../types";
 import { fail, requireString } from "../validation";
 import { requireEventForAdmin } from "./event-queries";
+import { ADMIN_PAYOUTS_REQUIRED, payoutsRefused } from "./events";
 
 const ORGANISER_STATUSES: OrganiserStatus[] = ["pending", "approved", "rejected"];
 const EVENT_STATUSES: EventStatus[] = ["draft", "pending_review", "published", "rejected"];
@@ -447,12 +448,19 @@ async function moderateEvent(
       ? `exists (select 1 from public.events e join public.organisers o on o.id = e.organiser_id
                   where e.id = $1 and o.status = 'approved' for share of o)`
       : "true";
-  const [row] = await deps.db.query<{ moved: boolean | null }>(
-    `select case when ${guard} then
-       private.transition_event($1, array[$2::public.event_status], $3::public.event_status,
-         $4::public.moderation_action, $5, $6) end as moved`,
-    [eventId, from, to, action, admin.userId, reason],
-  );
+  let row: { moved: boolean | null };
+  try {
+    [row] = await deps.db.query<{ moved: boolean | null }>(
+      `select case when ${guard} then
+         private.transition_event($1, array[$2::public.event_status], $3::public.event_status,
+           $4::public.moderation_action, $5, $6) end as moved`,
+      [eventId, from, to, action, admin.userId, reason],
+    );
+  } catch (err) {
+    // Publishing a paid event whose organiser has no payouts (any more):
+    // events_paid_tickets_need_payouts.
+    payoutsRefused(err, ADMIN_PAYOUTS_REQUIRED);
+  }
   if (row.moved === null) {
     throw new HttpError(409, "This event's organiser isn't approved (they may have been suspended), so it can't be published.");
   }

@@ -3,7 +3,7 @@ import { adminRejectEvent } from "@/lib/server/handlers/admin";
 import { submitEventForReview } from "@/lib/server/handlers/events";
 import { getPublicEventBySlug, listPublicEvents } from "@/lib/server/handlers/public-events";
 import { TestApi } from "./helpers/api";
-import { approvedOrganiser, draftEvent, publishedEvent, signUpAdmin } from "./helpers/fixtures";
+import { approvedOrganiser, draftEvent, publishedEvent, setUpPayouts, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
 let api: TestApi;
@@ -273,6 +273,8 @@ describe("events with no ticket types", () => {
 
     await set([freeType]);
     expect(await isFree(event.eventId)).toBe(true);
+    // A published event's new paid ticket type needs the organiser's payouts.
+    await setUpPayouts(api, event.organiserId);
     await set([freeType, paidType]);
     expect(await isFree(event.eventId)).toBe(false);
     await set([]);
