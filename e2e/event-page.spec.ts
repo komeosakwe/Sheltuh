@@ -192,6 +192,51 @@ for (const vp of [
   });
 }
 
+// Owner request (26 Oct 2026): on a phone, Save and Share are on the first screen too, above the
+// buy bar, with a two-line title and a two-line address. 390×664 is a 390×844 phone less its
+// browser chrome; 375×667 is the small iPhone.
+for (const vp of [
+  { width: 390, height: 664 },
+  { width: 375, height: 667 },
+]) {
+  test.describe(`Save and Share on the first screen at ${vp.width}×${vp.height}`, () => {
+    test.use({ viewport: vp });
+
+    test("laneway-projections-after-dark: the actions row ends above the buy bar", async ({ page }) => {
+      await mockApi(page);
+      await page.goto("/events/laneway-projections-after-dark");
+      const h1 = page.getByRole("heading", { level: 1 });
+      await expect(h1).toBeVisible({ timeout: 30_000 });
+      expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+      // The case it's for: the title and the address each take two lines.
+      const lines = (el: HTMLElement) => Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight));
+      expect(await h1.evaluate(lines)).toBe(2);
+      const address = page.locator("[data-event-facts] [data-directions]");
+      expect(await address.evaluate(lines)).toBe(2);
+
+      const bar = await page.locator("[data-buy-bar]").boundingBox();
+      if (!bar) throw new Error("no buy bar");
+      const actions = page.locator("[data-event-actions]");
+      const save = actions.getByRole("link", { name: "Sign in to save Laneway Projections: After Dark" });
+      const share = actions.getByRole("button", { name: "Share Laneway Projections: After Dark" });
+      for (const control of [save, share]) {
+        const box = await control.boundingBox();
+        if (!box) throw new Error("not laid out");
+        expect(box.height).toBeGreaterThanOrEqual(44);
+        expect(box.y + box.height).toBeLessThanOrEqual(bar.y);
+      }
+      // Add to calendar keeps its 44px target, and doesn't overlap the address link below it.
+      const calendar = await page.getByRole("button", { name: "Add to calendar" }).boundingBox();
+      const addressBox = await address.boundingBox();
+      if (!calendar || !addressBox) throw new Error("not laid out");
+      expect(calendar.height).toBeGreaterThanOrEqual(44);
+      expect(calendar.y + calendar.height).toBeLessThanOrEqual(addressBox.y);
+      await noSidewaysScroll(page);
+    });
+  });
+}
+
 test.describe("live event page that can't load", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 

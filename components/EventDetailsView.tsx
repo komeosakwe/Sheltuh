@@ -179,10 +179,11 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
         }}
       >
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-x-14 lg:gap-y-10">
-          <div className="flex flex-col gap-4 lg:col-span-7">
+          <div className="flex flex-col gap-3 sm:gap-4 lg:col-span-7">
             {/* The photo first at every width (it's aria-hidden, so reading order is the title
-                first): full-bleed 4:3 on phones, never more than 30% of the screen's height so
-                the title, date and venue still fit above the buy bar; a 3:2 rounded card from sm.
+                first): full-bleed 4:3 on phones, never more than 26% of the screen's height so
+                the title, facts and Save/Share still fit above the buy bar (owner request, 26 Oct
+                2026: e2e/event-page.spec.ts); a 3:2 rounded card from sm.
                 The page's LCP image. The wrapper is the same box (full-bleed on phones), so an
                 event's clip Play can sit on the photo's bottom-left, lined up with the page's text
                 edge on phones (docs/design/event-clips.md §5.3); absolutely placed, so nothing shifts. */}
@@ -193,7 +194,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                 title={event.title}
                 priority
                 fit="auto"
-                className="aspect-[4/3] max-h-[30svh] w-full sm:aspect-[3/2] sm:max-h-none sm:rounded-card"
+                className="aspect-[4/3] max-h-[26svh] w-full sm:aspect-[3/2] sm:max-h-none sm:rounded-card"
               />
               <ClipPlayButton event={event} size="hero" className="absolute bottom-3 left-5 sm:left-3" />
             </div>
@@ -202,13 +203,14 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
               <h1 className="title-lg -mt-2 max-w-[24ch] break-words">{event.title}</h1>
               {/* The one date/time and venue block (no second copy further down): when, where
                   and who, each with its action. */}
-              <dl data-event-facts="" className="mt-1 flex flex-col gap-2">
+              <dl data-event-facts="" className="-mt-1 flex flex-col gap-2 sm:mt-1">
                 <div className={factRowClass}>
                   <dt>
                     <CalendarIcon className={factIconClass} />
                     <span className="sr-only">When</span>
                   </dt>
-                  <dd className="min-w-0">
+                  {/* Positioned: the Add to calendar menu opens from here, at the column's edge. */}
+                  <dd className="relative min-w-0 pb-1 lg:pb-0">
                     <p className="text-base leading-6 font-semibold">
                       {/* Each time stays whole ("4:00 pm", never "4:00 / pm"); the rest wraps where it must,
                           so a long range fits a 320px screen. */}
@@ -222,9 +224,17 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                         ),
                       )}
                     </p>
-                    <p className="text-sm leading-5 text-muted">{formatTimeZoneLabel(event.startsAt, zone, event.state)}</p>
-                    {/* On its own row, starting at the column's edge, so its menu stays on screen. */}
-                    <AddToCalendar event={event} />
+                    {/* The zone, then Add to calendar beside it where there's room (onto its own line
+                        where there isn't, e.g. 320px; and on its own row from lg, as before). The
+                        button keeps its 44px target, overlapping the lines above and below (neither
+                        is a control; the row's bottom padding clears the address link) rather than
+                        adding a 44px row. Its menu opens from the dd, so it stays on screen. */}
+                    <div className="flex flex-wrap items-center gap-x-2">
+                      <p className="text-sm leading-5 text-muted lg:basis-full">
+                        {formatTimeZoneLabel(event.startsAt, zone, event.state)}
+                      </p>
+                      <AddToCalendar event={event} menuFromParent className="-my-3 lg:my-0" />
+                    </div>
                   </dd>
                 </div>
                 <div className={factRowClass}>
@@ -289,12 +299,12 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                 </div>
               </dl>
               {/* Below lg Who's Going comes after the tickets, so its count is linked here too
-                  (the panel is beside this from lg). */}
-              <div className="lg:hidden">
+                  (the panel is beside this from lg). No gap left behind while there is none. */}
+              <div className="empty:hidden lg:hidden">
                 <WhosGoingSummaryLink />
               </div>
               {/* The one secondary row: Save (the page's only Save) and Share. */}
-              <div data-event-actions="" className="flex flex-wrap items-center gap-2">
+              <div data-event-actions="" className="-mt-1 flex flex-wrap items-center gap-2 sm:mt-0">
                 <SaveButton event={saveTarget} variant="action" />
                 <ShareButton slug={event.slug} title={event.title} text={shareText} />
               </div>
