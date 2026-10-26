@@ -2959,15 +2959,15 @@ application is approved.
 
 | Method & path | Who |
 |---|---|
-| `GET /events?q&category&pricing&onOrAfter&upcoming&cursor&limit` | public (published only), soonest first. `onOrAfter` (`YYYY-MM-DD`, 400 otherwise): events starting on or after that date in each event's own zone (`(starts_at at time zone time_zone)::date`, with a coarse `starts_at` bound a day earlier for `events_status_starts_idx`). `upcoming=1` (or `true`): only events that haven't ended (`ends_at > now()`, in progress included); the home page and /events always send it. `pricing=free`: has ticket types, all free, or is external with `externalFree`; `paid`: has a paid ticket type (an event with no ticket types is neither, and so is an external event that isn't free: its price isn't known). 400 for an unknown `category`, `pricing` or `upcoming` value. Every item carries `ticketingMode`, `externalFree`, `externalProvider` and, for external events only, `externalTicketUrl` (see "External ticketing") |
-| `GET /events/slug/{slug}` | public (published only); same shape as a list item. Every public event (list, slug, favourites, organiser profile, trending) carries `soldOut`, and per ticket type `soldOut` and `remaining` (only when 10 or fewer are left): see "Waitlist" |
-| `GET /events/{slug}/calendar.ics` (a page route, not under `/api`: `app/events/[slug]/calendar.ics/route.ts`) | public (published only; demo mode: the sample events). The event as an iCalendar file (`lib/calendar.ts` `buildIcs`, its URL from `NEXT_PUBLIC_SITE_URL`), `text/calendar; charset=utf-8`, `Content-Disposition: inline`, `public, max-age=300`. 404 (JSON, `private, no-store`) otherwise. No personal data |
+| `GET /events?q&category&pricing&onOrAfter&upcoming&cursor&limit` | public (published only), soonest first. `onOrAfter` (`YYYY-MM-DD`, 400 otherwise): events starting on or after that date in each event's own zone (`(starts_at at time zone time_zone)::date`, with a coarse `starts_at` bound a day earlier for `events_status_starts_idx`). `upcoming=1` (or `true`): only events that haven't ended (`ends_at > now()`, in progress included); the home page and /events always send it. `pricing=free`: has ticket types, all free, or is external with `externalFree`; `paid`: has a paid ticket type (an event with no ticket types is neither, and so is an external event that isn't free: its price isn't known). 400 for an unknown `category`, `pricing` or `upcoming` value. Every item carries `ticketingMode`, `externalFree`, `externalProvider` and, for external events only, `externalTicketUrl` (see "External ticketing"). 200: `public, max-age=0, s-maxage=60, stale-while-revalidate=120` (shared at the CDN: "CDN windows"). With `upcoming`, the page's ids are selected first (`lib/server/upcoming-page.ts`) |
+| `GET /events/slug/{slug}` | public (published only); same shape as a list item. 200: `public, max-age=0, s-maxage=15, stale-while-revalidate=45` ("CDN windows"). Every public event (list, slug, favourites, organiser profile, trending) carries `soldOut`, and per ticket type `soldOut` and `remaining` (only when 10 or fewer are left): see "Waitlist" |
+| `GET /events/{slug}/calendar.ics` (a page route, not under `/api`: `app/events/[slug]/calendar.ics/route.ts`) | public (published only; demo mode: the sample events). The event as an iCalendar file (`lib/calendar.ts` `buildIcs`, its URL from `NEXT_PUBLIC_SITE_URL`), `text/calendar; charset=utf-8`, `Content-Disposition: inline`, `public, max-age=300, s-maxage=300`. 404 (JSON, `private, no-store`) otherwise. No personal data |
 | `POST /events/{eventId}/waitlist` `{email?}` · `DELETE /events/{eventId}/waitlist` | POST: public (a member's token is read, optionally). 201/200 `{status: "joined", maskedEmail, alreadyJoined}` for a member's own verified email; 202 `{status: "confirmation_sent", expiresInHours}` for anyone else, whatever the address's history; 400 email; 404 not published; 409 external, ended or not sold out; 503 busy (the platform caps; the link is emailed after the response, so a failed send isn't reported). DELETE: signed in, leaves (204, idempotent) |
 | `GET /events/{eventId}/waitlist/status` | signed in: `{joined, maskedEmail?}`; 404 not published |
 | `POST /waitlist/confirm` `{token}` · `POST /waitlist/leave` `{token}` | public (the emailed token is the credential). Confirm: 200 `{status: "joined", eventTitle, eventSlug, ticketsAvailable}` (also when already on the list); 400; 404; 410 expired or used; 409 closed. Leave: 200 `{status: "left", eventTitle?}` (the title only while the event is published; idempotent); 400; 404 |
 | `POST /events/{eventId}/checkout` | public (a member's token is read, optionally, for free orders). Optional `Idempotency-Key` header (a random v4 UUID; see "Checkout idempotency"). 409 for an external event, before anything else is read; 409 for a paid order from a platform-managed organiser. 201 `{url}` (a paid order: `{url, orderId}`, `private, no-store`, `url` being the payment page `/checkout/pay?order={orderId}`; see "Payment flow" and "Reserved seating", "Back from the payment page"); a paid order's key again: 200 the same `{url, orderId}` while its session is open, 409 `checkout_in_progress` (Retry-After) / `checkout_expired` / `checkout_completed` (worded for a paid, refunded or being-refunded order) / `checkout_other_client` (the key is another client's: no URL or order id), 422 `idempotency_key_reused`; 400 `invalid_idempotency_key`; 503 `payment_provider_unavailable` (Stripe didn't answer: retry with the same key); 202 free order waiting on its emailed link; 400 (incl. over 4 free tickets in any order, paid or free); 404; 409 sold out or the person's free allowance for the event; 429 member's daily free allowance, or this client's paid checkouts used up (10 a minute, and 20 per event and 60 in all per 10 minutes; `code: "client_rate_limited"`, nothing written; past 600 per event per 10 minutes only an ops alert is queued, nobody is refused); 503 free bookings busy (the guest's link is emailed after the response), or card payments not configured (a paid order, before anything is written: the publishable key is missing or isn't the secret key's mode). 409 for too many of a ticket type names the number left only when it's 10 or fewer |
 | `POST /events/{eventId}/checkout` with `seats: {mapVersion, seatIds}` | public: a seated checkout (see "Reserved seating"). Paid: 201 `{url, holdExpiresAt, orderId}` (private, no-store; `url` as above), or 503 when card payments aren't configured (before any hold or hold attempt). Free: as above (201 member, 202 guest). 400 (bad seats, over 10, a seated tier in `lineItems`, no map); 404; 409 `seats` taken (body `code`, `seatIds`) or `seatMapVersion` changed; 429 too many seats held or hold attempts for the event, or this client's hold attempts used up (`code: "client_rate_limited"`; body `seatIds`); the `Idempotency-Key` answers as above (200 replay with `holdExpiresAt`) |
-| `GET /events/{eventId}/seat-map?v=` | public once published (`public, max-age=31536000, immutable`, only at the current `v`; any other `v` or none is a `307` to `?v={current}`, `no-store`, no body); before that the owning organiser or an admin (bearer), private. `SeatMapRecord`. 404 no map or not visible |
+| `GET /events/{eventId}/seat-map?v=` | public once published (`public, max-age=31536000, s-maxage=31536000, immutable`, only at the current `v`; any other `v` or none is a `307` to `?v={current}`, `no-store`, no body); before that the owning organiser or an admin (bearer), private. `SeatMapRecord`. 404 no map or not visible |
 | `GET /events/{eventId}/seat-availability` | as above: `SeatAvailability` (the bitmap), `public, max-age=0, s-maxage=5` once published |
 | `PUT /events/{eventId}/seat-map` `{template}` · `DELETE …` | organiser (own event, draft or rejected, never approved). Up to 1 MB. 200 `SeatMapRecord` / 204; 400 `fieldErrors["template.…"]`; 404; 409 not editable, locked, external or has orders |
 | `PUT /admin/events/{eventId}/seat-map` `{template, reason}` · `DELETE …` `{reason}` | admin, any status, no orders. 200 `SeatMapRecord` / 204; 400; 404; 409 has orders (`fieldErrors.template`) or external |
@@ -2983,14 +2983,14 @@ application is approved.
 | `GET /admin/emails/health` | admin. `EmailOutboxHealth`: counts per kind and in total (due, overdue after 15 minutes, `oldestOverdueSeconds`, waiting, sending, expired leases, failed, failed in 7 days), `lastCronRun` (time and counts), `cronSecretConfigured`. No addresses, orders or tokens. `private, no-store`. No UI yet |
 | `POST /stripe/webhook` | Stripe (signature-verified) |
 | `GET /admin/payment-exceptions?status&cursor&limit` · `POST /admin/payment-exceptions/{exceptionId}/resolve` `{note}` | admin. `AdminPaymentException` (see "Refunds made in Stripe"): status `open` (default, oldest first) or `resolved` (newest resolution first); order by short reference only, no buyer data; `urgent` for a refund that didn't complete after its order was voided. Resolve: note 1–500 characters (400), 404 unknown, 409 already resolved. No UI yet |
-| `POST /organisers/apply` · `GET /organisers/me` · `PATCH /organisers/me` | signed in. PATCH: a rejected application is resubmitted in full (back to pending); an approved organiser edits their profile (see "Organiser profiles"); pending is a 409 |
-| `GET /organisers/{organiserId}/profile` | public (approved organisers only; anything else, or a non-uuid id, is a 404) |
+| `POST /organisers/apply` · `GET /organisers/me` · `PATCH /organisers/me` | signed in. GET: `private, no-store`. PATCH: a rejected application is resubmitted in full (back to pending); an approved organiser edits their profile (see "Organiser profiles"); pending is a 409 |
+| `GET /organisers/{organiserId}/profile` | public (approved organisers only; anything else, or a non-uuid id, is a 404). 200: `public, max-age=0, s-maxage=60, stale-while-revalidate=120` ("CDN windows") |
 | `POST /organisers/me/connect/onboard` · `…/connect/refresh` | organiser |
 | `POST /events` · `PATCH /events/{id}` · `POST /events/{id}/submit` | organiser (own events). Body adds optional `state` and `timeZone`, together or neither (see "Events: state and time zone"). Body adds `ticketingMode` (absent: `sheltuh` on POST; on PATCH, the stored ticketing is kept), `externalTicketUrl`, `externalFree` (see "External ticketing"). PATCH: 409 unless draft or rejected; 409 (fieldErrors on the field) changing the mode or link of an event that has been approved before |
-| `GET /organisers/me/events` · `GET /organisers/me/events/{id}` | organiser (own events) |
+| `GET /organisers/me/events` · `GET /organisers/me/events/{id}` | organiser (own events), `private, no-store` |
 | `PUT /events/{id}/image` · `DELETE /events/{id}/image` | organiser (own events, while draft or rejected). Admins: `…/admin/events/{id}/image` |
-| `GET /events/{id}/image` | public once published; before that, the owning organiser or an admin |
-| `GET /events/{id}/going` | public (published only): `{count, closed, countHidden}` |
+| `GET /events/{id}/image?v=` | public once published: at the current `v` (as `imageUrl` gives it) `public, max-age=3600, s-maxage=82800`, with any other `v` or none the same image but `private, max-age=3600` (never shared: a guessed future version can't be cached ahead of a replacement); before that, the owning organiser or an admin, `private, no-store` |
+| `GET /events/{id}/going` | public (published only): `{count, closed, countHidden}`. No cache header (not CDN-cached, so the count keeps up with the names list) |
 | `GET /events/{id}/going/attendees?cursor` | verified email with a profile that isn't suspended (403 otherwise); published only; 429 when rate-limited |
 | `GET /events/{id}/going/me` · `DELETE /events/{id}/going/me` | signed in (own opt-in) |
 | `PUT /events/{id}/going/me` | verified email, eligible ticket holder with a profile. 404 if Who's Going isn't open, 409 without a profile, 403 if not eligible or suspended |
@@ -3006,7 +3006,7 @@ application is approved.
 | `POST /follows/unsubscribe` `{token}` | public (the emailed token is the credential). 200 `{status: "unsubscribed", organiserName?}` (idempotent); 400; 404 |
 | `POST /admin/organisers/{organiserId}/remove-video` `{reason}` | admin. 200 `AdminOrganiserRecord` (unchanged, nothing logged, without a video); 400; 404 |
 | `PUT /organisers/me/logo` (raw JPEG/PNG/WebP) · `DELETE /organisers/me/logo` | PUT: an approved organiser (403 otherwise, before the body is read); 200 the organiser record (`logoUrl`), `private, no-store`; 400 `fieldErrors.logo` (not a supported image, or over 24 megapixels); 409 no longer approved by the time it's written; 413 over 2 MB; 429 over 20 a day; 503 too many images being decoded on the instance. DELETE: signed in, any status; 200 the record without `logoUrl` (idempotent); 404 no organiser |
-| `GET /organisers/{organiserId}/logo[?size=thumb][&v=…]` | public while the organiser is approved (`public, max-age=86400`); otherwise an admin or the owner with a bearer token (`private, no-store`). WebP 512 px (96 px thumbnail), `x-content-type-options: nosniff`, ETag (304). 404 for anything else: unknown, no logo, not approved without the right token, not a uuid |
+| `GET /organisers/{organiserId}/logo[?size=thumb][&v=…]` | public while the organiser is approved: at the current `v` `public, max-age=3600, s-maxage=82800`, otherwise `private, max-age=3600` (the current logo whatever `v` says); otherwise an admin or the owner with a bearer token (`private, no-store`). WebP 512 px (96 px thumbnail), `x-content-type-options: nosniff`, ETag (304). 404 for anything else: unknown, no logo, not approved without the right token, not a uuid |
 | `POST /admin/organisers/{organiserId}/remove-logo` `{reason}` | admin. 200 `AdminOrganiserRecord` (unchanged, nothing logged, without a logo); 400 `fieldErrors.reason` (1–500 characters, cleaned like a message); 403; 404 |
 | `PUT /profiles/me` | verified email, not suspended (403). Creating needs `adultConfirmed: true` (an explicit `false` is a 400); a rename (no `adultConfirmed`) with no profile is a 404. Display names are checked in `lib/server/profile-input.ts`: no control, invisible or default-ignorable characters (U+FE0E/FE0F allowed), at least one letter or digit, at most 4 combining marks per character, no links, emails or @handles, no Latin/Cyrillic/Greek mix within a word, and no reserved names, compared on a lookalike skeleton |
 | `GET /conversations?cursor` | verified member: own conversations, newest activity first |
@@ -3046,7 +3046,81 @@ response). It's currently a row offset, fine at this scale.
 JSON request bodies over 256 KB are refused with 413. Every error response
 is `cache-control: private, no-store`, and so is every admin response
 (`admin.ts`, `admin-authoring.ts`, `email-outbox.ts`, `invites.ts`, `reports.ts`,
-`trending.ts`).
+`trending.ts`) and every response about the signed-in caller.
+`tests/server/private-gets.test.ts` checks every authenticated GET answers
+`private`, and that every GET route is listed there, as public on purpose,
+or as tested elsewhere.
+
+### Hosting: region, database connection, CDN
+
+- **Region.** `vercel.json` pins functions to Sydney (`"regions":
+  ["syd1"]`), next to the Supabase database (ap-southeast-2): a database
+  round trip is then a few milliseconds, where a US region would add a
+  trans-Pacific one to each of checkout's sequential queries and to every
+  Supabase Auth check. Stripe's API is in the US either way.
+- **Database connection.** `DATABASE_URL` is Supabase's transaction pooler
+  (port 6543): `prepare: false`, 5 connections per instance (one pool per
+  process, shared by every route and page), fail-fast connect
+  (`lib/server/db.ts`). **TLS:** postgres.js connects in plain text unless
+  the URL asks for TLS, so `createPostgresDb` passes `ssl: "require"`
+  whenever the URL has no `sslmode` (or `ssl`) and any host isn't this
+  machine (`localhost`, `127.0.0.1`, `::1`, a unix socket):
+  `requiresForcedTls`, unit-tested in `tests/server/db-tls.test.ts`.
+  `require` encrypts without checking the certificate (as libpq's
+  `sslmode=require`); an explicit `sslmode` in the URL always wins
+  (`verify-full` would need Supabase's CA, e.g. via `NODE_EXTRA_CA_CERTS`).
+  Local test clusters (`TEST_DATABASE_URL` on 127.0.0.1) are unaffected.
+  The owner also turns on Supabase's "Enforce SSL" (`docs/DEPLOYMENT.md`).
+- **CDN.** A function's response is shared at Vercel's CDN through
+  `s-maxage` (`max-age` is for the browser); that Vercel keeps them, and
+  never anything `private`, is checked on the first deploy
+  (`docs/DEPLOYMENT.md`, "CDN headers": `x-vercel-cache`). What is
+  shared, and for how long, is the "CDN windows" table below. Errors are
+  never shared, so there's no negative caching: a newly approved event
+  shows as soon as the window of the page it appears on allows (its own
+  page at once). Nothing purges the CDN on demand; changes show when a
+  window runs out.
+
+#### CDN windows (accepted risks)
+
+Shared responses are the same for every caller: these handlers never read
+a token (`tests/server/public-events.test.ts` checks a signed-in caller gets
+the same body and header).
+
+| Response | Header | Stale for at most |
+|---|---|---|
+| Feed `GET /events` (home, /events, map, search) | `public, max-age=0, s-maxage=60, stale-while-revalidate=120` | about 3 minutes |
+| Organiser profile `GET /organisers/{id}/profile` | the same | about 3 minutes |
+| Event `GET /events/slug/{slug}` (event and seat pages) | `public, max-age=0, s-maxage=15, stale-while-revalidate=45` | about 1 minute |
+| Trending | `public, max-age=0, s-maxage=300, stale-while-revalidate=600` | 15 minutes (plus the snapshot's own age; see "Trending") |
+| Seat availability | `public, max-age=0, s-maxage=5` | 5 seconds |
+| Event image, organiser logo (current `v` only) | `public, max-age=3600, s-maxage=82800` | under a day |
+| Seat map (current `v` only) | `public, max-age=31536000, s-maxage=31536000, immutable` | a year (a new map is a new URL) |
+| Calendar `.ics` | `public, max-age=300, s-maxage=300` | 5 minutes (plus a browser's 5) |
+
+What that means:
+
+- **Availability.** A card's "Sold out", an event page's "Only N left" and
+  its quantity cap can lag sales by the windows above. Checkout and
+  fulfilment always read the database: a buyer who picks more than is left
+  gets a 409 naming what's left (10 or fewer), and overselling is
+  impossible (the `ticket_types` check). An event that looks sold out after
+  a refund may send someone to the waitlist, which answers 409 "not sold
+  out". Seated selection uses the 5-second availability bitmap.
+- **Takedowns.** An unpublished event, a suspended organiser's events and
+  profile, or an admin's edit can still be served from the CDN for up to
+  about 3 minutes in the feed and on a profile, about 1 minute on the event
+  page (checkout refuses at once), and under a day for an image or logo. A
+  seat map's layout stays cached for a year at its URL (it was public, and
+  holds no personal data). For a takedown that can't wait, purge the CDN
+  cache from Vercel's dashboard (not wired into the app).
+- **Organisers' own edits** show on their public profile and event pages
+  within the same windows (their dashboard reads `private` routes, so it's
+  current).
+- **Offset cursors and snapshots.** Pages of the feed cached at different
+  times can skip or repeat an event that moved between pages; repeats are
+  de-duplicated by id in the browser (as before caching, when events ending
+  between page loads shifted rows the same way).
 
 ## Code map
 

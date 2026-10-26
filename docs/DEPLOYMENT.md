@@ -403,6 +403,14 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        an event, old messages and reports per the retention rules). Steps are
        in `supabase-setup.md`. It does nothing until scheduled.
 5. [ ] Promote yourself to admin: `npm run promote-admin -- you@sheltuh.com.au`.
+6. [ ] Database connection: copy the **Transaction pooler** URL (port
+       **6543**, not the direct connection on 5432) and add
+       `?sslmode=require` for `DATABASE_URL`. Turn on **Enforce SSL**
+       (Project Settings → Database → SSL Configuration), so a plain-text
+       connection is refused. The app also forces TLS for any non-local host
+       (`lib/server/db.ts`), so a URL missing `sslmode` still connects
+       encrypted. Note the compute tier's pooler client limit (see
+       `docs/architecture.md`, "Hosting: region, database connection, CDN").
 
 ## Stripe
 
@@ -443,7 +451,8 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
 1. [ ] Environment variables (Production and Preview), from `.env.example`:
        `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
-       `NEXT_PUBLIC_SITE_URL`, `DATABASE_URL` (transaction pooler, port 6543),
+       `NEXT_PUBLIC_SITE_URL`, `DATABASE_URL` (transaction pooler, port 6543,
+       ending `?sslmode=require`),
        `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`,
        `STRIPE_WEBHOOK_SECRET`, `SMTP_*`, `EMAIL_FROM`. The two Stripe keys
        are a pair from one account and mode: Production live
@@ -505,21 +514,48 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        `docs/wallet-setup.md`. The private keys are secrets: never commit
        them, and revoke them (Google: delete the service account key; Apple:
        revoke the Pass Type ID certificate) if they may have leaked.
-2. [ ] Settings → Functions → Region is **Sydney (syd1)**, next to the
-       database (`supabase-setup.md` §4). `vercel.json` sets no `regions`, so
-       this setting decides it; not yet checked. Checkout and the payment
-       page's `GET …/payment` each make several sequential database round
-       trips, so a US region would add noticeable delay before the form
-       appears.
-3. [ ] Pro plan once you sell tickets (Hobby is non-commercial). The plan
+2. [ ] Region: `vercel.json` pins functions to **Sydney (syd1)**
+       (`"regions": ["syd1"]`), next to the database (`supabase-setup.md`
+       §4). After the first deploy, check Settings → Functions shows syd1
+       (and a function's logs show `syd1`). Checkout and the payment page's
+       `GET …/payment` each make several sequential database round trips,
+       so a US region would add noticeable delay before the form appears.
+3. [ ] **Fluid compute** is on (Settings → Functions). One instance then
+       serves many requests at once and shares its database pool (5
+       connections) between them; without it, every concurrent request is
+       its own instance with its own connections to the pooler.
+4. [ ] Pro plan once you sell tickets (Hobby is non-commercial). The plan
        change alone doesn't touch the cron schedules: edit `vercel.json` and
        redeploy as in "Cron schedules" above.
-4. [ ] Domain: attach `sheltuh.com.au` (see PROJECT_CONTEXT for the Cloudflare
-       notes). The landing page currently lives on a Cloudflare Worker; decide
+5. [ ] Domain: attach `sheltuh.com.au` (see PROJECT_CONTEXT for the Cloudflare
+       notes). Keep its Cloudflare record **DNS only** (grey cloud): a
+       Cloudflare proxy in front would be a second, unmanaged cache over
+       the CDN windows below, and would break client-IP rate limiting. The landing page currently lives on a Cloudflare Worker; decide
        when the app replaces it.
 
 ## Smoke test on the deployed site (test mode)
 
+- [ ] **CDN headers** (`docs/architecture.md`, "CDN windows"). With
+      `SITE=https://preview.sheltuh.com.au` (or the production domain), a
+      published event's slug, id and image version (the `v` in its
+      `imageUrl`), run each of these **twice**, a few seconds apart:
+
+      ```sh
+      curl -sI "$SITE/api/events?upcoming=1&limit=40" | grep -iE '^(cache-control|x-vercel-cache|age):'
+      curl -sI "$SITE/api/events/slug/$SLUG" | grep -iE '^(cache-control|x-vercel-cache|age):'
+      curl -sI "$SITE/api/events/$EVENT_ID/image?v=$V" | grep -iE '^(cache-control|x-vercel-cache|age):'
+      curl -sI "$SITE/api/organisers/me" | grep -iE '^(cache-control|x-vercel-cache|age):'
+      ```
+
+      Expect the second response of each public route to show
+      `x-vercel-cache: HIT` (and an `age`), and `/api/organisers/me` (a
+      401 without a token: `private, no-store`) **never** `HIT`. Signed in,
+      the same holds with the token: copy one from the browser's network
+      panel and add `-H "authorization: Bearer …"`; it must stay
+      `private, no-store` and never `HIT`. Also check an image with a wrong
+      `v` (`?v=1`) is `private, max-age=3600` and never `HIT`. If public
+      routes never `HIT`, the CDN isn't keeping them: note it, the site
+      still works, just with more database load.
 - [ ] Sign up, verify email code, sign in, `/account`.
 - [ ] Buy a ticket with your account email, then add yourself to Who's Going
       on that event (opt-in form, 18+ box). Withdraw.
