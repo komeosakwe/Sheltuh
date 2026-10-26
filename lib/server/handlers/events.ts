@@ -8,9 +8,17 @@ import {
 } from "../db";
 import { REFUND_POLICY_TIGHTENED_CODE } from "@/lib/refund-policy";
 import { sendReviewEmailsSoon } from "../email-outbox";
-import { parseEventInput, type EventInput } from "../event-input";
+import { parseEventInput, storedPlaceOf, type EventInput } from "../event-input";
 import { created, HttpError, ok, readJson } from "../http";
 import { decodeCursor, parseLimit, toPage } from "../pagination";
+import {
+  ADMIN_PAYOUTS_REQUIRED,
+  isPayoutsRefusal,
+  PAYOUTS_REQUIRED_CODE,
+  PAYOUTS_REQUIRED_TO_SUBMIT,
+  payoutsRefused,
+  payoutsRequired,
+} from "../payouts-refusal";
 import { EVENT_SELECT, toEvent } from "../records";
 import type { Handler } from "../route";
 import type { EventRecord } from "../types";
@@ -45,43 +53,16 @@ export function ticketTypeConflict(err: unknown): never {
   throw err;
 }
 
-/** The error body's `code` when an event with paid tickets needs its organiser's payouts first. */
-export const PAYOUTS_REQUIRED_CODE = "payouts_required";
-
-/** The organiser's submit of an event with a paid ticket type, before their payouts are set up. */
-export const PAYOUTS_REQUIRED_TO_SUBMIT =
-  "Set up payouts before submitting an event with paid tickets. Free events can be submitted now.";
-
-/**
- * An admin's approval, publish or ticket-type edit that would list paid
- * tickets for an organiser whose payouts aren't set up (or were turned off by
- * Stripe since they submitted).
- */
-export const ADMIN_PAYOUTS_REQUIRED =
-  "This organiser hasn't set up payouts, so this event can't have paid tickets while it's submitted or published. Make its tickets free, or wait until they've connected Stripe.";
-
-/** A 409 with `code: "payouts_required"` (docs/architecture.md, "Payouts before paid events"). */
-export function payoutsRequired(message: string, fieldErrors?: Record<string, string>): HttpError {
-  return new HttpError(409, message, fieldErrors, { code: PAYOUTS_REQUIRED_CODE });
-}
-
-/**
- * Whether the database's payouts rule refused the write
- * (supabase/migrations/20261109000000_paid_events_need_payouts.sql): a paid
- * event moving to pending review or published, or a new paid ticket type on
- * one, while the organiser's payouts are off.
- */
-export function isPayoutsRefusal(err: unknown): boolean {
-  if (pgErrorCode(err) !== PG_CHECK_VIOLATION) return false;
-  const constraint = pgConstraint(err);
-  return constraint === "events_paid_tickets_need_payouts" || constraint === "ticket_types_paid_need_payouts";
-}
-
-/** Throws payoutsRequired(message) for the payouts rule's refusal (isPayoutsRefusal); rethrows anything else. */
-export function payoutsRefused(err: unknown, message: string): never {
-  if (isPayoutsRefusal(err)) throw payoutsRequired(message);
-  throw err;
-}
+// The payouts rule's errors live in ../payouts-refusal, which (unlike this
+// module) doesn't load the suburb table; re-exported for this module's callers.
+export {
+  ADMIN_PAYOUTS_REQUIRED,
+  isPayoutsRefusal,
+  PAYOUTS_REQUIRED_CODE,
+  PAYOUTS_REQUIRED_TO_SUBMIT,
+  payoutsRefused,
+  payoutsRequired,
+};
 
 /**
  * A seated tier's capacity is set by the seat map (its unblocked seats; the
@@ -181,12 +162,16 @@ export const TICKETING_FROZEN =
  * without `refundPolicy`, the stored refund policy. A draft that has orders
  * (it was published, then unpublished) can't have its refund policy made less
  * generous: 409 `code: "refund_policy_tightened"` (refundPolicyTightened).
+ * Without `state` and `timeZone`, the stored place is kept and the times are
+ * read in the stored zone (parseEventInput), so a client that predates them
+ * re-saves an event outside Melbourne unchanged.
  */
 export const updateEventDraft: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
   const organiser = await requireApprovedOrganiser(db, caller);
   const current = await requireOwnEvent(db, organiser.organiserId, eventId);
-  const input = withSeatedCapacity(parseEventInput(withStoredTicketing(await readJson(req), current)), current);
+  const body = withStoredTicketing(await readJson(req), current);
+  const input = withSeatedCapacity(parseEventInput(body, { storedPlace: storedPlaceOf(current) }), current);
 
   let result: string;
   try {

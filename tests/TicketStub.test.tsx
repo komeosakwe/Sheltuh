@@ -161,6 +161,38 @@ describe("TicketStub", () => {
     expect(screen.getByText("Checked in Sat 6 Mar, 8:42 pm")).toBeInTheDocument();
   });
 
+  it("says a Perth event's check-in time in Perth time (the door's clock)", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // Sat 6 Mar 2027, 7:00 pm in Perth (10:00 pm in Melbourne).
+    vi.setSystemTime(new Date("2027-03-06T11:00:00.000Z"));
+    render(
+      <ul>
+        <TicketStub
+          code="K7M2-QW3R"
+          typeName="GA"
+          when="Sat 6 Mar, 5:00 pm – 8:30 pm Perth time"
+          checkedInAt="2027-03-06T09:42:00.000Z"
+          timeZone="Australia/Perth"
+        />
+      </ul>,
+    );
+    // 8:42 pm AEDT is 5:42 pm AWST.
+    expect(screen.getByText("Checked in 5:42 pm")).toBeInTheDocument();
+    expect(screen.getByText("Sat 6 Mar, 5:00 pm – 8:30 pm Perth time")).toBeInTheDocument();
+  });
+
+  it("a late Perth check-in reads on Perth's clock (11:30 pm), not Melbourne's (2:30 am the next day)", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // Sat 6 Mar 2027, 11:50 pm in Perth (Sun 7 Mar, 2:50 am in Melbourne).
+    vi.setSystemTime(new Date("2027-03-06T15:50:00.000Z"));
+    render(
+      <ul>
+        <TicketStub code="K7M2-QW3R" typeName="GA" checkedInAt="2027-03-06T15:30:00.000Z" timeZone="Australia/Perth" />
+      </ul>,
+    );
+    expect(screen.getByText("Checked in 11:30 pm")).toBeInTheDocument();
+  });
+
   it("an old-style code with no QR is an entry code, ready to use", () => {
     render(
       <ul>

@@ -25,10 +25,10 @@ describe("NearbyResults — the suburb table loads on demand", () => {
     let resolve: (module: LocationModule) => void = () => {};
     loadLocation.mockReturnValue(new Promise((done) => (resolve = done)));
     render(<NearbyResults events={events} origin={FITZROY} />);
-    expect(screen.getByRole("status")).toHaveTextContent("Sorting by distance from Fitzroy…");
+    expect(screen.getByRole("status")).toHaveTextContent("Sorting by distance from Fitzroy, VIC…");
     expect(screen.queryAllByRole("list")).toHaveLength(0);
     resolve(location);
-    await screen.findByText(/Closest to Fitzroy first/);
+    await screen.findByText(/Closest to Fitzroy, VIC first/);
     expect(document.querySelectorAll("[data-near-band]").length).toBeGreaterThan(0);
   });
 
@@ -36,11 +36,11 @@ describe("NearbyResults — the suburb table loads on demand", () => {
     loadLocation.mockRejectedValueOnce(new Error("chunk failed")).mockResolvedValueOnce(location);
     render(<NearbyResults events={events} origin={FITZROY} />);
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Couldn’t sort these by distance from Fitzroy, so they’re soonest first.");
+    expect(alert).toHaveTextContent("Couldn’t sort these by distance from Fitzroy, VIC, so they’re soonest first.");
     const list = screen.getByRole("list", { name: "Events" });
     expect(within(list).getAllByRole("heading", { level: 3 })).toHaveLength(events.length);
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    await screen.findByText(/Closest to Fitzroy first/);
+    await screen.findByText(/Closest to Fitzroy, VIC first/);
     expect(screen.queryByRole("alert")).toBeNull();
     expect(loadLocation).toHaveBeenCalledTimes(2);
   });

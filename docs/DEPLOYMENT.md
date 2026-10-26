@@ -121,7 +121,15 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           random wallet pass serial; rewrites `public.tickets` once. Apply
           before the app with wallet passes deploys: its wallet routes read
           the column, and answer 500 without it)
-      28. `20261110000100_order_support.sql` (Support Sheltüh: the
+      28. `20261110000000_event_place_time_zone.sql` (every event gets a
+          state and a time zone: existing events become VIC,
+          Australia/Melbourne, which is what they meant; redefines
+          `private.create_event_draft`, `edit_event_draft` and
+          `admin_edit_event`. **Apply it before this app deploys**: every
+          event read (`EVENT_SELECT`) selects the new columns, so without it
+          every event page, list and order lookup is a 500. The previous app
+          keeps working against it)
+      29. `20261110000100_order_support.sql` (Support Sheltüh: the
           `orders.support_cents` column, its checks, and `private.hold_seats`
           taking the amount). **Apply it first, before the app with Support
           Sheltüh deploys.** That app reads `support_cents` everywhere an
@@ -133,30 +141,46 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           (all 500s). The previous app keeps working against it: its
           18-argument `hold_seats` call takes the new form's default, and
           its general admission insert the column's.
-      29. `20261110000150_support_in_exceptions.sql` (payment exceptions
+      30. `20261110000150_support_in_exceptions.sql` (payment exceptions
           carry the order's `supportCents`, and the new `amount_mismatch`
           kind: a paid session whose amount or currency isn't the order's.
-          Needs file 28 (it reads `support_cents`). Apply it before the app
+          Needs file 29 (it reads `support_cents`). Apply it before the app
           that opens `amount_mismatch` exceptions deploys: without it that
           app's webhook fails (500, Stripe retries) on a mismatched payment,
           since `raise_payment_exception` refuses the unknown kind; matching
           payments are fulfilled as ever. The previous app keeps working against it)
-      30. `20261110000200_support_ticket_refund.sql` (`charge.refunded`:
+      31. `20261110000200_support_ticket_refund.sql` (`charge.refunded`:
           an order with Support Sheltüh refunded by at least `total_cents −
           support_cents`, the runbook's "tickets only" recipe, is voided as a
           full refund, its tickets void and its stock released, the support
-          kept. Redefines `private.record_payment_refund` only; needs file 28.
+          kept. Redefines `private.record_payment_refund` only; needs file 29.
           Apply it before the app that documents the new runbook deploys; the
           previous app keeps working against it, and without it a
           tickets-only refund leaves the tickets valid, as before)
-      31. `20261110000300_amount_mismatch_refund.sql` (creates
+      32. `20261110000300_amount_mismatch_refund.sql` (creates
           `private.fail_mismatched_order`: a paid session whose amount or
           currency isn't the order's fails the order and the app refunds it.
-          Needs files 28 and 29. **Apply it before this app deploys**: this
+          Needs files 29 and 30. **Apply it before this app deploys**: this
           app's webhook calls the function on a mismatched payment, and
           without it that call fails (500, Stripe retries, the order stays
           pending); matching payments are fulfilled as ever. The previous app
           keeps working against it: it never calls the function)
+
+      **Before merging the Australia-wide events branch, check the Supabase
+      project knows every event time zone.** The public list's `onOrAfter`
+      filter (`lib/server/handlers/public-events.ts`) reads each event's
+      start `at time zone` its own zone in SQL, and a zone Postgres doesn't
+      know makes that query fail. Run this in the SQL editor (read-only); it must return `13`:
+
+      ```sql
+      select count(*) from pg_timezone_names where name = any('{Australia/Melbourne,Australia/Sydney,Australia/Broken_Hill,Australia/Lord_Howe,Australia/Brisbane,Australia/Adelaide,Australia/Perth,Australia/Eucla,Australia/Hobart,Australia/Darwin,Indian/Christmas,Indian/Cocos,Pacific/Norfolk}');
+      ```
+
+      Anything less means a zone is missing: stop and report which
+      (`select name from pg_timezone_names where name like any('{Australia/%,Indian/%,Pacific/Norfolk}') order by name`).
+      The list is `ZONES_BY_STATE` in `lib/time-zones.ts`;
+      `tests/server/event-place.test.ts` checks it matches, and runs every
+      zone through `at time zone` on PGlite and Postgres 16.
 
       Files 24 to 26 were written as `20261104000000_payment_reconciliation.sql`,
       `20261104000100_email_outbox_health.sql` and

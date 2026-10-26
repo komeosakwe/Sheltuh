@@ -231,7 +231,7 @@ describe("CheckoutPayment: open", () => {
     const summary = await screen.findByRole("region", { name: "Neon Static" });
     expect(summary).toHaveClass("rounded-card", "border", "border-foreground", "bg-card");
     expect(within(summary).getByText("Sat 6 Mar, 8:00 pm – 11:30 pm")).toBeInTheDocument();
-    expect(within(summary).getByText("The Tote, Collingwood")).toBeInTheDocument();
+    expect(within(summary).getByText("The Tote, Collingwood, VIC")).toBeInTheDocument();
     expect(within(summary).getByText("2 × A$31.70 incl. fee")).toBeInTheDocument();
     expect(within(summary).getByText("1 × Free")).toBeInTheDocument();
     expect(within(summary).getByText("Free", { selector: "p.shrink-0" })).toBeInTheDocument();
@@ -267,6 +267,31 @@ describe("CheckoutPayment: open", () => {
       expect(within(refunds).getByText(REFUND_ACL_STATEMENT)).toHaveClass("text-sm", "text-muted");
       const total = summary.querySelector("[data-order-total]");
       expect(total?.compareDocumentPosition(refunds) ?? 0).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a Perth event: the date and refund deadline in Perth time, named, and a seat hold ending in Perth time", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-01T00:00:00.000Z"));
+    try {
+      // 8:00 pm – 11:30 pm AEDT is 5:00 pm – 8:30 pm AWST; the hold's 8:31 pm AEDT is 5:31 pm AWST.
+      getOrderPayment.mockResolvedValue({
+        ...OPEN_SEATED,
+        eventTitle: "Neon Static",
+        eventTimeZone: "Australia/Perth",
+        eventState: "WA",
+        refundPolicy: "days_before",
+        refundDays: 7,
+      });
+      render(<CheckoutPayment />);
+      const summary = await screen.findByRole("region", { name: "Neon Static" });
+      expect(within(summary).getByText("Sat 6 Mar, 5:00 pm – 8:30 pm Perth time")).toBeInTheDocument();
+      expect(summary.querySelector("[data-refund-policy]")).toHaveTextContent(
+        "Refund policy: Refunds available until Sat 27 Feb 2027, 5:00 pm (7 days before the event).",
+      );
+      expect(screen.getByText("Your seats are held until 5:31 pm Perth time. Going back releases them.")).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }

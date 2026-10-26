@@ -1,9 +1,15 @@
+import { trailingState } from "./place";
+import { STATE_CODES, type StateCode } from "./time-zones";
+
 /**
  * The visitor's chosen suburb for "near you" search, remembered in this
- * browser only: localStorage under `NEAR_STORAGE_KEY` as `{"suburb": string}`
- * and nothing else (never coordinates, never sent anywhere). Storage can
- * throw (private mode, quota, blocked): reads then return "" and writes
- * return false, and the choice lasts only for the page.
+ * browser only: localStorage under `NEAR_STORAGE_KEY` as `{"suburb": string,
+ * "state"?: StateCode}` and nothing else (never coordinates, never sent
+ * anywhere). The state is the suburb table's, saved with the suburb when it's
+ * chosen, so the home can list that state's events first without loading the
+ * table (readStoredNearState). Storage can throw (private mode, quota,
+ * blocked): reads then return "" (or null) and writes return false, and the
+ * choice lasts only for the page.
  */
 export const NEAR_STORAGE_KEY = "sheltuh:near:v1";
 
@@ -34,23 +40,50 @@ export function parseStoredNear(raw: string | null): string {
   }
 }
 
-/** The stored suburb, or "" when there's none or storage can't be read. */
-export function readStoredNear(): string {
+function isStateCode(value: unknown): value is StateCode {
+  return typeof value === "string" && (STATE_CODES as readonly string[]).includes(value);
+}
+
+/**
+ * The stored suburb's state: the one saved with it, else the state code its
+ * name ends with (an entry saved before the state was: "Richmond NSW"), else
+ * null ("Fitzroy" alone, or nothing stored). Never loads the suburb table.
+ */
+export function parseStoredNearState(raw: string | null): StateCode | null {
+  const suburb = parseStoredNear(raw);
+  if (!suburb || !raw) return null;
+  const parsed: unknown = JSON.parse(raw);
+  const saved = parsed && typeof parsed === "object" && "state" in parsed ? parsed.state : undefined;
+  return isStateCode(saved) ? saved : trailingState(suburb);
+}
+
+function readRaw(): string | null {
   const store = local();
-  if (!store) return "";
+  if (!store) return null;
   try {
-    return parseStoredNear(store.getItem(NEAR_STORAGE_KEY));
+    return store.getItem(NEAR_STORAGE_KEY);
   } catch {
-    return "";
+    return null;
   }
 }
 
-/** Stores `suburb` (only the name); false when storage can't be written. */
-export function writeStoredNear(suburb: string): boolean {
+/** The stored suburb, or "" when there's none or storage can't be read. */
+export function readStoredNear(): string {
+  return parseStoredNear(readRaw());
+}
+
+/** The stored suburb's state (parseStoredNearState), or null. */
+export function readStoredNearState(): StateCode | null {
+  return parseStoredNearState(readRaw());
+}
+
+/** Stores `suburb` (the table's name for it) and its state; false when storage can't be written. */
+export function writeStoredNear(suburb: string, state?: StateCode | null): boolean {
   const store = local();
   if (!store) return false;
   try {
-    store.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: suburb.trim().slice(0, NEAR_MAX_LENGTH) }));
+    const value = { suburb: suburb.trim().slice(0, NEAR_MAX_LENGTH), ...(state ? { state } : {}) };
+    store.setItem(NEAR_STORAGE_KEY, JSON.stringify(value));
     return true;
   } catch {
     return false;

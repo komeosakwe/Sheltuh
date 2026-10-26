@@ -22,11 +22,11 @@ export default function PartnersPage() {
     <ContentPage
       eyebrow="Partners"
       title="A network of rooms and promoters"
-      intro="We’re building a network of Melbourne venues, promoters and makers. If you run rooms, nights or workshops, we’d like to list you."
+      intro="We’re building a network of venues, promoters and makers across Australia. If you run rooms, nights or workshops, we’d like to list you."
     >
       <ContentSection title="What you get">
         <ul>
-          <li>Your events in front of people looking for what’s on in Melbourne.</li>
+          <li>Your events in front of people looking for what’s on near them.</li>
           <li>Ticketing with payouts to your own Stripe account.</li>
           <li>Free events listed for free.</li>
           <li>A booking fee of 4% + A$0.50 per paid ticket, which you or your buyer can cover.</li>

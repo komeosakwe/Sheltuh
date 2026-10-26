@@ -9,7 +9,10 @@ import {
   GOING_COUNT_MIN,
   hasEnded,
   placeLabel,
+  placeParts,
   signalLabel,
+  startDateTimeLine,
+  startLabel,
 } from "@/lib/event-card";
 import { getSampleGoing } from "@/lib/sample-going";
 import type { SheltuhEvent, TicketType } from "@/lib/types";
@@ -53,17 +56,30 @@ describe("categoryLabel and placeLabel", () => {
     expect(categoryLabel(event({ category: "mystery" as SheltuhEvent["category"] }))).toBe("mystery");
   });
 
-  it("joins venue and suburb, never leaving a dangling separator", () => {
-    expect(placeLabel(event())).toBe("The Depot Theatre · Coburg");
-    expect(placeLabel(event({ venueName: "" }))).toBe("Coburg");
+  it("joins venue and suburb with its state (owner decision D4), never leaving a dangling separator", () => {
+    expect(placeLabel(event())).toBe("The Depot Theatre · Coburg, VIC");
+    expect(placeLabel(event({ venueName: "" }))).toBe("Coburg, VIC");
     expect(placeLabel(event({ venueName: "", suburb: "" }))).toBe("");
+    expect(placeLabel(event({ suburb: "Northbridge", state: "WA" }))).toBe("The Depot Theatre · Northbridge, WA");
+    // The table's name for a shared one already carries its state: not said twice.
+    expect(placeLabel(event({ suburb: "Richmond NSW", state: "NSW" }))).toBe("The Depot Theatre · Richmond, NSW");
+  });
+
+  it("placeParts: the venue and \"Suburb, STATE\" apart, for a line each", () => {
+    expect(placeParts(event())).toEqual({ venue: "The Depot Theatre", place: { suburb: "Coburg", state: "VIC" } });
+    expect(placeParts(event({ suburb: "Richmond NSW", state: "NSW" }))).toEqual({
+      venue: "The Depot Theatre",
+      place: { suburb: "Richmond", state: "NSW" },
+    });
+    expect(placeParts(event({ venueName: "" }))).toEqual({ venue: "", place: { suburb: "Coburg", state: "VIC" } });
+    expect(placeParts(event({ venueName: "", suburb: "" }))).toEqual({ venue: "", place: null });
   });
 });
 
 describe("cardDateLabel (Melbourne time)", () => {
   it("is the start's date and time before it starts, and after it ends", () => {
-    expect(cardDateLabel(event(), BEFORE)).toEqual({ date: "Sat 24 Oct", time: "7:30 pm" });
-    expect(cardDateLabel(event(), new Date("2026-10-25T00:00:00.000Z"))).toEqual({ date: "Sat 24 Oct", time: "7:30 pm" });
+    expect(cardDateLabel(event(), BEFORE)).toEqual({ date: "Sat 24 Oct", time: "7:30 pm", zone: "" });
+    expect(cardDateLabel(event(), new Date("2026-10-25T00:00:00.000Z"))).toEqual({ date: "Sat 24 Oct", time: "7:30 pm", zone: "" });
   });
 
   it("says a multi-day event under way is on now, until its end date", () => {
@@ -79,6 +95,7 @@ describe("cardDateLabel (Melbourne time)", () => {
     expect(cardDateLabel(event({ endsAt: undefined }), new Date("2026-10-24T09:00:00.000Z"))).toEqual({
       date: "Sat 24 Oct",
       time: "7:30 pm",
+      zone: "",
     });
   });
 });
@@ -162,5 +179,40 @@ describe("signalLabel", () => {
     expect(signalLabel({ kind: "going", count: 9 }, true)).toBe("Popular");
     expect(signalLabel({ kind: "just-announced" }, false)).toBe("Just announced");
     expect(signalLabel({ kind: "popular" }, false)).toBe("Popular");
+  });
+});
+
+describe("cardDateLabel in the event's own zone", () => {
+  // Sat 24 Oct 2026, 7:30 pm AEDT = 4:30 pm AWST (Perth) = 7:00 pm ACDT (Adelaide).
+  const perth = event({ state: "WA", timeZone: "Australia/Perth" });
+  const adelaide = event({ state: "SA", timeZone: "Australia/Adelaide" });
+
+  it("Perth: the start in Perth time, and says so", () => {
+    expect(cardDateLabel(perth, BEFORE)).toEqual({ date: "Sat 24 Oct", time: "4:30 pm", zone: "Perth time" });
+    expect(startDateTimeLine(perth)).toBe("Sat 24 Oct, 4:30 pm Perth time");
+    // The map's spot list leaves it off (its events are all at one place).
+    expect(startDateTimeLine(perth, { zone: false })).toBe("Sat 24 Oct, 4:30 pm");
+    expect(startDateTimeLine(event())).toBe("Sat 24 Oct, 7:30 pm");
+  });
+
+  it("Adelaide: half an hour behind Melbourne in daylight saving", () => {
+    expect(cardDateLabel(adelaide, BEFORE)).toEqual({ date: "Sat 24 Oct", time: "7:00 pm", zone: "Adelaide time" });
+  });
+
+  it("a late Perth start is on its own date, not Melbourne's next day", () => {
+    // 11:30 pm AWST Sat 24 Oct = 2:30 am AEDT Sun 25 Oct.
+    const late = event({ state: "WA", timeZone: "Australia/Perth", startsAt: "2026-10-24T15:30:00.000Z", endsAt: undefined });
+    expect(cardDateLabel(late, BEFORE)).toEqual({ date: "Sat 24 Oct", time: "11:30 pm", zone: "Perth time" });
+  });
+
+  it("'Now on · until' in the event's zone, naming it with a time", () => {
+    // 9:00 am AWST: under way, ending 7:30 pm AWST the same day in Perth.
+    expect(cardDateLabel(perth, new Date("2026-10-24T09:00:00.000Z"))).toEqual({ running: "Now on · until 7:30 pm Perth time" });
+  });
+
+  it("a Melbourne event is exactly as before", () => {
+    const melbourne = event({ state: "VIC", timeZone: "Australia/Melbourne" });
+    expect(cardDateLabel(melbourne, BEFORE)).toEqual(cardDateLabel(event(), BEFORE));
+    expect(startLabel(melbourne)).toEqual({ date: "Sat 24 Oct", time: "7:30 pm", zone: "" });
   });
 });

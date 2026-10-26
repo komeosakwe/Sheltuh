@@ -107,6 +107,9 @@ select version, file, coalesce(applied, false) as applied
                    and 'checkout_attempts_deleted' = any(proargnames) and 'account_invites_deleted' = any(proargnames))),
     ('20261109000500', 'ticket_wallet_serial',
       exists (select 1 from col where attrelid = to_regclass('public.tickets') and attname = 'wallet_serial')),
+    ('20261110000000', 'event_place_time_zone',
+      exists (select 1 from col where attrelid = to_regclass('public.events') and attname = 'time_zone')
+      and exists (select 1 from fn where proname = 'admin_edit_event' and prosrc like '%v_time_zone%')),
     ('20261110000100', 'order_support',
       exists (select 1 from col where attrelid = to_regclass('public.orders') and attname = 'support_cents')
       and exists (select 1 from fn where proname = 'hold_seats' and 'p_support_cents' = any(proargnames))),

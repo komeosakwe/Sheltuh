@@ -23,6 +23,7 @@ vi.mock("@/lib/data", async (importOriginal) => {
 });
 
 import SceneMap from "@/components/SceneMap";
+import { loadLocation } from "@/lib/location-loader";
 
 const sizeDescriptors = {
   clientWidth: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth"),
@@ -41,6 +42,9 @@ beforeAll(async () => {
     },
   );
   Element.prototype.scrollIntoView = vi.fn();
+  // The suburb table (~15k rows) decodes once, here, not inside whichever test first needs it
+  // (an event without coordinates, or a saved suburb).
+  await loadLocation();
   // The map panel is a next/dynamic import (React.lazy behind Suspense) of Leaflet and
   // react-leaflet, and its first mount pays one-off costs: importing those modules (~0.3s idle,
   // over 2s under a full-suite load), React's 300ms throttle on revealing suspended content, and
@@ -105,12 +109,21 @@ const westSide = makeEvent({
   startsAt: "2026-11-22T09:00:00.000Z",
 });
 const unmapped = makeEvent({ id: "unmapped", title: "Somewhere Unknown", suburb: "Nowhereville" });
-// Geocoded, but in Sydney: outside Greater Melbourne, so never pinned.
+// Geocoded, in Sydney: pinned too, the map is Australia-wide (owner plan S9).
 const interstate = makeEvent({
   id: "interstate",
   title: "Sydney Show",
   suburb: "Surry Hills",
+  state: "NSW",
+  timeZone: "Australia/Sydney",
   coordinates: { lat: -33.8861, lng: 151.2111 },
+});
+// Geocoded, overseas: a mistake, never pinned.
+const overseas = makeEvent({
+  id: "overseas",
+  title: "Auckland Show",
+  suburb: "Ponsonby",
+  coordinates: { lat: -36.85, lng: 174.74 },
 });
 
 async function renderMap(events: SheltuhEvent[]) {
@@ -242,13 +255,61 @@ describe("SceneMap photo markers", () => {
     expect(screen.getByText(/1 event can.t be placed on the map yet/)).toBeInTheDocument();
   });
 
-  it("treats an event outside Greater Melbourne as unplaceable: no pin, Locate disabled, counted", async () => {
-    await renderMap([withPhoto, interstate]);
+  it("pins an interstate event; one outside Australia is unplaceable: no pin, Locate disabled, counted", async () => {
+    await renderMap([withPhoto, interstate, overseas]);
 
     await markerButton("Photo Night");
-    expect(screen.getByRole("link", { name: "Sydney Show" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Locate Sydney Show on the map" })).toBeDisabled();
+    await markerButton("Sydney Show");
+    expect(screen.getByRole("button", { name: "Locate Sydney Show on the map" })).toBeEnabled();
+    expect(screen.getByRole("link", { name: "Auckland Show" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Locate Auckland Show on the map" })).toBeDisabled();
     expect(screen.getByText(/1 event can.t be placed on the map yet/)).toBeInTheDocument();
+  });
+
+  it("opens on the events within 50 km of a saved suburb, and on all of them without one (owner decision D5)", async () => {
+    await renderMap([withPhoto, interstate]);
+    // Without a saved suburb: both cities in view.
+    await markerButton("Photo Night");
+    await markerButton("Sydney Show");
+    cleanup();
+
+    localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Fitzroy" }));
+    try {
+      await renderMap([withPhoto, interstate]);
+      await markerButton("Photo Night", 5_000);
+      // Framed on Melbourne: Sydney is well outside the view, so its marker isn't drawn (it's still listed).
+      expect(within(mapPanel()).queryByRole("button", { name: /^Sydney Show\./ })).toBeNull();
+      expect(screen.getByRole("button", { name: "Locate Sydney Show on the map" })).toBeEnabled();
+      cleanup();
+
+      // No event near the saved suburb (Perth): every event is in view.
+      localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth" }));
+      await renderMap([withPhoto, interstate]);
+      await markerButton("Photo Night", 5_000);
+      await markerButton("Sydney Show");
+    } finally {
+      localStorage.removeItem("sheltuh:near:v1");
+    }
+    // Three map mounts with 5s waits inside: more than the default 5s for the whole test.
+  }, 30_000);
+
+  it("groups the location filter's suburbs by state, under All of Australia", async () => {
+    await renderMap([withPhoto, interstate, westSide]);
+    await screen.findByRole("link", { name: "Photo Night" });
+    const select = screen.getByRole("combobox", { name: "Location" });
+    expect(within(select).getAllByRole("option")[0]).toHaveTextContent("All of Australia");
+    const groups = Array.from(select.querySelectorAll("optgroup")).map((group) => [
+      group.label,
+      Array.from(group.querySelectorAll("option")).map((option) => option.textContent),
+    ]);
+    expect(groups).toEqual([
+      // Each option says its state, so the closed select does too (owner decision D4).
+      ["New South Wales", ["Surry Hills, NSW"]],
+      ["Victoria", ["Fitzroy, VIC", "Footscray, VIC"]],
+    ]);
+    fireEvent.change(select, { target: { value: "Surry Hills" } });
+    // The chip names the state too (owner decision D4).
+    expect(await screen.findByRole("button", { name: /^Surry Hills, NSW/ })).toBeInTheDocument();
   });
 
   it("gives every list row a thumbnail of the event photo", async () => {
@@ -272,14 +333,14 @@ describe("SceneMap overlapping events", () => {
     expect(within(mapPanel()).queryByRole("button", { name: /^Stacked B\./ })).toBeNull();
 
     fireEvent.click(cluster);
-    const list = await screen.findByRole("region", { name: "2 events in Fitzroy" });
+    const list = await screen.findByRole("region", { name: "2 events in Fitzroy, VIC" });
     expect(list).toHaveTextContent("Pinned at the suburb centre");
     const first = within(list).getByRole("button", { name: /Stacked A/ });
     expect(document.activeElement).toBe(first);
     expect(cluster).toHaveAttribute("aria-expanded", "true");
 
     fireEvent.keyDown(first, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("region", { name: "2 events in Fitzroy" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("region", { name: "2 events in Fitzroy, VIC" })).toBeNull());
     expect(document.activeElement).toBe(cluster);
   });
 
@@ -287,7 +348,7 @@ describe("SceneMap overlapping events", () => {
     await renderMap([stackedA, stackedB, westSide]);
 
     fireEvent.click(await within(mapPanel()).findByRole("button", { name: /^2 events at this spot/ }));
-    const list = await screen.findByRole("region", { name: "2 events in Fitzroy" });
+    const list = await screen.findByRole("region", { name: "2 events in Fitzroy, VIC" });
     fireEvent.click(within(list).getByRole("button", { name: /Stacked B/ }));
 
     expect(await markerButton("Stacked B")).toHaveAttribute("aria-pressed", "true");

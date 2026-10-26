@@ -266,6 +266,9 @@ describe("listing", () => {
         "soldOut",
         // Refund policy: always sent; refundDays only for days_before.
         "refundPolicy",
+        // Events Australia-wide: always sent.
+        "state",
+        "timeZone",
         "favouritedAt",
       ].sort(),
     );

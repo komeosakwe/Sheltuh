@@ -1,10 +1,12 @@
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { formatAud } from "@/lib/format";
 import { directionsHref } from "@/lib/maps";
+import { placeName } from "@/lib/place";
 import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { formatSeatLine, speakSeatLine } from "@/lib/seating/format";
 import { SUPPORT_LABEL, SUPPORT_REFUND_NOTE } from "@/lib/support";
 import { QR_QUIET_ZONE_MODULES, ticketQrLabel, ticketQrMatrix } from "@/lib/ticket-qr";
+import { cachedDateTimeFormat, PLATFORM_TIME_ZONE, zoneLabel, type StateCode } from "@/lib/time-zones";
 import { subjectLine, type EmailMessage, type InlineImage } from "./email";
 import {
   brandFooter,
@@ -69,7 +71,7 @@ import type { EventRecord, OrderRecord, TicketSeat, WalletAvailability } from ".
  * events only, which is when that route serves it to anyone).
  */
 
-const MELBOURNE_TZ = "Australia/Melbourne";
+const MELBOURNE_TZ = PLATFORM_TIME_ZONE;
 
 /**
  * QR size: 21 modules plus a 4-module quiet zone each side = 29 modules,
@@ -82,59 +84,101 @@ const QR_PNG_PX_PER_MODULE = 16;
 /** The event image's shown width: the column's full 600px (scaled down with it on a phone). */
 const EVENT_IMAGE_WIDTH = 600;
 
-// --- Dates and times (all Melbourne local time, the platform's timezone) ---
+// --- Dates and times (in the event's zone: Melbourne unless it has another) ---
 
-const dayKey = new Intl.DateTimeFormat("en-CA", { timeZone: MELBOURNE_TZ, year: "numeric", month: "2-digit", day: "2-digit" });
-const longDate = new Intl.DateTimeFormat("en-AU", { timeZone: MELBOURNE_TZ, weekday: "long", day: "numeric", month: "long" });
-const longDateYear = new Intl.DateTimeFormat("en-AU", { timeZone: MELBOURNE_TZ, weekday: "long", day: "numeric", month: "long", year: "numeric" });
-const shortWeekday = new Intl.DateTimeFormat("en-AU", { timeZone: MELBOURNE_TZ, weekday: "short" });
-const clock = new Intl.DateTimeFormat("en-AU", { timeZone: MELBOURNE_TZ, hour: "numeric", minute: "2-digit", hour12: true });
-const zoneName = new Intl.DateTimeFormat("en-AU", { timeZone: MELBOURNE_TZ, timeZoneName: "short" });
-
-function time(iso: string): string {
-  return clock.format(new Date(iso)).toLowerCase();
+/**
+ * The zone an event's times are shown in (EventRecord.timeZone; absent:
+ * Melbourne) and its state, which names the ACT's zone "Canberra time"
+ * (zoneLabel). An EventRecord is one.
+ */
+export interface EventZone {
+  timeZone?: string;
+  state?: StateCode | null;
 }
 
-function zone(iso: string): string {
-  return zoneName.formatToParts(new Date(iso)).find((p) => p.type === "timeZoneName")?.value ?? "Melbourne time";
+interface ZoneFormats {
+  dayKey: Intl.DateTimeFormat;
+  longDate: Intl.DateTimeFormat;
+  longDateYear: Intl.DateTimeFormat;
+  shortWeekday: Intl.DateTimeFormat;
+  clock: Intl.DateTimeFormat;
+  zoneName: Intl.DateTimeFormat;
+}
+
+/** The formatters for a zone (each built once per process: cachedDateTimeFormat). */
+function formatsFor(timeZone: string): ZoneFormats {
+  return {
+    dayKey: cachedDateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }),
+    longDate: cachedDateTimeFormat("en-AU", { timeZone, weekday: "long", day: "numeric", month: "long" }),
+    longDateYear: cachedDateTimeFormat("en-AU", { timeZone, weekday: "long", day: "numeric", month: "long", year: "numeric" }),
+    shortWeekday: cachedDateTimeFormat("en-AU", { timeZone, weekday: "short" }),
+    clock: cachedDateTimeFormat("en-AU", { timeZone, hour: "numeric", minute: "2-digit", hour12: true }),
+    zoneName: cachedDateTimeFormat("en-AU", { timeZone, timeZoneName: "short" }),
+  };
+}
+
+const zoneOf = (where: EventZone) => where.timeZone ?? MELBOURNE_TZ;
+
+function time(iso: string, where: EventZone): string {
+  return formatsFor(zoneOf(where)).clock.format(new Date(iso)).toLowerCase();
 }
 
 /**
- * The Melbourne calendar day an event's end belongs to. An end at exactly
- * 12:00 am closes the previous day ("8:00 pm – 12:00 am" on one date).
+ * The zone as the email names it at `iso`: Melbourne's abbreviation alone
+ * ("AEDT", as every email has always said it), any other zone's full label
+ * ("Perth time (AWST)", "Canberra time (AEDT)", "Lord Howe Island time
+ * (UTC+11:00)": zoneLabel), so a reader in another state knows whose time it is.
  */
-function endDayKey(endIso: string): string {
+function zone(iso: string, where: EventZone): string {
+  const timeZone = zoneOf(where);
+  if (timeZone !== MELBOURNE_TZ) return zoneLabel(timeZone, iso, where.state);
+  return formatsFor(timeZone).zoneName.formatToParts(new Date(iso)).find((p) => p.type === "timeZoneName")?.value ?? "Melbourne time";
+}
+
+/**
+ * The calendar day (in the event's zone) an event's end belongs to. An end
+ * at exactly 12:00 am closes the previous day ("8:00 pm – 12:00 am" on one date).
+ */
+function endDayKey(endIso: string, where: EventZone): string {
+  const { clock, dayKey } = formatsFor(zoneOf(where));
   const end = new Date(endIso);
   const justBefore = new Date(end.getTime() - 60_000);
   return clock.format(end) === "12:00 am" ? dayKey.format(justBefore) : dayKey.format(end);
 }
 
-/** Whether an event runs past the Melbourne day it starts on (overnight or multi-day). */
-function spansDays(startIso: string, endIso?: string): boolean {
-  return !!endIso && dayKey.format(new Date(startIso)) < endDayKey(endIso);
+/** Whether an event runs past the day it starts on, in its zone (overnight or multi-day). */
+function spansDays(startIso: string, endIso: string | undefined, where: EventZone): boolean {
+  return !!endIso && formatsFor(zoneOf(where)).dayKey.format(new Date(startIso)) < endDayKey(endIso, where);
 }
 
-/** "Saturday 6 March 2027", or for several days "Friday 5 March – Saturday 6 March 2027". */
-export function formatTicketDate(startIso: string, endIso?: string): string {
+/**
+ * "Saturday 6 March 2027", or for several days "Friday 5 March – Saturday 6
+ * March 2027": the days in the event's zone (`where`; Melbourne by default).
+ */
+export function formatTicketDate(startIso: string, endIso?: string, where: EventZone = {}): string {
+  const { clock, dayKey, longDate, longDateYear } = formatsFor(zoneOf(where));
   const start = new Date(startIso);
-  if (!endIso || !spansDays(startIso, endIso)) return longDateYear.format(start);
+  if (!endIso || !spansDays(startIso, endIso, where)) return longDateYear.format(start);
   const end = new Date(new Date(endIso).getTime() - (clock.format(new Date(endIso)) === "12:00 am" ? 60_000 : 0));
   const sameYear = dayKey.format(start).slice(0, 4) === dayKey.format(end).slice(0, 4);
   return `${sameYear ? longDate.format(start) : longDateYear.format(start)} – ${longDateYear.format(end)}`;
 }
 
 /**
- * "8:00 pm – 11:00 pm AEDT" for a same-day event. An event that crosses
- * midnight (judged in Melbourne time, not UTC) names the days:
- * "9:00 pm (Fri) – 2:00 am (Sat) AEDT".
+ * "8:00 pm – 11:00 pm AEDT" for a same-day event in Melbourne ("8:00 pm –
+ * 11:00 pm Perth time (AWST)" in Perth). An event that crosses midnight
+ * (judged in its zone, not UTC) names the days: "9:00 pm (Fri) – 2:00 am
+ * (Sat) AEDT".
  */
-export function formatTicketTime(startIso: string, endIso?: string): string {
+export function formatTicketTime(startIso: string, endIso?: string, where: EventZone = {}): string {
+  const { shortWeekday } = formatsFor(zoneOf(where));
   const start = new Date(startIso);
-  const tz = zone(startIso);
-  if (!endIso) return `${time(startIso)} ${tz}`;
+  const tz = zone(startIso, where);
+  if (!endIso) return `${time(startIso, where)} ${tz}`;
   const end = new Date(endIso);
-  if (!spansDays(startIso, endIso)) return `${time(startIso)} – ${time(endIso)} ${tz}`;
-  return `${time(startIso)} (${shortWeekday.format(start)}) – ${time(endIso)} (${shortWeekday.format(end)}) ${zone(endIso) === tz ? tz : `${tz} / ${zone(endIso)}`}`;
+  if (!spansDays(startIso, endIso, where)) return `${time(startIso, where)} – ${time(endIso, where)} ${tz}`;
+  const endTz = zone(endIso, where);
+  return `${time(startIso, where)} (${shortWeekday.format(start)}) – ${time(endIso, where)} (${shortWeekday.format(end)}) ${endTz === tz ? tz : `${tz} / ${endTz}`}`;
 }
 
 /**
@@ -143,11 +187,13 @@ export function formatTicketTime(startIso: string, endIso?: string): string {
  * multi-day event its start and end on their own lines, each with its day and
  * its own zone (so a run across a daylight-saving change is right at both
  * ends): "Starts Friday 5 March, 9:00 pm AEDT" / "Ends Sunday 7 March, 4:00 pm AEDT".
+ * In the event's zone (`where`; Melbourne by default).
  */
-export function ticketWhen(startIso: string, endIso?: string): { date: string; lines: string[] } {
-  const date = formatTicketDate(startIso, endIso);
-  if (!endIso || !spansDays(startIso, endIso)) return { date, lines: [formatTicketTime(startIso, endIso)] };
-  const at = (iso: string) => `${longDate.format(new Date(iso))}, ${time(iso)} ${zone(iso)}`;
+export function ticketWhen(startIso: string, endIso?: string, where: EventZone = {}): { date: string; lines: string[] } {
+  const date = formatTicketDate(startIso, endIso, where);
+  if (!endIso || !spansDays(startIso, endIso, where)) return { date, lines: [formatTicketTime(startIso, endIso, where)] };
+  const { longDate } = formatsFor(zoneOf(where));
+  const at = (iso: string) => `${longDate.format(new Date(iso))}, ${time(iso, where)} ${zone(iso, where)}`;
   return { date, lines: [`Starts ${at(startIso)}`, `Ends ${at(endIso)}`] };
 }
 
@@ -328,8 +374,8 @@ ${walletLinks.length ? `<tr><td align="center" style="padding:12px 0 0 0;${text(
  * says the policy as it stands then; it can only have become more generous
  * since the order (an event with orders can't be tightened). A `days_before`
  * policy is said against the event's start and `now` (when the email is
- * built): the date and time refunds close, in Melbourne time like the rest of
- * the email, or that they have (lib/refund-policy.ts, refundTermsLine).
+ * built): the date and time refunds close, in the event's zone like the rest
+ * of the email, or that they have (lib/refund-policy.ts, refundTermsLine).
  */
 export function ticketEmailRefundPolicy(
   order: Pick<OrderRecord, "totalCents">,
@@ -338,7 +384,7 @@ export function ticketEmailRefundPolicy(
 ): string | null {
   if (order.totalCents <= 0 || event.status !== "published" || event.ticketingMode === "external") return null;
   return refundTermsLine(event.refundPolicy ?? DEFAULT_REFUND_POLICY, event.refundDays, event.startsAt, {
-    timeZone: MELBOURNE_TZ,
+    timeZone: zoneOf(event),
     now,
   });
 }
@@ -365,9 +411,9 @@ export function buildTicketEmail(
   const buttonLabel = one ? "View your ticket" : "View your tickets";
   // Only a published event's details go out (the outbox passes the live event on every attempt and resend).
   const listed = event.status === "published";
-  const when = listed ? ticketWhen(event.startsAt, event.endsAt) : null;
+  const when = listed ? ticketWhen(event.startsAt, event.endsAt, event) : null;
   const venue = listed ? (event.venueName?.trim() ?? "") : "";
-  const address = listed ? (event.venueAddress?.trim() || event.suburb?.trim() || "") : "";
+  const address = listed ? (event.venueAddress?.trim() || placeName(event.suburb ?? "", event.state)) : "";
   const directions = listed ? ticketDirectionsLink(event) : null;
   const imageUrl = listed ? eventImageEmailUrl(siteUrl, event.imageUrl) : null;
   const reference = orderReference(order.orderId);

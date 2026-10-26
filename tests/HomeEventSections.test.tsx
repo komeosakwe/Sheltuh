@@ -14,6 +14,9 @@ vi.mock("@/lib/home-events", () => ({
   loadHomeTrending: (now: Date) => loadHomeTrending(now),
 }));
 vi.mock("@/lib/api/going", () => ({ getGoingSummary: vi.fn(() => new Promise(() => {})) }));
+// The suburb table: the home never loads it (the saved suburb's state is stored with it), so any call is a bug.
+const loadLocation = vi.fn();
+vi.mock("@/lib/location-loader", () => ({ loadLocation: () => loadLocation() }));
 
 function event(id: string, startsAt: string, priceCents = 3000): SheltuhEvent {
   return {
@@ -50,6 +53,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date(NOW));
   loadHomeEvents.mockReset();
   loadHomeTrending.mockReset().mockResolvedValue([]);
+  loadLocation.mockReset();
 });
 afterEach(() => {
   cleanup();
@@ -290,5 +294,64 @@ describe("the home's event sections", () => {
     await flush();
     expect(loadHomeEvents.mock.calls[0][0]).toBe(loadHomeTrending.mock.calls[0][0]);
     expect(loadHomeEvents.mock.calls[0][0].toISOString()).toBe(NOW);
+  });
+});
+
+describe("the home with a saved suburb (owner decision D5, browser-only)", () => {
+  const PERTH_SAT = { ...event("perth-sat", "2026-10-24T11:00:00.000Z"), state: "WA" as const, timeZone: "Australia/Perth" as const };
+
+  afterEach(() => localStorage.clear());
+
+  it("lists the saved suburb's state first in each section, read from storage without the suburb table", async () => {
+    localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth", state: "WA" }));
+    loadHomeEvents.mockResolvedValue([SAT, SUN, PERTH_SAT]);
+    renderHome();
+    await flush();
+    const weekend = within(screen.getByRole("list", { name: "This weekend" }));
+    expect(weekend.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual([
+      "Event perth-sat",
+      "Event sat",
+      "Event sun",
+    ]);
+    // Nothing waits on the ~15k-row table (code review HIGH 1): it isn't loaded at all.
+    expect(loadLocation).not.toHaveBeenCalled();
+    // The suburb isn't sent with the events' requests.
+    expect(loadHomeEvents).toHaveBeenCalledWith(expect.any(Date));
+  });
+
+  it("an entry saved before the state was: the state code its name ends with", async () => {
+    localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Kensington WA" }));
+    loadHomeEvents.mockResolvedValue([SAT, SUN, PERTH_SAT]);
+    renderHome();
+    await flush();
+    const weekend = within(screen.getByRole("list", { name: "This weekend" }));
+    expect(weekend.getAllByRole("heading", { level: 3 })[0]).toHaveTextContent("Event perth-sat");
+    expect(loadLocation).not.toHaveBeenCalled();
+  });
+
+  it("without one: soonest first, Australia-wide, and the suburb table isn't loaded", async () => {
+    loadHomeEvents.mockResolvedValue([SAT, SUN, PERTH_SAT]);
+    renderHome();
+    await flush();
+    const weekend = within(screen.getByRole("list", { name: "This weekend" }));
+    expect(weekend.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual([
+      "Event sat",
+      "Event perth-sat",
+      "Event sun",
+    ]);
+    expect(loadLocation).not.toHaveBeenCalled();
+  });
+
+  it("a bare name saved without a state: the usual order, at once, with no table load and no error", async () => {
+    localStorage.setItem("sheltuh:near:v1", JSON.stringify({ suburb: "Perth" }));
+    // Were the table asked for, it would never arrive: the sections must not wait on it.
+    loadLocation.mockReturnValue(new Promise(() => {}));
+    loadHomeEvents.mockResolvedValue([SAT, SUN, PERTH_SAT]);
+    renderHome();
+    await flush();
+    const weekend = within(screen.getByRole("list", { name: "This weekend" }));
+    expect(weekend.getAllByRole("heading", { level: 3 })[0]).toHaveTextContent("Event sat");
+    expect(loadLocation).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

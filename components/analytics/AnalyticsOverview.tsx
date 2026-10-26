@@ -10,7 +10,7 @@ import { rangeLabel, rangeSearch, toQuery } from "@/lib/analytics-range";
 import { downloadAnalyticsOverviewCsv, getAnalyticsOverview } from "@/lib/api/analytics";
 import type { GetToken } from "@/lib/api/client";
 import type { AnalyticsOverview as Overview } from "@/lib/api/types";
-import { formatEventDateShort } from "@/lib/format";
+import { eventZone, formatEventDateShort } from "@/lib/format";
 import AnalyticsGate, { NotApprovedOrganiser } from "./AnalyticsGate";
 import DataTable from "./DataTable";
 import ExportCsvButton from "./ExportCsvButton";
@@ -200,7 +200,7 @@ function OverviewBody({ data, busy }: { data: Overview; busy: boolean }) {
                   {event.title || "Untitled event"}
                 </Link>
                 <span className="text-xs text-muted">
-                  {formatEventDateShort(event.startsAt)} · {STATUS_LABEL[event.status]}
+                  {formatEventDateShort(event.startsAt, eventZone(event.timeZone))} · {STATUS_LABEL[event.status]}
                 </span>
               </span>
             ),

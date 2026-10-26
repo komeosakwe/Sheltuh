@@ -5,6 +5,7 @@ import { SUBURB_COORDINATES } from "@/lib/geo";
 import { LOCALITY_DATA } from "@/lib/localities";
 import { allLocalities, distanceKm, findLocality, LOCALITY_COUNT } from "@/lib/location";
 import { NEAR_MAX_LENGTH } from "@/lib/near-storage";
+import { placeQuery } from "@/lib/place";
 import { sampleEvents } from "@/lib/sample-events";
 
 // The old centres were hand-entered approximations; the furthest from the ABS centroid is West
@@ -80,9 +81,10 @@ describe("lib/localities.ts (the suburb table for near-you search)", () => {
     for (const place of shared) expect(distanceKm(place, findLocality(place.name) ?? place)).toBeLessThan(10);
   });
 
-  it("resolves every sample event's suburb, in Victoria", () => {
-    const suburbs = [...new Set(sampleEvents.map((e) => e.suburb))];
-    for (const suburb of suburbs) expect(findLocality(suburb)?.state, suburb).toBe("VIC");
+  it("resolves every sample event's suburb, in its own state (Victoria, unless it says otherwise)", () => {
+    for (const event of sampleEvents) {
+      expect(findLocality(placeQuery(event))?.state, event.suburb).toBe(event.state ?? "VIC");
+    }
   });
 
   it("resolves every suburb in the old hand-entered table (lib/geo.ts) to Melbourne's, close to its old centre", () => {

@@ -66,7 +66,7 @@ export default function Footer() {
             <p data-campaign-line="" className="mt-3 text-base leading-6 font-semibold">
               <BrandU spoken="Where is your Sheltüh?">Where is ÜR Sheltüh?</BrandU>
             </p>
-            <p className="mt-1 max-w-sm text-sm leading-5 text-muted">Curated creative events in Melbourne.</p>
+            <p className="mt-1 max-w-sm text-sm leading-5 text-muted">Curated creative events across Australia.</p>
             {/* A quiet secondary action under the note, only where the browser can install the app. */}
             <InstallPrompt />
             <ThemeSwitch className="mt-6" />

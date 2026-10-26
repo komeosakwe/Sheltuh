@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/ui/Section";
 import EventFilterBar, { type PricingFilter } from "@/components/EventFilterBar";
 import NearbyResults from "@/components/search/NearbyResults";
 import { isFreeEvent, isPaidEvent } from "@/lib/data";
-import { formatEventDateKey } from "@/lib/format";
+import { eventZone, formatEventDateKey } from "@/lib/format";
 import type { Locality } from "@/lib/location";
 import type { EventCategory, SheltuhEvent } from "@/lib/types";
 
@@ -62,7 +62,8 @@ export default function EventBrowser({
         // An event with no ticket types yet is neither free nor paid.
         return pricing === "free" ? isFreeEvent(event) : isPaidEvent(event);
       })
-      .filter((event) => onOrAfter === "" || formatEventDateKey(event.startsAt) >= onOrAfter)
+      // Each event's own local date, as the live feed's onOrAfter reads it.
+      .filter((event) => onOrAfter === "" || formatEventDateKey(event.startsAt, eventZone(event.timeZone)) >= onOrAfter)
       .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   }, [events, query, category, pricing, onOrAfter]);
 

@@ -46,7 +46,8 @@ export function buildFreeConfirmationEmail(
   hoursValid: number,
   seats?: TicketSeat[],
 ): EmailMessage {
-  const when = `${formatTicketDate(event.startsAt, event.endsAt)}, ${formatTicketTime(event.startsAt, event.endsAt)}`;
+  // In the event's zone, as the tickets email that follows will say it.
+  const when = `${formatTicketDate(event.startsAt, event.endsAt, event)}, ${formatTicketTime(event.startsAt, event.endsAt, event)}`;
   const tickets = summarise(lineItems);
   const seatLines = (seats ?? []).map(formatSeatLine);
   const text = [

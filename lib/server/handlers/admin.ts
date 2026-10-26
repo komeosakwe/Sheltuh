@@ -2,16 +2,16 @@ import { requireAdmin, type Caller } from "../auth";
 import type { Db } from "../db";
 import type { Deps } from "../deps";
 import { sendPublishEmailsSoon } from "../email-outbox";
-import { parseTicketing } from "../event-input";
 import { HttpError, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
+import { ADMIN_PAYOUTS_REQUIRED, payoutsRefused } from "../payouts-refusal";
 import { ADMIN_EVENT_SELECT, ADMIN_ORGANISER_SELECT, toAdminEvent, toAdminOrganiser } from "../records";
 import type { Handler } from "../route";
+import { MAX_TICKETING_REASON_LENGTH, parseTicketing } from "../ticketing-input";
 import type { AdminOrganiserRecord, AdminSummary, EventStatus, OrganiserStatus, SuspendOrganiserResult } from "../types";
 import { fail, requireString } from "../validation";
 import { requireEventForAdmin } from "./event-queries";
-import { ADMIN_PAYOUTS_REQUIRED, payoutsRefused } from "./events";
 
 const ORGANISER_STATUSES: OrganiserStatus[] = ["pending", "approved", "rejected"];
 const EVENT_STATUSES: EventStatus[] = ["draft", "pending_review", "published", "rejected"];
@@ -493,15 +493,12 @@ export const adminUnpublishEvent: Handler<{ eventId: string }> = async (req, { e
   return moderateEvent(admin, eventId, deps, { from: "published", to: "draft", action: "unpublished" });
 };
 
-/** Longest reason for an admin's ticketing change (shown in the event's moderation log). */
-export const MAX_TICKETING_REASON_LENGTH = 500;
-
 /**
  * PATCH /api/admin/events/[eventId]/ticketing — body {ticketingMode,
  * externalTicketUrl?, externalFree?, reason}; ticketingMode is required
  * here (unlike the organiser's form). Sets the event's ticketing
  * whatever its status (organisers can't once the event has been approved),
- * with the organiser's rules for the fields (lib/server/event-input.ts,
+ * with the organiser's rules for the fields (lib/server/ticketing-input.ts,
  * parseTicketing). Logged in the moderation log as `ticketing_changed`, with
  * the reason and the old and new value of each field changed
  * (private.admin_set_event_ticketing). 200 with the event (unchanged, and

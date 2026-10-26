@@ -1,5 +1,6 @@
 import type { RefundPolicy } from "@/lib/refund-policy";
 import type { TicketingMode } from "@/lib/ticketing";
+import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
 import type { EventCategory, EventClip } from "@/lib/types";
 import { apiFetch } from "./client";
 import type { Paginated, TicketTypeInput } from "./types";
@@ -34,7 +35,17 @@ export interface PublicEvent {
   category: EventCategory;
   venueName: string;
   venueAddress: string;
+  /** The suburb (see EventRecord.suburb). */
   suburb: string;
+  /** The event's state or territory (absent means `VIC`). Always sent by the API; optional so older fixtures stay valid. */
+  state?: StateCode;
+  /**
+   * The zone to show `startsAt` / `endsAt` in, and to read the feed's
+   * `onOrAfter` date in (absent means `Australia/Melbourne`); see
+   * EventRecord.timeZone. Always sent by the API; optional so older fixtures
+   * stay valid.
+   */
+  timeZone?: AustralianTimeZone;
   startsAt: string;
   endsAt: string;
   organiserName: string;
@@ -97,6 +108,11 @@ export interface PublicEvent {
 
 export interface ListPublicEventsParams {
   category?: EventCategory;
+  /**
+   * "YYYY-MM-DD": only events starting on or after that date, in each
+   * event's own zone (an event starting at 11 pm in Perth on the 5th is on
+   * the 5th, though it's the 6th in Melbourne). 400 for anything else.
+   */
   onOrAfter?: string;
   /**
    * `free`: Sheltüh-ticketed with ticket types, all free, or external with

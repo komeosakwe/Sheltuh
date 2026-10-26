@@ -97,7 +97,7 @@ describe("live event metadata (generateMetadata on /events/[slug])", () => {
     });
     const url = `${SITE_URL}/events/${event.slug}`;
     // Sat 6 Mar 2027, 8 pm in Melbourne (AEDT).
-    const description = "Sat 6 Mar 2027, 8:00 pm · The Tote, Collingwood. Four bands, one warehouse. Bring earplugs.";
+    const description = "Sat 6 Mar 2027, 8:00 pm · The Tote, Collingwood, VIC. Four bands, one warehouse. Bring earplugs.";
 
     expect(await eventMeta(event.slug)).toEqual({
       title: "Neon Static — Sheltüh",
@@ -160,7 +160,7 @@ describe("live event metadata (generateMetadata on /events/[slug])", () => {
     const event = await publishedEvent(api, organiser, admin, { description: long });
     const { description } = await eventMeta(event.slug);
     expect(description!.length).toBeLessThanOrEqual(200);
-    expect(description).toMatch(/^Sat 6 Mar 2027, 8:00 pm · The Tote, Collingwood\. Loud guitars/);
+    expect(description).toMatch(/^Sat 6 Mar 2027, 8:00 pm · The Tote, Collingwood, VIC\. Loud guitars/);
     expect(description).toMatch(/[a-z]…$/);
   });
 
@@ -212,6 +212,8 @@ describe("live event metadata (generateMetadata on /events/[slug])", () => {
       description: "Four bands, one warehouse.",
       venueName: "The Tote",
       suburb: "Collingwood",
+      timeZone: "Australia/Melbourne",
+      state: "VIC",
       startsAt: "2027-03-06T09:00:00.000Z",
     });
     await api.call(adminUnpublishEvent, { token: admin.token, params: { eventId: event.eventId }, method: "POST" });

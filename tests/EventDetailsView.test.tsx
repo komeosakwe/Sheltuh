@@ -191,6 +191,36 @@ describe("EventDetailsView key facts under the title (Refinement, 22 Oct 2026)",
     expect(parts).toEqual(["8:00 pm", "midnight"]);
   });
 
+  it("shows a Perth event's times in Perth time and says so ('Perth time (AWST)'), refund deadline included", () => {
+    // 8:00 pm to midnight AEST is 6:00 pm to 10:00 pm AWST.
+    const event: SheltuhEvent = {
+      ...findEvent("neon-static"),
+      state: "WA",
+      timeZone: "Australia/Perth",
+      refundPolicy: "days_before",
+      refundDays: 7,
+    };
+    const { container } = render(<EventDetailsView event={event} demo />);
+    const facts = container.querySelector<HTMLElement>("[data-event-facts]");
+    if (!facts) throw new Error("facts not rendered");
+    expect(within(facts).getByText("Perth time (AWST)")).toBeInTheDocument();
+    expect(within(facts).queryByText(/Melbourne time/)).toBeNull();
+    const parts = Array.from(facts.querySelectorAll(".whitespace-nowrap")).map((el) => el.textContent);
+    expect(parts).toEqual(["6:00 pm", "10:00 pm"]);
+    expect(facts.textContent).toContain("Fri 25 Sept, 6:00 pm – 10:00 pm");
+    expect(container.querySelector("[data-refund-policy]")?.textContent).toBe(
+      "Refunds available until Fri 18 Sept, 6:00 pm (7 days before the event).",
+    );
+  });
+
+  it("a Melbourne event's zone label is unchanged ('Melbourne time (AEST)')", () => {
+    const { container } = render(<EventDetailsView event={{ ...findEvent("neon-static"), state: "VIC", timeZone: "Australia/Melbourne" }} demo />);
+    const facts = container.querySelector<HTMLElement>("[data-event-facts]");
+    if (!facts) throw new Error("facts not rendered");
+    expect(within(facts).getByText("Melbourne time (AEST)")).toBeInTheDocument();
+    expect(facts.textContent).toContain("Fri 25 Sept, 8:00 pm – Sat 26 Sept, midnight");
+  });
+
   it("puts the tickets before About on phones (reading order: title, facts, tickets, then the description)", () => {
     const event = findEvent("neon-static");
     render(<EventDetailsView event={event} demo />);

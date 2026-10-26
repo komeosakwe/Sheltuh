@@ -7,7 +7,7 @@ import { formatCount } from "@/lib/analytics-format";
 import type { CheckInSummary } from "@/lib/api/types";
 import { checkedInPercent } from "@/lib/check-in/door-copy";
 import { DOOR_TIMING } from "@/lib/check-in/timing";
-import { formatEventDateTimeRange, formatEventTime } from "@/lib/format";
+import { eventZone, formatEventTime, formatEventWhen } from "@/lib/format";
 import type { DoorWayBack } from "./way-back";
 
 /**
@@ -17,6 +17,8 @@ import type { DoorWayBack } from "./way-back";
  * it costs no height above the scanner), after it from md.
  */
 export function CheckInTitle({ summary, wayBack }: { summary: CheckInSummary | null; wayBack: DoorWayBack }) {
+  // In the event's zone, naming it outside Melbourne's ("Sat 21 Nov, 8:00 pm Perth time").
+  const when = summary ? formatEventWhen(summary.event.startsAt, undefined, summary.event.timeZone, summary.event.state) : "";
   return (
     <header>
       <div className="flex min-h-11 items-center justify-between gap-3">
@@ -27,8 +29,8 @@ export function CheckInTitle({ summary, wayBack }: { summary: CheckInSummary | n
           Door check-in
           {summary && (
             <>
-              <span className="block md:hidden">{formatEventDateTimeRange(summary.event.startsAt)}</span>
-              <span className="hidden md:inline"> · {formatEventDateTimeRange(summary.event.startsAt)}</span>
+              <span className="block md:hidden">{when}</span>
+              <span className="hidden md:inline"> · {when}</span>
             </>
           )}
         </p>
@@ -118,7 +120,7 @@ export function CheckInCounters({
             <p className="mt-2 text-sm text-muted">No tickets have been sold for this event yet.</p>
           )}
           {refreshFailed && updatedAt && (
-            <p className="mt-2 text-xs text-muted">Counts last updated {formatEventTime(updatedAt)}. Retrying…</p>
+            <p className="mt-2 text-xs text-muted">Counts last updated {formatEventTime(updatedAt, eventZone(summary.event.timeZone))}. Retrying…</p>
           )}
         </>
       ) : (

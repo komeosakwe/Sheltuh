@@ -18,6 +18,20 @@ const base: PublicEvent = {
   ticketTypes: [],
 };
 
+describe("adaptPublicEvent: the event's state and time zone", () => {
+  it("carries them when sent", () => {
+    const adapted = adaptPublicEvent({ ...base, state: "WA", timeZone: "Australia/Perth" });
+    expect(adapted.state).toBe("WA");
+    expect(adapted.timeZone).toBe("Australia/Perth");
+  });
+
+  it("leaves them out of an older payload (absent means VIC, Melbourne)", () => {
+    const adapted = adaptPublicEvent(base);
+    expect(adapted).not.toHaveProperty("state");
+    expect(adapted).not.toHaveProperty("timeZone");
+  });
+});
+
 describe("adaptPublicEvent: external ticketing fields", () => {
   it("carries an external event's link, free flag and provider name", () => {
     const adapted = adaptPublicEvent({

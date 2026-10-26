@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { EmailOutboxKind, PaymentExceptionKind } from "@/lib/api/types";
+import type { StateCode } from "@/lib/time-zones";
 import { buildEventReviewEmail, buildOrganiserReviewEmail } from "./admin-review-email";
 import { PG_UNDEFINED_FUNCTION, pgErrorCode } from "./db";
 import type { Deps } from "./deps";
@@ -331,11 +332,13 @@ async function reviewEmailBuilder(
     const [row] = await deps.db.query<{
       title: string;
       starts_at: Date | string;
+      state: StateCode;
+      time_zone: string;
       waiting: boolean;
       organiser_name: string;
       resubmitted: boolean;
     }>(
-      `select e.title, e.starts_at, e.status = 'pending_review' as waiting, o.display_name as organiser_name,
+      `select e.title, e.starts_at, e.state, e.time_zone, e.status = 'pending_review' as waiting, o.display_name as organiser_name,
               exists (select 1 from public.event_moderation_log l where l.event_id = e.id and l.action = 'rejected') as resubmitted
          from public.events e join public.organisers o on o.id = e.organiser_id
         where e.id = $1`,
@@ -351,6 +354,8 @@ async function reviewEmailBuilder(
           title: row.title,
           organiserName: row.organiser_name,
           startsAt,
+          timeZone: row.time_zone,
+          state: row.state,
           resubmitted: row.resubmitted,
           siteUrl,
         }),

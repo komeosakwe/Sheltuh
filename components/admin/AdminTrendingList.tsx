@@ -6,7 +6,7 @@ import { Button, buttonClass } from "@/components/ui/Button";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 import { EmptyState, Notice } from "@/components/ui/Section";
 import { getTrendingEvents, type TrendingEvent } from "@/lib/api/trending";
-import { formatEventDateTimeRange } from "@/lib/format";
+import { formatEventWhen } from "@/lib/format";
 import { actionErrorText } from "./OrganiserItem";
 import { TRENDING_PANEL_ID } from "./TrendingPanel";
 
@@ -89,7 +89,7 @@ export default function AdminTrendingList() {
                     {item.event.title}
                   </p>
                   <p className="text-sm text-muted">
-                    {item.event.organiserName} &middot; {formatEventDateTimeRange(item.event.startsAt, item.event.endsAt)}{" "}
+                    {item.event.organiserName} &middot; {formatEventWhen(item.event.startsAt, item.event.endsAt, item.event.timeZone, item.event.state)}{" "}
                     &middot; {trendingReason(item)}
                   </p>
                 </div>

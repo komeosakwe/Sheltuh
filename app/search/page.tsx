@@ -5,10 +5,11 @@ import EventFeed from "@/components/EventFeed";
 import SearchBar from "@/components/SearchBar";
 import { Notice, Page, PageHeader } from "@/components/ui/Section";
 import { didYouMean, findLocality, parseNearParam } from "@/lib/location";
+import { placeName } from "@/lib/place";
 
 export const metadata: Metadata = { title: "Search — Sheltüh" };
 
-/** /search for `query`, near `near` when given; without one, all of Melbourne. */
+/** /search for `query`, near `near` when given; without one, all of Australia. */
 function searchHref(query: string, near?: string): string {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
@@ -78,13 +79,13 @@ export default async function SearchPage({
                 {" "}
                 Did you mean{" "}
                 <Link href={searchHref(query, suggestion.name)} className="font-semibold underline underline-offset-4">
-                  {suggestion.name}
+                  {placeName(suggestion.name, suggestion.state)}
                 </Link>
                 ?
               </>
             )}{" "}
             <Link href={searchHref(query)} className="font-semibold underline underline-offset-4">
-              Search all of Melbourne
+              Search all of Australia
             </Link>
           </Notice>
         </div>

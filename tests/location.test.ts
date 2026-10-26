@@ -5,6 +5,7 @@ import {
   findLocality,
   nearestLocality,
   nearnessBand,
+  nearnessBandLabel,
   normaliseSuburb,
   orderByNearness,
   parseNearParam,
@@ -248,14 +249,22 @@ describe("nearnessBand", () => {
     expect(nearnessBand(origin, suburb)).toBe(band);
   });
 
-  it("puts a suburb more than 15 km away in 'far'", () => {
+  it("puts a suburb 15 to 100 km away in 'far'", () => {
     expect(nearnessBand(place("Frankston"), "Fitzroy")).toBe("far");
     expect(nearnessBand(origin, "Geelong")).toBe("far");
   });
 
+  it("puts a suburb more than 100 km away in 'distant' (Over 100 km, owner decision D8)", () => {
+    expect(nearnessBand(origin, "Ballarat")).toBe("distant");
+    expect(nearnessBand(origin, "Perth WA")).toBe("distant");
+    expect(nearnessBand(place("Newtown NSW"), "Fortitude Valley QLD")).toBe("distant");
+    expect(nearnessBandLabel("distant", origin)).toBe("Over 100 km");
+    expect(nearnessBandLabel("far", origin)).toBe("15–100 km");
+  });
+
   it("tells same-named suburbs apart by their state", () => {
     expect(nearnessBand(place("Richmond"), "Richmond")).toBe("here");
-    expect(nearnessBand(place("Richmond NSW"), "Richmond")).toBe("far");
+    expect(nearnessBand(place("Richmond NSW"), "Richmond")).toBe("distant");
     expect(nearnessBand(place("Richmond NSW"), "Richmond NSW")).toBe("here");
   });
 });
@@ -275,7 +284,7 @@ describe("orderByNearness", () => {
   it("groups into bands nearest first, soonest first within each, missing locations last", () => {
     const groups = orderByNearness(events, origin);
     expect(groups.map((g) => [g.band, g.label])).toEqual([
-      ["here", "In Fitzroy"],
+      ["here", "In Fitzroy, VIC"],
       ["near", "Within 5 km"],
       ["mid", "5–15 km"],
       ["unknown", "Location not on file"],
@@ -295,14 +304,31 @@ describe("orderByNearness", () => {
     expect(orderByNearness([], origin)).toEqual([]);
   });
 
-  it("from a long way off (Perth), every Melbourne event is further away; unknown ones still last", () => {
+  it("from a long way off (Perth), every Melbourne event is over 100 km away; unknown ones still last", () => {
     const groups = orderByNearness(events, place("Perth"));
     expect(groups.map((g) => [g.band, g.label, g.items.length])).toEqual([
-      ["far", "Further away", events.length - 1],
+      ["distant", "Over 100 km", events.length - 1],
       ["unknown", "Location not on file", 1],
     ]);
     // Still soonest first within the band.
     expect(groups[0].items.map((e) => e.id)).toEqual(["near", "here-soon", "far-late", "here-tie-a", "here-tie-b", "here-late"]);
+  });
+
+  it("looks each event's suburb up with its state (placeQuery): Richmond NSW isn't Melbourne's Richmond", () => {
+    const groups = orderByNearness(
+      [
+        { id: "vic", suburb: "Richmond", state: "VIC" as const, startsAt: "2026-11-01T20:00:00" },
+        { id: "nsw", suburb: "Richmond NSW", state: "NSW" as const, startsAt: "2026-11-01T20:00:00" },
+        { id: "nsw-bare", suburb: "Richmond", state: "NSW" as const, startsAt: "2026-11-02T20:00:00" },
+        { id: "perth", suburb: "Perth", state: "WA" as const, startsAt: "2026-11-01T20:00:00" },
+        { id: "no-state", suburb: "Richmond", startsAt: "2026-11-03T20:00:00" },
+      ],
+      place("Richmond NSW"),
+    );
+    expect(groups.map((g) => [g.band, g.items.map((e) => e.id)])).toEqual([
+      ["here", ["nsw", "nsw-bare"]],
+      ["distant", ["perth", "vic", "no-state"]],
+    ]);
   });
 
   it("places suburbs the old 20-suburb table didn't know", () => {

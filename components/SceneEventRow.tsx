@@ -2,8 +2,8 @@ import Link from "next/link";
 import EventArt from "@/components/EventArt";
 import QuickBuyLink from "@/components/QuickBuyLink";
 import CardPrice from "@/components/ui/CardPrice";
-import { categoryLabel, placeLabel } from "@/lib/event-card";
-import { formatEventDateShort, formatEventTime } from "@/lib/format";
+import PlaceLines from "@/components/ui/PlaceLines";
+import { categoryLabel, startLabel } from "@/lib/event-card";
 import type { SheltuhEvent } from "@/lib/types";
 
 interface SceneEventRowProps {
@@ -18,14 +18,14 @@ interface SceneEventRowProps {
 /**
  * A map list row (docs/design/brand-direction-one.md §6.15, compact card
  * anatomy): the thumbnail, the date in mono, a title link to the event page,
- * venue · suburb, category and the all-inclusive price, then the orange "Buy
+ * the venue and "Suburb, STATE" (a line each), category and the all-inclusive price, then the orange "Buy
  * tickets" (owner decision 6), and a separate "locate on map" button
  * (selects + pans). Independent, non-nested controls, rather than one big
  * clickable card wrapping a link. Selected: a sunken fill, a black edge and
  * the word "Selected", never colour alone.
  */
 export default function SceneEventRow({ event, selected, onLocate, hasLocation, detailsHref }: SceneEventRowProps) {
-  const place = placeLabel(event);
+  const start = startLabel(event);
   return (
     <div
       className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 border-b border-l-2 border-b-surface-border px-4 py-3 last:border-b-0 ${
@@ -46,8 +46,15 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
           </p>
         )}
         <p className="meta">
-          <span className="whitespace-nowrap">{formatEventDateShort(event.startsAt)}</span>{" "}
-          <span className="whitespace-nowrap">· {formatEventTime(event.startsAt)}</span>
+          <span className="whitespace-nowrap">{start.date}</span>{" "}
+          <span className="whitespace-nowrap">· {start.time}</span>
+          {/* Its own part, so it wraps under the time rather than under the locate button. */}
+          {start.zone && (
+            <>
+              {" "}
+              <span className="whitespace-nowrap">{start.zone}</span>
+            </>
+          )}
         </p>
         <Link
           href={detailsHref}
@@ -55,7 +62,7 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
         >
           {event.title}
         </Link>
-        {place && <p className="line-clamp-2 text-sm leading-5 break-words text-muted">{place}</p>}
+        <PlaceLines event={event} className="text-sm leading-5 text-muted" />
         <p className="text-sm leading-5 text-muted">
           {categoryLabel(event)}
           {!hasLocation && <> &middot; not shown on map</>}

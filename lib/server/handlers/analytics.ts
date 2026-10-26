@@ -12,6 +12,7 @@ import type {
 } from "@/lib/api/types";
 import { VIEW_SOURCES } from "@/lib/api/types";
 import type { FeePolicy } from "@/lib/types";
+import { PLATFORM_TIME_ZONE, type AustralianTimeZone, type StateCode } from "@/lib/time-zones";
 import { requireCaller } from "../auth";
 import { DEFAULT_RANGE_DAYS, addDays, melbourneDateOf, parseAnalyticsQuery, previousPeriod } from "../analytics-range";
 import {
@@ -277,6 +278,8 @@ async function buildEventAnalytics(db: Db, event: EventRecord, qs: URLSearchPara
       status: event.status,
       startsAt: event.startsAt,
       endsAt: event.endsAt,
+      timeZone: event.timeZone ?? PLATFORM_TIME_ZONE,
+      state: event.state ?? "VIC",
       venueName: event.venueName,
       everPublished: event.moderationLog.some((entry) => entry.action === "approved"),
       ticketingMode: event.ticketingMode ?? "sheltuh",
@@ -448,12 +451,14 @@ async function buildOverview(db: Db, organiserId: string, qs: URLSearchParams): 
       slug: string;
       status: EventStatus;
       starts_at: string | Date;
+      state: StateCode;
+      time_zone: AustralianTimeZone;
       ticketing_mode: TicketingMode;
       has_external: boolean;
     }>(
       // has_external: any of the organiser's events (not just this page) is
       // external. A window aggregate is computed before the limit.
-      `select e.id, e.title, e.slug, e.status::text as status, e.starts_at, e.ticketing_mode,
+      `select e.id, e.title, e.slug, e.status::text as status, e.starts_at, e.state, e.time_zone, e.ticketing_mode,
               bool_or(e.ticketing_mode = 'external') over () as has_external
          from public.events e
         where e.organiser_id = $1
@@ -478,6 +483,8 @@ async function buildOverview(db: Db, organiserId: string, qs: URLSearchParams): 
     slug: e.slug,
     status: e.status,
     startsAt: new Date(e.starts_at).toISOString(),
+    timeZone: e.time_zone,
+    state: e.state,
     totals: totals(
       period.ordersByEvent.get(e.id) ?? NO_ORDERS,
       period.viewsByEvent.get(e.id) ?? 0,

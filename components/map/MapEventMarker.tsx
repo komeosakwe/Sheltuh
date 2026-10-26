@@ -1,7 +1,7 @@
 "use client";
 
 import EventArt from "@/components/EventArt";
-import { formatEventDateShort } from "@/lib/format";
+import { eventZone, formatEventDateShort } from "@/lib/format";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 
 interface MapEventMarkerProps {
@@ -27,7 +27,7 @@ export default function MapEventMarker({ event, selected, onSelect }: MapEventMa
       type="button"
       onClick={() => onSelect(event.id)}
       aria-pressed={selected}
-      aria-label={`${event.title}. ${categoryLabel}, ${formatEventDateShort(event.startsAt)}`}
+      aria-label={`${event.title}. ${categoryLabel}, ${formatEventDateShort(event.startsAt, eventZone(event.timeZone))}`}
       data-category={event.category}
       data-event-id={event.id}
       className="group block h-12 w-12 cursor-pointer rounded-dot"

@@ -9,8 +9,9 @@ import BackLink from "@/components/ui/BackLink";
 import EventCard from "@/components/ui/EventCard";
 import Strap from "@/components/ui/Strap";
 import SectionHead from "@/components/ui/SectionHead";
-import { formatDayWithYear } from "@/lib/format";
+import { eventZone, formatDayWithYear } from "@/lib/format";
 import { formatMemberSince, type OrganiserProfileDetails } from "@/lib/organiser-profile";
+import { eventPlaceName } from "@/lib/place";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 
 const countFormatter = new Intl.NumberFormat("en-AU");
@@ -161,7 +162,7 @@ export default function OrganiserProfileView({
                     {event.title}
                   </span>
                   <span className="meta shrink-0 text-muted">
-                    {formatDayWithYear(event.startsAt)} · {event.venueName || event.suburb}
+                    {formatDayWithYear(event.startsAt, new Date(), eventZone(event.timeZone))} · {event.venueName || eventPlaceName(event)}
                   </span>
                 </Link>
               </li>

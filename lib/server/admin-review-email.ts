@@ -1,7 +1,8 @@
+import type { StateCode } from "@/lib/time-zones";
 import { subjectLine, type EmailMessage } from "./email";
 import { isPlainEmailAddress } from "./email-address";
 import { button, escapeHtml, eventBlock, heading, MUTED, page } from "./email-layout";
-import { formatTicketDate, formatTicketTime } from "./ticket-email";
+import { formatTicketDate, formatTicketTime, type EventZone } from "./ticket-email";
 
 /**
  * The admins' "waiting for your review" emails (docs/architecture.md, "Admin
@@ -56,9 +57,12 @@ export function organiserReviewQueueLink(siteUrl: string): string {
   return `${siteUrl}/admin/organisers`;
 }
 
-/** "Saturday 6 March 2027, 8:00 pm AEDT": when the event starts, in Melbourne time. */
-export function reviewEventStart(startsAt: string): string {
-  return `${formatTicketDate(startsAt)}, ${formatTicketTime(startsAt)}`;
+/**
+ * "Saturday 6 March 2027, 8:00 pm AEDT": when the event starts, in its zone
+ * (`where`; Melbourne by default: "Saturday 6 March 2027, 8:00 pm Perth time (AWST)").
+ */
+export function reviewEventStart(startsAt: string, where: EventZone = {}): string {
+  return `${formatTicketDate(startsAt, undefined, where)}, ${formatTicketTime(startsAt, undefined, where)}`;
 }
 
 const FOOTER_TEXT = "You're getting this because you're a Sheltüh admin.";
@@ -75,6 +79,9 @@ export function buildEventReviewEmail(input: {
   title: string;
   organiserName: string;
   startsAt: string;
+  /** The event's zone and state (absent: Melbourne). */
+  timeZone?: string;
+  state?: StateCode | null;
   resubmitted: boolean;
   siteUrl: string;
 }): EmailMessage {
@@ -82,7 +89,7 @@ export function buildEventReviewEmail(input: {
   // Organiser-supplied: kept to one line each.
   const title = subjectLine(input.title);
   const organiserName = subjectLine(input.organiserName);
-  const starts = reviewEventStart(input.startsAt);
+  const starts = reviewEventStart(input.startsAt, { timeZone: input.timeZone, state: input.state });
   const link = eventReviewQueueLink(siteUrl);
   const headline = resubmitted ? "An event was resubmitted for review" : "An event is waiting for review";
 

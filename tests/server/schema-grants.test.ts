@@ -448,6 +448,33 @@ describe("Data API lock-out", () => {
     ]);
   });
 
+  it("the event place functions pin search_path, aren't security definer or client-executable; the columns have their defaults", async () => {
+    // 20261110000000_event_place_time_zone.sql redefines these three.
+    const names = ["admin_edit_event", "create_event_draft", "edit_event_draft"];
+    const rows = await db.query<{ fn: string; pinned: boolean; definer: boolean; client: boolean }>(
+      `select p.proname as fn,
+              exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c = 'search_path=""') as pinned,
+              p.prosecdef as definer,
+              has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
+                or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                            where a.grantee = 0 and a.privilege_type = 'EXECUTE') as client
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'private' and p.proname = any($1::text[]) order by 1`,
+      [names],
+    );
+    expect(rows).toEqual(names.map((fn) => ({ fn, pinned: true, definer: false, client: false })));
+    // No grants of their own (the table's lock-out covers them; checked above for every column).
+    const columns = await db.query<{ column_name: string; is_nullable: string; column_default: string | null }>(
+      `select column_name, is_nullable, column_default from information_schema.columns
+        where table_schema = 'public' and table_name = 'events' and column_name in ('state', 'time_zone')
+        order by 1`,
+    );
+    expect(columns).toEqual([
+      { column_name: "state", is_nullable: "NO", column_default: "'VIC'::text" },
+      { column_name: "time_zone", is_nullable: "NO", column_default: "'Australia/Melbourne'::text" },
+    ]);
+  });
+
   it("the payment reconciliation functions exist (both record_payment_refund forms), pin search_path and aren't client-executable", async () => {
     const names = [
       "claim_email_outbox",

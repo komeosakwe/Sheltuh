@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { isSinglePoint, layoutMapPoints, padPixelBounds, type MapLayoutItem } from "@/lib/map-layout";
+import {
+  framingTargets,
+  isSinglePoint,
+  layoutMapPoints,
+  NEAR_FRAME_KM,
+  padPixelBounds,
+  type MapLayoutItem,
+} from "@/lib/map-layout";
 
 const singles = (items: MapLayoutItem[]) => items.filter((i) => i.kind === "single").map((i) => (i.kind === "single" ? i.id : ""));
 const clusters = (items: MapLayoutItem[]) => items.flatMap((i) => (i.kind === "cluster" ? [i.ids] : []));
@@ -90,22 +97,51 @@ describe("isSinglePoint", () => {
   });
 });
 
-import { isInMelbourneMetro, MELBOURNE_DEFAULT_CENTER, MELBOURNE_METRO_BOUNDS } from "@/lib/geo";
+import {
+  AUSTRALIA_BOUNDS,
+  AUSTRALIA_VIEW,
+  isInAustralia,
+  MELBOURNE_DEFAULT_CENTER,
+} from "@/lib/geo";
 
-describe("Melbourne focus", () => {
-  it("treats Greater Melbourne as in and other cities as out", () => {
-    expect(isInMelbourneMetro(MELBOURNE_DEFAULT_CENTER)).toBe(true);
-    expect(isInMelbourneMetro({ lat: -37.7, lng: 145.1 })).toBe(true); // Eltham
-    expect(isInMelbourneMetro({ lat: -33.87, lng: 151.21 })).toBe(false); // Sydney
-    expect(isInMelbourneMetro({ lat: 51.5, lng: -0.12 })).toBe(false); // London
-    expect(isInMelbourneMetro({ lat: 0, lng: 0 })).toBe(false);
+describe("Australia-wide map (owner plan S9)", () => {
+  it("treats Australia and its external territories as in, and elsewhere as out", () => {
+    expect(isInAustralia(MELBOURNE_DEFAULT_CENTER)).toBe(true);
+    expect(isInAustralia({ lat: -33.87, lng: 151.21 })).toBe(true); // Sydney
+    expect(isInAustralia({ lat: -31.95, lng: 115.86 })).toBe(true); // Perth
+    expect(isInAustralia({ lat: -12.46, lng: 130.84 })).toBe(true); // Darwin
+    expect(isInAustralia({ lat: -42.88, lng: 147.33 })).toBe(true); // Hobart
+    expect(isInAustralia({ lat: -29.04, lng: 167.95 })).toBe(true); // Norfolk Island
+    expect(isInAustralia({ lat: -10.49, lng: 105.62 })).toBe(true); // Christmas Island
+    expect(isInAustralia({ lat: -12.19, lng: 96.83 })).toBe(true); // Cocos (Keeling) Islands
+    expect(isInAustralia({ lat: -36.85, lng: 174.76 })).toBe(false); // Auckland
+    expect(isInAustralia({ lat: 51.5, lng: -0.12 })).toBe(false); // London
+    expect(isInAustralia({ lat: 0, lng: 0 })).toBe(false);
   });
 
-  it("keeps the default centre well inside the bounds", () => {
-    const b = MELBOURNE_METRO_BOUNDS;
-    expect(MELBOURNE_DEFAULT_CENTER.lat).toBeGreaterThan(b.south);
-    expect(MELBOURNE_DEFAULT_CENTER.lat).toBeLessThan(b.north);
-    expect(MELBOURNE_DEFAULT_CENTER.lng).toBeGreaterThan(b.west);
-    expect(MELBOURNE_DEFAULT_CENTER.lng).toBeLessThan(b.east);
+  it("keeps the empty map's view (mainland and Tasmania) inside the bounds", () => {
+    expect(AUSTRALIA_VIEW.south).toBeGreaterThan(AUSTRALIA_BOUNDS.south);
+    expect(AUSTRALIA_VIEW.north).toBeLessThan(AUSTRALIA_BOUNDS.north);
+    expect(AUSTRALIA_VIEW.west).toBeGreaterThan(AUSTRALIA_BOUNDS.west);
+    expect(AUSTRALIA_VIEW.east).toBeLessThan(AUSTRALIA_BOUNDS.east);
+  });
+});
+
+describe("framingTargets (/map's first view, owner decision D5)", () => {
+  const fitzroy = { id: "fitzroy", lat: -37.7997, lng: 144.9784 };
+  const frankston = { id: "frankston", lat: -38.1425, lng: 145.1257 }; // about 40 km away
+  const geelong = { id: "geelong", lat: -38.1499, lng: 144.3617 }; // about 65 km away
+  const perth = { id: "perth", lat: -31.9523, lng: 115.8613 };
+  const markers = [fitzroy, frankston, geelong, perth];
+
+  it("opens on the markers within 50 km of the saved suburb", () => {
+    expect(NEAR_FRAME_KM).toBe(50);
+    expect(framingTargets(markers, { lat: -37.8, lng: 144.97 }, true).map((m) => m.id)).toEqual(["fitzroy", "frankston"]);
+  });
+
+  it("fits every marker when none is near the saved suburb, without one, and after the first framing", () => {
+    expect(framingTargets(markers, { lat: -27.47, lng: 153.03 }, true)).toEqual(markers); // Brisbane
+    expect(framingTargets(markers, null, true)).toEqual(markers);
+    expect(framingTargets(markers, { lat: -37.8, lng: 144.97 }, false)).toEqual(markers);
   });
 });

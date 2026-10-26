@@ -8,8 +8,8 @@ export default function AboutPage() {
   return (
     <ContentPage
       eyebrow="About"
-      title="A guide to Melbourne’s creative rooms"
-      intro="Sheltüh is a curated guide to live music, art, workshops, pop-ups and theatre in Melbourne — with tickets."
+      title="A guide to Australia’s creative rooms"
+      intro="Sheltüh is a curated guide to live music, art, workshops, pop-ups and theatre across Australia — with tickets."
     >
       <ContentSection title="Why we exist">
         <p>

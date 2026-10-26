@@ -79,18 +79,18 @@ describe("LiveEventFeed — near a suburb (ordered in the browser)", () => {
     render(<LiveEventFeed categories={EVENT_CATEGORIES} near={FITZROY} />);
     await screen.findByText("Event unknown");
     expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
-      "In Fitzroy",
+      "In Fitzroy, VIC",
       "Within 5 km",
       "5–15 km",
       "Location not on file",
     ]);
     expect(bandTitles()).toEqual([
-      ["In Fitzroy", ["Event fitzroy-soon", "Event fitzroy-late"]],
+      ["In Fitzroy, VIC", ["Event fitzroy-soon", "Event fitzroy-late"]],
       ["Within 5 km", ["Event collingwood"]],
       ["5–15 km", ["Event footscray"]],
       ["Location not on file", ["Event unknown"]],
     ]);
-    expect(screen.getByText(/Closest to Fitzroy first\. Distances are between suburb centres, so they’re approximate\./)).toBeInTheDocument();
+    expect(screen.getByText(/Closest to Fitzroy, VIC first\. Distances are between suburb centres, so they’re approximate\./)).toBeInTheDocument();
     expect(screen.queryByText(/Sorted the 200 soonest/)).toBeNull();
     // Every result is read up front in near mode: no Load more.
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
@@ -122,7 +122,7 @@ describe("LiveEventFeed — near a suburb (ordered in the browser)", () => {
     expect(screen.getAllByText("Event a")).toHaveLength(1);
   });
 
-  it("from a long way off (Perth): every Melbourne event under Further away, unknown ones last", async () => {
+  it("from a long way off (Perth): every Melbourne event under Over 100 km, unknown ones last", async () => {
     listPublicEvents.mockResolvedValue({
       items: [
         makeEvent("unknown", "Atlantis", "2026-12-01T09:00:00.000Z"),
@@ -134,10 +134,10 @@ describe("LiveEventFeed — near a suburb (ordered in the browser)", () => {
     render(<LiveEventFeed categories={EVENT_CATEGORIES} near={place("Perth")} />);
     await screen.findByText("Event unknown");
     expect(bandTitles()).toEqual([
-      ["Further away", ["Event yarraville", "Event fitzroy"]],
+      ["Over 100 km", ["Event yarraville", "Event fitzroy"]],
       ["Location not on file", ["Event unknown"]],
     ]);
-    expect(screen.getByText(/Closest to Perth first\./)).toBeInTheDocument();
+    expect(screen.getByText(/Closest to Perth, WA first\./)).toBeInTheDocument();
   });
 
   it("without a suburb: the usual soonest-first list with Load more", async () => {

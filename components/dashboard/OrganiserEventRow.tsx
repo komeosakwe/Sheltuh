@@ -4,14 +4,19 @@ import { buttonClass } from "@/components/ui/Button";
 import StatusBadge from "@/components/ui/StatusBadge";
 import type { EventRecord } from "@/lib/api/types";
 import { SUPPORT_EMAIL } from "@/lib/contact";
-import { formatDayTime } from "@/lib/format";
+import { eventZone, formatDayTime, zoneSuffix } from "@/lib/format";
+import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
 import { organiserEventActions, organiserEventStatus } from "@/lib/organiser-events";
+import { eventPlaceName } from "@/lib/place";
 import { sellsPaidTicketsOnSheltuh } from "@/lib/ticketing";
 
-/** The event's start, when it has a real one ("Sat 12 Dec, 7:00 pm"); null otherwise. */
-function startText(startsAt: string): string | null {
+/**
+ * The event's start, when it has a real one: "Sat 12 Dec, 7:00 pm" in its
+ * zone, naming any but Melbourne's ("… 7:00 pm Perth time"); null otherwise.
+ */
+function startText(startsAt: string, timeZone?: AustralianTimeZone, state?: StateCode): string | null {
   if (!startsAt || Number.isNaN(Date.parse(startsAt))) return null;
-  return formatDayTime(startsAt);
+  return `${formatDayTime(startsAt, new Date(), eventZone(timeZone))}${zoneSuffix(timeZone, state)}`;
 }
 
 /** The row's other actions: the admin queue's tertiary links (underlined words, 44px tall). */
@@ -34,8 +39,8 @@ export default function OrganiserEventRow({ event, payoutsEnabled }: { event: Ev
   const title = event.title || "Untitled event";
   const status = organiserEventStatus(event);
   const actions = organiserEventActions(event);
-  const when = startText(event.startsAt);
-  const meta = [when, event.suburb].filter(Boolean).join(" · ");
+  const when = startText(event.startsAt, event.timeZone, event.state);
+  const meta = [when, eventPlaceName(event)].filter(Boolean).join(" · ");
   // A draft (or rejected event) with paid tickets can't be submitted until payouts are set up.
   const needsPayouts =
     !payoutsEnabled && (event.status === "draft" || event.status === "rejected") && sellsPaidTicketsOnSheltuh(event);

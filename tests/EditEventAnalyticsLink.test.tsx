@@ -4,6 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import EditEventPageContent, { editEventPageTitle } from "@/components/dashboard/EditEventPageContent";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
+// The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
+vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+
 vi.mock("next/navigation", () => ({ useParams: () => ({ eventId: "evt-1" }) }));
 vi.mock("@/lib/auth/useOrganiser", () => ({
   useOrganiser: () => ({ loading: false, organiser: { organiserId: "org-1", status: "approved" }, error: null, refetch: vi.fn() }),

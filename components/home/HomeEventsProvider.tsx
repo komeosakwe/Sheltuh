@@ -5,6 +5,7 @@ import { isApiConfigured } from "@/lib/api/client";
 import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import { loadHomeEvents, loadHomeFollowing, loadHomeTrending } from "@/lib/home-events";
 import { selectHomeSections, type HomeSections } from "@/lib/home-sections";
+import { readStoredNearState } from "@/lib/near-storage";
 
 export type HomeEventsState =
   | { status: "loading" }
@@ -30,6 +31,12 @@ const HomeEventsContext = createContext<HomeEventsValue | null>(null);
  * organisers you follow" (a failure only hides that rail). It waits for the
  * session to be known first, so sections are split once and events don't
  * jump between them; signing in or out splits them again.
+ *
+ * With a saved "near" suburb, each section lists its state's events first
+ * (owner decision D5): the state saved with the suburb (lib/near-storage.ts
+ * readStoredNearState), read in the browser and never sent. The suburb table
+ * is never loaded here, so nothing waits on it; a suburb saved without a
+ * state it can be read from leaves the order Australia-wide.
  */
 export function HomeEventsProvider({ children }: { children: ReactNode }) {
   const mode = isApiConfigured ? "live" : "demo";
@@ -45,6 +52,7 @@ export function HomeEventsProvider({ children }: { children: ReactNode }) {
     if (viewer === null) return;
     let cancelled = false;
     const now = new Date();
+    const preferredState = readStoredNearState();
     Promise.all([
       loadHomeEvents(now),
       loadHomeTrending(now).catch(() => []),
@@ -52,7 +60,11 @@ export function HomeEventsProvider({ children }: { children: ReactNode }) {
     ]).then(
       ([events, trending, following]) => {
         if (!cancelled) {
-          setState({ status: "ready", sections: selectHomeSections(events, trending, now, following), now });
+          setState({
+            status: "ready",
+            sections: selectHomeSections(events, trending, now, following, preferredState),
+            now,
+          });
         }
       },
       () => {

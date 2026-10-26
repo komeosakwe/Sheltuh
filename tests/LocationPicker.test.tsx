@@ -96,7 +96,7 @@ describe("LocationPicker — asking for the browser's position", () => {
     expect(document.activeElement).toBe(use);
   });
 
-  it("on success: shows and remembers the nearest suburb's name only, closes and returns focus, and doesn't submit", async () => {
+  it("on success: shows and remembers the nearest suburb's name and state only, closes and returns focus, and doesn't submit", async () => {
     const submit = vi.fn((event: Event) => event.preventDefault());
     renderBar();
     screen.getByRole("search").addEventListener("submit", submit);
@@ -109,9 +109,9 @@ describe("LocationPicker — asking for the browser's position", () => {
     const button = await screen.findByRole("button", { name: "Location: Northcote" });
     expect(document.activeElement).toBe(button);
     expect(within(panel).getByLabelText("Suburb")).toHaveValue("Northcote");
-    expect(screen.getAllByRole("status").some((s) => s.textContent === "Location set: Northcote")).toBe(true);
+    expect(screen.getAllByRole("status").some((s) => s.textContent === "Location set: Northcote, VIC")).toBe(true);
     const stored = localStorage.getItem(NEAR_STORAGE_KEY) ?? "";
-    expect(JSON.parse(stored)).toEqual({ suburb: "Northcote" });
+    expect(JSON.parse(stored)).toEqual({ suburb: "Northcote", state: "VIC" });
     expect(stored).not.toMatch(/lat|lng|-37|144/);
     // Nothing submits by itself (WCAG 3.2.2).
     expect(submit).not.toHaveBeenCalled();
@@ -156,17 +156,17 @@ describe("LocationPicker — asking for the browser's position", () => {
   });
 
   it.each([
-    ["Frankston, outside the old inner-Melbourne table", -38.1425, 145.1257, "Frankston"],
-    ["Geelong", -38.1446, 144.3612, "Geelong"],
-    ["central Sydney", -33.8688, 151.2093, "Sydney"],
-    ["central Perth", -31.9523, 115.8613, "Perth"],
-  ])("anywhere in Australia (%s): names the suburb", async (_where, lat, lng, suburb) => {
+    ["Frankston, outside the old inner-Melbourne table", -38.1425, 145.1257, "Frankston", "VIC"],
+    ["Geelong", -38.1446, 144.3612, "Geelong", "VIC"],
+    ["central Sydney", -33.8688, 151.2093, "Sydney", "NSW"],
+    ["central Perth", -31.9523, 115.8613, "Perth", "WA"],
+  ])("anywhere in Australia (%s): names the suburb", async (_where, lat, lng, suburb, state) => {
     renderBar();
     const panel = openPanel();
     getCurrentPosition.mockImplementation((success) => success(position(lat, lng)));
     fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
     await screen.findByRole("button", { name: `Location: ${suburb}` });
-    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb });
+    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb, state });
   });
 
   it("names a suburb with its state when the name alone is Melbourne's (Richmond NSW)", async () => {
@@ -178,8 +178,8 @@ describe("LocationPicker — asking for the browser's position", () => {
     fireEvent.click(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
     await screen.findByRole("button", { name: "Location: Richmond NSW" });
     expect(within(panel).getByLabelText("Suburb")).toHaveValue("Richmond NSW");
-    expect(screen.getAllByRole("status").some((s) => s.textContent === "Location set: Richmond NSW")).toBe(true);
-    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "Richmond NSW" });
+    expect(screen.getAllByRole("status").some((s) => s.textContent === "Location set: Richmond, NSW")).toBe(true);
+    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "Richmond NSW", state: "NSW" });
   });
 
   it("clears a stale message when the panel opens again, and when the suburb is typed", () => {
@@ -227,11 +227,12 @@ describe("LocationPicker — the typed suburb and the remembered one", () => {
     const list = document.getElementById(input.getAttribute("list") ?? "");
     const options = () => [...(list?.querySelectorAll("option") ?? [])].map((option) => option.value);
     fireEvent.change(input, { target: { value: "Fitz" } });
-    await waitFor(() => expect(options().slice(0, 2)).toEqual(["Fitzroy", "Fitzroy North"]));
+    // "Suburb, STATE", as everywhere a place is shown (owner decision D4).
+    await waitFor(() => expect(options().slice(0, 2)).toEqual(["Fitzroy, VIC", "Fitzroy North, VIC"]));
     expect(options().length).toBeLessThanOrEqual(8);
     // A state narrows them, by the names that find them again.
     fireEvent.change(input, { target: { value: "Richmond n" } });
-    expect(options()).toEqual(["Richmond NSW"]);
+    expect(options()).toEqual(["Richmond, NSW"]);
     // Not a list of all 15,000 places before anything's typed.
     fireEvent.change(input, { target: { value: "F" } });
     expect(options()).toEqual([]);
@@ -260,11 +261,11 @@ describe("LocationPicker — the typed suburb and the remembered one", () => {
     expect(screen.getByRole("button", { name: "Location: Carlton" })).toBeInTheDocument();
   });
 
-  it("Anywhere in Melbourne clears the field and the remembered suburb, says “Anywhere”, and returns focus", () => {
+  it("Anywhere in Australia clears the field and the remembered suburb, says “Anywhere”, and returns focus", () => {
     localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Brunswick" }));
     renderBar();
     const panel = openPanel();
-    fireEvent.click(within(panel).getByRole("button", { name: "Anywhere in Melbourne", hidden: true }));
+    fireEvent.click(within(panel).getByRole("button", { name: "Anywhere in Australia", hidden: true }));
     expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
     expect(within(panel).getByLabelText("Suburb")).toHaveValue("");
     // The explicit choice shows on the button (for this page view), not the "Your suburb" prompt.
@@ -281,7 +282,7 @@ describe("LocationPicker — the typed suburb and the remembered one", () => {
   it("“Anywhere” lasts only for this page view: a new bar shows the prompt", () => {
     renderBar();
     const panel = openPanel();
-    fireEvent.click(within(panel).getByRole("button", { name: "Anywhere in Melbourne", hidden: true }));
+    fireEvent.click(within(panel).getByRole("button", { name: "Anywhere in Australia", hidden: true }));
     expect(screen.getByRole("button", { name: "Location: Anywhere" })).toBeInTheDocument();
     cleanup();
     renderBar();
@@ -316,11 +317,11 @@ describe("LocationPicker — the typed suburb and the remembered one", () => {
     // The suburb table has loaded once the suggestions are there.
     await waitFor(() => expect(document.getElementById(input.getAttribute("list") ?? "")?.querySelector("option")).not.toBeNull());
     submittedData(form);
-    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "St Kilda" });
+    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "St Kilda", state: "VIC" });
     // A state picks the place, which is remembered by the name that finds it again.
     fireEvent.change(input, { target: { value: "richmond, nsw" } });
     expect(submittedData(form).get("near")).toBe("richmond, nsw");
-    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "Richmond NSW" });
+    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "Richmond NSW", state: "NSW" });
   });
 });
 
@@ -336,7 +337,7 @@ describe("LocationPicker — closing", () => {
     Object.assign(panel, { hidePopover });
     const field = within(panel).getByLabelText("Suburb");
     // Within the panel, back to the location button, or to nothing (a click on the panel's text): stays open.
-    focusOut(field, within(panel).getByRole("button", { name: "Anywhere in Melbourne", hidden: true }));
+    focusOut(field, within(panel).getByRole("button", { name: "Anywhere in Australia", hidden: true }));
     focusOut(field, screen.getByRole("button", { name: /^Location: / }));
     focusOut(field, null);
     expect(hidePopover).not.toHaveBeenCalled();

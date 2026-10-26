@@ -6,6 +6,9 @@ import type { EventRecord } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/session-token";
 import { callsTokenFirst, fakeAuthValue, FakeAuthProvider, switchableSession } from "./test-utils/fakeAuth";
 
+// The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
+vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
@@ -41,7 +44,7 @@ const BASE_EVENT: EventRecord = {
   category: "live-music",
   venueName: "The Venue",
   venueAddress: "1 Test St",
-  suburb: "Testville",
+  suburb: "Fitzroy",
   // 2026-09-25T10:00:00Z = 8:00pm AEST on the same UTC date.
   startsAt: "2026-09-25T10:00:00.000Z",
   endsAt: "2026-09-25T13:00:00.000Z",
@@ -119,6 +122,49 @@ describe("EventEditor — Melbourne-local date/time inputs, independent of the b
     const [, input] = updateEventDraft.mock.calls[0];
     expect(input.start).toEqual({ date: "2026-09-25", time: "20:00" });
     expect(input.end).toEqual({ date: "2026-09-25", time: "23:00" });
+  });
+});
+
+describe("EventEditor — an event outside Victoria: inputs in its own zone (owner plan S5)", () => {
+  const originalTz = process.env.TZ;
+  afterEach(() => {
+    process.env.TZ = originalTz;
+  });
+
+  it("fills a Perth event's date and time in Perth time, says so in the legends, and saves the same wall-clock times with its place", async () => {
+    process.env.TZ = "America/New_York";
+    // 10:00Z is 6:00 pm AWST, 13:00Z 9:00 pm AWST (8:00 pm and 11:00 pm in Melbourne).
+    updateEventDraft.mockResolvedValue({ ...BASE_EVENT, suburb: "Perth", state: "WA", timeZone: "Australia/Perth" });
+    renderEditor({ suburb: "Perth", state: "WA", timeZone: "Australia/Perth" });
+    expect(screen.getByLabelText("Start date")).toHaveValue("2026-09-25");
+    expect(screen.getByLabelText("Start time")).toHaveValue("18:00");
+    expect(screen.getByLabelText("End time")).toHaveValue("21:00");
+    expect(screen.getByText("Starts (Perth time)")).toBeInTheDocument();
+    expect(screen.getByText("Ends (Perth time)")).toBeInTheDocument();
+    expect(screen.queryByText(/Melbourne time/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(updateEventDraft).toHaveBeenCalledTimes(1));
+    const [, input] = updateEventDraft.mock.calls[0];
+    // Sent with its place (owner plan S8), read in that zone by the API: the event doesn't move.
+    expect(input.start).toEqual({ date: "2026-09-25", time: "18:00" });
+    expect(input.end).toEqual({ date: "2026-09-25", time: "21:00" });
+    expect(input).toMatchObject({ suburb: "Perth", state: "WA", timeZone: "Australia/Perth" });
+  });
+
+  it("a late Perth start is on Perth's date (11:30 pm Thursday, though Friday in Melbourne)", () => {
+    renderEditor({ state: "WA", timeZone: "Australia/Perth", startsAt: "2026-09-24T15:30:00.000Z" });
+    expect(screen.getByLabelText("Start date")).toHaveValue("2026-09-24");
+    expect(screen.getByLabelText("Start time")).toHaveValue("23:30");
+  });
+
+  it("an ACT event's legends say Canberra time; a Victorian one's still say Melbourne time", () => {
+    renderEditor({ suburb: "Braddon", state: "ACT", timeZone: "Australia/Sydney" });
+    expect(screen.getByText("Starts (Canberra time)")).toBeInTheDocument();
+    cleanup();
+    renderEditor({ state: "VIC", timeZone: "Australia/Melbourne" });
+    expect(screen.getByText("Starts (Melbourne time)")).toBeInTheDocument();
+    expect(screen.getByText("Ends (Melbourne time)")).toBeInTheDocument();
   });
 });
 
@@ -230,7 +276,7 @@ function fillNewEvent() {
   fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Stalls and music." } });
   fireEvent.change(screen.getByLabelText("Venue name"), { target: { value: "The Venue" } });
   fireEvent.change(screen.getByLabelText("Venue address"), { target: { value: "1 Test St" } });
-  fireEvent.change(screen.getByLabelText("Suburb"), { target: { value: "Testville" } });
+  fireEvent.change(screen.getByLabelText("Suburb or town"), { target: { value: "Fitzroy" } });
   fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2027-03-06" } });
   fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "20:00" } });
   fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2027-03-06" } });

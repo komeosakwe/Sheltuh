@@ -265,6 +265,18 @@ describe("zoneLabel — '{City} time (ABBR)', or a UTC offset", () => {
     expect(zoneLabel("Australia/Sydney", summer, "NSW")).toBe("Sydney time (AEDT)");
   });
 
+  it("gives the whole offset for an instant with seconds (never a minute short)", () => {
+    // Regression: the offset was the local minute less the instant with its seconds, which
+    // rounded down from 30 seconds on ("UTC+06:59").
+    for (const seconds of ["00", "10", "29", "30", "40", "59"]) {
+      const at = `2026-10-26T10:00:${seconds}.000Z`;
+      expect(zoneLabel("Indian/Christmas", at)).toBe("Christmas Island time (UTC+07:00)");
+      expect(zoneLabel("Australia/Lord_Howe", at)).toBe("Lord Howe Island time (UTC+11:00)");
+      expect(zoneLabel("Australia/Eucla", at)).toBe("Eucla time (UTC+08:45)");
+    }
+    expect(zoneLabel("Indian/Cocos", "2026-07-15T03:00:40.500Z")).toBe("Cocos (Keeling) Islands time (UTC+06:30)");
+  });
+
   it("follows the offset in effect at the instant, across a transition", () => {
     // Lord Howe goes to +11 at 2026-10-03T15:30Z.
     expect(zoneLabel("Australia/Lord_Howe", "2026-10-03T15:29:00.000Z")).toBe("Lord Howe Island time (UTC+10:30)");

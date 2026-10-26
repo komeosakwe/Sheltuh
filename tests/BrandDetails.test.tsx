@@ -50,7 +50,7 @@ describe("the map's filter chips", () => {
     onTimeChange: vi.fn(),
     specificDate: "",
     onSpecificDateChange: vi.fn(),
-    suburbs: [],
+    suburbGroups: [],
     suburb: "all",
     onSuburbChange: vi.fn(),
     pricing: "all" as const,

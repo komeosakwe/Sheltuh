@@ -4,8 +4,8 @@ import EventArt from "@/components/EventArt";
 import QuickBuyLink from "@/components/QuickBuyLink";
 import { buttonClass } from "@/components/ui/Button";
 import CardPrice from "@/components/ui/CardPrice";
-import { categoryLabel, placeLabel } from "@/lib/event-card";
-import { formatEventDateShort, formatEventTime } from "@/lib/format";
+import PlaceLines from "@/components/ui/PlaceLines";
+import { categoryLabel, startLabel } from "@/lib/event-card";
 import { resolveEventCoordinates, type SuburbLookup } from "@/lib/geo";
 import type { SheltuhEvent } from "@/lib/types";
 
@@ -40,7 +40,7 @@ export default function SceneMapEventCard({
   ref,
   findSuburb,
 }: SceneMapEventCardProps) {
-  const place = placeLabel(event);
+  const start = startLabel(event);
   const pinned = resolveEventCoordinates(event, findSuburb);
   const locationNote = !pinned
     ? "Not on the map yet: no venue location on file."
@@ -82,12 +82,19 @@ export default function SceneMapEventCard({
         <div className={`min-w-0 ${sheet ? "flex-1 pr-1" : "px-4 pt-3"}`}>
           <p className="eyebrow text-muted">{categoryLabel(event)}</p>
           <p className="meta mt-1">
-            {formatEventDateShort(event.startsAt)}, {formatEventTime(event.startsAt)}
+            <span className="whitespace-nowrap">{start.date},</span>{" "}
+            <span className="whitespace-nowrap">{start.time}</span>
+            {start.zone && (
+              <>
+                {" "}
+                <span className="whitespace-nowrap">{start.zone}</span>
+              </>
+            )}
           </p>
           <p className="mt-1 line-clamp-2 text-base leading-[1.375rem] font-semibold break-words text-foreground">
             {event.title}
           </p>
-          {place && <p className="truncate text-sm leading-5 text-muted">{place}</p>}
+          <PlaceLines event={event} className="text-sm leading-5 text-muted" />
           <CardPrice event={event} className="mt-1 text-sm leading-5" />
           {locationNote && <p className="mt-1 text-xs leading-4 text-muted">{locationNote}</p>}
         </div>

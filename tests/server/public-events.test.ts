@@ -70,6 +70,9 @@ describe("public event visibility", () => {
         "soldOut",
         // Refund policy: always sent; refundDays only for days_before.
         "refundPolicy",
+        // Events Australia-wide: always sent.
+        "state",
+        "timeZone",
       ].sort(),
     );
     expect(res.body).toMatchObject({ ticketingMode: "sheltuh", externalFree: false, externalProvider: null, refundPolicy: "no_change_of_mind" });

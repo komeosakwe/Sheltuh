@@ -67,7 +67,7 @@ iframe served by Stripe), with the publishable key
 | `organisers` | `id` | `owner_user_id` is unique, one application per account. It's null for platform-managed organisers (events Sheltüh lists on someone's behalf, and seed data), which admins create (`POST /admin/organisers`), which sell no paid Sheltüh tickets, and whose events only admins check in (see "Admin authoring" and "Check-in"); their `contact_email` should be a Sheltüh alias, never a person's own address (`docs/supabase-setup.md`); check constraint `organisers_platform_no_payouts`: such an organiser has no Stripe account and no payouts. `status`: pending → approved / rejected. Also holds the Stripe Connect account id and `payouts_enabled`. Optional social handles (`instagram_handle`, `tiktok_handle`, `facebook_page`, `x_handle`), stored without `@` and pattern-checked by the database; `website_url` must be http(s), at most 2048 characters (check constraint; the API only takes new `https://` addresses, see "Organiser profiles"). An admin takedown sets `rejected` (see "Organiser profiles"). `featured_video_provider` (`youtube` or `vimeo`) and `featured_video_id`: the featured video, provider and id only, never a URL (check constraint `organisers_featured_video_check`: both or neither, id pattern per provider). |
 | `private.organiser_profile_edits` | `id` (identity) | Append-only log per organiser: each profile edit made without review (`profile_edit`: old and new value of each changed field, by the owner, or by an admin with a reason: removing the featured video, logged as `featured_video` `"provider:id"`, or the logo, logged as `logo` with its version), each admin takedown (`suspended`, with the admin and reason; a takedown must have a reason), and the organiser's creation by an accepted admin invite (`invite_accepted`, by the new owner: `status` null → approved; see "Account invites"). A trigger refuses updates (except the `actor_id` foreign key's own set-null when that account is deleted). Admins see the newest 20 per organiser. Kept while the organiser exists; deleted with it. |
 | `private.organiser_logos` | `organiser_id` | An organiser's logo as the server re-encoded it: `image` (512 × 512 WebP, ≤ 512 KB) and `thumb` (96 × 96 WebP, ≤ 64 KB), the whole logo fitted on white, no transparency, no metadata. `updated_at` is its version (milliseconds since the epoch, in its URL and the log); every write moves it on by at least a millisecond. Deleted with the organiser (see "Organiser profiles"). |
-| `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected; unpublish returns it to draft. `is_free` (true only when the event has ticket types and all are free; for an external event, `external_free`) is kept up to date by `replace_ticket_types` for the feed's free filter. `whos_going_enabled` (default true) is an admin-only kill switch for that event's Who's Going, set in SQL (`docs/supabase-setup.md`). `ticketing_mode` (`sheltuh`, the default, or `external`), `external_ticket_url` and `external_free`: see "External ticketing". Check constraints: an external event has a link, a Sheltüh-ticketed one has no link and isn't `external_free`, and an external event's `is_free` equals `external_free`. The trigger `events_external_ticket_url_valid` checks a link against `private.external_ticket_url_ok` when it's inserted or changed (only then, so tightening the rules never blocks a later status change; see "External ticketing"). `updated_at` changes on every update of the row, a photo change included (trigger `event_images_touch_event`). Triggers refuse ticket types and orders for an external event, and switching an event with ticket types to external. |
+| `events` | `id` | Belongs to an organiser. Globally unique `slug`. `status`: draft → pending_review → published / rejected; unpublish returns it to draft. `is_free` (true only when the event has ticket types and all are free; for an external event, `external_free`) is kept up to date by `replace_ticket_types` for the feed's free filter. `whos_going_enabled` (default true) is an admin-only kill switch for that event's Who's Going, set in SQL (`docs/supabase-setup.md`). `ticketing_mode` (`sheltuh`, the default, or `external`), `external_ticket_url` and `external_free`: see "External ticketing". Check constraints: an external event has a link, a Sheltüh-ticketed one has no link and isn't `external_free`, and an external event's `is_free` equals `external_free`. The trigger `events_external_ticket_url_valid` checks a link against `private.external_ticket_url_ok` when it's inserted or changed (only then, so tightening the rules never blocks a later status change; see "External ticketing"). `updated_at` changes on every update of the row, a photo change included (trigger `event_images_touch_event`). Triggers refuse ticket types and orders for an external event, and switching an event with ticket types to external. `state` (default `VIC`) and `time_zone` (default `Australia/Melbourne`): the event's state or territory and the IANA zone its times are in; check constraint `events_place_check` allows only the zones `ZONES_BY_STATE` lists for the state (see "Events: state and time zone"). |
 | `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. A trigger refuses a price above 0 for a platform-managed organiser's event (`ticket_types_platform_free_only`). `quantity_sold` only ever goes up in `fulfil_order`, and down only in `record_payment_refund` (a paid order refunded in full). `seated`: the tier has seats on the event's seat map; its `quantity_available` is then always its unblocked seats (trigger `ticket_types_seated_capacity`, whatever is written; see "Reserved seating"). |
 | `event_seat_maps` | `event_id` | An event's optional seat map (see "Reserved seating"): `layout` (the validated template, `lib/seating/template.ts`), `seat_count` (1–10,000) and `version` (from the sequence `private.seat_map_versions`: never reused, not even after a delete). Every write bumps the event's `updated_at` (`event_seat_maps_touch_event`). Refused for an external event (`event_seat_maps_sheltuh_only`). Deleted with the event. |
 | `event_seats` | `(event_id, id)` | The map's seats, derived from the layout in the same step (`write_seat_map`): `position` (map order: the availability bit), section, row (may be empty) and seat labels, `ticket_type_id` (no-action foreign key `event_seats_ticket_type_fkey`: a tier with seats can't be removed), `kind` (standard, wheelchair, companion), `blocked`; `hold_order_id` / `hold_expires_at` (a pending order's hold) and `sold_order_id`. Checks: never held and sold at once (`event_seats_one_owner`), never held or sold while blocked (`event_seats_blocked_unsold`). Deleted with the map. |
@@ -114,15 +114,18 @@ iframe served by Stripe), with the publishable key
 | `private.account_invites` | `id` | Admin invites (see "Account invites"): `kind` (`organiser`, with `organiser_profile`: the application's fields, the organisers columns as keys; or `member`, without), the address as typed, `token_hash` (SHA-256 of the emailed token, never the token; unique), `status` pending → accepted / revoked / expired (a pending invite past `expires_at` reads as expired), who invited, last sent, accepted and revoked it (each `on delete set null`), `expires_at` (14 days from the last send), `last_sent_at`, `last_send_failed_at`, `send_count`, `links_issued` (sign-up tokens requested with the current link), `accepted_organiser_id`. At most one pending invite per address, ignoring case (`account_invites_pending_email_key`). Check constraints tie a profile to organiser invites and `accepted_at` / `revoked_at` to their statuses. Deleted 90 days after it was accepted, revoked or expired (`purge_operational_data`). |
 | `private.report_photos` | `sha256` | Profile reports' photo copies, once per distinct image (`sha256 = sha256(image)`, check constraint), however many reports take it. `last_used_at` is bumped whenever a report takes it. Deleted by `purge_social_data` once no report references it and it's been unused for a day. |
 
-Timestamps are `timestamptz`. Organisers enter Australia/Melbourne local
-times, which are converted to instants honouring daylight saving
-(`lib/server/melbourne-time.ts`).
+Timestamps are `timestamptz`. Organisers enter an event's times as local
+times in the event's own zone (`events.time_zone`; Melbourne by default),
+which are converted to instants honouring daylight saving
+(`lib/time-zones.ts` `localToUtcIso`; see "Events: state and time zone").
+Every other time (analytics days, trending, rate-limit days, retention,
+admin and message times) is in the platform's zone, Australia/Melbourne.
 
 ## Database functions (schema `private`)
 
 | Function | What it guarantees |
 |---|---|
-| `create_event_draft`, `edit_event_draft` | Event row (ticketing fields included) and ticket types saved together. `edit_event_draft` locks the event row, and only succeeds while the event is draft or rejected (`not_editable`) and owned by the caller's organiser (`not_found`); once the event has ever been approved, a change to its ticketing mode or link is `ticketing_frozen` (409) and nothing is saved. Switching to external removes the ticket types first. (`update_event_draft`, the earlier boolean form, is kept for the deploy window and no longer called; drop it once that's over: see "Not built yet".) |
+| `create_event_draft`, `edit_event_draft` | Event row (ticketing fields, refund policy, state and time zone included; the edit keeps the stored state and zone when they aren't sent) and ticket types saved together. `edit_event_draft` locks the event row, and only succeeds while the event is draft or rejected (`not_editable`) and owned by the caller's organiser (`not_found`); once the event has ever been approved, a change to its ticketing mode or link is `ticketing_frozen` (409) and nothing is saved. Switching to external removes the ticket types first. (`update_event_draft`, the earlier boolean form, is kept for the deploy window and no longer called; drop it once that's over: see "Not built yet".) |
 | `admin_create_event` | An admin's new event (see "Admin authoring"): share-locks the organiser, which must exist and be approved; refuses a paid Sheltüh ticket type for a platform-managed organiser (`platform_paid`); then `create_event_draft`, a `created` log entry and, if asked, `transition_event` to published (`approved`), in one step. Nothing is written on a refusal. |
 | `admin_edit_event` | An admin's edit of any event, any status: share-locks the organiser, then locks the event; refuses (`stale`) unless its `updated_at` still equals the version the admin edited (to the millisecond); computes each changed field; decides every refusal (`platform_paid`, `has_orders`, `reason_required`, `organiser_not_approved`) before writing; then ticketing through `admin_set_event_ticketing`, the other fields, `replace_ticket_types`, one `edited` entry with old and new values, and the optional publish. Nothing changing is `unchanged` (nothing written). |
 | `admin_put_event_image`, `admin_delete_event_image` | An admin's photo change on any event, any status, with an `edited` entry (`{"image": {old, new}}`, `"set"` or null). Locks the event row (for no key update) first; the write bumps the event's `updated_at`. Deleting when there's no photo is `unchanged`, not logged. |
@@ -742,7 +745,7 @@ The API answers 409 with `code: "payouts_required"` (`lib/api/events.ts`: `isPay
 
 ## Refund policy
 
-Each event has a refund policy (`lib/refund-policy.ts`, migration `20261109000100_event_refund_policy.sql`): "No refunds for change of mind" (`no_change_of_mind`, the default, which every earlier event has and which matches `/refunds`) or refunds up to N days before the event (`days_before`, N from 1 to 30; `events.refund_days`, check constraints `events_refund_policy_check` and `events_refund_days_check`). Buyers are told a `days_before` policy against the event's start (`refundTermsLine`): "Refunds available until Sat 21 Nov, 7:00 pm (7 days before the event)." until the deadline (the start minus N × 24 hours, shown in the event's zone, Melbourne for now), then "The refund window for this event has closed. No refunds for change of mind." Buyers see it, with the standing Australian Consumer Law line (`REFUND_ACL_STATEMENT`), on the event page (`PublicEvent`), the payment page (`OrderPaymentSummary`) and the ticket page (`CustomerOrder`, paid and listed only); the ticket email says it too, for an order that cost something, of a listed event (`ticketEmailRefundPolicy` in `lib/server/ticket-email.ts`). The organiser sets it in the event editor (`components/dashboard/RefundPolicyField.tsx`). It applies to Sheltüh-ticketed events; for an external event the ticketing site's terms apply, so the UI doesn't show it.
+Each event has a refund policy (`lib/refund-policy.ts`, migration `20261109000100_event_refund_policy.sql`): "No refunds for change of mind" (`no_change_of_mind`, the default, which every earlier event has and which matches `/refunds`) or refunds up to N days before the event (`days_before`, N from 1 to 30; `events.refund_days`, check constraints `events_refund_policy_check` and `events_refund_days_check`). Buyers are told a `days_before` policy against the event's start (`refundTermsLine`): "Refunds available until Sat 21 Nov, 7:00 pm (7 days before the event)." until the deadline (the start minus N × 24 hours, shown in the event's zone), then "The refund window for this event has closed. No refunds for change of mind." Buyers see it, with the standing Australian Consumer Law line (`REFUND_ACL_STATEMENT`), on the event page (`PublicEvent`), the payment page (`OrderPaymentSummary`) and the ticket page (`CustomerOrder`, paid and listed only); the ticket email says it too, for an order that cost something, of a listed event (`ticketEmailRefundPolicy` in `lib/server/ticket-email.ts`). The organiser sets it in the event editor (`components/dashboard/RefundPolicyField.tsx`). It applies to Sheltüh-ticketed events; for an external event the ticketing site's terms apply, so the UI doesn't show it.
 
 Organisers set it while the event is a draft or rejected; once it's submitted only an admin can change it. Buyers keep what they bought under: a change that makes the policy less generous for an event with paid orders, or pending ones that can still be paid (`private.event_has_payable_orders`: a card order whose Checkout Session is recorded, or a guest's free order waiting on its emailed link; a card order still being set up, or kept after Stripe didn't answer, has no session and doesn't count, so one unanswered Stripe call can't block an edit for the 2 days until the purge fails it) (`private.refund_policy_tightens`: `days_before` → `no_change_of_mind`, or more days' notice; mirrored by `tightensRefundPolicy`, and a test checks they agree) is refused with 409 `code: "refund_policy_tightened"`, for an admin's edit of any event and for an organiser's edit of an unpublished draft that has orders. The check runs under the event row lock, and every order insert, and recording a card order's session (`finish_checkout_attempt`), share-locks that row, so no order becomes payable in between. Loosening is always allowed. Admin changes are logged in the `edited` entry (`changes.refundPolicy`, `changes.refundDays`). Refunds themselves stay manual (see "Refunds made in Stripe"); nothing enforces the deadline automatically.
 
@@ -2520,7 +2523,7 @@ Admins get an email when something is waiting for their review
 - **When.** An organiser submits an event for review (draft or rejected →
   `pending_review`, so a resubmission too): "Event submitted for review" (or
   "Event resubmitted for review" after a rejection), with the title, the
-  organiser's name, when it starts (Melbourne time) and a link to
+  organiser's name, when it starts (in the event's zone) and a link to
   `/admin/events?status=pending_review`. Someone applies to be an organiser,
   or resubmits a rejected application (→ `pending`): "Organiser application
   to review", with the name and a link to `/admin/organisers`. Subjects and
@@ -2956,7 +2959,7 @@ application is approved.
 
 | Method & path | Who |
 |---|---|
-| `GET /events?q&category&pricing&onOrAfter&upcoming&cursor&limit` | public (published only), soonest first. `upcoming=1` (or `true`): only events that haven't ended (`ends_at > now()`, in progress included); the home page and /events always send it. `pricing=free`: has ticket types, all free, or is external with `externalFree`; `paid`: has a paid ticket type (an event with no ticket types is neither, and so is an external event that isn't free: its price isn't known). 400 for an unknown `category`, `pricing` or `upcoming` value. Every item carries `ticketingMode`, `externalFree`, `externalProvider` and, for external events only, `externalTicketUrl` (see "External ticketing") |
+| `GET /events?q&category&pricing&onOrAfter&upcoming&cursor&limit` | public (published only), soonest first. `onOrAfter` (`YYYY-MM-DD`, 400 otherwise): events starting on or after that date in each event's own zone (`(starts_at at time zone time_zone)::date`, with a coarse `starts_at` bound a day earlier for `events_status_starts_idx`). `upcoming=1` (or `true`): only events that haven't ended (`ends_at > now()`, in progress included); the home page and /events always send it. `pricing=free`: has ticket types, all free, or is external with `externalFree`; `paid`: has a paid ticket type (an event with no ticket types is neither, and so is an external event that isn't free: its price isn't known). 400 for an unknown `category`, `pricing` or `upcoming` value. Every item carries `ticketingMode`, `externalFree`, `externalProvider` and, for external events only, `externalTicketUrl` (see "External ticketing") |
 | `GET /events/slug/{slug}` | public (published only); same shape as a list item. Every public event (list, slug, favourites, organiser profile, trending) carries `soldOut`, and per ticket type `soldOut` and `remaining` (only when 10 or fewer are left): see "Waitlist" |
 | `GET /events/{slug}/calendar.ics` (a page route, not under `/api`: `app/events/[slug]/calendar.ics/route.ts`) | public (published only; demo mode: the sample events). The event as an iCalendar file (`lib/calendar.ts` `buildIcs`, its URL from `NEXT_PUBLIC_SITE_URL`), `text/calendar; charset=utf-8`, `Content-Disposition: inline`, `public, max-age=300`. 404 (JSON, `private, no-store`) otherwise. No personal data |
 | `POST /events/{eventId}/waitlist` `{email?}` · `DELETE /events/{eventId}/waitlist` | POST: public (a member's token is read, optionally). 201/200 `{status: "joined", maskedEmail, alreadyJoined}` for a member's own verified email; 202 `{status: "confirmation_sent", expiresInHours}` for anyone else, whatever the address's history; 400 email; 404 not published; 409 external, ended or not sold out; 503 busy (the platform caps; the link is emailed after the response, so a failed send isn't reported). DELETE: signed in, leaves (204, idempotent) |
@@ -2983,7 +2986,7 @@ application is approved.
 | `POST /organisers/apply` · `GET /organisers/me` · `PATCH /organisers/me` | signed in. PATCH: a rejected application is resubmitted in full (back to pending); an approved organiser edits their profile (see "Organiser profiles"); pending is a 409 |
 | `GET /organisers/{organiserId}/profile` | public (approved organisers only; anything else, or a non-uuid id, is a 404) |
 | `POST /organisers/me/connect/onboard` · `…/connect/refresh` | organiser |
-| `POST /events` · `PATCH /events/{id}` · `POST /events/{id}/submit` | organiser (own events). Body adds `ticketingMode` (absent: `sheltuh` on POST; on PATCH, the stored ticketing is kept), `externalTicketUrl`, `externalFree` (see "External ticketing"). PATCH: 409 unless draft or rejected; 409 (fieldErrors on the field) changing the mode or link of an event that has been approved before |
+| `POST /events` · `PATCH /events/{id}` · `POST /events/{id}/submit` | organiser (own events). Body adds optional `state` and `timeZone`, together or neither (see "Events: state and time zone"). Body adds `ticketingMode` (absent: `sheltuh` on POST; on PATCH, the stored ticketing is kept), `externalTicketUrl`, `externalFree` (see "External ticketing"). PATCH: 409 unless draft or rejected; 409 (fieldErrors on the field) changing the mode or link of an event that has been approved before |
 | `GET /organisers/me/events` · `GET /organisers/me/events/{id}` | organiser (own events) |
 | `PUT /events/{id}/image` · `DELETE /events/{id}/image` | organiser (own events, while draft or rejected). Admins: `…/admin/events/{id}/image` |
 | `GET /events/{id}/image` | public once published; before that, the owning organiser or an admin |
@@ -3032,7 +3035,7 @@ application is approved.
 | `GET /admin/invites?status&cursor&limit` · `POST /admin/invites` `{kind, email, consent, organiser?}` · `POST /admin/invites/{inviteId}/resend` · `POST …/revoke` | admin (see "Account invites"). List: `Paginated<AdminInviteRecord>`, status `pending` (default), `accepted`, `revoked` or `expired` (400 otherwise), newest first. Create: 201 `{invite, emailSent}`; 400 fieldErrors (`kind`, `email`, `consent`, `organiser`, `organiser.<field>`); 409 a pending invite for the address, or its account already has an organiser; 429; 503 without `SUPABASE_ADMIN_INVITE_KEY` (nothing written). Resend: 200 `{invite, emailSent}`; 404; 409 accepted or revoked (or its inviter is no longer an admin); 429 within a minute or over the allowance; 503. Revoke: 200 the invite; 404; 409 not pending |
 | `POST /invites/view` `{token}` · `POST /invites/account-link` `{token}` | public (the emailed token is the credential), private, no-store. View: `InviteView` (`account` `new` / `existing` / `unconfirmed`), read-only; 400; 404; 410 `code` `expired` / `revoked` / `used`. Account link: deletes unconfirmed accounts someone registered with the address (keeping a fresh invite account from an earlier press), then `{tokenHash}`; 400; 404; 410; 409 `code: "has_account"`; 429 (10 per link, 20 an hour per client, counting only tokens that match an invite); 503 `code: "unavailable"` (no key, Supabase Auth failed, or the address's account couldn't be made safe) |
 | `GET /invites/me` · `POST /invites/accept` `{inviteId}` | verified email. Me: the pending invite for the caller's address (`MyInvite`); 404 none. Accept: 200 `{kind, organiserId?}` (idempotent); 404 unknown or another address's; 409 the account already has an organiser; 410 `code` |
-| `GET /admin/events/{id}` · `POST /admin/events` · `PATCH /admin/events/{id}` | admin (see "Admin authoring"). `AdminEventRecord`. POST: the event body plus `organiserId`, `publish?`; 201; 400 fieldErrors (`organiserId` unknown; `ticketTypes` paid for a platform-managed organiser); 409 organiser not approved. PATCH: the event body with `ticketingMode` required, `expectedUpdatedAt`, `publish?`, `reason?` (≤500); 200 (unchanged if nothing changes); 400 fieldErrors (incl. `reason` to change an approved event's mode or link); 404; 409 stale version (`fieldErrors.expectedUpdatedAt`), orders on a switch to external, sold ticket types, or organiser not approved when publishing |
+| `GET /admin/events/{id}` · `POST /admin/events` · `PATCH /admin/events/{id}` | admin (see "Admin authoring"). `AdminEventRecord`. The event body's `state` and `timeZone` as the organiser's (see "Events: state and time zone"; PATCH without them keeps the stored place). POST: the event body plus `organiserId`, `publish?`; 201; 400 fieldErrors (`organiserId` unknown; `ticketTypes` paid for a platform-managed organiser); 409 organiser not approved. PATCH: the event body with `ticketingMode` required, `expectedUpdatedAt`, `publish?`, `reason?` (≤500); 200 (unchanged if nothing changes); 400 fieldErrors (incl. `reason` to change an approved event's mode or link); 404; 409 stale version (`fieldErrors.expectedUpdatedAt`), orders on a switch to external, sold ticket types, or organiser not approved when publishing |
 | `PUT /admin/events/{id}/image` · `DELETE /admin/events/{id}/image` | admin, any status. As the organiser's (413, 400), logged `edited`; 404 |
 | `GET /admin/events/{id}/curation` · `PUT …/curation` `{boost, excluded, reason}` | admin, any status (see "Trending"). `{eventId, boost, excluded, updatedAt, log}` (newest 20 changes). PUT: 200 (unchanged, nothing logged, if nothing changes; logged `curated` otherwise); 400 fieldErrors (`boost` a number from 0.5 to 2, rounded to 2 places; `excluded` a boolean; `reason` 1–500 characters); 404 |
 | `PATCH /admin/events/{id}/ticketing` `{ticketingMode, externalTicketUrl?, externalFree?, reason}` | admin. Any status. 200 with the event (logged as `ticketing_changed`; unchanged, and nothing logged, if nothing would change); 400 fields (`ticketingMode` is required) or reason (1–500 characters); 404; 409 switching to external an event with orders |
@@ -3205,6 +3208,133 @@ Design: `docs/design/event-clips.md`.
 - Not built: captions/WebVTT, transcoding (HEVC is refused), faststart,
   WebM.
 
+## Events: state and time zone
+
+Events can be anywhere in Australia (owner plan, steps S3 and S4;
+`supabase/migrations/20261110000000_event_place_time_zone.sql`,
+`lib/server/event-input.ts` `parsePlace`, `lib/time-zones.ts`).
+
+- **Stored**: `events.state` (one of `STATE_CODES`: NSW, VIC, QLD, SA, WA,
+  TAS, NT, ACT, and OT for the other territories) and `events.time_zone`,
+  defaults VIC and Australia/Melbourne (what every earlier event meant).
+  `events_place_check` mirrors `ZONES_BY_STATE` exactly (a state's zones,
+  e.g. NSW: Sydney, Broken Hill, Lord Howe; WA: Perth, Eucla);
+  `tests/server/event-place.test.ts` compares the two. Change both together.
+- **Written** (`POST`/`PATCH /events`, `POST`/`PATCH /admin/events`):
+  optional `state` and `timeZone`, both or neither (one alone is a 400 on the
+  missing one). Neither: `start`/`end` are Melbourne wall-clock on create
+  (stored VIC/Melbourne), and on edit the stored place is kept and the times
+  read in the stored zone, so an older client re-saving a Perth event
+  changes nothing. Both: `state` must be a code (400 `fieldErrors.state`),
+  `timeZone` one of `ZONES_BY_STATE[state]` (400 `fieldErrors.timeZone`), and
+  `suburb` a locality in that state (`findLocality("{suburb} {state}")`, or
+  the suburb alone when it already names the state: "Richmond NSW"), stored
+  as the locality's display name (`Locality.name`: "Fitzroy", "Richmond
+  NSW", "Brisbane City"); otherwise 400 `fieldErrors.suburb`, with "Did you
+  mean …?" for a near spelling in the state. Times are converted in the
+  zone: a time the clocks skip is 400 `fieldErrors.start`/`end`
+  (`DST_GAP_MESSAGE`); a time they repeat is the earlier instant. The
+  database functions keep the stored value of either field when it's
+  absent; `admin_edit_event` logs a change of either (`changes.state`,
+  `changes.timeZone`). The suburb table (`lib/location.ts`, about 290 kB)
+  is imported statically on the server only by `lib/server/event-input.ts`,
+  so it loads with the two handler modules that parse event bodies
+  (`handlers/events.ts`, `handlers/admin-authoring.ts`) and with exactly
+  the API routes whose route file imports either: `/api/events` (GET, POST),
+  `/api/events/[eventId]` (PATCH), `/api/events/[eventId]/submit`,
+  `/api/organisers/me/events` and `/api/organisers/me/events/[eventId]`,
+  `/api/admin/events` (GET, POST), `/api/admin/events/[eventId]` (GET,
+  PATCH), `/api/admin/events/[eventId]/image` and `/api/admin/organisers`
+  (GET, POST). Of the pages, only `/search` loads it in its server render;
+  client components load it on demand (`lib/location-loader.ts`).
+  Accepted. Submit, the organiser's two event reads, the admin's event
+  image and the organisers list only load it because their route file
+  shares a handler module with a write; moving them out means splitting
+  those modules and their route imports. Ticketing input
+  (`lib/server/ticketing-input.ts`) and the payouts errors
+  (`lib/server/payouts-refusal.ts`) are kept apart from `event-input.ts`
+  and `handlers/events.ts` so that `handlers/admin.ts`, and through it
+  seating, clips and trending, don't load it.
+- **Read**: `EventRecord` and `PublicEvent` carry `state` and `timeZone`
+  (every route that returns an event); `CustomerOrder` and
+  `OrderPaymentSummary` carry `eventTimeZone` and `eventState` whenever they
+  carry the event's times; `CheckInSummary.event`, `AnalyticsEventSummary`
+  and `AnalyticsOverviewEvent` carry `timeZone` and `state`. The ticket,
+  free-confirmation, waitlist, follower and admin review emails, the wallet
+  passes and the link preview show event times in the event's zone. The
+  emails name a zone other than Melbourne in full ("8:00 pm – 11:30 pm
+  Perth time (AWST)", "Canberra time (AEDT)": `zoneLabel`); Melbourne's
+  stays "AEDT"/"AEST", byte for byte as before. Whether an event crosses
+  midnight is judged in its zone.
+- **Shown** (S5): `SheltuhEvent` carries `state` and `timeZone` (mapped in
+  `lib/live/adapt.ts`; absent is VIC / Melbourne, every demo sample). Every
+  screen formats an event's own times in its zone (`lib/format.ts`
+  `eventZone`). The event page names the zone under the time
+  (`formatTimeZoneLabel`: "Perth time (AWST)", "Melbourne time (AEDT)").
+  Compact lines (cards, map, list rows, orders and tickets, the checkout
+  summary, the admin queue, the organiser's dashboard, link previews) add
+  the zone's city after the time only outside Melbourne's zone
+  (`zoneSuffix`, `formatEventWhen`, `lib/event-card.ts` `startLabel`: "Sat
+  21 Nov, 8:00 pm Perth time"; the ACT's "Canberra time"), so a Melbourne
+  event's line is unchanged. The seat hold's end reads "8:31 pm Perth
+  time"; the refund deadline and the door's check-in times are in the
+  event's zone. The editors fill the date and time inputs in the event's
+  zone (legend "Starts (Perth time)").
+- **Entered** (S8, `components/dashboard/VenueSuburbField.tsx`): the
+  organiser's and admin's editor has one "Suburb or town" field, suggested
+  and resolved with the suburb table (`lib/location.ts`, loaded on demand):
+  suggestions read "Richmond, VIC" / "Richmond, NSW", a bare shared name is
+  the Victorian one (owner decision D7), and a polite line under the field
+  names the place and zone ("Richmond, Victoria · Melbourne time (AEDT)")
+  and where else a bare name is ("Also in NSW, QLD, SA, TAS. Add the
+  state…", `sameNameElsewhere`). A capital's "CBD" or "City" is that
+  capital ("Sydney CBD", "CBD, NSW"); "CBD" or "City" alone asks which city
+  (`isBareCityCentre`) rather than becoming Melbourne's. A saved event's
+  suburb, unchanged, is looked up with its saved state (`placeQuery`) and
+  saves without the table. The state's default zone
+  (`defaultTimeZone(state, suburb)`) is used, with a "Time zone" choice
+  ("Sydney time", "Broken Hill time"; a row of its own, with why) only
+  where a state has more than one (NSW, WA, OT). The date legends name the
+  zone's city, or "local time" until the suburb is known; changing the
+  suburb or zone keeps the typed wall-clock times, and a polite line says
+  so ("Times are now Melbourne time (were Perth time)."). Every save sends
+  `suburb` (the locality's `name`), `state` and `timeZone` together. A
+  suburb the table doesn't know is an error by the field ("Did you mean
+  Fremantle, WA?", with a "Use Fremantle, WA" button that fills it in) and
+  nothing is sent; if the table can't load, the field says so as it's used
+  (with Try again), and saving a new suburb says so and sends nothing. The
+  suburb's, state's and zone's errors go when the suburb (or zone) is
+  changed. The API's `fieldErrors.suburb` / `.state` show by the field,
+  `.timeZone` by the zone choice (else the field), `.start` / `.end` (the
+  daylight-saving gap) by the times, and focus goes to the first of them.
+- **Place display** (owner decision D4): a suburb is shown as "Suburb,
+  STATE" (`lib/place.ts` `placeName`: "Fitzroy, VIC", "Richmond, NSW",
+  never "Richmond NSW, NSW"): cards, map rows and spots, the dashboard row,
+  the admin queue, the organiser profile, the checkout summary and
+  confirmation, link previews, the waitlist and follower emails' place
+  line and the ticket email's address when there's no street address. Wallet passes and
+  the other emails still show the suburb as stored.
+- **Grouped** (S6): Tonight, This weekend and a date on /map, and the demo
+  feed's date, use each event's own calendar (`lib/scene-map-filters.ts`).
+  The home's This weekend is the platform's weekend (its heading and
+  whether it's on), but each event is matched against Friday 17:00 to
+  Sunday 23:59:59.999 on its own zone's clock (`weekendWindow(now, zone)`,
+  one per zone), so a Perth gig at 11 pm on Sunday counts; the live home
+  loads pages until the latest zone's weekend has ended
+  (`latestWeekendEnd`: the Cocos Islands').
+- **Home order** (S10, owner decision D5): Australia-wide, soonest first.
+  With a saved "near" suburb (browser-only), `HomeEventsProvider` reads its
+  state from storage (`readStoredNearState`: the state saved with the
+  suburb, or for an entry saved before that, the state code its name ends
+  with, "Richmond NSW") and `selectHomeSections(…, preferredState)` lists
+  that state's events first in each section (a stable reorder, before each
+  takes its six). The home never loads the suburb table, so nothing waits on
+  it; a bare name saved without a state leaves the order Australia-wide. The
+  state never reaches the API.
+- **Platform zone** (owner decision D1): analytics day buckets, trending,
+  rate-limit days, retention, and admin and message times stay in
+  Australia/Melbourne.
+
 ## Location (near you)
 
 Search can order results by how close they are to a suburb (owner round,
@@ -3221,8 +3351,9 @@ Search can order results by how close they are to a suburb (owner round,
   The table has one centre per locality, not boundaries, so near a border
   the position can be named for the neighbouring suburb (about 1 in 5
   random points inside localities, checked against the ABS polygons).
-- Only the suburb's name leaves that function: localStorage
-  `sheltuh:near:v1` = `{"suburb": …}` (`lib/near-storage.ts`), and the
+- Only the suburb's name (and its state) leaves that function: localStorage
+  `sheltuh:near:v1` = `{"suburb": …, "state": …}` (`lib/near-storage.ts`;
+  the state is for the home's order, above), and the
   `/search?near=` parameter (≤ 60 characters). Coordinates never reach
   storage, the URL, the API or logs. An empty `near` is dropped on submit
   and forgets the stored suburb (and `/search` redirects `near=` away for a
@@ -3235,8 +3366,11 @@ Search can order results by how close they are to a suburb (owner round,
 - `/search` resolves `near` against the suburb table (`lib/localities.ts`)
   on the server and passes the `Locality` down; `EventFeed` →
   `EventBrowser` (demo) / `LiveEventFeed` (live) → `NearbyResults` order the
-  results with `orderByNearness`: bands (In {suburb}, Within 5 km,
-  5–15 km, Further away, Location not on file), soonest first within each.
+  results with `orderByNearness`: bands (In {Suburb, STATE}, Within 5 km,
+  5–15 km, 15–100 km, Over 100 km (owner decision D8),
+  Location not on file), soonest first within each. Each event's suburb is
+  looked up with its state (`lib/place.ts` `placeQuery`: "Perth WA",
+  "Richmond NSW", never doubled; the suburb alone for an event without one).
   Live near mode reads at most 4 pages of 50 (the 200 soonest matches) and
   says so when more matched. Distances are suburb centre to suburb centre,
   labelled approximate.
@@ -3260,12 +3394,24 @@ Search can order results by how close they are to a suburb (owner round,
   (`CITY_NAMES`): Brisbane → Brisbane City, Darwin → Darwin City,
   Canberra → City ACT, Gold Coast → Surfers Paradise, Ballarat → Ballarat
   Central, and a few more.
-- `/map` places an event without venue coordinates at its suburb's centre
-  from the same table (`resolveMapCoordinates(event, findLocality)`,
-  through `components/search/useLocationModule.ts`); the map waits for the
-  table when some event has no coordinates, and if it can't load says so, offers Try again, and falls back to
-  the 20 hand-entered centres in `lib/geo.ts`. Only Greater Melbourne is
-  pinned; an unknown suburb (a typo) is listed and counted as unplaced.
+- `/map` (owner plan S9) is Australia-wide: it places an event without
+  venue coordinates at its suburb's centre from the same table
+  (`resolveMapCoordinates(event, findLocality)`, looking up `placeQuery`'s
+  "{suburb} {state}", through `components/search/useLocationModule.ts`);
+  the map waits for the table when some event has no coordinates (or a
+  suburb is saved), and if it can't load says so, offers Try again, and
+  falls back to the 20 hand-entered inner-Melbourne centres in `lib/geo.ts`
+  (Victorian events only). Anything inside `AUSTRALIA_BOUNDS` (-45..-8,
+  95..170: Norfolk, Christmas and the Cocos Islands included) is pinned,
+  and the map can't be panned past it; an unknown suburb (a typo) or a
+  position overseas is listed and counted as unplaced. It opens on every
+  marker; with a saved "near" suburb, on the markers within 50 km of it
+  (`lib/map-layout.ts` `framingTargets`; all of them if none are), and with
+  none, on the mainland and Tasmania (`AUSTRALIA_VIEW`, minimum zoom 3, so
+  it fits a 375px phone). Live, it reads up to 4 pages of 50 at a time (and
+  Load more the next 4). The location filter lists the events' suburbs
+  under "All of Australia", grouped by state (`<optgroup>`,
+  `suburbsByState`). Markers cluster by pixel distance at any zoom.
 - Disclosed at `/privacy#location` (draft) and in the popover.
 - Phase 2 (not built): venue coordinates on events and a server-side
   `GET /api/events?near=<suburb>` checked against the same table.
@@ -3596,9 +3742,8 @@ never gets the URL as a Referer.
 request so the two can't disagree): the event's current title (as the
 email; Google's class is shared by every ticket for the event, so it can't
 be one order's snapshot, and the passes are only made while the event is
-published), date and time in the event's zone (`passTimeZone`: Melbourne for
-every event today; the one place to change when events get their own
-zone), venue name and address, ticket type, "Ticket n of N", the seat, the
+published), date and time in the event's zone (`passTimeZone`: the
+ticket page's `eventTimeZone`, Melbourne when absent), venue name and address, ticket type, "Ticket n of N", the seat, the
 QR carrying exactly the existing payload (`ticketQrPayload`: `SH1:` + code;
 none for a code that isn't canonical, as the email) with the code as its
 alternate text, and the order's short reference. Nothing about the buyer:

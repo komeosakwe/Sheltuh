@@ -1,23 +1,32 @@
 /**
- * "Near you" search, in the browser only (docs/architecture.md, "Location"):
- * a visitor's suburb (typed, or worked out from the browser's position and
- * then the position dropped) orders /search results by the distance between
- * suburb centres. Nothing here is sent to the API, and no coordinates leave
- * the function that receives them. Distances are approximate: suburb centre
- * to suburb centre, never venue to venue.
+ * The suburb table's lookups (docs/architecture.md, "Location" and "Events:
+ * state and time zone"), for the browser and the server.
+ *
+ * In the browser, "near you" search: a visitor's suburb (typed, or worked
+ * out from the browser's position and then the position dropped) orders
+ * /search results by the distance between suburb centres. Nothing here is
+ * sent to the API, and no coordinates leave the function that receives them.
+ * Distances are approximate: suburb centre to suburb centre, never venue to
+ * venue. /map places events at their suburb's centre, and the event editor
+ * resolves an organiser's suburb to its state and time zone with it.
+ *
+ * On the server, the write routes check an event's suburb against its state
+ * (lib/server/event-input.ts), and /search resolves `near`.
  *
  * The suburb table (lib/localities.ts: every ABS suburb and locality in
  * Australia) is large, so client components load this module on demand
  * (lib/location-loader.ts) and import only its types statically. Server code
- * (app/search/page.tsx) imports it directly.
+ * (app/search/page.tsx, the event write routes) imports it directly.
  */
-import { MELBOURNE_DEFAULT_CENTER } from "./geo";
+import { distanceKm, MELBOURNE_DEFAULT_CENTER } from "./geo";
 import { LOCALITY_DATA, LOCALITY_REACH_KM } from "./localities";
 import { NEAR_MAX_LENGTH } from "./near-storage";
+import { placeName, placeQuery, type PlaceFields } from "./place";
 import type { StateCode } from "./time-zones";
 import type { Coordinates } from "./types";
 
 export type { StateCode };
+export { distanceKm, placeQuery };
 
 /** The table's order. */
 const STATE_CODES = ["NSW", "VIC", "QLD", "SA", "WA", "TAS", "NT", "ACT", "OT"] as const satisfies readonly StateCode[];
@@ -137,15 +146,6 @@ function readings(text: string): Reading[] {
   }
 }
 
-/** Great-circle distance in kilometres. */
-export function distanceKm(a: Coordinates, b: Coordinates): number {
-  const rad = Math.PI / 180;
-  const dLat = (b.lat - a.lat) * rad;
-  const dLng = (b.lng - a.lng) * rad;
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
-  return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)));
-}
-
 /**
  * The table, decoded into columns (one entry per locality, by state then
  * name): no object per row until one is asked for, so loading stays quick.
@@ -226,34 +226,69 @@ for (const list of BY_KEY.values()) if (list.length > 1) list.sort(preferred);
  * is Surfers Paradise. Tried only when the words name no locality as they
  * are (Bendigo, Geelong, Hobart and Perth do).
  */
+/** Each state's capital's centre, by its key (Victoria's is "melbourne"; the other territories have none). */
+const CAPITALS: { readonly [S in StateCode]?: { name: string; key: string } } = {
+  NSW: { name: "sydney", key: "sydney" },
+  VIC: { name: "melbourne", key: "melbourne" },
+  QLD: { name: "brisbane", key: "brisbane city" },
+  SA: { name: "adelaide", key: "adelaide" },
+  WA: { name: "perth", key: "perth" },
+  TAS: { name: "hobart", key: "hobart" },
+  NT: { name: "darwin", key: "darwin city" },
+  ACT: { name: "canberra", key: "city" },
+};
+
+/** What people call a city's centre: alone ("CBD", which state's?), or after the city ("Sydney CBD"). */
+const CENTRE_WORDS: ReadonlySet<string> = new Set(["cbd", "city", "city centre", "city center"]);
+
 const CITY_NAMES: ReadonlyMap<string, { key: string; state: StateCode }> = new Map([
   ["brisbane", { key: "brisbane city", state: "QLD" }],
   ["darwin", { key: "darwin city", state: "NT" }],
   ["canberra", { key: "city", state: "ACT" }],
-  ["canberra city", { key: "city", state: "ACT" }],
   ["cairns", { key: "cairns city", state: "QLD" }],
   ["townsville", { key: "townsville city", state: "QLD" }],
   ["toowoomba", { key: "toowoomba city", state: "QLD" }],
   ["gold coast", { key: "surfers paradise", state: "QLD" }],
   ["sunshine coast", { key: "maroochydore", state: "QLD" }],
   ["ballarat", { key: "ballarat central", state: "VIC" }],
+  // A capital's centre by its other names: "Sydney CBD", "Perth City", "Canberra city centre"
+  // (Melbourne's are aliases, above; "Brisbane City" and "Darwin City" are localities already).
+  ...(Object.entries(CAPITALS) as [StateCode, { name: string; key: string }][]).flatMap(([state, capital]) =>
+    [...CENTRE_WORDS].map((word): [string, { key: string; state: StateCode }] => [`${capital.name} ${word}`, { key: capital.key, state }]),
+  ),
 ]);
 
 function rowFor(key: string, state: StateCode | null): number | null {
   return BY_KEY.get(key)?.find((row) => state === null || STATE[row] === state) ?? null;
 }
 
-function findRow(text: string): number | null {
+/** How `text` was found: the row, and whether the text named its state ("Richmond, NSW"). */
+function findMatch(text: string): { row: number; stateNamed: boolean } | null {
   const all = readings(text);
   for (const { key, state } of all) {
     const found = rowFor(key, state);
-    if (found !== null) return found;
+    if (found !== null) return { row: found, stateNamed: state !== null };
   }
   for (const { key, state } of all) {
     const city = CITY_NAMES.get(key);
-    if (city && (state === null || state === city.state)) return rowFor(city.key, city.state);
+    if (city && (state === null || state === city.state)) {
+      const found = rowFor(city.key, city.state);
+      return found === null ? null : { row: found, stateNamed: true };
+    }
+  }
+  // "CBD, NSW", "City (Tas)": that state's capital.
+  for (const { key, state } of all) {
+    const capital = state ? CAPITALS[state] : undefined;
+    if (capital && CENTRE_WORDS.has(key)) {
+      const found = rowFor(capital.key, state);
+      return found === null ? null : { row: found, stateNamed: true };
+    }
   }
   return null;
+}
+
+function findRow(text: string): number | null {
+  return findMatch(text)?.row ?? null;
 }
 
 /**
@@ -297,6 +332,31 @@ export function allLocalities(): Locality[] {
 export function findLocality(text: string): Locality | null {
   const row = findRow(text);
   return row === null ? null : placeAt(row);
+}
+
+/**
+ * Whether `text` is a city centre's name without the city or a state ("CBD",
+ * "City", "city centre"). findLocality reads it as Melbourne's
+ * (Melbourne-first, for "near you"); the event editor asks which city
+ * instead, since an event's state and time zone follow from it.
+ */
+export function isBareCityCentre(text: string): boolean {
+  return CENTRE_WORDS.has(words(text).join(" "));
+}
+
+/**
+ * The other states with a suburb of the name `text` found, when `text`
+ * didn't say which state ("Newtown" is Victoria's, and there are Newtowns in
+ * NSW, QLD and TAS: ["NSW", "QLD", "TAS"]), in the table's state order.
+ * Empty when the text named a state ("Newtown, NSW"), names a city
+ * ("Brisbane"), or names nothing.
+ */
+export function sameNameElsewhere(text: string): StateCode[] {
+  const match = findMatch(text);
+  if (!match || match.stateNamed) return [];
+  const others = new Set((BY_KEY.get(KEY[match.row]) ?? []).map((row) => STATE[row]));
+  others.delete(STATE[match.row]);
+  return STATE_CODES.filter((state) => others.has(state));
 }
 
 /**
@@ -373,11 +433,19 @@ export function nearestLocality(position: Coordinates): NearestResult {
   return best === null ? { kind: "outside" } : { kind: "found", locality: placeAt(best) };
 }
 
-/** Bands, nearest first (owner decision D4, 24 Oct 2026: bands, then soonest within each). */
-export const NEARNESS_BANDS = ["here", "near", "mid", "far", "unknown"] as const;
+/**
+ * Bands, nearest first (owner decision D4, 24 Oct 2026: bands, then soonest
+ * within each; "Over 100 km" since events are Australia-wide, owner decision
+ * D8, 26 Oct 2026).
+ */
+export const NEARNESS_BANDS = ["here", "near", "mid", "far", "distant", "unknown"] as const;
 export type NearnessBand = (typeof NEARNESS_BANDS)[number];
 
-/** Where `suburb` sits from `origin`. An unknown suburb is "unknown", never dropped. */
+/**
+ * Where `suburb` (the text that finds it: placeQuery's "Perth WA", or a
+ * name alone) sits from `origin`. An unknown suburb is "unknown", never
+ * dropped.
+ */
 export function nearnessBand(origin: Locality, suburb: string): NearnessBand {
   const place = findLocality(suburb);
   if (!place) return "unknown";
@@ -385,19 +453,22 @@ export function nearnessBand(origin: Locality, suburb: string): NearnessBand {
   const km = distanceKm(origin, place);
   if (km <= 5) return "near";
   if (km <= 15) return "mid";
-  return "far";
+  if (km <= 100) return "far";
+  return "distant";
 }
 
 export function nearnessBandLabel(band: NearnessBand, origin: Locality): string {
   switch (band) {
     case "here":
-      return `In ${origin.name}`;
+      return `In ${placeName(origin.name, origin.state)}`;
     case "near":
       return "Within 5 km";
     case "mid":
       return "5–15 km";
     case "far":
-      return "Further away";
+      return "15–100 km";
+    case "distant":
+      return "Over 100 km";
     case "unknown":
       return "Location not on file";
   }
@@ -411,14 +482,15 @@ export interface NearnessGroup<T> {
 
 /**
  * `items` in bands (nearest first, empty bands left out), soonest first
- * within each band, then by id so equal times keep a stable order.
+ * within each band, then by id so equal times keep a stable order. Each
+ * item's suburb is looked up with its state (placeQuery).
  */
-export function orderByNearness<T extends { suburb: string; startsAt: string; id: string }>(
+export function orderByNearness<T extends PlaceFields & { startsAt: string; id: string }>(
   items: readonly T[],
   origin: Locality,
 ): NearnessGroup<T>[] {
   const byBand = new Map<NearnessBand, T[]>(NEARNESS_BANDS.map((band) => [band, []]));
-  for (const item of items) byBand.get(nearnessBand(origin, item.suburb))?.push(item);
+  for (const item of items) byBand.get(nearnessBand(origin, placeQuery(item)))?.push(item);
   return NEARNESS_BANDS.flatMap((band) => {
     const bandItems = byBand.get(band) ?? [];
     if (bandItems.length === 0) return [];

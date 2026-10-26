@@ -3,7 +3,7 @@ import TicketQr from "@/components/tickets/TicketQr";
 import UBarcode from "@/components/tickets/UBarcode";
 import type { TicketSeat } from "@/lib/api/types";
 import { SUPPORT_EMAIL } from "@/lib/contact";
-import { formatMessageTime } from "@/lib/format";
+import { eventZone, formatMessageTime } from "@/lib/format";
 import { TICKET_CODE_PATTERN } from "@/lib/ticket-code";
 
 interface TicketStubProps {
@@ -16,7 +16,7 @@ interface TicketStubProps {
   seat?: TicketSeat;
   /** The event, so each ticket stands on its own (a screenshot of one ticket says what it's for). */
   eventTitle?: string;
-  /** When, already formatted: "Sat 6 Mar, 8:00 pm – 11:00 pm". */
+  /** When, already formatted in the event's zone: "Sat 6 Mar, 8:00 pm – 11:00 pm" ("… 11:00 pm Perth time" outside Melbourne's). */
   when?: string;
   /** Where: the venue name and suburb, "The Cellar Door, Fitzroy". */
   where?: string;
@@ -28,6 +28,8 @@ interface TicketStubProps {
   eventUnlisted?: boolean;
   /** When the ticket was checked in at the door (ISO), or null/unset if it hasn't been. */
   checkedInAt?: string | null;
+  /** The event's zone, for the check-in time (the door's clock); absent means Melbourne. */
+  timeZone?: string;
 }
 
 /**
@@ -59,6 +61,7 @@ export default function TicketStub({
   where,
   eventUnlisted = false,
   checkedInAt,
+  timeZone,
 }: TicketStubProps) {
   const hasQr = TICKET_CODE_PATTERN.test(code);
   const label =
@@ -66,7 +69,7 @@ export default function TicketStub({
       ? `Ticket ${ticketNumber} of ${ticketCount} · ${typeName}`
       : typeName;
   const status = checkedInAt
-    ? `Checked in ${formatMessageTime(checkedInAt)}`
+    ? `Checked in ${formatMessageTime(checkedInAt, new Date(), eventZone(timeZone))}`
     : hasQr
       ? "Ready to scan"
       : "Ready to use";

@@ -13,6 +13,9 @@ import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
  */
 
 const push = vi.fn();
+// The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
+vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
 }));
@@ -115,7 +118,7 @@ function fillNewEventWithoutTickets() {
   fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Four bands." } });
   fireEvent.change(screen.getByLabelText("Venue name"), { target: { value: "The Tote" } });
   fireEvent.change(screen.getByLabelText("Venue address"), { target: { value: "71 Johnston St" } });
-  fireEvent.change(screen.getByLabelText("Suburb"), { target: { value: "Collingwood" } });
+  fireEvent.change(screen.getByLabelText("Suburb or town"), { target: { value: "Collingwood" } });
   fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2027-03-06" } });
   fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "20:00" } });
   fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2027-03-06" } });
@@ -159,11 +162,26 @@ describe("EventEditor seating — organiser, new event", () => {
 
     await waitFor(() => expect(push).toHaveBeenCalledWith("/dashboard/evt-9/seat-map"));
     expect(push).toHaveBeenCalledTimes(1);
-    // No seating field is invented: the same draft as general admission (with its refund policy, the default).
+    // No seating field is invented: the same draft as general admission (with its refund policy, the default,
+    // and the suburb's state and zone).
     const [input] = createEventDraft.mock.calls[0];
     expect(Object.keys(input).sort()).toEqual(
-      ["category", "description", "end", "refundPolicy", "start", "suburb", "ticketTypes", "title", "venueAddress", "venueName"].sort(),
+      [
+        "category",
+        "description",
+        "end",
+        "refundPolicy",
+        "start",
+        "state",
+        "suburb",
+        "ticketTypes",
+        "timeZone",
+        "title",
+        "venueAddress",
+        "venueName",
+      ].sort(),
     );
+    expect(input).toMatchObject({ suburb: "Collingwood", state: "VIC", timeZone: "Australia/Melbourne" });
     expect(input.refundPolicy).toBe("no_change_of_mind");
   });
 

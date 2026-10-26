@@ -1,9 +1,15 @@
 import { HttpError, ok } from "../http";
-import { melbourneLocalToUtcIso } from "../melbourne-time";
 import { decodeCursor, parseLimit, toPage } from "../pagination";
 import { EVENT_SELECT, toPublicEventFromRow } from "../records";
 import type { Handler } from "../route";
 import { EVENT_CATEGORIES, type EventCategory } from "../types";
+
+/** "YYYY-MM-DD" (already pattern-checked) is a real calendar date: not 2026-02-30. */
+function isCalendarDate(text: string): boolean {
+  const [year, month, day] = text.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
 
 /**
  * GET /api/events — public, unauthenticated. Every query here is pinned to
@@ -36,17 +42,20 @@ export const listPublicEvents: Handler = async (req, _params, { db }) => {
     );
   }
 
+  // Events starting on or after the date in their own zone. The local date
+  // can't use an index, so a coarse bound a day earlier on starts_at itself
+  // (no Australian zone is a day or more ahead of UTC) lets
+  // events_status_starts_idx skip what's long gone; the exact test follows.
   const onOrAfter = qs.get("onOrAfter");
   if (onOrAfter) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(onOrAfter)) throw new HttpError(400, "onOrAfter must be formatted YYYY-MM-DD.");
-    let floor: string;
-    try {
-      floor = melbourneLocalToUtcIso(onOrAfter, "00:00");
-    } catch {
-      throw new HttpError(400, "onOrAfter is not a valid date.");
-    }
-    params.push(floor);
-    where.push(`e.starts_at >= $${params.length}`);
+    if (!isCalendarDate(onOrAfter)) throw new HttpError(400, "onOrAfter is not a valid date.");
+    params.push(onOrAfter);
+    const n = params.length;
+    where.push(
+      `e.starts_at >= (($${n}::date - 1)::timestamp at time zone 'UTC')`,
+      `(e.starts_at at time zone e.time_zone)::date >= $${n}::date`,
+    );
   }
 
   // Only events that haven't ended yet (in progress included). The order

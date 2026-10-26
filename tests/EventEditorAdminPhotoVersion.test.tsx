@@ -12,6 +12,9 @@ import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
  * returned, not the one the event save returned before it.
  */
 
+// The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
+vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 vi.mock("@/lib/api/events", async (importOriginal) => ({

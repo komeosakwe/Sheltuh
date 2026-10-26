@@ -1,4 +1,13 @@
 import { isUpcomingEvent } from "@/lib/data";
+import { eventZone } from "@/lib/format";
+import {
+  cachedDateTimeFormat,
+  localToUtcIso,
+  PLATFORM_TIME_ZONE,
+  wallClockParts,
+  ZONES_BY_STATE,
+  type StateCode,
+} from "@/lib/time-zones";
 import type { SheltuhEvent } from "@/lib/types";
 
 /**
@@ -29,7 +38,10 @@ export interface TrendingItem {
  */
 export type PopularSection = { kind: "popular"; items: TrendingItem[] } | { kind: "coming"; items: SheltuhEvent[] };
 
-/** Australia/Melbourne wall-clock weekend, as UTC instants (ms). */
+/**
+ * A weekend in one zone's wall clock, as UTC instants (ms): the platform's
+ * (Australia/Melbourne) for the heading, or an event's own (weekendWindow).
+ */
 export interface WeekendWindow {
   start: number;
   end: number;
@@ -56,87 +68,74 @@ export interface HomeSections {
   popular: PopularSection | null;
 }
 
-const MELBOURNE_TZ = "Australia/Melbourne";
-const partsFormatter = new Intl.DateTimeFormat("en-US", {
-  timeZone: MELBOURNE_TZ,
-  year: "numeric",
-  month: "numeric",
-  day: "numeric",
-  weekday: "short",
-  hour: "numeric",
-  minute: "numeric",
-  second: "numeric",
-  hourCycle: "h23",
-});
 const WEEKDAY: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 
-interface WallClock {
-  year: number;
-  month: number;
-  day: number;
-  weekday: number;
-  hour: number;
-  minute: number;
-  second: number;
-}
-
-/** `instant`'s Melbourne wall-clock time. */
-function melbourneWallClock(instant: number): WallClock {
-  const parts = Object.fromEntries(partsFormatter.formatToParts(new Date(instant)).map((p) => [p.type, p.value]));
-  return {
-    year: Number(parts.year),
-    month: Number(parts.month),
-    day: Number(parts.day),
-    weekday: WEEKDAY[parts.weekday] ?? 0,
-    hour: Number(parts.hour) % 24,
-    minute: Number(parts.minute),
-    second: Number(parts.second),
-  };
+/** The calendar date `days` after a yyyy-mm-dd (calendar arithmetic, no clock involved). */
+function addDays(dateKey: string, days: number): string {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
 }
 
 /**
- * The UTC instant of a Melbourne wall-clock time, DST-safe: the offset is
- * read at a first guess and re-read at the result, which settles across a
- * change of offset. (The times used here, Fri 17:00 and Sun 23:59, are never
- * in the hour a clock change skips or repeats: those are Sunday 2–3 am.)
+ * The Sunday (yyyy-mm-dd) that ends this weekend in the platform's calendar:
+ * today on a Sunday, otherwise the coming one. From Monday 00:00 it's next
+ * week's.
  */
-function melbourneToUtc(year: number, month: number, day: number, hour: number, minute: number, ms: number): number {
-  const wall = Date.UTC(year, month - 1, day, hour, minute) + ms;
-  // Melbourne's offset from UTC at an instant (whole seconds: the wall clock has no milliseconds).
-  const offsetAt = (instant: number) => {
-    const c = melbourneWallClock(instant);
-    return Date.UTC(c.year, c.month - 1, c.day, c.hour, c.minute, c.second) - Math.floor(instant / 1000) * 1000;
-  };
-  const first = wall - offsetAt(wall);
-  return wall - offsetAt(first);
-}
-
-/** The calendar date `days` after a Melbourne date (calendar arithmetic, no clock involved). */
-function addDays(year: number, month: number, day: number, days: number) {
-  const date = new Date(Date.UTC(year, month - 1, day + days));
-  return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
+function platformSunday(nowMs: number): string {
+  const weekday = WEEKDAY[cachedDateTimeFormat("en-US", { timeZone: PLATFORM_TIME_ZONE, weekday: "short" }).format(nowMs)] ?? 0;
+  return addDays(wallClockParts(new Date(nowMs), PLATFORM_TIME_ZONE).date, weekday === 0 ? 0 : 7 - weekday);
 }
 
 /**
- * "This weekend" in Melbourne (docs/design/home.md §6.3). Monday 00:00 to
- * Friday 16:59:59: this week's Friday 17:00 to Sunday 23:59:59.999. From
- * Friday 17:00 to Sunday night: now until Sunday 23:59:59.999.
+ * The instant `time` ("HH:mm") on `date` shows in `timeZone`, plus `ms`.
+ * DST-safe (localToUtcIso); Fri 17:00 and Sun 23:59 are never in an hour a
+ * clock change skips or repeats in an Australian zone (those are 2–3 am).
  */
-export function weekendWindow(now: Date): WeekendWindow {
+function zonedInstant(date: string, time: string, timeZone: string, ms = 0): number {
+  return Date.parse(localToUtcIso(date, time, timeZone)) + ms;
+}
+
+/**
+ * "This weekend" (docs/design/home.md §6.3) in `timeZone`'s wall clock
+ * (the platform's, Melbourne, by default): the weekend the home's heading
+ * names (Melbourne's dates), from that Friday 17:00 to Sunday 23:59:59.999
+ * local to the zone. Before Friday 17:00 there: not yet `during`. From
+ * then: `during`, starting now. A Perth event's weekend runs to Sunday
+ * midnight in Perth, three hours after Melbourne's in summer.
+ *
+ * The dates are always the platform's, so every zone's window is the same
+ * weekend as the heading: where the zone's Sunday ends before now (Norfolk
+ * Island, an hour ahead, late on a Melbourne Sunday) the window is empty
+ * (`start` after `end`).
+ */
+export function weekendWindow(now: Date, timeZone: string = PLATFORM_TIME_ZONE): WeekendWindow {
   const nowMs = now.getTime();
-  const c = melbourneWallClock(nowMs);
-  const during = c.weekday === 6 || c.weekday === 0 || (c.weekday === 5 && c.hour >= 17);
-  // Days from today to this weekend's Sunday (Sunday itself is the end of the weekend that's on).
-  const toSunday = c.weekday === 0 ? 0 : 7 - c.weekday;
-  const sunday = addDays(c.year, c.month, c.day, toSunday);
-  const end = melbourneToUtc(sunday.year, sunday.month, sunday.day, 23, 59, 59_999);
-  if (during) return { start: nowMs, end, during };
-  const friday = addDays(sunday.year, sunday.month, sunday.day, -2);
-  return { start: melbourneToUtc(friday.year, friday.month, friday.day, 17, 0, 0), end, during };
+  const sunday = platformSunday(nowMs);
+  const end = zonedInstant(sunday, "23:59", timeZone, 59_999);
+  const fridayEvening = zonedInstant(addDays(sunday, -2), "17:00", timeZone);
+  const during = nowMs >= fridayEvening;
+  return { start: during ? nowMs : fridayEvening, end, during };
 }
 
-const dayFormatter = new Intl.DateTimeFormat("en-AU", { timeZone: MELBOURNE_TZ, weekday: "short", day: "numeric" });
-const monthFormatter = new Intl.DateTimeFormat("en-AU", { timeZone: MELBOURNE_TZ, month: "short" });
+/** Every zone an Australian event may use (lib/time-zones.ts ZONES_BY_STATE), once each. */
+const ALL_ZONES: readonly string[] = [...new Set<string>(Object.values(ZONES_BY_STATE).flat())];
+
+/**
+ * The latest end of this weekend in any zone an event may use: the Cocos
+ * (Keeling) Islands' Sunday midnight, 4½ hours after Melbourne's in summer.
+ * Loading events up to it reaches every event's own weekend.
+ */
+export function latestWeekendEnd(now: Date): number {
+  return Math.max(...ALL_ZONES.map((zone) => weekendWindow(now, zone).end));
+}
+
+/** Whether `event` is open at any time during `window`: never for an empty window (its weekend is over there). */
+function openDuring(event: SheltuhEvent, window: WeekendWindow): boolean {
+  return window.start <= window.end && startMs(event) <= window.end && endMs(event) >= window.start;
+}
+
+const dayFormatter = cachedDateTimeFormat("en-AU", { timeZone: PLATFORM_TIME_ZONE, weekday: "short", day: "numeric" });
+const monthFormatter = cachedDateTimeFormat("en-AU", { timeZone: PLATFORM_TIME_ZONE, month: "short" });
 const parts = (instant: number) => {
   const date = new Date(instant);
   const dp = Object.fromEntries(dayFormatter.formatToParts(date).map((p) => [p.type, p.value]));
@@ -164,6 +163,20 @@ const endMs = (event: SheltuhEvent) => Date.parse(event.endsAt ?? event.startsAt
 export const bySoonest = (a: SheltuhEvent, b: SheltuhEvent) => startMs(a) - startMs(b) || a.id.localeCompare(b.id);
 
 /**
+ * `items` with those whose event is in `state` first, each part in its own
+ * order (a stable reorder; an event without a state is Victorian). No state:
+ * `items` as they are. Owner decision D5: the visitor's saved suburb's state
+ * first, worked out in the browser only.
+ */
+export function preferState<T>(items: T[], state: StateCode | null | undefined, eventOf: (item: T) => SheltuhEvent): T[] {
+  if (!state) return items;
+  const inState = (item: T) => (eventOf(item).state ?? "VIC") === state;
+  return [...items.filter(inState), ...items.filter((item) => !inState(item))];
+}
+
+const itself = (event: SheltuhEvent) => event;
+
+/**
  * Splits the home page's events into its sections (docs/design/home.md §6.2,
  * docs/design/mobile-redesign.md §6.3.2). Ended events are dropped first.
  * Sections then claim events in priority order (This weekend, From
@@ -171,12 +184,16 @@ export const bySoonest = (a: SheltuhEvent, b: SheltuhEvent) => startMs(a) - star
  * and a later section never shows an event an earlier one did. A section
  * that's hidden for having too few events claims nothing. `following`: the
  * signed-in member's followed organisers' upcoming events (empty otherwise).
+ * `preferredState`: the state of the visitor's saved suburb, whose events
+ * come first in every section (preferState), before each section takes its
+ * share; absent, Australia-wide soonest first (owner decision D5).
  */
 export function selectHomeSections(
   events: SheltuhEvent[],
   trending: TrendingItem[],
   now: Date,
   following: SheltuhEvent[] = [],
+  preferredState: StateCode | null = null,
 ): HomeSections {
   const nowMs = now.getTime();
   const upcoming = events.filter((event) => isUpcomingEvent(event, now)).sort(bySoonest);
@@ -186,33 +203,51 @@ export function selectHomeSections(
   const unclaimed = (event: SheltuhEvent) => !claimed.has(event.id);
   const claim = (list: SheltuhEvent[]) => list.forEach((event) => claimed.add(event.id));
 
-  // 1. This weekend: anything open during the window (owner decision 5). Events starting inside
-  // it come first, by start; then events already running when it opens (exhibitions), by start.
+  // 1. This weekend: anything open during the window (owner decision 5), each event's in its own
+  // zone (a Perth gig at 11 pm on Sunday is this weekend). Events starting inside it come first, by
+  // start; then events already running when it opens (exhibitions), by start. The heading, and
+  // whether the weekend is on (`during`), are the platform's.
   const window = weekendWindow(now);
-  const overlapping = upcoming.filter((event) => startMs(event) <= window.end && endMs(event) >= window.start);
-  const alreadyRunning = (event: SheltuhEvent) => (startMs(event) < window.start ? 1 : 0);
-  const weekendItems = overlapping
-    .filter(unclaimed)
-    .sort((a, b) => alreadyRunning(a) - alreadyRunning(b) || bySoonest(a, b))
-    .slice(0, SECTION_MAX);
+  const windows = new Map<string, WeekendWindow>([[PLATFORM_TIME_ZONE, window]]);
+  const windowOf = (event: SheltuhEvent): WeekendWindow => {
+    const zone = eventZone(event.timeZone);
+    let zoneWindow = windows.get(zone);
+    if (!zoneWindow) {
+      zoneWindow = weekendWindow(now, zone);
+      windows.set(zone, zoneWindow);
+    }
+    return zoneWindow;
+  };
+  const overlapping = upcoming.filter((event) => openDuring(event, windowOf(event)));
+  const alreadyRunning = (event: SheltuhEvent) => (startMs(event) < windowOf(event).start ? 1 : 0);
+  const weekendItems = preferState(
+    overlapping.filter(unclaimed).sort((a, b) => alreadyRunning(a) - alreadyRunning(b) || bySoonest(a, b)),
+    preferredState,
+    itself,
+  ).slice(0, SECTION_MAX);
   // Nothing on and the weekend has started: hide (Coming up shows what's next). Nothing on yet: say so.
   const weekendStatus = weekendItems.length > 0 ? "cards" : window.during ? "hidden" : "empty";
   claim(weekendItems);
 
   // 1b. From organisers you follow: soonest first, shown with even one event (the member asked for them).
-  const followingItems = following
-    .filter((event) => isUpcomingEvent(event, now) && unclaimed(event))
-    .sort(bySoonest)
-    .filter((event, index, list) => list.findIndex((other) => other.id === event.id) === index)
-    .slice(0, SECTION_MAX);
+  const followingItems = preferState(
+    following
+      .filter((event) => isUpcomingEvent(event, now) && unclaimed(event))
+      .sort(bySoonest)
+      .filter((event, index, list) => list.findIndex((other) => other.id === event.id) === index),
+    preferredState,
+    itself,
+  ).slice(0, SECTION_MAX);
   claim(followingItems);
 
   // 2. Popular right now: trending, in the server's order, with three or more left. Otherwise the
   // same slot is "Coming up": not yet started, soonest first, with two or more.
-  const trendingLeft = trending
-    .filter(({ event }) => isUpcomingEvent(event, now) && unclaimed(event))
-    .slice(0, SECTION_MAX);
-  const comingLeft = notStarted.filter(unclaimed).slice(0, SECTION_MAX);
+  const trendingLeft = preferState(
+    trending.filter(({ event }) => isUpcomingEvent(event, now) && unclaimed(event)),
+    preferredState,
+    (item) => item.event,
+  ).slice(0, SECTION_MAX);
+  const comingLeft = preferState(notStarted.filter(unclaimed), preferredState, itself).slice(0, SECTION_MAX);
   const popular: PopularSection | null =
     trendingLeft.length >= TRENDING_MIN
       ? { kind: "popular", items: trendingLeft }

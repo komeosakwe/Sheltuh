@@ -5,6 +5,9 @@ import EventEditor from "@/components/dashboard/EventEditor";
 import type { EventRecord } from "@/lib/api/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
+// The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
+vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
@@ -67,7 +70,6 @@ describe("EventEditor — field errors are tied to their fields", () => {
     ["description", "Description", "Enter a description."],
     ["venueName", "Venue name", "Enter a venue name."],
     ["venueAddress", "Venue address", "Enter a venue address."],
-    ["suburb", "Suburb", "Enter a suburb."],
   ])("%s: aria-invalid, and described by its error", async (id, label, message) => {
     renderEditor();
     const field = screen.getByLabelText(label);
@@ -79,6 +81,23 @@ describe("EventEditor — field errors are tied to their fields", () => {
     expect(field).toHaveAttribute("aria-describedby", `${id}-error`);
     expect(document.getElementById(`${id}-error`)).toHaveTextContent(message);
     expect(field).toHaveAccessibleDescription(message);
+    expect(updateEventDraft).not.toHaveBeenCalled();
+  });
+
+  it("suburb: aria-invalid, and described by its place line and its error", async () => {
+    renderEditor();
+    const field = screen.getByLabelText("Suburb or town");
+    expect(field).not.toHaveAttribute("aria-invalid");
+    // The saved suburb's place and zone, under the field.
+    expect(field).toHaveAttribute("aria-describedby", "suburb-hint");
+    expect(field).toHaveAccessibleDescription(/^Collingwood, Victoria · Melbourne time \(AEDT\)$/);
+    fireEvent.change(field, { target: { value: "" } });
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(field).toHaveAttribute("aria-invalid", "true"));
+    // No place line for an empty field: only the error describes it.
+    expect(field).toHaveAttribute("aria-describedby", "suburb-error");
+    expect(document.getElementById("suburb-error")).toHaveTextContent("Enter a suburb or town.");
+    expect(field).toHaveAccessibleDescription("Enter a suburb or town.");
     expect(updateEventDraft).not.toHaveBeenCalled();
   });
 

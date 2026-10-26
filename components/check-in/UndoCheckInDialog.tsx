@@ -8,6 +8,7 @@ import { Notice } from "@/components/ui/Section";
 import { ApiError } from "@/lib/api/client";
 import { MAX_UNDO_REASON_LENGTH, MIN_UNDO_REASON_LENGTH } from "@/lib/api/types";
 import { undoAbout, type UndoTarget } from "@/lib/check-in/door-copy";
+import { eventZone } from "@/lib/format";
 import { withNext } from "@/lib/safe-next-path";
 import { doorBusyClass } from "./busy-class";
 
@@ -55,12 +56,15 @@ export default function UndoCheckInDialog({
   returnTo,
   onClose,
   onSubmit,
+  timeZone,
 }: {
   /** The admission to undo (from Recent scans or an Already-checked-in result); null when closed. */
   entry: UndoTarget | null;
   returnTo: string;
   onClose: () => void;
   onSubmit: (entry: UndoTarget, reason: string) => Promise<UndoDialogOutcome>;
+  /** The event's zone, for the check-in's time; absent means Melbourne. */
+  timeZone?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const open = entry !== null;
@@ -86,7 +90,9 @@ export default function UndoCheckInDialog({
       onClose={onClose}
       className="mx-0 mt-auto mb-0 w-full max-w-none border-t border-foreground bg-background p-5 text-foreground backdrop:bg-black/80 sm:m-auto sm:max-w-lg sm:border sm:p-8"
     >
-      {entry && <UndoForm key={entry.checkInId} entry={entry} returnTo={returnTo} onCancel={onClose} onSubmit={onSubmit} />}
+      {entry && (
+        <UndoForm key={entry.checkInId} entry={entry} returnTo={returnTo} onCancel={onClose} onSubmit={onSubmit} timeZone={timeZone} />
+      )}
     </dialog>
   );
 }
@@ -96,11 +102,13 @@ function UndoForm({
   returnTo,
   onCancel,
   onSubmit,
+  timeZone,
 }: {
   entry: UndoTarget;
   returnTo: string;
   onCancel: () => void;
   onSubmit: (entry: UndoTarget, reason: string) => Promise<UndoDialogOutcome>;
+  timeZone?: string;
 }) {
   const [reason, setReason] = useState("");
   const [fieldError, setFieldError] = useState<string | null>(null);
@@ -159,7 +167,7 @@ function UndoForm({
         Undo this check-in?
       </h2>
       <p id="undo-about" className="text-sm">
-        {undoAbout(entry)}. They&rsquo;ll count as not checked in, and the ticket can be scanned again.
+        {undoAbout(entry, eventZone(timeZone))}. They&rsquo;ll count as not checked in, and the ticket can be scanned again.
       </p>
 
       <div className="flex flex-col gap-2">

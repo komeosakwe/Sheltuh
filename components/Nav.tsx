@@ -254,7 +254,7 @@ export default function Nav() {
             For organisers
           </ButtonLink>
           <ThemeSwitch className="mt-8" />
-          <p className="eyebrow mt-auto pt-8 text-muted">Melbourne · Australia</p>
+          <p className="eyebrow mt-auto pt-8 text-muted">Across Australia</p>
         </nav>
       </div>
     </header>

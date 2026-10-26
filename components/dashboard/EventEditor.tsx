@@ -9,6 +9,15 @@ import EventClipField from "@/components/dashboard/EventClipField";
 import EventImageField from "@/components/dashboard/EventImageField";
 import { PayoutsNeededNotice, PayoutsSubmitError, PayoutsSubmitHint } from "@/components/dashboard/PayoutsRequired";
 import RefundPolicyField from "@/components/dashboard/RefundPolicyField";
+import VenueSuburbField, {
+  hasZoneChoice,
+  useVenuePlace,
+  VENUE_SUBURB_ID,
+  VENUE_TIME_ZONE_ID,
+  VenueZoneField,
+  venueZoneName,
+  type VenueResolution,
+} from "@/components/dashboard/VenueSuburbField";
 import SeatingChoiceField, {
   initialSeatingChoice,
   seatMapHref,
@@ -46,7 +55,7 @@ import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import { eventClipsEnabled } from "@/lib/clips-flag";
 import { calculateBookingFeeCents, calculateOrderSummary, describeBookingFee, MIN_PAID_TICKET_CENTS } from "@/lib/fees";
-import { formatAud, toMelbourneDateTimeInputParts } from "@/lib/format";
+import { formatAud, toDateTimeInputParts } from "@/lib/format";
 import {
   DEFAULT_REFUND_POLICY,
   isValidRefundDays,
@@ -55,7 +64,7 @@ import {
   type RefundPolicy,
 } from "@/lib/refund-policy";
 import { checkExternalTicketUrl, sellsPaidTicketsOnSheltuh, type TicketingMode } from "@/lib/ticketing";
-import { localToUtcIso, PLATFORM_TIME_ZONE } from "@/lib/time-zones";
+import { localToUtcIso, PLATFORM_TIME_ZONE, zoneShortLabel } from "@/lib/time-zones";
 import { EVENT_CATEGORIES } from "@/lib/types";
 
 /** A section title in the form (Panel's title style: 20/24, uppercase by the heading base rule, which a legend doesn't get). */
@@ -146,14 +155,17 @@ function errorId(key: string): string {
 }
 
 /**
- * The control to focus for each client-side error, in the form's order: the
- * first one present is focused when a save doesn't validate.
+ * The control to focus for each error (this form's, or the API's
+ * fieldErrors), in the form's order: the first one present is focused when
+ * a save doesn't validate or is refused. A zone error goes to the zone
+ * choice while it's shown (`zoneChoice`), else to the suburb it comes from.
  */
 function invalidControlIds(
   errors: Record<string, string>,
   ticketCount: number,
   start: { date: string },
   end: { date: string },
+  zoneChoice: boolean,
 ): string[] {
   const order: [string, string][] = [
     ["organiserId", "organiserId"],
@@ -161,7 +173,9 @@ function invalidControlIds(
     ["description", "description"],
     ["venueName", "venueName"],
     ["venueAddress", "venueAddress"],
-    ["suburb", "suburb"],
+    ["suburb", VENUE_SUBURB_ID],
+    ["state", VENUE_SUBURB_ID],
+    ["timeZone", zoneChoice ? VENUE_TIME_ZONE_ID : VENUE_SUBURB_ID],
     ["start", start.date ? "start-time" : "start-date"],
     ["end", end.date ? "end-time" : "end-date"],
     ["externalTicketUrl", "externalTicketUrl"],
@@ -174,11 +188,11 @@ function invalidControlIds(
   return order.filter(([key]) => errors[key]).map(([, id]) => id);
 }
 
-/** The event's start as an instant, once both parts are filled in and real (Melbourne time); undefined otherwise. */
-function startInstant(start: { date: string; time: string }): string | undefined {
+/** The event's start as an instant, once both parts are filled in and real (in the event's zone); undefined otherwise. */
+function startInstant(start: { date: string; time: string }, timeZone: string): string | undefined {
   if (!start.date || !start.time) return undefined;
   try {
-    return localToUtcIso(start.date, start.time, PLATFORM_TIME_ZONE);
+    return localToUtcIso(start.date, start.time, timeZone);
   } catch {
     // Not a real local time yet (half-typed, or in the daylight-saving gap): no preview date.
     return undefined;
@@ -204,9 +218,31 @@ export default function EventEditor(props: Props) {
   const [category, setCategory] = useState(initial?.category ?? EVENT_CATEGORIES[0].value);
   const [venueName, setVenueName] = useState(initial?.venueName ?? "");
   const [venueAddress, setVenueAddress] = useState(initial?.venueAddress ?? "");
-  const [suburb, setSuburb] = useState(initial?.suburb ?? "");
-  const [start, setStart] = useState(initial ? toMelbourneDateTimeInputParts(initial.startsAt) : { date: "", time: "" });
-  const [end, setEnd] = useState(initial ? toMelbourneDateTimeInputParts(initial.endsAt) : { date: "", time: "" });
+  // The venue's suburb, and from it the event's state and time zone (owner plan S8), sent together.
+  const venue = useVenuePlace(initial);
+  // The zone the date and time inputs are in: the suburb's (or the zone chosen for it). Until that's
+  // known, the saved event's own, Melbourne for a new one; the inputs keep their wall-clock times
+  // when the place changes.
+  const timeZone = venue.place?.timeZone ?? initial?.timeZone ?? PLATFORM_TIME_ZONE;
+  // "Perth time" (the ACT's "Canberra time"), or "local time" while the suburb isn't known.
+  const zoneName = venueZoneName(venue.place);
+  const zoneChoice = hasZoneChoice(venue.place);
+  const initialZone = initial?.timeZone ?? PLATFORM_TIME_ZONE;
+  const [start, setStart] = useState(initial ? toDateTimeInputParts(initial.startsAt, initialZone) : { date: "", time: "" });
+  const [end, setEnd] = useState(initial ? toDateTimeInputParts(initial.endsAt, initialZone) : { date: "", time: "" });
+  // The times keep their wall-clock values when the place's zone changes, so the instant moves: say
+  // so by them ("Times are now Melbourne time (were Perth time)."). `shownZone`: the last known
+  // place's zone (a saved event's own to start with; none for a new one, whose legends said
+  // "local time"), updated while rendering when the place's zone changes.
+  const [shownZone, setShownZone] = useState<string | null>(
+    initial?.timeZone ? zoneShortLabel(initial.timeZone, initial.state) : null,
+  );
+  const [zoneNote, setZoneNote] = useState("");
+  if (venue.place && zoneName !== shownZone) {
+    setShownZone(zoneName);
+    const timesTyped = Boolean(start.date || start.time || end.date || end.time);
+    setZoneNote(shownZone && timesTyped ? `Times are now ${zoneName} (were ${shownZone}).` : "");
+  }
   const [ticketTypes, setTicketTypes] = useState<TicketTypeInput[]>(
     initial?.ticketTypes && initial.ticketTypes.length > 0 ? initial.ticketTypes : [newTicketType()],
   );
@@ -344,8 +380,23 @@ export default function EventEditor(props: Props) {
       focusRefund.current = saved?.refundPolicy === "days_before" && refundPolicy === "days_before" ? "days" : "choice";
       return;
     }
-    if (err instanceof ApiError && err.fieldErrors) setErrors((prev) => ({ ...prev, ...err.fieldErrors }));
+    if (err instanceof ApiError && err.fieldErrors) {
+      const fieldErrors = err.fieldErrors;
+      setErrors((prev) => ({ ...prev, ...fieldErrors }));
+      // Focus the first field the API refused, as for this form's own errors (its message is read with it).
+      focusInvalidId.current = invalidControlIds(fieldErrors, ticketTypes.length, start, end, zoneChoice)[0] ?? null;
+    }
     setSubmitError(err instanceof Error ? err.message : fallback);
+  }
+
+  /** Fields were edited: their old errors (ours or the server's) no longer apply. */
+  function clearErrors(...keys: string[]) {
+    setErrors((prev) => {
+      if (!keys.some((key) => prev[key])) return prev;
+      const next = { ...prev };
+      for (const key of keys) delete next[key];
+      return next;
+    });
   }
 
   /** A refund field changed: its old error (ours or the server's) no longer applies. */
@@ -372,13 +423,20 @@ export default function EventEditor(props: Props) {
     return refundDays.trim() === "" ? Number.NaN : Number(refundDays);
   }
 
-  function buildInput(): EventInput | null {
+  /**
+   * The form as the API takes it, or null with the errors shown. `place`: the
+   * suburb resolved (useVenuePlace's resolveForSave): a suburb the table
+   * doesn't know, or one that couldn't be checked, is an error by the field,
+   * and nothing is sent; a known one sends its state and zone with it.
+   */
+  function buildInput(place: VenueResolution): EventInput | null {
     const nextErrors: Record<string, string> = {};
     if (!title.trim()) nextErrors.title = "Enter an event title.";
     if (!description.trim()) nextErrors.description = "Enter a description.";
     if (!venueName.trim()) nextErrors.venueName = "Enter a venue name.";
     if (!venueAddress.trim()) nextErrors.venueAddress = "Enter a venue address.";
-    if (!suburb.trim()) nextErrors.suburb = "Enter a suburb.";
+    if (place.kind === "empty") nextErrors.suburb = "Enter a suburb or town.";
+    else if (place.kind === "unknown" || place.kind === "unavailable") nextErrors.suburb = place.message;
     if (!start.date || !start.time) nextErrors.start = "Enter a start date and time.";
     if (!end.date || !end.time) nextErrors.end = "Enter an end date and time.";
     if (isAdmin && !initial && !createdId && !organiser) nextErrors.organiserId = "Choose an organiser.";
@@ -407,7 +465,7 @@ export default function EventEditor(props: Props) {
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) {
       // Focus the first field to fix (its error is read with it), and say how many there are by the buttons.
-      focusInvalidId.current = invalidControlIds(nextErrors, ticketTypes.length, start, end)[0] ?? null;
+      focusInvalidId.current = invalidControlIds(nextErrors, ticketTypes.length, start, end, zoneChoice)[0] ?? null;
       const count = Object.keys(nextErrors).length;
       setStatus(`Not saved: ${count === 1 ? "1 field needs" : `${count} fields need`} fixing. The first one is focused.`);
       return null;
@@ -419,7 +477,9 @@ export default function EventEditor(props: Props) {
       category,
       venueName: venueName.trim(),
       venueAddress: venueAddress.trim(),
-      suburb: suburb.trim(),
+      ...(place.kind === "found"
+        ? { suburb: place.place.name, state: place.place.state, timeZone: place.place.timeZone }
+        : { suburb: venue.suburb.trim() }),
       start,
       end,
       ticketTypes: external ? [] : ticketTypes,
@@ -486,10 +546,14 @@ export default function EventEditor(props: Props) {
     setPayoutsError(null);
     showSessionExpired(false);
     setStatus(null);
-    const input = buildInput();
-    if (input && refuseOtherAccount()) return;
-    // Busy already: the clip's check may still be reading a file just chosen, which the save waits for.
+    // Busy already: the suburb may need checking (the table loading), and the clip's check may
+    // still be reading a file just chosen, which the save waits for.
     setSaving(true);
+    const input = buildInput(await venue.resolveForSave());
+    if (input && refuseOtherAccount()) {
+      setSaving(false);
+      return;
+    }
     const clipReady = await clip.validate();
     if (!input || !clipReady) {
       setSaving(false);
@@ -578,9 +642,12 @@ export default function EventEditor(props: Props) {
     setStatus(null);
     // Submit what's on screen, not the last save: unsaved edits are saved
     // first, and nothing is submitted if they don't validate.
-    const input = buildInput();
-    if (input && refuseOtherAccount()) return;
     setSubmitting(true);
+    const input = buildInput(await venue.resolveForSave());
+    if (input && refuseOtherAccount()) {
+      setSubmitting(false);
+      return;
+    }
     const clipReady = await clip.validate();
     if (!input || !clipReady) {
       setSubmitting(false);
@@ -746,24 +813,27 @@ export default function EventEditor(props: Props) {
           />
           {fieldError("venueAddress")}
         </div>
-        <div className="flex flex-col gap-1 sm:col-span-1">
-          <label htmlFor="suburb" className="eyebrow text-muted">
-            Suburb
-          </label>
-          <input
-            id="suburb"
-            value={suburb}
-            {...invalidProps("suburb")}
-            onChange={(e) => setSuburb(e.target.value)}
-            className={fieldClass}
+        <div className="sm:col-span-1">
+          <VenueSuburbField
+            venue={venue}
+            suburbError={errors.suburb ?? errors.state}
+            timeZoneError={errors.timeZone}
+            startsAt={startInstant(start, timeZone)}
+            // The place (and with it the zone) comes from the suburb: all three errors go with it.
+            onSuburbEdit={() => clearErrors("suburb", "state", "timeZone")}
           />
-          {fieldError("suburb")}
         </div>
+        {zoneChoice && (
+          // A row of its own, so the zones' names have room.
+          <div className="sm:col-span-3">
+            <VenueZoneField venue={venue} timeZoneError={errors.timeZone} onZoneEdit={() => clearErrors("timeZone")} />
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <fieldset className="flex min-w-0 flex-col gap-2">
-          <legend className="eyebrow text-muted">Starts (Melbourne time)</legend>
+          <legend className="eyebrow text-muted">Starts ({zoneName})</legend>
           <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,8rem)] gap-2">
             <input
               id="start-date"
@@ -787,7 +857,7 @@ export default function EventEditor(props: Props) {
           {fieldError("start")}
         </fieldset>
         <fieldset className="flex min-w-0 flex-col gap-2">
-          <legend className="eyebrow text-muted">Ends (Melbourne time)</legend>
+          <legend className="eyebrow text-muted">Ends ({zoneName})</legend>
           <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,8rem)] gap-2">
             <input
               id="end-date"
@@ -811,6 +881,11 @@ export default function EventEditor(props: Props) {
           {fieldError("end")}
         </fieldset>
       </div>
+      {/* Always there (never display:none), so it's announced when its text changes; out of the
+          layout while empty (absolute, so the form's gap doesn't count it). */}
+      <p data-zone-note="" aria-live="polite" className="-mt-3 text-sm text-foreground empty:sr-only">
+        {zoneNote}
+      </p>
 
       <EventImageField
         getToken={getToken}
@@ -1039,7 +1114,8 @@ export default function EventEditor(props: Props) {
           policyError={errors.refundPolicy}
           daysError={errors.refundDays}
           savedTerms={savedRecord ?? initial}
-          startsAt={startInstant(start)}
+          startsAt={startInstant(start, timeZone)}
+          timeZone={timeZone}
           admin={isAdmin}
           checkedRef={refundChoiceRef}
           daysRef={refundDaysRef}

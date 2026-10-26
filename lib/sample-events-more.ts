@@ -1,4 +1,5 @@
 import { assignPoster } from "./live/assign-poster";
+import { localToUtcIso, type AustralianTimeZone, type StateCode } from "./time-zones";
 import type { EventCategory, FeePolicy, SheltuhEvent } from "./types";
 
 /**
@@ -6,8 +7,11 @@ import type { EventCategory, FeePolicy, SheltuhEvent } from "./types";
  * streaming across the screen. Compact seeds are expanded into full
  * SheltuhEvents below. Every venue, organiser and act here is made up.
  *
- * All dates fall in Melbourne daylight time (AEDT, UTC+11), which runs from
- * the first Sunday of October, so a single offset converts them to UTC.
+ * The Melbourne dates fall in Melbourne daylight time (AEDT, UTC+11), which
+ * runs from the first Sunday of October, so a single offset converts them to
+ * UTC. A few are interstate (owner decision D11: Newtown NSW, Fortitude
+ * Valley QLD, Northbridge WA), each in its own state and zone, converted in
+ * that zone.
  */
 
 type TicketSeed = [name: string, priceCents: number, feePolicy?: FeePolicy, quantity?: number];
@@ -20,8 +24,10 @@ interface Seed {
   address: string;
   suburb: string;
   coordinates: [lat: number, lng: number];
-  /** Melbourne wall-clock, "YYYY-MM-DD HH:MM" (24h). */
+  /** Wall-clock in the event's zone (Melbourne's unless `place` says otherwise), "YYYY-MM-DD HH:MM" (24h). */
   start: string;
+  /** An interstate event's state and zone; absent: Victoria, on Melbourne time. */
+  place?: { state: StateCode; timeZone: AustralianTimeZone };
   hours: number;
   organiser: string;
   description: string;
@@ -32,8 +38,9 @@ interface Seed {
 
 const AEDT_OFFSET_HOURS = 11;
 
-function toUtcIso(local: string, addHours = 0): string {
+function toUtcIso(local: string, addHours = 0, timeZone?: AustralianTimeZone): string {
   const [date, time] = local.split(" ");
+  if (timeZone) return new Date(Date.parse(localToUtcIso(date, time, timeZone)) + addHours * 3_600_000).toISOString();
   const [year, month, day] = date.split("-").map(Number);
   const [hour, minute] = time.split(":").map(Number);
   return new Date(Date.UTC(year, month - 1, day, hour - AEDT_OFFSET_HOURS + addHours, minute)).toISOString();
@@ -298,6 +305,54 @@ const SEEDS: Seed[] = [
       "Bring a sketchbook, swap it with a stranger and draw in each other's pages. Materials, snacks and good company provided.",
     tickets: [["Free entry", 0]],
   },
+  {
+    slug: "king-street-fuzz-night",
+    title: "King Street Fuzz Night",
+    category: "live-music",
+    venue: "The Lantern Room",
+    address: "88 King Street, Newtown NSW 2042",
+    suburb: "Newtown",
+    place: { state: "NSW", timeZone: "Australia/Sydney" },
+    coordinates: [-33.8968, 151.1793],
+    start: "2026-11-28 20:00",
+    hours: 4,
+    organiser: "Fuzz Union",
+    description:
+      "Three garage bands, one pedal-board swap meet before doors, and a room that gets louder as the night goes on.",
+    tickets: [["General admission", 2800]],
+  },
+  {
+    slug: "valley-risograph-fair",
+    title: "Valley Risograph Fair",
+    category: "art",
+    venue: "Brunswick Street Print Hall",
+    address: "210 Brunswick Street, Fortitude Valley QLD 4006",
+    suburb: "Fortitude Valley",
+    place: { state: "QLD", timeZone: "Australia/Brisbane" },
+    coordinates: [-27.4571, 153.0349],
+    start: "2026-11-14 11:00",
+    hours: 6,
+    organiser: "Two Colour Press",
+    description:
+      "Zines, posters and small-run prints from Brisbane's risograph studios, with live printing on the hour.",
+    tickets: [["Free entry", 0]],
+  },
+  {
+    slug: "northbridge-late-sketch",
+    title: "Northbridge Late Sketch",
+    category: "workshop",
+    venue: "James Street Studio",
+    address: "40 James Street, Northbridge WA 6003",
+    suburb: "Northbridge",
+    place: { state: "WA", timeZone: "Australia/Perth" },
+    coordinates: [-31.9475, 115.8582],
+    start: "2026-11-21 18:30",
+    hours: 3,
+    organiser: "Westside Drawing Club",
+    description:
+      "Life drawing with a live jazz trio: short poses to warm up, long ones to finish. Paper and charcoal provided.",
+    tickets: [["Drawing place", 3000, "buyer-pays", 30]],
+  },
 ];
 
 export const generatedSampleEvents: SheltuhEvent[] = SEEDS.map((seed) => ({
@@ -307,11 +362,12 @@ export const generatedSampleEvents: SheltuhEvent[] = SEEDS.map((seed) => ({
   description: seed.description,
   category: seed.category,
   suburb: seed.suburb,
+  ...(seed.place ? { state: seed.place.state, timeZone: seed.place.timeZone } : {}),
   venueName: seed.venue,
   venueAddress: seed.address,
   coordinates: { lat: seed.coordinates[0], lng: seed.coordinates[1] },
-  startsAt: toUtcIso(seed.start),
-  endsAt: toUtcIso(seed.start, seed.hours),
+  startsAt: toUtcIso(seed.start, 0, seed.place?.timeZone),
+  endsAt: toUtcIso(seed.start, seed.hours, seed.place?.timeZone),
   organiserName: seed.organiser,
   poster: assignPoster(seed.slug),
   ...(seed.soldOut ? { soldOut: true } : {}),
