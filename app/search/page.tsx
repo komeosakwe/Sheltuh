@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import EventFeed from "@/components/EventFeed";
 import SearchBar from "@/components/SearchBar";
 import { Notice, Page, PageHeader } from "@/components/ui/Section";
-import { didYouMean, findLocality, parseNearParam } from "@/lib/location";
+import { parseNearParam } from "@/lib/near-storage";
 import { placeName } from "@/lib/place";
 
 export const metadata: Metadata = { title: "Search — Sheltüh" };
@@ -39,8 +39,11 @@ export default async function SearchPage({
   // The bar leaves an empty `near` out of the address, once its script has run. A search sent
   // before that (or without JS) still carries `near=`: drop it, so the address stays /search?q=….
   if (nearParam !== undefined && !near) redirect(searchHref(query));
-  const place = near ? findLocality(near) : null;
-  const suggestion = near && !place ? didYouMean(near) : null;
+  // The suburb table (lib/location.ts) decodes every locality when it loads,
+  // so it's only loaded for a search that has a `near` to resolve.
+  const location = near ? await import("@/lib/location") : null;
+  const place = location && near ? location.findLocality(near) : null;
+  const suggestion = location && near && !place ? location.didYouMean(near) : null;
 
   const title = place
     ? query
