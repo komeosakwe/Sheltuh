@@ -43,6 +43,9 @@ export const metadata: Metadata = {
   // Home-screen app on iOS (the manifest is app/manifest.ts). "default" keeps
   // dark status-bar text over the white header; see docs/pwa.md.
   appleWebApp: { title: "Sheltüh", statusBarStyle: "default" },
+  // Site ownership check for Ticketmaster's affiliate programme (run on impact.com):
+  // a public token, safe in the page.
+  other: { "impact-site-verification": "95a574c6-fd1e-4531-b8e2-4b86a313eba5" },
 };
 
 // viewport-fit=cover hands the notch and home-indicator areas to the page, so
