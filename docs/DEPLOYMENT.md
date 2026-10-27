@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261111000400_submit_event_location_in_app.sql`. Never
+      newest, currently `20261111000600_pin_search_path.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -226,6 +226,12 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           refusal: this app's `/submit` handler checks the pin itself, with
           the same 409, so the previous app's `/submit` works whatever is
           applied. Needs file 34. No table, column or data change)
+      39. `20261111000600_pin_search_path.sql` (pins `search_path` on
+          `public.set_updated_at`, `private.update_event_draft` and
+          `private.transition_event`, clearing Supabase's Security Advisor
+          "Function Search Path Mutable" warnings. No behaviour change: the
+          bodies already name everything by schema. Safe to apply at any
+          time, before or after any deploy)
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of

@@ -145,6 +145,13 @@ select version, file, coalesce(applied, false) as applied
       exists (select 1 from fn where proname = 'record_payment_refund' and prosrc like '%refund_no_inference%')
       and exists (select 1 from fn where proname = 'fulfil_order_detailed' and prosrc like '%refund_no_inference%')),
     ('20261111000400', 'submit_event_location_in_app',
-      exists (select 1 from fn where proname = 'submit_event' and prosrc like '%submit_location_in_app%'))
+      exists (select 1 from fn where proname = 'submit_event' and prosrc like '%submit_location_in_app%')),
+    ('20261111000600', 'pin_search_path',
+      exists (select 1 from pg_proc p
+               where p.oid = to_regprocedure('public.set_updated_at()')
+                 and 'search_path=""' = any (coalesce(p.proconfig, '{}')))
+      and exists (select 1 from pg_proc p
+                   where p.pronamespace = to_regnamespace('private') and p.proname = 'transition_event'
+                     and 'search_path=""' = any (coalesce(p.proconfig, '{}'))))
   ) as m(version, file, applied)
  order by version;
