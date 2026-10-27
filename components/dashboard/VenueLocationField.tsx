@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import VenuePinMap, { roundPin } from "@/components/dashboard/VenuePinMap";
-import VenuePlaceSearch, { type PickedPlace } from "@/components/dashboard/VenuePlaceSearch";
+import { useEffect, useRef, useState } from "react";
+import VenuePinMap, { MOVE_PIN_FIRST, PIN_ZOOM_STREET, roundPin } from "@/components/dashboard/VenuePinMap";
+import VenuePlaceSearch, { VENUE_PLACE_SEARCH_ID, type PickedPlace } from "@/components/dashboard/VenuePlaceSearch";
 import { Button } from "@/components/ui/Button";
 import { useIsPhone } from "@/components/ui/useIsPhone";
 import type { GetToken } from "@/lib/api/client";
@@ -22,11 +22,23 @@ import type { Coordinates } from "@/lib/types";
  * The pin belongs to the suburb it was confirmed for: when the suburb
  * changes to another place, the map starts again at that suburb's centre and
  * the pin needs confirming again (back to the first suburb, the pin is back).
+ *
+ * "Change" (or "Find it on Google Maps instead") opens the search without
+ * losing anything: until another place is picked, what was there is kept,
+ * saved as it was, and "Keep …" goes back to it.
+ *
+ * Each switch moves focus to what replaced the control that was used (WCAG
+ * 2.4.3): a place picked, or kept, to "Linked to Google Maps"; Change to the
+ * search; a pin alone to "Check the pin".
  */
 
 /** The venue section's id: focused when the location is what stops a publish (or the API refused it). */
 export const VENUE_LOCATION_ID = "venue-location";
 export const VENUE_LOCATION_ERROR_ID = "location-error";
+/** "Linked to Google Maps: …": focused once a place is picked (or kept). */
+export const VENUE_LINKED_ID = "venue-linked-place";
+/** "Check the pin": focused when it's the pin alone. */
+export const VENUE_PIN_HEADING_ID = "venue-pin-heading";
 
 export type VenueLocationMode = "search" | "places" | "manual";
 
@@ -50,6 +62,12 @@ interface LocationState {
   moved: { mapKey: string; pin: Coordinates } | null;
   /** Places picked so far: each pick starts the map again. */
   picks: number;
+  /**
+   * In search mode after Change (or "Find it on Google Maps instead"): the
+   * place or pin there was. It's what's saved until another place is picked,
+   * and Keep goes back to it.
+   */
+  kept: { mode: "places" | "manual"; linked: { placeId: string; label: string } | null } | null;
 }
 
 export interface VenueLocationInitial {
@@ -71,10 +89,11 @@ function initialState(initial: VenueLocationInitial | undefined): LocationState 
       pin,
       moved: null,
       picks: 0,
+      kept: null,
     };
   }
-  if (location?.source === "manual_pin") return { mode: "manual", linked: null, note: null, pin, moved: null, picks: 0 };
-  return { mode: "search", linked: null, note: null, pin, moved: null, picks: 0 };
+  if (location?.source === "manual_pin") return { mode: "manual", linked: null, note: null, pin, moved: null, picks: 0, kept: null };
+  return { mode: "search", linked: null, note: null, pin, moved: null, picks: 0, kept: null };
 }
 
 function samePin(a: Coordinates | null | undefined, b: Coordinates | null | undefined): boolean {
@@ -104,6 +123,20 @@ export function locationChange(
   return next;
 }
 
+/** What's on screen as the API takes it: a linked place (with the pin, once confirmed), or a confirmed pin alone. */
+function inputFor(
+  mode: VenueLocationMode,
+  linked: LocationState["linked"],
+  pin: Coordinates | null,
+): VenueLocationInput | null {
+  if (mode === "places" && linked) return { source: "places", placeId: linked.placeId, ...(pin ? { pin } : {}) };
+  if (mode === "manual" && pin) return { source: "manual_pin", pin };
+  return null;
+}
+
+/** Where focus goes after a switch, once it's on screen (an element id). */
+type FocusTarget = typeof VENUE_LINKED_ID | typeof VENUE_PLACE_SEARCH_ID | typeof VENUE_PIN_HEADING_ID;
+
 /**
  * The venue location's state for the editor. `placeKey`: the suburb's place
  * now (venuePlaceKey), null while it isn't known; the pin counts only for
@@ -114,35 +147,77 @@ export function useVenueLocation(initial: VenueLocationInitial | undefined, plac
   const pin = state.pin && placeKey !== null && state.pin.at === placeKey ? state.pin.pin : null;
   const mapKey = `${placeKey ?? ""}|${state.picks}`;
   const movedPin = state.moved && state.moved.mapKey === mapKey ? state.moved.pin : null;
+  // Set by a switch; focused once the new control is rendered.
+  const focusNext = useRef<FocusTarget | null>(null);
 
-  let input: VenueLocationInput | null = null;
-  if (state.mode === "places" && state.linked) {
-    input = { source: "places", placeId: state.linked.placeId, ...(pin ? { pin } : {}) };
-  } else if (state.mode === "manual" && pin) {
-    input = { source: "manual_pin", pin };
-  }
+  useEffect(() => {
+    if (!focusNext.current) return;
+    const element = document.getElementById(focusNext.current);
+    if (!element) return; // Not rendered yet.
+    focusNext.current = null;
+    element.focus();
+  });
+
+  // While searching after Change, what was there is still what's saved.
+  const input =
+    state.mode === "search"
+      ? state.kept
+        ? inputFor(state.kept.mode, state.kept.linked, pin)
+        : null
+      : inputFor(state.mode, state.linked, pin);
 
   return {
     mode: state.mode,
     linked: state.linked,
     note: state.note,
+    /** In search mode after Change: the place (or pin) Keep goes back to, else null. */
+    kept: state.kept,
     /** The confirmed pin for the suburb on screen, or null. */
     pin,
     mapKey,
     movedPin,
-    /** What's on screen as the API takes it (before comparing it with what's saved: locationChange). */
+    /** What's to be saved, as the API takes it (before comparing it with what's saved: locationChange). */
     input,
+    /** A pin will be saved with the event (or stays saved): what publishing needs. */
+    hasPin: Boolean(input?.pin),
     /** A Google place was picked: linked, and the pin starts again. */
     link(placeId: string, label: string) {
-      setState((s) => ({ ...s, mode: "places", linked: { placeId, label }, note: null, pin: null, moved: null, picks: s.picks + 1 }));
+      focusNext.current = VENUE_LINKED_ID;
+      setState((s) => ({
+        ...s,
+        mode: "places",
+        linked: { placeId, label },
+        note: null,
+        pin: null,
+        moved: null,
+        picks: s.picks + 1,
+        kept: null,
+      }));
     },
-    /** "Change": back to the search (nothing linked until a place is picked). */
+    /** "Change": back to the search. What was there is kept (and saved) until a place is picked. */
     change() {
-      setState((s) => ({ ...s, mode: "search", linked: null, note: null }));
+      focusNext.current = VENUE_PLACE_SEARCH_ID;
+      setState((s) => ({
+        ...s,
+        mode: "search",
+        linked: null,
+        note: null,
+        kept: s.mode === "search" ? s.kept : { mode: s.mode, linked: s.linked },
+      }));
     },
-    /** A pin alone: chosen, or because Google can't be asked (`note` says so). */
-    manual(note: string | null) {
-      setState((s) => ({ ...s, mode: "manual", linked: null, note }));
+    /** "Keep …": back to the place (or pin) there was before Change. */
+    keep() {
+      if (!state.kept) return;
+      focusNext.current = state.kept.mode === "places" ? VENUE_LINKED_ID : VENUE_PIN_HEADING_ID;
+      setState((s) => (s.kept ? { ...s, mode: s.kept.mode, linked: s.kept.linked, note: null, kept: null } : s));
+    },
+    /**
+     * A pin alone: chosen, or because Google can't be asked (`note` says so).
+     * `focus`: the organiser was in the search, which is gone: on to Check the pin.
+     */
+    manual(note: string | null, focus = false) {
+      if (focus) focusNext.current = VENUE_PIN_HEADING_ID;
+      setState((s) => ({ ...s, mode: "manual", linked: null, note, kept: null }));
     },
     /** The confirmed pin (Done on a phone, "This is the right spot" inline). */
     confirm(next: Coordinates) {
@@ -173,29 +248,66 @@ interface VenuePlaceLinkProps {
 }
 
 /**
- * The top of the venue section: the search; or "Linked to Google Maps: …"
- * with a link to check it and Change; or, in manual mode, why and the way
- * back to the search.
+ * The top of the venue section: the search (with "Keep …" after Change); or
+ * "Linked to Google Maps: …" with a link to check it and Change; or, in
+ * manual mode, why and the way back to the search.
  */
-export function VenuePlaceLink({ location, getToken, onPicked, venueName, venueAddress, suburb, error }: VenuePlaceLinkProps) {
+export function VenuePlaceLink(props: VenuePlaceLinkProps) {
+  const { location } = props;
+  const note =
+    location.mode === "manual"
+      ? (location.note ?? "Not on Google Maps: put the pin on the venue below, and type its address.")
+      : "";
+  return (
+    <div className="flex flex-col gap-1">
+      {/* Always rendered, so the switch to a pin alone is said (Google unavailable: the search is gone). */}
+      <p aria-live="polite" className="text-sm text-foreground empty:sr-only">
+        {note}
+      </p>
+      <VenuePlaceLinkBody {...props} />
+    </div>
+  );
+}
+
+function VenuePlaceLinkBody({ location, getToken, onPicked, venueName, venueAddress, suburb, error }: VenuePlaceLinkProps) {
   const errorId = error ? VENUE_LOCATION_ERROR_ID : undefined;
   if (location.mode === "search") {
+    const kept = location.kept;
     return (
-      <VenuePlaceSearch
-        getToken={getToken}
-        onPick={onPicked}
-        onManual={(why) => location.manual(why === "unavailable" ? PLACES_UNAVAILABLE_NOTE : null)}
-        error={error}
-        errorId={errorId}
-      />
+      <>
+        <VenuePlaceSearch
+          getToken={getToken}
+          onPick={onPicked}
+          onManual={(why) => location.manual(why === "unavailable" ? PLACES_UNAVAILABLE_NOTE : null, true)}
+          error={error}
+          errorId={errorId}
+        />
+        {kept && (
+          <button
+            type="button"
+            onClick={location.keep}
+            className="inline-flex min-h-11 items-center self-start text-left text-sm font-semibold break-words underline underline-offset-4 sm:min-h-6"
+          >
+            {kept.mode === "places" && kept.linked ? `Keep ${kept.linked.label}` : "Keep the pin you dropped"}
+          </button>
+        )}
+      </>
     );
   }
   if (location.mode === "places" && location.linked) {
     const { label, placeId } = location.linked;
     const href = googlePlaceHref({ venueName, venueAddress, suburb, venuePlaceId: placeId });
+    const labelId = `${VENUE_LINKED_ID}-label`;
     return (
-      <div className="flex flex-col gap-1 bg-surface p-3 text-sm text-foreground" data-linked-place={placeId}>
-        <p className="break-words">
+      <div
+        id={VENUE_LINKED_ID}
+        tabIndex={-1}
+        role="group"
+        aria-labelledby={labelId}
+        className="flex flex-col gap-1 bg-surface p-3 text-sm text-foreground outline-offset-2"
+        data-linked-place={placeId}
+      >
+        <p id={labelId} className="break-words">
           <span className="font-semibold">Linked to Google Maps:</span> {label}
         </p>
         <div className="flex flex-wrap items-center gap-x-4">
@@ -204,7 +316,7 @@ export function VenuePlaceLink({ location, getToken, onPicked, venueName, venueA
               href={href}
               target="_blank"
               rel="noopener noreferrer"
-              aria-label={`Check ${label} on Google Maps (opens in a new tab)`}
+              aria-label={`Check on Google Maps: ${label} (opens in a new tab)`}
               className="inline-flex min-h-11 items-center underline underline-offset-4 sm:min-h-6"
             >
               Check on Google Maps<span aria-hidden="true">&nbsp;↗</span>
@@ -227,12 +339,12 @@ export function VenuePlaceLink({ location, getToken, onPicked, venueName, venueA
       </div>
     );
   }
-  // Manual: the pin alone.
+  // Manual: the pin alone (the note above says why).
   // After a 503, searching again would only fail again: until the page is reloaded, it's the pin.
   const canSearch = location.note !== PLACES_UNAVAILABLE_NOTE;
+  if (!canSearch && !error) return null;
   return (
     <div className="flex flex-col gap-1 text-sm text-foreground" data-manual-location="">
-      <p>{location.note ?? "Not on Google Maps: put the pin on the venue below, and type its address."}</p>
       {canSearch && (
         <button
           type="button"
@@ -255,8 +367,10 @@ interface VenuePinStepProps {
   location: VenueLocationState;
   /** The suburb's centre from the ABS table (the map starts there without a pin); null while unknown. */
   suburbCentre: Coordinates | null;
-  /** The suburb is known, and its centre is being looked up (the suburb table loading). */
+  /** A suburb is typed, and the suburb table is loading (its centre is about to be known). */
   waiting: boolean;
+  /** Something is typed in the suburb field (without a centre, it isn't one the table knows). */
+  suburbTyped: boolean;
   /** "Fitzroy, VIC", for the phone dialog's heading. */
   suburbLabel: string;
   /** Something changed the location: its old error no longer applies. */
@@ -268,25 +382,39 @@ interface VenuePinStepProps {
  * suburb's centre. Inline, the pin counts once "This is the right spot" is
  * pressed, and moving the map after that moves it. On phones, Done in the
  * map's dialog confirms it.
+ *
+ * From the suburb's centre, the map has to be moved (or zoomed in to street
+ * level) before the pin can be confirmed: the centre is rarely the venue. A
+ * confirmed pin can be confirmed again as it is.
  */
-export function VenuePinStep({ location, suburbCentre, waiting, suburbLabel, onEdit }: VenuePinStepProps) {
+export function VenuePinStep({ location, suburbCentre, waiting, suburbTyped, suburbLabel, onEdit }: VenuePinStepProps) {
   // As VenuePinMap decides: on a phone the map is a dialog whose Done confirms; otherwise it's inline.
   const phone = useIsPhone();
   const statusId = "venue-pin-status";
   const confirmed = location.pin !== null;
   const start = location.pin ?? suburbCentre;
+  // The inline map (by its key) zoomed in to street level, and "This is the right spot" pressed too soon.
+  const [streetLevel, setStreetLevel] = useState<string | null>(null);
+  const [nudged, setNudged] = useState<string | null>(null);
+  const placed = confirmed || location.movedPin !== null || streetLevel === location.mapKey;
+  const nudge = nudged === location.mapKey && !placed;
 
   let status: string;
   if (!start && waiting) status = "Loading the map…";
+  else if (!start && suburbTyped) status = "Check the venue’s suburb or town above: the map starts there.";
   else if (!start) status = "Enter the venue’s suburb or town first: the map starts there.";
   else if (confirmed) status = phone ? "Pin confirmed." : "Pin confirmed. Moving the map moves the pin.";
+  else if (nudge) status = MOVE_PIN_FIRST;
   else if (phone) status = "Not checked yet: select Check the pin, put the pin on the venue, then select Done.";
   else status = "Not confirmed yet: move the map until the pin is on the venue, then select This is the right spot.";
 
   return (
     <div className="flex flex-col gap-2" data-pin-step="" data-pin-confirmed={String(confirmed)}>
-      <h3 className="eyebrow text-muted">Check the pin</h3>
-      <p id={statusId} aria-live="polite" className={`text-sm ${confirmed ? "text-foreground" : "text-muted"}`}>
+      <h3 id={VENUE_PIN_HEADING_ID} tabIndex={-1} className="eyebrow text-muted outline-offset-2">
+        Check the pin
+      </h3>
+      <p className="text-sm text-muted">This pin is shown publicly on your event page and map.</p>
+      <p id={statusId} aria-live="polite" className={`text-sm ${nudge ? "text-danger" : confirmed ? "text-foreground" : "text-muted"}`}>
         {confirmed && <span aria-hidden="true">✓ </span>}
         {status}
       </p>
@@ -301,12 +429,19 @@ export function VenuePinStep({ location, suburbCentre, waiting, suburbLabel, onE
             else location.move(pin);
             onEdit();
           }}
+          onZoom={(zoom) => {
+            if (zoom >= PIN_ZOOM_STREET) setStreetLevel(location.mapKey);
+          }}
         />
       )}
       {start && !phone && (
         <Button
           variant={confirmed ? "outline" : "solid"}
           onClick={() => {
+            if (!placed) {
+              setNudged(location.mapKey);
+              return;
+            }
             location.confirm(location.movedPin ?? roundPin(clampToAustralia(start)));
             onEdit();
           }}

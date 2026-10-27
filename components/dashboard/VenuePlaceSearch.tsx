@@ -46,6 +46,19 @@ function isAbort(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
 }
 
+/**
+ * A new session token, or null where the browser can't make one
+ * (crypto.randomUUID is only there in a secure context: a plain-HTTP dev
+ * address has none). Without one there's no search: the pin instead.
+ */
+function sessionToken(): string | null {
+  try {
+    return newPlacesSessionToken();
+  } catch {
+    return null;
+  }
+}
+
 function errorText(err: unknown): string {
   return err instanceof Error && err.message ? err.message : "Something went wrong.";
 }
@@ -98,9 +111,13 @@ export default function VenuePlaceSearch({ getToken, onPick, onManual, error, er
         latest.current.onManual("unavailable");
         return;
       }
+      session.current ??= sessionToken();
+      if (!session.current) {
+        latest.current.onManual("unavailable");
+        return;
+      }
       const controller = new AbortController();
       searchAbort.current = controller;
-      session.current ??= newPlacesSessionToken();
       setSearching(true);
       autocompletePlaces(text, session.current, latest.current.getToken, controller.signal)
         .then((response) => {
@@ -146,9 +163,13 @@ export default function VenuePlaceSearch({ getToken, onPick, onManual, error, er
     if (fetchingPlace) return;
     searchAbort.current?.abort();
     detailsAbort.current?.abort();
+    const token = session.current ?? sessionToken();
+    if (!token) {
+      onManual("unavailable");
+      return;
+    }
     const controller = new AbortController();
     detailsAbort.current = controller;
-    const token = session.current ?? newPlacesSessionToken();
     // The details request ends this session: the next search is a new one.
     session.current = null;
     setOpen(false);

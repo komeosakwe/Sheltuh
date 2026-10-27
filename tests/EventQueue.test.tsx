@@ -745,6 +745,34 @@ describe("EventQueue — Recently published (organisers publish without review)"
     ).toHaveAttribute("role", "status");
   });
 
+  it("Unpublish can also turn on review of the organiser's next events (reviewFuture)", async () => {
+    nav.set("status=published");
+    vi.mocked(adminListEvents).mockResolvedValue({ items: [SELF] });
+    vi.mocked(adminUnpublishEvent).mockResolvedValue({ ...SELF, status: "draft" });
+    renderQueue();
+    fireEvent.click(await screen.findByRole("button", { name: "Unpublish Neon Static…" }));
+    const box = screen.getByRole("checkbox", { name: "Also review this organiser’s next events" });
+    expect(box).not.toBeChecked();
+    fireEvent.click(box);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Yes, unpublish" }));
+    });
+    expect(adminUnpublishEvent).toHaveBeenCalledWith("evt-1", expect.any(Function), undefined, { reviewFuture: true });
+    expect(
+      screen.getByText(
+        "Unpublished Neon Static. It’s off the site and back with the organiser as a draft. Their next events come to you for review.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("a Sheltüh-run organiser's event has no next-events review to turn on", async () => {
+    nav.set("status=published");
+    vi.mocked(adminListEvents).mockResolvedValue({ items: [{ ...SELF, organiserPlatformManaged: true }] });
+    renderQueue();
+    fireEvent.click(await screen.findByRole("button", { name: "Unpublish Neon Static…" }));
+    expect(screen.queryByRole("checkbox", { name: /next events/ })).toBeNull();
+  });
+
   it("without a note it unpublishes as before; a note over 500 characters is refused here", async () => {
     nav.set("status=published");
     vi.mocked(adminListEvents).mockResolvedValue({ items: [SELF] });

@@ -2,7 +2,14 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VenuePinMapLeafletProps } from "@/components/dashboard/VenuePinMapLeaflet";
-import VenuePinMap, { PAN_STEP_PX, PIN_MAX_ZOOM, PIN_ZOOM_EXACT, PIN_ZOOM_SUBURB } from "@/components/dashboard/VenuePinMap";
+import VenuePinMap, {
+  MOVE_PIN_FIRST,
+  PAN_STEP_PX,
+  PIN_MAX_ZOOM,
+  PIN_ZOOM_EXACT,
+  PIN_ZOOM_STREET,
+  PIN_ZOOM_SUBURB,
+} from "@/components/dashboard/VenuePinMap";
 import { PHONE_QUERY } from "@/components/ui/useIsPhone";
 import { AUSTRALIA_BOUNDS, panByPixels } from "@/lib/geo";
 import type { Coordinates } from "@/lib/types";
@@ -97,6 +104,8 @@ describe("VenuePinMap inline (from sm)", () => {
     expect(screen.getByText(/Move the map until the pin is on the venue’s entrance/)).toBeVisible();
     // About 320px tall, framed.
     expect(map.parentElement).toHaveClass("h-80");
+    // Framed, with room around it: the global focus ring, outside.
+    expect(map).not.toHaveClass("-outline-offset-4");
     const stub = await leaflet();
     expect(at(stub)).toEqual({ ...FITZROY, zoom: PIN_ZOOM_SUBURB });
     // Inline, the wheel scrolls the page.
@@ -140,7 +149,8 @@ describe("VenuePinMap inline (from sm)", () => {
   });
 
   it("+ and − (keys and buttons) zoom without moving the pin, and stop at the limits", async () => {
-    const { onChange } = renderPicker({ initialCentre: FITZROY, pinned: true });
+    const onZoom = vi.fn();
+    const { onChange } = renderPicker({ initialCentre: FITZROY, pinned: true, onZoom });
     await leaflet();
     const map = mapBox();
     const zoomIn = screen.getByRole("button", { name: "Zoom in" });
@@ -159,8 +169,9 @@ describe("VenuePinMap inline (from sm)", () => {
     fireEvent.keyDown(map, { key: "=" });
     expect(map).toHaveAttribute("data-zoom", String(PIN_MAX_ZOOM - 1));
     expect(Number((await leaflet()).dataset.zoom)).toBe(PIN_MAX_ZOOM - 1);
-    // Zoom alone isn't a new pin.
+    // Zoom alone isn't a new pin, but it's reported (street level counts as having looked).
     expect(onChange).not.toHaveBeenCalled();
+    expect(onZoom).toHaveBeenLastCalledWith(PIN_MAX_ZOOM - 1);
 
     for (let i = 0; i < 20; i++) fireEvent.click(zoomOut);
     expect(map).toHaveAttribute("data-zoom", "5");
@@ -296,11 +307,39 @@ describe("VenuePinMap on phones: a full-screen dialog", () => {
     expect(Number((await screen.findByTestId("leaflet")).dataset.lng)).toBeCloseTo(east.lng, 9);
   });
 
-  it("Done without moving the map confirms the pin where it is", () => {
+  it("from the suburb's centre, Done needs the map moved first (or zoomed in to street level)", async () => {
     const { onChange } = renderPicker();
+    fireEvent.click(screen.getByRole("button", { name: "Check the pin" }));
+    const dialog = screen.getByRole("dialog");
+    const done = within(dialog).getByRole("button", { name: "Done" });
+    fireEvent.click(done);
+    // Still open, saying why (read with Done too), and nothing confirmed.
+    expect(onChange).not.toHaveBeenCalled();
+    expect(dialog).toHaveAttribute("open");
+    expect(within(dialog).getByText(MOVE_PIN_FIRST)).toHaveAttribute("aria-live", "polite");
+    expect(done).toHaveAccessibleDescription(MOVE_PIN_FIRST);
+
+    // Zoomed in to street level, the pin is where they looked: Done takes it as it is.
+    await within(dialog).findByTestId("leaflet");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zoom in" }));
+    expect(PIN_ZOOM_SUBURB + 1).toBeGreaterThanOrEqual(PIN_ZOOM_STREET);
+    expect(within(dialog).queryByText(MOVE_PIN_FIRST)).toBeNull();
+    fireEvent.click(done);
+    expect(onChange).toHaveBeenCalledWith(FITZROY);
+  });
+
+  it("a confirmed pin is confirmed again with Done, unmoved", () => {
+    const { onChange } = renderPicker({ pinned: true });
     fireEvent.click(screen.getByRole("button", { name: "Check the pin" }));
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(onChange).toHaveBeenCalledWith(FITZROY);
+  });
+
+  it("the map's focus ring is drawn inside it, edge to edge in the dialog", async () => {
+    renderPicker();
+    fireEvent.click(screen.getByRole("button", { name: "Check the pin" }));
+    await screen.findByTestId("leaflet");
+    expect(screen.getByRole("application", { name: "Venue pin" })).toHaveClass("-outline-offset-4");
   });
 
   it("Cancel (and Escape) close without saving, and the pin stays as it was", async () => {
@@ -327,7 +366,7 @@ describe("VenuePinMap on phones: a full-screen dialog", () => {
   });
 
   it("if the browser closes the dialog itself, that's a Cancel, and the button opens it again", async () => {
-    const { onChange, onCancel } = renderPicker();
+    const { onChange, onCancel } = renderPicker({ pinned: true });
     const open = screen.getByRole("button", { name: "Check the pin" });
     fireEvent.click(open);
     const dialog = screen.getByRole("dialog");

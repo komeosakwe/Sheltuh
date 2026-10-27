@@ -26,8 +26,8 @@ async function shot(page: Page, name: string) {
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true });
 }
 
-/** Signed in as mia@example.com (email and Google), an organiser, with a profile; PATCHes are recorded. */
-async function signedIn(page: Page) {
+/** Signed in as mia@example.com (email and Google), an organiser (unless `organiser: false`), with a profile; PATCHes are recorded. */
+async function signedIn(page: Page, { organiser = true }: { organiser?: boolean } = {}) {
   const now = Date.now();
   const session = {
     access_token: "e2e.token.x",
@@ -58,6 +58,9 @@ async function signedIn(page: Page) {
       return route.fulfill({ json: { ...PROFILE, ...body } });
     }
     if (path === "/api/profiles/me") return route.fulfill({ json: PROFILE });
+    if (path === "/api/organisers/me" && !organiser) {
+      return route.fulfill({ status: 404, json: { error: "No organiser application." } });
+    }
     if (path === "/api/organisers/me") {
       return route.fulfill({
         json: {
@@ -78,6 +81,21 @@ async function signedIn(page: Page) {
   });
   return patches;
 }
+
+test.describe("/account for a member who isn't an organiser, at 320px", () => {
+  test.use({ viewport: { width: 320, height: 640 } });
+
+  test("Organise events is the way to apply, in place of Your events", async ({ page }) => {
+    await signedIn(page, { organiser: false });
+    await page.goto("/account");
+    const links = page.getByRole("navigation", { name: "Your account" });
+    await expect(links.getByRole("link", { name: "Organise events" })).toHaveAttribute("href", "/organisers/apply", {
+      timeout: 60_000,
+    });
+    await expect(links.getByRole("link")).toHaveText(["Organise events", "Organisers you follow", "Messages", "Blocked members"]);
+    await noSidewaysScroll(page);
+  });
+});
 
 async function noSidewaysScroll(page: Page) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

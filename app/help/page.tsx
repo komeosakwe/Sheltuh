@@ -49,6 +49,13 @@ export default function HelpPage() {
           Stripe account for payouts.
         </p>
       </ContentSection>
+      <ContentSection title="How do I report an event?">
+        <p>
+          Select Report this event at the bottom of its page, or email{" "}
+          <a href="mailto:support@sheltuh.com.au">support@sheltuh.com.au</a> with the event’s name
+          or link and what’s wrong.
+        </p>
+      </ContentSection>
       <ContentSection title="Still stuck?">
         <p>
           Email <a href="mailto:support@sheltuh.com.au">support@sheltuh.com.au</a>.

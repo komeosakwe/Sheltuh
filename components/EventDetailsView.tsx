@@ -20,13 +20,15 @@ import { Panel } from "@/components/ui/Section";
 import WhosGoing from "@/components/WhosGoing";
 import { WhosGoingProvider } from "@/components/whos-going/WhosGoingProvider";
 import WhosGoingSummaryLink from "@/components/whos-going/WhosGoingSummaryLink";
-import { isSafeTicketUrl } from "@/lib/event-url";
+import { SUPPORT_EMAIL } from "@/lib/contact";
+import { isSafeTicketUrl, reportEventHref } from "@/lib/event-url";
 import { eventZone, formatEventDateShort, formatEventDateTimeRange, formatEventTime, formatTimeZoneLabel, zoneSuffix } from "@/lib/format";
 import { directionsHref } from "@/lib/maps";
 import { externalProviderLabel, formatFeedPriceParts, isSoldOut } from "@/lib/pricing";
 import { goesToSeatPage, quickBuyLabel } from "@/lib/quick-buy";
 import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { organiserProfileHref } from "@/lib/sample-organisers";
+import { siteOrigin } from "@/lib/share-metadata";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 
 /** One fact under the title: a 20px icon (with the fact's name for screen readers), then the fact. */
@@ -381,6 +383,17 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                 <p className="mt-4 text-xs text-muted">As provided by the organiser.</p>
               </Panel>
             )}
+
+            {/* Events go live without a check first: anyone can tell Sheltüh about one (by email, for now). */}
+            <p className="text-sm text-muted">
+              Something wrong with this event?{" "}
+              <a
+                href={reportEventHref(event.title, event.slug, siteOrigin(), SUPPORT_EMAIL)}
+                className="inline-flex min-h-6 items-center text-foreground underline underline-offset-4"
+              >
+                Report this event
+              </a>
+            </p>
           </div>
 
           {/* Buy bar, below lg only, on an ink surface: compact (the price and the one ticket

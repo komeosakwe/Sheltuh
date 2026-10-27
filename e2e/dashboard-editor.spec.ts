@@ -668,7 +668,9 @@ for (const vp of [
       await search.press("Enter");
 
       await expect(form.getByText("Linked to Google Maps:")).toBeVisible();
-      await expect(form.getByRole("link", { name: /^Check The Tote Hotel.*on Google Maps \(opens in a new tab\)$/ })).toHaveAttribute(
+      // Focus goes from the search (gone) to the place it linked.
+      await expect(form.getByRole("group", { name: /^Linked to Google Maps: The Tote Hotel/ })).toBeFocused();
+      await expect(form.getByRole("link", { name: /^Check on Google Maps: The Tote Hotel.*\(opens in a new tab\)$/ })).toHaveAttribute(
         "href",
         /query_place_id=ChIJtote00000000000000$/,
       );
@@ -676,20 +678,35 @@ for (const vp of [
       // The saved event's own fields stay as they were.
       await expect(form.getByLabel("Venue name")).toHaveValue("The Tote");
       await expect(form.getByRole("heading", { name: "Check the pin" })).toBeVisible();
+      await expect(form.getByText("This pin is shown publicly on your event page and map.")).toBeVisible();
 
+      // The suburb's centre, unmoved, isn't the venue: a move (or a zoom to street level) first.
       if (phone) {
         await expect(form.getByText(/^Not checked yet/)).toBeVisible();
         await form.getByRole("button", { name: "Check the pin" }).click();
         const dialog = page.getByRole("dialog", { name: /Check the pin/ });
         await expect(dialog).toBeVisible();
         await dialog.getByRole("button", { name: "Done" }).click();
+        await expect(dialog.getByText("Move the map so the pin is on the venue first.")).toBeVisible();
+        await dialog.getByRole("button", { name: "Zoom in" }).click();
+        await dialog.getByRole("button", { name: "Done" }).click();
       } else {
         await expect(form.getByText(/^Not confirmed yet/)).toBeVisible();
         await expect(form.getByRole("application", { name: "Venue pin" })).toBeVisible();
         await form.getByRole("button", { name: "This is the right spot" }).click();
+        await expect(form.getByText("Move the map so the pin is on the venue first.")).toBeVisible();
+        await form.getByRole("button", { name: "Zoom in" }).click();
+        await form.getByRole("button", { name: "This is the right spot" }).click();
       }
       await expect(form.getByText(/Pin confirmed\./)).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+
+      // Change, then Keep: nothing is lost, and focus follows each switch.
+      await form.getByRole("button", { name: /^Change the Google Maps place/ }).click();
+      await expect(search).toBeFocused();
+      await form.getByRole("button", { name: /^Keep The Tote Hotel/ }).click();
+      await expect(form.getByRole("group", { name: /^Linked to Google Maps: The Tote Hotel/ })).toBeFocused();
+      await expect(form.getByText(/Pin confirmed\./)).toBeVisible();
 
       await form.getByRole("button", { name: "Publish…" }).click();
       await form.getByRole("button", { name: "Publish now" }).click();
@@ -719,6 +736,7 @@ for (const vp of [
 
       await form.getByRole("button", { name: "Can’t find it on Google Maps?" }).click();
       await expect(form.getByText(/^Not on Google Maps: put the pin on the venue below/)).toBeVisible();
+      await expect(form.getByRole("heading", { name: "Check the pin" })).toBeFocused();
       await expect(form.getByRole("combobox", { name: "Find the venue on Google Maps" })).toHaveCount(0);
       if (phone) {
         await form.getByRole("button", { name: "Check the pin" }).click();

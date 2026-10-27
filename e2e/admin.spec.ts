@@ -261,6 +261,10 @@ for (const vp of [
       const note = self.getByLabel("Reason (optional; the organiser sees this)");
       await expect(note).toBeFocused();
       await expect(self).toContainText("If they publish it again it comes to you for review.");
+      // Off unless asked for: the organiser's next events stay as they are.
+      const reviewFuture = self.getByRole("checkbox", { name: "Also review this organiser’s next events" });
+      await expect(reviewFuture).not.toBeChecked();
+      expect((await reviewFuture.locator("..").boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
       await note.fill("The photo isn't of this event.");
       await noSidewaysScroll(page);
       await self.getByRole("button", { name: "Yes, unpublish" }).click();

@@ -72,6 +72,7 @@ import { SUPPORT_EMAIL } from "@/lib/contact";
 import { calculateBookingFeeCents, calculateOrderSummary, describeBookingFee, MIN_PAID_TICKET_CENTS } from "@/lib/fees";
 import { formatAud, toDateTimeInputParts } from "@/lib/format";
 import {
+  apiReviewReason,
   PUBLISH_REVIEW_GENERAL,
   PUBLISH_REVIEW_REASON_TEXT,
   publishReviewReason,
@@ -149,6 +150,9 @@ const PLATFORM_FREE_ONLY = "A platform-managed organiser can only offer free tic
 
 /** What an organiser's publish did (POST /api/events/{id}/publish): it went live, or to the review queue. */
 type PublishOutcome = { kind: "published"; slug: string } | { kind: "review"; reason: PublishReviewReason | null };
+
+/** The publish response: the event, and (from the API, when it says) why it was sent to review (apiReviewReason). */
+type PublishedEvent = EventRecord & { reviewReason?: string };
 
 /** A publish refused with a 409 other than payouts (those have their own message and link). */
 type PublishRefusalCode = Exclude<PublishEventConflictCode, "payouts_required">;
@@ -768,7 +772,8 @@ export default function EventEditor(props: Props) {
    * venue and by the buttons, and the venue section is focused; true then.
    */
   function refuseWithoutPin(): boolean {
-    if (venueLocation.pin) return false;
+    // As the save will leave it: the pin on screen, or (searching after Change) the one kept.
+    if (venueLocation.hasPin) return false;
     setPublishConfirm(false);
     setPublishRefusal("location_required");
     setErrors((prev) => ({ ...prev, location: LOCATION_REQUIRED_TEXT }));
@@ -826,11 +831,13 @@ export default function EventEditor(props: Props) {
       const withImage = await syncImage(saved, uploadEventImage, deleteEventImage);
       // Waits for a clip upload a save already started, and never publishes without the clip.
       setSavedRecord(await syncClip(withImage, ORGANISER_CLIP_ROUTES, props.onSaved));
-      const record = await publishEvent(initial.eventId, saveToken);
+      const record: PublishedEvent = await publishEvent(initial.eventId, saveToken);
       setPublishConfirm(false);
       if (record.status === "published") setOutcome({ kind: "published", slug: record.slug });
       else if (record.status === "pending_review") {
-        setOutcome({ kind: "review", reason: publishReviewReason(record, eventReviewRequired) });
+        // The API's reason when it gives one (only it knows some), else what this page can tell.
+        const reason = apiReviewReason(record.reviewReason, record) ?? publishReviewReason(record, eventReviewRequired);
+        setOutcome({ kind: "review", reason });
       }
       focusPublish.current = "outcome";
       setSavedRecord(record);
@@ -1057,7 +1064,8 @@ export default function EventEditor(props: Props) {
           <VenuePinStep
             location={venueLocation}
             suburbCentre={suburbCentre(venue)}
-            waiting={venue.place !== null}
+            waiting={Boolean(venue.suburb.trim()) && venue.loading}
+            suburbTyped={Boolean(venue.suburb.trim())}
             suburbLabel={venue.place ? placeName(venue.place.name, venue.place.state) : ""}
             onEdit={() => clearErrors("location")}
           />

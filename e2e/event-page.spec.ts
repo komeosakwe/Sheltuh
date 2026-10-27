@@ -237,6 +237,24 @@ for (const vp of [
   });
 }
 
+test.describe("Report this event at 320px", () => {
+  test.use({ viewport: { width: 320, height: 640 } });
+
+  test("an email to support naming the event, at the end of the details, with no sideways scroll", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/events/neon-static");
+    await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
+    const report = page.getByRole("link", { name: "Report this event" });
+    await report.scrollIntoViewIfNeeded();
+    await expect(report).toBeVisible();
+    const href = (await report.getAttribute("href")) ?? "";
+    expect(href).toMatch(/^mailto:support@sheltuh\.com\.au\?subject=/);
+    expect(decodeURIComponent(href.split("?subject=")[1])).toMatch(/^Report: Neon Static \((https?:\/\/[^/]+)?\/events\/neon-static\)$/);
+    expect((await report.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(24);
+    await noSidewaysScroll(page);
+  });
+});
+
 test.describe("live event page that can't load", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 

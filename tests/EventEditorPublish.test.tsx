@@ -5,6 +5,7 @@ import EventEditor from "@/components/dashboard/EventEditor";
 import { ApiError } from "@/lib/api/client";
 import type { EventRecord, ModerationLogEntry, PublishEventConflictCode } from "@/lib/api/types";
 import {
+  apiReviewReason,
   PUBLISH_REVIEW_GENERAL,
   PUBLISH_REVIEW_REASON_TEXT,
   publishReviewReason,
@@ -116,6 +117,18 @@ describe("removedBefore / publishReviewReason (lib/organiser-events.ts)", () => 
     );
   });
 
+  it("apiReviewReason: the API's reviewReason as the organiser's (removed_before told apart by the log)", () => {
+    expect(apiReviewReason(undefined, EVENT)).toBeNull();
+    expect(apiReviewReason("not_a_reason", EVENT)).toBeNull();
+    expect(apiReviewReason("first_paid_event", EVENT)).toBe("first_paid_event");
+    expect(apiReviewReason("daily_limit", EVENT)).toBe("daily_limit");
+    expect(apiReviewReason("unknown_ticket_site", EVENT)).toBe("ticket_site");
+    expect(apiReviewReason("removed_before", { status: "pending_review", moderationLog: log("submitted", "rejected", "submitted") })).toBe(
+      "rejected_before",
+    );
+    expect(apiReviewReason("removed_before", { status: "pending_review", moderationLog: [] })).toBe("unpublished_before");
+  });
+
   it("then the organiser's switch, a seat map, and a ticket link on a site we don't know", () => {
     expect(publishReviewReason(EVENT, false)).toBeNull();
     expect(publishReviewReason(EVENT, true)).toBe("review_required");
@@ -211,6 +224,29 @@ describe("EventEditor — what publishing did", () => {
     expect(outcome).toHaveAccessibleDescription(PUBLISH_REVIEW_GENERAL);
     expect(outcome).toHaveTextContent("You can’t edit it while it’s waiting.");
     expect(within(outcome).queryByRole("link")).toBeNull();
+  });
+
+  it.each([
+    ["first_paid_event", PUBLISH_REVIEW_REASON_TEXT.first_paid_event],
+    ["daily_limit", PUBLISH_REVIEW_REASON_TEXT.daily_limit],
+    ["unknown_ticket_site", PUBLISH_REVIEW_REASON_TEXT.ticket_site],
+    ["review_required", PUBLISH_REVIEW_REASON_TEXT.review_required],
+    ["seated", PUBLISH_REVIEW_REASON_TEXT.seated],
+    ["removed_before", PUBLISH_REVIEW_REASON_TEXT.unpublished_before],
+    ["something_new", PUBLISH_REVIEW_GENERAL],
+  ])("sent for review with the API's reviewReason %s: says that reason", async (reviewReason, text) => {
+    publishEvent.mockResolvedValue({ ...EVENT, status: "pending_review", reviewReason });
+    renderEditor();
+    fireEvent.click(publishButton());
+    fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
+    const outcome = await screen.findByRole("group", { name: "Sent for review" });
+    expect(outcome).toHaveAccessibleDescription(text);
+  });
+
+  it("the first paid event's reason says paid events publish straight away after it", () => {
+    expect(PUBLISH_REVIEW_REASON_TEXT.first_paid_event).toBe(
+      "Your first paid event is checked by Sheltüh before it goes live. After that, your paid events publish straight away.",
+    );
   });
 
   it("sent for review for a seat map: says why", async () => {

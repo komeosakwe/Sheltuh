@@ -378,13 +378,16 @@ describe("AccountContent", () => {
     expect(screen.getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", "/privacy");
   });
 
-  it("lists Organisers you follow, Messages and Blocked members; Your events only for an organiser", async () => {
+  it("lists Organisers you follow, Messages and Blocked members; Your events only for an organiser, Organise events otherwise", async () => {
     getMyProfile.mockResolvedValue(PROFILE);
     renderAccount();
     await screen.findByLabelText("Display name");
     await waitFor(() => expect(getMyOrganiser).toHaveBeenCalled());
     const links = screen.getByRole("navigation", { name: "Your account" });
+    // Not an organiser: the way to become one.
+    await within(links).findByRole("link", { name: "Organise events" });
     expect(within(links).getAllByRole("link").map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
+      ["Organise events", "/organisers/apply"],
       ["Organisers you follow", "/following"],
       ["Messages", "/messages"],
       ["Blocked members", "/messages/blocked"],
@@ -398,6 +401,7 @@ describe("AccountContent", () => {
     renderAccount();
     const again = screen.getByRole("navigation", { name: "Your account" });
     expect(await within(again).findByRole("link", { name: "Your events" })).toHaveAttribute("href", "/dashboard");
+    expect(within(again).queryByRole("link", { name: "Organise events" })).toBeNull();
     await screen.findByLabelText("Display name");
   });
 

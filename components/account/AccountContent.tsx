@@ -22,7 +22,7 @@ import { useProfile } from "@/lib/auth/useProfile";
 import { endSentence, validateDisplayName } from "@/lib/display-name";
 import { withNext } from "@/lib/safe-next-path";
 import { LoadingState } from "@/components/ui/ProgressLoader";
-import AccountLinks from "./AccountLinks";
+import AccountLinks, { type AccountEventsRow } from "./AccountLinks";
 import DeleteProfile from "./DeleteProfile";
 import MemberProfileSettings from "./MemberProfileSettings";
 
@@ -66,7 +66,7 @@ function ProfileHeading({ privacyLink = true }: { privacyLink?: boolean }) {
 /**
  * /account, compact and profile first: Your profile (photo, display name,
  * bio, Instagram, the visibility switch: one Save), a list of link rows
- * (Your events for organisers, Organisers you follow, Messages, Blocked
+ * (Your events for organisers, else Organise events; Organisers you follow, Messages, Blocked
  * members), Sign-in (the email and how it signs in, Sign out), and Delete
  * your profile behind a disclosure.
  */
@@ -100,8 +100,13 @@ export default function AccountContent() {
   }
 
   // Organisers (any application on file) get Your events. If their status
-  // couldn't be loaded, the row stays: the dashboard explains itself.
-  const showEvents = !organiser.loading && (organiser.organiser !== null || organiser.error !== null);
+  // couldn't be loaded, the row stays: the dashboard explains itself. Anyone
+  // else gets Organise events, the way to apply.
+  const eventsRow: AccountEventsRow = organiser.loading
+    ? null
+    : organiser.organiser !== null || organiser.error !== null
+      ? "events"
+      : "apply";
   const profile = state.status === "ready" ? state.profile : null;
 
   return (
@@ -131,7 +136,7 @@ export default function AccountContent() {
         <ProfileSection profile={state.profile} deleted={deleted} onSaved={setProfile} getToken={auth.getAccessToken} />
       )}
 
-      <AccountLinks showEvents={showEvents} />
+      <AccountLinks events={eventsRow} />
 
       <section className={sectionClass} aria-labelledby="sign-in-title">
         <h2 id="sign-in-title" className={headingClass}>

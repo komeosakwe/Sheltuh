@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventEditor from "@/components/dashboard/EventEditor";
-import { PIN_ZOOM_EXACT } from "@/components/dashboard/VenuePinMap";
+import { MOVE_PIN_FIRST, PIN_ZOOM_EXACT } from "@/components/dashboard/VenuePinMap";
 import { ApiError } from "@/lib/api/client";
 import type { PlaceDetails, PlaceSuggestion } from "@/lib/api/places";
 import type { AdminEventRecord, EventRecord } from "@/lib/api/types";
@@ -123,6 +123,15 @@ function renderEditor(initial: EventRecord | null = EVENT) {
 const searchBox = () => screen.getByRole("combobox", { name: "Find the venue on Google Maps" });
 const venueSection = () => screen.getByRole("group", { name: "Venue" });
 const pinStatus = () => document.querySelector("[data-pin-step] [aria-live]") as HTMLElement;
+const pinHeading = () => screen.getByRole("heading", { name: "Check the pin" });
+const linkedBlock = () => document.querySelector("[data-linked-place]") as HTMLElement;
+const rightSpot = () => screen.getByRole("button", { name: "This is the right spot" });
+
+/** Moves the inline map (to pinMapDrag.to), then "This is the right spot": the pin is confirmed there. */
+async function moveAndConfirm() {
+  fireEvent.click(await screen.findByRole("button", { name: "Drag to" }));
+  fireEvent.click(rightSpot());
+}
 
 /** Searches, and picks The Tote: linked once its address has come back. */
 async function pickTheTote() {
@@ -150,7 +159,10 @@ describe("EventEditor — picking a Google place", () => {
 
     const linked = document.querySelector(`[data-linked-place="${PLACE_ID}"]`) as HTMLElement;
     expect(linked).toHaveTextContent("Linked to Google Maps: The Tote Hotel, 71 Johnston St, Collingwood VIC");
-    const check = within(linked).getByRole("link", { name: /^Check The Tote Hotel.* on Google Maps \(opens in a new tab\)$/ });
+    // The accessible name starts with the visible words (label in name).
+    const check = within(linked).getByRole("link", {
+      name: "Check on Google Maps: The Tote Hotel, 71 Johnston St, Collingwood VIC (opens in a new tab)",
+    });
     expect(check).toHaveAttribute(
       "href",
       `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent("The Tote Hotel, 71 Johnston St")}&query_place_id=${PLACE_ID}`,
@@ -158,8 +170,13 @@ describe("EventEditor — picking a Google place", () => {
     expect(check).toHaveAttribute("target", "_blank");
     expect(within(linked).getByRole("button", { name: /^Change/ })).toBeInTheDocument();
 
-    // The pin step: required, seeded at the suburb's centre (never Google's coordinates).
-    expect(screen.getByRole("heading", { name: "Check the pin" })).toBeInTheDocument();
+    // Focus moved from the search (gone) to what replaced it.
+    await waitFor(() => expect(linked).toHaveFocus());
+    expect(linked).toHaveAccessibleName("Linked to Google Maps: The Tote Hotel, 71 Johnston St, Collingwood VIC");
+
+    // The pin step: required, seeded at the suburb's centre (never Google's coordinates), and public.
+    expect(pinHeading()).toBeInTheDocument();
+    expect(screen.getByText("This pin is shown publicly on your event page and map.")).toBeInTheDocument();
     expect(pinStatus()).toHaveTextContent("Not confirmed yet");
     const map = await screen.findByTestId("leaflet");
     expect(map).toHaveAttribute("data-lat", String(COLLINGWOOD_CENTRE.lat));
@@ -203,13 +220,21 @@ describe("EventEditor — picking a Google place", () => {
 });
 
 describe("EventEditor — checking the pin (desktop)", () => {
-  it("the pin counts once “This is the right spot” is pressed; saved with the place", async () => {
+  it("the suburb's centre, unmoved, isn't a pin: it needs a move or a zoom to street level first", async () => {
     renderEditor();
     await pickTheTote();
     const map = await screen.findByTestId("leaflet");
     expect(map).toHaveAttribute("data-lat", String(FITZROY_CENTRE.lat));
 
-    fireEvent.click(screen.getByRole("button", { name: "This is the right spot" }));
+    fireEvent.click(rightSpot());
+    expect(pinStatus()).toHaveTextContent(MOVE_PIN_FIRST);
+    expect(rightSpot()).toHaveAccessibleDescription(MOVE_PIN_FIRST);
+    expect(document.querySelector("[data-pin-step]")).toHaveAttribute("data-pin-confirmed", "false");
+
+    // Zoomed in to street level: confirmed where it is.
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    expect(pinStatus()).not.toHaveTextContent(MOVE_PIN_FIRST);
+    fireEvent.click(rightSpot());
     expect(pinStatus()).toHaveTextContent("Pin confirmed.");
     expect(document.querySelector("[data-pin-step]")).toHaveAttribute("data-pin-confirmed", "true");
 
@@ -239,10 +264,18 @@ describe("EventEditor — checking the pin (desktop)", () => {
     expect(input.location).toEqual({ source: "places", placeId: PLACE_ID });
   });
 
+  it("a saved pin can be confirmed again as it is", async () => {
+    renderEditor({ ...EVENT, location: CONFIRMED_PIN_LOCATION });
+    await screen.findByTestId("leaflet");
+    fireEvent.click(rightSpot());
+    expect(pinStatus()).toHaveTextContent("Pin confirmed.");
+    expect(pinStatus()).not.toHaveTextContent(MOVE_PIN_FIRST);
+  });
+
   it("another suburb starts the map again at its centre, and the pin needs confirming again", async () => {
     renderEditor();
     await pickTheTote();
-    fireEvent.click(await screen.findByRole("button", { name: "This is the right spot" }));
+    await moveAndConfirm();
     expect(pinStatus()).toHaveTextContent("Pin confirmed.");
 
     fireEvent.change(screen.getByLabelText("Suburb or town"), { target: { value: "Collingwood" } });
@@ -283,14 +316,23 @@ describe("EventEditor — checking the pin (phone)", () => {
 });
 
 describe("EventEditor — a pin alone", () => {
-  it("“Can’t find it on Google Maps?”: the pin step, and a manual pin once it's confirmed", async () => {
+  it("“Can’t find it on Google Maps?”: the pin step, focused, and a manual pin once it's confirmed", async () => {
     renderEditor();
     fireEvent.click(screen.getByRole("button", { name: "Can’t find it on Google Maps?" }));
     expect(screen.queryByRole("combobox", { name: "Find the venue on Google Maps" })).toBeNull();
     expect(screen.getByText(/Not on Google Maps: put the pin on the venue below/)).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole("button", { name: "This is the right spot" }));
+    await waitFor(() => expect(pinHeading()).toHaveFocus());
+    await moveAndConfirm();
     const input = await save();
-    expect(input.location).toEqual({ source: "manual_pin", pin: FITZROY_CENTRE });
+    expect(input.location).toEqual({ source: "manual_pin", pin: pinMapDrag.to });
+  });
+
+  it("without a suburb the pin step asks for one; an unknown suburb, to check it", async () => {
+    renderEditor(null);
+    fireEvent.click(screen.getByRole("button", { name: "Can’t find it on Google Maps?" }));
+    expect(pinStatus()).toHaveTextContent("Enter the venue’s suburb or town first");
+    fireEvent.change(screen.getByLabelText("Suburb or town"), { target: { value: "Nowhereville" } });
+    await waitFor(() => expect(pinStatus()).toHaveTextContent("Check the venue’s suburb or town above"));
   });
 
   it("the search answering 503 places_unavailable: the pin instead, saying why", async () => {
@@ -300,11 +342,29 @@ describe("EventEditor — a pin alone", () => {
     renderEditor();
     fireEvent.focus(searchBox());
     fireEvent.change(searchBox(), { target: { value: "The Tote" } });
-    expect(await screen.findByText(/Google Maps can’t be searched right now, so drop a pin/)).toBeInTheDocument();
+    const note = await screen.findByText(/Google Maps can’t be searched right now, so drop a pin/);
+    // Said (a live region that was already there), and focus goes on to the pin, from the search that's gone.
+    expect(note).toHaveAttribute("aria-live", "polite");
+    await waitFor(() => expect(pinHeading()).toHaveFocus());
     expect(screen.queryByRole("combobox", { name: "Find the venue on Google Maps" })).toBeNull();
     // Searching again would only fail again.
     expect(screen.queryByRole("button", { name: "Find it on Google Maps instead" })).toBeNull();
     expect(await screen.findByRole("button", { name: "This is the right spot" })).toBeInTheDocument();
+  });
+
+  it("without a session token (crypto.randomUUID missing: plain-HTTP dev), the pin instead", async () => {
+    const randomUUID = vi.spyOn(crypto, "randomUUID").mockImplementation(() => {
+      throw new TypeError("crypto.randomUUID is not a function");
+    });
+    try {
+      renderEditor();
+      fireEvent.focus(searchBox());
+      fireEvent.change(searchBox(), { target: { value: "The Tote" } });
+      expect(await screen.findByText(/Google Maps can’t be searched right now, so drop a pin/)).toBeInTheDocument();
+      expect(api.autocompletePlaces).not.toHaveBeenCalled();
+    } finally {
+      randomUUID.mockRestore();
+    }
   });
 });
 
@@ -322,16 +382,43 @@ describe("EventEditor — what's sent for a saved event's location", () => {
     expect("location" in (await save())).toBe(false);
   });
 
-  it("nothing when a linked place with its pin is unchanged; null when Change leaves it unlinked", async () => {
+  it("nothing when a linked place with its pin is unchanged, nor after Change with no new place picked", async () => {
     const linked: EventRecord = { ...EVENT, location: { source: "places", placeId: PLACE_ID, pin: FITZROY_CENTRE } };
     api.updateEventDraft.mockResolvedValue(linked);
     renderEditor(linked);
     expect(screen.getByText("Linked to Google Maps:")).toBeInTheDocument();
     expect("location" in (await save())).toBe(false);
 
+    // Change opens the search (focused), but the saved place and pin stay until another place is picked.
     api.updateEventDraft.mockClear();
     fireEvent.click(screen.getByRole("button", { name: /^Change/ }));
-    expect((await save()).location).toBeNull();
+    await waitFor(() => expect(searchBox()).toHaveFocus());
+    expect("location" in (await save())).toBe(false);
+
+    // Keep: back to the linked place (focused), as it was.
+    fireEvent.click(screen.getByRole("button", { name: "Keep The Venue" }));
+    await waitFor(() => expect(linkedBlock()).toHaveFocus());
+    expect(linkedBlock()).toHaveAttribute("data-linked-place", PLACE_ID);
+    expect(pinStatus()).toHaveTextContent("Pin confirmed.");
+  });
+
+  it("“Find it on Google Maps instead” keeps the dropped pin until a place is picked; Keep goes back to it", async () => {
+    renderEditor({ ...EVENT, location: CONFIRMED_PIN_LOCATION });
+    fireEvent.click(screen.getByRole("button", { name: "Find it on Google Maps instead" }));
+    await waitFor(() => expect(searchBox()).toHaveFocus());
+    expect("location" in (await save())).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Keep the pin you dropped" }));
+    await waitFor(() => expect(pinHeading()).toHaveFocus());
+    expect(pinStatus()).toHaveTextContent("Pin confirmed.");
+  });
+
+  it("after Change, picking another place replaces the saved one (its pin to check again)", async () => {
+    const linked: EventRecord = { ...EVENT, location: { source: "places", placeId: "ChIJold000000000000000", pin: FITZROY_CENTRE } };
+    renderEditor(linked);
+    fireEvent.click(screen.getByRole("button", { name: /^Change/ }));
+    await pickTheTote();
+    expect((await save()).location).toEqual({ source: "places", placeId: PLACE_ID });
   });
 });
 
@@ -357,13 +444,27 @@ describe("EventEditor — publishing needs a confirmed pin", () => {
     await waitFor(() => expect(venueSection()).toHaveFocus());
     expect(api.publishEvent).not.toHaveBeenCalled();
 
-    fireEvent.click(await screen.findByRole("button", { name: "This is the right spot" }));
+    await moveAndConfirm();
     fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
     });
     await waitFor(() => expect(api.publishEvent).toHaveBeenCalledTimes(1));
-    expect(api.updateEventDraft.mock.calls[0][1].location).toEqual({ source: "places", placeId: PLACE_ID, pin: FITZROY_CENTRE });
+    expect(api.updateEventDraft.mock.calls[0][1].location).toEqual({ source: "places", placeId: PLACE_ID, pin: pinMapDrag.to });
+  });
+
+  it("Change, then Publish… with no new place: the saved pin still counts, and the save keeps it", async () => {
+    const linked: EventRecord = { ...EVENT, location: { source: "places", placeId: PLACE_ID, pin: FITZROY_CENTRE } };
+    api.updateEventDraft.mockResolvedValue(linked);
+    api.publishEvent.mockResolvedValue({ ...linked, status: "published" });
+    renderEditor(linked);
+    fireEvent.click(screen.getByRole("button", { name: /^Change/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
+    });
+    await waitFor(() => expect(api.publishEvent).toHaveBeenCalledTimes(1));
+    expect("location" in api.updateEventDraft.mock.calls[0][1]).toBe(false);
   });
 
   it("Send for review (rejected before) is checked the same way", async () => {
@@ -426,7 +527,7 @@ describe("EventEditor — the API's location errors", () => {
       .mockResolvedValueOnce({ ...EVENT });
     renderEditor();
     await pickTheTote();
-    fireEvent.click(await screen.findByRole("button", { name: "This is the right spot" }));
+    await moveAndConfirm();
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
     expect(await screen.findByText(/Google Maps can’t be searched right now, so drop a pin/)).toBeInTheDocument();
@@ -436,7 +537,7 @@ describe("EventEditor — the API's location errors", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
     await waitFor(() => expect(api.updateEventDraft).toHaveBeenCalledTimes(2));
-    expect(api.updateEventDraft.mock.calls[1][1].location).toEqual({ source: "manual_pin", pin: FITZROY_CENTRE });
+    expect(api.updateEventDraft.mock.calls[1][1].location).toEqual({ source: "manual_pin", pin: pinMapDrag.to });
   });
 });
 
@@ -450,9 +551,9 @@ describe("EventEditor (admin) — the same venue location", () => {
       </FakeAuthProvider>,
     );
     await pickTheTote();
-    fireEvent.click(await screen.findByRole("button", { name: "This is the right spot" }));
+    await moveAndConfirm();
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(api.adminUpdateEvent).toHaveBeenCalledTimes(1));
-    expect(api.adminUpdateEvent.mock.calls[0][1].location).toEqual({ source: "places", placeId: PLACE_ID, pin: FITZROY_CENTRE });
+    expect(api.adminUpdateEvent.mock.calls[0][1].location).toEqual({ source: "places", placeId: PLACE_ID, pin: pinMapDrag.to });
   });
 });

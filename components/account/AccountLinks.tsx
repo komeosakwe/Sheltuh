@@ -6,14 +6,23 @@ interface AccountLink {
   label: string;
 }
 
+/** The events row: Your events (organisers), Organise events (the way to apply), or none while it isn't known. */
+export type AccountEventsRow = "events" | "apply" | null;
+
+const EVENTS_ROWS: Record<Exclude<AccountEventsRow, null>, AccountLink> = {
+  events: { href: "/dashboard", label: "Your events" },
+  apply: { href: "/organisers/apply", label: "Organise events" },
+};
+
 /**
  * The rest of the account, as a short list of single-line link rows (48px,
- * a chevron on the right): Your events for organisers, then Organisers you
- * follow, Messages and Blocked members. A labelled nav, each row a link.
+ * a chevron on the right): Your events for organisers (Organise events, to
+ * apply, for everyone else), then Organisers you follow, Messages and
+ * Blocked members. A labelled nav, each row a link.
  */
-export default function AccountLinks({ showEvents }: { showEvents: boolean }) {
+export default function AccountLinks({ events }: { events: AccountEventsRow }) {
   const links: AccountLink[] = [
-    ...(showEvents ? [{ href: "/dashboard", label: "Your events" }] : []),
+    ...(events ? [EVENTS_ROWS[events]] : []),
     { href: "/following", label: "Organisers you follow" },
     { href: "/messages", label: "Messages" },
     { href: "/messages/blocked", label: "Blocked members" },

@@ -29,6 +29,19 @@ export const EVENT_REJECT_REASON_MAX = 1000;
 /** The API's limit for an unpublish reason (lib/server/handlers/admin.ts, as a takedown's). */
 export const EVENT_UNPUBLISH_REASON_MAX = 500;
 
+/**
+ * adminUnpublishEvent, as it's called here: with `reviewFuture` (also turn on
+ * review of the organiser's events, so their next ones come to the queue
+ * instead of going live) when that's asked for.
+ */
+type UnpublishEvent = (
+  eventId: string,
+  getToken: GetToken,
+  reason?: string,
+  options?: { reviewFuture?: boolean },
+) => Promise<unknown>;
+const unpublishEvent: UnpublishEvent = adminUnpublishEvent;
+
 /** The heading's id: focus moves here when the event before it leaves the list. */
 export function eventHeadingId(eventId: string) {
   return `event-${eventId}`;
@@ -363,6 +376,7 @@ function Actions({
     reason: `reject-reason-${id}`,
     unpublish: `unpublish-${id}`,
     unpublishReason: `unpublish-reason-${id}`,
+    reviewFuture: `unpublish-review-future-${id}`,
     cancel: `cancel-${id}`,
     question: `confirm-question-${id}`,
   };
@@ -373,6 +387,8 @@ function Actions({
   /** Unpublish's optional note to the organiser (EventRecord.rejectionReason), kept while the question is reopened. */
   const [unpublishReason, setUnpublishReason] = useState("");
   const [unpublishReasonError, setUnpublishReasonError] = useState<string | null>(null);
+  /** Unpublish also turns on review of the organiser's next events (a recreated listing can't go straight back up). */
+  const [reviewFuture, setReviewFuture] = useState(false);
   const [busy, setBusy] = useState<Action | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** The session ran out during this action: sign in again (the reason is kept), then retry it. */
@@ -497,10 +513,13 @@ function Actions({
     const note = unpublishReason.trim();
     setBusy("unpublish");
     try {
-      await adminUnpublishEvent(id, getToken, note || undefined);
+      if (reviewFuture) await unpublishEvent(id, getToken, note || undefined, { reviewFuture: true });
+      else await unpublishEvent(id, getToken, note || undefined);
       onRemoved(
         item,
-        `Unpublished ${item.title}. It’s off the site and back with the organiser as a draft${note ? ", with your note" : ""}.`,
+        `Unpublished ${item.title}. It’s off the site and back with the organiser as a draft${note ? ", with your note" : ""}.${
+          reviewFuture ? " Their next events come to you for review." : ""
+        }`,
       );
     } catch (err) {
       if (err instanceof ApiError && err.fieldErrors?.reason) {
@@ -561,6 +580,18 @@ function Actions({
           rows={2}
           max={EVENT_UNPUBLISH_REASON_MAX}
         />
+      )}
+      {open === "unpublish" && !item.organiserPlatformManaged && (
+        <label htmlFor={ids.reviewFuture} className="flex min-h-11 items-center gap-3 text-sm font-medium">
+          <input
+            id={ids.reviewFuture}
+            type="checkbox"
+            checked={reviewFuture}
+            onChange={(event) => setReviewFuture(event.target.checked)}
+            className="size-5 shrink-0"
+          />
+          Also review this organiser&rsquo;s next events
+        </label>
       )}
 
       {error && (

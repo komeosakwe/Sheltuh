@@ -136,15 +136,22 @@ export function organiserEventActions(
  * - `ticket_site`: its tickets are sold on a site that isn't a known
  *   ticketing site (as lib/server/handlers/event-publish.ts judges it).
  *
- * The daily publish limits can't be seen from here: an event sent for review
- * with none of these gets the general reason (PUBLISH_REVIEW_GENERAL).
+ * Only the API can tell (its publish response's `reviewReason`, apiReviewReason):
+ *
+ * - `daily_limit`: too many events were published in a day.
+ * - `first_paid_event`: the organiser's first paid event sold on Sheltüh.
+ *
+ * Sent for review with none of these known, it's the general reason
+ * (PUBLISH_REVIEW_GENERAL).
  */
 export type PublishReviewReason =
   | "rejected_before"
   | "unpublished_before"
   | "review_required"
   | "seated"
-  | "ticket_site";
+  | "ticket_site"
+  | "daily_limit"
+  | "first_paid_event";
 
 /** Sheltüh rejected or unpublished this event last (so publishing it again goes to review), or null. */
 export function removedBefore(
@@ -159,6 +166,31 @@ export function removedBefore(
     if (action === "unpublished") return "unpublished_before";
   }
   return null;
+}
+
+/**
+ * The reason the API gave for sending a publish to review (the publish
+ * response's `reviewReason`), as the organiser's; null when it gave none, or
+ * one this page doesn't know. `removed_before` is told apart by the event's
+ * log (rejected, or taken down, last).
+ */
+export function apiReviewReason(
+  reason: string | undefined,
+  event: Pick<EventRecord, "status" | "moderationLog">,
+): PublishReviewReason | null {
+  switch (reason) {
+    case "review_required":
+    case "seated":
+    case "daily_limit":
+    case "first_paid_event":
+      return reason;
+    case "removed_before":
+      return removedBefore(event) ?? "unpublished_before";
+    case "unknown_ticket_site":
+      return "ticket_site";
+    default:
+      return null;
+  }
 }
 
 /** The first reason (in PublishReviewReason's order) this event goes to review when published, or null. */
@@ -183,6 +215,9 @@ export const PUBLISH_REVIEW_REASON_TEXT: Record<PublishReviewReason, string> = {
   review_required: "For now, a person at Sheltüh checks your events before they go live.",
   seated: "Events with a seat map are checked by a person before they go live.",
   ticket_site: "Its tickets are sold on a site we don’t know yet, so a person checks the link first.",
+  daily_limit: "A lot of events were published in the last day, so a person checks this one before it goes live.",
+  first_paid_event:
+    "Your first paid event is checked by Sheltüh before it goes live. After that, your paid events publish straight away.",
 };
 
 /** When none of the reasons above is known (for example, a lot of events were published in one day). */

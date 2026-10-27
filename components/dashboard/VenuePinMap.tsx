@@ -19,6 +19,11 @@ export const PIN_MAX_ZOOM = TILE_MAX_ZOOM;
 export const PIN_ZOOM_EXACT = PIN_MAX_ZOOM;
 /** Opened on a suburb's centre: the neighbourhood, to find the street. */
 export const PIN_ZOOM_SUBURB = 14;
+/** Street level: from a suburb's centre, zoomed in this far (or moved), the pin can be confirmed. */
+export const PIN_ZOOM_STREET = 15;
+
+/** Said when the pin is confirmed at a suburb's centre, unmoved: the centre is rarely the venue. */
+export const MOVE_PIN_FIRST = "Move the map so the pin is on the venue first.";
 
 /** An arrow key moves the map this far (Leaflet's own keyboard step); with Shift, three times as far. */
 export const PAN_STEP_PX = 80;
@@ -175,8 +180,9 @@ function PinPicker({
         data-lng={view.centre.lng}
         data-zoom={view.zoom}
         data-surface="paper"
+        // Edge to edge in the dialog: the focus ring goes inside, or it would be off screen.
         className={`relative isolate h-full w-full overflow-hidden bg-surface ${
-          framed ? "rounded-card border border-surface-border" : ""
+          framed ? "rounded-card border border-surface-border" : "-outline-offset-4"
         }`}
       >
         <VenuePinMapLeaflet
@@ -234,18 +240,24 @@ export interface VenuePinMapProps {
    * again somewhere else. Outside Australia, it's moved to the nearest edge.
    */
   initialCentre: Coordinates;
-  /** True when `initialCentre` is the organiser's own pin: it opens at street level. */
+  /**
+   * True when the pin is the organiser's own (confirmed): opened on it, the
+   * map starts at street level, and Done takes it as it is.
+   */
   pinned?: boolean;
   /** The suburb the organiser gave, for the heading ("Fitzroy, VIC"). */
   suburbLabel: string;
   /**
    * The pin, inside Australia and to 6 decimal places. Inline (from `sm`),
-   * each time the map settles somewhere new. On phones, once, on Done,
-   * even if the map wasn't moved: Done confirms the pin.
+   * each time the map settles somewhere new. On phones, once, on Done:
+   * Done confirms the pin (from a suburb's centre, only once the map has
+   * been moved or zoomed in to street level; `pinned`, as it is).
    */
   onChange: (pin: Coordinates) => void;
   /** On phones: the dialog was closed without Done (Cancel or Escape). */
   onCancel?: () => void;
+  /** Inline: the map was zoomed (to this level). */
+  onZoom?: (zoom: number) => void;
 }
 
 /**
@@ -265,14 +277,26 @@ export interface VenuePinMapProps {
  * suburb nearest the pin. The map can't be moved outside Australia
  * (lib/geo.ts AUSTRALIA_BOUNDS).
  */
-export default function VenuePinMap({ initialCentre, pinned = false, suburbLabel, onChange, onCancel }: VenuePinMapProps) {
+export default function VenuePinMap({
+  initialCentre,
+  pinned = false,
+  suburbLabel,
+  onChange,
+  onCancel,
+  onZoom,
+}: VenuePinMapProps) {
   const phone = useIsPhone();
+  // Where it opened: without a pin yet, Done needs the map moved from here (or zoomed to street level).
+  const [seed] = useState(() => clampToAustralia(initialCentre));
   const [view, setView] = useState<View>(() => ({
-    centre: clampToAustralia(initialCentre),
+    centre: seed,
     zoom: pinned ? PIN_ZOOM_EXACT : PIN_ZOOM_SUBURB,
   }));
   // The phone dialog's map while it's open (null when closed): saved to `view` on Done.
   const [draft, setDraft] = useState<View | null>(null);
+  // Done was pressed with the map still at the suburb's centre.
+  const [nudge, setNudge] = useState(false);
+  const statusId = useId();
   const instructionsId = useId();
   const titleId = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -296,10 +320,21 @@ export default function VenuePinMap({ initialCentre, pinned = false, suburbLabel
     const moved = !samePoint(next.centre, view.centre);
     setView(next);
     if (moved) onChange(roundPin(next.centre));
+    if (next.zoom !== view.zoom) onZoom?.(next.zoom);
+  }
+
+  /** The dialog's map is somewhere the organiser put it: moved from where it opened, or zoomed in to the street. */
+  function placed(next: View): boolean {
+    return pinned || !samePoint(next.centre, seed) || next.zoom >= PIN_ZOOM_STREET;
   }
 
   function done() {
     if (!draft) return;
+    if (!placed(draft)) {
+      setNudge(true);
+      return;
+    }
+    setNudge(false);
     setView(draft);
     setDraft(null);
     onChange(roundPin(draft.centre));
@@ -307,6 +342,7 @@ export default function VenuePinMap({ initialCentre, pinned = false, suburbLabel
 
   function cancel() {
     setDraft(null);
+    setNudge(false);
     onCancel?.();
   }
 
@@ -380,11 +416,14 @@ export default function VenuePinMap({ initialCentre, pinned = false, suburbLabel
             />
             <div className="flex flex-col gap-3 border-t border-surface-border px-4 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))]">
               <NearestSuburb pin={draft.centre} live />
+              <p id={statusId} aria-live="polite" className="text-sm leading-5 text-danger empty:sr-only">
+                {nudge && !placed(draft) ? MOVE_PIN_FIRST : ""}
+              </p>
               <div className="flex gap-3">
                 <Button variant="outline" size="lg" onClick={cancel} className="flex-1">
                   Cancel
                 </Button>
-                <Button size="lg" onClick={done} className="flex-1">
+                <Button size="lg" onClick={done} aria-describedby={statusId} className="flex-1">
                   Done
                 </Button>
               </div>

@@ -455,6 +455,32 @@ describe("EventDetailsView organiser row", () => {
   });
 });
 
+describe("EventDetailsView Report this event", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("emails support, the subject naming the event and its page", () => {
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://sheltuh.com.au");
+    const event = findEvent("neon-static");
+    render(<EventDetailsView event={event} demo={false} />);
+    const link = screen.getByRole("link", { name: "Report this event" });
+    const href = link.getAttribute("href") ?? "";
+    expect(href.startsWith("mailto:support@sheltuh.com.au?subject=")).toBe(true);
+    expect(decodeURIComponent(href.split("?subject=")[1])).toBe(
+      `Report: ${event.title} (https://sheltuh.com.au/events/${event.slug})`,
+    );
+  });
+
+  it("without a configured site address, the page's path names it", () => {
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "");
+    const event = findEvent("neon-static");
+    render(<EventDetailsView event={event} demo />);
+    const href = screen.getByRole("link", { name: "Report this event" }).getAttribute("href") ?? "";
+    expect(decodeURIComponent(href.split("?subject=")[1])).toBe(`Report: ${event.title} (/events/${event.slug})`);
+  });
+});
+
 describe("EventDetailsView booking info beside the tickets", () => {
   function tickets(container: HTMLElement): HTMLElement {
     const el = container.querySelector<HTMLElement>("#tickets");
