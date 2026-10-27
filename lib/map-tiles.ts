@@ -42,7 +42,7 @@ export const TILE_STYLE_STORAGE_KEY = "sheltuh:map-tiles";
 export const TILE_STYLE_PARAM = "tiles";
 
 /** The map's zoom ceiling (Esri's light-gray canvas stops at 16); Mapbox styles keep it so both previews behave alike. */
-const MAX_ZOOM = 16;
+export const TILE_MAX_ZOOM = 16;
 
 export const ESRI_STYLE: TileStyle = {
   id: "esri",
@@ -52,11 +52,11 @@ export const ESRI_STYLE: TileStyle = {
       url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
       attribution:
         '&copy; <a href="https://www.esri.com">Esri</a> &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors, GIS community',
-      maxZoom: MAX_ZOOM,
+      maxZoom: TILE_MAX_ZOOM,
     },
     {
       url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
-      maxZoom: MAX_ZOOM,
+      maxZoom: TILE_MAX_ZOOM,
       pane: "shadowPane",
     },
   ],
@@ -116,7 +116,7 @@ function mapboxStyle(id: TileStyleId, label: string, style: string, token: strin
       {
         url: mapboxTileUrl(style, token),
         attribution: MAPBOX_ATTRIBUTION,
-        maxZoom: MAX_ZOOM,
+        maxZoom: TILE_MAX_ZOOM,
         // 512px tiles one zoom level down cover what four 256px tiles would.
         tileSize: 512,
         zoomOffset: -1,

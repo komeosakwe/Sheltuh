@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveEventCoordinates, resolveMapCoordinates } from "../lib/geo";
+import { AUSTRALIA_BOUNDS, clampToAustralia, panByPixels, resolveEventCoordinates, resolveMapCoordinates } from "../lib/geo";
 import { findLocality } from "../lib/location";
 import { sampleEvents } from "../lib/sample-events";
 import type { SheltuhEvent } from "../lib/types";
@@ -130,5 +130,36 @@ describe("with the ABS suburb table as the lookup (/map)", () => {
 
   it.each(["Fitzroyy", "Nowhereville", "", "constructor", "__proto__"])("leaves %j unplaced", (suburb) => {
     expect(resolveMapCoordinates(at(suburb), findLocality)).toBeNull();
+  });
+});
+
+describe("clampToAustralia (the venue pin picker)", () => {
+  it("keeps a position inside, and moves one outside to the nearest edge", () => {
+    expect(clampToAustralia({ lat: -37.8, lng: 144.98 })).toEqual({ lat: -37.8, lng: 144.98 });
+    expect(clampToAustralia({ lat: -60, lng: 200 })).toEqual({ lat: AUSTRALIA_BOUNDS.south, lng: AUSTRALIA_BOUNDS.east });
+    expect(clampToAustralia({ lat: 10, lng: 50 })).toEqual({ lat: AUSTRALIA_BOUNDS.north, lng: AUSTRALIA_BOUNDS.west });
+  });
+});
+
+describe("panByPixels (Web Mercator, as Leaflet's panBy)", () => {
+  it("moves east and south for right and down, and back again", () => {
+    const start = { lat: -37.8, lng: 144.98 };
+    const east = panByPixels(start, 14, 80, 0);
+    expect(east.lat).toBeCloseTo(start.lat, 9);
+    // 80px at zoom 14 is 80 / (256 * 2^14) of the world's 360° of longitude.
+    expect(east.lng - start.lng).toBeCloseTo((80 / (256 * 2 ** 14)) * 360, 9);
+    const south = panByPixels(start, 14, 0, 80);
+    expect(south.lat).toBeLessThan(start.lat);
+    expect(south.lng).toBeCloseTo(start.lng, 9);
+    const back = panByPixels(panByPixels(start, 14, 37, -55), 14, -37, 55);
+    expect(back.lat).toBeCloseTo(start.lat, 9);
+    expect(back.lng).toBeCloseTo(start.lng, 9);
+  });
+
+  it("moves half as far in degrees one zoom level in", () => {
+    const start = { lat: -33.87, lng: 151.21 };
+    const out = panByPixels(start, 12, 0, -100);
+    const inner = panByPixels(start, 13, 0, -100);
+    expect(inner.lat - start.lat).toBeCloseTo((out.lat - start.lat) / 2, 5);
   });
 });

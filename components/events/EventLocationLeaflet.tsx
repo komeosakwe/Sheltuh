@@ -32,7 +32,7 @@ type TileStatus = "loading" | "loaded" | "failed";
  * (Esri, or the Mapbox preview's style; lib/map-tiles.ts) with one pin in
  * /map's marker style, and its credit. A picture, not a widget: no zoom
  * controls, dragging, wheel, pinch or keyboard handling, so it never traps
- * scrolling; the section's "Open in Maps" link is the action.
+ * scrolling; the section's map links are the action.
  */
 export default function EventLocationLeaflet({ lat, lng, zoom, event }: EventLocationLeafletProps) {
   const { active: tileStyle } = useMapTileStyle(null);
@@ -110,7 +110,7 @@ export default function EventLocationLeaflet({ lat, lng, zoom, event }: EventLoc
         pin,
       )}
       {status === "failed" && (
-        // Over the grey basemap: the address and "Open in Maps" below still work.
+        // Over the grey basemap: the address and map links below still work.
         <div className="absolute inset-0 z-[1000] flex items-center justify-center bg-surface px-4 text-center">
           <p className="text-sm text-muted">The map couldn&rsquo;t load.</p>
         </div>

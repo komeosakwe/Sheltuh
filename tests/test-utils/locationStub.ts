@@ -1,4 +1,5 @@
-import type { Locality } from "@/lib/location";
+import { distanceKm } from "@/lib/geo";
+import type { Locality, NearestResult } from "@/lib/location";
 import type { LocationModule } from "@/lib/location-loader";
 
 /**
@@ -26,11 +27,26 @@ function findLocality(text: string): Locality | null {
   return PLACES.find((place) => typed === key(place.name) || typed === key(`${place.name} ${place.state}`)) ?? null;
 }
 
-/** The parts of the suburb table's module the event editor uses. */
+/** The stub's nearest suburb: the closest of PLACES within 3 km, else outside (the real one uses each suburb's reach). */
+function nearestLocality(position: { lat: number; lng: number }): NearestResult {
+  let best: Locality | null = null;
+  let bestKm = 3;
+  for (const place of PLACES) {
+    const km = distanceKm(position, place);
+    if (km <= bestKm) {
+      best = place;
+      bestKm = km;
+    }
+  }
+  return best ? { kind: "found", locality: best } : { kind: "outside" };
+}
+
+/** The parts of the suburb table's module the event editor and the venue pin picker use. */
 export const locationStub: Pick<
   LocationModule,
-  "findLocality" | "didYouMean" | "suggestLocalities" | "isBareCityCentre" | "sameNameElsewhere"
+  "findLocality" | "didYouMean" | "suggestLocalities" | "isBareCityCentre" | "sameNameElsewhere" | "nearestLocality"
 > = {
+  nearestLocality,
   findLocality,
   didYouMean: () => null,
   suggestLocalities: (text) => {

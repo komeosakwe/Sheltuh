@@ -115,3 +115,35 @@ export function resolveMapCoordinates(
   const coords = resolveEventCoordinates(event, findSuburb);
   return coords && isInAustralia(coords) ? coords : null;
 }
+
+/**
+ * The nearest position inside AUSTRALIA_BOUNDS: itself when it's already
+ * inside. For pickers that can't be moved outside (the event editor's venue
+ * pin, components/dashboard/VenuePinMap.tsx).
+ */
+export function clampToAustralia(coords: Coordinates): Coordinates {
+  const b = AUSTRALIA_BOUNDS;
+  return {
+    lat: Math.min(b.north, Math.max(b.south, coords.lat)),
+    lng: Math.min(b.east, Math.max(b.west, coords.lng)),
+  };
+}
+
+/** Leaflet's (and the tile servers') tile size, in pixels. */
+const TILE_SIZE = 256;
+
+/**
+ * A map centre moved by screen pixels at a zoom level (right and down are
+ * positive), in the Web Mercator projection the tiles use, as Leaflet's
+ * `panBy` would move it. For moving a map from the keyboard.
+ */
+export function panByPixels(centre: Coordinates, zoom: number, dx: number, dy: number): Coordinates {
+  const scale = TILE_SIZE * 2 ** zoom;
+  const rad = Math.PI / 180;
+  const x = ((centre.lng + 180) / 360) * scale + dx;
+  const sin = Math.sin(centre.lat * rad);
+  const y = (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * scale + dy;
+  const lng = (x / scale) * 360 - 180;
+  const lat = Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / scale))) / rad;
+  return { lat, lng };
+}

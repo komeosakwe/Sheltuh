@@ -42,11 +42,12 @@ type Proximity = "far" | "near" | "unsupported";
  * in if it can't load). A suburb's centre isn't the venue, so the map is
  * zoomed out and says the pin is approximate. Nothing places the event (or
  * the browser has no IntersectionObserver): no map, and the address and
- * "Open in Maps" carry the section.
+ * map links carry the section.
  *
  * Decorative to assistive technology and out of the tab order (aria-hidden,
  * inert); a tap or click on it opens directions, the same as the section's
- * "Open in Maps" link, which is the one named, focusable control.
+ * "Google Maps" link, which with "Apple Maps" are the named, focusable
+ * controls.
  */
 export default function EventLocationMap({
   event,
@@ -113,7 +114,7 @@ export default function EventLocationMap({
           </div>
         )}
         {/* The whole map is a tap target for directions, kept out of the tab order and the
-            accessibility tree: "Open in Maps" below is the same link, named. */}
+            accessibility tree: "Google Maps" below is the same link, named. */}
         <a
           href={directions}
           target="_blank"
