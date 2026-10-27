@@ -76,9 +76,9 @@ export default defineConfig({
         // Support Sheltüh on (paused by default, lib/support.ts isSupportSheltuhEnabled): e2e/support-sheltuh.spec.ts tests the
         // chooser; tests/SupportSheltuh.test.tsx checks it's hidden while the flag is off.
         `NEXT_PUBLIC_SUPPORT_SHELTUH=1 ` +
-        // Continue with Apple / Google on (e2e/oauth.spec.ts). Only for this dev server: `next build`
-        // refuses the flag without the official logo files (next.config.ts), which aren't committed;
-        // the spec answers /auth/*.svg itself.
+        // Continue with Apple / Sign in with Google on (e2e/oauth.spec.ts). Only for this dev server:
+        // `next build` refuses the flag without Apple's official logo files (next.config.ts), which
+        // aren't committed; the spec answers /auth/*.svg itself (Google's images are committed).
         `NEXT_PUBLIC_AUTH_PROVIDERS=google,apple npx next dev -p ${PORT}`,
       url: `http://127.0.0.1:${PORT}`,
       reuseExistingServer: !process.env.CI,
