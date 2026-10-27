@@ -313,6 +313,35 @@ Entry points: an "Account" link in `AuthNavLinks` and the "Edit name" links in t
 As built, the desktop row shows only Account (plus Admin), and Sign out and My events live
 in the "Signed in as" panel here (§0).
 
+**Refinement 26 Oct 2026: compact, profile first** (supersedes the section order above;
+`components/account/`). Page padding `py-8 sm:py-12`, `gap-6` under the header, `gap-8`
+between sections, each `border-t border-foreground pt-4` with an `h2` `font-heading text-xl`.
+
+1. **Your profile** (`section#member-profile`, a region named by its h2): one muted line
+   "How you show on Who's Going lists. How we handle your information" (link to
+   `/privacy#whos-going`). Then the photo row: a 72px avatar (the photo, or
+   `InitialsAvatar size="field"`), "Photo (optional)" and the picker ("Choose a photo" /
+   "Change photo", outline `sm`, 44px) with a quiet "Remove photo" text button; hint "JPEG,
+   PNG or WebP, up to 5 MB. Camera and location data removed." The photo still saves as soon
+   as it's chosen. Then one form ("Your profile"): Display name, Bio (counter), Instagram
+   ("Without the @. Up to 30 letters, numbers, . and _. Blank removes it."), the "Show my
+   profile to other members" checkbox ("Off by default. Members on your Who's Going lists
+   can then see your bio, Instagram, photo and upcoming events. Never your email."), and one
+   solid lg **Save profile**. It sends only what changed in a single `PATCH /profiles/me`
+   (which takes the name too); the API's field errors land on their fields, the first one
+   focused. The status says "Saved." plus "Events you've joined now show {name}." when the
+   name changed, and the visibility line when anything else did. No profile yet: the create
+   form here (unchanged). Suspended: the notice and "Suspended profiles can't be changed or
+   shown to other members." (no form: the API refuses a suspended member's edits).
+2. **Link rows** (`nav` "Your account"): single-line 48px rows with a chevron, divided by
+   `border-surface-border`: Your events (organisers only: an application on file, or the
+   status couldn't be loaded), Organisers you follow, Messages, Blocked members.
+3. **Sign-in**: one muted line "Signed in as {email} · Sign-in methods: …" (below 640px the
+   methods start their own line) and an outline **Sign out** (44px).
+4. **Delete your profile**: an `h2` holding a 48px disclosure button (`aria-expanded`,
+   `text-danger`, chevron), closed at first; open, the same copy and inline confirm as
+   above. Below it, always: "To delete your whole account, see our Privacy Policy."
+
 ## 6. Motion
 
 | What | Behaviour | Reduced motion |
