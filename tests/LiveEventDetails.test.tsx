@@ -146,6 +146,29 @@ describe("LiveEventDetails", () => {
     await waitFor(() => expect(heading).toHaveFocus());
     expect(document.title).toBe("Neon Static — Sheltüh");
   });
+
+  it("focus still moves to the title when Try again is pressed before the error view's effects have run", async () => {
+    // A fast press (or a slow machine, as in CI): the error view is on screen, but React hasn't yet run
+    // its passive effects when the click lands, so they run first, inside the click.
+    getPublicEventBySlug.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    getPublicEventBySlug.mockResolvedValueOnce(publicEvent("neon-static"));
+    render(<LiveEventDetails slug="neon-static" />);
+    // Resolves in the microtask after the error view's DOM is committed: before the scheduler's
+    // separate task that runs its effects.
+    const retry = await new Promise<HTMLElement>((resolve) => {
+      const observer = new MutationObserver(() => {
+        const button = screen.queryByRole("button", { name: "Try again" });
+        if (!button) return;
+        observer.disconnect();
+        resolve(button);
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+    retry.focus();
+    await act(async () => fireEvent.click(retry));
+    const heading = screen.getByRole("heading", { level: 1, name: "Neon Static" });
+    await waitFor(() => expect(heading).toHaveFocus());
+  });
 });
 
 describe("LiveEventDetails document title vs streamed metadata", () => {

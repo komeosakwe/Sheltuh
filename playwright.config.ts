@@ -73,6 +73,9 @@ export default defineConfig({
         `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_e2e_placeholder ` +
         // Event clips' uploads on (e2e/event-clips.spec.ts): the editor's clip field and the admin queue's clip row.
         `NEXT_PUBLIC_EVENT_CLIPS=1 ` +
+        // Support Sheltüh on (paused by default, lib/support.ts isSupportSheltuhEnabled): e2e/support-sheltuh.spec.ts tests the
+        // chooser; tests/SupportSheltuh.test.tsx checks it's hidden while the flag is off.
+        `NEXT_PUBLIC_SUPPORT_SHELTUH=1 ` +
         // Continue with Apple / Google on (e2e/oauth.spec.ts). Only for this dev server: `next build`
         // refuses the flag without the official logo files (next.config.ts), which aren't committed;
         // the spec answers /auth/*.svg itself.

@@ -21,8 +21,12 @@ export const ORGANISER_SUB_NAV: SubNavLink[] = [
   { href: "/dashboard/profile", label: "Profile" },
 ];
 
-/** The main nav's link style, a little narrower on phones so the four tabs fit on one row at 320px. */
-const subNavLinkClass = `${navLinkClass.replace(/\bpx-2\b/, "px-1.5 sm:px-2")} inline-flex min-h-11 items-center`;
+/**
+ * The main nav's link style, narrower on phones so the four tabs fit on one row at 320px with
+ * room to spare (about 17px in the brand face, and still one row in a wider fallback face such as
+ * DejaVu Sans before the web font loads; e2e/dashboard.spec.ts). Each stays 44px tall.
+ */
+const subNavLinkClass = `${navLinkClass.replace(/\bpx-2\b/, "px-1 sm:px-2")} inline-flex min-h-11 items-center`;
 
 /** The door scanner (docs/design/check-in.md): its own full-screen surface with its own way back, so no sub-nav. */
 const DOOR_PATH = /^\/dashboard\/[^/]+\/check-in\/?$/;
@@ -57,7 +61,7 @@ export default function OrganiserSubNav() {
 
   return (
     <nav aria-label="Organiser" className="border-b border-foreground">
-      <ul className="mx-auto flex max-w-6xl flex-wrap items-center px-3 py-1 sm:gap-x-2 sm:px-6 sm:py-2">
+      <ul className="mx-auto flex max-w-6xl flex-wrap items-center px-2 py-1 sm:gap-x-2 sm:px-6 sm:py-2">
         {ORGANISER_SUB_NAV.map((link) => (
           <li key={link.href}>
             <Link

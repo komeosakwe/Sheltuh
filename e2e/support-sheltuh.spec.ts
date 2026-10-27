@@ -12,7 +12,10 @@ import { stubStripeJs } from "./stripe-stub";
  * seat page, the total they change, the amount in the checkout request, and
  * its line on the payment page. The e2e server runs in live mode with every
  * /api/* request answered here and Stripe.js stubbed (e2e/stripe-stub.ts),
- * so nothing reaches the API or Stripe.
+ * so nothing reaches the API or Stripe. Support Sheltüh is paused by default
+ * (lib/support.ts isSupportSheltuhEnabled); the e2e server switches it on with
+ * NEXT_PUBLIC_SUPPORT_SHELTUH=1 (playwright.config.ts), and
+ * tests/SupportSheltuh.test.tsx checks the chooser is hidden while it's off.
  */
 
 const DAY = 86_400_000;

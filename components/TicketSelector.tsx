@@ -23,6 +23,7 @@ import {
   totalIncludesWords,
   type SupportChoice,
 } from "@/lib/support-choice";
+import { isSupportSheltuhEnabled } from "@/lib/support";
 import { getTrackingRef } from "@/lib/tracking-ref";
 import type { SheltuhEvent, TicketType } from "@/lib/types";
 import { stepperButtonClass } from "@/components/ui/stepper";
@@ -206,10 +207,12 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const ticketsTotal = sumOrderSummaries(lineSummaries.map((line) => line.summary));
 
   const hasAnyTickets = lineSummaries.some((line) => line.quantity > 0);
-  // Support Sheltüh: offered (and sent) only with a paid ticket in the order; it's in the total
-  // the buyer sees (all-inclusive), but never in the tickets' subtotal or booking fees.
+  // Support Sheltüh: offered (and sent) only with a paid ticket in the order, and only while it's
+  // switched on (isSupportSheltuhEnabled; paused by default); it's in the total the buyer sees
+  // (all-inclusive), but never in the tickets' subtotal or booking fees.
   const hasPaidTickets = ticketsTotal.subtotalCents > 0;
-  const supportCents = hasPaidTickets ? supportCentsOf(support) : 0;
+  const offerSupport = hasPaidTickets && isSupportSheltuhEnabled();
+  const supportCents = offerSupport ? supportCentsOf(support) : 0;
   const orderTotal = { ...ticketsTotal, totalCents: ticketsTotal.totalCents + supportCents };
   // Every ticket on sale free: no payment step, but an emailed confirmation link.
   const allFree = pricedTicketTypes({ ...event, ticketTypes }).every((t) => t.priceCents === 0);
@@ -234,7 +237,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
       return;
     }
     // An Other amount that can't be sent: say why, by its field, rather than checking out without it.
-    if (hasPaidTickets && supportErrorOf(support)) {
+    if (offerSupport && supportErrorOf(support)) {
       setRevealSupportError(true);
       supportInputRef.current?.focus();
       return;
@@ -278,12 +281,13 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         // The email has its own field; anything else (such as too many free
         // tickets in `lineItems`) has no field to highlight, so it's said in
         // full rather than as "fix the highlighted fields".
-        // Support Sheltüh's is said by its chips.
+        // Support Sheltüh's is said by its chips (with the rest while they aren't offered, so it's never lost).
         const { buyerEmail: emailMessage, supportCents: supportMessage, ...others } = err.fieldErrors;
+        const supportByChips = Boolean(supportMessage) && offerSupport;
         if (emailMessage) showEmailError(emailMessage);
-        if (supportMessage) setSupportServerError(supportMessage);
-        const otherMessages = Object.values(others).filter(Boolean).join(" ");
-        if (otherMessages || (!emailMessage && !supportMessage)) setError(otherMessages || err.message);
+        if (supportByChips && supportMessage) setSupportServerError(supportMessage);
+        const otherMessages = [...Object.values(others), supportByChips ? undefined : supportMessage].filter(Boolean).join(" ");
+        if (otherMessages || (!emailMessage && !supportByChips)) setError(otherMessages || err.message);
       } else {
         setError(err instanceof Error ? err.message : "Couldn't start checkout. Try again.");
       }
@@ -291,8 +295,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     }
   }
 
-  // Support Sheltüh, right above Checkout: paid orders only.
-  const supportBlock = hasPaidTickets ? (
+  // Support Sheltüh, right above Checkout: paid orders only, while it's offered.
+  const supportBlock = offerSupport ? (
     <div className="mt-4 border-t border-surface-border pt-4">
       <SupportSheltuh
         choice={support}

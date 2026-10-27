@@ -8,7 +8,7 @@ import { ApiError } from "@/lib/api/client";
 import type { OrderPaymentSummary as PaymentSummary } from "@/lib/api/types";
 import { SAMPLE_SEAT_MAPS } from "@/lib/sample-seat-maps";
 import { sampleEvents } from "@/lib/sample-events";
-import { SUPPORT_BLURB, SUPPORT_RECIPIENT_NOTE } from "@/lib/support";
+import { SUPPORT_BLURB, SUPPORT_PAUSED, SUPPORT_RECIPIENT_NOTE } from "@/lib/support";
 import type { SheltuhEvent } from "@/lib/types";
 
 /**
@@ -39,6 +39,8 @@ vi.mock("@/lib/api/seating", async (importOriginal) => ({
 }));
 
 beforeEach(() => {
+  // Paused by default (lib/support.ts isSupportSheltuhEnabled): these tests are about it switched on, except "while paused" below.
+  vi.stubEnv("NEXT_PUBLIC_SUPPORT_SHELTUH", "1");
   createCheckoutSession.mockReset();
   createSeatedCheckout.mockReset();
   getSeatAvailability.mockReset();
@@ -48,6 +50,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   window.sessionStorage.clear();
+  vi.unstubAllEnvs();
 });
 
 function liveEvent(slug: string): SheltuhEvent {
@@ -410,6 +413,88 @@ describe("Support Sheltüh on the seat page", () => {
     render(<SeatPicker event={seated} map={map} mode="preview" initialUnavailable={sample.unavailable} />);
     chooseSeat();
     expect(screen.queryByRole("group", { name: GROUP_NAME })).toBeNull();
+  });
+});
+
+describe("Support Sheltüh while paused (NEXT_PUBLIC_SUPPORT_SHELTUH isn't \"1\")", () => {
+  const seated = sampleEvents.find((e) => e.id === "evt-off-kilter") as SheltuhEvent;
+  const sample = SAMPLE_SEAT_MAPS["evt-off-kilter"];
+  const map = { version: sample.version, seatCount: sample.seatCount, template: sample.template };
+
+  for (const value of [undefined, "", "0", "true"]) {
+    it(`isn't offered with a paid ticket, and checkout sends none (flag ${JSON.stringify(value)})`, () => {
+      vi.stubEnv("NEXT_PUBLIC_SUPPORT_SHELTUH", value);
+      createCheckoutSession.mockReturnValue(new Promise(() => {}));
+      render(<TicketSelector event={liveEvent(NEON)} />);
+      addGa();
+      expect(screen.queryByRole("group", { name: GROUP_NAME })).toBeNull();
+      expect(screen.queryByText(SUPPORT_BLURB)).toBeNull();
+      // The all-inclusive total is the tickets' alone.
+      expect(total()).toHaveTextContent("A$32.30");
+      fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+      expect(createCheckoutSession).toHaveBeenCalledTimes(1);
+      expect(createCheckoutSession.mock.calls[0][5]).toBeUndefined();
+    });
+  }
+
+  it("the API refusing support while it's paused is said as an error, never lost with the chips", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPPORT_SHELTUH", "");
+    createCheckoutSession.mockRejectedValue(new ApiError(400, "Check the highlighted fields.", { supportCents: SUPPORT_PAUSED }));
+    render(<TicketSelector event={liveEvent(NEON)} />);
+    addGa();
+    fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(SUPPORT_PAUSED);
+  });
+
+  it("isn't offered on the seat page, and the seated checkout carries no amount", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPPORT_SHELTUH", "");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-21T00:00:00.000Z"));
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes("min-width: 64rem"),
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+    try {
+      createSeatedCheckout.mockReturnValue(new Promise(() => {}));
+      render(<SeatPicker event={{ ...seated, organiserId: "org-1" }} map={map} mode="live" initialUnavailable={sample.unavailable} />);
+      fireEvent.click(screen.getByRole("tab", { name: "List" }));
+      fireEvent.click(within(screen.getByRole("group", { name: "North, Row A" })).getByRole("checkbox", { name: /^Seat 1, / }));
+      expect(screen.queryByRole("group", { name: GROUP_NAME })).toBeNull();
+      const totals = screen.getByText("Total").closest("dl") as HTMLElement;
+      expect(within(totals).getByText("A$37.60")).toBeInTheDocument();
+      expect(within(totals).queryByText("Support Sheltüh")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+      await waitFor(() => expect(createSeatedCheckout).toHaveBeenCalledTimes(1));
+      expect(createSeatedCheckout.mock.calls[0][1]).not.toHaveProperty("supportCents");
+    } finally {
+      vi.useRealTimers();
+      Reflect.deleteProperty(window, "matchMedia");
+    }
+  });
+
+  it("on the seat page, the API refusing support while it's paused is said as an error", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPPORT_SHELTUH", "");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-21T00:00:00.000Z"));
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes("min-width: 64rem"),
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+    try {
+      createSeatedCheckout.mockRejectedValue(new ApiError(400, "Check the highlighted fields.", { supportCents: SUPPORT_PAUSED }));
+      render(<SeatPicker event={{ ...seated, organiserId: "org-1" }} map={map} mode="live" initialUnavailable={sample.unavailable} />);
+      fireEvent.click(screen.getByRole("tab", { name: "List" }));
+      fireEvent.click(within(screen.getByRole("group", { name: "North, Row A" })).getByRole("checkbox", { name: /^Seat 1, / }));
+      fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
+      await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(SUPPORT_PAUSED));
+    } finally {
+      vi.useRealTimers();
+      Reflect.deleteProperty(window, "matchMedia");
+    }
   });
 });
 

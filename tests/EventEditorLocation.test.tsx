@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventEditor from "@/components/dashboard/EventEditor";
+import { PLACE_UNLINKED_NOTE } from "@/components/dashboard/VenueLocationField";
 import { MOVE_PIN_FIRST, PIN_ZOOM_EXACT } from "@/components/dashboard/VenuePinMap";
 import { ApiError } from "@/lib/api/client";
 import type { PlaceDetails, PlaceSuggestion } from "@/lib/api/places";
@@ -273,8 +274,10 @@ describe("EventEditor — checking the pin (desktop)", () => {
   });
 
   it("another suburb starts the map again at its centre, and the pin needs confirming again", async () => {
+    // A pin alone (a linked Google place is unlinked by another suburb: "the suburb changing under a
+    // linked place" below).
     renderEditor();
-    await pickTheTote();
+    fireEvent.click(screen.getByRole("button", { name: "Can’t find it on Google Maps?" }));
     await moveAndConfirm();
     expect(pinStatus()).toHaveTextContent("Pin confirmed.");
 
@@ -285,6 +288,114 @@ describe("EventEditor — checking the pin (desktop)", () => {
     // Back to Fitzroy: its confirmed pin is back.
     fireEvent.change(screen.getByLabelText("Suburb or town"), { target: { value: "Fitzroy" } });
     await waitFor(() => expect(pinStatus()).toHaveTextContent("Pin confirmed."));
+  });
+});
+
+describe("EventEditor — the suburb changing under a linked place", () => {
+  const suburbField = () => screen.getByLabelText("Suburb or town");
+  const unlinkedNote = () => screen.getByText(PLACE_UNLINKED_NOTE);
+
+  it("unlinks a saved place: the typed name and address stay, back to the search saying why, and the save drops the old place", async () => {
+    const linked: EventRecord = { ...EVENT, location: { source: "places", placeId: PLACE_ID, pin: FITZROY_CENTRE } };
+    renderEditor(linked);
+    expect(linkedBlock()).toHaveAttribute("data-linked-place", PLACE_ID);
+
+    suburbField().focus();
+    fireEvent.change(suburbField(), { target: { value: "Collingwood" } });
+    await waitFor(() => expect(linkedBlock()).toBeNull());
+    expect(screen.queryByText("Linked to Google Maps:")).toBeNull();
+    expect(searchBox()).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Can’t find it on Google Maps?" })).toBeInTheDocument();
+    // Said in the live region that was already there; focus stays in the suburb field being typed in.
+    expect(unlinkedNote()).toHaveAttribute("aria-live", "polite");
+    expect(suburbField()).toHaveFocus();
+    // Nothing to keep: the old place is for the old suburb.
+    expect(screen.queryByRole("button", { name: /^Keep / })).toBeNull();
+    // What the organiser typed stays.
+    expect(screen.getByLabelText("Venue name")).toHaveValue("The Venue");
+    expect(screen.getByLabelText("Venue address")).toHaveValue("1 Test St");
+    // The pin step goes with the place: find the venue again, or drop a pin.
+    expect(document.querySelector("[data-pin-step]")).toBeNull();
+
+    const input = await save();
+    expect(input.location).toBeNull();
+    expect(input.suburb).toBe("Collingwood");
+
+    // Back to the first suburb: the place stays unlinked (it has to be found again).
+    fireEvent.change(suburbField(), { target: { value: "Fitzroy" } });
+    await waitFor(() => expect(searchBox()).toBeInTheDocument());
+    expect(linkedBlock()).toBeNull();
+  });
+
+  it("a place in another state is unlinked too: the payload never has the old place id with the new state", async () => {
+    const linked: EventRecord = { ...EVENT, location: { source: "places", placeId: PLACE_ID, pin: FITZROY_CENTRE } };
+    renderEditor(linked);
+    fireEvent.change(suburbField(), { target: { value: "Perth" } });
+    await waitFor(() => expect(linkedBlock()).toBeNull());
+
+    // Publishing needs the venue found again, or a pin.
+    fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
+    await waitFor(() => expect(venueSection()).toHaveFocus());
+    expect(venueSection()).toHaveAccessibleDescription("Add the venue location and confirm the pin first.");
+    expect(api.publishEvent).not.toHaveBeenCalled();
+
+    const input = await save();
+    expect(input.state).toBe("WA");
+    expect(input.location).toBeNull();
+  });
+
+  it("a place just picked stays linked to the suburb the pick filled in; another suburb then unlinks it, and a pin can be dropped instead", async () => {
+    renderEditor(null);
+    await pickTheTote();
+    expect(suburbField()).toHaveValue("Collingwood, VIC");
+    expect(linkedBlock()).toHaveAttribute("data-linked-place", PLACE_ID);
+    expect(screen.queryByText(PLACE_UNLINKED_NOTE)).toBeNull();
+
+    fireEvent.change(suburbField(), { target: { value: "Brunswick" } });
+    await waitFor(() => expect(linkedBlock()).toBeNull());
+    expect(unlinkedNote()).toBeInTheDocument();
+    // The name and address the pick filled in stay.
+    expect(screen.getByLabelText("Venue name")).toHaveValue("The Tote Hotel");
+    expect(screen.getByLabelText("Venue address")).toHaveValue("71 Johnston St");
+
+    // Drop a pin: the note gives way to the pin's own.
+    fireEvent.click(screen.getByRole("button", { name: "Can’t find it on Google Maps?" }));
+    expect(screen.queryByText(PLACE_UNLINKED_NOTE)).toBeNull();
+    await moveAndConfirm();
+    expect(pinStatus()).toHaveTextContent("Pin confirmed.");
+    expect(screen.getByText(/Not on Google Maps: put the pin on the venue below/)).toBeInTheDocument();
+  });
+
+  it("finding the venue again links the new place, for the new suburb", async () => {
+    const linked: EventRecord = { ...EVENT, location: { source: "places", placeId: "ChIJold000000000000000", pin: FITZROY_CENTRE } };
+    renderEditor(linked);
+    fireEvent.change(suburbField(), { target: { value: "Collingwood" } });
+    await waitFor(() => expect(linkedBlock()).toBeNull());
+    await pickTheTote();
+    expect(screen.queryByText(PLACE_UNLINKED_NOTE)).toBeNull();
+    expect(linkedBlock()).toHaveAttribute("data-linked-place", PLACE_ID);
+    expect((await save()).location).toEqual({ source: "places", placeId: PLACE_ID });
+  });
+
+  it("after Change, the place kept is dropped too (no Keep), and the save drops it", async () => {
+    const linked: EventRecord = { ...EVENT, location: { source: "places", placeId: PLACE_ID, pin: FITZROY_CENTRE } };
+    renderEditor(linked);
+    fireEvent.click(screen.getByRole("button", { name: /^Change/ }));
+    expect(screen.getByRole("button", { name: "Keep The Venue" })).toBeInTheDocument();
+    fireEvent.change(suburbField(), { target: { value: "Collingwood" } });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Keep The Venue" })).toBeNull());
+    expect(unlinkedNote()).toBeInTheDocument();
+    expect((await save()).location).toBeNull();
+  });
+
+  it("a dropped pin kept after “Find it on Google Maps instead” isn't a place: it stays (for its own suburb)", async () => {
+    renderEditor({ ...EVENT, location: CONFIRMED_PIN_LOCATION });
+    fireEvent.click(screen.getByRole("button", { name: "Find it on Google Maps instead" }));
+    fireEvent.change(suburbField(), { target: { value: "Collingwood" } });
+    fireEvent.change(suburbField(), { target: { value: "Fitzroy" } });
+    expect(screen.queryByText(PLACE_UNLINKED_NOTE)).toBeNull();
+    expect(screen.getByRole("button", { name: "Keep the pin you dropped" })).toBeInTheDocument();
+    expect("location" in (await save())).toBe(false);
   });
 });
 

@@ -140,6 +140,17 @@ for (const vp of [
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       expect(overflow).toBeLessThanOrEqual(0);
 
+      // Measured once settled: New event rises in on load (globals.css .rise), and mid-way its box is
+      // a fraction of a pixel off (43.99998px).
+      await page.evaluate(() =>
+        Promise.all(
+          document
+            .getAnimations()
+            .filter((animation) => animation.effect?.getTiming().iterations !== Infinity)
+            // A cancelled one (its element gone) rejects: it's settled too.
+            .map((animation) => animation.finished.catch(() => undefined)),
+        ),
+      );
       const targets = [
         ...(await nav.getByRole("link").all()),
         newEvent,
