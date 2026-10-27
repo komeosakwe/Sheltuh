@@ -99,7 +99,7 @@ for (const vp of VIEWPORTS) {
       await page.goto("/map");
       const h1 = page.getByRole("heading", { level: 1 });
       await expect(h1).toHaveAccessibleName("Sheltüh near you.");
-      await expect(h1).toContainText("NEAR Ü.", { ignoreCase: true });
+      await expect(h1).toContainText("near you.", { ignoreCase: true });
 
       const group = page.getByRole("group", { name: "Show events as" });
       if (vp.phone) {

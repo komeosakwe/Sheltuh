@@ -15,7 +15,7 @@
 -- that every file has a row: add one here with every new migration.
 
 with fn as (
-  select p.proname, p.prosrc
+  select p.proname, p.prosrc, p.proargnames
     from pg_proc p
    where p.pronamespace = to_regnamespace('private')
 ),
@@ -23,6 +23,12 @@ col as (
   select a.attrelid, a.attname
     from pg_attribute a
    where a.attnum > 0 and not a.attisdropped
+),
+-- The outbox's constraints as Postgres prints them (the kinds and their keys).
+outbox_check as (
+  select c.conname, pg_get_constraintdef(c.oid) as def
+    from pg_constraint c
+   where c.conrelid = to_regclass('private.email_outbox')
 )
 select version, file, coalesce(applied, false) as applied
   from (values
@@ -75,6 +81,70 @@ select version, file, coalesce(applied, false) as applied
       exists (select 1 from col where attrelid = to_regclass('private.event_clips') and attname = 'width')),
     ('20261106000200', 'event_clip_hardening', to_regclass('private.event_clip_uploads') is not null),
     ('20261107000000', 'admin_review_emails', to_regclass('private.email_job_recipients') is not null),
-    ('20261108000000', 'account_invites', to_regclass('private.account_invites') is not null)
+    ('20261108000000', 'account_invites', to_regclass('private.account_invites') is not null),
+    ('20261109000000', 'paid_events_need_payouts', exists (select 1 from fn where proname = 'submit_event')),
+    ('20261109000100', 'event_refund_policy',
+      exists (select 1 from fn where proname = 'refund_policy_tightens')
+      and exists (select 1 from fn where proname = 'event_has_payable_orders')),
+    -- 24 to 26 were 20261104000000/…100/…200 on the payments audit branch. Judged by their substance, not
+    -- just their tables: a project that ran the old names before 20261107000000 and 20261108000000 has the
+    -- tables, but those two files then replaced the outbox's kind check, lease_outbox_jobs and the purge
+    -- (docs/DEPLOYMENT.md, "Migrations").
+    ('20261109000200', 'payment_reconciliation',
+      to_regclass('private.payment_exceptions') is not null
+      and exists (select 1 from outbox_check where conname = 'email_outbox_kind_check'
+                   and def like '%ops_alert%' and def like '%event_review%')
+      and exists (select 1 from fn where proname = 'lease_outbox_jobs' and prosrc like '%ops_alert%')
+      and exists (select 1 from fn where proname = 'purge_operational_data'
+                   and 'early_charge_refunds_deleted' = any(proargnames) and 'account_invites_deleted' = any(proargnames))),
+    ('20261109000300', 'email_outbox_health',
+      to_regclass('private.cron_runs') is not null and exists (select 1 from fn where proname = 'email_outbox_health')),
+    ('20261109000400', 'checkout_attempts',
+      to_regclass('private.checkout_attempts') is not null
+      and exists (select 1 from outbox_check where conname = 'email_outbox_kind_key'
+                   and def like '%ops_event_id%' and def like '%organiser_id%')
+      and exists (select 1 from fn where proname = 'purge_operational_data'
+                   and 'checkout_attempts_deleted' = any(proargnames) and 'account_invites_deleted' = any(proargnames))),
+    ('20261109000500', 'ticket_wallet_serial',
+      exists (select 1 from col where attrelid = to_regclass('public.tickets') and attname = 'wallet_serial')),
+    ('20261110000000', 'event_place_time_zone',
+      exists (select 1 from col where attrelid = to_regclass('public.events') and attname = 'time_zone')
+      and exists (select 1 from fn where proname = 'admin_edit_event' and prosrc like '%v_time_zone%')),
+    ('20261110000100', 'order_support',
+      exists (select 1 from col where attrelid = to_regclass('public.orders') and attname = 'support_cents')
+      and exists (select 1 from fn where proname = 'hold_seats' and 'p_support_cents' = any(proargnames))),
+    ('20261110000150', 'support_in_exceptions',
+      exists (select 1 from pg_constraint c
+               where c.conrelid = to_regclass('private.payment_exceptions') and c.conname = 'payment_exceptions_kind_check'
+                 and pg_get_constraintdef(c.oid) like '%amount_mismatch%')
+      and exists (select 1 from fn where proname = 'raise_payment_exception' and prosrc like '%amount_mismatch%')
+      and exists (select 1 from fn where proname = 'record_refund_status' and prosrc like '%supportCents%')
+      and exists (select 1 from fn where proname = 'fulfil_order_detailed' and prosrc like '%supportCents%')),
+    -- 20261111000300 redefines this file's only function (without supportKeptCents): its marker counts too.
+    ('20261110000200', 'support_ticket_refund',
+      exists (select 1 from fn where proname = 'record_payment_refund'
+                and (prosrc like '%supportKeptCents%' or prosrc like '%refund_no_inference%'))),
+    ('20261110000300', 'amount_mismatch_refund',
+      exists (select 1 from fn where proname = 'fail_mismatched_order')),
+    ('20261111000000', 'event_publish_now',
+      exists (select 1 from col where attrelid = to_regclass('public.organisers') and attname = 'event_review_required')
+      and exists (select 1 from fn where proname = 'publish_event')
+      and exists (select 1 from outbox_check where conname = 'email_outbox_kind_check' and def like '%event_published%')
+      and exists (select 1 from fn where proname = 'lease_outbox_jobs' and prosrc like '%event_published%')),
+    ('20261111000100', 'event_venue_location',
+      exists (select 1 from col where attrelid = to_regclass('public.events') and attname = 'venue_place_id')
+      and exists (select 1 from fn where proname = 'event_location_json')
+      and exists (select 1 from fn where proname = 'publish_event' and prosrc like '%location_required%')
+      -- 20261111000400 takes the pin check back out of submit_event: its marker counts too.
+      and exists (select 1 from fn where proname = 'submit_event'
+                    and (prosrc like '%location_required%' or prosrc like '%submit_location_in_app%'))),
+    ('20261111000200', 'first_paid_event_review',
+      exists (select 1 from fn where proname = 'publish_event' and prosrc like '%first_paid_event%')
+      and exists (select 1 from fn where proname = 'admin_unpublish_event')),
+    ('20261111000300', 'refund_no_inference',
+      exists (select 1 from fn where proname = 'record_payment_refund' and prosrc like '%refund_no_inference%')
+      and exists (select 1 from fn where proname = 'fulfil_order_detailed' and prosrc like '%refund_no_inference%')),
+    ('20261111000400', 'submit_event_location_in_app',
+      exists (select 1 from fn where proname = 'submit_event' and prosrc like '%submit_location_in_app%'))
   ) as m(version, file, applied)
  order by version;

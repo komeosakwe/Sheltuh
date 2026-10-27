@@ -1,8 +1,10 @@
-import { formatEventDateKey, formatEventDateShort, formatEventTime } from "./format";
+import { eventZone, formatEventDateKey, formatEventDateShort, formatEventTime, zoneSuffix } from "./format";
 import type { TrendingSignal } from "./home-sections";
 import { isSoldOut, pricedTicketTypes } from "./pricing";
 import { quickBuyHref, quickBuyLabel, type QuickBuyLabel } from "./quick-buy";
+import { eventPlaceName, placeNameParts } from "./place";
 import { getSampleGoing } from "./sample-going";
+import type { StateCode } from "./time-zones";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "./types";
 
 /**
@@ -16,28 +18,89 @@ export function categoryLabel(event: SheltuhEvent): string {
   return EVENT_CATEGORIES.find((category) => category.value === event.category)?.label ?? event.category;
 }
 
-/** "The Depot Theatre · Coburg": the parts that exist, never a dangling separator. Empty when neither does. */
+/**
+ * "The Depot Theatre · Coburg, VIC": the parts that exist, never a dangling
+ * separator, the suburb with its state (owner decision D4, lib/place.ts).
+ * Empty when neither exists.
+ */
 export function placeLabel(event: SheltuhEvent): string {
-  return [event.venueName, event.suburb].filter(Boolean).join(" · ");
+  return [event.venueName, eventPlaceName(event)].filter(Boolean).join(" · ");
 }
 
-export type CardDateLabel = { date: string; time: string } | { running: string };
+/**
+ * placeLabel's parts, for a narrow card that shows the venue and the place
+ * on a line each, so the venue never pushes the state out of view, and cuts
+ * the suburb's name short but never its state: `{ venue: "The Depot
+ * Theatre", place: { suburb: "Coburg", state: "VIC" } }` (venue "" or place
+ * null when there's none). Read together, with a hidden " · " between them,
+ * they're placeLabel, which stays the accessible text.
+ */
+export function placeParts(event: SheltuhEvent): { venue: string; place: { suburb: string; state: StateCode } | null } {
+  return { venue: event.venueName.trim(), place: placeNameParts(event.suburb, event.state) };
+}
 
 /**
- * The card's date line, in Melbourne time. An event already under way that
- * ends after `now` says so ("Now on · until Sun 1 Nov", or "Now on · until
- * 11:00 pm" when it ends today), since its start date has passed; anything
- * else is the start's date and time. Never "Today!" or a countdown.
+ * A start's date and time in the event's own zone. `zone` names any zone but
+ * the platform's ("Perth time", zoneSuffix), "" for Melbourne's: kept apart
+ * from `time` so a narrow line can wrap before it rather than overflow.
+ */
+export interface StartLabel {
+  date: string;
+  time: string;
+  zone: string;
+}
+
+export type CardDateLabel = StartLabel | { running: string };
+
+/** What a start label needs from an event (a SheltuhEvent, or anything with its start and place). */
+export type EventStartFields = Pick<SheltuhEvent, "startsAt" | "timeZone" | "state">;
+
+/**
+ * The start's date and time in the event's own zone, with any zone but the
+ * platform's named (zoneSuffix): `{ date: "Sat 21 Nov", time: "8:00 pm",
+ * zone: "Perth time" }`, and for a Melbourne event exactly as before
+ * (`zone: ""`). Every compact event line (cards, map, list rows) uses it.
+ */
+export function startLabel(event: EventStartFields): StartLabel {
+  const zone = eventZone(event.timeZone);
+  return {
+    date: formatEventDateShort(event.startsAt, zone),
+    time: formatEventTime(event.startsAt, zone),
+    zone: zoneSuffix(event.timeZone, event.state).trim(),
+  };
+}
+
+/**
+ * startLabel as one line: "Sat 21 Nov, 8:00 pm Perth time". `zone: false`
+ * leaves the zone off, for a list whose events are all at one place (the
+ * map's spot list).
+ */
+export function startDateTimeLine(event: EventStartFields, { zone = true }: { zone?: boolean } = {}): string {
+  const start = startLabel(event);
+  return `${start.date}, ${start.time}${zone && start.zone ? ` ${start.zone}` : ""}`;
+}
+
+/**
+ * The card's date line, in the event's own zone. An event already under way
+ * that ends after `now` says so ("Now on · until Sun 1 Nov", or "Now on ·
+ * until 11:00 pm" when it ends today there), since its start date has
+ * passed; anything else is the start's date and time. Never "Today!" or a
+ * countdown. A time outside the platform's zone names its zone ("8:00 pm
+ * Perth time", zoneSuffix); a Melbourne event's line is unchanged.
  */
 export function cardDateLabel(event: SheltuhEvent, now: Date): CardDateLabel {
+  const zone = eventZone(event.timeZone);
+  const suffix = zoneSuffix(event.timeZone, event.state);
   const start = Date.parse(event.startsAt);
   const end = event.endsAt ? Date.parse(event.endsAt) : Number.NaN;
   const nowMs = now.getTime();
   if (event.endsAt && start <= nowMs && end > nowMs) {
-    const endsToday = formatEventDateKey(event.endsAt) === formatEventDateKey(now.toISOString());
-    return { running: `Now on · until ${endsToday ? formatEventTime(event.endsAt) : formatEventDateShort(event.endsAt)}` };
+    const endsToday = formatEventDateKey(event.endsAt, zone) === formatEventDateKey(now.toISOString(), zone);
+    return {
+      running: `Now on · until ${endsToday ? `${formatEventTime(event.endsAt, zone)}${suffix}` : formatEventDateShort(event.endsAt, zone)}`,
+    };
   }
-  return { date: formatEventDateShort(event.startsAt), time: formatEventTime(event.startsAt) };
+  return startLabel(event);
 }
 
 /** Whether `event` has ended by `now` (an event with no end time ends when it starts). */

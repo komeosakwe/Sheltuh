@@ -9,17 +9,23 @@ import { SessionExpiredError } from "@/lib/auth/session-token";
 import { callsTokenFirst, fakeAuthValue, FakeAuthProvider, switchableSession } from "./test-utils/fakeAuth";
 
 const push = vi.fn();
+// The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
+vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
 }));
 
 const updateEventDraft = vi.fn();
 const createEventDraft = vi.fn();
-const submitEventForReview = vi.fn();
-vi.mock("@/lib/api/events", () => ({
+const publishEvent = vi.fn();
+vi.mock("@/lib/api/events", async (importOriginal) => ({
+  // The real check (it only reads the error): the editor tells a payouts refusal apart with it.
+  isPayoutsRequiredError: (await importOriginal<typeof import("@/lib/api/events")>()).isPayoutsRequiredError,
+  isRefundPolicyTightenedError: (await importOriginal<typeof import("@/lib/api/events")>()).isRefundPolicyTightenedError,
   updateEventDraft: (...args: unknown[]) => updateEventDraft(...args),
   createEventDraft: (...args: unknown[]) => createEventDraft(...args),
-  submitEventForReview: (...args: unknown[]) => submitEventForReview(...args),
+  publishEvent: (...args: unknown[]) => publishEvent(...args),
 }));
 
 const adminListOrganisers = vi.fn();
@@ -37,7 +43,7 @@ vi.mock("@/lib/api/admin", () => ({
 
 afterEach(cleanup);
 beforeEach(() => {
-  for (const fn of [push, updateEventDraft, createEventDraft, submitEventForReview, adminListOrganisers,
+  for (const fn of [push, updateEventDraft, createEventDraft, publishEvent, adminListOrganisers,
     adminCreateOrganiser, adminCreateEvent, adminUpdateEvent]) fn.mockReset();
 });
 
@@ -102,7 +108,7 @@ function fillEventFields() {
   fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Four bands." } });
   fireEvent.change(screen.getByLabelText("Venue name"), { target: { value: "The Tote" } });
   fireEvent.change(screen.getByLabelText("Venue address"), { target: { value: "71 Johnston St" } });
-  fireEvent.change(screen.getByLabelText("Suburb"), { target: { value: "Collingwood" } });
+  fireEvent.change(screen.getByLabelText("Suburb or town"), { target: { value: "Collingwood" } });
   fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2027-03-06" } });
   fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "20:00" } });
   fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2027-03-06" } });
@@ -377,7 +383,8 @@ describe("EventEditor (admin) — editing", () => {
     const onSaved = vi.fn();
     renderEditor({ initial: EVENT, onSaved });
     expect(screen.queryByText(/can.t be edited/)).toBeNull();
-    expect(screen.queryByRole("button", { name: "Submit for review" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Publish…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send for review" })).toBeNull();
     expect(screen.queryByLabelText("Publish when saved")).toBeNull();
     expect(screen.getByText(/your changes go live as soon as you save/)).toBeInTheDocument();
 

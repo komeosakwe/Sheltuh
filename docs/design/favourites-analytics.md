@@ -274,7 +274,7 @@ Layout `flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-6`.
   - Orders: Completed orders, free and paid. Refunded and failed orders aren't counted.
   - Tickets sold: Tickets in those orders.
   - Gross: What buyers paid, including any booking fees they paid.
-  - Fees: Sheltüh booking fees (4% + A$0.50 per paid ticket), whether buyers paid them or you absorbed them.
+  - Fees: Sheltüh booking fees (6% of ticket face value + A$0.50 per paid ticket), whether buyers paid them or you absorbed them.
   - Net: Gross minus fees. This is what Stripe pays out to you. Card processing costs come out of our share, not yours.
   - Conversion: Orders divided by views.
 

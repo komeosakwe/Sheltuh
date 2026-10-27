@@ -5,6 +5,7 @@ import CheckoutPayment from "@/components/checkout/CheckoutPayment";
 import StripePreconnect from "@/components/checkout/StripePreconnect";
 import { ApiError } from "@/lib/api/client";
 import type { OrderPaymentLookup } from "@/lib/api/types";
+import { REFUND_ACL_STATEMENT } from "@/lib/refund-policy";
 
 /**
  * /checkout/pay (docs/design/checkout-pay.md): every state, with Stripe.js
@@ -123,12 +124,12 @@ const OPEN_GA: OrderPaymentLookup = {
   suburb: "Collingwood",
   seated: false,
   lines: [
-    { ticketTypeName: "General admission", quantity: 2, unitTotalCents: 3170, lineTotalCents: 6340, buyerPaysFee: true },
+    { ticketTypeName: "General admission", quantity: 2, unitTotalCents: 3230, lineTotalCents: 6460, buyerPaysFee: true },
     { ticketTypeName: "Free list", quantity: 1, unitTotalCents: 0, lineTotalCents: 0, buyerPaysFee: false },
   ],
   subtotalCents: 6000,
-  buyerFeeCents: 340,
-  totalCents: 6340,
+  buyerFeeCents: 460,
+  totalCents: 6460,
 };
 
 const OPEN_SEATED: OrderPaymentLookup = {
@@ -140,8 +141,8 @@ const OPEN_SEATED: OrderPaymentLookup = {
     {
       ticketTypeName: "Full price",
       quantity: 2,
-      unitTotalCents: 3690,
-      lineTotalCents: 7380,
+      unitTotalCents: 3760,
+      lineTotalCents: 7520,
       buyerPaysFee: true,
       seats: [
         { section: "North", row: "A", seat: "1", kind: "standard" },
@@ -150,8 +151,8 @@ const OPEN_SEATED: OrderPaymentLookup = {
     },
   ],
   subtotalCents: 7000,
-  buyerFeeCents: 380,
-  totalCents: 7380,
+  buyerFeeCents: 520,
+  totalCents: 7520,
 };
 
 beforeEach(() => {
@@ -230,23 +231,101 @@ describe("CheckoutPayment: open", () => {
     const summary = await screen.findByRole("region", { name: "Neon Static" });
     expect(summary).toHaveClass("rounded-card", "border", "border-foreground", "bg-card");
     expect(within(summary).getByText("Sat 6 Mar, 8:00 pm – 11:30 pm")).toBeInTheDocument();
-    expect(within(summary).getByText("The Tote, Collingwood")).toBeInTheDocument();
-    expect(within(summary).getByText("2 × A$31.70 incl. fee")).toBeInTheDocument();
+    expect(within(summary).getByText("The Tote, Collingwood, VIC")).toBeInTheDocument();
+    expect(within(summary).getByText("2 × A$32.30 incl. fee")).toBeInTheDocument();
     expect(within(summary).getByText("1 × Free")).toBeInTheDocument();
     expect(within(summary).getByText("Free", { selector: "p.shrink-0" })).toBeInTheDocument();
 
     const total = summary.querySelector("[data-order-total]");
-    expect(total).toHaveTextContent("A$63.40");
+    expect(total).toHaveTextContent("A$64.60");
     expect(total).toHaveClass("text-xl", "font-bold", "tabular-nums");
     expect(within(summary).getByText("Total")).toHaveClass("text-lg", "font-bold");
     // Every other amount is smaller than the total.
-    const lineAmount = within(summary).getByText("A$63.40", { selector: "li p" });
+    const lineAmount = within(summary).getByText("A$64.60", { selector: "li p" });
     expect(lineAmount).toHaveClass("text-sm");
     expect(lineAmount.className).not.toMatch(/text-(lg|xl)/);
-    const fee = within(summary).getByText("Includes A$3.40 in booking fees.");
+    const fee = within(summary).getByText("Includes A$4.60 in booking fees.");
     expect(fee).toHaveClass("text-xs");
     // The fee note comes after the total, never before it.
     expect(total?.compareDocumentPosition(fee) ?? 0).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("says the event's refund policy, dated from its start, with the ACL line, under the total (before paying)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-01T00:00:00.000Z"));
+    try {
+      // The event starts Sat 6 Mar 2027, 8:00 pm AEDT.
+      getOrderPayment.mockResolvedValue({ ...OPEN_GA, refundPolicy: "days_before", refundDays: 7 });
+      render(<CheckoutPayment />);
+      const summary = await screen.findByRole("region", { name: "Neon Static" });
+      const refunds = summary.querySelector<HTMLElement>("[data-refund-policy]");
+      if (!refunds) throw new Error("no refund policy");
+      // "Refund policy:", not "Refunds: Refunds available…".
+      expect(refunds).toHaveTextContent(
+        "Refund policy: Refunds available until Sat 27 Feb 2027, 8:00 pm (7 days before the event).",
+      );
+      expect(within(refunds).getByText(REFUND_ACL_STATEMENT)).toHaveClass("text-sm", "text-muted");
+      const total = summary.querySelector("[data-order-total]");
+      expect(total?.compareDocumentPosition(refunds) ?? 0).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a Perth event: the date and refund deadline in Perth time, named, and a seat hold ending in Perth time", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-01T00:00:00.000Z"));
+    try {
+      // 8:00 pm – 11:30 pm AEDT is 5:00 pm – 8:30 pm AWST; the hold's 8:31 pm AEDT is 5:31 pm AWST.
+      getOrderPayment.mockResolvedValue({
+        ...OPEN_SEATED,
+        eventTitle: "Neon Static",
+        eventTimeZone: "Australia/Perth",
+        eventState: "WA",
+        refundPolicy: "days_before",
+        refundDays: 7,
+      });
+      render(<CheckoutPayment />);
+      const summary = await screen.findByRole("region", { name: "Neon Static" });
+      expect(within(summary).getByText("Sat 6 Mar, 5:00 pm – 8:30 pm Perth time")).toBeInTheDocument();
+      expect(summary.querySelector("[data-refund-policy]")).toHaveTextContent(
+        "Refund policy: Refunds available until Sat 27 Feb 2027, 5:00 pm (7 days before the event).",
+      );
+      expect(screen.getByText("Your seats are held until 5:31 pm Perth time. Going back releases them.")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says the refund window has closed once the deadline has passed", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2027-03-03T09:00:00.000Z"));
+    try {
+      getOrderPayment.mockResolvedValue({ ...OPEN_GA, refundPolicy: "days_before", refundDays: 7 });
+      render(<CheckoutPayment />);
+      const summary = await screen.findByRole("region", { name: "Neon Static" });
+      expect(summary.querySelector("[data-refund-policy]")).toHaveTextContent(
+        "Refund policy: The refund window for this event has closed. No refunds for change of mind.",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("no_change_of_mind says so; a response without a policy (or with invalid days) says nothing about refunds", async () => {
+    getOrderPayment.mockResolvedValue({ ...OPEN_GA, refundPolicy: "no_change_of_mind" });
+    render(<CheckoutPayment />);
+    expect(await screen.findByText("No refunds for change of mind.", { exact: false })).toBeInTheDocument();
+    cleanup();
+
+    for (const lookup of [OPEN_GA, { ...OPEN_GA, refundPolicy: "days_before" as const }]) {
+      getOrderPayment.mockResolvedValue(lookup);
+      render(<CheckoutPayment />);
+      await screen.findByRole("region", { name: "Neon Static" });
+      expect(document.querySelector("[data-refund-policy]")).toBeNull();
+      expect(screen.queryByText(REFUND_ACL_STATEMENT)).toBeNull();
+      cleanup();
+    }
   });
 
   it("a buyer who pays no booking fee is told so, and no line says 'incl. fee'", async () => {
@@ -268,18 +347,18 @@ describe("CheckoutPayment: open", () => {
     getOrderPayment.mockResolvedValue({
       ...OPEN_GA,
       lines: [
-        { ticketTypeName: "General admission", quantity: 1, unitTotalCents: 3170, lineTotalCents: 3170, buyerPaysFee: true },
+        { ticketTypeName: "General admission", quantity: 1, unitTotalCents: 3230, lineTotalCents: 3230, buyerPaysFee: true },
         { ticketTypeName: "Supporter", quantity: 1, unitTotalCents: 5000, lineTotalCents: 5000, buyerPaysFee: false },
       ],
       subtotalCents: 8000,
-      buyerFeeCents: 170,
-      totalCents: 8170,
+      buyerFeeCents: 230,
+      totalCents: 8230,
     });
     render(<CheckoutPayment />);
     const summary = await screen.findByRole("region", { name: "Neon Static" });
-    expect(within(summary).getByText("1 × A$31.70 incl. fee")).toBeInTheDocument();
+    expect(within(summary).getByText("1 × A$32.30 incl. fee")).toBeInTheDocument();
     expect(within(summary).getByText("1 × A$50")).toBeInTheDocument();
-    expect(within(summary).getByText("Includes A$1.70 in booking fees.")).toBeInTheDocument();
+    expect(within(summary).getByText("Includes A$2.30 in booking fees.")).toBeInTheDocument();
   });
 
   it("phones fold the lines behind a toggle; the total is never inside it", async () => {

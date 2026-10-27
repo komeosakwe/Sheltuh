@@ -58,10 +58,10 @@ function openPayment() {
     venueName: sample!.venueName,
     suburb: sample!.suburb,
     seated: false,
-    lines: [{ ticketTypeName: "General admission", quantity: 1, unitTotalCents: 3170, lineTotalCents: 3170, buyerPaysFee: true }],
+    lines: [{ ticketTypeName: "General admission", quantity: 1, unitTotalCents: 3230, lineTotalCents: 3230, buyerPaysFee: true }],
     subtotalCents: 3000,
-    buyerFeeCents: 170,
-    totalCents: 3170,
+    buyerFeeCents: 230,
+    totalCents: 3230,
   };
 }
 
@@ -129,9 +129,9 @@ test.describe("general admission at 1280×900", () => {
 
     await expect(page.getByRole("heading", { level: 1, name: "Pay for your tickets" })).toBeVisible({ timeout: 30_000 });
     const summary = page.getByRole("region", { name: sample!.title });
-    await expect(summary).toContainText("1 × A$31.70 incl. fee");
-    await expect(summary.locator("[data-order-total]")).toHaveText("A$31.70");
-    await expect(summary).toContainText("Includes A$1.70 in booking fees.");
+    await expect(summary).toContainText("1 × A$32.30 incl. fee");
+    await expect(summary.locator("[data-order-total]")).toHaveText("A$32.30");
+    await expect(summary).toContainText("Includes A$2.30 in booking fees.");
     await expect(page.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", `/events/${sample!.slug}`);
     // Under the form (the footer has its own links too).
     const legal = page.getByText(/^By paying you agree to the Purchase Terms/);
@@ -245,7 +245,7 @@ test.describe("when Stripe's form doesn't come", () => {
     await expect(page.getByText("Loading the payment form…")).toHaveCount(0);
     await expect(page.getByRole("heading", { level: 1, name: "Pay for your tickets" })).toBeFocused();
     // The summary stays.
-    await expect(page.getByRole("region", { name: sample!.title }).locator("[data-order-total]")).toHaveText("A$31.70");
+    await expect(page.getByRole("region", { name: sample!.title }).locator("[data-order-total]")).toHaveText("A$32.30");
     expect(seen.calls.filter((call) => call === PAYMENT_GET)).toHaveLength(1);
 
     const again = page.getByRole("button", { name: "Try again" });

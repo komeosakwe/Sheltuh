@@ -18,8 +18,9 @@ import type { CsvCell } from "./csv";
 /**
  * The arithmetic behind the analytics routes, kept free of SQL so it can be
  * unit-tested. Order-level money always comes from the orders' own priced
- * snapshots (total_cents, application_fee_cents: exactly what Stripe was
- * told); only the per-ticket-type split is re-derived, with lib/fees.ts.
+ * snapshots (total_cents less any Support Sheltüh, which is the platform's,
+ * and application_fee_cents, the booking fee: exactly what Stripe was told);
+ * only the per-ticket-type split is re-derived, with lib/fees.ts.
  */
 
 /** Paid-order sums as they come out of SQL. */

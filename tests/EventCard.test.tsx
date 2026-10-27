@@ -131,7 +131,7 @@ describe("EventCard anatomy (§6.2.1)", () => {
       expect(lines).toEqual([
         "Glasshouse Sessions",
         "Sun 18 Oct · 7:00 pm",
-        "The Conservatory · Carlton",
+        "The Conservatory · Carlton, VIC",
         `Live music · ${getSampleGoing(event.id).count} going (sample)`,
       ]);
       expect(text.firstElementChild?.tagName).toBe("H3");
@@ -139,7 +139,7 @@ describe("EventCard anatomy (§6.2.1)", () => {
       expect(text.lastElementChild).toHaveClass("text-xs", "text-muted");
       // The price leads the card's foot, then the ticket action.
       const foot = root.querySelector("[data-card-foot]") as HTMLElement;
-      expect(foot.firstElementChild).toHaveTextContent("From A$36.90 incl. booking fee");
+      expect(foot.firstElementChild).toHaveTextContent("From A$37.60 incl. booking fee");
       expect(within(foot.children[1] as HTMLElement).getByRole("link", { name: "Buy tickets for Glasshouse Sessions" })).toBeInTheDocument();
       // No description on cards.
       expect(root).not.toHaveTextContent("Acoustic sets");
@@ -151,7 +151,7 @@ describe("EventCard anatomy (§6.2.1)", () => {
   it("names the card's link title first, then the date, place, price and going count (not the category)", () => {
     render(<EventCard event={event} variant="rail" mode="demo" />);
     expect(cardLink(event)).toHaveAccessibleName(
-      `Glasshouse Sessions Sun 18 Oct · 7:00 pm The Conservatory · Carlton From A$36.90 incl. booking fee ${getSampleGoing(event.id).count} going (sample)`,
+      `Glasshouse Sessions Sun 18 Oct · 7:00 pm The Conservatory · Carlton, VIC From A$37.60 incl. booking fee ${getSampleGoing(event.id).count} going (sample)`,
     );
     expect(cardLink(event)).not.toHaveAccessibleName(/Live music/);
     expect(cardLink(event)).toHaveAttribute("href", "/events/glass-sessions");
@@ -161,13 +161,13 @@ describe("EventCard anatomy (§6.2.1)", () => {
 
   it("skips an empty place line in the name and on screen", () => {
     const { container } = render(<EventCard event={{ ...event, venueName: "", suburb: "" }} variant="grid" mode="live" />);
-    expect(cardLink(event)).toHaveAccessibleName("Glasshouse Sessions Sun 18 Oct · 7:00 pm From A$36.90 incl. booking fee");
+    expect(cardLink(event)).toHaveAccessibleName("Glasshouse Sessions Sun 18 Oct · 7:00 pm From A$37.60 incl. booking fee");
     expect(container).not.toHaveTextContent(/ · $/);
   });
 
   it("puts the amount before what it includes, the amount bold and the note quieter", () => {
     render(<EventCard event={event} variant="rail" mode="live" />);
-    const amount = screen.getByText("From A$36.90");
+    const amount = screen.getByText("From A$37.60");
     expect(amount).toHaveClass("font-semibold");
     expect(amount.nextElementSibling).toHaveTextContent("incl. booking fee");
     expect(amount.nextElementSibling).toHaveClass("text-muted");
@@ -175,7 +175,7 @@ describe("EventCard anatomy (§6.2.1)", () => {
 
   it("keeps the fee note's last two words together, so 'fee' never sits alone on a line (V15)", () => {
     render(<EventCard event={event} variant="grid" mode="live" />);
-    const note = screen.getByText("From A$36.90").nextElementSibling as HTMLElement;
+    const note = screen.getByText("From A$37.60").nextElementSibling as HTMLElement;
     const together = note.querySelector(".whitespace-nowrap");
     expect(together).toHaveTextContent(/^booking fee$/);
     // Only those two words: the rest can still wrap on a narrow card (no whole-line nowrap).
@@ -190,12 +190,34 @@ describe("EventCard anatomy (§6.2.1)", () => {
     expect(parts).toEqual(["Sun 18 Oct", "· 7:00 pm"]);
   });
 
-  it("lets the venue · suburb line wrap to two lines rather than cutting the suburb off (A2)", () => {
-    const long = { ...event, venueName: "The Very Long Name Of A Community Hall And Garden", suburb: "Brunswick East" };
-    render(<EventCard event={long} variant="grid" mode="live" />);
-    const place = screen.getByText(`${long.venueName} · ${long.suburb}`);
-    expect(place).toHaveClass("line-clamp-2", "break-words");
-    expect(place).not.toHaveClass("truncate");
+  it("puts the venue and \"Suburb, STATE\" on a line each, so a long venue never cuts the state off (A2)", () => {
+    const long = { ...event, venueName: "The Very Long Name Of A Community Hall And Garden", suburb: "Fortitude Valley", state: "QLD" as const };
+    const { container } = render(<EventCard event={long} variant="grid" mode="live" />);
+    const place = container.querySelector("[id$='-place']") as HTMLElement;
+    // Read together (and in the link's name), it's still "venue · Suburb, STATE".
+    expect(place.textContent).toBe(`${long.venueName} · Fortitude Valley, QLD`);
+    expect(cardLink(long)).toHaveAccessibleName(new RegExp(`${long.venueName} · Fortitude Valley, QLD`));
+    // On screen: a line each, the separator for screen readers only.
+    const [venue, separator, suburb] = Array.from(place.children);
+    expect(venue).toHaveTextContent(long.venueName);
+    expect(venue).toHaveClass("block", "truncate");
+    expect(separator).toHaveClass("sr-only");
+    expect(separator).toHaveTextContent("·");
+    // The suburb's name is what's cut short; its state never is ("Fortitude Va… QLD").
+    expect(suburb.textContent).toBe("Fortitude Valley, QLD");
+    expect(suburb.firstElementChild?.textContent).toBe("Fortitude Valley,");
+    expect(suburb.firstElementChild).toHaveClass("truncate");
+    expect(suburb.lastElementChild?.textContent).toBe("QLD");
+    expect(suburb.lastElementChild).toHaveClass("shrink-0");
+  });
+
+  it("puts a zone outside Melbourne's on its own unbreakable part, so it wraps under the time (visual QA)", () => {
+    const perth = { ...event, state: "WA" as const, timeZone: "Australia/Perth" as const };
+    const { container } = render(<EventCard event={perth} variant="grid" mode="live" />);
+    const date = container.querySelector("[id$='-date']") as HTMLElement;
+    const parts = Array.from(date.querySelectorAll(".whitespace-nowrap")).map((el) => el.textContent);
+    expect(parts).toEqual(["Sun 18 Oct", "· 4:00 pm", "Perth time"]);
+    expect(date.textContent).toBe("Sun 18 Oct · 4:00 pm Perth time");
   });
 
   it("says an in-progress multi-day event is on now, until when; never a countdown", () => {
@@ -266,7 +288,7 @@ describe("EventCard: prices and buttons line up across sibling cards (owner feed
       expect(foot(container)).toHaveClass("mt-auto", "flex", "flex-col");
       expect(root.lastElementChild).toBe(foot(container));
       const [price, cta] = Array.from(foot(container).children);
-      expect(price).toHaveTextContent("From A$36.90 incl. booking fee");
+      expect(price).toHaveTextContent("From A$37.60 incl. booking fee");
       expect(within(cta as HTMLElement).getByRole("link", { name: "Buy tickets for Glasshouse Sessions" })).toBeInTheDocument();
       // The foot isn't raised above the card's link: a tap on the price still opens the event.
       expect(foot(container)).not.toHaveClass("z-10");
@@ -298,7 +320,7 @@ describe("EventCard: prices and buttons line up across sibling cards (owner feed
 
   it("puts nothing interactive between the stretched link and the foot, and keeps the link's name", () => {
     render(<EventCard event={event} variant="rail" mode="live" />);
-    expect(cardLink(event)).toHaveAccessibleName("Glasshouse Sessions Sun 18 Oct · 7:00 pm The Conservatory · Carlton From A$36.90 incl. booking fee");
+    expect(cardLink(event)).toHaveAccessibleName("Glasshouse Sessions Sun 18 Oct · 7:00 pm The Conservatory · Carlton, VIC From A$37.60 incl. booking fee");
   });
 });
 
@@ -308,8 +330,10 @@ describe("EventCard variants", () => {
     expect(cardRoot(container)).toHaveClass("w-[min(62vw,15rem)]", "shrink-0", "sm:w-64");
     expect(cardRoot(container)).not.toHaveClass("sm:w-full");
     expect(screen.getByRole("heading", { level: 3 })).toHaveClass("text-lg", "leading-6", "line-clamp-2", "break-words");
-    expect(screen.getByText("The Conservatory · Carlton")).toHaveClass("text-sm", "leading-5");
-    expect(screen.getByText("From A$36.90").parentElement).toHaveClass("text-sm", "leading-5");
+    const place = container.querySelector("[data-place-lines]");
+    expect(place).toHaveTextContent("The Conservatory · Carlton, VIC");
+    expect(place).toHaveClass("text-sm", "leading-5");
+    expect(screen.getByText("From A$37.60").parentElement).toHaveClass("text-sm", "leading-5");
     const buy = screen.getByRole("link", { name: "Buy tickets for Glasshouse Sessions" });
     expect(buy).toHaveClass("self-start", "px-4", "min-h-11", "sm:min-h-10");
     expect(screen.queryByRole("link", { name: /^By / })).toBeNull();
@@ -341,8 +365,10 @@ describe("EventCard variants", () => {
     expect(cardRoot(container)).toHaveClass("w-full");
     expect(screen.getByRole("heading", { level: 3 })).toHaveClass("text-base", "leading-[1.375rem]", "sm:text-lg");
     // 14px at every width (it was 12px on the phone grid).
-    expect(screen.getByText("The Conservatory · Carlton")).toHaveClass("text-sm");
-    expect(screen.getByText("The Conservatory · Carlton").className).not.toMatch(/text-xs/);
+    const place = container.querySelector("[data-place-lines]");
+    expect(place).toHaveTextContent("The Conservatory · Carlton, VIC");
+    expect(place).toHaveClass("text-sm");
+    expect(place?.className).not.toMatch(/text-xs/);
     const buy = screen.getByRole("link", { name: "Buy tickets for Glasshouse Sessions" });
     expect(buy).toHaveClass("w-full", "sm:w-auto", "px-2", "text-xs", "text-balance");
     expect(buy.className).not.toMatch(/truncate|whitespace-nowrap/);
@@ -405,10 +431,10 @@ describe("EventCard media: organiser artwork on a phone rail card", () => {
 
 describe("EventCard ticket states, from real data only (§6.2.3)", () => {
   it.each<[string, SheltuhEvent, string, string | null, string | null, "btn-signal" | "btn-outline" | null]>([
-    ["paid, on sale", event, "From A$36.90 incl. booking fee", "Buy tickets", "/events/glass-sessions#tickets", "btn-signal"],
+    ["paid, on sale", event, "From A$37.60 incl. booking fee", "Buy tickets", "/events/glass-sessions#tickets", "btn-signal"],
     ["every on-sale tier free", allFree, "Free No booking fee", "Get free tickets", "/events/glass-sessions#tickets", "btn-signal"],
     ["free on sale beside a sold-out paid tier", freeAndPaidSoldOut, "Free No booking fee", "Get free tickets", "/events/glass-sessions#tickets", "btn-signal"],
-    ["seated, on sale", seated, "From A$36.90 incl. booking fee", "Choose seats", "/events/glass-sessions/seats", "btn-signal"],
+    ["seated, on sale", seated, "From A$37.60 incl. booking fee", "Choose seats", "/events/glass-sessions/seats", "btn-signal"],
     ["sold out, waitlist open", soldOut, "Sold out", "Join waitlist", "/events/glass-sessions#tickets", "btn-outline"],
     ["seated and sold out", { ...seated, soldOut: true, ticketTypes: soldOut.ticketTypes.map((t) => ({ ...t, seated: true })) }, "Sold out", "Join waitlist", "/events/glass-sessions#tickets", "btn-outline"],
     // A9: an external event's tickets aren't bought on Sheltüh, so "Get tickets"; the provider stays in the price line.
@@ -507,11 +533,11 @@ describe("EventCard attendance and category qualifiers (§6.2.2, §6.2.5; Refine
 
 describe("EventCard states are distinct (Refinement, 22 Oct 2026)", () => {
   it.each<[string, SheltuhEvent, string, string, string | null]>([
-    ["paid", event, "paid", "From A$36.90 incl. booking fee", "Buy tickets"],
+    ["paid", event, "paid", "From A$37.60 incl. booking fee", "Buy tickets"],
     ["free", allFree, "free", "Free No booking fee", "Get free tickets"],
     ["sold out (waitlist)", soldOut, "sold-out", "Sold out", "Join waitlist"],
     ["external", external, "external", "Tickets on Humanitix", "Get tickets"],
-    ["seated", seated, "seated", "From A$36.90 incl. booking fee", "Choose seats"],
+    ["seated", seated, "seated", "From A$37.60 incl. booking fee", "Choose seats"],
   ])("%s: its own state, price line and action", (_label, e, state, price, action) => {
     const { container } = render(<EventCard event={e} variant="rail" mode="live" />);
     const root = cardRoot(container);

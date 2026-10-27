@@ -12,7 +12,7 @@ yet: treat the first pass as **test mode**, and only then go live.
   and accessibility reviews were run and their findings fixed.
 - Also built: an installable web app (PWA) with a bounded service worker and
   a kill switch (see `docs/pwa.md`). Merged to `main`: everything through
-  PR #7 (it is live on `app.sheltuh.com.au`). The PWA is on the branch until
+  PR #7 (it is live on `sheltuh.com.au`). The PWA is on the branch until
   its PR is merged.
 - Local gates on the PWA commit: types, lint and 1045 unit and API tests
   pass, plus the build and 11 browser tests. CI (production build, server
@@ -27,7 +27,8 @@ yet: treat the first pass as **test mode**, and only then go live.
   commit before merging.
 - **Seating has no on/off switch.** Until the owner chooses per-visitor
   protection on seat holds (Turnstile or a Vercel WAF rule), keep seating
-  off for real on-sales by not approving seated events. The per-visitor
+  off for real on-sales by not approving seated events (an organiser's
+  publish of a seated event always goes to the review queue). The per-visitor
   hold limit needs `STRIPE_WEBHOOK_SECRET` set (it fails open without it).
 - **Owner's report, not verified here:** the owner ran migrations 20261001
   to 20261004 in the Supabase SQL editor and saw "Success" for each, the
@@ -67,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261108000000_account_invites.sql`. Never
+      newest, currently `20261111000400_submit_event_location_in_app.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -95,6 +96,214 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       19. `20261106000200_event_clip_hardening.sql`
       20. `20261107000000_admin_review_emails.sql`
       21. `20261108000000_account_invites.sql`
+      22. `20261109000000_paid_events_need_payouts.sql`
+      23. `20261109000100_event_refund_policy.sql` (existing events become
+          "No refunds for change of mind"; apply before the app that reads it)
+      24. `20261109000200_payment_reconciliation.sql` (**apply it before
+          this app deploys**: the app's Stripe webhook calls
+          `private.fulfil_order_detailed`, `private.record_refund_status` and
+          the 6-argument `private.record_payment_refund`, which this file
+          creates, so without it every payment and refund event is a 500 and
+          Stripe keeps retrying. The previous app version keeps working
+          against it. It needs `20261107000000_admin_review_emails.sql` and
+          `20261108000000_account_invites.sql` first: it extends their outbox
+          kinds, `private.lease_outbox_jobs` and `purge_operational_data`)
+      25. `20261109000300_email_outbox_health.sql` (schedules nothing:
+          the admin health endpoint and the cron route's last-run record.
+          Run it before deploying the app that uses it, which otherwise
+          answers the cron route with a 500 after sending)
+      26. `20261109000400_checkout_attempts.sql` (paid checkout
+          idempotency and the general admission checkout limits. Run it
+          before deploying the app that uses it: that app refuses every paid
+          checkout (500) without it. The previous app keeps working against
+          it. Retention rides on the existing daily
+          `purge_operational_data` job: nothing new to schedule)
+      27. `20261109000500_ticket_wallet_serial.sql` (every ticket gets a
+          random wallet pass serial; rewrites `public.tickets` once. Apply
+          before the app with wallet passes deploys: its wallet routes read
+          the column, and answer 500 without it)
+      28. `20261110000000_event_place_time_zone.sql` (every event gets a
+          state and a time zone: existing events become VIC,
+          Australia/Melbourne, which is what they meant; redefines
+          `private.create_event_draft`, `edit_event_draft` and
+          `admin_edit_event`. **Apply it before this app deploys**: every
+          event read (`EVENT_SELECT`) selects the new columns, so without it
+          every event page, list and order lookup is a 500. The previous app
+          keeps working against it)
+      29. `20261110000100_order_support.sql` (Support Sheltüh: the
+          `orders.support_cents` column, its checks, and `private.hold_seats`
+          taking the amount). **Apply it first, before the app with Support
+          Sheltüh deploys.** That app reads `support_cents` everywhere an
+          order is read, so shipping it without this file breaks: Stripe
+          fulfilment (the webhook's `findOrder` selects `support_cents`, so
+          every paid order stays pending and Stripe keeps retrying), the
+          ticket emails, the ticket and payment pages, wallet passes,
+          analytics, and every paid checkout, general admission and seated
+          (all 500s). The previous app keeps working against it: its
+          18-argument `hold_seats` call takes the new form's default, and
+          its general admission insert the column's.
+      30. `20261110000150_support_in_exceptions.sql` (payment exceptions
+          carry the order's `supportCents`, and the new `amount_mismatch`
+          kind: a paid session whose amount or currency isn't the order's.
+          Needs file 29 (it reads `support_cents`). Apply it before the app
+          that opens `amount_mismatch` exceptions deploys: without it that
+          app's webhook fails (500, Stripe retries) on a mismatched payment,
+          since `raise_payment_exception` refuses the unknown kind; matching
+          payments are fulfilled as ever. The previous app keeps working against it)
+      31. `20261110000200_support_ticket_refund.sql` (`charge.refunded`:
+          an order with Support Sheltüh refunded by at least `total_cents −
+          support_cents`, the runbook's "tickets only" recipe, is voided as a
+          full refund, its tickets void and its stock released, the support
+          kept. Redefines `private.record_payment_refund` only; needs file 29.
+          Apply it before the app that documents the new runbook deploys; the
+          previous app keeps working against it, and without it a
+          tickets-only refund leaves the tickets valid, as before.
+          **Superseded by file 36**, which takes the rule out again: run both,
+          in order)
+      32. `20261110000300_amount_mismatch_refund.sql` (creates
+          `private.fail_mismatched_order`: a paid session whose amount or
+          currency isn't the order's fails the order and the app refunds it.
+          Needs files 29 and 30. **Apply it before this app deploys**: this
+          app's webhook calls the function on a mismatched payment, and
+          without it that call fails (500, Stripe retries, the order stays
+          pending); matching payments are fulfilled as ever. The previous app
+          keeps working against it: it never calls the function)
+      33. `20261111000000_event_publish_now.sql` (approved organisers
+          publish their events straight away: `private.publish_event`, the
+          per-organiser review switch `organisers.event_review_required` and
+          `private.set_event_review_required`, the admins' `event_published`
+          outbox kind, and `queue_review_email` and `lease_outbox_jobs`
+          redefined. Needs files 20, 22, 24 and 26 first: it redefines the
+          outbox kind checks from 24 and 26 and the functions from 20 and
+          24. **Apply it before this app deploys**: every organiser read
+          (`ORGANISER_SELECT`, so `GET /api/organisers/me` and every
+          organiser route) selects `event_review_required`, and the publish
+          route calls `private.publish_event`, so without it those are 500s.
+          The previous app keeps working against it: its `/submit` route is
+          unchanged, and its cron leases without naming a kind, which now
+          leaves `event_published` jobs alone, so it never takes one (and
+          can't fail it as an unknown job); they wait for this app's drain)
+      34. `20261111000100_event_venue_location.sql` (the venue's location:
+          `events.location_source`, `venue_place_id` (a Google place id, the
+          only Google Places data stored) and `venue_lat` / `venue_lng` (the
+          organiser's own pin, never Google's coordinates), with their checks;
+          `create_event_draft`, `edit_event_draft` and `admin_edit_event`
+          redefined to save it, and `publish_event` and `submit_event` to
+          refuse an event without the organiser's pin (`location_required`).
+          Needs files 22, 28 and 33 first: it redefines their functions.
+          **Apply it before this app deploys**: every event read selects the
+          new columns, so without it every event route is a 500. The previous
+          app keeps working against it, except that its `/submit` route
+          answers 200 without submitting an event that has no pin (it doesn't
+          know the new refusal; the event stays a draft) until file 37 is
+          applied, which removes that refusal again. Set
+          `GOOGLE_MAPS_API_KEY` for the venue search (`.env.example`, and
+          "Google Places" below); without it organisers drop a pin instead)
+      35. `20261111000200_first_paid_event_review.sql` (an organiser's first
+          paid event sold on Sheltüh goes to review instead of live, and a
+          publish sent to review says why: `publish_event` redefined from 34
+          to return `submitted:<reason>`; and `private.admin_unpublish_event`,
+          an admin's unpublish that also turns on review of the organiser's
+          next events. Needs file 34 first: it redefines its `publish_event`.
+          No table or column change; nothing written. **Apply it with 33 and
+          34, immediately before this app deploys**: this app reads the
+          publish result's reason, and its unpublish with "review their next
+          events" calls the new function (a 500 without it). The previous
+          app never calls either function)
+      36. `20261111000300_refund_no_inference.sql` (only a full refund voids
+          an order's tickets: Stripe's "refunded", or at least `total_cents`
+          refunded. A tickets-only or support-only refund is partial, the
+          tickets stay valid and a `partial_refund` exception opens; the same
+          rule when the refund arrives before the payment. Redefines
+          `private.record_payment_refund` (from file 31) and
+          `private.fulfil_order_detailed` (from file 30); no table, column or
+          data change. Needs files 30 and 31. Apply it before this app
+          deploys (its runbook describes this rule). The previous app keeps
+          working against it: the functions' signatures and results are
+          unchanged)
+      37. `20261111000400_submit_event_location_in_app.sql` (`private.submit_event`
+          as in file 22 again, without file 34's `location_required`
+          refusal: this app's `/submit` handler checks the pin itself, with
+          the same 409, so the previous app's `/submit` works whatever is
+          applied. Needs file 34. No table, column or data change)
+
+      **Files 33 to 37 can be applied ahead of this deploy, with the
+      previous app still live.** "The previous app" here is the build of
+      the commit before `20261111000000_event_publish_now.sql` was added
+      (78c3123's parent, 62d4094: the code for files up to 32), checked
+      against these files' changes: it never calls `publish_event`,
+      `admin_unpublish_event` or `set_event_review_required`; its reads
+      don't select the new columns, and its writes get their defaults
+      (`event_review_required` false, `location_source` `legacy`); its
+      create and edit calls send no `locationSource`, so they write `legacy`
+      or keep the stored location; its outbox cron leases without naming a
+      kind, which leaves `event_published` jobs alone; its refund webhook
+      handles every result file 36's functions return; and after file 37
+      its `/submit` submits an event without a pin to the review queue, as
+      it always did (an admin's approval never needed a pin).
+      - Run 33, 34, 35, 36 and 37 in order **in one sitting** (one SQL
+        Editor query per file, back to back, then the check above: all
+        five `applied`). Between 34 and 37 (the time it takes to run 35
+        and 36) the previous app's `/submit` answers 200 but leaves an
+        event without a pin a draft; once 37 is in, that's gone. Don't stop
+        between 34 and 37.
+      - Then deploy this app whenever it's ready. It needs 33, 34 and 35
+        (without them every organiser and event route is a 500); 36 and 37
+        aren't needed for it to run (without 37 the database refuses a
+        pinless submit too; without 36 the old tickets-only rule applies),
+        but apply them first anyway so the rules match the docs.
+      - If production runs something older than 62d4094 (e.g. `main`), the
+        earlier files' own notes above say what each needs; this check
+        covers 33 to 37 only.
+      - Ship this backend only together with the editor's publish button
+        and venue step (search, prefill, pin check). Without them organisers
+        can't add a location, so every publish and submit is a 409
+        `location_required`.
+      - **Support Sheltüh is paused**: leave `NEXT_PUBLIC_SUPPORT_SHELTUH`
+        unset for this deploy (below). The previous app, if it offers
+        Support Sheltüh, keeps offering it until this app replaces it.
+
+      **Before merging the Australia-wide events branch, check the Supabase
+      project knows every event time zone.** The public list's `onOrAfter`
+      filter (`lib/server/handlers/public-events.ts`) reads each event's
+      start `at time zone` its own zone in SQL, and a zone Postgres doesn't
+      know makes that query fail. Run this in the SQL editor (read-only); it must return `13`:
+
+      ```sql
+      select count(*) from pg_timezone_names where name = any('{Australia/Melbourne,Australia/Sydney,Australia/Broken_Hill,Australia/Lord_Howe,Australia/Brisbane,Australia/Adelaide,Australia/Perth,Australia/Eucla,Australia/Hobart,Australia/Darwin,Indian/Christmas,Indian/Cocos,Pacific/Norfolk}');
+      ```
+
+      Anything less means a zone is missing: stop and report which
+      (`select name from pg_timezone_names where name like any('{Australia/%,Indian/%,Pacific/Norfolk}') order by name`).
+      The list is `ZONES_BY_STATE` in `lib/time-zones.ts`;
+      `tests/server/event-place.test.ts` checks it matches, and runs every
+      zone through `at time zone` on PGlite and Postgres 16.
+
+      Files 24 to 26 were written as `20261104000000_payment_reconciliation.sql`,
+      `20261104000100_email_outbox_health.sql` and
+      `20261104000200_checkout_attempts.sql` on the payments audit branch and
+      renamed when it was merged, so they sort after everything production
+      may already have. No project has run them under either name yet. If one
+      ever ran the old names, it ran them *before* files 20 and 21, which then
+      replaced what 24 and 26 had defined: the outbox's kind checks (no
+      `ops_alert` any more; file 20 also fails outright if an `ops_alert` job
+      exists, so delete those first), `private.lease_outbox_jobs` (which
+      file 20 creates without the ops-alert rule) and
+      `purge_operational_data` (which file 21 recreates without the payment
+      and checkout counts). Don't run 24 to 26 again whole (their
+      `create table`s fail): re-run, in this order, 24's `alter table
+      private.email_outbox` constraint clauses (not its `add column`), its
+      `private.lease_outbox_jobs` and its grants, then 26's `email_outbox_kind_key`
+      clauses and its `purge_operational_data` (drop and create) and grants.
+      `scripts/check-applied-migrations.sql` checks that substance (the kind
+      check allows `ops_alert`, `lease_outbox_jobs` holds alerts back, and
+      `purge_operational_data` returns `checkout_attempts_deleted`), so files
+      24 and 26 show `false` on such a project until that's done.
+
+      **Apply `20261109000000_paid_events_need_payouts.sql` before the code
+      that submits events deploys.** The organiser's submit calls
+      `private.submit_event`, which this file creates; without it every
+      submit (free events included) fails with a 500.
 
       **Apply `20261107000000_admin_review_emails.sql` before the code that
       sends admin review emails deploys.** That code leases outbox jobs with
@@ -120,11 +329,65 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       `*/15 * * * *` for `/api/cron/trending`) and redeploy. On Hobby,
       Supabase Cron can run the trending refresh directly or call the outbox
       route through `pg_net` (`schedules.md`, option 2).
+      - **On Hobby:** set up the 5-minute email retry runner in Supabase
+        (Supabase Cron + `pg_net`, `CRON_SECRET` and the route's URL in
+        Supabase Vault: `supabase-setup.md` §3, "The 5-minute runner on
+        Hobby", which replaces the shorter sketch in `schedules.md`). Without
+        it, a ticket email whose first send failed waits up to about 24 hours
+        for its retry. Keep the daily Vercel run as a backstop; two runs at
+        once never send an email twice.
+      - **On Pro:** edit `vercel.json` as above (full file in
+        `supabase-setup.md` §3, "Switching to Vercel Pro"), commit, redeploy,
+        confirm in Vercel → Settings → Cron Jobs, then
+        `select cron.unschedule('email-outbox-retry');` (and
+        `refresh-trending`) in Supabase and delete the two Vault secrets.
+      - **Either way, check** `GET /api/admin/emails/health` as an admin:
+        `lastCronRun.finishedAt` no more than about 10 minutes old and
+        `totals.overdue` 0.
 - [ ] **Stripe webhook `charge.refunded`** on the endpoint, in test **and**
       live mode (configured separately), alongside the checkout and refund
       events listed in `supabase-setup.md` §2. Without it a refund made in
       the Stripe dashboard leaves the order paid and its tickets valid at the
       door.
+- [ ] **Stripe webhook `charge.refund.updated`** too (with `refund.updated`
+      and `refund.failed`): how a dashboard refund that fails after its order
+      was voided becomes a payment exception and an ops alert.
+- [ ] **`OPS_ALERT_EMAIL`** (optional) in Vercel (Production): where ops
+      alerts go (e.g. `support@sheltuh.com.au`). Without it, alerts are only
+      logged; check `GET /api/admin/payment-exceptions` instead. Before go-live,
+      in Stripe test mode, refund a payment made with card
+      `4000 0000 0000 5126` (its refund fails after succeeding) and confirm an
+      exception and an alert appear.
+- [ ] **`NEXT_PUBLIC_SUPPORT_SHELTUH`: leave it unset** in Vercel (every
+      environment) for this deploy. Support Sheltüh is paused (owner
+      decision, 27 Oct 2026): unset (or anything but `1`), the checkout
+      doesn't offer it and the API refuses any `supportCents` above 0 (400
+      `fieldErrors.supportCents`, "Support Sheltüh isn't available right
+      now"), so every new order has `support_cents = 0`. Orders that
+      already carry support are still fulfilled, shown and refunded. To turn
+      it on later, set it to `1` and **redeploy** (baked in at build time,
+      in the server's code as well as the browser's), after running the
+      refund check below in test mode.
+- [ ] **Support Sheltüh refunds** (only once it's switched on; docs/supabase-setup.md, "Refunding a paid
+      order"): in Stripe test mode, on a deployment with
+      `NEXT_PUBLIC_SUPPORT_SHELTUH=1`, buy a ticket with A$5
+      support and try each recipe: a full refund with both "reverse
+      transfer" and "refund application fee" ticked; the support alone with
+      neither ticked; and the tickets only (refund `total_cents −
+      support_cents` with neither ticked, then reverse the transfer by the
+      organiser's net, `total_cents − application_fee_cents −
+      support_cents`). Confirm that the transfer object shows the order's
+      `total_cents` and the application fee object `application_fee_cents +
+      support_cents` (Stripe transfers the whole charge and collects the fee
+      back), that the organiser's and Sheltüh's balances end where the
+      runbook says (Sheltüh up by `support_cents`), that the support-only
+      refund leaves the order `paid` with its `partial_refund` exception and
+      alert showing `supportCents`, and that the tickets-only refund does
+      too (the order stays `paid`, its ticket codes still on its page: only
+      a full refund voids, file 36), until the support is refunded as well,
+      which makes it `refunded` (no ticket codes, stock back on sale). Also note what the organiser's Express dashboard shows
+      for the fee (docs/architecture.md, "Support Sheltüh": a known limit
+      until separate charges and transfers).
 - [ ] **`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`** (embedded checkout: the
       payment form is on our own page, `/checkout/pay`). In Vercel set it
       per environment, matching that environment's `STRIPE_SECRET_KEY`:
@@ -140,15 +403,26 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       mode, switch on the payment methods and register the payment method
       domain(s) for Apple Pay, Google Pay and Link (`npm run payment-domains`),
       and set Stripe's branding (`supabase-setup.md` §2, steps 4–5).
-- [x] **Email footer banner** hosted at exactly
-      `https://sheltuh.com.au/sheltuh_email_signature_logo.png` (the ticket
-      email links this fixed URL, `EMAIL_FOOTER_IMAGE_URL` in
-      `lib/server/ticket-email.ts`; the owner confirmed it loads, 24 Oct 2026).
-      The file is `public/sheltuh_email_signature_logo.png`; while
-      `sheltuh.com.au` is still the Cloudflare Worker landing page it must stay
-      there too. Open the URL in a private window to check. This is
-      the only remote image in any email: the free-ticket confirmation,
-      waitlist and follower emails have none.
+- [ ] **Email footer image.** The ticket and free-ticket confirmation emails
+      link `${NEXT_PUBLIC_SITE_URL}/brand/sheltuh-email-footer.png`
+      (`public/brand/sheltuh-email-footer.png`, deployed with the app;
+      `emailFooterImageUrl` in `lib/server/email-layout.ts`), only when
+      `NEXT_PUBLIC_SITE_URL` is `https://`. After deploying, open that URL in
+      a private window to check. The old banner,
+      `https://sheltuh.com.au/sheltuh_email_signature_logo.png`, is no longer
+      used by any email (keep it if the Workspace signature uses it). The
+      waitlist, follower, review and invite emails have no images.
+- [ ] **Event images in ticket emails.** The ticket email shows the event's
+      own image from `${NEXT_PUBLIC_SITE_URL}/api/events/{id}/image?v=…` (public
+      for published events), only when `NEXT_PUBLIC_SITE_URL` is `https://`.
+      After deploying, open one such URL for a published event in a private
+      window, then send a test order to a real Gmail, Apple Mail and Outlook
+      inbox and check the image, QR, button and footer.
+- [ ] **Google Workspace "Append footer"** (Admin console → Apps → Google
+      Workspace → Gmail → Compliance → Append footer): if it adds the
+      signature logo to outgoing mail, every ticket email ends with a second,
+      left-aligned logo under the template's own footer. Turn it off for the
+      sending account (or exclude automated mail) if that's not wanted.
 - **Email wordmark: nothing to host.** The ticket email's header wordmark
   (`lib/server/email-wordmark.ts`, from `public/brand/sheltuh-wordmark-email.png`)
   is attached to each email inline (`cid:`), like the QR codes, so it shows
@@ -185,7 +459,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
         addresses are per developer team; `PROJECT_CONTEXT.md`).
       - Set up the Google client, and the Apple App ID, Services ID, key and
         client secret (`npm run apple-client-secret`), then Supabase's
-        providers. Site URL is exactly `https://app.sheltuh.com.au`; **no
+        providers. Site URL is exactly `https://sheltuh.com.au`; **no
         Redirect URLs entries**, and **never a `*.vercel.app` wildcard**.
         "Confirm email" stays **on**; manual linking stays **off**.
       - Register the email senders as Apple email sources, or mail to Hide My
@@ -202,6 +476,62 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       - A calendar reminder to rotate the Apple client secret **every
         ~5 months** (it stops working after at most 6; Apple sign-in then
         fails for everyone).
+- [ ] **Google Places** (the event editor's venue search; `architecture.md`,
+      "Venue location"; `.env.example`). The browser never calls Google:
+      our server does, with a server-only key. Without the key the search
+      answers 503 and organisers drop a pin on our map instead, so this can
+      follow the deploy. In order:
+      1. Google Cloud console: create a **new project** for this alone (e.g.
+         "Sheltuh Places") and link a **billing account** (Places needs one
+         even within the free usage).
+      2. APIs & Services → Library: enable **Places API (New)** only. Not
+         the legacy Places API, the Maps JavaScript API or Geocoding.
+      3. Credentials → Create credentials → API key, then edit it:
+         - API restrictions: **Restrict key** → **Places API (New)** only.
+         - Application restrictions: **None**. The key is used only by our
+           server (Vercel functions have no fixed IP addresses, and a
+           website restriction would refuse server calls).
+         - Keep it in your password manager.
+      4. Quotas (APIs & Services → Places API (New) → Quotas & system
+         limits): cap requests per day at about **2,000 Autocomplete** and
+         **500 Place Details** (the console's exact quota names are
+         unverified). The app's own platform caps sit just below them (1,800
+         and 450 per Google day, `PLACES_PLATFORM_DAILY_CAPS` in
+         `lib/server/handlers/places.ts`): past those the search and the
+         event saves' place checks answer 503 and organisers drop a pin, so
+         Google's quotas are the backstop. Lowering a quota: lower the
+         matching cap too (and its test). Per account: autocomplete 100 an
+         hour and 400 a day, details plus checks 30 an hour and 120 a day.
+      5. Billing → Budgets & alerts: a budget of **A$10 a month** with email
+         alerts. An alert doesn't stop spending: the quotas do.
+      6. Vercel → Settings → Environment Variables: `GOOGLE_MAPS_API_KEY`
+         for **Production only** (never `NEXT_PUBLIC_`). Then **redeploy**.
+      7. Smoke test on `https://sheltuh.com.au` as an approved organiser:
+         in a draft, search for a venue you know. Suggestions appear with
+         Google Maps attribution; picking one fills in the address, and the
+         pin step opens at the suburb; confirm the pin, save and publish.
+         On the event page, "Google Maps" opens that place and "Apple Maps"
+         the pin; the map shows the pin exactly. In Google Cloud → APIs &
+         Services → Metrics, the requests show up. Vercel's logs show no
+         search text and no key.
+      - **Terms and Privacy Policy wording (owner to-do; Google's Maps
+        Platform terms §3.2.2(a) and §4.4)**:
+        - Terms: that Sheltüh includes Google Maps features and content,
+          and that their use is subject to the then-current Google Maps/Google
+          Earth Additional Terms of Service
+          (`https://maps.google.com/help/terms_maps/`) and the Google Privacy
+          Policy (`https://policies.google.com/privacy`).
+        - Privacy Policy: what an organiser types into the venue search, and
+          the place they pick, is sent to Google to find the venue (Google
+          may use and keep it under its Privacy Policy); we keep only
+          Google's place id and the pin the organiser places, never Google's
+          coordinates.
+      - **Public copy: done.** The about, terms, partners, help, apply and
+        home pages and the dashboard no longer say every event is reviewed
+        by a person: "Every organiser is checked by a person before they
+        can publish, and we review events that are reported." (the publish
+        UI change, B4: `79bd472` on `feat/pp-frontend`). The Google Maps
+        lines above are still to add.
 - [ ] **Bootzy font files.** The licensed display face isn't in the repo;
       headlines fall back to Instrument Sans. Add
       `app/fonts/bootzy/Bootzy-Regular.woff2` and its licence file, then
@@ -238,6 +568,38 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        an event, old messages and reports per the retention rules). Steps are
        in `supabase-setup.md`. It does nothing until scheduled.
 5. [ ] Promote yourself to admin: `npm run promote-admin -- you@sheltuh.com.au`.
+6. [ ] Database connection: copy the **Transaction pooler** URL (port
+       **6543**, not the direct connection on 5432) and add
+       `?sslmode=require` for `DATABASE_URL`. Turn on **Enforce SSL**
+       (Project Settings → Database → SSL Configuration), so a plain-text
+       connection is refused. The app also requires TLS for any non-local
+       host whatever the URL says (`lib/server/db.ts`): a missing,
+       `disable`, `allow` or `prefer` `sslmode` still connects encrypted.
+       Note the compute tier's pooler client limit (see
+       `docs/architecture.md`, "Hosting: region, database connection, CDN").
+       **Needs verification:** that Enforce SSL also covers the transaction
+       pooler (Supavisor, port 6543), not just direct connections. Check:
+       `psql "postgresql://postgres.REF@aws-0-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=disable"`
+       must be refused (it prompts for the password; type it there, never
+       on the command line), and the same URL with `sslmode=require` must
+       connect. If the pooler still accepts plain text, the app's own TLS
+       rule is what protects it: note it here.
+7. [ ] Optional hardening: **`DATABASE_CA_CERT`** (full certificate
+       verification). `sslmode=require` encrypts but doesn't check who the
+       server is, so it beats eavesdropping, not someone in the middle
+       (spoofed DNS, say). Download Supabase's CA certificate (Project
+       Settings → Database → SSL Configuration → Download certificate) and
+       paste the whole PEM, `-----BEGIN CERTIFICATE-----` to
+       `-----END CERTIFICATE-----`, into Vercel as `DATABASE_CA_CERT`
+       (Production and Preview; newlines or literal `\n` both work). The app
+       then verifies the server's certificate against it and its host name
+       for any remote database (`lib/server/db.ts`). Not a secret (it's a
+       public certificate), but a wrong value stops the app with an error
+       naming the variable, so check it: after redeploying, a page that
+       reads the database (the home feed) must load. **Needs
+       verification:** that the pooler's certificate chains to that CA and
+       names the pooler host; if the feed fails with a certificate error,
+       remove the variable, redeploy, and note it here.
 
 ## Stripe
 
@@ -253,7 +615,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        buy-now-pay-later **off**; Adaptive Pricing **off** (the code pins it
        off too, so buyers pay exactly the A$ total shown).
 4. [ ] Payment method domains: `npm run payment-domains -- --register
-       app.sheltuh.com.au preview.sheltuh.com.au` with a **test** restricted
+       sheltuh.com.au preview.sheltuh.com.au` with a **test** restricted
        key (`STRIPE_DOMAINS_KEY`), or Stripe → Settings → Payment method
        domains. It must exit 0: every domain enabled, Apple Pay, Google Pay
        and Link `active`. For a stable preview domain: add
@@ -271,14 +633,16 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        a domain registration covers both modes.
 6. [ ] Only then repeat with **live** keys (secret, publishable and webhook
        secret all change together), steps 3–4 included: run
-       `npm run payment-domains -- --register app.sheltuh.com.au` again with
+       `npm run payment-domains -- --register sheltuh.com.au` again with
        a **live** restricted key, then delete that key.
 
 ## Vercel
 
 1. [ ] Environment variables (Production and Preview), from `.env.example`:
        `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
-       `NEXT_PUBLIC_SITE_URL`, `DATABASE_URL` (transaction pooler, port 6543),
+       `NEXT_PUBLIC_SITE_URL`, `DATABASE_URL` (transaction pooler, port 6543,
+       ending `?sslmode=require`), optionally `DATABASE_CA_CERT` (see
+       Supabase step 7),
        `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`,
        `STRIPE_WEBHOOK_SECRET`, `SMTP_*`, `EMAIL_FROM`. The two Stripe keys
        are a pair from one account and mode: Production live
@@ -286,6 +650,8 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        `pk_test_…`). Redeploy after changing any `NEXT_PUBLIC_*` value.
        Optional: `NEXT_PUBLIC_DISABLE_SERVICE_WORKER=1` turns the offline
        service worker off (needs a fresh build; see `docs/pwa.md`).
+       Optional: `OPS_ALERT_EMAIL` (server-only), one address for ops alerts
+       about payment exceptions and checkout surges (unset = logged only).
        Optional: `ADMIN_NOTIFY_EMAILS` (server-only, never `NEXT_PUBLIC_`),
        a comma-separated list of the addresses that get the "event /
        organiser to review" emails. Use an inbox only admins read, never a
@@ -323,19 +689,96 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        `select policyname from pg_policies where schemaname = 'storage';`
        returns **0 rows** and that Storage → Buckets shows `event-clips` as
        **private**.
-2. [ ] Settings → Functions → Region is **Sydney (syd1)**, next to the
-       database (`supabase-setup.md` §4). `vercel.json` sets no `regions`, so
-       this setting decides it; not yet checked. Checkout and the payment
-       page's `GET …/payment` each make several sequential database round
-       trips, so a US region would add noticeable delay before the form
-       appears.
-3. [ ] Pro plan once you sell tickets (Hobby is non-commercial).
-4. [ ] Domain: attach `sheltuh.com.au` (see PROJECT_CONTEXT for the Cloudflare
-       notes). The landing page currently lives on a Cloudflare Worker; decide
+       Optional: wallet passes ("Add to Google Wallet" / "Add to Apple
+       Wallet" on the ticket page and in the ticket email), server-only,
+       **Production only**. Each wallet turns itself on after a redeploy once
+       all of its variables are set and valid; until then it's simply off (no
+       button or email link, its route 404s),
+       and the function logs name any variable that's wrong, never a value.
+       Google: `GOOGLE_WALLET_ISSUER_ID`, `GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL`,
+       `GOOGLE_WALLET_PRIVATE_KEY`. Apple (needs the Apple Developer Program):
+       `APPLE_WALLET_PASS_TYPE_ID`, `APPLE_WALLET_TEAM_ID`,
+       `APPLE_WALLET_CERT_PEM`, `APPLE_WALLET_KEY_PEM`,
+       `APPLE_WALLET_WWDR_PEM` (the three PEMs base64-encoded) and, only for
+       an encrypted key, `APPLE_WALLET_KEY_PASSPHRASE`. Step by step:
+       `docs/wallet-setup.md`. The private keys are secrets: never commit
+       them, and revoke them (Google: delete the service account key; Apple:
+       revoke the Pass Type ID certificate) if they may have leaked.
+2. [ ] Region: `vercel.json` pins functions to **Sydney (syd1)**
+       (`"regions": ["syd1"]`), next to the database (`supabase-setup.md`
+       §4). After the first deploy, check Settings → Functions shows syd1
+       (and a function's logs show `syd1`). Checkout and the payment page's
+       `GET …/payment` each make several sequential database round trips,
+       so a US region would add noticeable delay before the form appears.
+3. [ ] **Fluid compute** is on (Settings → Functions). One instance then
+       serves many requests at once and shares its database pool (5
+       connections) between them; without it, every concurrent request is
+       its own instance with its own connections to the pooler.
+4. [ ] Pro plan once you sell tickets (Hobby is non-commercial). The plan
+       change alone doesn't touch the cron schedules: edit `vercel.json` and
+       redeploy as in "Cron schedules" above.
+5. [ ] Domain: attach `sheltuh.com.au` (see PROJECT_CONTEXT for the Cloudflare
+       notes). Keep its Cloudflare record **DNS only** (grey cloud): a
+       Cloudflare proxy in front would be a second, unmanaged cache over
+       the CDN windows below, and would break client-IP rate limiting. The landing page currently lives on a Cloudflare Worker; decide
        when the app replaces it.
 
 ## Smoke test on the deployed site (test mode)
 
+- [ ] **CDN headers** (`docs/architecture.md`, "CDN windows"). With
+      `SITE=https://preview.sheltuh.com.au` (or the production domain), a
+      published event's slug, id and image version (the `v` in its
+      `imageUrl`), run each of these **twice**, a few seconds apart:
+
+      ```sh
+      curl -sI "$SITE/api/events?upcoming=1&limit=40" | grep -iE '^(cache-control|x-vercel-cache|age):'
+      curl -sI "$SITE/api/events/slug/$SLUG" | grep -iE '^(cache-control|x-vercel-cache|age):'
+      curl -sI "$SITE/api/events/$EVENT_ID/image?v=$V" | grep -iE '^(cache-control|x-vercel-cache|age):'
+      curl -sI "$SITE/api/organisers/me" | grep -iE '^(cache-control|x-vercel-cache|age):'
+      ```
+
+      Expect the second response of each public route to show
+      `x-vercel-cache: HIT` (and an `age`), and `/api/organisers/me` (a
+      401 without a token: `private, no-store`) **never** `HIT`. Signed in,
+      the same holds with the token: copy one from the browser's network
+      panel, read it into a variable without echoing it or leaving it in
+      your shell history, and use the variable:
+
+      ```sh
+      read -rs TOKEN   # paste the token, then Enter
+      curl -sI -H "authorization: Bearer $TOKEN" "$SITE/api/organisers/me" | grep -iE '^(cache-control|x-vercel-cache|age):'
+      unset TOKEN
+      ```
+
+      It must stay `private, no-store` and never `HIT`. Also check an image
+      with a wrong `v` (`?v=1`) is `private, max-age=3600` and never `HIT`,
+      and a search (`$SITE/api/events?q=test&upcoming=1`) is
+      `private, no-store` and never `HIT`. If public routes never `HIT`,
+      the CDN isn't keeping them: note it, the site still works, just with
+      more database load.
+- [ ] **A 304 is never cached as an empty image** (needs verification:
+      images and logos answer a matching `If-None-Match` with a 304 that
+      carries the same `public` header as the 200). With `$ORG_ID` and the
+      `v` in an approved organiser's `logoUrl` (`$LV`), and a URL no one has
+      fetched yet (the extra `x` parameter makes a fresh cache key):
+
+      ```sh
+      X=$RANDOM
+      curl -sI -H "if-none-match: \"$LV-f\"" "$SITE/api/organisers/$ORG_ID/logo?v=$LV&x=$X" | head -1
+      curl -s -o /dev/null -w '%{http_code} %{size_download}\n' "$SITE/api/organisers/$ORG_ID/logo?v=$LV&x=$X"
+      ```
+
+      The first is a `304`; the second must be `200` with a non-zero size,
+      never `304` or `200 0`. Do the same for an event image (a new `X`,
+      `-H "if-none-match: \"$V\""` on `/api/events/$EVENT_ID/image?v=$V&x=$X`). If an empty body comes back,
+      Vercel stored the 304: purge the CDN cache and report it, since every
+      visitor would see a broken image for up to an hour.
+- [ ] **Browser reuse of images** (`age`): the image and logo `max-age`
+      equals their `s-maxage` (an hour) so a CDN copy with a large `age` is
+      still fresh in the browser. On a second `curl -sI` of an image, check
+      the response has an `age` header and `cache-control: public,
+      max-age=3600, s-maxage=3600` (if Vercel rewrites the header sent to
+      the browser, note what it sends).
 - [ ] Sign up, verify email code, sign in, `/account`.
 - [ ] Buy a ticket with your account email, then add yourself to Who's Going
       on that event (opt-in form, 18+ box). Withdraw.
@@ -376,6 +819,12 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
         `https://<site host>:8443/auth/callback`: note whether Supabase
         sends the code there or falls back to the Site URL, and record the
         result in `architecture.md` ("`next`: no open redirect").
+
+- [ ] **Wallet passes** (once a wallet's variables are set and redeployed):
+      the checks in `docs/wallet-setup.md` ("Test a pass"): add a ticket to
+      Google Wallet on an Android phone and to Apple Wallet on an iPhone,
+      scan the pass's QR at `/dashboard/{event}/check-in`, and check a
+      refunded order's ticket page shows no wallet buttons.
 
 ## Needs your decision or sign-off before launch
 

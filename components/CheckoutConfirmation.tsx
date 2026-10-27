@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
+import { SupportSummaryLine } from "@/components/checkout/SupportSheltuh";
 import TicketStub from "@/components/tickets/TicketStub";
+import WalletButtons from "@/components/tickets/WalletButtons";
 import { ButtonLink, buttonClass } from "@/components/ui/Button";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 import Strap from "@/components/ui/Strap";
@@ -19,10 +21,13 @@ import {
   formatHoldDeadline,
   type CheckoutOrderContext,
 } from "@/lib/checkout-pay";
-import { formatAud, formatEventDateTimeRange } from "@/lib/format";
+import { eventZone, formatAud, formatEventWhen } from "@/lib/format";
+import { REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
+import { placeName } from "@/lib/place";
+import { SUPPORT_REFUND_NOTE } from "@/lib/support";
 import { compareSeats } from "@/lib/seating/format";
 import { forgetPendingCheckout } from "@/lib/seating/pending-checkout";
-import type { CustomerOrder } from "@/lib/api/types";
+import type { CustomerOrder, StateCode } from "@/lib/api/types";
 
 export type LoadState =
   | { status: "loading" }
@@ -32,7 +37,14 @@ export type LoadState =
   | { status: "not-found" }
   | { status: "error"; message: string }
   // Back from Stripe without paying (a redirect-based method cancelled or failed): the checkout is still open.
-  | { status: "payment-open"; context: CheckoutOrderContext; expiresAt: string }
+  | {
+      status: "payment-open";
+      context: CheckoutOrderContext;
+      expiresAt: string;
+      /** The event's zone and state, for the seat hold's end ("8:31 pm Perth time"); absent: Melbourne. */
+      eventTimeZone?: string;
+      eventState?: StateCode;
+    }
   // Stripe has the payment but it's taking a while to clear: the tickets follow by email.
   | { status: "processing" }
   | { status: "closed"; context: CheckoutOrderContext }
@@ -134,7 +146,15 @@ export default function CheckoutConfirmation() {
         }
         if (payment.status === "done") return false;
         const context: CheckoutOrderContext = { eventSlug: payment.eventSlug, seated: payment.seated };
-        if (payment.status === "open") setState({ status: "payment-open", context, expiresAt: payment.expiresAt });
+        if (payment.status === "open") {
+          setState({
+            status: "payment-open",
+            context,
+            expiresAt: payment.expiresAt,
+            eventTimeZone: payment.eventTimeZone,
+            eventState: payment.eventState,
+          });
+        }
         else if (payment.status === "closed") setState({ status: "closed", context });
         else setState({ status: "sold-out", context });
         return true;
@@ -273,7 +293,7 @@ export default function CheckoutConfirmation() {
       >
         <p className="max-w-md text-sm text-muted">
           You haven&rsquo;t been charged. Your checkout is still open, so you can try again.
-          {context.seated ? ` Your seats are held until ${formatHoldDeadline(state.expiresAt)}.` : ""}
+          {context.seated ? ` Your seats are held until ${formatHoldDeadline(state.expiresAt, state.eventTimeZone, state.eventState)}.` : ""}
         </p>
       </StateMessage>
     );
@@ -330,11 +350,20 @@ export default function CheckoutConfirmation() {
   const unlisted = order.eventListed === false;
   const eventPath = order.eventSlug && !unlisted ? `/events/${encodeURIComponent(order.eventSlug)}` : null;
   // Each ticket repeats the event, so a screenshot of one says what it's for. Unset from an older API.
+  // In the event's zone, naming it outside Melbourne's ("… 11:00 pm Perth time").
+  const zone = eventZone(order.eventTimeZone);
   const when =
-    order.eventStartsAt && !unlisted ? formatEventDateTimeRange(order.eventStartsAt, order.eventEndsAt) : undefined;
+    order.eventStartsAt && !unlisted
+      ? formatEventWhen(order.eventStartsAt, order.eventEndsAt, order.eventTimeZone, order.eventState)
+      : undefined;
   const where = unlisted
     ? undefined
-    : [order.venueName, order.suburb].filter((part) => !!part?.trim()).join(", ") || undefined;
+    : [order.venueName, order.suburb ? placeName(order.suburb, order.eventState) : ""]
+        .filter((part) => !!part?.trim())
+        .join(", ") || undefined;
+  // The refund policy: only where something was paid (a free order has nothing to refund) and the event is listed.
+  const refunds =
+    unlisted || order.totalCents <= 0 ? null : refundTermsLine(order.refundPolicy, order.refundDays, order.eventStartsAt, { timeZone: zone });
   return (
     <div className="flex flex-col gap-8 py-10 sm:py-14">
       <div className="flex flex-col gap-3">
@@ -367,9 +396,32 @@ export default function CheckoutConfirmation() {
               where={where}
               eventUnlisted={unlisted}
               checkedInAt={ticket.checkedInAt}
+              timeZone={zone}
             />
           ))}
         </ul>
+        {/* Add to Apple / Google Wallet, per ticket, only for the wallets the server has on (order.wallet: set only
+            for a paid order of a listed event, as the pass routes require). Numbered as the stubs and the email
+            (the route takes the number). */}
+        {sessionId && !unlisted && (order.wallet?.apple || order.wallet?.google) && (
+          <ul className="flex flex-col gap-3 print:hidden" aria-label="Add to your phone's wallet">
+            {sortTicketsBySeat(order.tickets).map(({ ticket, number }) => (
+              <li key={ticket.ticketCode} className="flex flex-col gap-1">
+                {order.tickets.length > 1 && (
+                  <p className="text-xs text-muted">
+                    Ticket {number} of {order.tickets.length} · {ticket.ticketTypeName}
+                  </p>
+                )}
+                <WalletButtons
+                  sessionId={sessionId}
+                  wallet={order.wallet}
+                  ticketNumber={number}
+                  ticketCount={order.tickets.length}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
         <div className="flex flex-col gap-1 text-xs text-muted">
           <p>Show a QR code at the door, from this page or your ticket email.</p>
           <p>This page needs a connection. If signal at the venue is patchy, take a screenshot first.</p>
@@ -389,12 +441,36 @@ export default function CheckoutConfirmation() {
             <dt className="text-muted">Booking fees</dt>
             <dd className="tabular-nums text-foreground">{formatAud(order.buyerFeeCents)}</dd>
           </div>
+          {/* Only when they added some (unset otherwise, and from an older API); in the total paid. */}
+          <SupportSummaryLine cents={order.supportCents} />
           {/* The total is the largest number here (brand-direction-one.md §6.8). */}
           <div className="mt-1 flex items-baseline justify-between gap-4 border-t border-foreground pt-3">
             <dt className="text-lg leading-6 font-bold text-foreground">Total paid</dt>
             <dd className="text-xl leading-7 font-bold tabular-nums text-foreground">{formatAud(order.totalCents)}</dd>
           </div>
         </dl>
+        {order.supportCents !== undefined && order.supportCents > 0 && (
+          <p className="mt-3 text-sm text-foreground">Thanks for supporting Sheltüh.</p>
+        )}
+        {/* The event's refund policy (the API sends it for listed events only). */}
+        {refunds && (
+          <div data-refund-policy="" className="mt-4 flex flex-col gap-1 border-t border-surface-border pt-3 text-sm">
+            <p className="text-foreground">
+              <span className="font-semibold">Refund policy:</span> {refunds}
+            </p>
+            {order.supportCents !== undefined && order.supportCents > 0 && (
+              <p className="text-foreground">{SUPPORT_REFUND_NOTE}</p>
+            )}
+            <p className="text-sm text-muted">{REFUND_ACL_STATEMENT}</p>
+            <p className="text-xs text-muted">
+              To ask for one, use{" "}
+              <Link href="/refunds" className="text-foreground underline underline-offset-2">
+                Request a refund
+              </Link>
+              .
+            </p>
+          </div>
+        )}
       </div>
 
       {eventPath ? (

@@ -8,16 +8,18 @@ import LiveEventFeed from "@/components/LiveEventFeed";
 import { isApiConfigured } from "@/lib/api/client";
 import { getEventCategories, getUpcomingEvents } from "@/lib/data";
 import type { CategoryFilter, PricingFilter } from "@/lib/event-filter-params";
+import type { Locality } from "@/lib/location";
 import type { SheltuhEvent } from "@/lib/types";
 
 interface FeedProps {
   /** Free-text search from /search; both the demo and live feeds honour it. */
   query?: string;
   /**
-   * A suburb from /search?near=: results in bands by distance from it. Used
-   * only in the browser; never sent to the API.
+   * The suburb from /search?near=, found in the suburb table by the page:
+   * results in bands by distance from it. Used only in the browser; never
+   * sent to the API.
    */
-  near?: string;
+  near?: Locality;
   /** Starting filters (from /events?category=&pricing=). They only seed the filter state. */
   initialCategory?: CategoryFilter;
   initialPricing?: PricingFilter;

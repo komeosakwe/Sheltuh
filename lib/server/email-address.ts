@@ -34,13 +34,18 @@ export function isPlainEmailAddress(email: string): boolean {
 
 // The domain may be empty, so an address cut short by the scan limit ("fan@") is still redacted.
 const EMAIL_LIKE = /[^\s<>"'(),;:@]+@[^\s<>"'(),;:@]*/g;
+// Any length of hex, so an id cut short by the scan limit is still redacted.
+const ORDER_ID_LIKE = /ord_[0-9a-f]+/gi;
 /** Longest input redactForLog scans: bounds the regex's work on a huge error message. */
 const REDACT_SCAN_LIMIT = 2000;
 
 /**
  * Text safe to log or store: anything that looks like an email address is
- * replaced, control characters are dropped and it's cut to `max` characters.
- * SMTP servers often echo the recipient back in their error messages. The
+ * replaced, and so is an order id (`ord_` + hex, even one cut short: the
+ * confirmation page's credential, which a Stripe error can quote inside our
+ * idempotency key); control characters are dropped and it's cut to `max`
+ * characters. SMTP servers often echo the recipient back in their error
+ * messages. The
  * input is cut first (with room for redaction to shorten it), so the regex
  * never runs over an unbounded string.
  */
@@ -48,6 +53,7 @@ export function redactForLog(text: string, max = 200): string {
   return text
     .slice(0, Math.min(REDACT_SCAN_LIMIT, max * 4))
     .replace(EMAIL_LIKE, "[address]")
+    .replace(ORDER_ID_LIKE, "ord_[redacted]")
     .replace(/\p{Cc}+/gu, " ")
     .trim()
     .slice(0, max);

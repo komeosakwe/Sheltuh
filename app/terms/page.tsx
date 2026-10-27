@@ -21,9 +21,10 @@ export default function TermsPage() {
       </ContentSection>
       <ContentSection title="Events are run by organisers">
         <p>
-          Events are created and run by independent organisers. We review events before they’re
-          listed, but the organiser is responsible for the event itself. Details can change; check
-          the event page before you go.
+          Events are created and run by independent organisers. Every organiser is checked by a
+          person before they can publish, and we review events that are reported, but the
+          organiser is responsible for the event itself. Details can change; check the event page
+          before you go.
         </p>
       </ContentSection>
       <ContentSection title="Organisers">

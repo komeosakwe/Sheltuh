@@ -12,6 +12,7 @@ import type {
 } from "@/lib/api/types";
 import { VIEW_SOURCES } from "@/lib/api/types";
 import type { FeePolicy } from "@/lib/types";
+import { PLATFORM_TIME_ZONE, type AustralianTimeZone, type StateCode } from "@/lib/time-zones";
 import { requireCaller } from "../auth";
 import { DEFAULT_RANGE_DAYS, addDays, melbourneDateOf, parseAnalyticsQuery, previousPeriod } from "../analytics-range";
 import {
@@ -47,7 +48,8 @@ import { requireApprovedOrganiser } from "./organiser-guard";
  *
  * Sales are `paid` orders only (free orders are A$0 paid orders), counted on
  * the Melbourne day the order was placed, with money from the orders' own
- * snapshots. Views are the aggregate daily counters (event_view_counts).
+ * snapshots, less any Support Sheltüh (ORGANISER_GROSS). Views are the
+ * aggregate daily counters (event_view_counts).
  */
 
 const TZ = "Australia/Melbourne";
@@ -59,6 +61,14 @@ const paidInRange = (from: string, to: string) => `o.status = 'paid'
 
 /** SQL: tickets in order `o`. */
 const TICKETS = `(select coalesce(sum((li ->> 'quantity')::int), 0) from jsonb_array_elements(o.line_items) li)`;
+
+/**
+ * SQL: what order `o` brought in for the organiser's event: what the buyer
+ * paid less any Support Sheltüh, which is all the platform's (it's in
+ * total_cents, never in application_fee_cents). Gross, fees and net never
+ * include it, so net (gross − fees) is still the organiser's transfer.
+ */
+export const ORGANISER_GROSS = `(o.total_cents - o.support_cents)`;
 
 /** SQL: the Melbourne day order `o` was placed. */
 const ORDER_DAY = `(o.created_at at time zone '${TZ}')::date`;
@@ -124,7 +134,7 @@ async function eventPeriod(db: Db, eventId: string, range: DateRange): Promise<E
       `select x.day::text as day, x.tracking_code, count(*)::int as orders, sum(x.tickets)::bigint as tickets,
               sum(x.total_cents)::bigint as gross, sum(x.application_fee_cents)::bigint as fees,
               grouping(x.day) as g_day, grouping(x.tracking_code) as g_code
-         from (select ${ORDER_DAY} as day, o.tracking_code, o.total_cents, o.application_fee_cents, ${TICKETS} as tickets
+         from (select ${ORDER_DAY} as day, o.tracking_code, ${ORGANISER_GROSS} as total_cents, o.application_fee_cents, ${TICKETS} as tickets
                  from public.orders o
                 where o.event_id = $1 and ${paidInRange("$2", "$3")}) x
         group by grouping sets ((), (x.day), (x.tracking_code))`,
@@ -268,6 +278,8 @@ async function buildEventAnalytics(db: Db, event: EventRecord, qs: URLSearchPara
       status: event.status,
       startsAt: event.startsAt,
       endsAt: event.endsAt,
+      timeZone: event.timeZone ?? PLATFORM_TIME_ZONE,
+      state: event.state ?? "VIC",
       venueName: event.venueName,
       everPublished: event.moderationLog.some((entry) => entry.action === "approved"),
       ticketingMode: event.ticketingMode ?? "sheltuh",
@@ -345,7 +357,7 @@ async function organiserPeriod(db: Db, organiserId: string, range: DateRange): P
       `select x.event_id, x.day::text as day, count(*)::int as orders, sum(x.tickets)::bigint as tickets,
               sum(x.total_cents)::bigint as gross, sum(x.application_fee_cents)::bigint as fees,
               grouping(x.event_id) as g_event, grouping(x.day) as g_day
-         from (select o.event_id, ${ORDER_DAY} as day, o.total_cents, o.application_fee_cents, ${TICKETS} as tickets
+         from (select o.event_id, ${ORDER_DAY} as day, ${ORGANISER_GROSS} as total_cents, o.application_fee_cents, ${TICKETS} as tickets
                  from public.orders o
                 where o.organiser_id = $1 and ${paidInRange("$2", "$3")}) x
         group by grouping sets ((), (x.event_id), (x.day))`,
@@ -439,12 +451,14 @@ async function buildOverview(db: Db, organiserId: string, qs: URLSearchParams): 
       slug: string;
       status: EventStatus;
       starts_at: string | Date;
+      state: StateCode;
+      time_zone: AustralianTimeZone;
       ticketing_mode: TicketingMode;
       has_external: boolean;
     }>(
       // has_external: any of the organiser's events (not just this page) is
       // external. A window aggregate is computed before the limit.
-      `select e.id, e.title, e.slug, e.status::text as status, e.starts_at, e.ticketing_mode,
+      `select e.id, e.title, e.slug, e.status::text as status, e.starts_at, e.state, e.time_zone, e.ticketing_mode,
               bool_or(e.ticketing_mode = 'external') over () as has_external
          from public.events e
         where e.organiser_id = $1
@@ -469,6 +483,8 @@ async function buildOverview(db: Db, organiserId: string, qs: URLSearchParams): 
     slug: e.slug,
     status: e.status,
     startsAt: new Date(e.starts_at).toISOString(),
+    timeZone: e.time_zone,
+    state: e.state,
     totals: totals(
       period.ordersByEvent.get(e.id) ?? NO_ORDERS,
       period.viewsByEvent.get(e.id) ?? 0,

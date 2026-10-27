@@ -158,7 +158,7 @@ for (const vp of [
       expect(res.status()).toBe(200);
       expect(res.headers()["content-type"]).toBe("text/calendar; charset=utf-8");
       expect(res.headers()["content-disposition"]).toBe('inline; filename="thornbury-dub-session.ics"');
-      expect(res.headers()["cache-control"]).toBe("public, max-age=300");
+      expect(res.headers()["cache-control"]).toBe("public, max-age=300, s-maxage=300");
       const ics = await res.text();
       expect(ics.startsWith("BEGIN:VCALENDAR\r\n")).toBe(true);
       expect(ics).toContain("UID:evt-thornbury-dub-session@sheltuh.com.au\r\n");

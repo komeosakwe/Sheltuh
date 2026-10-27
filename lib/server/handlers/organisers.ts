@@ -2,7 +2,8 @@ import { featuredVideoKey, parseFeaturedVideoUrl, type FeaturedVideo } from "@/l
 import { requireCaller } from "../auth";
 import { PG_UNIQUE_VIOLATION, pgErrorCode, type Db } from "../db";
 import { sendReviewEmailsSoon } from "../email-outbox";
-import { created, HttpError, ok, readJson } from "../http";
+import { redactForLog } from "../email-address";
+import { created, HttpError, ok, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
 import { parseSocialHandles, SOCIAL_RULES } from "../organiser-input";
 import { ORGANISER_SELECT, toOrganiser, toOwnOrganiserView } from "../records";
@@ -185,12 +186,12 @@ export const applyAsOrganiser: Handler = async (req, _params, deps) => {
   }
 };
 
-/** GET /api/organisers/me */
+/** GET /api/organisers/me — the caller's own record (contact email, payouts state): `private, no-store`. */
 export const getMyOrganiser: Handler = async (req, _params, { db, verifyAccessToken }) => {
   const caller = await requireCaller(req, verifyAccessToken);
   const record = await findOrganiserByOwner(db, caller.userId);
   if (!record) throw new HttpError(404, "No organiser application found.");
-  return ok(toOwnOrganiserView(record));
+  return okPrivate(toOwnOrganiserView(record));
 };
 
 /**
@@ -280,6 +281,21 @@ async function editApprovedProfile(db: Db, userId: string, existing: OrganiserRe
  * link. Stripe collects identity and bank details directly; Sheltüh never
  * sees them.
  */
+/**
+ * Stripe refused to start onboarding (e.g. the platform's Connect profile
+ * isn't finished, or a field it was sent is invalid). Its message names the
+ * fix, so pass it on (capped) instead of a bare "Something went wrong";
+ * anything that isn't a Stripe API error still becomes a 500.
+ */
+function stripeOnboardingError(err: unknown): never {
+  const e = err as { type?: unknown; message?: unknown } | null;
+  if (e && typeof e.type === "string" && e.type.startsWith("Stripe") && typeof e.message === "string") {
+    console.error("Stripe Connect onboarding refused:", redactForLog(e.message));
+    throw new HttpError(502, `Stripe couldn't start payouts setup: ${e.message.slice(0, 300)}`);
+  }
+  throw err;
+}
+
 export const connectOnboard: Handler = async (req, _params, deps) => {
   const caller = await requireCaller(req, deps.verifyAccessToken);
   const record = await requireApprovedOrganiser(deps.db, caller);
@@ -303,7 +319,7 @@ export const connectOnboard: Handler = async (req, _params, deps) => {
       capabilities: { card_payments: { requested: true }, transfers: { requested: true } },
       business_profile: { url: record.websiteUrl },
       metadata: { organiserId: record.organiserId },
-    });
+    }).catch(stripeOnboardingError);
     stripeAccountId = account.id;
     await deps.db.query(`update public.organisers set stripe_account_id = $2 where id = $1`, [
       record.organiserId,
@@ -316,7 +332,7 @@ export const connectOnboard: Handler = async (req, _params, deps) => {
     type: "account_onboarding",
     refresh_url: `${siteUrl}/dashboard/payouts?refresh=1`,
     return_url: `${siteUrl}/dashboard/payouts?connected=1`,
-  });
+  }).catch(stripeOnboardingError);
   return ok({ url: link.url });
 };
 

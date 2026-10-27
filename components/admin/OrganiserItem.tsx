@@ -9,6 +9,7 @@ import {
   adminRejectOrganiser,
   adminRemoveFeaturedVideo,
   adminRemoveOrganiserLogo,
+  adminSetEventReviewRequired,
 } from "@/lib/api/admin";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import { featuredVideoPageUrl } from "@/lib/api/featured-video";
@@ -207,6 +208,10 @@ export default function OrganiserItem({
             reauthOwner={reauthOwner}
             onClaimReauth={onClaimReauth}
           />
+        )}
+
+        {item.status === "approved" && (
+          <EventReviewSwitch item={item} getToken={getToken} onUpdated={onUpdated} />
         )}
 
         {item.status === "approved" && (
@@ -616,6 +621,149 @@ function RemoveContent({
           Cancel
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Whether this organiser's events are checked before they go live (POST
+ * /api/admin/organisers/{id}/event-review): off, their publishes go live at
+ * once; on, they go to the review queue. Turning it on or off asks for a
+ * reason (required, up to 500 characters, kept on their log; the organiser
+ * isn't emailed). Read-only where the list can't update the record in place.
+ */
+function EventReviewSwitch({
+  item,
+  getToken,
+  onUpdated,
+}: {
+  item: AdminOrganiserRecord;
+  getToken: GetToken;
+  onUpdated?: (item: AdminOrganiserRecord, message: string) => void;
+}) {
+  const id = item.organiserId;
+  const on = item.eventReviewRequired === true;
+  const openId = `event-review-open-${id}`;
+  const reasonId = `event-review-reason-${id}`;
+  const questionId = `event-review-question-${id}`;
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [reasonError, setReasonError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const pendingFocus = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!pendingFocus.current) return;
+    const element = document.getElementById(pendingFocus.current);
+    if (!element) return;
+    pendingFocus.current = null;
+    element.focus();
+  });
+
+  async function save() {
+    if (busy || !onUpdated) return;
+    setError(null);
+    const invalid = validateMessage(reason, { label: "Reasons", max: SUSPEND_REASON_MAX, empty: "Enter a reason." });
+    setReasonError(invalid);
+    if (invalid) {
+      document.getElementById(reasonId)?.focus();
+      return;
+    }
+    setBusy(true);
+    try {
+      const record = await adminSetEventReviewRequired(id, !on, reason.trim(), getToken);
+      setOpen(false);
+      setReason("");
+      setBusy(false);
+      // The list announces it and focuses the organiser's heading (as for a removed logo).
+      onUpdated(
+        record,
+        record.eventReviewRequired
+          ? `${item.displayName}’s events now come to you for review before they go live.`
+          : `${item.displayName}’s events now go live when they publish them.`,
+      );
+    } catch (err) {
+      if (err instanceof ApiError && err.fieldErrors?.reason) {
+        setReasonError(err.fieldErrors.reason);
+        document.getElementById(reasonId)?.focus();
+      } else {
+        setError(actionErrorText(err, "Couldn’t change this setting. Try again."));
+      }
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-start gap-3 border-t border-surface-border pt-4" data-event-review={on ? "on" : "off"}>
+      <p className="text-sm">
+        <span className="text-muted">Their events: </span>
+        {on ? (
+          <span className="font-semibold">come to you for review before they go live</span>
+        ) : (
+          "go live when they publish them"
+        )}
+      </p>
+      {onUpdated && !open && (
+        <Button
+          id={openId}
+          variant="outline"
+          size="sm"
+          className="min-h-11"
+          onClick={() => {
+            setError(null);
+            pendingFocus.current = reasonId;
+            setOpen(true);
+          }}
+        >
+          {on ? "Stop reviewing their events first…" : "Review this organiser’s events before they go live…"}
+        </Button>
+      )}
+      {onUpdated && open && (
+        <div role="group" aria-labelledby={questionId} className="flex w-full flex-col gap-3 border-l-2 border-foreground pl-4">
+          <p id={questionId} className="text-sm font-semibold">
+            {on
+              ? `Let ${item.displayName}’s events go live when they publish them?`
+              : `Review ${item.displayName}’s events before they go live? Their next publishes come to you in Waiting for review; what’s already live stays live.`}
+          </p>
+          <MessageField
+            id={reasonId}
+            label="Reason (kept on their log)"
+            value={reason}
+            onChange={(value) => {
+              setReason(value);
+              if (reasonError) setReasonError(null);
+            }}
+            error={reasonError}
+            rows={2}
+            max={SUSPEND_REASON_MAX}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button variant="solid" size="sm" className="min-h-11" busy={busy} onClick={save}>
+              {busy ? "Saving…" : on ? "Stop reviewing first" : "Review their events"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="min-h-11"
+              busy={busy}
+              onClick={() => {
+                setOpen(false);
+                setReasonError(null);
+                setError(null);
+                pendingFocus.current = openId;
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+      {error && (
+        <Notice tone="danger" role="alert">
+          {error}
+        </Notice>
+      )}
     </div>
   );
 }

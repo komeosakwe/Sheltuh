@@ -8,10 +8,12 @@ import type { EventStatus } from "@/lib/api/types";
  */
 
 /**
- * Which published events: not ended, Sheltüh-run ones (not ended; where
+ * Which published events: not ended, the ones that went live in the last 14
+ * days (newest first, whoever published them: the admin email for an
+ * organiser's own publish links here), Sheltüh-run ones (not ended; where
  * admins find the doors they run), or every one (past included).
  */
-export type PublishedView = "upcoming" | "door" | "all";
+export type PublishedView = "upcoming" | "recent" | "door" | "all";
 
 export interface EventQueueFilters {
   status: EventStatus;
@@ -30,6 +32,13 @@ export const EVENT_QUEUE_PATH = "/admin/events";
  */
 export const DOOR_EVENTS_HREF = `${EVENT_QUEUE_PATH}?status=published&view=door`;
 
+/**
+ * Events that went live in the last 14 days, newest first, with who
+ * published them (the organiser, or Sheltüh): the hub's card, and the link in
+ * the admins' "published by an organiser" email (lib/server/admin-review-email.ts).
+ */
+export const RECENTLY_PUBLISHED_HREF = `${EVENT_QUEUE_PATH}?status=published&view=recent`;
+
 /** In the order they're offered, with plain labels (not the API's status names). */
 export const EVENT_STATUSES: { value: EventStatus; label: string }[] = [
   { value: "pending_review", label: "Waiting for review" },
@@ -40,6 +49,7 @@ export const EVENT_STATUSES: { value: EventStatus; label: string }[] = [
 
 export const PUBLISHED_VIEWS: { value: PublishedView; label: string }[] = [
   { value: "upcoming", label: "Upcoming" },
+  { value: "recent", label: "Recently published" },
   { value: "door", label: "Sheltüh-run" },
   { value: "all", label: "All, past included" },
 ];
@@ -78,12 +88,19 @@ export function eventQueueHref(filters: EventQueueFilters): string {
 
 /**
  * What the API is asked for: ended events too, except in the published
- * Upcoming and Sheltüh-run views. The Sheltüh-run view asks for every
+ * Upcoming and Sheltüh-run views. Recently published asks for `recent`
+ * (published in the last 14 days, newest first, ended ones included). The Sheltüh-run view asks for every
  * platform-managed organiser's event, externally ticketed ones included
  * (there's no ticketing filter, and filtering pages here would leave gaps);
  * only Sheltüh-ticketed ones offer Door check-in (EventQueueItem, hasAdminDoor).
  */
 export function eventQueueQuery(filters: EventQueueFilters, cursor?: string): AdminListEventsQuery {
+  if (filters.status === "published" && filters.view === "recent") {
+    const recent: AdminListEventsQuery = { status: "published", recent: true };
+    if (filters.q) recent.q = filters.q;
+    if (cursor) recent.cursor = cursor;
+    return recent;
+  }
   const query: AdminListEventsQuery = { status: filters.status, upcoming: false };
   if (filters.status === "published" && filters.view !== "all") query.upcoming = true;
   if (filters.status === "published" && filters.view === "door") query.platformManaged = true;
@@ -138,6 +155,16 @@ export function eventQueueWords(filters: EventQueueFilters): ListWords {
           emptyTitle: "No upcoming Sheltüh-run events",
           emptyText:
             "Events of Sheltüh-run (platform-managed) organisers appear here until they end. Admins run the door for the ones ticketed on Sheltüh; organisers run their own doors.",
+        };
+      }
+      if (filters.view === "recent") {
+        return {
+          heading: "Recently published",
+          one: "event published in the last 14 days",
+          many: "events published in the last 14 days",
+          emptyTitle: "Nothing published in the last 14 days",
+          emptyText:
+            "Events appear here, newest first, for 14 days after they go live: the ones organisers published themselves, and the ones you approved.",
         };
       }
       if (filters.view === "all") {

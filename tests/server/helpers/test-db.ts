@@ -6,7 +6,8 @@ import { createPostgresDb, type Db } from "@/lib/server/db";
 
 const SUPABASE_DIR = path.resolve(import.meta.dirname, "../../../supabase");
 
-function setupSql(): string[] {
+/** Supabase's auth stubs, then every migration in order: what a test database is built from (also the journey harness, journey/). */
+export function setupSql(): string[] {
   const migrationsDir = path.join(SUPABASE_DIR, "migrations");
   return [
     readFileSync(path.join(SUPABASE_DIR, "test/supabase-stubs.sql"), "utf8"),
@@ -18,12 +19,13 @@ function setupSql(): string[] {
 }
 
 const RESET_SQL = `truncate private.user_reports, private.report_photos, public.messages, public.conversations, private.conversation_pairs, public.user_blocks,
-  private.rate_limits, private.platform_rate_limits, private.client_rate_limits, private.free_order_refusals, private.social_suspensions, public.event_attendees, public.profiles,
+  private.rate_limits, private.platform_rate_limits, private.client_rate_limits, private.checkout_attempts, private.free_order_refusals, private.social_suspensions, public.event_attendees, public.profiles,
   public.event_favourites, public.event_view_counts, public.event_outbound_clicks, public.event_tracking_links, private.event_rate_limits, private.event_view_cap_days,
   private.trending_snapshot, private.event_curation, private.event_waitlist_tokens, private.event_waitlist,
   private.profile_avatars, private.profile_moderation_log, private.organiser_follow_tokens, private.organiser_event_announcements,
   public.organiser_follows, private.organiser_logos, private.event_clip_uploads, private.event_clips,
-  private.account_invites, private.email_job_recipients, private.email_outbox, private.organiser_profile_edits, public.ticket_check_ins, public.tickets, public.event_seats, public.event_seat_maps, public.orders, public.event_moderation_log, public.ticket_types, public.events, public.organisers,
+  private.account_invites, private.email_job_recipients, private.email_outbox, private.cron_runs, private.payment_exceptions,
+  private.early_charge_refunds, private.refund_status_marks, private.organiser_profile_edits, public.ticket_check_ins, public.tickets, public.event_seats, public.event_seat_maps, public.orders, public.event_moderation_log, public.ticket_types, public.events, public.organisers,
   auth.identities, auth.users cascade;
   update private.analytics_settings set views_tracked_since = (now() at time zone 'Australia/Melbourne')::date`;
 

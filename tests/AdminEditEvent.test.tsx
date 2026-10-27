@@ -6,6 +6,9 @@ import type { AdminEventRecord } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/session-token";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
+// The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
+vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+
 vi.mock("next/navigation", () => ({
   useParams: () => ({ eventId: "evt-1" }),
   useRouter: () => ({ push: vi.fn() }),

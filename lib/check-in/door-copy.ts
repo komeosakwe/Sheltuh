@@ -7,6 +7,7 @@ import { ApiError } from "@/lib/api/client";
 import type { CheckInLogEntry, CheckInResult } from "@/lib/api/types";
 import { formatDayTime, formatEventTime } from "@/lib/format";
 import { speakSeatLine } from "@/lib/seating/format";
+import { PLATFORM_TIME_ZONE } from "@/lib/time-zones";
 
 /** One scan: the canonical code and its request id (reused by its retries). */
 export interface DoorScan {
@@ -113,11 +114,14 @@ export function relativeAgo(ms: number): string {
   return rest === 0 ? `${hours} hr ago` : `${hours} hr ${rest} min ago`;
 }
 
-/** "8:42 pm (14 min ago)", or "Fri 25 Sep, 8:42 pm" once it's over a day ago. */
-export function formatCheckedInAt(iso: string, now: Date = new Date()): string {
+/**
+ * "8:42 pm (14 min ago)", or "Fri 25 Sep, 8:42 pm" once it's over a day ago,
+ * in the event's zone (Melbourne by default): the door's own clock.
+ */
+export function formatCheckedInAt(iso: string, now: Date = new Date(), timeZone: string = PLATFORM_TIME_ZONE): string {
   const ago = now.getTime() - new Date(iso).getTime();
-  if (ago >= 24 * 60 * 60 * 1000) return formatDayTime(iso, now);
-  return `${formatEventTime(iso)} (${relativeAgo(ago)})`;
+  if (ago >= 24 * 60 * 60 * 1000) return formatDayTime(iso, now, timeZone);
+  return `${formatEventTime(iso, timeZone)} (${relativeAgo(ago)})`;
 }
 
 /** "Checked in on this device 4 sec ago." */
@@ -126,8 +130,8 @@ export function ownScanNote(agoMs: number): string {
   return `Checked in on this device ${seconds} sec ago.`;
 }
 
-/** The assertive announcement for a result (§5.A8). */
-export function resultAnnouncement(result: DoorResult): string {
+/** The assertive announcement for a result (§5.A8). Times are in the event's zone (Melbourne by default). */
+export function resultAnnouncement(result: DoorResult, timeZone: string = PLATFORM_TIME_ZONE): string {
   if (result.kind === "foreign") return "Don’t let in. Not a Sheltüh ticket.";
   if (result.kind === "unverified") return `Not verified. Don’t let in yet. ${UNVERIFIED_SPOKEN[result.reason]}`;
   const { outcome, ticket, checkedInAt, otherEventTitle } = result.result;
@@ -138,7 +142,7 @@ export function resultAnnouncement(result: DoorResult): string {
       return ticket ? `Let in. ${ticket.ticketTypeName}, ticket ${ticket.ticketNumber} of ${ticket.ticketCount}.${seat}` : "Let in.";
     case "already_checked_in":
       return checkedInAt
-        ? `Don’t let in. Already checked in at ${formatEventTime(checkedInAt)}.${seat}`
+        ? `Don’t let in. Already checked in at ${formatEventTime(checkedInAt, timeZone)}.${seat}`
         : `Don’t let in. Already checked in.${seat}`;
     case "not_admissible":
       return "Don’t let in. Ticket void.";
@@ -194,12 +198,12 @@ export function recentRow(entry: CheckInLogEntry): { label: string; detail: stri
  */
 export type UndoTarget = Pick<CheckInLogEntry, "checkInId" | "at" | "codeLast4" | "ticketTypeName">;
 
-/** What an undo is about: "General admission · code ends 2HXD · checked in 8:42 pm". */
-export function undoAbout(entry: UndoTarget): string {
+/** What an undo is about: "General admission · code ends 2HXD · checked in 8:42 pm", in the event's zone (Melbourne by default). */
+export function undoAbout(entry: UndoTarget, timeZone: string = PLATFORM_TIME_ZONE): string {
   return [
     entry.ticketTypeName,
     entry.codeLast4 ? `code ends ${entry.codeLast4}` : null,
-    `checked in ${formatEventTime(entry.at)}`,
+    `checked in ${formatEventTime(entry.at, timeZone)}`,
   ]
     .filter(Boolean)
     .join(" · ");

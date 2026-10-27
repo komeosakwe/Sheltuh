@@ -8,7 +8,7 @@ import { countText, hoursText } from "@/lib/admin-summary";
 import type { AdminSummary } from "@/lib/api/types";
 import { formatDayWithYear } from "@/lib/format";
 import { useAdminSummary } from "./AdminSummaryProvider";
-import { DOOR_EVENTS_HREF } from "./event-queue-filters";
+import { DOOR_EVENTS_HREF, RECENTLY_PUBLISHED_HREF } from "./event-queue-filters";
 
 /**
  * White cards with a black border (brand-direction-one.md §2.4). The link is
@@ -31,6 +31,8 @@ interface HubCard {
   waiting: boolean;
   /** What to do there. */
   todo: string;
+  /** Its status line is a count from the summary: "Checking…" while that loads. */
+  counted?: boolean;
 }
 
 function since(iso: string | null): string {
@@ -92,6 +94,20 @@ function needsYouCards(summary: AdminSummary | null): HubCard[] {
   ];
 }
 
+/**
+ * "3 by organisers in the last 3 days": events organisers published themselves
+ * (summary.eventsPublishedByOrganisers; an older server may not send it, and
+ * then the card has no status line).
+ */
+function selfPublishedStatus(summary: AdminSummary | null): string | null {
+  const published = summary?.eventsPublishedByOrganisers;
+  if (!published) return null;
+  const period = `in the last ${hoursText(published.windowHours)}`;
+  return published.count
+    ? `${countText(published.count, "by an organiser", "by organisers")} ${period}`
+    : `None by organisers ${period}`;
+}
+
 function manageCards(summary: AdminSummary | null): HubCard[] {
   const door = summary?.doorEvents;
   return [
@@ -101,6 +117,14 @@ function manageCards(summary: AdminSummary | null): HubCard[] {
       status: null,
       waiting: false,
       todo: "Search by title or organiser to edit, unpublish, change a seat map or curate Trending.",
+    },
+    {
+      href: RECENTLY_PUBLISHED_HREF,
+      title: "Recently published",
+      status: selfPublishedStatus(summary),
+      waiting: Boolean(summary?.eventsPublishedByOrganisers?.count),
+      todo: "Approved organisers publish without review. Check what went live, and unpublish anything that shouldn’t be on Sheltüh.",
+      counted: true,
     },
     {
       href: "/admin/organisers?status=approved",
@@ -140,6 +164,7 @@ function manageCards(summary: AdminSummary | null): HubCard[] {
         : null,
       waiting: Boolean(door?.count),
       todo: "Check tickets in at Sheltüh-run events. Organisers run their own doors.",
+      counted: true,
     },
   ];
 }
@@ -241,7 +266,7 @@ export default function AdminHub() {
       <HubSection id="hub-manage" title="Manage">
         <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {manageCards(summary).map((card) => (
-            <Card key={card.title} card={card} loading={loading && card.href === DOOR_EVENTS_HREF} />
+            <Card key={card.title} card={card} loading={loading && card.counted === true} />
           ))}
         </ul>
       </HubSection>

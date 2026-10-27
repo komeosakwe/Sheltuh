@@ -1,9 +1,15 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { adminRejectEvent } from "@/lib/server/handlers/admin";
 import { submitEventForReview } from "@/lib/server/handlers/events";
-import { getPublicEventBySlug, listPublicEvents } from "@/lib/server/handlers/public-events";
+import {
+  getPublicEventBySlug,
+  listPublicEvents,
+  PUBLIC_EVENT_CACHE_CONTROL,
+  PUBLIC_EVENTS_CACHE_CONTROL,
+} from "@/lib/server/handlers/public-events";
+import { getPublicOrganiserProfile } from "@/lib/server/handlers/public-organisers";
 import { TestApi } from "./helpers/api";
-import { approvedOrganiser, draftEvent, publishedEvent, signUpAdmin } from "./helpers/fixtures";
+import { approvedOrganiser, draftEvent, publishedEvent, setUpPayouts, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
 let api: TestApi;
@@ -68,9 +74,16 @@ describe("public event visibility", () => {
         "externalProvider",
         // Waitlist (B-WL): always sent.
         "soldOut",
+        // Refund policy: always sent; refundDays only for days_before.
+        "refundPolicy",
+        // Events Australia-wide: always sent.
+        "state",
+        "timeZone",
+        // Venue location: only when the event has one (the fixture's events do: a manual pin).
+        "location",
       ].sort(),
     );
-    expect(res.body).toMatchObject({ ticketingMode: "sheltuh", externalFree: false, externalProvider: null });
+    expect(res.body).toMatchObject({ ticketingMode: "sheltuh", externalFree: false, externalProvider: null, refundPolicy: "no_change_of_mind" });
     const list = await api.call(listPublicEvents);
     expect(list.body.items[0]).toEqual(res.body);
   });
@@ -227,6 +240,80 @@ describe("upcoming=1 (home page and /events)", () => {
   });
 });
 
+describe("CDN caching (docs/architecture.md, \"CDN windows\")", () => {
+  it("shares the feed for a minute (two more stale) and an event for 15 seconds (45 more stale); browsers always revalidate", async () => {
+    expect(PUBLIC_EVENTS_CACHE_CONTROL).toBe("public, max-age=0, s-maxage=60, stale-while-revalidate=120");
+    expect(PUBLIC_EVENT_CACHE_CONTROL).toBe("public, max-age=0, s-maxage=15, stale-while-revalidate=45");
+    const live = await publishedEvent(api, organiser, admin);
+
+    const queries: Record<string, string>[] = [{}, { upcoming: "1" }, { upcoming: "1", limit: "50", category: "live-music" }, { q: "" }];
+    for (const query of queries) {
+      const res = await api.call(listPublicEvents, { query });
+      expect([query, res.status, res.headers.get("cache-control")]).toEqual([query, 200, PUBLIC_EVENTS_CACHE_CONTROL]);
+    }
+    const one = await api.call(getPublicEventBySlug, { params: { slug: live.slug } });
+    expect([one.status, one.headers.get("cache-control")]).toEqual([200, PUBLIC_EVENT_CACHE_CONTROL]);
+    // The seat page's cache-busting `seatMapVersion` (and any other unknown
+    // parameter) changes only the cache key: same event, same shared header.
+    const bustingQueries: Record<string, string>[] = [{ seatMapVersion: "7" }, { seatMapVersion: "x", other: "1" }];
+    for (const query of bustingQueries) {
+      const busted = await api.call(getPublicEventBySlug, { params: { slug: live.slug }, query });
+      expect([query, busted.status, busted.headers.get("cache-control")]).toEqual([query, 200, PUBLIC_EVENT_CACHE_CONTROL]);
+      expect(busted.body).toEqual(one.body);
+    }
+  });
+
+  it("never shares a search: any non-empty `q` is private, no-store (a CDN hit would reveal a recent search)", async () => {
+    const live = await publishedEvent(api, organiser, admin, { title: "Neon Search Night" });
+    const queries: Record<string, string>[] = [
+      { q: "neon" },
+      { upcoming: "1", limit: "50", category: "live-music", q: "neon" },
+      { upcoming: "1", q: "no such event anywhere" },
+      { q: "   " },
+    ];
+    for (const query of queries) {
+      const res = await api.call(listPublicEvents, { query });
+      expect([query, res.status, res.headers.get("cache-control")]).toEqual([query, 200, "private, no-store"]);
+    }
+    // Still the search's results, not a different response.
+    const found = await api.call(listPublicEvents, { query: { q: "neon search" } });
+    expect(found.body.items.map((e: { eventId: string }) => e.eventId)).toContain(live.eventId);
+  });
+
+  it("never caches an error: a 400 or a 404 (an unpublished event, so it shows as soon as it's approved) is private, no-store", async () => {
+    const draft = await draftEvent(api, organiser);
+    const malformed: Record<string, string>[] = [{ category: "karaoke" }, { cursor: "x" }, { upcoming: "yes" }, { onOrAfter: "2027-02-30" }];
+    for (const query of malformed) {
+      const res = await api.call(listPublicEvents, { query });
+      expect([query, res.status, res.headers.get("cache-control")]).toEqual([query, 400, "private, no-store"]);
+    }
+    for (const slug of [draft.slug, "never-existed"]) {
+      const res = await api.call(getPublicEventBySlug, { params: { slug } });
+      expect([slug, res.status, res.headers.get("cache-control")]).toEqual([slug, 404, "private, no-store"]);
+    }
+  });
+
+  it("answers a signed-in caller exactly as an anonymous one: same body, same shared header", async () => {
+    const live = await publishedEvent(api, organiser, admin);
+    const member = await api.signUp();
+    const callers = [undefined, member.token, organiser.token, admin.token];
+    const reads = [
+      (token?: string) => api.call(listPublicEvents, { query: { upcoming: "1" }, token }),
+      (token?: string) => api.call(getPublicEventBySlug, { params: { slug: live.slug }, token }),
+      (token?: string) =>
+        api.call(getPublicOrganiserProfile, { params: { organiserId: organiser.organiserId }, token }),
+    ];
+    for (const read of reads) {
+      const [anonymous, ...signedIn] = await Promise.all(callers.map(read));
+      expect(anonymous.status).toBe(200);
+      for (const res of signedIn) {
+        expect(res.body).toEqual(anonymous.body);
+        expect(res.headers.get("cache-control")).toBe(anonymous.headers.get("cache-control"));
+      }
+    }
+  });
+});
+
 describe("events with no ticket types", () => {
   // The organiser's form requires a ticket type for a Sheltüh-ticketed event.
   // Such an event can still have none: an admin moving an external event back
@@ -273,6 +360,8 @@ describe("events with no ticket types", () => {
 
     await set([freeType]);
     expect(await isFree(event.eventId)).toBe(true);
+    // A published event's new paid ticket type needs the organiser's payouts.
+    await setUpPayouts(api, event.organiserId);
     await set([freeType, paidType]);
     expect(await isFree(event.eventId)).toBe(false);
     await set([]);

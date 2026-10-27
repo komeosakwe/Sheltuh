@@ -6,60 +6,50 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { MapContainer, TileLayer, useMap } from "react-leaflet";
 import EventMarkerLayer, { type MarkerDatum, type OpenSpot } from "@/components/map/EventMarkerLayer";
 import MapSpotList from "@/components/map/MapSpotList";
+import MapStyles from "@/components/map/MapStyles";
 import { runQuietly, stopQuietly } from "@/components/map/quiet-map";
 import { buttonClass } from "@/components/ui/Button";
 import { ProgressLoader, useLoadingProgress } from "@/components/ui/ProgressLoader";
+import { framingTargets } from "@/lib/map-layout";
 import { ESRI_STYLE, type TileStyle } from "@/lib/map-tiles";
 import {
-  MELBOURNE_DEFAULT_CENTER,
-  MELBOURNE_DEFAULT_ZOOM,
-  MELBOURNE_METRO_BOUNDS,
-  MELBOURNE_MIN_ZOOM,
+  AUSTRALIA_BOUNDS,
+  AUSTRALIA_MIN_ZOOM,
+  AUSTRALIA_VIEW,
   resolveMapCoordinates,
+  type SuburbLookup,
 } from "@/lib/geo";
 import type { Coordinates, SheltuhEvent } from "@/lib/types";
 import { usePrefersReducedMotion } from "@/lib/use-reduced-motion";
-
-/**
- * Leaflet chrome restyled to the app's tokens, plus reduced-motion handling
- * for Leaflet's CSS zoom/fade transitions (it falls back to a timer, so
- * removing the transition is safe). Marker styling lives in components/map/.
- */
-function MapStyles() {
-  return (
-    <style>{`
-      .scene-marker { background: none; border: 0; }
-      .leaflet-control-attribution {
-        background: color-mix(in srgb, var(--background) 85%, transparent) !important; color: var(--muted) !important;
-      }
-      .leaflet-control-attribution a { color: var(--foreground) !important; }
-      /* Zoom: two separate 44px rounded-square controls with a black edge (§6.1), not Leaflet's grey bar. */
-      .leaflet-control-zoom.leaflet-bar { border: 0 !important; box-shadow: none !important; display: flex; flex-direction: column; gap: 0.5rem; }
-      .leaflet-control-zoom a {
-        width: 2.75rem !important; height: 2.75rem !important; line-height: 2.625rem !important; font-size: 1.25rem !important;
-        background: var(--card) !important; color: var(--foreground) !important;
-        border: 1px solid var(--foreground) !important; border-radius: var(--radius-control) !important;
-      }
-      .leaflet-control-zoom a:hover { background: var(--surface) !important; }
-      .leaflet-control-zoom a.leaflet-disabled { color: var(--muted) !important; border-color: var(--surface-border) !important; }
-      @media (prefers-reduced-motion: reduce) {
-        .leaflet-zoom-anim .leaflet-zoom-animated, .leaflet-fade-anim .leaflet-tile, .leaflet-fade-anim .leaflet-popup {
-          transition: none !important;
-        }
-      }
-    `}</style>
-  );
-}
 
 function hasSize(map: L.Map): boolean {
   const size = map.getSize();
   return size.x > 0 && size.y > 0;
 }
 
-/** Centres on the selected event if there is one, otherwise fits every marker. */
+/** Fits `targets`, or the mainland and Tasmania when there are none. */
+function fitTargets(map: L.Map, targets: MarkerDatum[], reducedMotion: boolean, programmaticMoveRef: RefObject<boolean>) {
+  programmaticMoveRef.current = true;
+  if (targets.length === 0) {
+    const v = AUSTRALIA_VIEW;
+    map.fitBounds(
+      [
+        [v.south, v.west],
+        [v.north, v.east],
+      ],
+      { padding: [8, 8], animate: !reducedMotion },
+    );
+    return;
+  }
+  const bounds = L.latLngBounds(targets.map((m) => [m.lat, m.lng]));
+  map.fitBounds(bounds, { padding: [48, 48], maxZoom: 15, animate: !reducedMotion });
+}
+
+/** Centres on the selected event if there is one, otherwise fits `targets` (framingTargets). */
 function frameMarkers(
   map: L.Map,
   markers: MarkerDatum[],
+  targets: MarkerDatum[],
   selectedEventId: string | null,
   reducedMotion: boolean,
   programmaticMoveRef: RefObject<boolean>,
@@ -72,30 +62,38 @@ function frameMarkers(
     else map.flyTo([selected.lat, selected.lng], zoom, { duration: 0.6 });
     return;
   }
-  if (markers.length === 0) return;
-  programmaticMoveRef.current = true;
-  const bounds = L.latLngBounds(markers.map((m) => [m.lat, m.lng]));
-  map.fitBounds(bounds, { padding: [48, 48], maxZoom: 15, animate: !reducedMotion });
+  fitTargets(map, targets, reducedMotion, programmaticMoveRef);
 }
 
-/** Recentres/zooms the map when the selected event changes, and fits all markers on first load. */
+/**
+ * Recentres/zooms the map when the selected event changes, and fits the
+ * markers whenever they change: the first time, those near the saved suburb
+ * (`near`) if any are; with none, Australia.
+ */
 function MapController({
   markers,
+  near,
   selectedEventId,
   programmaticMoveRef,
   reducedMotion,
 }: {
   markers: MarkerDatum[];
+  near: Coordinates | null;
   selectedEventId: string | null;
   programmaticMoveRef: RefObject<boolean>;
   reducedMotion: boolean;
 }) {
   const map = useMap();
   // Latest props for the resize listener below, which is registered once.
-  const latest = useRef({ markers, selectedEventId, reducedMotion });
+  const latest = useRef({ markers, near, selectedEventId, reducedMotion });
   useEffect(() => {
-    latest.current = { markers, selectedEventId, reducedMotion };
+    latest.current = { markers, near, selectedEventId, reducedMotion };
   });
+  // The markers the map was first framed with: only that framing looks near the saved suburb. Kept
+  // as the markers themselves rather than a flag, so framing them again (React re-running effects
+  // in development) is still the first framing; a new set of markers (a filter) isn't.
+  const firstFramed = useRef<MarkerDatum[] | null>(null);
+  const isFirstFraming = (current: MarkerDatum[]) => firstFramed.current === null || firstFramed.current === current;
 
   // Re-fits whenever the visible marker set actually changes (e.g. a
   // filter narrows it) — `markers` only gets a new reference when the
@@ -109,7 +107,6 @@ function MapController({
     // Cancelling any in-flight animation before the marker set changes
     // avoids that race entirely.
     stopQuietly(map, programmaticMoveRef);
-    if (markers.length === 0) return;
     // Synchronous, same-tick safeguard: if this container was just
     // revealed (e.g. the mobile list→map tab switch) in this very render,
     // the async ResizeObserver in ResizeSync hasn't caught up yet — so
@@ -118,9 +115,8 @@ function MapController({
     // Hidden (the phone's list tab): fitting a 0×0 map snaps to max zoom
     // around the centre. Wait for the resize listener below instead.
     if (!hasSize(map)) return;
-    programmaticMoveRef.current = true;
-    const bounds = L.latLngBounds(markers.map((m) => [m.lat, m.lng]));
-    map.fitBounds(bounds, { padding: [48, 48], maxZoom: 15, animate: !reducedMotion });
+    fitTargets(map, framingTargets(markers, latest.current.near, isFirstFraming(markers)), reducedMotion, programmaticMoveRef);
+    firstFramed.current ??= markers;
   }, [map, markers, programmaticMoveRef, reducedMotion]);
 
   useEffect(() => {
@@ -130,7 +126,8 @@ function MapController({
     stopQuietly(map, programmaticMoveRef);
     runQuietly(programmaticMoveRef, () => map.invalidateSize());
     if (!hasSize(map)) return;
-    frameMarkers(map, markers, selectedEventId, reducedMotion, programmaticMoveRef);
+    frameMarkers(map, markers, markers, selectedEventId, reducedMotion, programmaticMoveRef);
+    firstFramed.current ??= markers;
   }, [map, markers, selectedEventId, programmaticMoveRef, reducedMotion]);
 
   // The first time a hidden map gets a real size (the phone's Map tab), frame it then.
@@ -146,7 +143,9 @@ function MapController({
         frame = null;
         const current = latest.current;
         stopQuietly(map, programmaticMoveRef);
-        frameMarkers(map, current.markers, current.selectedEventId, current.reducedMotion, programmaticMoveRef);
+        const targets = framingTargets(current.markers, current.near, isFirstFraming(current.markers));
+        frameMarkers(map, current.markers, targets, current.selectedEventId, current.reducedMotion, programmaticMoveRef);
+        firstFramed.current ??= current.markers;
       });
     }
     map.on("resize", handleResize);
@@ -253,6 +252,14 @@ interface SceneMapPanelProps {
   onShowList?: () => void;
   /** The basemap (lib/map-tiles.ts): Esri unless the Mapbox preview is on. */
   tileStyle?: TileStyle;
+  /** Where an event without coordinates of its own goes: its suburb's centre (lib/geo.ts). */
+  findSuburb?: SuburbLookup;
+  /**
+   * The centre of the visitor's saved suburb (browser-only, never sent):
+   * the map opens on the events within NEAR_FRAME_KM (lib/map-layout.ts) of
+   * it, if any.
+   */
+  near?: Coordinates | null;
 }
 
 const TILE_LOAD_TIMEOUT_MS = 9000;
@@ -273,6 +280,8 @@ export default function SceneMapPanel({
   onSearchArea,
   onShowList,
   tileStyle = ESRI_STYLE,
+  findSuburb,
+  near = null,
 }: SceneMapPanelProps) {
   const [status, setStatus] = useState<TileStatus>("loading");
   const [retryKey, setRetryKey] = useState(0);
@@ -286,14 +295,17 @@ export default function SceneMapPanel({
 
   const markers = useMemo<MarkerDatum[]>(() => {
     return events.flatMap((event) => {
-      // Outside Greater Melbourne = not pinned (the map is Melbourne-only).
-      const coords = resolveMapCoordinates(event);
+      // Outside Australia = not pinned (a position overseas is a mistake).
+      const coords = resolveMapCoordinates(event, findSuburb);
       return coords ? [{ event, lat: coords.lat, lng: coords.lng }] : [];
     });
-  }, [events]);
+  }, [events, findSuburb]);
 
-  // Always start on Melbourne; the controller then fits the events within it.
-  const center: Coordinates = MELBOURNE_DEFAULT_CENTER;
+  // Start on Australia; the controller then fits the events (or, with none, the mainland and Tasmania).
+  const center: Coordinates = {
+    lat: (AUSTRALIA_VIEW.south + AUSTRALIA_VIEW.north) / 2,
+    lng: (AUSTRALIA_VIEW.west + AUSTRALIA_VIEW.east) / 2,
+  };
 
   // Derived, not synced: when filters drop some of a spot's events the list
   // shrinks, and when none are left it is simply closed.
@@ -359,11 +371,11 @@ export default function SceneMapPanel({
         markerZoomAnimation={!reducedMotion}
         fadeAnimation={!reducedMotion}
         center={[center.lat, center.lng]}
-        zoom={MELBOURNE_DEFAULT_ZOOM}
-        minZoom={MELBOURNE_MIN_ZOOM}
+        zoom={4}
+        minZoom={AUSTRALIA_MIN_ZOOM}
         maxBounds={[
-          [MELBOURNE_METRO_BOUNDS.south, MELBOURNE_METRO_BOUNDS.west],
-          [MELBOURNE_METRO_BOUNDS.north, MELBOURNE_METRO_BOUNDS.east],
+          [AUSTRALIA_BOUNDS.south, AUSTRALIA_BOUNDS.west],
+          [AUSTRALIA_BOUNDS.north, AUSTRALIA_BOUNDS.east],
         ]}
         maxBoundsViscosity={1}
         // The wheel scrolls the page, not the map, so a pointer passing over it never traps
@@ -383,12 +395,11 @@ export default function SceneMapPanel({
         ))}
         <TileWatcher status={status} retryKey={retryKey} programmaticMoveRef={programmaticMoveRef} />
         <ResizeSync programmaticMoveRef={programmaticMoveRef} />
-        <MapController
-          markers={markers}
-          selectedEventId={selectedEventId}
-          programmaticMoveRef={programmaticMoveRef}
-          reducedMotion={reducedMotion}
-        />
+        {/* Before the controller: sibling effects run in order, so the markers and "Search this area"
+            listen for the map's moves before the controller's first framing moves it (from
+            Australia to the events). That framing can be too big a jump to animate, and then its
+            moveend fires inside the controller's effect: a listener added after it would miss it,
+            leave the move marked as the map's own, and take the visitor's first zoom for it. */}
         <EventMarkerLayer
           markers={markers}
           selectedEventId={selectedEventId}
@@ -409,6 +420,13 @@ export default function SceneMapPanel({
               west: bounds.getWest(),
             })
           }
+        />
+        <MapController
+          markers={markers}
+          near={near}
+          selectedEventId={selectedEventId}
+          programmaticMoveRef={programmaticMoveRef}
+          reducedMotion={reducedMotion}
         />
       </MapContainer>
 

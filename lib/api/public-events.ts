@@ -1,7 +1,9 @@
+import type { RefundPolicy } from "@/lib/refund-policy";
 import type { TicketingMode } from "@/lib/ticketing";
+import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
 import type { EventCategory, EventClip } from "@/lib/types";
 import { apiFetch } from "./client";
-import type { Paginated, TicketTypeInput } from "./types";
+import type { Paginated, TicketTypeInput, VenueLocation } from "./types";
 
 /**
  * `remaining` is only sent when this many tickets or fewer are left, so the
@@ -33,7 +35,17 @@ export interface PublicEvent {
   category: EventCategory;
   venueName: string;
   venueAddress: string;
+  /** The suburb (see EventRecord.suburb). */
   suburb: string;
+  /** The event's state or territory (absent means `VIC`). Always sent by the API; optional so older fixtures stay valid. */
+  state?: StateCode;
+  /**
+   * The zone to show `startsAt` / `endsAt` in, and to read the feed's
+   * `onOrAfter` date in (absent means `Australia/Melbourne`); see
+   * EventRecord.timeZone. Always sent by the API; optional so older fixtures
+   * stay valid.
+   */
+  timeZone?: AustralianTimeZone;
   startsAt: string;
   endsAt: string;
   organiserName: string;
@@ -42,7 +54,7 @@ export interface PublicEvent {
   clip?: EventClip;
   /**
    * The organiser's logo thumbnail: `/api/organisers/{organiserId}/logo?size=thumb&v={version}`
-   * (96 px square WebP, public, cached for a day). Only when the organiser has
+   * (96 px square WebP, public, shared at the CDN for an hour). Only when the organiser has
    * a logo; absent otherwise (show initials).
    */
   organiserLogoThumbUrl?: string;
@@ -75,6 +87,24 @@ export interface PublicEvent {
    */
   externalProvider?: string | null;
   /**
+   * The event's refund policy, to show before anyone buys, with
+   * REFUND_ACL_STATEMENT (lib/refund-policy.ts: refundPolicySummary).
+   * `no_change_of_mind` (the default) or `days_before`. Always sent by the
+   * API; optional so older fixtures stay valid (absent means
+   * `no_change_of_mind`). It applies to tickets sold on Sheltüh: for an
+   * external event the ticketing site's own terms apply, so don't show it.
+   */
+  refundPolicy?: RefundPolicy;
+  /** `days_before` only: refunds up to this many days (1–30) before the event starts. Absent otherwise. */
+  refundDays?: number;
+  /**
+   * The venue's location, only when it has one (see VenueLocation: a Google
+   * place id for directions and the organiser's own pin, never Google's
+   * coordinates). Absent for an event saved without one, whose payload is
+   * otherwise unchanged.
+   */
+  location?: VenueLocation;
+  /**
    * Only for an event with a seat map (reserved seating): its version, for
    * GET /events/{id}/seat-map?v={version}. Its seated tiers carry
    * `seated: true`; general admission tiers (a mixed event) don't. Absent for
@@ -85,6 +115,11 @@ export interface PublicEvent {
 
 export interface ListPublicEventsParams {
   category?: EventCategory;
+  /**
+   * "YYYY-MM-DD": only events starting on or after that date, in each
+   * event's own zone (an event starting at 11 pm in Perth on the 5th is on
+   * the 5th, though it's the 6th in Melbourne). 400 for anything else.
+   */
   onOrAfter?: string;
   /**
    * `free`: Sheltüh-ticketed with ticket types, all free, or external with
@@ -114,6 +149,15 @@ export function listPublicEvents(params: ListPublicEventsParams = {}) {
   return apiFetch<Paginated<PublicEvent>>(`/events${suffix}`);
 }
 
-export function getPublicEventBySlug(slug: string) {
-  return apiFetch<PublicEvent>(`/events/slug/${encodeURIComponent(slug)}`);
+/**
+ * One published event by slug. The response is shared at the CDN for up to
+ * about a minute. `seatMapVersion` (the seat page, after it sees a new map
+ * version) adds `?seatMapVersion=` to the URL: the server ignores it, but it
+ * makes a different cache key, so the CDN's copy from before the map changed
+ * isn't served and the tiers and prices match the new map. Everyone who
+ * reloads for the same version still shares one copy.
+ */
+export function getPublicEventBySlug(slug: string, options: { seatMapVersion?: number } = {}) {
+  const suffix = options.seatMapVersion === undefined ? "" : `?seatMapVersion=${encodeURIComponent(String(options.seatMapVersion))}`;
+  return apiFetch<PublicEvent>(`/events/slug/${encodeURIComponent(slug)}${suffix}`);
 }

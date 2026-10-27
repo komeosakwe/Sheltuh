@@ -5,7 +5,7 @@ import CategoryRow from "@/components/home/CategoryRow";
 import CreatorsCard from "@/components/home/CreatorsCard";
 import GuideCard from "@/components/home/GuideCard";
 import HomeHero from "@/components/home/HomeHero";
-import { HOME_INTRO, HOME_TITLE, HOME_TITLE_LINES, titleParts, titleText } from "@/components/home/home-content";
+import { HOME_HERO, HOME_INTRO, HOME_TITLE, HOME_TITLE_LINES, titleParts, titleText } from "@/components/home/home-content";
 import HomeRail, { HOME_CONTAINER, HomeRailItem, isPairRail, PAIR_MAX } from "@/components/home/HomeRail";
 import SectionHead from "@/components/ui/SectionHead";
 
@@ -160,12 +160,16 @@ describe("HomeHero (mobile-redesign.md §6.1)", () => {
 
   it("never fetches a photo where it's hidden (the collage below lg, the tile from lg): lazy, with a high fetch priority where it shows", () => {
     const { container } = render(<HomeHero />);
+    // Every hero photo is lazy, so a hidden one (display: none) is never fetched.
     const imgs = Array.from(container.querySelectorAll("img"));
-    expect(imgs).toHaveLength(2);
-    for (const img of imgs) {
-      expect(img).toHaveAttribute("loading", "lazy");
-      expect(img).toHaveAttribute("fetchpriority", "high");
-    }
+    expect(imgs.length).toBeGreaterThanOrEqual(2);
+    for (const img of imgs) expect(img).toHaveAttribute("loading", "lazy");
+    // The lead photo, once as the phone tile and once in the desktop collage, goes first where it shows.
+    const lead = imgs.filter((img) => img.getAttribute("src") === HOME_HERO.imageUrl);
+    expect(lead).toHaveLength(2);
+    for (const img of lead) expect(img).toHaveAttribute("fetchpriority", "high");
+    // The collage's smaller tiles wait their turn.
+    for (const img of imgs.filter((img) => !lead.includes(img))) expect(img).not.toHaveAttribute("fetchpriority");
   });
 
   it("has no sticker graphics", () => {
@@ -384,8 +388,8 @@ describe("HomeRail", () => {
 describe("GuideCard and CreatorsCard", () => {
   it("the guide is a white, black-bordered card pointing at the map", () => {
     const { container } = render(<GuideCard />);
-    expect(screen.getByRole("region", { name: "Only in the city" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 3, name: "Melbourne after dark, mapped" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "After dark" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "Australia after dark, mapped" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open the map" })).toHaveAttribute("href", "/map");
     expect(container.querySelector(".bg-card.border-foreground")).not.toBeNull();
   });

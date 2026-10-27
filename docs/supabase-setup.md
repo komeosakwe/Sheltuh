@@ -34,9 +34,16 @@ Stripe (payments) and Vercel (hosting).
      your own machine only. The app never needs it.
    - Project URL → `NEXT_PUBLIC_SUPABASE_URL`
 4. **Database URL** (Connect button → "Transaction pooler", port 6543) →
-   `DATABASE_URL`. Use the pooler, not the direct connection. Serverless
-   hosting opens many short-lived connections, and the pooler exists to
-   absorb them.
+   `DATABASE_URL`, with `?sslmode=require` on the end. Use the pooler, not
+   the direct connection. Serverless hosting opens many short-lived
+   connections, and the pooler exists to absorb them. The app requires TLS
+   for any database that isn't on the same machine, whatever `sslmode`
+   says (`lib/server/db.ts`), but keep it in the URL so every other tool
+   that reads it does the same. Then turn on **Enforce SSL** (Project
+   Settings → Database → SSL Configuration), so the database refuses a
+   plain-text connection from anything. Optionally, for full certificate
+   verification, download the CA certificate from the same page and set
+   it as `DATABASE_CA_CERT` (`docs/DEPLOYMENT.md`, Supabase step 7).
 
 ### Auth settings (Authentication in the dashboard)
 
@@ -59,7 +66,7 @@ email, rather than click a link. Supabase sends links by default, so:
   uppercase and digits. This matches what the sign-up form already tells
   people.
 - **URL Configuration:** set the Site URL to your real domain: the exact
-  origin people use, e.g. `https://app.sheltuh.com.au` (Google and Apple
+  origin people use: `https://sheltuh.com.au` (Google and Apple
   sign-in rely on it; see the next section).
 - **SMTP:** Supabase's built-in email is heavily rate-limited and meant for
   testing only. Before real organisers sign up, set a custom SMTP sender
@@ -90,9 +97,9 @@ checked.
 
 1. Create or pick the project "Sheltuh".
 2. **Branding** (the consent screen): app name "Sheltüh"; support email
-   `support@sheltuh.com.au`; home page `https://app.sheltuh.com.au`; privacy
-   policy `https://app.sheltuh.com.au/privacy`; terms
-   `https://app.sheltuh.com.au/terms`; authorised domain `sheltuh.com.au`
+   `support@sheltuh.com.au`; home page `https://sheltuh.com.au`; privacy
+   policy `https://sheltuh.com.au/privacy`; terms
+   `https://sheltuh.com.au/terms`; authorised domain `sheltuh.com.au`
    (add `supabase.co` too if the console insists on the callback's domain);
    developer contact `info@sheltuh.com.au`.
 3. **Data Access:** add `openid`; keep `…/auth/userinfo.email` and
@@ -100,7 +107,7 @@ checked.
 4. **Audience:** External, then **Publish app**. In "Testing" only the test
    users you list can sign in.
 5. **Clients → Create client → Web application:**
-   - Authorised JavaScript origins: `https://app.sheltuh.com.au`.
+   - Authorised JavaScript origins: `https://sheltuh.com.au`.
    - Authorised redirect URIs: the callback URL.
    - Copy the client ID and secret (the secret is shown once; keep it in
      your password manager).
@@ -119,7 +126,7 @@ checked.
    it on Apple's screen), identifier `au.com.sheltuh.web`. Open it, tick
    Sign in with Apple → **Configure**: primary App ID the one above; domain
    `<ref>.supabase.co`; return URL the callback URL. Save. Don't register
-   `app.sheltuh.com.au`: in this flow Apple only ever returns to Supabase.
+   `sheltuh.com.au`: in this flow Apple only ever returns to Supabase.
    If the portal asks you to verify the domain, follow its prompt
    (Supabase's guide lists no such step).
 4. **Keys → +:** name it, tick Sign in with Apple → Configure → the primary
@@ -154,7 +161,7 @@ checked.
 
 **Supabase** (Authentication)
 
-1. **URL Configuration:** Site URL `https://app.sheltuh.com.au`, exactly
+1. **URL Configuration:** Site URL `https://sheltuh.com.au`, exactly
    the origin people use. **Redirect URLs: none for production**: Supabase
    accepts any return path on the Site URL's host (whether it also checks
    the scheme and port is unverified: `architecture.md`, "`next`: no open
@@ -619,9 +626,12 @@ have recorded.
 
 Guest free orders that were never confirmed are deleted a week after their
 link expired, along with idle platform counters, free-booking refusal counts
-older than 13 months, ticket-email jobs (sent ones after 90 days, failed
-ones after a year), idle per-client counters, and account invites 90 days
-after they were accepted, withdrawn or expired, by
+older than 13 months, email jobs (sent ones after 90 days, failed ones
+after a year), idle per-client counters, account invites 90 days after they
+were accepted, withdrawn or expired, refunds Stripe reported before their
+payment was recorded and refund status marks (after 35 days), checkout
+attempts (after 2 days) and resolved payment exceptions (2 years after
+resolution; open ones are never deleted), by
 `private.purge_operational_data()`:
 
 ```sql
@@ -794,7 +804,8 @@ behaviours aren't covered by the automated tests):
    - Events: `checkout.session.completed`,
      `checkout.session.async_payment_succeeded`,
      `checkout.session.async_payment_failed`, `checkout.session.expired`,
-     `refund.updated`, `refund.failed`, `charge.refunded`
+     `refund.updated`, `refund.failed`, `charge.refunded`,
+     `charge.refund.updated`
    - Its signing secret (`whsec_…`) → `STRIPE_WEBHOOK_SECRET`
 
    For local testing: `stripe listen --forward-to localhost:3000/api/stripe/webhook`
@@ -817,9 +828,8 @@ behaviours aren't covered by the automated tests):
      exactly the A$ total the site shows; keep the Dashboard matching.
    - **Payment method domains** (Settings → Payment methods → Payment method
      domains): register every domain that serves `/checkout/pay`:
-     `app.sheltuh.com.au` (live, and test if you test there), a stable
-     preview domain such as `preview.sheltuh.com.au` (test), and
-     `sheltuh.com.au` if the app moves there. Stripe shows Apple Pay, Google
+     `sheltuh.com.au` (live, and test if you test there) and a stable
+     preview domain such as `preview.sheltuh.com.au` (test). Stripe shows Apple Pay, Google
      Pay and Link in the embedded form only where the domain is registered
      and that method is `active`. Per-deployment `*.vercel.app` URLs can't
      be registered ahead of time, so they show cards only.
@@ -833,8 +843,8 @@ behaviours aren't covered by the automated tests):
      add it to Vercel.
 
      ```sh
-     npm run payment-domains -- app.sheltuh.com.au preview.sheltuh.com.au             # check (default; changes nothing)
-     npm run payment-domains -- --register app.sheltuh.com.au preview.sheltuh.com.au  # create, re-enable, validate
+     npm run payment-domains -- sheltuh.com.au preview.sheltuh.com.au             # check (default; changes nothing)
+     npm run payment-domains -- --register sheltuh.com.au preview.sheltuh.com.au  # create, re-enable, validate
      ```
 
      Hostnames only (no `https://`, path or port). `--register` creates a
@@ -863,31 +873,188 @@ each. An endpoint created before this event was handled must have it added
 Without it, a refund made in the Stripe dashboard leaves the order `paid`
 and its tickets valid.
 
+**Payment exceptions.** Anything about a payment that needs a person is
+recorded in `private.payment_exceptions` and listed by
+`GET /api/admin/payment-exceptions` (admin; `?status=resolved` for closed
+ones): a refund Stripe reports `failed`, `canceled` or `requires_action`
+(`urgent` when its order was already voided: the buyer has neither tickets
+nor their money), a partial refund, an automatic refund the app couldn't
+request, or a payment whose amount or currency wasn't the order's
+(`amount_mismatch`, below: always `urgent`; its payment is refunded
+automatically as it opens). Details include the order's total and its
+Support Sheltüh amount (`supportCents`), for splitting a refund. Each new one emails an ops alert to `OPS_ALERT_EMAIL` (at most 20 a
+day; unset: logged only). Nothing is restored or refunded again because of
+an exception: refund again in the Stripe dashboard if needed, then close it
+with `POST /api/admin/payment-exceptions/{exceptionId}/resolve {"note": "…"}`.
+A refund that later succeeds closes its exception by itself.
+
 **Refunding a paid order.** Refund it from the Stripe dashboard (Payments →
-the payment → Refund). For a destination charge, choose whether to reverse
-the organiser's transfer and refund Sheltüh's application fee there; the app
-doesn't decide. A **full** refund marks the order `refunded`: its tickets are
-void (the confirmation page no longer shows them) and they go back on sale.
-A **partial** refund is only recorded: the order stays `paid` and its tickets
-stay valid, and the server logs `Order #… was partly refunded in Stripe …
-Review it manually.` Refunding the rest voids the whole order. Disputes
-aren't handled automatically (docs/architecture.md, "Refunds made in
-Stripe"). Partly refunded orders:
+the payment → Refund). **Only a full refund voids an order's tickets in the
+app**: Stripe's "refunded" (the whole charge), or at least `total_cents`
+refunded. Any smaller refund, whatever it was for (the tickets only, Support
+Sheltüh only, or anything else), leaves the order `paid` and its tickets
+valid, and opens a `partial_refund` exception for you
+(`20261111000300_refund_no_inference.sql`; the app never guesses a refund's
+purpose from its amount). The same holds when the refund reaches the app
+before the payment does. There's no admin action to void tickets without a
+full refund (below). Support Sheltüh is paused by default
+(`NEXT_PUBLIC_SUPPORT_SHELTUH`, docs/DEPLOYMENT.md), so new orders have
+`support_cents = 0` and a refund of the tickets is simply a full refund. Every Sheltüh payment is a destination charge with an
+application fee of `application_fee_cents + support_cents` (the booking fee
+plus any Support Sheltüh, which is Sheltüh's alone). Stripe transfers the
+**whole** charge (`total_cents`) to the organiser's account (the transfer
+object shows `total_cents`), then collects the application fee back from it
+(an application fee object of `application_fee_cents + support_cents`). The
+organiser's **net** is therefore `total_cents − application_fee_cents −
+support_cents` (`organiser_net_cents` below): what they keep, and the most
+that's ever theirs to give back. The refund form's two options decide who
+pays the buyer back; the app doesn't. Look the order up first (its payment
+intent is on the payment's page in Stripe):
 
 ```sql
-select id, total_cents, amount_refunded_cents, created_at
+select id, status, total_cents, application_fee_cents, support_cents,
+       total_cents - application_fee_cents - support_cents as organiser_net_cents,
+       total_cents - support_cents as tickets_refund_cents,
+       amount_refunded_cents, stripe_payment_intent_id, created_at
+from orders where stripe_payment_intent_id = 'pi_…';
+```
+
+- **Full refund** (the whole order, support included): refund the full
+  amount and tick **both** "reverse transfer" and "refund application
+  fee". The transfer (`total_cents`) is reversed and the application fee
+  refunded to the organiser's account, so the organiser gives back their
+  net and Sheltüh its booking fee and the support. This is what the app's
+  own automatic refunds do. The order becomes `refunded` (tickets void,
+  stock back on sale).
+- **Support only** (the buyer wants their Support Sheltüh back, tickets
+  kept): refund exactly `support_cents` with **neither** box ticked.
+  Sheltüh's balance pays it (it collected the support in the application
+  fee); the organiser's net is untouched. The order stays `paid` (its
+  tickets valid, whatever the amounts) and a `partial_refund` exception
+  opens: resolve it with a note.
+- **Tickets only** (keep the support): the buyer gets
+  `tickets_refund_cents` (`total_cents − support_cents`). Stripe reverses
+  the transfer and refunds the application fee *in proportion* to the
+  amount refunded when the boxes are ticked, which would give part of the
+  support back to the organiser's account too, so split it by hand: refund
+  `tickets_refund_cents` with **neither** box ticked (Sheltüh's balance pays
+  it), then reverse the transfer by exactly `organiser_net_cents` (Connect →
+  Transfers → the transfer → Reverse, partial amount; the transfer shows
+  `total_cents`, of which the organiser kept only their net). Net: the
+  organiser gives back everything they kept, Sheltüh gives back the booking
+  fee (`application_fee_cents`) and keeps the support. Don't also refund the
+  application fee: that would send the support to the organiser. Check the
+  amounts in test mode first. **The app doesn't void the tickets**: this is
+  a partial refund, so the order stays `paid`, its tickets stay valid (they
+  still show on the buyer's page and still check in), its stock stays sold,
+  `amount_refunded_cents` records `tickets_refund_cents`, and a
+  `partial_refund` exception opens (with an ops alert) showing
+  `supportCents`. Voiding the tickets is a manual step, and **the app has no
+  admin "void tickets" action**. So, by preference:
+  1. **Refund the order in full instead** (support included, the full
+     refund above), or refund the support too afterwards: Stripe then
+     reports the charge refunded, the app voids the order (tickets void,
+     stock back on sale, a seated order's seats freed) and closes the
+     exception itself. While Support Sheltüh is paused, every new order is
+     like this (no support).
+  2. If Sheltüh keeps the support, the tickets stay valid in the app:
+     resolve the exception with a note saying so (`POST
+     /api/admin/payment-exceptions/{exceptionId}/resolve`, e.g. "Tickets
+     refunded in Stripe, support kept; tickets still valid in the app"),
+     and tell the organiser, who can turn the buyer away at the door.
+     Don't change the order in SQL by hand: voiding also has to give the
+     stock back and free the seats, which only the refund path does
+     consistently. A supported void action is on the backlog
+     (docs/architecture.md, "Not built yet").
+- **Lost dispute (chargeback)**: Stripe takes the disputed amount (and its
+  dispute fee) from Sheltüh's balance, and nothing is automatic (the order
+  stays `paid`). To recover the organiser's share, reverse their transfer by
+  at most `organiser_net_cents` (`total_cents − application_fee_cents −
+  support_cents`): never the whole transfer, since the booking fee and the
+  support were collected back as the application fee and were never theirs.
+
+A **full** refund (Stripe's "refunded", or at least `total_cents`) marks the
+order `refunded`: its tickets are void (the confirmation page no longer
+shows them, and they no longer check in) and they go back on sale. Any
+**partial** refund (less than `total_cents`, whatever it was for: the
+tickets-only and support-only recipes above included) is only recorded: the
+order stays `paid` and its tickets stay valid, the server logs `Order #…
+was partly refunded in Stripe … Review it manually.` and a `partial_refund`
+payment exception is opened (its details and ops alert include
+`supportCents`). Refunding the rest voids the whole order (and closes the
+exception). A refund made before the order's payment webhook was processed
+(only if that webhook failed and is waiting for Stripe's retry) is held
+until the payment arrives and judged by the same rule: in full, the order
+becomes `refunded` with no tickets ever issued; in part, the tickets are
+issued and the exception opened, exactly as if it had come after. Disputes aren't handled automatically
+(docs/architecture.md, "Refunds made in Stripe"). Partly refunded orders:
+
+```sql
+select id, total_cents, application_fee_cents, support_cents, amount_refunded_cents, created_at
 from orders where status = 'paid' and amount_refunded_cents > 0;
 ```
+
+Orders voided by the earlier tickets-only rule (only while
+`20261110000200_support_ticket_refund.sql` was the latest definition, before
+`20261111000300_refund_no_inference.sql`; nothing is voided this way now):
+
+```sql
+select id, total_cents, support_cents, amount_refunded_cents,
+       total_cents - amount_refunded_cents as support_kept_cents, created_at
+from orders where status = 'refunded' and amount_refunded_cents > 0 and amount_refunded_cents < total_cents;
+```
+
+**Payment amount mismatch** (`amount_mismatch` exception, "URGENT: …
+Payment amount mismatch" ops alert): Stripe reported a paid session whose
+amount or currency isn't the order's total in AUD. The app issues no
+tickets, marks the order `failed` (a seated order's held seats are freed;
+a general admission order never held stock), records the payment intent on
+it, and refunds the payment in full automatically, exactly as for a payment
+to a failed order: no amount (the whole charge), "reverse transfer" and
+"refund application fee", metadata `reason: amount_mismatch`, idempotency
+key `failed-order-refund-<order id>`, so Stripe's redeliveries refund at
+most once. A refund call that errors answers 500 and Stripe's redelivery
+asks again with the same parameters. The refund's own `charge.refunded`
+finds the failed order and changes nothing (it's never held as a refund
+"before its payment was recorded"). What's left for a person: check in
+Stripe that the refund succeeded (a refund that fails opens its own
+`refund_not_completed` exception), work out why the amounts differed (the
+session is built from the stored order, so it shouldn't happen: a changed
+Stripe setting such as Adaptive Pricing, or a bug), then resolve the
+exception with a note. Mismatched orders:
+
+```sql
+select o.id, o.status, o.total_cents, o.support_cents, o.stripe_payment_intent_id, o.stripe_refund_id,
+       e.status as exception_status, e.details
+from private.payment_exceptions e join orders o on o.id = e.order_id
+where e.kind = 'amount_mismatch' order by e.created_at desc;
+```
+
+An order with no payment intent on the session can't be refunded
+automatically: a `manual_refund_required` exception opens beside the
+`amount_mismatch` one; refund it in the dashboard (both boxes ticked).
 
 **Testing refunds in test mode.** Buy a ticket with `4242 4242 4242 4242`
 and wait for the confirmation page to show the ticket codes. Then:
 
-- Partial: refund part of it in the dashboard. The order stays `paid`
+- Partial: refund part of it in the dashboard (anything less than
+  `total_cents`). The order stays `paid`
   (`select status, amount_refunded_cents from orders where id = '<order id>'`)
   and the page still shows the tickets.
 - Full: refund the rest (or a fresh order in full). The order becomes
   `refunded`, the page shows no ticket codes, and the ticket type's
   `quantity_sold` goes down by the order's quantity.
+- Tickets only (only with Support Sheltüh switched on in the test
+  deployment, `NEXT_PUBLIC_SUPPORT_SHELTUH=1`): buy with Support Sheltüh
+  (e.g. A$5), then follow the tickets-only recipe above. Check in Stripe
+  that the transfer object shows the order's `total_cents`, the application
+  fee object `application_fee_cents + support_cents`, and after the partial
+  reversal the organiser's account is back to zero for this payment while
+  Sheltüh's balance is up by `support_cents`. In the app the order stays
+  `paid` with `amount_refunded_cents = total_cents − support_cents`, the
+  page still shows the ticket codes, and a `partial_refund` exception is
+  open. Refund the support too: the order becomes `refunded`, the page shows
+  no ticket codes, and the exception is resolved automatically.
 - With the Stripe CLI forwarding to a local server, `stripe trigger
   charge.refunded` sends a refund for a payment the app doesn't know: it's
   acknowledged (200) and logged as having no order, and nothing changes.
@@ -946,23 +1113,201 @@ the confirmation email just now"). Members booking with their own verified
 email still get theirs.
 
 **Retries.** Every ticket email goes through an outbox: it's tried straight
-after the order is paid, then by a cron job every 5 minutes (1 min, 5 min,
-30 min, 2 h and 6 h after each failure; after the 6th it's marked failed).
+after the order is paid, and if that fails, again by whatever calls
+`GET /api/cron/email-outbox` (1 min, 5 min, 30 min, 2 h and 6 h after each
+failure, ±20%; after the 6th it's marked failed and waits for an admin
+resend). Those delays are the *earliest* a retry can run. It actually runs on
+the next call of the cron route, so how often something calls it decides how
+soon a buyer gets their tickets after a failed send:
+
+| Runner | 2nd attempt | 3rd attempt | 6th (last) attempt |
+| --- | --- | --- | --- |
+| every 5 minutes (Supabase Cron on Hobby, or Vercel Cron on Pro) | within about 6 min | within about 17 min | 7 to 11 hours after the first failure |
+| daily Vercel Cron only (Hobby, nothing else set up) | up to about 24 hours | at the next day's run | 4 to 5 days later |
+
 Set it up once:
 
 1. Generate a secret (`openssl rand -hex 32`) and add it to Vercel as
-   `CRON_SECRET` (Production). Without it the cron route refuses every
-   request and nothing is retried.
+   `CRON_SECRET` (Production), then redeploy. Without it the cron route
+   refuses every request and nothing is retried.
 2. `vercel.json` schedules `GET /api/cron/email-outbox` once a day
    (17:00 UTC, early morning in Melbourne), because the project is on the
    Hobby plan, which refuses deployments with more frequent crons. Vercel
-   sends the secret as a bearer token. Ticket emails still go out right
-   after each purchase; only retries of failed sends wait for the daily run.
-   On the **Pro** plan, change the schedule back to every 5 minutes
-   (`*/5 * * * *`). On Hobby, Supabase Cron with `pg_net` calling the URL with
-   the header can retry more often.
-3. Check it under Vercel → Project → Settings → Cron Jobs (each run returns
-   counts: `claimed`, `sent`, `retrying`, `failed`).
+   sends the secret as a bearer token. Keep it: it's the backstop.
+3. **On Hobby, add the 5-minute runner in Supabase** (below). **On Pro**,
+   use Vercel instead (see "Switching to Vercel Pro").
+4. Check it: as an admin, `GET /api/admin/emails/health` (counts only, see
+   below), and Vercel → Project → Settings → Cron Jobs for the daily run.
+
+#### The 5-minute runner on Hobby (Supabase Cron + pg_net)
+
+Supabase Cron (`pg_cron`) calls the route every 5 minutes through `pg_net`,
+with the secret kept in Supabase Vault. Nothing in the migrations schedules
+this: it only exists once you run the steps below, and you can pause or
+remove it at any time.
+
+> **Check in the Supabase docs at setup:** the exact signatures of
+> `vault.create_secret`, `vault.update_secret`, `vault.decrypted_secrets`,
+> `net.http_get` (its `timeout_milliseconds` parameter) and
+> `net._http_response`, and `cron.alter_job`. They're written here as
+> Supabase documents them at the time of writing, but nothing in this repo
+> (or its dependencies) can confirm them.
+
+1. **Enable the extensions:** Database → Extensions → `pg_net` on (Cron
+   should already be on for the retention jobs; if not, Integrations →
+   **Cron**).
+2. **Check `pg_net` is closed to clients** before anything is queued
+   through it (its request queue briefly holds the bearer token):
+
+   ```sql
+   -- Neither client role may read pg_net's request queue or its responses (expect every can_read false):
+   select r.rolname, t.tbl, has_table_privilege(r.rolname, t.tbl, 'select') as can_read
+     from (values ('anon'), ('authenticated')) r(rolname),
+          (values ('net.http_request_queue'), ('net._http_response')) t(tbl);
+   -- Nor use the schema at all (expect both false):
+   select r.rolname, has_schema_privilege(r.rolname, 'net', 'usage') as can_use
+     from (values ('anon'), ('authenticated')) r(rolname);
+   ```
+
+   Then Project Settings → **Data API** → *Exposed schemas*: only `public`
+   (and Supabase's `graphql_public`), never `net`, `vault` or `cron`. If any
+   check fails, stop and close it before step 3 (check the Supabase docs for
+   pg_net's grants at setup; for example `revoke usage on schema net from
+   anon, authenticated;` and `revoke all on all tables in schema net from
+   anon, authenticated;`), then run the checks again. Run them again after
+   any Supabase upgrade of `pg_net`.
+3. **Store the secret and the URL in Vault.** Prefer the dashboard
+   (Integrations → **Vault** → Add new secret), so the value never appears
+   in an SQL statement: name `sheltuh_cron_secret`, value the same string as
+   Vercel's `CRON_SECRET`; and `sheltuh_email_outbox_url`, value
+   `https://YOUR-PRODUCTION-DOMAIN/api/cron/email-outbox` (the production
+   domain, never a preview URL: previews are behind Vercel's login). The SQL
+   equivalent, if you must (the value then sits in the SQL editor's
+   history, so clear that snippet afterwards):
+
+   ```sql
+   -- Check in the Supabase docs at setup: vault.create_secret(secret, name, description).
+   select vault.create_secret('PASTE-CRON-SECRET', 'sheltuh_cron_secret', 'Bearer for /api/cron/email-outbox');
+   select vault.create_secret('https://YOUR-PRODUCTION-DOMAIN/api/cron/email-outbox', 'sheltuh_email_outbox_url',
+                              'Email outbox cron route');
+   ```
+
+4. **Schedule the job** (SQL editor). The command reads both values from
+   Vault each time it runs, so the job's stored text holds no secret:
+
+   ```sql
+   -- Check in the Supabase docs at setup: net.http_get(url, params, headers, timeout_milliseconds).
+   select cron.schedule(
+     'email-outbox-retry',
+     '*/5 * * * *',
+     $$
+     select net.http_get(
+       url := (select decrypted_secret from vault.decrypted_secrets where name = 'sheltuh_email_outbox_url'),
+       headers := jsonb_build_object(
+         'Authorization',
+         'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'sheltuh_cron_secret')
+       ),
+       timeout_milliseconds := 60000
+     );
+     $$
+   );
+   ```
+
+   It's a `GET`, like Vercel's own call: the route has no `POST`. The
+   60-second timeout matches the route's `maxDuration`; a run stops taking
+   new emails after 30 seconds.
+
+5. **Check it's working**, after 5 to 10 minutes:
+
+   ```sql
+   -- The job ran (this only shows the request was queued, not its answer):
+   select j.jobname, d.status, d.start_time from cron.job_run_details d join cron.job j using (jobid)
+    where j.jobname = 'email-outbox-retry' order by d.start_time desc limit 5;
+   -- The route's answer (pg_net keeps these for a few hours; check the table name at setup):
+   select status_code, timed_out, error_msg, created from net._http_response order by created desc limit 5;
+   ```
+
+   `200` with `{"claimed":…}` is right. `401` means the Vault secret doesn't
+   match Vercel's `CRON_SECRET`. Then `GET /api/admin/emails/health` as an
+   admin: `lastCronRun.finishedAt` should never be more than about 10 minutes
+   old, and `totals.overdue` should be 0.
+
+6. **Pause, resume or remove:**
+
+   ```sql
+   -- Pause / resume (check cron.alter_job's parameters at setup):
+   select cron.alter_job((select jobid from cron.job where jobname = 'email-outbox-retry'), active := false);
+   select cron.alter_job((select jobid from cron.job where jobname = 'email-outbox-retry'), active := true);
+   -- Remove for good (and then, if nothing else uses them, delete the two Vault secrets in the dashboard):
+   select cron.unschedule('email-outbox-retry');
+   ```
+
+**Security.**
+
+- The secret lives in Vault (encrypted at rest) and in Vercel's environment,
+  nowhere else: not in the job's text, not in a migration, not in the repo.
+  Creating it through the dashboard keeps it out of SQL history. While a
+  request is queued, `pg_net` holds its headers (the bearer token included)
+  in its own request queue table (`net.http_request_queue`) for a moment;
+  like Vault, that's readable only by the database's privileged roles, never
+  by the Data API, as long as step 2's checks pass.
+- The route only sends emails that are already due and returns counts. A
+  leaked secret lets someone call it more often, which at worst sends due
+  emails sooner; it can't read data or send anything new. Rotate it anyway
+  if you suspect a leak.
+- **Rotation:** generate a new value; set it as `CRON_SECRET` in Vercel and
+  redeploy; then update Vault straight away (dashboard, or
+  `select vault.update_secret((select id from vault.secrets where name = 'sheltuh_cron_secret'), 'NEW-VALUE');`,
+  checking the signature at setup). Calls between the two steps get a `401`
+  and simply retry 5 minutes later; nothing is lost.
+- **Two runs at once** (the 5-minute job and the daily Vercel run, or a run
+  that overlaps the next) are safe: each email is leased to one run at a
+  time (`for update skip locked`, a 2-minute lease), so it's never sent
+  twice by two runs. Delivery is still at-least-once: a run killed between
+  the mail server accepting an email and recording it sends that one again
+  once its lease expires.
+
+#### Switching to Vercel Pro
+
+**Upgrading the Vercel plan does not change the schedule by itself.** Cron
+schedules come from `vercel.json`, which stays Hobby-compatible (daily) until
+you edit it and redeploy:
+
+1. Edit `vercel.json` (trending as in "Trending" below):
+
+   ```json
+   {
+     "$schema": "https://openapi.vercel.sh/vercel.json",
+     "crons": [
+       { "path": "/api/cron/email-outbox", "schedule": "*/5 * * * *" },
+       { "path": "/api/cron/trending", "schedule": "*/15 * * * *" }
+     ]
+   }
+   ```
+
+2. Commit, deploy, and check Vercel → Project → Settings → Cron Jobs shows
+   every 5 minutes.
+3. Then remove the Supabase job (`select cron.unschedule('email-outbox-retry');`)
+   and its two Vault secrets, and the `refresh-trending` job if you made one.
+   Running both for a while is harmless (see "Two runs at once").
+
+#### Is it working? (`GET /api/admin/emails/health`)
+
+Admins only; counts and times, never an address or an order. Per kind
+(`ticket_email`, `waitlist_available`, `organiser_new_events`, `ops_alert`)
+and in total: `due`, `overdue` (due for more than 15 minutes, or leased by a
+run that died that long ago: no run has picked it up), `oldestOverdueSeconds`,
+`waiting` (a retry scheduled for later), `sending`, `expiredLeases`, `failed`
+(the dead letters, to resend from `/admin/emails`) and `failedLast7Days`;
+plus `lastCronRun` (when the cron route last finished a run, from any
+scheduler, and its counts) and `cronSecretConfigured`. With only the daily
+Vercel run, every pending retry shows as overdue until that day's run: that's
+the gap the 5-minute runner closes. From SQL:
+
+```sql
+select * from private.email_outbox_health('15 minutes');
+select * from private.cron_runs;
+```
 
 **Trending.** `vercel.json` also runs `GET /api/cron/trending` once a day
 (17:20 UTC), with the same `CRON_SECRET`: it rebuilds the home page's
@@ -1003,9 +1348,12 @@ where j.status in ('failed', 'pending') order by j.created_at desc;
    (`pk_live_…` with `sk_live_…`), Preview the test pair (`pk_test_…` with
    `sk_test_…`).
 3. Settings → Functions → Region: **Sydney (syd1)**, next to the database.
-4. Point a domain at it. The live landing page on `sheltuh.com.au` stays on
-   Cloudflare Workers until you decide to swap it. A subdomain such as
-   `app.sheltuh.com.au` avoids touching it for now.
+   `vercel.json` pins it (`"regions": ["syd1"]`); check the dashboard shows
+   the same after the first deploy. Also check **Fluid compute** is on
+   (Settings → Functions): an instance then serves many requests at once
+   and shares its 5 database connections between them.
+4. Point the domain at it. The site is `https://sheltuh.com.au`; it's
+   also the value for `NEXT_PUBLIC_SITE_URL` and Supabase's Site URL (§1).
 
 `SUPABASE_CLIP_STORAGE_KEY` and `SUPABASE_ADMIN_INVITE_KEY` are full
 Supabase secret keys: **Production only** (§1, "Event clips" and "Account

@@ -18,7 +18,7 @@ import { getPublicOrganiserProfile } from "@/lib/server/handlers/public-organise
 import { FOLLOWER_COUNT_THRESHOLD } from "@/lib/server/records";
 import type { EventRecord } from "@/lib/server/types";
 import { SITE_URL, TestApi } from "./helpers/api";
-import { approvedOrganiser, draftEvent, publishedEvent, signUpAdmin } from "./helpers/fixtures";
+import { approvedOrganiser, draftEvent, publishedEvent, setUpPayouts, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
 // Following organisers, "events hosted" and new-event emails:
@@ -449,6 +449,8 @@ describe("new-event emails", () => {
   it("an event that has already ended isn't announced", async () => {
     await followers(1);
     const draft = await draftEvent(api, organiser);
+    // Its tickets are paid (eventInput), which needs payouts to publish.
+    await setUpPayouts(api, organiser.organiserId);
     await api.db.query(
       `update public.events set starts_at = now() - interval '3 hours', ends_at = now() - interval '1 minute' where id = $1`,
       [draft.eventId],
@@ -554,6 +556,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("concurrency (real Postgres only
 
   it("two of an organiser's events announced at once: the second waits and adds nothing (one email waiting)", async () => {
     await followers(1);
+    // Their tickets are paid (eventInput), which needs payouts to publish.
+    await setUpPayouts(api, organiser.organiserId);
     const first = await draftEvent(api, organiser, { title: "One" });
     const second = await draftEvent(api, organiser, { title: "Two" });
     const publish = (conn: postgres.Sql, eventId: string) =>

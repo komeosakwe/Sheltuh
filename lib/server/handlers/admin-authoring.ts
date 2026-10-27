@@ -8,18 +8,28 @@
 import { requireAdmin } from "../auth";
 import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode, type Db } from "../db";
 import { sendFollowerEmailsSoon, sendPublishEmailsSoon } from "../email-outbox";
-import { parseEventInput, type EventInput } from "../event-input";
+import { parseEventInput, storedPlaceOf, type EventInput, type ParseEventOptions } from "../event-input";
 import { createdPrivate, HttpError, okPrivate, readJson } from "../http";
 import { parseMessageText } from "../message-input";
 import { isUuid } from "../pagination";
 import { ADMIN_EVENT_SELECT, ADMIN_ORGANISER_SELECT, toAdminEvent, toAdminOrganiser } from "../records";
 import type { Handler } from "../route";
+import { MAX_TICKETING_REASON_LENGTH } from "../ticketing-input";
 import type { AdminEventRecord } from "../types";
 import { fail } from "../validation";
-import { MAX_TICKETING_REASON_LENGTH } from "./admin";
 import { readEventImage } from "./event-images";
-import { eventFields, ticketTypeConflict, withSeatedCapacity, withUniqueSlug } from "./events";
+import {
+  ADMIN_PAYOUTS_REQUIRED,
+  eventFields,
+  isPayoutsRefusal,
+  payoutsRequired,
+  refundPolicyTightened,
+  ticketTypeConflict,
+  withSeatedCapacity,
+  withUniqueSlug,
+} from "./events";
 import { parseApplication } from "./organisers";
+import { refuseStaleVenueLocation, verifyVenuePlace } from "./places";
 
 /** Shown when a platform-managed organiser's event would have a paid Sheltüh ticket. */
 export const PLATFORM_PAID_REFUSED =
@@ -104,12 +114,16 @@ type Errors = Record<string, string>;
  * The event body (lib/server/event-input.ts, the organiser's rules) plus the
  * admin route's own fields, with every field error reported together.
  */
-function parseAdminEventBody<T>(body: Record<string, unknown>, parseExtra: (errors: Errors) => T) {
+function parseAdminEventBody<T>(
+  body: Record<string, unknown>,
+  parseExtra: (errors: Errors) => T,
+  options: ParseEventOptions = {},
+) {
   const errors: Errors = {};
   const extra = parseExtra(errors);
   let input: EventInput | undefined;
   try {
-    input = parseEventInput(body);
+    input = parseEventInput(body, options);
   } catch (err) {
     if (!(err instanceof HttpError) || err.statusCode !== 400 || !err.fieldErrors) throw err;
     Object.assign(errors, err.fieldErrors);
@@ -157,11 +171,16 @@ function parseOptionalReason(value: unknown, errors: Errors): string | null {
   return reason || null;
 }
 
-/** The database refused a write: a paid ticket for a platform-managed organiser, or an inventory guard. */
+/**
+ * The database refused a write: a paid ticket for a platform-managed
+ * organiser, paid tickets submitted or published for an organiser without
+ * payouts (409 `code: "payouts_required"`), or an inventory guard.
+ */
 function writeRefused(err: unknown): never {
   if (pgErrorCode(err) === PG_CHECK_VIOLATION && pgConstraint(err) === "ticket_types_platform_free_only") {
     throw new HttpError(400, PLATFORM_PAID_REFUSED, { ticketTypes: PLATFORM_PAID_REFUSED });
   }
+  if (isPayoutsRefusal(err)) throw payoutsRequired(ADMIN_PAYOUTS_REQUIRED, { ticketTypes: ADMIN_PAYOUTS_REQUIRED });
   return ticketTypeConflict(err);
 }
 
@@ -178,7 +197,9 @@ type AdminCreateEventOutcome =
  * external ticketing included) plus `organiserId` (any approved organiser,
  * platform-managed or not) and optional `publish`. Creates the event, logged
  * `created`, and with `publish: true` publishes it in the same step
- * (`approved`, through private.transition_event). 201 with the
+ * (`approved`, through private.transition_event; an admin's publish needs no
+ * venue location). A Google place in `location` is checked with Google first
+ * (verifyVenuePlace: 400 / 503 fieldErrors.location). 201 with the
  * AdminEventRecord; 400 fieldErrors (organiserId unknown; a paid ticket type
  * for a platform-managed organiser: ticketTypes); 409 organiser not approved.
  */
@@ -190,6 +211,7 @@ export const adminCreateEvent: Handler = async (req, _params, deps) => {
     organiserId: parseOrganiserId(body.organiserId, errors),
     publish: parsePublish(body.publish, errors),
   }));
+  await verifyVenuePlace(deps, admin, input);
 
   let outcome: AdminCreateEventOutcome;
   try {
@@ -234,14 +256,23 @@ export const adminCreateEvent: Handler = async (req, _params, deps) => {
  * `ticketingMode` (required here), `expectedUpdatedAt` (the version's
  * `updatedAt`, required), optional `publish` and optional `reason` (at most
  * 500 characters; required to change the mode or link of an event that has
- * been approved before). One step (private.admin_edit_event): ticketing
- * changes as PATCH …/ticketing does (logged `ticketing_changed`), every other
+ * been approved before). `refundPolicy` / `refundDays` are optional (absent:
+ * the stored policy is kept), and so are `state` / `timeZone`, together
+ * (absent: the stored place is kept and the times read in its zone), and
+ * `location` (absent: kept, but 400 fieldErrors.location when the suburb or
+ * state changes while a pin or place is stored, refuseStaleVenueLocation; a
+ * new Google place, or a kept one when the suburb or state changes, is checked
+ * with Google first, verifyVenuePlace; a change
+ * is logged as `changes.location`). One
+ * step (private.admin_edit_event): ticketing changes as PATCH …/ticketing does (logged `ticketing_changed`), every other
  * change one `edited` entry with old and new values, then the publish. 200
  * with the AdminEventRecord (unchanged, nothing logged, if nothing would
  * change). 400 fieldErrors; 404; 409 stale (fieldErrors.expectedUpdatedAt),
  * switching to external an event with orders, removing a sold ticket type or
- * cutting it below what's sold, or publishing for an organiser who isn't
- * approved.
+ * cutting it below what's sold, publishing for an organiser who isn't
+ * approved, or making the refund policy of an event with paid orders, or
+ * pending ones that can still be paid, less generous (`code: "refund_policy_tightened"`,
+ * fieldErrors.refundPolicy).
  */
 export const adminUpdateEvent: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const { db, verifyAccessToken } = deps;
@@ -249,20 +280,31 @@ export const adminUpdateEvent: Handler<{ eventId: string }> = async (req, { even
   // An id that can't be an event is a 404 before the body is even read.
   if (!isUuid(eventId)) throw new HttpError(404, EVENT_NOT_FOUND);
   const body = await readJson(req);
-  const { input, extra } = parseAdminEventBody(body, (errors) => {
-    // Required here (the organiser's form defaults it to sheltuh): an admin
-    // edit without it must never quietly turn an external event back.
-    if (body.ticketingMode === undefined || body.ticketingMode === null) {
-      errors.ticketingMode = "Choose where tickets are sold.";
-    }
-    return {
-      expectedUpdatedAt: parseExpectedUpdatedAt(body.expectedUpdatedAt, errors),
-      publish: parsePublish(body.publish, errors),
-      reason: parseOptionalReason(body.reason, errors),
-    };
-  });
-
+  // Read first: without `state` and `timeZone`, the times are read in the stored zone. A change to the event
+  // between this read and the write moves its updatedAt, so the write is then stale (409).
   const current = await findAdminEvent(db, eventId);
+  const { input, extra } = parseAdminEventBody(
+    body,
+    (errors) => {
+      // Required here (the organiser's form defaults it to sheltuh): an admin
+      // edit without it must never quietly turn an external event back.
+      if (body.ticketingMode === undefined || body.ticketingMode === null) {
+        errors.ticketingMode = "Choose where tickets are sold.";
+      }
+      return {
+        expectedUpdatedAt: parseExpectedUpdatedAt(body.expectedUpdatedAt, errors),
+        publish: parsePublish(body.publish, errors),
+        reason: parseOptionalReason(body.reason, errors),
+      };
+    },
+    current ? { storedPlace: storedPlaceOf(current) } : {},
+  );
+
+  // No event, nothing to check: the write answers not_found.
+  if (current) {
+    refuseStaleVenueLocation(input, current);
+    await verifyVenuePlace(deps, admin, input, current);
+  }
   const edit = current ? withSeatedCapacity(input, current) : input;
   let result: string;
   try {
@@ -294,6 +336,8 @@ export const adminUpdateEvent: Handler<{ eventId: string }> = async (req, { even
       });
     case "platform_paid":
       throw new HttpError(400, PLATFORM_PAID_REFUSED, { ticketTypes: PLATFORM_PAID_REFUSED });
+    case "refund_policy_tightened":
+      throw refundPolicyTightened();
     case "reason_required":
       throw new HttpError(400, "Please fix the highlighted fields.", {
         reason: "Give a reason for changing where an approved event's tickets are sold.",

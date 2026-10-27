@@ -11,6 +11,7 @@ import {
   organiserMetadata,
   type OrganiserShareFields,
 } from "@/lib/share-metadata";
+import type { StateCode } from "@/lib/time-zones";
 import type { Db } from "./db";
 import { getDeps, type Deps } from "./deps";
 import { redactForLog } from "./email-address";
@@ -47,10 +48,12 @@ export async function findPublicEventShare(db: Db, slug: string): Promise<EventS
     venue_name: string;
     suburb: string;
     starts_at: string | Date;
+    time_zone: string;
+    state: StateCode;
     image_version: string | null;
     image_type: string | null;
   }>(
-    `select e.id, e.slug, e.title, e.description, e.venue_name, e.suburb, e.starts_at,
+    `select e.id, e.slug, e.title, e.description, e.venue_name, e.suburb, e.starts_at, e.time_zone, e.state,
             floor(extract(epoch from i.updated_at))::bigint::text as image_version,
             i.content_type as image_type
        from public.events e
@@ -66,6 +69,8 @@ export async function findPublicEventShare(db: Db, slug: string): Promise<EventS
     venueName: row.venue_name,
     suburb: row.suburb,
     startsAt: new Date(row.starts_at).toISOString(),
+    timeZone: row.time_zone,
+    state: row.state,
     // The same versioned URL the public event shape gives it (records.ts,
     // EVENT_COLUMNS): GET /api/events/{id}/image serves a published event's
     // image to anyone, crawlers included. Only reviewed images get there: an

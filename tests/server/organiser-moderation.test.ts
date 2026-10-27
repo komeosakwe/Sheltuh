@@ -14,7 +14,7 @@ import { applyAsOrganiser, getMyOrganiser, resubmitOrganiser } from "@/lib/serve
 import { getPublicEventBySlug, listPublicEvents } from "@/lib/server/handlers/public-events";
 import { getPublicOrganiserProfile } from "@/lib/server/handlers/public-organisers";
 import { ADMIN_ORGANISER_EDIT_LIMIT } from "@/lib/server/records";
-import { stripeWebhookRequest, TestApi } from "./helpers/api";
+import { sessionAmount, stripeWebhookRequest, TestApi } from "./helpers/api";
 import {
   application,
   approvedOrganiser,
@@ -22,6 +22,7 @@ import {
   enablePayouts,
   insertOrder,
   publishedEvent,
+  setUpPayouts,
   signUpAdmin,
 } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
@@ -218,6 +219,7 @@ describe("POST /admin/organisers/{id}/suspend: takedown", () => {
           id: "cs_test_1",
           object: "checkout.session",
           client_reference_id: orderId,
+          ...(await sessionAmount(api.db, orderId)),
           payment_status: "paid",
           payment_intent: "pi_test_1",
           customer_details: { email: "buyer@example.com" },
@@ -324,6 +326,8 @@ describe("POST /admin/organisers/{id}/suspend: takedown", () => {
 describe("after a takedown", () => {
   it("an event can't be published for a suspended organiser, even one that reached review in a race", async () => {
     const organiser = await approvedOrganiser(api, admin);
+    // Its tickets are paid (eventInput): with payouts set up, so only the takedown stands in the way.
+    await setUpPayouts(api, organiser.organiserId);
     const draft = await draftEvent(api, organiser);
     expect((await suspend(organiser.organiserId)).status).toBe(200);
 

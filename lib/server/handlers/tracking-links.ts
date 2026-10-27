@@ -8,6 +8,7 @@ import type { Handler } from "../route";
 import { generateTrackingCode } from "../tracking-codes";
 import type { EventRecord } from "../types";
 import { fail } from "../validation";
+import { ORGANISER_GROSS } from "./analytics";
 import { requireOwnEvent } from "./event-queries";
 import { requireApprovedOrganiser } from "./organiser-guard";
 
@@ -56,16 +57,27 @@ async function listLinks(db: Db, deps: Deps, event: EventRecord): Promise<Tracki
     tickets: string | number;
     gross: string | number;
   }>(
-    `select l.id, l.code, l.label, l.created_at,
-            coalesce((select sum(v.views) from public.event_view_counts v
-                       where v.event_id = l.event_id and v.link_code = l.code), 0)::bigint as views,
-            coalesce(o.orders, 0) as orders, coalesce(o.tickets, 0)::bigint as tickets, coalesce(o.gross, 0)::bigint as gross
+    // The event's views and paid orders are each read once and grouped by
+    // code (event_view_counts_key; orders_event_paid_created_idx),
+    // rather than once per link: a link with neither gets zeros.
+    `with views as (
+       select v.link_code as code, sum(v.views) as views
+         from public.event_view_counts v
+        where v.event_id = $1 and v.link_code is not null
+        group by v.link_code
+     ), sales as (
+       select o.tracking_code as code, count(*)::int as orders, sum(${ORGANISER_GROSS}) as gross,
+              sum((select coalesce(sum((li ->> 'quantity')::int), 0) from jsonb_array_elements(o.line_items) li)) as tickets
+         from public.orders o
+        where o.event_id = $1 and o.status = 'paid' and o.tracking_code is not null
+        group by o.tracking_code
+     )
+     select l.id, l.code, l.label, l.created_at,
+            coalesce(v.views, 0)::bigint as views,
+            coalesce(s.orders, 0) as orders, coalesce(s.tickets, 0)::bigint as tickets, coalesce(s.gross, 0)::bigint as gross
        from public.event_tracking_links l
-       left join lateral (
-              select count(*)::int as orders, sum(o.total_cents) as gross,
-                     sum((select coalesce(sum((li ->> 'quantity')::int), 0) from jsonb_array_elements(o.line_items) li)) as tickets
-                from public.orders o
-               where o.event_id = l.event_id and o.status = 'paid' and o.tracking_code = l.code) o on true
+       left join views v on v.code = l.code
+       left join sales s on s.code = l.code
       where l.event_id = $1
       order by l.created_at desc, l.id`,
     [event.eventId],

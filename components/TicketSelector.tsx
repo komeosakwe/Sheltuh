@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
+import SupportSheltuh, { SupportSummaryLine } from "@/components/checkout/SupportSheltuh";
 import WaitlistBlock from "@/components/waitlist/WaitlistBlock";
 import { ApiError, isApiConfigured } from "@/lib/api/client";
 import { createCheckoutSession } from "@/lib/api/orders";
@@ -13,6 +14,16 @@ import { calculateOrderSummary, describeBookingFee, sumOrderSummaries } from "@/
 import { formatAud } from "@/lib/format";
 import { formatTicketBreakdown, formatTicketHeadline, isSoldOut, pricedTicketTypes } from "@/lib/pricing";
 import { freeTicketsIn, isLow, ownLimit, ownLimitHint, type Quantities } from "@/lib/ticket-limits";
+import {
+  isEmptyOther,
+  NO_SUPPORT,
+  supportAddedHint,
+  supportCentsOf,
+  supportErrorOf,
+  totalIncludesWords,
+  type SupportChoice,
+} from "@/lib/support-choice";
+import { isSupportSheltuhEnabled } from "@/lib/support";
 import { getTrackingRef } from "@/lib/tracking-ref";
 import type { SheltuhEvent, TicketType } from "@/lib/types";
 import { stepperButtonClass } from "@/components/ui/stepper";
@@ -56,6 +67,13 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   const emailInputRef = useRef<HTMLInputElement>(null);
   // Set by "Use a different email": once the email field is back, focus it.
   const focusEmailField = useRef(false);
+  // Support Sheltüh (components/checkout/SupportSheltuh.tsx): nothing until the buyer picks an amount.
+  const [support, setSupport] = useState<SupportChoice>(NO_SUPPORT);
+  // Checkout was pressed with an Other amount that can't be sent: its error shows at once.
+  const [revealSupportError, setRevealSupportError] = useState(false);
+  // The API's refusal of the amount (400 fieldErrors.supportCents), shown by the chips.
+  const [supportServerError, setSupportServerError] = useState<string | null>(null);
+  const supportInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (sentTo) {
@@ -135,12 +153,42 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     setQuantities(next);
     // A refusal was about the old selection.
     setError(null);
-    const totalCents = orderTotalCents(ticketTypes, next);
+    // Support Sheltüh is for paid orders only: with no paid ticket left, it goes (and isn't
+    // pre-selected when one comes back).
+    const nextHasPaid = ticketTypes.some((t) => t.priceCents > 0 && (next[t.id] ?? 0) > 0);
+    const nextSupportCents = nextHasPaid ? supportCentsOf(support) : 0;
+    if (!nextHasPaid) clearSupport();
+    const totalCents = orderTotalCents(ticketTypes, next) + nextSupportCents;
     const reachedLimit = clamped > current && clamped >= limitFor(ticket, next).cap;
     announce(
-      `${ticket.name}: ${clamped}. Total ${formatAud(totalCents)}${totalCents > 0 ? " incl. booking fees" : ""}.` +
+      `${ticket.name}: ${clamped}. Total ${formatAud(totalCents)}${totalCents > 0 ? ` incl. ${totalIncludesWords(nextSupportCents)}` : ""}.` +
         (reachedLimit ? ` ${limitFor(ticket, next).reason}` : ""),
     );
+  }
+
+  function clearSupport() {
+    setSupport(NO_SUPPORT);
+    setRevealSupportError(false);
+    setSupportServerError(null);
+  }
+
+  function changeSupport(next: SupportChoice) {
+    setSupport(next);
+    setRevealSupportError(false);
+    setSupportServerError(null);
+    // A refusal may have been about the amount.
+    setError(null);
+    // Each pick says the new total; typing an Other amount doesn't (its field has the value).
+    if (next.option === "other" && support.option === "other") return;
+    const cents = supportCentsOf(next);
+    const total = ticketsTotal.totalCents + cents;
+    const what =
+      next.option === "none"
+        ? "Support Sheltüh removed."
+        : next.option === "other"
+          ? "Other amount for Support Sheltüh: enter an amount."
+          : `Support Sheltüh: ${formatAud(cents)} added.`;
+    announce(`${what} Total ${formatAud(total)} incl. ${totalIncludesWords(cents)}.${supportAddedHint(next)}`);
   }
 
   const lineSummaries = useMemo(
@@ -156,9 +204,16 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     [ticketTypes, quantities],
   );
 
-  const orderTotal = sumOrderSummaries(lineSummaries.map((line) => line.summary));
+  const ticketsTotal = sumOrderSummaries(lineSummaries.map((line) => line.summary));
 
   const hasAnyTickets = lineSummaries.some((line) => line.quantity > 0);
+  // Support Sheltüh: offered (and sent) only with a paid ticket in the order, and only while it's
+  // switched on (isSupportSheltuhEnabled; paused by default); it's in the total the buyer sees
+  // (all-inclusive), but never in the tickets' subtotal or booking fees.
+  const hasPaidTickets = ticketsTotal.subtotalCents > 0;
+  const offerSupport = hasPaidTickets && isSupportSheltuhEnabled();
+  const supportCents = offerSupport ? supportCentsOf(support) : 0;
+  const orderTotal = { ...ticketsTotal, totalCents: ticketsTotal.totalCents + supportCents };
   // Every ticket on sale free: no payment step, but an emailed confirmation link.
   const allFree = pricedTicketTypes({ ...event, ticketTypes }).every((t) => t.priceCents === 0);
   const buyerPaysAFee = ticketTypes.some((t) => t.priceCents > 0 && t.feePolicy === "buyer-pays");
@@ -176,10 +231,19 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     if (!event.organiserId) return;
     setError(null);
     setEmailError(null);
+    setSupportServerError(null);
     if (needsEmail && !EMAIL_REGEX.test(buyerEmail.trim())) {
       showEmailError("Enter the email address to send your tickets to.");
       return;
     }
+    // An Other amount that can't be sent: say why, by its field, rather than checking out without it.
+    if (offerSupport && supportErrorOf(support)) {
+      setRevealSupportError(true);
+      supportInputRef.current?.focus();
+      return;
+    }
+    // Other chosen but left empty is no support: shown as nothing chosen, and nothing sent.
+    if (isEmptyOther(support)) setSupport(NO_SUPPORT);
     setLoading(true);
     try {
       const lineItems = lineSummaries
@@ -199,6 +263,9 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         email,
         getTrackingRef(event.id),
         needsEmail && auth?.status === "signed-in" ? auth.getAccessToken : undefined,
+        // Paid orders only, and only when there is some (lib/api/orders.ts leaves 0 out). Part
+        // of the checkout attempt's basket, so a changed amount gets a new idempotency key.
+        supportCents > 0 ? supportCents : undefined,
       );
       if ("url" in result) {
         window.location.href = result.url;
@@ -214,16 +281,32 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
         // The email has its own field; anything else (such as too many free
         // tickets in `lineItems`) has no field to highlight, so it's said in
         // full rather than as "fix the highlighted fields".
-        const { buyerEmail: emailMessage, ...others } = err.fieldErrors;
+        // Support Sheltüh's is said by its chips (with the rest while they aren't offered, so it's never lost).
+        const { buyerEmail: emailMessage, supportCents: supportMessage, ...others } = err.fieldErrors;
+        const supportByChips = Boolean(supportMessage) && offerSupport;
         if (emailMessage) showEmailError(emailMessage);
-        const otherMessages = Object.values(others).filter(Boolean).join(" ");
-        if (otherMessages || !emailMessage) setError(otherMessages || err.message);
+        if (supportByChips && supportMessage) setSupportServerError(supportMessage);
+        const otherMessages = [...Object.values(others), supportByChips ? undefined : supportMessage].filter(Boolean).join(" ");
+        if (otherMessages || (!emailMessage && !supportByChips)) setError(otherMessages || err.message);
       } else {
         setError(err instanceof Error ? err.message : "Couldn't start checkout. Try again.");
       }
       setLoading(false);
     }
   }
+
+  // Support Sheltüh, right above Checkout: paid orders only, while it's offered.
+  const supportBlock = offerSupport ? (
+    <div className="mt-4 border-t border-surface-border pt-4">
+      <SupportSheltuh
+        choice={support}
+        onChange={changeSupport}
+        revealError={revealSupportError}
+        serverError={supportServerError}
+        otherInputRef={supportInputRef}
+      />
+    </div>
+  ) : null;
 
   return (
     <div className="flex flex-col gap-5 rounded-card border border-foreground bg-card p-4 sm:p-5">
@@ -365,6 +448,7 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
               <dt className="text-muted">Booking fees</dt>
               <dd className="tabular-nums text-foreground">{formatAud(orderTotal.buyerFeeCents)}</dd>
             </div>
+            <SupportSummaryLine cents={supportCents} />
             {/* The total is the largest number in the panel. */}
             <div className="mt-1 flex items-baseline justify-between gap-4 border-t border-foreground pt-3">
               <dt className="text-lg leading-6 font-bold text-foreground">Total</dt>
@@ -435,6 +519,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
                   Booking as {accountEmail}, your account email, so you can add yourself to Who&rsquo;s Going.
                 </p>
               )}
+              {/* Right above Checkout, for paid orders only (the owner's placement). */}
+              {supportBlock}
               {/* Black, not orange: checkout stays quiet (brand-direction-one.md §6.9).
                   Busy, not disabled, while it works: focus stays on it. */}
               <Button
@@ -481,6 +567,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
             </>
           ) : (
             <>
+              {/* The demo previews it too (its total is a preview only). */}
+              {supportBlock}
               <button type="button" disabled aria-disabled="true" className="btn btn-lg mt-4 w-full">
                 Checkout unavailable in this demo
               </button>

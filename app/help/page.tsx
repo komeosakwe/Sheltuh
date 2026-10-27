@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import ContentPage, { ContentSection } from "@/components/ContentPage";
+import { describeBookingFee } from "@/lib/fees";
 
 export const metadata: Metadata = { title: "Help & FAQs — Sheltüh" };
 
@@ -28,9 +29,9 @@ export default function HelpPage() {
       </ContentSection>
       <ContentSection title="What is the booking fee?">
         <p>
-          A booking fee of 4% of the ticket price plus A$0.50 applies to each paid ticket. Free
-          tickets never carry a fee. The organiser chooses whether the buyer pays it or they absorb
-          it; either way the total you pay is shown before you check out.
+          The booking fee is {describeBookingFee()}. Free tickets never carry a fee. The organiser
+          chooses whether the buyer pays it or they absorb it; either way the total you pay is shown
+          before you check out.
         </p>
       </ContentSection>
       <ContentSection title="What if I need a refund?">
@@ -42,9 +43,17 @@ export default function HelpPage() {
       </ContentSection>
       <ContentSection title="How do I list an event?">
         <p>
-          <Link href="/organisers/apply">Apply as an organiser</Link>. Once you’re approved you can
-          create events, which are reviewed before they go live. To sell paid tickets you’ll also
-          connect a Stripe account for payouts.
+          <Link href="/organisers/apply">Apply as an organiser</Link>. Every organiser is checked by
+          a person before they can publish, and we review events that are reported. Once you’re
+          approved you can create and publish events. To sell paid tickets you’ll also connect a
+          Stripe account for payouts.
+        </p>
+      </ContentSection>
+      <ContentSection title="How do I report an event?">
+        <p>
+          Select Report this event at the bottom of its page, or email{" "}
+          <a href="mailto:support@sheltuh.com.au">support@sheltuh.com.au</a> with the event’s name
+          or link and what’s wrong.
         </p>
       </ContentSection>
       <ContentSection title="Still stuck?">

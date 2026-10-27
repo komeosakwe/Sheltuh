@@ -35,14 +35,17 @@ function siteOrigin(): URL | undefined {
 
 export const metadata: Metadata = {
   metadataBase: siteOrigin(),
-  title: "Sheltüh — Melbourne creative events",
+  title: "Sheltüh — Creative events across Australia",
   description: isApiConfigured
-    ? "Sheltüh is a curated guide to Melbourne's live music, art, workshops and pop-ups — find what's on and get tickets."
-    : "Sheltüh is a curated guide to Melbourne's live music, art, workshops and pop-ups. Local prototype with sample data — no real tickets are sold yet.",
+    ? "Sheltüh is a curated guide to live music, art, workshops and pop-ups across Australia — find what's on and get tickets."
+    : "Sheltüh is a curated guide to live music, art, workshops and pop-ups across Australia. Local prototype with sample data — no real tickets are sold yet.",
   applicationName: "Sheltüh",
   // Home-screen app on iOS (the manifest is app/manifest.ts). "default" keeps
   // dark status-bar text over the white header; see docs/pwa.md.
   appleWebApp: { title: "Sheltüh", statusBarStyle: "default" },
+  // Site ownership check for Ticketmaster's affiliate programme (run on impact.com):
+  // a public token, safe in the page.
+  other: { "impact-site-verification": "95a574c6-fd1e-4531-b8e2-4b86a313eba5" },
 };
 
 // viewport-fit=cover hands the notch and home-indicator areas to the page, so

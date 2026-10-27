@@ -26,10 +26,10 @@ describe("Neon Static (buyer-pays GA + organiser-absorbed VIP)", () => {
   const event = findEvent("neon-static");
   const [ga, vip] = event.ticketTypes;
 
-  it("A$30 buyer-pays GA reads 'A$31.70 incl. booking fee'", () => {
+  it("A$30 buyer-pays GA reads 'A$32.30 incl. booking fee'", () => {
     expect(ga.priceCents).toBe(3000);
-    expect(formatTicketHeadline(ga)).toBe("A$31.70 incl. booking fee");
-    expect(formatTicketBreakdown(ga)).toBe("A$30 ticket + A$1.70 booking fee");
+    expect(formatTicketHeadline(ga)).toBe("A$32.30 incl. booking fee");
+    expect(formatTicketBreakdown(ga)).toBe("A$30 ticket + A$2.30 booking fee");
   });
 
   it("A$55 organiser-absorbed VIP reads 'A$55 incl. booking fee'", () => {
@@ -38,9 +38,9 @@ describe("Neon Static (buyer-pays GA + organiser-absorbed VIP)", () => {
     expect(formatTicketBreakdown(vip)).toBe("A$55 ticket (booking fee included by organiser)");
   });
 
-  it("feed card shows the cheaper of the two as 'From A$31.70 incl. booking fee'", () => {
-    expect(getMinBuyerTotalCents(event)).toBe(3170);
-    expect(formatFeedPrice(event)).toBe("From A$31.70 incl. booking fee");
+  it("feed card shows the cheaper of the two as 'From A$32.30 incl. booking fee'", () => {
+    expect(getMinBuyerTotalCents(event)).toBe(3230);
+    expect(formatFeedPrice(event)).toBe("From A$32.30 incl. booking fee");
   });
 });
 
@@ -103,14 +103,14 @@ describe("feed price stays consistent with the checkout total for every sample e
 describe("formatFeedPriceParts (the event page's buy bar)", () => {
   it("multi-price event: 'From' the cheapest all-inclusive total", () => {
     expect(formatFeedPriceParts(findEvent("neon-static"))).toEqual({
-      amount: "From A$31.70",
+      amount: "From A$32.30",
       note: "incl. booking fee",
     });
   });
 
-  it("single buyer-pays price: A$20 face value + A$1.30 fee, no 'From'", () => {
+  it("single buyer-pays price: A$20 face value + A$1.70 fee, no 'From'", () => {
     expect(formatFeedPriceParts(findEvent("fitzroy-poetry-and-noise"))).toEqual({
-      amount: "A$21.30",
+      amount: "A$21.70",
       note: "incl. booking fee",
     });
   });
@@ -204,7 +204,7 @@ describe("an event ticketed on another site (external)", () => {
 });
 
 describe("sold-out tiers (waitlist; brand-direction-one.md §6.5, §6.8)", () => {
-  const base = findEvent("neon-static"); // GA A$30 buyer-pays (A$31.70), VIP A$55 absorbed
+  const base = findEvent("neon-static"); // GA A$30 buyer-pays (A$32.30), VIP A$55 absorbed
   const [ga, vip] = base.ticketTypes;
 
   it("takes 'From' from the cheapest tier still on sale", () => {
@@ -219,13 +219,13 @@ describe("sold-out tiers (waitlist; brand-direction-one.md §6.5, §6.8)", () =>
   it("keeps 'From' while more than one tier is on sale", () => {
     const extra = { ...ga, id: "x", priceCents: 1000, soldOut: true };
     const event: SheltuhEvent = { ...base, ticketTypes: [extra, ga, vip] };
-    expect(formatFeedPrice(event)).toBe("From A$31.70 incl. booking fee");
+    expect(formatFeedPrice(event)).toBe("From A$32.30 incl. booking fee");
   });
 
   it("a sold-out free tier no longer makes the event 'Free'", () => {
     const free = { ...ga, id: "free", priceCents: 0, soldOut: true };
     const event: SheltuhEvent = { ...base, ticketTypes: [free, ga] };
-    expect(formatFeedPrice(event)).toBe("A$31.70 incl. booking fee");
+    expect(formatFeedPrice(event)).toBe("A$32.30 incl. booking fee");
   });
 
   it("reads 'Sold out' when the server says every tier is, with no note", () => {
@@ -238,7 +238,7 @@ describe("sold-out tiers (waitlist; brand-direction-one.md §6.5, §6.8)", () =>
     expect(formatFeedPrice(event)).toBe(SOLD_OUT_LABEL);
     expect(formatFeedPriceParts(event)).toEqual({ amount: "Sold out", note: "" });
     // The tiers' prices are still advertised (muted on the event page): the cheapest of them.
-    expect(getMinBuyerTotalCents(event)).toBe(3170);
+    expect(getMinBuyerTotalCents(event)).toBe(3230);
   });
 
   it("an external event or one with no ticket types is never sold out", () => {

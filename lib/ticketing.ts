@@ -12,6 +12,20 @@ export type TicketingMode = "sheltuh" | "external";
 
 export const TICKETING_MODES: readonly TicketingMode[] = ["sheltuh", "external"];
 
+/**
+ * Whether an event sells paid tickets through Sheltüh: it isn't external (a
+ * missing mode is "sheltuh") and a ticket type costs more than 0. Such an
+ * event can't be submitted or published until its organiser's payouts are set
+ * up (lib/api/events.ts, PAYOUTS_REQUIRED_CODE); free and external events
+ * never need them.
+ */
+export function sellsPaidTicketsOnSheltuh(event: {
+  ticketingMode?: TicketingMode;
+  ticketTypes: readonly { priceCents: number }[];
+}): boolean {
+  return event.ticketingMode !== "external" && event.ticketTypes.some((ticket) => ticket.priceCents > 0);
+}
+
 /** Longest ticket link accepted (matches the events.external_ticket_url check constraint). */
 export const MAX_EXTERNAL_TICKET_URL_LENGTH = 2048;
 

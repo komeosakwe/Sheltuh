@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { PublicEvent } from "@/lib/api/public-events";
+import { REFUND_ACL_STATEMENT } from "@/lib/refund-policy";
 import { sampleEvents } from "@/lib/sample-events";
 
 /**
@@ -16,7 +17,12 @@ const DAY = 86_400_000;
 function asPublic(slug: string): PublicEvent {
   const event = sampleEvents.find((e) => e.slug === slug);
   if (!event) throw new Error(`no sample ${slug}`);
-  const start = Date.now() + 7 * DAY;
+  // A week out, at a fixed hour (08:00 UTC: 7:00 pm in Melbourne in daylight time), so the date
+  // line under the title is the same length whenever the suite runs (a start late in the evening
+  // runs past midnight, to a two-line range, and the first-screen checks below would shift).
+  const startDay = new Date(Date.now() + 7 * DAY);
+  startDay.setUTCHours(8, 0, 0, 0);
+  const start = startDay.getTime();
   return {
     organiserId: "org-demo",
     eventId: event.id,
@@ -92,6 +98,9 @@ test.describe("external event (Humanitix) at 1440×900", () => {
     await expect(tickets).toContainText("sold and priced by Humanitix, not Sheltüh");
     await expect(tickets).not.toContainText("Tickets coming soon");
     await expect(tickets).not.toContainText("A$");
+    // No Sheltüh refund policy: Humanitix's terms apply.
+    await expect(tickets).not.toContainText("change of mind");
+    await expect(tickets).not.toContainText("Australian Consumer Law");
     await expect(page.getByRole("heading", { name: /who.s going/i })).toHaveCount(0);
 
     const [popup] = await Promise.all([page.waitForEvent("popup"), link.click()]);
@@ -131,16 +140,16 @@ test.describe("Sheltüh-ticketed event at 390×844", () => {
     await mockApi(page);
     await page.goto("/events/neon-static");
     const bar = page.locator("[data-buy-bar]");
-    await expect(bar).toContainText("From A$31.70", { timeout: 30_000 });
+    await expect(bar).toContainText("From A$32.30", { timeout: 30_000 });
     // The tab is titled with the event once it's loaded (live pages render client-side).
     await expect(page).toHaveTitle("Neon Static — Sheltüh");
     await bar.getByRole("link", { name: "Buy tickets" }).click();
     await expect(page).toHaveURL(/#tickets$/);
     await expect(page.locator("#tickets")).toBeFocused();
     const tickets = page.locator("#tickets");
-    await expect(tickets.getByText("A$31.70 incl. booking fee")).toBeVisible();
+    await expect(tickets.getByText("A$32.30 incl. booking fee")).toBeVisible();
     // The breakdown is there before anything's chosen.
-    await expect(tickets.getByText("A$30 ticket + A$1.70 booking fee")).toBeVisible();
+    await expect(tickets.getByText("A$30 ticket + A$2.30 booking fee")).toBeVisible();
     await noSidewaysScroll(page);
   });
 });
@@ -177,7 +186,7 @@ for (const vp of [
         if (vp.phone) {
           // The one facts block under the title (Refinement, 22 Oct 2026): the date and the venue.
           const facts = page.locator("[data-event-facts]");
-          for (const fact of [facts.locator("dd").first().locator("p").first(), facts.locator("[data-directions] > span").first()]) {
+          for (const fact of [facts.locator("dd").first().locator("p").first(), facts.locator("[data-directions]").first()]) {
             const factBox = await fact.boundingBox();
             expect(factBox).not.toBeNull();
             expect((factBox?.y ?? 0) + (factBox?.height ?? Infinity)).toBeLessThanOrEqual(bottom);
@@ -187,6 +196,69 @@ for (const vp of [
     }
   });
 }
+
+// Owner request (26 Oct 2026): on a phone, Save and Share are on the first screen too, above the
+// buy bar, with a two-line title and a two-line address. 390×664 is a 390×844 phone less its
+// browser chrome; 375×667 is the small iPhone.
+for (const vp of [
+  { width: 390, height: 664 },
+  { width: 375, height: 667 },
+]) {
+  test.describe(`Save and Share on the first screen at ${vp.width}×${vp.height}`, () => {
+    test.use({ viewport: vp });
+
+    test("laneway-projections-after-dark: the actions row ends above the buy bar", async ({ page }) => {
+      await mockApi(page);
+      await page.goto("/events/laneway-projections-after-dark");
+      const h1 = page.getByRole("heading", { level: 1 });
+      await expect(h1).toBeVisible({ timeout: 30_000 });
+      expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+      // The case it's for: the title and the address each take two lines.
+      const lines = (el: HTMLElement) => Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight));
+      expect(await h1.evaluate(lines)).toBe(2);
+      const address = page.locator("[data-event-facts] [data-directions]");
+      expect(await address.evaluate(lines)).toBe(2);
+
+      const bar = await page.locator("[data-buy-bar]").boundingBox();
+      if (!bar) throw new Error("no buy bar");
+      const actions = page.locator("[data-event-actions]");
+      const save = actions.getByRole("link", { name: "Sign in to save Laneway Projections: After Dark" });
+      const share = actions.getByRole("button", { name: "Share Laneway Projections: After Dark" });
+      for (const control of [save, share]) {
+        const box = await control.boundingBox();
+        if (!box) throw new Error("not laid out");
+        expect(box.height).toBeGreaterThanOrEqual(44);
+        expect(box.y + box.height).toBeLessThanOrEqual(bar.y);
+      }
+      // Add to calendar keeps its 44px target, and doesn't overlap the address link below it.
+      const calendar = await page.getByRole("button", { name: "Add to calendar" }).boundingBox();
+      const addressBox = await address.boundingBox();
+      if (!calendar || !addressBox) throw new Error("not laid out");
+      expect(calendar.height).toBeGreaterThanOrEqual(44);
+      expect(calendar.y + calendar.height).toBeLessThanOrEqual(addressBox.y);
+      await noSidewaysScroll(page);
+    });
+  });
+}
+
+test.describe("Report this event at 320px", () => {
+  test.use({ viewport: { width: 320, height: 640 } });
+
+  test("an email to support naming the event, at the end of the details, with no sideways scroll", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/events/neon-static");
+    await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
+    const report = page.getByRole("link", { name: "Report this event" });
+    await report.scrollIntoViewIfNeeded();
+    await expect(report).toBeVisible();
+    const href = (await report.getAttribute("href")) ?? "";
+    expect(href).toMatch(/^mailto:support@sheltuh\.com\.au\?subject=/);
+    expect(decodeURIComponent(href.split("?subject=")[1])).toMatch(/^Report: Neon Static \((https?:\/\/[^/]+)?\/events\/neon-static\)$/);
+    expect((await report.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(24);
+    await noSidewaysScroll(page);
+  });
+});
 
 test.describe("live event page that can't load", () => {
   test.use({ viewport: { width: 390, height: 844 } });
@@ -338,7 +410,7 @@ for (const width of [375, 1280]) {
       if (!event) throw new Error("no sample");
       const address = `${event.venueName}, ${event.venueAddress}`;
 
-      // Get directions: the address and the action, one link, out to Google Maps in a new tab.
+      // The address is the directions link, out to Google Maps in a new tab.
       const directions = page.getByRole("link", { name: `Get directions to ${address} (opens Google Maps in a new tab)` });
       await expect(directions).toHaveAttribute("href", `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`);
       await expect(directions).toHaveAttribute("target", "_blank");
@@ -348,11 +420,12 @@ for (const width of [375, 1280]) {
       // The zone in effect at the start (a week out from now: AEST or AEDT).
       await expect(page.getByText(/^Melbourne time \((AEST|AEDT)\)$/)).toBeVisible();
 
-      // The organiser's other events.
-      await expect(page.getByRole("link", { name: `More from ${event.organiserName}` })).toHaveAttribute(
+      // The organiser's name links to their profile; there's no separate More from link.
+      await expect(page.getByRole("link", { name: event.organiserName, exact: true }).first()).toHaveAttribute(
         "href",
-        "/organisers/org-demo#organiser-upcoming",
+        "/organisers/org-demo",
       );
+      await expect(page.getByRole("link", { name: /^More from/ })).toHaveCount(0);
 
       // Who's Going, signed out: the count, no names or faces, and no list to open.
       const going = page.getByRole("region", { name: "Who's going" });
@@ -362,10 +435,13 @@ for (const width of [375, 1280]) {
 
       // Fees and refunds beside the tickets, linking the existing pages.
       const tickets = page.locator("#tickets");
-      await expect(tickets.getByText("A$31.70 incl. booking fee")).toBeVisible();
+      await expect(tickets.getByText("A$32.30 incl. booking fee")).toBeVisible();
       // (Live, the selector's own "By booking you agree to the Purchase Terms" line links them too:
       // that's consent at checkout; this is where refund conditions are.)
       const refunds = tickets.locator("dl").filter({ hasText: "Refunds" });
+      // The event's own policy (the default here), with the line that always applies.
+      await expect(refunds.locator("[data-refund-policy]")).toHaveText("No refunds for change of mind.");
+      await expect(refunds).toContainText(REFUND_ACL_STATEMENT);
       await expect(refunds.getByRole("link", { name: "Request a refund" })).toHaveAttribute("href", "/refunds");
       await expect(refunds.getByRole("link", { name: "Purchase Terms" })).toHaveAttribute("href", "/purchase-terms");
 
@@ -373,6 +449,90 @@ for (const width of [375, 1280]) {
     });
   });
 }
+
+test.describe("an event outside Victoria (owner plan S5)", () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  test("a Perth event shows its times in Perth time and labels them 'Perth time (AWST)'", async ({ page }) => {
+    // Sat 6 Mar 2027: 6:00 pm – 10:00 pm AWST (9:00 pm – 1:00 am in Melbourne).
+    const event: PublicEvent = {
+      ...asPublic("neon-static"),
+      state: "WA",
+      timeZone: "Australia/Perth",
+      startsAt: "2027-03-06T10:00:00.000Z",
+      endsAt: "2027-03-06T14:00:00.000Z",
+    };
+    await page.route("**/api/**", (route) => {
+      const url = new URL(route.request().url());
+      if (/^\/api\/events\/slug\//.test(url.pathname)) return route.fulfill({ json: event });
+      if (/\/going$/.test(url.pathname)) return route.fulfill({ json: { count: 0, countHidden: false, closed: false } });
+      return route.fulfill({ status: 204 });
+    });
+    await page.goto("/events/neon-static");
+    await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
+    const facts = page.locator("[data-event-facts]");
+    await expect(facts.getByText("Perth time (AWST)", { exact: true })).toBeVisible();
+    await expect(facts).toContainText(/Sat 6 Mar, 6:00 pm – 10:00 pm/);
+    await expect(facts).not.toContainText("Melbourne time");
+    await noSidewaysScroll(page);
+  });
+});
+
+test.describe("refund policy at 320px", () => {
+  test.use({ viewport: { width: 320, height: 640 } });
+
+  test("a days_before event says when refunds close beside the tickets, before checkout, without sideways scroll", async ({ page }) => {
+    const startsAt = Date.now() + 30 * DAY;
+    const event = {
+      ...asPublic("neon-static"),
+      startsAt: new Date(startsAt).toISOString(),
+      endsAt: new Date(startsAt + 3 * 3_600_000).toISOString(),
+      refundPolicy: "days_before" as const,
+      refundDays: 7,
+    };
+    await page.route("**/api/**", (route) => {
+      const url = new URL(route.request().url());
+      if (/^\/api\/events\/slug\//.test(url.pathname)) return route.fulfill({ json: event });
+      if (/\/going$/.test(url.pathname)) return route.fulfill({ json: { count: 0, countHidden: false, closed: false } });
+      return route.fulfill({ status: 204 });
+    });
+    await page.goto("/events/neon-static");
+    const policy = page.locator("#tickets [data-refund-policy]");
+    await expect(policy).toHaveText(
+      /^Refunds available until \w{3} \d{1,2} \w{3}( \d{4})?, \d{1,2}:\d{2} [ap]m \(7 days before the event\)\.$/,
+      { timeout: 30_000 },
+    );
+    await expect(page.locator("#tickets [data-booking-info]")).toContainText(REFUND_ACL_STATEMENT);
+    await policy.scrollIntoViewIfNeeded();
+    await expect(policy).toBeVisible();
+    await noSidewaysScroll(page);
+  });
+});
+
+test.describe("refund window already closed", () => {
+  test("an event 3 days away with a 7-day policy says the window has closed, never 'up to 7 days before'", async ({ page }) => {
+    const startsAt = Date.now() + 3 * DAY;
+    const event = {
+      ...asPublic("neon-static"),
+      startsAt: new Date(startsAt).toISOString(),
+      endsAt: new Date(startsAt + 3 * 3_600_000).toISOString(),
+      refundPolicy: "days_before" as const,
+      refundDays: 7,
+    };
+    await page.route("**/api/**", (route) => {
+      const url = new URL(route.request().url());
+      if (/^\/api\/events\/slug\//.test(url.pathname)) return route.fulfill({ json: event });
+      if (/\/going$/.test(url.pathname)) return route.fulfill({ json: { count: 0, countHidden: false, closed: false } });
+      return route.fulfill({ status: 204 });
+    });
+    await page.goto("/events/neon-static");
+    await expect(page.locator("#tickets [data-refund-policy]")).toHaveText(
+      "The refund window for this event has closed. No refunds for change of mind.",
+      { timeout: 30_000 },
+    );
+    await expect(page.locator("#tickets [data-booking-info]")).toContainText(REFUND_ACL_STATEMENT);
+  });
+});
 
 test.describe("ended event at 375px", () => {
   test.use({ viewport: { width: 375, height: 812 } });
@@ -450,3 +610,115 @@ test.describe("organiser logo at 375px", () => {
     });
   }
 });
+
+/** A 16×16 grey PNG for every basemap tile (as e2e/map-tiles.spec.ts): the map loads without the network. */
+const TILE = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAGklEQVR42mM4QSJgOHHixCNSwKiGUQ1DRwMAAaucrZWSFIMAAAAASUVORK5CYII=",
+  "base64",
+);
+
+// The Location section (owner request, 26 Oct 2026): after About in the main column, the venue, a
+// small map loaded only as it nears the screen (a live event has no coordinates, so the pin is its
+// suburb's centre, from the suburb table), and the Google Maps and Apple Maps links (owner decision
+// A-D4, 27 Oct 2026). Tiles are answered here.
+for (const vp of [
+  { width: 320, height: 640 },
+  { width: 390, height: 844 },
+  { width: 1280, height: 800 },
+]) {
+  test.describe(`location section at ${vp.width}px`, () => {
+    test.use({ viewport: vp });
+
+    test("after About, with the venue, a decorative map loaded on approach, and Google and Apple Maps links", async ({ page }) => {
+      await mockApi(page);
+      const tiles: string[] = [];
+      await page.route("https://server.arcgisonline.com/**", (route) => {
+        tiles.push(route.request().url());
+        return route.fulfill({ contentType: "image/png", body: TILE });
+      });
+      // Google Maps: a stub page, never the real site.
+      await page.context().route(/^https:\/\/www\.google\.com\/maps\//, (route) =>
+        route.fulfill({ contentType: "text/html", body: "<title>Maps</title><p>stub</p>" }),
+      );
+      await page.goto("/events/neon-static");
+      await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
+      const event = sampleEvents.find((e) => e.slug === "neon-static");
+      if (!event) throw new Error("no sample");
+      const address = `${event.venueName}, ${event.venueAddress}`;
+      const href = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
+
+      // Straight after About (the live API sends no Good to know details).
+      const headings = await page.getByRole("heading", { level: 2 }).allTextContents();
+      expect(headings.slice(headings.indexOf("About this event"), headings.indexOf("About this event") + 2)).toEqual([
+        "About this event",
+        "Location",
+      ]);
+      const location = page.getByRole("region", { name: "Location" });
+      await expect(location).toContainText(event.venueName);
+      await expect(location).toContainText(event.venueAddress);
+
+      // Below the fold on a phone: nothing of the map has loaded yet.
+      const map = location.locator("[data-event-map]");
+      if (vp.width < 1024) {
+        await expect(location.locator(".leaflet-container")).toHaveCount(0);
+        expect(tiles).toEqual([]);
+      }
+
+      await map.scrollIntoViewIfNeeded();
+      await expect(location.locator(".leaflet-container")).toBeVisible({ timeout: 20_000 });
+      await expect(location.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
+      expect(tiles.length).toBeGreaterThan(0);
+      // One pin, in /map's marker style, and Esri's credit on show.
+      await expect(location.locator(".leaflet-marker-icon")).toHaveCount(1);
+      await expect(location.locator(".leaflet-control-attribution")).toContainText("Esri");
+      // A suburb's centre, said so; never a claim of the exact spot.
+      await expect(location).toContainText("The pin marks Collingwood, VIC, not the venue’s exact spot.");
+
+      // Hidden from assistive technology and the keyboard: the named controls are the two map links,
+      // both always there (no user-agent sniffing).
+      await expect(map).toHaveAttribute("aria-hidden", "true");
+      const google = location.getByRole("link", {
+        name: `Google Maps: directions to ${address} (opens in a new tab)`,
+      });
+      await expect(google).toHaveText("Google Maps");
+      await expect(google).toHaveAttribute("href", href);
+      await expect(google).toHaveAttribute("target", "_blank");
+      const apple = location.getByRole("link", {
+        name: `Apple Maps: directions to ${address} (opens in a new tab)`,
+      });
+      await expect(apple).toHaveText("Apple Maps");
+      await expect(apple).toHaveAttribute("href", `https://maps.apple.com/?daddr=${encodeURIComponent(event.venueAddress)}`);
+      await expect(apple).toHaveAttribute("target", "_blank");
+      await expect(location.getByRole("link")).toHaveCount(2);
+      for (const link of [google, apple]) {
+        const linkBox = await link.boundingBox();
+        expect(linkBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+        expect(linkBox?.width ?? 0).toBeGreaterThanOrEqual(24);
+      }
+
+      // The box keeps its size: ~200px on phones, 256px on desktop.
+      const box = await map.locator("[data-surface]").boundingBox();
+      expect(box?.height).toBe(vp.width < 1024 ? 208 : 256);
+
+      // A wheel over the map scrolls the page, never the map.
+      const before = await page.evaluate(() => window.scrollY);
+      const centre = { x: (box?.x ?? 0) + (box?.width ?? 0) / 2, y: (box?.y ?? 0) + (box?.height ?? 0) / 2 };
+      await page.mouse.move(centre.x, centre.y);
+      await page.mouse.wheel(0, 200);
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(before);
+
+      await noSidewaysScroll(page);
+
+      // A tap on the map opens directions too.
+      await map.scrollIntoViewIfNeeded();
+      const mapBox = await map.locator("[data-surface]").boundingBox();
+      if (!mapBox) throw new Error("map not laid out");
+      const [popup] = await Promise.all([
+        page.waitForEvent("popup"),
+        page.mouse.click(mapBox.x + mapBox.width / 2, mapBox.y + mapBox.height / 3),
+      ]);
+      await expect(popup).toHaveURL(href);
+      await popup.close();
+    });
+  });
+}

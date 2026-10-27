@@ -4,7 +4,7 @@ import { confirmFreeOrder, FREE_LIMITS } from "@/lib/server/handlers/free-orders
 import { createCheckout, getOrderBySession } from "@/lib/server/handlers/orders";
 import type { EventRecord } from "@/lib/server/types";
 import { SITE_URL, TestApi } from "./helpers/api";
-import { approvedOrganiser, publishedEvent, signUpAdmin } from "./helpers/fixtures";
+import { approvedOrganiser, publishedEvent, setUpPayouts, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
 let api: TestApi;
@@ -603,7 +603,8 @@ describe("confirmation re-checks", () => {
   it("a ticket type that's no longer free issues nothing: 409, and the order is failed", async () => {
     await book("fan@example.com", 2);
     const token = tokenFromEmail();
-    // The organiser unpublished, priced it, and it was published again.
+    // The organiser set up payouts, unpublished, priced it, and it was published again.
+    await setUpPayouts(api, event.organiserId);
     await api.db.query(`update public.ticket_types set price_cents = 1500 where event_id = $1 and id = 'rsvp'`, [event.eventId]);
     const res = await confirm(token);
     expect(res.status).toBe(409);
@@ -656,6 +657,12 @@ describe("retention (purge_operational_data)", () => {
       email_jobs_deleted: 1,
       client_rate_limits_deleted: 1,
       account_invites_deleted: 0,
+      // Payment reconciliation's retention (tests/server/payment-reconciliation.test.ts).
+      early_charge_refunds_deleted: 0,
+      payment_exceptions_deleted: 0,
+      refund_status_marks_deleted: 0,
+      // Checkout attempts' retention (tests/server/checkout-attempts.test.ts).
+      checkout_attempts_deleted: 0,
     });
     expect(await api.db.query(`select bucket from private.client_rate_limits`)).toEqual([{ bucket: "seat_holds:recent" }]);
     expect((await orders()).map((o) => [o.buyer_email, o.status]).sort()).toEqual([
@@ -663,7 +670,7 @@ describe("retention (purge_operational_data)", () => {
       ["recent@example.com", "pending"],
     ]);
     const [again] = await api.db.query(`select * from private.purge_operational_data()`);
-    expect(Object.values(again)).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(Object.values(again)).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 });
 

@@ -2,7 +2,8 @@
 
 import { useEffect, useId, useRef } from "react";
 import EventArt from "@/components/EventArt";
-import { formatEventDateShort, formatEventTime } from "@/lib/format";
+import { startDateTimeLine } from "@/lib/event-card";
+import { eventPlaceName } from "@/lib/place";
 import type { SheltuhEvent } from "@/lib/types";
 
 interface MapSpotListProps {
@@ -24,8 +25,8 @@ export default function MapSpotList({ events, onChoose, onClose }: MapSpotListPr
     firstButton.current?.focus();
   }, []);
 
-  const suburbs = new Set(events.map((event) => event.suburb));
-  const place = suburbs.size === 1 ? `in ${events[0]?.suburb}` : "at this spot";
+  const places = new Set(events.map(eventPlaceName));
+  const place = places.size === 1 ? `in ${eventPlaceName(events[0])}` : "at this spot";
   const approximate = events.some((event) => !event.coordinates);
 
   return (
@@ -75,7 +76,8 @@ export default function MapSpotList({ events, onChoose, onClose }: MapSpotListPr
               <span className="min-w-0">
                 <span className="block truncate font-sans text-sm font-semibold text-foreground">{event.title}</span>
                 <span className="block truncate font-sans text-xs text-muted">
-                  {formatEventDateShort(event.startsAt)}, {formatEventTime(event.startsAt)} &middot; {event.venueName}
+                  {/* No zone: every event here is at one place, and the venue keeps its room. */}
+                  {startDateTimeLine(event, { zone: false })} &middot; {event.venueName}
                 </span>
               </span>
             </button>

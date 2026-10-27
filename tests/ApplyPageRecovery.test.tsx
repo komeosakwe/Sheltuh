@@ -9,6 +9,9 @@ import { SessionExpiredError } from "@/lib/auth/session-token";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
 // The real useOrganiser, against a live API (mocked below).
+const routerReplace = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: routerReplace, push: vi.fn() }) }));
+
 vi.mock("@/lib/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/client")>()),
   isApiConfigured: true,

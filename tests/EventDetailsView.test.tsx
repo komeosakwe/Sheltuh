@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventDetailsView from "@/components/EventDetailsView";
 import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
 import { describeBookingFee } from "@/lib/fees";
+import { REFUND_ACL_STATEMENT } from "@/lib/refund-policy";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
 import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
@@ -34,7 +35,7 @@ describe("EventDetailsView buy bar (phones and tablets)", () => {
     const bar = buyBar(container);
     if (!bar) throw new Error("buy bar not rendered");
     expect(bar).toHaveClass("lg:hidden"); // never on desktop
-    expect(within(bar).getByText("From A$31.70")).toBeInTheDocument();
+    expect(within(bar).getByText("From A$32.30")).toBeInTheDocument();
     expect(within(bar).getByText("incl. booking fee")).toBeInTheDocument();
     // "Buy tickets" in the demo too (owner, 21 Oct 2026); the tickets section says nothing's bookable.
     expect(within(bar).getByRole("link", { name: "Buy tickets" })).toHaveAttribute("href", "#tickets");
@@ -45,7 +46,7 @@ describe("EventDetailsView buy bar (phones and tablets)", () => {
     const { container } = render(<EventDetailsView event={findEvent("fitzroy-poetry-and-noise")} demo={false} />);
     const bar = buyBar(container);
     if (!bar) throw new Error("buy bar not rendered");
-    expect(within(bar).getByText("A$21.30")).toBeInTheDocument();
+    expect(within(bar).getByText("A$21.70")).toBeInTheDocument();
     expect(within(bar).getByRole("link", { name: "Buy tickets" })).toHaveAttribute("href", "#tickets");
   });
 
@@ -190,6 +191,36 @@ describe("EventDetailsView key facts under the title (Refinement, 22 Oct 2026)",
     expect(parts).toEqual(["8:00 pm", "midnight"]);
   });
 
+  it("shows a Perth event's times in Perth time and says so ('Perth time (AWST)'), refund deadline included", () => {
+    // 8:00 pm to midnight AEST is 6:00 pm to 10:00 pm AWST.
+    const event: SheltuhEvent = {
+      ...findEvent("neon-static"),
+      state: "WA",
+      timeZone: "Australia/Perth",
+      refundPolicy: "days_before",
+      refundDays: 7,
+    };
+    const { container } = render(<EventDetailsView event={event} demo />);
+    const facts = container.querySelector<HTMLElement>("[data-event-facts]");
+    if (!facts) throw new Error("facts not rendered");
+    expect(within(facts).getByText("Perth time (AWST)")).toBeInTheDocument();
+    expect(within(facts).queryByText(/Melbourne time/)).toBeNull();
+    const parts = Array.from(facts.querySelectorAll(".whitespace-nowrap")).map((el) => el.textContent);
+    expect(parts).toEqual(["6:00 pm", "10:00 pm"]);
+    expect(facts.textContent).toContain("Fri 25 Sept, 6:00 pm – 10:00 pm");
+    expect(container.querySelector("[data-refund-policy]")?.textContent).toBe(
+      "Refunds available until Fri 18 Sept, 6:00 pm (7 days before the event).",
+    );
+  });
+
+  it("a Melbourne event's zone label is unchanged ('Melbourne time (AEST)')", () => {
+    const { container } = render(<EventDetailsView event={{ ...findEvent("neon-static"), state: "VIC", timeZone: "Australia/Melbourne" }} demo />);
+    const facts = container.querySelector<HTMLElement>("[data-event-facts]");
+    if (!facts) throw new Error("facts not rendered");
+    expect(within(facts).getByText("Melbourne time (AEST)")).toBeInTheDocument();
+    expect(facts.textContent).toContain("Fri 25 Sept, 8:00 pm – Sat 26 Sept, midnight");
+  });
+
   it("puts the tickets before About on phones (reading order: title, facts, tickets, then the description)", () => {
     const event = findEvent("neon-static");
     render(<EventDetailsView event={event} demo />);
@@ -310,7 +341,7 @@ describe("EventDetailsView tickets panel", () => {
     const sentence = `Booking fee: ${describeBookingFee()}. Free tickets never carry a fee.`;
     expect(within(tickets).getByText(sentence)).toBeInTheDocument();
     // And it says what's actually charged today.
-    expect(sentence).toBe("Booking fee: 4% of ticket face value + A$0.50 per paid ticket. Free tickets never carry a fee.");
+    expect(sentence).toBe("Booking fee: 6% of ticket face value + A$0.50 per paid ticket. Free tickets never carry a fee.");
   });
 
   it("says tickets are coming soon when there are no ticket types, with no fee copy and nothing to select", () => {
@@ -391,7 +422,7 @@ describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => 
   });
 });
 
-describe("EventDetailsView Where: Get directions (mobile-redesign.md §6.5)", () => {
+describe("EventDetailsView Where: the address links to directions", () => {
   it("makes the address one link to directions, opening Google Maps in a new tab with a clear name", () => {
     const event = findEvent("neon-static");
     render(<EventDetailsView event={event} demo />);
@@ -402,39 +433,51 @@ describe("EventDetailsView Where: Get directions (mobile-redesign.md §6.5)", ()
     const link = links[0];
     const address = `${event.venueName}, ${event.venueAddress}`;
     expect(link).toHaveAccessibleName(`Get directions to ${address} (opens Google Maps in a new tab)`);
-    expect(link).toHaveTextContent(`${address}Get directions`);
+    expect(link).toHaveTextContent(address);
+    expect(link).not.toHaveTextContent("Get directions");
     expect(link).toHaveAttribute(
       "href",
       `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`,
     );
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
-    // The action itself is a 44px target.
-    expect(within(link).getByText("Get directions")).toHaveClass("min-h-11");
+    // The address itself is the 44px target.
+    expect(link).toHaveClass("min-h-11");
   });
 });
 
-describe("EventDetailsView More from the organiser", () => {
-  it("live: links to the organiser profile's upcoming events", () => {
+describe("EventDetailsView organiser row", () => {
+  it("links the organiser's name to their profile, with no separate More from link", () => {
     const event = { ...findEvent("neon-static"), organiserId: "org 1", organiserName: "Northside Noise" };
     render(<EventDetailsView event={event} demo={false} />);
-    expect(screen.getByRole("link", { name: "More from Northside Noise" })).toHaveAttribute(
-      "href",
-      "/organisers/org%201#organiser-upcoming",
-    );
-  });
-
-  it("demo: links to the sample organiser's page", () => {
-    render(<EventDetailsView event={findEvent("dead-letter-office")} demo />);
-    expect(screen.getByRole("link", { name: "More from Small Hours Theatre" })).toHaveAttribute(
-      "href",
-      "/organisers/small-hours-theatre#organiser-upcoming",
-    );
-  });
-
-  it("isn't offered when there's no profile to link to", () => {
-    render(<EventDetailsView event={{ ...findEvent("neon-static"), organiserName: "Nobody In The Samples" }} demo />);
+    expect(screen.getByRole("link", { name: "Northside Noise" })).toHaveAttribute("href", "/organisers/org%201");
     expect(screen.queryByRole("link", { name: /^More from/ })).toBeNull();
+  });
+});
+
+describe("EventDetailsView Report this event", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("emails support, the subject naming the event and its page", () => {
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://sheltuh.com.au");
+    const event = findEvent("neon-static");
+    render(<EventDetailsView event={event} demo={false} />);
+    const link = screen.getByRole("link", { name: "Report this event" });
+    const href = link.getAttribute("href") ?? "";
+    expect(href.startsWith("mailto:support@sheltuh.com.au?subject=")).toBe(true);
+    expect(decodeURIComponent(href.split("?subject=")[1])).toBe(
+      `Report: ${event.title} (https://sheltuh.com.au/events/${event.slug})`,
+    );
+  });
+
+  it("without a configured site address, the page's path names it", () => {
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "");
+    const event = findEvent("neon-static");
+    render(<EventDetailsView event={event} demo />);
+    const href = screen.getByRole("link", { name: "Report this event" }).getAttribute("href") ?? "";
+    expect(decodeURIComponent(href.split("?subject=")[1])).toBe(`Report: ${event.title} (/events/${event.slug})`);
   });
 });
 
@@ -445,17 +488,80 @@ describe("EventDetailsView booking info beside the tickets", () => {
     return el;
   }
 
-  // A6 (accessibility review, 22 Oct 2026): one plain sentence, linking the existing pages.
-  it("where a paid purchase is possible: refund conditions are in the Purchase Terms, and how to ask for one", () => {
+  // A6 (accessibility review, 22 Oct 2026): one plain sentence, linking the existing pages; then the
+  // event's own refund policy before it (docs/architecture.md, Refund policy).
+  it("where a paid purchase is possible: the event's refund policy, the ACL line, the Purchase Terms, and how to ask for one", () => {
     const { container } = render(<EventDetailsView event={findEvent("neon-static")} demo />);
     const info = tickets(container).querySelector<HTMLElement>("[data-booking-info]");
     if (!info) throw new Error("no booking info");
     expect(within(info).getByText("Refunds").tagName).toBe("DT");
-    expect(info.querySelector("dd")).toHaveTextContent(
+    // A demo sample event has the default policy.
+    expect([...info.querySelectorAll("dd > p")].map((p) => p.textContent)).toEqual([
+      "No refunds for change of mind.",
+      REFUND_ACL_STATEMENT,
       "Refund conditions are in our Purchase Terms. To ask for one, use Request a refund.",
-    );
+    ]);
     expect(within(info).getByRole("link", { name: "Purchase Terms" })).toHaveAttribute("href", "/purchase-terms");
     expect(within(info).getByRole("link", { name: "Request a refund" })).toHaveAttribute("href", "/refunds");
+  });
+
+  it("says a days_before policy as the date and time refunds close (Melbourne time), with day or days", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-01T00:00:00.000Z"));
+    try {
+      // Sat 28 Nov 2026, 7:00 pm AEDT.
+      const startsAt = "2026-11-28T08:00:00.000Z";
+      const endsAt = "2026-11-28T11:00:00.000Z";
+      for (const [days, text] of [
+        [7, "Refunds available until Sat 21 Nov, 7:00 pm (7 days before the event)."],
+        [1, "Refunds available until Fri 27 Nov, 7:00 pm (1 day before the event)."],
+      ] as const) {
+        const { container, unmount } = render(
+          <EventDetailsView
+            event={{ ...findEvent("neon-static"), startsAt, endsAt, refundPolicy: "days_before", refundDays: days }}
+            demo
+          />,
+        );
+        expect(tickets(container).querySelector("[data-refund-policy]")).toHaveTextContent(text);
+        // The ACL line is one size on every page: text-sm, muted.
+        expect(within(tickets(container)).getByText(REFUND_ACL_STATEMENT)).toHaveClass("text-sm", "text-muted");
+        unmount();
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an event closer than its policy's days says the refund window has closed (never 'up to 7 days before')", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // Three days before the event.
+    vi.setSystemTime(new Date("2026-11-25T08:00:00.000Z"));
+    try {
+      const { container } = render(
+        <EventDetailsView
+          event={{
+            ...findEvent("neon-static"),
+            startsAt: "2026-11-28T08:00:00.000Z",
+            endsAt: "2026-11-28T11:00:00.000Z",
+            refundPolicy: "days_before",
+            refundDays: 7,
+          }}
+          demo
+        />,
+      );
+      expect(tickets(container).querySelector("[data-refund-policy]")).toHaveTextContent(
+        "The refund window for this event has closed. No refunds for change of mind.",
+      );
+      expect(container).not.toHaveTextContent("up to 7 days");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says nothing untrue for a days_before policy without valid days (the links stay)", () => {
+    const { container } = render(<EventDetailsView event={{ ...findEvent("neon-static"), refundPolicy: "days_before" }} demo />);
+    expect(container.querySelector("[data-refund-policy]")).toBeNull();
+    expect(within(tickets(container)).getByRole("link", { name: "Request a refund" })).toBeInTheDocument();
   });
 
   it("no refunds row where nothing can be paid for: free-only, ended, or external", () => {
@@ -467,6 +573,8 @@ describe("EventDetailsView booking info beside the tickets", () => {
       const { container, unmount } = render(<EventDetailsView event={event} demo />);
       expect(container.querySelector("[data-booking-info]")).toBeNull();
       expect(within(tickets(container)).queryByText("Refunds")).toBeNull();
+      expect(container.querySelector("[data-refund-policy]")).toBeNull();
+      expect(container).not.toHaveTextContent(REFUND_ACL_STATEMENT);
       unmount();
     }
     vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));

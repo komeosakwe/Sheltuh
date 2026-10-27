@@ -6,6 +6,8 @@ import { ClipStorageError, type ClipStorage } from "@/lib/server/clip-storage";
 import type { Db } from "@/lib/server/db";
 import type { Deps } from "@/lib/server/deps";
 import type { EmailMessage } from "@/lib/server/email";
+import { PlacesUnavailableError, type GooglePlace, type PlaceSuggestion, type Places } from "@/lib/server/places";
+import type { AppleWalletConfig, GoogleWalletConfig } from "@/lib/server/wallet/config";
 import { runHandler, type Handler } from "@/lib/server/route";
 
 export const WEBHOOK_SECRET = "whsec_test_secret";
@@ -20,7 +22,7 @@ export function embeddedSession(id: string, extra: Record<string, unknown> = {})
 }
 
 /**
- * The payment options every paid Checkout Session must carry (orders.ts
+ * The payment options every paid Checkout Session must carry (checkout-attempts.ts
  * SESSION_PAYMENT_OPTIONS): Adaptive Pricing pinned off, so buyers pay exactly
  * the A$ total; no payment method list or wallet options, so the Dashboard's
  * cards, Apple Pay, Google Pay and Link apply; and nothing saved for later.
@@ -41,6 +43,7 @@ export function expectSessionPaymentOptions(params: Record<string, unknown>) {
   }
   expect(params.payment_intent_data, "payment_intent_data.setup_future_usage").not.toHaveProperty("setup_future_usage");
 }
+export const OPS_ALERT_EMAIL = "ops@sheltuh.test";
 
 /** Stripe's own offline signing/verification, for realistic webhook tests. */
 const realStripe = new Stripe("sk_test_not_a_real_key");
@@ -66,7 +69,12 @@ export function createFakeStripe() {
         ),
       },
     },
-    refunds: { create: vi.fn().mockResolvedValue({ id: "re_test_1", status: "succeeded" }) },
+    refunds: {
+      create: vi.fn().mockResolvedValue({ id: "re_test_1", status: "succeeded" }),
+      // Asked before a refund is reported as not completed. By default Stripe "can't be reached", so the
+      // reported status stands; a test that needs Stripe's current answer mocks it.
+      retrieve: vi.fn().mockRejectedValue(new Stripe.errors.StripeConnectionError({ message: "not mocked" })),
+    },
     webhooks: realStripe.webhooks,
   };
 }
@@ -74,7 +82,10 @@ export function createFakeStripe() {
 export type FakeStripe = ReturnType<typeof createFakeStripe>;
 
 /** A signed webhook request exactly as Stripe would send it. */
-export function stripeWebhookRequest(event: { type: string; data: { object: unknown } }, secret = WEBHOOK_SECRET) {
+export function stripeWebhookRequest(
+  event: { type: string; data: { object: unknown }; id?: string; created?: number },
+  secret = WEBHOOK_SECRET,
+) {
   const payload = JSON.stringify({ id: "evt_test", object: "event", ...event });
   const signature = realStripe.webhooks.generateTestHeaderString({ payload, secret });
   return new Request(`${SITE_URL}/api/stripe/webhook`, {
@@ -82,6 +93,17 @@ export function stripeWebhookRequest(event: { type: string; data: { object: unkn
     headers: { "stripe-signature": signature, "content-type": "application/json" },
     body: payload,
   });
+}
+
+/**
+ * What a paid Checkout Session for this order says it charged, as Stripe sends
+ * it (`amount_total`, `currency`): the order's stored total in AUD, which is
+ * all the webhook fulfils (lib/server/handlers/orders.ts,
+ * sessionMoneyMismatch). Nothing for an order that doesn't exist.
+ */
+export async function sessionAmount(db: Db, orderId: string): Promise<{ amount_total?: number; currency?: string }> {
+  const [row] = await db.query<{ total_cents: number }>(`select total_cents from public.orders where id = $1`, [orderId]);
+  return row ? { amount_total: Number(row.total_cents), currency: "aud" } : {};
 }
 
 /** The fake Storage's origin: its URLs are never fetched. */
@@ -211,6 +233,95 @@ export class FakeAuthAdmin implements AuthAdmin {
   }
 }
 
+/** A Google place id as Places API (New) issues them (27 characters, ChIJ…): The Tote's, in FakePlaces by default. */
+export const TOTE_PLACE_ID = "ChIJtoteHotelCollingwood001";
+/** Another known place, in Sydney (NSW). */
+export const SYDNEY_PLACE_ID = "ChIJoperaHouseSydney0000001";
+/** A known place in New Zealand: not in Australia. */
+export const AUCKLAND_PLACE_ID = "ChIJskyTowerAuckland000001";
+
+/**
+ * A stand-in for Google Places API (New) (lib/server/places.ts): `known`
+ * places by id (The Tote in Collingwood VIC, the Opera House in Sydney NSW,
+ * the Sky Tower in Auckland); `suggestions` for any input. `calls` records
+ * every call (the method, and the place id or session token; what was typed
+ * is kept apart in `inputs`, for the tests that check it never reaches a log);
+ * set `failing` to make every call throw PlacesUnavailableError, as Google
+ * being down or over quota would.
+ */
+export class FakePlaces implements Places {
+  readonly calls: { method: "autocomplete" | "details" | "verify"; placeId?: string; sessionToken?: string }[] = [];
+  readonly inputs: string[] = [];
+  failing = false;
+  readonly known = new Map<string, GooglePlace>([
+    [
+      TOTE_PLACE_ID,
+      {
+        placeId: TOTE_PLACE_ID,
+        formattedAddress: "71 Johnston St, Collingwood VIC 3066",
+        streetAddress: "71 Johnston St",
+        locality: "Collingwood",
+        postcode: "3066",
+        regionCode: "AU",
+        state: "VIC",
+      },
+    ],
+    [
+      SYDNEY_PLACE_ID,
+      {
+        placeId: SYDNEY_PLACE_ID,
+        formattedAddress: "Bennelong Point, Sydney NSW 2000",
+        streetAddress: null,
+        locality: "Sydney",
+        postcode: "2000",
+        regionCode: "AU",
+        state: "NSW",
+      },
+    ],
+    [
+      AUCKLAND_PLACE_ID,
+      {
+        placeId: AUCKLAND_PLACE_ID,
+        formattedAddress: "Victoria St W, Auckland CBD, Auckland 1010, New Zealand",
+        streetAddress: "Victoria St W",
+        locality: "Auckland",
+        postcode: "1010",
+        regionCode: "NZ",
+        state: null,
+      },
+    ],
+  ]);
+  suggestions: PlaceSuggestion[] = [
+    { placeId: TOTE_PLACE_ID, primaryText: "The Tote Hotel", secondaryText: "Johnston Street, Collingwood VIC, Australia" },
+  ];
+
+  /** How many times `method` was called. */
+  count(method: "autocomplete" | "details" | "verify"): number {
+    return this.calls.filter((c) => c.method === method).length;
+  }
+
+  async autocomplete(input: string, sessionToken: string) {
+    this.calls.push({ method: "autocomplete", sessionToken });
+    this.inputs.push(input);
+    if (this.failing) throw new PlacesUnavailableError("http_503");
+    return this.suggestions.map((s) => ({ ...s }));
+  }
+
+  async details(placeId: string, sessionToken: string) {
+    this.calls.push({ method: "details", placeId, sessionToken });
+    if (this.failing) throw new PlacesUnavailableError("timeout");
+    const place = this.known.get(placeId);
+    return place ? { ...place } : null;
+  }
+
+  async verify(placeId: string) {
+    this.calls.push({ method: "verify", placeId });
+    if (this.failing) throw new PlacesUnavailableError("timeout");
+    const place = this.known.get(placeId);
+    return place ? { ...place, formattedAddress: null } : null;
+  }
+}
+
 export class TestApi {
   readonly stripe = createFakeStripe();
   /** Every email the API "sent". Make it throw to simulate an SMTP outage. */
@@ -227,6 +338,14 @@ export class TestApi {
   authAdmin: FakeAuthAdmin | undefined;
   /** ADMIN_NOTIFY_EMAILS as Deps reports it (parsed); empty to simulate it unset. */
   adminNotifyEmails: string[] = [];
+  /** Where ops alerts go; undefined to simulate OPS_ALERT_EMAIL being unset. */
+  opsAlertEmail: string | undefined = OPS_ALERT_EMAIL;
+  /** Google Wallet passes; undefined (the default) to simulate the GOOGLE_WALLET_* variables unset. */
+  googleWallet: GoogleWalletConfig | undefined;
+  /** Apple Wallet passes; undefined (the default) to simulate the APPLE_WALLET_* variables unset. */
+  appleWallet: AppleWalletConfig | undefined;
+  /** Google Places; undefined to simulate GOOGLE_MAPS_API_KEY being unset. */
+  places: FakePlaces | undefined = new FakePlaces();
   private readonly callers = new Map<string, Caller>();
 
   constructor(readonly db: Db) {
@@ -249,6 +368,10 @@ export class TestApi {
       clipStorage: () => this.clipStorage,
       authAdmin: () => this.authAdmin,
       adminNotifyEmails: () => this.adminNotifyEmails,
+      opsAlertEmail: () => this.opsAlertEmail,
+      googleWallet: () => this.googleWallet,
+      appleWallet: async () => this.appleWallet,
+      places: () => this.places,
     };
   }
 
@@ -317,8 +440,19 @@ export class TestApi {
     return this.send(handler, req, options.params);
   }
 
-  async send<P extends Record<string, string>>(handler: Handler<P>, req: Request, params?: P) {
-    const res = await runHandler(handler, req, (params ?? {}) as P, this.deps);
+  /** As call(), but the raw Response (a redirect, or a binary body such as a .pkpass). */
+  async callRaw<P extends Record<string, string>>(
+    handler: Handler<P>,
+    options: { params?: P; query?: Record<string, string>; headers?: Record<string, string> } = {},
+  ): Promise<Response> {
+    const url = new URL(`${SITE_URL}/api/test`);
+    for (const [k, v] of Object.entries(options.query ?? {})) url.searchParams.set(k, v);
+    return runHandler(handler, new Request(url, { headers: options.headers }), (options.params ?? {}) as P, this.deps);
+  }
+
+  /** A request, or one still being built (a webhook fixture that reads the order's amount first). */
+  async send<P extends Record<string, string>>(handler: Handler<P>, req: Request | Promise<Request>, params?: P) {
+    const res = await runHandler(handler, await req, (params ?? {}) as P, this.deps);
     const text = await res.text();
     return { status: res.status, body: text ? JSON.parse(text) : undefined, headers: res.headers };
   }

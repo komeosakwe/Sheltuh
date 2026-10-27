@@ -1,14 +1,18 @@
+import type { RefundPolicy } from "@/lib/refund-policy";
 import type { TicketingMode } from "@/lib/ticketing";
 import type { EventCategory, EventClip, FeePolicy } from "@/lib/types";
 import type { FeaturedVideo } from "./featured-video";
 import type { PublicEvent } from "./public-events";
 import type { SeatMapTemplate, TicketSeat } from "@/lib/seating/template";
+import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
 
 export type { FeaturedVideo, FeaturedVideoProvider } from "./featured-video";
 export type { EventClip } from "@/lib/types";
 
 export type { TicketingMode } from "@/lib/ticketing";
+export type { RefundPolicy } from "@/lib/refund-policy";
 export type { SeatKind, SeatMapTemplate, TicketSeat } from "@/lib/seating/template";
+export type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
 
 export type OrganiserStatus = "pending" | "approved" | "rejected";
 
@@ -40,6 +44,14 @@ export interface OrganiserRecord {
    * id only. Unset when there's none. Public on their profile once approved.
    */
   featuredVideo?: FeaturedVideo;
+  /**
+   * An admin has turned on review of this organiser's events (POST
+   * /api/admin/organisers/{id}/event-review): publishing one sends it to the
+   * review queue instead of going live (POST /api/events/{id}/publish).
+   * Always sent by the API; optional so older fixtures stay valid (absent
+   * means false).
+   */
+  eventReviewRequired?: boolean;
   /**
    * The organiser's logo (512 px square WebP), when they've uploaded one:
    * `/api/organisers/{organiserId}/logo?v={version}`. Public once approved
@@ -205,6 +217,10 @@ export interface EventEditChanges {
   venueName?: TicketingFieldChange<string>;
   venueAddress?: TicketingFieldChange<string>;
   suburb?: TicketingFieldChange<string>;
+  /** An admin moved the event to another state or territory. */
+  state?: TicketingFieldChange<StateCode>;
+  /** An admin changed the zone the event's times are in (the instants are in `startsAt` / `endsAt` when they moved). */
+  timeZone?: TicketingFieldChange<AustralianTimeZone>;
   startsAt?: TicketingFieldChange<string>;
   endsAt?: TicketingFieldChange<string>;
   ticketTypes?: TicketingFieldChange<TicketTypeInput[]>;
@@ -215,7 +231,70 @@ export interface EventEditChanges {
   clip?: TicketingFieldChange<string>;
   /** An admin changed the clip's description. */
   clipDescription?: TicketingFieldChange<string>;
+  /** An admin changed the refund policy (lib/refund-policy.ts). */
+  refundPolicy?: TicketingFieldChange<RefundPolicy>;
+  /** An admin changed the refund policy's days (null for `no_change_of_mind`). */
+  refundDays?: TicketingFieldChange<number>;
+  /** An admin changed the venue location (null: none, an event from before venue locations). */
+  location?: TicketingFieldChange<VenueLocation>;
 }
+
+/**
+ * A venue pin: where the ORGANISER put it, on our own map (decimal degrees,
+ * 6 decimal places, inside lib/geo.ts AUSTRALIA_BOUNDS). Never Google's
+ * coordinates for a place: the API never requests, stores or returns those.
+ */
+export interface VenuePin {
+  lat: number;
+  lng: number;
+}
+
+/**
+ * How the venue was located: `places`, a Google place the organiser picked
+ * (`placeId`; the venue's name, address and suburb are still what the
+ * organiser confirmed); `manual_pin`, the organiser's pin alone ("Can't find
+ * it on Google Maps?").
+ */
+export type VenueLocationSource = "places" | "manual_pin";
+
+/**
+ * An event's venue location as the API returns it (EventRecord, AdminEventRecord
+ * and PublicEvent `location`). Absent for an event saved without one (every
+ * event from before venue locations), so those payloads are unchanged.
+ * - `placeId`: `places` only. Link with lib/maps.ts (directionsHref's
+ *   `destination_place_id`, googlePlaceHref); never resolve it to coordinates.
+ * - `pin`: the organiser's confirmed pin. Always there for `manual_pin`; for
+ *   `places`, once the organiser has checked the pin (required to publish or
+ *   submit: `location_required`). Drives our own maps, the Apple Maps link
+ *   and wallet passes.
+ */
+export interface VenueLocation {
+  source: VenueLocationSource;
+  placeId?: string;
+  pin?: VenuePin;
+}
+
+/**
+ * The event body's `location` (POST and PATCH /events, POST and PATCH
+ * /admin/events). Absent: kept as stored on edit, none on create. `null`:
+ * cleared (no location; the event then can't be published or submitted until
+ * it gets one again).
+ * - `{source: "places", placeId, pin?}`: `placeId` from POST
+ *   /api/places/autocomplete (pattern `^[A-Za-z0-9_-]{16,256}$`). When it's
+ *   new or changed, the API checks it with Google: unknown, or not in
+ *   Australia, is ApiError 400 fieldErrors.location; in another state than
+ *   the event's is 400 fieldErrors.suburb; Google unreachable is 503
+ *   fieldErrors.location with `code: "places_unavailable"` (try again, or
+ *   drop a pin instead). `pin` optional while drafting (null or absent: none).
+ * - `{source: "manual_pin", pin}`: `pin` required.
+ *
+ * A pin must be finite numbers inside lib/geo.ts AUSTRALIA_BOUNDS and within
+ * the event's suburb's reach plus 10 km (lib/location.ts isPinNearLocality),
+ * else 400 fieldErrors.location. It's saved rounded to 6 decimal places.
+ */
+export type VenueLocationInput =
+  | { source: "places"; placeId: string; pin?: VenuePin | null }
+  | { source: "manual_pin"; pin: VenuePin };
 
 /** ModerationLogEntry.by for an admin's entry in an organiser's view: never the admin's account id. */
 export const SHELTUH_TEAM_ACTOR = "Sheltüh team";
@@ -260,7 +339,28 @@ export interface EventRecord {
   category: EventCategory;
   venueName: string;
   venueAddress: string;
+  /**
+   * The suburb. Saved with `state` and `timeZone`, it's the ABS locality's
+   * display name (lib/location.ts `Locality.name`): the name alone where
+   * that's unambiguous ("Fitzroy"), with its state otherwise ("Richmond
+   * NSW"). Saved without them (an older client), as typed.
+   */
   suburb: string;
+  /**
+   * The event's state or territory (lib/time-zones.ts STATE_CODES; `OT` the
+   * other territories). Always sent by the API; optional so older fixtures
+   * stay valid (absent means `VIC`).
+   */
+  state?: StateCode;
+  /**
+   * The IANA zone the event's times are entered and shown in, one of
+   * ZONES_BY_STATE[state] (absent means `Australia/Melbourne`). Format
+   * `startsAt` / `endsAt` with it (lib/format.ts), label it with
+   * formatTimeZoneLabel(startsAt, timeZone, state), and fill the editor's
+   * date and time inputs with toDateTimeInputParts(…, timeZone). Always sent
+   * by the API; optional so older fixtures stay valid.
+   */
+  timeZone?: AustralianTimeZone;
   startsAt: string;
   endsAt: string;
   organiserName: string;
@@ -304,17 +404,90 @@ export interface EventRecord {
    */
   ticketingLocked?: boolean;
   /**
+   * The event's refund policy (lib/refund-policy.ts: refundPolicySummary
+   * says it): `no_change_of_mind` (the default) or `days_before`. Always sent
+   * by the API; optional so older fixtures stay valid (absent means
+   * `no_change_of_mind`). The organiser can change it only while the event is
+   * a draft or rejected; once it has pending or paid orders (an unpublished
+   * event, or an admin's edit of any event), only to a more generous one
+   * (lib/refund-policy.ts, tightensRefundPolicy): ApiError 409 `code:
+   * "refund_policy_tightened"` otherwise.
+   */
+  refundPolicy?: RefundPolicy;
+  /** `days_before` only: refunds up to this many days (1–30) before the event starts. Absent otherwise. */
+  refundDays?: number;
+  /** The venue's location (see VenueLocation), only when it has one; absent for an event saved without one. */
+  location?: VenueLocation;
+  /**
    * The event's seat map, when it has one. The organiser can change the map
    * only while `ticketingLocked` is false (never approved) and the event is a
    * draft or rejected; after that only an admin, while it has no orders.
    */
   seating?: EventSeating;
   status: EventStatus;
+  /**
+   * An admin's note to the organiser: why it was rejected, or why it was
+   * unpublished (when the admin gave a reason). Cleared when it's published
+   * or submitted again.
+   */
   rejectionReason?: string;
   moderationLog: ModerationLogEntry[];
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * The error body's `code` (ApiError.body.code) when POST
+ * /api/events/{eventId}/publish is refused, always with a 409:
+ * - `payouts_required`: a paid Sheltüh ticket type, and the organiser's
+ *   payouts aren't set up (lib/api/events.ts isPayoutsRequiredError).
+ * - `event_ended`: its end has passed.
+ * - `in_review`: it's already waiting for review.
+ * - `event_changed`: its ticket link changed while it was being published;
+ *   reload it and try again.
+ * - `location_required`: it has no confirmed venue location yet (the
+ *   organiser's pin: `location.pin`, a Google place with its pin checked, or
+ *   a manual pin). POST /api/events/{eventId}/submit refuses the same way.
+ */
+export type PublishEventConflictCode =
+  | "payouts_required"
+  | "event_ended"
+  | "in_review"
+  | "event_changed"
+  | "location_required";
+
+/**
+ * Why POST /api/events/{eventId}/publish sent the event to review instead of
+ * live (PublishEventResponse.reviewReason): the first of these that applied,
+ * in this order.
+ * - `review_required`: an admin turned on review of the organiser's events
+ *   (OrganiserRecord.eventReviewRequired).
+ * - `removed_before`: it's rejected, or Sheltüh's latest decision about it
+ *   was to reject or unpublish it.
+ * - `seated`: it has a seat map.
+ * - `unknown_ticket_site`: its tickets are sold on a site that isn't a known
+ *   ticketing site.
+ * - `first_paid_event`: it has paid tickets sold on Sheltüh, and Sheltüh
+ *   hasn't yet approved a paid Sheltüh event of this organiser's (one still
+ *   up, or that ran). Free and external events are never held for this.
+ * - `daily_limit`: the organiser's (10) or the platform's (100) publishes
+ *   for 24 hours are used up.
+ * Clients should treat an unknown value like no reason (a general message).
+ */
+export type PublishEventReviewReason =
+  | "review_required"
+  | "removed_before"
+  | "seated"
+  | "unknown_ticket_site"
+  | "first_paid_event"
+  | "daily_limit";
+
+/**
+ * POST /api/events/{eventId}/publish's 200: the event, plus `reviewReason`
+ * when this call sent it to review (`status: "pending_review"`). Absent when
+ * it went live, or was already published.
+ */
+export type PublishEventResponse = EventRecord & { reviewReason?: PublishEventReviewReason };
 
 /**
  * PATCH /api/admin/events/{eventId}/ticketing (admin): sets an event's
@@ -343,6 +516,14 @@ export interface AdminEventRecord extends EventRecord {
    * an admin never curated: boost 1, excluded false.
    */
   curation: AdminEventCurationState;
+  /**
+   * Published events only: when it was last approved, i.e. went live (the
+   * newest `approved` log entry), and by whom: `organiser` (the organiser
+   * published it themselves, POST /api/events/{id}/publish) or `sheltuh`
+   * (an admin approved or published it). Absent for any other status.
+   */
+  publishedAt?: string;
+  publishedBy?: "organiser" | "sheltuh";
 }
 
 /** An event's trending curation as AdminEventRecord carries it. */
@@ -415,8 +596,12 @@ export interface OrderRecord {
   lineItems: OrderLineItem[];
   subtotalCents: number;
   buyerFeeCents: number;
+  /** What the buyer paid: subtotal, buyer-paid fees and any Support Sheltüh. */
   totalCents: number;
+  /** The booking fee (the platform's, whoever paid it). Never includes Support Sheltüh. */
   applicationFeeCents: number;
+  /** Support Sheltüh (lib/support.ts), all of it the platform's: only when the buyer added some. */
+  supportCents?: number;
   status: OrderStatus;
   /** Unset for free orders, which never touch Stripe. */
   stripeCheckoutSessionId?: string;
@@ -554,19 +739,54 @@ export interface CustomerOrder {
    */
   eventStartsAt?: string;
   eventEndsAt?: string;
+  /**
+   * The zone to show `eventStartsAt` / `eventEndsAt` in (EventRecord.timeZone)
+   * and the event's state (for formatTimeZoneLabel: the ACT's "Canberra
+   * time"). Sent whenever the times are; absent otherwise (and from an older
+   * API: then Melbourne).
+   */
+  eventTimeZone?: AustralianTimeZone;
+  eventState?: StateCode;
   venueName?: string;
   suburb?: string;
+  /**
+   * The event's current refund policy (lib/refund-policy.ts), with
+   * `refundDays` for `days_before`. Like the date and venue: only for a
+   * `paid` order whose event is published (`eventListed`).
+   */
+  refundPolicy?: RefundPolicy;
+  refundDays?: number;
   /** The buyer's address, masked: "m***@example.com". Unset if none is on record. */
   maskedEmail?: string;
   subtotalCents: number;
   /** Booking fees the buyer paid (not any the organiser absorbed). */
   buyerFeeCents: number;
+  /**
+   * What the buyer added for Support Sheltüh (lib/support.ts: SUPPORT_LABEL),
+   * shown as its own line. Only when they added some; unset otherwise (and
+   * from an older API).
+   */
+  supportCents?: number;
+  /** What the buyer paid, all-inclusive: subtotal, buyer-paid fees and any Support Sheltüh. */
   totalCents: number;
   /**
    * Only for a `paid` order; empty for every other status (a refunded order's
    * tickets are void). In the ticket email's order (ticket type, then code).
    */
   tickets: CustomerTicket[];
+  /**
+   * Which wallets the tickets can be added to (`/api/orders/by-session/{id}/wallet/{google|apple}?ticket={n}`),
+   * from the server's own configuration: a wallet is on only once its credentials are set. Only for a `paid`
+   * order whose event is published (`eventListed`) and that has tickets; unset otherwise (and from an older
+   * API): show no wallet buttons then.
+   */
+  wallet?: WalletAvailability;
+}
+
+/** Which wallet passes the server can make (CustomerOrder.wallet). */
+export interface WalletAvailability {
+  google: boolean;
+  apple: boolean;
 }
 
 export interface CustomerTicket {
@@ -616,16 +836,35 @@ export interface OrderPaymentSummary {
   /** The event's current start and end (ISO instants), venue name and suburb: only while it's published. */
   eventStartsAt?: string;
   eventEndsAt?: string;
+  /** As CustomerOrder's: the zone and state for the times, sent whenever they are (absent from an older API: Melbourne). */
+  eventTimeZone?: AustralianTimeZone;
+  eventState?: StateCode;
   venueName?: string;
   suburb?: string;
   /** A reserved-seating order (it holds seats until the hold ends). */
   seated: boolean;
+  /**
+   * The event's current refund policy, to show before paying with
+   * REFUND_ACL_STATEMENT (lib/refund-policy.ts: refundPolicySummary). It can
+   * only have become more generous since the order was made (an event with
+   * pending orders can't be tightened). Always sent by the API; optional for
+   * older responses (absent: say nothing about the policy).
+   */
+  refundPolicy?: RefundPolicy;
+  /** `days_before` only (1–30). */
+  refundDays?: number;
   /** In the order's line order. */
   lines: OrderPaymentLine[];
   subtotalCents: number;
   /** Booking fees the buyer pays (not any the organiser absorbs). */
   buyerFeeCents: number;
-  /** What the buyer pays, all-inclusive: the same amount as Stripe's form. */
+  /**
+   * Support Sheltüh the buyer chose at checkout (lib/support.ts: SUPPORT_LABEL),
+   * its own line in the summary and in Stripe's form. Only when there is some;
+   * unset otherwise (and from an older API).
+   */
+  supportCents?: number;
+  /** What the buyer pays, all-inclusive (Support Sheltüh included): the same amount as Stripe's form. */
   totalCents: number;
 }
 
@@ -693,6 +932,158 @@ export interface AdminEmailJob {
   maskedEmail?: string;
 }
 
+/** Every kind of outbox job (private.email_outbox's kind check). */
+export type EmailOutboxKind =
+  | "ticket_email"
+  | "waitlist_available"
+  | "organiser_new_events"
+  | "event_review"
+  | "organiser_review"
+  | "ops_alert"
+  | "event_published";
+
+export const EMAIL_OUTBOX_KINDS: readonly EmailOutboxKind[] = [
+  "ticket_email",
+  "waitlist_available",
+  "organiser_new_events",
+  "event_review",
+  "organiser_review",
+  "ops_alert",
+  "event_published",
+];
+
+/** One kind's (or every kind's) outbox counts in EmailOutboxHealth. Sent jobs aren't counted. */
+export interface EmailOutboxHealthCounts {
+  /** Waiting for a worker right now. */
+  due: number;
+  /** Due (or leased by a worker that died) for longer than `overdueAfterMinutes`: no run has picked them up. */
+  overdue: number;
+  /** How long the oldest overdue job has been waiting. Unset when none is overdue. */
+  oldestOverdueSeconds?: number;
+  /** A retry (or a follower email) scheduled for later. */
+  waiting: number;
+  /** Being sent right now. */
+  sending: number;
+  /** Leased by a worker that never finished: taken again by the next run. */
+  expiredLeases: number;
+  /** Gave up after the last attempt, or couldn't be sent at all: the dead letters. */
+  failed: number;
+  failedLast7Days: number;
+}
+
+/**
+ * GET /api/admin/emails/health. Whether the email outbox is being worked
+ * (docs/architecture.md, "Payment flow"). Counts and times only: never an
+ * address, an order or a token.
+ */
+export interface EmailOutboxHealth {
+  checkedAt: string;
+  overdueAfterMinutes: number;
+  /** The last run of GET /api/cron/email-outbox that finished, from any scheduler. Unset: none recorded yet. */
+  lastCronRun?: { finishedAt: string; claimed: number; sent: number; retrying: number; failed: number };
+  /** CRON_SECRET is set. Without it the cron route refuses every call and nothing is retried. */
+  cronSecretConfigured: boolean;
+  totals: EmailOutboxHealthCounts;
+  /** Every kind, in EMAIL_OUTBOX_KINDS order (zeros included). */
+  byKind: (EmailOutboxHealthCounts & { kind: EmailOutboxKind })[];
+}
+
+// ---------------------------------------------------------------------------
+// Payment exceptions (admin)
+// ---------------------------------------------------------------------------
+
+/**
+ * - `refund_not_completed`: Stripe reported a refund failed, canceled or
+ *   requires_action. With `urgent`, the order was already voided (its tickets
+ *   are void) but the buyer hasn't been repaid: re-refund in the Stripe
+ *   dashboard.
+ * - `partial_refund`: a paid order was partly refunded; its tickets stand.
+ * - `manual_refund_required`: an automatic refund couldn't be requested (no
+ *   payment on record): refund it in the Stripe dashboard.
+ * - `amount_mismatch`: Stripe reported a paid Checkout Session whose amount
+ *   or currency isn't the order's stored total in AUD. No tickets were
+ *   issued, the order was marked `failed` and the payment refunded in full
+ *   automatically: check the refund and the payment in the Stripe
+ *   dashboard. Always `urgent`.
+ */
+export type PaymentExceptionKind = "refund_not_completed" | "partial_refund" | "manual_refund_required" | "amount_mismatch";
+
+export type PaymentExceptionStatus = "open" | "resolved";
+
+export const PAYMENT_EXCEPTION_STATUSES: readonly PaymentExceptionStatus[] = ["open", "resolved"];
+
+/**
+ * GET /api/admin/payment-exceptions. Something about a payment that needs a
+ * person (docs/architecture.md, "Refunds made in Stripe"). Nothing is
+ * restored or refunded again because of one (an `amount_mismatch` payment's
+ * automatic refund is requested as it opens): an admin acts in the Stripe
+ * dashboard, then resolves it with a note. The order is shown by its short reference
+ * only, never its id; no buyer data.
+ */
+export interface AdminPaymentException {
+  /** POST /api/admin/payment-exceptions/{exceptionId}/resolve. */
+  exceptionId: string;
+  kind: PaymentExceptionKind;
+  status: PaymentExceptionStatus;
+  /**
+   * Needs a person first: a `refund_not_completed` whose order was voided (the
+   * buyer has neither tickets nor their money), or any `amount_mismatch`.
+   */
+  urgent: boolean;
+  /** Unset while the payment isn't matched to an order yet. */
+  orderReference?: string;
+  orderStatus?: OrderStatus;
+  eventTitle?: string;
+  /** To find the payment (and refund) in the Stripe dashboard. */
+  paymentIntentId?: string;
+  refundId?: string;
+  /** The latest Stripe event that changed it. */
+  stripeEventId?: string;
+  /** Amounts and statuses only. */
+  details: PaymentExceptionDetails;
+  /** When an ops alert was last queued (unset: none, e.g. over the daily cap). */
+  alertedAt?: string;
+  /** When it was opened, or last reopened. */
+  openedAt: string;
+  createdAt: string;
+  resolvedAt?: string;
+  /** `auto`: Stripe reported the refund succeeded (or the order was then refunded in full). */
+  resolution?: "auto" | "admin";
+  /** The resolving admin's account id. */
+  resolvedBy?: string;
+  resolutionNote?: string;
+}
+
+export interface PaymentExceptionDetails {
+  refundStatus?: string;
+  refundAmountCents?: number;
+  amountRefundedCents?: number;
+  totalCents?: number;
+  /**
+   * The order's Support Sheltüh amount (in totalCents and in the application
+   * fee; 0 for none), to split a dashboard refund (docs/supabase-setup.md,
+   * "Refunding a paid order"). Unset on exceptions opened before it was recorded.
+   */
+  supportCents?: number;
+  /** `amount_mismatch`: what Stripe's session says was charged (amount_total), in `currency`'s minor unit. */
+  amountChargedCents?: number;
+  /** `amount_mismatch`: the session's currency, lower case as Stripe sends it ("aud"). */
+  currency?: string;
+  /**
+   * Historical only: a `partial_refund` resolved by the tickets-only rule of
+   * 20261110000200_support_ticket_refund.sql (at least the total less the
+   * support refunded voided the order), the Support Sheltüh amount kept.
+   * Nothing sets it since 20261111000300_refund_no_inference.sql (only a full
+   * refund voids); exceptions resolved before then keep it.
+   */
+  supportKeptCents?: number;
+  /** The order's status when the exception was last updated. */
+  orderStatus?: string;
+  /** `sheltuh`: our automatic refund; `stripe`: one made in the Stripe dashboard. */
+  source?: string;
+  reason?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Admin summary
 // ---------------------------------------------------------------------------
@@ -727,6 +1118,14 @@ export interface AdminSummary {
    * `windowHours` (24) from now.
    */
   doorEvents: { count: number; windowHours: number };
+  /**
+   * Events organisers published themselves (POST /api/events/{id}/publish)
+   * within the last `windowHours` (72) that are still published and whose
+   * latest approval is the organiser's own (GET
+   * /admin/events?status=published&recent=1 lists them). Always sent by the
+   * API; optional so a client tolerates an older server.
+   */
+  eventsPublishedByOrganisers?: { count: number; windowHours: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -1127,7 +1526,7 @@ export interface DateRange {
 
 /** Money in integer cents. `netCents` = `grossCents` − `feesCents`. */
 export interface MoneyTotals {
-  /** What buyers paid, booking fees they paid included. */
+  /** What buyers paid for the event, booking fees they paid included; never Support Sheltüh (the platform's). */
   grossCents: number;
   /** Sheltüh's booking fees (lib/fees.ts), whether the buyer paid them or the organiser absorbed them. */
   feesCents: number;
@@ -1211,6 +1610,13 @@ export interface AnalyticsEventSummary {
   status: EventStatus;
   startsAt: string;
   endsAt: string;
+  /**
+   * The zone to show `startsAt` / `endsAt` in, and the event's state (for
+   * its label). Analytics days stay Melbourne days. Always sent; optional so
+   * older fixtures stay valid (absent: Melbourne).
+   */
+  timeZone?: AustralianTimeZone;
+  state?: StateCode;
   venueName: string;
   /** It's been approved at least once (it may since have been unpublished). */
   everPublished: boolean;
@@ -1294,6 +1700,9 @@ export interface AnalyticsOverviewEvent {
   slug: string;
   status: EventStatus;
   startsAt: string;
+  /** As AnalyticsEventSummary's: the zone for `startsAt`, and the state. Always sent; optional for older fixtures. */
+  timeZone?: AustralianTimeZone;
+  state?: StateCode;
   totals: AnalyticsTotals;
   /** With `compare=prevPeriod`. */
   previous?: AnalyticsTotals;
@@ -1472,7 +1881,18 @@ export interface CheckInLogEntry {
 
 /** GET /api/organisers/me/events/{eventId}/check-ins. */
 export interface CheckInSummary {
-  event: { eventId: string; title: string; startsAt: string; endsAt: string };
+  /**
+   * `timeZone` and `state`: the zone to show the times in, and the state for
+   * its label. Always sent; optional so older fixtures stay valid (absent: Melbourne).
+   */
+  event: {
+    eventId: string;
+    title: string;
+    startsAt: string;
+    endsAt: string;
+    timeZone?: AustralianTimeZone;
+    state?: StateCode;
+  };
   /** Tickets of paid orders checked in. */
   checkedIn: number;
   /** Tickets in paid orders. */
@@ -1574,8 +1994,37 @@ export interface CheckoutSeatsInput {
  * - 409 from POST /api/orders/confirm when a guest's seats went before they
  *   confirmed (`code: "seats_taken"`): `seats` (their labels) and `eventSlug`.
  */
+/**
+ * A paid checkout's error `code` (POST /events/{eventId}/checkout; docs/architecture.md, "Checkout idempotency"):
+ * - `checkout_in_progress` (409): the same attempt is still being set up; retry after `retryAfterSeconds`
+ *   (also the Retry-After header) with the same Idempotency-Key.
+ * - `checkout_expired` (409): this attempt's checkout ended (cancelled, failed or its session expired): start a
+ *   new checkout (a new key).
+ * - `checkout_completed` (409): this attempt's order was paid (its message says whether it was then refunded,
+ *   or is being refunded because the tickets sold out first).
+ * - `checkout_other_client` (409): the key belongs to a checkout started from another connection; nothing about it
+ *   is returned. Start a new checkout (a new key).
+ * - `idempotency_key_reused` (422): the key was used for a different basket, buyer or event.
+ * - `invalid_idempotency_key` (400): the Idempotency-Key header isn't a random (version 4) UUID.
+ * - `client_rate_limited` (429): this client started too many checkouts; `rate_limited` (429, seated only): too
+ *   many seat holds for the event (a seated checkout also has `hold_cap`). General admission has no event-wide
+ *   refusal: past its threshold the server only alerts.
+ * - `payment_provider_unavailable` (503): Stripe didn't answer; retry with the same key.
+ */
+export type CheckoutErrorCode =
+  | "checkout_in_progress"
+  | "checkout_expired"
+  | "checkout_completed"
+  | "checkout_other_client"
+  | "idempotency_key_reused"
+  | "invalid_idempotency_key"
+  | "client_rate_limited"
+  | "rate_limited"
+  | "payment_provider_unavailable";
+
 export interface SeatErrorDetails {
-  code?: "seats_unavailable" | "hold_cap" | "rate_limited" | "client_rate_limited" | "seat_map_changed" | "seats_taken";
+  /** A seat code, or (seated paid checkout) one of the attempt's own CheckoutErrorCode values. */
+  code?: "seats_unavailable" | "hold_cap" | "rate_limited" | "client_rate_limited" | "seat_map_changed" | "seats_taken" | CheckoutErrorCode;
   seatIds?: string[];
   seats?: TicketSeat[];
   eventSlug?: string;

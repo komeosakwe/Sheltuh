@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AccountContent from "@/components/account/AccountContent";
 import { avatarFileError } from "@/components/account/AvatarField";
@@ -26,6 +26,9 @@ vi.mock("@/lib/api/profiles", () => ({
   uploadMyAvatar: (...args: unknown[]) => uploadMyAvatar(...args),
   deleteMyAvatar: (...args: unknown[]) => deleteMyAvatar(...args),
   fetchAvatar: (...args: unknown[]) => fetchAvatar(...args),
+}));
+vi.mock("@/lib/api/organisers", () => ({
+  getMyOrganiser: () => Promise.reject(new ApiError(404, "No organiser application.")),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
@@ -58,23 +61,27 @@ function renderSettings(profile: ProfileRecord = PROFILE, onSaved = vi.fn(), onM
 }
 
 describe("member profile settings (/account)", () => {
-  it("sits on the account page under its own heading, off by default, with the delete wording updated", async () => {
+  it("sits first on the account page in the Your profile card, off by default, with the delete wording updated", async () => {
     getMyProfile.mockResolvedValue(PROFILE);
     render(
       <FakeAuthProvider value={fakeAuthValue({ email: "mia@example.com" })}>
         <AccountContent />
       </FakeAuthProvider>,
     );
-    const section = await screen.findByRole("region", { name: "Member profile" });
-    expect(within(section).getByRole("checkbox", { name: "Show my profile to other members" })).not.toBeChecked();
+    const toggle = await screen.findByRole("checkbox", { name: "Show my profile to other members" });
+    const section = screen.getByRole("region", { name: "Your profile" });
+    expect(section).toContainElement(toggle);
+    expect(section).toHaveAttribute("id", "member-profile");
+    expect(toggle).not.toBeChecked();
     expect(screen.getByRole("link", { name: "Organisers you follow" })).toHaveAttribute("href", "/following");
-    expect(screen.getByText(/Removes your display name and member profile \(bio, Instagram and photo\)/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Delete your profile" }));
+    expect(screen.getByText(/Removes your display name and member profile \(bio, Instagram and photo\)/)).toBeVisible();
   });
 
   it("explains the toggle in words, tied to the checkbox", () => {
     renderSettings();
     const toggle = screen.getByRole("checkbox", { name: "Show my profile to other members" });
-    expect(toggle).toHaveAccessibleDescription(/Off by default\. .*your name, bio, Instagram and photo.*Never your email/);
+    expect(toggle).toHaveAccessibleDescription(/Off by default\. .*your bio, Instagram, photo and upcoming events\. Never your email\./);
   });
 
   it("sends only what changed: visibility, bio, and a handle (a pasted link reduced to the name)", async () => {
@@ -176,7 +183,7 @@ describe("profile photo", () => {
     expect(input).toHaveAttribute("type", "file");
     expect(input).toHaveAttribute("accept", "image/jpeg,image/png,image/webp");
     expect(input).toHaveAccessibleName("Photo (optional) Choose a photo");
-    expect(input).toHaveAccessibleDescription(/remove everything stored in the file \(camera details, location\)/);
+    expect(input).toHaveAccessibleDescription(/Camera and location data removed\./);
   });
 
   it("previews the chosen photo while it uploads, says so, then saves", async () => {

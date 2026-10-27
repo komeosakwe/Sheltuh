@@ -48,7 +48,7 @@ No new grids. Placement inside existing boxes:
 ## 4. Imagery
 
 - **Card still:** unchanged. It's the event's `imageUrl`, or `EventArt`'s generated poster when there's no photo.
-  - Rail 4:3, grid 1:1, pair 12:5 (at most 200px tall) from lg; hero 4:3 (at most 30svh) on phones, 3:2 from sm.
+  - Rail 4:3, grid 1:1, pair 12:5 (at most 200px tall) from lg; hero 4:3 (at most 24svh since 27 Oct 2026; 26svh from 26 Oct, 30svh before) on phones, 3:2 from sm.
   - The chip shows on the poster fallback exactly as on a photo.
 - **Clip in the viewer:** the whole frame is always shown (`object-contain` on `bg-ink`) and never cropped. Portrait, square and landscape are all letterboxed in black.
 - **Video sizing:** `mx-auto block h-auto object-contain` plus an inline style from the clip's dimensions, `aspectRatio: "{w} / {h}"` and `width: min(100%, calc((80dvh - 10rem) * {w/h}))`, and the HTML `width` and `height` attributes. The box is the clip's exact shape, as wide as fits both the dialog and the height budget, and it's reserved before any bytes arrive, so the dialog doesn't jump when they do.
@@ -124,7 +124,7 @@ No new grids. Placement inside existing boxes:
 
 ### 5.3 Event page hero (`components/EventDetailsView.tsx`)
 
-**Wrapper:** wrap the hero `EventArt` in `<div className="relative -mx-5 sm:mx-0">` and move its classes to `aspect-[4/3] max-h-[30svh] w-full sm:aspect-[3/2] sm:max-h-none sm:rounded-card`. The box stays identical (the wrapper is the same width, `100%+2.5rem` on phones). Always wrap it, clip or not.
+**Wrapper:** wrap the hero `EventArt` in `<div className="relative -mx-5 sm:mx-0">` and move its classes to `aspect-[4/3] max-h-[24svh] w-full sm:aspect-[3/2] sm:max-h-none sm:rounded-card`. The box stays identical (the wrapper is the same width, `100%+2.5rem` on phones). Always wrap it, clip or not. (24svh since 27 Oct 2026, 26svh from 26 Oct, 30svh before: Save and Share on a phone's first screen.)
 
 **Chip:** a hero-size `ClipPlayButton` (`size="hero"`) at `absolute bottom-3 left-5 sm:left-3`. On phones this lines the chip up with the page's 20px text edge.
 - The target and chip are the same element: `inline-flex h-11 items-center gap-2 rounded-control border px-3.5`.

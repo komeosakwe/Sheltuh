@@ -17,8 +17,13 @@ import { route, type Handler } from "../route";
  * public event page shows: no organiser, order or personal data.
  */
 
-/** Short enough for a takedown (unpublish) or an edit to reach calendars soon; DTSTAMP is the response time. */
-export const CALENDAR_CACHE_CONTROL = "public, max-age=300";
+/**
+ * Short enough for a takedown (unpublish) or an edit to reach calendars soon;
+ * DTSTAMP is the response time. Five minutes in browsers and at the CDN
+ * (`s-maxage`: without it a shared cache such as Vercel's may not keep it);
+ * the file is the same for everyone.
+ */
+export const CALENDAR_CACHE_CONTROL = "public, max-age=300, s-maxage=300";
 
 const NOT_FOUND = "Event not found.";
 

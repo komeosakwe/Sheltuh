@@ -13,8 +13,8 @@
  * Usage (needs DATABASE_URL, e.g. in .env.local):
  *   npm run seed-dev-data
  */
-import postgres from "postgres";
 import { sampleEvents } from "../lib/sample-events";
+import { connectPostgres } from "../lib/server/db";
 
 async function main() {
   const databaseUrl = process.env.DATABASE_URL;
@@ -22,7 +22,9 @@ async function main() {
     console.error("Missing DATABASE_URL. Add it to .env.local (see docs/supabase-setup.md).");
     process.exit(1);
   }
-  const sql = postgres(databaseUrl, { prepare: false, max: 1 });
+  // Same TLS rule as the app (lib/server/db.ts): any host off this machine
+  // is always reached over TLS, whatever the URL says.
+  const sql = connectPostgres(databaseUrl, { prepare: false, max: 1 });
 
   let created = 0;
   let paidSkipped = 0;

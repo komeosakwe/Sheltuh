@@ -10,6 +10,7 @@ const FILLS = [
 const SIZES = {
   md: "size-8 text-xs leading-4",
   lg: "size-24 text-2xl leading-8 sm:size-32 sm:text-4xl sm:leading-10",
+  field: "size-18 text-xl leading-7",
 } as const;
 
 /**
@@ -19,6 +20,7 @@ const SIZES = {
  * Orange with black initials (6.18:1); the rest take turns by `index`, so a
  * list doesn't read as one grey block. Initials are 12px, never under 11px.
  * `size="lg"`: a member profile's header (96px, 128px from 640px).
+ * `size="field"`: the photo beside its controls on /account (72px).
  */
 export default function InitialsAvatar({
   name,

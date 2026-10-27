@@ -5,15 +5,18 @@
  * (docs/design/checkout-pay.md §5.2, §5.5).
  */
 
-import { formatEventTime } from "@/lib/format";
+import { eventZone, formatEventTime } from "@/lib/format";
+import { zoneShortLabel, type StateCode } from "@/lib/time-zones";
 
 /**
- * When a seated checkout's hold ends, as "8:31 pm Melbourne time". Melbourne,
- * like the event's own times beside it, and said so, for a buyer whose device
- * is set to another time zone.
+ * When a seated checkout's hold ends, as "8:31 pm Melbourne time": in the
+ * event's zone (Melbourne by default), like the event's own times beside it,
+ * and said so ("8:31 pm Perth time"), for a buyer whose device is set to
+ * another time zone. Pass the state for the ACT's "Canberra time".
  */
-export function formatHoldDeadline(isoLike: string): string {
-  return `${formatEventTime(isoLike)} Melbourne time`;
+export function formatHoldDeadline(isoLike: string, timeZone?: string | null, state?: StateCode | null): string {
+  const zone = eventZone(timeZone);
+  return `${formatEventTime(isoLike, zone)} ${zoneShortLabel(zone, state)}`;
 }
 
 /** Enough of an order to say where "back" is. */

@@ -31,7 +31,7 @@ import { runTrendingCron } from "@/lib/server/handlers/trending";
 import { SHELTUH_TEAM_ACTOR } from "@/lib/api/types";
 import type { AdminEventRecord, EventRecord } from "@/lib/server/types";
 import { CRON_SECRET, FAKE_STORAGE_ORIGIN, FakeClipStorage, SITE_URL, TestApi } from "./helpers/api";
-import { approvedOrganiser, draftEvent, eventInput, publishedEvent, signUpAdmin } from "./helpers/fixtures";
+import { approvedOrganiser, draftEvent, eventInput, publishedEvent, setUpPayouts, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
 /**
@@ -66,6 +66,8 @@ beforeEach(async () => {
   api = new TestApi(api.db);
   admin = await signUpAdmin(api);
   organiser = await approvedOrganiser(api, admin);
+  // Its events have paid tickets (eventInput), which need payouts to be submitted or published.
+  await setUpPayouts(api, organiser.organiserId);
 });
 
 afterEach(() => {

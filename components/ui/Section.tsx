@@ -6,17 +6,21 @@ import Strap from "./Strap";
 export function Page({
   children,
   width = "wide",
+  padding = "default",
   className = "",
 }: {
   children: ReactNode;
   width?: "wide" | "narrow" | "full";
+  /** `subNav`: less space above and below, for a page under a section sub-nav (the organiser area's). */
+  padding?: "default" | "subNav";
   className?: string;
 }) {
   // Narrow pages keep the site's left edge (in line with the logo): the same outer column as a
   // wide page, with the content left-aligned in a max-w-2xl column inside it.
   const max = width === "full" ? "" : "max-w-6xl";
+  const py = padding === "subNav" ? "py-8 sm:py-12" : "py-12 sm:py-20";
   return (
-    <div className={`mx-auto w-full px-5 py-12 sm:px-8 sm:py-20 ${max} ${className}`.trim()}>
+    <div className={`mx-auto w-full px-5 sm:px-8 ${py} ${max} ${className}`.trim()}>
       {width === "narrow" ? <div className="max-w-2xl">{children}</div> : children}
     </div>
   );

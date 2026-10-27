@@ -4,7 +4,9 @@ import {
   NEAR_STORAGE_KEY,
   clearStoredNear,
   parseStoredNear,
+  parseStoredNearState,
   readStoredNear,
+  readStoredNearState,
   writeStoredNear,
 } from "@/lib/near-storage";
 
@@ -21,6 +23,33 @@ describe("near-storage", () => {
     expect(clearStoredNear()).toBe(true);
     expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
     expect(readStoredNear()).toBe("");
+  });
+
+  it("stores the suburb's state with it, for the home to read without the suburb table", () => {
+    expect(writeStoredNear(" Richmond NSW ", "NSW")).toBe(true);
+    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "Richmond NSW", state: "NSW" });
+    expect(readStoredNear()).toBe("Richmond NSW");
+    expect(readStoredNearState()).toBe("NSW");
+    expect(writeStoredNear("Perth", "WA")).toBe(true);
+    expect(readStoredNearState()).toBe("WA");
+    expect(clearStoredNear()).toBe(true);
+    expect(readStoredNearState()).toBeNull();
+  });
+
+  it.each([
+    [null, null],
+    ["not json", null],
+    ['{"state": "WA"}', null],
+    ['{"suburb": "Perth", "state": "WA"}', "WA"],
+    // An entry saved before the state was: the state code the name ends with, if any.
+    ['{"suburb": "Richmond NSW"}', "NSW"],
+    ['{"suburb": "Richmond (Mackay) QLD"}', "QLD"],
+    ['{"suburb": "Perth"}', null],
+    // Only a real state code counts.
+    ['{"suburb": "Perth", "state": "XX"}', null],
+    ['{"suburb": "Perth", "state": 3}', null],
+  ])("reads the state of %s as %j", (raw, expected) => {
+    expect(parseStoredNearState(raw)).toBe(expected);
   });
 
   it.each([
@@ -47,6 +76,7 @@ describe("near-storage", () => {
       throw new Error("blocked");
     });
     expect(readStoredNear()).toBe("");
+    expect(readStoredNearState()).toBeNull();
     expect(writeStoredNear("Fitzroy")).toBe(false);
     expect(clearStoredNear()).toBe(false);
   });

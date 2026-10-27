@@ -1,4 +1,6 @@
+import type { RefundPolicy } from "./refund-policy";
 import type { TicketingMode } from "./ticketing";
+import type { AustralianTimeZone, StateCode } from "./time-zones";
 
 export type EventCategory =
   | "live-music"
@@ -120,8 +122,36 @@ export interface SheltuhEvent {
    * (e.g. from the live API) that don't have a geocoded venue location yet.
    */
   coordinates?: Coordinates;
-  /** ISO 8601 datetime, wall-clock time in Australia/Melbourne. */
+  /**
+   * The venue's Google Maps place id, when the organiser linked the venue to
+   * one: the Google Maps link routes to that place (lib/maps.ts). Only the
+   * id is kept. Google's own coordinates for it are never stored or used
+   * (Google Maps Platform terms: not on a non-Google map, not cached).
+   */
+  venuePlaceId?: string;
+  /**
+   * True when `coordinates` is the organiser's own pin on the venue, placed
+   * on our map ("Check the pin", components/dashboard/VenuePinMap.tsx), not
+   * an estimate. The map links route to the pin only then (lib/maps.ts).
+   */
+  venuePinned?: boolean;
+  /**
+   * The event's state or territory (lib/time-zones.ts STATE_CODES). Absent
+   * means `VIC`. Only needed to label the zone: the ACT's "Canberra time".
+   */
+  state?: StateCode;
+  /**
+   * The IANA zone the event's times are in, and shown in (lib/format.ts
+   * formatters take it last; eventTimeZone gives the default). Absent means
+   * Australia/Melbourne (every demo sample event).
+   */
+  timeZone?: AustralianTimeZone;
+  /**
+   * ISO 8601 instant (UTC, or with an offset): the moment the event starts,
+   * not a wall-clock time. Show it in `timeZone`.
+   */
   startsAt: string;
+  /** ISO 8601 instant, as `startsAt`. */
   endsAt?: string;
   organiserName: string;
   /**
@@ -160,6 +190,15 @@ export interface SheltuhEvent {
    * event are chosen on /events/{slug}/seats.
    */
   seating?: EventSeatingRef;
+  /**
+   * The refund policy for tickets sold on Sheltüh (lib/refund-policy.ts).
+   * Absent means `no_change_of_mind` (DEFAULT_REFUND_POLICY): every demo
+   * sample event, and an external event, whose ticketing site's own terms
+   * apply (never shown for one).
+   */
+  refundPolicy?: RefundPolicy;
+  /** `days_before` only: refunds up to this many days (1–30) before the event starts. */
+  refundDays?: number;
   /**
    * Optional organiser-supplied context — shown on the details page only
    * when present. Never inferred or invented: the live API doesn't collect

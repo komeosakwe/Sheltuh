@@ -9,7 +9,7 @@ import { orderReference, ticketPageLink } from "@/lib/server/ticket-email";
 import type { EventRecord } from "@/lib/server/types";
 import { TICKET_CODE_PATTERN } from "@/lib/ticket-code";
 import { ticketQrMatrix } from "@/lib/ticket-qr";
-import { embeddedSession, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
+import { embeddedSession, sessionAmount, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { approvedOrganiser, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
@@ -76,6 +76,7 @@ async function paidOrder(lineItems: { ticketTypeId: string; quantity: number }[]
           id: `cs_${paymentIntent}`,
           object: "checkout.session",
           client_reference_id: orderId,
+          ...(await sessionAmount(api.db, orderId)),
           payment_status: "paid",
           payment_intent: paymentIntent,
           customer_details: { email: "buyer@example.com" },
@@ -140,7 +141,8 @@ async function expectDistinctTicketsAndQrs(orderId: string, count: number) {
   expect(qrs).toHaveLength(count);
   for (const [i, code] of codes.entries()) {
     // The email's QR for ticket n is ticket n's code, in the same order as the page.
-    expect(qrs[i].content.equals(encodePng(ticketQrMatrix(code)!, 12, 4))).toBe(true);
+    // 16 px a module, 4-module quiet zone (lib/server/ticket-email.ts).
+    expect(qrs[i].content.equals(encodePng(ticketQrMatrix(code)!, 16, 4))).toBe(true);
     expect(email.html).toContain(`>${code}</td>`);
     expect(email.text).toContain(`Entry code: ${code}`);
   }
@@ -282,7 +284,7 @@ describe("the ticket page (GET /api/orders/by-session/{id})", () => {
       stripeWebhook,
       stripeWebhookRequest({
         type: "charge.refunded",
-        data: { object: { id: "ch_test", object: "charge", payment_intent: paymentIntent, amount_refunded: 6340, refunded: true } },
+        data: { object: { id: "ch_test", object: "charge", payment_intent: paymentIntent, amount_refunded: 6460, refunded: true } },
       }),
     );
     const body = await page(orderId);

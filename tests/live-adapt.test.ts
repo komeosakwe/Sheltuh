@@ -18,6 +18,20 @@ const base: PublicEvent = {
   ticketTypes: [],
 };
 
+describe("adaptPublicEvent: the event's state and time zone", () => {
+  it("carries them when sent", () => {
+    const adapted = adaptPublicEvent({ ...base, state: "WA", timeZone: "Australia/Perth" });
+    expect(adapted.state).toBe("WA");
+    expect(adapted.timeZone).toBe("Australia/Perth");
+  });
+
+  it("leaves them out of an older payload (absent means VIC, Melbourne)", () => {
+    const adapted = adaptPublicEvent(base);
+    expect(adapted).not.toHaveProperty("state");
+    expect(adapted).not.toHaveProperty("timeZone");
+  });
+});
+
 describe("adaptPublicEvent: external ticketing fields", () => {
   it("carries an external event's link, free flag and provider name", () => {
     const adapted = adaptPublicEvent({
@@ -118,5 +132,64 @@ describe("adaptPublicEvent: organiser logo", () => {
   it("has no logo field without one (the event page shows initials)", () => {
     expect(adaptPublicEvent(base)).not.toHaveProperty("organiserLogoThumbUrl");
     expect(adaptPublicEvent({ ...base, organiserLogoThumbUrl: "" })).not.toHaveProperty("organiserLogoThumbUrl");
+  });
+});
+
+describe("adaptPublicEvent: refund policy (docs/architecture.md, Refund policy)", () => {
+  it("carries the policy, and the days only for days_before", () => {
+    expect(adaptPublicEvent({ ...base, refundPolicy: "days_before", refundDays: 7 })).toMatchObject({
+      refundPolicy: "days_before",
+      refundDays: 7,
+    });
+    const none = adaptPublicEvent({ ...base, refundPolicy: "no_change_of_mind" });
+    expect(none.refundPolicy).toBe("no_change_of_mind");
+    expect(none).not.toHaveProperty("refundDays");
+  });
+
+  it("a payload without the field gets the default", () => {
+    expect(adaptPublicEvent(base).refundPolicy).toBe("no_change_of_mind");
+  });
+
+  it("an external event has none (the ticketing site's terms apply)", () => {
+    const adapted = adaptPublicEvent({
+      ...base,
+      ticketingMode: "external",
+      externalTicketUrl: "https://events.humanitix.com/neon-static",
+      refundPolicy: "days_before",
+      refundDays: 7,
+    });
+    expect(adapted).not.toHaveProperty("refundPolicy");
+    expect(adapted).not.toHaveProperty("refundDays");
+  });
+});
+
+describe("adaptPublicEvent: the venue location", () => {
+  const PLACE_ID = "ChIJtoteHotelCollingwood001";
+  const PIN = { lat: -37.79794, lng: 144.98884 };
+
+  it("a Google place with the organiser's pin: the place id, pinned, and the pin as the coordinates", () => {
+    const adapted = adaptPublicEvent({ ...base, location: { source: "places", placeId: PLACE_ID, pin: PIN } });
+    expect(adapted.venuePlaceId).toBe(PLACE_ID);
+    expect(adapted.venuePinned).toBe(true);
+    expect(adapted.coordinates).toEqual(PIN);
+  });
+
+  it("a Google place not yet pinned: the place id only (the maps fall back to the suburb's centre)", () => {
+    const adapted = adaptPublicEvent({ ...base, location: { source: "places", placeId: PLACE_ID } });
+    expect(adapted.venuePlaceId).toBe(PLACE_ID);
+    expect(adapted.venuePinned).toBe(false);
+    expect(adapted).not.toHaveProperty("coordinates");
+  });
+
+  it("a manual pin: pinned, no place id", () => {
+    const adapted = adaptPublicEvent({ ...base, location: { source: "manual_pin", pin: PIN } });
+    expect(adapted).not.toHaveProperty("venuePlaceId");
+    expect(adapted.venuePinned).toBe(true);
+    expect(adapted.coordinates).toEqual(PIN);
+  });
+
+  it("none: nothing added, as before", () => {
+    const adapted = adaptPublicEvent(base);
+    for (const key of ["venuePlaceId", "venuePinned", "coordinates"]) expect(adapted).not.toHaveProperty(key);
   });
 });

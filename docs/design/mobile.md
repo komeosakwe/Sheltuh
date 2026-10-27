@@ -417,7 +417,7 @@ notice, description, Good to know, **buy bar (sticky)**, When/Where/Organiser, T
          flex min-h-18 items-center justify-between gap-4 bg-foreground px-5 sm:px-8
          pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] text-background">
       <div className="min-w-0">
-        <p className="text-base font-semibold leading-5 tabular-nums">{amount}</p>   // "From A$31.70" | "A$55" | "Free"
+        <p className="text-base font-semibold leading-5 tabular-nums">{amount}</p>   // "From A$32.30" | "A$55" | "Free"
         <p className="text-xs leading-4 text-background/70">{note}</p>            // "incl. booking fee" | "No booking fee"
       </div>
       <a href="#tickets" className="btn btn-lg shrink-0 border-background bg-background text-foreground">

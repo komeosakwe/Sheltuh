@@ -29,10 +29,10 @@ function openPayment() {
     venueName: "The Tote",
     suburb: "Collingwood",
     seated: false,
-    lines: [{ ticketTypeName: "General admission", quantity: 1, unitTotalCents: 3170, lineTotalCents: 3170, buyerPaysFee: true }],
+    lines: [{ ticketTypeName: "General admission", quantity: 1, unitTotalCents: 3230, lineTotalCents: 3230, buyerPaysFee: true }],
     subtotalCents: 3000,
-    buyerFeeCents: 170,
-    totalCents: 3170,
+    buyerFeeCents: 230,
+    totalCents: 3230,
   };
 }
 

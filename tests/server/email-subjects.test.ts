@@ -30,6 +30,8 @@ const event = {
   title: HOSTILE_TITLE,
   venueName: "Studio 5",
   venueAddress: "5 Smith St, Fitzroy",
+  // Required on every event (the waitlist and follower emails' place line reads it).
+  suburb: "Fitzroy",
   startsAt: "2027-03-06T09:00:00.000Z",
   endsAt: "2027-03-06T11:00:00.000Z",
 } as EventRecord;

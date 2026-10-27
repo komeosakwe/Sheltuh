@@ -12,12 +12,18 @@ import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
  * returned, not the one the event save returned before it.
  */
 
+// The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
+vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
-vi.mock("@/lib/api/events", () => ({
+vi.mock("@/lib/api/events", async (importOriginal) => ({
+  // The real check (it only reads the error): the editor tells a payouts refusal apart with it.
+  isPayoutsRequiredError: (await importOriginal<typeof import("@/lib/api/events")>()).isPayoutsRequiredError,
+  isRefundPolicyTightenedError: (await importOriginal<typeof import("@/lib/api/events")>()).isRefundPolicyTightenedError,
   updateEventDraft: vi.fn(),
   createEventDraft: vi.fn(),
-  submitEventForReview: vi.fn(),
+  publishEvent: vi.fn(),
   fetchPrivateEventImage: vi.fn().mockResolvedValue("blob:preview"),
 }));
 
@@ -76,7 +82,7 @@ it("after a save that changes the photo, the next save carries the photo save's 
   await waitFor(() => expect(adminDeleteEventImage).toHaveBeenCalledTimes(1));
   expect(adminUpdateEvent.mock.calls[0][1].expectedUpdatedAt).toBe("2026-10-20T01:00:00.000Z");
 
-  await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).not.toBeDisabled());
+  await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).not.toHaveAttribute("aria-disabled", "true"));
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await waitFor(() => expect(adminUpdateEvent).toHaveBeenCalledTimes(2));
   // Not 02:00 (the event save's): the photo removal after it made that stale.

@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useSyncExternalStore } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventQueue from "@/components/admin/EventQueue";
-import { eventQueueHref, eventQueueQuery, readEventQueueFilters } from "@/components/admin/event-queue-filters";
+import {
+  eventQueueHref,
+  eventQueueQuery,
+  readEventQueueFilters,
+  RECENTLY_PUBLISHED_HREF,
+} from "@/components/admin/event-queue-filters";
 import { adminApproveEvent, adminListEvents, adminRejectEvent, adminUnpublishEvent } from "@/lib/api/admin";
 import { ApiError } from "@/lib/api/client";
 import type { AdminListEventsQuery } from "@/lib/api/admin";
@@ -156,6 +161,44 @@ describe("EventQueue", () => {
     expect(within(await row("Boosted")).getByText("Boost ×1.5")).toBeInTheDocument();
     expect(within(await row("Excluded")).getByText("Kept out of Trending")).toBeInTheDocument();
     expect((await row("Plain")).querySelector("[data-curation]")).toBeNull();
+  });
+
+  it("says how the venue is located, with a link to check it on Google Maps", async () => {
+    const placeId = "ChIJ_TheTote_Collingwood";
+    vi.mocked(adminListEvents).mockResolvedValue({
+      items: [
+        ev({ eventId: "evt-g", title: "Linked", location: { source: "places", placeId, pin: { lat: -37.8, lng: 144.99 } } }),
+        ev({ eventId: "evt-u", title: "Unchecked", location: { source: "places", placeId } }),
+        ev({ eventId: "evt-m", title: "Dropped pin", location: { source: "manual_pin", pin: { lat: -37.8, lng: 144.99 } } }),
+        ev({ eventId: "evt-a", title: "Legacy" }),
+      ],
+    });
+    renderQueue();
+    const row = async (title: string) =>
+      (await screen.findByRole("heading", { name: title })).closest("li") as HTMLElement;
+
+    const linked = await row("Linked");
+    expect(within(linked).getByText("Linked to Google Maps, pin checked")).toBeInTheDocument();
+    const check = within(linked).getByRole("link", { name: "Check on Google Maps: The Tote (opens in a new tab)" });
+    expect(check).toHaveAttribute(
+      "href",
+      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent("The Tote, 71 Johnston St")}&query_place_id=${placeId}`,
+    );
+    expect(check).toHaveAttribute("target", "_blank");
+    expect(check).toHaveAttribute("rel", "noopener noreferrer");
+
+    expect(within(await row("Unchecked")).getByText("Linked to Google Maps (pin not checked yet)")).toBeInTheDocument();
+
+    const pinned = await row("Dropped pin");
+    expect(within(pinned).getByText("Pinned")).toBeInTheDocument();
+    expect(within(pinned).getByRole("link", { name: /^Check the pin on Google Maps/ })).toHaveAttribute(
+      "href",
+      "https://www.google.com/maps/search/?api=1&query=-37.8,144.99",
+    );
+
+    const legacy = await row("Legacy");
+    expect(within(legacy).getByText("Address only")).toBeInTheDocument();
+    expect(within(legacy).queryByRole("link", { name: /Google Maps/ })).toBeNull();
   });
 
   it("starts on Waiting for review, and a filter changes the URL and what's asked for", async () => {
@@ -321,6 +364,32 @@ describe("EventQueue", () => {
     expect(screen.getByText(/no longer published .* It’s been taken off this list\./)).toHaveAttribute("role", "status");
   });
 
+  it("approving a paid event whose organiser has no payouts says why on the item, closes the question, and it stays", async () => {
+    const message =
+      "This organiser hasn't set up payouts, so this event can't have paid tickets while it's submitted or published. Make its tickets free, or wait until they've connected Stripe.";
+    vi.mocked(adminApproveEvent).mockRejectedValue(
+      new ApiError(409, message, undefined, { error: message, code: "payouts_required" }),
+    );
+    vi.mocked(adminListEvents).mockResolvedValue({ items: [NEON, LANEWAY] });
+    renderQueue();
+    fireEvent.click(await screen.findByRole("button", { name: "Approve Neon Static…" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Publish and email followers" }));
+    });
+    const item = screen.getByRole("article", { name: "Neon Static" });
+    expect(within(item).getByRole("alert")).toHaveTextContent(message);
+    // Not "taken off this list": it's still waiting for review.
+    expect(screen.queryByText(/taken off this list/)).toBeNull();
+    expect(screen.getByRole("heading", { level: 3, name: "Neon Static" })).toBeInTheDocument();
+    expect(within(screen.getByRole("article", { name: "Laneway Nights" })).queryByRole("alert")).toBeNull();
+    // The question is closed (publishing can't work yet); focus is back on Approve…, which can be tried again
+    // once the organiser has connected Stripe. The notice stays.
+    expect(within(item).queryByRole("button", { name: "Publish and email followers" })).toBeNull();
+    expect(within(item).queryByRole("group")).toBeNull();
+    await waitFor(() => expect(within(item).getByRole("button", { name: "Approve Neon Static…" })).toHaveFocus());
+    expect(within(item).getByRole("alert")).toHaveTextContent(message);
+  });
+
   it("a server error is shown in plain words, not the raw message, and the event stays", async () => {
     vi.mocked(adminApproveEvent).mockRejectedValue(new ApiError(500, 'relation "events" does not exist'));
     renderQueue();
@@ -354,7 +423,7 @@ describe("EventQueue", () => {
     });
     renderQueue();
     const neon = await screen.findByRole("article", { name: "Neon Static" });
-    expect(neon).toHaveTextContent("General: A$31.70 incl. booking fee (A$30 ticket + A$1.70 booking fee) · 120 available");
+    expect(neon).toHaveTextContent("General: A$32.30 incl. booking fee (A$30 ticket + A$2.30 booking fee) · 120 available");
     expect(neon).toHaveTextContent("VIP: A$50 incl. booking fee (A$50 ticket (booking fee included by organiser))");
     expect(neon).toHaveTextContent("Door list: Free · 20 available");
     const elsewhere = screen.getByRole("article", { name: "Elsewhere" });
@@ -596,5 +665,148 @@ describe("EventQueue", () => {
     renderQueue(adminSummary({ doorEvents: { count: 1, windowHours: 24 } }));
     await screen.findByRole("heading", { level: 3, name: "Neon Static" });
     expect(screen.getByRole("link", { name: "Open the door check-in list" })).toHaveClass("min-h-11");
+  });
+});
+
+describe("EventQueue — Recently published (organisers publish without review)", () => {
+  const HOUR = 3_600_000;
+  const SELF = ev({
+    status: "published",
+    publishedBy: "organiser",
+    publishedAt: new Date(Date.now() - 2 * HOUR - 60_000).toISOString(),
+  });
+  const APPROVED = ev({
+    eventId: "evt-2",
+    slug: "laneway",
+    title: "Laneway Nights",
+    status: "published",
+    publishedBy: "sheltuh",
+    publishedAt: new Date(Date.now() - 26 * HOUR).toISOString(),
+  });
+
+  it("is a published view in the URL (the admin email's link), asking for recent events, ended ones included", () => {
+    expect(RECENTLY_PUBLISHED_HREF).toBe("/admin/events?status=published&view=recent");
+    const filters = readEventQueueFilters(new URLSearchParams("status=published&view=recent"));
+    expect(filters).toEqual({ status: "published", view: "recent", q: "" });
+    expect(eventQueueHref(filters)).toBe(RECENTLY_PUBLISHED_HREF);
+    expect(eventQueueQuery(filters)).toEqual({ status: "published", recent: true });
+    expect(eventQueueQuery({ ...filters, q: "neon" }, "c2")).toEqual({
+      status: "published",
+      recent: true,
+      q: "neon",
+      cursor: "c2",
+    });
+  });
+
+  it("lists them newest first with who published them and when", async () => {
+    nav.set("status=published&view=recent");
+    vi.mocked(adminListEvents).mockResolvedValue({ items: [SELF, APPROVED] });
+    renderQueue();
+    expect(await screen.findByRole("heading", { level: 2, name: /Recently published/ })).toBeInTheDocument();
+    expect(adminListEvents).toHaveBeenCalledWith({ status: "published", recent: true }, expect.any(Function));
+    expect(screen.getByRole("button", { name: "Recently published" })).toHaveAttribute("aria-pressed", "true");
+    const neon = screen.getByRole("article", { name: "Neon Static" });
+    expect(neon).toHaveTextContent("Published by the organiser · 2 h ago");
+    const laneway = screen.getByRole("article", { name: "Laneway Nights" });
+    expect(laneway).toHaveTextContent("Published by Sheltüh · 26 h ago");
+    expect(within(neon).getByText("2 h ago")).toHaveAttribute("datetime", SELF.publishedAt);
+  });
+
+  it("says so when nothing went live in the last 14 days", async () => {
+    nav.set("status=published&view=recent");
+    vi.mocked(adminListEvents).mockResolvedValue({ items: [] });
+    renderQueue();
+    expect(await screen.findByText("Nothing published in the last 14 days")).toBeInTheDocument();
+  });
+
+  it("Unpublish takes an optional note the organiser sees (focused first), and says a republish comes for review", async () => {
+    nav.set("status=published&view=recent");
+    vi.mocked(adminListEvents).mockResolvedValue({ items: [SELF] });
+    vi.mocked(adminUnpublishEvent).mockResolvedValue({ ...SELF, status: "draft" });
+    renderQueue();
+    fireEvent.click(await screen.findByRole("button", { name: "Unpublish Neon Static…" }));
+    expect(screen.getByRole("group", { name: /Unpublish Neon Static\?/ })).toHaveAccessibleName(
+      /If they publish it again it comes to you for review\./,
+    );
+    const box = screen.getByLabelText("Reason (optional; the organiser sees this)");
+    await waitFor(() => expect(box).toHaveFocus());
+    // The question and what the note is for describe the box, so they're read on arriving.
+    expect(box).toHaveAccessibleDescription(/Shown to the organiser on their event/);
+    expect(box).toHaveAccessibleDescription(/If they publish it again it comes to you for review/);
+    expect(screen.getByText("0/500")).toBeInTheDocument();
+
+    fireEvent.change(box, { target: { value: "  The photo isn't of this event.  " } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Yes, unpublish" }));
+    });
+    expect(adminUnpublishEvent).toHaveBeenCalledWith("evt-1", expect.any(Function), "The photo isn't of this event.");
+    expect(
+      screen.getByText("Unpublished Neon Static. It’s off the site and back with the organiser as a draft, with your note."),
+    ).toHaveAttribute("role", "status");
+  });
+
+  it("Unpublish can also turn on review of the organiser's next events (reviewFuture)", async () => {
+    nav.set("status=published");
+    vi.mocked(adminListEvents).mockResolvedValue({ items: [SELF] });
+    vi.mocked(adminUnpublishEvent).mockResolvedValue({ ...SELF, status: "draft" });
+    renderQueue();
+    fireEvent.click(await screen.findByRole("button", { name: "Unpublish Neon Static…" }));
+    const box = screen.getByRole("checkbox", { name: "Also review this organiser’s next events" });
+    expect(box).not.toBeChecked();
+    fireEvent.click(box);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Yes, unpublish" }));
+    });
+    expect(adminUnpublishEvent).toHaveBeenCalledWith("evt-1", expect.any(Function), undefined, { reviewFuture: true });
+    expect(
+      screen.getByText(
+        "Unpublished Neon Static. It’s off the site and back with the organiser as a draft. Their next events come to you for review.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("a Sheltüh-run organiser's event has no next-events review to turn on", async () => {
+    nav.set("status=published");
+    vi.mocked(adminListEvents).mockResolvedValue({ items: [{ ...SELF, organiserPlatformManaged: true }] });
+    renderQueue();
+    fireEvent.click(await screen.findByRole("button", { name: "Unpublish Neon Static…" }));
+    expect(screen.queryByRole("checkbox", { name: /next events/ })).toBeNull();
+  });
+
+  it("without a note it unpublishes as before; a note over 500 characters is refused here", async () => {
+    nav.set("status=published");
+    vi.mocked(adminListEvents).mockResolvedValue({ items: [SELF] });
+    vi.mocked(adminUnpublishEvent).mockResolvedValue({ ...SELF, status: "draft" });
+    renderQueue();
+    fireEvent.click(await screen.findByRole("button", { name: "Unpublish Neon Static…" }));
+    const box = screen.getByLabelText("Reason (optional; the organiser sees this)");
+    fireEvent.change(box, { target: { value: "x".repeat(501) } });
+    fireEvent.click(screen.getByRole("button", { name: "Yes, unpublish" }));
+    expect(await screen.findByText("Keep it to 500 characters or fewer.")).toBeInTheDocument();
+    expect(box).toHaveFocus();
+    expect(adminUnpublishEvent).not.toHaveBeenCalled();
+
+    fireEvent.change(box, { target: { value: "" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Yes, unpublish" }));
+    });
+    expect(adminUnpublishEvent).toHaveBeenCalledWith("evt-1", expect.any(Function), undefined);
+    expect(screen.getByText("Unpublished Neon Static. It’s off the site and back with the organiser as a draft.")).toBeInTheDocument();
+  });
+
+  it("the server refusing the note shows it by the box", async () => {
+    nav.set("status=published");
+    vi.mocked(adminListEvents).mockResolvedValue({ items: [SELF] });
+    vi.mocked(adminUnpublishEvent).mockRejectedValue(
+      new ApiError(400, "Invalid", { reason: "Reasons can't contain control characters." }),
+    );
+    renderQueue();
+    fireEvent.click(await screen.findByRole("button", { name: "Unpublish Neon Static…" }));
+    fireEvent.change(screen.getByLabelText("Reason (optional; the organiser sees this)"), { target: { value: "Hm" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Yes, unpublish" }));
+    });
+    expect(screen.getByText("Reasons can't contain control characters.")).toBeInTheDocument();
+    expect(screen.getByRole("article", { name: "Neon Static" })).toBeInTheDocument();
   });
 });

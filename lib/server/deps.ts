@@ -7,8 +7,17 @@ import { createAuthAdmin, type AuthAdmin } from "./auth-admin";
 import { createClipStorage, type ClipStorage } from "./clip-storage";
 import { createPostgresDb, type Db } from "./db";
 import { createSmtpSender, type SendEmail } from "./email";
-import { redactForLog } from "./email-address";
+import { isPlainEmailAddress, redactForLog } from "./email-address";
+import { createPlaces, type Places } from "./places";
 import { matchingPublishableKey } from "./stripe-keys";
+import {
+  appleWalletGetter,
+  googleWalletConfigFromEnv,
+  hasAppleWalletVariables,
+  loadWalletConfig,
+  type AppleWalletConfig,
+  type GoogleWalletConfig,
+} from "./wallet/config";
 
 /**
  * Everything a handler needs from the outside world. Route files get the
@@ -59,10 +68,46 @@ export interface Deps {
    * a valid address.
    */
   adminNotifyEmails(): string[];
+  /**
+   * Where ops alerts (payment exceptions) are emailed: OPS_ALERT_EMAIL, one
+   * plain address. Undefined when unset or invalid: alerts are then logged
+   * and skipped (the exceptions are still listed for admins).
+   */
+  opsAlertEmail(): string | undefined;
+  /**
+   * "Add to Google Wallet" (lib/server/wallet/): the issuer and service
+   * account, read once from GOOGLE_WALLET_ISSUER_ID,
+   * GOOGLE_WALLET_SERVICE_ACCOUNT_EMAIL and GOOGLE_WALLET_PRIVATE_KEY;
+   * undefined when any is unset or invalid (logged once, by variable name
+   * only), and Google passes are then off: no button, and their route is a 404.
+   */
+  googleWallet(): GoogleWalletConfig | undefined;
+  /**
+   * "Add to Apple Wallet": the Pass Type ID certificate and key, read once
+   * from the APPLE_WALLET_* variables and proven by signing a test manifest
+   * (lib/server/wallet/apple.ts, loaded with node-forge only when one of them
+   * is set); undefined when any required one is unset or invalid, or can't
+   * sign (logged once), or once either certificate has expired (logged once),
+   * and Apple passes are then off.
+   */
+  appleWallet(): Promise<AppleWalletConfig | undefined>;
+  /**
+   * Google Places API (New) for the venue search and the check of a saved
+   * place id (lib/server/places.ts), created on first use; undefined when
+   * GOOGLE_MAPS_API_KEY is unset: the places routes then answer 503
+   * `places_unavailable`, and saving an event with a new Google place too
+   * (organisers drop a pin instead).
+   */
+  places(): Places | undefined;
 }
 
-function requireEnv(name: string): string {
-  const value = process.env[name];
+/**
+ * A required environment variable, trimmed: a space or line break pasted into a dashboard
+ * along with a key or secret (a Stripe webhook signing secret above all) would otherwise make
+ * every signature check fail. None of these values can meaningfully start or end with whitespace.
+ */
+export function requireEnv(name: string): string {
+  const value = process.env[name]?.trim();
   if (!value) throw new Error(`Missing required environment variable: ${name}`);
   return value;
 }
@@ -83,7 +128,12 @@ export function getDeps(): Deps {
   let clipStorage: ClipStorage | null | undefined;
   let authAdmin: AuthAdmin | null | undefined;
   let adminNotifyEmails: string[] | undefined;
+  let googleWallet: GoogleWalletConfig | null | undefined;
+  let places: Places | null | undefined;
   const smtp = createSmtpSender();
+  const appleWallet = appleWalletGetter(async () =>
+    hasAppleWalletVariables() ? (await import("./wallet/apple")).loadAppleWallet() : undefined,
+  );
 
   cached = {
     db,
@@ -142,6 +192,24 @@ export function getDeps(): Deps {
         adminNotifyEmails = parsed.emails;
       }
       return adminNotifyEmails;
+    },
+    opsAlertEmail() {
+      const address = process.env.OPS_ALERT_EMAIL?.trim();
+      if (!address) return undefined;
+      if (!isPlainEmailAddress(address)) {
+        console.error("OPS_ALERT_EMAIL isn't one plain email address: ops alerts aren't being emailed.");
+        return undefined;
+      }
+      return address;
+    },
+    googleWallet() {
+      if (googleWallet === undefined) googleWallet = loadWalletConfig("Google Wallet", () => googleWalletConfigFromEnv()) ?? null;
+      return googleWallet ?? undefined;
+    },
+    appleWallet,
+    places() {
+      if (places === undefined) places = createPlaces(process.env.GOOGLE_MAPS_API_KEY) ?? null;
+      return places ?? undefined;
     },
   };
   return cached;

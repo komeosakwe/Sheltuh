@@ -342,6 +342,12 @@ export default function EventQueue() {
             Admins run the door only for the ones ticketed on Sheltüh: those have a Door check-in button.
           </p>
         )}
+        {filters.status === "published" && filters.view === "recent" && (
+          <p className="mt-2 text-sm text-muted">
+            Newest first. Approved organisers publish without review: each event says who published it. Unpublish
+            anything that shouldn’t be on Sheltüh, with a note the organiser sees.
+          </p>
+        )}
         {filters.q && <p className="mt-2 text-sm text-muted">Matching “{filters.q}”.</p>}
 
         <div className="mt-4">

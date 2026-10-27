@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildEventReviewEmail, buildOrganiserReviewEmail } from "@/lib/server/admin-review-email";
 import type { EmailMessage } from "@/lib/server/email";
-import { button, EMAIL_COLOURS, escapeHtml, INK, SIGNAL, supportFooter } from "@/lib/server/email-layout";
+import { button, EMAIL_COLOURS, emailFooterImageUrl, escapeHtml, INK, SIGNAL, supportFooter, WORDMARK_CID } from "@/lib/server/email-layout";
 import { buildFollowerNewEventsEmail } from "@/lib/server/follower-email";
 import { buildFreeConfirmationEmail } from "@/lib/server/free-confirmation-email";
 import { buildInviteEmail } from "@/lib/server/invite-email";
@@ -9,10 +9,11 @@ import { buildTicketEmail } from "@/lib/server/ticket-email";
 import type { EventRecord, OrderLineItem, OrderRecord, TicketSeat } from "@/lib/server/types";
 import { buildWaitlistAvailableEmail, buildWaitlistConfirmationEmail } from "@/lib/server/waitlist-email";
 
-// Every transactional email is built on lib/server/email-layout.ts (Brand
-// Direction One): the same colours, card, heading, event title, button and
-// support line, so the ticket emails can't drift from the waitlist and
-// follower emails again.
+// Every transactional email is built on lib/server/email-layout.ts: the same
+// colours, ivory column, button and support line, so the ticket emails can't
+// drift from the waitlist and follower emails again. The ticket and
+// free-ticket confirmation emails (the two a buyer gets in a row) also share
+// the wordmark header and the branded footer.
 
 const site = "https://sheltuh.test";
 
@@ -110,6 +111,11 @@ const BUTTON_CELL = button("x", "https://x").match(/<td [^>]*>/)![0];
 
 const OLD_PALETTE = ["#2b3cff", "#f3f0e8", "#0b0b0b", "#5b574e", "#e3ded1"];
 
+/** The ticket email's orange label, the only other orange fill: black text on it. */
+const YOURE_IN_CELL = /<td bgcolor="#ff4800" style="background-color:#ff4800;border-radius:4px;[^"]*color:#000000[^"]*">YOU&rsquo;RE IN<\/td>/;
+const TICKET_EMAILS = ["ticketPaid", "ticketFreeOne", "ticketSeated"];
+const BRANDED = [...TICKET_EMAILS, "freeConfirmation", "freeConfirmationSeated"];
+
 describe("every transactional email uses the shared brand layout", () => {
   it.each(Object.entries(emails))("%s: no old palette colour, and only the shared tokens", (_name, build) => {
     const { html } = build();
@@ -120,31 +126,64 @@ describe("every transactional email uses the shared brand layout", () => {
     for (const colour of used) expect(allowed).toContain(colour);
   });
 
-  it.each(Object.entries(emails))("%s: Signal Orange only on its one button, with black text on it", (_name, build) => {
+  it.each(Object.entries(emails))("%s: Signal Orange only as a fill with black text: its one button (and the ticket email's label)", (name, build) => {
     const { html } = build();
     expect(html.split(BUTTON_CELL)).toHaveLength(2); // exactly one call-to-action
-    expect(html.replace(BUTTON_CELL, "")).not.toContain(SIGNAL); // no orange anywhere else
+    let rest = html.replace(BUTTON_CELL, "");
+    if (TICKET_EMAILS.includes(name)) {
+      expect(rest).toMatch(YOURE_IN_CELL);
+      rest = rest.replace(YOURE_IN_CELL, "");
+    }
+    expect(rest).not.toContain(SIGNAL); // no orange anywhere else
     const label = html.slice(html.indexOf(BUTTON_CELL)).match(/<a [^>]*style="([^"]*)"/)![1];
     expect(label).toContain(`color:${INK}`);
     expect(html).not.toMatch(/(?<![-\w])color:\s*(#fff\b|#ffffff|white)/i); // no white text, on orange or anywhere
   });
 
-  it.each(Object.entries(emails))("%s: the shared page, card, heading and support line", (_name, build) => {
+  it.each(Object.entries(emails))("%s: the shared page, column, heading and support line", (name, build) => {
     const { html } = build();
     expect(html).toContain('<meta name="color-scheme" content="light only">');
     expect(html).toContain(`bgcolor="${EMAIL_COLOURS.page}" style="background-color:${EMAIL_COLOURS.page}"`);
     expect(html).toContain(
-      `bgcolor="${EMAIL_COLOURS.card}" class="px" style="background-color:${EMAIL_COLOURS.card};border:1px solid ${INK};border-radius:12px`,
+      `bgcolor="${EMAIL_COLOURS.card}" class="column" style="width:100%;max-width:600px;background-color:${EMAIL_COLOURS.card}"`,
     );
-    expect(html).toMatch(/<h1 style="margin:0 0 \d+px 0;font-family:[^"]*;font-size:28px;line-height:34px;font-weight:bold;color:#000000">/);
-    expect(html).toContain(supportFooter);
+    // One h1: the shared 28px heading, or the ticket email's event name (32px, 26px on a phone).
+    expect(html.match(/<h1 /g)).toHaveLength(1);
+    expect(html).toMatch(
+      TICKET_EMAILS.includes(name)
+        ? /<h1 class="h1" style="margin:0;font-family:[^"]*;font-size:32px;line-height:38px;color:#000000;font-weight:bold/
+        : /<h1 style="margin:0 0 \d+px 0;font-family:[^"]*;font-size:28px;line-height:34px;font-weight:bold;color:#000000">/,
+    );
+    // The support address as a mailto link, and the disclosure line, in every email.
+    expect(html).toContain('href="mailto:support@sheltuh.com.au"');
+    expect(html).toContain("Sheltüh &middot; Melbourne");
+    if (!BRANDED.includes(name)) expect(html).toContain(supportFooter);
+  });
+
+  it.each(BRANDED)("%s: the wordmark header (inline) and one branded footer banner", (name) => {
+    const email = emails[name]();
+    expect(email.html.split(`<img src="cid:${WORDMARK_CID}"`)).toHaveLength(2);
+    expect(email.inlineImages?.[0]?.cid).toBe(WORDMARK_CID);
+    expect(email.html.split(`<img src="${emailFooterImageUrl(site)}"`)).toHaveLength(2);
+    expect(email.html.match(/<img src="https:[^"]*"/g)?.filter((tag) => tag.includes("/brand/"))).toHaveLength(1);
+  });
+
+  it("the other emails carry no images", () => {
+    for (const [name, build] of Object.entries(emails)) {
+      if (BRANDED.includes(name)) continue;
+      const email = build();
+      expect(email.html, name).not.toContain("<img");
+      expect(email.inlineImages ?? [], name).toEqual([]);
+    }
   });
 
   it("sets the event title in black in the ticket, free-confirmation and waitlist emails", () => {
     const title = `font-size:20px;line-height:26px;font-weight:bold;color:${INK}">${escapeHtml(event.title)}</p>`;
-    for (const name of ["ticketPaid", "freeConfirmation", "waitlistConfirmation", "waitlistAvailable"]) {
+    for (const name of ["freeConfirmation", "waitlistConfirmation", "waitlistAvailable"]) {
       expect(emails[name]().html).toContain(title);
     }
+    // The ticket email's heading is the event title.
+    expect(emails.ticketPaid().html).toContain(`color:${INK};font-weight:bold;overflow-wrap:break-word;word-wrap:break-word">${escapeHtml(event.title)}</h1>`);
   });
 
   it("keeps each email's own content: QR tickets, seat lines, totals with booking fees, footer banner", () => {
@@ -154,7 +193,8 @@ describe("every transactional email uses the shared brand layout", () => {
     expect(paid.html.match(/<img src="cid:/g)).toHaveLength(3);
     expect(paid.html).toContain('<img src="cid:sheltuh-wordmark@sheltuh.com.au"');
     expect(paid.html).toContain("incl. booking fees");
-    expect(paid.html).toContain('src="https://sheltuh.com.au/sheltuh_email_signature_logo.png"');
+    expect(paid.html).toContain('src="https://sheltuh.test/brand/sheltuh-email-footer.png"');
+    expect(paid.html).toContain("Get directions");
     expect(emails.ticketSeated().html).toContain("Stalls · Row A · Seat 2");
     const seated = emails.freeConfirmationSeated();
     expect(seated.html).toContain("Stalls · Row A · Seat 2");

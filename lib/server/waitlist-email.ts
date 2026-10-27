@@ -1,5 +1,6 @@
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { publicEventUrl } from "@/lib/event-url";
+import { eventPlaceName } from "@/lib/place";
 import { subjectLine, type EmailMessage } from "./email";
 import { button, escapeHtml, eventBlock, heading, INK, MUTED, page } from "./email-layout";
 import { formatTicketDate, formatTicketTime } from "./ticket-email";
@@ -37,12 +38,13 @@ export function waitlistEventLink(siteUrl: string, slug: string): string {
   return `${publicEventUrl(slug, siteUrl)}#tickets`;
 }
 
+/** The event's date and time, in its zone (the ticket email's formatTicketDate and formatTicketTime). */
 export function when(event: EventRecord): string {
-  return `${formatTicketDate(event.startsAt, event.endsAt)}, ${formatTicketTime(event.startsAt, event.endsAt)}`;
+  return `${formatTicketDate(event.startsAt, event.endsAt, event)}, ${formatTicketTime(event.startsAt, event.endsAt, event)}`;
 }
 
 export function where(event: EventRecord): string {
-  return [event.venueName, event.suburb].filter(Boolean).join(", ");
+  return [event.venueName, eventPlaceName(event)].filter(Boolean).join(", ");
 }
 
 function eventDetails(event: EventRecord): string {

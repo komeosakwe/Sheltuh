@@ -10,7 +10,7 @@ import { rangeLabel, rangeSearch, toQuery } from "@/lib/analytics-range";
 import { downloadAnalyticsOverviewCsv, getAnalyticsOverview } from "@/lib/api/analytics";
 import type { GetToken } from "@/lib/api/client";
 import type { AnalyticsOverview as Overview } from "@/lib/api/types";
-import { formatEventDateShort } from "@/lib/format";
+import { eventZone, formatEventDateShort } from "@/lib/format";
 import AnalyticsGate, { NotApprovedOrganiser } from "./AnalyticsGate";
 import DataTable from "./DataTable";
 import ExportCsvButton from "./ExportCsvButton";
@@ -18,7 +18,7 @@ import { ValueOrNoData } from "./NoData";
 import OutboundClicks from "./OutboundClicks";
 import { AnalyticsPrivacyNote, LaterStagesNote, ViewsFootnote } from "./Notes";
 import RangeControls from "./RangeControls";
-import { STATUS_LABEL, backLinkClass, buildStats, failureKind, rangeErrorMessage, rowConversion, useKeyedLoad } from "./shared";
+import { STATUS_LABEL, buildStats, failureKind, rangeErrorMessage, rowConversion, useKeyedLoad } from "./shared";
 import StatGrid from "./StatGrid";
 import { previousLabelFor } from "./TimeSeriesChart";
 import { useAnalyticsRange } from "./useAnalyticsRange";
@@ -28,15 +28,11 @@ const PATH = "/dashboard/analytics";
 
 /** /dashboard/analytics (docs/design/favourites-analytics.md §5.18): every one of the organiser's events. */
 export default function AnalyticsOverview() {
+  // The organiser sub-nav (app/dashboard/layout.tsx) is the way back to Your events.
   return (
-    <>
-      <Link href="/dashboard" className={`${backLinkClass} mb-6`}>
-        &larr; Your events
-      </Link>
-      <AnalyticsGate title="Analytics" returnTo={PATH}>
-        {(getToken) => <OverviewReport getToken={getToken} />}
-      </AnalyticsGate>
-    </>
+    <AnalyticsGate title="Analytics" returnTo={PATH}>
+      {(getToken) => <OverviewReport getToken={getToken} />}
+    </AnalyticsGate>
   );
 }
 
@@ -204,7 +200,7 @@ function OverviewBody({ data, busy }: { data: Overview; busy: boolean }) {
                   {event.title || "Untitled event"}
                 </Link>
                 <span className="text-xs text-muted">
-                  {formatEventDateShort(event.startsAt)} · {STATUS_LABEL[event.status]}
+                  {formatEventDateShort(event.startsAt, eventZone(event.timeZone))} · {STATUS_LABEL[event.status]}
                 </span>
               </span>
             ),

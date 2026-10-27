@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
 import type { CheckInLogEntry } from "@/lib/api/types";
 import { recentRow } from "@/lib/check-in/door-copy";
-import { formatEventTime, formatMessageTime } from "@/lib/format";
+import { eventZone, formatEventTime, formatMessageTime } from "@/lib/format";
 import { speakSeatLine } from "@/lib/seating/format";
 import SeatLine from "@/components/seating/SeatLine";
 import { doorBusyClass } from "./busy-class";
@@ -34,6 +34,7 @@ export default function RecentScans({
   headingRef,
   onRefresh,
   onUndo,
+  timeZone,
 }: {
   entries: CheckInLogEntry[];
   refreshing: boolean;
@@ -41,8 +42,11 @@ export default function RecentScans({
   headingRef: RefObject<HTMLHeadingElement | null>;
   onRefresh: () => void;
   onUndo: (entry: CheckInLogEntry) => void;
+  /** The event's zone, for scan times (the door's clock); absent means Melbourne. */
+  timeZone?: string;
 }) {
   const fresh = useFreshIds(entries);
+  const zone = eventZone(timeZone);
   return (
     <section aria-labelledby="recent-scans" className="border-t border-foreground pt-5">
       {/* At 768 the column is ~275px: the heading steps down to 20px there so it stays on one line beside Refresh. */}
@@ -83,7 +87,7 @@ export default function RecentScans({
                 <div className="flex min-w-0 flex-1 flex-col">
                   <div className="flex items-baseline justify-between gap-3">
                     <p className="text-sm font-semibold">{row.label}</p>
-                    <p className="shrink-0 text-xs text-muted tabular-nums">{formatMessageTime(entry.at)}</p>
+                    <p className="shrink-0 text-xs text-muted tabular-nums">{formatMessageTime(entry.at, new Date(), zone)}</p>
                   </div>
                   {/* A seated ticket's seat after the type and code (docs/design/seating.md §5.15). */}
                   <p className="text-sm break-words text-muted">
@@ -102,7 +106,7 @@ export default function RecentScans({
                         check-in, {[entry.ticketTypeName, entry.codeLast4 ? `code ends ${entry.codeLast4}` : null, entry.seat ? speakSeatLine(entry.seat) : null]
                           .filter(Boolean)
                           .join(", ")}
-                        , {formatEventTime(entry.at)}
+                        , {formatEventTime(entry.at, zone)}
                       </span>
                     </Button>
                   )}

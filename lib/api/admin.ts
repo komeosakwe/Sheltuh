@@ -134,6 +134,13 @@ export interface AdminListEventsQuery {
   upcoming?: boolean;
   /** true: only platform-managed organisers' events; false: only organisers with an account. Omitted: both. */
   platformManaged?: boolean;
+  /**
+   * `published` only (ApiError 400 otherwise): events that went live in the
+   * last 14 days, newest first (by an admin's approval or the organiser's own
+   * publish: AdminEventRecord.publishedAt / publishedBy), ended ones included
+   * unless `upcoming: true`.
+   */
+  recent?: boolean;
   /** Page size: 20 by default, at most 50. */
   limit?: number;
   cursor?: string;
@@ -155,11 +162,12 @@ export function adminListEvents(
 export async function adminListEvents(query: EventStatus | AdminListEventsQuery, getToken: GetToken, cursor?: string) {
   const token = await getToken();
   const options: AdminListEventsQuery = typeof query === "string" ? { status: query, cursor } : query;
-  const { status, q, upcoming, platformManaged, limit, cursor: pageCursor } = options;
+  const { status, q, upcoming, platformManaged, recent, limit, cursor: pageCursor } = options;
   const qs = new URLSearchParams({ status });
   if (q?.trim()) qs.set("q", q.trim());
   if (upcoming !== undefined) qs.set("upcoming", upcoming ? "1" : "0");
   if (platformManaged !== undefined) qs.set("platformManaged", platformManaged ? "1" : "0");
+  if (recent) qs.set("recent", "1");
   if (limit !== undefined) qs.set("limit", String(limit));
   if (pageCursor) qs.set("cursor", pageCursor);
   return apiFetch<Paginated<AdminEventRecord>>(`/admin/events?${qs}`, { token });
@@ -175,6 +183,12 @@ export async function adminGetSummary(getToken: GetToken) {
   return apiFetch<AdminSummary>("/admin/summary", { token });
 }
 
+/**
+ * Pending review → published. ApiError 409 when it's no longer pending, its
+ * organiser isn't approved, or (`code: "payouts_required"`, lib/api/events.ts
+ * isPayoutsRequiredError) it has a paid Sheltüh ticket type and the
+ * organiser's payouts aren't set up (or were turned off since they submitted).
+ */
 export async function adminApproveEvent(eventId: string, getToken: GetToken) {
   const token = await getToken();
   return apiFetch<EventRecord>(`/admin/events/${eventId}/approve`, { method: "POST", token });
@@ -189,9 +203,51 @@ export async function adminRejectEvent(eventId: string, reason: string, getToken
   });
 }
 
-export async function adminUnpublishEvent(eventId: string, getToken: GetToken) {
+/**
+ * Published → draft. `reason` (optional, 1–500 characters) is shown to the
+ * organiser (`EventRecord.rejectionReason`) and logged. If they publish it
+ * again, it goes to the review queue. `options.reviewFuture: true` also
+ * turns on review of the organiser's events (AdminOrganiserRecord
+ * .eventReviewRequired, as adminSetEventReviewRequired), in the same step.
+ * ApiError 400 (fieldErrors.reason / .reviewFuture), 404, 409 no longer
+ * published (nothing changed).
+ */
+export async function adminUnpublishEvent(
+  eventId: string,
+  getToken: GetToken,
+  reason?: string,
+  options: { reviewFuture?: boolean } = {},
+) {
   const token = await getToken();
-  return apiFetch<EventRecord>(`/admin/events/${eventId}/unpublish`, { method: "POST", token });
+  const body: { reason?: string; reviewFuture?: boolean } = {};
+  if (reason?.trim()) body.reason = reason.trim();
+  if (options.reviewFuture) body.reviewFuture = true;
+  return apiFetch<EventRecord>(`/admin/events/${eventId}/unpublish`, {
+    method: "POST",
+    ...(Object.keys(body).length > 0 ? { body } : {}),
+    token,
+  });
+}
+
+/**
+ * Turns review of an organiser's events on (`required: true`: their
+ * publishes go to the review queue instead of going live) or off, with a
+ * reason (1–500 characters) logged on the organiser's log. Returns the
+ * organiser (`eventReviewRequired`). ApiError 400 (fieldErrors.required /
+ * .reason), 404 unknown organiser.
+ */
+export async function adminSetEventReviewRequired(
+  organiserId: string,
+  required: boolean,
+  reason: string,
+  getToken: GetToken,
+) {
+  const token = await getToken();
+  return apiFetch<AdminOrganiserRecord>(`/admin/organisers/${encodeURIComponent(organiserId)}/event-review`, {
+    method: "POST",
+    body: { required, reason },
+    token,
+  });
 }
 
 /**
@@ -233,7 +289,9 @@ export async function adminGetEvent(eventId: string, getToken: GetToken) {
  * Creates an event for any approved organiser (logged `created`), and
  * publishes it straight away with `publish: true`. ApiError 400 (fieldErrors,
  * including organiserId, and ticketTypes for a paid ticket of a
- * platform-managed organiser), 409 organiser not approved.
+ * platform-managed organiser), 409 organiser not approved, or (`code:
+ * "payouts_required"`, fieldErrors.ticketTypes) publishing paid tickets for an
+ * organiser whose payouts aren't set up.
  */
 export async function adminCreateEvent(input: AdminCreateEventInput, getToken: GetToken) {
   const token = await getToken();
@@ -246,7 +304,14 @@ export async function adminCreateEvent(input: AdminCreateEventInput, getToken: G
  * fieldErrors.expectedUpdatedAt when someone else changed it since
  * `expectedUpdatedAt` (reload, then edit again); 409 also for a sold ticket
  * type removed or cut below what's sold, switching to external an event with
- * orders, or publishing for an organiser who isn't approved. 400 fieldErrors.
+ * orders, or publishing for an organiser who isn't approved; 409 `code:
+ * "refund_policy_tightened"` (fieldErrors.refundPolicy,
+ * isRefundPolicyTightenedError) when the event has pending or paid orders and
+ * the edit would make its refund policy less generous; 409 `code:
+ * "payouts_required"` (fieldErrors.ticketTypes) when the organiser's payouts
+ * aren't set up and the edit would publish paid tickets, or add a paid ticket
+ * type (or make a free one paid) on a submitted or published event. 400
+ * fieldErrors.
  */
 export async function adminUpdateEvent(eventId: string, input: AdminUpdateEventInput, getToken: GetToken) {
   const token = await getToken();

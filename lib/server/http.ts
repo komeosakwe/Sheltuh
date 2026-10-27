@@ -12,6 +12,8 @@ export class HttpError extends Error {
      * the seat ids a seated checkout couldn't have). Never personal data.
      */
     public details?: Record<string, unknown>,
+    /** Extra response headers (e.g. `Retry-After`). Never personal data. */
+    public headers?: Record<string, string>,
   ) {
     super(message);
   }
@@ -31,11 +33,21 @@ export const created = (body: unknown) => json(201, body);
 export const PRIVATE_NO_STORE = { "cache-control": "private, no-store" } as const;
 
 export const okPrivate = (body: unknown) => Response.json(body, { status: 200, headers: PRIVATE_NO_STORE });
+
+/**
+ * A 200 that a CDN may share between callers, under `cacheControl` (e.g.
+ * `public, max-age=0, s-maxage=60, …`). Only for a response that's the same
+ * for everyone: the handler must never read the caller's token, cookies or
+ * anything else about them. Errors stay `private, no-store` (errorJson).
+ */
+export const okPublic = (body: unknown, cacheControl: string) =>
+  Response.json(body, { status: 200, headers: { "cache-control": cacheControl } });
 export const createdPrivate = (body: unknown) => Response.json(body, { status: 201, headers: PRIVATE_NO_STORE });
 export const noContentPrivate = () => new Response(null, { status: 204, headers: PRIVATE_NO_STORE });
 
 /** An error response: never cached either, since it can be about the caller (e.g. a 404 for their conversation). */
-export const errorJson = (status: number, body: unknown) => Response.json(body, { status, headers: PRIVATE_NO_STORE });
+export const errorJson = (status: number, body: unknown, headers?: Record<string, string>) =>
+  Response.json(body, { status, headers: { ...headers, ...PRIVATE_NO_STORE } });
 
 /**
  * The largest JSON body the API reads (bytes). Far above any real request (an

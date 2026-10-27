@@ -264,6 +264,13 @@ describe("listing", () => {
         "externalProvider",
         // Waitlist (B-WL): always sent.
         "soldOut",
+        // Refund policy: always sent; refundDays only for days_before.
+        "refundPolicy",
+        // Events Australia-wide: always sent.
+        "state",
+        "timeZone",
+        // Venue location: only when the event has one (the fixture's events do: a manual pin).
+        "location",
         "favouritedAt",
       ].sort(),
     );

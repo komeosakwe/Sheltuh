@@ -8,8 +8,8 @@ export default function AboutPage() {
   return (
     <ContentPage
       eyebrow="About"
-      title="A guide to Melbourne’s creative rooms"
-      intro="Sheltüh is a curated guide to live music, art, workshops, pop-ups and theatre in Melbourne — with tickets."
+      title="A guide to Australia’s creative rooms"
+      intro="Sheltüh is a curated guide to live music, art, workshops, pop-ups and theatre across Australia — with tickets."
     >
       <ContentSection title="Why we exist">
         <p>
@@ -20,8 +20,8 @@ export default function AboutPage() {
       </ContentSection>
       <ContentSection title="Curated, not scraped">
         <p>
-          Every organiser is approved before they can list, and every event is reviewed by a person
-          before it goes live. We’d rather show fewer, better events than everything.
+          Every organiser is checked by a person before they can publish, and we review events that
+          are reported. We’d rather show fewer, better events than everything.
         </p>
       </ContentSection>
       <ContentSection title="Honest prices">
@@ -35,6 +35,17 @@ export default function AboutPage() {
         <div className="mt-5">
           <ButtonLink href="/partners">Become a partner</ButtonLink>
         </div>
+      </ContentSection>
+      <ContentSection title="Credits">
+        <p>
+          Suburb centres derived from Australian Bureau of Statistics,{" "}
+          <a href="https://data.gov.au/data/dataset/9c172870-f5e5-4d5b-82bf-51488ed6baf3">
+            ASGS Edition 4 (2026) Suburbs and Localities
+          </a>
+          , licensed under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>. We changed
+          the data: each suburb is reduced to one centre point, a few centres are moved, and water-only
+          localities are left out.
+        </p>
       </ContentSection>
     </ContentPage>
   );

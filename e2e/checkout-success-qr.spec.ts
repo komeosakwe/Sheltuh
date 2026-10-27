@@ -23,8 +23,8 @@ const ORDER = {
   suburb: "Collingwood",
   maskedEmail: "m***@example.com",
   subtotalCents: 6000,
-  buyerFeeCents: 340,
-  totalCents: 6340,
+  buyerFeeCents: 460,
+  totalCents: 6460,
   tickets: [
     { ticketCode: "7KQM-2HXD", ticketTypeName: "General admission", checkedInAt: null },
     { ticketCode: "A2B3-C4D5", ticketTypeName: "General admission", checkedInAt: null },
@@ -61,7 +61,7 @@ for (const vp of VIEWPORTS) {
       const stub = page.getByRole("listitem").filter({ hasText: ticketCode });
       await expect(stub.getByText("Neon Static", { exact: true })).toBeVisible();
       await expect(stub.getByText("Sat 6 Mar, 8:00 pm – 11:30 pm", { exact: true })).toBeVisible();
-      await expect(stub.getByText("The Tote, Collingwood", { exact: true })).toBeVisible();
+      await expect(stub.getByText("The Tote, Collingwood, VIC", { exact: true })).toBeVisible();
       await expect(stub.getByText("Backup code", { exact: true })).toBeVisible();
       await expect(stub.getByText("Ready to scan", { exact: true })).toBeVisible();
 

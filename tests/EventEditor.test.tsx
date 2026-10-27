@@ -5,6 +5,12 @@ import EventEditor from "@/components/dashboard/EventEditor";
 import type { EventRecord } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/session-token";
 import { callsTokenFirst, fakeAuthValue, FakeAuthProvider, switchableSession } from "./test-utils/fakeAuth";
+import { CONFIRMED_PIN_LOCATION, stubMatchMedia, unstubMatchMedia } from "./test-utils/pinMapStub";
+
+// The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
+vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+// The venue's "Check the pin" map, for the events with a pin (they can be published).
+vi.mock("@/components/dashboard/VenuePinMapLeaflet", async () => (await import("./test-utils/pinMapStub")).leafletStub());
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -12,21 +18,29 @@ vi.mock("next/navigation", () => ({
 
 const updateEventDraft = vi.fn();
 const createEventDraft = vi.fn();
-const submitEventForReview = vi.fn();
-vi.mock("@/lib/api/events", () => ({
+const publishEvent = vi.fn();
+vi.mock("@/lib/api/events", async (importOriginal) => ({
+  // The real check (it only reads the error): the editor tells a payouts refusal apart with it.
+  isPayoutsRequiredError: (await importOriginal<typeof import("@/lib/api/events")>()).isPayoutsRequiredError,
+  isRefundPolicyTightenedError: (await importOriginal<typeof import("@/lib/api/events")>()).isRefundPolicyTightenedError,
+  publishConflictCode: (await importOriginal<typeof import("@/lib/api/events")>()).publishConflictCode,
   updateEventDraft: (...args: unknown[]) => updateEventDraft(...args),
   createEventDraft: (...args: unknown[]) => createEventDraft(...args),
-  submitEventForReview: (...args: unknown[]) => submitEventForReview(...args),
+  publishEvent: (...args: unknown[]) => publishEvent(...args),
   // Passed to the photo step on every save; never called here (no photo change).
   uploadEventImage: vi.fn(),
   deleteEventImage: vi.fn(),
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  unstubMatchMedia();
+});
 beforeEach(() => {
+  stubMatchMedia();
   updateEventDraft.mockReset();
   createEventDraft.mockReset();
-  submitEventForReview.mockReset();
+  publishEvent.mockReset();
 });
 
 const BASE_EVENT: EventRecord = {
@@ -38,7 +52,7 @@ const BASE_EVENT: EventRecord = {
   category: "live-music",
   venueName: "The Venue",
   venueAddress: "1 Test St",
-  suburb: "Testville",
+  suburb: "Fitzroy",
   // 2026-09-25T10:00:00Z = 8:00pm AEST on the same UTC date.
   startsAt: "2026-09-25T10:00:00.000Z",
   endsAt: "2026-09-25T13:00:00.000Z",
@@ -51,6 +65,9 @@ const BASE_EVENT: EventRecord = {
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
+
+/** BASE_EVENT with its venue's pin confirmed: publishing needs it (`location_required` otherwise). */
+const PINNED_EVENT: EventRecord = { ...BASE_EVENT, location: CONFIRMED_PIN_LOCATION };
 
 function renderEditor(overrides: Partial<EventRecord> = {}, onSaved = vi.fn()) {
   const getToken = vi.fn().mockResolvedValue("token");
@@ -119,6 +136,49 @@ describe("EventEditor — Melbourne-local date/time inputs, independent of the b
   });
 });
 
+describe("EventEditor — an event outside Victoria: inputs in its own zone (owner plan S5)", () => {
+  const originalTz = process.env.TZ;
+  afterEach(() => {
+    process.env.TZ = originalTz;
+  });
+
+  it("fills a Perth event's date and time in Perth time, says so in the legends, and saves the same wall-clock times with its place", async () => {
+    process.env.TZ = "America/New_York";
+    // 10:00Z is 6:00 pm AWST, 13:00Z 9:00 pm AWST (8:00 pm and 11:00 pm in Melbourne).
+    updateEventDraft.mockResolvedValue({ ...BASE_EVENT, suburb: "Perth", state: "WA", timeZone: "Australia/Perth" });
+    renderEditor({ suburb: "Perth", state: "WA", timeZone: "Australia/Perth" });
+    expect(screen.getByLabelText("Start date")).toHaveValue("2026-09-25");
+    expect(screen.getByLabelText("Start time")).toHaveValue("18:00");
+    expect(screen.getByLabelText("End time")).toHaveValue("21:00");
+    expect(screen.getByText("Starts (Perth time)")).toBeInTheDocument();
+    expect(screen.getByText("Ends (Perth time)")).toBeInTheDocument();
+    expect(screen.queryByText(/Melbourne time/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(updateEventDraft).toHaveBeenCalledTimes(1));
+    const [, input] = updateEventDraft.mock.calls[0];
+    // Sent with its place (owner plan S8), read in that zone by the API: the event doesn't move.
+    expect(input.start).toEqual({ date: "2026-09-25", time: "18:00" });
+    expect(input.end).toEqual({ date: "2026-09-25", time: "21:00" });
+    expect(input).toMatchObject({ suburb: "Perth", state: "WA", timeZone: "Australia/Perth" });
+  });
+
+  it("a late Perth start is on Perth's date (11:30 pm Thursday, though Friday in Melbourne)", () => {
+    renderEditor({ state: "WA", timeZone: "Australia/Perth", startsAt: "2026-09-24T15:30:00.000Z" });
+    expect(screen.getByLabelText("Start date")).toHaveValue("2026-09-24");
+    expect(screen.getByLabelText("Start time")).toHaveValue("23:30");
+  });
+
+  it("an ACT event's legends say Canberra time; a Victorian one's still say Melbourne time", () => {
+    renderEditor({ suburb: "Braddon", state: "ACT", timeZone: "Australia/Sydney" });
+    expect(screen.getByText("Starts (Canberra time)")).toBeInTheDocument();
+    cleanup();
+    renderEditor({ state: "VIC", timeZone: "Australia/Melbourne" });
+    expect(screen.getByText("Starts (Melbourne time)")).toBeInTheDocument();
+    expect(screen.getByText("Ends (Melbourne time)")).toBeInTheDocument();
+  });
+});
+
 describe("EventEditor — session-expiry recovery preserves the form", () => {
   it("keeps every typed field after an expired-session save, and succeeds once signed back in as the same account", async () => {
     const sessionError = new SessionExpiredError();
@@ -182,30 +242,38 @@ describe("EventEditor — never saves as another account", () => {
   });
 });
 
-describe("EventEditor — submitting for review", () => {
-  it("saves unsaved edits first, so reviewers see what's on screen", async () => {
+/** Publish…, then the question's Publish now. */
+function publish() {
+  fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
+  fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
+}
+
+describe("EventEditor — publishing", () => {
+  it("saves unsaved edits first, so what goes live is what's on screen", async () => {
     updateEventDraft.mockResolvedValue({ ...BASE_EVENT, title: "Edited title" });
-    submitEventForReview.mockResolvedValue({ ...BASE_EVENT, title: "Edited title", status: "pending_review" });
-    const { onSaved } = renderEditor();
+    publishEvent.mockResolvedValue({ ...BASE_EVENT, title: "Edited title", status: "published" });
+    const { onSaved } = renderEditor({ location: CONFIRMED_PIN_LOCATION });
 
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Edited title" } });
-    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
+    publish();
 
-    await waitFor(() => expect(submitEventForReview).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(publishEvent).toHaveBeenCalledTimes(1));
     expect(updateEventDraft).toHaveBeenCalledTimes(1);
     expect(updateEventDraft.mock.calls[0][1].title).toBe("Edited title");
-    expect(updateEventDraft.mock.invocationCallOrder[0]).toBeLessThan(submitEventForReview.mock.invocationCallOrder[0]);
-    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ status: "pending_review" }));
+    expect(updateEventDraft.mock.invocationCallOrder[0]).toBeLessThan(publishEvent.mock.invocationCallOrder[0]);
+    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ status: "published" }));
   });
 
-  it("submits nothing while the form has errors", async () => {
-    renderEditor();
+  it("publishes nothing while the form has errors (the question closes, the field is focused)", async () => {
+    renderEditor({ location: CONFIRMED_PIN_LOCATION });
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "" } });
-    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
+    publish();
 
     await waitFor(() => expect(screen.getByText("Enter an event title.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText("Title")).toHaveFocus());
+    expect(screen.queryByRole("button", { name: "Publish now" })).toBeNull();
     expect(updateEventDraft).not.toHaveBeenCalled();
-    expect(submitEventForReview).not.toHaveBeenCalled();
+    expect(publishEvent).not.toHaveBeenCalled();
   });
 
   it("won't save a paid ticket under A$1.00", async () => {
@@ -227,7 +295,7 @@ function fillNewEvent() {
   fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Stalls and music." } });
   fireEvent.change(screen.getByLabelText("Venue name"), { target: { value: "The Venue" } });
   fireEvent.change(screen.getByLabelText("Venue address"), { target: { value: "1 Test St" } });
-  fireEvent.change(screen.getByLabelText("Suburb"), { target: { value: "Testville" } });
+  fireEvent.change(screen.getByLabelText("Suburb or town"), { target: { value: "Fitzroy" } });
   fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2027-03-06" } });
   fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "20:00" } });
   fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2027-03-06" } });
@@ -252,14 +320,14 @@ async function expectRecoveryForOwner() {
 }
 
 describe("EventEditor — the other-account check on every action", () => {
-  it("Submit for review: someone else signed in by now: nothing is saved or submitted", async () => {
-    const { become } = renderAs(BASE_EVENT);
+  it("Publish: someone else signed in by now: nothing is saved or published", async () => {
+    const { become } = renderAs(PINNED_EVENT);
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Edited title" } });
     become(OTHER);
-    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
+    publish();
     await expectRecoveryForOwner();
     expect(updateEventDraft).not.toHaveBeenCalled();
-    expect(submitEventForReview).not.toHaveBeenCalled();
+    expect(publishEvent).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Title")).toHaveValue("Edited title");
   });
 
@@ -287,19 +355,19 @@ describe("EventEditor — an account change mid-save (after the check, before th
     expect(onSaved).not.toHaveBeenCalled();
   });
 
-  it("Submit for review: changed after the save, before the submit: never submitted as them", async () => {
+  it("Publish: changed after the save, before the publish: never published as them", async () => {
     const session = switchableSession(OWNER);
     updateEventDraft.mockImplementation(async (...args: unknown[]) => {
       const saved = await callsTokenFirst(BASE_EVENT)(...args);
       session.become(OTHER);
       return saved;
     });
-    submitEventForReview.mockImplementation(callsTokenFirst({ ...BASE_EVENT, status: "pending_review" }));
-    const { onSaved } = renderAs(BASE_EVENT, session);
-    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
+    publishEvent.mockImplementation(callsTokenFirst({ ...BASE_EVENT, status: "published" }));
+    const { onSaved } = renderAs(PINNED_EVENT, session);
+    publish();
     await expectRecoveryForOwner();
-    expect(submitEventForReview).toHaveBeenCalledTimes(1);
-    expect(onSaved).not.toHaveBeenCalledWith(expect.objectContaining({ status: "pending_review" }));
+    expect(publishEvent).toHaveBeenCalledTimes(1);
+    expect(onSaved).not.toHaveBeenCalledWith(expect.objectContaining({ status: "published" }));
   });
 
   it("a new event: never created as them", async () => {
@@ -332,9 +400,9 @@ describe("EventEditor — explains the booking-fee choice", () => {
     const help = document.getElementById(select.getAttribute("aria-describedby") ?? "");
     expect(help).not.toBeNull();
     const text = help?.textContent ?? "";
-    // A$30 ticket: fee 4% + A$0.50 = A$1.70.
-    expect(text).toContain("A$1.70 on this ticket");
-    expect(text).toContain("The buyer pays A$31.70 and you receive the full A$30");
-    expect(text).toContain("the buyer pays just A$30 and the fee comes out of it, so you receive A$28.30");
+    // A$30 ticket: fee 6% + A$0.50 = A$2.30.
+    expect(text).toContain("A$2.30 on this ticket");
+    expect(text).toContain("The buyer pays A$32.30 and you receive the full A$30");
+    expect(text).toContain("the buyer pays just A$30 and the fee comes out of it, so you receive A$27.70");
   });
 });

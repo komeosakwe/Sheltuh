@@ -6,6 +6,7 @@
 import type { Db } from "./db";
 import type {
   AdminEmailJob,
+  AdminPaymentException,
   AdminMemberProfile,
   AdminEventRecord,
   AdminInviteRecord,
@@ -33,9 +34,11 @@ import type {
   TicketTypeInput,
 } from "./types";
 import { REMAINING_SHOWN_AT_MOST, type PublicTicketType } from "@/lib/api/public-events";
-import { SHELTUH_TEAM_ACTOR, type EventClip } from "@/lib/api/types";
+import { SHELTUH_TEAM_ACTOR, type EventClip, type VenueLocation } from "@/lib/api/types";
 import { isFeaturedVideo, type FeaturedVideo } from "@/lib/api/featured-video";
 import { ticketProviderName, type TicketingMode } from "@/lib/ticketing";
+import { DEFAULT_REFUND_POLICY, type RefundPolicy } from "@/lib/refund-policy";
+import { PLATFORM_TIME_ZONE, type AustralianTimeZone, type StateCode } from "@/lib/time-zones";
 import { maskEmail } from "./email-address";
 import { orderReference } from "./order-reference";
 import { socialLinks } from "./organiser-input";
@@ -84,8 +87,8 @@ const ORGANISER_COLUMNS = `o.id, o.owner_user_id, o.display_name, o.contact_emai
          o.categories::text[] as categories, o.website_url,
          o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle, o.status::text as status,
          o.rejection_reason, o.reviewed_by, o.reviewed_at, o.stripe_account_id,
-         o.payouts_enabled, o.created_at, o.updated_at, o.featured_video_provider, o.featured_video_id,
-         ${organiserLogoVersionOf("o.id")} as logo_version`;
+         o.payouts_enabled, o.event_review_required, o.created_at, o.updated_at, o.featured_video_provider,
+         o.featured_video_id, ${organiserLogoVersionOf("o.id")} as logo_version`;
 
 export const ORGANISER_SELECT = `
   select ${ORGANISER_COLUMNS}
@@ -185,6 +188,7 @@ export function toOrganiser(row: Row): OrganiserRecord {
     reviewedAt: row.reviewed_at ? iso(row.reviewed_at) : undefined,
     stripeAccountId: opt(row.stripe_account_id),
     payoutsEnabled: row.payouts_enabled as boolean,
+    eventReviewRequired: row.event_review_required === true,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
     featuredVideo: featuredVideoOf(row),
@@ -262,9 +266,10 @@ export function toPublicOrganiserProfile(
 
 const EVENT_COLUMNS = `
          e.id, e.organiser_id, e.slug, e.title, e.description, e.category::text as category,
-         e.venue_name, e.venue_address, e.suburb, e.starts_at, e.ends_at,
+         e.venue_name, e.venue_address, e.suburb, e.state, e.time_zone, e.starts_at, e.ends_at,
          e.status::text as status, e.rejection_reason, e.created_at, e.updated_at,
-         e.ticketing_mode, e.external_ticket_url, e.external_free,
+         e.ticketing_mode, e.external_ticket_url, e.external_free, e.refund_policy, e.refund_days,
+         e.location_source, e.venue_place_id, e.venue_lat, e.venue_lng,
          o.display_name as organiser_name,
          -- Only while the organiser is approved: the logo route is a 404 otherwise.
          case when o.status = 'approved' then ${organiserLogoVersionOf("e.organiser_id")} end as organiser_logo_version,
@@ -319,8 +324,10 @@ export const eventSelectWith = (extraColumns: string) => `
 
 /**
  * EVENT_SELECT plus whether the organiser is platform-managed (no owner
- * account) and the event's trending curation (private.event_curation: null
- * columns when an admin never curated it). Admin only. Callers append a
+ * account), the event's trending curation (private.event_curation: null
+ * columns when an admin never curated it) and, for a published event, its
+ * latest approval (when, and whether the organiser's own account made it:
+ * event_moderation_log_event_idx, newest first). Admin only. Callers append a
  * `where` over `e` / `o`: the curation join is on the table's primary key,
  * at most one row per event, so it never changes the rows or their order.
  */
@@ -328,7 +335,14 @@ export const ADMIN_EVENT_SELECT = `
   select ${EVENT_COLUMNS},
          o.owner_user_id is null as organiser_platform_managed,
          ec.boost as curation_boost,
-         ec.excluded as curation_excluded${EVENT_FROM}
+         ec.excluded as curation_excluded,
+         case when e.status = 'published' then (
+           select json_build_object('at', l.created_at,
+                                    'byOrganiser', l.actor_id is not null and l.actor_id = o.owner_user_id)
+             from public.event_moderation_log l
+            where l.event_id = e.id and l.action = 'approved'
+            order by l.id desc
+            limit 1) end as last_approval${EVENT_FROM}
   left join private.event_curation ec on ec.event_id = e.id`;
 
 /** The fields a log entry's `changes` can name (ModerationLogEntry.changes). */
@@ -342,6 +356,8 @@ const LOG_CHANGE_FIELDS = [
   "venueName",
   "venueAddress",
   "suburb",
+  "state",
+  "timeZone",
   "startsAt",
   "endsAt",
   "ticketTypes",
@@ -349,6 +365,9 @@ const LOG_CHANGE_FIELDS = [
   "seatMap",
   "clip",
   "clipDescription",
+  "refundPolicy",
+  "refundDays",
+  "location",
 ] as const satisfies readonly (keyof NonNullable<ModerationLogEntry["changes"]>)[];
 
 /** One change as stored: json_strip_nulls has dropped a side that was null. */
@@ -425,6 +444,51 @@ function clipOf(row: Row): { clip?: EventClip } {
   };
 }
 
+/**
+ * `refundPolicy` (always; a row without the column, from before its
+ * migration, reads as the default) and `refundDays` (only for `days_before`),
+ * from `refund_policy` / `refund_days` columns.
+ */
+function refundTermsOf(row: Row): { refundPolicy: RefundPolicy; refundDays?: number } {
+  const refundPolicy = (opt<string>(row.refund_policy) ?? DEFAULT_REFUND_POLICY) as RefundPolicy;
+  return refundPolicy === "days_before" && typeof row.refund_days === "number"
+    ? { refundPolicy, refundDays: row.refund_days }
+    : { refundPolicy };
+}
+
+/**
+ * `state` and `timeZone` from `stateColumn` / `zoneColumn` (always set: the
+ * columns are not null; a row from before their migration reads as VIC,
+ * Melbourne, which is what it meant).
+ */
+function placeOf(row: Row, stateColumn = "state", zoneColumn = "time_zone"): { state: StateCode; timeZone: AustralianTimeZone } {
+  return {
+    state: opt<StateCode>(row[stateColumn]) ?? "VIC",
+    timeZone: opt<AustralianTimeZone>(row[zoneColumn]) ?? PLATFORM_TIME_ZONE,
+  };
+}
+
+/**
+ * The `location` field from `location_source`, `venue_place_id`, `venue_lat`
+ * and `venue_lng`: absent for `legacy` (and a row from before the columns),
+ * so those payloads are unchanged. The pin is the organiser's own
+ * (events.venue_lat / venue_lng), never Google's.
+ */
+function locationOf(row: Row): { location?: VenueLocation } {
+  const source = row.location_source;
+  if (source !== "places" && source !== "manual_pin") return {};
+  const lat = row.venue_lat === null || row.venue_lat === undefined ? NaN : Number(row.venue_lat);
+  const lng = row.venue_lng === null || row.venue_lng === undefined ? NaN : Number(row.venue_lng);
+  const placeId = source === "places" ? opt<string>(row.venue_place_id) : undefined;
+  return {
+    location: {
+      source,
+      ...(placeId ? { placeId } : {}),
+      ...(Number.isFinite(lat) && Number.isFinite(lng) ? { pin: { lat, lng } } : {}),
+    },
+  };
+}
+
 function mapEvent(row: Row, audience: LogAudience): EventRecord {
   const log = row.moderation_log as StoredLogEntry[];
   const ticketingMode = (row.ticketing_mode ?? "sheltuh") as TicketingMode;
@@ -439,6 +503,7 @@ function mapEvent(row: Row, audience: LogAudience): EventRecord {
     venueName: row.venue_name as string,
     venueAddress: row.venue_address as string,
     suburb: row.suburb as string,
+    ...placeOf(row),
     startsAt: iso(row.starts_at),
     endsAt: iso(row.ends_at),
     organiserName: row.organiser_name as string,
@@ -452,6 +517,8 @@ function mapEvent(row: Row, audience: LogAudience): EventRecord {
     externalProvider: externalTicketUrl ? ticketProviderName(externalTicketUrl) : null,
     // Once approved, the ticketing is frozen for the organiser (private.edit_event_draft).
     ticketingLocked: log.some((entry) => entry.action === "approved"),
+    ...refundTermsOf(row),
+    ...locationOf(row),
     ...(row.seating ? { seating: row.seating as EventSeating } : {}),
     status: row.status as EventRecord["status"],
     rejectionReason: opt(row.rejection_reason),
@@ -466,6 +533,7 @@ function mapEvent(row: Row, audience: LogAudience): EventRecord {
  * defaults GET /admin/events/{id}/curation reports: boost 1, not excluded.
  */
 export function toAdminEvent(row: Row): AdminEventRecord {
+  const approval = row.last_approval as { at: string; byOrganiser: boolean } | null | undefined;
   return {
     ...toEventForAdmin(row),
     organiserPlatformManaged: row.organiser_platform_managed === true,
@@ -473,6 +541,7 @@ export function toAdminEvent(row: Row): AdminEventRecord {
       boost: row.curation_boost === null || row.curation_boost === undefined ? 1 : Number(row.curation_boost),
       excluded: row.curation_excluded === true,
     },
+    ...(approval ? { publishedAt: iso(approval.at), publishedBy: approval.byOrganiser ? "organiser" : "sheltuh" } : {}),
   };
 }
 
@@ -513,6 +582,8 @@ export function toPublicEvent(event: EventRecord, remaining?: Record<string, num
     venueName: event.venueName,
     venueAddress: event.venueAddress,
     suburb: event.suburb,
+    state: event.state ?? "VIC",
+    timeZone: event.timeZone ?? PLATFORM_TIME_ZONE,
     startsAt: event.startsAt,
     endsAt: event.endsAt,
     organiserName: event.organiserName,
@@ -541,6 +612,19 @@ export function toPublicEvent(event: EventRecord, remaining?: Record<string, num
       : {}),
     externalFree: event.externalFree === true,
     externalProvider: event.externalProvider ?? null,
+    refundPolicy: event.refundPolicy ?? DEFAULT_REFUND_POLICY,
+    // Only for days_before.
+    ...(event.refundPolicy === "days_before" && event.refundDays !== undefined ? { refundDays: event.refundDays } : {}),
+    // Only with a venue location: an event without one keeps its payload unchanged.
+    ...(event.location
+      ? {
+          location: {
+            source: event.location.source,
+            ...(event.location.placeId ? { placeId: event.location.placeId } : {}),
+            ...(event.location.pin ? { pin: { lat: event.location.pin.lat, lng: event.location.pin.lng } } : {}),
+          },
+        }
+      : {}),
     // Seated events only: a general admission event's payload is unchanged.
     ...(event.seating ? { seating: { version: event.seating.version } } : {}),
   };
@@ -561,7 +645,7 @@ const TICKET_SEAT_JSON = `(select json_build_object('section', s.section_label, 
 
 export const ORDER_SELECT = `
   select o.id, o.event_id, o.organiser_id, o.event_title, o.buyer_email, o.line_items,
-         o.subtotal_cents, o.buyer_fee_cents, o.total_cents, o.application_fee_cents,
+         o.subtotal_cents, o.buyer_fee_cents, o.total_cents, o.application_fee_cents, o.support_cents,
          o.status::text as status, o.stripe_checkout_session_id, o.stripe_payment_intent_id,
          o.created_at, o.updated_at, o.seat_ids,
          (select e.slug from public.events e where e.id = o.event_id) as event_slug,
@@ -586,6 +670,7 @@ export function toOrder(row: Row): OrderRecord {
     buyerFeeCents: row.buyer_fee_cents as number,
     totalCents: row.total_cents as number,
     applicationFeeCents: row.application_fee_cents as number,
+    ...(Number(row.support_cents ?? 0) > 0 ? { supportCents: Number(row.support_cents) } : {}),
     status: row.status as OrderRecord["status"],
     stripeCheckoutSessionId: opt(row.stripe_checkout_session_id),
     stripePaymentIntentId: opt(row.stripe_payment_intent_id),
@@ -606,16 +691,21 @@ export function toOrder(row: Row): OrderRecord {
  * isn't paid, and for any event that isn't published (unpublished, back in
  * draft or review, rejected, or gone): those details are no longer public,
  * so the order only says the event is no longer listed (`eventListed`).
- * `tickets_issued` tells a paid-then-refunded order (it had tickets) from one
- * refunded because it couldn't be fulfilled (it never did). Reads the event
- * by primary key and the tickets by tickets_order_idx.
+ * `tickets_issued` and `amount_refunded_cents` tell a refund made in Stripe
+ * (after the tickets were issued, or before the payment was recorded, when
+ * none ever were: the amount is then recorded) from one refunded because it
+ * couldn't be fulfilled (no tickets, and no amount: only charge.refunded
+ * records one). Reads the event by primary key and the tickets by
+ * tickets_order_idx.
  */
 export const CUSTOMER_ORDER_SELECT = `
   select o.id, o.status::text as status, o.event_title, o.buyer_email,
-         o.subtotal_cents, o.buyer_fee_cents, o.total_cents,
+         o.subtotal_cents, o.buyer_fee_cents, o.total_cents, o.support_cents,
          e.slug as event_slug, e.status::text as event_status,
          e.starts_at as event_starts_at, e.ends_at as event_ends_at,
          e.venue_name as event_venue_name, e.suburb as event_suburb,
+         e.state as event_state, e.time_zone as event_time_zone,
+         e.refund_policy, e.refund_days,
          coalesce((
            select json_agg(json_strip_nulls(json_build_object('ticketCode', t.code, 'ticketTypeName', t.ticket_type_name,
                                                               'seat', ${TICKET_SEAT_JSON},
@@ -623,15 +713,30 @@ export const CUSTOMER_ORDER_SELECT = `
                            order by t.ticket_type_id, t.code)
            from public.tickets t where t.order_id = o.id and o.status = 'paid'
          ), '[]'::json) as tickets,
-         exists (select 1 from public.tickets t where t.order_id = o.id) as tickets_issued
+         exists (select 1 from public.tickets t where t.order_id = o.id) as tickets_issued,
+         o.amount_refunded_cents
   from public.orders o
   left join public.events e on e.id = o.event_id`;
 
-/** Why a refunded (or refund-pending) order was refunded; undefined for any other status. */
-function refundReason(status: CustomerOrder["status"], ticketsIssued: boolean): CustomerOrder["refundReason"] {
+/**
+ * Why a refunded (or refund-pending) order was refunded; undefined for any
+ * other status. `refunded`: refunded in Stripe, whether its tickets had been
+ * issued or (refunded before the payment was recorded) never were.
+ */
+function refundReason(
+  status: CustomerOrder["status"],
+  ticketsIssued: boolean,
+  amountRefundedCents: number,
+): CustomerOrder["refundReason"] {
   if (status === "oversold_refund_required") return "oversold";
-  if (status === "refunded") return ticketsIssued ? "refunded" : "oversold";
+  if (status === "refunded") return ticketsIssued || amountRefundedCents > 0 ? "refunded" : "oversold";
   return undefined;
+}
+
+/** `eventTimeZone` and `eventState`, from a row's `event_time_zone` / `event_state` (placeOf). */
+export function eventPlaceOf(row: Row): { eventTimeZone: AustralianTimeZone; eventState: StateCode } {
+  const { state, timeZone } = placeOf(row, "event_state", "event_time_zone");
+  return { eventTimeZone: timeZone, eventState: state };
 }
 
 // json_strip_nulls drops a missing seat (general admission) and a null check-in time.
@@ -655,7 +760,7 @@ export function toCustomerOrder(row: Row): CustomerOrder {
     : [];
   return {
     status,
-    refundReason: refundReason(status, row.tickets_issued === true),
+    refundReason: refundReason(status, row.tickets_issued === true, Number(row.amount_refunded_cents ?? 0)),
     reference: orderReference(row.id as string),
     eventTitle: row.event_title as string,
     eventSlug: opt(row.event_slug),
@@ -663,11 +768,16 @@ export function toCustomerOrder(row: Row): CustomerOrder {
     eventListed: paid ? listed : undefined,
     eventStartsAt: details && row.event_starts_at ? iso(row.event_starts_at) : undefined,
     eventEndsAt: details && row.event_ends_at ? iso(row.event_ends_at) : undefined,
+    // The zone (and state, for its label) the times are shown in: sent with them.
+    ...(details && row.event_starts_at ? eventPlaceOf(row) : {}),
     venueName: details ? opt(row.event_venue_name) : undefined,
     suburb: details ? opt(row.event_suburb) : undefined,
+    ...(details ? refundTermsOf(row) : {}),
     maskedEmail: email ? maskEmail(email) : undefined,
     subtotalCents: row.subtotal_cents as number,
     buyerFeeCents: row.buyer_fee_cents as number,
+    // Support Sheltüh, its own line: only when the buyer added some (totalCents includes it).
+    ...(Number(row.support_cents ?? 0) > 0 ? { supportCents: Number(row.support_cents) } : {}),
     totalCents: row.total_cents as number,
     tickets,
   };
@@ -698,6 +808,79 @@ export function toAdminEmailJob(row: Row): AdminEmailJob {
     orderStatus: row.order_status as AdminEmailJob["orderStatus"],
     eventTitle: row.event_title as string,
     maskedEmail: email ? maskEmail(email) : undefined,
+  };
+}
+
+/**
+ * Admin view of a payment exception; append `where …`. Reads the order only
+ * for its reference, status and title: never the buyer.
+ */
+export const ADMIN_PAYMENT_EXCEPTION_SELECT = `
+  select e.id, e.kind, e.status, e.order_id, e.payment_intent_id, e.refund_id, e.stripe_event_id, e.details,
+         e.alerted_at, e.opened_at, e.created_at, e.resolved_at, e.resolution, e.resolved_by, e.resolution_note,
+         o.status::text as order_status, o.event_title
+    from private.payment_exceptions e
+    left join public.orders o on o.id = e.order_id`;
+
+const DETAIL_STRINGS = ["refundStatus", "orderStatus", "source", "reason", "currency"] as const;
+const DETAIL_NUMBERS = [
+  "refundAmountCents",
+  "amountRefundedCents",
+  "totalCents",
+  "supportCents",
+  "amountChargedCents",
+  "supportKeptCents",
+] as const;
+
+/**
+ * An exception that can't wait: a refund that didn't complete for an order
+ * already voided (the buyer has neither tickets nor their money), or any
+ * payment whose amount or currency wasn't its order's (the money went
+ * somewhere it shouldn't have: the automatic refund needs checking). Shared
+ * by the admin list and the ops alert email.
+ */
+export function paymentExceptionUrgent(kind: string, orderStatus: string | null | undefined): boolean {
+  return kind === "amount_mismatch" || (kind === "refund_not_completed" && orderStatus === "refunded");
+}
+
+/** Only the known amounts and statuses, whatever else the jsonb holds. */
+export function paymentExceptionDetails(raw: unknown): AdminPaymentException["details"] {
+  const source = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const details: AdminPaymentException["details"] = {};
+  for (const key of DETAIL_STRINGS) {
+    const value = source[key];
+    if (typeof value === "string" && /^[a-z_]{1,40}$/.test(value)) details[key] = value;
+  }
+  for (const key of DETAIL_NUMBERS) {
+    const value = source[key];
+    if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) details[key] = value;
+  }
+  return details;
+}
+
+export function toAdminPaymentException(row: Row): AdminPaymentException {
+  const details = paymentExceptionDetails(row.details);
+  const kind = row.kind as AdminPaymentException["kind"];
+  const orderStatus = opt<AdminPaymentException["orderStatus"]>(row.order_status);
+  return {
+    exceptionId: row.id as string,
+    kind,
+    status: row.status as AdminPaymentException["status"],
+    urgent: paymentExceptionUrgent(kind, orderStatus ?? details.orderStatus),
+    orderReference: row.order_id ? orderReference(row.order_id as string) : undefined,
+    orderStatus,
+    eventTitle: opt(row.event_title),
+    paymentIntentId: opt(row.payment_intent_id),
+    refundId: opt(row.refund_id),
+    stripeEventId: opt(row.stripe_event_id),
+    details,
+    alertedAt: row.alerted_at ? iso(row.alerted_at) : undefined,
+    openedAt: iso(row.opened_at),
+    createdAt: iso(row.created_at),
+    resolvedAt: row.resolved_at ? iso(row.resolved_at) : undefined,
+    resolution: opt(row.resolution),
+    resolvedBy: opt(row.resolved_by),
+    resolutionNote: opt(row.resolution_note),
   };
 }
 

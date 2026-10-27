@@ -18,7 +18,7 @@ Only use images you have the rights to.
 The owner asked that the home's promo slots stop repeating the photos its event cards use. The six
 photos in `public/events/` are all sample events' images, so only two are free for promo use, once
 each: `gallery-opening.jpg` leads the desktop hero collage and `street-market.jpg` is the For
-organisers card. The other five slots show their brand poster art until photos arrive (set
+organisers card. Since 26 Oct 2026 the other five slots temporarily reuse sample-event photos (owner: "reuse the event photos for now"); replace them as photos arrive (set
 `imageUrl` in `components/home/home-content.ts`; nothing else changes):
 
 | Slot | Count | Subject | Orientation, minimum size |

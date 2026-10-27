@@ -3,6 +3,7 @@
  * The map's shape and validator: lib/seating/template.ts; the availability
  * bitmap: lib/seating/availability.ts; seat wording: lib/seating/format.ts.
  */
+import { runCheckoutAttempt } from "./checkout-attempt";
 import { ApiError, apiFetch, type GetToken } from "./client";
 import type {
   CancelOrderResult,
@@ -93,6 +94,8 @@ export interface SeatedCheckoutInput {
   /** Required when the order is free. */
   buyerEmail?: string;
   trackingCode?: string;
+  /** Support Sheltüh (lib/support.ts), as for createCheckoutSession: paid orders only, sent only when above 0. */
+  supportCents?: number;
 }
 
 /**
@@ -105,20 +108,27 @@ export interface SeatedCheckoutInput {
  * ApiError: 400; 404; 409 seats taken (seatErrorDetails(err).seatIds) or the
  * map changed (fieldErrors.seatMapVersion: reload it); 429 too many people
  * checking out (try again in a minute); 503 free bookings busy, or card
- * payments aren't available (nothing was held).
+ * payments aren't available (nothing was held). Sent with an
+ * `Idempotency-Key` like createCheckoutSession (lib/api/checkout-attempt.ts):
+ * a double click or a retry never holds the seats twice; the attempt's own
+ * codes are in seatErrorDetails(err).code.
  */
 export async function createSeatedCheckout(eventId: string, input: SeatedCheckoutInput, getToken?: GetToken) {
-  const token = await optionalToken(getToken);
-  return apiFetch<CheckoutResult>(`/events/${eventId}/checkout`, {
-    method: "POST",
-    body: {
-      seats: input.seats,
-      ...(input.lineItems && input.lineItems.length > 0 ? { lineItems: input.lineItems } : {}),
-      ...(input.buyerEmail ? { buyerEmail: input.buyerEmail } : {}),
-      ...(input.trackingCode ? { trackingCode: input.trackingCode } : {}),
-    },
-    token,
-  });
+  const body = {
+    seats: input.seats,
+    ...(input.lineItems && input.lineItems.length > 0 ? { lineItems: input.lineItems } : {}),
+    ...(input.buyerEmail ? { buyerEmail: input.buyerEmail } : {}),
+    ...(input.trackingCode ? { trackingCode: input.trackingCode } : {}),
+    ...(input.supportCents && input.supportCents > 0 ? { supportCents: input.supportCents } : {}),
+  };
+  return runCheckoutAttempt(eventId, body, async (key) =>
+    apiFetch<CheckoutResult>(`/events/${eventId}/checkout`, {
+      method: "POST",
+      body,
+      token: await optionalToken(getToken),
+      headers: { "idempotency-key": key },
+    }),
+  );
 }
 
 /**

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import EventResults from "@/components/EventResults";
 import FeedLoading from "@/components/FeedLoading";
 import { useLoadingProgress } from "@/components/ui/ProgressLoader";
@@ -9,7 +9,7 @@ import { EmptyState, Notice } from "@/components/ui/Section";
 import EventFilterBar, { type PricingFilter } from "@/components/EventFilterBar";
 import NearbyResults, { NEAR_MAX_EVENTS } from "@/components/search/NearbyResults";
 import { listPublicEvents, type PublicEvent } from "@/lib/api/public-events";
-import { findLocality } from "@/lib/location";
+import type { Locality } from "@/lib/location";
 import { adaptPublicEvent } from "@/lib/live/adapt";
 import type { EventCategory, SheltuhEvent } from "@/lib/types";
 
@@ -18,10 +18,11 @@ interface Props {
   /** Free-text search (from /search); sent to the API alongside the filters. */
   query?: string;
   /**
-   * A suburb from /search?near=. Results are ordered by distance from it
-   * here in the browser (lib/location.ts); it's never sent to the API.
+   * The suburb from /search?near=, already found in the suburb table (by the
+   * page, on the server). Results are ordered by distance from it here in the
+   * browser (lib/location.ts); it's never sent to the API.
    */
-  near?: string;
+  near?: Locality;
   /** Starting filters (from /events?category=&pricing=); "Reset filters" still clears to all. */
   initialCategory?: EventCategory | "all";
   initialPricing?: PricingFilter;
@@ -54,7 +55,7 @@ interface FetchResult {
 export default function LiveEventFeed({
   categories,
   query,
-  near = "",
+  near,
   initialCategory = "all",
   initialPricing = "all",
 }: Props) {
@@ -68,7 +69,8 @@ export default function LiveEventFeed({
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [capped, setCapped] = useState(false);
-  const origin = useMemo(() => (near ? findLocality(near) : null), [near]);
+  // Near mode reads more up front and has no "Load more"; only whether there's a suburb matters to the fetch.
+  const nearMode = near !== undefined;
 
   // Bumped whenever a new request supersedes any in flight (a filter change,
   // or a fresh "load more" click), so a response that arrives late from an
@@ -108,7 +110,7 @@ export default function LiveEventFeed({
         // Past events are never listed: only ones that haven't ended.
         upcoming: true,
       } as const;
-      if (origin) {
+      if (nearMode) {
         // Near mode: read the soonest pages, then the results are ordered by distance.
         const items: PublicEvent[] = [];
         const seen = new Set<string>();
@@ -138,7 +140,7 @@ export default function LiveEventFeed({
       }
       return { items: [], nextCursor: cur, capped: false };
     },
-    [category, pricing, onOrAfter, query, origin],
+    [category, pricing, onOrAfter, query, nearMode],
   );
 
   const load = useCallback(
@@ -206,7 +208,7 @@ export default function LiveEventFeed({
     // those directly here, rather than on `load`, is what limits this effect
     // to firing on an actual filter change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category, pricing, onOrAfter, query, origin]);
+  }, [category, pricing, onOrAfter, query, nearMode]);
 
   function handleRetry() {
     requestIdRef.current += 1;
@@ -283,8 +285,8 @@ export default function LiveEventFeed({
                 ? "Try a different search, category, an earlier date, or clearing the price filter."
                 : "Check back soon."}
             </EmptyState>
-          ) : origin ? (
-            <NearbyResults events={events} origin={origin} capped={capped} />
+          ) : near ? (
+            <NearbyResults events={events} origin={near} capped={capped} />
           ) : (
             <>
               <EventResults events={events} heading="Events" listRef={listRef} />

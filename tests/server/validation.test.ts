@@ -6,6 +6,8 @@ import {
   requireCategories,
   requireCategory,
   requireEmail,
+  DST_GAP_MESSAGE,
+  requireLocalDateTime,
   requireMelbourneDateTime,
   requireString,
   requireTicketTypes,
@@ -149,6 +151,43 @@ describe("requireMelbourneDateTime", () => {
   });
 });
 
+describe("requireLocalDateTime", () => {
+  it("reads the pair in the zone given", () => {
+    const errors: Record<string, string> = {};
+    expect(requireLocalDateTime({ date: "2026-09-25", time: "20:00" }, "start", errors, "Australia/Perth")).toBe(
+      "2026-09-25T12:00:00.000Z",
+    );
+    expect(requireLocalDateTime({ date: "2026-09-25", time: "20:00" }, "start", errors, "Australia/Eucla")).toBe(
+      "2026-09-25T11:15:00.000Z",
+    );
+    expect(errors).toEqual({});
+  });
+
+  it("says why a time the clocks skip is refused, and a bad date is just invalid", () => {
+    const gap: Record<string, string> = {};
+    expect(requireLocalDateTime({ date: "2026-10-04", time: "02:30" }, "start", gap, "Australia/Sydney")).toBeUndefined();
+    expect(gap).toEqual({ start: DST_GAP_MESSAGE });
+    // Lord Howe's half-hour jump: 2:00 – 2:29 am never happen.
+    const lordHowe: Record<string, string> = {};
+    requireLocalDateTime({ date: "2026-10-04", time: "02:15" }, "end", lordHowe, "Australia/Lord_Howe");
+    expect(lordHowe).toEqual({ end: DST_GAP_MESSAGE });
+    expect(requireLocalDateTime({ date: "2026-10-04", time: "02:30" }, "end", lordHowe, "Australia/Lord_Howe")).toBe(
+      "2026-10-03T15:30:00.000Z",
+    );
+
+    const invalid: Record<string, string> = {};
+    requireLocalDateTime({ date: "2026-02-30", time: "10:00" }, "start", invalid, "Australia/Perth");
+    requireLocalDateTime({ date: "2026-02-01", time: "24:00" }, "end", invalid, "Australia/Perth");
+    expect(invalid).toEqual({ start: "Enter a valid date and time.", end: "Enter a valid date and time." });
+  });
+
+  it("requireMelbourneDateTime is it in Melbourne", () => {
+    const errors: Record<string, string> = {};
+    expect(requireMelbourneDateTime({ date: "2026-10-04", time: "02:30" }, "start", errors)).toBeUndefined();
+    expect(errors).toEqual({ start: DST_GAP_MESSAGE });
+  });
+});
+
 describe("requireTicketTypes", () => {
   it("allows free tickets and paid tickets from A$1.00, but nothing in between", () => {
     const priced = (priceCents: number) => {
@@ -162,7 +201,7 @@ describe("requireTicketTypes", () => {
     };
     expect(priced(0)).toBeUndefined();
     expect(priced(100)).toBeUndefined();
-    // A$0.50 would carry a A$0.52 organiser-absorbed fee — more than the payment.
+    // A$0.50 would carry a A$0.53 organiser-absorbed fee — more than the payment.
     expect(priced(50)).toMatch(/at least A\$1\.00/);
     expect(priced(99)).toMatch(/at least A\$1\.00/);
   });

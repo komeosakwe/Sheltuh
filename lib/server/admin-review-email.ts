@@ -1,12 +1,15 @@
+import type { StateCode } from "@/lib/time-zones";
 import { subjectLine, type EmailMessage } from "./email";
 import { isPlainEmailAddress } from "./email-address";
-import { button, escapeHtml, eventBlock, heading, MUTED, page } from "./email-layout";
-import { formatTicketDate, formatTicketTime } from "./ticket-email";
+import { button, escapeHtml, eventBlock, heading, INK, MUTED, page, SANS } from "./email-layout";
+import { formatTicketDate, formatTicketTime, type EventZone } from "./ticket-email";
 
 /**
  * The admins' "waiting for your review" emails (docs/architecture.md, "Admin
  * review emails"): an event an organiser submitted (or resubmitted) for
- * review, and an organiser application (new or resubmitted). Internal and
+ * review, and an organiser application (new or resubmitted); and the
+ * "an organiser published an event" email (an approved organiser's event
+ * that went live without review, for admins to check after the fact). Internal and
  * transactional: no marketing, no tracking, nothing about buyers. Only what
  * an admin needs to know something is waiting (the event's title, its
  * organiser's name and its start; the applicant's organiser name) and the
@@ -51,14 +54,26 @@ export function eventReviewQueueLink(siteUrl: string): string {
   return `${siteUrl}/admin/events?status=pending_review`;
 }
 
+/**
+ * The published events queue's "recently published" view (events that went
+ * live in the last 14 days, newest first: GET /api/admin/events?recent=1).
+ * Until the admin UI has that view, the link opens the published list.
+ */
+export function recentlyPublishedQueueLink(siteUrl: string): string {
+  return `${siteUrl}/admin/events?status=published&view=recent`;
+}
+
 /** The organiser applications queue (it opens on pending applications). */
 export function organiserReviewQueueLink(siteUrl: string): string {
   return `${siteUrl}/admin/organisers`;
 }
 
-/** "Saturday 6 March 2027, 8:00 pm AEDT": when the event starts, in Melbourne time. */
-export function reviewEventStart(startsAt: string): string {
-  return `${formatTicketDate(startsAt)}, ${formatTicketTime(startsAt)}`;
+/**
+ * "Saturday 6 March 2027, 8:00 pm AEDT": when the event starts, in its zone
+ * (`where`; Melbourne by default: "Saturday 6 March 2027, 8:00 pm Perth time (AWST)").
+ */
+export function reviewEventStart(startsAt: string, where: EventZone = {}): string {
+  return `${formatTicketDate(startsAt, undefined, where)}, ${formatTicketTime(startsAt, undefined, where)}`;
 }
 
 const FOOTER_TEXT = "You're getting this because you're a Sheltüh admin.";
@@ -75,6 +90,9 @@ export function buildEventReviewEmail(input: {
   title: string;
   organiserName: string;
   startsAt: string;
+  /** The event's zone and state (absent: Melbourne). */
+  timeZone?: string;
+  state?: StateCode | null;
   resubmitted: boolean;
   siteUrl: string;
 }): EmailMessage {
@@ -82,7 +100,7 @@ export function buildEventReviewEmail(input: {
   // Organiser-supplied: kept to one line each.
   const title = subjectLine(input.title);
   const organiserName = subjectLine(input.organiserName);
-  const starts = reviewEventStart(input.startsAt);
+  const starts = reviewEventStart(input.startsAt, { timeZone: input.timeZone, state: input.state });
   const link = eventReviewQueueLink(siteUrl);
   const headline = resubmitted ? "An event was resubmitted for review" : "An event is waiting for review";
 
@@ -113,6 +131,70 @@ export function buildEventReviewEmail(input: {
 
   const subject = resubmitted ? "Event resubmitted for review" : "Event submitted for review";
   return { to, subject, text, html };
+}
+
+const PUBLISHED_PREHEADER = "It's live now. Open the list to check it, or unpublish it.";
+const PUBLISHED_LEAD = "It went live without review. Check it, and unpublish it if it shouldn't be on Sheltüh.";
+
+/**
+ * "Event published by an organiser", to one admin: an approved organiser's
+ * event went live without review. The title, the organiser's name, when it
+ * starts (in the event's zone) and where its tickets are: "on Sheltüh", or
+ * "sold on {host}" for an external ticket link (the link's host as the
+ * browser shows it, punycode included, never the organiser's wording). No
+ * description, venue or buyer data.
+ */
+export function buildEventPublishedEmail(input: {
+  to: string;
+  title: string;
+  organiserName: string;
+  startsAt: string;
+  /** The event's zone and state (absent: Melbourne). */
+  timeZone?: string;
+  state?: StateCode | null;
+  /** The external ticket link's host; absent for Sheltüh ticketing. */
+  ticketHost?: string;
+  siteUrl: string;
+}): EmailMessage {
+  const { to, siteUrl } = input;
+  // Organiser-supplied: kept to one line each.
+  const title = subjectLine(input.title);
+  const organiserName = subjectLine(input.organiserName);
+  const starts = reviewEventStart(input.startsAt, { timeZone: input.timeZone, state: input.state });
+  const tickets = input.ticketHost ? `Tickets: sold on ${subjectLine(input.ticketHost)}` : "Tickets: on Sheltüh";
+  const link = recentlyPublishedQueueLink(siteUrl);
+  const headline = "An organiser published an event";
+
+  const text = [
+    headline,
+    "",
+    PUBLISHED_LEAD,
+    "",
+    SUBMITTED_LABEL,
+    `Title: ${title}`,
+    `Organiser: ${organiserName}`,
+    `Starts ${starts}`,
+    tickets,
+    "",
+    `Check it: ${link}`,
+    "",
+    FOOTER_TEXT,
+    "Sheltüh, Melbourne",
+  ].join("\n");
+
+  const html = page({
+    title: headline,
+    preheader: PUBLISHED_PREHEADER,
+    body:
+      heading(escapeHtml(headline)) +
+      `<p style="margin:0 0 16px 0;font-family:${SANS};font-size:16px;line-height:24px;color:${INK}">${escapeHtml(PUBLISHED_LEAD)}</p>` +
+      SUBMITTED_LABEL_HTML +
+      eventBlock(title, [`Organiser: ${organiserName}`, `Starts ${starts}`, tickets]) +
+      button("Open recently published events", link) +
+      FOOTER_HTML,
+  });
+
+  return { to, subject: "Event published by an organiser", text, html };
 }
 
 /** "Organiser application to review", to one admin (a new application or a resubmitted one). */

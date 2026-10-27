@@ -32,6 +32,7 @@ export default function NewEventPageContent() {
       <EventEditor
         key={editor.account}
         getToken={auth.getAccessToken}
+        payoutsEnabled={organiser ? organiser.payoutsEnabled === true : undefined}
         onSaved={(record) => router.push(`/dashboard/${record.eventId}`)}
       />
     );

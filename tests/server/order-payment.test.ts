@@ -13,8 +13,8 @@ import {
 import { runHandler } from "@/lib/server/route";
 import { adminSuspendOrganiser } from "@/lib/server/handlers/admin";
 import type { EventRecord } from "@/lib/server/types";
-import { embeddedSession, SITE_URL, stripeWebhookRequest, TestApi, WEBHOOK_SECRET } from "./helpers/api";
-import { approvedOrganiser, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
+import { embeddedSession, sessionAmount, SITE_URL, stripeWebhookRequest, TestApi, WEBHOOK_SECRET } from "./helpers/api";
+import { approvedOrganiser, disablePayouts, enablePayouts, publishedEvent, signUpAdmin } from "./helpers/fixtures";
 import { seatedEvent, seatStates, tierCounts } from "./helpers/seating";
 import { createTestDb } from "./helpers/test-db";
 
@@ -70,7 +70,7 @@ const payment = (orderId: string, ip: string | null = IP) =>
   api.call(getOrderPayment, { params: { sessionId: orderId }, headers: ip ? { "x-forwarded-for": ip } : {} });
 const lastParams = () => api.stripe.checkout.sessions.create.mock.lastCall![0];
 
-function completed(orderId: string, sessionId: string, paymentIntent = "pi_test_1") {
+async function completed(orderId: string, sessionId: string, paymentIntent = "pi_test_1") {
   // checkout.session.completed as Stripe sends it for an embedded session: no url, the return_url, ui_mode.
   return stripeWebhookRequest({
     type: "checkout.session.completed",
@@ -86,6 +86,7 @@ function completed(orderId: string, sessionId: string, paymentIntent = "pi_test_
         status: "complete",
         mode: "payment",
         client_reference_id: orderId,
+        ...(await sessionAmount(api.db, orderId)),
         payment_status: "paid",
         payment_intent: paymentIntent,
         customer_details: { email: "buyer@example.com" },
@@ -151,10 +152,10 @@ describe("the embedded Checkout Session", () => {
       expires_at: expect.any(Number),
       line_items: [
         { price_data: { currency: "aud", product_data: { name: "GA — Neon Static" }, unit_amount: 3000 }, quantity: 2 },
-        { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 170 }, quantity: 2 },
+        { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 230 }, quantity: 2 },
         { price_data: { currency: "aud", product_data: { name: "VIP — Neon Static" }, unit_amount: 8000 }, quantity: 1 },
       ],
-      payment_intent_data: { application_fee_amount: 710, transfer_data: { destination: "acct_test_1" } },
+      payment_intent_data: { application_fee_amount: 990, transfer_data: { destination: "acct_test_1" } },
       ui_mode: "embedded_page",
       return_url: `${SITE_URL}/checkout/success?session_id=${orderId}`,
       metadata: { orderId, eventId: event.eventId },
@@ -192,7 +193,7 @@ describe("the embedded Checkout Session", () => {
           },
           quantity: 1,
         },
-        { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 250 }, quantity: 1 },
+        { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 350 }, quantity: 1 },
         {
           price_data: {
             currency: "aud",
@@ -201,9 +202,9 @@ describe("the embedded Checkout Session", () => {
           },
           quantity: 1,
         },
-        { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 170 }, quantity: 1 },
+        { price_data: { currency: "aud", product_data: { name: "Booking fee" }, unit_amount: 230 }, quantity: 1 },
       ],
-      payment_intent_data: { application_fee_amount: 420, transfer_data: { destination: "acct_test_1" } },
+      payment_intent_data: { application_fee_amount: 580, transfer_data: { destination: "acct_test_1" } },
       ui_mode: "embedded_page",
       return_url: `${SITE_URL}/checkout/success?session_id=${orderId}`,
       metadata: { orderId, eventId: event.eventId },
@@ -275,7 +276,8 @@ describe("without a usable publishable key", () => {
 
   it("the usual refusals still come first, and free tickets don't need it", async () => {
     const event = await publishedEvent(api, organiser, admin, { ticketTypes: [...PAID_TICKETS, ...FREE_TICKETS] });
-    // Payouts not set up yet: that 409, not the 503.
+    await disablePayouts(api, organiser.organiserId);
+    // Payouts off (turned off since the event was published): that 409, not the 503.
     expect((await checkout(event.eventId, { lineItems: [{ ticketTypeId: "ga", quantity: 1 }] })).status).toBe(409);
     await enablePayouts(api, organiser.organiserId);
     expect((await checkout(event.eventId, { lineItems: [{ ticketTypeId: "ga", quantity: 9 }] })).status).toBe(409);
@@ -316,17 +318,20 @@ describe("GET /orders/by-session/{id}/payment", () => {
       eventSlug: event.slug,
       eventStartsAt: new Date(event.startsAt).toISOString(),
       eventEndsAt: new Date(event.endsAt).toISOString(),
+      eventTimeZone: "Australia/Melbourne",
+      eventState: "VIC",
       venueName: "The Tote",
       suburb: "Collingwood",
       seated: false,
+      refundPolicy: "no_change_of_mind",
       lines: [
-        { ticketTypeName: "GA", quantity: 2, unitTotalCents: 3170, lineTotalCents: 6340, buyerPaysFee: true },
+        { ticketTypeName: "GA", quantity: 2, unitTotalCents: 3230, lineTotalCents: 6460, buyerPaysFee: true },
         // The organiser absorbs VIP's fee: the buyer pays face value.
         { ticketTypeName: "VIP", quantity: 1, unitTotalCents: 8000, lineTotalCents: 8000, buyerPaysFee: false },
       ],
       subtotalCents: 14000,
-      buyerFeeCents: 340,
-      totalCents: 14340,
+      buyerFeeCents: 460,
+      totalCents: 14460,
     });
     // No ids, fee split, email or other Stripe ids.
     const text = JSON.stringify(res.body);
@@ -350,12 +355,12 @@ describe("GET /orders/by-session/{id}/payment", () => {
     expect(body.status).toBe("open");
     // RSVP is "buyer-pays" too, but free: no fee. VIP is paid, but the organiser absorbs its fee.
     expect(body.lines).toStrictEqual([
-      { ticketTypeName: "GA", quantity: 1, unitTotalCents: 3170, lineTotalCents: 3170, buyerPaysFee: true },
+      { ticketTypeName: "GA", quantity: 1, unitTotalCents: 3230, lineTotalCents: 3230, buyerPaysFee: true },
       { ticketTypeName: "VIP", quantity: 1, unitTotalCents: 8000, lineTotalCents: 8000, buyerPaysFee: false },
       { ticketTypeName: "RSVP", quantity: 1, unitTotalCents: 0, lineTotalCents: 0, buyerPaysFee: false },
     ]);
-    expect(body.buyerFeeCents).toBe(170);
-    expect(body.totalCents).toBe(3170 + 8000);
+    expect(body.buyerFeeCents).toBe(230);
+    expect(body.totalCents).toBe(3230 + 8000);
   });
 
   it("open (seated): each tier's seats on its line, and seated: true", async () => {
@@ -367,25 +372,25 @@ describe("GET /orders/by-session/{id}/payment", () => {
     const orderId = res.body.orderId as string;
     api.stripe.checkout.sessions.retrieve.mockResolvedValueOnce(openSession());
     const body = (await payment(orderId)).body;
-    expect(body).toMatchObject({ status: "open", seated: true, eventSlug: event.slug, totalCents: 5250 + 3170 + 2 * 2130 });
+    expect(body).toMatchObject({ status: "open", seated: true, eventSlug: event.slug, totalCents: 5350 + 3230 + 2 * 2170 });
     expect(body.lines).toStrictEqual([
       {
         ticketTypeName: "Premium",
         quantity: 1,
-        unitTotalCents: 5250,
-        lineTotalCents: 5250,
+        unitTotalCents: 5350,
+        lineTotalCents: 5350,
         buyerPaysFee: true,
         seats: [{ section: "Stalls", row: "A", seat: "1", kind: "standard" }],
       },
       {
         ticketTypeName: "Standard",
         quantity: 1,
-        unitTotalCents: 3170,
-        lineTotalCents: 3170,
+        unitTotalCents: 3230,
+        lineTotalCents: 3230,
         buyerPaysFee: true,
         seats: [{ section: "Stalls", row: "B", seat: "2", kind: "standard" }],
       },
-      { ticketTypeName: "Standing", quantity: 2, unitTotalCents: 2130, lineTotalCents: 4260, buyerPaysFee: true },
+      { ticketTypeName: "Standing", quantity: 2, unitTotalCents: 2170, lineTotalCents: 4340, buyerPaysFee: true },
     ]);
     // The lines add up to the order's total (the same amount Stripe's form shows).
     expect(body.lines.reduce((sum: number, l: { lineTotalCents: number }) => sum + l.lineTotalCents, 0)).toBe(body.totalCents);
@@ -780,15 +785,21 @@ describe("rate limits", () => {
       const [{ n }] = await api.db.query<{ n: number }>(`select count(*)::int as n from public.orders`);
       expect(n).toBe(10);
       expect(api.stripe.checkout.sessions.create).toHaveBeenCalledTimes(10);
-      // A refusal keeps no extra hit beyond the limit's cap.
-      expect(await limitCounters()).toEqual([{ client_key: ipKey(IP), bucket: "paid_checkouts", hits: 11 }]);
+      // Taken in the checkout attempt with its per-10-minute limits (tests/server/checkout-attempts.test.ts):
+      // a refusal keeps no hit in any bucket.
+      expect(await limitCounters()).toEqual([
+        { client_key: ipKey(IP), bucket: "checkouts", hits: 10 },
+        { client_key: ipKey(IP), bucket: `checkouts:${event.eventId}`, hits: 10 },
+        { client_key: ipKey(IP), bucket: "paid_checkouts", hits: 10 },
+      ]);
 
       expect((await checkout(event.eventId, { lineItems: [{ ticketTypeId: "ga", quantity: 1 }] }, OTHER_IP)).status).toBe(201);
     });
 
     it("only checkouts that would make an order count: early refusals, free orders and seated checkouts don't", async () => {
       const event = await publishedEvent(api, organiser, admin, { ticketTypes: [...PAID_TICKETS, ...FREE_TICKETS] });
-      // Payouts not set up: 409 before the limit.
+      await disablePayouts(api, organiser.organiserId);
+      // Payouts off (turned off since the event was published): 409 before the limit.
       expect((await checkout(event.eventId, { lineItems: [{ ticketTypeId: "ga", quantity: 1 }] }, IP)).status).toBe(409);
       await enablePayouts(api, organiser.organiserId);
       // Sold out (too many asked for), bad input: refused before it.
@@ -815,7 +826,7 @@ describe("rate limits", () => {
         expect((await checkout(event.eventId, { lineItems: [{ ticketTypeId: "ga", quantity: 1 }] })).status).toBe(201);
       }
       expect(await limitCounters()).toEqual([]);
-      expect(warn).toHaveBeenCalledWith("Paid checkout without a client IP header: the per-client limit was skipped.");
+      expect(warn).toHaveBeenCalledWith("Checkout without a client IP header: the per-client checkout limit was skipped.");
     });
 
     it("fails open, logged, when the secret the keys are salted with isn't configured", async () => {

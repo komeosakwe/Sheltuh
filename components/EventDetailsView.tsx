@@ -3,11 +3,12 @@ import { Suspense } from "react";
 import AddToCalendar from "@/components/AddToCalendar";
 import EventViewBeacon from "@/components/analytics/EventViewBeacon";
 import EventArt from "@/components/EventArt";
+import EventLocation from "@/components/events/EventLocation";
 import ClipPlayButton from "@/components/events/ClipPlayButton";
 import ExternalTicketLink from "@/components/ExternalTicketLink";
 import OrganiserLogo from "@/components/organisers/OrganiserLogo";
 import SaveButton from "@/components/favourites/SaveButton";
-import { ArrowRightIcon, CalendarIcon, ExternalIcon, PinIcon } from "@/components/home/icons";
+import { CalendarIcon, ExternalIcon, PinIcon } from "@/components/home/icons";
 import SaveOnReturn from "@/components/favourites/SaveOnReturn";
 import SeatedTicketsPanel from "@/components/seating/SeatedTicketsPanel";
 import ShareButton from "@/components/ShareButton";
@@ -19,21 +20,21 @@ import { Panel } from "@/components/ui/Section";
 import WhosGoing from "@/components/WhosGoing";
 import { WhosGoingProvider } from "@/components/whos-going/WhosGoingProvider";
 import WhosGoingSummaryLink from "@/components/whos-going/WhosGoingSummaryLink";
-import { isSafeTicketUrl } from "@/lib/event-url";
-import { formatEventDateShort, formatEventDateTimeRange, formatEventTime, formatTimeZoneLabel } from "@/lib/format";
+import { SUPPORT_EMAIL } from "@/lib/contact";
+import { isSafeTicketUrl, reportEventHref } from "@/lib/event-url";
+import { eventZone, formatEventDateShort, formatEventDateTimeRange, formatEventTime, formatTimeZoneLabel, zoneSuffix } from "@/lib/format";
 import { directionsHref } from "@/lib/maps";
 import { externalProviderLabel, formatFeedPriceParts, isSoldOut } from "@/lib/pricing";
 import { goesToSeatPage, quickBuyLabel } from "@/lib/quick-buy";
+import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { organiserProfileHref } from "@/lib/sample-organisers";
+import { siteOrigin } from "@/lib/share-metadata";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 
 /** One fact under the title: a 20px icon (with the fact's name for screen readers), then the fact. */
 // Each term column is the organiser avatar's width, so every row's text starts on the same line.
 const factRowClass = "flex gap-3 [&>dt]:flex [&>dt]:w-8 [&>dt]:shrink-0 [&>dt]:justify-center";
 const factIconClass = "mt-0.5 size-5 shrink-0 text-muted";
-/** The facts' secondary actions (Get directions, More from): 44px tall, underlined. */
-const factActionClass =
-  "inline-flex min-h-11 items-center gap-1 text-sm leading-5 font-semibold underline underline-offset-4 hover:decoration-2";
 
 /** A time in a date range ("10:00 am", "midnight"): the capture keeps it in `split`'s output. */
 const TIME_PATTERN = /(\d{1,2}:\d{2} [ap]m|midnight)/;
@@ -44,26 +45,40 @@ const ENDED_TEXT = "This event has ended.";
 /**
  * Refunds beside the tickets (docs/design/mobile-redesign.md §6.5), only
  * where a paid purchase on Sheltüh is possible: an external event's own site
- * has its terms, and nothing is refunded on a free-only or ended event. It
- * points at the existing Purchase Terms and refund pages and invents no
- * policy. (The age restriction is in Good to know, once.)
+ * has its terms, and nothing is refunded on a free-only or ended event. The
+ * event's own refund policy (lib/refund-policy.ts; the default for a demo
+ * event), the Australian Consumer Law line that always applies, then the
+ * existing Purchase Terms and refund pages. (The age restriction is in Good
+ * to know, once.)
  */
-function BookingInfo() {
+function BookingInfo({ event }: { event: SheltuhEvent }) {
   const linkClass = "underline underline-offset-4 hover:decoration-2";
+  // Against the start: the date refunds close, or that they have (lib/refund-policy.ts).
+  const policy = refundTermsLine(event.refundPolicy ?? DEFAULT_REFUND_POLICY, event.refundDays, event.startsAt, {
+    timeZone: eventZone(event.timeZone),
+  });
   return (
     <dl data-booking-info="" className="mt-4 flex flex-col gap-2 border-t border-surface-border pt-4 text-sm leading-5">
       <div>
         <dt className="eyebrow text-muted">Refunds</dt>
-        <dd className="mt-1">
-          Refund conditions are in our{" "}
-          <Link href="/purchase-terms" className={linkClass}>
-            Purchase Terms
-          </Link>
-          . To ask for one, use{" "}
-          <Link href="/refunds" className={linkClass}>
-            Request a refund
-          </Link>
-          .
+        <dd className="mt-1 flex flex-col gap-1">
+          {policy && (
+            <p data-refund-policy="" className="font-semibold">
+              {policy}
+            </p>
+          )}
+          {policy && <p className="text-sm text-muted">{REFUND_ACL_STATEMENT}</p>}
+          <p>
+            Refund conditions are in our{" "}
+            <Link href="/purchase-terms" className={linkClass}>
+              Purchase Terms
+            </Link>
+            . To ask for one, use{" "}
+            <Link href="/refunds" className={linkClass}>
+              Request a refund
+            </Link>
+            .
+          </p>
         </dd>
       </div>
     </dl>
@@ -71,22 +86,24 @@ function BookingInfo() {
 }
 
 /**
- * "Fri 25 Sep, 8:00 pm – Sat 26 Sep, midnight": the shared range, with
- * midnight said in words (people misread "12:00 am"). The formatter always
- * writes the hour as "12:00 am" for midnight, so this is a whole-word swap.
+ * "Fri 25 Sep, 8:00 pm – Sat 26 Sep, midnight": the shared range, in the
+ * event's zone (labelled below it), with midnight said in words (people
+ * misread "12:00 am"). The formatter always writes the hour as "12:00 am"
+ * for midnight, so this is a whole-word swap.
  */
-function whenLabel(startsAt: string, endsAt?: string): string {
-  return formatEventDateTimeRange(startsAt, endsAt).replace(/\b12:00 am\b/g, "midnight");
+function whenLabel(startsAt: string, endsAt: string | undefined, timeZone: string): string {
+  return formatEventDateTimeRange(startsAt, endsAt, timeZone).replace(/\b12:00 am\b/g, "midnight");
 }
 
 /**
  * The event page (docs/design/brand-direction-one.md §6.10; order from
  * docs/design/mobile-redesign.md, Refinement 22 Oct 2026). In reading order:
  * the photo, then the title (sentence case, title-lg), then one block of
- * facts (when, with the time zone and Add to calendar; where, with Get
- * directions; the organiser, with More from), the going count, and one
+ * facts (when, with the time zone and Add to calendar; where, the address
+ * linked to directions; the organiser, linked to their profile), the going count, and one
  * secondary row with Save and Share (the page's only Save). Then the
- * tickets and Who's Going, then About and Good to know. On phones that's one
+ * tickets and Who's Going, then About, Location (the venue, a small map and
+ * Google Maps and Apple Maps links) and Good to know. On phones that's one
  * column; from 1024px the tickets and Who's Going are the right-hand column
  * (sticky), beside the photo, title and facts, and About below those. Below
  * 1024px a compact buy bar sticks to the bottom (price and the one ticket
@@ -115,7 +132,9 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
   const ticketUrl = external && isSafeTicketUrl(event.externalTicketUrl) ? event.externalTicketUrl : undefined;
   // No price for an external event: we can't vouch for another site's.
   const price = external ? null : formatFeedPriceParts(event);
-  const when = whenLabel(event.startsAt, event.endsAt);
+  // The event's own zone (Melbourne when it has none), named under the time.
+  const zone = eventZone(event.timeZone);
+  const when = whenLabel(event.startsAt, event.endsAt, zone);
   // The buy bar's action: to #tickets, where a sold-out event has its waitlist
   // (§6.10, §6.11). Once an event has ended there's nothing to buy, so there's
   // no bar (docs/design/mobile-redesign.md §6.5).
@@ -125,7 +144,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
   const seatPage = goesToSeatPage(event) && !ended;
   // Refunds only matter where someone can pay: a paid tier, not ended (external has no Booking info at all).
   const paidPurchasePossible = !ended && event.ticketTypes.some((ticket) => ticket.priceCents > 0);
-  const shareText = `${event.title} · ${formatEventDateShort(event.startsAt)}, ${formatEventTime(event.startsAt)} · ${event.venueName}`;
+  const shareText = `${event.title} · ${formatEventDateShort(event.startsAt, zone)}, ${formatEventTime(event.startsAt, zone)}${zoneSuffix(event.timeZone, event.state)} · ${event.venueName}`;
   const saveTarget = { id: event.id, title: event.title, slug: event.slug };
   const organiserHref = organiserProfileHref(event);
   const directions = directionsHref(event);
@@ -162,10 +181,12 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
         }}
       >
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-x-14 lg:gap-y-10">
-          <div className="flex flex-col gap-4 lg:col-span-7">
+          <div className="flex flex-col gap-3 sm:gap-4 lg:col-span-7">
             {/* The photo first at every width (it's aria-hidden, so reading order is the title
-                first): full-bleed 4:3 on phones, never more than 30% of the screen's height so
-                the title, date and venue still fit above the buy bar; a 3:2 rounded card from sm.
+                first): full-bleed 4:3 on phones, never more than 24% of the screen's height so
+                the title, facts and Save/Share still fit above the buy bar (owner request, 26 Oct
+                2026: e2e/event-page.spec.ts), with room to spare when the time zone's line wraps
+                Add to calendar under it (a slightly wider font, as on Linux); a 3:2 rounded card from sm.
                 The page's LCP image. The wrapper is the same box (full-bleed on phones), so an
                 event's clip Play can sit on the photo's bottom-left, lined up with the page's text
                 edge on phones (docs/design/event-clips.md §5.3); absolutely placed, so nothing shifts. */}
@@ -176,7 +197,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                 title={event.title}
                 priority
                 fit="auto"
-                className="aspect-[4/3] max-h-[30svh] w-full sm:aspect-[3/2] sm:max-h-none sm:rounded-card"
+                className="aspect-[4/3] max-h-[24svh] w-full sm:aspect-[3/2] sm:max-h-none sm:rounded-card"
               />
               <ClipPlayButton event={event} size="hero" className="absolute bottom-3 left-5 sm:left-3" />
             </div>
@@ -185,13 +206,14 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
               <h1 className="title-lg -mt-2 max-w-[24ch] break-words">{event.title}</h1>
               {/* The one date/time and venue block (no second copy further down): when, where
                   and who, each with its action. */}
-              <dl data-event-facts="" className="mt-1 flex flex-col gap-2">
+              <dl data-event-facts="" className="-mt-1 flex flex-col gap-2 sm:mt-1">
                 <div className={factRowClass}>
                   <dt>
                     <CalendarIcon className={factIconClass} />
                     <span className="sr-only">When</span>
                   </dt>
-                  <dd className="min-w-0">
+                  {/* Positioned: the Add to calendar menu opens from here, at the column's edge. */}
+                  <dd className="relative min-w-0 pb-1 lg:pb-0">
                     <p className="text-base leading-6 font-semibold">
                       {/* Each time stays whole ("4:00 pm", never "4:00 / pm"); the rest wraps where it must,
                           so a long range fits a 320px screen. */}
@@ -205,9 +227,17 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                         ),
                       )}
                     </p>
-                    <p className="text-sm leading-5 text-muted">{formatTimeZoneLabel(event.startsAt)}</p>
-                    {/* On its own row, starting at the column's edge, so its menu stays on screen. */}
-                    <AddToCalendar event={event} />
+                    {/* The zone, then Add to calendar beside it where there's room (onto its own line
+                        where there isn't, e.g. 320px; and on its own row from lg, as before). The
+                        button keeps its 44px target, overlapping the lines above and below (neither
+                        is a control; the row's bottom padding clears the address link) rather than
+                        adding a 44px row. Its menu opens from the dd, so it stays on screen. */}
+                    <div className="flex flex-wrap items-center gap-x-2">
+                      <p className="text-sm leading-5 text-muted lg:basis-full">
+                        {formatTimeZoneLabel(event.startsAt, zone, event.state)}
+                      </p>
+                      <AddToCalendar event={event} menuFromParent className="-my-3 lg:my-0" />
+                    </div>
                   </dd>
                 </div>
                 <div className={factRowClass}>
@@ -216,8 +246,8 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                     <span className="sr-only">Where</span>
                   </dt>
                   {directions ? (
-                    // One link for the whole place: the address, then the obvious action. It opens
-                    // the maps app where there is one (lib/maps.ts), in a new tab otherwise.
+                    // The address itself links to directions. It opens the maps app where there is
+                    // one (lib/maps.ts), in a new tab otherwise.
                     <dd className="min-w-0">
                       <a
                         href={directions}
@@ -227,13 +257,13 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                         // Spelled out: it starts with the action, holds the visible address, and says
                         // where it goes and that it opens a new tab.
                         aria-label={`Get directions to ${address} (opens Google Maps in a new tab)`}
-                        className="flex w-fit max-w-full flex-col"
+                        // The address is the link: underlined, with the "opens elsewhere" mark, and
+                        // at least 44px tall so it's an easy target.
+                        className="inline-block min-h-11 max-w-full text-base leading-6 break-words underline underline-offset-4 hover:decoration-2"
                       >
-                        <span className="text-base leading-6 break-words">{address}</span>
-                        <span className={factActionClass}>
-                          Get directions
-                          <ExternalIcon />
-                        </span>
+                        {address}
+                        {/* Inline after the last word, so it stays beside the text when it wraps. */}
+                        <ExternalIcon className="ml-1 inline size-4 align-[-2px]" />
                       </a>
                     </dd>
                   ) : (
@@ -268,23 +298,16 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                         event.organiserName
                       )}
                     </p>
-                    {organiserHref && (
-                      // Their other events: the "Upcoming events" section of the same profile.
-                      <Link href={`${organiserHref}#organiser-upcoming`} className={factActionClass}>
-                        More from {event.organiserName}
-                        <ArrowRightIcon />
-                      </Link>
-                    )}
                   </dd>
                 </div>
               </dl>
               {/* Below lg Who's Going comes after the tickets, so its count is linked here too
-                  (the panel is beside this from lg). */}
-              <div className="lg:hidden">
+                  (the panel is beside this from lg). No gap left behind while there is none. */}
+              <div className="empty:hidden lg:hidden">
                 <WhosGoingSummaryLink />
               </div>
               {/* The one secondary row: Save (the page's only Save) and Share. */}
-              <div data-event-actions="" className="flex flex-wrap items-center gap-2">
+              <div data-event-actions="" className="-mt-1 flex flex-wrap items-center gap-2 sm:mt-0">
                 <SaveButton event={saveTarget} variant="action" />
                 <ShareButton slug={event.slug} title={event.title} text={shareText} />
               </div>
@@ -331,7 +354,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                         <TicketSelector event={event} />
                       </div>
                     )}
-                    {paidPurchasePossible && <BookingInfo />}
+                    {paidPurchasePossible && <BookingInfo event={event} />}
                   </>
                 )}
               </Panel>
@@ -344,6 +367,9 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
             <Panel title="About this event" titleId="about-title">
               <p className="max-w-2xl text-base leading-7">{event.description}</p>
             </Panel>
+
+            {/* Where it is, with a small map and the Google Maps and Apple Maps links (none without a venue or suburb). */}
+            <EventLocation event={event} />
 
             {goodToKnow.length > 0 && (
               <Panel title="Good to know" titleId="good-to-know-title">
@@ -358,6 +384,17 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                 <p className="mt-4 text-xs text-muted">As provided by the organiser.</p>
               </Panel>
             )}
+
+            {/* Events go live without a check first: anyone can tell Sheltüh about one (by email, for now). */}
+            <p className="text-sm text-muted">
+              Something wrong with this event?{" "}
+              <a
+                href={reportEventHref(event.title, event.slug, siteOrigin(), SUPPORT_EMAIL)}
+                className="inline-flex min-h-6 items-center text-foreground underline underline-offset-4"
+              >
+                Report this event
+              </a>
+            </p>
           </div>
 
           {/* Buy bar, below lg only, on an ink surface: compact (the price and the one ticket

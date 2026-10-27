@@ -306,6 +306,9 @@ describe("public reads", () => {
     const params = { eventId: event.eventId };
     const current = await api.call(getSeatMap, { params, query: { v: String(map.version) } });
     expect(current.status).toBe(200);
+    // A year in browsers (the versioned URL never changes), an hour at the
+    // CDN (a takedown stops reaching new visitors within about an hour).
+    expect(SEAT_MAP_CACHE).toBe("public, max-age=31536000, s-maxage=3600, immutable");
     expect(current.headers.get("cache-control")).toBe(SEAT_MAP_CACHE);
     expect(current.body).toEqual(map);
   });
@@ -413,6 +416,8 @@ describe("public reads", () => {
       "venueName",
       "venueAddress",
       "suburb",
+      "state",
+      "timeZone",
       "startsAt",
       "endsAt",
       "organiserName",
@@ -421,6 +426,9 @@ describe("public reads", () => {
       "ticketingMode",
       "externalFree",
       "externalProvider",
+      "refundPolicy",
+      // The fixture's venue pin (a GA event's payload is otherwise unchanged).
+      "location",
     ]);
     expect(plain.body.ticketTypes).toEqual([
       { id: "ga", name: "General admission", priceCents: 3000, feePolicy: "buyer-pays", quantityAvailable: 10, soldOut: false, remaining: 10 },

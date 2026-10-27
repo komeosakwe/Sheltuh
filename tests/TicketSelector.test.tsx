@@ -48,7 +48,7 @@ describe("TicketSelector (live)", () => {
 
   it("shows each ticket's all-inclusive price", () => {
     render(<TicketSelector event={live("neon-static")} />);
-    expect(screen.getByText("A$31.70 incl. booking fee")).toBeInTheDocument();
+    expect(screen.getByText("A$32.30 incl. booking fee")).toBeInTheDocument();
     expect(screen.getByText("A$55 incl. booking fee")).toBeInTheDocument();
   });
 
@@ -96,6 +96,8 @@ describe("TicketSelector (live, signed in)", () => {
       "mia@example.com",
       undefined,
       expect.any(Function),
+      // No Support Sheltüh on a free order.
+      undefined,
     );
   });
 
@@ -127,6 +129,8 @@ describe("TicketSelector (live, signed in)", () => {
       "mia@example.com",
       undefined,
       undefined,
+      // Nothing pre-selected: no Support Sheltüh unless the buyer picks some.
+      undefined,
     );
   });
 });
@@ -145,7 +149,7 @@ describe("TicketSelector (live, no auth)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
     expect(screen.queryByText(/Booking as/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
-    expect(createCheckoutSession).toHaveBeenCalledWith(expect.any(String), expect.any(Array), undefined, undefined, undefined);
+    expect(createCheckoutSession).toHaveBeenCalledWith(expect.any(String), expect.any(Array), undefined, undefined, undefined, undefined);
   });
 });
 
@@ -336,7 +340,7 @@ describe("TicketSelector (tracking-link attribution)", () => {
     render(<TicketSelector event={event} />);
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
     fireEvent.click(screen.getByRole("button", { name: "Checkout" }));
-    expect(createCheckoutSession).toHaveBeenCalledWith(event.id, expect.any(Array), undefined, "abcd2345", undefined);
+    expect(createCheckoutSession).toHaveBeenCalledWith(event.id, expect.any(Array), undefined, "abcd2345", undefined, undefined);
   });
 });
 
@@ -352,8 +356,8 @@ describe("TicketSelector (demo)", () => {
 describe("TicketSelector pricing (ACCC all-inclusive, brand-direction-one.md §6.8)", () => {
   it("shows each paid tier's total first, at full size on every width, then the breakdown, before anything is chosen", () => {
     render(<TicketSelector event={live("neon-static")} />);
-    const total = screen.getByText("A$31.70 incl. booking fee");
-    const breakdown = screen.getByText("A$30 ticket + A$1.70 booking fee");
+    const total = screen.getByText("A$32.30 incl. booking fee");
+    const breakdown = screen.getByText("A$30 ticket + A$2.30 booking fee");
     // Total before breakdown, and the breakdown is already there at quantity 0.
     expect(total.compareDocumentPosition(breakdown) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole("group", { name: "Quantity for General admission" })).toHaveTextContent("0");
@@ -388,11 +392,11 @@ describe("TicketSelector pricing (ACCC all-inclusive, brand-direction-one.md §6
     fireEvent.click(screen.getByRole("button", { name: "Increase quantity for General admission" }));
     const totalTerm = screen.getByText("Total");
     const totalValue = totalTerm.nextElementSibling;
-    expect(totalValue).toHaveTextContent("A$31.70");
+    expect(totalValue).toHaveTextContent("A$32.30");
     expect(totalValue).toHaveClass("text-xl", "font-bold");
     expect(totalTerm.parentElement).toHaveClass("border-t", "border-foreground");
     expect(screen.getByText("Tickets").nextElementSibling).toHaveTextContent("A$30");
-    expect(screen.getByText("Booking fees").nextElementSibling).toHaveTextContent("A$1.70");
+    expect(screen.getByText("Booking fees").nextElementSibling).toHaveTextContent("A$2.30");
     const checkout = screen.getByRole("button", { name: "Checkout" });
     expect(checkout).toHaveClass("btn-solid", "btn-lg");
     expect(checkout.className).not.toMatch(/signal|lg:/);
@@ -512,9 +516,9 @@ describe("TicketSelector announcements (one status for the panel)", () => {
     const more = screen.getByRole("button", { name: "Increase quantity for General admission" });
     fireEvent.click(more);
     fireEvent.click(more);
-    expect(status()).toHaveTextContent("General admission: 2. Total A$63.40 incl. booking fees.");
+    expect(status()).toHaveTextContent("General admission: 2. Total A$64.60 incl. booking fees.");
     fireEvent.click(screen.getByRole("button", { name: "Decrease quantity for General admission" }));
-    expect(status()).toHaveTextContent("General admission: 1. Total A$31.70 incl. booking fees.");
+    expect(status()).toHaveTextContent("General admission: 1. Total A$32.30 incl. booking fees.");
   });
 
   it("says why at a limit, on reaching it and on each press beyond it", () => {
@@ -524,7 +528,7 @@ describe("TicketSelector announcements (one status for the panel)", () => {
     expect(more).toHaveAccessibleDescription("Up to 3 per booking.");
     expect(screen.getByText("Up to 3 per booking.")).toBeVisible();
     for (let i = 0; i < 3; i++) fireEvent.click(more);
-    expect(status()).toHaveTextContent("Balcony: 3. Total A$95.10 incl. booking fees. Up to 3 per booking.");
+    expect(status()).toHaveTextContent("Balcony: 3. Total A$96.90 incl. booking fees. Up to 3 per booking.");
     fireEvent.click(more);
     expect(status().textContent?.trim()).toBe("Balcony: 3. Up to 3 per booking.");
     const first = status().textContent;

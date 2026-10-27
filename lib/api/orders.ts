@@ -1,5 +1,9 @@
+import { runCheckoutAttempt } from "./checkout-attempt";
 import { apiFetch, type GetToken } from "./client";
 import type { CheckoutResult, ConfirmFreeOrderResult, CustomerOrderLookup, OrderPaymentLookup } from "./types";
+
+/** The wallets a ticket can be added to (CustomerOrder.wallet). */
+export type WalletProvider = "google" | "apple";
 
 export interface CheckoutLineItemInput {
   ticketTypeId: string;
@@ -21,19 +25,34 @@ export interface CheckoutLineItemInput {
  * (lib/tracking-ref.ts), for attribution only: the server ignores anything
  * that isn't one of the event's codes, and it never changes the price.
  *
+ * `supportCents`: Support Sheltüh (lib/support.ts), sent only when above 0:
+ * a whole number of cents from SUPPORT_MIN_CENTS to SUPPORT_MAX_CENTS, and
+ * only with a paid ticket in the order (400 `fieldErrors.supportCents`
+ * otherwise). It's part of the basket, so a changed amount starts a new
+ * attempt.
+ *
  * `getToken`: pass it for a free order when signed in. Booking with the
  * account's own (verified) email then issues the tickets straight away; any
  * other email still gets a confirmation link. A token that can't be had is
  * simply left off (the order goes the guest way).
  *
- * ApiError: 400 (fieldErrors `buyerEmail` / `lineItems`, e.g. over 4 free
+ * Sent with an `Idempotency-Key` (lib/api/checkout-attempt.ts): calling
+ * this again with the same basket while it's in flight shares the one
+ * request, and after an error reuses the key, so a paid checkout never makes
+ * a second order or Stripe session; a success or a changed basket starts a
+ * new attempt. Network failures, 503s and an in-progress 409 are retried
+ * with the same key before the promise rejects.
+ *
+ * ApiError: 400 (fieldErrors `buyerEmail` / `lineItems` / `supportCents`, e.g. over 4 free
  * tickets in any order, paid or free), 404 event not on sale, 409 sold out or this email already has its
  * free tickets for the event, 429 too many free bookings today (members)
- * or too many paid checkouts from this connection in the last minute (body
+ * or too many paid checkouts from this connection (body
  * `code: "client_rate_limited"`; nothing was created), 503 free bookings
  * busy (the link is emailed after the answer, so a failed send isn't
  * reported here), or card payments aren't available (paid orders; nothing
- * was created).
+ * was created). Paid checkouts also have the CheckoutErrorCode codes
+ * (`checkoutErrorCode(err)`): e.g. 429 `client_rate_limited`, 409
+ * `checkout_expired` or `checkout_other_client` (press again: a new attempt).
  */
 export async function createCheckoutSession(
   eventId: string,
@@ -41,19 +60,29 @@ export async function createCheckoutSession(
   buyerEmail?: string,
   trackingCode?: string,
   getToken?: GetToken,
+  supportCents?: number,
 ) {
-  let token: string | undefined;
-  if (getToken) {
-    try {
-      token = await getToken();
-    } catch {
-      token = undefined;
+  const body = {
+    lineItems,
+    ...(buyerEmail ? { buyerEmail } : {}),
+    ...(trackingCode ? { trackingCode } : {}),
+    ...(supportCents && supportCents > 0 ? { supportCents } : {}),
+  };
+  return runCheckoutAttempt(eventId, body, async (key) => {
+    let token: string | undefined;
+    if (getToken) {
+      try {
+        token = await getToken();
+      } catch {
+        token = undefined;
+      }
     }
-  }
-  return apiFetch<CheckoutResult>(`/events/${eventId}/checkout`, {
-    method: "POST",
-    body: { lineItems, ...(buyerEmail ? { buyerEmail } : {}), ...(trackingCode ? { trackingCode } : {}) },
-    token,
+    return apiFetch<CheckoutResult>(`/events/${eventId}/checkout`, {
+      method: "POST",
+      body,
+      token,
+      headers: { "idempotency-key": key },
+    });
   });
 }
 
@@ -91,4 +120,17 @@ export async function getOrderBySession(sessionId: string) {
  */
 export async function getOrderPayment(orderId: string) {
   return apiFetch<OrderPaymentLookup>(`/orders/by-session/${encodeURIComponent(orderId)}/payment`);
+}
+
+/**
+ * Where "Add to Google Wallet" / "Add to Apple Wallet" goes for one ticket of
+ * the order: a plain link (a full navigation, not a fetch). Google's answers
+ * with a redirect to Google's save page; Apple's is the .pkpass, which Safari
+ * offers to add to Wallet. The order id is the same capability as the ticket
+ * page's own URL; `ticketNumber` is the ticket's number on the page (1-based,
+ * in the API's order), never its code. Only offer it when
+ * `CustomerOrder.wallet[provider]` is true.
+ */
+export function walletPassUrl(sessionId: string, provider: WalletProvider, ticketNumber: number): string {
+  return `/api/orders/by-session/${encodeURIComponent(sessionId)}/wallet/${provider}?ticket=${ticketNumber}`;
 }

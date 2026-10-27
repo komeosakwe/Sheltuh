@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CheckoutConfirmation from "@/components/CheckoutConfirmation";
 import { ApiError } from "@/lib/api/client";
 import type { CustomerOrder, OrderPaymentLookup } from "@/lib/api/types";
+import { REFUND_ACL_STATEMENT } from "@/lib/refund-policy";
 import { rememberPendingCheckout } from "@/lib/seating/pending-checkout";
 
 // The real next/link, marked, so a test can tell its links from plain ones (a full page load).
@@ -19,7 +20,9 @@ const getOrderBySession = vi.fn();
 const getOrderPayment = vi.fn();
 // The writes the page must never make (it only reads).
 const writes = { createCheckoutSession: vi.fn(), confirmFreeOrder: vi.fn(), cancelPendingOrder: vi.fn() };
-vi.mock("@/lib/api/orders", () => ({
+vi.mock("@/lib/api/orders", async (importOriginal) => ({
+  // A pure URL builder (the wallet buttons' links): the real one.
+  walletPassUrl: (await importOriginal<typeof import("@/lib/api/orders")>()).walletPassUrl,
   getOrderBySession: (...args: unknown[]) => getOrderBySession(...args),
   getOrderPayment: (...args: unknown[]) => getOrderPayment(...args),
   createCheckoutSession: (...args: unknown[]) => writes.createCheckoutSession(...args),
@@ -45,8 +48,8 @@ const ORDER: CustomerOrder = {
   eventSlug: "neon-static",
   maskedEmail: "m***@example.com",
   subtotalCents: 3000,
-  buyerFeeCents: 170,
-  totalCents: 3170,
+  buyerFeeCents: 230,
+  totalCents: 3230,
   tickets: [{ ticketCode: "ABC123", ticketTypeName: "General admission", checkedInAt: null }],
 };
 
@@ -90,7 +93,7 @@ describe("CheckoutConfirmation", () => {
     render(<CheckoutConfirmation />);
     const totalTerm = await screen.findByText("Total paid");
     const totalValue = totalTerm.nextElementSibling;
-    expect(totalValue).toHaveTextContent("A$31.70");
+    expect(totalValue).toHaveTextContent("A$32.30");
     expect(totalValue).toHaveClass("text-xl", "font-bold", "tabular-nums");
     const card = totalTerm.closest("dl")?.parentElement;
     expect(card).toHaveClass("rounded-card", "border", "border-foreground", "bg-card", "p-4");
@@ -170,7 +173,7 @@ describe("CheckoutConfirmation", () => {
       const text = ticket.textContent ?? "";
       expect(text).toContain("Neon Static");
       expect(text).toContain("Sat 6 Mar, 8:00 pm – 11:30 pm");
-      expect(text).toContain("The Tote, Collingwood");
+      expect(text).toContain("The Tote, Collingwood, VIC");
       expect(text).toContain("Backup code");
       expect(text).toContain(WITH_DETAILS.tickets[i].ticketCode);
     }
@@ -180,6 +183,26 @@ describe("CheckoutConfirmation", () => {
     expect(tickets[1].textContent).toContain("Ready to scan");
     // Both keep their QR.
     expect(screen.getByRole("img", { name: "QR code for ticket A2B3-C4D5" })).toBeInTheDocument();
+  });
+
+  it("shows a Perth event's date, check-in time and refund deadline in Perth time, and names it", async () => {
+    getOrderBySession.mockResolvedValue({
+      ...WITH_DETAILS,
+      eventListed: true,
+      eventTimeZone: "Australia/Perth",
+      eventState: "WA",
+      refundPolicy: "days_before",
+      refundDays: 7,
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2027-02-01T00:00:00.000Z"));
+    render(<CheckoutConfirmation />);
+    expect(await screen.findByRole("img", { name: "QR code for ticket 7KQM-2HXD" })).toBeInTheDocument();
+    const tickets = screen.getAllByRole("listitem");
+    // 8:00 pm – 11:30 pm AEDT is 5:00 pm – 8:30 pm AWST; checked in 8:42 pm AEDT is 5:42 pm AWST.
+    for (const ticket of tickets) expect(ticket.textContent).toContain("Sat 6 Mar, 5:00 pm – 8:30 pm Perth time");
+    expect(tickets[0].textContent).toMatch(/Checked in (Sat 6 Mar( 2027)?, )?5:42 pm/);
+    expect(screen.getByText("Refunds available until Sat 27 Feb, 5:00 pm (7 days before the event).")).toBeInTheDocument();
   });
 
   it("from an older API (no event details or check-in status), shows the tickets without them", async () => {
@@ -232,9 +255,131 @@ describe("CheckoutConfirmation", () => {
   it("a listed event (eventListed true) shows its details and no support line", async () => {
     getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, eventListed: true });
     render(<CheckoutConfirmation />);
-    expect(await screen.findAllByText("The Tote, Collingwood")).toHaveLength(2);
+    expect(await screen.findAllByText("The Tote, Collingwood, VIC")).toHaveLength(2);
     expect(screen.queryByText(/no longer listed/)).toBeNull();
     expect(screen.getByRole("link", { name: "Back to the event" })).toHaveAttribute("href", "/events/neon-static");
+  });
+
+  it("shows the event's refund policy by the totals, dated from its start, with the ACL line and how to ask for a refund", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-01T00:00:00.000Z"));
+    try {
+      getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, eventListed: true, refundPolicy: "days_before", refundDays: 14 });
+      render(<CheckoutConfirmation />);
+      await screen.findByText("Total paid");
+      const refunds = document.querySelector<HTMLElement>("[data-refund-policy]");
+      if (!refunds) throw new Error("no refund policy");
+      // The event starts Sat 6 Mar 2027, 8:00 pm AEDT.
+      expect(refunds).toHaveTextContent(
+        "Refund policy: Refunds available until Sat 20 Feb 2027, 8:00 pm (14 days before the event).",
+      );
+      expect(within(refunds).getByText(REFUND_ACL_STATEMENT)).toHaveClass("text-sm", "text-muted");
+      expect(screen.getByRole("link", { name: "Request a refund" })).toHaveAttribute("href", "/refunds");
+      // After the total.
+      expect(screen.getByText("Total paid").compareDocumentPosition(refunds) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says no_change_of_mind too", async () => {
+    getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, refundPolicy: "no_change_of_mind" });
+    render(<CheckoutConfirmation />);
+    await screen.findByText("Total paid");
+    expect(document.querySelector("[data-refund-policy]")).toHaveTextContent("Refund policy: No refunds for change of mind.");
+  });
+
+  it("no refund line without a policy (an older API, an unlisted event), for a free order, or with invalid days", async () => {
+    for (const order of [
+      WITH_DETAILS,
+      { ...WITH_DETAILS, eventListed: false, refundPolicy: "no_change_of_mind" as const },
+      { ...WITH_DETAILS, subtotalCents: 0, buyerFeeCents: 0, totalCents: 0, refundPolicy: "no_change_of_mind" as const },
+      { ...WITH_DETAILS, refundPolicy: "days_before" as const },
+    ]) {
+      getOrderBySession.mockResolvedValue(order);
+      render(<CheckoutConfirmation />);
+      await screen.findByText("Total paid");
+      expect(document.querySelector("[data-refund-policy]")).toBeNull();
+      expect(screen.queryByText(REFUND_ACL_STATEMENT)).toBeNull();
+      cleanup();
+    }
+  });
+
+  describe("wallet buttons (CustomerOrder.wallet)", () => {
+    const walletLinks = () => screen.queryAllByRole("link", { name: /^Add to (Apple|Google) Wallet/ });
+
+    it("none without the flags (an older API), or with both off", async () => {
+      for (const order of [{ ...WITH_DETAILS, eventListed: true }, { ...WITH_DETAILS, eventListed: true, wallet: { google: false, apple: false } }]) {
+        getOrderBySession.mockResolvedValue(order);
+        render(<CheckoutConfirmation />);
+        expect(await screen.findByRole("img", { name: "QR code for ticket 7KQM-2HXD" })).toBeInTheDocument();
+        expect(walletLinks()).toHaveLength(0);
+        expect(screen.queryByRole("list", { name: "Add to your phone's wallet" })).toBeNull();
+        cleanup();
+      }
+    });
+
+    it("per ticket, only the wallets that are on, each to its pass route by the ticket's number (the API's order)", async () => {
+      getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, eventListed: true, wallet: { google: true, apple: false } });
+      render(<CheckoutConfirmation />);
+      const list = await screen.findByRole("list", { name: "Add to your phone's wallet" });
+      const links = within(list).getAllByRole("link");
+      expect(links.map((a) => a.getAttribute("aria-label"))).toEqual([
+        "Add to Google Wallet: ticket 1 of 2",
+        "Add to Google Wallet: ticket 2 of 2",
+      ]);
+      expect(links.map((a) => a.getAttribute("href"))).toEqual([
+        "/api/orders/by-session/cs_test_1/wallet/google?ticket=1",
+        "/api/orders/by-session/cs_test_1/wallet/google?ticket=2",
+      ]);
+      expect(within(list).getByText("Ticket 2 of 2 · VIP")).toBeInTheDocument();
+      cleanup();
+
+      getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, eventListed: true, wallet: { google: true, apple: true } });
+      render(<CheckoutConfirmation />);
+      await screen.findByRole("list", { name: "Add to your phone's wallet" });
+      expect(walletLinks().map((a) => a.getAttribute("href"))).toEqual([
+        "/api/orders/by-session/cs_test_1/wallet/apple?ticket=1",
+        "/api/orders/by-session/cs_test_1/wallet/google?ticket=1",
+        "/api/orders/by-session/cs_test_1/wallet/apple?ticket=2",
+        "/api/orders/by-session/cs_test_1/wallet/google?ticket=2",
+      ]);
+    });
+
+    it("seated tickets are listed by seat but keep their numbers, so each link is the route's ticket", async () => {
+      getOrderBySession.mockResolvedValue({
+        ...WITH_DETAILS,
+        eventListed: true,
+        wallet: { google: false, apple: true },
+        tickets: [
+          { ticketCode: "7KQM-2HXD", ticketTypeName: "Stalls", checkedInAt: null, seat: { section: "Stalls", row: "B", seat: "4", kind: "standard" } },
+          { ticketCode: "A2B3-C4D5", ticketTypeName: "Stalls", checkedInAt: null, seat: { section: "Stalls", row: "A", seat: "9", kind: "standard" } },
+        ],
+      });
+      render(<CheckoutConfirmation />);
+      await screen.findByRole("list", { name: "Add to your phone's wallet" });
+      // Row A (ticket 2 in the API's order) is listed first, and its link still asks for ticket 2.
+      expect(walletLinks().map((a) => [a.getAttribute("aria-label"), a.getAttribute("href")])).toEqual([
+        ["Add to Apple Wallet: ticket 2 of 2", "/api/orders/by-session/cs_test_1/wallet/apple?ticket=2"],
+        ["Add to Apple Wallet: ticket 1 of 2", "/api/orders/by-session/cs_test_1/wallet/apple?ticket=1"],
+      ]);
+    });
+
+    it("none for an event that's no longer listed, even if a response carried the flags", async () => {
+      getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, eventListed: false, wallet: { google: true, apple: true } });
+      render(<CheckoutConfirmation />);
+      expect(await screen.findByRole("img", { name: "QR code for ticket 7KQM-2HXD" })).toBeInTheDocument();
+      expect(walletLinks()).toHaveLength(0);
+    });
+
+    it("none for a refunded order", async () => {
+      getOrderBySession.mockResolvedValue({ ...ORDER, status: "refunded", refundReason: "refunded", tickets: [], wallet: { google: true, apple: true } });
+      render(<CheckoutConfirmation />);
+      expect(
+        await screen.findByText("Your payment for Neon Static was refunded, so the tickets for this order are no longer valid."),
+      ).toBeInTheDocument();
+      expect(walletLinks()).toHaveLength(0);
+    });
   });
 
   it("keeps the sold-out wording for an oversold refund", async () => {
@@ -287,8 +432,8 @@ describe("CheckoutConfirmation: back from Stripe without a confirmed order (chec
       seated: false,
       lines: [],
       subtotalCents: 3000,
-      buyerFeeCents: 170,
-      totalCents: 3170,
+      buyerFeeCents: 230,
+      totalCents: 3230,
     });
     await renderPending(2);
     const h1 = screen.getByRole("heading", { level: 1, name: "Payment not completed" });
@@ -332,8 +477,8 @@ describe("CheckoutConfirmation: back from Stripe without a confirmed order (chec
       seated: true,
       lines: [],
       subtotalCents: 3000,
-      buyerFeeCents: 170,
-      totalCents: 3170,
+      buyerFeeCents: 230,
+      totalCents: 3230,
     });
     await renderPending(2);
     expect(
@@ -342,6 +487,24 @@ describe("CheckoutConfirmation: back from Stripe without a confirmed order (chec
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Back to Sheltüh" })).toHaveAttribute("href", "/");
+  });
+
+  it("still open, seated, at a Perth event: the hold ends in Perth time, and says so", async () => {
+    getOrderPayment.mockResolvedValue({
+      status: "open",
+      clientSecret: "cs_secret",
+      expiresAt: "2027-03-06T09:31:00.000Z", // 8:31 pm AEDT, 5:31 pm AWST
+      eventTitle: "Off-Kilter",
+      eventTimeZone: "Australia/Perth",
+      eventState: "WA",
+      seated: true,
+      lines: [],
+      subtotalCents: 3000,
+      buyerFeeCents: 230,
+      totalCents: 3230,
+    });
+    await renderPending(2);
+    expect(screen.getByText(/Your seats are held until 5:31 pm Perth time\.$/)).toBeInTheDocument();
   });
 
   it("processing: keeps polling, then says the payment is processing (not an error)", async () => {
@@ -423,8 +586,8 @@ describe("CheckoutConfirmation: the seat page's pending checkout (released on Ba
     seated: true,
     lines: [],
     subtotalCents: 3000,
-    buyerFeeCents: 170,
-    totalCents: 3170,
+    buyerFeeCents: 230,
+    totalCents: 3230,
   };
 
   beforeEach(() => {
@@ -528,5 +691,44 @@ describe("CheckoutConfirmation: the tab's title follows the answer", () => {
     render(<CheckoutConfirmation />);
     await screen.findByRole("heading", { level: 1 });
     await waitFor(() => expect(document.title).toBe(title));
+  });
+});
+
+describe("CheckoutConfirmation: Support Sheltüh", () => {
+  it("is its own line in the totals, in the total paid, with a thank-you", async () => {
+    getOrderBySession.mockResolvedValue({ ...ORDER, supportCents: 500, totalCents: 3730 });
+    render(<CheckoutConfirmation />);
+    const term = await screen.findByText("Support Sheltüh", { selector: "dt" });
+    expect(term.nextElementSibling).toHaveTextContent("A$5");
+    expect(term.nextElementSibling).toHaveClass("tabular-nums");
+    // After the booking fees, before the total paid (which includes it).
+    const totalTerm = screen.getByText("Total paid");
+    expect(screen.getByText("Booking fees").compareDocumentPosition(term) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(term.compareDocumentPosition(totalTerm) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(totalTerm.nextElementSibling).toHaveTextContent("A$37.30");
+    expect(screen.getByText("Thanks for supporting Sheltüh.")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/donat/i);
+  });
+
+  it("isn't there without it (unset, or from an older API)", async () => {
+    getOrderBySession.mockResolvedValue(ORDER);
+    render(<CheckoutConfirmation />);
+    await screen.findByText("Total paid");
+    expect(screen.queryByText("Support Sheltüh")).toBeNull();
+    expect(screen.queryByText("Thanks for supporting Sheltüh.")).toBeNull();
+  });
+
+  it("with support, the refund terms say it's refunded only with the whole order; not without it", async () => {
+    const note = "Support Sheltüh is refunded only if your whole order is refunded.";
+    getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, refundPolicy: "no_change_of_mind", supportCents: 500 });
+    const { unmount } = render(<CheckoutConfirmation />);
+    const policy = (await screen.findByText(/No refunds for change of mind/)).closest("[data-refund-policy]") as HTMLElement;
+    expect(within(policy).getByText(note)).toBeInTheDocument();
+    unmount();
+
+    getOrderBySession.mockResolvedValue({ ...WITH_DETAILS, refundPolicy: "no_change_of_mind" });
+    render(<CheckoutConfirmation />);
+    await screen.findByText(/No refunds for change of mind/);
+    expect(screen.queryByText(note)).toBeNull();
   });
 });

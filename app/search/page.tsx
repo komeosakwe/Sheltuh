@@ -4,11 +4,12 @@ import { redirect } from "next/navigation";
 import EventFeed from "@/components/EventFeed";
 import SearchBar from "@/components/SearchBar";
 import { Notice, Page, PageHeader } from "@/components/ui/Section";
-import { didYouMean, findLocality, parseNearParam } from "@/lib/location";
+import { parseNearParam } from "@/lib/near-storage";
+import { placeName } from "@/lib/place";
 
 export const metadata: Metadata = { title: "Search — Sheltüh" };
 
-/** /search for `query`, near `near` when given; without one, all of Melbourne. */
+/** /search for `query`, near `near` when given; without one, all of Australia. */
 function searchHref(query: string, near?: string): string {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
@@ -38,8 +39,11 @@ export default async function SearchPage({
   // The bar leaves an empty `near` out of the address, once its script has run. A search sent
   // before that (or without JS) still carries `near=`: drop it, so the address stays /search?q=….
   if (nearParam !== undefined && !near) redirect(searchHref(query));
-  const place = near ? findLocality(near) : null;
-  const suggestion = near && !place ? didYouMean(near) : null;
+  // The suburb table (lib/location.ts) decodes every locality when it loads,
+  // so it's only loaded for a search that has a `near` to resolve.
+  const location = near ? await import("@/lib/location") : null;
+  const place = location && near ? location.findLocality(near) : null;
+  const suggestion = location && near && !place ? location.didYouMean(near) : null;
 
   const title = place
     ? query
@@ -78,19 +82,19 @@ export default async function SearchPage({
                 {" "}
                 Did you mean{" "}
                 <Link href={searchHref(query, suggestion.name)} className="font-semibold underline underline-offset-4">
-                  {suggestion.name}
+                  {placeName(suggestion.name, suggestion.state)}
                 </Link>
                 ?
               </>
             )}{" "}
             <Link href={searchHref(query)} className="font-semibold underline underline-offset-4">
-              Search all of Melbourne
+              Search all of Australia
             </Link>
           </Notice>
         </div>
       )}
       {/* key: a new search starts a fresh feed with its own filters. */}
-      <EventFeed key={`${query}|${place?.name ?? ""}`} query={query} near={place?.name} />
+      <EventFeed key={`${query}|${place?.name ?? ""}`} query={query} near={place ?? undefined} />
     </Page>
   );
 }

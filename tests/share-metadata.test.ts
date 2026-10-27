@@ -24,7 +24,7 @@ vi.mock("@/lib/server/deps", () => ({ getDeps }));
 
 const SITE_IMAGE = { url: "https://sheltuh.test/opengraph-image?x", width: 1200, height: 630, alt: "Sheltüh" };
 const parent = Promise.resolve({
-  title: { absolute: "Sheltüh — Melbourne creative events", template: null },
+  title: { absolute: "Sheltüh — Creative events across Australia", template: null },
   description: "Sheltüh is a curated guide.",
   openGraph: { images: [SITE_IMAGE] },
   twitter: { images: [SITE_IMAGE] },
@@ -42,7 +42,7 @@ describe("demo event metadata", () => {
     const metadata = await eventMeta("neon-static");
     expect(metadata.title).toBe("Neon Static — Sheltüh");
     // Fri 25 Sep 2026, 8 pm in Melbourne (AEST); ICU versions spell September "Sep" or "Sept", as everywhere lib/format.ts is used.
-    expect(metadata.description).toMatch(/^Fri 25 Sept? 2026, 8:00 pm · Warehouse 9, Collingwood\. A night of fuzzed-out guitars/);
+    expect(metadata.description).toMatch(/^Fri 25 Sept? 2026, 8:00 pm · Warehouse 9, Collingwood, VIC\. A night of fuzzed-out guitars/);
     expect(metadata.description!.length).toBeLessThanOrEqual(200);
     expect(metadata.alternates).toEqual({ canonical: "https://demo.sheltuh.test/events/neon-static" });
     expect(metadata.openGraph).toMatchObject({
@@ -88,7 +88,7 @@ describe("home and partners metadata", () => {
     vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://sheltuh.test");
     const metadata = await homeMetadata({ params: Promise.resolve({}), searchParams: Promise.resolve({}) }, parent);
     expect(metadata).toMatchObject({
-      title: "Sheltüh — Melbourne creative events",
+      title: "Sheltüh — Creative events across Australia",
       description: "Sheltüh is a curated guide.",
       alternates: { canonical: "https://sheltuh.test/" },
       openGraph: { url: "https://sheltuh.test/", images: [SITE_IMAGE], locale: "en_AU" },
@@ -135,6 +135,34 @@ describe("share metadata helpers", () => {
   it("eventShareDescription: date and place even with an empty description", () => {
     const base = { slug: "x", title: "X", venueName: "The Tote", suburb: "", startsAt: "2027-03-06T09:00:00.000Z" };
     expect(eventShareDescription({ ...base, description: "" })).toBe("Sat 6 Mar 2027, 8:00 pm · The Tote");
+  });
+
+  it("eventShareDescription: in the event's zone, naming it outside Melbourne's", () => {
+    const base = { slug: "x", title: "X", description: "", venueName: "Mojos", suburb: "", startsAt: "2027-03-06T09:00:00.000Z" };
+    // 8:00 pm AEDT is 5:00 pm AWST, 7:30 pm ACDT; Melbourne's unchanged.
+    expect(eventShareDescription({ ...base, timeZone: "Australia/Perth", state: "WA" })).toBe(
+      "Sat 6 Mar 2027, 5:00 pm Perth time · Mojos",
+    );
+    expect(eventShareDescription({ ...base, timeZone: "Australia/Adelaide", state: "SA" })).toBe(
+      "Sat 6 Mar 2027, 7:30 pm Adelaide time · Mojos",
+    );
+    expect(eventShareDescription({ ...base, timeZone: "Australia/Melbourne", state: "VIC" })).toBe("Sat 6 Mar 2027, 8:00 pm · Mojos");
+    // A late Perth start is on Perth's date: 11:30 pm AWST Sat = 2:30 am AEDT Sun.
+    expect(eventShareDescription({ ...base, startsAt: "2027-03-06T15:30:00.000Z", timeZone: "Australia/Perth" })).toBe(
+      "Sat 6 Mar 2027, 11:30 pm Perth time · Mojos",
+    );
+  });
+
+  it("eventShareDescription: the suburb as \"Suburb, STATE\" (owner decision D4), never the state twice", () => {
+    const base = { slug: "x", title: "X", description: "", venueName: "Mojos", startsAt: "2027-03-06T09:00:00.000Z" };
+    expect(eventShareDescription({ ...base, suburb: "Fremantle", state: "WA", timeZone: "Australia/Perth" })).toBe(
+      "Sat 6 Mar 2027, 5:00 pm Perth time · Mojos, Fremantle, WA",
+    );
+    expect(eventShareDescription({ ...base, suburb: "Richmond NSW", state: "NSW", timeZone: "Australia/Sydney" })).toBe(
+      "Sat 6 Mar 2027, 8:00 pm Sydney time · Mojos, Richmond, NSW",
+    );
+    // No state (an older event): Victoria.
+    expect(eventShareDescription({ ...base, suburb: "Fitzroy" })).toBe("Sat 6 Mar 2027, 8:00 pm · Mojos, Fitzroy, VIC");
   });
 
   it("inheritedShareImages: none without a parent, or if it fails", async () => {

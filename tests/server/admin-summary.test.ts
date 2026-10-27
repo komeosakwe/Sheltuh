@@ -7,6 +7,7 @@ import {
   MAX_EVENT_SEARCH_LENGTH,
   parseAdminSearch,
   PENDING_EVENT_SOON_HOURS,
+  SELF_PUBLISHED_WINDOW_HOURS,
 } from "@/lib/server/handlers/admin";
 import { adminCreateEvent, adminCreateOrganiser, adminGetEvent } from "@/lib/server/handlers/admin-authoring";
 import { getMyEvent, submitEventForReview } from "@/lib/server/handlers/events";
@@ -22,6 +23,7 @@ import {
   eventInput,
   insertOrder,
   publishedEvent,
+  setUpPayouts,
   signUpAdmin,
 } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
@@ -62,6 +64,8 @@ async function reschedule(eventId: string, startHours: number, endHours: number)
 
 async function pendingEvent(organiser: { token: string }, overrides: Record<string, unknown> = {}) {
   const draft = await draftEvent(api, organiser, overrides);
+  // A paid event (eventInput's default) needs payouts to be submitted.
+  await setUpPayouts(api, draft.organiserId);
   const res = await api.call(submitEventForReview, { token: organiser.token, params: { eventId: draft.eventId }, method: "POST" });
   if (res.status !== 200) throw new Error(`submit failed: ${JSON.stringify(res.body)}`);
   return draft;
@@ -142,6 +146,7 @@ describe("GET /api/admin/summary", () => {
       emailsFailed: { count: 0 },
       emailsRetrying: { count: 0 },
       doorEvents: { count: 0, windowHours: DOOR_EVENT_WINDOW_HOURS },
+      eventsPublishedByOrganisers: { count: 0, windowHours: SELF_PUBLISHED_WINDOW_HOURS },
     });
   });
 
