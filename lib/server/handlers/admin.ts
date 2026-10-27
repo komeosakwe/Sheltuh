@@ -574,29 +574,52 @@ export const adminRejectEvent: Handler<{ eventId: string }> = async (req, { even
 /** Longest unpublish reason (as a takedown's). */
 export const MAX_UNPUBLISH_REASON_LENGTH = 500;
 
+/** The review switch's logged reason when an unpublish turns it on without a reason of its own. */
+export const UNPUBLISH_REVIEW_FUTURE_REASON = "Turned on when an admin unpublished one of their events.";
+
 /**
- * POST /api/admin/events/[eventId]/unpublish — body {reason?}. Back to
- * draft, not deleted, so the organiser can send it again (it then goes to
- * the review queue, never straight live: private.publish_event). The
+ * POST /api/admin/events/[eventId]/unpublish — body {reason?, reviewFuture?}.
+ * Back to draft, not deleted, so the organiser can send it again (it then
+ * goes to the review queue, never straight live: private.publish_event). The
  * optional reason (1–500 characters, cleaned like a message; absent, null or
  * blank: none) is logged with the `unpublished` entry and stored as the
- * event's `rejectionReason`, which the organiser sees. 400
- * `fieldErrors.reason`; 404; 409 not published.
+ * event's `rejectionReason`, which the organiser sees. `reviewFuture: true`
+ * (optional; absent or null: false) also turns on review of the organiser's
+ * events (`eventReviewRequired`, as POST /admin/organisers/{id}/event-review
+ * does, logged on the organiser's log as "Event unpublished: <reason>", or
+ * UNPUBLISH_REVIEW_FUTURE_REASON without one), in the same transaction
+ * (private.admin_unpublish_event). 400 `fieldErrors.reason` /
+ * `fieldErrors.reviewFuture`; 404; 409 not published (nothing changed).
  */
 export const adminUnpublishEvent: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const admin = await requireAdmin(req, deps.verifyAccessToken);
   const body = await readJson(req);
+  const errors: Record<string, string> = {};
   let reason: string | null = null;
   if (body.reason !== undefined && body.reason !== null && !(typeof body.reason === "string" && body.reason.trim() === "")) {
-    const errors: Record<string, string> = {};
     reason = parseMessageText(body.reason, "reason", errors, {
       allowLinks: true,
       label: "Reasons",
       maxLength: MAX_UNPUBLISH_REASON_LENGTH,
     });
-    if (Object.keys(errors).length > 0) fail(errors);
   }
-  return moderateEvent(admin, eventId, deps, { from: "published", to: "draft", action: "unpublished" }, reason);
+  const reviewFuture = body.reviewFuture === undefined || body.reviewFuture === null ? false : body.reviewFuture;
+  if (typeof reviewFuture !== "boolean") errors.reviewFuture = "Must be true or false.";
+  if (Object.keys(errors).length > 0) fail(errors);
+  if (!reviewFuture) {
+    return moderateEvent(admin, eventId, deps, { from: "published", to: "draft", action: "unpublished" }, reason);
+  }
+
+  await requireEventForAdmin(deps.db, eventId);
+  const [row] = await deps.db.query<{ result: "unpublished" | "not_published" | "not_found" }>(
+    `select private.admin_unpublish_event($1, $2, $3, true, $4) as result`,
+    [eventId, admin.userId, reason, reason ? `Event unpublished: ${reason}`.slice(0, MAX_UNPUBLISH_REASON_LENGTH) : UNPUBLISH_REVIEW_FUTURE_REASON],
+  );
+  if (row.result === "not_found") throw new HttpError(404, "Event not found.");
+  if (row.result === "not_published") {
+    throw new HttpError(409, "This event is no longer published — it may already have been reviewed.");
+  }
+  return okPrivate(await requireEventForAdmin(deps.db, eventId));
 };
 
 /**

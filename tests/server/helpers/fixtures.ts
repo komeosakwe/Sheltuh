@@ -103,7 +103,8 @@ export async function publishedEvent(
  * live without review, logged `approved` by their own account), setting up
  * their payouts first if it has paid tickets, as publishedEvent does. Throws
  * unless it went live (not to review): use a fresh organiser for each one past
- * the per-account cap.
+ * the per-account cap, and for paid Sheltüh tickets, approve a paid event of
+ * the organiser's first (publishedEvent): their first one goes to review.
  */
 export async function selfPublishedEvent(
   api: TestApi,

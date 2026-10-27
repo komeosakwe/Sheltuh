@@ -26,7 +26,7 @@ import type { EventRecord } from "../types";
 import { slugify } from "../validation";
 import { requireEvent, requireOwnEvent } from "./event-queries";
 import { requireApprovedOrganiser } from "./organiser-guard";
-import { verifyVenuePlace } from "./places";
+import { refuseStaleVenueLocation, verifyVenuePlace } from "./places";
 
 const SLUG_ATTEMPTS = 5;
 
@@ -115,7 +115,7 @@ export const createEventDraft: Handler = async (req, _params, deps) => {
   const caller = await requireCaller(req, verifyAccessToken);
   const organiser = await requireApprovedOrganiser(db, caller);
   const input = parseEventInput(await readJson(req));
-  await verifyVenuePlace(deps, input);
+  await verifyVenuePlace(deps, caller, input);
 
   const id = await withUniqueSlug(input.title, async (slug) => {
     const [row] = await db.query<{ id: string }>(
@@ -196,8 +196,11 @@ export const TICKETING_FROZEN =
  * Without `state` and `timeZone`, the stored place is kept and the times are
  * read in the stored zone (parseEventInput), so a client that predates them
  * re-saves an event outside Melbourne unchanged. Without `location`, the
- * stored venue location is kept; a new or changed Google place is checked
- * with Google (verifyVenuePlace).
+ * stored venue location is kept, unless the suburb or state changes while
+ * a pin or Google place is stored: 400 fieldErrors.location
+ * (refuseStaleVenueLocation: check the pin again). A new or changed Google
+ * place is checked with Google (verifyVenuePlace; 429 / 503
+ * fieldErrors.location past the Places allowances).
  */
 export const updateEventDraft: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const { db, verifyAccessToken } = deps;
@@ -207,7 +210,10 @@ export const updateEventDraft: Handler<{ eventId: string }> = async (req, { even
   const body = withStoredTicketing(await readJson(req), current);
   const input = withSeatedCapacity(parseEventInput(body, { storedPlace: storedPlaceOf(current) }), current);
   // Not for an event the edit can't change (private.edit_event_draft answers not_editable).
-  if (current.status === "draft" || current.status === "rejected") await verifyVenuePlace(deps, input, current.location);
+  if (current.status === "draft" || current.status === "rejected") {
+    refuseStaleVenueLocation(input, current);
+    await verifyVenuePlace(deps, caller, input, current.location);
+  }
 
   let result: string;
   try {

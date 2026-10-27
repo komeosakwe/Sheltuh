@@ -29,7 +29,7 @@ import {
   withUniqueSlug,
 } from "./events";
 import { parseApplication } from "./organisers";
-import { verifyVenuePlace } from "./places";
+import { refuseStaleVenueLocation, verifyVenuePlace } from "./places";
 
 /** Shown when a platform-managed organiser's event would have a paid Sheltüh ticket. */
 export const PLATFORM_PAID_REFUSED =
@@ -211,7 +211,7 @@ export const adminCreateEvent: Handler = async (req, _params, deps) => {
     organiserId: parseOrganiserId(body.organiserId, errors),
     publish: parsePublish(body.publish, errors),
   }));
-  await verifyVenuePlace(deps, input);
+  await verifyVenuePlace(deps, admin, input);
 
   let outcome: AdminCreateEventOutcome;
   try {
@@ -259,8 +259,10 @@ export const adminCreateEvent: Handler = async (req, _params, deps) => {
  * been approved before). `refundPolicy` / `refundDays` are optional (absent:
  * the stored policy is kept), and so are `state` / `timeZone`, together
  * (absent: the stored place is kept and the times read in its zone), and
- * `location` (absent: kept; a new Google place is checked with Google first,
- * verifyVenuePlace; a change is logged as `changes.location`). One
+ * `location` (absent: kept, but 400 fieldErrors.location when the suburb or
+ * state changes while a pin or place is stored, refuseStaleVenueLocation; a
+ * new Google place is checked with Google first, verifyVenuePlace; a change
+ * is logged as `changes.location`). One
  * step (private.admin_edit_event): ticketing changes as PATCH …/ticketing does (logged `ticketing_changed`), every other
  * change one `edited` entry with old and new values, then the publish. 200
  * with the AdminEventRecord (unchanged, nothing logged, if nothing would
@@ -298,7 +300,10 @@ export const adminUpdateEvent: Handler<{ eventId: string }> = async (req, { even
   );
 
   // No event, nothing to check: the write answers not_found.
-  if (current) await verifyVenuePlace(deps, input, current.location);
+  if (current) {
+    refuseStaleVenueLocation(input, current);
+    await verifyVenuePlace(deps, admin, input, current.location);
+  }
   const edit = current ? withSeatedCapacity(input, current) : input;
   let result: string;
   try {

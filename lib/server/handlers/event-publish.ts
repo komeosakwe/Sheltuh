@@ -1,4 +1,4 @@
-import type { PublishEventConflictCode } from "@/lib/api/types";
+import type { PublishEventConflictCode, PublishEventResponse, PublishEventReviewReason } from "@/lib/api/types";
 import { ticketProviderName } from "@/lib/ticketing";
 import { requireCaller } from "../auth";
 import { sendReviewEmailsSoon, sendSelfPublishEmailsSoon } from "../email-outbox";
@@ -18,7 +18,7 @@ import { requireApprovedOrganiser } from "./organiser-guard";
  * small (tests/server/event-publish.test.ts checks the import graph).
  */
 
-/** private.publish_event's results. */
+/** private.publish_event's results ('submitted:<reason>' is read by parseSubmitted). */
 type PublishResult =
   | "published"
   | "submitted"
@@ -42,6 +42,27 @@ export const EVENT_IN_REVIEW = "This event is already waiting for review. We'll 
 export const EVENT_CHANGED_WHILE_PUBLISHING =
   "This event's ticket link changed while it was being published. Reload the page and try again.";
 
+/** Why private.publish_event sent it to review ('submitted:<reason>'), in the order it checks them. */
+export const PUBLISH_REVIEW_REASONS = [
+  "review_required",
+  "removed_before",
+  "seated",
+  "unknown_ticket_site",
+  "first_paid_event",
+  "daily_limit",
+] as const satisfies readonly PublishEventReviewReason[];
+
+/**
+ * private.publish_event's result with a 'submitted:<reason>' read as
+ * "submitted" and its reason (undefined for a reason this release doesn't
+ * know, so a newer database never breaks the route).
+ */
+export function parsePublishResult(raw: string): { result: PublishResult; reviewReason?: PublishEventReviewReason } {
+  if (!raw.startsWith("submitted:")) return { result: raw as PublishResult };
+  const reason = raw.slice("submitted:".length);
+  return { result: "submitted", reviewReason: PUBLISH_REVIEW_REASONS.find((r) => r === reason) };
+}
+
 /**
  * Whether the event's ticketing alone sends it to review: a ticket link on a
  * site that isn't a known ticketing site (ticketProviderName is null:
@@ -59,10 +80,14 @@ export function needsTicketLinkReview(event: Pick<EventRecord, "ticketingMode" |
  * the review queue (status `pending_review`; the admins' review email): the
  * organiser's events are reviewed (an admin's switch), an admin rejected or
  * unpublished it last, it has a seat map, its ticket link is on a site that
- * isn't a known ticketing site, or the account (10) or the platform (100)
- * has used up its publishes for 24 hours.
+ * isn't a known ticketing site, it's the organiser's first event with paid
+ * Sheltüh tickets (no paid Sheltüh event of theirs approved by an admin
+ * and not taken down since), or the account (10) or the platform (100) has
+ * used up its publishes for 24 hours.
  *
- * 200 EventRecord (`private, no-store`), `published` or `pending_review`;
+ * 200 PublishEventResponse (`private, no-store`): the EventRecord,
+ * `published` or `pending_review`, and when this call sent it to review,
+ * `reviewReason` (PublishEventReviewReason: the first rule that applied);
  * an event already published is a 200 too (a repeat changes nothing). 401;
  * 403 not an approved organiser; 404 not theirs. 409 with `code`: `payouts_required`
  * (a paid Sheltüh ticket type, payouts not set up), `event_ended`,
@@ -79,12 +104,13 @@ export const publishEvent: Handler<{ eventId: string }> = async (req, { eventId 
   // The link judged here is passed on; private.publish_event refuses ('stale') if the stored one differs.
   const externalUrl = event.ticketingMode === "external" ? (event.externalTicketUrl ?? null) : null;
   let result: PublishResult;
+  let reviewReason: PublishEventReviewReason | undefined;
   try {
-    const [row] = await deps.db.query<{ result: PublishResult }>(
+    const [row] = await deps.db.query<{ result: string }>(
       `select private.publish_event($1, $2, $3, $4, $5) as result`,
       [eventId, organiser.organiserId, caller.userId, externalUrl, needsTicketLinkReview(event)],
     );
-    result = row.result;
+    ({ result, reviewReason } = parsePublishResult(row.result));
   } catch (err) {
     // Belt and braces: the events trigger (events_paid_tickets_need_payouts) behind private.publish_event's own check.
     payoutsRefused(err, PAYOUTS_REQUIRED_TO_PUBLISH);
@@ -112,5 +138,9 @@ export const publishEvent: Handler<{ eventId: string }> = async (req, { eventId 
     case "already_published":
       break;
   }
-  return okPrivate(await requireEvent(deps.db, eventId));
+  const response: PublishEventResponse = {
+    ...(await requireEvent(deps.db, eventId)),
+    ...(result === "submitted" && reviewReason ? { reviewReason } : {}),
+  };
+  return okPrivate(response);
 };
