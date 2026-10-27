@@ -8,10 +8,10 @@ import EventMarkerLayer, { type MarkerDatum, type OpenSpot } from "@/components/
 import MapSpotList from "@/components/map/MapSpotList";
 import MapStyles from "@/components/map/MapStyles";
 import { runQuietly, stopQuietly } from "@/components/map/quiet-map";
+import { useMapTileStyle } from "@/components/map/useMapTileStyle";
 import { buttonClass } from "@/components/ui/Button";
 import { ProgressLoader, useLoadingProgress } from "@/components/ui/ProgressLoader";
 import { framingTargets } from "@/lib/map-layout";
-import { ESRI_STYLE, type TileStyle } from "@/lib/map-tiles";
 import {
   AUSTRALIA_BOUNDS,
   AUSTRALIA_MIN_ZOOM,
@@ -250,8 +250,6 @@ interface SceneMapPanelProps {
   onSearchArea: (bounds: { north: number; south: number; east: number; west: number }) => void;
   /** Phones: switch to the list (offered when the map's tiles fail to load). */
   onShowList?: () => void;
-  /** The basemap (lib/map-tiles.ts): Esri unless the Mapbox preview is on. */
-  tileStyle?: TileStyle;
   /** Where an event without coordinates of its own goes: its suburb's centre (lib/geo.ts). */
   findSuburb?: SuburbLookup;
   /**
@@ -265,13 +263,10 @@ interface SceneMapPanelProps {
 const TILE_LOAD_TIMEOUT_MS = 9000;
 
 /**
- * Client-only Leaflet map. Basemap is Esri's free light-gray canvas (no
- * API key) so it actually reads as a light, quiet map with streets and neighbourhood
- * labels, matching the app's palette — plain default OpenStreetMap tiles are
- * a bright daytime style that wouldn't fit even when they load. A real launch
- * should still put a dedicated provider key behind this before relying on it
- * at scale; a Mapbox token turns on a preview of Mapbox styles
- * (lib/map-tiles.ts, docs/mapbox-preview.md).
+ * Client-only Leaflet map. The basemap is Mapbox Streets when a public
+ * Mapbox token is set, in both themes; without one it's Esri's free
+ * light-gray canvas (no API key), a light, quiet map with streets and
+ * neighbourhood labels (lib/map-tiles.ts, docs/maps.md).
  */
 export default function SceneMapPanel({
   events,
@@ -279,7 +274,6 @@ export default function SceneMapPanel({
   onSelect,
   onSearchArea,
   onShowList,
-  tileStyle = ESRI_STYLE,
   findSuburb,
   near = null,
 }: SceneMapPanelProps) {
@@ -290,6 +284,7 @@ export default function SceneMapPanel({
   const programmaticMoveRef = useRef(false);
   const mapRef = useRef<L.Map | null>(null);
   const reducedMotion = usePrefersReducedMotion();
+  const tileStyle = useMapTileStyle();
   const [openSpot, setOpenSpot] = useState<OpenSpot | null>(null);
   const [announcement, setAnnouncement] = useState("");
 
@@ -320,9 +315,8 @@ export default function SceneMapPanel({
     else mapRef.current?.getContainer().focus({ preventScroll: true });
   }
 
-  // A new attempt, or another basemap style: count its tiles afresh, so a style that can't
-  // load (e.g. a Mapbox token refused on this domain) shows the failure UI too.
-  const styleId = tileStyle.id;
+  // A new attempt: count its tiles afresh, so tiles that can't load (e.g. a Mapbox token
+  // refused on this domain) show the failure UI again.
   useEffect(() => {
     loadedCount.current = 0;
     errorCount.current = 0;
@@ -341,7 +335,7 @@ export default function SceneMapPanel({
       cancelled = true;
       clearTimeout(timeout);
     };
-  }, [retryKey, styleId]);
+  }, [retryKey]);
 
   // The tiles' estimated progress (the map reports no real progress until the first tile is in).
   const tilesProgress = useLoadingProgress(status === "loading");
@@ -383,9 +377,8 @@ export default function SceneMapPanel({
         scrollWheelZoom={false}
         className="h-full w-full bg-background"
       >
-        {/* Keyed by style: tile size and zoom offset are fixed when a layer is created, so another
-            style is a new layer. Spread as is: Leaflet would take an explicit `undefined` option
-            (say, tileSize) over its default. The first layer is the base whose tiles are watched. */}
+        {/* Spread as is: Leaflet would take an explicit `undefined` option (say, tileSize) over its
+            default. The first layer is the base whose tiles are watched. */}
         {tileStyle.layers.map((layer, index) => (
           <TileLayer
             key={`${tileStyle.id}-${index}`}

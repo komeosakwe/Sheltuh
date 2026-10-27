@@ -3,12 +3,11 @@ import type { PublicEvent } from "@/lib/api/public-events";
 import { sampleEvents } from "@/lib/sample-events";
 
 /**
- * /map's basemap with NEXT_PUBLIC_MAPBOX_TOKEN unset, as production runs
- * today (docs/mapbox-preview.md): Esri tiles only, no "Map style (preview)"
- * control, and ?tiles= ignored. Live mode, with /api/* answered here from
- * the demo sample events; Esri tiles are answered with a small image so the
- * map loads without the network. The preview itself (with a token) is
- * e2e/mapbox-preview.demo.spec.ts.
+ * /map's basemap with NEXT_PUBLIC_MAPBOX_TOKEN unset (docs/maps.md): Esri
+ * tiles only, and no map style control. Live mode, with /api/* answered here
+ * from the demo sample events; Esri tiles are answered with a small image so
+ * the map loads without the network. Mapbox Streets (with a token) is
+ * e2e/mapbox-streets.demo.spec.ts.
  */
 
 const HOUR = 3600_000;
@@ -73,9 +72,9 @@ for (const vp of [
   test.describe(`/map basemap without a Mapbox token at ${vp.name}`, () => {
     test.use({ viewport: { width: vp.width, height: vp.height } });
 
-    test("Esri tiles and credit only, no style control, and ?tiles= is ignored", async ({ page }) => {
+    test("Esri tiles and credit only, and no map style control", async ({ page }) => {
       const requested = await mockNetwork(page);
-      await page.goto("/map?tiles=mapbox-dark");
+      await page.goto("/map");
 
       await expect(page.locator(".leaflet-tile-loaded").first()).toBeVisible({ timeout: 20_000 });
       await expect(page.getByText(/Map couldn.t load/)).toHaveCount(0);
@@ -83,13 +82,10 @@ for (const vp of [
       expect(requested.esri.some((url) => url.includes("World_Light_Gray_Reference"))).toBe(true);
       expect(requested.mapbox).toEqual([]);
 
-      await expect(page.getByLabel("Map style (preview)")).toHaveCount(0);
+      await expect(page.getByText(/map style/i)).toHaveCount(0);
       const credits = page.locator(".leaflet-control-attribution");
       await expect(credits).toContainText("Esri");
       await expect(credits).not.toContainText("Mapbox");
-
-      // The page's own URL sync drops the unused parameter.
-      await expect(page).not.toHaveURL(/tiles=/);
     });
   });
 }
