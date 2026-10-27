@@ -651,7 +651,7 @@ for (const vp of [
 
       // No pin yet: Publish… says so, by the venue, which is focused; nothing is sent.
       await form.getByRole("button", { name: "Publish…" }).click();
-      const venue = form.getByRole("group", { name: "Venue" });
+      const venue = form.getByRole("group", { name: "Venue", exact: true });
       await expect(venue).toBeFocused();
       await expect(venue).toHaveAccessibleDescription("Add the venue location and confirm the pin first.");
       expect(saved).toEqual([]);
