@@ -123,6 +123,19 @@ export interface SheltuhEvent {
    */
   coordinates?: Coordinates;
   /**
+   * The venue's Google Maps place id, when the organiser linked the venue to
+   * one: the Google Maps link routes to that place (lib/maps.ts). Only the
+   * id is kept. Google's own coordinates for it are never stored or used
+   * (Google Maps Platform terms: not on a non-Google map, not cached).
+   */
+  venuePlaceId?: string;
+  /**
+   * True when `coordinates` is the organiser's own pin on the venue, placed
+   * on our map ("Check the pin", components/dashboard/VenuePinMap.tsx), not
+   * an estimate. The map links route to the pin only then (lib/maps.ts).
+   */
+  venuePinned?: boolean;
+  /**
    * The event's state or territory (lib/time-zones.ts STATE_CODES). Absent
    * means `VIC`. Only needed to label the zone: the ACT's "Canberra time".
    */

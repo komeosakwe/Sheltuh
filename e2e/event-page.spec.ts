@@ -596,7 +596,8 @@ const TILE = Buffer.from(
 
 // The Location section (owner request, 26 Oct 2026): after About in the main column, the venue, a
 // small map loaded only as it nears the screen (a live event has no coordinates, so the pin is its
-// suburb's centre, from the suburb table), and "Open in Maps". Tiles are answered here.
+// suburb's centre, from the suburb table), and the Google Maps and Apple Maps links (owner decision
+// A-D4, 27 Oct 2026). Tiles are answered here.
 for (const vp of [
   { width: 320, height: 640 },
   { width: 390, height: 844 },
@@ -605,7 +606,7 @@ for (const vp of [
   test.describe(`location section at ${vp.width}px`, () => {
     test.use({ viewport: vp });
 
-    test("after About, with the venue, a decorative map loaded on approach, and Open in Maps", async ({ page }) => {
+    test("after About, with the venue, a decorative map loaded on approach, and Google and Apple Maps links", async ({ page }) => {
       await mockApi(page);
       const tiles: string[] = [];
       await page.route("https://server.arcgisonline.com/**", (route) => {
@@ -650,16 +651,27 @@ for (const vp of [
       // A suburb's centre, said so; never a claim of the exact spot.
       await expect(location).toContainText("The pin marks Collingwood, VIC, not the venue’s exact spot.");
 
-      // Hidden from assistive technology and the keyboard: the one named control is Open in Maps.
+      // Hidden from assistive technology and the keyboard: the named controls are the two map links,
+      // both always there (no user-agent sniffing).
       await expect(map).toHaveAttribute("aria-hidden", "true");
-      const link = location.getByRole("link", {
-        name: `Open in Maps: directions to ${address} (opens Google Maps in a new tab)`,
+      const google = location.getByRole("link", {
+        name: `Google Maps: directions to ${address} (opens in a new tab)`,
       });
-      await expect(link).toHaveAttribute("href", href);
-      await expect(link).toHaveAttribute("target", "_blank");
-      await expect(location.getByRole("link")).toHaveCount(1);
-      const linkBox = await link.boundingBox();
-      expect(linkBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+      await expect(google).toHaveText("Google Maps");
+      await expect(google).toHaveAttribute("href", href);
+      await expect(google).toHaveAttribute("target", "_blank");
+      const apple = location.getByRole("link", {
+        name: `Apple Maps: directions to ${address} (opens in a new tab)`,
+      });
+      await expect(apple).toHaveText("Apple Maps");
+      await expect(apple).toHaveAttribute("href", `https://maps.apple.com/?daddr=${encodeURIComponent(event.venueAddress)}`);
+      await expect(apple).toHaveAttribute("target", "_blank");
+      await expect(location.getByRole("link")).toHaveCount(2);
+      for (const link of [google, apple]) {
+        const linkBox = await link.boundingBox();
+        expect(linkBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+        expect(linkBox?.width ?? 0).toBeGreaterThanOrEqual(24);
+      }
 
       // The box keeps its size: ~200px on phones, 256px on desktop.
       const box = await map.locator("[data-surface]").boundingBox();

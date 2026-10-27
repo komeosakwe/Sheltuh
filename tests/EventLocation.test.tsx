@@ -4,14 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventDetailsView from "@/components/EventDetailsView";
 import type { EventLocationLeafletProps } from "@/components/events/EventLocationLeaflet";
 import EventLocation from "@/components/events/EventLocation";
-import { directionsHref } from "@/lib/maps";
+import { appleMapsHref, directionsHref } from "@/lib/maps";
 import { sampleEvents } from "@/lib/sample-events";
 import type { SheltuhEvent } from "@/lib/types";
 
 /**
  * The event page's Location section (owner request, 26 Oct 2026): the venue,
- * a small decorative map loaded only as it nears the screen, and "Open in
- * Maps". Leaflet itself is stood in for (e2e/event-page.spec.ts runs the real
+ * a small decorative map loaded only as it nears the screen, and the Google
+ * Maps and Apple Maps links (owner decision A-D4, 27 Oct 2026). Leaflet itself is stood in for (e2e/event-page.spec.ts runs the real
  * map); the suburb table is a stub whose loads are counted.
  */
 
@@ -81,7 +81,8 @@ function nearScreen() {
   act(() => callback([{ target, isIntersecting: true }]));
 }
 
-const OPEN_IN_MAPS = /^Open in Maps: directions to /;
+const GOOGLE_MAPS = /^Google Maps: directions to /;
+const APPLE_MAPS = /^Apple Maps: /;
 
 describe("EventLocation", () => {
   it("sits after About and before Good to know on the event page", () => {
@@ -92,23 +93,37 @@ describe("EventLocation", () => {
     expect(headings.slice(about, about + 3)).toEqual(["About this event", "Location", "Good to know"]);
   });
 
-  it("names the venue and address, and links them to directions as the one named control", () => {
+  it("names the venue and address, and links them to Google Maps and Apple Maps, the named controls", () => {
     const event = sample("neon-static");
     render(<EventLocation event={event} />);
     const region = screen.getByRole("region", { name: "Location" });
     expect(within(region).getByText("Warehouse 9")).toHaveClass("font-semibold");
     expect(within(region).getByText("9 Rupert Street, Collingwood VIC 3066")).toBeInTheDocument();
 
-    const link = within(region).getByRole("link", { name: OPEN_IN_MAPS });
-    expect(link).toHaveAccessibleName(
-      "Open in Maps: directions to Warehouse 9, 9 Rupert Street, Collingwood VIC 3066 (opens Google Maps in a new tab)",
+    const google = within(region).getByRole("link", { name: GOOGLE_MAPS });
+    expect(google).toHaveAccessibleName(
+      "Google Maps: directions to Warehouse 9, 9 Rupert Street, Collingwood VIC 3066 (opens in a new tab)",
     );
-    expect(link).toHaveTextContent("Open in Maps");
-    expect(link).toHaveAttribute("href", directionsHref(event));
-    expect(link).toHaveAttribute("target", "_blank");
-    expect(link).toHaveAttribute("rel", "noopener noreferrer");
-    // The map's own tap target isn't a second link to assistive technology or the keyboard.
-    expect(within(region).getAllByRole("link")).toHaveLength(1);
+    expect(google).toHaveTextContent("Google Maps");
+    expect(google).toHaveAttribute("href", directionsHref(event));
+    expect(google).toHaveAttribute("href", expect.stringMatching(/^https:\/\/www\.google\.com\/maps\/dir\/\?api=1&destination=/));
+    expect(google).toHaveAttribute("target", "_blank");
+    expect(google).toHaveAttribute("rel", "noopener noreferrer");
+
+    // Always both, whatever the device: no user-agent sniffing.
+    const apple = within(region).getByRole("link", { name: APPLE_MAPS });
+    expect(apple).toHaveAccessibleName(
+      "Apple Maps: directions to Warehouse 9, 9 Rupert Street, Collingwood VIC 3066 (opens in a new tab)",
+    );
+    expect(apple).toHaveTextContent("Apple Maps");
+    expect(apple).toHaveAttribute("href", "https://maps.apple.com/?daddr=9%20Rupert%20Street%2C%20Collingwood%20VIC%203066");
+    expect(apple).toHaveAttribute("target", "_blank");
+    expect(apple).toHaveAttribute("rel", "noopener noreferrer");
+    // Both 44px tall.
+    expect(google).toHaveClass("min-h-11");
+    expect(apple).toHaveClass("min-h-11");
+    // The map's own tap target isn't a third link to assistive technology or the keyboard.
+    expect(within(region).getAllByRole("link")).toHaveLength(2);
 
     const map = region.querySelector<HTMLElement>("[data-event-map]");
     expect(map).toHaveAttribute("aria-hidden", "true");
@@ -161,7 +176,7 @@ describe("EventLocation", () => {
     nearScreen();
     await waitFor(() => expect(container.querySelector("[data-event-map]")).toBeNull());
     expect(loader.loads).toBe(1);
-    expect(screen.getByRole("link", { name: OPEN_IN_MAPS })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: GOOGLE_MAPS })).toBeInTheDocument();
     expect(screen.getByText("Warehouse 9")).toBeInTheDocument();
   });
 
@@ -169,7 +184,7 @@ describe("EventLocation", () => {
     Reflect.deleteProperty(window, "IntersectionObserver");
     const { container } = render(<EventLocation event={sample("neon-static")} />);
     await waitFor(() => expect(container.querySelector("[data-event-map]")).toBeNull());
-    expect(screen.getByRole("link", { name: OPEN_IN_MAPS })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: GOOGLE_MAPS })).toBeInTheDocument();
     expect(loader.loads).toBe(0);
   });
 
@@ -177,8 +192,12 @@ describe("EventLocation", () => {
     const event: SheltuhEvent = { ...sample("neon-static"), venueAddress: "" };
     render(<EventLocation event={event} />);
     expect(screen.getByText("Collingwood, VIC")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: OPEN_IN_MAPS })).toHaveAccessibleName(
-      "Open in Maps: directions to Warehouse 9, Collingwood, VIC (opens Google Maps in a new tab)",
+    expect(screen.getByRole("link", { name: GOOGLE_MAPS })).toHaveAccessibleName(
+      "Google Maps: directions to Warehouse 9, Collingwood, VIC (opens in a new tab)",
+    );
+    expect(screen.getByRole("link", { name: APPLE_MAPS })).toHaveAttribute(
+      "href",
+      "https://maps.apple.com/?daddr=Warehouse%209%2C%20Collingwood",
     );
   });
 
@@ -186,6 +205,38 @@ describe("EventLocation", () => {
     const event: SheltuhEvent = { ...sample("neon-static"), venueName: " ", venueAddress: "", suburb: "" };
     render(<EventLocation event={event} />);
     expect(screen.queryByRole("region", { name: "Location" })).toBeNull();
-    expect(screen.queryByRole("link", { name: OPEN_IN_MAPS })).toBeNull();
+    expect(screen.queryByRole("link", { name: GOOGLE_MAPS })).toBeNull();
+    expect(screen.queryByRole("link", { name: APPLE_MAPS })).toBeNull();
+  });
+  it("with a linked Google place and the organiser's pin: Google by place id, Apple at the pin, and the pin exact", async () => {
+    const pin = { lat: -37.80412, lng: 144.98377 };
+    const event: SheltuhEvent = {
+      ...sample("fitzroy-poetry-and-noise"),
+      venuePlaceId: "ChIJ_test_place_id_123",
+      venuePinned: true,
+      coordinates: pin,
+    };
+    render(<EventLocation event={event} />);
+    const venue = [event.venueName, event.venueAddress].join(", ");
+
+    const google = screen.getByRole("link", { name: GOOGLE_MAPS });
+    expect(google).toHaveAttribute(
+      "href",
+      `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(venue)}&destination_place_id=ChIJ_test_place_id_123`,
+    );
+    const apple = screen.getByRole("link", { name: APPLE_MAPS });
+    expect(apple).toHaveAttribute("href", appleMapsHref(event));
+    expect(apple).toHaveAttribute("href", `https://maps.apple.com/?ll=-37.80412,144.98377&q=${encodeURIComponent(event.venueName)}`);
+    // A spot on the map, not directions.
+    expect(apple).toHaveAccessibleName(`Apple Maps: ${venue} (opens in a new tab)`);
+
+    // The organiser's pin is the venue's spot: street level, no suburb table, no "approximate" note.
+    nearScreen();
+    const map = await screen.findByTestId("leaflet");
+    expect(map).toHaveAttribute("data-lat", String(pin.lat));
+    expect(map).toHaveAttribute("data-lng", String(pin.lng));
+    expect(map).toHaveAttribute("data-zoom", "15");
+    expect(loader.loads).toBe(0);
+    expect(screen.queryByText(/The pin marks/)).toBeNull();
   });
 });
