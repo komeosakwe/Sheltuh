@@ -526,23 +526,20 @@ describe("Data API lock-out", () => {
     expect(policies.n).toBe(0);
   });
 
-  it("every `private` function pins its search_path, apart from the two that predate the rule", async () => {
+  it("every `public` and `private` function pins its search_path", async () => {
     // A function without a pinned search_path resolves names through the
-    // caller's. New ones must set it (`set search_path = ''`); these two
-    // (init migration) predate the rule and schema-qualify every name instead.
-    // fulfil_order was pinned when the email outbox redefined it,
-    // replace_ticket_types when the listing fixes did, and create_event_draft
-    // when external ticketing did (update_event_draft is superseded by
-    // edit_event_draft and no longer called).
+    // caller's (Supabase's Security Advisor: "Function Search Path Mutable").
+    // New ones must set it (`set search_path = ''`); the last three from the
+    // init migration were pinned by 20261111000600_pin_search_path.sql.
+    // Extensions' own functions are theirs to manage, so they're left out.
     const unpinned = await db.query<{ fn: string }>(
-      `select p.proname as fn from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-        where n.nspname = 'private'
-          and not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c like 'search_path=%')
+      `select p.oid::regprocedure::text as fn from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname in ('public', 'private')
+          and not exists (select 1 from pg_depend d
+                           where d.classid = 'pg_proc'::regclass and d.objid = p.oid and d.deptype = 'e')
+          and not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c = 'search_path=""')
         order by 1`,
     );
-    expect(unpinned.map((r) => r.fn)).toEqual([
-      "transition_event",
-      "update_event_draft",
-    ]);
+    expect(unpinned.map((r) => r.fn)).toEqual([]);
   });
 });

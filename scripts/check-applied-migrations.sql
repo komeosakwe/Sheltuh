@@ -152,6 +152,13 @@ select version, file, coalesce(applied, false) as applied
                    and prosrc like '%organiser_joined%' and prosrc like '%suspended%')
       and exists (select 1 from fn where proname = 'lease_outbox_jobs' and prosrc like '%organiser_joined%')
       and exists (select 1 from fn where proname = 'purge_operational_data'
-                   and 'organiser_invite_links_deleted' = any(proargnames)))
+                   and 'organiser_invite_links_deleted' = any(proargnames))),
+    ('20261111000600', 'pin_search_path',
+      exists (select 1 from pg_proc p
+               where p.oid = to_regprocedure('public.set_updated_at()')
+                 and 'search_path=""' = any (coalesce(p.proconfig, '{}')))
+      and exists (select 1 from pg_proc p
+                   where p.pronamespace = to_regnamespace('private') and p.proname = 'transition_event'
+                     and 'search_path=""' = any (coalesce(p.proconfig, '{}'))))
   ) as m(version, file, applied)
  order by version;
