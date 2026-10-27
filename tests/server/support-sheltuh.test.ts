@@ -12,11 +12,13 @@ import { paymentExceptionUrgent } from "@/lib/server/records";
 import { buildTicketEmail } from "@/lib/server/ticket-email";
 import type { EventRecord, OrderRecord } from "@/lib/server/types";
 import {
+  isSupportSheltuhEnabled,
   isValidSupportCents,
   SUPPORT_BLURB,
   SUPPORT_LABEL,
   SUPPORT_MAX_CENTS,
   SUPPORT_MIN_CENTS,
+  SUPPORT_PAUSED,
   SUPPORT_PRESETS_CENTS,
   SUPPORT_RECIPIENT_NOTE,
   SUPPORT_REFUND_NOTE,
@@ -44,6 +46,9 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  // Support Sheltüh is paused by default (lib/support.ts isSupportSheltuhEnabled): these tests switch it on,
+  // except "while it's paused" below.
+  vi.stubEnv("NEXT_PUBLIC_SUPPORT_SHELTUH", "1");
   await reset();
   api = new TestApi(api.db);
   admin = await signUpAdmin(api);
@@ -55,6 +60,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 const PAID_TICKETS = [
@@ -217,6 +223,79 @@ describe("lib/support.ts", () => {
     const five = checkoutFingerprint({ ...basket, supportCents: 500 });
     expect(five).not.toBe(before);
     expect(checkoutFingerprint({ ...basket, supportCents: 1000 })).not.toBe(five);
+  });
+});
+
+describe("while it's paused (NEXT_PUBLIC_SUPPORT_SHELTUH unset: the default)", () => {
+  const paused = () => vi.stubEnv("NEXT_PUBLIC_SUPPORT_SHELTUH", undefined);
+
+  it("isSupportSheltuhEnabled is true only for exactly \"1\"", () => {
+    paused();
+    expect(isSupportSheltuhEnabled()).toBe(false);
+    for (const value of ["", "0", "true", "yes", " 1", "1 ", "01"]) {
+      vi.stubEnv("NEXT_PUBLIC_SUPPORT_SHELTUH", value);
+      expect(isSupportSheltuhEnabled(), JSON.stringify(value)).toBe(false);
+    }
+    vi.stubEnv("NEXT_PUBLIC_SUPPORT_SHELTUH", "1");
+    expect(isSupportSheltuhEnabled()).toBe(true);
+  });
+
+  it("parseSupportCents: none is still none; any other value is a 400 on supportCents, before its own checks", () => {
+    paused();
+    expect([parseSupportCents(undefined), parseSupportCents(null), parseSupportCents(0)]).toEqual([0, 0, 0]);
+    for (const value of [100, 500, 50_000, 99, 50_001, -500, 5.5, "500"]) {
+      expect(() => parseSupportCents(value), JSON.stringify(value)).toThrow(
+        expect.objectContaining({ statusCode: 400, fieldErrors: { supportCents: SUPPORT_PAUSED } }),
+      );
+    }
+    expect(SUPPORT_PAUSED).toBe("Support Sheltüh isn't available right now");
+  });
+
+  it("general admission: 400 fieldErrors.supportCents, no order, attempt, rate-limit hit or Stripe call; without it the checkout is as ever", async () => {
+    paused();
+    const event = await paidEvent();
+    const refused = await checkout(event.eventId, { lineItems: BASKET, supportCents: 500 });
+    expect(refused.status).toBe(400);
+    expect(refused.body.fieldErrors).toEqual({ supportCents: SUPPORT_PAUSED });
+    expect(api.stripe.checkout.sessions.create).not.toHaveBeenCalled();
+    expect(await api.db.query(`select id from public.orders`)).toEqual([]);
+    expect(await api.db.query(`select idempotency_key from private.checkout_attempts`)).toEqual([]);
+    for (const extra of [{}, { supportCents: 0 }, { supportCents: null }]) {
+      const res = await checkout(event.eventId, { lineItems: [{ ticketTypeId: "ga", quantity: 1 }], ...extra });
+      expect(res.status, JSON.stringify(extra)).toBe(201);
+      expect(await storedOrder(res.body.orderId)).toMatchObject({ support_cents: 0, total_cents: 3230 });
+    }
+  });
+
+  it("seated and free checkouts: the same 400, nothing held or booked", async () => {
+    paused();
+    const { event, map } = await seatedEvent(api, organiser, admin);
+    const seated = await checkout(event.eventId, { seats: { mapVersion: map.version, seatIds: ["A1"] }, supportCents: 300 });
+    expect(seated.status).toBe(400);
+    expect(seated.body.fieldErrors).toEqual({ supportCents: SUPPORT_PAUSED });
+    expect(await api.db.query(`select id from public.event_seats where hold_order_id is not null`)).toEqual([]);
+
+    const free = await publishedEvent(api, organiser, admin, { ticketTypes: FREE_TICKETS });
+    const rsvp = await checkout(free.eventId, {
+      lineItems: [{ ticketTypeId: "rsvp", quantity: 1 }],
+      buyerEmail: "fan@example.com",
+      supportCents: 500,
+    });
+    expect(rsvp.status).toBe(400);
+    expect(rsvp.body.fieldErrors).toEqual({ supportCents: SUPPORT_PAUSED });
+    expect(await api.db.query(`select id from public.orders`)).toEqual([]);
+    expect(api.stripe.checkout.sessions.create).not.toHaveBeenCalled();
+  });
+
+  it("an order made with support before the pause is still fulfilled with it", async () => {
+    const event = await paidEvent();
+    const res = await checkout(event.eventId, { lineItems: BASKET, supportCents: 500 });
+    expect(res.status).toBe(201);
+    const orderId = res.body.orderId as string;
+    paused();
+    const hook = await api.send(stripeWebhook, completed(orderId, "cs_test_1", `pi_${orderId}`));
+    expect(hook.status).toBe(200);
+    expect(await storedOrder(orderId)).toMatchObject({ status: "paid", support_cents: 500, total_cents: BASKET_TOTAL + 500 });
   });
 });
 
@@ -632,68 +711,63 @@ async function validTickets(orderId: string) {
   return n;
 }
 
-describe("a tickets-only refund (everything but the support) voids the order", () => {
-  it("total − support refunded: the order is refunded, its tickets void and its stock back; the support kept is recorded", async () => {
+// Only a full refund voids an order (20261111000300_refund_no_inference.sql): Stripe's `refunded`, or at least
+// the order's total refunded. Nothing is inferred from a smaller amount, with or without support, and a refund
+// that arrives before the payment is recorded follows the same rule.
+describe("refunds of an order with support: only a full refund voids it", () => {
+  it("a tickets-only refund (total − support) is partial: still paid, tickets valid, stock kept, flagged for a person; refunding the support too voids it", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const event = await paidEvent();
     const orderId = await paidOrder(event.eventId, 500);
-    expect(await soldOf(event.eventId)).toEqual({ ga: 2, vip: 1 });
-    expect(await validTickets(orderId)).toBe(3);
 
     const res = await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, BASKET_TOTAL, false, "evt_tickets_only"));
     expect(res.status).toBe(200);
-    // Refunded with less than its total: what's left (the support) is what Sheltüh kept.
-    expect(await storedOrder(orderId)).toMatchObject({
-      status: "refunded",
-      total_cents: BASKET_TOTAL + 500,
-      support_cents: 500,
-      amount_refunded_cents: BASKET_TOTAL,
-    });
-    expect(await validTickets(orderId)).toBe(0);
-    expect(await soldOf(event.eventId)).toEqual({ ga: 0, vip: 0 });
-    const page = await api.call(getOrderBySession, { params: { sessionId: orderId } });
-    expect(page.body).toMatchObject({ status: "refunded", refundReason: "refunded", tickets: [] });
-    // Nothing for a person: no exception, no alert.
-    expect(await exceptionsOf(orderId)).toEqual([]);
-    expect(await opsAlertJobs()).toEqual([]);
-    const logged = info.mock.calls.map((args) => args.join(" ")).join("\n");
-    expect(logged).toContain(`Order ${orderReference(orderId)}'s tickets were refunded in Stripe (Support Sheltüh kept)`);
-    expect(logged).not.toContain(orderId);
-
-    // A redelivery, and a later refund of the support, change nothing: the stock is given back exactly once.
+    expect(await storedOrder(orderId)).toMatchObject({ status: "paid", support_cents: 500, amount_refunded_cents: BASKET_TOTAL });
+    expect(await validTickets(orderId)).toBe(3);
+    expect(await soldOf(event.eventId)).toEqual({ ga: 2, vip: 1 });
+    const [opened] = await exceptionsOf(orderId);
+    expect(opened).toMatchObject({ kind: "partial_refund", status: "open" });
+    expect(opened.details).toEqual({ amountRefundedCents: BASKET_TOTAL, totalCents: BASKET_TOTAL + 500, supportCents: 500, orderStatus: "paid" });
+    expect(await opsAlertJobs()).toHaveLength(1);
+    expect(error.mock.calls.flat().join("\n")).toContain(`Order ${orderReference(orderId)} was partly refunded in Stripe`);
+    // A redelivery changes nothing.
     await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, BASKET_TOTAL, false, "evt_tickets_only"));
-    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, BASKET_TOTAL + 500, true, "evt_support_later"));
-    expect(await soldOf(event.eventId)).toEqual({ ga: 0, vip: 0 });
-    expect(await storedOrder(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: BASKET_TOTAL });
-  });
+    expect(await exceptionsOf(orderId)).toHaveLength(1);
 
-  it("after an earlier partial refund: the open partial_refund exception is resolved, noting the support kept", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(console, "info").mockImplementation(() => {});
-    const event = await paidEvent();
-    const orderId = await paidOrder(event.eventId, 500);
-    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, 1000, false, "evt_part"));
-    expect(await storedOrder(orderId)).toMatchObject({ status: "paid", amount_refunded_cents: 1000 });
-    expect((await exceptionsOf(orderId)).map((e) => [e.kind, e.status])).toEqual([["partial_refund", "open"]]);
-
-    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, BASKET_TOTAL, false, "evt_rest_of_tickets"));
-    expect(await storedOrder(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: BASKET_TOTAL });
+    // The support refunded too: a full refund, which voids the order and closes the exception.
+    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, BASKET_TOTAL + 500, true, "evt_support_too"));
+    expect(await storedOrder(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: BASKET_TOTAL + 500 });
+    expect(await validTickets(orderId)).toBe(0);
     expect(await soldOf(event.eventId)).toEqual({ ga: 0, vip: 0 });
     const [ex] = await api.db.query<{ status: string; resolution: string; resolution_note: string; details: Record<string, unknown> }>(
       `select status, resolution, resolution_note, details from private.payment_exceptions where order_id = $1`,
       [orderId],
     );
-    expect(ex).toMatchObject({
-      status: "resolved",
-      resolution: "auto",
-      resolution_note: "Tickets refunded in Stripe, Support Sheltüh kept: the order was voided.",
-      details: { amountRefundedCents: BASKET_TOTAL, orderStatus: "refunded", supportKeptCents: 500, supportCents: 500 },
-    });
-    const list = await api.call(adminListPaymentExceptions, { token: admin.token, query: { status: "resolved" } });
-    expect(list.body.items[0].details).toMatchObject({ supportKeptCents: 500, amountRefundedCents: BASKET_TOTAL });
+    expect(ex).toMatchObject({ status: "resolved", resolution: "auto", resolution_note: "Refunded in full in Stripe: the order was voided." });
+    expect(ex.details).not.toHaveProperty("supportKeptCents");
+    const logged = info.mock.calls.flat().join("\n");
+    expect(logged).toContain(`Order ${orderReference(orderId)} was refunded in full in Stripe`);
+    expect(logged).not.toContain("Support Sheltüh kept");
   });
 
-  it("seated: the seats are freed as for a full refund", async () => {
+  it("a support-only refund leaves the tickets valid, even when the support is at least the tickets' amount", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const event = await paidEvent();
+    const res = await checkout(event.eventId, { lineItems: [{ ticketTypeId: "ga", quantity: 1 }], supportCents: 5000 });
+    const orderId = res.body.orderId as string;
+    await api.send(stripeWebhook, completed(orderId, "cs_test_1", `pi_${orderId}`));
+    expect(await storedOrder(orderId)).toMatchObject({ status: "paid", total_cents: 3230 + 5000 });
+    // A$50 refunded ≥ A$82.30 − A$50: 20261110000200 read this as the tickets refunded and voided them. Not any more.
+    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, 5000, false, "evt_support_back"));
+    expect(await storedOrder(orderId)).toMatchObject({ status: "paid", amount_refunded_cents: 5000 });
+    expect(await validTickets(orderId)).toBe(1);
+    expect(await soldOf(event.eventId)).toEqual({ ga: 1, vip: 0 });
+    expect((await exceptionsOf(orderId)).map((e) => [e.kind, e.status])).toEqual([["partial_refund", "open"]]);
+  });
+
+  it("seated: a tickets-only refund keeps the seats sold; the full refund frees them", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "info").mockImplementation(() => {});
     const { event, map } = await seatedEvent(api, organiser, admin);
     const res = await checkout(event.eventId, { seats: { mapVersion: map.version, seatIds: ["A1", "A2"] }, supportCents: 300 });
@@ -701,48 +775,26 @@ describe("a tickets-only refund (everything but the support) voids the order", (
     const orderId = res.body.orderId as string;
     await api.send(stripeWebhook, completed(orderId, "cs_test_1", `pi_${orderId}`));
     const { total_cents: total } = (await storedOrder(orderId)) as { total_cents: number };
-    expect((await seatStates(api, event.eventId)).A1).toBe(`sold:${orderId}`);
 
     await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, total - 300, false, "evt_seated_tickets"));
-    expect(await storedOrder(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: total - 300 });
+    expect(await storedOrder(orderId)).toMatchObject({ status: "paid", amount_refunded_cents: total - 300 });
+    expect(await seatStates(api, event.eventId)).toMatchObject({ A1: `sold:${orderId}`, A2: `sold:${orderId}` });
+
+    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, total, true, "evt_seated_all"));
+    expect(await storedOrder(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: total });
     expect(await seatStates(api, event.eventId)).toMatchObject({ A1: "free", A2: "free" });
-    expect(await api.db.query(`select seat_id from public.tickets where order_id = $1`, [orderId])).toEqual([
-      { seat_id: null },
-      { seat_id: null },
-    ]);
   });
 
-  it("a smaller refund (a cent short of total − support) stays partial: paid, tickets valid, flagged", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    const event = await paidEvent();
-    const orderId = await paidOrder(event.eventId, 500);
-    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, BASKET_TOTAL - 1, false, "evt_short"));
-    expect(await storedOrder(orderId)).toMatchObject({ status: "paid", amount_refunded_cents: BASKET_TOTAL - 1 });
-    expect(await validTickets(orderId)).toBe(3);
-    expect(await soldOf(event.eventId)).toEqual({ ga: 2, vip: 1 });
-    expect((await exceptionsOf(orderId)).map((e) => [e.kind, e.status])).toEqual([["partial_refund", "open"]]);
-  });
-
-  it("a full refund is as before: refunded, and an open partial_refund resolved with the full-refund note (no supportKeptCents)", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+  it("a cumulative amount of at least the total voids even without Stripe's flag (the same rule before fulfilment, below)", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     const event = await paidEvent();
     const orderId = await paidOrder(event.eventId, 500);
-    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, 500, false, "evt_support_only"));
-    expect(await storedOrder(orderId)).toMatchObject({ status: "paid", amount_refunded_cents: 500 });
-    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, BASKET_TOTAL + 500, true, "evt_all"));
+    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, BASKET_TOTAL + 500, false, "evt_whole_unflagged"));
     expect(await storedOrder(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: BASKET_TOTAL + 500 });
     expect(await soldOf(event.eventId)).toEqual({ ga: 0, vip: 0 });
-    const [ex] = await api.db.query<{ status: string; resolution_note: string; details: Record<string, unknown> }>(
-      `select status, resolution_note, details from private.payment_exceptions where order_id = $1`,
-      [orderId],
-    );
-    expect(ex.status).toBe("resolved");
-    expect(ex.resolution_note).toBe("Refunded in full in Stripe: the order was voided.");
-    expect(ex.details).not.toHaveProperty("supportKeptCents");
   });
 
-  it("orders without support are unchanged: only Stripe's full refund voids them", async () => {
+  it("orders without support are unchanged: only a full refund voids them", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "info").mockImplementation(() => {});
     const event = await paidEvent();
@@ -755,17 +807,74 @@ describe("a tickets-only refund (everything but the support) voids the order", (
     expect(await storedOrder(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: BASKET_TOTAL });
     expect(await soldOf(event.eventId)).toEqual({ ga: 0, vip: 0 });
   });
+});
 
-  it("the documented limit: when the support is at least the tickets' amount, refunding just the support voids the tickets too", async () => {
+/**
+ * The same rule whichever order Stripe's events arrive in: charge.refunded after the payment is recorded
+ * (private.record_payment_refund), or before it (an early_charge_refunds row, applied by
+ * private.fulfil_order_detailed when checkout.session.completed arrives).
+ */
+describe("full and partial refunds, before and after fulfilment, with and without support", () => {
+  type Timing = "after fulfilment" | "before fulfilment";
+  type Kind = "full" | "partial" | "unflagged total";
+  const cases: [Timing, Kind, number][] = [];
+  for (const timing of ["after fulfilment", "before fulfilment"] as const) {
+    for (const kind of ["full", "partial", "unflagged total"] as const) {
+      for (const support of [0, 500]) cases.push([timing, kind, support]);
+    }
+  }
+
+  it.each(cases)("%s, %s refund, support %i", async (timing, kind, support) => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "info").mockImplementation(() => {});
     const event = await paidEvent();
-    const res = await checkout(event.eventId, { lineItems: [{ ticketTypeId: "ga", quantity: 1 }], supportCents: 5000 });
+    const total = BASKET_TOTAL + support;
+    // Partial: the tickets only (everything but the support), or, without support, all but A$10.
+    const amount = kind === "partial" ? (support > 0 ? total - support : total - 1000) : total;
+    const refunded = kind === "full";
+
+    const res = await checkout(event.eventId, { lineItems: BASKET, ...(support > 0 ? { supportCents: support } : {}) });
+    expect(res.status).toBe(201);
     const orderId = res.body.orderId as string;
-    await api.send(stripeWebhook, completed(orderId, "cs_test_1", `pi_${orderId}`));
-    expect(await storedOrder(orderId)).toMatchObject({ status: "paid", total_cents: 3230 + 5000 });
-    // A$50 refunded ≥ A$81.70 − A$50: the amount alone reads as the tickets refunded (docs/supabase-setup.md).
-    await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, 5000, false, "evt_support_back"));
-    expect(await storedOrder(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: 5000 });
+    const pay = async () => {
+      const hook = await api.send(stripeWebhook, completed(orderId, "cs_test_1", `pi_${orderId}`));
+      expect(hook.status).toBe(200);
+    };
+    const refund = async () => {
+      const hook = await api.send(stripeWebhook, chargeRefunded(`pi_${orderId}`, amount, refunded, "evt_refund"));
+      expect(hook.status).toBe(200);
+    };
+    if (timing === "after fulfilment") {
+      await pay();
+      await refund();
+    } else {
+      await refund();
+      expect(await storedOrder(orderId)).toMatchObject({ status: "pending" });
+      await pay();
+    }
+
+    const [{ issued }] = await api.db.query<{ issued: number }>(
+      `select count(*)::int as issued from public.tickets where order_id = $1`,
+      [orderId],
+    );
+    if (kind === "partial") {
+      // Partial: paid, tickets valid, stock taken, the amount recorded and a partial_refund for a person.
+      expect(await storedOrder(orderId)).toMatchObject({ status: "paid", support_cents: support, amount_refunded_cents: amount });
+      expect(await validTickets(orderId)).toBe(3);
+      expect(await soldOf(event.eventId)).toEqual({ ga: 2, vip: 1 });
+      const exceptions = await exceptionsOf(orderId);
+      expect(exceptions.map((e) => [e.kind, e.status])).toEqual([["partial_refund", "open"]]);
+      expect(exceptions[0].details).toEqual({ amountRefundedCents: amount, totalCents: total, supportCents: support, orderStatus: "paid" });
+    } else {
+      // Full (Stripe's flag, or at least the total): voided, no valid ticket, no stock held, nothing for a person.
+      expect(await storedOrder(orderId)).toMatchObject({ status: "refunded", amount_refunded_cents: total });
+      expect(await validTickets(orderId)).toBe(0);
+      expect(await soldOf(event.eventId)).toEqual({ ga: 0, vip: 0 });
+      // Before fulfilment nothing is ever issued (D1); after it, the void tickets' rows are kept.
+      expect(issued).toBe(timing === "before fulfilment" ? 0 : 3);
+      expect(await exceptionsOf(orderId)).toEqual([]);
+    }
   });
 });
 

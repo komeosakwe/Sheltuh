@@ -1,5 +1,5 @@
 import { formatAud } from "@/lib/format";
-import { SUPPORT_LABEL, SUPPORT_MAX_CENTS, SUPPORT_MIN_CENTS } from "@/lib/support";
+import { isSupportSheltuhEnabled, SUPPORT_LABEL, SUPPORT_MAX_CENTS, SUPPORT_MIN_CENTS, SUPPORT_PAUSED } from "@/lib/support";
 import { fail } from "./validation";
 import type { OrderLineItem, TicketTypeInput } from "./types";
 
@@ -81,11 +81,15 @@ export function parseCheckoutLineItems(body: RawCheckoutBody, eventTicketTypes: 
  * A checkout request's optional `supportCents` (Support Sheltüh,
  * lib/support.ts): omitted, null or 0 is none (0); otherwise a whole number
  * of cents from SUPPORT_MIN_CENTS to SUPPORT_MAX_CENTS, else 400
- * `fieldErrors.supportCents`. Whether the order may carry it (a paid ticket)
- * is the caller's check (refuseSupportOnFreeOrder), once the order is priced.
+ * `fieldErrors.supportCents`. While Support Sheltüh is paused
+ * (isSupportSheltuhEnabled, NEXT_PUBLIC_SUPPORT_SHELTUH unset: the default),
+ * anything but none is a 400 `fieldErrors.supportCents` SUPPORT_PAUSED, before
+ * any other check. Whether the order may carry it (a paid ticket) is the
+ * caller's check (refuseSupportOnFreeOrder), once the order is priced.
  */
 export function parseSupportCents(value: unknown): number {
   if (value === undefined || value === null || value === 0) return 0;
+  if (!isSupportSheltuhEnabled()) fail({ supportCents: SUPPORT_PAUSED });
   if (typeof value !== "number" || !Number.isInteger(value)) {
     fail({ supportCents: `${SUPPORT_LABEL} must be a whole number of cents.` });
   }

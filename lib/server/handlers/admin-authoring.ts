@@ -261,7 +261,8 @@ export const adminCreateEvent: Handler = async (req, _params, deps) => {
  * (absent: the stored place is kept and the times read in its zone), and
  * `location` (absent: kept, but 400 fieldErrors.location when the suburb or
  * state changes while a pin or place is stored, refuseStaleVenueLocation; a
- * new Google place is checked with Google first, verifyVenuePlace; a change
+ * new Google place, or a kept one when the suburb or state changes, is checked
+ * with Google first, verifyVenuePlace; a change
  * is logged as `changes.location`). One
  * step (private.admin_edit_event): ticketing changes as PATCH …/ticketing does (logged `ticketing_changed`), every other
  * change one `edited` entry with old and new values, then the publish. 200
@@ -302,7 +303,7 @@ export const adminUpdateEvent: Handler<{ eventId: string }> = async (req, { even
   // No event, nothing to check: the write answers not_found.
   if (current) {
     refuseStaleVenueLocation(input, current);
-    await verifyVenuePlace(deps, admin, input, current.location);
+    await verifyVenuePlace(deps, admin, input, current);
   }
   const edit = current ? withSeatedCapacity(input, current) : input;
   let result: string;

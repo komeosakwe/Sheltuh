@@ -246,28 +246,38 @@ export const placesDetails: Handler = async (req, _params, deps) => {
  * Checks with Google an event's new or changed Google place before it's saved
  * (POST and PATCH /events, POST and PATCH /admin/events): it must exist, be in
  * Australia (or its external territories), and be in the event's state. Not
- * asked when the body sent no place, or the same place id the event already
- * has (`stored`: checked when it was saved). "Verify, don't store": nothing
- * Google says is written; the suburb, state and zone stay the organiser's.
+ * asked when the body sent no place, or when it keeps the place id the event
+ * already has (`current.location`: checked when it was saved) in the same
+ * suburb and state. "Verify, don't store": nothing Google says is written; the
+ * suburb, state and zone stay the organiser's.
+ *
+ * A kept place id with a new suburb or state (vs `current`, as
+ * refuseStaleVenueLocation compares them) is checked again against the new
+ * state, so Google's directions (destination_place_id) can't point at a place
+ * the listing has left: 400 fieldErrors.location (PLACE_IN_OTHER_STATE) when
+ * it's in another state. To move the event, the organiser finds the venue
+ * again or drops a pin (`{source: "manual_pin", pin}` drops the place id).
  *
  * Takes the caller's `details` allowance and the platform's cap first, as
- * POST /api/places/details does (takeLimit).
+ * POST /api/places/details does (takeLimit), a re-check included.
  *
- * 400 fieldErrors.location (unknown place, not in Australia, no state);
- * 400 fieldErrors.suburb (another state); 429 fieldErrors.location (the
- * account's allowance used); 503 fieldErrors.location with `code:
- * "places_unavailable"` (Google unreachable, not configured, or the
- * platform's daily cap used).
+ * 400 fieldErrors.location (unknown place, not in Australia, no state, a kept
+ * place in another state); 400 fieldErrors.suburb (a new place in another
+ * state); 429 fieldErrors.location (the account's allowance used); 503
+ * fieldErrors.location with `code: "places_unavailable"` (Google unreachable,
+ * not configured, or the platform's daily cap used).
  */
 export async function verifyVenuePlace(
   deps: Deps,
   caller: Caller,
   input: Pick<EventInput, "location" | "state" | "suburb">,
-  stored?: VenueLocation,
+  current?: StoredPlace,
 ): Promise<void> {
   const location = input.location;
   if (location?.source !== "places" || !location.placeId) return;
-  if (stored?.source === "places" && stored.placeId === location.placeId) return;
+  const stored = current?.location;
+  const kept = stored?.source === "places" && stored.placeId === location.placeId;
+  if (kept && current && !placeMoved(input, current)) return;
   const unavailable = { location: PLACES_UNAVAILABLE };
   const places = deps.places();
   if (!places) throw placesUnavailable(unavailable);
@@ -278,10 +288,28 @@ export async function verifyVenuePlace(
   if (!isAustralianRegion(place.regionCode)) fail({ location: PLACE_NOT_IN_AUSTRALIA });
   if (!place.state) fail({ location: PLACE_STATE_UNKNOWN });
   if (place.state !== input.state) {
+    if (kept) fail({ location: PLACE_IN_OTHER_STATE });
     fail({
       suburb: `That Google Maps place is in ${place.state}, but ${input.suburb} is in ${input.state}. Check the suburb, or search for the venue again.`,
     });
   }
+}
+
+/** A kept Google place that no longer matches the event's state (verifyVenuePlace's re-check). */
+export const PLACE_IN_OTHER_STATE = "The Google Maps place is in a different state; find the venue again or drop a pin";
+
+/** The stored event as the venue checks compare against it: its suburb, state and location. */
+export interface StoredPlace {
+  suburb: string;
+  state?: string;
+  location?: VenueLocation;
+}
+
+/** Whether an edit moves the event to another suburb or state than the stored one. */
+function placeMoved(input: Pick<EventInput, "state" | "suburb">, current: StoredPlace): boolean {
+  const suburbChanged = suburbKey(input.suburb) !== suburbKey(current.suburb);
+  const stateChanged = current.state !== undefined && current.state !== input.state;
+  return suburbChanged || stateChanged;
 }
 
 export const PIN_RECHECK = "Check the pin again for the new suburb.";
@@ -302,14 +330,9 @@ function suburbKey(suburb: string): string {
  * the suburb it was confirmed for), so only a hand-made request gets here.
  * `input.suburb` is the parsed (canonical) suburb; `current` the stored event.
  */
-export function refuseStaleVenueLocation(
-  input: Pick<EventInput, "location" | "state" | "suburb">,
-  current: { suburb: string; state?: string; location?: VenueLocation },
-): void {
+export function refuseStaleVenueLocation(input: Pick<EventInput, "location" | "state" | "suburb">, current: StoredPlace): void {
   if (input.location !== undefined) return;
   const stored = current.location;
   if (!stored || (!stored.pin && !stored.placeId)) return;
-  const suburbChanged = suburbKey(input.suburb) !== suburbKey(current.suburb);
-  const stateChanged = current.state !== undefined && current.state !== input.state;
-  if (suburbChanged || stateChanged) fail({ location: PIN_RECHECK });
+  if (placeMoved(input, current)) fail({ location: PIN_RECHECK });
 }

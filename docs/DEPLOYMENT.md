@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261111000100_event_venue_location.sql`. Never
+      newest, currently `20261111000400_submit_event_location_in_app.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -157,7 +157,9 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           kept. Redefines `private.record_payment_refund` only; needs file 29.
           Apply it before the app that documents the new runbook deploys; the
           previous app keeps working against it, and without it a
-          tickets-only refund leaves the tickets valid, as before)
+          tickets-only refund leaves the tickets valid, as before.
+          **Superseded by file 36**, which takes the rule out again: run both,
+          in order)
       32. `20261110000300_amount_mismatch_refund.sql` (creates
           `private.fail_mismatched_order`: a paid session whose amount or
           currency isn't the order's fails the order and the app refunds it.
@@ -193,7 +195,8 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           new columns, so without it every event route is a 500. The previous
           app keeps working against it, except that its `/submit` route
           answers 200 without submitting an event that has no pin (it doesn't
-          know the new refusal; the event stays a draft). Set
+          know the new refusal; the event stays a draft) until file 37 is
+          applied, which removes that refusal again. Set
           `GOOGLE_MAPS_API_KEY` for the venue search (`.env.example`, and
           "Google Places" below); without it organisers drop a pin instead)
       35. `20261111000200_first_paid_event_review.sql` (an organiser's first
@@ -207,27 +210,58 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           publish result's reason, and its unpublish with "review their next
           events" calls the new function (a 500 without it). The previous
           app never calls either function)
+      36. `20261111000300_refund_no_inference.sql` (only a full refund voids
+          an order's tickets: Stripe's "refunded", or at least `total_cents`
+          refunded. A tickets-only or support-only refund is partial, the
+          tickets stay valid and a `partial_refund` exception opens; the same
+          rule when the refund arrives before the payment. Redefines
+          `private.record_payment_refund` (from file 31) and
+          `private.fulfil_order_detailed` (from file 30); no table, column or
+          data change. Needs files 30 and 31. Apply it before this app
+          deploys (its runbook describes this rule). The previous app keeps
+          working against it: the functions' signatures and results are
+          unchanged)
+      37. `20261111000400_submit_event_location_in_app.sql` (`private.submit_event`
+          as in file 22 again, without file 34's `location_required`
+          refusal: this app's `/submit` handler checks the pin itself, with
+          the same 409, so the previous app's `/submit` works whatever is
+          applied. Needs file 34. No table, column or data change)
 
-      **Apply 33, 34 and 35 together, immediately before deploying this
-      app.** Production is live at `https://sheltuh.com.au`, so keep the
-      time between running them and the new deployment going live to
-      minutes: have the deployment built and ready to promote, run 33, 34
-      then 35 (and the check above: all three `applied`), then promote it
-      straight away. Neither order avoids a window:
-      - The new app can't go first: it reads `event_review_required` (33)
-        on every organiser read and the location columns (34) on every
-        event read, so without them those routes are 500s.
-      - Against 34, the previous app's `/submit` answers 200 but leaves the
-        event a draft: every event it can submit has no pin (its editor
-        can't set one), and it doesn't know the new `location_required`
-        refusal. An organiser who submits in the window gets no error, but
-        the event stays a draft and nothing reaches the review queue; the
-        refusal writes nothing, so the attempt can't be found afterwards.
-        That's why the window must be short.
+      **Files 33 to 37 can be applied ahead of this deploy, with the
+      previous app still live.** "The previous app" here is the build of
+      the commit before `20261111000000_event_publish_now.sql` was added
+      (78c3123's parent, 62d4094: the code for files up to 32), checked
+      against these files' changes: it never calls `publish_event`,
+      `admin_unpublish_event` or `set_event_review_required`; its reads
+      don't select the new columns, and its writes get their defaults
+      (`event_review_required` false, `location_source` `legacy`); its
+      create and edit calls send no `locationSource`, so they write `legacy`
+      or keep the stored location; its outbox cron leases without naming a
+      kind, which leaves `event_published` jobs alone; its refund webhook
+      handles every result file 36's functions return; and after file 37
+      its `/submit` submits an event without a pin to the review queue, as
+      it always did (an admin's approval never needed a pin).
+      - Run 33, 34, 35, 36 and 37 in order **in one sitting** (one SQL
+        Editor query per file, back to back, then the check above: all
+        five `applied`). Between 34 and 37 (the time it takes to run 35
+        and 36) the previous app's `/submit` answers 200 but leaves an
+        event without a pin a draft; once 37 is in, that's gone. Don't stop
+        between 34 and 37.
+      - Then deploy this app whenever it's ready. It needs 33, 34 and 35
+        (without them every organiser and event route is a 500); 36 and 37
+        aren't needed for it to run (without 37 the database refuses a
+        pinless submit too; without 36 the old tickets-only rule applies),
+        but apply them first anyway so the rules match the docs.
+      - If production runs something older than 62d4094 (e.g. `main`), the
+        earlier files' own notes above say what each needs; this check
+        covers 33 to 37 only.
       - Ship this backend only together with the editor's publish button
         and venue step (search, prefill, pin check). Without them organisers
         can't add a location, so every publish and submit is a 409
         `location_required`.
+      - **Support Sheltüh is paused**: leave `NEXT_PUBLIC_SUPPORT_SHELTUH`
+        unset for this deploy (below). The previous app, if it offers
+        Support Sheltüh, keeps offering it until this app replaces it.
 
       **Before merging the Australia-wide events branch, check the Supabase
       project knows every event time zone.** The public list's `onOrAfter`
@@ -324,8 +358,19 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       in Stripe test mode, refund a payment made with card
       `4000 0000 0000 5126` (its refund fails after succeeding) and confirm an
       exception and an alert appear.
-- [ ] **Support Sheltüh refunds** (docs/supabase-setup.md, "Refunding a paid
-      order"): before go-live, in Stripe test mode, buy a ticket with A$5
+- [ ] **`NEXT_PUBLIC_SUPPORT_SHELTUH`: leave it unset** in Vercel (every
+      environment) for this deploy. Support Sheltüh is paused (owner
+      decision, 27 Oct 2026): unset (or anything but `1`), the checkout
+      doesn't offer it and the API refuses any `supportCents` above 0 (400
+      `fieldErrors.supportCents`, "Support Sheltüh isn't available right
+      now"), so every new order has `support_cents = 0`. Orders that
+      already carry support are still fulfilled, shown and refunded. To turn
+      it on later, set it to `1` and **redeploy** (baked in at build time,
+      in the server's code as well as the browser's), after running the
+      refund check below in test mode.
+- [ ] **Support Sheltüh refunds** (only once it's switched on; docs/supabase-setup.md, "Refunding a paid
+      order"): in Stripe test mode, on a deployment with
+      `NEXT_PUBLIC_SUPPORT_SHELTUH=1`, buy a ticket with A$5
       support and try each recipe: a full refund with both "reverse
       transfer" and "refund application fee" ticked; the support alone with
       neither ticked; and the tickets only (refund `total_cents −
@@ -337,9 +382,10 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       back), that the organiser's and Sheltüh's balances end where the
       runbook says (Sheltüh up by `support_cents`), that the support-only
       refund leaves the order `paid` with its `partial_refund` exception and
-      alert showing `supportCents`, and that the tickets-only refund makes
-      the order `refunded` (no ticket codes on its page, stock back on
-      sale). Also note what the organiser's Express dashboard shows
+      alert showing `supportCents`, and that the tickets-only refund does
+      too (the order stays `paid`, its ticket codes still on its page: only
+      a full refund voids, file 36), until the support is refunded as well,
+      which makes it `refunded` (no ticket codes, stock back on sale). Also note what the organiser's Express dashboard shows
       for the fee (docs/architecture.md, "Support Sheltüh": a known limit
       until separate charges and transfers).
 - [ ] **`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`** (embedded checkout: the

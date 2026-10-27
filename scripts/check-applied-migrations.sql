@@ -120,8 +120,10 @@ select version, file, coalesce(applied, false) as applied
       and exists (select 1 from fn where proname = 'raise_payment_exception' and prosrc like '%amount_mismatch%')
       and exists (select 1 from fn where proname = 'record_refund_status' and prosrc like '%supportCents%')
       and exists (select 1 from fn where proname = 'fulfil_order_detailed' and prosrc like '%supportCents%')),
+    -- 20261111000300 redefines this file's only function (without supportKeptCents): its marker counts too.
     ('20261110000200', 'support_ticket_refund',
-      exists (select 1 from fn where proname = 'record_payment_refund' and prosrc like '%supportKeptCents%')),
+      exists (select 1 from fn where proname = 'record_payment_refund'
+                and (prosrc like '%supportKeptCents%' or prosrc like '%refund_no_inference%'))),
     ('20261110000300', 'amount_mismatch_refund',
       exists (select 1 from fn where proname = 'fail_mismatched_order')),
     ('20261111000000', 'event_publish_now',
@@ -133,9 +135,16 @@ select version, file, coalesce(applied, false) as applied
       exists (select 1 from col where attrelid = to_regclass('public.events') and attname = 'venue_place_id')
       and exists (select 1 from fn where proname = 'event_location_json')
       and exists (select 1 from fn where proname = 'publish_event' and prosrc like '%location_required%')
-      and exists (select 1 from fn where proname = 'submit_event' and prosrc like '%location_required%')),
+      -- 20261111000400 takes the pin check back out of submit_event: its marker counts too.
+      and exists (select 1 from fn where proname = 'submit_event'
+                    and (prosrc like '%location_required%' or prosrc like '%submit_location_in_app%'))),
     ('20261111000200', 'first_paid_event_review',
       exists (select 1 from fn where proname = 'publish_event' and prosrc like '%first_paid_event%')
-      and exists (select 1 from fn where proname = 'admin_unpublish_event'))
+      and exists (select 1 from fn where proname = 'admin_unpublish_event')),
+    ('20261111000300', 'refund_no_inference',
+      exists (select 1 from fn where proname = 'record_payment_refund' and prosrc like '%refund_no_inference%')
+      and exists (select 1 from fn where proname = 'fulfil_order_detailed' and prosrc like '%refund_no_inference%')),
+    ('20261111000400', 'submit_event_location_in_app',
+      exists (select 1 from fn where proname = 'submit_event' and prosrc like '%submit_location_in_app%'))
   ) as m(version, file, applied)
  order by version;

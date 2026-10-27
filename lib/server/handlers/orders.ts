@@ -458,16 +458,19 @@ type PaymentRefundResult = "refunded" | "partial" | "unchanged" | "deferred" | "
 /**
  * charge.refunded: a refund of one of our payments, whoever made it (usually
  * the Stripe dashboard). charge.amount_refunded is cumulative and
- * charge.refunded is true once it covers the whole charge. A full refund of a
- * paid order voids it (`refunded`, tickets void, inventory released), and so
- * does a refund of everything but an order's Support Sheltüh amount (the
- * runbook's "tickets only": at least total − support refunded, the support
- * kept); any other partial one is recorded and opens a payment exception for
- * a person (private.record_payment_refund). One that arrives before its order's
- * payment is recorded, for a payment to one of our organisers' accounts, is
- * held for fulfilment (`deferred`): the order is then voided, or flagged if
- * partial. Never throws for a payment that isn't ours: Stripe would retry it
- * for days. Returns the result (undefined when the charge was unusable).
+ * charge.refunded is true once it covers the whole charge. Only a full refund
+ * (Stripe's `refunded`, or at least the order's total refunded) voids a paid
+ * order (`refunded`, tickets void, inventory released); any other refund is
+ * partial, whatever its amount (nothing is inferred from it: tickets only,
+ * Support Sheltüh only or anything else), and is recorded with a payment
+ * exception for a person, the tickets left valid
+ * (private.record_payment_refund, 20261111000300_refund_no_inference.sql).
+ * One that arrives before its order's payment is recorded, for a payment to
+ * one of our organisers' accounts, is held for fulfilment (`deferred`) and
+ * judged by the same rule then: in full, nothing is issued; in part, the
+ * tickets are issued and flagged. Never throws for a payment that isn't ours:
+ * Stripe would retry it for days. Returns the result (undefined when the
+ * charge was unusable).
  */
 async function recordPaymentRefund(deps: Deps, eventId: string, charge: Stripe.Charge): Promise<PaymentRefundResult | undefined> {
   const paymentIntentId = expandableId(charge.payment_intent);
@@ -495,11 +498,7 @@ async function recordPaymentRefund(deps: Deps, eventId: string, charge: Stripe.C
   // Logs name the order by its short reference only: never its id (the confirmation page's credential) or the buyer.
   const reference = row.order_id ? orderReference(row.order_id) : undefined;
   if (row.result === "refunded") {
-    console.info(
-      charge.refunded
-        ? `Order ${reference} was refunded in full in Stripe: marked refunded, tickets void, inventory released.`
-        : `Order ${reference}'s tickets were refunded in Stripe (Support Sheltüh kept): marked refunded, tickets void, inventory released.`,
-    );
+    console.info(`Order ${reference} was refunded in full in Stripe: marked refunded, tickets void, inventory released.`);
   } else if (row.result === "partial") {
     // Needs a person: a payment exception (and an ops alert) as well as the log line.
     console.error(`Order ${reference} was partly refunded in Stripe; it stays paid and its tickets stay valid. Review it manually.`);
@@ -685,9 +684,12 @@ export async function takeClientLimit(req: Request, deps: Deps, secret: string |
  * database refuses the order too: orders_not_ended).
  *
  * Optional `supportCents` (Support Sheltüh, lib/support.ts; general admission
- * and seated alike): omitted or 0 is none, else a whole number of cents from
- * A$1 to A$500, and only with a paid ticket in the order (400
- * `fieldErrors.supportCents` otherwise). It's stored on the order, part of
+ * and seated alike): omitted or 0 is none. Paused unless
+ * NEXT_PUBLIC_SUPPORT_SHELTUH is "1" (isSupportSheltuhEnabled; unset by
+ * default): then anything else is a 400 `fieldErrors.supportCents` ("Support
+ * Sheltüh isn't available right now"), nothing written. When it's on: a whole
+ * number of cents from A$1 to A$500, and only with a paid ticket in the order
+ * (400 `fieldErrors.supportCents` otherwise). It's stored on the order, part of
  * its total and of the attempt's fingerprint (a replay with another amount is
  * a 422), a line of its own in Stripe's session, and all of it goes to
  * Sheltüh (application_fee_amount): ../checkout-attempts.ts.
