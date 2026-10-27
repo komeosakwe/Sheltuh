@@ -48,7 +48,7 @@ map:
    - Leave only the default public scopes ticked (`styles:tiles` and
      `styles:read` are what the preview uses). Tick no secret scopes.
    - Under **URL restrictions**, add every origin that will show the map:
-     your Vercel preview domain and `https://app.sheltuh.com.au` (plus
+     your Vercel preview domain and `https://sheltuh.com.au` (plus
      `http://localhost:3000` if you want it locally). Vercel preview URLs
      change with each deployment, so use the branch's stable alias, such as
      `https://<project>-git-<branch>-<team>.vercel.app`, or check in Mapbox's

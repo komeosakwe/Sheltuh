@@ -66,7 +66,7 @@ email, rather than click a link. Supabase sends links by default, so:
   uppercase and digits. This matches what the sign-up form already tells
   people.
 - **URL Configuration:** set the Site URL to your real domain: the exact
-  origin people use, e.g. `https://app.sheltuh.com.au` (Google and Apple
+  origin people use: `https://sheltuh.com.au` (Google and Apple
   sign-in rely on it; see the next section).
 - **SMTP:** Supabase's built-in email is heavily rate-limited and meant for
   testing only. Before real organisers sign up, set a custom SMTP sender
@@ -97,9 +97,9 @@ checked.
 
 1. Create or pick the project "Sheltuh".
 2. **Branding** (the consent screen): app name "Sheltüh"; support email
-   `support@sheltuh.com.au`; home page `https://app.sheltuh.com.au`; privacy
-   policy `https://app.sheltuh.com.au/privacy`; terms
-   `https://app.sheltuh.com.au/terms`; authorised domain `sheltuh.com.au`
+   `support@sheltuh.com.au`; home page `https://sheltuh.com.au`; privacy
+   policy `https://sheltuh.com.au/privacy`; terms
+   `https://sheltuh.com.au/terms`; authorised domain `sheltuh.com.au`
    (add `supabase.co` too if the console insists on the callback's domain);
    developer contact `info@sheltuh.com.au`.
 3. **Data Access:** add `openid`; keep `…/auth/userinfo.email` and
@@ -107,7 +107,7 @@ checked.
 4. **Audience:** External, then **Publish app**. In "Testing" only the test
    users you list can sign in.
 5. **Clients → Create client → Web application:**
-   - Authorised JavaScript origins: `https://app.sheltuh.com.au`.
+   - Authorised JavaScript origins: `https://sheltuh.com.au`.
    - Authorised redirect URIs: the callback URL.
    - Copy the client ID and secret (the secret is shown once; keep it in
      your password manager).
@@ -126,7 +126,7 @@ checked.
    it on Apple's screen), identifier `au.com.sheltuh.web`. Open it, tick
    Sign in with Apple → **Configure**: primary App ID the one above; domain
    `<ref>.supabase.co`; return URL the callback URL. Save. Don't register
-   `app.sheltuh.com.au`: in this flow Apple only ever returns to Supabase.
+   `sheltuh.com.au`: in this flow Apple only ever returns to Supabase.
    If the portal asks you to verify the domain, follow its prompt
    (Supabase's guide lists no such step).
 4. **Keys → +:** name it, tick Sign in with Apple → Configure → the primary
@@ -161,7 +161,7 @@ checked.
 
 **Supabase** (Authentication)
 
-1. **URL Configuration:** Site URL `https://app.sheltuh.com.au`, exactly
+1. **URL Configuration:** Site URL `https://sheltuh.com.au`, exactly
    the origin people use. **Redirect URLs: none for production**: Supabase
    accepts any return path on the Site URL's host (whether it also checks
    the scheme and port is unverified: `architecture.md`, "`next`: no open
@@ -828,9 +828,8 @@ behaviours aren't covered by the automated tests):
      exactly the A$ total the site shows; keep the Dashboard matching.
    - **Payment method domains** (Settings → Payment methods → Payment method
      domains): register every domain that serves `/checkout/pay`:
-     `app.sheltuh.com.au` (live, and test if you test there), a stable
-     preview domain such as `preview.sheltuh.com.au` (test), and
-     `sheltuh.com.au` if the app moves there. Stripe shows Apple Pay, Google
+     `sheltuh.com.au` (live, and test if you test there) and a stable
+     preview domain such as `preview.sheltuh.com.au` (test). Stripe shows Apple Pay, Google
      Pay and Link in the embedded form only where the domain is registered
      and that method is `active`. Per-deployment `*.vercel.app` URLs can't
      be registered ahead of time, so they show cards only.
@@ -844,8 +843,8 @@ behaviours aren't covered by the automated tests):
      add it to Vercel.
 
      ```sh
-     npm run payment-domains -- app.sheltuh.com.au preview.sheltuh.com.au             # check (default; changes nothing)
-     npm run payment-domains -- --register app.sheltuh.com.au preview.sheltuh.com.au  # create, re-enable, validate
+     npm run payment-domains -- sheltuh.com.au preview.sheltuh.com.au             # check (default; changes nothing)
+     npm run payment-domains -- --register sheltuh.com.au preview.sheltuh.com.au  # create, re-enable, validate
      ```
 
      Hostnames only (no `https://`, path or port). `--register` creates a
@@ -1331,9 +1330,8 @@ where j.status in ('failed', 'pending') order by j.created_at desc;
    the same after the first deploy. Also check **Fluid compute** is on
    (Settings → Functions): an instance then serves many requests at once
    and shares its 5 database connections between them.
-4. Point a domain at it. The live landing page on `sheltuh.com.au` stays on
-   Cloudflare Workers until you decide to swap it. A subdomain such as
-   `app.sheltuh.com.au` avoids touching it for now.
+4. Point the domain at it. The site is `https://sheltuh.com.au`; it's
+   also the value for `NEXT_PUBLIC_SITE_URL` and Supabase's Site URL (§1).
 
 `SUPABASE_CLIP_STORAGE_KEY` and `SUPABASE_ADMIN_INVITE_KEY` are full
 Supabase secret keys: **Production only** (§1, "Event clips" and "Account
