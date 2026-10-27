@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { DotsLoader } from "@/components/brand/DotsMark";
 import { useAvatarObjectUrl } from "@/components/members/useAvatarObjectUrl";
-import { Button, buttonClass } from "@/components/ui/Button";
+import { buttonClass } from "@/components/ui/Button";
 import InitialsAvatar from "@/components/ui/InitialsAvatar";
 import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
 import { SESSION_EXPIRED_MESSAGE } from "@/components/whos-going/shared";
@@ -119,12 +119,9 @@ export default function AvatarField({
   const hasPhoto = Boolean(profile.hasAvatar);
 
   return (
-    <div className="flex flex-col gap-3 border-t border-surface-border pt-6" aria-busy={busy ? true : undefined}>
-      <p id="member-photo-title" className="eyebrow text-muted">
-        Photo (optional)
-      </p>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-        <div className="relative size-24 shrink-0 sm:size-32">
+    <div className="flex flex-col gap-2" aria-busy={busy ? true : undefined}>
+      <div className="flex items-center gap-4">
+        <div className="relative size-18 shrink-0">
           {shown ? (
             // eslint-disable-next-line @next/next/no-img-element -- a local object URL (the photo needs the bearer token)
             <img
@@ -133,47 +130,58 @@ export default function AvatarField({
               className={`size-full rounded-dot object-cover ${busy?.kind === "upload" ? "opacity-60" : ""}`}
             />
           ) : (
-            <InitialsAvatar name={profile.displayName} size="lg" />
+            <InitialsAvatar name={profile.displayName} size="field" />
           )}
         </div>
-        <div className="flex flex-col items-start gap-3">
-          <input
-            ref={inputRef}
-            id="member-photo"
-            type="file"
-            accept={AVATAR_TYPES.join(",")}
-            // Not disabled while busy (that would drop focus from it): a pick then is ignored.
-            aria-disabled={busy ? true : undefined}
-            onChange={(e) => pick(e.target.files?.[0])}
-            aria-labelledby="member-photo-title member-photo-pick"
-            aria-describedby="member-photo-hint"
-            className="peer sr-only"
-          />
-          <label
-            id="member-photo-pick"
-            htmlFor="member-photo"
-            className={buttonClass(
-              "outline",
-              "md",
-              `min-h-11 cursor-pointer peer-focus-visible:outline-2 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-foreground ${
-                busy ? "pointer-events-none border-surface-border bg-surface text-muted" : ""
-              }`,
-            )}
-          >
-            {hasPhoto ? "Change photo" : "Choose a photo"}
-          </label>
-          <p id="member-photo-hint" className="max-w-sm text-xs text-muted">
-            JPEG, PNG or WebP, up to 5 MB. We crop it square and remove everything stored in the file (camera details,
-            location) before saving it. Only members who can see your profile see it.
+        <div className="flex min-w-0 flex-col items-start gap-1">
+          <p id="member-photo-title" className="eyebrow text-muted">
+            Photo (optional)
           </p>
-          {busy?.kind === "upload" && <DotsLoader label="Uploading" />}
-          {hasPhoto && busy?.kind !== "upload" && (
-            <Button variant="outline" size="md" busy={busy?.kind === "remove"} onClick={remove} className="min-h-11">
-              {busy?.kind === "remove" ? "Removing…" : "Remove photo"}
-            </Button>
-          )}
+          <div className="flex flex-wrap items-center gap-x-3">
+            <input
+              ref={inputRef}
+              id="member-photo"
+              type="file"
+              accept={AVATAR_TYPES.join(",")}
+              // Not disabled while busy (that would drop focus from it): a pick then is ignored.
+              aria-disabled={busy ? true : undefined}
+              onChange={(e) => pick(e.target.files?.[0])}
+              aria-labelledby="member-photo-title member-photo-pick"
+              aria-describedby="member-photo-hint"
+              className="peer sr-only"
+            />
+            <label
+              id="member-photo-pick"
+              htmlFor="member-photo"
+              className={buttonClass(
+                "outline",
+                "sm",
+                `min-h-11 cursor-pointer peer-focus-visible:outline-2 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-foreground ${
+                  busy ? "pointer-events-none border-surface-border bg-surface text-muted" : ""
+                }`,
+              )}
+            >
+              {hasPhoto ? "Change photo" : "Choose a photo"}
+            </label>
+            {busy?.kind === "upload" && <DotsLoader label="Uploading" />}
+            {hasPhoto && busy?.kind !== "upload" && (
+              // A quiet text action beside the picker; `remove` ignores a press while busy
+              // (aria-disabled, not disabled, so focus stays on it).
+              <button
+                type="button"
+                aria-disabled={busy?.kind === "remove" ? true : undefined}
+                onClick={remove}
+                className="inline-flex min-h-11 items-center px-1 text-sm underline underline-offset-4 hover:decoration-2 aria-disabled:text-muted"
+              >
+                {busy?.kind === "remove" ? "Removing…" : "Remove photo"}
+              </button>
+            )}
+          </div>
         </div>
       </div>
+      <p id="member-photo-hint" className="text-xs text-muted">
+        JPEG, PNG or WebP, up to 5 MB. Camera and location data removed.
+      </p>
       {error && <ActionErrorNotice message={error} returnTo={RETURN_TO} />}
       <p role="status" className="sr-only">
         {status}

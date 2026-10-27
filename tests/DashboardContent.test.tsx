@@ -288,7 +288,7 @@ describe("DashboardContent — each event's status, date and actions", () => {
     });
     renderDashboard();
     await waitFor(() => expect(screen.getByText("Nope")).toBeInTheDocument());
-    expect(rowOf("Nope")).toHaveTextContent("Open Edit to read the reviewer’s note.");
+    expect(rowOf("Nope")).toHaveTextContent("Open Edit to read Sheltüh’s note, then send it for review again.");
     expect(rowOf("Live")).toHaveTextContent("Live on Sheltüh. Contact Sheltüh to change it.");
     expect(within(rowOf("Live")).getByRole("link", { name: "Contact Sheltüh" })).toHaveAttribute(
       "href",
@@ -296,7 +296,7 @@ describe("DashboardContent — each event's status, date and actions", () => {
     );
     expect(within(rowOf("Waiting")).queryByRole("link", { name: "Contact Sheltüh" })).toBeNull();
     // Hint lines wrap evenly.
-    expect(within(rowOf("Nope")).getByText("Open Edit to read the reviewer’s note.")).toHaveClass("text-pretty");
+    expect(within(rowOf("Nope")).getByText("Open Edit to read Sheltüh’s note, then send it for review again.")).toHaveClass("text-pretty");
   });
 
   it("wraps the actions instead of scrolling sideways", async () => {
@@ -313,7 +313,7 @@ describe("DashboardContent — each event's status, date and actions", () => {
   });
 });
 
-describe("DashboardContent — payouts before submitting paid events", () => {
+describe("DashboardContent — payouts before publishing paid events", () => {
   it("marks a draft or rejected event with paid Sheltüh tickets while payouts aren't set up", async () => {
     const paid = [{ id: "t", name: "GA", priceCents: 2000, feePolicy: "buyer-pays" as const, quantityAvailable: 10 }];
     const free = [{ ...paid[0], priceCents: 0 }];
@@ -328,7 +328,7 @@ describe("DashboardContent — payouts before submitting paid events", () => {
     });
     renderDashboard();
     await waitFor(() => expect(screen.getByText("Event paid-draft")).toBeInTheDocument());
-    const hint = "Paid tickets: set up payouts before you submit it.";
+    const hint = "Paid tickets: set up payouts before you publish it.";
     expect(rowOf("Event paid-draft")).toHaveTextContent(hint);
     expect(rowOf("Event paid-rejected")).toHaveTextContent(hint);
     expect(rowOf("Event free-draft")).not.toHaveTextContent(hint);

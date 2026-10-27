@@ -20,13 +20,15 @@ import { Panel } from "@/components/ui/Section";
 import WhosGoing from "@/components/WhosGoing";
 import { WhosGoingProvider } from "@/components/whos-going/WhosGoingProvider";
 import WhosGoingSummaryLink from "@/components/whos-going/WhosGoingSummaryLink";
-import { isSafeTicketUrl } from "@/lib/event-url";
+import { SUPPORT_EMAIL } from "@/lib/contact";
+import { isSafeTicketUrl, reportEventHref } from "@/lib/event-url";
 import { eventZone, formatEventDateShort, formatEventDateTimeRange, formatEventTime, formatTimeZoneLabel, zoneSuffix } from "@/lib/format";
 import { directionsHref } from "@/lib/maps";
 import { externalProviderLabel, formatFeedPriceParts, isSoldOut } from "@/lib/pricing";
 import { goesToSeatPage, quickBuyLabel } from "@/lib/quick-buy";
 import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { organiserProfileHref } from "@/lib/sample-organisers";
+import { siteOrigin } from "@/lib/share-metadata";
 import { EVENT_CATEGORIES, type SheltuhEvent } from "@/lib/types";
 
 /** One fact under the title: a 20px icon (with the fact's name for screen readers), then the fact. */
@@ -101,7 +103,7 @@ function whenLabel(startsAt: string, endsAt: string | undefined, timeZone: strin
  * linked to directions; the organiser, linked to their profile), the going count, and one
  * secondary row with Save and Share (the page's only Save). Then the
  * tickets and Who's Going, then About, Location (the venue, a small map and
- * Open in Maps) and Good to know. On phones that's one
+ * Google Maps and Apple Maps links) and Good to know. On phones that's one
  * column; from 1024px the tickets and Who's Going are the right-hand column
  * (sticky), beside the photo, title and facts, and About below those. Below
  * 1024px a compact buy bar sticks to the bottom (price and the one ticket
@@ -365,7 +367,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
               <p className="max-w-2xl text-base leading-7">{event.description}</p>
             </Panel>
 
-            {/* Where it is, with a small map and "Open in Maps" (none without a venue or suburb). */}
+            {/* Where it is, with a small map and the Google Maps and Apple Maps links (none without a venue or suburb). */}
             <EventLocation event={event} />
 
             {goodToKnow.length > 0 && (
@@ -381,6 +383,17 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                 <p className="mt-4 text-xs text-muted">As provided by the organiser.</p>
               </Panel>
             )}
+
+            {/* Events go live without a check first: anyone can tell Sheltüh about one (by email, for now). */}
+            <p className="text-sm text-muted">
+              Something wrong with this event?{" "}
+              <a
+                href={reportEventHref(event.title, event.slug, siteOrigin(), SUPPORT_EMAIL)}
+                className="inline-flex min-h-6 items-center text-foreground underline underline-offset-4"
+              >
+                Report this event
+              </a>
+            </p>
           </div>
 
           {/* Buy bar, below lg only, on an ink surface: compact (the price and the one ticket

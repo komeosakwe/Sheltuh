@@ -13,7 +13,7 @@ export default function OrganiserApplyPage() {
           size="md"
           eyebrow="For organisers"
           title="Become an organiser"
-          intro="Apply to list your events on Sheltüh. Every application and every event is reviewed by an admin."
+          intro="Apply to list your events on Sheltüh. Every organiser is checked by a person before they can publish, and we review events that are reported."
         />
         <ApplyPageContent />
       </div>

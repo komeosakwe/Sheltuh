@@ -106,7 +106,7 @@ export default function RefundPolicyField({
         <p>
           {admin
             ? "Once tickets have been ordered, it can only become more generous: people keep the refunds they were offered."
-            : "After you submit, only Sheltüh can change it, and once tickets have been ordered only to something more generous."}
+            : "After you publish, only Sheltüh can change it, and once tickets have been ordered only to something more generous."}
         </p>
       </div>
 

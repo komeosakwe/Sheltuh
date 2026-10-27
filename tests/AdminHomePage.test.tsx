@@ -78,6 +78,7 @@ describe("Admin hub", () => {
     const manage = section("Manage");
     expect(within(manage).getAllByRole("link").map((l) => l.getAttribute("href"))).toEqual([
       "/admin/events?status=published",
+      "/admin/events?status=published&view=recent",
       "/admin/organisers?status=approved",
       "/admin/events/new",
       "/admin/invites",
@@ -89,6 +90,39 @@ describe("Admin hub", () => {
       "Invite a person who asked to join, as an organiser (approved when they accept) or a member.",
     );
     expect(within(section("Done outside Sheltüh admin")).getByText(/Stripe dashboard/)).toBeInTheDocument();
+  });
+
+  it("Recently published: how many organisers published themselves lately, linking to the recent view", () => {
+    const { unmount } = renderHub(fakeAuthValue({ isAdmin: true }), {
+      summary: adminSummary({ eventsPublishedByOrganisers: { count: 3, windowHours: 72 } }),
+    });
+    const card = within(section("Manage")).getByRole("link", { name: /^Recently published/ });
+    expect(card).toHaveAttribute("href", "/admin/events?status=published&view=recent");
+    expect(card).toHaveTextContent("3 by organisers in the last 3 days");
+    expect(card).toHaveAccessibleDescription(/Approved organisers publish without review/);
+    expect(within(card).getByText("3 by organisers in the last 3 days")).toHaveClass("text-foreground");
+    unmount();
+
+    renderHub(fakeAuthValue({ isAdmin: true }), {
+      summary: adminSummary({ eventsPublishedByOrganisers: { count: 1, windowHours: 72 } }),
+    });
+    expect(within(section("Manage")).getByRole("link", { name: /^Recently published/ })).toHaveTextContent(
+      "1 by an organiser in the last 3 days",
+    );
+  });
+
+  it("Recently published says None when there are none, and has no count from an older server (field absent)", () => {
+    const { unmount } = renderHub(fakeAuthValue({ isAdmin: true }), {
+      summary: adminSummary({ eventsPublishedByOrganisers: { count: 0, windowHours: 72 } }),
+    });
+    const none = within(section("Manage")).getByRole("link", { name: /^Recently published/ });
+    expect(within(none).getByText("None by organisers in the last 3 days")).toHaveClass("text-muted");
+    unmount();
+
+    renderHub(fakeAuthValue({ isAdmin: true }), { summary: adminSummary() });
+    const card = within(section("Manage")).getByRole("link", { name: /^Recently published/ });
+    expect(card).toHaveTextContent(/^Recently published$/);
+    expect(card).not.toHaveTextContent("Checking…");
   });
 
   it("while the counts load the cards say so; if they fail, an alert offers to check again and the links still work", () => {

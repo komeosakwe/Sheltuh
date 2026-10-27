@@ -3,7 +3,14 @@ import type { TicketingMode } from "@/lib/ticketing";
 import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
 import type { EventCategory } from "@/lib/types";
 import { ApiError, apiFetch, type GetToken } from "./client";
-import type { EventRecord, Paginated, TicketTypeInput } from "./types";
+import type {
+  EventRecord,
+  Paginated,
+  PublishEventConflictCode,
+  PublishEventResponse,
+  TicketTypeInput,
+  VenueLocationInput,
+} from "./types";
 
 export interface EventInput {
   title: string;
@@ -79,6 +86,13 @@ export interface EventInput {
    * fieldErrors.refundPolicy.
    */
   refundDays?: number | null;
+  /**
+   * The venue's location (VenueLocationInput: a Google place from
+   * lib/api/places.ts, with the organiser's pin once they've checked it, or
+   * a manual pin). Absent: kept as stored when editing, none when creating.
+   * null: cleared. Publishing or submitting needs a pin (`location_required`).
+   */
+  location?: VenueLocationInput | null;
 }
 
 export async function createEventDraft(input: EventInput, getToken: GetToken) {
@@ -120,12 +134,49 @@ export function isRefundPolicyTightenedError(err: unknown): err is ApiError {
 /**
  * Draft or rejected → pending review. ApiError 409 when it isn't a draft or
  * rejected, or (`code: "payouts_required"`, isPayoutsRequiredError) when it
- * has a paid Sheltüh ticket type and the organiser's payouts aren't set up;
- * 404 unknown event.
+ * has a paid Sheltüh ticket type and the organiser's payouts aren't set up,
+ * or (`code: "location_required"`, publishConflictCode) when it has no
+ * confirmed venue location (`location.pin`); 404 unknown event.
  */
 export async function submitEventForReview(eventId: string, getToken: GetToken) {
   const token = await getToken();
   return apiFetch<EventRecord>(`/events/${eventId}/submit`, { method: "POST", token });
+}
+
+/**
+ * Publishes the organiser's draft or rejected event (POST
+ * /api/events/{eventId}/publish). Returns the event: `status: "published"`
+ * when it went live now (their followers are emailed), or `"pending_review"`
+ * when it needs a person first (it's sent to the review queue: their events
+ * are reviewed, an admin rejected or unpublished it before, it has a seat
+ * map, its ticket link isn't on a known ticketing site, it's their first
+ * event with paid Sheltüh tickets, or too many were published in 24 hours),
+ * with `reviewReason` (PublishEventReviewReason) saying which. Already
+ * published: returned as it is. ApiError
+ * 403 not an approved organiser, 404 unknown event, 409 with a `code`
+ * (publishConflictCode): `payouts_required` (isPayoutsRequiredError),
+ * `event_ended`, `in_review` (already waiting for review), `event_changed`
+ * (its ticket link changed meanwhile: reload and try again),
+ * `location_required` (no confirmed venue location yet: `location.pin`).
+ */
+export async function publishEvent(eventId: string, getToken: GetToken) {
+  const token = await getToken();
+  return apiFetch<PublishEventResponse>(`/events/${encodeURIComponent(eventId)}/publish`, { method: "POST", token });
+}
+
+const PUBLISH_CONFLICT_CODES: readonly PublishEventConflictCode[] = [
+  "payouts_required",
+  "event_ended",
+  "in_review",
+  "event_changed",
+  "location_required",
+];
+
+/** The 409's `code` when publishEvent was refused (PublishEventConflictCode), else undefined. */
+export function publishConflictCode(err: unknown): PublishEventConflictCode | undefined {
+  if (!(err instanceof ApiError) || err.status !== 409) return undefined;
+  const code = err.body?.code;
+  return PUBLISH_CONFLICT_CODES.find((c) => c === code);
 }
 
 export async function listMyEvents(getToken: GetToken, cursor?: string) {

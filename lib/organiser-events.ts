@@ -1,4 +1,5 @@
 import type { EventRecord, EventStatus } from "./api/types";
+import { ticketProviderName } from "./ticketing";
 
 /**
  * What an organiser sees and can do for one of their events on the dashboard
@@ -33,15 +34,23 @@ export interface OrganiserEventStatus {
 }
 
 const STATUS: Record<OrganiserEventState, Omit<OrganiserEventStatus, "state">> = {
-  draft: { label: "Draft", tone: "neutral", hint: "Finish it, then submit it for review." },
+  draft: { label: "Draft", tone: "neutral", hint: "Finish it, then publish it." },
   pending_review: {
     label: "Waiting for review",
     tone: "pending",
-    hint: "Sheltüh is reviewing it. You can’t edit it until then.",
+    hint: "Sheltüh is checking it before it goes live. You can’t edit it until then.",
   },
   published: { label: "Published", tone: "approved", hint: "Live on Sheltüh.", contactToChange: true },
-  rejected: { label: "Rejected", tone: "rejected", hint: "Open Edit to read the reviewer’s note." },
-  unpublished: { label: "Unpublished", tone: "neutral", hint: "Taken off Sheltüh. Edit it, then submit it again." },
+  rejected: {
+    label: "Rejected",
+    tone: "rejected",
+    hint: "Open Edit to read Sheltüh’s note, then send it for review again.",
+  },
+  unpublished: {
+    label: "Unpublished",
+    tone: "neutral",
+    hint: "Taken off Sheltüh. Edit it, then send it for review.",
+  },
 };
 
 /**
@@ -112,3 +121,105 @@ export function organiserEventActions(
   }
   return actions;
 }
+
+/**
+ * Why publishing an event (POST /api/events/{id}/publish) sends it to the
+ * review queue instead of putting it live, as far as the organiser's screen
+ * can tell (private.publish_event decides; the API doesn't say why):
+ *
+ * - `rejected_before` / `unpublished_before`: Sheltüh rejected it, or took
+ *   it down, last (the newest of its approved/rejected/unpublished log
+ *   entries).
+ * - `review_required`: an admin has turned on review of this organiser's
+ *   events (OrganiserRecord.eventReviewRequired).
+ * - `seated`: it has a seat map.
+ * - `ticket_site`: its tickets are sold on a site that isn't a known
+ *   ticketing site (as lib/server/handlers/event-publish.ts judges it).
+ *
+ * Only the API can tell (its publish response's `reviewReason`, apiReviewReason):
+ *
+ * - `daily_limit`: too many events were published in a day.
+ * - `first_paid_event`: the organiser's first paid event sold on Sheltüh.
+ *
+ * Sent for review with none of these known, it's the general reason
+ * (PUBLISH_REVIEW_GENERAL).
+ */
+export type PublishReviewReason =
+  | "rejected_before"
+  | "unpublished_before"
+  | "review_required"
+  | "seated"
+  | "ticket_site"
+  | "daily_limit"
+  | "first_paid_event";
+
+/** Sheltüh rejected or unpublished this event last (so publishing it again goes to review), or null. */
+export function removedBefore(
+  event: Pick<EventRecord, "status" | "moderationLog">,
+): "rejected_before" | "unpublished_before" | null {
+  if (event.status === "rejected") return "rejected_before";
+  // Oldest first (the API's order): the newest decision wins.
+  for (let i = event.moderationLog.length - 1; i >= 0; i--) {
+    const action = event.moderationLog[i].action;
+    if (action === "approved") return null;
+    if (action === "rejected") return "rejected_before";
+    if (action === "unpublished") return "unpublished_before";
+  }
+  return null;
+}
+
+/**
+ * The reason the API gave for sending a publish to review (the publish
+ * response's `reviewReason`), as the organiser's; null when it gave none, or
+ * one this page doesn't know. `removed_before` is told apart by the event's
+ * log (rejected, or taken down, last).
+ */
+export function apiReviewReason(
+  reason: string | undefined,
+  event: Pick<EventRecord, "status" | "moderationLog">,
+): PublishReviewReason | null {
+  switch (reason) {
+    case "review_required":
+    case "seated":
+    case "daily_limit":
+    case "first_paid_event":
+      return reason;
+    case "removed_before":
+      return removedBefore(event) ?? "unpublished_before";
+    case "unknown_ticket_site":
+      return "ticket_site";
+    default:
+      return null;
+  }
+}
+
+/** The first reason (in PublishReviewReason's order) this event goes to review when published, or null. */
+export function publishReviewReason(
+  event: Pick<EventRecord, "status" | "moderationLog" | "seating" | "ticketingMode" | "externalTicketUrl">,
+  eventReviewRequired: boolean | undefined,
+): PublishReviewReason | null {
+  const removed = removedBefore(event);
+  if (removed) return removed;
+  if (eventReviewRequired === true) return "review_required";
+  if (event.seating) return "seated";
+  if (event.ticketingMode === "external" && event.externalTicketUrl && ticketProviderName(event.externalTicketUrl) === null) {
+    return "ticket_site";
+  }
+  return null;
+}
+
+/** Why it's being checked first, in the organiser's words. */
+export const PUBLISH_REVIEW_REASON_TEXT: Record<PublishReviewReason, string> = {
+  rejected_before: "It wasn’t approved last time, so a person at Sheltüh checks it again before it goes live.",
+  unpublished_before: "Sheltüh took it off the site before, so a person checks it before it goes back up.",
+  review_required: "For now, a person at Sheltüh checks your events before they go live.",
+  seated: "Events with a seat map are checked by a person before they go live.",
+  ticket_site: "Its tickets are sold on a site we don’t know yet, so a person checks the link first.",
+  daily_limit: "A lot of events were published in the last day, so a person checks this one before it goes live.",
+  first_paid_event:
+    "Your first paid event is checked by Sheltüh before it goes live. After that, your paid events publish straight away.",
+};
+
+/** When none of the reasons above is known (for example, a lot of events were published in one day). */
+export const PUBLISH_REVIEW_GENERAL =
+  "Some events are checked by a person before they go live, for example when a lot are published in one day.";

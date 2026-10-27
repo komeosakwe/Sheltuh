@@ -6,6 +6,7 @@ import { ClipStorageError, type ClipStorage } from "@/lib/server/clip-storage";
 import type { Db } from "@/lib/server/db";
 import type { Deps } from "@/lib/server/deps";
 import type { EmailMessage } from "@/lib/server/email";
+import { PlacesUnavailableError, type GooglePlace, type PlaceSuggestion, type Places } from "@/lib/server/places";
 import type { AppleWalletConfig, GoogleWalletConfig } from "@/lib/server/wallet/config";
 import { runHandler, type Handler } from "@/lib/server/route";
 
@@ -232,6 +233,95 @@ export class FakeAuthAdmin implements AuthAdmin {
   }
 }
 
+/** A Google place id as Places API (New) issues them (27 characters, ChIJ…): The Tote's, in FakePlaces by default. */
+export const TOTE_PLACE_ID = "ChIJtoteHotelCollingwood001";
+/** Another known place, in Sydney (NSW). */
+export const SYDNEY_PLACE_ID = "ChIJoperaHouseSydney0000001";
+/** A known place in New Zealand: not in Australia. */
+export const AUCKLAND_PLACE_ID = "ChIJskyTowerAuckland000001";
+
+/**
+ * A stand-in for Google Places API (New) (lib/server/places.ts): `known`
+ * places by id (The Tote in Collingwood VIC, the Opera House in Sydney NSW,
+ * the Sky Tower in Auckland); `suggestions` for any input. `calls` records
+ * every call (the method, and the place id or session token; what was typed
+ * is kept apart in `inputs`, for the tests that check it never reaches a log);
+ * set `failing` to make every call throw PlacesUnavailableError, as Google
+ * being down or over quota would.
+ */
+export class FakePlaces implements Places {
+  readonly calls: { method: "autocomplete" | "details" | "verify"; placeId?: string; sessionToken?: string }[] = [];
+  readonly inputs: string[] = [];
+  failing = false;
+  readonly known = new Map<string, GooglePlace>([
+    [
+      TOTE_PLACE_ID,
+      {
+        placeId: TOTE_PLACE_ID,
+        formattedAddress: "71 Johnston St, Collingwood VIC 3066",
+        streetAddress: "71 Johnston St",
+        locality: "Collingwood",
+        postcode: "3066",
+        regionCode: "AU",
+        state: "VIC",
+      },
+    ],
+    [
+      SYDNEY_PLACE_ID,
+      {
+        placeId: SYDNEY_PLACE_ID,
+        formattedAddress: "Bennelong Point, Sydney NSW 2000",
+        streetAddress: null,
+        locality: "Sydney",
+        postcode: "2000",
+        regionCode: "AU",
+        state: "NSW",
+      },
+    ],
+    [
+      AUCKLAND_PLACE_ID,
+      {
+        placeId: AUCKLAND_PLACE_ID,
+        formattedAddress: "Victoria St W, Auckland CBD, Auckland 1010, New Zealand",
+        streetAddress: "Victoria St W",
+        locality: "Auckland",
+        postcode: "1010",
+        regionCode: "NZ",
+        state: null,
+      },
+    ],
+  ]);
+  suggestions: PlaceSuggestion[] = [
+    { placeId: TOTE_PLACE_ID, primaryText: "The Tote Hotel", secondaryText: "Johnston Street, Collingwood VIC, Australia" },
+  ];
+
+  /** How many times `method` was called. */
+  count(method: "autocomplete" | "details" | "verify"): number {
+    return this.calls.filter((c) => c.method === method).length;
+  }
+
+  async autocomplete(input: string, sessionToken: string) {
+    this.calls.push({ method: "autocomplete", sessionToken });
+    this.inputs.push(input);
+    if (this.failing) throw new PlacesUnavailableError("http_503");
+    return this.suggestions.map((s) => ({ ...s }));
+  }
+
+  async details(placeId: string, sessionToken: string) {
+    this.calls.push({ method: "details", placeId, sessionToken });
+    if (this.failing) throw new PlacesUnavailableError("timeout");
+    const place = this.known.get(placeId);
+    return place ? { ...place } : null;
+  }
+
+  async verify(placeId: string) {
+    this.calls.push({ method: "verify", placeId });
+    if (this.failing) throw new PlacesUnavailableError("timeout");
+    const place = this.known.get(placeId);
+    return place ? { ...place, formattedAddress: null } : null;
+  }
+}
+
 export class TestApi {
   readonly stripe = createFakeStripe();
   /** Every email the API "sent". Make it throw to simulate an SMTP outage. */
@@ -254,6 +344,8 @@ export class TestApi {
   googleWallet: GoogleWalletConfig | undefined;
   /** Apple Wallet passes; undefined (the default) to simulate the APPLE_WALLET_* variables unset. */
   appleWallet: AppleWalletConfig | undefined;
+  /** Google Places; undefined to simulate GOOGLE_MAPS_API_KEY being unset. */
+  places: FakePlaces | undefined = new FakePlaces();
   private readonly callers = new Map<string, Caller>();
 
   constructor(readonly db: Db) {
@@ -279,6 +371,7 @@ export class TestApi {
       opsAlertEmail: () => this.opsAlertEmail,
       googleWallet: () => this.googleWallet,
       appleWallet: async () => this.appleWallet,
+      places: () => this.places,
     };
   }
 

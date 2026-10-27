@@ -290,6 +290,21 @@ describe("buildTicketEmail", () => {
     );
   });
 
+  it("routes to the venue's linked Google place, else the organiser's pin (never a Google position)", () => {
+    const placeId = "ChIJtoteHotelCollingwood001";
+    const pin = { lat: -37.79794, lng: 144.98884 };
+    expect(ticketDirectionsLink({ ...event, venueName: "The Tote", venueAddress: "71 Johnston St", location: { source: "places", placeId, pin } })).toBe(
+      `https://www.google.com/maps/dir/?api=1&destination=The%20Tote%2C%2071%20Johnston%20St&destination_place_id=${placeId}`,
+    );
+    expect(ticketDirectionsLink({ ...event, location: { source: "manual_pin", pin } })).toBe(
+      "https://www.google.com/maps/dir/?api=1&destination=-37.79794,144.98884",
+    );
+    // A pin is enough to route to without an address or suburb.
+    expect(ticketDirectionsLink({ venueName: "Secret location", venueAddress: "", suburb: "", location: { source: "manual_pin", pin } })).toBe(
+      "https://www.google.com/maps/dir/?api=1&destination=-37.79794,144.98884",
+    );
+  });
+
   it("leaves Get directions out when there's no address or suburb to route to, or the event isn't listed", () => {
     for (const where of [{ venueAddress: "", suburb: "" }, { venueName: "", venueAddress: " ", suburb: "" }]) {
       const e = { ...event, ...where } as EventRecord;

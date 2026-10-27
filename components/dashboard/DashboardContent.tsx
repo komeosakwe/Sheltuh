@@ -195,7 +195,7 @@ export default function DashboardContent() {
             <Link href="/dashboard/payouts" className="text-accent underline underline-offset-2">
               set up payouts
             </Link>{" "}
-            before you submit an event with paid tickets.
+            before you publish an event with paid tickets.
           </p>
         )}
 
@@ -217,7 +217,8 @@ export default function DashboardContent() {
               </ButtonLink>
             }
           >
-            Add your event&rsquo;s details and tickets, then submit it. Sheltüh reviews every event before it goes live.
+            Add your event&rsquo;s details and tickets, then publish it. Most events go live straight away; some
+            are checked by a person first.
           </EmptyState>
         )}
 

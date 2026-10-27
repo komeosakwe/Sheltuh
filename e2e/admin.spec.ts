@@ -27,6 +27,7 @@ const SUMMARY: AdminSummary = {
   emailsFailed: { count: 0 },
   emailsRetrying: { count: 1 },
   doorEvents: { count: 1, windowHours: 24 },
+  eventsPublishedByOrganisers: { count: 2, windowHours: 72 },
 };
 
 function event(i: number, overrides: Partial<AdminEventRecord> = {}): AdminEventRecord {
@@ -110,6 +111,8 @@ async function signedInAsAdmin(page: Page, { signedIn = true, summary = SUMMARY 
   };
   const listQueries: string[] = [];
   const organiserQueries: string[] = [];
+  /** POST /api/admin/events/{id}/unpublish bodies (null: none sent). */
+  const unpublished: unknown[] = [];
   let approved = false;
   if (signedIn) {
     await page.addInitScript((s) => localStorage.setItem("sb-127-auth-token", JSON.stringify(s)), session);
@@ -126,6 +129,17 @@ async function signedInAsAdmin(page: Page, { signedIn = true, summary = SUMMARY 
     if (path === "/api/admin/events") {
       listQueries.push(url.search);
       const status = url.searchParams.get("status");
+      if (status === "published" && url.searchParams.get("recent") === "1") {
+        // Newest first: one the organiser published 2 hours ago, one an admin approved yesterday.
+        return route.fulfill({
+          json: {
+            items: [
+              event(4, { status: "published", publishedBy: "organiser", publishedAt: new Date(now - 2 * 3600_000 - 60_000).toISOString() }),
+              event(5, { status: "published", publishedBy: "sheltuh", publishedAt: new Date(now - 26 * 3600_000).toISOString() }),
+            ],
+          },
+        });
+      }
       if (status === "published") {
         return route.fulfill({ json: { items: [event(3, { status: "published", organiserPlatformManaged: true })] } });
       }
@@ -139,6 +153,10 @@ async function signedInAsAdmin(page: Page, { signedIn = true, summary = SUMMARY 
     // An admin with no organiser of their own, at a Sheltüh-run event's door.
     if (path === "/api/organisers/me") return route.fulfill({ status: 404, json: { error: "No organiser." } });
     if (path === `/api/organisers/me/events/${event(3).eventId}/check-ins`) return route.fulfill({ json: DOOR_SUMMARY });
+    if (/^\/api\/admin\/events\/[^/]+\/unpublish$/.test(path)) {
+      unpublished.push(route.request().postDataJSON());
+      return route.fulfill({ json: event(4, { status: "draft" }) });
+    }
     if (/^\/api\/admin\/events\/[^/]+\/approve$/.test(path)) {
       approved = true;
       return route.fulfill({ json: event(1, { status: "published" }) });
@@ -155,7 +173,7 @@ async function signedInAsAdmin(page: Page, { signedIn = true, summary = SUMMARY 
     if (path.startsWith("/api/favourites")) return route.fulfill({ json: { items: [], ids: [] } });
     return route.fulfill({ status: 404, json: { error: "not mocked in e2e" } });
   });
-  return { listQueries, organiserQueries };
+  return { listQueries, organiserQueries, unpublished };
 }
 
 // Chromium names a link "Reports , 2 open" (a space before the visually hidden count), as it does
@@ -220,6 +238,39 @@ for (const vp of [
         "true",
         { timeout: 30_000 },
       );
+    });
+
+    test("Recently published: from the hub card, who published each, and Unpublish with a note for the organiser", async ({
+      page,
+    }) => {
+      const { listQueries, unpublished } = await signedInAsAdmin(page);
+      await page.goto("/admin");
+      const card = page.getByRole("region", { name: "Manage" }).getByRole("link", { name: /^Recently published/ });
+      await expect(card).toContainText("2 by organisers in the last 3 days", { timeout: 30_000 });
+      await card.click();
+      await expect(page).toHaveURL(/\/admin\/events\?status=published&view=recent$/);
+      await expect(page.getByRole("heading", { level: 2, name: /^Recently published/ })).toBeVisible({ timeout: 30_000 });
+      expect(listQueries.at(-1)).toBe("?status=published&recent=1");
+      await expect(page.getByRole("button", { name: "Recently published" })).toHaveAttribute("aria-pressed", "true");
+      const self = page.getByRole("article", { name: "Event 4" });
+      await expect(self).toContainText("Published by the organiser · 2 h ago");
+      await expect(page.getByRole("article", { name: "Event 5" })).toContainText("Published by Sheltüh · 26 h ago");
+      await noSidewaysScroll(page);
+
+      await self.getByRole("button", { name: "Unpublish Event 4…" }).click();
+      const note = self.getByLabel("Reason (optional; the organiser sees this)");
+      await expect(note).toBeFocused();
+      await expect(self).toContainText("If they publish it again it comes to you for review.");
+      // Off unless asked for: the organiser's next events stay as they are.
+      const reviewFuture = self.getByRole("checkbox", { name: "Also review this organiser’s next events" });
+      await expect(reviewFuture).not.toBeChecked();
+      expect((await reviewFuture.locator("..").boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+      await note.fill("The photo isn't of this event.");
+      await noSidewaysScroll(page);
+      await self.getByRole("button", { name: "Yes, unpublish" }).click();
+      await expect(page.getByText("Unpublished Event 4. It’s off the site and back with the organiser as a draft, with your note.")).toBeVisible();
+      expect(unpublished).toEqual([{ reason: "The photo isn't of this event." }]);
+      await expect(page.getByRole("article", { name: "Event 4" })).toHaveCount(0);
     });
 
     test("Find an organiser opens Approved, from the URL; a search keeps focus in the box", async ({ page }) => {

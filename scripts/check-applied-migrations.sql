@@ -123,6 +123,19 @@ select version, file, coalesce(applied, false) as applied
     ('20261110000200', 'support_ticket_refund',
       exists (select 1 from fn where proname = 'record_payment_refund' and prosrc like '%supportKeptCents%')),
     ('20261110000300', 'amount_mismatch_refund',
-      exists (select 1 from fn where proname = 'fail_mismatched_order'))
+      exists (select 1 from fn where proname = 'fail_mismatched_order')),
+    ('20261111000000', 'event_publish_now',
+      exists (select 1 from col where attrelid = to_regclass('public.organisers') and attname = 'event_review_required')
+      and exists (select 1 from fn where proname = 'publish_event')
+      and exists (select 1 from outbox_check where conname = 'email_outbox_kind_check' and def like '%event_published%')
+      and exists (select 1 from fn where proname = 'lease_outbox_jobs' and prosrc like '%event_published%')),
+    ('20261111000100', 'event_venue_location',
+      exists (select 1 from col where attrelid = to_regclass('public.events') and attname = 'venue_place_id')
+      and exists (select 1 from fn where proname = 'event_location_json')
+      and exists (select 1 from fn where proname = 'publish_event' and prosrc like '%location_required%')
+      and exists (select 1 from fn where proname = 'submit_event' and prosrc like '%location_required%')),
+    ('20261111000200', 'first_paid_event_review',
+      exists (select 1 from fn where proname = 'publish_event' and prosrc like '%first_paid_event%')
+      and exists (select 1 from fn where proname = 'admin_unpublish_event'))
   ) as m(version, file, applied)
  order by version;

@@ -3,7 +3,7 @@
 What is built, what is in progress, and what is planned. Update this when the
 facts change. Details of each shipped piece live in `docs/architecture.md`.
 
-## Shipped (live on app.sheltuh.com.au)
+## Shipped (live on sheltuh.com.au)
 
 - Curated event feed, search, map, event pages, organiser submission and
   review queue, Stripe Connect checkout, organiser dashboard.

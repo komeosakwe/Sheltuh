@@ -7,6 +7,7 @@ import {
   MAX_EVENT_SEARCH_LENGTH,
   parseAdminSearch,
   PENDING_EVENT_SOON_HOURS,
+  SELF_PUBLISHED_WINDOW_HOURS,
 } from "@/lib/server/handlers/admin";
 import { adminCreateEvent, adminCreateOrganiser, adminGetEvent } from "@/lib/server/handlers/admin-authoring";
 import { getMyEvent, submitEventForReview } from "@/lib/server/handlers/events";
@@ -145,6 +146,7 @@ describe("GET /api/admin/summary", () => {
       emailsFailed: { count: 0 },
       emailsRetrying: { count: 0 },
       doorEvents: { count: 0, windowHours: DOOR_EVENT_WINDOW_HOURS },
+      eventsPublishedByOrganisers: { count: 0, windowHours: SELF_PUBLISHED_WINDOW_HOURS },
     });
   });
 

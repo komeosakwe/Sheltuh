@@ -25,7 +25,7 @@ export default function CreatorsCard({ className = "" }: { className?: string })
             Bring your event to life
           </h2>
           <p className="text-sm leading-5 text-muted sm:text-base sm:leading-6">
-            Reach people who go out for culture. Every listing is reviewed by a person, and fees are shown up front.
+            Reach people who go out for culture. Every organiser is checked by a person before they can publish, and fees are shown up front.
           </p>
           <ButtonLink href="/organisers/apply" variant="outline" size="lg" className="mt-3 self-start">
             List your event

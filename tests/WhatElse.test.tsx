@@ -41,7 +41,7 @@ describe("WhatElse", () => {
     const region = screen.getByRole("region", { name: "What else?" });
     expect(within(region).getByRole("heading", { level: 2 })).toHaveClass("display-lg");
     expect(within(region).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual([
-      "Every event reviewed by a person",
+      "Every organiser checked by a person",
       "Only the good stuff",
       "See who’s going",
     ]);

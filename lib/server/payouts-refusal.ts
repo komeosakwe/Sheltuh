@@ -4,8 +4,9 @@
  * docs/architecture.md, "Payouts before paid events"): an event with paid
  * tickets needs its organiser's payouts first.
  *
- * Keep this module light: handlers/admin.ts imports it, and must not load
- * handlers/events.ts (which loads the suburb table, lib/location.ts).
+ * Keep this module light: handlers/admin.ts and handlers/event-publish.ts
+ * import it, and must not load handlers/events.ts (which loads the suburb
+ * table, lib/location.ts).
  */
 import { PG_CHECK_VIOLATION, pgConstraint, pgErrorCode } from "./db";
 import { HttpError } from "./http";
@@ -16,6 +17,10 @@ export const PAYOUTS_REQUIRED_CODE = "payouts_required";
 /** The organiser's submit of an event with a paid ticket type, before their payouts are set up. */
 export const PAYOUTS_REQUIRED_TO_SUBMIT =
   "Set up payouts before submitting an event with paid tickets. Free events can be submitted now.";
+
+/** The organiser's publish (POST /api/events/{id}/publish) of an event with a paid ticket type, before their payouts are set up. */
+export const PAYOUTS_REQUIRED_TO_PUBLISH =
+  "Set up payouts before publishing an event with paid tickets. Free events can be published now.";
 
 /**
  * An admin's approval, publish or ticket-type edit that would list paid

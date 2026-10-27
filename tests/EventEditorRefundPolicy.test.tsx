@@ -16,7 +16,7 @@ vi.mock("next/navigation", () => ({
 
 const updateEventDraft = vi.fn();
 const createEventDraft = vi.fn();
-const submitEventForReview = vi.fn();
+const publishEvent = vi.fn();
 vi.mock("@/lib/api/events", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/events")>();
   return {
@@ -25,7 +25,7 @@ vi.mock("@/lib/api/events", async (importOriginal) => {
     isRefundPolicyTightenedError: actual.isRefundPolicyTightenedError,
     updateEventDraft: (...args: unknown[]) => updateEventDraft(...args),
     createEventDraft: (...args: unknown[]) => createEventDraft(...args),
-    submitEventForReview: (...args: unknown[]) => submitEventForReview(...args),
+    publishEvent: (...args: unknown[]) => publishEvent(...args),
     uploadEventImage: vi.fn(),
     deleteEventImage: vi.fn(),
   };
@@ -43,7 +43,7 @@ vi.mock("@/lib/api/admin", () => ({
 
 afterEach(cleanup);
 beforeEach(() => {
-  for (const fn of [updateEventDraft, createEventDraft, submitEventForReview, adminUpdateEvent]) fn.mockReset();
+  for (const fn of [updateEventDraft, createEventDraft, publishEvent, adminUpdateEvent]) fn.mockReset();
 });
 
 const EVENT: EventRecord = {
@@ -113,7 +113,7 @@ describe("EventEditor — refund policy (organiser)", () => {
     expect(daysInput()).toBeEnabled();
     const help = document.getElementById("refund-policy-help");
     expect(help).toHaveTextContent(REFUND_ACL_STATEMENT);
-    expect(help).toHaveTextContent("After you submit, only Sheltüh can change it");
+    expect(help).toHaveTextContent("After you publish, only Sheltüh can change it");
     expect(group()).toHaveAttribute("aria-describedby", "refund-policy-help");
     expect(daysInput()).toHaveAttribute("min", "1");
     expect(daysInput()).toHaveAttribute("max", "30");

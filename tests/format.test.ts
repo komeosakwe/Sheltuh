@@ -9,6 +9,7 @@ import {
   formatEventDateTimeRange,
   formatEventTime,
   formatEventWhen,
+  formatTimeAgo,
   formatTimeZoneLabel,
   eventZone,
   zoneSuffix,
@@ -289,5 +290,18 @@ describe("an event's compact line names a zone other than Melbourne's (zoneSuffi
     expect(zoneSuffix("Australia/Melbourne", "VIC")).toBe("");
     expect(formatEventWhen(summer, summerEnd)).toBe(formatEventDateTimeRange(summer, summerEnd));
     expect(formatEventWhen(summer, summerEnd, "Australia/Melbourne", "VIC")).toBe("Thu 15 Jan, 10:30 pm – 11:30 pm");
+  });
+});
+
+describe("formatTimeAgo", () => {
+  const now = Date.parse("2026-10-27T10:00:00.000Z");
+  it("just now, minutes, hours under two days, then days", () => {
+    expect(formatTimeAgo("2026-10-27T09:59:30.000Z", now)).toBe("just now");
+    expect(formatTimeAgo("2026-10-27T10:05:00.000Z", now)).toBe("just now"); // a clock a little ahead
+    expect(formatTimeAgo("2026-10-27T09:46:00.000Z", now)).toBe("14 min ago");
+    expect(formatTimeAgo("2026-10-27T08:00:00.000Z", now)).toBe("2 h ago");
+    expect(formatTimeAgo("2026-10-25T11:00:00.000Z", now)).toBe("47 h ago");
+    expect(formatTimeAgo("2026-10-24T10:00:00.000Z", now)).toBe("3 days ago");
+    expect(formatTimeAgo("not a date", now)).toBe("just now");
   });
 });

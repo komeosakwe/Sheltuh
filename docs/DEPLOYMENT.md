@@ -12,7 +12,7 @@ yet: treat the first pass as **test mode**, and only then go live.
   and accessibility reviews were run and their findings fixed.
 - Also built: an installable web app (PWA) with a bounded service worker and
   a kill switch (see `docs/pwa.md`). Merged to `main`: everything through
-  PR #7 (it is live on `app.sheltuh.com.au`). The PWA is on the branch until
+  PR #7 (it is live on `sheltuh.com.au`). The PWA is on the branch until
   its PR is merged.
 - Local gates on the PWA commit: types, lint and 1045 unit and API tests
   pass, plus the build and 11 browser tests. CI (production build, server
@@ -27,7 +27,8 @@ yet: treat the first pass as **test mode**, and only then go live.
   commit before merging.
 - **Seating has no on/off switch.** Until the owner chooses per-visitor
   protection on seat holds (Turnstile or a Vercel WAF rule), keep seating
-  off for real on-sales by not approving seated events. The per-visitor
+  off for real on-sales by not approving seated events (an organiser's
+  publish of a seated event always goes to the review queue). The per-visitor
   hold limit needs `STRIPE_WEBHOOK_SECRET` set (it fails open without it).
 - **Owner's report, not verified here:** the owner ran migrations 20261001
   to 20261004 in the Supabase SQL editor and saw "Success" for each, the
@@ -67,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261110000300_amount_mismatch_refund.sql`. Never
+      newest, currently `20261111000100_event_venue_location.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -165,6 +166,68 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           without it that call fails (500, Stripe retries, the order stays
           pending); matching payments are fulfilled as ever. The previous app
           keeps working against it: it never calls the function)
+      33. `20261111000000_event_publish_now.sql` (approved organisers
+          publish their events straight away: `private.publish_event`, the
+          per-organiser review switch `organisers.event_review_required` and
+          `private.set_event_review_required`, the admins' `event_published`
+          outbox kind, and `queue_review_email` and `lease_outbox_jobs`
+          redefined. Needs files 20, 22, 24 and 26 first: it redefines the
+          outbox kind checks from 24 and 26 and the functions from 20 and
+          24. **Apply it before this app deploys**: every organiser read
+          (`ORGANISER_SELECT`, so `GET /api/organisers/me` and every
+          organiser route) selects `event_review_required`, and the publish
+          route calls `private.publish_event`, so without it those are 500s.
+          The previous app keeps working against it: its `/submit` route is
+          unchanged, and its cron leases without naming a kind, which now
+          leaves `event_published` jobs alone, so it never takes one (and
+          can't fail it as an unknown job); they wait for this app's drain)
+      34. `20261111000100_event_venue_location.sql` (the venue's location:
+          `events.location_source`, `venue_place_id` (a Google place id, the
+          only Google Places data stored) and `venue_lat` / `venue_lng` (the
+          organiser's own pin, never Google's coordinates), with their checks;
+          `create_event_draft`, `edit_event_draft` and `admin_edit_event`
+          redefined to save it, and `publish_event` and `submit_event` to
+          refuse an event without the organiser's pin (`location_required`).
+          Needs files 22, 28 and 33 first: it redefines their functions.
+          **Apply it before this app deploys**: every event read selects the
+          new columns, so without it every event route is a 500. The previous
+          app keeps working against it, except that its `/submit` route
+          answers 200 without submitting an event that has no pin (it doesn't
+          know the new refusal; the event stays a draft). Set
+          `GOOGLE_MAPS_API_KEY` for the venue search (`.env.example`, and
+          "Google Places" below); without it organisers drop a pin instead)
+      35. `20261111000200_first_paid_event_review.sql` (an organiser's first
+          paid event sold on Sheltüh goes to review instead of live, and a
+          publish sent to review says why: `publish_event` redefined from 34
+          to return `submitted:<reason>`; and `private.admin_unpublish_event`,
+          an admin's unpublish that also turns on review of the organiser's
+          next events. Needs file 34 first: it redefines its `publish_event`.
+          No table or column change; nothing written. **Apply it with 33 and
+          34, immediately before this app deploys**: this app reads the
+          publish result's reason, and its unpublish with "review their next
+          events" calls the new function (a 500 without it). The previous
+          app never calls either function)
+
+      **Apply 33, 34 and 35 together, immediately before deploying this
+      app.** Production is live at `https://sheltuh.com.au`, so keep the
+      time between running them and the new deployment going live to
+      minutes: have the deployment built and ready to promote, run 33, 34
+      then 35 (and the check above: all three `applied`), then promote it
+      straight away. Neither order avoids a window:
+      - The new app can't go first: it reads `event_review_required` (33)
+        on every organiser read and the location columns (34) on every
+        event read, so without them those routes are 500s.
+      - Against 34, the previous app's `/submit` answers 200 but leaves the
+        event a draft: every event it can submit has no pin (its editor
+        can't set one), and it doesn't know the new `location_required`
+        refusal. An organiser who submits in the window gets no error, but
+        the event stays a draft and nothing reaches the review queue; the
+        refusal writes nothing, so the attempt can't be found afterwards.
+        That's why the window must be short.
+      - Ship this backend only together with the editor's publish button
+        and venue step (search, prefill, pin check). Without them organisers
+        can't add a location, so every publish and submit is a 409
+        `location_required`.
 
       **Before merging the Australia-wide events branch, check the Supabase
       project knows every event time zone.** The public list's `onOrAfter`
@@ -350,7 +413,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
         addresses are per developer team; `PROJECT_CONTEXT.md`).
       - Set up the Google client, and the Apple App ID, Services ID, key and
         client secret (`npm run apple-client-secret`), then Supabase's
-        providers. Site URL is exactly `https://app.sheltuh.com.au`; **no
+        providers. Site URL is exactly `https://sheltuh.com.au`; **no
         Redirect URLs entries**, and **never a `*.vercel.app` wildcard**.
         "Confirm email" stays **on**; manual linking stays **off**.
       - Register the email senders as Apple email sources, or mail to Hide My
@@ -367,6 +430,62 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       - A calendar reminder to rotate the Apple client secret **every
         ~5 months** (it stops working after at most 6; Apple sign-in then
         fails for everyone).
+- [ ] **Google Places** (the event editor's venue search; `architecture.md`,
+      "Venue location"; `.env.example`). The browser never calls Google:
+      our server does, with a server-only key. Without the key the search
+      answers 503 and organisers drop a pin on our map instead, so this can
+      follow the deploy. In order:
+      1. Google Cloud console: create a **new project** for this alone (e.g.
+         "Sheltuh Places") and link a **billing account** (Places needs one
+         even within the free usage).
+      2. APIs & Services → Library: enable **Places API (New)** only. Not
+         the legacy Places API, the Maps JavaScript API or Geocoding.
+      3. Credentials → Create credentials → API key, then edit it:
+         - API restrictions: **Restrict key** → **Places API (New)** only.
+         - Application restrictions: **None**. The key is used only by our
+           server (Vercel functions have no fixed IP addresses, and a
+           website restriction would refuse server calls).
+         - Keep it in your password manager.
+      4. Quotas (APIs & Services → Places API (New) → Quotas & system
+         limits): cap requests per day at about **2,000 Autocomplete** and
+         **500 Place Details** (the console's exact quota names are
+         unverified). The app's own platform caps sit just below them (1,800
+         and 450 per Google day, `PLACES_PLATFORM_DAILY_CAPS` in
+         `lib/server/handlers/places.ts`): past those the search and the
+         event saves' place checks answer 503 and organisers drop a pin, so
+         Google's quotas are the backstop. Lowering a quota: lower the
+         matching cap too (and its test). Per account: autocomplete 100 an
+         hour and 400 a day, details plus checks 30 an hour and 120 a day.
+      5. Billing → Budgets & alerts: a budget of **A$10 a month** with email
+         alerts. An alert doesn't stop spending: the quotas do.
+      6. Vercel → Settings → Environment Variables: `GOOGLE_MAPS_API_KEY`
+         for **Production only** (never `NEXT_PUBLIC_`). Then **redeploy**.
+      7. Smoke test on `https://sheltuh.com.au` as an approved organiser:
+         in a draft, search for a venue you know. Suggestions appear with
+         Google Maps attribution; picking one fills in the address, and the
+         pin step opens at the suburb; confirm the pin, save and publish.
+         On the event page, "Google Maps" opens that place and "Apple Maps"
+         the pin; the map shows the pin exactly. In Google Cloud → APIs &
+         Services → Metrics, the requests show up. Vercel's logs show no
+         search text and no key.
+      - **Terms and Privacy Policy wording (owner to-do; Google's Maps
+        Platform terms §3.2.2(a) and §4.4)**:
+        - Terms: that Sheltüh includes Google Maps features and content,
+          and that their use is subject to the then-current Google Maps/Google
+          Earth Additional Terms of Service
+          (`https://maps.google.com/help/terms_maps/`) and the Google Privacy
+          Policy (`https://policies.google.com/privacy`).
+        - Privacy Policy: what an organiser types into the venue search, and
+          the place they pick, is sent to Google to find the venue (Google
+          may use and keep it under its Privacy Policy); we keep only
+          Google's place id and the pin the organiser places, never Google's
+          coordinates.
+      - **Public copy: done.** The about, terms, partners, help, apply and
+        home pages and the dashboard no longer say every event is reviewed
+        by a person: "Every organiser is checked by a person before they
+        can publish, and we review events that are reported." (the publish
+        UI change, B4: `79bd472` on `feat/pp-frontend`). The Google Maps
+        lines above are still to add.
 - [ ] **Bootzy font files.** The licensed display face isn't in the repo;
       headlines fall back to Instrument Sans. Add
       `app/fonts/bootzy/Bootzy-Regular.woff2` and its licence file, then
@@ -450,7 +569,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        buy-now-pay-later **off**; Adaptive Pricing **off** (the code pins it
        off too, so buyers pay exactly the A$ total shown).
 4. [ ] Payment method domains: `npm run payment-domains -- --register
-       app.sheltuh.com.au preview.sheltuh.com.au` with a **test** restricted
+       sheltuh.com.au preview.sheltuh.com.au` with a **test** restricted
        key (`STRIPE_DOMAINS_KEY`), or Stripe → Settings → Payment method
        domains. It must exit 0: every domain enabled, Apple Pay, Google Pay
        and Link `active`. For a stable preview domain: add
@@ -468,7 +587,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        a domain registration covers both modes.
 6. [ ] Only then repeat with **live** keys (secret, publishable and webhook
        secret all change together), steps 3–4 included: run
-       `npm run payment-domains -- --register app.sheltuh.com.au` again with
+       `npm run payment-domains -- --register sheltuh.com.au` again with
        a **live** restricted key, then delete that key.
 
 ## Vercel

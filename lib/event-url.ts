@@ -10,6 +10,16 @@ export function publicEventUrl(slug: string, origin: string): string {
 }
 
 /**
+ * "Report this event": an email to Sheltüh's support, its subject naming the
+ * event and its page ("Report: {title} ({url})"). Without a configured
+ * origin (`siteOrigin()`, a demo deployment), the page's path stands in.
+ */
+export function reportEventHref(title: string, slug: string, origin: string | undefined, email: string): string {
+  const page = origin ? publicEventUrl(slug, origin) : `/events/${encodeURIComponent(slug)}`;
+  return `mailto:${email}?subject=${encodeURIComponent(`Report: ${title} (${page})`)}`;
+}
+
+/**
  * Where an event's `.ics` is served (`app/events/[slug]/calendar.ics/route.ts`):
  * a same-origin path, so a phone opens it with its own "Add to Calendar"
  * sheet instead of saving a file. Same visibility as the event page.

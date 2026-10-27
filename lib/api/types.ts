@@ -45,6 +45,14 @@ export interface OrganiserRecord {
    */
   featuredVideo?: FeaturedVideo;
   /**
+   * An admin has turned on review of this organiser's events (POST
+   * /api/admin/organisers/{id}/event-review): publishing one sends it to the
+   * review queue instead of going live (POST /api/events/{id}/publish).
+   * Always sent by the API; optional so older fixtures stay valid (absent
+   * means false).
+   */
+  eventReviewRequired?: boolean;
+  /**
    * The organiser's logo (512 px square WebP), when they've uploaded one:
    * `/api/organisers/{organiserId}/logo?v={version}`. Public once approved
    * (otherwise only an admin, or the owner, with a bearer token); the thumbnail
@@ -227,7 +235,66 @@ export interface EventEditChanges {
   refundPolicy?: TicketingFieldChange<RefundPolicy>;
   /** An admin changed the refund policy's days (null for `no_change_of_mind`). */
   refundDays?: TicketingFieldChange<number>;
+  /** An admin changed the venue location (null: none, an event from before venue locations). */
+  location?: TicketingFieldChange<VenueLocation>;
 }
+
+/**
+ * A venue pin: where the ORGANISER put it, on our own map (decimal degrees,
+ * 6 decimal places, inside lib/geo.ts AUSTRALIA_BOUNDS). Never Google's
+ * coordinates for a place: the API never requests, stores or returns those.
+ */
+export interface VenuePin {
+  lat: number;
+  lng: number;
+}
+
+/**
+ * How the venue was located: `places`, a Google place the organiser picked
+ * (`placeId`; the venue's name, address and suburb are still what the
+ * organiser confirmed); `manual_pin`, the organiser's pin alone ("Can't find
+ * it on Google Maps?").
+ */
+export type VenueLocationSource = "places" | "manual_pin";
+
+/**
+ * An event's venue location as the API returns it (EventRecord, AdminEventRecord
+ * and PublicEvent `location`). Absent for an event saved without one (every
+ * event from before venue locations), so those payloads are unchanged.
+ * - `placeId`: `places` only. Link with lib/maps.ts (directionsHref's
+ *   `destination_place_id`, googlePlaceHref); never resolve it to coordinates.
+ * - `pin`: the organiser's confirmed pin. Always there for `manual_pin`; for
+ *   `places`, once the organiser has checked the pin (required to publish or
+ *   submit: `location_required`). Drives our own maps, the Apple Maps link
+ *   and wallet passes.
+ */
+export interface VenueLocation {
+  source: VenueLocationSource;
+  placeId?: string;
+  pin?: VenuePin;
+}
+
+/**
+ * The event body's `location` (POST and PATCH /events, POST and PATCH
+ * /admin/events). Absent: kept as stored on edit, none on create. `null`:
+ * cleared (no location; the event then can't be published or submitted until
+ * it gets one again).
+ * - `{source: "places", placeId, pin?}`: `placeId` from POST
+ *   /api/places/autocomplete (pattern `^[A-Za-z0-9_-]{16,256}$`). When it's
+ *   new or changed, the API checks it with Google: unknown, or not in
+ *   Australia, is ApiError 400 fieldErrors.location; in another state than
+ *   the event's is 400 fieldErrors.suburb; Google unreachable is 503
+ *   fieldErrors.location with `code: "places_unavailable"` (try again, or
+ *   drop a pin instead). `pin` optional while drafting (null or absent: none).
+ * - `{source: "manual_pin", pin}`: `pin` required.
+ *
+ * A pin must be finite numbers inside lib/geo.ts AUSTRALIA_BOUNDS and within
+ * the event's suburb's reach plus 10 km (lib/location.ts isPinNearLocality),
+ * else 400 fieldErrors.location. It's saved rounded to 6 decimal places.
+ */
+export type VenueLocationInput =
+  | { source: "places"; placeId: string; pin?: VenuePin | null }
+  | { source: "manual_pin"; pin: VenuePin };
 
 /** ModerationLogEntry.by for an admin's entry in an organiser's view: never the admin's account id. */
 export const SHELTUH_TEAM_ACTOR = "Sheltüh team";
@@ -349,6 +416,8 @@ export interface EventRecord {
   refundPolicy?: RefundPolicy;
   /** `days_before` only: refunds up to this many days (1–30) before the event starts. Absent otherwise. */
   refundDays?: number;
+  /** The venue's location (see VenueLocation), only when it has one; absent for an event saved without one. */
+  location?: VenueLocation;
   /**
    * The event's seat map, when it has one. The organiser can change the map
    * only while `ticketingLocked` is false (never approved) and the event is a
@@ -356,11 +425,69 @@ export interface EventRecord {
    */
   seating?: EventSeating;
   status: EventStatus;
+  /**
+   * An admin's note to the organiser: why it was rejected, or why it was
+   * unpublished (when the admin gave a reason). Cleared when it's published
+   * or submitted again.
+   */
   rejectionReason?: string;
   moderationLog: ModerationLogEntry[];
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * The error body's `code` (ApiError.body.code) when POST
+ * /api/events/{eventId}/publish is refused, always with a 409:
+ * - `payouts_required`: a paid Sheltüh ticket type, and the organiser's
+ *   payouts aren't set up (lib/api/events.ts isPayoutsRequiredError).
+ * - `event_ended`: its end has passed.
+ * - `in_review`: it's already waiting for review.
+ * - `event_changed`: its ticket link changed while it was being published;
+ *   reload it and try again.
+ * - `location_required`: it has no confirmed venue location yet (the
+ *   organiser's pin: `location.pin`, a Google place with its pin checked, or
+ *   a manual pin). POST /api/events/{eventId}/submit refuses the same way.
+ */
+export type PublishEventConflictCode =
+  | "payouts_required"
+  | "event_ended"
+  | "in_review"
+  | "event_changed"
+  | "location_required";
+
+/**
+ * Why POST /api/events/{eventId}/publish sent the event to review instead of
+ * live (PublishEventResponse.reviewReason): the first of these that applied,
+ * in this order.
+ * - `review_required`: an admin turned on review of the organiser's events
+ *   (OrganiserRecord.eventReviewRequired).
+ * - `removed_before`: it's rejected, or Sheltüh's latest decision about it
+ *   was to reject or unpublish it.
+ * - `seated`: it has a seat map.
+ * - `unknown_ticket_site`: its tickets are sold on a site that isn't a known
+ *   ticketing site.
+ * - `first_paid_event`: it has paid tickets sold on Sheltüh, and Sheltüh
+ *   hasn't yet approved a paid Sheltüh event of this organiser's (one still
+ *   up, or that ran). Free and external events are never held for this.
+ * - `daily_limit`: the organiser's (10) or the platform's (100) publishes
+ *   for 24 hours are used up.
+ * Clients should treat an unknown value like no reason (a general message).
+ */
+export type PublishEventReviewReason =
+  | "review_required"
+  | "removed_before"
+  | "seated"
+  | "unknown_ticket_site"
+  | "first_paid_event"
+  | "daily_limit";
+
+/**
+ * POST /api/events/{eventId}/publish's 200: the event, plus `reviewReason`
+ * when this call sent it to review (`status: "pending_review"`). Absent when
+ * it went live, or was already published.
+ */
+export type PublishEventResponse = EventRecord & { reviewReason?: PublishEventReviewReason };
 
 /**
  * PATCH /api/admin/events/{eventId}/ticketing (admin): sets an event's
@@ -389,6 +516,14 @@ export interface AdminEventRecord extends EventRecord {
    * an admin never curated: boost 1, excluded false.
    */
   curation: AdminEventCurationState;
+  /**
+   * Published events only: when it was last approved, i.e. went live (the
+   * newest `approved` log entry), and by whom: `organiser` (the organiser
+   * published it themselves, POST /api/events/{id}/publish) or `sheltuh`
+   * (an admin approved or published it). Absent for any other status.
+   */
+  publishedAt?: string;
+  publishedBy?: "organiser" | "sheltuh";
 }
 
 /** An event's trending curation as AdminEventRecord carries it. */
@@ -804,7 +939,8 @@ export type EmailOutboxKind =
   | "organiser_new_events"
   | "event_review"
   | "organiser_review"
-  | "ops_alert";
+  | "ops_alert"
+  | "event_published";
 
 export const EMAIL_OUTBOX_KINDS: readonly EmailOutboxKind[] = [
   "ticket_email",
@@ -813,6 +949,7 @@ export const EMAIL_OUTBOX_KINDS: readonly EmailOutboxKind[] = [
   "event_review",
   "organiser_review",
   "ops_alert",
+  "event_published",
 ];
 
 /** One kind's (or every kind's) outbox counts in EmailOutboxHealth. Sent jobs aren't counted. */
@@ -979,6 +1116,14 @@ export interface AdminSummary {
    * `windowHours` (24) from now.
    */
   doorEvents: { count: number; windowHours: number };
+  /**
+   * Events organisers published themselves (POST /api/events/{id}/publish)
+   * within the last `windowHours` (72) that are still published and whose
+   * latest approval is the organiser's own (GET
+   * /admin/events?status=published&recent=1 lists them). Always sent by the
+   * API; optional so a client tolerates an older server.
+   */
+  eventsPublishedByOrganisers?: { count: number; windowHours: number };
 }
 
 // ---------------------------------------------------------------------------

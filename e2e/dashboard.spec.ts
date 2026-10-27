@@ -134,7 +134,7 @@ for (const vp of [
       }
       // The payouts hint (paid draft, payouts not set up), with its link.
       const dad = main.locator('[data-event-row="evt-dad"]');
-      await expect(dad).toContainText("Paid tickets: set up payouts before you submit it.");
+      await expect(dad).toContainText("Paid tickets: set up payouts before you publish it.");
       await expect(dad.getByRole("link", { name: "set up payouts" })).toHaveAttribute("href", "/dashboard/payouts");
 
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
@@ -162,7 +162,7 @@ for (const vp of [
         "href",
         "/dashboard/evt-review",
       );
-      await expect(main.locator('[data-event-row="evt-rejected"]')).toContainText("Open Edit to read the reviewer’s note.");
+      await expect(main.locator('[data-event-row="evt-rejected"]')).toContainText("Open Edit to read Sheltüh’s note, then send it for review again.");
     });
   });
 }

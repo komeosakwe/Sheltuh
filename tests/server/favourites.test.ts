@@ -269,6 +269,8 @@ describe("listing", () => {
         // Events Australia-wide: always sent.
         "state",
         "timeZone",
+        // Venue location: only when the event has one (the fixture's events do: a manual pin).
+        "location",
         "favouritedAt",
       ].sort(),
     );

@@ -41,7 +41,7 @@ export default function OrganiserEventRow({ event, payoutsEnabled }: { event: Ev
   const actions = organiserEventActions(event);
   const when = startText(event.startsAt, event.timeZone, event.state);
   const meta = [when, eventPlaceName(event)].filter(Boolean).join(" · ");
-  // A draft (or rejected event) with paid tickets can't be submitted until payouts are set up.
+  // A draft (or rejected event) with paid tickets can't be published until payouts are set up.
   const needsPayouts =
     !payoutsEnabled && (event.status === "draft" || event.status === "rejected") && sellsPaidTicketsOnSheltuh(event);
 
@@ -72,7 +72,7 @@ export default function OrganiserEventRow({ event, payoutsEnabled }: { event: Ev
             <Link href={PAYOUTS_SETUP_HREF} className={inlineLinkClass}>
               set up payouts
             </Link>{" "}
-            before you submit it.
+            before you publish it.
           </p>
         )}
       </div>

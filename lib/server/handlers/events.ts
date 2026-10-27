@@ -8,7 +8,7 @@ import {
 } from "../db";
 import { REFUND_POLICY_TIGHTENED_CODE } from "@/lib/refund-policy";
 import { sendReviewEmailsSoon } from "../email-outbox";
-import { parseEventInput, storedPlaceOf, type EventInput } from "../event-input";
+import { parseEventInput, storedPlaceOf, type EventInput, type LocationInput } from "../event-input";
 import { created, HttpError, ok, okPrivate, readJson } from "../http";
 import { decodeCursor, parseLimit, toPage } from "../pagination";
 import {
@@ -19,20 +19,44 @@ import {
   payoutsRefused,
   payoutsRequired,
 } from "../payouts-refusal";
+import { locationRequired } from "../location-refusal";
 import { EVENT_SELECT, toEvent } from "../records";
 import type { Handler } from "../route";
 import type { EventRecord } from "../types";
 import { slugify } from "../validation";
 import { requireEvent, requireOwnEvent } from "./event-queries";
 import { requireApprovedOrganiser } from "./organiser-guard";
+import { refuseStaleVenueLocation, verifyVenuePlace } from "./places";
 
 const SLUG_ATTEMPTS = 5;
 
-/** Everything but the ticket types, which are stored in their own table. */
-export function eventFields(input: EventInput): Omit<EventInput, "ticketTypes"> {
+/** The event's fields as the private.*_event functions read them (p_fields). */
+export type EventFields = Omit<EventInput, "ticketTypes" | "location"> & {
+  /** Sent only with a location (parseLocation): absent, the stored one is kept (none on create). */
+  locationSource?: LocationInput["source"];
+  placeId?: string | null;
+  pinLat?: number | null;
+  pinLng?: number | null;
+};
+
+/**
+ * Everything but the ticket types, which are stored in their own table, with
+ * the location as the database's flat keys (locationSource, placeId, pinLat,
+ * pinLng), and only when one was sent.
+ */
+export function eventFields(input: EventInput): EventFields {
   const fields: Partial<EventInput> = { ...input };
   delete fields.ticketTypes;
-  return fields as Omit<EventInput, "ticketTypes">;
+  delete fields.location;
+  const location = input.location;
+  if (!location) return fields as EventFields;
+  return {
+    ...(fields as EventFields),
+    locationSource: location.source,
+    placeId: location.placeId,
+    pinLat: location.pin?.lat ?? null,
+    pinLng: location.pin?.lng ?? null,
+  };
 }
 
 /** Turns the database's inventory guards into messages an organiser can act on. */
@@ -80,11 +104,18 @@ export function withSeatedCapacity(input: EventInput, current: EventRecord): Eve
   };
 }
 
-/** POST /api/events — creates a draft owned by the caller's organisation. */
-export const createEventDraft: Handler = async (req, _params, { db, verifyAccessToken }) => {
+/**
+ * POST /api/events — creates a draft owned by the caller's organisation. An
+ * optional `location` (lib/api/types.ts VenueLocationInput) is checked
+ * (parseEventInput; a Google place with Google too, verifyVenuePlace: 400 /
+ * 503 fieldErrors.location, 400 fieldErrors.suburb for another state).
+ */
+export const createEventDraft: Handler = async (req, _params, deps) => {
+  const { db, verifyAccessToken } = deps;
   const caller = await requireCaller(req, verifyAccessToken);
   const organiser = await requireApprovedOrganiser(db, caller);
   const input = parseEventInput(await readJson(req));
+  await verifyVenuePlace(deps, caller, input);
 
   const id = await withUniqueSlug(input.title, async (slug) => {
     const [row] = await db.query<{ id: string }>(
@@ -164,14 +195,25 @@ export const TICKETING_FROZEN =
  * generous: 409 `code: "refund_policy_tightened"` (refundPolicyTightened).
  * Without `state` and `timeZone`, the stored place is kept and the times are
  * read in the stored zone (parseEventInput), so a client that predates them
- * re-saves an event outside Melbourne unchanged.
+ * re-saves an event outside Melbourne unchanged. Without `location`, the
+ * stored venue location is kept, unless the suburb or state changes while
+ * a pin or Google place is stored: 400 fieldErrors.location
+ * (refuseStaleVenueLocation: check the pin again). A new or changed Google
+ * place is checked with Google (verifyVenuePlace; 429 / 503
+ * fieldErrors.location past the Places allowances).
  */
-export const updateEventDraft: Handler<{ eventId: string }> = async (req, { eventId }, { db, verifyAccessToken }) => {
+export const updateEventDraft: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
+  const { db, verifyAccessToken } = deps;
   const caller = await requireCaller(req, verifyAccessToken);
   const organiser = await requireApprovedOrganiser(db, caller);
   const current = await requireOwnEvent(db, organiser.organiserId, eventId);
   const body = withStoredTicketing(await readJson(req), current);
   const input = withSeatedCapacity(parseEventInput(body, { storedPlace: storedPlaceOf(current) }), current);
+  // Not for an event the edit can't change (private.edit_event_draft answers not_editable).
+  if (current.status === "draft" || current.status === "rejected") {
+    refuseStaleVenueLocation(input, current);
+    await verifyVenuePlace(deps, caller, input, current.location);
+  }
 
   let result: string;
   try {
@@ -206,14 +248,15 @@ export const updateEventDraft: Handler<{ eventId: string }> = async (req, { even
  * hour apart) and sent straight after the response. An event with a paid
  * Sheltüh ticket type needs the organiser's payouts set up first
  * (private.submit_event): 409 `code: "payouts_required"` otherwise. Free and
- * external events never need payouts.
+ * external events never need payouts. Every event needs a confirmed venue
+ * location (the organiser's pin): 409 `code: "location_required"` otherwise.
  */
 export const submitEventForReview: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const caller = await requireCaller(req, deps.verifyAccessToken);
   const organiser = await requireApprovedOrganiser(deps.db, caller);
   await requireOwnEvent(deps.db, organiser.organiserId, eventId);
 
-  let result: "submitted" | "not_found" | "not_submittable" | "payouts_required";
+  let result: "submitted" | "not_found" | "not_submittable" | "payouts_required" | "location_required";
   try {
     const [row] = await deps.db.query<{ result: typeof result }>(`select private.submit_event($1, $2, $3) as result`, [
       eventId,
@@ -228,6 +271,7 @@ export const submitEventForReview: Handler<{ eventId: string }> = async (req, { 
   if (result === "not_found") throw new HttpError(404, "Event not found.");
   if (result === "not_submittable") throw new HttpError(409, "Only a draft or rejected event can be submitted for review.");
   if (result === "payouts_required") throw payoutsRequired(PAYOUTS_REQUIRED_TO_SUBMIT);
+  if (result === "location_required") throw locationRequired();
   sendReviewEmailsSoon(deps, "event_review");
   return ok(await requireEvent(deps.db, eventId));
 };

@@ -4,33 +4,41 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventEditor from "@/components/dashboard/EventEditor";
 import type { EventRecord } from "@/lib/api/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { CONFIRMED_PIN_LOCATION, stubMatchMedia, unstubMatchMedia } from "./test-utils/pinMapStub";
 
 // The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
 vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+// The venue's "Check the pin" map (the events here have a confirmed pin: publishing needs one).
+vi.mock("@/components/dashboard/VenuePinMapLeaflet", async () => (await import("./test-utils/pinMapStub")).leafletStub());
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
 const updateEventDraft = vi.fn();
-const submitEventForReview = vi.fn();
+const publishEvent = vi.fn();
 vi.mock("@/lib/api/events", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/events")>();
   return {
     isPayoutsRequiredError: actual.isPayoutsRequiredError,
     isRefundPolicyTightenedError: actual.isRefundPolicyTightenedError,
+    publishConflictCode: actual.publishConflictCode,
     updateEventDraft: (...args: unknown[]) => updateEventDraft(...args),
     createEventDraft: vi.fn(),
-    submitEventForReview: (...args: unknown[]) => submitEventForReview(...args),
+    publishEvent: (...args: unknown[]) => publishEvent(...args),
     uploadEventImage: vi.fn(),
     deleteEventImage: vi.fn(),
   };
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  unstubMatchMedia();
+});
 beforeEach(() => {
+  stubMatchMedia();
   updateEventDraft.mockReset();
-  submitEventForReview.mockReset();
+  publishEvent.mockReset();
 });
 
 const EVENT: EventRecord = {
@@ -53,6 +61,9 @@ const EVENT: EventRecord = {
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
+
+/** EVENT with its venue's pin confirmed: publishing needs it (`location_required` otherwise). */
+const PINNED_EVENT: EventRecord = { ...EVENT, location: CONFIRMED_PIN_LOCATION };
 
 function renderEditor(initial: EventRecord | undefined = EVENT) {
   render(
@@ -139,20 +150,25 @@ describe("EventEditor — field errors are tied to their fields", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Not saved: 1 field needs fixing.");
   });
 
-  it("Submit for review focuses the first field to fix too, and submits nothing", async () => {
-    renderEditor();
+  it("Publish focuses the first field to fix too, and publishes nothing", async () => {
+    renderEditor(PINNED_EVENT);
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: " " } });
-    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
     await waitFor(() => expect(screen.getByLabelText("Title")).toHaveFocus());
     expect(updateEventDraft).not.toHaveBeenCalled();
-    expect(submitEventForReview).not.toHaveBeenCalled();
+    expect(publishEvent).not.toHaveBeenCalled();
   });
 });
 
 describe("EventEditor — the buttons", () => {
-  it("Save draft, Submit for review and Add ticket type are 44px tall", () => {
-    renderEditor();
-    for (const name of ["Save draft", "Submit for review", "Add ticket type"]) {
+  it("Save draft, Publish… (and its question's buttons) and Add ticket type are 44px tall", () => {
+    renderEditor(PINNED_EVENT);
+    for (const name of ["Save draft", "Publish…", "Add ticket type"]) {
+      expect(screen.getByRole("button", { name })).toHaveClass("min-h-11");
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
+    for (const name of ["Publish now", "Cancel"]) {
       expect(screen.getByRole("button", { name })).toHaveClass("min-h-11");
     }
   });
@@ -174,20 +190,22 @@ describe("EventEditor — the buttons", () => {
     await waitFor(() => expect(save).not.toHaveAttribute("aria-disabled"));
   });
 
-  it("Submit for review is busy the same way while it submits", async () => {
+  it("Publish now is busy the same way while it publishes (Cancel too), then what happened is focused", async () => {
     updateEventDraft.mockResolvedValue(EVENT);
     let finish: (record: EventRecord) => void = () => {};
-    submitEventForReview.mockImplementation(() => new Promise((resolve) => (finish = resolve)));
-    renderEditor();
-    const submit = screen.getByRole("button", { name: "Submit for review" });
+    publishEvent.mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+    renderEditor(PINNED_EVENT);
+    fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
+    const submit = screen.getByRole("button", { name: "Publish now" });
     submit.focus();
     fireEvent.click(submit);
-    await waitFor(() => expect(submit).toHaveTextContent("Submitting…"));
+    await waitFor(() => expect(submit).toHaveTextContent("Publishing…"));
     expect(submit).toHaveAttribute("aria-disabled", "true");
     expect(submit).not.toBeDisabled();
     expect(submit).toHaveFocus();
-    finish({ ...EVENT, status: "pending_review" });
-    await waitFor(() => expect(submit).not.toHaveAttribute("aria-disabled"));
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveAttribute("aria-disabled", "true");
+    finish({ ...EVENT, status: "published" });
+    await waitFor(() => expect(screen.getByRole("group", { name: "Published" })).toHaveFocus());
   });
 });
 

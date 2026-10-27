@@ -5,9 +5,12 @@ import EventEditor from "@/components/dashboard/EventEditor";
 import type { EventRecord } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/session-token";
 import { callsTokenFirst, fakeAuthValue, FakeAuthProvider, switchableSession } from "./test-utils/fakeAuth";
+import { CONFIRMED_PIN_LOCATION, stubMatchMedia, unstubMatchMedia } from "./test-utils/pinMapStub";
 
 // The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
 vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+// The venue's "Check the pin" map, for the events with a pin (they can be published).
+vi.mock("@/components/dashboard/VenuePinMapLeaflet", async () => (await import("./test-utils/pinMapStub")).leafletStub());
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -15,24 +18,29 @@ vi.mock("next/navigation", () => ({
 
 const updateEventDraft = vi.fn();
 const createEventDraft = vi.fn();
-const submitEventForReview = vi.fn();
+const publishEvent = vi.fn();
 vi.mock("@/lib/api/events", async (importOriginal) => ({
   // The real check (it only reads the error): the editor tells a payouts refusal apart with it.
   isPayoutsRequiredError: (await importOriginal<typeof import("@/lib/api/events")>()).isPayoutsRequiredError,
   isRefundPolicyTightenedError: (await importOriginal<typeof import("@/lib/api/events")>()).isRefundPolicyTightenedError,
+  publishConflictCode: (await importOriginal<typeof import("@/lib/api/events")>()).publishConflictCode,
   updateEventDraft: (...args: unknown[]) => updateEventDraft(...args),
   createEventDraft: (...args: unknown[]) => createEventDraft(...args),
-  submitEventForReview: (...args: unknown[]) => submitEventForReview(...args),
+  publishEvent: (...args: unknown[]) => publishEvent(...args),
   // Passed to the photo step on every save; never called here (no photo change).
   uploadEventImage: vi.fn(),
   deleteEventImage: vi.fn(),
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  unstubMatchMedia();
+});
 beforeEach(() => {
+  stubMatchMedia();
   updateEventDraft.mockReset();
   createEventDraft.mockReset();
-  submitEventForReview.mockReset();
+  publishEvent.mockReset();
 });
 
 const BASE_EVENT: EventRecord = {
@@ -57,6 +65,9 @@ const BASE_EVENT: EventRecord = {
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
+
+/** BASE_EVENT with its venue's pin confirmed: publishing needs it (`location_required` otherwise). */
+const PINNED_EVENT: EventRecord = { ...BASE_EVENT, location: CONFIRMED_PIN_LOCATION };
 
 function renderEditor(overrides: Partial<EventRecord> = {}, onSaved = vi.fn()) {
   const getToken = vi.fn().mockResolvedValue("token");
@@ -231,30 +242,38 @@ describe("EventEditor — never saves as another account", () => {
   });
 });
 
-describe("EventEditor — submitting for review", () => {
-  it("saves unsaved edits first, so reviewers see what's on screen", async () => {
+/** Publish…, then the question's Publish now. */
+function publish() {
+  fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
+  fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
+}
+
+describe("EventEditor — publishing", () => {
+  it("saves unsaved edits first, so what goes live is what's on screen", async () => {
     updateEventDraft.mockResolvedValue({ ...BASE_EVENT, title: "Edited title" });
-    submitEventForReview.mockResolvedValue({ ...BASE_EVENT, title: "Edited title", status: "pending_review" });
-    const { onSaved } = renderEditor();
+    publishEvent.mockResolvedValue({ ...BASE_EVENT, title: "Edited title", status: "published" });
+    const { onSaved } = renderEditor({ location: CONFIRMED_PIN_LOCATION });
 
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Edited title" } });
-    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
+    publish();
 
-    await waitFor(() => expect(submitEventForReview).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(publishEvent).toHaveBeenCalledTimes(1));
     expect(updateEventDraft).toHaveBeenCalledTimes(1);
     expect(updateEventDraft.mock.calls[0][1].title).toBe("Edited title");
-    expect(updateEventDraft.mock.invocationCallOrder[0]).toBeLessThan(submitEventForReview.mock.invocationCallOrder[0]);
-    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ status: "pending_review" }));
+    expect(updateEventDraft.mock.invocationCallOrder[0]).toBeLessThan(publishEvent.mock.invocationCallOrder[0]);
+    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ status: "published" }));
   });
 
-  it("submits nothing while the form has errors", async () => {
-    renderEditor();
+  it("publishes nothing while the form has errors (the question closes, the field is focused)", async () => {
+    renderEditor({ location: CONFIRMED_PIN_LOCATION });
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "" } });
-    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
+    publish();
 
     await waitFor(() => expect(screen.getByText("Enter an event title.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText("Title")).toHaveFocus());
+    expect(screen.queryByRole("button", { name: "Publish now" })).toBeNull();
     expect(updateEventDraft).not.toHaveBeenCalled();
-    expect(submitEventForReview).not.toHaveBeenCalled();
+    expect(publishEvent).not.toHaveBeenCalled();
   });
 
   it("won't save a paid ticket under A$1.00", async () => {
@@ -301,14 +320,14 @@ async function expectRecoveryForOwner() {
 }
 
 describe("EventEditor — the other-account check on every action", () => {
-  it("Submit for review: someone else signed in by now: nothing is saved or submitted", async () => {
-    const { become } = renderAs(BASE_EVENT);
+  it("Publish: someone else signed in by now: nothing is saved or published", async () => {
+    const { become } = renderAs(PINNED_EVENT);
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Edited title" } });
     become(OTHER);
-    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
+    publish();
     await expectRecoveryForOwner();
     expect(updateEventDraft).not.toHaveBeenCalled();
-    expect(submitEventForReview).not.toHaveBeenCalled();
+    expect(publishEvent).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Title")).toHaveValue("Edited title");
   });
 
@@ -336,19 +355,19 @@ describe("EventEditor — an account change mid-save (after the check, before th
     expect(onSaved).not.toHaveBeenCalled();
   });
 
-  it("Submit for review: changed after the save, before the submit: never submitted as them", async () => {
+  it("Publish: changed after the save, before the publish: never published as them", async () => {
     const session = switchableSession(OWNER);
     updateEventDraft.mockImplementation(async (...args: unknown[]) => {
       const saved = await callsTokenFirst(BASE_EVENT)(...args);
       session.become(OTHER);
       return saved;
     });
-    submitEventForReview.mockImplementation(callsTokenFirst({ ...BASE_EVENT, status: "pending_review" }));
-    const { onSaved } = renderAs(BASE_EVENT, session);
-    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
+    publishEvent.mockImplementation(callsTokenFirst({ ...BASE_EVENT, status: "published" }));
+    const { onSaved } = renderAs(PINNED_EVENT, session);
+    publish();
     await expectRecoveryForOwner();
-    expect(submitEventForReview).toHaveBeenCalledTimes(1);
-    expect(onSaved).not.toHaveBeenCalledWith(expect.objectContaining({ status: "pending_review" }));
+    expect(publishEvent).toHaveBeenCalledTimes(1);
+    expect(onSaved).not.toHaveBeenCalledWith(expect.objectContaining({ status: "published" }));
   });
 
   it("a new event: never created as them", async () => {

@@ -18,14 +18,14 @@ vi.mock("next/navigation", () => ({
 
 const updateEventDraft = vi.fn();
 const createEventDraft = vi.fn();
-const submitEventForReview = vi.fn();
+const publishEvent = vi.fn();
 vi.mock("@/lib/api/events", async (importOriginal) => ({
   // The real check (it only reads the error): the editor tells a payouts refusal apart with it.
   isPayoutsRequiredError: (await importOriginal<typeof import("@/lib/api/events")>()).isPayoutsRequiredError,
   isRefundPolicyTightenedError: (await importOriginal<typeof import("@/lib/api/events")>()).isRefundPolicyTightenedError,
   updateEventDraft: (...args: unknown[]) => updateEventDraft(...args),
   createEventDraft: (...args: unknown[]) => createEventDraft(...args),
-  submitEventForReview: (...args: unknown[]) => submitEventForReview(...args),
+  publishEvent: (...args: unknown[]) => publishEvent(...args),
 }));
 
 const adminListOrganisers = vi.fn();
@@ -43,7 +43,7 @@ vi.mock("@/lib/api/admin", () => ({
 
 afterEach(cleanup);
 beforeEach(() => {
-  for (const fn of [push, updateEventDraft, createEventDraft, submitEventForReview, adminListOrganisers,
+  for (const fn of [push, updateEventDraft, createEventDraft, publishEvent, adminListOrganisers,
     adminCreateOrganiser, adminCreateEvent, adminUpdateEvent]) fn.mockReset();
 });
 
@@ -383,7 +383,8 @@ describe("EventEditor (admin) — editing", () => {
     const onSaved = vi.fn();
     renderEditor({ initial: EVENT, onSaved });
     expect(screen.queryByText(/can.t be edited/)).toBeNull();
-    expect(screen.queryByRole("button", { name: "Submit for review" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Publish…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send for review" })).toBeNull();
     expect(screen.queryByLabelText("Publish when saved")).toBeNull();
     expect(screen.getByText(/your changes go live as soon as you save/)).toBeInTheDocument();
 
