@@ -30,10 +30,26 @@
 --     locks the caller's organiser, if any: none → a new approved organiser
 --     (the typed name and categories, their account's verified email as the
 --     contact email, an empty bio to fill in later); pending → that
---     application approved as it is; approved, rejected (or taken down) →
---     refused, and the link stays unused. Marks the link used and logs
---     `invite_accepted` on the organiser's log. Idempotent for the account
---     that used it.
+--     application approved as it is, unless an admin ever took that
+--     organiser down (a `suspended` entry on its append-only log: a
+--     takedown sets 'rejected', which the owner can resubmit to 'pending',
+--     and a link mustn't reinstate it); approved, rejected (or taken down)
+--     → refused, and the link stays unused. Marks the link used, logs
+--     `invite_accepted` on the organiser's log and queues the admins'
+--     `organiser_joined` email. Idempotent for the account that used it.
+--   * private.email_outbox kind `organiser_joined`: the admins' "an
+--     organiser joined with a link" email, keyed on organiser_id (sharing
+--     the one-active-job-per-organiser index with `organiser_review`; a
+--     pending application's waiting review email is deleted by the approval
+--     before this one is queued). Queued only by a join, so it's bounded by
+--     the links admins make (50 a day platform-wide, each used once): no
+--     throttle of its own. Its kind checks are redefined from
+--     20261111000000_event_publish_now.sql with the new kind.
+--   * private.lease_outbox_jobs (redefined from
+--     20261111000000_event_publish_now.sql): without p_kind it also leaves
+--     `organiser_joined` jobs alone (as `ops_alert` and `event_published`),
+--     so a previous app version leasing every kind can't take one and fail
+--     it as an unknown job. This release's drain asks for them by kind.
 --   * private.purge_operational_data: also deletes links 90 days after they
 --     were used or cancelled, or expired (`organiser_invite_links_deleted`;
 --     drop + create since its result columns change; `select
@@ -46,7 +62,11 @@
 -- (organisers_review_email_drop), as an admin's approval does.
 --
 -- Locks: join locks the link, then the caller's organiser row (or inserts
--- one: the owner_user_id unique index). Nothing locks an organiser and then
+-- one: the owner_user_id unique index), then writes the outbox row. A
+-- takedown (suspend_organiser) needs the organiser approved and locks it
+-- first, and its `suspended` entry commits with the status change, so a
+-- join holding a pending organiser's lock sees every takedown it had.
+-- Nothing locks an organiser and then
 -- a link; cancel is a single conditional update of the link alone (`where
 -- status = 'active'`), so a cancel and a join are serialised by the link's
 -- row lock: whichever is second sees the other's result. An admin's approval
@@ -62,6 +82,9 @@
 --   * token_hash unique: the link's lookup (view and join).
 --   * organiser_invite_links_created_idx (created_at desc, id desc): the
 --     admin list, newest first.
+--   * The takedown check reads organiser_profile_edits_organiser_idx
+--     (organiser_id, id desc); the `organiser_joined` job uses the outbox's
+--     existing organiser_id indexes.
 --   * No index on created_by / used_by / cancelled_by / organiser_id or for
 --     the purge: read only with the row, and the foreign keys' `on delete
 --     set null` and the daily purge scan a table of at most a few thousand
@@ -69,10 +92,14 @@
 --     days after they're done).
 --
 -- Reversible, not destructive: restore private.purge_operational_data from
--- 20261109000400_checkout_attempts.sql (drop + create); drop the two
--- functions and table private.organiser_invite_links (discarding the links
--- and their history). Organisers created or approved by a link are ordinary
--- approved organisers and stay, as do their `invite_accepted` log entries.
+-- 20261109000400_checkout_attempts.sql (drop + create) and
+-- private.lease_outbox_jobs from 20261111000000_event_publish_now.sql; delete
+-- the outbox's `organiser_joined` jobs (only those notifications' delivery
+-- history) and restore its kind checks from
+-- 20261111000000_event_publish_now.sql; drop the two functions and table
+-- private.organiser_invite_links (discarding the links and their history).
+-- Organisers created or approved by a link are ordinary approved organisers
+-- and stay, as do their `invite_accepted` log entries.
 
 -- ---------------------------------------------------------------------------
 -- The links
@@ -137,6 +164,90 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
+-- The admins' "an organiser joined with a link" email
+-- ---------------------------------------------------------------------------
+
+-- From 20261111000000_event_publish_now.sql, plus `organiser_joined`, keyed
+-- on organiser_id like `organiser_review` (and sharing its one-active-job
+-- index, email_outbox_organiser_review_active_key).
+alter table private.email_outbox
+  drop constraint email_outbox_kind_check,
+  add constraint email_outbox_kind_check check (
+    kind in ('ticket_email', 'waitlist_available', 'organiser_new_events', 'event_review', 'organiser_review',
+             'ops_alert', 'event_published', 'organiser_joined')),
+  drop constraint email_outbox_kind_key,
+  -- Each kind has exactly its own key.
+  add constraint email_outbox_kind_key check (
+    case kind
+      when 'ticket_email' then order_id is not null and waitlist_entry_id is null and follow_id is null
+                               and event_id is null and organiser_id is null
+                               and payment_exception_id is null and ops_event_id is null
+      when 'waitlist_available' then waitlist_entry_id is not null and order_id is null and follow_id is null
+                                     and event_id is null and organiser_id is null
+                                     and payment_exception_id is null and ops_event_id is null
+      when 'organiser_new_events' then follow_id is not null and order_id is null and waitlist_entry_id is null
+                                       and event_id is null and organiser_id is null
+                                       and payment_exception_id is null and ops_event_id is null
+      when 'event_review' then event_id is not null and order_id is null and waitlist_entry_id is null
+                               and follow_id is null and organiser_id is null
+                               and payment_exception_id is null and ops_event_id is null
+      when 'event_published' then event_id is not null and order_id is null and waitlist_entry_id is null
+                                  and follow_id is null and organiser_id is null
+                                  and payment_exception_id is null and ops_event_id is null
+      when 'organiser_review' then organiser_id is not null and order_id is null and waitlist_entry_id is null
+                                   and follow_id is null and event_id is null
+                                   and payment_exception_id is null and ops_event_id is null
+      when 'organiser_joined' then organiser_id is not null and order_id is null and waitlist_entry_id is null
+                                   and follow_id is null and event_id is null
+                                   and payment_exception_id is null and ops_event_id is null
+      else (payment_exception_id is not null) <> (ops_event_id is not null)
+           and order_id is null and waitlist_entry_id is null and follow_id is null
+           and event_id is null and organiser_id is null end);
+
+-- As in 20261111000000_event_publish_now.sql, but without p_kind it also
+-- leaves `organiser_joined` jobs alone (as ops alerts and `event_published`):
+-- a previous app version leasing every kind would fail one as an unknown job.
+-- This release's drain asks for them by kind (lib/server/email-outbox.ts).
+create or replace function private.lease_outbox_jobs(
+  p_limit integer, p_lease interval, p_max_attempts integer, p_order_id text default null, p_kind text default null
+) returns table (
+  job_id bigint, job_kind text, job_order_id text, job_waitlist_entry_id uuid, job_follow_id uuid,
+  job_event_id uuid, job_organiser_id uuid, job_lease_token uuid, job_attempts integer)
+language plpgsql
+set search_path = ''
+as $$
+begin
+  update private.email_outbox o
+     set status = 'failed', lease_token = null, lease_expires_at = null,
+         last_error = coalesce(o.last_error, 'the last attempt never finished')
+   where o.status = 'sending' and o.lease_expires_at <= now() and o.attempts >= p_max_attempts
+     and (p_order_id is null or o.order_id = p_order_id)
+     and (case when p_kind is null then o.kind not in ('ops_alert', 'event_published', 'organiser_joined')
+               else o.kind = p_kind end);
+
+  return query
+  with picked as (
+    select o.id from private.email_outbox o
+     where ((o.status = 'pending' and o.next_attempt_at <= now())
+         or (o.status = 'sending' and o.lease_expires_at <= now()))
+       and (p_order_id is null or o.order_id = p_order_id)
+       and (case when p_kind is null then o.kind not in ('ops_alert', 'event_published', 'organiser_joined')
+                 else o.kind = p_kind end)
+     order by o.next_attempt_at, o.id
+     limit p_limit
+     for update skip locked
+  )
+  update private.email_outbox o
+     set status = 'sending', lease_token = gen_random_uuid(), lease_expires_at = now() + p_lease,
+         attempts = o.attempts + 1
+    from picked
+   where o.id = picked.id
+  returning o.id, o.kind, o.order_id, o.waitlist_entry_id, o.follow_id, o.event_id, o.organiser_id,
+            o.lease_token, o.attempts;
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- Joining
 -- ---------------------------------------------------------------------------
 
@@ -150,8 +261,10 @@ $$;
 --   'unavailable': no such link, or it's used (by another account),
 --     cancelled or expired, or its creator is no longer an admin (then it's
 --     marked cancelled);
---   'already_organiser' (approved), 'rejected' (rejected or taken down):
---     nothing written, the link stays active;
+--   'already_organiser' (approved), 'rejected' (rejected or taken down, or
+--     pending again after a takedown: an organiser an admin took down is
+--     only ever reinstated by an admin's review): nothing written, the link
+--     stays active;
 --   'details_required': no organiser yet, and no name or categories given
 --     (nothing written);
 --   'conflict': an application was committed for the account while this
@@ -162,6 +275,9 @@ create function private.join_with_organiser_invite_link(
 language plpgsql
 set search_path = ''
 as $$
+-- `organiser_id` in an SQL expression is the column (the outbox insert's ON
+-- CONFLICT target); the OUT parameter is only ever assigned.
+#variable_conflict use_column
 declare
   v_link private.organiser_invite_links;
   v_status public.organiser_status;
@@ -199,18 +315,26 @@ begin
     if v_status = 'approved' then
       result := 'already_organiser';
       return;
-    end if;
-    if v_status = 'rejected' then
+    elsif v_status = 'pending' then
+      -- Taken down once (suspend_organiser's append-only `suspended` entry),
+      -- then resubmitted: only an admin's review puts it back.
+      if exists (select 1 from private.organiser_profile_edits e
+                  where e.organiser_id = v_organiser_id and e.kind = 'suspended') then
+        result := 'rejected';
+        return;
+      end if;
+      -- The application is approved as it was submitted.
+      update public.organisers o
+         set status = 'approved', rejection_reason = null, reviewed_by = v_link.created_by, reviewed_at = now()
+       where o.id = v_organiser_id and o.status = 'pending';
+      insert into private.organiser_profile_edits (organiser_id, kind, actor_id, changed_fields)
+      values (v_organiser_id, 'invite_accepted', p_user_id,
+              jsonb_build_object('status', jsonb_build_object('old', 'pending', 'new', 'approved')));
+    else
+      -- Rejected or taken down (or any status this doesn't know): refused.
       result := 'rejected';
       return;
     end if;
-    -- Pending: the application is approved as it was submitted.
-    update public.organisers o
-       set status = 'approved', rejection_reason = null, reviewed_by = v_link.created_by, reviewed_at = now()
-     where o.id = v_organiser_id;
-    insert into private.organiser_profile_edits (organiser_id, kind, actor_id, changed_fields)
-    values (v_organiser_id, 'invite_accepted', p_user_id,
-            jsonb_build_object('status', jsonb_build_object('old', 'pending', 'new', 'approved')));
   else
     if p_display_name is null or p_categories is null then
       result := 'details_required';
@@ -237,6 +361,13 @@ begin
   update private.organiser_invite_links l
      set status = 'used', used_by = p_user_id, used_at = now(), organiser_id = v_organiser_id
    where l.id = v_link.id;
+  -- The admins hear about it (approved without anyone reviewing it). A job
+  -- already waiting or being sent for the organiser (an application's review
+  -- email a worker holds right now) wins: that worker skips it, as the
+  -- application isn't pending any more.
+  insert into private.email_outbox (kind, organiser_id)
+  values ('organiser_joined', v_organiser_id)
+  on conflict (organiser_id) where status in ('pending', 'sending') do nothing;
   result := 'joined';
   organiser_id := v_organiser_id;
 end;
@@ -322,3 +453,4 @@ revoke all on function private.create_organiser_invite_link(uuid, text, interval
 revoke all on function private.join_with_organiser_invite_link(text, uuid, text, text, jsonb)
   from public, anon, authenticated;
 revoke all on function private.purge_operational_data() from public, anon, authenticated;
+revoke all on function private.lease_outbox_jobs(integer, interval, integer, text, text) from public, anon, authenticated;

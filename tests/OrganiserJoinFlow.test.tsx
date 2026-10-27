@@ -247,6 +247,21 @@ describe("/organisers/join signed in", () => {
     expect(joinWithOrganiserLink).not.toHaveBeenCalled();
   });
 
+  it("a pending application the server refuses (taken down before): says so, with focus, and doesn't offer Join again", async () => {
+    getMyOrganiser.mockResolvedValue(organiser("pending"));
+    joinWithOrganiserLink.mockRejectedValue(new ApiError(409, "Refused.", undefined, { code: "rejected" }));
+    const { signOut } = renderFlow(SIGNED_IN);
+    const form = await screen.findByRole("form", { name: "Join as an organiser" });
+    fireEvent.click(within(form).getByRole("button", { name: "Join as an organiser" }));
+    const heading = await screen.findByRole("heading", { level: 1, name: "This account can’t join with this link" });
+    await waitFor(() => expect(heading).toHaveFocus());
+    expect(heading).toHaveAccessibleDescription(/can’t be approved with a link, so this link wasn’t used/);
+    expect(screen.queryByRole("form", { name: "Join as an organiser" })).toBeNull();
+    expect(joinWithOrganiserLink).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(signOut).toHaveBeenCalledWith("local");
+  });
+
   it("a 409 from the server (approved meanwhile) reads the account's organiser again", async () => {
     joinWithOrganiserLink.mockRejectedValue(new ApiError(409, "Already.", undefined, { code: "already_organiser" }));
     renderFlow(SIGNED_IN);

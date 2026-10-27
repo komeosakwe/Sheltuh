@@ -1,7 +1,12 @@
 import { createHash, randomBytes } from "node:crypto";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { clientKey } from "@/lib/server/client-key";
-import { adminListOrganisers, adminSuspendOrganiser } from "@/lib/server/handlers/admin";
+import {
+  adminApproveOrganiser,
+  adminListOrganisers,
+  adminRejectOrganiser,
+  adminSuspendOrganiser,
+} from "@/lib/server/handlers/admin";
 import {
   adminCancelOrganiserLink,
   adminCreateOrganiserLink,
@@ -10,7 +15,7 @@ import {
   ORGANISER_LINK_LIMITS,
   viewOrganiserLink,
 } from "@/lib/server/handlers/organiser-links";
-import { applyAsOrganiser, getMyOrganiser } from "@/lib/server/handlers/organisers";
+import { applyAsOrganiser, getMyOrganiser, resubmitOrganiser } from "@/lib/server/handlers/organisers";
 import { ORGANISER_LINK_UNAVAILABLE } from "@/lib/invites";
 import { runHandler } from "@/lib/server/route";
 import { SITE_URL, TestApi, WEBHOOK_SECRET } from "./helpers/api";
@@ -78,6 +83,12 @@ async function organiserRows() {
        from public.organisers order by created_at`,
   );
 }
+
+/** The admins' "joined with a link" jobs. */
+const joinedJobs = () =>
+  api.db.query<{ organiser_id: string; status: string }>(
+    `select organiser_id, status from private.email_outbox where kind = 'organiser_joined' order by id`,
+  );
 
 function expectUnavailable(res: { status: number; body: { error: string; code?: string } }) {
   expect(res.status).toBe(404);
@@ -362,6 +373,8 @@ describe("joining (POST /api/organiser-links/join)", () => {
       }),
     ]);
     expect(await pendingJobs()).toEqual([]);
+    // The admins hear about the approval instead.
+    expect(await joinedJobs()).toEqual([{ organiser_id: applied.body.organiserId, status: "pending" }]);
     const [entry] = await api.db.query<{ kind: string; changed_fields: unknown }>(
       `select kind, changed_fields from private.organiser_profile_edits`,
     );
@@ -409,6 +422,164 @@ describe("joining (POST /api/organiser-links/join)", () => {
       await api.db.query(`select status::text from public.organisers order by created_at`),
     ).toEqual([{ status: "approved" }, { status: "rejected" }, { status: "rejected" }]);
     expect(await api.db.query(`select id from private.organiser_profile_edits where kind = 'invite_accepted'`)).toEqual([]);
+  });
+
+  it("an organiser taken down, then resubmitted (pending again), is refused (409): the link stays unused, the organiser pending", async () => {
+    const { linkId, token } = await createLink();
+    const owner = await approvedOrganiser(api, admin);
+    const takedown = await api.call(adminSuspendOrganiser, {
+      token: admin.token,
+      params: { organiserId: owner.organiserId },
+      body: { reason: "Fake listings." },
+    });
+    expect(takedown.status).toBe(200);
+    const resubmitted = await api.call(resubmitOrganiser, { token: owner.token, body: application, method: "PATCH" });
+    expect(resubmitted.status, JSON.stringify(resubmitted.body)).toBe(200);
+    expect(resubmitted.body.status).toBe("pending");
+
+    for (const body of [{ token }, { token, ...DETAILS }]) {
+      const refused = await join(owner.token, body);
+      expect(refused.status).toBe(409);
+      expect(refused.body.code).toBe("rejected");
+    }
+
+    expect((await linkRows())[0]).toMatchObject({ id: linkId, status: "active", used_at: null, used_by: null });
+    expect((await view(token)).status).toBe(200);
+    expect(
+      await api.db.query(`select status::text, reviewed_by from public.organisers where id = $1`, [owner.organiserId]),
+    ).toEqual([{ status: "pending", reviewed_by: null }]);
+    expect(await api.db.query(`select id from private.organiser_profile_edits where kind = 'invite_accepted'`)).toEqual([]);
+    expect(await joinedJobs()).toEqual([]);
+
+    // An admin's review still decides it; and the unused link still works for someone else.
+    const approved = await api.call(adminApproveOrganiser, {
+      token: admin.token,
+      params: { organiserId: owner.organiserId },
+      method: "POST",
+    });
+    expect(approved.status).toBe(200);
+    const other = await api.signUp();
+    expect((await join(other.token, { token, ...DETAILS })).status).toBe(200);
+  });
+
+  it("an application an admin rejected (not taken down) and that was resubmitted can be approved by a link", async () => {
+    // Nothing durable records a plain rejection (the resubmission clears it),
+    // so this is the same as joining with a fresh account: documented in
+    // docs/architecture.md, "Organiser links".
+    const person = await api.signUp();
+    const applied = await api.call(applyAsOrganiser, { token: person.token, body: application });
+    const organiserId = applied.body.organiserId as string;
+    const rejected = await api.call(adminRejectOrganiser, {
+      token: admin.token,
+      params: { organiserId },
+      body: { reason: "Tell us more." },
+    });
+    expect(rejected.status).toBe(200);
+    const resubmitted = await api.call(resubmitOrganiser, { token: person.token, body: application, method: "PATCH" });
+    expect(resubmitted.status).toBe(200);
+
+    const { token } = await createLink();
+    const res = await join(person.token, { token });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.organiserId).toBe(organiserId);
+    expect(await api.db.query(`select status::text from public.organisers where id = $1`, [organiserId])).toEqual([
+      { status: "approved" },
+    ]);
+  });
+
+  it("a new organiser's name can't carry control or invisible characters (400)", async () => {
+    const { token } = await createLink();
+    const person = await api.signUp();
+    for (const displayName of [
+      "Neon\u202ECollective", // right-to-left override (Cf)
+      "Neon\u200BCollective", // zero-width space (Cf)
+      "Neon\u2066Collective\u2069", // isolates (Cf)
+      "Neon\u00ADCollective", // soft hyphen (Cf)
+      "Neon\u0007Collective", // bell (Cc)
+      "Neon\nCollective", // line feed (Cc)
+      "Neon\u2028Collective", // line separator
+    ]) {
+      const res = await join(person.token, { token, displayName, categories: ["art"] });
+      expect(res.status, JSON.stringify(displayName)).toBe(400);
+      expect(res.body.fieldErrors).toEqual({ displayName: "Use letters, numbers, spaces and punctuation only." });
+    }
+    expect(await organiserRows()).toEqual([]);
+    expect((await linkRows())[0].status).toBe("active");
+
+    // Accents, emoji and punctuation are fine.
+    const ok = await join(person.token, { token, displayName: "Café Ünïcode ✨ & Co.", categories: ["art"] });
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+    expect(ok.body.displayName).toBe("Café Ünïcode ✨ & Co.");
+  });
+
+  it("categories: at most 5 as sent (400), repeats dropped", async () => {
+    const { token } = await createLink();
+    const person = await api.signUp();
+    const tooMany = await join(person.token, {
+      token,
+      displayName: "Neon",
+      categories: ["live-music", "art", "workshop", "pop-up", "theatre", "art"],
+    });
+    expect(tooMany.status).toBe(400);
+    expect(tooMany.body.fieldErrors).toEqual({ categories: "Choose up to 5 categories." });
+    const huge = await join(person.token, { token, displayName: "Neon", categories: Array(1000).fill("art") });
+    expect(huge.body.fieldErrors).toEqual({ categories: "Choose up to 5 categories." });
+    expect(await organiserRows()).toEqual([]);
+
+    const res = await join(person.token, { token, displayName: "Neon", categories: ["art", "art", "live-music", "art"] });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect((await organiserRows())[0].categories).toEqual(["art", "live-music"]);
+  });
+
+  it("emails the admins once that an organiser joined, straight after the response; not on a retry", async () => {
+    const second = await api.signUp({ admin: true, email: "second-admin@sheltuh.test" });
+    const { token } = await createLink();
+    const person = await api.signUp();
+    const res = await join(person.token, { token, ...DETAILS });
+    expect(res.status).toBe(200);
+    expect(await joinedJobs()).toEqual([{ organiser_id: res.body.organiserId, status: "pending" }]);
+    expect(api.sendEmail).not.toHaveBeenCalled(); // not before the response
+
+    await api.runDeferred();
+    const messages = api.sendEmail.mock.calls.map(([message]) => message);
+    expect(messages.map((m) => m.to).sort()).toEqual([admin.email, second.email].sort());
+    for (const message of messages) {
+      expect(message.subject).toBe("Organiser joined with a link");
+      expect(message.text).toContain(`Organiser name: ${DETAILS.displayName}`);
+      expect(message.text).toContain(`${SITE_URL}/admin/organisers?status=approved`);
+      expect(message.text).not.toContain(token);
+      expect(message.text).not.toContain(person.email);
+    }
+    expect(await joinedJobs()).toEqual([{ organiser_id: res.body.organiserId, status: "sent" }]);
+
+    // The same account again: the same 200, no second email.
+    expect((await join(person.token, { token, ...DETAILS })).status).toBe(200);
+    await api.runDeferred();
+    expect(api.sendEmail).toHaveBeenCalledTimes(2);
+    expect(await joinedJobs()).toHaveLength(1);
+  });
+
+  it("the joined email is only leased by kind (a previous release's cron never takes one), and not sent once the organiser is taken down", async () => {
+    const { token } = await createLink();
+    const person = await api.signUp();
+    const res = await join(person.token, { token, ...DETAILS });
+    const lease = (kind: string | null) =>
+      api.db.query<{ job_kind: string }>(`select job_kind from private.lease_outbox_jobs(10, '2 minutes', 6, null, $1)`, [
+        kind,
+      ]);
+    expect((await lease(null)).map((j) => j.job_kind)).not.toContain("organiser_joined");
+    expect((await lease("organiser_joined")).map((j) => j.job_kind)).toEqual(["organiser_joined"]);
+    // Let it be leased again now.
+    await api.db.query(`update private.email_outbox set status = 'pending', lease_expires_at = null, lease_token = null
+                         where kind = 'organiser_joined'`);
+
+    await api.call(adminSuspendOrganiser, {
+      token: admin.token,
+      params: { organiserId: res.body.organiserId },
+      body: { reason: "Fake listings." },
+    });
+    await api.runDeferred();
+    expect(api.sendEmail).not.toHaveBeenCalled();
   });
 
   it("404 for expired and cancelled links; a creator who's no longer an admin cancels the link (cancelled_by null)", async () => {

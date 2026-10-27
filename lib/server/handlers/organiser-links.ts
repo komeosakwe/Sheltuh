@@ -10,10 +10,12 @@ import { requireAdmin, requireVerifiedCaller } from "../auth";
 import { clientIp, clientKey } from "../client-key";
 import type { Db } from "../db";
 import type { Deps } from "../deps";
+import { sendReviewEmailsSoon } from "../email-outbox";
 import { createdPrivate, HttpError, okPrivate, readJson } from "../http";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
 import { ADMIN_ORGANISER_LINK_SELECT, toAdminOrganiserLink } from "../records";
 import type { Handler } from "../route";
+import { EVENT_CATEGORIES } from "../types";
 import { fail, requireCategories, requireString } from "../validation";
 
 /**
@@ -52,6 +54,19 @@ const hashToken = (token: string) => createHash("sha256").update(token, "utf8").
 
 /** Mirrors the organisers.display_name check constraint, as the application does (parseApplication). */
 const MAX_DISPLAY_NAME_LENGTH = 120;
+
+/**
+ * Most categories a join can send: one of each (5 today), all the join
+ * page's picker offers. Repeats are then dropped.
+ */
+const MAX_CATEGORIES = EVENT_CATEGORIES.length;
+
+/**
+ * Control, invisible-format (zero-width, bidi overrides), line and paragraph
+ * separator characters: a name approved without review is shown as typed, so
+ * it mustn't hide or reorder text (as tracking-links' labels).
+ */
+const UNSAFE_NAME_CHARS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 
 const LINK_NOT_FOUND = "Organiser link not found.";
 
@@ -216,12 +231,26 @@ export const viewOrganiserLink: Handler = async (req, _params, deps) => {
   return okPrivate(view);
 };
 
-/** The new organiser's name and categories, if sent (the application's rules); null when neither is. */
+/**
+ * The new organiser's name and categories, if sent; null when neither is.
+ * The application's rules, and, as nobody reviews them: no control or
+ * invisible characters in the name, at most one of each category (repeats
+ * dropped).
+ */
 function parseDetails(body: Record<string, unknown>): { displayName: string; categories: EventCategory[] } | null {
   if (body.displayName === undefined && body.categories === undefined) return null;
   const errors: Record<string, string> = {};
   const displayName = requireString(body.displayName, "displayName", errors, MAX_DISPLAY_NAME_LENGTH);
-  const categories = requireCategories(body.categories, "categories", errors);
+  if (!errors.displayName && UNSAFE_NAME_CHARS.test(displayName)) {
+    errors.displayName = "Use letters, numbers, spaces and punctuation only.";
+  }
+  // Capped as sent (a long list isn't walked), then repeats dropped.
+  let categories: EventCategory[] = [];
+  if (Array.isArray(body.categories) && body.categories.length > MAX_CATEGORIES) {
+    errors.categories = `Choose up to ${MAX_CATEGORIES} categories.`;
+  } else {
+    categories = [...new Set(requireCategories(body.categories, "categories", errors))];
+  }
   if (Object.keys(errors).length > 0) fail(errors);
   return { displayName, categories };
 }
@@ -238,7 +267,8 @@ function parseDetails(body: Record<string, unknown>): { displayName: string; cat
  * organiser); 401; 403 email not verified; 404 `code: "unavailable"`
  * (malformed, unknown, used by another account, expired, cancelled); 409
  * `code: "already_organiser"` (approved) or `"rejected"` (rejected or
- * taken down), with the link left unused, or `"conflict"` (an application
+ * taken down, or pending again after a takedown), with the link left
+ * unused, or `"conflict"` (an application
  * arrived at the same moment: try again); 429 over 10 an hour for this
  * account or 30 from this client.
  */
@@ -270,6 +300,8 @@ export const joinWithOrganiserLink: Handler = async (req, _params, deps) => {
   switch (row.result) {
     case "joined":
     case "already_joined": {
+      // The admins' "joined with a link" email, queued by the join itself.
+      if (row.result === "joined") sendReviewEmailsSoon(deps, "organiser_joined");
       const [organiser] = await deps.db.query<{ display_name: string }>(
         `select o.display_name from public.organisers o where o.id = $1`,
         [row.organiser_id],
@@ -298,7 +330,7 @@ export const joinWithOrganiserLink: Handler = async (req, _params, deps) => {
     case "rejected":
       throw new HttpError(
         409,
-        "Your account's organiser profile isn't active, so this link wasn't used. Contact the Sheltüh team.",
+        "This account's organiser profile can't be approved with a link, so the link wasn't used. Contact the Sheltüh team.",
         undefined,
         { code: "rejected" },
       );

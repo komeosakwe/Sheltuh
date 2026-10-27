@@ -230,18 +230,27 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           docs/architecture.md "Organiser links": table
           `private.organiser_invite_links` (RLS on, no grants),
           `private.create_organiser_invite_link`,
-          `private.join_with_organiser_invite_link`, and
+          `private.join_with_organiser_invite_link`, the outbox kind
+          `organiser_joined` (the admins' "an organiser joined with a link"
+          email: `private.email_outbox`'s two kind checks redefined from file
+          33 with it), `private.lease_outbox_jobs` redefined from file 33 so
+          that without a kind it also leaves `organiser_joined` jobs alone
+          (the previous app's cron never takes one), and
           `private.purge_operational_data` dropped and recreated with one more
           result column, `organiser_invite_links_deleted` (the Supabase Cron
           job `select private.purge_operational_data()` is unaffected). Needs
-          file 21 (it reuses `private.account_invite_inviter_is_admin`) and
-          file 26 (the purge it extends). Additive: no existing table, column
-          or data changes. The previous app never calls the new functions and
-          keeps working against it, so it can be applied ahead of the deploy;
-          this app's `/admin/invites` and `/organisers/join` need it (500
-          without). Needs no new environment variable: in particular not
+          file 21 (it reuses `private.account_invite_inviter_is_admin`),
+          file 26 (the purge it extends) and file 33 (the outbox checks and
+          lease it extends). Additive: no existing column or row changes (the
+          outbox's checks are re-validated against its rows, briefly locking
+          it, as file 33 did). The previous app never calls the new functions
+          and keeps working against it, so it can be applied ahead of the
+          deploy; this app's `/admin/invites` and `/organisers/join` need it
+          (500 without). Needs no new environment variable: in particular not
           `SUPABASE_ADMIN_INVITE_KEY`. Reversible: restore the purge from
-          file 26, then drop the two functions and the table)
+          file 26 and the lease from file 33, delete the `organiser_joined`
+          jobs and restore the outbox's kind checks from file 33, then drop
+          the two functions and the table)
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of

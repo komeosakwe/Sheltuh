@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildEventReviewEmail, buildOrganiserReviewEmail } from "@/lib/server/admin-review-email";
+import { buildEventReviewEmail, buildOrganiserJoinedEmail, buildOrganiserReviewEmail } from "@/lib/server/admin-review-email";
 import type { EmailMessage } from "@/lib/server/email";
 import { button, EMAIL_COLOURS, emailFooterImageUrl, escapeHtml, INK, SIGNAL, supportFooter, WORDMARK_CID } from "@/lib/server/email-layout";
 import { buildFollowerNewEventsEmail } from "@/lib/server/follower-email";
@@ -88,6 +88,7 @@ const emails: Record<string, () => EmailMessage> = {
       siteUrl: site,
     }),
   organiserReview: () => buildOrganiserReviewEmail({ to: "ops@sheltuh.test", organiserName: "Cellar Door Sound", siteUrl: site }),
+  organiserJoined: () => buildOrganiserJoinedEmail({ to: "ops@sheltuh.test", organiserName: "Cellar Door <Sound>", siteUrl: site }),
   inviteOrganiser: () =>
     buildInviteEmail({
       to: "fan@example.com",

@@ -128,6 +128,14 @@ export default function OrganiserJoinFlow() {
   const [viewResult, setViewResult] = useState<{ key: string; load: Load<OrganiserLinkView> } | null>(null);
   /** The link turned out unusable while joining. */
   const [gone, setGone] = useState(false);
+  /**
+   * The account (user id) whose join was refused (409 `rejected`): its
+   * organiser was taken down or rejected, or is pending again after a
+   * takedown, which the account's own record doesn't show. Another account
+   * signed in here starts afresh.
+   */
+  const [refusedFor, setRefusedFor] = useState<string | null>(null);
+  const refused = signedIn && refusedFor !== null && refusedFor === (auth.userId ?? "");
   const [joined, setJoined] = useState<OrganiserLinkJoinResult | null>(null);
 
   useEffect(() => {
@@ -304,11 +312,14 @@ export default function OrganiserJoinFlow() {
         ),
       };
     }
-    if (organiser?.status === "rejected") {
+    if (organiser?.status === "rejected" || refused) {
       return {
         id: "rejected",
         title: "This account can’t join with this link",
-        intro: `The organiser profile on ${account} isn’t active, so this link wasn’t used. Contact the Sheltüh team, or sign out and use another account.`,
+        intro:
+          organiser?.status === "rejected"
+            ? `The organiser profile on ${account} isn’t active, so this link wasn’t used. Contact the Sheltüh team, or sign out and use another account.`
+            : `The organiser profile on ${account} can’t be approved with a link, so this link wasn’t used. Contact the Sheltüh team, or sign out and use another account.`,
         focusFirst: true,
         body: (
           <div className="flex flex-col items-start gap-3">
@@ -335,6 +346,7 @@ export default function OrganiserJoinFlow() {
           account={account}
           onJoined={setJoined}
           onGone={() => setGone(true)}
+          onRefused={() => setRefusedFor(auth.userId ?? "")}
           onStatusChanged={() => void refetch()}
           onSignOut={signOutHere}
         />
@@ -370,6 +382,7 @@ function JoinForm({
   account,
   onJoined,
   onGone,
+  onRefused,
   onStatusChanged,
   onSignOut,
 }: {
@@ -379,6 +392,8 @@ function JoinForm({
   account: string;
   onJoined: (result: OrganiserLinkJoinResult) => void;
   onGone: () => void;
+  /** This account's organiser can't be approved with a link (409 `rejected`). */
+  onRefused: () => void;
   /** The account's organiser changed (409): read it again. */
   onStatusChanged: () => void;
   onSignOut: () => void;
@@ -432,7 +447,11 @@ function JoinForm({
         return;
       }
       const code = apiCode(err);
-      if (code === "already_organiser" || code === "rejected") {
+      if (code === "rejected") {
+        onRefused();
+        return;
+      }
+      if (code === "already_organiser") {
         onStatusChanged();
         return;
       }
