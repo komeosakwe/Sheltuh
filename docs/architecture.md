@@ -54,8 +54,8 @@ iframe served by Stripe), with the publishable key
   `GOOGLE_MAPS_API_KEY` sent in a header, never in a URL; approved
   organisers and admins only, rate-limited; see "Venue location"). The
   browser itself loads only keyless or public-key resources: Stripe.js on
-  the payment page (above), map tiles (Esri; the optional Mapbox preview's
-  public token, `docs/mapbox-preview.md`), and a featured video's player
+  the payment page (above), map tiles (Mapbox Streets with a public token,
+  else Esri: `docs/maps.md`), and a featured video's player
   once it's clicked. No Google Maps script loads on our pages, and no
   Google Places content is shown on our maps, which stay Leaflet.
 - **The database enforces the rules that matter most.** Whatever the

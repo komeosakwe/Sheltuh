@@ -2,8 +2,9 @@
  * Leaflet chrome restyled to the app's tokens, plus reduced-motion handling
  * for Leaflet's CSS zoom/fade transitions (it falls back to a timer, so
  * removing the transition is safe). Marker styling lives in components/map/.
- * Shared by /map (SceneMapPanel) and the event page's Location map
- * (components/events/EventLocationLeaflet.tsx).
+ * Shared by every map: /map (SceneMapPanel), the event page's Location map
+ * (components/events/EventLocationLeaflet.tsx) and the venue pin step
+ * (components/dashboard/VenuePinMapLeaflet.tsx).
  */
 export default function MapStyles() {
   return (
@@ -22,6 +23,24 @@ export default function MapStyles() {
       }
       .leaflet-control-zoom a:hover { background: var(--surface) !important; }
       .leaflet-control-zoom a.leaflet-disabled { color: var(--muted) !important; border-color: var(--surface-border) !important; }
+      /*
+       * Tile seams. At a fractional devicePixelRatio (Windows at 125% or 150%, a zoomed browser),
+       * Chromium draws each tile on whole device pixels, so between two tiles there can be a 1px
+       * gap the map's background shows through as a hairline (Leaflet issue #3575). Leaflet 1.9's
+       * own fix, mix-blend-mode: plus-lighter, only adds up half-covered edge pixels; it doesn't
+       * cover a whole missing pixel. So each base tile is drawn 1 CSS px wider and taller (at
+       * least one device pixel) and overlaps its right and bottom neighbours, with normal
+       * blending, since plus-lighter would brighten the overlap into a light line. Leaflet sets
+       * each tile's size inline (256px, or 512px for Mapbox), hence the attribute match and
+       * !important. Only the base tiles in the tile pane: Esri's see-through labels layer
+       * (shadow pane) shows no seam. The image stretches by 1/256 or 1/512: nothing visible.
+       */
+      .leaflet-container .leaflet-tile-pane img.leaflet-tile[style*="width: 256px"] {
+        width: 257px !important; height: 257px !important; mix-blend-mode: normal;
+      }
+      .leaflet-container .leaflet-tile-pane img.leaflet-tile[style*="width: 512px"] {
+        width: 513px !important; height: 513px !important; mix-blend-mode: normal;
+      }
       @media (prefers-reduced-motion: reduce) {
         .leaflet-zoom-anim .leaflet-zoom-animated, .leaflet-fade-anim .leaflet-tile, .leaflet-fade-anim .leaflet-popup {
           transition: none !important;
