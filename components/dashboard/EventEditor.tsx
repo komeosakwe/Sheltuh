@@ -9,6 +9,17 @@ import EventClipField from "@/components/dashboard/EventClipField";
 import EventImageField from "@/components/dashboard/EventImageField";
 import { PayoutsNeededNotice, PayoutsPublishError, PayoutsPublishHint } from "@/components/dashboard/PayoutsRequired";
 import RefundPolicyField from "@/components/dashboard/RefundPolicyField";
+import {
+  locationChange,
+  PLACES_UNAVAILABLE_NOTE,
+  useVenueLocation,
+  VENUE_LOCATION_ERROR_ID,
+  VENUE_LOCATION_ID,
+  VenuePinStep,
+  VenuePlaceLink,
+  venuePlaceKey,
+} from "@/components/dashboard/VenueLocationField";
+import type { PickedPlace } from "@/components/dashboard/VenuePlaceSearch";
 import VenueSuburbField, {
   hasZoneChoice,
   useVenuePlace,
@@ -16,6 +27,7 @@ import VenueSuburbField, {
   VENUE_TIME_ZONE_ID,
   VenueZoneField,
   venueZoneName,
+  type VenuePlaceState,
   type VenueResolution,
 } from "@/components/dashboard/VenueSuburbField";
 import SeatingChoiceField, {
@@ -51,6 +63,7 @@ import {
   uploadEventImage,
   type EventInput,
 } from "@/lib/api/events";
+import { isPlacesUnavailableError } from "@/lib/api/places";
 import type { AdminEventRecord, EventRecord, PublishEventConflictCode, TicketTypeInput } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { useAccountOwner } from "@/lib/auth/useAccountOwner";
@@ -73,8 +86,9 @@ import {
   type RefundPolicy,
 } from "@/lib/refund-policy";
 import { checkExternalTicketUrl, sellsPaidTicketsOnSheltuh, type TicketingMode } from "@/lib/ticketing";
+import { placeName, placeQuery } from "@/lib/place";
 import { localToUtcIso, PLATFORM_TIME_ZONE, zoneShortLabel } from "@/lib/time-zones";
-import { EVENT_CATEGORIES } from "@/lib/types";
+import { EVENT_CATEGORIES, type Coordinates } from "@/lib/types";
 
 /** A section title in the form (Panel's title style: 20/24, uppercase by the heading base rule, which a legend doesn't get). */
 const SECTION_TITLE = "font-heading text-xl leading-6 uppercase text-foreground";
@@ -139,6 +153,9 @@ type PublishOutcome = { kind: "published"; slug: string } | { kind: "review"; re
 /** A publish refused with a 409 other than payouts (those have their own message and link). */
 type PublishRefusalCode = Exclude<PublishEventConflictCode, "payouts_required">;
 
+/** Publishing needs the venue's confirmed pin: said by the venue and by the buttons. */
+const LOCATION_REQUIRED_TEXT = "Add the venue location and confirm the pin first.";
+
 /** What each refusal says by the buttons; `reload`: it offers to reload the page. */
 const PUBLISH_REFUSALS: Record<PublishRefusalCode, { text: string; reload: boolean }> = {
   event_ended: { text: "This event has already ended, so it can\u2019t be published.", reload: false },
@@ -150,7 +167,7 @@ const PUBLISH_REFUSALS: Record<PublishRefusalCode, { text: string; reload: boole
     text: "This event\u2019s ticket link changed while it was being published. Your changes were saved: reload the page, then publish again.",
     reload: true,
   },
-  location_required: { text: "Add the venue location and confirm the pin first.", reload: false },
+  location_required: { text: LOCATION_REQUIRED_TEXT, reload: false },
 };
 
 const PUBLISH_CONFIRM_ID = "publish-confirm";
@@ -215,6 +232,7 @@ function invalidControlIds(
     ["suburb", VENUE_SUBURB_ID],
     ["state", VENUE_SUBURB_ID],
     ["timeZone", zoneChoice ? VENUE_TIME_ZONE_ID : VENUE_SUBURB_ID],
+    ["location", VENUE_LOCATION_ID],
     ["start", start.date ? "start-time" : "start-date"],
     ["end", end.date ? "end-time" : "end-date"],
     ["externalTicketUrl", "externalTicketUrl"],
@@ -281,6 +299,13 @@ export default function EventEditor(props: Props) {
     const timesTyped = Boolean(start.date || start.time || end.date || end.time);
     setZoneNote(shownZone && timesTyped ? `Times are now ${zoneName} (were ${shownZone}).` : "");
   }
+  // The venue's location (owner decisions A-D1 to A-D3): a Google place and the organiser's confirmed
+  // pin, or a pin alone. The pin counts for the suburb it was confirmed in.
+  const placeKey = venue.place ? venuePlaceKey(venue.place.name, venue.place.state) : null;
+  const venueLocation = useVenueLocation(initial, placeKey);
+  // What picking a Google place last filled each field with: a field is filled again only while it's
+  // empty or still says that, never over what the organiser typed.
+  const [prefilled, setPrefilled] = useState<{ venueName?: string; venueAddress?: string; suburb?: string }>({});
   const [ticketTypes, setTicketTypes] = useState<TicketTypeInput[]>(
     initial?.ticketTypes && initial.ticketTypes.length > 0 ? initial.ticketTypes : [newTicketType()],
   );
@@ -449,6 +474,8 @@ export default function EventEditor(props: Props) {
       focusRefund.current = saved?.refundPolicy === "days_before" && refundPolicy === "days_before" ? "days" : "choice";
       return;
     }
+    // Google couldn't check the place being saved: the pin alone instead (a confirmed pin is kept).
+    if (isPlacesUnavailableError(err)) venueLocation.manual(PLACES_UNAVAILABLE_NOTE);
     if (err instanceof ApiError && err.fieldErrors) {
       const fieldErrors = err.fieldErrors;
       setErrors((prev) => ({ ...prev, ...fieldErrors }));
@@ -553,6 +580,9 @@ export default function EventEditor(props: Props) {
       end,
       ticketTypes: external ? [] : ticketTypes,
     };
+    // The venue's location: only when it differs from what's saved (absent keeps it; null removes it).
+    const location = locationChange(venueLocation.input, current?.location);
+    if (location !== undefined) input.location = location;
     // The refund policy is for tickets sold here: an external event's is left as stored (not sent).
     if (!external) {
       input.refundPolicy = refundPolicy;
@@ -702,11 +732,56 @@ export default function EventEditor(props: Props) {
     }
   }
 
+  /**
+   * A Google place was picked (VenuePlaceSearch): linked, and its name,
+   * street address and suburb fill the fields that are empty or still say
+   * what an earlier pick filled in (never over what the organiser typed).
+   */
+  function handlePicked({ suggestion, details }: PickedPlace) {
+    const fillable = (value: string, last: string | undefined) => !value.trim() || value === last;
+    const next = { ...prefilled };
+    if (suggestion.primaryText && fillable(venueName, prefilled.venueName)) {
+      setVenueName(suggestion.primaryText);
+      next.venueName = suggestion.primaryText;
+    }
+    if (details.streetAddress && fillable(venueAddress, prefilled.venueAddress)) {
+      setVenueAddress(details.streetAddress);
+      next.venueAddress = details.streetAddress;
+    }
+    if (details.locality) {
+      // As the suburb's own suggestions say it ("Fitzroy, VIC"); checked against the suburb table as typed text is.
+      const suburb = details.state ? placeName(details.locality, details.state) : details.locality;
+      if (fillable(venue.suburb, prefilled.suburb)) {
+        venue.requestTable();
+        venue.setSuburb(suburb);
+        next.suburb = suburb;
+      }
+    }
+    setPrefilled(next);
+    venueLocation.link(details.placeId, [suggestion.primaryText, suggestion.secondaryText].filter(Boolean).join(", "));
+    clearErrors("venueName", "venueAddress", "suburb", "state", "timeZone", "location");
+  }
+
+  /**
+   * Organisers: publishing needs the venue's confirmed pin (the API refuses
+   * it with `location_required` otherwise). Without one, it's said by the
+   * venue and by the buttons, and the venue section is focused; true then.
+   */
+  function refuseWithoutPin(): boolean {
+    if (venueLocation.pin) return false;
+    setPublishConfirm(false);
+    setPublishRefusal("location_required");
+    setErrors((prev) => ({ ...prev, location: LOCATION_REQUIRED_TEXT }));
+    focusInvalidId.current = VENUE_LOCATION_ID;
+    return true;
+  }
+
   /** Opens the question before publishing, Cancel focused (the safe choice). */
   function openPublishConfirm() {
     setSubmitError(null);
     setPublishRefusal(null);
     setStatus(null);
+    if (refuseWithoutPin()) return;
     focusPublish.current = "cancel";
     setPublishConfirm(true);
   }
@@ -730,6 +805,7 @@ export default function EventEditor(props: Props) {
     setPublishRefusal(null);
     showSessionExpired(false);
     setStatus(null);
+    if (refuseWithoutPin()) return;
     // Publish what's on screen, not the last save: unsaved edits are saved
     // first, and nothing is published if they don't validate.
     setSubmitting(true);
@@ -765,7 +841,13 @@ export default function EventEditor(props: Props) {
         // It can't be published as it is: say why, focused, with the way on.
         setPublishConfirm(false);
         setPublishRefusal(code);
-        focusPublish.current = "refusal";
+        if (code === "location_required") {
+          // Said by the venue too, which is focused: that's where it's fixed.
+          setErrors((prev) => ({ ...prev, location: LOCATION_REQUIRED_TEXT }));
+          focusInvalidId.current = VENUE_LOCATION_ID;
+        } else {
+          focusPublish.current = "refusal";
+        }
       } else {
         if (isPayoutsRequiredError(err)) setPublishConfirm(false);
         handleError(err, "Couldn't publish this event.");
@@ -907,48 +989,78 @@ export default function EventEditor(props: Props) {
         </select>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-        <div className="flex flex-col gap-1 sm:col-span-1">
-          <label htmlFor="venueName" className="eyebrow text-muted">
-            Venue name
-          </label>
-          <input
-            id="venueName"
-            value={venueName}
-            {...invalidProps("venueName")}
-            onChange={(e) => setVenueName(e.target.value)}
-            className={fieldClass}
-          />
-          {fieldError("venueName")}
-        </div>
-        <div className="flex flex-col gap-1 sm:col-span-1">
-          <label htmlFor="venueAddress" className="eyebrow text-muted">
-            Venue address
-          </label>
-          <input
-            id="venueAddress"
-            value={venueAddress}
-            {...invalidProps("venueAddress")}
-            onChange={(e) => setVenueAddress(e.target.value)}
-            className={fieldClass}
-          />
-          {fieldError("venueAddress")}
-        </div>
-        <div className="sm:col-span-1">
-          <VenueSuburbField
-            venue={venue}
-            suburbError={errors.suburb ?? errors.state}
-            timeZoneError={errors.timeZone}
-            startsAt={startInstant(start, timeZone)}
-            // The place (and with it the zone) comes from the suburb: all three errors go with it.
-            onSuburbEdit={() => clearErrors("suburb", "state", "timeZone")}
-          />
-        </div>
-        {zoneChoice && (
-          // A row of its own, so the zones' names have room.
-          <div className="sm:col-span-3">
-            <VenueZoneField venue={venue} timeZoneError={errors.timeZone} onZoneEdit={() => clearErrors("timeZone")} />
+      <div
+        id={VENUE_LOCATION_ID}
+        tabIndex={-1}
+        role="group"
+        aria-labelledby="venue-heading"
+        aria-describedby={errors.location ? VENUE_LOCATION_ERROR_ID : undefined}
+        className="flex flex-col gap-4 outline-offset-4"
+      >
+        <h2 id="venue-heading" className={SECTION_TITLE}>
+          Venue
+        </h2>
+        <VenuePlaceLink
+          location={venueLocation}
+          getToken={saveToken}
+          onPicked={handlePicked}
+          venueName={venueName}
+          venueAddress={venueAddress}
+          suburb={venue.place ? placeName(venue.place.name, venue.place.state) : venue.suburb}
+          error={errors.location}
+        />
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+          <div className="flex flex-col gap-1 sm:col-span-1">
+            <label htmlFor="venueName" className="eyebrow text-muted">
+              Venue name
+            </label>
+            <input
+              id="venueName"
+              value={venueName}
+              {...invalidProps("venueName")}
+              onChange={(e) => setVenueName(e.target.value)}
+              className={fieldClass}
+            />
+            {fieldError("venueName")}
           </div>
+          <div className="flex flex-col gap-1 sm:col-span-1">
+            <label htmlFor="venueAddress" className="eyebrow text-muted">
+              Venue address
+            </label>
+            <input
+              id="venueAddress"
+              value={venueAddress}
+              {...invalidProps("venueAddress")}
+              onChange={(e) => setVenueAddress(e.target.value)}
+              className={fieldClass}
+            />
+            {fieldError("venueAddress")}
+          </div>
+          <div className="sm:col-span-1">
+            <VenueSuburbField
+              venue={venue}
+              suburbError={errors.suburb ?? errors.state}
+              timeZoneError={errors.timeZone}
+              startsAt={startInstant(start, timeZone)}
+              // The place (and with it the zone) comes from the suburb: all three errors go with it.
+              onSuburbEdit={() => clearErrors("suburb", "state", "timeZone")}
+            />
+          </div>
+          {zoneChoice && (
+            // A row of its own, so the zones' names have room.
+            <div className="sm:col-span-3">
+              <VenueZoneField venue={venue} timeZoneError={errors.timeZone} onZoneEdit={() => clearErrors("timeZone")} />
+            </div>
+          )}
+        </div>
+        {venueLocation.mode !== "search" && (
+          <VenuePinStep
+            location={venueLocation}
+            suburbCentre={suburbCentre(venue)}
+            waiting={venue.place !== null}
+            suburbLabel={venue.place ? placeName(venue.place.name, venue.place.state) : ""}
+            onEdit={() => clearErrors("location")}
+          />
         )}
       </div>
 
@@ -1516,6 +1628,13 @@ function PublishOutcomeView({ outcome, ref }: { outcome: PublishOutcome; ref: Re
       )}
     </div>
   );
+}
+
+/** The suburb's centre in the ABS table (where the pin map starts without a pin), once the table and the suburb are known. */
+function suburbCentre(venue: VenuePlaceState): Coordinates | null {
+  if (!venue.location || !venue.place) return null;
+  const locality = venue.location.findLocality(placeQuery({ suburb: venue.place.name, state: venue.place.state }));
+  return locality ? { lat: locality.lat, lng: locality.lng } : null;
 }
 
 /**

@@ -33,7 +33,7 @@ interface View {
 }
 
 /** To 6 decimal places (about 10 cm), as the event's pin is stored. */
-function roundPin(pin: Coordinates): Coordinates {
+export function roundPin(pin: Coordinates): Coordinates {
   return { lat: Number(pin.lat.toFixed(6)), lng: Number(pin.lng.toFixed(6)) };
 }
 

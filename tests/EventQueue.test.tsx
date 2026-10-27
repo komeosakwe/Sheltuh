@@ -163,6 +163,44 @@ describe("EventQueue", () => {
     expect((await row("Plain")).querySelector("[data-curation]")).toBeNull();
   });
 
+  it("says how the venue is located, with a link to check it on Google Maps", async () => {
+    const placeId = "ChIJ_TheTote_Collingwood";
+    vi.mocked(adminListEvents).mockResolvedValue({
+      items: [
+        ev({ eventId: "evt-g", title: "Linked", location: { source: "places", placeId, pin: { lat: -37.8, lng: 144.99 } } }),
+        ev({ eventId: "evt-u", title: "Unchecked", location: { source: "places", placeId } }),
+        ev({ eventId: "evt-m", title: "Dropped pin", location: { source: "manual_pin", pin: { lat: -37.8, lng: 144.99 } } }),
+        ev({ eventId: "evt-a", title: "Legacy" }),
+      ],
+    });
+    renderQueue();
+    const row = async (title: string) =>
+      (await screen.findByRole("heading", { name: title })).closest("li") as HTMLElement;
+
+    const linked = await row("Linked");
+    expect(within(linked).getByText("Linked to Google Maps, pin checked")).toBeInTheDocument();
+    const check = within(linked).getByRole("link", { name: "Check on Google Maps: The Tote (opens in a new tab)" });
+    expect(check).toHaveAttribute(
+      "href",
+      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent("The Tote, 71 Johnston St")}&query_place_id=${placeId}`,
+    );
+    expect(check).toHaveAttribute("target", "_blank");
+    expect(check).toHaveAttribute("rel", "noopener noreferrer");
+
+    expect(within(await row("Unchecked")).getByText("Linked to Google Maps (pin not checked yet)")).toBeInTheDocument();
+
+    const pinned = await row("Dropped pin");
+    expect(within(pinned).getByText("Pinned")).toBeInTheDocument();
+    expect(within(pinned).getByRole("link", { name: /^Check the pin on Google Maps/ })).toHaveAttribute(
+      "href",
+      "https://www.google.com/maps/search/?api=1&query=-37.8,144.99",
+    );
+
+    const legacy = await row("Legacy");
+    expect(within(legacy).getByText("Address only")).toBeInTheDocument();
+    expect(within(legacy).queryByRole("link", { name: /Google Maps/ })).toBeNull();
+  });
+
   it("starts on Waiting for review, and a filter changes the URL and what's asked for", async () => {
     renderQueue();
     expect(await screen.findByRole("heading", { level: 3, name: "Neon Static" })).toBeInTheDocument();

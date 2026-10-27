@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appleMapsHref, directionsHref, googlePlaceHref, venuePin } from "@/lib/maps";
+import { appleMapsHref, directionsHref, googlePlaceHref, pinMapHref, venuePin } from "@/lib/maps";
 
 describe("directionsHref (Get directions, mobile-redesign.md §6.5)", () => {
   it("is Google's cross-platform directions URL to the venue's name and street address, encoded", () => {
@@ -125,5 +125,18 @@ describe("venuePin", () => {
     expect(venuePin({ ...TOTE, coordinates: PIN })).toBeNull();
     expect(venuePin({ ...TOTE, venuePinned: false, coordinates: PIN })).toBeNull();
     expect(venuePin({ ...TOTE, venuePinned: true, coordinates: { lat: -50, lng: 144 } })).toBeNull();
+  });
+});
+
+describe("pinMapHref (the admin queue's check of an organiser's pin)", () => {
+  it("is Google's search URL at the pin, to 6 decimal places", () => {
+    expect(pinMapHref({ lat: -37.79912345678, lng: 144.9871234 })).toBe(
+      "https://www.google.com/maps/search/?api=1&query=-37.799123,144.987123",
+    );
+  });
+
+  it("is null for a pin that isn't a real position in Australia", () => {
+    expect(pinMapHref({ lat: -50, lng: 144 })).toBeNull();
+    expect(pinMapHref({ lat: Number.NaN, lng: 144 })).toBeNull();
   });
 });

@@ -378,6 +378,7 @@ test.describe("/dashboard/[eventId]: paid tickets before payouts are set up", ()
         ticketTypes: [{ id: "ga", name: "General admission", priceCents: 3500, feePolicy: "buyer-pays", quantityAvailable: 100 }],
       }),
       eventId: "evt-e2e-paid",
+      location: CONFIRMED_PIN,
     };
     const refusal = "Set up payouts before publishing an event with paid tickets. Free events can be published now.";
     const calls: string[] = [];
@@ -428,7 +429,10 @@ test.describe("/dashboard/[eventId]: paid tickets before payouts are set up", ()
   });
 });
 
-/** A free draft for the publish tests (no payouts needed). */
+/** A saved venue pin in Collingwood: publishing needs one (`location_required` otherwise). */
+const CONFIRMED_PIN = { source: "manual_pin", pin: { lat: -37.8, lng: 144.99 } };
+
+/** A free draft for the publish tests (no payouts needed), its venue pinned unless `extra` says otherwise. */
 function freeDraft(eventId: string, extra: Record<string, unknown> = {}) {
   return {
     ...createdDraft({
@@ -443,6 +447,7 @@ function freeDraft(eventId: string, extra: Record<string, unknown> = {}) {
       ticketTypes: [{ id: "ga", name: "Entry", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 100 }],
     }),
     eventId,
+    location: CONFIRMED_PIN,
     ...extra,
   };
 }
@@ -567,3 +572,173 @@ test.describe("/dashboard/[eventId]: unpublished by Sheltüh, at 375px", () => {
     expect(calls).toEqual(["save", "publish"]);
   });
 });
+
+const TOTE_PLACE_ID = "ChIJtote00000000000000";
+
+/**
+ * The venue search (POST /api/places/autocomplete and /details, answered
+ * here, never Google): The Tote. Records each body's `input` / `placeId`.
+ */
+function placesRoutes(log: string[]): (request: Request, path: string) => { status?: number; json: unknown } | null {
+  return (request, path) => {
+    if (request.method() !== "POST") return null;
+    if (path === "/api/places/autocomplete") {
+      log.push(`autocomplete:${(request.postDataJSON() as { input: string }).input}`);
+      return {
+        json: {
+          suggestions: [
+            { placeId: TOTE_PLACE_ID, primaryText: "The Tote Hotel", secondaryText: "71 Johnston St, Collingwood VIC" },
+            { placeId: "ChIJtotebar0000000000", primaryText: "Tote Bar", secondaryText: "Smith St, Fitzroy VIC" },
+          ],
+        },
+      };
+    }
+    if (path === "/api/places/details") {
+      log.push(`details:${(request.postDataJSON() as { placeId: string }).placeId}`);
+      return {
+        json: {
+          placeId: TOTE_PLACE_ID,
+          formattedAddress: "71 Johnston St, Collingwood VIC 3066",
+          streetAddress: "71 Johnston St",
+          locality: "Collingwood",
+          state: "VIC",
+          postcode: "3066",
+          googleMapsUrl: "https://maps.google.com/?cid=1",
+        },
+      };
+    }
+    return null;
+  };
+}
+
+/** A pin: two numbers near Collingwood's centre (the ABS table's; Leaflet may round the last digit). */
+function expectPinNearCollingwood(pin: unknown) {
+  expect(pin).toEqual({ lat: expect.any(Number), lng: expect.any(Number) });
+  const { lat, lng } = pin as { lat: number; lng: number };
+  expect(Math.abs(lat + 37.8)).toBeLessThan(0.05);
+  expect(Math.abs(lng - 144.99)).toBeLessThan(0.05);
+}
+
+for (const vp of [
+  { width: 375, height: 800 },
+  { width: 1280, height: 900 },
+]) {
+  test.describe(`/dashboard/[eventId]: the venue location at ${vp.width}px`, () => {
+    test.use({ viewport: vp });
+    const phone = vp.width < 640;
+
+    test("find the venue on Google Maps, check the pin, save, and publish", async ({ page }) => {
+      const draft = freeDraft("evt-e2e-places", { location: undefined });
+      const saved: Record<string, unknown>[] = [];
+      const places: string[] = [];
+      const routes = placesRoutes(places);
+      await signedInAsOrganiser(page, (request, path) => {
+        const method = request.method();
+        if (method === "GET" && path === `/api/organisers/me/events/${draft.eventId}`) return { json: draft };
+        if (method === "PATCH" && path === `/api/events/${draft.eventId}`) {
+          const body: Record<string, unknown> = request.postDataJSON();
+          saved.push(body);
+          return { json: { ...draft, location: body.location } };
+        }
+        if (method === "POST" && path === `/api/events/${draft.eventId}/publish`) {
+          return { json: { ...draft, status: "published", ticketingLocked: true } };
+        }
+        return routes(request, path);
+      });
+      await page.goto(`/dashboard/${draft.eventId}`);
+      const form = page.locator("form").filter({ has: page.getByLabel("Title", { exact: true }) });
+      await expect(form.getByLabel("Title", { exact: true })).toHaveValue("Neon Static", { timeout: 30_000 });
+
+      // No pin yet: Publish… says so, by the venue, which is focused; nothing is sent.
+      await form.getByRole("button", { name: "Publish…" }).click();
+      const venue = form.getByRole("group", { name: "Venue" });
+      await expect(venue).toBeFocused();
+      await expect(venue).toHaveAccessibleDescription("Add the venue location and confirm the pin first.");
+      expect(saved).toEqual([]);
+
+      const search = form.getByRole("combobox", { name: "Find the venue on Google Maps" });
+      await search.fill("The Tote");
+      const list = form.getByRole("listbox", { name: "Places on Google Maps" });
+      await expect(list.getByRole("option")).toHaveCount(2);
+      await expect(form.getByText("Powered by Google")).toBeVisible();
+      expect(places).toEqual(["autocomplete:The Tote"]);
+      expect((await list.getByRole("option").first().boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+      await search.press("ArrowDown");
+      await expect(search).toHaveAttribute("aria-activedescendant", /option-0$/);
+      await search.press("Enter");
+
+      await expect(form.getByText("Linked to Google Maps:")).toBeVisible();
+      await expect(form.getByRole("link", { name: /^Check The Tote Hotel.*on Google Maps \(opens in a new tab\)$/ })).toHaveAttribute(
+        "href",
+        /query_place_id=ChIJtote00000000000000$/,
+      );
+      expect(places).toEqual(["autocomplete:The Tote", `details:${TOTE_PLACE_ID}`]);
+      // The saved event's own fields stay as they were.
+      await expect(form.getByLabel("Venue name")).toHaveValue("The Tote");
+      await expect(form.getByRole("heading", { name: "Check the pin" })).toBeVisible();
+
+      if (phone) {
+        await expect(form.getByText(/^Not checked yet/)).toBeVisible();
+        await form.getByRole("button", { name: "Check the pin" }).click();
+        const dialog = page.getByRole("dialog", { name: /Check the pin/ });
+        await expect(dialog).toBeVisible();
+        await dialog.getByRole("button", { name: "Done" }).click();
+      } else {
+        await expect(form.getByText(/^Not confirmed yet/)).toBeVisible();
+        await expect(form.getByRole("application", { name: "Venue pin" })).toBeVisible();
+        await form.getByRole("button", { name: "This is the right spot" }).click();
+      }
+      await expect(form.getByText(/Pin confirmed\./)).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+
+      await form.getByRole("button", { name: "Publish…" }).click();
+      await form.getByRole("button", { name: "Publish now" }).click();
+      await expect(page.getByRole("group", { name: "Published" })).toBeFocused();
+      expect(saved).toHaveLength(1);
+      const location = saved[0].location as { source: string; placeId: string; pin: unknown };
+      expect(location).toMatchObject({ source: "places", placeId: TOTE_PLACE_ID });
+      expectPinNearCollingwood(location.pin);
+    });
+
+    test("can't find it on Google Maps: drop a pin, and it's saved alone", async ({ page }) => {
+      const draft = freeDraft("evt-e2e-manual-pin", { location: undefined });
+      const saved: Record<string, unknown>[] = [];
+      await signedInAsOrganiser(page, (request, path) => {
+        const method = request.method();
+        if (method === "GET" && path === `/api/organisers/me/events/${draft.eventId}`) return { json: draft };
+        if (method === "PATCH" && path === `/api/events/${draft.eventId}`) {
+          const body: Record<string, unknown> = request.postDataJSON();
+          saved.push(body);
+          return { json: { ...draft, location: body.location } };
+        }
+        return null;
+      });
+      await page.goto(`/dashboard/${draft.eventId}`);
+      const form = page.locator("form").filter({ has: page.getByLabel("Title", { exact: true }) });
+      await expect(form.getByLabel("Title", { exact: true })).toHaveValue("Neon Static", { timeout: 30_000 });
+
+      await form.getByRole("button", { name: "Can’t find it on Google Maps?" }).click();
+      await expect(form.getByText(/^Not on Google Maps: put the pin on the venue below/)).toBeVisible();
+      await expect(form.getByRole("combobox", { name: "Find the venue on Google Maps" })).toHaveCount(0);
+      if (phone) {
+        await form.getByRole("button", { name: "Check the pin" }).click();
+        const dialog = page.getByRole("dialog", { name: /Check the pin/ });
+        // The keyboard alternative to dragging: an arrow key moves the map.
+        await dialog.getByRole("application", { name: "Venue pin" }).focus();
+        await page.keyboard.press("ArrowRight");
+        await dialog.getByRole("button", { name: "Done" }).click();
+      } else {
+        await form.getByRole("application", { name: "Venue pin" }).focus();
+        await page.keyboard.press("ArrowRight");
+        await form.getByRole("button", { name: "This is the right spot" }).click();
+      }
+      await expect(form.getByText(/Pin confirmed\./)).toBeVisible();
+      await form.getByRole("button", { name: "Save draft" }).click();
+      await expect.poll(() => saved.length, { timeout: 30_000 }).toBe(1);
+      const location = saved[0].location as { source: string; pin: unknown };
+      expect(location.source).toBe("manual_pin");
+      expectPinNearCollingwood(location.pin);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    });
+  });
+}

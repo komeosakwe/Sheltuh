@@ -11,9 +11,12 @@ import {
   removedBefore,
 } from "@/lib/organiser-events";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { CONFIRMED_PIN_LOCATION, stubMatchMedia, unstubMatchMedia } from "./test-utils/pinMapStub";
 
 // The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
 vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+// The venue's "Check the pin" map (these events have a confirmed pin: publishing needs one).
+vi.mock("@/components/dashboard/VenuePinMapLeaflet", async () => (await import("./test-utils/pinMapStub")).leafletStub());
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -36,8 +39,12 @@ vi.mock("@/lib/api/events", async (importOriginal) => {
   };
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  unstubMatchMedia();
+});
 beforeEach(() => {
+  stubMatchMedia();
   updateEventDraft.mockReset();
   publishEvent.mockReset();
   updateEventDraft.mockImplementation(async () => ({ ...EVENT }));
@@ -53,6 +60,7 @@ const EVENT: EventRecord = {
   venueName: "The Venue",
   venueAddress: "1 Test St",
   suburb: "Fitzroy",
+  location: CONFIRMED_PIN_LOCATION,
   startsAt: "2027-03-06T09:00:00.000Z",
   endsAt: "2027-03-06T12:30:00.000Z",
   organiserName: "Test Org",
@@ -271,7 +279,7 @@ describe("EventEditor — a publish refused (409)", () => {
     ["event_ended", "This event has already ended, so it can’t be published.", false],
     ["in_review", "This event is already waiting for review", true],
     ["event_changed", "This event’s ticket link changed while it was being published. Your changes were saved", true],
-    ["location_required", "Add the venue location and confirm the pin first.", false],
+    // location_required focuses the venue instead: tests/EventEditorLocation.test.tsx.
   ] as const)("%s: says why, focused, the question closed (and offers a reload when that's the way on)", async (code, text, reload) => {
     publishEvent.mockRejectedValue(conflict(code));
     const { onSaved } = renderEditor();

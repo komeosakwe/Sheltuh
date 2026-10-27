@@ -4,9 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventEditor from "@/components/dashboard/EventEditor";
 import type { EventRecord } from "@/lib/api/types";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { CONFIRMED_PIN_LOCATION, stubMatchMedia, unstubMatchMedia } from "./test-utils/pinMapStub";
 
 // The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
 vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+// The venue's "Check the pin" map (the events here have a confirmed pin: publishing needs one).
+vi.mock("@/components/dashboard/VenuePinMapLeaflet", async () => (await import("./test-utils/pinMapStub")).leafletStub());
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -28,8 +31,12 @@ vi.mock("@/lib/api/events", async (importOriginal) => {
   };
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  unstubMatchMedia();
+});
 beforeEach(() => {
+  stubMatchMedia();
   updateEventDraft.mockReset();
   publishEvent.mockReset();
 });
@@ -54,6 +61,9 @@ const EVENT: EventRecord = {
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
+
+/** EVENT with its venue's pin confirmed: publishing needs it (`location_required` otherwise). */
+const PINNED_EVENT: EventRecord = { ...EVENT, location: CONFIRMED_PIN_LOCATION };
 
 function renderEditor(initial: EventRecord | undefined = EVENT) {
   render(
@@ -141,7 +151,7 @@ describe("EventEditor — field errors are tied to their fields", () => {
   });
 
   it("Publish focuses the first field to fix too, and publishes nothing", async () => {
-    renderEditor();
+    renderEditor(PINNED_EVENT);
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: " " } });
     fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
     fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
@@ -153,7 +163,7 @@ describe("EventEditor — field errors are tied to their fields", () => {
 
 describe("EventEditor — the buttons", () => {
   it("Save draft, Publish… (and its question's buttons) and Add ticket type are 44px tall", () => {
-    renderEditor();
+    renderEditor(PINNED_EVENT);
     for (const name of ["Save draft", "Publish…", "Add ticket type"]) {
       expect(screen.getByRole("button", { name })).toHaveClass("min-h-11");
     }
@@ -184,7 +194,7 @@ describe("EventEditor — the buttons", () => {
     updateEventDraft.mockResolvedValue(EVENT);
     let finish: (record: EventRecord) => void = () => {};
     publishEvent.mockImplementation(() => new Promise((resolve) => (finish = resolve)));
-    renderEditor();
+    renderEditor(PINNED_EVENT);
     fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
     const submit = screen.getByRole("button", { name: "Publish now" });
     submit.focus();

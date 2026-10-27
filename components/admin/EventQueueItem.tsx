@@ -20,6 +20,7 @@ import { ticketProviderName } from "@/lib/ticketing";
 import AdminSessionExpired from "./AdminSessionExpired";
 import { actionErrorText } from "./OrganiserItem";
 import PrivateEventImage from "./PrivateEventImage";
+import { googlePlaceHref, pinMapHref } from "@/lib/maps";
 import { eventPlaceName } from "@/lib/place";
 
 /** The API's limit for a rejection reason (lib/server/handlers/admin.ts, requireReason). */
@@ -130,6 +131,7 @@ export default function EventQueueItem({
           <p className="meta text-muted">
             {[item.venueName, eventPlaceName(item)].filter(Boolean).join(", ")}
           </p>
+          <VenueLocationLine item={item} />
         </header>
 
         <p className="text-sm break-words whitespace-pre-wrap text-foreground">{item.description}</p>
@@ -667,5 +669,48 @@ function Actions({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * How the venue is located (docs/architecture.md, "Venue location"): linked
+ * to a Google Maps place (and whether the organiser checked its pin), a pin
+ * alone, or the address only (an event from before venue locations, or none
+ * added yet). With a link to check it on Google Maps.
+ */
+function VenueLocationLine({ item }: { item: AdminEventRecord }) {
+  const location = item.location;
+  let label: string;
+  let href: string | null = null;
+  let linkText = "";
+  if (location?.source === "places" && location.placeId) {
+    label = location.pin ? "Linked to Google Maps, pin checked" : "Linked to Google Maps (pin not checked yet)";
+    href = googlePlaceHref({ ...item, venuePlaceId: location.placeId });
+    linkText = "Check on Google Maps";
+  } else if (location?.pin) {
+    label = "Pinned";
+    href = pinMapHref(location.pin);
+    linkText = "Check the pin on Google Maps";
+  } else {
+    label = "Address only";
+  }
+  return (
+    <p className="flex flex-wrap items-center gap-x-3 text-sm text-foreground" data-venue-location={location?.source ?? "none"}>
+      <span>
+        <span className="text-muted">Location:</span> {label}
+      </span>
+      {href && (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`${linkText}: ${item.venueName || item.title} (opens in a new tab)`}
+          className="inline-flex min-h-11 items-center underline underline-offset-4 sm:min-h-6"
+        >
+          {linkText}
+          <span aria-hidden="true">&nbsp;↗</span>
+        </a>
+      )}
+    </p>
   );
 }

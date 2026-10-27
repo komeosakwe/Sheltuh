@@ -5,9 +5,12 @@ import EventEditor from "@/components/dashboard/EventEditor";
 import type { EventRecord } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/session-token";
 import { callsTokenFirst, fakeAuthValue, FakeAuthProvider, switchableSession } from "./test-utils/fakeAuth";
+import { CONFIRMED_PIN_LOCATION, stubMatchMedia, unstubMatchMedia } from "./test-utils/pinMapStub";
 
 // The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
 vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+// The venue's "Check the pin" map, for the events with a pin (they can be published).
+vi.mock("@/components/dashboard/VenuePinMapLeaflet", async () => (await import("./test-utils/pinMapStub")).leafletStub());
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -29,8 +32,12 @@ vi.mock("@/lib/api/events", async (importOriginal) => ({
   deleteEventImage: vi.fn(),
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  unstubMatchMedia();
+});
 beforeEach(() => {
+  stubMatchMedia();
   updateEventDraft.mockReset();
   createEventDraft.mockReset();
   publishEvent.mockReset();
@@ -58,6 +65,9 @@ const BASE_EVENT: EventRecord = {
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
+
+/** BASE_EVENT with its venue's pin confirmed: publishing needs it (`location_required` otherwise). */
+const PINNED_EVENT: EventRecord = { ...BASE_EVENT, location: CONFIRMED_PIN_LOCATION };
 
 function renderEditor(overrides: Partial<EventRecord> = {}, onSaved = vi.fn()) {
   const getToken = vi.fn().mockResolvedValue("token");
@@ -242,7 +252,7 @@ describe("EventEditor — publishing", () => {
   it("saves unsaved edits first, so what goes live is what's on screen", async () => {
     updateEventDraft.mockResolvedValue({ ...BASE_EVENT, title: "Edited title" });
     publishEvent.mockResolvedValue({ ...BASE_EVENT, title: "Edited title", status: "published" });
-    const { onSaved } = renderEditor();
+    const { onSaved } = renderEditor({ location: CONFIRMED_PIN_LOCATION });
 
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Edited title" } });
     publish();
@@ -255,7 +265,7 @@ describe("EventEditor — publishing", () => {
   });
 
   it("publishes nothing while the form has errors (the question closes, the field is focused)", async () => {
-    renderEditor();
+    renderEditor({ location: CONFIRMED_PIN_LOCATION });
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "" } });
     publish();
 
@@ -311,7 +321,7 @@ async function expectRecoveryForOwner() {
 
 describe("EventEditor — the other-account check on every action", () => {
   it("Publish: someone else signed in by now: nothing is saved or published", async () => {
-    const { become } = renderAs(BASE_EVENT);
+    const { become } = renderAs(PINNED_EVENT);
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Edited title" } });
     become(OTHER);
     publish();
@@ -353,7 +363,7 @@ describe("EventEditor — an account change mid-save (after the check, before th
       return saved;
     });
     publishEvent.mockImplementation(callsTokenFirst({ ...BASE_EVENT, status: "published" }));
-    const { onSaved } = renderAs(BASE_EVENT, session);
+    const { onSaved } = renderAs(PINNED_EVENT, session);
     publish();
     await expectRecoveryForOwner();
     expect(publishEvent).toHaveBeenCalledTimes(1);

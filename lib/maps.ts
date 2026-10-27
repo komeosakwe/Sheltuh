@@ -103,3 +103,14 @@ export function googlePlaceHref(
   if (!placeId || !text) return null;
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(text)}&query_place_id=${encodeURIComponent(placeId)}`;
 }
+
+/**
+ * The organiser's own pin on Google Maps (the admin queue's "Check the pin"):
+ * Google's cross-platform search URL at the pin's coordinates. Only ever our
+ * organiser's pin, never Google's coordinates. Null for a pin that isn't a
+ * real position in Australia.
+ */
+export function pinMapHref(pin: Coordinates): string | null {
+  if (!Number.isFinite(pin.lat) || !Number.isFinite(pin.lng) || !isInAustralia(pin)) return null;
+  return `https://www.google.com/maps/search/?api=1&query=${latLng(pin)}`;
+}

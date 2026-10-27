@@ -7,6 +7,7 @@ import type { AdminEventRecord, EventRecord } from "@/lib/api/types";
 import type { ClipMetadata } from "@/lib/clip-precheck";
 import { CLIP_MESSAGES, MAX_CLIP_BYTES } from "@/lib/clip-rules";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { CONFIRMED_PIN_LOCATION, stubMatchMedia, unstubMatchMedia } from "./test-utils/pinMapStub";
 
 /**
  * The event editor's clip field (docs/design/event-clips.md §5.4), behind
@@ -21,6 +22,8 @@ import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 const push = vi.hoisted(() => vi.fn());
 // The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
 vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+// The venue's "Check the pin" map (the events here have a confirmed pin: publishing needs one).
+vi.mock("@/components/dashboard/VenuePinMapLeaflet", async () => (await import("./test-utils/pinMapStub")).leafletStub());
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 
@@ -99,6 +102,8 @@ const EVENT: EventRecord = {
   venueName: "The Venue",
   venueAddress: "1 Test St",
   suburb: "Fitzroy",
+  // Its venue's pin is confirmed: publishing needs it.
+  location: CONFIRMED_PIN_LOCATION,
   startsAt: "2026-09-25T10:00:00.000Z",
   endsAt: "2026-09-25T13:00:00.000Z",
   organiserName: "Test Org",
@@ -124,6 +129,7 @@ function publish() {
 }
 
 beforeEach(() => {
+  stubMatchMedia();
   vi.stubEnv("NEXT_PUBLIC_EVENT_CLIPS", "1");
   calls.length = 0;
   push.mockReset();
@@ -143,6 +149,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllEnvs();
+  unstubMatchMedia();
 });
 
 function renderEditor(overrides: Partial<EventRecord> = {}) {

@@ -8,10 +8,13 @@ import { PAYOUTS_REQUIRED_CODE } from "@/lib/api/events";
 import type { AdminEventRecord, AdminOrganiserRecord, EventRecord } from "@/lib/api/types";
 import { sellsPaidTicketsOnSheltuh } from "@/lib/ticketing";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { CONFIRMED_PIN_LOCATION, stubMatchMedia, unstubMatchMedia } from "./test-utils/pinMapStub";
 
 const push = vi.fn();
 // The suburb table, stubbed: these tests aren't about the suburb (tests/VenueSuburbField.test.tsx is).
 vi.mock("@/lib/location-loader", async () => (await import("./test-utils/locationStub")).locationLoaderStub());
+// The venue's "Check the pin" map (the events here have a confirmed pin: publishing needs one).
+vi.mock("@/components/dashboard/VenuePinMapLeaflet", async () => (await import("./test-utils/pinMapStub")).leafletStub());
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
@@ -47,8 +50,12 @@ vi.mock("@/lib/api/admin", () => ({
   adminDeleteEventImage: vi.fn(),
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  unstubMatchMedia();
+});
 beforeEach(() => {
+  stubMatchMedia();
   for (const fn of [push, updateEventDraft, createEventDraft, publishEvent, adminListOrganisers, adminCreateEvent,
     adminUpdateEvent]) fn.mockReset();
 });
@@ -77,6 +84,7 @@ const PAID_DRAFT: EventRecord = {
   venueName: "The Tote",
   venueAddress: "71 Johnston St",
   suburb: "Collingwood",
+  location: CONFIRMED_PIN_LOCATION,
   startsAt: "2027-03-06T09:00:00.000Z",
   endsAt: "2027-03-06T12:30:00.000Z",
   organiserName: "Static Collective",
