@@ -300,7 +300,7 @@ The whole card is one link: `group flex overflow-hidden rounded-card bg-card sha
 - Contents: `EventArt.aspect-video`, then a `p-5 flex flex-col gap-2` body:
   - `eyebrow text-background/70` "For creators"
   - `h2#home-creators` at 22/28, reading "Bring your event to life"
-  - 14/20 `text-background/70`: "Reach people who go out for culture. Every listing is reviewed by a person, and fees are shown up front."
+  - 14/20 `text-background/70`: "Reach people who go out for culture. Every organiser is checked by a person before they can publish, and fees are shown up front."
   - `ButtonLink variant="light" size="lg" className="mt-3 self-start focus-visible:outline-background"` "List your event" → `/organisers/apply`
 
 **5.13 `/events` query params.** A small behaviour change that §5.3 needs.

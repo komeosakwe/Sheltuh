@@ -91,6 +91,7 @@ email needs consent + unsubscribe (Spam Act).
 | DB / Auth   | Supabase                | Postgres (Sydney region) + Supabase Auth |
 | Payments    | **Stripe Connect** (Express) | Connect specifically, for marketplace split payouts |
 | Maps        | Leaflet + Esri tiles    | Already built and free; Mapbox only if custom styling is needed |
+| Venue search | Google Places API (New) | Server-side only (our own proxy routes, server-only key `GOOGLE_MAPS_API_KEY`). Google's terms: we store only the place id and never use Google's coordinates; pins on our maps are the organiser's own. Expected ~A$0 at our volume (unverified); quotas and a budget alert in `docs/DEPLOYMENT.md` |
 | Hosting     | Vercel                  | Pro plan needed once selling tickets (Hobby is non-commercial) |
 
 A first backend was built on AWS (Cognito/DynamoDB/Lambda/CDK) but never
@@ -103,10 +104,21 @@ Go-live steps: `docs/supabase-setup.md`. Design: `docs/architecture.md`.
 ## MVP feature scope
 
 1. Curated event feed — built
-2. Organiser submission + **manual curation / review queue** — built
+2. Organiser approval (every organiser checked by a person) + **self-publish
+   with exceptions** — built. Approved organisers publish straight away;
+   admins are emailed and check after the fact (unpublish with a reason,
+   a per-organiser "review their events" switch). Sent to the review queue
+   instead: organisers under that switch, a republish after an admin removed
+   or rejected the event, seated events, ticket links on unknown sites, and
+   anything over the daily caps (10 per organiser, 100 platform-wide).
+   Publishing needs a confirmed venue location (a Google Maps place or a
+   dropped pin, with the organiser's pin checked; the editor's venue search
+   and pin step are still being wired in).
 3. Stripe Connect checkout with platform-fee logic — built
 4. Organiser dashboard — built
-5. Map view — built (venue coordinates still to add)
+5. Map view — built (exact venue pins for events with the organiser's
+   confirmed location; older events sit at their suburb's centre). Event
+   pages link to both Google Maps and Apple Maps
 6. "Who's Going" social indicator — built (opt-in per ticket holder), with member messaging, blocking and reporting
 
 ## Outstanding action items
@@ -115,6 +127,8 @@ Go-live steps: `docs/supabase-setup.md`. Design: `docs/architecture.md`.
 2. Confirm ASIC "Sheltuh" shows "Registered"
 3. File trademark with IP Australia (Classes 41, 42, 35)
 4. Draft Privacy Policy, ToS, Organiser Agreement, contractor NDAs
+   (including the Google Maps lines Google's terms require: see
+   `docs/DEPLOYMENT.md`, "Google Places")
 5. Go live on the stack above: Supabase project, Stripe Connect (test →
    live), Vercel deploy, promote admins (see `docs/supabase-setup.md`)
 6. Plan sole trader → Pty Ltd transition timing
