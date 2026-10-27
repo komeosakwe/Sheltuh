@@ -10,7 +10,7 @@ export async function generateMetadata(_props: PageProps<"/partners">, parent: R
     {
       title: "Become a partner — Sheltüh",
       description:
-        "List your events on Sheltüh: reviewed listings, ticketing with payouts to your own Stripe account, and free events listed for free.",
+        "List your events on Sheltüh: organisers checked by a person, ticketing with payouts to your own Stripe account, and free events listed for free.",
       path: "/partners",
     },
     siteOrigin(),
@@ -35,8 +35,8 @@ export default function PartnersPage() {
       </ContentSection>
       <ContentSection title="How it works">
         <ul>
-          <li>Apply as an organiser. We review every application.</li>
-          <li>Create your event with photos and ticket types. We review it before it goes live.</li>
+          <li>Apply as an organiser. Every organiser is checked by a person before they can publish.</li>
+          <li>Create your event with photos and ticket types, then publish it. We review events that are reported.</li>
           <li>Connect Stripe when you’re ready to sell paid tickets.</li>
         </ul>
         <div className="mt-6">

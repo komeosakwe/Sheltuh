@@ -217,3 +217,18 @@ export function formatEventWhen(
 ): string {
   return `${formatEventDateTimeRange(startsAt, endsAt, eventZone(timeZone))}${zoneSuffix(timeZone, state)}`;
 }
+
+/**
+ * How long ago an instant was, briefly, for lists ("Published by the
+ * organiser · 2 h ago"): "just now" under a minute, "14 min ago", "2 h ago"
+ * under two days, then "3 days ago". A time in the future (clock skew) is
+ * "just now".
+ */
+export function formatTimeAgo(isoLike: string, now: number = Date.now()): string {
+  const minutes = Math.floor((now - Date.parse(isoLike)) / 60_000);
+  if (!Number.isFinite(minutes) || minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours} h ago`;
+  return `${Math.floor(hours / 24)} days ago`;
+}

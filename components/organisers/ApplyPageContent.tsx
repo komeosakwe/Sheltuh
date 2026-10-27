@@ -153,8 +153,8 @@ function FormSection({
     <div className="flex flex-col gap-6">
       {view.mode === "apply" ? (
         <p className="text-sm text-muted">
-          Tell us about your organisation. An admin reviews every application before you can
-          submit events.
+          Tell us about your organisation. A person at Sheltüh checks every application before you
+          can publish events.
         </p>
       ) : (
         <StatusCard>

@@ -105,14 +105,14 @@ export const HOME_HERO_TILES: readonly [HomeArt, HomeArt] = [
 
 /**
  * "What else?" (owner, 23 Oct 2026: kept from the original home): three
- * promises the product keeps (manual curation, all-inclusive prices, no fee
+ * promises the product keeps (organisers checked by a person, all-inclusive prices, no fee
  * on free tickets), each with the photo that shows beside the list while
  * it's the highlighted one. Sample-event photos for now (owner, 26 Oct 2026:
  * "reuse the event photos for now"), until promo photos of their own arrive.
  */
 export const HOME_WHAT_ELSE: readonly (HomeArt & { title: string; note: string })[] = [
   {
-    title: "Every event reviewed by a person",
+    title: "Every organiser checked by a person",
     note: "Curated, not scraped.",
     imageUrl: "/events/vintage-market-stall.jpg",
     poster: { pattern: "rings", background: "#000000", primary: "#fffae7", secondary: "#ff4800" },

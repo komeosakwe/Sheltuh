@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type Ref } from "react";
 import { useRouter } from "next/navigation";
 import InlineReauth, { signedInAgainMessage } from "@/components/auth/InlineReauth";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import AdminOrganiserPicker, { type PickedOrganiser } from "@/components/admin/AdminOrganiserPicker";
 import EventClipField from "@/components/dashboard/EventClipField";
 import EventImageField from "@/components/dashboard/EventImageField";
-import { PayoutsNeededNotice, PayoutsSubmitError, PayoutsSubmitHint } from "@/components/dashboard/PayoutsRequired";
+import { PayoutsNeededNotice, PayoutsPublishError, PayoutsPublishHint } from "@/components/dashboard/PayoutsRequired";
 import RefundPolicyField from "@/components/dashboard/RefundPolicyField";
 import VenueSuburbField, {
   hasZoneChoice,
@@ -24,7 +24,7 @@ import SeatingChoiceField, {
   type SeatingChoice,
 } from "@/components/dashboard/SeatingChoice";
 import { ClipSyncError, useEventClip, type ClipRoutes } from "@/components/dashboard/useEventClip";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import { fieldClass } from "@/components/ui/Field";
 import {
   adminCreateEvent,
@@ -45,17 +45,26 @@ import {
   deleteEventImage,
   isPayoutsRequiredError,
   isRefundPolicyTightenedError,
-  submitEventForReview,
+  publishConflictCode,
+  publishEvent,
   updateEventDraft,
   uploadEventImage,
   type EventInput,
 } from "@/lib/api/events";
-import type { AdminEventRecord, EventRecord, TicketTypeInput } from "@/lib/api/types";
+import type { AdminEventRecord, EventRecord, PublishEventConflictCode, TicketTypeInput } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { useAccountOwner } from "@/lib/auth/useAccountOwner";
 import { eventClipsEnabled } from "@/lib/clips-flag";
+import { SUPPORT_EMAIL } from "@/lib/contact";
 import { calculateBookingFeeCents, calculateOrderSummary, describeBookingFee, MIN_PAID_TICKET_CENTS } from "@/lib/fees";
 import { formatAud, toDateTimeInputParts } from "@/lib/format";
+import {
+  PUBLISH_REVIEW_GENERAL,
+  PUBLISH_REVIEW_REASON_TEXT,
+  publishReviewReason,
+  removedBefore,
+  type PublishReviewReason,
+} from "@/lib/organiser-events";
 import {
   DEFAULT_REFUND_POLICY,
   isValidRefundDays,
@@ -78,10 +87,15 @@ interface OrganiserProps {
   /**
    * The organiser's `payoutsEnabled` (GET /api/organisers/me); undefined while
    * it isn't known. False: an event with paid Sheltüh tickets says, by its
-   * tickets and its Submit button, that payouts come first (submitting it is
+   * tickets and its Publish button, that payouts come first (publishing it is
    * refused with 409 `payouts_required`). Saving a draft never needs them.
    */
   payoutsEnabled?: boolean;
+  /**
+   * The organiser's `eventReviewRequired` (an admin checks their events before
+   * they go live): Publish… says it will be sent for review, and why.
+   */
+  eventReviewRequired?: boolean;
   onReload?: never;
   reauthForm?: never;
   onReauthNeeded?: never;
@@ -101,6 +115,7 @@ interface AdminProps {
   initial?: AdminEventRecord;
   onSaved: (record: AdminEventRecord) => void;
   payoutsEnabled?: never;
+  eventReviewRequired?: never;
   /** Fetch the latest version after a save conflict (remount the editor with it). */
   onReload?: () => void;
   /**
@@ -117,6 +132,30 @@ interface AdminProps {
 type Props = OrganiserProps | AdminProps;
 
 const PLATFORM_FREE_ONLY = "A platform-managed organiser can only offer free tickets here, or link to another site.";
+
+/** What an organiser's publish did (POST /api/events/{id}/publish): it went live, or to the review queue. */
+type PublishOutcome = { kind: "published"; slug: string } | { kind: "review"; reason: PublishReviewReason | null };
+
+/** A publish refused with a 409 other than payouts (those have their own message and link). */
+type PublishRefusalCode = Exclude<PublishEventConflictCode, "payouts_required">;
+
+/** What each refusal says by the buttons; `reload`: it offers to reload the page. */
+const PUBLISH_REFUSALS: Record<PublishRefusalCode, { text: string; reload: boolean }> = {
+  event_ended: { text: "This event has already ended, so it can\u2019t be published.", reload: false },
+  in_review: {
+    text: "This event is already waiting for review (it was sent from another tab or device). Reload the page to see it.",
+    reload: true,
+  },
+  event_changed: {
+    text: "This event\u2019s ticket link changed while it was being published. Your changes were saved: reload the page, then publish again.",
+    reload: true,
+  },
+  location_required: { text: "Add the venue location and confirm the pin first.", reload: false },
+};
+
+const PUBLISH_CONFIRM_ID = "publish-confirm";
+const PUBLISH_REFUSAL_ID = "publish-refusal";
+const PUBLISH_OUTCOME_ID = "publish-outcome";
 
 function isPlatformManaged(record: EventRecord | AdminEventRecord | undefined): boolean {
   return Boolean(record && "organiserPlatformManaged" in record && record.organiserPlatformManaged);
@@ -211,7 +250,6 @@ export default function EventEditor(props: Props) {
   // uses `saveToken`, bound to this account when it's called; `getToken`
   // (the page's) is only for reading (photo and clip previews).
   const { owner, otherAccount, getOwnerToken: saveToken } = useAccountOwner();
-  const locked = !isAdmin && initial ? initial.status === "pending_review" || initial.status === "published" : false;
 
   const [title, setTitle] = useState(initial?.title ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
@@ -285,16 +323,35 @@ export default function EventEditor(props: Props) {
   // clip step after it failed (and the page wasn't told, or left).
   const [savedRecord, setSavedRecord] = useState<EventRecord | undefined>(initial);
   const formRef = useRef<HTMLFormElement>(null);
+  // Organisers: the event as last saved here (or published from here, which the page may not have
+  // passed back yet), else as loaded.
+  const current = savedRecord ?? initial;
+  const locked = !isAdmin && current ? current.status === "pending_review" || current.status === "published" : false;
+  // Organisers: publishing it goes to review (and the button says "Send for review", with no
+  // question first) when Sheltüh rejected or unpublished it last; for the other known reasons the
+  // question says so (lib/organiser-events.ts).
+  const eventReviewRequired = props.mode === "admin" ? undefined : props.eventReviewRequired;
+  const removed = !isAdmin && current ? removedBefore(current) : null;
+  const reviewReason = !isAdmin && current ? publishReviewReason(current, eventReviewRequired) : null;
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // Organisers' publish: the question is open; what it did; why it was refused (focused once shown).
+  const [publishConfirm, setPublishConfirm] = useState(false);
+  const [outcome, setOutcome] = useState<PublishOutcome | null>(null);
+  const [publishRefusal, setPublishRefusal] = useState<PublishRefusalCode | null>(null);
+  const publishOpenRef = useRef<HTMLButtonElement>(null);
+  const publishCancelRef = useRef<HTMLButtonElement>(null);
+  const publishRefusalRef = useRef<HTMLDivElement>(null);
+  const outcomeRef = useRef<HTMLDivElement>(null);
+  const focusPublish = useRef<"cancel" | "open" | "refusal" | "outcome" | null>(null);
   // The polite line by the buttons: said after signing in again in a recovery.
   const [status, setStatus] = useState<string | null>(null);
   const saveRef = useRef<HTMLButtonElement>(null);
-  // Organisers: the submit was refused because payouts aren't set up (the server's message), and
+  // Organisers: the publish was refused because payouts aren't set up (the server's message), and
   // so they're known to be off whatever the page loaded. Focus goes to the message once it's shown.
   const [payoutsError, setPayoutsError] = useState<string | null>(null);
   const [payoutsRefused, setPayoutsRefused] = useState(false);
@@ -321,17 +378,29 @@ export default function EventEditor(props: Props) {
         element.focus();
       }
     }
+    if (focusPublish.current) {
+      const target = {
+        cancel: publishCancelRef,
+        open: publishOpenRef,
+        refusal: publishRefusalRef,
+        outcome: outcomeRef,
+      }[focusPublish.current].current;
+      if (target) {
+        focusPublish.current = null;
+        target.focus();
+      }
+    }
     if (!focusPayoutsError.current || !payoutsErrorRef.current) return;
     focusPayoutsError.current = false;
     payoutsErrorRef.current.focus();
   });
 
-  // Paid Sheltüh tickets, as on screen, while the organiser's payouts are off: submitting will be refused.
+  // Paid Sheltüh tickets, as on screen, while the organiser's payouts are off: publishing will be refused.
   const payoutsNeeded =
     props.mode !== "admin" &&
     (props.payoutsEnabled === false || payoutsRefused) &&
     sellsPaidTicketsOnSheltuh({ ticketingMode, ticketTypes });
-  const submitDescription = payoutsError ? "submit-payouts-error" : payoutsNeeded ? "submit-payouts-hint" : undefined;
+  const submitDescription = payoutsError ? "publish-payouts-error" : payoutsNeeded ? "publish-payouts-hint" : undefined;
 
   const reauthForm = props.mode === "admin" ? (props.reauthForm ?? true) : true;
 
@@ -362,7 +431,7 @@ export default function EventEditor(props: Props) {
       setSubmitError(null);
       return;
     }
-    // An organiser's submit, refused until their payouts are set up: the reason and the way to fix it, focused.
+    // An organiser's publish, refused until their payouts are set up: the reason and the way to fix it, focused.
     // (An admin's save gets it as any other refusal: fieldErrors.ticketTypes by the tickets, the message below.)
     if (!isAdmin && isPayoutsRequiredError(err)) {
       setPayoutsRefused(true);
@@ -633,15 +702,36 @@ export default function EventEditor(props: Props) {
     }
   }
 
-  async function handleSubmitForReview() {
+  /** Opens the question before publishing, Cancel focused (the safe choice). */
+  function openPublishConfirm() {
+    setSubmitError(null);
+    setPublishRefusal(null);
+    setStatus(null);
+    focusPublish.current = "cancel";
+    setPublishConfirm(true);
+  }
+
+  /** Closes the question, back to Publish…. */
+  function closePublishConfirm() {
+    focusPublish.current = "open";
+    setPublishConfirm(false);
+  }
+
+  /**
+   * Organisers: publishes the event (POST /api/events/{id}/publish), which
+   * puts it live now or sends it for review (lib/organiser-events.ts says
+   * why), after saving what's on screen. What happened replaces the form.
+   */
+  async function handlePublish() {
     // Organisers only: an admin publishes from the save itself.
     if (!initial || props.mode === "admin") return;
     setSubmitError(null);
     setPayoutsError(null);
+    setPublishRefusal(null);
     showSessionExpired(false);
     setStatus(null);
-    // Submit what's on screen, not the last save: unsaved edits are saved
-    // first, and nothing is submitted if they don't validate.
+    // Publish what's on screen, not the last save: unsaved edits are saved
+    // first, and nothing is published if they don't validate.
     setSubmitting(true);
     const input = buildInput(await venue.resolveForSave());
     if (input && refuseOtherAccount()) {
@@ -650,26 +740,45 @@ export default function EventEditor(props: Props) {
     }
     const clipReady = await clip.validate();
     if (!input || !clipReady) {
+      // The first field to fix is focused: the question is over.
+      if (!input) setPublishConfirm(false);
       setSubmitting(false);
       return;
     }
     try {
       const saved = await updateEventDraft(initial.eventId, input, saveToken);
       const withImage = await syncImage(saved, uploadEventImage, deleteEventImage);
-      // Waits for a clip upload a save already started, and never submits without the clip.
+      // Waits for a clip upload a save already started, and never publishes without the clip.
       setSavedRecord(await syncClip(withImage, ORGANISER_CLIP_ROUTES, props.onSaved));
-      const record = await submitEventForReview(initial.eventId, saveToken);
+      const record = await publishEvent(initial.eventId, saveToken);
+      setPublishConfirm(false);
+      if (record.status === "published") setOutcome({ kind: "published", slug: record.slug });
+      else if (record.status === "pending_review") {
+        setOutcome({ kind: "review", reason: publishReviewReason(record, eventReviewRequired) });
+      }
+      focusPublish.current = "outcome";
+      setSavedRecord(record);
       props.onSaved(record);
     } catch (err) {
-      handleError(err, "Couldn't submit this event for review.");
+      const code = publishConflictCode(err);
+      if (code && code !== "payouts_required") {
+        // It can't be published as it is: say why, focused, with the way on.
+        setPublishConfirm(false);
+        setPublishRefusal(code);
+        focusPublish.current = "refusal";
+      } else {
+        if (isPayoutsRequiredError(err)) setPublishConfirm(false);
+        handleError(err, "Couldn't publish this event.");
+      }
     } finally {
       setSubmitting(false);
     }
   }
 
   if (locked) {
+    if (outcome) return <PublishOutcomeView outcome={outcome} ref={outcomeRef} />;
     // The same words as the dashboard's status badge (lib/organiser-events.ts).
-    const published = initial?.status === "published";
+    const published = current?.status === "published";
     return (
       <div className="bg-surface p-4 text-foreground">
         <h2 className="font-heading text-xl">{published ? "Published" : "Waiting for review"}</h2>
@@ -700,10 +809,22 @@ export default function EventEditor(props: Props) {
 
   return (
     <form ref={formRef} onSubmit={handleSave} className="flex flex-col gap-6" noValidate>
-      {initial?.status === "rejected" && initial.rejectionReason && (
+      {(initial?.status === "rejected" || initial?.status === "draft") && initial.rejectionReason && (
+        // Sheltüh's note: why it was rejected, or why it was taken off the site (a draft with a note).
         <div className="border-l-2 border-danger px-4 py-3 text-sm text-foreground">
-          <p className="font-medium">Not approved — reviewer note:</p>
-          <p className="mt-1 text-muted">{initial.rejectionReason}</p>
+          <p className="font-medium">
+            {initial.status === "rejected"
+              ? "Not approved — reviewer note:"
+              : isAdmin
+                ? "Unpublished — note to the organiser:"
+                : "Taken off Sheltüh — note from Sheltüh:"}
+          </p>
+          <p className="mt-1 break-words whitespace-pre-wrap text-muted">{initial.rejectionReason}</p>
+          {!isAdmin && (
+            <p className="mt-2 text-muted">
+              When you send it for review again, a person at Sheltüh checks it before it goes live.
+            </p>
+          )}
         </div>
       )}
 
@@ -1196,9 +1317,28 @@ export default function EventEditor(props: Props) {
       )}
 
       {payoutsError ? (
-        <PayoutsSubmitError id="submit-payouts-error" ref={payoutsErrorRef} message={payoutsError} />
+        <PayoutsPublishError id="publish-payouts-error" ref={payoutsErrorRef} message={payoutsError} />
       ) : (
-        payoutsNeeded && initial && <PayoutsSubmitHint id="submit-payouts-hint" />
+        payoutsNeeded && initial && <PayoutsPublishHint id="publish-payouts-hint" />
+      )}
+
+      {publishRefusal && (
+        // Focused once shown (as the payouts refusal is), which reads it: no role="alert" too.
+        <div
+          ref={publishRefusalRef}
+          id={PUBLISH_REFUSAL_ID}
+          tabIndex={-1}
+          role="group"
+          aria-labelledby={`${PUBLISH_REFUSAL_ID}-message`}
+          className="flex flex-col items-start gap-2 border-l-2 border-danger py-1 pl-4 text-sm text-foreground"
+        >
+          <p id={`${PUBLISH_REFUSAL_ID}-message`}>{PUBLISH_REFUSALS[publishRefusal].text}</p>
+          {PUBLISH_REFUSALS[publishRefusal].reload && (
+            <Button variant="outline" size="sm" className="min-h-11" onClick={() => window.location.reload()}>
+              Reload page
+            </Button>
+          )}
+        </div>
       )}
 
       {/* Always rendered (never display:none), so it's announced when its text changes. */}
@@ -1217,21 +1357,164 @@ export default function EventEditor(props: Props) {
         >
           {saving ? "Saving…" : saveLabel(isAdmin, Boolean(initial), Boolean(createdId), reservedSeating)}
         </Button>
-        {initial && !isAdmin && (
+        {initial && !isAdmin && !publishConfirm && (
           <Button
+            ref={publishOpenRef}
             variant="outline"
-            onClick={handleSubmitForReview}
+            // Sent for review with no question first when Sheltüh rejected or unpublished it last;
+            // otherwise Publish… asks first (it goes live, and followers are emailed).
+            onClick={removed ? handlePublish : openPublishConfirm}
             // Pressing it during a save is fine: it waits for that save's clip upload.
             busy={submitting}
             // Kept usable while payouts are needed (the refusal is shown, with the fix): this says why first.
             aria-describedby={submitDescription}
             className="min-h-11 w-fit"
           >
-            {submitting ? "Submitting…" : "Submit for review"}
+            {removed ? (submitting ? "Sending…" : "Send for review") : "Publish…"}
           </Button>
         )}
       </div>
+
+      {initial && !isAdmin && publishConfirm && (
+        <PublishConfirm
+          reason={reviewReason}
+          busy={submitting}
+          describedBy={submitDescription}
+          cancelRef={publishCancelRef}
+          onConfirm={handlePublish}
+          onCancel={closePublishConfirm}
+        />
+      )}
     </form>
+  );
+}
+
+/**
+ * The question before an organiser publishes (docs: "Approved organisers
+ * publish now"): what happens, so it's never a surprise. Going live: at once,
+ * followers emailed (which can't be undone), and no editing here afterwards.
+ * When it's known to go to review instead (`reason`), it says why and that it
+ * goes live once approved. Escape or Cancel closes it (back to Publish…).
+ */
+function PublishConfirm({
+  reason,
+  busy,
+  describedBy,
+  cancelRef,
+  onConfirm,
+  onCancel,
+}: {
+  reason: PublishReviewReason | null;
+  busy: boolean;
+  /** The payouts hint or refusal, when there is one: the confirm button names it as Publish… did. */
+  describedBy: string | undefined;
+  cancelRef: Ref<HTMLButtonElement>;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const questionId = `${PUBLISH_CONFIRM_ID}-question`;
+  const detailsId = `${PUBLISH_CONFIRM_ID}-details`;
+  const review = reason !== null;
+  return (
+    <div
+      id={PUBLISH_CONFIRM_ID}
+      role="group"
+      aria-labelledby={questionId}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !busy) {
+          event.preventDefault();
+          onCancel();
+        }
+      }}
+      className="flex flex-col gap-3 border-l-2 border-foreground py-1 pl-4 text-sm text-foreground"
+    >
+      <p id={questionId} className="font-semibold">
+        {review ? "Send this event for review?" : "Publish this event now?"}
+      </p>
+      <ul id={detailsId} className="flex list-disc flex-col gap-1 pl-5 text-muted">
+        {review ? (
+          <>
+            <li>{PUBLISH_REVIEW_REASON_TEXT[reason]}</li>
+            <li>It goes live once it&rsquo;s approved, and your followers are emailed then.</li>
+            <li>You can&rsquo;t edit it while it&rsquo;s waiting.</li>
+          </>
+        ) : (
+          <>
+            <li>It goes live on Sheltüh straight away, with the changes on screen (they&rsquo;re saved first).</li>
+            <li>Your followers are emailed about it. Emails can&rsquo;t be unsent.</li>
+            <li>You can&rsquo;t edit it here afterwards. To change it, you&rsquo;d contact Sheltüh.</li>
+          </>
+        )}
+      </ul>
+      <div className="flex flex-wrap gap-3">
+        <Button
+          variant="solid"
+          busy={busy}
+          onClick={onConfirm}
+          aria-describedby={[detailsId, describedBy].filter(Boolean).join(" ")}
+          className="min-h-11 w-fit"
+        >
+          {busy ? (review ? "Sending…" : "Publishing…") : review ? "Send for review" : "Publish now"}
+        </Button>
+        <Button ref={cancelRef} variant="outline" busy={busy} onClick={onCancel} className="min-h-11 w-fit">
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * What the publish did, in place of the form (now locked), focused so it's
+ * read: live (with its public page), or sent for review and why
+ * (lib/organiser-events.ts; the general reason when it isn't known here).
+ */
+function PublishOutcomeView({ outcome, ref }: { outcome: PublishOutcome; ref: Ref<HTMLDivElement> }) {
+  const titleId = `${PUBLISH_OUTCOME_ID}-title`;
+  const textId = `${PUBLISH_OUTCOME_ID}-text`;
+  const published = outcome.kind === "published";
+  return (
+    <div
+      ref={ref}
+      id={PUBLISH_OUTCOME_ID}
+      tabIndex={-1}
+      role="group"
+      aria-labelledby={titleId}
+      aria-describedby={textId}
+      data-publish-outcome={outcome.kind}
+      className="flex flex-col items-start gap-3 border-l-2 border-foreground bg-surface p-4 text-foreground outline-offset-2"
+    >
+      <h2 id={titleId} className="font-heading text-xl">
+        {published ? "Published" : "Sent for review"}
+      </h2>
+      {published ? (
+        <>
+          <p id={textId} className="text-sm">
+            It&rsquo;s live on Sheltüh now, and your followers are being emailed about it.
+          </p>
+          <ButtonLink href={`/events/${encodeURIComponent(outcome.slug)}`} variant="solid" className="min-h-11 w-fit">
+            View your event page
+          </ButtonLink>
+          <p className="text-sm text-muted">
+            It can&rsquo;t be edited here now. To change something,{" "}
+            <a href={`mailto:${SUPPORT_EMAIL}`} className="text-accent underline underline-offset-2">
+              contact Sheltüh
+            </a>
+            .
+          </p>
+        </>
+      ) : (
+        <>
+          <p id={textId} className="text-sm">
+            {outcome.reason ? PUBLISH_REVIEW_REASON_TEXT[outcome.reason] : PUBLISH_REVIEW_GENERAL}
+          </p>
+          <p className="text-sm text-muted">
+            It goes live once it&rsquo;s approved, and your followers are emailed then. You can&rsquo;t edit it
+            while it&rsquo;s waiting.
+          </p>
+        </>
+      )}
+    </div>
   );
 }
 

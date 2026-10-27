@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventEditor from "@/components/dashboard/EventEditor";
-import { PAYOUTS_NEEDED_TO_SUBMIT, PAYOUTS_SUBMIT_HINT } from "@/components/dashboard/PayoutsRequired";
+import { PAYOUTS_NEEDED_TO_PUBLISH, PAYOUTS_PUBLISH_HINT } from "@/components/dashboard/PayoutsRequired";
 import { ApiError } from "@/lib/api/client";
 import { PAYOUTS_REQUIRED_CODE } from "@/lib/api/events";
 import type { AdminEventRecord, AdminOrganiserRecord, EventRecord } from "@/lib/api/types";
@@ -19,16 +19,17 @@ vi.mock("next/navigation", () => ({
 
 const updateEventDraft = vi.fn();
 const createEventDraft = vi.fn();
-const submitEventForReview = vi.fn();
+const publishEvent = vi.fn();
 vi.mock("@/lib/api/events", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/events")>();
   return {
     PAYOUTS_REQUIRED_CODE: actual.PAYOUTS_REQUIRED_CODE,
     isPayoutsRequiredError: actual.isPayoutsRequiredError,
     isRefundPolicyTightenedError: actual.isRefundPolicyTightenedError,
+    publishConflictCode: actual.publishConflictCode,
     updateEventDraft: (...args: unknown[]) => updateEventDraft(...args),
     createEventDraft: (...args: unknown[]) => createEventDraft(...args),
-    submitEventForReview: (...args: unknown[]) => submitEventForReview(...args),
+    publishEvent: (...args: unknown[]) => publishEvent(...args),
     uploadEventImage: vi.fn(),
     deleteEventImage: vi.fn(),
   };
@@ -48,12 +49,12 @@ vi.mock("@/lib/api/admin", () => ({
 
 afterEach(cleanup);
 beforeEach(() => {
-  for (const fn of [push, updateEventDraft, createEventDraft, submitEventForReview, adminListOrganisers, adminCreateEvent,
+  for (const fn of [push, updateEventDraft, createEventDraft, publishEvent, adminListOrganisers, adminCreateEvent,
     adminUpdateEvent]) fn.mockReset();
 });
 
-/** What the API answers an organiser's submit of a paid event before their payouts are set up. */
-const SUBMIT_REFUSED_MESSAGE = "Set up payouts before submitting an event with paid tickets. Free events can be submitted now.";
+/** What the API answers an organiser's publish of a paid event before their payouts are set up. */
+const SUBMIT_REFUSED_MESSAGE = "Set up payouts before publishing an event with paid tickets. Free events can be published now.";
 const submitRefused = () =>
   new ApiError(409, SUBMIT_REFUSED_MESSAGE, undefined, { error: SUBMIT_REFUSED_MESSAGE, code: PAYOUTS_REQUIRED_CODE });
 
@@ -102,8 +103,13 @@ function renderOrganiser(initial: EventRecord | undefined, payoutsEnabled: boole
   return { onSaved };
 }
 
-const notice = () => screen.queryByText(PAYOUTS_NEEDED_TO_SUBMIT);
-const submitButton = () => screen.getByRole("button", { name: "Submit for review" });
+const notice = () => screen.queryByText(PAYOUTS_NEEDED_TO_PUBLISH);
+const submitButton = () => screen.getByRole("button", { name: "Publish…" });
+/** Publish…, then the question's Publish now. */
+const publish = () => {
+  fireEvent.click(submitButton());
+  fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
+};
 
 describe("sellsPaidTicketsOnSheltuh", () => {
   it("is true only for a Sheltüh-ticketed event (a missing mode is Sheltüh) with a ticket above 0", () => {
@@ -115,8 +121,8 @@ describe("sellsPaidTicketsOnSheltuh", () => {
   });
 });
 
-describe("EventEditor (organiser) — payouts before submitting paid tickets", () => {
-  it("paid tickets, payouts off: says so by the tickets and by Submit, linking to payouts; both buttons stay enabled", () => {
+describe("EventEditor (organiser) — payouts before publishing paid tickets", () => {
+  it("paid tickets, payouts off: says so by the tickets and by Publish…, linking to payouts; both buttons stay enabled", () => {
     renderOrganiser(PAID_DRAFT, false);
     expect(notice()).toBeInTheDocument();
     const links = screen.getAllByRole("link", { name: "Set up payouts" });
@@ -124,10 +130,15 @@ describe("EventEditor (organiser) — payouts before submitting paid tickets", (
     for (const link of links) expect(link).toHaveAttribute("href", "/dashboard/payouts");
     expect(screen.getByRole("button", { name: "Save draft" })).not.toHaveAttribute("aria-disabled", "true");
     expect(submitButton()).not.toHaveAttribute("aria-disabled", "true");
-    expect(submitButton()).toHaveAccessibleDescription(new RegExp(PAYOUTS_SUBMIT_HINT.slice(0, 40)));
+    expect(submitButton()).toHaveAccessibleDescription(new RegExp(PAYOUTS_PUBLISH_HINT.slice(0, 40)));
     // Leaving for payouts leaves the editor: both say to save first.
     expect(screen.getAllByText("(save your changes first)")).toHaveLength(2);
-    expect(document.getElementById("submit-payouts-hint")).toHaveTextContent("(save your changes first)");
+    expect(document.getElementById("publish-payouts-hint")).toHaveTextContent("(save your changes first)");
+    // The question's Publish now says so too.
+    fireEvent.click(submitButton());
+    expect(screen.getByRole("button", { name: "Publish now" })).toHaveAccessibleDescription(
+      new RegExp(PAYOUTS_PUBLISH_HINT.slice(0, 40)),
+    );
   });
 
   it("free tickets: nothing to say", () => {
@@ -162,12 +173,12 @@ describe("EventEditor (organiser) — payouts before submitting paid tickets", (
     expect(notice()).toBeNull();
   });
 
-  it("a new event says so by the tickets (there's no Submit yet)", () => {
+  it("a new event says so by the tickets (there's no Publish yet)", () => {
     renderOrganiser(undefined, false);
     expect(notice()).toBeNull();
     fireEvent.change(screen.getByLabelText("Price (A$)"), { target: { value: "20" } });
     expect(notice()).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Submit for review" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Publish…" })).toBeNull();
     expect(screen.getAllByRole("link", { name: "Set up payouts" })).toHaveLength(1);
   });
 
@@ -179,56 +190,57 @@ describe("EventEditor (organiser) — payouts before submitting paid tickets", (
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("a refused submit shows the server's reason with the link, and focus moves to it (which announces it)", async () => {
+  it("a refused publish shows the server's reason with the link, and focus moves to it (which announces it)", async () => {
     updateEventDraft.mockResolvedValue(PAID_DRAFT);
-    submitEventForReview.mockRejectedValue(submitRefused());
+    publishEvent.mockRejectedValue(submitRefused());
     const { onSaved } = renderOrganiser(PAID_DRAFT, false);
-    fireEvent.click(submitButton());
+    publish();
 
     // A group named by the message, focused: arriving there reads it. No role="alert" as well (read twice).
     const box = await screen.findByRole("group", { name: SUBMIT_REFUSED_MESSAGE });
     expect(box).toHaveTextContent(SUBMIT_REFUSED_MESSAGE);
     await waitFor(() => expect(box).toHaveFocus());
     expect(screen.queryByRole("alert")).toBeNull();
-    // Submitting saved the changes first: no "save first" here.
+    // Publishing saved the changes first: no "save first" here.
     expect(box).not.toHaveTextContent("save your changes first");
     expect(within(box).getByRole("link", { name: "Set up payouts" })).toHaveAttribute("href", "/dashboard/payouts");
-    // Submit now names the refusal (the hint it replaces isn't shown twice).
+    // The question is over; Publish… now names the refusal (the hint it replaces isn't shown twice).
+    expect(screen.queryByRole("button", { name: "Publish now" })).toBeNull();
     expect(submitButton()).toHaveAccessibleDescription(new RegExp(SUBMIT_REFUSED_MESSAGE.slice(0, 40)));
-    expect(screen.queryByText(PAYOUTS_SUBMIT_HINT)).toBeNull();
-    // The edits were saved first; nothing says it was submitted.
+    expect(screen.queryByText(PAYOUTS_PUBLISH_HINT)).toBeNull();
+    // The edits were saved first; nothing says it was published.
     expect(updateEventDraft).toHaveBeenCalledTimes(1);
-    expect(onSaved).not.toHaveBeenCalledWith(expect.objectContaining({ status: "pending_review" }));
+    expect(onSaved).not.toHaveBeenCalledWith(expect.objectContaining({ status: "published" }));
     expect(submitButton()).not.toHaveAttribute("aria-disabled", "true");
   });
 
   it("refused although the page thought payouts were on: the notice shows from then on", async () => {
     updateEventDraft.mockResolvedValue(PAID_DRAFT);
-    submitEventForReview.mockRejectedValue(submitRefused());
+    publishEvent.mockRejectedValue(submitRefused());
     renderOrganiser(PAID_DRAFT, true);
     expect(notice()).toBeNull();
-    fireEvent.click(submitButton());
+    publish();
     await screen.findByRole("group", { name: SUBMIT_REFUSED_MESSAGE });
     expect(notice()).toBeInTheDocument();
   });
 
-  it("trying again clears the refusal; a submit that goes through is passed on", async () => {
+  it("trying again clears the refusal; a publish that goes through is passed on", async () => {
     updateEventDraft.mockResolvedValue(PAID_DRAFT);
-    submitEventForReview.mockRejectedValueOnce(submitRefused()).mockResolvedValueOnce({ ...PAID_DRAFT, status: "pending_review" });
+    publishEvent.mockRejectedValueOnce(submitRefused()).mockResolvedValueOnce({ ...PAID_DRAFT, status: "published" });
     const { onSaved } = renderOrganiser(PAID_DRAFT, false);
-    fireEvent.click(submitButton());
+    publish();
     await screen.findByRole("group", { name: SUBMIT_REFUSED_MESSAGE });
-    fireEvent.click(submitButton());
-    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ status: "pending_review" })));
+    publish();
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ status: "published" })));
     expect(screen.queryByText(SUBMIT_REFUSED_MESSAGE)).toBeNull();
   });
 
   it("any other 409 is shown as before, without the payouts link", async () => {
     updateEventDraft.mockResolvedValue(PAID_DRAFT);
-    submitEventForReview.mockRejectedValue(new ApiError(409, "Only a draft or rejected event can be submitted for review."));
+    publishEvent.mockRejectedValue(new ApiError(409, "Only a draft or rejected event can be published."));
     renderOrganiser(PAID_DRAFT, true);
-    fireEvent.click(submitButton());
-    expect(await screen.findByRole("alert")).toHaveTextContent("Only a draft or rejected event can be submitted for review.");
+    publish();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Only a draft or rejected event can be published.");
     expect(screen.queryByRole("link", { name: "Set up payouts" })).toBeNull();
   });
 });

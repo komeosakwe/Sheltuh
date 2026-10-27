@@ -90,6 +90,7 @@ export default function EditEventPageContent() {
           event={event}
           getToken={getToken}
           payoutsEnabled={organiser ? organiser.payoutsEnabled === true : undefined}
+          eventReviewRequired={organiser?.eventReviewRequired === true}
           onSaved={(record) => setLoaded({ account: as, event: record, error: null })}
         />
       );
@@ -127,12 +128,15 @@ function EditorView({
   event,
   getToken,
   payoutsEnabled,
+  eventReviewRequired,
   onSaved,
 }: {
   event: EventRecord;
   getToken: GetToken;
-  /** The organiser's, once known (the editor says when paid tickets need payouts before submitting). */
+  /** The organiser's, once known (the editor says when paid tickets need payouts before publishing). */
   payoutsEnabled: boolean | undefined;
+  /** An admin checks this organiser's events before they go live (the editor's Publish… says so). */
+  eventReviewRequired: boolean;
   onSaved: (record: EventRecord) => void;
 }) {
   return (
@@ -158,7 +162,13 @@ function EditorView({
           </ButtonLink>
         )}
       </div>
-      <EventEditor getToken={getToken} initial={event} payoutsEnabled={payoutsEnabled} onSaved={onSaved} />
+      <EventEditor
+        getToken={getToken}
+        initial={event}
+        payoutsEnabled={payoutsEnabled}
+        eventReviewRequired={eventReviewRequired}
+        onSaved={onSaved}
+      />
     </>
   );
 }

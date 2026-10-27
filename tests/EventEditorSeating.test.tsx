@@ -28,7 +28,7 @@ vi.mock("@/lib/api/events", async (importOriginal) => ({
   isRefundPolicyTightenedError: (await importOriginal<typeof import("@/lib/api/events")>()).isRefundPolicyTightenedError,
   updateEventDraft: (...args: unknown[]) => updateEventDraft(...args),
   createEventDraft: (...args: unknown[]) => createEventDraft(...args),
-  submitEventForReview: vi.fn(),
+  publishEvent: vi.fn(),
   uploadEventImage: vi.fn(),
   deleteEventImage: vi.fn(),
 }));

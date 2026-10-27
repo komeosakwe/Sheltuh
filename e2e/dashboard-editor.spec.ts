@@ -362,7 +362,7 @@ test.describe("/dashboard/[eventId]: refund policy at 320px", () => {
 test.describe("/dashboard/[eventId]: paid tickets before payouts are set up", () => {
   test.use({ viewport: { width: 320, height: 640 } });
 
-  test("says so up front, keeps Submit enabled, and a refused submit moves focus to the reason and its link", async ({
+  test("says so up front, keeps Publish… enabled, and a refused publish moves focus to the reason and its link", async ({
     page,
   }) => {
     const draft = {
@@ -379,7 +379,7 @@ test.describe("/dashboard/[eventId]: paid tickets before payouts are set up", ()
       }),
       eventId: "evt-e2e-paid",
     };
-    const refusal = "Set up payouts before submitting an event with paid tickets. Free events can be submitted now.";
+    const refusal = "Set up payouts before publishing an event with paid tickets. Free events can be published now.";
     const calls: string[] = [];
     await signedInAsOrganiser(
       page,
@@ -390,8 +390,8 @@ test.describe("/dashboard/[eventId]: paid tickets before payouts are set up", ()
           calls.push("save");
           return { json: draft };
         }
-        if (method === "POST" && path === `/api/events/${draft.eventId}/submit`) {
-          calls.push("submit");
+        if (method === "POST" && path === `/api/events/${draft.eventId}/publish`) {
+          calls.push("publish");
           return { status: 409, json: { error: refusal, code: "payouts_required" } };
         }
         return null;
@@ -402,10 +402,10 @@ test.describe("/dashboard/[eventId]: paid tickets before payouts are set up", ()
     const form = page.locator("form").filter({ has: page.getByLabel("Title", { exact: true }) });
     await expect(form.getByLabel("Title", { exact: true })).toHaveValue("Neon Static", { timeout: 30_000 });
 
-    await expect(form.getByText(/^Set up payouts before you can submit this event\./)).toBeVisible();
-    const submit = form.getByRole("button", { name: "Submit for review" });
+    await expect(form.getByText(/^Set up payouts before you can publish this event\./)).toBeVisible();
+    const submit = form.getByRole("button", { name: "Publish…" });
     await expect(submit).toBeEnabled();
-    await expect(submit).toHaveAccessibleDescription(/can be submitted once your payouts are set up/);
+    await expect(submit).toHaveAccessibleDescription(/can be published once your payouts are set up/);
     await expect(form.getByRole("button", { name: "Save draft" })).toBeEnabled();
     for (const link of await form.getByRole("link", { name: "Set up payouts" }).all()) {
       await expect(link).toHaveAttribute("href", "/dashboard/payouts");
@@ -414,6 +414,7 @@ test.describe("/dashboard/[eventId]: paid tickets before payouts are set up", ()
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
 
     await submit.click();
+    await form.getByRole("button", { name: "Publish now" }).click();
     // Named by the reason and focused, which announces it (no role="alert" too).
     const reason = form.getByRole("group", { name: refusal });
     await expect(reason).toBeVisible();
@@ -422,7 +423,147 @@ test.describe("/dashboard/[eventId]: paid tickets before payouts are set up", ()
     await page.keyboard.press("Tab");
     await expect(page.locator("[data-payouts-error]").getByRole("link", { name: "Set up payouts" })).toBeFocused();
     await expect(submit).toHaveAccessibleDescription(new RegExp(refusal.slice(0, 30)));
-    expect(calls).toEqual(["save", "submit"]);
+    expect(calls).toEqual(["save", "publish"]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+  });
+});
+
+/** A free draft for the publish tests (no payouts needed). */
+function freeDraft(eventId: string, extra: Record<string, unknown> = {}) {
+  return {
+    ...createdDraft({
+      title: "Neon Static",
+      description: "Four bands, one room.",
+      category: "live-music",
+      venueName: "The Tote",
+      venueAddress: "71 Johnston St",
+      suburb: "Collingwood",
+      start: { date: "2027-03-06", time: "20:00" },
+      end: { date: "2027-03-06", time: "23:30" },
+      ticketTypes: [{ id: "ga", name: "Entry", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 100 }],
+    }),
+    eventId,
+    ...extra,
+  };
+}
+
+/** The draft's editor, its save and publish answered by `publish` (with the saved draft). */
+async function openDraftToPublish(
+  page: Page,
+  draft: ReturnType<typeof freeDraft>,
+  publish: (draft: ReturnType<typeof freeDraft>) => { status?: number; json: unknown },
+) {
+  const calls: string[] = [];
+  await signedInAsOrganiser(page, (request, path) => {
+    const method = request.method();
+    if (method === "GET" && path === `/api/organisers/me/events/${draft.eventId}`) return { json: draft };
+    if (method === "PATCH" && path === `/api/events/${draft.eventId}`) {
+      calls.push("save");
+      return { json: draft };
+    }
+    if (method === "POST" && path === `/api/events/${draft.eventId}/publish`) {
+      calls.push("publish");
+      return publish(draft);
+    }
+    return null;
+  });
+  await page.goto(`/dashboard/${draft.eventId}`);
+  const form = page.locator("form").filter({ has: page.getByLabel("Title", { exact: true }) });
+  await expect(form.getByLabel("Title", { exact: true })).toHaveValue("Neon Static", { timeout: 30_000 });
+  return { form, calls };
+}
+
+for (const vp of [
+  { width: 375, height: 800 },
+  { width: 1280, height: 900 },
+]) {
+  test.describe(`/dashboard/[eventId]: publishing at ${vp.width}px`, () => {
+    test.use({ viewport: vp });
+
+    test("Publish… asks first (Cancel focused, Escape closes), then it's live, with a link to its page", async ({ page }) => {
+      const { form, calls } = await openDraftToPublish(page, freeDraft("evt-e2e-publish"), (draft) => ({
+        json: { ...draft, status: "published", ticketingLocked: true },
+      }));
+      const open = form.getByRole("button", { name: "Publish…" });
+      await open.click();
+      const question = form.getByRole("group", { name: "Publish this event now?" });
+      await expect(question).toContainText("Your followers are emailed about it. Emails can’t be unsent.");
+      await expect(question.getByRole("button", { name: "Cancel" })).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(open).toBeFocused();
+      expect(calls).toEqual([]);
+
+      await open.click();
+      for (const name of ["Publish now", "Cancel"]) {
+        expect((await question.getByRole("button", { name }).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+      await question.getByRole("button", { name: "Publish now" }).click();
+
+      const outcome = page.getByRole("group", { name: "Published" });
+      await expect(outcome).toBeFocused();
+      await expect(outcome).toContainText("It’s live on Sheltüh now");
+      await expect(outcome.getByRole("link", { name: "View your event page" })).toHaveAttribute("href", "/events/neon-static");
+      await expect(page.getByRole("heading", { level: 1, name: "Your event" })).toBeVisible();
+      await expect(page.getByLabel("Title", { exact: true })).toHaveCount(0);
+      expect(calls).toEqual(["save", "publish"]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    });
+
+    test("sent for review instead: says so, and why when it's known (a seat map)", async ({ page }) => {
+      const { form } = await openDraftToPublish(
+        page,
+        freeDraft("evt-e2e-seated-publish", { seating: { version: 1, seatCount: 40 } }),
+        (draft) => ({ json: { ...draft, status: "pending_review" } }),
+      );
+      await form.getByRole("button", { name: "Publish…" }).click();
+      const question = form.getByRole("group", { name: "Send this event for review?" });
+      await expect(question).toContainText("Events with a seat map are checked by a person before they go live.");
+      await question.getByRole("button", { name: "Send for review" }).click();
+      const outcome = page.getByRole("group", { name: "Sent for review" });
+      await expect(outcome).toBeFocused();
+      await expect(outcome).toContainText("Events with a seat map are checked by a person before they go live.");
+      await expect(page.getByRole("heading", { level: 1, name: "Your submission" })).toBeVisible();
+    });
+
+    test("refused because it changed meanwhile: says so, focused, with Reload page", async ({ page }) => {
+      const { form } = await openDraftToPublish(page, freeDraft("evt-e2e-changed"), () => ({
+        status: 409,
+        json: { error: "Changed.", code: "event_changed" },
+      }));
+      await form.getByRole("button", { name: "Publish…" }).click();
+      await form.getByRole("button", { name: "Publish now" }).click();
+      const refusal = form.getByRole("group", { name: /ticket link changed while it was being published/ });
+      await expect(refusal).toBeFocused();
+      await expect(refusal.getByRole("button", { name: "Reload page" })).toBeVisible();
+      await expect(form.getByRole("button", { name: "Publish…" })).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    });
+  });
+}
+
+test.describe("/dashboard/[eventId]: unpublished by Sheltüh, at 375px", () => {
+  test.use({ viewport: { width: 375, height: 800 } });
+
+  test("shows Sheltüh's note, and Send for review sends it with no question", async ({ page }) => {
+    const unpublished = freeDraft("evt-e2e-unpublished", {
+      ticketingLocked: true,
+      rejectionReason: "The photo isn't of this event.",
+      moderationLog: [
+        { action: "approved", by: "u1", at: "2026-10-20T00:00:00.000Z" },
+        { action: "unpublished", by: "sheltuh", at: "2026-10-21T00:00:00.000Z", reason: "The photo isn't of this event." },
+      ],
+    });
+    const { form, calls } = await openDraftToPublish(page, unpublished, (draft) => ({
+      json: { ...draft, status: "pending_review", rejectionReason: undefined },
+    }));
+    await expect(form.getByText("Taken off Sheltüh — note from Sheltüh:")).toBeVisible();
+    await expect(form.getByText("The photo isn't of this event.")).toBeVisible();
+    await expect(form.getByRole("button", { name: "Publish…" })).toHaveCount(0);
+    await form.getByRole("button", { name: "Send for review" }).click();
+    const outcome = page.getByRole("group", { name: "Sent for review" });
+    await expect(outcome).toBeFocused();
+    await expect(outcome).toContainText("Sheltüh took it off the site before");
+    expect(calls).toEqual(["save", "publish"]);
   });
 });

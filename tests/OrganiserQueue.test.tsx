@@ -18,7 +18,9 @@ const adminApproveOrganiser = vi.fn();
 const adminRejectOrganiser = vi.fn();
 const adminSuspendOrganiser = vi.fn();
 const adminRemoveOrganiserLogo = vi.fn();
+const adminSetEventReviewRequired = vi.fn();
 vi.mock("@/lib/api/admin", () => ({
+  adminSetEventReviewRequired: (...args: unknown[]) => adminSetEventReviewRequired(...args),
   adminListOrganisers: (...args: unknown[]) => adminListOrganisers(...args),
   adminApproveOrganiser: (...args: unknown[]) => adminApproveOrganiser(...args),
   adminRejectOrganiser: (...args: unknown[]) => adminRejectOrganiser(...args),
@@ -50,6 +52,7 @@ beforeEach(() => {
   adminRejectOrganiser.mockReset();
   adminSuspendOrganiser.mockReset();
   adminRemoveOrganiserLogo.mockReset();
+  adminSetEventReviewRequired.mockReset();
   fetchOrganiserLogo.mockReset();
   fetchOrganiserLogo.mockResolvedValue(new Blob(["logo"], { type: "image/webp" }));
   Object.assign(URL, { createObjectURL: vi.fn(() => "blob:logo"), revokeObjectURL: vi.fn() });
@@ -1033,4 +1036,85 @@ describe("Admin organisers: the URL and search", () => {
       expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Approved organisers (1+)");
     },
   );
+});
+
+describe("Admin organisers: reviewing an organiser's events before they go live", () => {
+  it("says how an approved organiser's events go live; pending ones have no switch", async () => {
+    listing("approved", [organiser("a1"), organiser("a2", { eventReviewRequired: true })]);
+    await showApproved();
+    expect(articleOf("Org a1")).toHaveTextContent("Their events: go live when they publish them");
+    expect(articleOf("Org a2")).toHaveTextContent("Their events: come to you for review before they go live");
+    expect(within(articleOf("Org a2")).getByRole("button", { name: "Stop reviewing their events first…" })).toBeInTheDocument();
+    cleanup();
+
+    fakeUrl.set("");
+    listing("pending", [organiser("p1", { status: "pending" })]);
+    renderQueue();
+    await screen.findByRole("heading", { name: "Org p1" });
+    expect(within(articleOf("Org p1")).queryByRole("button", { name: /Review this organiser/ })).toBeNull();
+  });
+
+  it("turning it on asks for a reason (focused, required, up to 500), then says so and focuses the organiser", async () => {
+    listing("approved", [organiser("a1")]);
+    adminSetEventReviewRequired.mockResolvedValue(organiser("a1", { eventReviewRequired: true }));
+    await showApproved();
+    const article = articleOf("Org a1");
+    fireEvent.click(within(article).getByRole("button", { name: "Review this organiser’s events before they go live…" }));
+    const group = within(article).getByRole("group", { name: /^Review Org a1’s events before they go live\?/ });
+    expect(group).toHaveTextContent("what’s already live stays live");
+    const reason = within(group).getByLabelText("Reason (kept on their log)");
+    await waitFor(() => expect(reason).toHaveFocus());
+
+    fireEvent.click(within(group).getByRole("button", { name: "Review their events" }));
+    expect(reason).toHaveAttribute("aria-invalid", "true");
+    fireEvent.change(reason, { target: { value: "x".repeat(501) } });
+    fireEvent.click(within(group).getByRole("button", { name: "Review their events" }));
+    expect(reason).toHaveAttribute("aria-invalid", "true");
+    expect(adminSetEventReviewRequired).not.toHaveBeenCalled();
+
+    fireEvent.change(reason, { target: { value: "Two reported events this week." } });
+    fireEvent.click(within(group).getByRole("button", { name: "Review their events" }));
+    await waitFor(() =>
+      expect(adminSetEventReviewRequired).toHaveBeenCalledWith("a1", true, "Two reported events this week.", expect.any(Function)),
+    );
+    await waitFor(() =>
+      expect(actionStatus()).toHaveTextContent("Org a1’s events now come to you for review before they go live."),
+    );
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Org a1" })).toHaveFocus());
+    expect(articleOf("Org a1")).toHaveTextContent("Their events: come to you for review before they go live");
+  });
+
+  it("turning it off sends false; Cancel returns to the button; a failure is shown in place", async () => {
+    listing("approved", [organiser("a1", { eventReviewRequired: true })]);
+    adminSetEventReviewRequired
+      .mockRejectedValueOnce(new ApiError(500, "Boom."))
+      .mockResolvedValueOnce(organiser("a1", { eventReviewRequired: false }));
+    await showApproved();
+    const article = articleOf("Org a1");
+    const open = () => within(article).getByRole("button", { name: "Stop reviewing their events first…" });
+    fireEvent.click(open());
+    fireEvent.click(within(article).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(open()).toHaveFocus());
+
+    fireEvent.click(open());
+    fireEvent.change(within(article).getByLabelText("Reason (kept on their log)"), { target: { value: "Settled." } });
+    fireEvent.click(within(article).getByRole("button", { name: "Stop reviewing first" }));
+    expect(await within(article).findByRole("alert")).toHaveTextContent("Couldn’t change this setting. Try again.");
+    fireEvent.click(within(article).getByRole("button", { name: "Stop reviewing first" }));
+    await waitFor(() => expect(adminSetEventReviewRequired).toHaveBeenLastCalledWith("a1", false, "Settled.", expect.any(Function)));
+    await waitFor(() => expect(actionStatus()).toHaveTextContent("Org a1’s events now go live when they publish them."));
+  });
+
+  it("shows the API's reason error on the field", async () => {
+    listing("approved", [organiser("a1")]);
+    adminSetEventReviewRequired.mockRejectedValue(new ApiError(400, "Invalid", { reason: "Reasons can't contain links." }));
+    await showApproved();
+    const article = articleOf("Org a1");
+    fireEvent.click(within(article).getByRole("button", { name: "Review this organiser’s events before they go live…" }));
+    const reason = within(article).getByLabelText("Reason (kept on their log)");
+    fireEvent.change(reason, { target: { value: "See https://x.example" } });
+    fireEvent.click(within(article).getByRole("button", { name: "Review their events" }));
+    expect(await within(article).findByText("Reasons can't contain links.")).toBeInTheDocument();
+    expect(reason).toHaveFocus();
+  });
 });

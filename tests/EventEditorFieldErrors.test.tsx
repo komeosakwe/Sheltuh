@@ -13,15 +13,16 @@ vi.mock("next/navigation", () => ({
 }));
 
 const updateEventDraft = vi.fn();
-const submitEventForReview = vi.fn();
+const publishEvent = vi.fn();
 vi.mock("@/lib/api/events", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/events")>();
   return {
     isPayoutsRequiredError: actual.isPayoutsRequiredError,
     isRefundPolicyTightenedError: actual.isRefundPolicyTightenedError,
+    publishConflictCode: actual.publishConflictCode,
     updateEventDraft: (...args: unknown[]) => updateEventDraft(...args),
     createEventDraft: vi.fn(),
-    submitEventForReview: (...args: unknown[]) => submitEventForReview(...args),
+    publishEvent: (...args: unknown[]) => publishEvent(...args),
     uploadEventImage: vi.fn(),
     deleteEventImage: vi.fn(),
   };
@@ -30,7 +31,7 @@ vi.mock("@/lib/api/events", async (importOriginal) => {
 afterEach(cleanup);
 beforeEach(() => {
   updateEventDraft.mockReset();
-  submitEventForReview.mockReset();
+  publishEvent.mockReset();
 });
 
 const EVENT: EventRecord = {
@@ -139,20 +140,25 @@ describe("EventEditor — field errors are tied to their fields", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Not saved: 1 field needs fixing.");
   });
 
-  it("Submit for review focuses the first field to fix too, and submits nothing", async () => {
+  it("Publish focuses the first field to fix too, and publishes nothing", async () => {
     renderEditor();
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: " " } });
-    fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish now" }));
     await waitFor(() => expect(screen.getByLabelText("Title")).toHaveFocus());
     expect(updateEventDraft).not.toHaveBeenCalled();
-    expect(submitEventForReview).not.toHaveBeenCalled();
+    expect(publishEvent).not.toHaveBeenCalled();
   });
 });
 
 describe("EventEditor — the buttons", () => {
-  it("Save draft, Submit for review and Add ticket type are 44px tall", () => {
+  it("Save draft, Publish… (and its question's buttons) and Add ticket type are 44px tall", () => {
     renderEditor();
-    for (const name of ["Save draft", "Submit for review", "Add ticket type"]) {
+    for (const name of ["Save draft", "Publish…", "Add ticket type"]) {
+      expect(screen.getByRole("button", { name })).toHaveClass("min-h-11");
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
+    for (const name of ["Publish now", "Cancel"]) {
       expect(screen.getByRole("button", { name })).toHaveClass("min-h-11");
     }
   });
@@ -174,20 +180,22 @@ describe("EventEditor — the buttons", () => {
     await waitFor(() => expect(save).not.toHaveAttribute("aria-disabled"));
   });
 
-  it("Submit for review is busy the same way while it submits", async () => {
+  it("Publish now is busy the same way while it publishes (Cancel too), then what happened is focused", async () => {
     updateEventDraft.mockResolvedValue(EVENT);
     let finish: (record: EventRecord) => void = () => {};
-    submitEventForReview.mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+    publishEvent.mockImplementation(() => new Promise((resolve) => (finish = resolve)));
     renderEditor();
-    const submit = screen.getByRole("button", { name: "Submit for review" });
+    fireEvent.click(screen.getByRole("button", { name: "Publish…" }));
+    const submit = screen.getByRole("button", { name: "Publish now" });
     submit.focus();
     fireEvent.click(submit);
-    await waitFor(() => expect(submit).toHaveTextContent("Submitting…"));
+    await waitFor(() => expect(submit).toHaveTextContent("Publishing…"));
     expect(submit).toHaveAttribute("aria-disabled", "true");
     expect(submit).not.toBeDisabled();
     expect(submit).toHaveFocus();
-    finish({ ...EVENT, status: "pending_review" });
-    await waitFor(() => expect(submit).not.toHaveAttribute("aria-disabled"));
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveAttribute("aria-disabled", "true");
+    finish({ ...EVENT, status: "published" });
+    await waitFor(() => expect(screen.getByRole("group", { name: "Published" })).toHaveFocus());
   });
 });
 

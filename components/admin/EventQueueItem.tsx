@@ -13,7 +13,7 @@ import { isPayoutsRequiredError } from "@/lib/api/events";
 import type { AdminEventRecord, EventStatus } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/session-token";
 import { clipPlayName, clipTimeLabel } from "@/lib/clip-display";
-import { formatEventWhen } from "@/lib/format";
+import { formatDayTime, formatEventWhen, formatTimeAgo } from "@/lib/format";
 import { validateMessage } from "@/lib/message-text";
 import { formatTicketBreakdown, formatTicketHeadline } from "@/lib/pricing";
 import { ticketProviderName } from "@/lib/ticketing";
@@ -24,6 +24,9 @@ import { eventPlaceName } from "@/lib/place";
 
 /** The API's limit for a rejection reason (lib/server/handlers/admin.ts, requireReason). */
 export const EVENT_REJECT_REASON_MAX = 1000;
+
+/** The API's limit for an unpublish reason (lib/server/handlers/admin.ts, as a takedown's). */
+export const EVENT_UNPUBLISH_REASON_MAX = 500;
 
 /** The heading's id: focus moves here when the event before it leaves the list. */
 export function eventHeadingId(eventId: string) {
@@ -48,9 +51,10 @@ type Action = "approve" | "reject" | "unpublish";
 /**
  * One event in the admin queue: what it is, who it's for, when and where,
  * its tickets with the all-inclusive prices buyers will see (lib/pricing.ts),
- * its seat map, and the actions for its status. Approve and Unpublish ask
- * first, saying what will happen; Reject asks for the reason the organiser
- * will see. An event that has ended can't be unpublished from here (there's
+ * its seat map, who published it and when (published events), and the
+ * actions for its status. Approve and Unpublish ask first, saying what will
+ * happen (Unpublish with an optional note the organiser sees); Reject asks
+ * for the reason the organiser will see. An event that has ended can't be unpublished from here (there's
  * nothing left to take offline). `onRemoved` is called when it leaves the
  * list (or turns out to have left it already), with what to announce.
  */
@@ -104,6 +108,17 @@ export default function EventQueueItem({
               </>
             )}
           </p>
+          {item.publishedAt && item.publishedBy && (
+            <p className="text-sm text-foreground" data-published-by={item.publishedBy}>
+              <span className={item.publishedBy === "organiser" ? "font-semibold" : undefined}>
+                {item.publishedBy === "organiser" ? "Published by the organiser" : "Published by Sheltüh"}
+              </span>{" "}
+              &middot;{" "}
+              <time dateTime={item.publishedAt} title={formatDayTime(item.publishedAt)}>
+                {formatTimeAgo(item.publishedAt, now)}
+              </time>
+            </p>
+          )}
           {(item.curation.excluded || item.curation.boost !== 1) && (
             <p className="text-sm text-foreground" data-curation>
               Trending:{" "}
@@ -345,6 +360,7 @@ function Actions({
     rejectConfirm: `reject-confirm-${id}`,
     reason: `reject-reason-${id}`,
     unpublish: `unpublish-${id}`,
+    unpublishReason: `unpublish-reason-${id}`,
     cancel: `cancel-${id}`,
     question: `confirm-question-${id}`,
   };
@@ -352,6 +368,9 @@ function Actions({
   const [open, setOpen] = useState<Action | null>(null);
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState<string | null>(null);
+  /** Unpublish's optional note to the organiser (EventRecord.rejectionReason), kept while the question is reopened. */
+  const [unpublishReason, setUnpublishReason] = useState("");
+  const [unpublishReasonError, setUnpublishReasonError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Action | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** The session ran out during this action: sign in again (the reason is kept), then retry it. */
@@ -377,8 +396,10 @@ function Actions({
   function openQuestion(action: Action) {
     clearErrors();
     setReasonError(null);
-    // The safe choice first: Cancel for a confirm, the reason box for a rejection.
-    pendingFocus.current = action === "reject" ? ids.reason : ids.cancel;
+    setUnpublishReasonError(null);
+    // The safe choice first: Cancel for Approve, the reason box for a rejection, and the optional
+    // note for Unpublish (the question describes it, so it's read on arriving).
+    pendingFocus.current = action === "reject" ? ids.reason : action === "unpublish" ? ids.unpublishReason : ids.cancel;
     setOpen(action);
   }
 
@@ -386,6 +407,7 @@ function Actions({
     const opener = open === "approve" ? ids.approve : open === "reject" ? ids.rejectOpen : ids.unpublish;
     clearErrors();
     setReasonError(null);
+    setUnpublishReasonError(null);
     pendingFocus.current = opener;
     setOpen(null);
   }
@@ -460,12 +482,32 @@ function Actions({
   async function unpublish() {
     if (busy) return;
     clearErrors();
+    const invalid = validateMessage(unpublishReason, {
+      label: "Reasons",
+      optional: true,
+      max: EVENT_UNPUBLISH_REASON_MAX,
+    });
+    setUnpublishReasonError(invalid);
+    if (invalid) {
+      document.getElementById(ids.unpublishReason)?.focus();
+      return;
+    }
+    const note = unpublishReason.trim();
     setBusy("unpublish");
     try {
-      await adminUnpublishEvent(id, getToken);
-      onRemoved(item, `Unpublished ${item.title}. It’s off the site and back with the organiser as a draft.`);
+      await adminUnpublishEvent(id, getToken, note || undefined);
+      onRemoved(
+        item,
+        `Unpublished ${item.title}. It’s off the site and back with the organiser as a draft${note ? ", with your note" : ""}.`,
+      );
     } catch (err) {
-      failed(err, "unpublish", "Couldn’t unpublish this event. Try again.");
+      if (err instanceof ApiError && err.fieldErrors?.reason) {
+        setUnpublishReasonError(err.fieldErrors.reason);
+        document.getElementById(ids.unpublishReason)?.focus();
+        setBusy(null);
+      } else {
+        failed(err, "unpublish", "Couldn’t unpublish this event. Try again.");
+      }
     }
   }
 
@@ -499,8 +541,24 @@ function Actions({
         <p id={ids.question} className="text-sm font-semibold">
           {open === "approve"
             ? `Publish ${item.title} now? It goes live on Sheltüh straight away, and the first time an event goes live its organiser’s followers are emailed (emails can’t be unsent).`
-            : `Unpublish ${item.title}? Its page and checkout go offline straight away, and it goes back to the organiser as a draft. Tickets already sold stay valid; refunds are a separate decision in Stripe.`}
+            : `Unpublish ${item.title}? Its page and checkout go offline straight away, and it goes back to the organiser as a draft. If they publish it again it comes to you for review. Tickets already sold stay valid; refunds are a separate decision in Stripe.`}
         </p>
+      )}
+      {open === "unpublish" && (
+        <MessageField
+          id={ids.unpublishReason}
+          label="Reason (optional; the organiser sees this)"
+          hint="Shown to the organiser on their event, so they know what to change."
+          describedBy={ids.question}
+          value={unpublishReason}
+          onChange={(value) => {
+            setUnpublishReason(value);
+            if (unpublishReasonError) setUnpublishReasonError(null);
+          }}
+          error={unpublishReasonError}
+          rows={2}
+          max={EVENT_UNPUBLISH_REASON_MAX}
+        />
       )}
 
       {error && (

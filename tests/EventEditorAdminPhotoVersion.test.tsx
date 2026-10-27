@@ -23,7 +23,7 @@ vi.mock("@/lib/api/events", async (importOriginal) => ({
   isRefundPolicyTightenedError: (await importOriginal<typeof import("@/lib/api/events")>()).isRefundPolicyTightenedError,
   updateEventDraft: vi.fn(),
   createEventDraft: vi.fn(),
-  submitEventForReview: vi.fn(),
+  publishEvent: vi.fn(),
   fetchPrivateEventImage: vi.fn().mockResolvedValue("blob:preview"),
 }));
 

@@ -20,8 +20,8 @@ export default function AboutPage() {
       </ContentSection>
       <ContentSection title="Curated, not scraped">
         <p>
-          Every organiser is approved before they can list, and every event is reviewed by a person
-          before it goes live. We’d rather show fewer, better events than everything.
+          Every organiser is checked by a person before they can publish, and we review events that
+          are reported. We’d rather show fewer, better events than everything.
         </p>
       </ContentSection>
       <ContentSection title="Honest prices">
