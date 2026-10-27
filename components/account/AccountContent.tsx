@@ -5,26 +5,31 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import DemoNotice from "@/components/DemoNotice";
 import { Button, ButtonLink } from "@/components/ui/Button";
-import { EmptyState, Notice, Panel } from "@/components/ui/Section";
+import { EmptyState, Notice } from "@/components/ui/Section";
+import InitialsAvatar from "@/components/ui/InitialsAvatar";
 import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
 import AdultCheckbox, { ADULT_ERROR } from "@/components/whos-going/AdultCheckbox";
 import DisplayNameField from "@/components/whos-going/DisplayNameField";
 import { SESSION_EXPIRED_MESSAGE } from "@/components/whos-going/shared";
 import SuspendedNotice from "@/components/whos-going/SuspendedNotice";
 import { ApiError } from "@/lib/api/client";
-import { deleteMyProfile, saveMyProfile } from "@/lib/api/profiles";
+import { saveMyProfile } from "@/lib/api/profiles";
 import type { ProfileRecord } from "@/lib/api/types";
 import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
 import { signInMethodsLabel } from "@/lib/auth/oauth";
+import { useOrganiser } from "@/lib/auth/useOrganiser";
 import { useProfile } from "@/lib/auth/useProfile";
 import { endSentence, validateDisplayName } from "@/lib/display-name";
 import { withNext } from "@/lib/safe-next-path";
 import { LoadingState } from "@/components/ui/ProgressLoader";
+import AccountLinks from "./AccountLinks";
+import DeleteProfile from "./DeleteProfile";
 import MemberProfileSettings from "./MemberProfileSettings";
 
 const pillClass = "w-full sm:w-auto";
 const linkClass = "underline underline-offset-4 hover:decoration-2";
-const PROFILE_INTRO = "This is the name people see when you add yourself to an event's guest list.";
+const sectionClass = "border-t border-foreground pt-4";
+const headingClass = "font-heading text-xl leading-6";
 const RETURN_TO = "/account";
 
 function errorMessage(err: unknown, fallback: string) {
@@ -33,13 +38,46 @@ function errorMessage(err: unknown, fallback: string) {
   return fallback;
 }
 
-/** /account: the signed-in email (and signing out), the Who's Going display name, and deleting that profile. */
+/**
+ * The card's heading and one-line intro, with the privacy link (`privacyLink`
+ * false where the form below has its own, beside its consent line).
+ */
+function ProfileHeading({ privacyLink = true }: { privacyLink?: boolean }) {
+  return (
+    <>
+      <h2 id="member-profile-title" className={headingClass}>
+        Your profile
+      </h2>
+      <p className="mt-1 mb-4 text-sm text-muted">
+        How you show on Who&rsquo;s Going lists.
+        {privacyLink && (
+          <>
+            {" "}
+            <Link href="/privacy#whos-going" className={linkClass}>
+              How we handle your information
+            </Link>
+          </>
+        )}
+      </p>
+    </>
+  );
+}
+
+/**
+ * /account, compact and profile first: Your profile (photo, display name,
+ * bio, Instagram, the visibility switch: one Save), a list of link rows
+ * (Your events for organisers, Organisers you follow, Messages, Blocked
+ * members), Sign-in (the email and how it signs in, Sign out), and Delete
+ * your profile behind a disclosure.
+ */
 export default function AccountContent() {
   const auth = useAuth();
   const router = useRouter();
   const { state, setProfile, reload } = useProfile();
+  const organiser = useOrganiser();
   // How this account signs in (Apple's guidelines: show it). Text only, no logos.
   const signInMethods = signInMethodsLabel(auth.providers);
+  const [deleted, setDeleted] = useState(false);
 
   function handleSignOut() {
     auth.signOut();
@@ -61,34 +99,23 @@ export default function AccountContent() {
     );
   }
 
-  return (
-    <div className="flex flex-col gap-10">
-      <Panel title="Signed in as">
-        <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 flex-col gap-1">
-            <p className="text-base break-words">{auth.email}</p>
-            {signInMethods && <p className="text-sm text-muted">Sign-in methods: {signInMethods}</p>}
-            <p className="text-sm text-muted">
-              Organising?{" "}
-              <Link href="/dashboard" className={linkClass}>
-                Your events
-              </Link>
-            </p>
-          </div>
-          <Button variant="outline" size="lg" onClick={handleSignOut} className={`${pillClass} shrink-0`}>
-            Sign out
-          </Button>
-        </div>
-      </Panel>
+  // Organisers (any application on file) get Your events. If their status
+  // couldn't be loaded, the row stays: the dashboard explains itself.
+  const showEvents = !organiser.loading && (organiser.organiser !== null || organiser.error !== null);
+  const profile = state.status === "ready" ? state.profile : null;
 
+  return (
+    <div className="flex flex-col gap-8">
       {state.status === "loading" && (
-        <Panel title="Who's Going profile">
+        <section className={sectionClass} aria-labelledby="member-profile-title">
+          <ProfileHeading />
           <LoadingState text="Loading your profile…" />
-        </Panel>
+        </section>
       )}
 
       {state.status === "error" && (
-        <Panel title="Who's Going profile">
+        <section className={sectionClass} aria-labelledby="member-profile-title">
+          <ProfileHeading />
           <div className="flex flex-col items-start gap-3">
             <Notice tone="danger" role="alert">
               Couldn&rsquo;t load your profile.
@@ -97,49 +124,103 @@ export default function AccountContent() {
               Try again
             </Button>
           </div>
-        </Panel>
+        </section>
       )}
 
       {state.status === "ready" && (
-        <ProfileSections profile={state.profile} onSaved={setProfile} getToken={auth.getAccessToken} />
+        <ProfileSection profile={state.profile} deleted={deleted} onSaved={setProfile} getToken={auth.getAccessToken} />
       )}
+
+      <AccountLinks showEvents={showEvents} />
+
+      <section className={sectionClass} aria-labelledby="sign-in-title">
+        <h2 id="sign-in-title" className={headingClass}>
+          Sign-in
+        </h2>
+        <div className="mt-3 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="min-w-0 text-sm text-muted">
+            <span>Signed in as </span>
+            <span className="break-words text-foreground">{auth.email}</span>
+            {signInMethods && (
+              <>
+                {/* One line from 640px; on a phone the methods start their own. */}
+                <span aria-hidden="true" className="hidden sm:inline">
+                  {" "}
+                  ·{" "}
+                </span>
+                <span className="block sm:inline">Sign-in methods: {signInMethods}</span>
+              </>
+            )}
+          </p>
+          <Button variant="outline" size="md" onClick={handleSignOut} className="min-h-11 shrink-0">
+            Sign out
+          </Button>
+        </div>
+      </section>
+
+      <section className={sectionClass}>
+        {profile && !deleted && (
+          <DeleteProfile
+            getToken={auth.getAccessToken}
+            onDeleted={() => {
+              setProfile(null);
+              setDeleted(true);
+            }}
+          />
+        )}
+        <p className={`text-xs text-muted ${profile && !deleted ? "mt-2" : ""}`.trim()}>
+          To delete your whole account, see our{" "}
+          <Link href="/privacy" className={linkClass}>
+            Privacy Policy
+          </Link>
+          .
+        </p>
+      </section>
     </div>
   );
 }
 
 function DemoAccount() {
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex flex-col gap-8">
       <DemoNotice>Accounts aren&rsquo;t available in this demo.</DemoNotice>
-      <Panel title="Who's Going profile">
-        <p className="mb-5 text-sm text-muted">{PROFILE_INTRO}</p>
-        <form className="flex flex-col gap-5" aria-label="Who's Going profile" onSubmit={(e) => e.preventDefault()}>
+      <section className={sectionClass} aria-labelledby="member-profile-title">
+        <ProfileHeading />
+        <form className="flex flex-col gap-5" aria-label="Your profile" onSubmit={(e) => e.preventDefault()}>
+          <div className="flex items-center gap-4">
+            <InitialsAvatar name="Mia T." size="field" />
+            <p className="text-sm text-muted">Photo (optional)</p>
+          </div>
           <DisplayNameField id="account-name" value="Mia T." onChange={() => {}} disabled />
           <Button type="submit" variant="solid" size="lg" disabled className={pillClass}>
-            Save name
+            Save profile
           </Button>
         </form>
-      </Panel>
+      </section>
     </div>
   );
 }
 
 type ProfileNotice = { kind: "created"; name: string } | { kind: "missing" };
 
-function ProfileSections({
+/**
+ * The profile card: set one up, edit it, or (once deleted) say so. Creating a
+ * profile, deleting it, or finding it gone mid-save (deleted in another tab)
+ * swaps the card's content out from under the person, so focus goes to the
+ * message that explains the new state.
+ */
+function ProfileSection({
   profile,
+  deleted,
   onSaved,
   getToken,
 }: {
   profile: ProfileRecord | null;
+  deleted: boolean;
   onSaved: (profile: ProfileRecord | null) => void;
   getToken: () => Promise<string>;
 }) {
-  const [deleted, setDeleted] = useState(false);
   const deletedRef = useRef<HTMLDivElement>(null);
-  // Creating a profile, or finding it gone mid-rename (deleted in another
-  // tab), swaps the form out from under the person, so focus goes to the
-  // message that explains the new state.
   const [notice, setNotice] = useState<ProfileNotice | null>(null);
   const noticeRef = useRef<HTMLDivElement>(null);
 
@@ -160,117 +241,55 @@ function ProfileSections({
     );
   }
 
-  if (!profile) {
-    return (
-      <Panel title="Who's Going profile">
-        <p className="text-sm text-muted">{PROFILE_INTRO}</p>
-        <div ref={notice?.kind === "missing" ? noticeRef : undefined} tabIndex={-1} className="mt-3 outline-offset-2">
-          <p className="text-sm">
-            You haven&rsquo;t set up a profile yet. Create one here, or when you first add yourself to an event.
-          </p>
-        </div>
-        <div className="mt-5">
-          <CreateProfileForm
-            getToken={getToken}
-            onCreated={(created) => {
-              onSaved(created);
-              setNotice({ kind: "created", name: created.displayName });
-            }}
-          />
-        </div>
-      </Panel>
-    );
-  }
+  const onMissing = () => {
+    onSaved(null);
+    setNotice({ kind: "missing" });
+  };
 
   return (
-    <>
-      <Panel title="Who's Going profile">
-        <p className="mb-5 text-sm text-muted">{PROFILE_INTRO}</p>
-        {notice?.kind === "created" && (
-          <div ref={noticeRef} tabIndex={-1} className="mb-5 outline-offset-2">
-            <Notice role="status">Your profile is set up. You&rsquo;ll be shown as {endSentence(notice.name)}</Notice>
+    // #member-profile: where "Edit your profile" on a member page lands.
+    <section
+      id="member-profile"
+      tabIndex={-1}
+      aria-labelledby="member-profile-title"
+      className={`${sectionClass} scroll-mt-24 outline-offset-2`}
+    >
+      <ProfileHeading privacyLink={profile !== null} />
+      {profile ? (
+        <>
+          {notice?.kind === "created" && (
+            <div ref={noticeRef} tabIndex={-1} className="mb-4 outline-offset-2">
+              <Notice role="status">Your profile is set up. You&rsquo;ll be shown as {endSentence(notice.name)}</Notice>
+            </div>
+          )}
+          {profile.suspended && (
+            <div className="mb-4">
+              <Notice>
+                <SuspendedNotice />
+              </Notice>
+            </div>
+          )}
+          <MemberProfileSettings profile={profile} getToken={getToken} onSaved={onSaved} onMissing={onMissing} />
+        </>
+      ) : (
+        <>
+          <div ref={notice?.kind === "missing" ? noticeRef : undefined} tabIndex={-1} className="outline-offset-2">
+            <p className="text-sm">
+              You haven&rsquo;t set up a profile yet. Create one here, or when you first add yourself to an event.
+            </p>
           </div>
-        )}
-        {profile.suspended && (
-          <div className="mb-5">
-            <Notice>
-              <SuspendedNotice />
-            </Notice>
+          <div className="mt-4">
+            <CreateProfileForm
+              getToken={getToken}
+              onCreated={(created) => {
+                onSaved(created);
+                setNotice({ kind: "created", name: created.displayName });
+              }}
+            />
           </div>
-        )}
-        <RenameForm
-          profile={profile}
-          onSaved={onSaved}
-          onMissing={() => {
-            onSaved(null);
-            setNotice({ kind: "missing" });
-          }}
-          getToken={getToken}
-        />
-      </Panel>
-
-      <div id="member-profile" tabIndex={-1} className="scroll-mt-24 outline-offset-2">
-        <Panel title="Member profile" titleId="member-profile-title">
-          <p className="mb-5 text-sm text-muted">
-            An optional page about you that other members can open from Who&rsquo;s Going lists.{" "}
-            <Link href="/privacy#whos-going" className={linkClass}>
-              How we handle your information
-            </Link>
-          </p>
-          <MemberProfileSettings
-            profile={profile}
-            getToken={getToken}
-            onSaved={onSaved}
-            onMissing={() => {
-              onSaved(null);
-              setNotice({ kind: "missing" });
-            }}
-          />
-        </Panel>
-      </div>
-
-      <Panel title="Organisers you follow">
-        <p className="text-sm text-muted">
-          Their new events show on your home page, and you can choose an email when they announce one.
-        </p>
-        <p className="mt-2 text-sm">
-          <Link href="/following" className={`inline-flex min-h-11 items-center ${linkClass}`}>
-            Organisers you follow
-          </Link>
-        </p>
-      </Panel>
-
-      <Panel title="Messages">
-        <p className="text-sm text-muted">
-          Conversations with people you&rsquo;ve met on Who&rsquo;s Going, and the people you&rsquo;ve blocked.
-        </p>
-        <p className="mt-2 flex flex-wrap gap-x-6 text-sm">
-          <Link href="/messages" className={`inline-flex min-h-11 items-center ${linkClass}`}>
-            Your messages
-          </Link>
-          <Link href="/messages/blocked" className={`inline-flex min-h-11 items-center ${linkClass}`}>
-            Blocked members
-          </Link>
-        </p>
-      </Panel>
-
-      <Panel title="Delete your profile">
-        <DeleteProfile
-          getToken={getToken}
-          onDeleted={() => {
-            onSaved(null);
-            setDeleted(true);
-          }}
-        />
-        <p className="mt-5 text-xs text-muted">
-          To delete your whole account, see our{" "}
-          <Link href="/privacy" className={linkClass}>
-            Privacy Policy
-          </Link>
-          .
-        </p>
-      </Panel>
-    </>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -350,162 +369,5 @@ function CreateProfileForm({
         {error && <ActionErrorNotice message={error} returnTo={RETURN_TO} />}
       </div>
     </form>
-  );
-}
-
-function RenameForm({
-  profile,
-  onSaved,
-  onMissing,
-  getToken,
-}: {
-  profile: ProfileRecord;
-  onSaved: (profile: ProfileRecord) => void;
-  /** The profile has gone (404, e.g. deleted in another tab). */
-  onMissing: () => void;
-  getToken: () => Promise<string>;
-}) {
-  const [name, setName] = useState(profile.displayName);
-  const [fieldError, setFieldError] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  function change(value: string) {
-    setName(value);
-    setSaved(null);
-  }
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (saving) return;
-    setError(null);
-    setSaved(null);
-    const invalid = validateDisplayName(name);
-    setFieldError(invalid);
-    if (invalid) {
-      inputRef.current?.focus();
-      return;
-    }
-    setSaving(true);
-    try {
-      const updated = await saveMyProfile({ displayName: name.trim() }, getToken);
-      onSaved(updated);
-      setName(updated.displayName);
-      setSaved(updated.displayName);
-    } catch (err) {
-      if (err instanceof ApiError && err.fieldErrors?.displayName) {
-        setFieldError(err.fieldErrors.displayName);
-        inputRef.current?.focus();
-      } else if (err instanceof ApiError && err.status === 404) {
-        onMissing();
-        return;
-      } else {
-        setError(errorMessage(err, "Couldn't save your name. Try again."));
-      }
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <form noValidate aria-label="Who's Going profile" aria-busy={saving} onSubmit={handleSubmit} className="flex flex-col gap-5">
-      <DisplayNameField id="account-name" value={name} onChange={change} error={fieldError} inputRef={inputRef} />
-      <div className="flex flex-col items-start gap-3">
-        {/* busy, not disabled: focus stays on the button through the save. */}
-        <Button type="submit" variant="solid" size="lg" busy={saving} className={pillClass}>
-          {saving ? "Saving…" : "Save name"}
-        </Button>
-        {error && <ActionErrorNotice message={error} returnTo={RETURN_TO} />}
-        {/* Always mounted so the confirmation is announced when it appears. */}
-        <div role="status">
-          {saved && <Notice>Saved. Events you&rsquo;ve joined now show {endSentence(saved)}</Notice>}
-        </div>
-      </div>
-    </form>
-  );
-}
-
-function DeleteProfile({ getToken, onDeleted }: { getToken: () => Promise<string>; onDeleted: () => void }) {
-  const [confirming, setConfirming] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // Opening the confirm focuses its safe choice (Cancel); cancelling returns
-  // focus to "Delete profile". Applied after the swap has rendered.
-  const pendingFocus = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!pendingFocus.current) return;
-    // Consumed only once the target exists: the mount's effect can still be
-    // pending when the first click sets it, and would otherwise use it up.
-    const element = document.getElementById(pendingFocus.current);
-    if (!element) return;
-    pendingFocus.current = null;
-    element.focus();
-  }, [confirming]);
-
-  async function confirmDelete() {
-    if (deleting) return;
-    setError(null);
-    setDeleting(true);
-    try {
-      await deleteMyProfile(getToken);
-      onDeleted();
-    } catch (err) {
-      setError(errorMessage(err, "Couldn't delete your profile. Try again."));
-      setDeleting(false);
-    }
-  }
-
-  return (
-    <div className="flex flex-col items-start gap-4">
-      <p className="text-sm">
-        Removes your display name and member profile (bio, Instagram and photo), takes you off every event&rsquo;s
-        Who&rsquo;s Going list and deletes your conversations, for you and the people you were talking to. Your
-        tickets and account aren&rsquo;t affected.
-      </p>
-      {confirming ? (
-        <div role="group" aria-labelledby="delete-confirm-text" className="flex w-full flex-col gap-3">
-          <p id="delete-confirm-text" className="text-sm font-semibold">
-            Delete your Who&rsquo;s Going profile?
-          </p>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            {/* busy, not disabled: after a failure focus is still here to retry. */}
-            <Button variant="danger" size="lg" busy={deleting} onClick={confirmDelete} className={pillClass}>
-              {deleting ? "Deleting…" : "Yes, delete"}
-            </Button>
-            <Button
-              id="delete-profile-cancel"
-              variant="outline"
-              size="lg"
-              busy={deleting}
-              onClick={() => {
-                setConfirming(false);
-                setError(null);
-                pendingFocus.current = "delete-profile";
-              }}
-              className={pillClass}
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <Button
-          id="delete-profile"
-          variant="danger"
-          size="lg"
-          onClick={() => {
-            setConfirming(true);
-            pendingFocus.current = "delete-profile-cancel";
-          }}
-          className={pillClass}
-        >
-          Delete profile
-        </Button>
-      )}
-      {error && <ActionErrorNotice message={error} returnTo={RETURN_TO} />}
-    </div>
   );
 }
