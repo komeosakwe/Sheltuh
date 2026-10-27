@@ -1,4 +1,5 @@
 import { devices, expect, test, type Page } from "@playwright/test";
+import { pressFocusLikeWebKit } from "./webkit-focus";
 import type { PublicEvent } from "@/lib/api/public-events";
 import { findLocality } from "@/lib/location";
 import { NEAR_STORAGE_KEY } from "@/lib/near-storage";
@@ -502,30 +503,6 @@ test.describe("the hero's bar at 1024px", () => {
     expect(Math.round(box.x)).toBe(Math.round(Math.max(bar.x, Math.min(segment.x, bar.x + bar.width - 320))));
   });
 });
-
-/**
- * Safari, and every browser on an iPhone (all WebKit), never focuses a button or link it's
- * pressed on: focus goes to the nearest focusable element around it instead, and the panel's
- * nearest is <main tabIndex={-1}> (app/layout.tsx). The suite runs Chromium only, which does
- * focus a pressed button, so this does what WebKit does on each press. It stands in for
- * WebKit's focus rule only: it isn't Safari or a real device.
- */
-async function pressFocusLikeWebKit(page: Page) {
-  await page.addInitScript(() => {
-    window.addEventListener(
-      "mousedown",
-      (event) => {
-        const pressed = event.target instanceof Element ? event.target.closest("button, a[href]") : null;
-        if (!pressed) return;
-        event.preventDefault();
-        const around = pressed.parentElement?.closest<HTMLElement>("[tabindex]");
-        if (around) around.focus();
-        else if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-      },
-      true,
-    );
-  });
-}
 
 test.describe("near you on an iPhone-sized touch screen, as WebKit moves focus", () => {
   const { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch } = devices["iPhone 13"];

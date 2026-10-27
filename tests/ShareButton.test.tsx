@@ -43,6 +43,24 @@ afterEach(() => {
   window.history.replaceState(null, "", "/");
 });
 
+/**
+ * A press as Safari and every iOS browser (WebKit) does it: the pressed button or link isn't
+ * focused; focus goes to the nearest focusable element around it, the layout's
+ * <main tabIndex={-1}> (app/layout.tsx); then the click lands. (Chromium focuses what was pressed.)
+ */
+function pressLikeWebKit(target: HTMLElement) {
+  const main = document.getElementById("main");
+  if (!main) throw new Error("no <main>");
+  fireEvent.pointerDown(target);
+  fireEvent.mouseDown(target);
+  const from = document.activeElement instanceof HTMLElement ? document.activeElement : document.body;
+  fireEvent.blur(from, { relatedTarget: main });
+  act(() => main.focus());
+  fireEvent.pointerUp(target);
+  fireEvent.mouseUp(target);
+  fireEvent.click(target);
+}
+
 function renderShare() {
   render(<ShareButton slug="neon-static" title="Neon Static" text="Neon Static · Fri 25 Sep, 8:00 pm · Warehouse 9" />);
   return screen.getByRole("button", { name: "Share Neon Static" });
@@ -177,6 +195,23 @@ describe("ShareButton", () => {
     expect(button).not.toHaveAttribute("aria-expanded");
   });
 
+  it("a WebKit press on Copy (focus goes to <main> around it) keeps the popover open, so the click lands", async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("denied"));
+    setNavigator({ clipboard: { writeText } });
+    render(
+      <main id="main" tabIndex={-1}>
+        <ShareButton slug="neon-static" title="Neon Static" />
+      </main>,
+    );
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Share Neon Static" })));
+    expect(writeText).toHaveBeenCalledTimes(1);
+    await act(async () => pressLikeWebKit(screen.getByRole("button", { name: "Copy" })));
+    // Copy ran (a second try), and still can't: it says so in the open popover.
+    expect(writeText).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("group", { name: "Copy the link" })).toBeInTheDocument();
+    expect(screen.getByText(/Couldn’t copy it automatically/)).toBeInTheDocument();
+  });
+
   it("with no clipboard at all, opens the manual copy popover", async () => {
     setNavigator({});
     const button = renderShare();
@@ -275,6 +310,28 @@ describe("AddToCalendar", () => {
     fireEvent.pointerDown(screen.getByText("Elsewhere"));
     expect(screen.queryByRole("link")).toBeNull();
     expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("a WebKit press on a calendar link (focus goes to <main> around it) keeps the menu open, so the link's click lands", () => {
+    render(
+      <main id="main" tabIndex={-1}>
+        <AddToCalendar event={event} />
+      </main>,
+    );
+    // Opened from the keyboard (focus on the trigger), then a link tapped.
+    const trigger = screen.getByRole("button", { name: "Add to calendar" });
+    act(() => trigger.focus());
+    fireEvent.click(trigger);
+    const google = screen.getByRole("link", { name: "Google Calendar (opens in a new tab)" });
+    const landed = vi.fn((e: Event) => e.preventDefault());
+    google.addEventListener("click", landed);
+    pressLikeWebKit(google);
+    expect(google.isConnected).toBe(true);
+    expect(landed).toHaveBeenCalledTimes(1);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    // Tabbing on out of the menu still closes it.
+    fireEvent.blur(google, { relatedTarget: document.body.appendChild(document.createElement("button")) });
+    expect(screen.queryByRole("link")).toBeNull();
   });
 
   it("says so, instead of doing nothing, when the event's date can't be read", () => {
