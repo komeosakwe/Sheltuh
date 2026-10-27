@@ -180,10 +180,16 @@ export default function LocationPicker({
         .catch(() => setTable(null));
     }
     // Tabbing out of the panel closes it, as clicking outside does (popover="auto").
-    // Only when focus lands somewhere else: a click on the panel's own text blurs to nothing.
+    // Only when focus lands somewhere else. A press on the panel moves focus to the nearest
+    // focusable element around it, an ancestor: <main tabIndex={-1}> (app/layout.tsx, the skip
+    // link's target). That's a press on the panel's text anywhere, and in Safari and every iOS
+    // browser (WebKit doesn't focus a pressed button or link) a press on its buttons and link
+    // too: closing then hid the button before its click landed, so "Use my current location"
+    // did nothing on an iPhone. A press outside the panel is light dismiss's to close.
     function handleFocusOut(event: FocusEvent) {
       const next = event.relatedTarget;
-      if (!(next instanceof Node) || popover?.contains(next) || buttonRef.current?.contains(next)) return;
+      if (!(next instanceof Node) || !popover || next.contains(popover) || popover.contains(next)) return;
+      if (buttonRef.current?.contains(next)) return;
       popover?.hidePopover?.();
     }
     popover.addEventListener("beforetoggle", handleBeforeToggle);

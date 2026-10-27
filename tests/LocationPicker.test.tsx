@@ -345,4 +345,91 @@ describe("LocationPicker — closing", () => {
     focusOut(field, screen.getByRole("button", { name: "Search" }));
     expect(hidePopover).toHaveBeenCalledTimes(1);
   });
+
+  /** The bar inside the layout's <main tabIndex={-1}> (app/layout.tsx), the panel's nearest focusable ancestor. */
+  function renderInMain() {
+    return render(
+      <main id="main" tabIndex={-1}>
+        <SearchBar label="Search events" size="lg" tone="signal" placeholder="Search events" />
+      </main>,
+    );
+  }
+
+  /**
+   * A press as Safari and every iOS browser (WebKit) does it: the pressed button isn't focused,
+   * focus goes to <main> around the panel, then the click lands. (Chromium focuses the button.)
+   */
+  function pressLikeWebKit(target: HTMLElement) {
+    const main = document.getElementById("main");
+    if (!main) throw new Error("no <main>");
+    fireEvent.pointerDown(target);
+    fireEvent.mouseDown(target);
+    const from = document.activeElement instanceof HTMLElement ? document.activeElement : document.body;
+    fireEvent.focusOut(from, { relatedTarget: main });
+    act(() => main.focus());
+    fireEvent.pointerUp(target);
+    fireEvent.mouseUp(target);
+    fireEvent.click(target);
+  }
+
+  it("stays open when a press moves focus to <main> around it (the panel's text; in WebKit, its buttons)", () => {
+    renderInMain();
+    const panel = openPanel();
+    const hidePopover = vi.fn();
+    Object.assign(panel, { hidePopover });
+    focusOut(within(panel).getByRole("button", { name: "Use my current location", hidden: true }), document.getElementById("main"));
+    expect(hidePopover).not.toHaveBeenCalled();
+  });
+
+  it("a WebKit tap on Use my current location asks for the position and sets the suburb (it used to close first)", async () => {
+    renderInMain();
+    const panel = openPanel();
+    const hidePopover = vi.fn();
+    Object.assign(panel, { hidePopover });
+    const fitzroy = findLocality("Fitzroy");
+    if (!fitzroy) throw new Error("fixture");
+    getCurrentPosition.mockImplementation((success) => success(position(fitzroy.lat, fitzroy.lng)));
+    pressLikeWebKit(within(panel).getByRole("button", { name: "Use my current location", hidden: true }));
+    // Closed by the success, once, not by the press.
+    await screen.findByRole("button", { name: "Location: Fitzroy" });
+    expect(getCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(hidePopover).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(localStorage.getItem(NEAR_STORAGE_KEY) ?? "null")).toEqual({ suburb: "Fitzroy", state: "VIC" });
+  });
+
+  it("a WebKit tap on Anywhere in Australia clears the suburb", () => {
+    localStorage.setItem(NEAR_STORAGE_KEY, JSON.stringify({ suburb: "Fitzroy", state: "VIC" }));
+    renderInMain();
+    const panel = openPanel();
+    pressLikeWebKit(within(panel).getByRole("button", { name: "Anywhere in Australia", hidden: true }));
+    expect(screen.getByRole("button", { name: "Location: Anywhere" })).toBeInTheDocument();
+    expect(localStorage.getItem(NEAR_STORAGE_KEY)).toBeNull();
+  });
+
+  it("the page losing focus or being hidden while locating (a phone's permission prompt) neither closes it nor loses the answer", async () => {
+    renderInMain();
+    const panel = openPanel();
+    const hidePopover = vi.fn();
+    Object.assign(panel, { hidePopover });
+    let answer: ((error: GeolocationPositionError) => void) | undefined;
+    getCurrentPosition.mockImplementation((_success, failure) => {
+      answer = failure;
+    });
+    const use = within(panel).getByRole("button", { name: "Use my current location", hidden: true });
+    act(() => use.focus());
+    fireEvent.click(use);
+    // The prompt takes focus from the page (focus goes nowhere), and may hide it.
+    fireEvent.focusOut(use, { relatedTarget: null });
+    fireEvent.blur(window);
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    fireEvent(document, new Event("visibilitychange"));
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    fireEvent(document, new Event("visibilitychange"));
+    fireEvent.focus(window);
+    expect(hidePopover).not.toHaveBeenCalled();
+    act(() => answer?.(positionError(3)));
+    expect(within(panel).getByRole("status", { hidden: true })).toHaveTextContent("Couldn’t find your location. Type your suburb instead.");
+    expect(hidePopover).not.toHaveBeenCalled();
+    Reflect.deleteProperty(document, "visibilityState");
+  });
 });
