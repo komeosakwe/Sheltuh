@@ -1,3 +1,4 @@
+import { findLocality } from "@/lib/location";
 import { adminApproveEvent, adminApproveOrganiser } from "@/lib/server/handlers/admin";
 import { publishEvent } from "@/lib/server/handlers/event-publish";
 import { createEventDraft, submitEventForReview } from "@/lib/server/handlers/events";
@@ -43,8 +44,38 @@ export async function approvedOrganiser(api: TestApi, admin: { token: string }, 
   return { ...user, organiserId };
 }
 
+/**
+ * The organiser's manual pin at the centre of `suburb` in `state` (Victoria
+ * when no state is given: what the API reads a body without one as), found as
+ * the API finds it; null when the suburb isn't one in that state. A pin at the
+ * suburb's own centre is always within its reach (lib/location.ts
+ * isPinNearLocality).
+ */
+export function suburbPin(suburb: unknown, state: unknown = "VIC"): { source: "manual_pin"; pin: { lat: number; lng: number } } | null {
+  if (typeof suburb !== "string" || typeof state !== "string") return null;
+  for (const text of [`${suburb} ${state}`, suburb]) {
+    const place = findLocality(text);
+    if (place?.state === state) {
+      return { source: "manual_pin", pin: { lat: Math.round(place.lat * 1e6) / 1e6, lng: Math.round(place.lng * 1e6) / 1e6 } };
+    }
+  }
+  return null;
+}
+
+/**
+ * A draft, as the organiser saved it. Publishing or submitting needs a
+ * confirmed venue location (`location_required`), so unless `overrides` says
+ * otherwise (`location`, null for none) it has the organiser's manual pin at
+ * its suburb's centre (suburbPin; none when the suburb isn't found, e.g. a
+ * validation test's placeholder).
+ */
 export async function draftEvent(api: TestApi, organiser: { token: string }, overrides: Record<string, unknown> = {}) {
-  const res = await api.call(createEventDraft, { token: organiser.token, body: eventInput(overrides) });
+  const body: Record<string, unknown> = eventInput(overrides);
+  if (!("location" in overrides)) {
+    const location = suburbPin(body.suburb, body.state ?? "VIC");
+    if (location) body.location = location;
+  }
+  const res = await api.call(createEventDraft, { token: organiser.token, body });
   if (res.status !== 201) throw new Error(`createEventDraft failed: ${JSON.stringify(res.body)}`);
   return res.body as EventRecord;
 }

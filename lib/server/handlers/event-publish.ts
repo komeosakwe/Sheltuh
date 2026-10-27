@@ -3,6 +3,7 @@ import { ticketProviderName } from "@/lib/ticketing";
 import { requireCaller } from "../auth";
 import { sendReviewEmailsSoon, sendSelfPublishEmailsSoon } from "../email-outbox";
 import { HttpError, okPrivate } from "../http";
+import { locationRequired } from "../location-refusal";
 import { PAYOUTS_REQUIRED_TO_PUBLISH, payoutsRefused, payoutsRequired } from "../payouts-refusal";
 import type { Handler } from "../route";
 import type { EventRecord } from "../types";
@@ -26,6 +27,7 @@ type PublishResult =
   | "not_found"
   | "ended"
   | "payouts_required"
+  | "location_required"
   | "stale";
 
 /** The 409s' `code`s (lib/api/types.ts PublishEventConflictCode). */
@@ -65,7 +67,8 @@ export function needsTicketLinkReview(event: Pick<EventRecord, "ticketingMode" |
  * 403 not an approved organiser; 404 not theirs. 409 with `code`: `payouts_required`
  * (a paid Sheltüh ticket type, payouts not set up), `event_ended`,
  * `in_review` (already waiting), `event_changed` (its ticket link changed
- * after it was read here: try again). The emails are sent after the
+ * after it was read here: try again), `location_required` (no confirmed venue
+ * location: the organiser's pin; fieldErrors.location). The emails are sent after the
  * response (Deps.defer).
  */
 export const publishEvent: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
@@ -98,6 +101,8 @@ export const publishEvent: Handler<{ eventId: string }> = async (req, { eventId 
       throw new HttpError(409, EVENT_CHANGED_WHILE_PUBLISHING, undefined, { code: PUBLISH_CONFLICT.changed });
     case "payouts_required":
       throw payoutsRequired(PAYOUTS_REQUIRED_TO_PUBLISH);
+    case "location_required":
+      throw locationRequired();
     case "published":
       sendSelfPublishEmailsSoon(deps);
       break;

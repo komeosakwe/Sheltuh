@@ -711,4 +711,17 @@ describe("module boundaries", () => {
       expect(loaded).not.toContain(heavy);
     }
   });
+
+  it("neither do the venue search routes (app/api/places/*)", () => {
+    for (const entry of ["app/api/places/autocomplete/route.ts", "app/api/places/details/route.ts"]) {
+      const loaded = runtimeImports(entry);
+      for (const deep of ["lib/server/handlers/places.ts", "lib/server/places.ts", "lib/server/records.ts"]) {
+        expect(loaded, entry).toContain(deep);
+      }
+      for (const heavy of ["lib/server/event-input.ts", "lib/server/handlers/events.ts", "lib/location.ts", "lib/localities.ts"]) {
+        expect(loaded, entry).not.toContain(heavy);
+      }
+    }
+    expect(runtimeImports("app/api/events/[eventId]/publish/route.ts")).toContain("lib/server/location-refusal.ts");
+  });
 });

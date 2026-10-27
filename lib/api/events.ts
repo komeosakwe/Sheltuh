@@ -3,7 +3,7 @@ import type { TicketingMode } from "@/lib/ticketing";
 import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
 import type { EventCategory } from "@/lib/types";
 import { ApiError, apiFetch, type GetToken } from "./client";
-import type { EventRecord, Paginated, PublishEventConflictCode, TicketTypeInput } from "./types";
+import type { EventRecord, Paginated, PublishEventConflictCode, TicketTypeInput, VenueLocationInput } from "./types";
 
 export interface EventInput {
   title: string;
@@ -79,6 +79,13 @@ export interface EventInput {
    * fieldErrors.refundPolicy.
    */
   refundDays?: number | null;
+  /**
+   * The venue's location (VenueLocationInput: a Google place from
+   * lib/api/places.ts, with the organiser's pin once they've checked it, or
+   * a manual pin). Absent: kept as stored when editing, none when creating.
+   * null: cleared. Publishing or submitting needs a pin (`location_required`).
+   */
+  location?: VenueLocationInput | null;
 }
 
 export async function createEventDraft(input: EventInput, getToken: GetToken) {
@@ -120,8 +127,9 @@ export function isRefundPolicyTightenedError(err: unknown): err is ApiError {
 /**
  * Draft or rejected → pending review. ApiError 409 when it isn't a draft or
  * rejected, or (`code: "payouts_required"`, isPayoutsRequiredError) when it
- * has a paid Sheltüh ticket type and the organiser's payouts aren't set up;
- * 404 unknown event.
+ * has a paid Sheltüh ticket type and the organiser's payouts aren't set up,
+ * or (`code: "location_required"`, publishConflictCode) when it has no
+ * confirmed venue location (`location.pin`); 404 unknown event.
  */
 export async function submitEventForReview(eventId: string, getToken: GetToken) {
   const token = await getToken();
@@ -139,7 +147,8 @@ export async function submitEventForReview(eventId: string, getToken: GetToken) 
  * 403 not an approved organiser, 404 unknown event, 409 with a `code`
  * (publishConflictCode): `payouts_required` (isPayoutsRequiredError),
  * `event_ended`, `in_review` (already waiting for review), `event_changed`
- * (its ticket link changed meanwhile: reload and try again).
+ * (its ticket link changed meanwhile: reload and try again),
+ * `location_required` (no confirmed venue location yet: `location.pin`).
  */
 export async function publishEvent(eventId: string, getToken: GetToken) {
   const token = await getToken();

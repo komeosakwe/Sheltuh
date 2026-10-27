@@ -310,10 +310,18 @@ function nameFor(row: number): string {
 }
 
 const PLACES: (Locality | undefined)[] = [];
+/** Each Locality this module made, to its row (isPinNearLocality reads its reach). */
+const ROW_OF = new WeakMap<Locality, number>();
 
 /** Row `row` as a Locality: made the first time it's asked for, then the same object every time. */
 function placeAt(row: number): Locality {
-  return (PLACES[row] ??= Object.freeze({ name: nameFor(row), state: STATE[row], lat: LAT[row], lng: LNG[row] }));
+  let place = PLACES[row];
+  if (!place) {
+    place = Object.freeze({ name: nameFor(row), state: STATE[row], lat: LAT[row], lng: LNG[row] });
+    PLACES[row] = place;
+    ROW_OF.set(place, row);
+  }
+  return place;
 }
 
 /** How many suburbs and localities the table has. */
@@ -432,6 +440,27 @@ export function nearestLocality(position: Coordinates): NearestResult {
     }
   }
   return best === null ? { kind: "outside" } : { kind: "found", locality: placeAt(best) };
+}
+
+/**
+ * How far past a suburb's own reach (its centre to its furthest boundary
+ * point, rounded up) an event's venue pin may be, in km: the API refuses a
+ * pin further from the suburb the event names (lib/server/event-input.ts).
+ * Generous, since the table keeps one centre per locality, not its boundary,
+ * and a venue on the edge of a big rural locality is still in it.
+ */
+export const PIN_REACH_MARGIN_KM = 10;
+
+/**
+ * Whether `pin` is within `locality`'s reach plus `marginKm`
+ * (PIN_REACH_MARGIN_KM by default): a venue pin plausibly in that suburb.
+ * `locality` must be one this module returned (findLocality and the like);
+ * any other object, or a position that isn't finite, is false.
+ */
+export function isPinNearLocality(locality: Locality, pin: Coordinates, marginKm = PIN_REACH_MARGIN_KM): boolean {
+  const row = ROW_OF.get(locality);
+  if (row === undefined || !Number.isFinite(pin.lat) || !Number.isFinite(pin.lng)) return false;
+  return distanceKm(pin, { lat: LAT[row], lng: LNG[row] }) <= REACH_KM[row] + marginKm;
 }
 
 /**

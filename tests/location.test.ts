@@ -3,7 +3,9 @@ import {
   didYouMean,
   distanceKm,
   findLocality,
+  isPinNearLocality,
   nearestLocality,
+  PIN_REACH_MARGIN_KM,
   nearnessBand,
   nearnessBandLabel,
   normaliseSuburb,
@@ -400,5 +402,39 @@ describe("parseNearParam", () => {
     expect(parseNearParam("  Fitzroy ")).toBe("Fitzroy");
     expect(parseNearParam(["Carlton", "Fitzroy"])).toBe("Carlton");
     expect(parseNearParam("x".repeat(80))).toHaveLength(60);
+  });
+});
+
+describe("isPinNearLocality", () => {
+  it("the suburb's own centre, and anywhere within its reach plus 10 km", () => {
+    const collingwood = place("Collingwood");
+    expect(PIN_REACH_MARGIN_KM).toBe(10);
+    expect(isPinNearLocality(collingwood, collingwood)).toBe(true);
+    // The Tote, and Fitzroy next door.
+    expect(isPinNearLocality(collingwood, { lat: -37.79794, lng: 144.98884 })).toBe(true);
+    expect(isPinNearLocality(collingwood, place("Fitzroy"))).toBe(true);
+  });
+
+  it("not across the city, or the country", () => {
+    const collingwood = place("Collingwood");
+    expect(isPinNearLocality(collingwood, place("Geelong"))).toBe(false);
+    expect(isPinNearLocality(collingwood, place("Fremantle WA"))).toBe(false);
+    // A tighter margin narrows it.
+    const dandenong = place("Dandenong");
+    expect(distanceKm(collingwood, dandenong)).toBeGreaterThan(25);
+    expect(isPinNearLocality(collingwood, dandenong, 0)).toBe(false);
+  });
+
+  it("a big rural locality reaches further than a city suburb", () => {
+    // Broken Hill NSW: its reach covers the town's outskirts many km out.
+    const brokenHill = place("Broken Hill NSW");
+    expect(isPinNearLocality(brokenHill, { lat: brokenHill.lat + 0.1, lng: brokenHill.lng })).toBe(true);
+  });
+
+  it("false for a Locality this module didn't make, or a position that isn't finite", () => {
+    const collingwood = place("Collingwood");
+    expect(isPinNearLocality({ ...collingwood }, collingwood)).toBe(false);
+    expect(isPinNearLocality(collingwood, { lat: Number.NaN, lng: collingwood.lng })).toBe(false);
+    expect(isPinNearLocality(collingwood, { lat: collingwood.lat, lng: Number.POSITIVE_INFINITY })).toBe(false);
   });
 });

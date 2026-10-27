@@ -3,7 +3,7 @@ import type { TicketingMode } from "@/lib/ticketing";
 import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
 import type { EventCategory, EventClip } from "@/lib/types";
 import { apiFetch } from "./client";
-import type { Paginated, TicketTypeInput } from "./types";
+import type { Paginated, TicketTypeInput, VenueLocation } from "./types";
 
 /**
  * `remaining` is only sent when this many tickets or fewer are left, so the
@@ -97,6 +97,13 @@ export interface PublicEvent {
   refundPolicy?: RefundPolicy;
   /** `days_before` only: refunds up to this many days (1–30) before the event starts. Absent otherwise. */
   refundDays?: number;
+  /**
+   * The venue's location, only when it has one (see VenueLocation: a Google
+   * place id for directions and the organiser's own pin, never Google's
+   * coordinates). Absent for an event saved without one, whose payload is
+   * otherwise unchanged.
+   */
+  location?: VenueLocation;
   /**
    * Only for an event with a seat map (reserved seating): its version, for
    * GET /events/{id}/seat-map?v={version}. Its seated tiers carry

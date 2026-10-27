@@ -162,3 +162,34 @@ describe("adaptPublicEvent: refund policy (docs/architecture.md, Refund policy)"
     expect(adapted).not.toHaveProperty("refundDays");
   });
 });
+
+describe("adaptPublicEvent: the venue location", () => {
+  const PLACE_ID = "ChIJtoteHotelCollingwood001";
+  const PIN = { lat: -37.79794, lng: 144.98884 };
+
+  it("a Google place with the organiser's pin: the place id, pinned, and the pin as the coordinates", () => {
+    const adapted = adaptPublicEvent({ ...base, location: { source: "places", placeId: PLACE_ID, pin: PIN } });
+    expect(adapted.venuePlaceId).toBe(PLACE_ID);
+    expect(adapted.venuePinned).toBe(true);
+    expect(adapted.coordinates).toEqual(PIN);
+  });
+
+  it("a Google place not yet pinned: the place id only (the maps fall back to the suburb's centre)", () => {
+    const adapted = adaptPublicEvent({ ...base, location: { source: "places", placeId: PLACE_ID } });
+    expect(adapted.venuePlaceId).toBe(PLACE_ID);
+    expect(adapted.venuePinned).toBe(false);
+    expect(adapted).not.toHaveProperty("coordinates");
+  });
+
+  it("a manual pin: pinned, no place id", () => {
+    const adapted = adaptPublicEvent({ ...base, location: { source: "manual_pin", pin: PIN } });
+    expect(adapted).not.toHaveProperty("venuePlaceId");
+    expect(adapted.venuePinned).toBe(true);
+    expect(adapted.coordinates).toEqual(PIN);
+  });
+
+  it("none: nothing added, as before", () => {
+    const adapted = adaptPublicEvent(base);
+    for (const key of ["venuePlaceId", "venuePinned", "coordinates"]) expect(adapted).not.toHaveProperty(key);
+  });
+});

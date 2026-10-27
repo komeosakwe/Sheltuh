@@ -15,6 +15,16 @@ export function adaptPublicEvent(event: PublicEvent): SheltuhEvent {
     suburb: event.suburb,
     venueName: event.venueName,
     venueAddress: event.venueAddress,
+    // Only with a venue location: the linked Google place (for directions, never resolved to coordinates) and
+    // the organiser's own pin as `coordinates` (exact on our maps and in the Apple Maps link). Without a pin,
+    // `coordinates` stays absent and the maps place the event at its suburb's centre, as before.
+    ...(event.location
+      ? {
+          ...(event.location.placeId ? { venuePlaceId: event.location.placeId } : {}),
+          venuePinned: !!event.location.pin,
+          ...(event.location.pin ? { coordinates: { lat: event.location.pin.lat, lng: event.location.pin.lng } } : {}),
+        }
+      : {}),
     // Only when sent: absent means VIC / Australia/Melbourne, so an older payload adapts as before.
     ...(event.state ? { state: event.state } : {}),
     ...(event.timeZone ? { timeZone: event.timeZone } : {}),

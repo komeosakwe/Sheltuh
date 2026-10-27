@@ -29,6 +29,7 @@ import {
   withUniqueSlug,
 } from "./events";
 import { parseApplication } from "./organisers";
+import { verifyVenuePlace } from "./places";
 
 /** Shown when a platform-managed organiser's event would have a paid Sheltüh ticket. */
 export const PLATFORM_PAID_REFUSED =
@@ -196,7 +197,9 @@ type AdminCreateEventOutcome =
  * external ticketing included) plus `organiserId` (any approved organiser,
  * platform-managed or not) and optional `publish`. Creates the event, logged
  * `created`, and with `publish: true` publishes it in the same step
- * (`approved`, through private.transition_event). 201 with the
+ * (`approved`, through private.transition_event; an admin's publish needs no
+ * venue location). A Google place in `location` is checked with Google first
+ * (verifyVenuePlace: 400 / 503 fieldErrors.location). 201 with the
  * AdminEventRecord; 400 fieldErrors (organiserId unknown; a paid ticket type
  * for a platform-managed organiser: ticketTypes); 409 organiser not approved.
  */
@@ -208,6 +211,7 @@ export const adminCreateEvent: Handler = async (req, _params, deps) => {
     organiserId: parseOrganiserId(body.organiserId, errors),
     publish: parsePublish(body.publish, errors),
   }));
+  await verifyVenuePlace(deps, input);
 
   let outcome: AdminCreateEventOutcome;
   try {
@@ -254,7 +258,9 @@ export const adminCreateEvent: Handler = async (req, _params, deps) => {
  * 500 characters; required to change the mode or link of an event that has
  * been approved before). `refundPolicy` / `refundDays` are optional (absent:
  * the stored policy is kept), and so are `state` / `timeZone`, together
- * (absent: the stored place is kept and the times read in its zone). One
+ * (absent: the stored place is kept and the times read in its zone), and
+ * `location` (absent: kept; a new Google place is checked with Google first,
+ * verifyVenuePlace; a change is logged as `changes.location`). One
  * step (private.admin_edit_event): ticketing changes as PATCH …/ticketing does (logged `ticketing_changed`), every other
  * change one `edited` entry with old and new values, then the publish. 200
  * with the AdminEventRecord (unchanged, nothing logged, if nothing would
@@ -291,6 +297,8 @@ export const adminUpdateEvent: Handler<{ eventId: string }> = async (req, { even
     current ? { storedPlace: storedPlaceOf(current) } : {},
   );
 
+  // No event, nothing to check: the write answers not_found.
+  if (current) await verifyVenuePlace(deps, input, current.location);
   const edit = current ? withSeatedCapacity(input, current) : input;
   let result: string;
   try {

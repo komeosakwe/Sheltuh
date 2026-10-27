@@ -5,7 +5,8 @@ import {
   REFUND_POLICIES,
   type RefundPolicy,
 } from "@/lib/refund-policy";
-import { didYouMean, findLocality } from "@/lib/location";
+import { isInAustralia } from "@/lib/geo";
+import { didYouMean, findLocality, isPinNearLocality, PIN_REACH_MARGIN_KM } from "@/lib/location";
 import { placeName } from "@/lib/place";
 import type { TicketingMode } from "@/lib/ticketing";
 import {
@@ -15,6 +16,7 @@ import {
   type AustralianTimeZone,
   type StateCode,
 } from "@/lib/time-zones";
+import { PLACE_ID_PATTERN } from "./places";
 import { parseTicketing, type Ticketing } from "./ticketing-input";
 import type { EventCategory, TicketTypeInput } from "./types";
 import {
@@ -57,6 +59,21 @@ export interface EventInput {
   refundPolicy?: RefundPolicy;
   /** With `refundPolicy` only: the days for `days_before`, null for `no_change_of_mind`. */
   refundDays?: number | null;
+  /**
+   * The venue location as it's to be saved (parseLocation): absent when the
+   * body sent no `location` (create: none; edit: the stored one is kept);
+   * `legacy` when it sent null (cleared).
+   */
+  location?: LocationInput;
+}
+
+/** A venue location as the database stores it (events.location_source, venue_place_id, venue_lat / venue_lng). */
+export interface LocationInput {
+  source: "legacy" | "places" | "manual_pin";
+  /** `places` only. */
+  placeId: string | null;
+  /** The organiser's pin, rounded to 6 decimal places: required for `manual_pin`, optional for `places`, none for `legacy`. */
+  pin: { lat: number; lng: number } | null;
 }
 
 // The ticketing fields are parsed in ./ticketing-input, which (unlike this
@@ -80,6 +97,7 @@ interface RawEventBody {
   externalFree?: unknown;
   refundPolicy?: unknown;
   refundDays?: unknown;
+  location?: unknown;
 }
 
 /** The event's refund policy as parseRefundPolicy returns it: nothing sent, or both fields. */
@@ -207,6 +225,89 @@ export function parsePlace(
   return { place, suburb: locality.name, zoneForTimes: place.timeZone };
 }
 
+export const LOCATION_CHOOSE = "Find the venue on Google Maps, or drop a pin on the map.";
+export const PIN_OUTSIDE_AUSTRALIA = "Put the pin on the venue: it has to be in Australia.";
+const PLACE_ID_INVALID = "That Google Maps place isn't valid. Search for the venue again, or drop a pin instead.";
+
+/** A coordinate to 6 decimal places (about 10 cm), as it's stored. */
+function round6(value: number): number {
+  return Math.round(value * 1e6) / 1e6;
+}
+
+/** `{lat, lng}`: finite numbers inside AUSTRALIA_BOUNDS (lib/geo.ts; events_venue_pin_bounds), rounded. Null with an error otherwise. */
+function parsePin(value: unknown, errors: Record<string, string>): { lat: number; lng: number } | null {
+  const pin = value && typeof value === "object" && !Array.isArray(value) ? (value as { lat?: unknown; lng?: unknown }) : null;
+  if (!pin || typeof pin.lat !== "number" || typeof pin.lng !== "number") {
+    errors.location = "Put the pin on the venue.";
+    return null;
+  }
+  const rounded = { lat: round6(pin.lat), lng: round6(pin.lng) };
+  if (!Number.isFinite(rounded.lat) || !Number.isFinite(rounded.lng) || !isInAustralia(rounded)) {
+    errors.location = PIN_OUTSIDE_AUSTRALIA;
+    return null;
+  }
+  return rounded;
+}
+
+/**
+ * The body's `location` (lib/api/types.ts VenueLocationInput), errors under
+ * `location`:
+ * - absent: undefined (create: none; edit: the stored one is kept);
+ * - null: cleared (`legacy`);
+ * - `{source: "places", placeId, pin?}`: placeId matching PLACE_ID_PATTERN;
+ *   pin optional (absent or null: none);
+ * - `{source: "manual_pin", pin}`: pin required.
+ * Only the shape and bounds here: the pin against the suburb is checked by
+ * parseEventInput, and a new place id with Google by the handler
+ * (verifyVenuePlace).
+ */
+export function parseLocation(value: unknown, errors: Record<string, string>): LocationInput | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return { source: "legacy", placeId: null, pin: null };
+  const body = typeof value === "object" && !Array.isArray(value) ? (value as { source?: unknown; placeId?: unknown; pin?: unknown }) : null;
+  if (body?.source === "places") {
+    if (typeof body.placeId !== "string" || !PLACE_ID_PATTERN.test(body.placeId)) {
+      errors.location = PLACE_ID_INVALID;
+      return undefined;
+    }
+    const pin = body.pin === undefined || body.pin === null ? null : parsePin(body.pin, errors);
+    return errors.location ? undefined : { source: "places", placeId: body.placeId, pin };
+  }
+  if (body?.source === "manual_pin") {
+    if (body.placeId !== undefined && body.placeId !== null) {
+      errors.location = "A dropped pin has no Google Maps place.";
+      return undefined;
+    }
+    const pin = parsePin(body.pin, errors);
+    return pin ? { source: "manual_pin", placeId: null, pin } : undefined;
+  }
+  errors.location = LOCATION_CHOOSE;
+  return undefined;
+}
+
+/**
+ * The pin's check against the suburb the event names (`suburb`, in `state`):
+ * within the locality's reach plus PIN_REACH_MARGIN_KM (lib/location.ts
+ * isPinNearLocality). An error under `location` when it isn't, or when the
+ * suburb can't be found in the state (only possible for a client that sends
+ * no state: otherwise parsePlace has already refused it).
+ */
+function checkPinNearSuburb(
+  pin: { lat: number; lng: number },
+  suburb: string,
+  state: StateCode,
+  errors: Record<string, string>,
+): void {
+  const locality = localityIn(suburb, state);
+  if (!locality) {
+    errors.location = "We couldn't check the pin against the suburb. Check the suburb's spelling.";
+    return;
+  }
+  if (!isPinNearLocality(locality, pin)) {
+    errors.location = `The pin is more than ${PIN_REACH_MARGIN_KM} km outside ${placeName(locality.name, locality.state)}. Move it onto the venue, or check the suburb.`;
+  }
+}
+
 /** What parseEventInput needs besides the body. */
 export interface ParseEventOptions {
   /**
@@ -238,6 +339,11 @@ export function parseEventInput(body: RawEventBody, options: ParseEventOptions =
   const endsAt = zoneForTimes ? requireLocalDateTime(body.end, "end", errors, zoneForTimes) : undefined;
   const ticketing = parseTicketing(body, errors);
   const refund = parseRefundPolicy(body, errors);
+  const location = parseLocation(body.location, errors);
+  // An empty or unknown suburb already has its own error.
+  if (location?.pin && suburb && !errors.suburb && !errors.state && !errors.timeZone) {
+    checkPinNearSuburb(location.pin, suburb, place.state, errors);
+  }
 
   // An external event has no Sheltüh ticket types: none may be sent (an
   // absent, null or empty list is fine), rather than being silently dropped.
@@ -270,5 +376,6 @@ export function parseEventInput(body: RawEventBody, options: ParseEventOptions =
     ticketTypes,
     ...ticketing,
     ...refund,
+    ...(location ? { location } : {}),
   };
 }

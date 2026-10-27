@@ -67,7 +67,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261111000000_event_publish_now.sql`. Never
+      newest, currently `20261111000100_event_venue_location.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -180,6 +180,21 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           unchanged, and its cron (which leases every kind it's not asked
           for by name) never takes an `event_published` job, which waits for
           this app's drain)
+      34. `20261111000100_event_venue_location.sql` (the venue's location:
+          `events.location_source`, `venue_place_id` (a Google place id, the
+          only Google Places data stored) and `venue_lat` / `venue_lng` (the
+          organiser's own pin, never Google's coordinates), with their checks;
+          `create_event_draft`, `edit_event_draft` and `admin_edit_event`
+          redefined to save it, and `publish_event` and `submit_event` to
+          refuse an event without the organiser's pin (`location_required`).
+          Needs files 22, 28 and 33 first: it redefines their functions.
+          **Apply it before this app deploys**: every event read selects the
+          new columns, so without it every event route is a 500. The previous
+          app keeps working against it, except that its `/submit` route
+          answers 200 without submitting an event that has no pin (it doesn't
+          know the new refusal; the event stays a draft). Set
+          `GOOGLE_MAPS_API_KEY` for the venue search (`.env.example`); without
+          it organisers drop a pin instead)
 
       **Before merging the Australia-wide events branch, check the Supabase
       project knows every event time zone.** The public list's `onOrAfter`
