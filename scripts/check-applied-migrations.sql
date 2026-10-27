@@ -145,6 +145,11 @@ select version, file, coalesce(applied, false) as applied
       exists (select 1 from fn where proname = 'record_payment_refund' and prosrc like '%refund_no_inference%')
       and exists (select 1 from fn where proname = 'fulfil_order_detailed' and prosrc like '%refund_no_inference%')),
     ('20261111000400', 'submit_event_location_in_app',
-      exists (select 1 from fn where proname = 'submit_event' and prosrc like '%submit_location_in_app%'))
+      exists (select 1 from fn where proname = 'submit_event' and prosrc like '%submit_location_in_app%')),
+    ('20261111000500', 'organiser_invite_links',
+      to_regclass('private.organiser_invite_links') is not null
+      and exists (select 1 from fn where proname = 'join_with_organiser_invite_link')
+      and exists (select 1 from fn where proname = 'purge_operational_data'
+                   and 'organiser_invite_links_deleted' = any(proargnames)))
   ) as m(version, file, applied)
  order by version;

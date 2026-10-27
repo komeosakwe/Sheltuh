@@ -90,10 +90,15 @@ export interface OrganiserEditChange {
  * `profile_edit`: the approved organiser changed their public profile
  * (no review). `suspended`: an admin took them down, with `reason`.
  * `invite_accepted`: the organiser's account accepted an admin's invite,
- * which created the organiser, approved.
+ * which created the organiser, approved, or joined with an organiser link,
+ * which created it or approved its pending application.
  */
 export interface OrganiserEditEntry {
-  /** `invite_accepted`: the organiser was created by an accepted admin invite (`changes.status`: null → approved). */
+  /**
+   * `invite_accepted`: the organiser was created by an accepted admin invite
+   * or an organiser link (`changes.status`: null → approved), or its pending
+   * application was approved by an organiser link (pending → approved).
+   */
   kind: "profile_edit" | "suspended" | "invite_accepted";
   at: string;
   /** Only the fields that changed. */
@@ -2157,4 +2162,66 @@ export interface MyInvite {
 export interface AcceptInviteResult {
   kind: InviteKind;
   organiserId?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Organiser links (docs/architecture.md, "Organiser links")
+// ---------------------------------------------------------------------------
+
+/**
+ * An organiser link's state: `active` (unused, can still be used), `used`
+ * (someone joined with it), `cancelled` (by an admin, or because whoever made
+ * it is no longer an admin) or `expired` (unused for 7 days).
+ */
+export type OrganiserLinkStatus = "active" | "used" | "cancelled" | "expired";
+
+/** An organiser link as admins see it (GET /api/admin/organiser-links). Never the link or its token. */
+export interface AdminOrganiserLinkRecord {
+  linkId: string;
+  status: OrganiserLinkStatus;
+  createdAt: string;
+  /** The admin who made it (unset once that account is deleted). */
+  createdBy?: string;
+  /** That admin's sign-in email, while their account exists. */
+  createdByEmail?: string;
+  /** When it stops working (or stopped). */
+  expiresAt: string;
+  usedAt?: string;
+  /** The organiser it created or approved, while it exists. */
+  organiserId?: string;
+  /** That organiser's current name. */
+  organiserName?: string;
+  cancelledAt?: string;
+}
+
+/**
+ * POST /api/admin/organiser-links (201): the new link and its URL, shown this
+ * once (only the token's hash is stored, so it can't be shown again).
+ */
+export interface AdminOrganiserLinkCreated {
+  link: AdminOrganiserLinkRecord;
+  /** `${siteUrl}/organisers/join#token=…`. */
+  url: string;
+}
+
+/** POST /api/organiser-links/view {token}: the link can be used, until `expiresAt`. */
+export interface OrganiserLinkView {
+  expiresAt: string;
+}
+
+/**
+ * POST /api/organiser-links/join. `displayName` and `categories`: the new
+ * organiser's (the application's rules), needed only when the account has
+ * no organiser; a pending application is approved as it was submitted.
+ */
+export interface OrganiserLinkJoinInput {
+  token: string;
+  displayName?: string;
+  categories?: EventCategory[];
+}
+
+/** POST /api/organiser-links/join (200): the caller's organiser, approved. */
+export interface OrganiserLinkJoinResult {
+  organiserId: string;
+  displayName: string;
 }

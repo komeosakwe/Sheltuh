@@ -39,8 +39,8 @@ describe("next.config headers", () => {
     expect(byKey["x-robots-tag"]).toMatch(/\bnoindex\b/);
   });
 
-  it.each(["/waitlist/:path*", "/following/:path*", "/invite"])(
-    "keeps the emailed-link page %s (a token in its fragment) out of Referers and search indexes, like checkout",
+  it.each(["/waitlist/:path*", "/following/:path*", "/invite", "/organisers/join"])(
+    "keeps the emailed or shared link page %s (a token in its fragment) out of Referers and search indexes, like checkout",
     async (source) => {
       const byKey = await headersFor(source);
       expect(byKey).toEqual({ "referrer-policy": "no-referrer", "x-robots-tag": "noindex, nofollow" });
@@ -80,6 +80,7 @@ describe("next.config headers", () => {
       "/waitlist/:path*",
       "/following/:path*",
       "/invite",
+      "/organisers/join",
       "/auth/:path*",
       "/search",
       "/vendor/zxing-wasm/:path*",

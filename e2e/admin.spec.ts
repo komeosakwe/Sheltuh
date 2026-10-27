@@ -398,6 +398,8 @@ async function mockInvites(page: Page) {
     }
     return route.fulfill({ status: 404, json: { error: "not mocked in e2e" } });
   });
+  // The page's organiser links section (e2e/organiser-links.spec.ts): none yet.
+  await page.route("**/api/admin/organiser-links", (route) => route.fulfill({ json: { items: [] } }));
   return posted;
 }
 
