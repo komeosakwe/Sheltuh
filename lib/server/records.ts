@@ -34,7 +34,7 @@ import type {
   TicketTypeInput,
 } from "./types";
 import { REMAINING_SHOWN_AT_MOST, type PublicTicketType } from "@/lib/api/public-events";
-import { SHELTUH_TEAM_ACTOR, type EventClip } from "@/lib/api/types";
+import { SHELTUH_TEAM_ACTOR, type EventClip, type VenueLocation } from "@/lib/api/types";
 import { isFeaturedVideo, type FeaturedVideo } from "@/lib/api/featured-video";
 import { ticketProviderName, type TicketingMode } from "@/lib/ticketing";
 import { DEFAULT_REFUND_POLICY, type RefundPolicy } from "@/lib/refund-policy";
@@ -269,6 +269,7 @@ const EVENT_COLUMNS = `
          e.venue_name, e.venue_address, e.suburb, e.state, e.time_zone, e.starts_at, e.ends_at,
          e.status::text as status, e.rejection_reason, e.created_at, e.updated_at,
          e.ticketing_mode, e.external_ticket_url, e.external_free, e.refund_policy, e.refund_days,
+         e.location_source, e.venue_place_id, e.venue_lat, e.venue_lng,
          o.display_name as organiser_name,
          -- Only while the organiser is approved: the logo route is a 404 otherwise.
          case when o.status = 'approved' then ${organiserLogoVersionOf("e.organiser_id")} end as organiser_logo_version,
@@ -366,6 +367,7 @@ const LOG_CHANGE_FIELDS = [
   "clipDescription",
   "refundPolicy",
   "refundDays",
+  "location",
 ] as const satisfies readonly (keyof NonNullable<ModerationLogEntry["changes"]>)[];
 
 /** One change as stored: json_strip_nulls has dropped a side that was null. */
@@ -466,6 +468,27 @@ function placeOf(row: Row, stateColumn = "state", zoneColumn = "time_zone"): { s
   };
 }
 
+/**
+ * The `location` field from `location_source`, `venue_place_id`, `venue_lat`
+ * and `venue_lng`: absent for `legacy` (and a row from before the columns),
+ * so those payloads are unchanged. The pin is the organiser's own
+ * (events.venue_lat / venue_lng), never Google's.
+ */
+function locationOf(row: Row): { location?: VenueLocation } {
+  const source = row.location_source;
+  if (source !== "places" && source !== "manual_pin") return {};
+  const lat = row.venue_lat === null || row.venue_lat === undefined ? NaN : Number(row.venue_lat);
+  const lng = row.venue_lng === null || row.venue_lng === undefined ? NaN : Number(row.venue_lng);
+  const placeId = source === "places" ? opt<string>(row.venue_place_id) : undefined;
+  return {
+    location: {
+      source,
+      ...(placeId ? { placeId } : {}),
+      ...(Number.isFinite(lat) && Number.isFinite(lng) ? { pin: { lat, lng } } : {}),
+    },
+  };
+}
+
 function mapEvent(row: Row, audience: LogAudience): EventRecord {
   const log = row.moderation_log as StoredLogEntry[];
   const ticketingMode = (row.ticketing_mode ?? "sheltuh") as TicketingMode;
@@ -495,6 +518,7 @@ function mapEvent(row: Row, audience: LogAudience): EventRecord {
     // Once approved, the ticketing is frozen for the organiser (private.edit_event_draft).
     ticketingLocked: log.some((entry) => entry.action === "approved"),
     ...refundTermsOf(row),
+    ...locationOf(row),
     ...(row.seating ? { seating: row.seating as EventSeating } : {}),
     status: row.status as EventRecord["status"],
     rejectionReason: opt(row.rejection_reason),
@@ -591,6 +615,16 @@ export function toPublicEvent(event: EventRecord, remaining?: Record<string, num
     refundPolicy: event.refundPolicy ?? DEFAULT_REFUND_POLICY,
     // Only for days_before.
     ...(event.refundPolicy === "days_before" && event.refundDays !== undefined ? { refundDays: event.refundDays } : {}),
+    // Only with a venue location: an event without one keeps its payload unchanged.
+    ...(event.location
+      ? {
+          location: {
+            source: event.location.source,
+            ...(event.location.placeId ? { placeId: event.location.placeId } : {}),
+            ...(event.location.pin ? { pin: { lat: event.location.pin.lat, lng: event.location.pin.lng } } : {}),
+          },
+        }
+      : {}),
     // Seated events only: a general admission event's payload is unchanged.
     ...(event.seating ? { seating: { version: event.seating.version } } : {}),
   };

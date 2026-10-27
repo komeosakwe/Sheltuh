@@ -21,7 +21,7 @@ import { buildWaitlistAvailableEmail, when, where } from "@/lib/server/waitlist-
 import { passTimeZone, passWhen } from "@/lib/server/wallet/pass-content";
 import { STATE_CODES, wallClockParts, ZONES_BY_STATE } from "@/lib/time-zones";
 import { TestApi } from "./helpers/api";
-import { approvedOrganiser, draftEvent, eventInput, insertOrder, publishedEvent, setUpPayouts, signUpAdmin } from "./helpers/fixtures";
+import { approvedOrganiser, draftEvent, eventInput, insertOrder, publishedEvent, setUpPayouts, signUpAdmin, suburbPin } from "./helpers/fixtures";
 import { createTestDb } from "./helpers/test-db";
 
 /**
@@ -58,6 +58,8 @@ afterEach(() => {
 
 /** The fixture's event (8:00 pm – 11:30 pm on Sat 6 March 2027, local) in Fremantle, on Perth time. */
 const PERTH = { suburb: "Fremantle", state: "WA", timeZone: "Australia/Perth" };
+/** PERTH with the organiser's pin, which submitting needs (`location_required`). */
+const PERTH_PINNED = { ...PERTH, location: suburbPin("Fremantle", "WA") };
 /** 8:00 pm in Perth (+08:00, no daylight saving) and in Melbourne (+11:00 in March). */
 const PERTH_8PM = "2027-03-06T12:00:00.000Z";
 const MELBOURNE_8PM = "2027-03-06T09:00:00.000Z";
@@ -419,7 +421,7 @@ describe("admin authoring", () => {
 
 describe("payloads carry the place", () => {
   async function perthPublished() {
-    const draft = (await create(eventInput(PERTH))).body as EventRecord;
+    const draft = (await create(eventInput(PERTH_PINNED))).body as EventRecord;
     await setUpPayouts(api, organiser.organiserId);
     await api.call(submitEventForReview, { token: organiser.token, params: { eventId: draft.eventId }, method: "POST" });
     const approved = await api.call(adminApproveEvent, { token: admin.token, params: { eventId: draft.eventId }, method: "POST" });
@@ -621,7 +623,7 @@ describe("emails say the event's own time", () => {
     await setUpPayouts(api, organiser.organiserId);
     await api.runDeferred();
     api.sendEmail.mockClear();
-    const created = (await create(eventInput(PERTH))).body as EventRecord;
+    const created = (await create(eventInput(PERTH_PINNED))).body as EventRecord;
     await api.call(submitEventForReview, { token: organiser.token, params: { eventId: created.eventId }, method: "POST" });
     await api.runDeferred();
     const [[message]] = api.sendEmail.mock.calls;

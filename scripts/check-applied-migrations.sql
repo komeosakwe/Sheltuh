@@ -128,6 +128,11 @@ select version, file, coalesce(applied, false) as applied
       exists (select 1 from col where attrelid = to_regclass('public.organisers') and attname = 'event_review_required')
       and exists (select 1 from fn where proname = 'publish_event')
       and exists (select 1 from outbox_check where conname = 'email_outbox_kind_check' and def like '%event_published%')
-      and exists (select 1 from fn where proname = 'lease_outbox_jobs' and prosrc like '%event_published%'))
+      and exists (select 1 from fn where proname = 'lease_outbox_jobs' and prosrc like '%event_published%')),
+    ('20261111000100', 'event_venue_location',
+      exists (select 1 from col where attrelid = to_regclass('public.events') and attname = 'venue_place_id')
+      and exists (select 1 from fn where proname = 'event_location_json')
+      and exists (select 1 from fn where proname = 'publish_event' and prosrc like '%location_required%')
+      and exists (select 1 from fn where proname = 'submit_event' and prosrc like '%location_required%'))
   ) as m(version, file, applied)
  order by version;

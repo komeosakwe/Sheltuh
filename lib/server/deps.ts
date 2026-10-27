@@ -8,6 +8,7 @@ import { createClipStorage, type ClipStorage } from "./clip-storage";
 import { createPostgresDb, type Db } from "./db";
 import { createSmtpSender, type SendEmail } from "./email";
 import { isPlainEmailAddress, redactForLog } from "./email-address";
+import { createPlaces, type Places } from "./places";
 import { matchingPublishableKey } from "./stripe-keys";
 import {
   appleWalletGetter,
@@ -90,6 +91,14 @@ export interface Deps {
    * and Apple passes are then off.
    */
   appleWallet(): Promise<AppleWalletConfig | undefined>;
+  /**
+   * Google Places API (New) for the venue search and the check of a saved
+   * place id (lib/server/places.ts), created on first use; undefined when
+   * GOOGLE_MAPS_API_KEY is unset: the places routes then answer 503
+   * `places_unavailable`, and saving an event with a new Google place too
+   * (organisers drop a pin instead).
+   */
+  places(): Places | undefined;
 }
 
 function requireEnv(name: string): string {
@@ -115,6 +124,7 @@ export function getDeps(): Deps {
   let authAdmin: AuthAdmin | null | undefined;
   let adminNotifyEmails: string[] | undefined;
   let googleWallet: GoogleWalletConfig | null | undefined;
+  let places: Places | null | undefined;
   const smtp = createSmtpSender();
   const appleWallet = appleWalletGetter(async () =>
     hasAppleWalletVariables() ? (await import("./wallet/apple")).loadAppleWallet() : undefined,
@@ -192,6 +202,10 @@ export function getDeps(): Deps {
       return googleWallet ?? undefined;
     },
     appleWallet,
+    places() {
+      if (places === undefined) places = createPlaces(process.env.GOOGLE_MAPS_API_KEY) ?? null;
+      return places ?? undefined;
+    },
   };
   return cached;
 }

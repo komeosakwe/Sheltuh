@@ -79,6 +79,8 @@ describe("public event visibility", () => {
         // Events Australia-wide: always sent.
         "state",
         "timeZone",
+        // Venue location: only when the event has one (the fixture's events do: a manual pin).
+        "location",
       ].sort(),
     );
     expect(res.body).toMatchObject({ ticketingMode: "sheltuh", externalFree: false, externalProvider: null, refundPolicy: "no_change_of_mind" });

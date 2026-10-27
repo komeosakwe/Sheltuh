@@ -57,6 +57,8 @@ const PUBLIC_EVENT_KEYS = [
   // Events Australia-wide: always sent.
   "state",
   "timeZone",
+  // Venue location: only when the event has one (the fixture's events do: a manual pin).
+  "location",
 ].sort();
 
 function profile(organiserId: string) {

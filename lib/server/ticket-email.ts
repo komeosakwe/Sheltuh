@@ -262,17 +262,27 @@ export function eventImageEmailUrl(siteUrl: string, imageUrl: string | undefined
 }
 
 /**
- * "Get directions" (the event page's own link, lib/maps.ts: Google Maps,
- * routing to the venue's name and address), or null when there's no address
- * or suburb to route to (a venue name alone, like "Secret location", isn't
- * enough).
+ * "Get directions" (the event page's own link, lib/maps.ts directionsHref:
+ * Google Maps, routing to the venue's linked Google place when it has one,
+ * else the organiser's pin, else the venue's name and address), or null when
+ * there's nothing to route to: no address or suburb, and no place or pin (a
+ * venue name alone, like "Secret location", isn't enough).
  */
-export function ticketDirectionsLink(event: Pick<EventRecord, "venueName" | "venueAddress" | "suburb">): string | null {
+export function ticketDirectionsLink(
+  event: Pick<EventRecord, "venueName" | "venueAddress" | "suburb"> & Partial<Pick<EventRecord, "location">>,
+): string | null {
   const venueName = event.venueName?.trim() ?? "";
   const venueAddress = event.venueAddress?.trim() ?? "";
   const suburb = event.suburb?.trim() ?? "";
-  if (!venueAddress && !suburb) return null;
-  return directionsHref({ venueName, venueAddress, suburb });
+  const location = event.location;
+  if (!venueAddress && !suburb && !location?.placeId && !location?.pin) return null;
+  return directionsHref({
+    venueName,
+    venueAddress,
+    suburb,
+    ...(location?.placeId ? { venuePlaceId: location.placeId } : {}),
+    ...(location?.pin ? { venuePinned: true, coordinates: { lat: location.pin.lat, lng: location.pin.lng } } : {}),
+  });
 }
 
 /**

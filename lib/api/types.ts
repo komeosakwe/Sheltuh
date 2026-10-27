@@ -235,7 +235,66 @@ export interface EventEditChanges {
   refundPolicy?: TicketingFieldChange<RefundPolicy>;
   /** An admin changed the refund policy's days (null for `no_change_of_mind`). */
   refundDays?: TicketingFieldChange<number>;
+  /** An admin changed the venue location (null: none, an event from before venue locations). */
+  location?: TicketingFieldChange<VenueLocation>;
 }
+
+/**
+ * A venue pin: where the ORGANISER put it, on our own map (decimal degrees,
+ * 6 decimal places, inside lib/geo.ts AUSTRALIA_BOUNDS). Never Google's
+ * coordinates for a place: the API never requests, stores or returns those.
+ */
+export interface VenuePin {
+  lat: number;
+  lng: number;
+}
+
+/**
+ * How the venue was located: `places`, a Google place the organiser picked
+ * (`placeId`; the venue's name, address and suburb are still what the
+ * organiser confirmed); `manual_pin`, the organiser's pin alone ("Can't find
+ * it on Google Maps?").
+ */
+export type VenueLocationSource = "places" | "manual_pin";
+
+/**
+ * An event's venue location as the API returns it (EventRecord, AdminEventRecord
+ * and PublicEvent `location`). Absent for an event saved without one (every
+ * event from before venue locations), so those payloads are unchanged.
+ * - `placeId`: `places` only. Link with lib/maps.ts (directionsHref's
+ *   `destination_place_id`, googlePlaceHref); never resolve it to coordinates.
+ * - `pin`: the organiser's confirmed pin. Always there for `manual_pin`; for
+ *   `places`, once the organiser has checked the pin (required to publish or
+ *   submit: `location_required`). Drives our own maps, the Apple Maps link
+ *   and wallet passes.
+ */
+export interface VenueLocation {
+  source: VenueLocationSource;
+  placeId?: string;
+  pin?: VenuePin;
+}
+
+/**
+ * The event body's `location` (POST and PATCH /events, POST and PATCH
+ * /admin/events). Absent: kept as stored on edit, none on create. `null`:
+ * cleared (no location; the event then can't be published or submitted until
+ * it gets one again).
+ * - `{source: "places", placeId, pin?}`: `placeId` from POST
+ *   /api/places/autocomplete (pattern `^[A-Za-z0-9_-]{16,256}$`). When it's
+ *   new or changed, the API checks it with Google: unknown, or not in
+ *   Australia, is ApiError 400 fieldErrors.location; in another state than
+ *   the event's is 400 fieldErrors.suburb; Google unreachable is 503
+ *   fieldErrors.location with `code: "places_unavailable"` (try again, or
+ *   drop a pin instead). `pin` optional while drafting (null or absent: none).
+ * - `{source: "manual_pin", pin}`: `pin` required.
+ *
+ * A pin must be finite numbers inside lib/geo.ts AUSTRALIA_BOUNDS and within
+ * the event's suburb's reach plus 10 km (lib/location.ts isPinNearLocality),
+ * else 400 fieldErrors.location. It's saved rounded to 6 decimal places.
+ */
+export type VenueLocationInput =
+  | { source: "places"; placeId: string; pin?: VenuePin | null }
+  | { source: "manual_pin"; pin: VenuePin };
 
 /** ModerationLogEntry.by for an admin's entry in an organiser's view: never the admin's account id. */
 export const SHELTUH_TEAM_ACTOR = "Sheltüh team";
@@ -357,6 +416,8 @@ export interface EventRecord {
   refundPolicy?: RefundPolicy;
   /** `days_before` only: refunds up to this many days (1–30) before the event starts. Absent otherwise. */
   refundDays?: number;
+  /** The venue's location (see VenueLocation), only when it has one; absent for an event saved without one. */
+  location?: VenueLocation;
   /**
    * The event's seat map, when it has one. The organiser can change the map
    * only while `ticketingLocked` is false (never approved) and the event is a
@@ -384,8 +445,9 @@ export interface EventRecord {
  * - `in_review`: it's already waiting for review.
  * - `event_changed`: its ticket link changed while it was being published;
  *   reload it and try again.
- * - `location_required`: (once venue locations ship) it has no venue
- *   location yet.
+ * - `location_required`: it has no confirmed venue location yet (the
+ *   organiser's pin: `location.pin`, a Google place with its pin checked, or
+ *   a manual pin). POST /api/events/{eventId}/submit refuses the same way.
  */
 export type PublishEventConflictCode =
   | "payouts_required"
