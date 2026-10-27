@@ -1,7 +1,7 @@
 import { expect, test, type Page, type Request } from "@playwright/test";
 
 /**
- * Continue with Apple / Google, end to end in the browser, against the live
+ * Continue with Apple / Sign in with Google, end to end in the browser, against the live
  * dev server (playwright.config.ts turns NEXT_PUBLIC_AUTH_PROVIDERS on for
  * it). Supabase Auth is the placeholder at /supabase-mock: its /authorize
  * (where the real one sends the browser on to the provider) is answered
@@ -9,8 +9,9 @@ import { expect, test, type Page, type Request } from "@playwright/test";
  * would end in, and its PKCE token exchange with a session. Every /api/*
  * request is answered here too, so nothing leaves the machine.
  *
- * The official logo files aren't committed (docs/auth-logos.md), so
- * /auth/*.svg is answered with a plain test square: no artwork is involved.
+ * Apple's official logo files aren't committed (docs/auth-logos.md), so
+ * /auth/*.svg is answered with a plain test square. Google's button images
+ * are committed: the dev server serves the real ones.
  */
 
 const SUPABASE = "/supabase-mock/auth/v1";
@@ -99,9 +100,16 @@ async function noSidewaysScroll(page: Page) {
 }
 
 const appleButton = (page: Page) => page.getByRole("button", { name: "Continue with Apple" });
-const googleButton = (page: Page) => page.getByRole("button", { name: "Continue with Google" });
+const googleButton = (page: Page) => page.getByRole("button", { name: "Sign in with Google" });
 
-test("Continue with Google: PKCE out to the provider and back, signed in on /account", async ({ page }) => {
+/** The Google image the page shows (the other theme's is display: none). */
+const shownGoogleImage = (page: Page) => googleButton(page).locator("img:visible");
+
+/** Whether that image has loaded (a broken one has no natural width). */
+const googleImageLoaded = (page: Page) =>
+  shownGoogleImage(page).evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0);
+
+test("Sign in with Google: PKCE out to the provider and back, signed in on /account", async ({ page }) => {
   const flow = await mockAuth(page);
   await page.goto("/login?next=/account");
   await expect(googleButton(page)).toBeVisible({ timeout: 60_000 });
@@ -193,7 +201,7 @@ test.describe("at 375×667", () => {
   test.use({ viewport: { width: 375, height: 667 } });
 
   for (const path of ["/login", "/signup"]) {
-    test(`${path}: both buttons full width, stacked Apple then Google, above the fold, no sideways scroll`, async ({ page }) => {
+    test(`${path}: Apple full width, then Google's image at its own 180×40 centred under it, above the fold, no sideways scroll`, async ({ page }) => {
       await mockAuth(page);
       await page.goto(path);
       await expect(appleButton(page)).toBeVisible({ timeout: 60_000 });
@@ -201,11 +209,25 @@ test.describe("at 375×667", () => {
       const google = await googleButton(page).boundingBox();
       if (!apple || !google) throw new Error("buttons not laid out");
       expect(apple.width).toBe(335);
-      expect(google.width).toBe(335);
       expect(apple.height).toBe(48);
-      expect(google.height).toBe(48);
+      // The button is the image's own box: not stretched, centred under Apple's.
+      expect(google.width).toBe(180);
+      expect(google.height).toBe(40);
+      expect(await shownGoogleImage(page).boundingBox()).toEqual(google);
+      expect(Math.abs(google.x + google.width / 2 - (apple.x + apple.width / 2))).toBeLessThanOrEqual(0.5);
       expect(google.y).toBeGreaterThan(apple.y + apple.height);
       expect(google.y + google.height).toBeLessThanOrEqual(667);
+      // The real image loaded, not a broken one.
+      await expect.poll(() => googleImageLoaded(page)).toBe(true);
+      // Its hit area reaches 4px above and below the image: 48px tall (and no further: 6px out is page).
+      expect(await googleButton(page).evaluate((button) => getComputedStyle(button, "::before").height)).toBe("48px");
+      const hits = await googleButton(page).evaluate((button, box) => {
+        const x = box.x + box.width / 2;
+        return [box.y - 3, box.y + box.height + 3, box.y - 6, box.y + box.height + 6].map((y) =>
+          button.contains(document.elementFromPoint(x, y)),
+        );
+      }, google);
+      expect(hits).toEqual([true, true, false, false]);
       // The divider (the header's search panel has an "or" of its own).
       await expect(page.locator("#main").getByText("or", { exact: true })).toBeVisible();
       await noSidewaysScroll(page);
@@ -226,36 +248,37 @@ test.describe("at 375×667", () => {
     }).toPass({ timeout: 10_000 });
   });
 
-  test("the pair inverts with the theme: black Apple and dark Google on White, both white on Dark", async ({ page }) => {
+  test("the pair follows the theme: black Apple and Google's Light image on White, white Apple and Google's Dark image on Dark", async ({ page }) => {
     await mockAuth(page);
-    const fills = async () =>
-      Promise.all(
-        [appleButton(page), googleButton(page)].map((button) =>
-          button.evaluate((el) => {
-            const style = getComputedStyle(el);
-            return { background: style.backgroundColor, color: style.color };
-          }),
-        ),
-      );
+    const fill = async () =>
+      appleButton(page).evaluate((el) => {
+        const style = getComputedStyle(el);
+        return { background: style.backgroundColor, color: style.color };
+      });
+    // Google's button has no fill of its own: the image is the button.
+    const googleFill = () => googleButton(page).evaluate((el) => getComputedStyle(el).backgroundColor);
+    const light = '[src="/auth/google-signin-light@2x.png"]';
+    const dark = '[src="/auth/google-signin-dark@2x.png"]';
     await page.goto("/login");
     await expect(appleButton(page)).toBeVisible({ timeout: 60_000 });
-    expect(await fills()).toEqual([
-      { background: "rgb(0, 0, 0)", color: "rgb(255, 255, 255)" },
-      { background: "rgb(19, 19, 20)", color: "rgb(227, 227, 227)" },
-    ]);
-    // The Apple logo shown is the white one on the black button.
+    expect(await fill()).toEqual({ background: "rgb(0, 0, 0)", color: "rgb(255, 255, 255)" });
+    expect(await googleFill()).toBe("rgba(0, 0, 0, 0)");
+    // The Apple logo shown is the white one on the black button; Google's image is the Light one.
     await expect(appleButton(page).locator('img[src="/auth/apple-logo-white.svg"]')).toBeVisible();
     await expect(appleButton(page).locator('img[src="/auth/apple-logo-black.svg"]')).toBeHidden();
+    await expect(googleButton(page).locator(`img${light}`)).toBeVisible();
+    await expect(googleButton(page).locator(`img${dark}`)).toBeHidden();
 
     await page.evaluate(() => localStorage.setItem("sheltuh:theme", "dark"));
     await page.reload();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await expect(appleButton(page)).toBeVisible({ timeout: 60_000 });
-    expect(await fills()).toEqual([
-      { background: "rgb(255, 255, 255)", color: "rgb(0, 0, 0)" },
-      { background: "rgb(255, 255, 255)", color: "rgb(31, 31, 31)" },
-    ]);
+    expect(await fill()).toEqual({ background: "rgb(255, 255, 255)", color: "rgb(0, 0, 0)" });
+    expect(await googleFill()).toBe("rgba(0, 0, 0, 0)");
     await expect(appleButton(page).locator('img[src="/auth/apple-logo-black.svg"]')).toBeVisible();
     await expect(appleButton(page).locator('img[src="/auth/apple-logo-white.svg"]')).toBeHidden();
+    await expect(googleButton(page).locator(`img${dark}`)).toBeVisible();
+    await expect(googleButton(page).locator(`img${light}`)).toBeHidden();
+    await expect.poll(() => googleImageLoaded(page)).toBe(true);
   });
 });

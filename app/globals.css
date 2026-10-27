@@ -56,15 +56,11 @@
   --header-h: 3.5rem; /* 56px compact header, < lg */
   --buybar-h: 4rem; /* 64px sticky event-page buy bar, < lg (before the safe area) */
   --seatbar-h: 5.5rem; /* 88px phone summary bar on /events/[slug]/seats (before safe area) */
-  /* Continue with Apple / Google (docs/design/social-sign-in.md §2): the vendors' own button
-     colours, a pair that inverts with the page like btn-solid. White theme: Apple Black and
-     Google Dark. Page backgrounds only, so never re-scoped in [data-surface=*]. The Google
-     values are from memory of Google's guidelines, to check against its kit (unverified). */
+  /* Continue with Apple (docs/design/social-sign-in.md §2): Apple's own button colours, which
+     invert with the page like btn-solid (Apple Black on the White theme). Page backgrounds only,
+     so never re-scoped in [data-surface=*]. Google's button is its own image (§4): no colours here. */
   --apple-fill: #000000;
   --apple-ink: #ffffff;
-  --google-fill: #131314;
-  --google-stroke: #8e918f; /* 3.2:1 on white: the button's boundary */
-  --google-text: #e3e3e3;
 }
 
 @media (min-width: 64rem) {
@@ -90,12 +86,9 @@
     --accent-foreground: #000000;
     --danger: #ff6b5e; /* 7.51:1 on black */
     --danger-foreground: #000000;
-    /* Apple White and Google Light on the black page. */
+    /* Apple White on the black page. */
     --apple-fill: #ffffff;
     --apple-ink: #000000;
-    --google-fill: #ffffff;
-    --google-stroke: #747775;
-    --google-text: #1f1f1f;
   }
 }
 
@@ -785,8 +778,8 @@ h4 {
     color: var(--muted);
   }
 
-  /* Continue with Apple / Google (docs/design/social-sign-in.md §2, components/auth/OAuthButtons.tsx).
-     Vendor marks, not .btn: their colours never change, busy included (no grey disabled look).
+  /* Continue with Apple / Sign in with Google (docs/design/social-sign-in.md §2 and §4,
+     components/auth/OAuthButtons.tsx). Vendor marks, not .btn: their colours never change, busy included (no grey disabled look).
      --face-oauth is declared here rather than in :root because --font-roboto exists only inside
      OAuthButtons (next/font's variable class on its root), and a custom property resolves its
      var()s where it's declared. */
@@ -825,15 +818,27 @@ h4 {
     font-size: calc(3rem * 0.43);
     line-height: 1;
   }
-  /* Google's 40px button scaled to 48px: Roboto Medium 17/24 and a 24px G (unverified). */
+  /* Google's own button image (docs/design/social-sign-in.md §4), unmodified at its native
+     180x40: the button is just the image's box, centred under Apple's, with no fill, border or
+     padding of its own (the image has them), and the house control radius for its focus ring.
+     No hover wash: on the image's box it would tint the pill's transparent corners, and nothing
+     is drawn over Google's artwork. ::before stretches the hit area 4px above and below, to 48px. */
   .btn-oauth-google {
-    background: var(--google-fill);
-    color: var(--google-text);
-    border: 1px solid var(--google-stroke);
-    padding-inline: 1rem;
-    gap: 0.75rem;
-    font-size: 1.0625rem;
-    line-height: 1.5rem;
+    display: block;
+    width: auto;
+    min-height: 0;
+    align-self: center;
+    border: 0;
+    padding: 0;
+    background: none;
+  }
+  .btn-oauth-google::before {
+    content: "";
+    position: absolute;
+    inset: -0.25rem 0;
+  }
+  .btn-oauth-google::after {
+    content: none;
   }
   @media (hover: hover) {
     .btn-oauth:hover:not([aria-disabled="true"])::after {
@@ -851,10 +856,9 @@ h4 {
   .btn-oauth[aria-disabled="true"] {
     cursor: progress;
   }
-  /* Forced colours (Windows contrast themes) replace the fills with the system's, so each
-     button's edge has to be a border: Apple's has none of its own, so one is added in
-     ButtonText; Google's 1px stroke is already one, and is forced to the system colour like any
-     other border. */
+  /* Forced colours (Windows contrast themes) replace the fills with the system's, so Apple's
+     button needs an edge: it has no border of its own, so one is added in ButtonText. Google's
+     is an image, which forced colours leave as it is, outline stroke included. */
   @media (forced-colors: active) {
     .btn-oauth-apple {
       border: 1px solid ButtonText;

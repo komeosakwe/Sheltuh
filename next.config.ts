@@ -29,15 +29,16 @@ export function assertStripePublishableKey(value: string | undefined): void {
 assertStripePublishableKey(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY);
 
 /**
- * "Continue with Apple / Google" shows the vendors' own logo files from
- * public/auth/ (lib/auth/oauth-providers.ts OAUTH_LOGO_FILES), which the
- * owner downloads (docs/auth-logos.md): none is committed, and no stand-in
- * may ship. So a production build with NEXT_PUBLIC_AUTH_PROVIDERS listing a
- * provider whose files aren't there fails, naming them. It runs in the
+ * "Continue with Apple" and "Sign in with Google" show the vendors' own
+ * artwork from public/auth/ (lib/auth/oauth-providers.ts OAUTH_LOGO_FILES,
+ * docs/auth-logos.md): Google's button images are committed, Apple's logos
+ * the owner adds, and no stand-in may ship. So a production build with
+ * NEXT_PUBLIC_AUTH_PROVIDERS listing a provider whose files aren't there
+ * fails, naming them. It runs in the
  * production-build phase only (see the default export), which is `next
  * build` and also `next typegen` (Next loads the config in that phase for
  * it too, so typegen fails the same way). `next dev` runs without them, as
- * the e2e suite does with the flag on (it serves its own test files).
+ * the e2e suite does with the flag on (it serves its own Apple test files).
  */
 export function assertOAuthLogos(
   providers: string | undefined,

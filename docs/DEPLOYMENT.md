@@ -464,10 +464,11 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
         "Confirm email" stays **on**; manual linking stays **off**.
       - Register the email senders as Apple email sources, or mail to Hide My
         Email addresses bounces.
-      - **Official logo files in `public/auth/`** (Apple's from Apple Design
-        Resources, Google's G from its branding kit), as
+      - **Apple's official logo files in `public/auth/`** (from Apple Design
+        Resources, `docs/auth-logos.md`), as
         `components/auth/OAuthButtons.tsx` expects them: they aren't in the
-        repo, and **the build fails without them**. No placeholder logos.
+        repo, and **the build fails without them** when the flag lists
+        `apple`. No placeholder logos. Google's button images are committed.
       - `NEXT_PUBLIC_AUTH_PROVIDERS=google,apple` (or `google`) in Vercel for
         **Production only** (previews share the production Supabase project
         and can't be registered), then **redeploy**. List only providers
@@ -799,7 +800,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       Chrome, iPhone Safari, the **iPhone home-screen app** (the installed
       PWA: unverified whether the sign-in survives the round trip; a launch
       gate) and Android Chrome:
-  - [ ] Continue with Google and with Apple from `/login` and `/signup`;
+  - [ ] Sign in with Google and Continue with Apple from `/login` and `/signup`;
         land back where you started (e.g. an event's Who's Going, via
         `next`), signed in; `/account` shows the email.
   - [ ] Cancel on Google's and Apple's screens: our "Sign-in cancelled"
@@ -813,7 +814,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
   - [ ] **Instagram's in-app browser** (open the site from a DM or bio
         link): Google shows the "open in your browser" notice instead of
         Google's error; check whether Apple works there.
-  - [ ] Sign out, then Continue with Google: Google asks which account.
+  - [ ] Sign out, then Sign in with Google: Google asks which account.
   - [ ] On the **test** project, start a sign-in with `redirect_to` set to
         `http://<site host>/auth/callback`, then to
         `https://<site host>:8443/auth/callback`: note whether Supabase
