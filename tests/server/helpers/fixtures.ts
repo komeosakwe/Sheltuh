@@ -1,4 +1,5 @@
 import { adminApproveEvent, adminApproveOrganiser } from "@/lib/server/handlers/admin";
+import { publishEvent } from "@/lib/server/handlers/event-publish";
 import { createEventDraft, submitEventForReview } from "@/lib/server/handlers/events";
 import { applyAsOrganiser } from "@/lib/server/handlers/organisers";
 import type { EventRecord } from "@/lib/server/types";
@@ -63,6 +64,27 @@ export async function publishedEvent(
   const params = { eventId: draft.eventId };
   await api.call(submitEventForReview, { token: organiser.token, params, method: "POST" });
   const res = await api.call(adminApproveEvent, { token: admin.token, params, method: "POST" });
+  return res.body as EventRecord;
+}
+
+/**
+ * A draft the organiser published themselves (POST /api/events/{id}/publish:
+ * live without review, logged `approved` by their own account), setting up
+ * their payouts first if it has paid tickets, as publishedEvent does. Throws
+ * unless it went live (not to review): use a fresh organiser for each one past
+ * the per-account cap.
+ */
+export async function selfPublishedEvent(
+  api: TestApi,
+  organiser: { token: string },
+  overrides: Record<string, unknown> = {},
+) {
+  const draft = await draftEvent(api, organiser, overrides);
+  if (hasPaidSheltuhTickets(draft)) await setUpPayouts(api, draft.organiserId);
+  const res = await api.call(publishEvent, { token: organiser.token, params: { eventId: draft.eventId }, method: "POST" });
+  if (res.status !== 200 || res.body.status !== "published") {
+    throw new Error(`publishEvent didn't publish: ${res.status} ${JSON.stringify(res.body)}`);
+  }
   return res.body as EventRecord;
 }
 

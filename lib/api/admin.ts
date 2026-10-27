@@ -134,6 +134,13 @@ export interface AdminListEventsQuery {
   upcoming?: boolean;
   /** true: only platform-managed organisers' events; false: only organisers with an account. Omitted: both. */
   platformManaged?: boolean;
+  /**
+   * `published` only (ApiError 400 otherwise): events that went live in the
+   * last 14 days, newest first (by an admin's approval or the organiser's own
+   * publish: AdminEventRecord.publishedAt / publishedBy), ended ones included
+   * unless `upcoming: true`.
+   */
+  recent?: boolean;
   /** Page size: 20 by default, at most 50. */
   limit?: number;
   cursor?: string;
@@ -155,11 +162,12 @@ export function adminListEvents(
 export async function adminListEvents(query: EventStatus | AdminListEventsQuery, getToken: GetToken, cursor?: string) {
   const token = await getToken();
   const options: AdminListEventsQuery = typeof query === "string" ? { status: query, cursor } : query;
-  const { status, q, upcoming, platformManaged, limit, cursor: pageCursor } = options;
+  const { status, q, upcoming, platformManaged, recent, limit, cursor: pageCursor } = options;
   const qs = new URLSearchParams({ status });
   if (q?.trim()) qs.set("q", q.trim());
   if (upcoming !== undefined) qs.set("upcoming", upcoming ? "1" : "0");
   if (platformManaged !== undefined) qs.set("platformManaged", platformManaged ? "1" : "0");
+  if (recent) qs.set("recent", "1");
   if (limit !== undefined) qs.set("limit", String(limit));
   if (pageCursor) qs.set("cursor", pageCursor);
   return apiFetch<Paginated<AdminEventRecord>>(`/admin/events?${qs}`, { token });
@@ -195,9 +203,40 @@ export async function adminRejectEvent(eventId: string, reason: string, getToken
   });
 }
 
-export async function adminUnpublishEvent(eventId: string, getToken: GetToken) {
+/**
+ * Published → draft. `reason` (optional, 1–500 characters) is shown to the
+ * organiser (`EventRecord.rejectionReason`) and logged. If they publish it
+ * again, it goes to the review queue. ApiError 400 (fieldErrors.reason), 404,
+ * 409 no longer published.
+ */
+export async function adminUnpublishEvent(eventId: string, getToken: GetToken, reason?: string) {
   const token = await getToken();
-  return apiFetch<EventRecord>(`/admin/events/${eventId}/unpublish`, { method: "POST", token });
+  return apiFetch<EventRecord>(`/admin/events/${eventId}/unpublish`, {
+    method: "POST",
+    ...(reason?.trim() ? { body: { reason: reason.trim() } } : {}),
+    token,
+  });
+}
+
+/**
+ * Turns review of an organiser's events on (`required: true`: their
+ * publishes go to the review queue instead of going live) or off, with a
+ * reason (1–500 characters) logged on the organiser's log. Returns the
+ * organiser (`eventReviewRequired`). ApiError 400 (fieldErrors.required /
+ * .reason), 404 unknown organiser.
+ */
+export async function adminSetEventReviewRequired(
+  organiserId: string,
+  required: boolean,
+  reason: string,
+  getToken: GetToken,
+) {
+  const token = await getToken();
+  return apiFetch<AdminOrganiserRecord>(`/admin/organisers/${encodeURIComponent(organiserId)}/event-review`, {
+    method: "POST",
+    body: { required, reason },
+    token,
+  });
 }
 
 /**

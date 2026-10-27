@@ -45,6 +45,14 @@ export interface OrganiserRecord {
    */
   featuredVideo?: FeaturedVideo;
   /**
+   * An admin has turned on review of this organiser's events (POST
+   * /api/admin/organisers/{id}/event-review): publishing one sends it to the
+   * review queue instead of going live (POST /api/events/{id}/publish).
+   * Always sent by the API; optional so older fixtures stay valid (absent
+   * means false).
+   */
+  eventReviewRequired?: boolean;
+  /**
    * The organiser's logo (512 px square WebP), when they've uploaded one:
    * `/api/organisers/{organiserId}/logo?v={version}`. Public once approved
    * (otherwise only an admin, or the owner, with a bearer token); the thumbnail
@@ -356,11 +364,35 @@ export interface EventRecord {
    */
   seating?: EventSeating;
   status: EventStatus;
+  /**
+   * An admin's note to the organiser: why it was rejected, or why it was
+   * unpublished (when the admin gave a reason). Cleared when it's published
+   * or submitted again.
+   */
   rejectionReason?: string;
   moderationLog: ModerationLogEntry[];
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * The error body's `code` (ApiError.body.code) when POST
+ * /api/events/{eventId}/publish is refused, always with a 409:
+ * - `payouts_required`: a paid Sheltüh ticket type, and the organiser's
+ *   payouts aren't set up (lib/api/events.ts isPayoutsRequiredError).
+ * - `event_ended`: its end has passed.
+ * - `in_review`: it's already waiting for review.
+ * - `event_changed`: its ticket link changed while it was being published;
+ *   reload it and try again.
+ * - `location_required`: (once venue locations ship) it has no venue
+ *   location yet.
+ */
+export type PublishEventConflictCode =
+  | "payouts_required"
+  | "event_ended"
+  | "in_review"
+  | "event_changed"
+  | "location_required";
 
 /**
  * PATCH /api/admin/events/{eventId}/ticketing (admin): sets an event's
@@ -389,6 +421,14 @@ export interface AdminEventRecord extends EventRecord {
    * an admin never curated: boost 1, excluded false.
    */
   curation: AdminEventCurationState;
+  /**
+   * Published events only: when it was last approved, i.e. went live (the
+   * newest `approved` log entry), and by whom: `organiser` (the organiser
+   * published it themselves, POST /api/events/{id}/publish) or `sheltuh`
+   * (an admin approved or published it). Absent for any other status.
+   */
+  publishedAt?: string;
+  publishedBy?: "organiser" | "sheltuh";
 }
 
 /** An event's trending curation as AdminEventRecord carries it. */
@@ -804,7 +844,8 @@ export type EmailOutboxKind =
   | "organiser_new_events"
   | "event_review"
   | "organiser_review"
-  | "ops_alert";
+  | "ops_alert"
+  | "event_published";
 
 export const EMAIL_OUTBOX_KINDS: readonly EmailOutboxKind[] = [
   "ticket_email",
@@ -813,6 +854,7 @@ export const EMAIL_OUTBOX_KINDS: readonly EmailOutboxKind[] = [
   "event_review",
   "organiser_review",
   "ops_alert",
+  "event_published",
 ];
 
 /** One kind's (or every kind's) outbox counts in EmailOutboxHealth. Sent jobs aren't counted. */
@@ -979,6 +1021,14 @@ export interface AdminSummary {
    * `windowHours` (24) from now.
    */
   doorEvents: { count: number; windowHours: number };
+  /**
+   * Events organisers published themselves (POST /api/events/{id}/publish)
+   * within the last `windowHours` (72) that are still published and whose
+   * latest approval is the organiser's own (GET
+   * /admin/events?status=published&recent=1 lists them). Always sent by the
+   * API; optional so a client tolerates an older server.
+   */
+  eventsPublishedByOrganisers?: { count: number; windowHours: number };
 }
 
 // ---------------------------------------------------------------------------

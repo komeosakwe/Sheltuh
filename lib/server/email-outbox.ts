@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { EmailOutboxKind, PaymentExceptionKind } from "@/lib/api/types";
 import type { StateCode } from "@/lib/time-zones";
-import { buildEventReviewEmail, buildOrganiserReviewEmail } from "./admin-review-email";
+import { describeTicketHost } from "@/lib/ticketing";
+import { buildEventPublishedEmail, buildEventReviewEmail, buildOrganiserReviewEmail } from "./admin-review-email";
 import { PG_UNDEFINED_FUNCTION, pgErrorCode } from "./db";
 import type { Deps } from "./deps";
 import type { EmailMessage } from "./email";
@@ -19,7 +20,7 @@ import { buildWaitlistAvailableEmail, waitlistEventLink, waitlistLeaveLink } fro
  * The transactional email outbox (supabase/migrations/20261014000000_email_outbox.sql,
  * 20261024000000_waitlist.sql, 20261024000200_organiser_follows.sql,
  * 20261107000000_admin_review_emails.sql, 20261109000200_payment_reconciliation.sql,
- * 20261109000400_checkout_attempts.sql). Six kinds of job:
+ * 20261109000400_checkout_attempts.sql, 20261111000000_event_publish_now.sql). Seven kinds of job:
  * - `ticket_email`: private.fulfil_order queues one when an order becomes paid.
  * - `waitlist_available`: private.notify_waitlist queues one per person told
  *   that tickets are available again (docs/architecture.md, "Waitlist").
@@ -29,6 +30,10 @@ import { buildWaitlistAvailableEmail, waitlistEventLink, waitlistLeaveLink } fro
  * - `event_review` / `organiser_review`: queued (by database triggers) when an
  *   event is submitted for review or an organiser application is made or
  *   resubmitted; one email to each admin (docs/architecture.md, "Admin review emails").
+ * - `event_published`: private.publish_event queues one when an approved
+ *   organiser's event goes live without review; one email to each admin, the
+ *   same way. Only leased when asked for by kind (a previous release, which
+ *   can't send it, never takes one).
  * - `ops_alert`: private.raise_payment_exception queues one when a payment
  *   exception is opened or reopened (at most 20 a day), and
  *   private.queue_checkout_surge_alert one when an event's paid checkouts
@@ -322,12 +327,46 @@ function recipientHash(email: string): string {
   return createHash("sha256").update(email.toLowerCase(), "utf8").digest("hex");
 }
 
-/** The email about one review job, for `to`; or why there's nothing to send. */
+/** The email about one admin job (a review, or an organiser's publish), for `to`; or why there's nothing to send. */
 async function reviewEmailBuilder(
   deps: Deps,
   job: ClaimedJob,
 ): Promise<{ build: (to: string) => EmailMessage } | { skip: string }> {
   const siteUrl = deps.siteUrl();
+  if (job.job_kind === "event_published" && job.job_event_id) {
+    const [row] = await deps.db.query<{
+      title: string;
+      starts_at: Date | string;
+      state: StateCode;
+      time_zone: string;
+      live: boolean;
+      organiser_name: string;
+      external_url: string | null;
+    }>(
+      `select e.title, e.starts_at, e.state, e.time_zone, e.status = 'published' as live, o.display_name as organiser_name,
+              case when e.ticketing_mode = 'external' then e.external_ticket_url end as external_url
+         from public.events e join public.organisers o on o.id = e.organiser_id
+        where e.id = $1`,
+      [job.job_event_id],
+    );
+    if (!row) return { skip: "the event no longer exists" };
+    if (!row.live) return { skip: "the event isn't published any more" };
+    const startsAt = new Date(row.starts_at).toISOString();
+    const ticketHost = row.external_url ? (describeTicketHost(row.external_url)?.host ?? undefined) : undefined;
+    return {
+      build: (to) =>
+        buildEventPublishedEmail({
+          to,
+          title: row.title,
+          organiserName: row.organiser_name,
+          startsAt,
+          timeZone: row.time_zone,
+          state: row.state,
+          ticketHost,
+          siteUrl,
+        }),
+    };
+  }
   if (job.job_kind === "event_review" && job.job_event_id) {
     const [row] = await deps.db.query<{
       title: string;
@@ -339,7 +378,9 @@ async function reviewEmailBuilder(
       resubmitted: boolean;
     }>(
       `select e.title, e.starts_at, e.state, e.time_zone, e.status = 'pending_review' as waiting, o.display_name as organiser_name,
-              exists (select 1 from public.event_moderation_log l where l.event_id = e.id and l.action = 'rejected') as resubmitted
+              -- Back for review after an admin rejected or unpublished it.
+              exists (select 1 from public.event_moderation_log l
+                       where l.event_id = e.id and l.action in ('rejected', 'unpublished')) as resubmitted
          from public.events e join public.organisers o on o.id = e.organiser_id
         where e.id = $1`,
       [job.job_event_id],
@@ -373,8 +414,13 @@ async function reviewEmailBuilder(
   return { skip: "unknown job" };
 }
 
+/** The kinds sent to the admins (deliverReviewEmail). */
+function isAdminJob(kind: EmailJobKind): boolean {
+  return kind === "event_review" || kind === "organiser_review" || kind === "event_published";
+}
+
 /**
- * Sends one review job's email to each admin recipient who doesn't have it
+ * Sends one review (or organiser-published) job's email to each admin recipient who doesn't have it
  * yet (private.email_job_recipients, recorded after each send), so a retry
  * after a partial failure reaches only the ones it missed. Stops, to be
  * retried, once less than REVIEW_SEND_LEASE_MARGIN_MS is left before
@@ -528,9 +574,7 @@ async function deliverOpsAlert(deps: Deps, jobId: string): Promise<Outcome> {
 
 function deliver(deps: Deps, job: ClaimedJob, leaseEndsAt: number): Promise<Outcome> {
   if (job.job_kind === "ops_alert") return deliverOpsAlert(deps, String(job.job_id));
-  if (job.job_kind === "event_review" || job.job_kind === "organiser_review") {
-    return deliverReviewEmail(deps, job, leaseEndsAt);
-  }
+  if (isAdminJob(job.job_kind)) return deliverReviewEmail(deps, job, leaseEndsAt);
   if (job.job_kind === "waitlist_available" && job.job_waitlist_entry_id) {
     return deliverWaitlistEmail(deps, job.job_waitlist_entry_id);
   }
@@ -559,8 +603,8 @@ async function runJob(deps: Deps, job: ClaimedJob, leaseEndsAt: number, summary:
   else if (result === "failed") summary.failed += 1;
 
   if (outcome.sent) return;
-  if (job.job_kind === "event_review" || job.job_kind === "organiser_review") {
-    // A skip is routine (an admin reviewed it first) and isn't logged; the job id only, never an address.
+  if (isAdminJob(job.job_kind)) {
+    // A skip is routine (an admin reviewed or unpublished it first) and isn't logged; the job id only, never an address.
     if (!outcome.skipped) {
       console.error(
         `Admin review email job ${job.job_id} attempt ${job.job_attempts} ` +
@@ -621,9 +665,10 @@ async function leaseJobs(deps: Deps, limit: number, orderId: string | null, kind
  * Leases due jobs and sends them, until none are due, `maxJobs` have been
  * taken or `budgetMs` has passed. With `orderId`, only that order's job (the
  * attempt straight after payment); with `kind`, only jobs of that kind.
- * With neither, ops alerts first (private.lease_outbox_jobs only leases
- * them when asked for that kind, so a release that can't send them never
- * takes one), then every other kind.
+ * With neither, ops alerts first, then every other kind, then the
+ * organiser-published emails (private.lease_outbox_jobs only leases ops
+ * alerts and `event_published` jobs when asked for that kind, so a release
+ * that can't send them never takes one).
  * Safe to run concurrently with itself.
  */
 export async function drainEmailOutbox(
@@ -633,7 +678,7 @@ export async function drainEmailOutbox(
   const { orderId, kind, maxJobs = 100, budgetMs = DRAIN_BUDGET_MS, random = Math.random } = options;
   const deadline = Date.now() + budgetMs;
   const summary: DrainSummary = { claimed: 0, sent: 0, retrying: 0, failed: 0 };
-  const phases: (EmailJobKind | null)[] = kind ? [kind] : orderId ? [null] : ["ops_alert", null];
+  const phases: (EmailJobKind | null)[] = kind ? [kind] : orderId ? [null] : ["ops_alert", null, "event_published"];
   for (const phase of phases) {
     while (summary.claimed < maxJobs && Date.now() < deadline) {
       // Taken before the lease starts, so the lease ends no sooner than this says.
@@ -713,6 +758,24 @@ export function sendPublishEmailsSoon(deps: Deps): void {
 
 /** Review emails sent straight after a submission or application (any due ones, of that kind). */
 export const REVIEW_DRAIN_MAX_JOBS = 10;
+
+/**
+ * After an organiser's own publish (POST /api/events/{id}/publish): the
+ * followers' emails (private.notify_followers), then the admins'
+ * "published by an organiser" emails, in one run sharing one
+ * DRAIN_BUDGET_MS, so the route's maxDuration (60 s) covers both. Whatever
+ * doesn't fit waits for the cron route.
+ */
+export function sendSelfPublishEmailsSoon(deps: Deps): void {
+  deps.defer(async () => {
+    const deadline = Date.now() + DRAIN_BUDGET_MS;
+    await drainEmailOutbox(deps, { kind: "organiser_new_events", maxJobs: FOLLOWER_DRAIN_MAX_JOBS });
+    const left = deadline - Date.now();
+    if (left > 0) {
+      await drainEmailOutbox(deps, { kind: "event_published", maxJobs: REVIEW_DRAIN_MAX_JOBS, budgetMs: left });
+    }
+  });
+}
 
 /**
  * Queues a run over due admin review emails of `kind` for straight after the

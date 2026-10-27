@@ -276,15 +276,50 @@ export const adminRemoveOrganiserLogo: Handler<{ organiserId: string }> = async 
   return okPrivate((await findAdminOrganiser(deps.db, organiserId))!);
 };
 
+/**
+ * POST /api/admin/organisers/[organiserId]/event-review — body {required,
+ * reason}. Turns review of the organiser's events on (`required: true`: their
+ * publishes go to the review queue instead of going live) or off
+ * (private.set_event_review_required), logged on the organiser's log as a
+ * profile edit by the admin with the reason. Any status. 200 with the
+ * organiser (unchanged, nothing logged, if it already was so); 400
+ * `fieldErrors.required` (not a boolean) or `fieldErrors.reason` (1–500
+ * characters, cleaned like a message); 404 unknown.
+ */
+export const adminSetEventReviewRequired: Handler<{ organiserId: string }> = async (req, { organiserId }, deps) => {
+  const admin = await requireAdmin(req, deps.verifyAccessToken);
+  const body = await readJson(req);
+  const errors: Record<string, string> = {};
+  if (typeof body.required !== "boolean") errors.required = "Must be true or false.";
+  const reason = parseMessageText(body.reason, "reason", errors, {
+    allowLinks: true,
+    label: "Reasons",
+    maxLength: MAX_SUSPEND_REASON_LENGTH,
+  });
+  if (Object.keys(errors).length > 0) fail(errors);
+  if (!isUuid(organiserId)) throw new HttpError(404, ORGANISER_NOT_FOUND);
+
+  const [row] = await deps.db.query<{ result: "updated" | "unchanged" | "not_found" }>(
+    `select private.set_event_review_required($1, $2, $3, $4) as result`,
+    [organiserId, admin.userId, body.required, reason],
+  );
+  if (row.result === "not_found") throw new HttpError(404, ORGANISER_NOT_FOUND);
+  return okPrivate((await findAdminOrganiser(deps.db, organiserId))!);
+};
+
 // ---------------------------------------------------------------------------
 // Event submissions
 // ---------------------------------------------------------------------------
 
+/** GET /admin/events?recent=1: published events that went live within this many days. */
+export const RECENTLY_PUBLISHED_DAYS = 14;
+
 /**
- * GET /api/admin/events?status=pending_review&q=&upcoming=&platformManaged=&limit=&cursor=
+ * GET /api/admin/events?status=pending_review&q=&upcoming=&platformManaged=&recent=&limit=&cursor=
  * — soonest first. Items are AdminEventRecords (EventRecord plus
- * `organiserPlatformManaged` and the trending `curation`, read by a primary
- * key join on private.event_curation: no request per row).
+ * `organiserPlatformManaged`, the trending `curation`, read by a primary
+ * key join on private.event_curation: no request per row, and for published
+ * events `publishedAt` / `publishedBy`).
  *
  * - `q` (optional; control characters removed, trimmed, at most
  *   MAX_EVENT_SEARCH_LENGTH characters used): the title or the organiser's
@@ -297,6 +332,11 @@ export const adminRemoveOrganiserLogo: Handler<{ organiserId: string }> = async 
  * - `platformManaged` (1/true or 0/false): only events of platform-managed
  *   organisers (no owner account: the ones admins check in at the door), or
  *   only of organisers with an account. Absent: both.
+ * - `recent` (1/true; `status=published` only, else a 400): published
+ *   events that went live (their latest approval, by an admin or by the
+ *   organiser) in the last RECENTLY_PUBLISHED_DAYS days, newest first,
+ *   ended ones included unless `upcoming=1` is sent. Served by
+ *   event_moderation_log_approved_idx (approvals by time).
  *
  * Anything else for a boolean is a 400 (fieldErrors on the parameter).
  * Served by events_status_starts_idx (status, starts_at, id); with
@@ -313,7 +353,11 @@ export const adminListEvents: Handler = async (req, _params, { db, verifyAccessT
   if (!EVENT_STATUSES.includes(status)) {
     throw new HttpError(400, `status must be one of: ${EVENT_STATUSES.join(", ")}`);
   }
-  const upcoming = parseBooleanParam(qs, "upcoming") ?? status === "published";
+  const recent = parseBooleanParam(qs, "recent") ?? false;
+  if (recent && status !== "published") {
+    throw new HttpError(400, "recent needs status=published.", { recent: "Only with status=published." });
+  }
+  const upcoming = parseBooleanParam(qs, "upcoming") ?? (status === "published" && !recent);
   const platformManaged = parseBooleanParam(qs, "platformManaged");
   const limit = parseLimit(qs.get("limit"));
   const offset = decodeCursor(qs.get("cursor"));
@@ -329,6 +373,24 @@ export const adminListEvents: Handler = async (req, _params, { db, verifyAccessT
     const n = `$${params.length}`;
     where.push(`(${ORGANISER_SEARCH_FOLD("e.title")} like ${n} or ${ORGANISER_SEARCH_FOLD("o.display_name")} like ${n})`);
   }
+  if (recent) {
+    if (upcoming) where.push("e.ends_at > now()");
+    params.push(RECENTLY_PUBLISHED_DAYS, limit + 1, offset);
+    const n = params.length;
+    // Each event's latest approval in the window (a later one can only be in the window too).
+    const rows = await db.query(
+      `${ADMIN_EVENT_SELECT}
+         join (select l.event_id, max(l.created_at) as approved_at
+                 from public.event_moderation_log l
+                where l.action = 'approved' and l.created_at > now() - make_interval(days => $${n - 2}::int)
+                group by l.event_id) ra on ra.event_id = e.id
+        where ${where.join(" and ")}
+        order by ra.approved_at desc, e.id limit $${n - 1} offset $${n}`,
+      params,
+    );
+    return okPrivate(toPage(rows.map(toAdminEvent), offset, limit));
+  }
+
   params.push(limit + 1, offset);
   const limitParam = `$${params.length - 1}`;
   const offsetParam = `$${params.length}`;
@@ -351,11 +413,13 @@ export const adminListEvents: Handler = async (req, _params, { db, verifyAccessT
 export const PENDING_EVENT_SOON_HOURS = 72;
 /** The door check-in window: platform-managed events starting within this many hours (and not ended). */
 export const DOOR_EVENT_WINDOW_HOURS = 24;
+/** "Published by organisers" on the admin home: within this many hours. */
+export const SELF_PUBLISHED_WINDOW_HOURS = 72;
 
 /**
  * GET /api/admin/summary — what's waiting for an admin, as counts (the hub
- * and the admin nav's badges). One read of five aggregates, each over one
- * status of one table and served by an existing index:
+ * and the admin nav's badges). One read of six aggregates, each served by an
+ * index:
  *
  * - reportsOpen: open member reports, and when the oldest was filed
  *   (user_reports_status_created_idx).
@@ -371,6 +435,10 @@ export const DOOR_EVENT_WINDOW_HOURS = 24;
  * - doorEvents: published, Sheltüh-ticketed events of platform-managed
  *   organisers (the ones only admins check in) that haven't ended and start
  *   within DOOR_EVENT_WINDOW_HOURS (events_status_ends_idx).
+ * - eventsPublishedByOrganisers: events still published whose latest
+ *   approval within SELF_PUBLISHED_WINDOW_HOURS was made by the organiser's
+ *   own account (POST /api/events/{id}/publish), for admins to check after
+ *   the fact (event_moderation_log_approved_idx, then events by primary key).
  *
  * Counts only: no titles, names or addresses.
  */
@@ -387,12 +455,13 @@ export const adminSummary: Handler = async (req, _params, { db, verifyAccessToke
     emails_failed: number;
     emails_retrying: number;
     door_events: number;
+    self_published: number;
   }>(
     `select r.reports_open, r.reports_oldest_at,
             ev.events_pending, ev.events_pending_soonest, ev.events_pending_soon,
             og.organisers_pending, og.organisers_pending_oldest_at,
             em.emails_failed, em.emails_retrying,
-            dr.door_events
+            dr.door_events, sp.self_published
        from (select count(*)::int as reports_open, min(created_at) as reports_oldest_at
                from private.user_reports where status = 'open') r,
             (select count(*)::int as events_pending,
@@ -410,8 +479,16 @@ export const adminSummary: Handler = async (req, _params, { db, verifyAccessToke
                from public.events e join public.organisers o on o.id = e.organiser_id
               where e.status = 'published' and e.ends_at > now()
                 and e.starts_at <= now() + make_interval(hours => $2::int)
-                and e.ticketing_mode = 'sheltuh' and o.owner_user_id is null) dr`,
-    [PENDING_EVENT_SOON_HOURS, DOOR_EVENT_WINDOW_HOURS],
+                and e.ticketing_mode = 'sheltuh' and o.owner_user_id is null) dr,
+            (select count(*)::int as self_published
+               from (select distinct on (l.event_id) l.event_id, l.actor_id
+                       from public.event_moderation_log l
+                      where l.action = 'approved' and l.created_at > now() - make_interval(hours => $3::int)
+                      order by l.event_id, l.id desc) a
+               join public.events e on e.id = a.event_id
+               join public.organisers o on o.id = e.organiser_id
+              where e.status = 'published' and a.actor_id = o.owner_user_id) sp`,
+    [PENDING_EVENT_SOON_HOURS, DOOR_EVENT_WINDOW_HOURS, SELF_PUBLISHED_WINDOW_HOURS],
   );
   const at = (value: Date | string | null) => (value === null ? null : new Date(value).toISOString());
   const summary: AdminSummary = {
@@ -426,6 +503,7 @@ export const adminSummary: Handler = async (req, _params, { db, verifyAccessToke
     emailsFailed: { count: row.emails_failed },
     emailsRetrying: { count: row.emails_retrying },
     doorEvents: { count: row.door_events, windowHours: DOOR_EVENT_WINDOW_HOURS },
+    eventsPublishedByOrganisers: { count: row.self_published, windowHours: SELF_PUBLISHED_WINDOW_HOURS },
   };
   return okPrivate(summary);
 };
@@ -493,10 +571,32 @@ export const adminRejectEvent: Handler<{ eventId: string }> = async (req, { even
   return moderateEvent(admin, eventId, deps, { from: "pending_review", to: "rejected", action: "rejected" }, reason);
 };
 
-/** POST /api/admin/events/[eventId]/unpublish — back to draft, not deleted, so the organiser can resubmit. */
+/** Longest unpublish reason (as a takedown's). */
+export const MAX_UNPUBLISH_REASON_LENGTH = 500;
+
+/**
+ * POST /api/admin/events/[eventId]/unpublish — body {reason?}. Back to
+ * draft, not deleted, so the organiser can send it again (it then goes to
+ * the review queue, never straight live: private.publish_event). The
+ * optional reason (1–500 characters, cleaned like a message; absent, null or
+ * blank: none) is logged with the `unpublished` entry and stored as the
+ * event's `rejectionReason`, which the organiser sees. 400
+ * `fieldErrors.reason`; 404; 409 not published.
+ */
 export const adminUnpublishEvent: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const admin = await requireAdmin(req, deps.verifyAccessToken);
-  return moderateEvent(admin, eventId, deps, { from: "published", to: "draft", action: "unpublished" });
+  const body = await readJson(req);
+  let reason: string | null = null;
+  if (body.reason !== undefined && body.reason !== null && !(typeof body.reason === "string" && body.reason.trim() === "")) {
+    const errors: Record<string, string> = {};
+    reason = parseMessageText(body.reason, "reason", errors, {
+      allowLinks: true,
+      label: "Reasons",
+      maxLength: MAX_UNPUBLISH_REASON_LENGTH,
+    });
+    if (Object.keys(errors).length > 0) fail(errors);
+  }
+  return moderateEvent(admin, eventId, deps, { from: "published", to: "draft", action: "unpublished" }, reason);
 };
 
 /**

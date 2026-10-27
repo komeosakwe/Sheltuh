@@ -67,7 +67,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261110000300_amount_mismatch_refund.sql`. Never
+      newest, currently `20261111000000_event_publish_now.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -165,6 +165,21 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           without it that call fails (500, Stripe retries, the order stays
           pending); matching payments are fulfilled as ever. The previous app
           keeps working against it: it never calls the function)
+      33. `20261111000000_event_publish_now.sql` (approved organisers
+          publish their events straight away: `private.publish_event`, the
+          per-organiser review switch `organisers.event_review_required` and
+          `private.set_event_review_required`, the admins' `event_published`
+          outbox kind, and `queue_review_email` and `lease_outbox_jobs`
+          redefined. Needs files 20, 22, 24 and 26 first: it redefines the
+          outbox kind checks from 24 and 26 and the functions from 20 and
+          24. **Apply it before this app deploys**: every organiser read
+          (`ORGANISER_SELECT`, so `GET /api/organisers/me` and every
+          organiser route) selects `event_review_required`, and the publish
+          route calls `private.publish_event`, so without it those are 500s.
+          The previous app keeps working against it: its `/submit` route is
+          unchanged, and its cron (which leases every kind it's not asked
+          for by name) never takes an `event_published` job, which waits for
+          this app's drain)
 
       **Before merging the Australia-wide events branch, check the Supabase
       project knows every event time zone.** The public list's `onOrAfter`

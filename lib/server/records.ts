@@ -87,8 +87,8 @@ const ORGANISER_COLUMNS = `o.id, o.owner_user_id, o.display_name, o.contact_emai
          o.categories::text[] as categories, o.website_url,
          o.instagram_handle, o.tiktok_handle, o.facebook_page, o.x_handle, o.status::text as status,
          o.rejection_reason, o.reviewed_by, o.reviewed_at, o.stripe_account_id,
-         o.payouts_enabled, o.created_at, o.updated_at, o.featured_video_provider, o.featured_video_id,
-         ${organiserLogoVersionOf("o.id")} as logo_version`;
+         o.payouts_enabled, o.event_review_required, o.created_at, o.updated_at, o.featured_video_provider,
+         o.featured_video_id, ${organiserLogoVersionOf("o.id")} as logo_version`;
 
 export const ORGANISER_SELECT = `
   select ${ORGANISER_COLUMNS}
@@ -188,6 +188,7 @@ export function toOrganiser(row: Row): OrganiserRecord {
     reviewedAt: row.reviewed_at ? iso(row.reviewed_at) : undefined,
     stripeAccountId: opt(row.stripe_account_id),
     payoutsEnabled: row.payouts_enabled as boolean,
+    eventReviewRequired: row.event_review_required === true,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
     featuredVideo: featuredVideoOf(row),
@@ -322,8 +323,10 @@ export const eventSelectWith = (extraColumns: string) => `
 
 /**
  * EVENT_SELECT plus whether the organiser is platform-managed (no owner
- * account) and the event's trending curation (private.event_curation: null
- * columns when an admin never curated it). Admin only. Callers append a
+ * account), the event's trending curation (private.event_curation: null
+ * columns when an admin never curated it) and, for a published event, its
+ * latest approval (when, and whether the organiser's own account made it:
+ * event_moderation_log_event_idx, newest first). Admin only. Callers append a
  * `where` over `e` / `o`: the curation join is on the table's primary key,
  * at most one row per event, so it never changes the rows or their order.
  */
@@ -331,7 +334,14 @@ export const ADMIN_EVENT_SELECT = `
   select ${EVENT_COLUMNS},
          o.owner_user_id is null as organiser_platform_managed,
          ec.boost as curation_boost,
-         ec.excluded as curation_excluded${EVENT_FROM}
+         ec.excluded as curation_excluded,
+         case when e.status = 'published' then (
+           select json_build_object('at', l.created_at,
+                                    'byOrganiser', l.actor_id is not null and l.actor_id = o.owner_user_id)
+             from public.event_moderation_log l
+            where l.event_id = e.id and l.action = 'approved'
+            order by l.id desc
+            limit 1) end as last_approval${EVENT_FROM}
   left join private.event_curation ec on ec.event_id = e.id`;
 
 /** The fields a log entry's `changes` can name (ModerationLogEntry.changes). */
@@ -499,6 +509,7 @@ function mapEvent(row: Row, audience: LogAudience): EventRecord {
  * defaults GET /admin/events/{id}/curation reports: boost 1, not excluded.
  */
 export function toAdminEvent(row: Row): AdminEventRecord {
+  const approval = row.last_approval as { at: string; byOrganiser: boolean } | null | undefined;
   return {
     ...toEventForAdmin(row),
     organiserPlatformManaged: row.organiser_platform_managed === true,
@@ -506,6 +517,7 @@ export function toAdminEvent(row: Row): AdminEventRecord {
       boost: row.curation_boost === null || row.curation_boost === undefined ? 1 : Number(row.curation_boost),
       excluded: row.curation_excluded === true,
     },
+    ...(approval ? { publishedAt: iso(approval.at), publishedBy: approval.byOrganiser ? "organiser" : "sheltuh" } : {}),
   };
 }
 
