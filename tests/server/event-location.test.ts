@@ -7,6 +7,7 @@ import { publishEvent } from "@/lib/server/handlers/event-publish";
 import { createEventDraft, getMyEvent, submitEventForReview, updateEventDraft } from "@/lib/server/handlers/events";
 import {
   PIN_RECHECK,
+  PLACE_IN_OTHER_STATE,
   PLACE_NOT_FOUND,
   PLACE_NOT_IN_AUSTRALIA,
   PLACES_PLATFORM_DAILY_CAPS,
@@ -428,6 +429,62 @@ describe("the organiser saves a location", () => {
     expect((await patch(legacy.eventId, eventInput({ title: "Legacy", suburb: "Fitzroy" }))).status).toBe(200);
   });
 
+  it("a kept Google place with a new state or suburb is checked with Google again: another state is 400 fieldErrors.location, nothing saved", async () => {
+    const event = await draftEvent(api, organiser, { location: PLACES });
+    expect(api.places!.count("verify")).toBe(1);
+    const surryHills = suburbPin("Surry Hills", "NSW")!;
+    const toSydney = { suburb: "Surry Hills", state: "NSW", timeZone: "Australia/Sydney" };
+    // The Tote's place id kept, a new pin confirmed in NSW: Google's directions would still go to Collingwood.
+    const res = await patch(event.eventId, eventInput({ ...toSydney, location: { ...PLACES, pin: surryHills.pin } }));
+    expect(res.status).toBe(400);
+    expect(res.body.fieldErrors).toEqual({ location: PLACE_IN_OTHER_STATE });
+    expect(api.places!.count("verify")).toBe(2);
+    expect(await stored(event.eventId)).toMatchObject({ location_source: "places", venue_place_id: TOTE_PLACE_ID, venue_lat: TOTE_PIN.lat });
+    const [{ suburb, state }] = await api.db.query<{ suburb: string; state: string }>(
+      `select suburb, state from public.events where id = $1`,
+      [event.eventId],
+    );
+    expect({ suburb, state }).toEqual({ suburb: "Collingwood", state: "VIC" });
+
+    // A dropped pin instead drops the place: saved, no Google call.
+    const pinned = await patch(event.eventId, eventInput({ ...toSydney, location: surryHills }));
+    expect(pinned.status).toBe(200);
+    expect(pinned.body.location).toEqual(surryHills);
+    expect(await stored(event.eventId)).toMatchObject({ location_source: "manual_pin", venue_place_id: null });
+    expect(api.places!.count("verify")).toBe(2);
+  });
+
+  it("a kept Google place with a new suburb in its own state is re-checked and saved", async () => {
+    const event = await draftEvent(api, organiser, { location: PLACES });
+    const fitzroy = suburbPin("Fitzroy")!;
+    const res = await patch(event.eventId, eventInput({ suburb: "Fitzroy", location: { ...PLACES, pin: fitzroy.pin } }));
+    expect(res.status).toBe(200);
+    expect(res.body.location).toEqual({ ...PLACES, pin: fitzroy.pin });
+    expect(api.places!.calls).toEqual([
+      { method: "verify", placeId: TOTE_PLACE_ID },
+      { method: "verify", placeId: TOTE_PLACE_ID },
+    ]);
+    // The same suburb again (in any case): no call.
+    expect((await patch(event.eventId, eventInput({ suburb: "fitzroy", location: { ...PLACES, pin: fitzroy.pin } }))).status).toBe(200);
+    expect(api.places!.count("verify")).toBe(2);
+  });
+
+  it("the re-check counts against the account's details allowance: 429 fieldErrors.location past it, without asking Google", async () => {
+    const event = await draftEvent(api, organiser, { location: PLACES });
+    const [hourly] = PLACES_RATE_LIMITS.details;
+    await api.db.query(`select private.take_rate_limit($1, $2, $3, $4::interval) from generate_series(1, $3)`, [
+      organiser.userId,
+      hourly.bucket,
+      hourly.hits,
+      hourly.window,
+    ]);
+    const fitzroy = suburbPin("Fitzroy")!;
+    const res = await patch(event.eventId, eventInput({ suburb: "Fitzroy", location: { ...PLACES, pin: fitzroy.pin } }));
+    expect(res.status).toBe(429);
+    expect(res.body.fieldErrors).toEqual({ location: PLACES_TOO_MANY });
+    expect(api.places!.count("verify")).toBe(1);
+  });
+
   it("the pin's reach follows the event's own suburb and state", async () => {
     const fremantle = suburbPin("Fremantle", "WA")!;
     const perth = { suburb: "Fremantle", state: "WA", timeZone: "Australia/Perth" };
@@ -529,6 +586,31 @@ describe("admins", () => {
     expect(ok.status).toBe(200);
   });
 
+  it("an admin's edit keeping the Google place while moving the event to another state: 400 fieldErrors.location; a dropped pin saves", async () => {
+    const event = await draftEvent(api, organiser, { location: PLACES });
+    const surryHills = suburbPin("Surry Hills", "NSW")!;
+    const toSydney = { suburb: "Surry Hills", state: "NSW", timeZone: "Australia/Sydney" };
+    const res = await api.call(adminUpdateEvent, {
+      token: admin.token,
+      params: { eventId: event.eventId },
+      body: adminBody(await adminEvent(event.eventId), { ...toSydney, location: { ...PLACES, pin: surryHills.pin } }),
+      method: "PATCH",
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.fieldErrors).toEqual({ location: PLACE_IN_OTHER_STATE });
+    expect(api.places!.count("verify")).toBe(2);
+    expect((await stored(event.eventId)).venue_place_id).toBe(TOTE_PLACE_ID);
+    const ok = await api.call(adminUpdateEvent, {
+      token: admin.token,
+      params: { eventId: event.eventId },
+      body: adminBody(await adminEvent(event.eventId), { ...toSydney, location: surryHills }),
+      method: "PATCH",
+    });
+    expect(ok.status).toBe(200);
+    expect(ok.body.location).toEqual(surryHills);
+    expect(api.places!.count("verify")).toBe(2);
+  });
+
   it("an admin's Google check takes the admin's own details allowance", async () => {
     const [hourly] = PLACES_RATE_LIMITS.details;
     await api.db.query(`select private.take_rate_limit($1, $2, $3, $4::interval) from generate_series(1, $3)`, [
@@ -602,6 +684,45 @@ describe("publishing and submitting need the organiser's pin", () => {
     expect(first.body).toMatchObject({ code: "payouts_required", error: PAYOUTS_REQUIRED_TO_PUBLISH });
     await setUpPayouts(api, organiser.organiserId);
     expect((await publish(event.eventId)).body.code).toBe("location_required");
+  });
+
+  it("submit: payouts are asked for first, then the location (the app's check keeps private.submit_event's order)", async () => {
+    const event = await draftEvent(api, organiser, { location: null });
+    const first = await submit(event.eventId);
+    expect(first.status).toBe(409);
+    expect(first.body.code).toBe("payouts_required");
+    await setUpPayouts(api, organiser.organiserId);
+    const second = await submit(event.eventId);
+    expect(second.status).toBe(409);
+    expect(second.body).toMatchObject({ code: "location_required", fieldErrors: { location: LOCATION_REQUIRED } });
+    expect(await decisions(event.eventId)).toEqual([]);
+  });
+
+  it("submit: an event that isn't a draft or rejected is told that, not about its location", async () => {
+    const created = await api.call(adminCreateEvent, {
+      token: admin.token,
+      body: { ...eventInput({ ticketTypes: FREE }), organiserId: organiser.organiserId, publish: true },
+    });
+    const res = await submit(created.body.eventId);
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBeUndefined();
+    expect(res.body.error).toBe("Only a draft or rejected event can be submitted for review.");
+  });
+
+  it("the database's submit no longer checks the pin (the previous app's /submit keeps working); its publish still does", async () => {
+    const event = await draftEvent(api, organiser, { ticketTypes: FREE, location: null });
+    const call = (fn: string) =>
+      api.db.query<{ result: string }>(
+        fn === "submit"
+          ? `select private.submit_event($1, $2, $3) as result`
+          : `select private.publish_event($1, $2, $3, null, false) as result`,
+        [event.eventId, organiser.organiserId, organiser.userId],
+      );
+    expect((await call("publish"))[0].result).toBe("location_required");
+    // As the previous app version calls it: the event goes to review, and an admin decides.
+    expect((await call("submit"))[0].result).toBe("submitted");
+    expect((await api.call(getMyEvent, { token: organiser.token, params: { eventId: event.eventId } })).body.status).toBe("pending_review");
+    expect(await decisions(event.eventId)).toEqual([{ action: "submitted" }]);
   });
 
   it("an event already published (by an admin, without a location) is still a 200 to publish: nothing to do", async () => {

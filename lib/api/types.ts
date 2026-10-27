@@ -1070,9 +1070,11 @@ export interface PaymentExceptionDetails {
   /** `amount_mismatch`: the session's currency, lower case as Stripe sends it ("aud"). */
   currency?: string;
   /**
-   * A `partial_refund` resolved by a tickets-only refund (at least the total
-   * less the support refunded, so the order was voided): the Support Sheltüh
-   * amount kept.
+   * Historical only: a `partial_refund` resolved by the tickets-only rule of
+   * 20261110000200_support_ticket_refund.sql (at least the total less the
+   * support refunded voided the order), the Support Sheltüh amount kept.
+   * Nothing sets it since 20261111000300_refund_no_inference.sql (only a full
+   * refund voids); exceptions resolved before then keep it.
    */
   supportKeptCents?: number;
   /** The order's status when the exception was last updated. */

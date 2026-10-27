@@ -5,6 +5,7 @@ import {
   PG_UNIQUE_VIOLATION,
   pgConstraint,
   pgErrorCode,
+  type Db,
 } from "../db";
 import { REFUND_POLICY_TIGHTENED_CODE } from "@/lib/refund-policy";
 import { sendReviewEmailsSoon } from "../email-outbox";
@@ -199,8 +200,9 @@ export const TICKETING_FROZEN =
  * stored venue location is kept, unless the suburb or state changes while
  * a pin or Google place is stored: 400 fieldErrors.location
  * (refuseStaleVenueLocation: check the pin again). A new or changed Google
- * place is checked with Google (verifyVenuePlace; 429 / 503
- * fieldErrors.location past the Places allowances).
+ * place is checked with Google, and so is a kept one when the suburb or state
+ * changes (400 fieldErrors.location if it's in another state) (verifyVenuePlace;
+ * 429 / 503 fieldErrors.location past the Places allowances).
  */
 export const updateEventDraft: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const { db, verifyAccessToken } = deps;
@@ -212,7 +214,7 @@ export const updateEventDraft: Handler<{ eventId: string }> = async (req, { even
   // Not for an event the edit can't change (private.edit_event_draft answers not_editable).
   if (current.status === "draft" || current.status === "rejected") {
     refuseStaleVenueLocation(input, current);
-    await verifyVenuePlace(deps, caller, input, current.location);
+    await verifyVenuePlace(deps, caller, input, current);
   }
 
   let result: string;
@@ -249,12 +251,16 @@ export const updateEventDraft: Handler<{ eventId: string }> = async (req, { even
  * Sheltüh ticket type needs the organiser's payouts set up first
  * (private.submit_event): 409 `code: "payouts_required"` otherwise. Free and
  * external events never need payouts. Every event needs a confirmed venue
- * location (the organiser's pin): 409 `code: "location_required"` otherwise.
+ * location (the organiser's pin): 409 `code: "location_required"` otherwise,
+ * checked here (refuseSubmitWithoutPin), not by private.submit_event, so the
+ * previous app version's submit keeps working against the database
+ * (20261111000400_submit_event_location_in_app.sql).
  */
 export const submitEventForReview: Handler<{ eventId: string }> = async (req, { eventId }, deps) => {
   const caller = await requireCaller(req, deps.verifyAccessToken);
   const organiser = await requireApprovedOrganiser(deps.db, caller);
   await requireOwnEvent(deps.db, organiser.organiserId, eventId);
+  await refuseSubmitWithoutPin(deps.db, organiser.organiserId, eventId);
 
   let result: "submitted" | "not_found" | "not_submittable" | "payouts_required" | "location_required";
   try {
@@ -275,6 +281,30 @@ export const submitEventForReview: Handler<{ eventId: string }> = async (req, { 
   sendReviewEmailsSoon(deps, "event_review");
   return ok(await requireEvent(deps.db, eventId));
 };
+
+/**
+ * The organiser's submit needs their pin on the event (events.venue_lat: a
+ * Google place with its pin checked, or a manual pin): 409 `code:
+ * "location_required"`, nothing written. In the order private.submit_event
+ * refuses, so an event it would refuse first (not a draft or rejected, then
+ * a paid Sheltüh ticket without payouts) gets that answer from it instead.
+ * Not in the same transaction as the submit: an edit clearing the pin in
+ * between (the organiser's own, from another tab) still submits, and an
+ * admin reviews it (admins never needed a pin). One row by primary key.
+ */
+async function refuseSubmitWithoutPin(db: Db, organiserId: string, eventId: string): Promise<void> {
+  const [row] = await db.query<{ pinned: boolean; refused_earlier: boolean }>(
+    `select e.venue_lat is not null as pinned,
+            (e.status not in ('draft', 'rejected')
+              or (not o.payouts_enabled and e.ticketing_mode = 'sheltuh'
+                  and exists (select 1 from public.ticket_types t where t.event_id = e.id and t.price_cents > 0))) as refused_earlier
+       from public.events e join public.organisers o on o.id = e.organiser_id
+      where e.id = $1 and e.organiser_id = $2`,
+    [eventId, organiserId],
+  );
+  // No row: gone since requireOwnEvent read it; private.submit_event answers not_found.
+  if (row && !row.pinned && !row.refused_earlier) throw locationRequired();
+}
 
 /** GET /api/organisers/me/events — newest first; the organiser's own records (`private, no-store`). */
 export const listMyEvents: Handler = async (req, _params, { db, verifyAccessToken }) => {
