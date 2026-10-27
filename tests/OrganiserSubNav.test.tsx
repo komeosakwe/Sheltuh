@@ -49,7 +49,7 @@ describe("OrganiserSubNav", () => {
     for (const link of within(nav).getAllByRole("link")) {
       expect(link).toHaveClass("min-h-11");
       // Narrower on phones, so the four fit on one row at 320px.
-      expect(link).toHaveClass("px-1.5", "sm:px-2");
+      expect(link).toHaveClass("px-1", "sm:px-2");
       expect(link).not.toHaveClass("px-2");
     }
     expect(within(nav).queryByRole("link", { name: /new event/i })).toBeNull();

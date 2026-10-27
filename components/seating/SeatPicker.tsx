@@ -46,6 +46,7 @@ import {
   totalIncludesWords,
   type SupportChoice,
 } from "@/lib/support-choice";
+import { isSupportSheltuhEnabled } from "@/lib/support";
 import { flattenSeats, MAX_SEATS_PER_ORDER, type FlatSeat, type SeatKind, type SeatMapTemplate } from "@/lib/seating/template";
 import { freeTicketsIn, ownLimit, ownLimitHint, type Quantities } from "@/lib/ticket-limits";
 import { getTrackingRef } from "@/lib/tracking-ref";
@@ -231,10 +232,11 @@ export default function SeatPicker({
   // Totals (lib/fees.ts only).
   const gaLines = gaTiers.map((ticket) => ({ ticket, quantity: gaQuantities[ticket.id] ?? 0 })).filter((line) => line.quantity > 0);
   const ticketTotals = seatOrderSummary(selectedSeats, tierById, gaLines);
-  // Support Sheltüh: paid orders only, and not in an organiser's preview. It's in the total the buyer
-  // sees (all-inclusive), never in the face value or booking fees.
+  // Support Sheltüh: paid orders only, not in an organiser's preview, and only while it's switched on
+  // (isSupportSheltuhEnabled; paused by default). It's in the total the buyer sees (all-inclusive),
+  // never in the face value or booking fees.
   const hasPaidTickets = ticketTotals.subtotalCents > 0;
-  const offerSupport = hasPaidTickets && mode !== "preview" && !readOnly;
+  const offerSupport = isSupportSheltuhEnabled() && hasPaidTickets && mode !== "preview" && !readOnly;
   // With no paid ticket left (however the selection changed: a seat taken, Find seats, Undo, a new
   // map), the choice goes, so it's never pre-selected when one comes back.
   if (!offerSupport && (support.option !== "none" || revealSupportError || supportServerError)) {
@@ -644,8 +646,8 @@ export default function SeatPicker({
         if (!sheetOpen) setSheetOpen(true);
         pendingFocus.current = { kind: "email" };
         return;
-      } else if (err instanceof ApiError && err.fieldErrors?.supportCents) {
-        // Said by the chips (in the sheet, on phones).
+      } else if (err instanceof ApiError && err.fieldErrors?.supportCents && offerSupport) {
+        // Said by the chips (in the sheet, on phones). While they aren't offered, it's said below with the rest.
         setSupportServerError(err.fieldErrors.supportCents);
         if (!sheetOpen) setSheetOpen(true);
         return;

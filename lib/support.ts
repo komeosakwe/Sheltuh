@@ -12,6 +12,24 @@
  * fee is never charged on it.
  */
 
+/**
+ * Whether buyers can add Support Sheltüh at checkout: only when
+ * NEXT_PUBLIC_SUPPORT_SHELTUH is exactly "1" (unset, the default: paused, an
+ * owner decision of 27 Oct 2026). One switch for both sides: the checkout UI
+ * hides the choice, and the API refuses any `supportCents` above 0 (400
+ * `fieldErrors.supportCents`, SUPPORT_PAUSED; lib/server/order-input.ts
+ * parseSupportCents). Next.js inlines NEXT_PUBLIC_ variables at build time,
+ * in the browser's bundle and the server's alike, so changing it takes a new
+ * deployment. Orders that already carry support are untouched: their ticket
+ * page, email and refunds still show and handle it.
+ */
+export function isSupportSheltuhEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_SUPPORT_SHELTUH === "1";
+}
+
+/** The API's refusal of `supportCents` above 0 while Support Sheltüh is paused (isSupportSheltuhEnabled). */
+export const SUPPORT_PAUSED = "Support Sheltüh isn't available right now";
+
 /** The label everywhere: checkout, the payment page, Stripe's line item, the ticket page and email. */
 export const SUPPORT_LABEL = "Support Sheltüh";
 

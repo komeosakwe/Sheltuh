@@ -183,9 +183,10 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-x-14 lg:gap-y-10">
           <div className="flex flex-col gap-3 sm:gap-4 lg:col-span-7">
             {/* The photo first at every width (it's aria-hidden, so reading order is the title
-                first): full-bleed 4:3 on phones, never more than 26% of the screen's height so
+                first): full-bleed 4:3 on phones, never more than 24% of the screen's height so
                 the title, facts and Save/Share still fit above the buy bar (owner request, 26 Oct
-                2026: e2e/event-page.spec.ts); a 3:2 rounded card from sm.
+                2026: e2e/event-page.spec.ts), with room to spare when the time zone's line wraps
+                Add to calendar under it (a slightly wider font, as on Linux); a 3:2 rounded card from sm.
                 The page's LCP image. The wrapper is the same box (full-bleed on phones), so an
                 event's clip Play can sit on the photo's bottom-left, lined up with the page's text
                 edge on phones (docs/design/event-clips.md §5.3); absolutely placed, so nothing shifts. */}
@@ -196,7 +197,7 @@ export default function EventDetailsView({ event, demo }: { event: SheltuhEvent;
                 title={event.title}
                 priority
                 fit="auto"
-                className="aspect-[4/3] max-h-[26svh] w-full sm:aspect-[3/2] sm:max-h-none sm:rounded-card"
+                className="aspect-[4/3] max-h-[24svh] w-full sm:aspect-[3/2] sm:max-h-none sm:rounded-card"
               />
               <ClipPlayButton event={event} size="hero" className="absolute bottom-3 left-5 sm:left-3" />
             </div>

@@ -17,7 +17,12 @@ const DAY = 86_400_000;
 function asPublic(slug: string): PublicEvent {
   const event = sampleEvents.find((e) => e.slug === slug);
   if (!event) throw new Error(`no sample ${slug}`);
-  const start = Date.now() + 7 * DAY;
+  // A week out, at a fixed hour (08:00 UTC: 7:00 pm in Melbourne in daylight time), so the date
+  // line under the title is the same length whenever the suite runs (a start late in the evening
+  // runs past midnight, to a two-line range, and the first-screen checks below would shift).
+  const startDay = new Date(Date.now() + 7 * DAY);
+  startDay.setUTCHours(8, 0, 0, 0);
+  const start = startDay.getTime();
   return {
     organiserId: "org-demo",
     eventId: event.id,

@@ -23,6 +23,13 @@ import type { Coordinates } from "@/lib/types";
  * changes to another place, the map starts again at that suburb's centre and
  * the pin needs confirming again (back to the first suburb, the pin is back).
  *
+ * A linked Google place belongs to its suburb too, but isn't kept for it:
+ * when the suburb (or its state) changes to another place, the place is
+ * unlinked (the typed name and address stay) and it's back to the search,
+ * saying why, so the organiser finds the venue again or drops a pin. An old
+ * place id is never saved with a new suburb and state (owner decision, 27 Oct
+ * 2026).
+ *
  * "Change" (or "Find it on Google Maps instead") opens the search without
  * losing anything: until another place is picked, what was there is kept,
  * saved as it was, and "Keep …" goes back to it.
@@ -50,11 +57,26 @@ export function venuePlaceKey(name: string, state: StateCode): string {
 /** Why it's in manual mode after a 503 places_unavailable (a search, a place's address, or a save). */
 export const PLACES_UNAVAILABLE_NOTE = "Google Maps can’t be searched right now, so drop a pin on the map instead.";
 
+/** Why it's back to the search after the suburb changed under a linked place. */
+export const PLACE_UNLINKED_NOTE =
+  "The suburb changed, so the venue is no longer linked to Google Maps. Find the venue again, or drop a pin.";
+
+/**
+ * A linked Google place: its id, what to call it, and the place (venuePlaceKey) it belongs to.
+ * `at` is null from the pick until the suburb is known (picking can fill the suburb, and the
+ * suburb table may still be loading): it then belongs to that one.
+ */
+interface LinkedPlace {
+  placeId: string;
+  label: string;
+  at: string | null;
+}
+
 interface LocationState {
   mode: VenueLocationMode;
-  /** The linked Google place (`places` mode), and what to call it. */
-  linked: { placeId: string; label: string } | null;
-  /** Why it's in manual mode, when it wasn't the organiser's choice. */
+  /** The linked Google place (`places` mode). */
+  linked: LinkedPlace | null;
+  /** Why it's in manual mode (or back to the search), when it wasn't the organiser's choice. */
   note: string | null;
   /** The confirmed pin, and the place it was confirmed for (venuePlaceKey). */
   pin: { at: string; pin: Coordinates } | null;
@@ -67,7 +89,7 @@ interface LocationState {
    * place or pin there was. It's what's saved until another place is picked,
    * and Keep goes back to it.
    */
-  kept: { mode: "places" | "manual"; linked: { placeId: string; label: string } | null } | null;
+  kept: { mode: "places" | "manual"; linked: LinkedPlace | null } | null;
 }
 
 export interface VenueLocationInitial {
@@ -84,7 +106,7 @@ function initialState(initial: VenueLocationInitial | undefined): LocationState 
   if (location?.source === "places" && location.placeId) {
     return {
       mode: "places",
-      linked: { placeId: location.placeId, label: initial?.venueName.trim() || "the venue" },
+      linked: { placeId: location.placeId, label: initial?.venueName.trim() || "the venue", at },
       note: null,
       pin,
       moved: null,
@@ -94,6 +116,26 @@ function initialState(initial: VenueLocationInitial | undefined): LocationState 
   }
   if (location?.source === "manual_pin") return { mode: "manual", linked: null, note: null, pin, moved: null, picks: 0, kept: null };
   return { mode: "search", linked: null, note: null, pin, moved: null, picks: 0, kept: null };
+}
+
+/**
+ * A linked place (or one kept after Change) belongs to the first suburb known after it was linked;
+ * once the suburb is another place, it's unlinked, and it's back to the search saying why. Nothing
+ * changes while the suburb isn't known (`placeKey` null: typing, or the table loading).
+ */
+function settleLinkedPlace(state: LocationState, placeKey: string | null): LocationState {
+  if (placeKey === null) return state;
+  let next = state;
+  if (next.linked) {
+    if (next.linked.at === null) next = { ...next, linked: { ...next.linked, at: placeKey } };
+    else if (next.linked.at !== placeKey) next = { ...next, mode: "search", linked: null, note: PLACE_UNLINKED_NOTE, kept: null };
+  }
+  const kept = next.kept;
+  if (kept?.linked) {
+    if (kept.linked.at === null) next = { ...next, kept: { ...kept, linked: { ...kept.linked, at: placeKey } } };
+    else if (kept.linked.at !== placeKey) next = { ...next, kept: null, note: PLACE_UNLINKED_NOTE };
+  }
+  return next;
 }
 
 function samePin(a: Coordinates | null | undefined, b: Coordinates | null | undefined): boolean {
@@ -126,7 +168,7 @@ export function locationChange(
 /** What's on screen as the API takes it: a linked place (with the pin, once confirmed), or a confirmed pin alone. */
 function inputFor(
   mode: VenueLocationMode,
-  linked: LocationState["linked"],
+  linked: LinkedPlace | null,
   pin: Coordinates | null,
 ): VenueLocationInput | null {
   if (mode === "places" && linked) return { source: "places", placeId: linked.placeId, ...(pin ? { pin } : {}) };
@@ -144,6 +186,10 @@ type FocusTarget = typeof VENUE_LINKED_ID | typeof VENUE_PLACE_SEARCH_ID | typeo
  */
 export function useVenueLocation(initial: VenueLocationInitial | undefined, placeKey: string | null) {
   const [state, setState] = useState<LocationState>(() => initialState(initial));
+  // The suburb changed under a linked place: unlinked before anything is shown or saved (React
+  // renders again at once with this state).
+  const settled = settleLinkedPlace(state, placeKey);
+  if (settled !== state) setState(settled);
   const pin = state.pin && placeKey !== null && state.pin.at === placeKey ? state.pin.pin : null;
   const mapKey = `${placeKey ?? ""}|${state.picks}`;
   const movedPin = state.moved && state.moved.mapKey === mapKey ? state.moved.pin : null;
@@ -186,7 +232,8 @@ export function useVenueLocation(initial: VenueLocationInitial | undefined, plac
       setState((s) => ({
         ...s,
         mode: "places",
-        linked: { placeId, label },
+        // Its suburb: the one on screen once the pick has filled it (and the table has it).
+        linked: { placeId, label, at: null },
         note: null,
         pin: null,
         moved: null,
@@ -257,7 +304,9 @@ export function VenuePlaceLink(props: VenuePlaceLinkProps) {
   const note =
     location.mode === "manual"
       ? (location.note ?? "Not on Google Maps: put the pin on the venue below, and type its address.")
-      : "";
+      : location.mode === "search"
+        ? (location.note ?? "")
+        : "";
   return (
     <div className="flex flex-col gap-1">
       {/* Always rendered, so the switch to a pin alone is said (Google unavailable: the search is gone). */}

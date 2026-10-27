@@ -41,7 +41,11 @@ export default function LiveEventDetails({ slug }: { slug: string }) {
   // Each failure renders a new alert, so a repeat failure is announced again.
   const [failures, setFailures] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
-  const focusHeadingWhenSettled = useRef(false);
+  // Set by "Try again" to the state on screen when it was pressed: once a newer state has settled,
+  // focus moves to its heading. Keyed to that state, not a plain flag, because the effects of the
+  // render on screen can still be pending when the click lands (a fast press, a slow device), and
+  // they run first: they must not take the retry's focus for themselves.
+  const focusHeadingAfter = useRef<State | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,8 +84,8 @@ export default function LiveEventDetails({ slug }: { slug: string }) {
   }, [title]);
 
   useEffect(() => {
-    if (retrying || !focusHeadingWhenSettled.current) return;
-    focusHeadingWhenSettled.current = false;
+    if (retrying || focusHeadingAfter.current === null || focusHeadingAfter.current === state) return;
+    focusHeadingAfter.current = null;
     // Failed again: focus is still on "Try again", where it should stay.
     if (state.status === "error") return;
     const heading = rootRef.current?.querySelector<HTMLHeadingElement>("h1");
@@ -91,7 +95,7 @@ export default function LiveEventDetails({ slug }: { slug: string }) {
   }, [state, retrying]);
 
   function retry() {
-    focusHeadingWhenSettled.current = true;
+    focusHeadingAfter.current = state;
     setRetrying(true);
     setAttempt((n) => n + 1);
   }
