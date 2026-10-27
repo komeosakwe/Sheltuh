@@ -133,6 +133,9 @@ select version, file, coalesce(applied, false) as applied
       exists (select 1 from col where attrelid = to_regclass('public.events') and attname = 'venue_place_id')
       and exists (select 1 from fn where proname = 'event_location_json')
       and exists (select 1 from fn where proname = 'publish_event' and prosrc like '%location_required%')
-      and exists (select 1 from fn where proname = 'submit_event' and prosrc like '%location_required%'))
+      and exists (select 1 from fn where proname = 'submit_event' and prosrc like '%location_required%')),
+    ('20261111000200', 'first_paid_event_review',
+      exists (select 1 from fn where proname = 'publish_event' and prosrc like '%first_paid_event%')
+      and exists (select 1 from fn where proname = 'admin_unpublish_event'))
   ) as m(version, file, applied)
  order by version;

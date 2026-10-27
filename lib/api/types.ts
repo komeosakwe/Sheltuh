@@ -457,6 +457,39 @@ export type PublishEventConflictCode =
   | "location_required";
 
 /**
+ * Why POST /api/events/{eventId}/publish sent the event to review instead of
+ * live (PublishEventResponse.reviewReason): the first of these that applied,
+ * in this order.
+ * - `review_required`: an admin turned on review of the organiser's events
+ *   (OrganiserRecord.eventReviewRequired).
+ * - `removed_before`: it's rejected, or Sheltüh's latest decision about it
+ *   was to reject or unpublish it.
+ * - `seated`: it has a seat map.
+ * - `unknown_ticket_site`: its tickets are sold on a site that isn't a known
+ *   ticketing site.
+ * - `first_paid_event`: it has paid tickets sold on Sheltüh, and Sheltüh
+ *   hasn't yet approved a paid Sheltüh event of this organiser's (one still
+ *   up, or that ran). Free and external events are never held for this.
+ * - `daily_limit`: the organiser's (10) or the platform's (100) publishes
+ *   for 24 hours are used up.
+ * Clients should treat an unknown value like no reason (a general message).
+ */
+export type PublishEventReviewReason =
+  | "review_required"
+  | "removed_before"
+  | "seated"
+  | "unknown_ticket_site"
+  | "first_paid_event"
+  | "daily_limit";
+
+/**
+ * POST /api/events/{eventId}/publish's 200: the event, plus `reviewReason`
+ * when this call sent it to review (`status: "pending_review"`). Absent when
+ * it went live, or was already published.
+ */
+export type PublishEventResponse = EventRecord & { reviewReason?: PublishEventReviewReason };
+
+/**
  * PATCH /api/admin/events/{eventId}/ticketing (admin): sets an event's
  * ticketing whatever its status, logged as `ticketing_changed` with `reason`.
  */

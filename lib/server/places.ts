@@ -84,7 +84,11 @@ export interface GooglePlace {
   state: StateCode | null;
 }
 
-/** Google couldn't be asked or didn't answer usefully (no key, timeout, network, quota, 5xx). `reason` is safe to log. */
+/**
+ * Google couldn't be asked or didn't answer usefully (no key, timeout,
+ * network, quota, a bad key or a disabled API (400 / 403), 5xx, or our own
+ * daily cap: `daily_cap`). `reason` is safe to log.
+ */
 export class PlacesUnavailableError extends Error {
   constructor(readonly reason: string) {
     super(`Google Places unavailable (${reason})`);
@@ -246,6 +250,30 @@ export function createPlaces(apiKey: string | undefined, fetchImpl: Fetch = fetc
     return new PlacesUnavailableError(`http_${res.status}`);
   }
 
+  /**
+   * Whether a 400's body is Google refusing the place id itself:
+   * `error.status` NOT_FOUND, or INVALID_ARGUMENT whose message is about the
+   * place id, and no ErrorInfo reason naming the API key. Read only to decide
+   * this; never logged or passed on.
+   */
+  async function isPlaceIdRefusal(res: Response): Promise<boolean> {
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch {
+      return false;
+    }
+    const error = body && typeof body === "object" ? (body as { error?: unknown }).error : undefined;
+    if (!error || typeof error !== "object") return false;
+    const { status, message, details } = error as { status?: unknown; message?: unknown; details?: unknown };
+    const reasons = Array.isArray(details)
+      ? details.map((d) => (d && typeof d === "object" ? (d as { reason?: unknown }).reason : undefined))
+      : [];
+    if (reasons.some((r) => typeof r === "string" && /API_KEY|SERVICE_DISABLED|BILLING/i.test(r))) return false;
+    if (status === "NOT_FOUND") return true;
+    return status === "INVALID_ARGUMENT" && typeof message === "string" && /place[\s_-]*id/i.test(message);
+  }
+
   async function jsonOf(res: Response): Promise<unknown> {
     try {
       return await res.json();
@@ -260,10 +288,17 @@ export function createPlaces(apiKey: string | undefined, fetchImpl: Fetch = fetc
     const qs = new URLSearchParams({ languageCode: PLACES_LANGUAGE, regionCode: "au" });
     if (sessionToken) qs.set("sessionToken", sessionToken);
     const res = await call(`/v1/places/${encodeURIComponent(placeId)}?${qs.toString()}`, mask, { method: "GET" });
-    // Unknown or malformed id (NOT_FOUND, INVALID_ARGUMENT): Google doesn't know it.
-    if (res.status === 404 || res.status === 400) {
+    // Google doesn't know the id (NOT_FOUND).
+    if (res.status === 404) {
       await discard(res);
       return null;
+    }
+    // A 400 is an unknown place only when Google says the place id is what's
+    // wrong; a bad key or any other bad request is our problem (unavailable:
+    // the editor offers a manual pin), not the organiser's.
+    if (res.status === 400) {
+      if (await isPlaceIdRefusal(res)) return null;
+      throw new PlacesUnavailableError("http_400");
     }
     if (!res.ok) throw await unavailable(res);
     return placeFromGoogle(await jsonOf(res), placeId);

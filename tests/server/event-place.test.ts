@@ -336,7 +336,8 @@ describe("PATCH /api/events/{id}", () => {
 
   it("moves an event to another state with both fields, the times read in its new zone", async () => {
     const created = await draftEvent(api, organiser);
-    const res = await organiserPatch(created.eventId, eventInput(PERTH));
+    // Its pin moves with it (the editor resends the location with a new suburb: refuseStaleVenueLocation).
+    const res = await organiserPatch(created.eventId, eventInput(PERTH_PINNED));
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ state: "WA", timeZone: "Australia/Perth", suburb: "Fremantle", startsAt: PERTH_8PM });
     const own = await api.call(getMyEvent, { token: organiser.token, params: { eventId: created.eventId } });
@@ -369,12 +370,16 @@ describe("admin authoring", () => {
 
   it("an admin edit logs state and timeZone (old and new) with the moved times", async () => {
     const event = await publishedEvent(api, organiser, admin);
-    const res = await adminPatch(event.eventId, adminBody(await adminEvent(event.eventId), PERTH));
+    // Its pin moves with it (refuseStaleVenueLocation), logged as changes.location.
+    const res = await adminPatch(
+      event.eventId,
+      adminBody(await adminEvent(event.eventId), PERTH_PINNED),
+    );
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ state: "WA", timeZone: "Australia/Perth", startsAt: PERTH_8PM });
     const [entry] = (res.body as AdminEventRecord).moderationLog.filter((e) => e.action === "edited");
     const changes = entry.changes!;
-    expect(Object.keys(changes).sort()).toEqual(["endsAt", "startsAt", "state", "suburb", "timeZone"]);
+    expect(Object.keys(changes).sort()).toEqual(["endsAt", "location", "startsAt", "state", "suburb", "timeZone"]);
     expect(changes).toMatchObject({
       suburb: { old: "Collingwood", new: "Fremantle" },
       state: { old: "VIC", new: "WA" },

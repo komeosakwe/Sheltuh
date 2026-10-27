@@ -3,7 +3,14 @@ import type { TicketingMode } from "@/lib/ticketing";
 import type { AustralianTimeZone, StateCode } from "@/lib/time-zones";
 import type { EventCategory } from "@/lib/types";
 import { ApiError, apiFetch, type GetToken } from "./client";
-import type { EventRecord, Paginated, PublishEventConflictCode, TicketTypeInput, VenueLocationInput } from "./types";
+import type {
+  EventRecord,
+  Paginated,
+  PublishEventConflictCode,
+  PublishEventResponse,
+  TicketTypeInput,
+  VenueLocationInput,
+} from "./types";
 
 export interface EventInput {
   title: string;
@@ -142,8 +149,10 @@ export async function submitEventForReview(eventId: string, getToken: GetToken) 
  * when it went live now (their followers are emailed), or `"pending_review"`
  * when it needs a person first (it's sent to the review queue: their events
  * are reviewed, an admin rejected or unpublished it before, it has a seat
- * map, its ticket link isn't on a known ticketing site, or too many were
- * published in 24 hours). Already published: returned as it is. ApiError
+ * map, its ticket link isn't on a known ticketing site, it's their first
+ * event with paid Sheltüh tickets, or too many were published in 24 hours),
+ * with `reviewReason` (PublishEventReviewReason) saying which. Already
+ * published: returned as it is. ApiError
  * 403 not an approved organiser, 404 unknown event, 409 with a `code`
  * (publishConflictCode): `payouts_required` (isPayoutsRequiredError),
  * `event_ended`, `in_review` (already waiting for review), `event_changed`
@@ -152,7 +161,7 @@ export async function submitEventForReview(eventId: string, getToken: GetToken) 
  */
 export async function publishEvent(eventId: string, getToken: GetToken) {
   const token = await getToken();
-  return apiFetch<EventRecord>(`/events/${encodeURIComponent(eventId)}/publish`, { method: "POST", token });
+  return apiFetch<PublishEventResponse>(`/events/${encodeURIComponent(eventId)}/publish`, { method: "POST", token });
 }
 
 const PUBLISH_CONFLICT_CODES: readonly PublishEventConflictCode[] = [

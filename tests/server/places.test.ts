@@ -2,10 +2,13 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import {
   PLACE_NOT_FOUND,
   PLACE_NOT_IN_AUSTRALIA,
+  PLACES_PLATFORM_DAILY_CAPS,
+  PLACES_QUOTA_TIME_ZONE,
   PLACES_RATE_LIMITS,
   PLACES_UNAVAILABLE,
   placesAutocomplete,
   placesDetails,
+  type PlacesRateLimit,
 } from "@/lib/server/handlers/places";
 import { applyAsOrganiser } from "@/lib/server/handlers/organisers";
 import {
@@ -174,11 +177,56 @@ describe("lib/server/places.ts", () => {
   it("an unknown or malformed place is null; a malformed one never reaches Google", async () => {
     const notFound = fakeFetch(() => json({ error: { code: 404, status: "NOT_FOUND" } }, 404));
     expect(await createPlaces(KEY, notFound.fetch)!.details(TOTE_PLACE_ID, SESSION)).toBeNull();
-    const invalid = fakeFetch(() => json({ error: { code: 400, status: "INVALID_ARGUMENT" } }, 400));
+    const invalid = fakeFetch(() =>
+      json({ error: { code: 400, message: "Not a valid Place ID: ChIJtoteHotel", status: "INVALID_ARGUMENT" } }, 400),
+    );
     expect(await createPlaces(KEY, invalid.fetch)!.verify(TOTE_PLACE_ID)).toBeNull();
+    const notFound400 = fakeFetch(() => json({ error: { code: 400, message: "Requested entity was not found.", status: "NOT_FOUND" } }, 400));
+    expect(await createPlaces(KEY, notFound400.fetch)!.verify(TOTE_PLACE_ID)).toBeNull();
     const never = fakeFetch(() => json(TOTE_DETAILS));
     expect(await createPlaces(KEY, never.fetch)!.verify("../places:autocomplete")).toBeNull();
     expect(never.calls).toEqual([]);
+  });
+
+  it("a bad key, a disabled API, billing or any other 400 is unavailable (a manual pin), not an unknown place", async () => {
+    const cases: [() => Response, string][] = [
+      [
+        () =>
+          json(
+            {
+              error: {
+                code: 400,
+                message: "API key not valid. Please pass a valid API key.",
+                status: "INVALID_ARGUMENT",
+                details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "API_KEY_INVALID" }],
+              },
+            },
+            400,
+          ),
+        "http_400",
+      ],
+      // Even a message naming the place id, if Google says the key is the problem.
+      [
+        () =>
+          json(
+            { error: { status: "INVALID_ARGUMENT", message: "Place ID lookups need a key", details: [{ reason: "API_KEY_INVALID" }] } },
+            400,
+          ),
+        "http_400",
+      ],
+      [() => json({ error: { code: 400, message: "Invalid field mask.", status: "INVALID_ARGUMENT" } }, 400), "http_400"],
+      [() => new Response("<html>bad request</html>", { status: 400 }), "http_400"],
+      [() => json({ error: { code: 403, status: "PERMISSION_DENIED", details: [{ reason: "SERVICE_DISABLED" }] } }, 403), "http_403"],
+      [() => json({ error: { code: 403, status: "PERMISSION_DENIED", details: [{ reason: "BILLING_DISABLED" }] } }, 403), "http_403"],
+    ];
+    for (const [respond, reason] of cases) {
+      const places = createPlaces(KEY, fakeFetch(respond).fetch)!;
+      for (const call of [() => places.details(TOTE_PLACE_ID, SESSION), () => places.verify(TOTE_PLACE_ID)]) {
+        const err = await call().catch((e: unknown) => e);
+        expect(err, reason).toBeInstanceOf(PlacesUnavailableError);
+        expect((err as PlacesUnavailableError).reason).toBe(reason);
+      }
+    }
   });
 
   it("Google refusing, failing, timing out or unreachable is PlacesUnavailableError with a fixed reason (never the key)", async () => {
@@ -378,22 +426,113 @@ describe("POST /api/places/autocomplete and /details", () => {
     expect((await details({ placeId: TOTE_PLACE_ID, sessionToken: SESSION })).status).toBe(503);
   });
 
-  it("429 once the account's hourly allowance is used, without asking Google", async () => {
-    for (const limit of Object.values(PLACES_RATE_LIMITS)) {
-      await api.db.query(
-        `select private.take_rate_limit($1, $2, $3, $4::interval) from generate_series(1, $3)`,
-        [organiser.userId, limit.bucket, limit.hits, limit.window],
-      );
-    }
-    expect((await search({ input: "tote", sessionToken: SESSION })).status).toBe(429);
-    expect((await details({ placeId: TOTE_PLACE_ID, sessionToken: SESSION })).status).toBe(429);
-    expect(api.places!.calls).toEqual([]);
-    // Another account is unaffected.
-    expect((await search({ input: "tote", sessionToken: SESSION }, admin.token)).status).toBe(200);
+  /** Uses up `limit` for `userId`. */
+  const exhaust = (userId: string, limit: PlacesRateLimit) =>
+    api.db.query(`select private.take_rate_limit($1, $2, $3, $4::interval) from generate_series(1, $3)`, [
+      userId,
+      limit.bucket,
+      limit.hits,
+      limit.window,
+    ]);
+
+  /** The platform's bucket for `kind` today (Google's day), as takeLimit names it. */
+  async function platformBucket(kind: keyof typeof PLACES_PLATFORM_DAILY_CAPS): Promise<string> {
+    const [{ bucket }] = await api.db.query<{ bucket: string }>(
+      `select $1::text || ':' || to_char(now() at time zone $2, 'YYYY-MM-DD') as bucket`,
+      [PLACES_PLATFORM_DAILY_CAPS[kind].bucket, PLACES_QUOTA_TIME_ZONE],
+    );
+    return bucket;
+  }
+
+  async function platformHits(kind: keyof typeof PLACES_PLATFORM_DAILY_CAPS): Promise<number | undefined> {
+    const [row] = await api.db.query<{ hits: number }>(`select hits from private.platform_rate_limits where bucket = $1`, [
+      await platformBucket(kind),
+    ]);
+    return row?.hits;
+  }
+
+  it("the allowances: an hour's and a day's per account, under the platform's daily caps, which are under Google's quotas", () => {
     expect(PLACES_RATE_LIMITS).toEqual({
-      autocomplete: { bucket: "places_autocomplete", hits: 200, window: "1 hour" },
-      details: { bucket: "places_details", hits: 60, window: "1 hour" },
+      autocomplete: [
+        { bucket: "places_autocomplete", hits: 100, window: "1 hour" },
+        { bucket: "places_autocomplete_daily", hits: 400, window: "24 hours" },
+      ],
+      details: [
+        { bucket: "places_details", hits: 30, window: "1 hour" },
+        { bucket: "places_details_daily", hits: 120, window: "24 hours" },
+      ],
     });
+    expect(PLACES_PLATFORM_DAILY_CAPS).toEqual({
+      autocomplete: { bucket: "places_autocomplete_day", hits: 1800 },
+      details: { bucket: "places_details_day", hits: 450 },
+    });
+    // docs/DEPLOYMENT.md's Google Cloud quotas: Autocomplete 2,000, Place Details 500 a day.
+    expect(PLACES_PLATFORM_DAILY_CAPS.autocomplete.hits).toBeLessThan(2000);
+    expect(PLACES_PLATFORM_DAILY_CAPS.details.hits).toBeLessThan(500);
+    // One account's day is at most a third of the platform's.
+    for (const kind of ["autocomplete", "details"] as const) {
+      expect(PLACES_RATE_LIMITS[kind][1].hits * 3).toBeLessThanOrEqual(PLACES_PLATFORM_DAILY_CAPS[kind].hits);
+    }
+  });
+
+  it("each request takes the account's hour and day and the platform's day", async () => {
+    expect((await search({ input: "tote", sessionToken: SESSION })).status).toBe(200);
+    expect((await details({ placeId: TOTE_PLACE_ID, sessionToken: SESSION })).status).toBe(200);
+    const rows = await api.db.query<{ bucket: string; hits: number }>(
+      `select bucket, hits from private.rate_limits where user_id = $1 and bucket like 'places_%' order by bucket`,
+      [organiser.userId],
+    );
+    expect(rows).toEqual([
+      { bucket: "places_autocomplete", hits: 1 },
+      { bucket: "places_autocomplete_daily", hits: 1 },
+      { bucket: "places_details", hits: 1 },
+      { bucket: "places_details_daily", hits: 1 },
+    ]);
+    expect(await platformHits("autocomplete")).toBe(1);
+    expect(await platformHits("details")).toBe(1);
+    expect(await platformBucket("details")).toMatch(/^places_details_day:\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("429 once the account's hourly or daily allowance is used, without asking Google or taking a platform slot", async () => {
+    for (const index of [0, 1] as const) {
+      await reset();
+      api = new TestApi(api.db);
+      admin = await signUpAdmin(api);
+      organiser = await approvedOrganiser(api, admin);
+      for (const kind of ["autocomplete", "details"] as const) await exhaust(organiser.userId, PLACES_RATE_LIMITS[kind][index]);
+      const searched = await search({ input: "tote", sessionToken: SESSION });
+      expect(searched.status, `allowance ${index}`).toBe(429);
+      expect(searched.body.fieldErrors).toBeUndefined();
+      expect((await details({ placeId: TOTE_PLACE_ID, sessionToken: SESSION })).status).toBe(429);
+      expect(api.places!.calls).toEqual([]);
+      expect(await platformHits("autocomplete")).toBeUndefined();
+      expect(await platformHits("details")).toBeUndefined();
+      // Another account is unaffected.
+      expect((await search({ input: "tote", sessionToken: SESSION }, admin.token)).status).toBe(200);
+    }
+  });
+
+  it("503 places_unavailable once the platform's cap for Google's day is used, logged as `daily_cap`, without asking Google", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const kind of ["autocomplete", "details"] as const) {
+      await api.db.query(`insert into private.platform_rate_limits (bucket, window_started_at, hits) values ($1, now(), $2)`, [
+        await platformBucket(kind),
+        PLACES_PLATFORM_DAILY_CAPS[kind].hits,
+      ]);
+    }
+    for (const res of [await search({ input: "tote", sessionToken: SESSION }), await details({ placeId: TOTE_PLACE_ID, sessionToken: SESSION })]) {
+      expect(res.status).toBe(503);
+      expect(res.body).toEqual({ error: PLACES_UNAVAILABLE, code: "places_unavailable" });
+    }
+    expect(api.places!.calls).toEqual([]);
+    expect(warn.mock.calls.map((args) => args.join(" "))).toEqual([
+      "Google Places unavailable: daily_cap",
+      "Google Places unavailable: daily_cap",
+    ]);
+    // Yesterday's (Google's) bucket full doesn't matter today.
+    await api.db.query(`delete from private.platform_rate_limits`);
+    await api.db.query(`insert into private.platform_rate_limits (bucket, window_started_at, hits) values ('places_details_day:2000-01-01', now(), 1000)`);
+    expect((await details({ placeId: TOTE_PLACE_ID, sessionToken: SESSION })).status).toBe(200);
   });
 
   it("logs nothing of what was searched for, the place, or the session: Google's failure by its reason only", async () => {

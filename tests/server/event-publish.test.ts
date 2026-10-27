@@ -5,6 +5,7 @@ import { buildEventPublishedEmail, recentlyPublishedQueueLink } from "@/lib/serv
 import type { Db } from "@/lib/server/db";
 import { drainEmailOutbox } from "@/lib/server/email-outbox";
 import {
+  adminApproveEvent,
   adminListEvents,
   adminRejectEvent,
   adminSetEventReviewRequired,
@@ -13,9 +14,15 @@ import {
   adminUnpublishEvent,
   RECENTLY_PUBLISHED_DAYS,
   SELF_PUBLISHED_WINDOW_HOURS,
+  UNPUBLISH_REVIEW_FUTURE_REASON,
 } from "@/lib/server/handlers/admin";
 import { getEventAnalytics } from "@/lib/server/handlers/analytics";
-import { EVENT_CHANGED_WHILE_PUBLISHING, needsTicketLinkReview, publishEvent } from "@/lib/server/handlers/event-publish";
+import {
+  EVENT_CHANGED_WHILE_PUBLISHING,
+  needsTicketLinkReview,
+  parsePublishResult,
+  publishEvent,
+} from "@/lib/server/handlers/event-publish";
 import { getMyEvent, submitEventForReview } from "@/lib/server/handlers/events";
 import { applyAsOrganiser, getMyOrganiser } from "@/lib/server/handlers/organisers";
 import { getPublicEventBySlug } from "@/lib/server/handlers/public-events";
@@ -102,10 +109,19 @@ async function follower() {
   return user;
 }
 
-/** Expects `eventId` to have gone to review: pending, logged `submitted` by the organiser, its review email queued, nothing announced. */
-async function expectSentToReview(res: { status: number; body: { status: string } }, eventId: string) {
+/**
+ * Expects `eventId` to have gone to review for `reason` (the response's
+ * `reviewReason`): pending, logged `submitted` by the organiser, its review
+ * email queued, nothing announced.
+ */
+async function expectSentToReview(
+  res: { status: number; body: { status: string; reviewReason?: string } },
+  eventId: string,
+  reason: string,
+) {
   expect(res.status).toBe(200);
   expect(res.body.status).toBe("pending_review");
+  expect(res.body.reviewReason).toBe(reason);
   const entries = await log(eventId);
   expect(entries.at(-1)).toEqual({ action: "submitted", actor_id: organiser.userId, reason: null });
   expect((await outbox("event_review")).map((j) => j.event_id)).toContain(eventId);
@@ -124,6 +140,8 @@ describe("POST /events/{id}/publish: live now", () => {
     expect(res.headers.get("cache-control")).toBe("private, no-store");
     expect(res.body).toMatchObject({ eventId: draft.eventId, status: "published", ticketingLocked: true });
     expect(res.body.rejectionReason).toBeUndefined();
+    // Only a publish sent to review says why.
+    expect(res.body).not.toHaveProperty("reviewReason");
     // The organiser's own entry: their id, never the Sheltüh team's.
     expect(res.body.moderationLog).toEqual([expect.objectContaining({ action: "approved", by: organiser.userId })]);
     expect(await log(draft.eventId)).toEqual([{ action: "approved", actor_id: organiser.userId, reason: null }]);
@@ -134,9 +152,9 @@ describe("POST /events/{id}/publish: live now", () => {
     expect(await rateHits("event_publishes")).toBe(1);
   });
 
-  it("a paid event once payouts are set up", async () => {
+  it("a paid event once payouts are set up, and Sheltüh has approved a paid event of theirs before", async () => {
+    await publishedEvent(api, organiser, admin, { title: "Approved by Sheltüh" });
     const draft = await draftEvent(api, organiser);
-    await setUpPayouts(api, organiser.organiserId);
     expect((await publish(draft.eventId)).body.status).toBe("published");
   });
 
@@ -202,6 +220,7 @@ describe("POST /events/{id}/publish: live now", () => {
     const again = await publish(draft.eventId);
     expect(again.status).toBe(200);
     expect(again.body.status).toBe("published");
+    expect(again.body).not.toHaveProperty("reviewReason");
     expect((await log(draft.eventId)).filter((e) => e.action === "approved")).toHaveLength(1);
     expect(await outbox("event_published")).toHaveLength(1);
     expect(await rateHits("event_publishes")).toBe(1);
@@ -393,7 +412,7 @@ describe("POST /events/{id}/publish: to review instead", () => {
     });
     expect(set.status).toBe(200);
     const draft = await freeDraft();
-    await expectSentToReview(await publish(draft.eventId), draft.eventId);
+    await expectSentToReview(await publish(draft.eventId), draft.eventId, "review_required");
     // No publish slot taken by an event going to review anyway.
     expect(await rateHits("event_publishes")).toBeUndefined();
   });
@@ -403,7 +422,7 @@ describe("POST /events/{id}/publish: to review instead", () => {
     const params = { eventId: draft.eventId };
     await api.call(submitEventForReview, { token: organiser.token, params, method: "POST" });
     await api.call(adminRejectEvent, { token: admin.token, params, body: { reason: "Add the set times." } });
-    await expectSentToReview(await publish(draft.eventId), draft.eventId);
+    await expectSentToReview(await publish(draft.eventId), draft.eventId, "removed_before");
   });
 
   it("an event an admin unpublished (with a reason the organiser sees), cleared when it's sent again", async () => {
@@ -426,7 +445,7 @@ describe("POST /events/{id}/publish: to review instead", () => {
     });
 
     const res = await publish(live.eventId);
-    await expectSentToReview(res, live.eventId);
+    await expectSentToReview(res, live.eventId, "removed_before");
     expect(res.body.rejectionReason).toBeUndefined();
 
     // The admins' review email says it's back.
@@ -437,13 +456,13 @@ describe("POST /events/{id}/publish: to review instead", () => {
 
   it("an event with a seat map", async () => {
     const { event } = await seatedEvent(api, organiser, admin, { publish: false });
-    await expectSentToReview(await publish(event.eventId), event.eventId);
+    await expectSentToReview(await publish(event.eventId), event.eventId, "seated");
   });
 
   it("a ticket link on a site that isn't a known ticketing site (including an international name)", async () => {
     for (const externalTicketUrl of ["https://tickets.example.com.au/neon", "https://xn--hmanitix-r2a.com/neon"]) {
       const draft = await draftEvent(api, organiser, { ticketingMode: "external", externalTicketUrl, ticketTypes: [] });
-      await expectSentToReview(await publish(draft.eventId), draft.eventId);
+      await expectSentToReview(await publish(draft.eventId), draft.eventId, "unknown_ticket_site");
     }
     expect(needsTicketLinkReview({ ticketingMode: "external", externalTicketUrl: "https://www.eventbrite.com.au/e/1" })).toBe(false);
     expect(needsTicketLinkReview({ ticketingMode: "sheltuh" })).toBe(false);
@@ -455,7 +474,7 @@ describe("POST /events/{id}/publish: to review instead", () => {
       expect((await publish(draft.eventId)).body.status).toBe("published");
     }
     const eleventh = await freeDraft({ title: "Night 11" });
-    await expectSentToReview(await publish(eleventh.eventId), eleventh.eventId);
+    await expectSentToReview(await publish(eleventh.eventId), eleventh.eventId, "daily_limit");
     expect(await outbox("event_published")).toHaveLength(10);
   });
 
@@ -464,7 +483,105 @@ describe("POST /events/{id}/publish: to review instead", () => {
       `insert into private.platform_rate_limits (bucket, window_started_at, hits) values ('event_self_publishes_daily', now(), 100)`,
     );
     const draft = await freeDraft();
-    await expectSentToReview(await publish(draft.eventId), draft.eventId);
+    await expectSentToReview(await publish(draft.eventId), draft.eventId, "daily_limit");
+  });
+
+  it("the first rule that applies is the reason: review switch, then removed, seat map, ticket site, first paid, caps", async () => {
+    // Rejected, and the organiser's events reviewed: the switch comes first.
+    const draft = await freeDraft();
+    const params = { eventId: draft.eventId };
+    await api.call(submitEventForReview, { token: organiser.token, params, method: "POST" });
+    await api.call(adminRejectEvent, { token: admin.token, params, body: { reason: "Add the set times." } });
+    await api.db.query(`update public.organisers set event_review_required = true where id = $1`, [organiser.organiserId]);
+    await expectSentToReview(await publish(draft.eventId), draft.eventId, "review_required");
+    // A paid event at the account's cap: first paid, and no slot taken.
+    await api.db.query(`update public.organisers set event_review_required = false where id = $1`, [organiser.organiserId]);
+    await api.db.query(
+      `insert into private.rate_limits (user_id, bucket, window_started_at, hits) values ($1, 'event_publishes', now(), 10)`,
+      [organiser.userId],
+    );
+    await setUpPayouts(api, organiser.organiserId);
+    const paid = await draftEvent(api, organiser, { title: "Paid at the cap" });
+    await expectSentToReview(await publish(paid.eventId), paid.eventId, "first_paid_event");
+    expect(await rateHits("event_publishes")).toBe(10);
+  });
+
+  it("a reason this release doesn't know is no reason (a newer database never breaks the route)", () => {
+    expect(parsePublishResult("submitted:something_new")).toEqual({ result: "submitted", reviewReason: undefined });
+    expect(parsePublishResult("submitted:first_paid_event")).toEqual({ result: "submitted", reviewReason: "first_paid_event" });
+    expect(parsePublishResult("published")).toEqual({ result: "published" });
+    expect(parsePublishResult("submitted")).toEqual({ result: "submitted" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// An organiser's first paid event sold on Sheltüh
+// ---------------------------------------------------------------------------
+
+describe("POST /events/{id}/publish: the first paid Sheltüh event goes to review", () => {
+  const paidDraft = (title: string, overrides: Record<string, unknown> = {}) => draftEvent(api, organiser, { title, ...overrides });
+
+  beforeEach(async () => {
+    await setUpPayouts(api, organiser.organiserId);
+  });
+
+  it("with no paid Sheltüh event approved by Sheltüh before; free and external events still go live", async () => {
+    const paid = await paidDraft("First paid");
+    const res = await publish(paid.eventId);
+    await expectSentToReview(res, paid.eventId, "first_paid_event");
+    // No publish slot taken.
+    expect(await rateHits("event_publishes")).toBeUndefined();
+    // Free, and tickets sold elsewhere, aren't held: Sheltüh takes no money for them.
+    expect((await publish((await freeDraft({ title: "Free night" })).eventId)).body.status).toBe("published");
+    const external = await draftEvent(api, organiser, {
+      title: "External",
+      ticketingMode: "external",
+      externalTicketUrl: "https://events.humanitix.com/neon-static",
+      ticketTypes: [],
+    });
+    expect((await publish(external.eventId)).body.status).toBe("published");
+    // A free Sheltüh event approved by an admin doesn't count either.
+    await publishedEvent(api, organiser, admin, {
+      title: "Free, approved",
+      ticketTypes: [{ id: "ga", name: "Free", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 5 }],
+    });
+    const second = await paidDraft("Second paid");
+    await expectSentToReview(await publish(second.eventId), second.eventId, "first_paid_event");
+  });
+
+  it("once an admin approves one, the organiser's next paid events go live", async () => {
+    const first = await paidDraft("First paid");
+    await publish(first.eventId);
+    const approved = await api.call(adminApproveEvent, { token: admin.token, params: { eventId: first.eventId }, method: "POST" });
+    expect(approved.body.status).toBe("published");
+    const next = await paidDraft("Next paid");
+    const res = await publish(next.eventId);
+    expect(res.body.status).toBe("published");
+    expect(res.body).not.toHaveProperty("reviewReason");
+    // An admin's own publish counts as Sheltüh's approval too (an event that ran counts as well).
+    await api.db.query(`update public.events set starts_at = now() - interval '2 days', ends_at = now() - interval '1 day' where id = $1`, [
+      first.eventId,
+    ]);
+    expect((await publish((await paidDraft("Third paid")).eventId)).body.status).toBe("published");
+  });
+
+  it("not once Sheltüh took that event down, and never on the organiser's own publishes", async () => {
+    const approved = await publishedEvent(api, organiser, admin, { title: "Approved paid" });
+    const selfPublished = await paidDraft("Self-published paid");
+    expect((await publish(selfPublished.eventId)).body.status).toBe("published");
+    // Sheltüh unpublishes the one it approved: the organiser's own paid publish doesn't stand in for it.
+    expect(
+      (await api.call(adminUnpublishEvent, { token: admin.token, params: { eventId: approved.eventId }, method: "POST" })).status,
+    ).toBe(200);
+    const next = await paidDraft("After the takedown");
+    await expectSentToReview(await publish(next.eventId), next.eventId, "first_paid_event");
+  });
+
+  it("another organiser's approved paid event doesn't count", async () => {
+    const other = await approvedOrganiser(api, admin, { displayName: "Other Collective", contactEmail: "other@static.example" });
+    await publishedEvent(api, other, admin, { title: "Theirs" });
+    const mine = await paidDraft("Mine");
+    await expectSentToReview(await publish(mine.eventId), mine.eventId, "first_paid_event");
   });
 });
 
@@ -486,6 +603,82 @@ describe("admin: unpublish reason", () => {
     const blank = await api.call(adminUnpublishEvent, { token: admin.token, params, body: { reason: "   " } });
     expect(blank.status).toBe(200);
     expect(blank.body.rejectionReason).toBeUndefined();
+  });
+});
+
+describe("admin: unpublish and review the organiser's next events", () => {
+  const unpublish = (eventId: string, body: unknown, token = admin.token) =>
+    api.call(adminUnpublishEvent, { token, params: { eventId }, body, method: "POST" });
+  const reviewEdits = () =>
+    api.db.query<{ changed_fields: unknown; actor_id: string; reason: string }>(
+      `select changed_fields, actor_id, reason from private.organiser_profile_edits where organiser_id = $1 order by id`,
+      [organiser.organiserId],
+    );
+  const reviewRequired = async () =>
+    (await api.db.query<{ on: boolean }>(`select event_review_required as on from public.organisers where id = $1`, [organiser.organiserId]))[0].on;
+  const live = () =>
+    selfPublishedEvent(api, organiser, {
+      ticketTypes: [{ id: "ga", name: "Free", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 5 }],
+    });
+
+  it("reviewFuture: true unpublishes it and turns on review of the organiser's events, logged by the admin", async () => {
+    const event = await live();
+    const res = await unpublish(event.eventId, { reason: "Looks like a copy of another venue's night.", reviewFuture: true });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    expect(res.body).toMatchObject({ status: "draft", rejectionReason: "Looks like a copy of another venue's night." });
+    expect(res.body.moderationLog.at(-1)).toMatchObject({ action: "unpublished", by: admin.userId });
+    expect(await reviewRequired()).toBe(true);
+    expect(await reviewEdits()).toEqual([
+      {
+        changed_fields: { event_review_required: { old: "off", new: "on" } },
+        actor_id: admin.userId,
+        reason: "Event unpublished: Looks like a copy of another venue's night.",
+      },
+    ]);
+    // A new event (not just this one) now goes to review.
+    const copy = await freeDraft({ title: "The same night again" });
+    await expectSentToReview(await publish(copy.eventId), copy.eventId, "review_required");
+  });
+
+  it("without a reason the switch is logged with a fixed one; already on, nothing more is logged", async () => {
+    const first = await live();
+    expect((await unpublish(first.eventId, { reviewFuture: true })).status).toBe(200);
+    expect((await reviewEdits()).map((e) => e.reason)).toEqual([UNPUBLISH_REVIEW_FUTURE_REASON]);
+    // The switch is on, so a second unpublish needs a published event made by an admin.
+    const second = await publishedEvent(api, organiser, admin, {
+      title: "Second",
+      ticketTypes: [{ id: "ga", name: "Free", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 5 }],
+    });
+    const res = await unpublish(second.eventId, { reviewFuture: true });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("draft");
+    expect(await reviewEdits()).toHaveLength(1);
+  });
+
+  it("absent, null or false: only the event is unpublished, as before", async () => {
+    for (const body of [{}, { reviewFuture: null }, { reviewFuture: false }]) {
+      const event = await live();
+      expect((await unpublish(event.eventId, body)).status, JSON.stringify(body)).toBe(200);
+    }
+    expect(await reviewRequired()).toBe(false);
+    expect(await reviewEdits()).toEqual([]);
+  });
+
+  it("400 for a reviewFuture that isn't a boolean (with a bad reason too), nothing changed; 404; 409 not published, review not turned on; 403", async () => {
+    const event = await live();
+    const bad = await unpublish(event.eventId, { reviewFuture: "yes", reason: 42 });
+    expect(bad.status).toBe(400);
+    expect(Object.keys(bad.body.fieldErrors).sort()).toEqual(["reason", "reviewFuture"]);
+    expect((await unpublish(crypto.randomUUID(), { reviewFuture: true })).status).toBe(404);
+    expect((await unpublish("nope", { reviewFuture: true })).status).toBe(404);
+    expect((await unpublish(event.eventId, { reviewFuture: true }, organiser.token)).status).toBe(403);
+    const draft = await freeDraft({ title: "Never published" });
+    const notLive = await unpublish(draft.eventId, { reviewFuture: true });
+    expect(notLive.status).toBe(409);
+    expect(await reviewRequired()).toBe(false);
+    expect(await reviewEdits()).toEqual([]);
+    expect((await log(event.eventId)).map((e) => e.action)).toEqual(["approved"]);
   });
 });
 
@@ -643,7 +836,14 @@ describe("compatibility with readers of the `approved` entry", () => {
 
 describe("schema", () => {
   it("the new and redefined functions pin search_path, aren't security definer and aren't client-executable", async () => {
-    const names = ["drop_published_email", "lease_outbox_jobs", "publish_event", "queue_review_email", "set_event_review_required"];
+    const names = [
+      "admin_unpublish_event",
+      "drop_published_email",
+      "lease_outbox_jobs",
+      "publish_event",
+      "queue_review_email",
+      "set_event_review_required",
+    ];
     const rows = await api.db.query<{ fn: string; pinned: boolean; definer: boolean; client: boolean }>(
       `select p.proname as fn,
               exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c = 'search_path=""') as pinned,

@@ -206,14 +206,25 @@ export async function adminRejectEvent(eventId: string, reason: string, getToken
 /**
  * Published → draft. `reason` (optional, 1–500 characters) is shown to the
  * organiser (`EventRecord.rejectionReason`) and logged. If they publish it
- * again, it goes to the review queue. ApiError 400 (fieldErrors.reason), 404,
- * 409 no longer published.
+ * again, it goes to the review queue. `options.reviewFuture: true` also
+ * turns on review of the organiser's events (AdminOrganiserRecord
+ * .eventReviewRequired, as adminSetEventReviewRequired), in the same step.
+ * ApiError 400 (fieldErrors.reason / .reviewFuture), 404, 409 no longer
+ * published (nothing changed).
  */
-export async function adminUnpublishEvent(eventId: string, getToken: GetToken, reason?: string) {
+export async function adminUnpublishEvent(
+  eventId: string,
+  getToken: GetToken,
+  reason?: string,
+  options: { reviewFuture?: boolean } = {},
+) {
   const token = await getToken();
+  const body: { reason?: string; reviewFuture?: boolean } = {};
+  if (reason?.trim()) body.reason = reason.trim();
+  if (options.reviewFuture) body.reviewFuture = true;
   return apiFetch<EventRecord>(`/admin/events/${eventId}/unpublish`, {
     method: "POST",
-    ...(reason?.trim() ? { body: { reason: reason.trim() } } : {}),
+    ...(Object.keys(body).length > 0 ? { body } : {}),
     token,
   });
 }

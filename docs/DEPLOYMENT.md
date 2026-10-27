@@ -196,13 +196,24 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           know the new refusal; the event stays a draft). Set
           `GOOGLE_MAPS_API_KEY` for the venue search (`.env.example`, and
           "Google Places" below); without it organisers drop a pin instead)
+      35. `20261111000200_first_paid_event_review.sql` (an organiser's first
+          paid event sold on Sheltüh goes to review instead of live, and a
+          publish sent to review says why: `publish_event` redefined from 34
+          to return `submitted:<reason>`; and `private.admin_unpublish_event`,
+          an admin's unpublish that also turns on review of the organiser's
+          next events. Needs file 34 first: it redefines its `publish_event`.
+          No table or column change; nothing written. **Apply it with 33 and
+          34, immediately before this app deploys**: this app reads the
+          publish result's reason, and its unpublish with "review their next
+          events" calls the new function (a 500 without it). The previous
+          app never calls either function)
 
-      **Apply 33 and 34 together, immediately before deploying this app.**
-      Production is live at `https://sheltuh.com.au`, so keep the time
-      between running them and the new deployment going live to minutes:
-      have the deployment built and ready to promote, run 33 then 34 (and
-      the check above), then promote it straight away. Neither order avoids
-      a window:
+      **Apply 33, 34 and 35 together, immediately before deploying this
+      app.** Production is live at `https://sheltuh.com.au`, so keep the
+      time between running them and the new deployment going live to
+      minutes: have the deployment built and ready to promote, run 33, 34
+      then 35 (and the check above: all three `applied`), then promote it
+      straight away. Neither order avoids a window:
       - The new app can't go first: it reads `event_review_required` (33)
         on every organiser read and the location columns (34) on every
         event read, so without them those routes are 500s.
@@ -438,8 +449,13 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       4. Quotas (APIs & Services → Places API (New) → Quotas & system
          limits): cap requests per day at about **2,000 Autocomplete** and
          **500 Place Details** (the console's exact quota names are
-         unverified). That's the platform-wide limit: past it the search
-         answers 503 and organisers drop a pin.
+         unverified). The app's own platform caps sit just below them (1,800
+         and 450 per Google day, `PLACES_PLATFORM_DAILY_CAPS` in
+         `lib/server/handlers/places.ts`): past those the search and the
+         event saves' place checks answer 503 and organisers drop a pin, so
+         Google's quotas are the backstop. Lowering a quota: lower the
+         matching cap too (and its test). Per account: autocomplete 100 an
+         hour and 400 a day, details plus checks 30 an hour and 120 a day.
       5. Billing → Budgets & alerts: a budget of **A$10 a month** with email
          alerts. An alert doesn't stop spending: the quotas do.
       6. Vercel → Settings → Environment Variables: `GOOGLE_MAPS_API_KEY`

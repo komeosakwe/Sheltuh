@@ -90,7 +90,7 @@ iframe served by Stripe), with the publishable key
 | `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed / oversold_refund_required; oversold_refund_required → refunded (our automatic refund); paid → refunded (refunded in full in Stripe, or, for an order with Support Sheltüh, at least `total_cents − support_cents` refunded: see "Refunds made in Stripe"); pending → failed also when a paid session's amount or currency wasn't the order's (`private.fail_mismatched_order`, which also records the payment intent; the payment is then refunded). `amount_refunded_cents` (≥ 0, default 0) is Stripe's cumulative refunded amount, recorded only for paid orders (a partial refund leaves the order paid; a refunded order with `amount_refunded_cents` below `total_cents` had its tickets refunded and its support kept). Indexed on `stripe_payment_intent_id` (partial, not null) for the refund webhook, and on `(event_id, created_at)` (partial, `paid`) for the trending refresh's 14-day read. `tickets_emailed_at` records the ticket email. `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). `seat_ids` (1–10): a seated order's seats, set when it's made and never changed (what fulfilment and refunds act on). `support_cents` (0 to 50000, default 0; `20261110000100_order_support.sql`): Support Sheltüh, what the buyer added for the platform (see "Support Sheltüh"); only on an order with a paid ticket (`orders_support_paid_only`), and in `total_cents` (`orders_support_in_total`: total = subtotal + buyer fee + support when there is some), never in `subtotal_cents`, `buyer_fee_cents` or `application_fee_cents` (the booking fee). |
 | `tickets` | `code` | One row per admitted person. Rows are kept when their order is refunded, but only a `paid` order's tickets are valid: check-in checks the order's status. `checked_in_at`: when the ticket was admitted at the door (null until then, and again after an undo; cleared 25 months after the event ends). Indexed on `(event_id, ticket_type_id)` for the check-in counts. `seat_id`: its seat (reserved seating); the foreign key `ticket_seats_sold_fkey` (event, seat, order, ticket type) → `event_seats (event_id, id, sold_order_id, ticket_type_id)` means a ticket can only name a seat sold to its own order in its own tier, and `tickets_seat_key` one ticket per seat. A full refund clears it (the order's `seat_ids` keeps the history). `wallet_serial` (uuid, random, unique `tickets_wallet_serial_key`; `20261109000500_ticket_wallet_serial.sql`): the id of the ticket's wallet pass, read only by the wallet routes (see "Wallet passes"). |
 | `ticket_check_ins` | `id` (identity) | The check-in log (see "Check-in"): one row per scan or undo, with a random `public_id` (uuid, unique: the only id the API shows, as `checkInId`; the sequential `id` stays internal, so ids don't reveal platform-wide scan volume), the event scanned for, the ticket `code` (null for an `invalid` scan: what was scanned is never stored), the acting account (the organiser's, or the admin's for a platform-managed organiser's event), the client's `request_id` (unique per event: the idempotency key), the `result` and, for an undo only, its `reason` (3–200 characters). Check constraints tie `invalid` to a null code and `undone` to a reason. Deleted with the event or the ticket, and by `purge_analytics` 25 months after the event ends. No buyer data. |
-| `private.platform_rate_limits` | `bucket` | Platform-wide fixed-window counters (`take_platform_rate_limit`): the hourly and 24-hour confirmation-email caps. Idle rows purged daily. |
+| `private.platform_rate_limits` | `bucket` | Platform-wide fixed-window counters (`take_platform_rate_limit`): the hourly and 24-hour confirmation-email caps, the self-publish cap, and the Google Places caps per Google day (`places_*_day:<date>`, see "Venue location"). Idle rows purged daily. |
 | `private.free_order_refusals` | `(day, reason)` | Counts of refused free bookings per Melbourne day and reason. No personal data. Deleted after 13 months. |
 | `private.early_charge_refunds` | `payment_intent_id` | A `charge.refunded` that arrived before its order's payment was recorded, for a payment to one of our organisers' Stripe accounts (any other payment writes nothing): charge, destination, cumulative amount (the greatest seen), full flag (OR-ed), last Stripe event, and `applied_at` / `applied_order_id` once `fulfil_order` acted on it. No buyer data. Deleted 35 days after its last update (`purge_operational_data`). See "Refunds made in Stripe". |
 | `private.refund_status_marks` | `refund_id` | The newest Stripe refund event applied per refund (its status, the event's `created` time and id), written by `record_refund_status` for events only (never for our own refund call's answer, which has no event time). An event older than the mark, delivered later, is `stale` and changes nothing: a `succeeded` that arrives before an older `requires_action` or `failed` leaves a resolved tombstone, so the late one opens no exception. Statuses only, no buyer data. Deleted 35 days after its last update (`purge_operational_data`). |
@@ -141,7 +141,8 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 |---|---|
 | `create_event_draft`, `edit_event_draft` | Event row (ticketing fields, refund policy, state and time zone included; the edit keeps the stored state and zone when they aren't sent) and ticket types saved together. `edit_event_draft` locks the event row, and only succeeds while the event is draft or rejected (`not_editable`) and owned by the caller's organiser (`not_found`); once the event has ever been approved, a change to its ticketing mode or link is `ticketing_frozen` (409) and nothing is saved. Switching to external removes the ticket types first. Both also save the venue location from `p_fields` (`locationSource`, `placeId`, `pinLat`, `pinLng`, validated by the API; `20261111000100_event_venue_location.sql`): without `locationSource`, create writes `legacy` and the edit keeps the stored location, so an older caller changes nothing. (`update_event_draft`, the earlier boolean form, is kept for the deploy window and no longer called, and doesn't touch the location; drop it once that's over: see "Not built yet".) |
 | `submit_event` | The organiser's submit for review (`POST /events/{id}/submit`, the review path; `20261109000000_paid_events_need_payouts.sql`, redefined in `20261111000100_event_venue_location.sql`): share-locks the organiser (still approved, else `not_found`), then locks the event (for no key update); only from draft or rejected (`not_submittable`); `payouts_required` for a paid Sheltüh ticket type without payouts; `location_required` without the organiser's pin; then `transition_event` to `pending_review` (`submitted`). Nothing is written on a refusal. |
-| `publish_event` | The organiser's publish (`POST /events/{id}/publish`; `20261111000000_event_publish_now.sql`, redefined in `20261111000100_event_venue_location.sql`; see "Publishing events"). Share-locks the organiser (approved and owned by the caller, else `not_found`), then locks the event (for no key update), as `submit_event`. Refusals, nothing written: `already_published` (the API's idempotent 200), `in_review`, `ended`, `payouts_required`, `location_required` (no organiser's pin), `stale` (the ticket link isn't the one the API judged). Then the review exceptions (the organiser's `event_review_required`; the event rejected now, or an admin's latest decision about it `rejected` or `unpublished`; a seat map; the API's `p_force_review`), then the caps (`take_rate_limit` `event_publishes` 10 per 24 hours, then `take_platform_rate_limit` `event_self_publishes_daily` 100 per 24 hours; taken only when nothing else sends it to review): any of them sends it to `pending_review` (`submitted`, whose trigger queues the review email). Otherwise `transition_event` to `published`, logged `approved` by the organiser's own account, and `queue_review_email('event_published', …)`. Returns `published` or `submitted`, or the refusal. |
+| `publish_event` | The organiser's publish (`POST /events/{id}/publish`; `20261111000000_event_publish_now.sql`, redefined in `20261111000100_event_venue_location.sql`; see "Publishing events"). Share-locks the organiser (approved and owned by the caller, else `not_found`), then locks the event (for no key update), as `submit_event`. Refusals, nothing written: `already_published` (the API's idempotent 200), `in_review`, `ended`, `payouts_required`, `location_required` (no organiser's pin), `stale` (the ticket link isn't the one the API judged). Then the review exceptions (the organiser's `event_review_required`; the event rejected now, or an admin's latest decision about it `rejected` or `unpublished`; a seat map; the API's `p_force_review`), then the caps (`take_rate_limit` `event_publishes` 10 per 24 hours, then `take_platform_rate_limit` `event_self_publishes_daily` 100 per 24 hours; taken only when nothing else sends it to review): any of them sends it to `pending_review` (`submitted`, whose trigger queues the review email). Then the organiser's first paid Sheltüh event (`20261111000200_first_paid_event_review.sql`: paid on Sheltüh, and no paid Sheltüh event of theirs whose latest admin decision is an `approved` by someone other than the owner). Otherwise `transition_event` to `published`, logged `approved` by the organiser's own account, and `queue_review_email('event_published', …)`. Returns `published` or `submitted:<reason>` (`review_required`, `removed_before`, `seated`, `unknown_ticket_site`, `first_paid_event`, `daily_limit`: the first rule that applied), or the refusal. |
+| `admin_unpublish_event` | An admin's unpublish with `reviewFuture` (`POST /admin/events/{id}/unpublish`; `20261111000200_first_paid_event_review.sql`; see "Publishing events"). Locks the organiser (for update, with the review switch) before the event; `transition_event` published → draft, logged `unpublished` with the reason; then `set_event_review_required(…, true, …)`. One transaction. Returns `unpublished`, `not_published` (nothing written) or `not_found`. |
 | `set_event_review_required` | An admin turns review of an organiser's events on or off with a reason: locks the organiser row (for update), updates `event_review_required` and logs a `profile_edit` by the admin (`changed_fields.event_review_required`, `"on"` / `"off"`). Returns `updated`, `unchanged` (already so, nothing logged) or `not_found`. |
 | `event_location_json` | Immutable helper: the `{source, placeId, pin}` object (null for `legacy`) that `admin_edit_event` logs as `changes.location`. |
 | `admin_create_event` | An admin's new event (see "Admin authoring"): share-locks the organiser, which must exist and be approved; refuses a paid Sheltüh ticket type for a platform-managed organiser (`platform_paid`); then `create_event_draft`, a `created` log entry and, if asked, `transition_event` to published (`approved`), in one step. Nothing is written on a refusal. |
@@ -843,7 +844,23 @@ after the fact, and a few kinds go to the review queue first.
   4. its ticket link is on a site that isn't a known ticketing site
      (`p_force_review`, set by the API when `ticketProviderName` is null:
      anything not in `KNOWN_TICKETING_HOSTS`; see "External ticketing");
-  5. the caps: 10 self-publishes per account per 24 hours (`event_publishes`
+  5. **the organiser's first paid event sold on Sheltüh** (owner decision,
+     27 Oct 2026; `20261111000200_first_paid_event_review.sql`): the event
+     has a Sheltüh ticket type priced above 0 (`ticketing_mode` `sheltuh`),
+     and the organiser has no event that is paid on Sheltüh whose latest
+     admin decision (its newest `approved` / `rejected` / `unpublished`
+     entry) is an `approved` logged by someone other than the organiser's
+     owner. In words: "has had a paid Sheltüh event approved by Sheltüh
+     before, and not since taken down". An admin's approval or publish
+     counts; the organiser's own publishes never do; an approved event that
+     has since ended still counts; one Sheltüh later unpublished, rejected
+     or took down doesn't. Free events and events whose tickets are sold
+     elsewhere always publish at once (Sheltüh takes no money for them).
+     Read with the organiser's events (`events_organiser_created_idx`), their
+     ticket types (primary key) and each one's latest decision
+     (`event_moderation_log_event_idx`); no lock is needed: a concurrent
+     admin approval not yet seen only sends this one to review;
+  6. the caps: 10 self-publishes per account per 24 hours (`event_publishes`
      in `private.rate_limits`), then 100 per 24 hours platform-wide
      (`event_self_publishes_daily` in `private.platform_rate_limits`).
      Taken last, the account's first, so an event that goes to review
@@ -852,6 +869,13 @@ after the fact, and a few kinds go to the review queue first.
      the caps.
 
   Events with a clip are **not** sent to review (owner decision B-D1).
+- **Why it went to review** (`PublishEventResponse.reviewReason`, only when
+  this call sent it there): the first rule above that applied, as
+  `publish_event` returns it (`submitted:<reason>`): `review_required` (1),
+  `removed_before` (2), `seated` (3), `unknown_ticket_site` (4),
+  `first_paid_event` (5), `daily_limit` (6). Absent when it went live or was
+  already published; an unknown value from a newer database is dropped
+  (`parsePublishResult`), so clients show a general message.
 - **The review switch**
   (`POST /admin/organisers/{id}/event-review {required, reason}`,
   `private.set_event_review_required`): an admin turns
@@ -862,12 +886,18 @@ after the fact, and a few kinds go to the review queue first.
   `eventReviewRequired` is on `AdminOrganiserRecord` and on the organiser's
   own `OrganiserRecord` (`GET /organisers/me`), so the editor can say a
   publish will go to review.
-- **Unpublishing** (`POST /admin/events/{id}/unpublish {reason?}`): back to
-  draft, nothing deleted. The optional reason (1–500 characters, cleaned
-  like a message; absent, null or blank: none) is logged with the
-  `unpublished` entry and stored as the event's `rejectionReason`, which the
-  organiser sees. Publishing it again goes to review (rule 2). No email to
-  the organiser yet ("Not built yet").
+- **Unpublishing** (`POST /admin/events/{id}/unpublish {reason?,
+  reviewFuture?}`): back to draft, nothing deleted. The optional reason
+  (1–500 characters, cleaned like a message; absent, null or blank: none)
+  is logged with the `unpublished` entry and stored as the event's
+  `rejectionReason`, which the organiser sees. Publishing it again goes to
+  review (rule 2). `reviewFuture: true` also turns on the organiser's review
+  switch (below), so the same content posted as a new event goes to review
+  too: `private.admin_unpublish_event` locks the organiser, then unpublishes
+  the event and calls `set_event_review_required` (logged as the admin's
+  `profile_edit`, reason `Event unpublished: <reason>` or a fixed one), in
+  one transaction; an event no longer published is a 409 with neither
+  done. No email to the organiser yet ("Not built yet").
 - **Checking after the fact.** Admins get an `event_published` email per
   self-published event ("Admin review emails");
   `GET /admin/events?status=published&recent=1` lists events that went live (their
@@ -902,8 +932,22 @@ after the fact, and a few kinds go to the review queue first.
   Misleading or offensive content, a wrong date or a bad ticket link on a
   known ticketing site goes live at once; the controls are the organiser
   check before they can publish, the admins' email, the "Recently
-  published" view and count, unpublishing (with a reason), the per-organiser
-  review switch and the takedown. Trending waits 6 hours after the latest
+  published" view and count, unpublishing (with a reason, and optionally
+  review of the organiser's next events), the per-organiser review switch
+  and the takedown.
+- **Paid events go live without a check once Sheltüh has approved one.**
+  An organiser's first paid Sheltüh event is reviewed (rule 5), so a fake
+  paid listing from a new organiser can't take money unchecked. After that,
+  their paid events go live at once and destination charges pay the
+  organiser at payment time, before any admin has looked; refunds with
+  `reverse_transfer` can't recover money already paid out, and disputes are
+  manual. Delaying payouts until after the event isn't built. The rule
+  reads the current ticket prices, so an event that was free when Sheltüh
+  approved it and was later made paid (by an admin's edit) counts as an
+  approved paid event.
+- **Recreating an unpublished event** gets around rule 2 (it's per event)
+  unless the admin ticks "review their next events" (`reviewFuture`) or
+  turns on the review switch. Trending waits 6 hours after the latest
   approval, so a self-published event isn't on the Trending rail before
   admins have had a chance to look.
 - **Followers are emailed at once** (owner decision B-D4), before any admin
@@ -3232,8 +3276,8 @@ application is approved.
 | `GET /organisers/{organiserId}/profile` | public (approved organisers only; anything else, or a non-uuid id, is a 404). 200: `public, max-age=0, s-maxage=60, stale-while-revalidate=120` ("CDN windows") |
 | `POST /organisers/me/connect/onboard` · `…/connect/refresh` | organiser |
 | `POST /events` · `PATCH /events/{id}` · `POST /events/{id}/submit` | organiser (own events). Body adds optional `state` and `timeZone`, together or neither (see "Events: state and time zone"). Body adds `ticketingMode` (absent: `sheltuh` on POST; on PATCH, the stored ticketing is kept), `externalTicketUrl`, `externalFree` (see "External ticketing"). Body adds optional `location` (`{source: "places", placeId, pin?}`, `{source: "manual_pin", pin}` or `null`; absent: none on POST, kept on PATCH; see "Venue location"): 400 `fieldErrors.location` (shape, bounds, too far from the suburb, unknown or non-Australian Google place) or `fieldErrors.suburb` (the Google place is in another state); 503 `fieldErrors.location`, `code: "places_unavailable"` (a new Google place couldn't be checked). PATCH: 409 unless draft or rejected; 409 (fieldErrors on the field) changing the mode or link of an event that has been approved before. Submit (always to review; the publish route below is the editor's): 409 `payouts_required` or `location_required` (`fieldErrors.location`) |
-| `POST /events/{id}/publish` | organiser (own events; see "Publishing events"). No body. 200 `EventRecord` (`private, no-store`): `status` `published` (live now) or `pending_review` (sent to review); an event already published is a 200 too, unchanged. 403 not an approved organiser; 404 not theirs; 409 with `code`: `payouts_required`, `location_required` (`fieldErrors.location`), `event_ended`, `in_review` (already waiting), `event_changed` (its ticket link changed meanwhile: reload and retry). Emails after the response (`maxDuration` 60) |
-| `POST /places/autocomplete` `{input, sessionToken}` · `POST /places/details` `{placeId, sessionToken}` | approved organiser or admin (401, 403); `private, no-store` (see "Venue location"). Autocomplete: `input` 2–120 characters after control characters are removed; `sessionToken` `^[A-Za-z0-9_-]{8,36}$`, one per search. 200 `{suggestions: [{placeId, primaryText, secondaryText}]}` (at most 5, in Australia and its external territories). Details (ends the search's session): 200 `{placeId, formattedAddress, streetAddress, locality, state, postcode, googleMapsUrl}`, never a position. 400 fieldErrors (`input`, `sessionToken`, `placeId`: malformed, unknown to Google, or not in Australia); 429 per account (autocomplete 200, details 60 an hour); 503 `code: "places_unavailable"` (no key, Google unreachable, over quota or over 5 s). Bodies at most 4 KB. Nothing about the search is logged |
+| `POST /events/{id}/publish` | organiser (own events; see "Publishing events"). No body. 200 `PublishEventResponse` (`EventRecord`, `private, no-store`): `status` `published` (live now) or `pending_review` (sent to review, with `reviewReason`: `review_required`, `removed_before`, `seated`, `unknown_ticket_site`, `first_paid_event` or `daily_limit`); an event already published is a 200 too, unchanged. 403 not an approved organiser; 404 not theirs; 409 with `code`: `payouts_required`, `location_required` (`fieldErrors.location`), `event_ended`, `in_review` (already waiting), `event_changed` (its ticket link changed meanwhile: reload and retry). Emails after the response (`maxDuration` 60) |
+| `POST /places/autocomplete` `{input, sessionToken}` · `POST /places/details` `{placeId, sessionToken}` | approved organiser or admin (401, 403); `private, no-store` (see "Venue location"). Autocomplete: `input` 2–120 characters after control characters are removed; `sessionToken` `^[A-Za-z0-9_-]{8,36}$`, one per search. 200 `{suggestions: [{placeId, primaryText, secondaryText}]}` (at most 5, in Australia and its external territories). Details (ends the search's session): 200 `{placeId, formattedAddress, streetAddress, locality, state, postcode, googleMapsUrl}`, never a position. 400 fieldErrors (`input`, `sessionToken`, `placeId`: malformed, unknown to Google, or not in Australia); 429 per account (autocomplete 100 an hour and 400 a day; details, shared with event saves' place checks, 30 an hour and 120 a day); 503 `code: "places_unavailable"` (no key, Google unreachable, over quota, a bad key or disabled API, over 5 s, or the platform's cap for Google's day used: autocomplete 1,800, details 450). Bodies at most 4 KB. Nothing about the search is logged |
 | `GET /organisers/me/events` · `GET /organisers/me/events/{id}` | organiser (own events), `private, no-store` |
 | `PUT /events/{id}/image` · `DELETE /events/{id}/image` | organiser (own events, while draft or rejected). Admins: `…/admin/events/{id}/image` |
 | `GET /events/{id}/image?v=` | public once published: at the current `v` (as `imageUrl` gives it) `public, max-age=3600, s-maxage=3600`, with any other `v` or none the same image but `private, max-age=3600` (never shared: a guessed future version can't be cached ahead of a replacement); before that, the owning organiser or an admin, `private, no-store`. ETag `"<version>"` and Last-Modified; a matching `If-None-Match` is a 304 with the same headers (after the same access check, and without reading the bytes) |
@@ -3277,7 +3321,7 @@ application is approved.
 | `GET /admin/organisers?status&q&limit&cursor` · `POST /admin/organisers/{id}/approve` · `…/reject` | admin. Items (and the decision responses) are `AdminOrganiserRecord`: the full record plus `recentEdits` (newest 20 log entries), most recently updated first. `q` (optional, at most 100 characters used): name, contact email or social handle containing it, ignoring case and accents (NFKD, combining marks removed; a leading `@` is ignored for handles; LIKE wildcards match literally); no index (a substring of a folded expression), it scans one status's organisers. Control characters in `q` are dropped. `limit` 20 by default, at most 50. The admin event editor's organiser picker searches with it. Approve/reject: 409 unless pending |
 | `POST /admin/organisers/{id}/event-review` `{required, reason}` | admin (see "Publishing events"). Turns review of the organiser's events on or off, any status; logged as a `profile_edit` with the reason. 200 `AdminOrganiserRecord` (`eventReviewRequired`; unchanged and nothing logged if it already was so); 400 `fieldErrors.required` (not a boolean) or `fieldErrors.reason` (1–500 characters, cleaned like a message); 404 |
 | `POST /admin/organisers/{id}/suspend` `{reason}` | admin. Takedown of an approved organiser (see "Organiser profiles"). 200 `{organiser, eventsUnpublished, submissionsRejected}`; 400 reason missing, over 500 characters or with control/invisible characters; 404 unknown; 409 not approved |
-| `GET /admin/events?status&q&upcoming&platformManaged&recent&limit&cursor` · `POST /admin/events/{id}/approve` · `…/reject` · `…/unpublish` `{reason?}` | admin. Soonest first (with `recent`, newest publish first). `q` (optional, control characters dropped, at most 100 characters used): title or organiser name containing it, ignoring case and accents, LIKE wildcards literal; no index (it scans one status's events). `upcoming` (`1`/`true`, `0`/`false`): only events that haven't ended (`ends_at > now()`, in progress included), or all; absent means `1` for `status=published` and `0` for every other status. `platformManaged` (`1`/`0`): only platform-managed organisers' events, or only the others; absent, both. `recent` (`1`/`true`, only with `status=published`, else 400 `fieldErrors.recent`): events whose latest approval (an admin's or the organiser's own publish) was in the last 14 days, newest first, ended ones included unless `upcoming=1` (`event_moderation_log_approved_idx`). 400 (fieldErrors on the parameter) for any other boolean value. Approve: 409 if the event's organiser isn't approved. Unpublish: optional `reason` (1–500 characters, cleaned like a message; absent, null or blank: none), logged and stored as the event's `rejectionReason`, which the organiser sees; 400 `fieldErrors.reason`; 409 not published. Items are `AdminEventRecord`s (`EventRecord` plus `organiserPlatformManaged`, `curation: { boost, excluded }`, default boost 1 / not excluded, and for published events `publishedAt` and `publishedBy`, `"organiser"` or `"sheltuh"`), so the review queue shows `ticketingMode`, `externalTicketUrl`, `externalProvider`, `ticketingLocked` and the trending curation without a request per row |
+| `GET /admin/events?status&q&upcoming&platformManaged&recent&limit&cursor` · `POST /admin/events/{id}/approve` · `…/reject` · `…/unpublish` `{reason?, reviewFuture?}` | admin. Soonest first (with `recent`, newest publish first). `q` (optional, control characters dropped, at most 100 characters used): title or organiser name containing it, ignoring case and accents, LIKE wildcards literal; no index (it scans one status's events). `upcoming` (`1`/`true`, `0`/`false`): only events that haven't ended (`ends_at > now()`, in progress included), or all; absent means `1` for `status=published` and `0` for every other status. `platformManaged` (`1`/`0`): only platform-managed organisers' events, or only the others; absent, both. `recent` (`1`/`true`, only with `status=published`, else 400 `fieldErrors.recent`): events whose latest approval (an admin's or the organiser's own publish) was in the last 14 days, newest first, ended ones included unless `upcoming=1` (`event_moderation_log_approved_idx`). 400 (fieldErrors on the parameter) for any other boolean value. Approve: 409 if the event's organiser isn't approved. Unpublish: optional `reason` (1–500 characters, cleaned like a message; absent, null or blank: none), logged and stored as the event's `rejectionReason`, which the organiser sees; optional `reviewFuture` (boolean; true: also turns on review of the organiser's events in the same transaction, `private.admin_unpublish_event`); 400 `fieldErrors.reason` / `fieldErrors.reviewFuture`; 409 not published (nothing changed). Items are `AdminEventRecord`s (`EventRecord` plus `organiserPlatformManaged`, `curation: { boost, excluded }`, default boost 1 / not excluded, and for published events `publishedAt` and `publishedBy`, `"organiser"` or `"sheltuh"`), so the review queue shows `ticketingMode`, `externalTicketUrl`, `externalProvider`, `ticketingLocked` and the trending curation without a request per row |
 | `GET /admin/summary` | admin. `AdminSummary`, counts only (no names, titles or addresses): `reportsOpen {count, oldestAt}`, `eventsPending {count, soonestStartsAt, startingSoon, startingSoonHours: 72}` (the last three over events not ended), `organisersPending {count, oldestAt}` (oldest last update), `emailsFailed {count}` and `emailsRetrying {count}` (ticket emails: failed, or pending after a failed attempt), `doorEvents {count, windowHours: 24}` (published, Sheltüh-ticketed, platform-managed, not ended, starting within 24 hours), `eventsPublishedByOrganisers {count, windowHours: 72}` (events still published whose latest approval in the last 72 hours was the organiser's own publish; optional in the type, so a client tolerates an older server). One query; each part is served by an index |
 | `POST /admin/organisers` | admin. A platform-managed organiser (see "Admin authoring"): the application's fields and rules. 201 `AdminOrganiserRecord`; 400 fieldErrors |
 | `GET /admin/invites?status&cursor&limit` · `POST /admin/invites` `{kind, email, consent, organiser?}` · `POST /admin/invites/{inviteId}/resend` · `POST …/revoke` | admin (see "Account invites"). List: `Paginated<AdminInviteRecord>`, status `pending` (default), `accepted`, `revoked` or `expired` (400 otherwise), newest first. Create: 201 `{invite, emailSent}`; 400 fieldErrors (`kind`, `email`, `consent`, `organiser`, `organiser.<field>`); 409 a pending invite for the address, or its account already has an organiser; 429; 503 without `SUPABASE_ADMIN_INVITE_KEY` (nothing written). Resend: 200 `{invite, emailSent}`; 404; 409 accepted or revoked (or its inviter is no longer an admin); 429 within a minute or over the allowance; 503. Revoke: 200 the invite; 404; 409 not pending |
@@ -3811,11 +3855,12 @@ picked plus their own pin, or their pin alone (owner decisions A-D1 to A-D6,
 - **Finding the venue** (the server-side Places proxy; see "Design
   principles"). Both routes are POST (what's typed stays out of URLs and
   access logs), `private, no-store`, approved organisers and admins only
-  (401, 403), rate-limited per account, with a 5-second timeout:
+  (401, 403), rate-limited per account and capped platform-wide (below),
+  with a 5-second timeout:
   - `POST /api/places/autocomplete {input, sessionToken}`: at most 5
     suggestions `{placeId, primaryText, secondaryText}` in Australia,
     Christmas Island, the Cocos (Keeling) Islands and Norfolk Island
-    (`includedRegionCodes`), in `en-AU`. 200 an hour per account.
+    (`includedRegionCodes`), in `en-AU`.
   - `POST /api/places/details {placeId, sessionToken}`: the picked place's
     address parts to prefill (`formattedAddress`, `streetAddress`,
     `locality`, `state`, `postcode`, and `googleMapsUrl`, a Google Maps
@@ -3823,13 +3868,37 @@ picked plus their own pin, or their pin alone (owner decisions A-D1 to A-D6,
     `sessionToken` per search, made by the browser). 400 when the place
     isn't in Australia or its external territories (Christmas Island, the
     Cocos (Keeling) Islands, Norfolk Island and Jervis Bay are state `OT`).
-    60 an hour per account.
-  - Google unreachable, slow, over quota or not configured
-    (`GOOGLE_MAPS_API_KEY` unset): 503 `code: "places_unavailable"`, and the
-    organiser drops a pin instead. The platform-wide cap is Google Cloud's
-    own daily quota (`docs/DEPLOYMENT.md`). Never logged: what was typed,
-    the place id, the key, Google's answers; a failure logs a fixed reason
-    only.
+    Unknown place: only Google's `NOT_FOUND` (404), or a 400
+    `INVALID_ARGUMENT` about the place id itself; any other 400 or 403 (a bad
+    key, the API not enabled, billing) is "unavailable" below, so a
+    misconfigured key never reads as "we couldn't find that place".
+  - **Allowances and caps** (`PLACES_RATE_LIMITS`,
+    `PLACES_PLATFORM_DAILY_CAPS` in `lib/server/handlers/places.ts`), taken
+    in one statement before every Google request, in this order, stopping
+    at the first refusal:
+    - per account, `private.take_rate_limit`: autocomplete 100 an hour and
+      400 a day (`places_autocomplete`, `places_autocomplete_daily`); Place
+      Details and an event save's check (`verifyVenuePlace`, the same Google
+      request) share 30 an hour and 120 a day (`places_details`,
+      `places_details_daily`). Past either: 429 (with
+      `fieldErrors.location` on an event save).
+    - platform-wide, `private.take_platform_rate_limit`, per Google day
+      (Google's quotas reset at midnight Pacific Time, so the bucket is
+      `places_autocomplete_day:<date>` / `places_details_day:<date>`, that
+      day's date in `America/Los_Angeles`): autocomplete 1,800, details plus
+      checks 450, below the Google Cloud quotas `docs/DEPLOYMENT.md` asks
+      for (2,000 and 500). Past either: 503 `places_unavailable` (logged
+      `daily_cap`), so organisers drop a pin before Google itself refuses.
+    - An account's day is at most a third of the platform's, so one
+      account (or a stolen session) can't use up everyone's day; it takes
+      four. A refused account takes no platform slot; a request refused by
+      the platform's cap has already used one of the account's.
+  - Google unreachable, slow, over quota, misconfigured, not configured
+    (`GOOGLE_MAPS_API_KEY` unset) or the platform's cap used: 503 `code:
+    "places_unavailable"`, and the organiser drops a pin instead. Google
+    Cloud's own daily quotas stay the backstop. Never logged: what was
+    typed, the place id, the key, Google's answers; a failure logs a fixed
+    reason only.
   - The editor must show Google Maps attribution beside the suggestions
     (`lib/api/places.ts`).
   - `GOOGLE_MAPS_API_KEY`: server-only, Production only (`.env.example`).
@@ -3839,9 +3908,10 @@ picked plus their own pin, or their pin alone (owner decisions A-D1 to A-D6,
   +/- to zoom, a live line naming the nearest suburb, kept inside
   `AUSTRALIA_BOUNDS`; inline from the `sm` breakpoint, a full-screen dialog
   on phones. Confirming it is required: after picking a Google place, and
-  for "Can't find it on Google Maps?" (a manual pin). The component is
-  built; the editor's venue section that uses it (A-F2) isn't wired in yet
-  ("Not built yet").
+  for "Can't find it on Google Maps?" (a manual pin). The editor's venue
+  section (A-F2, `components/dashboard/VenueLocationField.tsx`) uses it.
+  **The pin is public** (the event page, `/map`, the Apple Maps link, to 6
+  decimal places): organisers are told the pin is public on the pin step.
 - **Saving** (`POST` / `PATCH /events`, `POST` / `PATCH /admin/events`), an
   optional `location` (`VenueLocationInput`, `parseLocation` in
   `lib/server/event-input.ts`):
@@ -3860,7 +3930,16 @@ picked plus their own pin, or their pin alone (owner decisions A-D1 to A-D6,
     "Verify, don't store": nothing Google says is written; the suburb,
     state and time zone stay the organiser's, checked against the suburb
     table as before. The organiser's edit checks only while the event is a
-    draft or rejected.
+    draft or rejected. Each check takes the caller's details allowance and
+    the platform's cap first (above): 429 / 503 `fieldErrors.location`.
+  - **A new suburb or state needs the pin checked again.** An edit that
+    changes the suburb or state without sending `location`, while a pin or
+    a Google place is stored, is 400 `fieldErrors.location` ("Check the pin
+    again for the new suburb", `refuseStaleVenueLocation`), nothing saved:
+    the stored pin and place were checked against the old suburb and state.
+    The editor always resends the location when the suburb changes (the pin
+    belongs to the suburb it was confirmed for), so only a hand-made request
+    sees this. Legacy events (no pin, no place) move freely.
   - Stored as `location_source` (`legacy`, `places`, `manual_pin`),
     `venue_place_id` and `venue_lat` / `venue_lng`, with checks (see
     "Tables"); `admin_edit_event` logs a change as `changes.location` (old
@@ -3915,6 +3994,13 @@ picked plus their own pin, or their pin alone (owner decisions A-D1 to A-D6,
 - **The key has no application restriction** (server-side, and Vercel has
   no fixed egress IPs by default); it's restricted to Places API (New),
   with daily quotas and a budget alert, server-only and never in a URL.
+  Our own caps (above) sit below those quotas; four accounts at their daily
+  allowance could still use up the platform's day, after which everyone
+  drops a pin until Google's day ends (nothing is refused or lost).
+- **The pin is public.** Organisers are told so on the pin step; a house
+  show's or "secret location" event's organiser can confirm the pin at the
+  suburb's centre (it starts there). Rounding the public pin for events
+  whose address goes only to ticket holders isn't built.
 - **Esri tiles are used without a key**, as on `/map`; their terms haven't
   been checked for this use.
 - **Run the location tests on a real Postgres** too (the checks and

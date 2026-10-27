@@ -5,7 +5,16 @@ import { PIN_OUTSIDE_AUSTRALIA } from "@/lib/server/event-input";
 import { adminCreateEvent, adminGetEvent, adminUpdateEvent } from "@/lib/server/handlers/admin-authoring";
 import { publishEvent } from "@/lib/server/handlers/event-publish";
 import { createEventDraft, getMyEvent, submitEventForReview, updateEventDraft } from "@/lib/server/handlers/events";
-import { PLACE_NOT_FOUND, PLACE_NOT_IN_AUSTRALIA, PLACES_UNAVAILABLE } from "@/lib/server/handlers/places";
+import {
+  PIN_RECHECK,
+  PLACE_NOT_FOUND,
+  PLACE_NOT_IN_AUSTRALIA,
+  PLACES_PLATFORM_DAILY_CAPS,
+  PLACES_QUOTA_TIME_ZONE,
+  PLACES_RATE_LIMITS,
+  PLACES_TOO_MANY,
+  PLACES_UNAVAILABLE,
+} from "@/lib/server/handlers/places";
 import { getPublicEventBySlug, listPublicEvents } from "@/lib/server/handlers/public-events";
 import { LOCATION_REQUIRED } from "@/lib/server/location-refusal";
 import { PAYOUTS_REQUIRED_TO_PUBLISH } from "@/lib/server/payouts-refusal";
@@ -343,6 +352,82 @@ describe("the organiser saves a location", () => {
     expect(api.places!.calls).toEqual([]);
   });
 
+  it("an event save's Google check takes the account's details allowance: 429 fieldErrors.location past it, without asking Google", async () => {
+    const [hourly] = PLACES_RATE_LIMITS.details;
+    await api.db.query(`select private.take_rate_limit($1, $2, $3, $4::interval) from generate_series(1, $3)`, [
+      organiser.userId,
+      hourly.bucket,
+      hourly.hits,
+      hourly.window,
+    ]);
+    const event = await draftEvent(api, organiser);
+    const res = await patch(event.eventId, eventInput({ location: PLACES }));
+    expect(res.status).toBe(429);
+    expect(res.body.fieldErrors).toEqual({ location: PLACES_TOO_MANY });
+    const created = await create(eventInput({ title: "Limited", location: PLACES }));
+    expect(created.status).toBe(429);
+    expect(api.places!.calls).toEqual([]);
+    expect((await stored(event.eventId)).location_source).toBe("manual_pin");
+    // A manual pin, or the same place again, needs no Google check, so no allowance.
+    expect((await patch(event.eventId, eventInput({ location: { source: "manual_pin", pin: { lat: -37.798, lng: 144.9888 } } }))).status).toBe(200);
+  });
+
+  it("an event save's Google check counts against the platform's daily cap: 503 places_unavailable past it", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await api.db.query(
+      `insert into private.platform_rate_limits (bucket, window_started_at, hits)
+       values ($1::text || ':' || to_char(now() at time zone $2, 'YYYY-MM-DD'), now(), $3)`,
+      [PLACES_PLATFORM_DAILY_CAPS.details.bucket, PLACES_QUOTA_TIME_ZONE, PLACES_PLATFORM_DAILY_CAPS.details.hits],
+    );
+    const res = await create(eventInput({ location: PLACES }));
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ code: "places_unavailable", fieldErrors: { location: PLACES_UNAVAILABLE } });
+    expect(api.places!.calls).toEqual([]);
+    // Each check takes one from the account (the refused one too: the account's allowance is taken first)
+    // and one from the platform.
+    await api.db.query(`delete from private.platform_rate_limits`);
+    expect((await create(eventInput({ location: PLACES }))).status).toBe(201);
+    const [{ hits }] = await api.db.query<{ hits: number }>(
+      `select hits from private.rate_limits where user_id = $1 and bucket = 'places_details_daily'`,
+      [organiser.userId],
+    );
+    expect(hits).toBe(2);
+    const [{ hits: platform }] = await api.db.query<{ hits: number }>(
+      `select hits from private.platform_rate_limits where bucket like 'places_details_day:%'`,
+    );
+    expect(platform).toBe(1);
+  });
+
+  it("a new suburb or state without `location` while a pin or place is stored: 400 check the pin again, nothing saved", async () => {
+    const pinned = await draftEvent(api, organiser);
+    const placed = await draftEvent(api, organiser, { title: "Placed", location: PLACES });
+    const moves = [
+      { suburb: "Fitzroy" },
+      { suburb: "Surry Hills", state: "NSW", timeZone: "Australia/Sydney" },
+    ];
+    for (const event of [pinned, placed]) {
+      for (const move of moves) {
+        const res = await patch(event.eventId, eventInput({ title: event.title, ...move }));
+        expect(res.status, JSON.stringify(move)).toBe(400);
+        expect(res.body.fieldErrors).toEqual({ location: PIN_RECHECK });
+      }
+      expect((await stored(event.eventId)).location_source).not.toBe("legacy");
+      const [{ suburb }] = await api.db.query<{ suburb: string }>(`select suburb from public.events where id = $1`, [event.eventId]);
+      expect(suburb).toBe("Collingwood");
+    }
+    // The same suburb (in any case), or a move that sends the location again, is fine.
+    expect((await patch(pinned.eventId, eventInput({ suburb: "collingwood" }))).status).toBe(200);
+    const fitzroy = suburbPin("Fitzroy")!;
+    const moved = await patch(pinned.eventId, eventInput({ suburb: "Fitzroy", location: fitzroy }));
+    expect(moved.status).toBe(200);
+    expect(moved.body.location).toEqual(fitzroy);
+    // A cleared location (the editor's null) too.
+    expect((await patch(placed.eventId, eventInput({ title: "Placed", suburb: "Fitzroy", location: null }))).status).toBe(200);
+    // An event with no location (legacy) moves freely.
+    const legacy = await draftEvent(api, organiser, { title: "Legacy", location: null });
+    expect((await patch(legacy.eventId, eventInput({ title: "Legacy", suburb: "Fitzroy" }))).status).toBe(200);
+  });
+
   it("the pin's reach follows the event's own suburb and state", async () => {
     const fremantle = suburbPin("Fremantle", "WA")!;
     const perth = { suburb: "Fremantle", state: "WA", timeZone: "Australia/Perth" };
@@ -423,6 +508,42 @@ describe("admins", () => {
     // The organiser sees the same change.
     const mine = (await api.call(getMyEvent, { token: organiser.token, params: { eventId: event.eventId } })).body as EventRecord;
     expect(mine.moderationLog.find((e) => e.action === "edited")?.changes).toEqual({ location: { old: pin, new: PLACES } });
+  });
+
+  it("an admin's edit to another suburb without `location` while a pin is stored: 400 check the pin again", async () => {
+    const event = await draftEvent(api, organiser);
+    const res = await api.call(adminUpdateEvent, {
+      token: admin.token,
+      params: { eventId: event.eventId },
+      body: adminBody(await adminEvent(event.eventId), { suburb: "Fitzroy", location: undefined }),
+      method: "PATCH",
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.fieldErrors).toEqual({ location: PIN_RECHECK });
+    const ok = await api.call(adminUpdateEvent, {
+      token: admin.token,
+      params: { eventId: event.eventId },
+      body: adminBody(await adminEvent(event.eventId), { suburb: "Fitzroy", location: suburbPin("Fitzroy") }),
+      method: "PATCH",
+    });
+    expect(ok.status).toBe(200);
+  });
+
+  it("an admin's Google check takes the admin's own details allowance", async () => {
+    const [hourly] = PLACES_RATE_LIMITS.details;
+    await api.db.query(`select private.take_rate_limit($1, $2, $3, $4::interval) from generate_series(1, $3)`, [
+      admin.userId,
+      hourly.bucket,
+      hourly.hits,
+      hourly.window,
+    ]);
+    const res = await api.call(adminCreateEvent, {
+      token: admin.token,
+      body: { ...eventInput({ location: PLACES }), organiserId: organiser.organiserId },
+    });
+    expect(res.status).toBe(429);
+    expect(res.body.fieldErrors).toEqual({ location: PLACES_TOO_MANY });
+    expect(api.places!.calls).toEqual([]);
   });
 
   it("an admin can publish an event without a location (only organisers need one)", async () => {
